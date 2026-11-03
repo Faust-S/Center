@@ -44,7 +44,7 @@ export function readAtlasPortfolio(raw) {
 
 export function linkableAtlasProject(view, projectId) {
   if (!view || view.source !== 'atlas.project/1' ||
-      view.mode !== 'READ_ONLY_USER_SELECTED_FILE' ||
+      !['READ_ONLY_USER_SELECTED_FILE','NATIVE_ATLAS_LOCAL_ORGANIZATION'].includes(view.mode) ||
       view.authorization !== 'NOT_CHECKED') fail('ATLAS_PREVIEW_REQUIRED');
   const p = view.projects.find(p => p.id === projectId);
   if (!p) fail('ATLAS_PROJECT_NOT_IN_PREVIEW');

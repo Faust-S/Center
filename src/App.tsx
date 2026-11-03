@@ -1,6 +1,7 @@
 import React, {useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
 import {readAtlasPortfolio, linkableAtlasProject, atlasLinkReadback} from './atlas-integration.mjs';
+import NativeAtlasPanel from './NativeAtlasPanel';
 import './style.css';
 
 type Participant = {id: string; name: string; roleLabel: string; credentialState: string; personalAgentPlan?: 'NONE'|'PLANNED'};
@@ -157,6 +158,7 @@ export default function App() {
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает общую картину проектов и зависимостей. Здесь руководитель связывает рабочую область с конкретной редакцией плана. Пока это только черновая ссылка - подключение Atlas ещё не проверено.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span></div>)}
+        <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=atlasWorkspace||org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}}/>
         <div className="card nested-form" data-testid="atlas-link-panel">
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
           <p className="muted">Откройте файл портфеля из Atlas. Admin Center читает настоящую модель Atlas и показывает проекты, работы и зависимости. Данные проекта не копируются в корпоративные черновики.</p>
