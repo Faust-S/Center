@@ -16,8 +16,15 @@ try{
   await page.goto('http://127.0.0.1:4173');
   await page.getByTestId('org-name').fill('North workshop');await page.getByTestId('create-org').click();
   await page.getByTestId('nav-resources').click();await page.getByTestId('workspace-name').fill('Procurement');await page.getByTestId('add-workspace').click();
-  await page.getByTestId('atlas-project-id').fill('atlas:project-42');await page.getByTestId('atlas-project-revision').fill('revision-1');await page.getByTestId('link-atlas').click();
-  checks.push('atlas-workspace-project-revision-draft');
+  // Build a real Atlas snapshot through its pinned domain module, never a fake project record.
+  const {empty,createProject,createItem,serialize}=await import('../vendor/atlas/src/core.mjs');
+  const first=createProject(empty(),{name:'Supply programme',type:'business'});
+  const work=createItem(first.state,first.id,{title:'Compare suppliers'});
+  const atlas=serialize(work.state);
+  await page.getByTestId('atlas-import-file').setInputFiles({name:'atlas.json',mimeType:'application/json',buffer:Buffer.from(atlas)});
+  assert.equal(await page.getByTestId('atlas-project-count').textContent(),'1');
+  await page.getByTestId('link-atlas').click();
+  checks.push('atlas-real-portfolio-project-selection-and-link');
   await page.getByTestId('nav-people').click();
   for(const name of ['Anna','Boris']){await page.getByTestId('person-name').fill(name);await page.getByTestId('add-person').click();}
   await page.getByTestId('nav-programs').click();await page.getByTestId('plan-agent-seat').first().click();
@@ -28,10 +35,11 @@ try{
   await page.getByTestId('assignment-row').click();await page.getByTestId('task-title').fill('Compare four suppliers');await page.getByTestId('save-assignment').click();checks.push('edit-draft');
   const downloaded=page.waitForEvent('download');await page.locator('.top-save').click();const download=await downloaded;const path=await download.path();const raw=readFileSync(path,'utf8');const saved=JSON.parse(raw);
   assert.equal(saved.organizations[0].assignments[0].editNumber,2);assert.equal(saved.organizations[0].participants.length,2);
-  assert.equal(saved.organizations[0].assignments[0].atlasRef.projectId,'atlas:project-42');
+  assert.equal(saved.organizations[0].assignments[0].atlasRef.projectId,first.id);
   assert.equal(saved.organizations[0].participants[0].personalAgentPlan,'PLANNED');checks.push('export-draft-file');
   await page.reload();await page.getByTestId('open-draft').setInputFiles({name:'draft.json',mimeType:'application/json',buffer:Buffer.from(raw)});
   await page.getByTestId('nav-work').click();assert.equal(await page.getByTestId('assignment-row').count(),1);checks.push('reload-import-original-ids');
+  await page.getByTestId('nav-resources').click();assert.ok(await page.getByText('Файл Atlas не открыт').isVisible());checks.push('atlas-preview-not-persisted-as-authority');
   await page.getByTestId('open-draft').setInputFiles({name:'broken.json',mimeType:'application/json',buffer:Buffer.from('{broken')});assert.ok(await page.getByRole('alert').isVisible());assert.equal(await page.getByTestId('assignment-row').count(),1);checks.push('bad-file-preserves-open-work');
   await page.getByTestId('open-draft').setInputFiles({name:'draft.json',mimeType:'application/json',buffer:Buffer.from(raw)});
   await page.getByTestId('nav-overview').click();await page.screenshot({path:'artifacts/overview-1366.png',fullPage:true});

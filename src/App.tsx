@@ -1,11 +1,13 @@
 import React, {useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
+import {readAtlasPortfolio, linkableAtlasProject, atlasLinkReadback} from './atlas-integration.mjs';
 import './style.css';
 
 type Participant = {id: string; name: string; roleLabel: string; credentialState: string; personalAgentPlan?: 'NONE'|'PLANNED'};
 type Assignment = {id: string; title: string; workspaceId: string; assigneeId: string | null; reviewerId: string | null; description: string; criteria: string; dueDate: string; priority: string; editNumber: number; status: string; atlasRef: null; createdAt: string; updatedAt: string};
 type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string; atlasRef?: {projectId:string;revision:string}|null}[]; participants: Participant[]; assignments: Assignment[]};
 type Draft = {format: string; version: number; organizations: Organization[]; activeOrganizationId: string | null; updatedAt: string};
+type AtlasPortfolioView = {source:string;revision:string;authorization:string;mode:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
 type Editor = {assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string};
 type Page = 'overview'|'work'|'results'|'resources'|'people'|'programs'|'data';
 const pages: [Page, string, string][] = [['overview','Обзор','◫'],['resources','Планы Atlas','◇'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['programs','Personal Agent и лицензии','▦'],['data','Данные и настройки','⚙']];
@@ -21,7 +23,10 @@ const errors: Record<string,string> = {
   DRAFT_CREDENTIAL_CLAIM_DENIED:'В этом файле допустимы контакты, но не выданные полномочия.',
   ACTIVE_ORGANIZATION_INVALID:'В файле отсутствует выбранная организация.',
   ATLAS_REFERENCE_INVALID:'Укажите идентификатор и редакцию проекта Atlas.',
-  AGENT_SEAT_PLAN_INVALID:'Не удалось изменить план доступа к Personal Agent.'
+  AGENT_SEAT_PLAN_INVALID:'Не удалось изменить план доступа к Personal Agent.',
+  ATLAS_SNAPSHOT_INVALID:'Не удалось прочитать портфель Atlas. Выберите корректный файл экспорта.',
+  ATLAS_SNAPSHOT_SIZE_INVALID:'Файл Atlas слишком велик для предварительного просмотра.',
+  ATLAS_PROJECT_NOT_IN_PREVIEW:'Выбранный проект отсутствует в открытом портфеле Atlas.'
 };
 
 async function nativeInvoke(command: string, args?: Record<string, unknown>): Promise<any> {
@@ -36,6 +41,10 @@ export default function App() {
   const [creatingOrg,setCreatingOrg] = useState(false);
   const [menuOpen,setMenuOpen] = useState(false);
   const [dirty,setDirty] = useState(false);
+  const [atlasView,setAtlasView] = useState<AtlasPortfolioView|null>(null);
+  const [atlasSelected,setAtlasSelected] = useState('');
+  const [atlasWorkspace,setAtlasWorkspace] = useState('');
+  const atlasInput = useRef<HTMLInputElement>(null);
   const [message,setMessage] = useState('');
   const [error,setError] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
@@ -61,9 +70,17 @@ export default function App() {
     go('work');
   };
   const editorField = (name: keyof Editor, value: string) => setEditor(old => old ? {...old,[name]:value} : null);
+  const importAtlas = async (file: File) => {
+    try {
+      const preview=readAtlasPortfolio(await file.text()) as AtlasPortfolioView;
+      setAtlasView(preview);setAtlasSelected(preview.projects[0]?.id??'');
+      setError('');setMessage(`Портфель Atlas прочитан: ${preview.projects.length} проектов. Это просмотр выбранного файла, не живая синхронизация.`);
+    } catch(e){problem(e);}
+  };
   const selectOrg = (organizationId: string) => {
     if (editor) {setError('Сохраните или закройте открытый редактор поручения перед сменой организации.'); return;}
     command({type:'SELECT_ORGANIZATION',organizationId});
+    setAtlasView(null);setAtlasSelected('');
   };
   async function saveFile() {
     if (editor) {setError('Сначала сохраните изменения из редактора поручения.'); return;}
@@ -84,7 +101,7 @@ export default function App() {
     try {
       const next = decodeDraft(raw) as Draft;
       if ((dirty || editor) && !window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.')) return;
-      setState(next);setDirty(false);setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
+      setState(next);setAtlasView(null);setAtlasSelected('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
     } catch(e) {problem(e);}
   }
   async function openFile() {
@@ -140,9 +157,27 @@ export default function App() {
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает общую картину проектов и зависимостей. Здесь руководитель связывает рабочую область с конкретной редакцией плана. Пока это только черновая ссылка - подключение Atlas ещё не проверено.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span></div>)}
-        {!!org.workspaces.length && <form className="card nested-form" data-testid="atlas-link-form" onSubmit={e=>{e.preventDefault();const f=e.currentTarget;const form=new FormData(f),projectId=String(form.get('projectId')??'').trim(),revision=String(form.get('revision')??'').trim();if(command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId:form.get('workspaceId'),atlasRef:{projectId,revision}}))f.reset();}}>
-          <h3>Связать рабочую область с проектом Atlas</h3><div className="form-grid"><label>Рабочая область<select name="workspaceId">{org.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>Идентификатор проекта<input name="projectId" data-testid="atlas-project-id" maxLength={160} required placeholder="ID из Atlas"/></label><label>Редакция плана<input name="revision" data-testid="atlas-project-revision" maxLength={160} required placeholder="Редакция из Atlas"/></label></div><button className="secondary" data-testid="link-atlas">Сохранить ссылку на план</button><p className="muted fine-print">Ссылка не изменяет план Atlas и не подтверждает права доступа. Синхронизация и проверка редакций будут доступны после подключения Atlas.</p>
-        </form>}
+        <div className="card nested-form" data-testid="atlas-link-panel">
+          <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
+          <p className="muted">Откройте файл портфеля из Atlas. Admin Center читает настоящую модель Atlas и показывает проекты, работы и зависимости. Данные проекта не копируются в корпоративные черновики.</p>
+          <input type="file" hidden ref={atlasInput} accept=".json,application/json" data-testid="atlas-import-file" onChange={async e=>{const file=e.target.files?.[0];if(file)await importAtlas(file);e.target.value='';}} />
+          {atlasView ? <>
+            <div className="metrics atlas-summary">
+              <div className="card metric"><span>Проекты Atlas</span><strong data-testid="atlas-project-count">{atlasView.projects.length}</strong></div>
+              <div className="card metric"><span>Зависимости</span><strong>{atlasView.dependencies.length}</strong></div>
+              <div className="card metric"><span>Редакция</span><strong data-testid="atlas-revision">{atlasView.revision}</strong></div>
+            </div>
+            <div className="atlas-project-list">{atlasView.projects.map(project=><button type="button" key={project.id} data-testid="atlas-project-card" className={`assignment-row atlas-project-card ${atlasSelected===project.id?'chosen':''}`} onClick={()=>setAtlasSelected(project.id)}>
+              <span className="task-mark">◇</span><span className="row-content"><strong>{project.name}</strong><small>{project.total} работ · {project.done} завершено · {project.blocked} заблокировано · {project.stages} этапов</small></span><span className="status neutral">{project.progress===null?'Нет работ':project.progress+'%'}</span>
+            </button>)}</div>
+            {!!org.workspaces.length && !!atlasView.projects.length && <form onSubmit={e=>{e.preventDefault();if(!atlasSelected)return;const workspaceId=atlasWorkspace||org.workspaces[0].id;const link=linkableAtlasProject(atlasView,atlasSelected);command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:link});}}>
+              <h3>Связать выбранный проект с рабочей областью</h3><div className="form-grid"><label>Рабочая область<select data-testid="atlas-workspace-select" value={atlasWorkspace||org.workspaces[0].id} onChange={e=>setAtlasWorkspace(e.target.value)}>{org.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>Выбранный проект<input readOnly value={atlasView.projects.find(p=>p.id===atlasSelected)?.name??''} /></label></div>
+              <button className="secondary" data-testid="link-atlas">Связать с планом</button>
+            </form>}
+            <p className="muted fine-print">Источник: Atlas project/1 · редакция {atlasView.revision}. Права на проект и актуальность файла не проверены. Связь сохраняет только ID и редакцию.</p>
+          </> : <Empty title="Откройте портфель Atlas" text="Когда вы выберете файл экспорта Atlas, здесь появятся проекты, прогресс и зависимости."/>}
+          {org.workspaces.some(w=>w.atlasRef)&&<div className="atlas-link-readback">{org.workspaces.filter(w=>w.atlasRef).map(w=><p key={w.id}><strong>{w.name}:</strong> {w.atlasRef?.projectId} · {atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_MATCHES'?'Редакция совпадает':atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_CHANGED'?'Редакция плана изменилась':atlasView?'Проект отсутствует в открытом файле':'Файл Atlas не открыт'}</p>)}</div>}
+        </div>
         <div className="notice subdued">Для эксплуатационного выпуска связь с Atlas обязательна. Дублировать проекты, зависимости и портфели в Admin Center не будем.</div>
       </section>}
 
