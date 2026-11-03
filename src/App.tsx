@@ -2,13 +2,13 @@ import React, {useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
 import './style.css';
 
-type Participant = {id: string; name: string; roleLabel: string; credentialState: string};
+type Participant = {id: string; name: string; roleLabel: string; credentialState: string; personalAgentPlan?: 'NONE'|'PLANNED'};
 type Assignment = {id: string; title: string; workspaceId: string; assigneeId: string | null; reviewerId: string | null; description: string; criteria: string; dueDate: string; priority: string; editNumber: number; status: string; atlasRef: null; createdAt: string; updatedAt: string};
-type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string}[]; participants: Participant[]; assignments: Assignment[]};
+type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string; atlasRef?: {projectId:string;revision:string}|null}[]; participants: Participant[]; assignments: Assignment[]};
 type Draft = {format: string; version: number; organizations: Organization[]; activeOrganizationId: string | null; updatedAt: string};
 type Editor = {assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string};
 type Page = 'overview'|'work'|'results'|'resources'|'people'|'programs'|'data';
-const pages: [Page, string, string][] = [['overview','Обзор','◫'],['work','Поручения','☷'],['results','Результаты','▤'],['resources','Проекты и ресурсы','◇'],['people','Участники','♧'],['programs','Программы','▦'],['data','Данные и настройки','⚙']];
+const pages: [Page, string, string][] = [['overview','Обзор','◫'],['resources','Планы Atlas','◇'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['programs','Personal Agent и лицензии','▦'],['data','Данные и настройки','⚙']];
 const initialEditor = (org: Organization): Editor => ({title:'', workspaceId: org.workspaces[0]?.id ?? '', assigneeId: org.participants[0]?.id ?? '', reviewerId: org.participants[1]?.id ?? org.participants[0]?.id ?? '', description:'', criteria:'', dueDate:'', priority:'normal'});
 const errors: Record<string,string> = {
   DRAFT_FORMAT_INVALID:'Это не файл черновиков Admin Center.',
@@ -19,7 +19,9 @@ const errors: Record<string,string> = {
   DUE_DATE_INVALID:'Проверьте дату выполнения.',
   DRAFT_AUTHORITY_CLAIM_DENIED:'Черновик не может содержать подтверждённые корпоративные решения.',
   DRAFT_CREDENTIAL_CLAIM_DENIED:'В этом файле допустимы контакты, но не выданные полномочия.',
-  ACTIVE_ORGANIZATION_INVALID:'В файле отсутствует выбранная организация.'
+  ACTIVE_ORGANIZATION_INVALID:'В файле отсутствует выбранная организация.',
+  ATLAS_REFERENCE_INVALID:'Укажите идентификатор и редакцию проекта Atlas.',
+  AGENT_SEAT_PLAN_INVALID:'Не удалось изменить план доступа к Personal Agent.'
 };
 
 async function nativeInvoke(command: string, args?: Record<string, unknown>): Promise<any> {
@@ -115,18 +117,18 @@ export default function App() {
         <button className="sidebar-add" onClick={()=>{if(editor){setError('Сначала сохраните открытый редактор.');return;}setCreatingOrg(true);go('overview');}}>＋ Добавить организацию</button>
       </div>
       <nav>{pages.map(([id,label,icon])=><button key={id} className={`nav-link ${page===id?'active':''}`} aria-current={page===id?'page':undefined} onClick={()=>go(id)} data-testid={`nav-${id}`}><span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span>{id==='work' && !!stats.drafts && <em>{stats.drafts}</em>}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="local-label"><span className="dot" />Локальная подготовка</div><p>Данные не отправляются в сеть. Подписанный обмен T3 ещё не подключён.</p></div>
+      <div className="sidebar-bottom"><div className="local-label"><span className="dot" />Рабочее место руководителя</div><p>Atlas и Personal Agent обязательны для полного маршрута. Подключение пока не завершено.</p></div>
     </aside>
 
     <main className="main">
       <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb">{org?.name??'Начало работы'} <span>/ {title}</span></div><button className="secondary top-save" onClick={saveFile} disabled={!org}>Сохранить файл</button></header>
-      <div className="page-heading"><div><div className="eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>
+      <div className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ ОРГАНИЗАЦИЕЙ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>
       {error && <div className="notice error" role="alert">{error}</div>}
       {message && <div className="notice" role="status">{message}</div>}
       {(!org || creatingOrg) && organizationForm}
 
       {org && !creatingOrg && page==='overview' && <>
-        <section className="hero"><div className="eyebrow">СОВМЕСТНАЯ РАБОТА</div><h2>От цели к понятному поручению</h2><p>Определите рабочую область, исполнителя и ожидаемый результат.</p><div className="actions"><button className="primary" onClick={()=>startAssignment()} disabled={!org.workspaces.length}>＋ Новое поручение</button><button className="secondary" onClick={()=>go(org.workspaces.length?'people':'resources')}>{org.workspaces.length?'Добавить участника':'Создать рабочую область'}</button></div></section>
+        <section className="hero"><div className="eyebrow">РАБОТА РУКОВОДИТЕЛЯ</div><h2>Видеть работу целиком и принимать решения</h2><p>План находится в Atlas. Сотрудник выполняет поручение в Personal Agent. Здесь вы управляете работой и принимаете результат.</p><div className="actions"><button className="primary" onClick={()=>startAssignment()} disabled={!org.workspaces.length}>＋ Новое поручение</button><button className="secondary" onClick={()=>go(org.workspaces.length?'people':'resources')}>{org.workspaces.length?'Добавить участника':'Создать рабочую область'}</button></div></section>
         <div className="metrics">
           {[['Рабочие области',stats.workspaces],['Участники',stats.participants],['Черновики поручений',stats.drafts]].map(([label,value])=><div className="card metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}
         </div>
@@ -135,23 +137,26 @@ export default function App() {
         </section>
       </>}
 
-      {org && page==='resources' && <section className="card padded"><h2>Рабочие области</h2><p className="muted">Объединяйте поручения по направлению деятельности. Планы, зависимости и портфели остаются в Atlas.</p>
+      {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает общую картину проектов и зависимостей. Здесь руководитель связывает рабочую область с конкретной редакцией плана. Пока это только черновая ссылка - подключение Atlas ещё не проверено.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
-        {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><strong>{w.name}</strong><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span></div>)}
-        <div className="notice subdued">Подключение Atlas не требуется для подготовки поручений. Второй реестр проектов здесь не создаётся.</div>
+        {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span></div>)}
+        {!!org.workspaces.length && <form className="card nested-form" data-testid="atlas-link-form" onSubmit={e=>{e.preventDefault();const f=e.currentTarget;const form=new FormData(f),projectId=String(form.get('projectId')??'').trim(),revision=String(form.get('revision')??'').trim();if(command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId:form.get('workspaceId'),atlasRef:{projectId,revision}}))f.reset();}}>
+          <h3>Связать рабочую область с проектом Atlas</h3><div className="form-grid"><label>Рабочая область<select name="workspaceId">{org.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>Идентификатор проекта<input name="projectId" data-testid="atlas-project-id" maxLength={160} required placeholder="ID из Atlas"/></label><label>Редакция плана<input name="revision" data-testid="atlas-project-revision" maxLength={160} required placeholder="Редакция из Atlas"/></label></div><button className="secondary" data-testid="link-atlas">Сохранить ссылку на план</button><p className="muted fine-print">Ссылка не изменяет план Atlas и не подтверждает права доступа. Синхронизация и проверка редакций будут доступны после подключения Atlas.</p>
+        </form>}
+        <div className="notice subdued">Для эксплуатационного выпуска связь с Atlas обязательна. Дублировать проекты, зависимости и портфели в Admin Center не будем.</div>
       </section>}
 
-      {org && page==='people' && <section className="card padded"><h2>Участники</h2><p className="muted">Сейчас это список участников для подготовки работы. Название роли не выдаёт полномочия T3.</p>
+      {org && page==='people' && <section className="card padded"><h2>Сотрудники и их обязанности</h2><p className="muted">Руководитель определяет участников и их обязанности. Подписанные полномочия появятся после подключения действующих организационных механизмов.</p>
         <form className="form-grid member-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;const data=new FormData(form);if(command({type:'ADD_PARTICIPANT',organizationId:org.id,name:data.get('name'),roleLabel:data.get('role')}))form.reset();}}>
           <label>Имя<input name="name" required maxLength={160} data-testid="person-name"/></label><label>Функция в команде<input name="role" maxLength={160} placeholder="Например, руководитель"/></label><button className="primary" data-testid="add-person">Добавить участника</button>
         </form>
-        {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.roleLabel||'Функция не указана'}</small></div><span className="status neutral">Без выданных прав</span></div>)}
+        {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.roleLabel||'Функция не указана'} · {person.personalAgentPlan==='PLANNED'?'Доступ к Personal Agent запланирован':'Место Personal Agent не запланировано'}</small></div><span className="status neutral">Нет подтверждённого допуска</span></div>)}
         {!org.participants.length && <Empty title="Добавьте первого участника" text="Организация может начинать работу с одного человека. Тестовые участники автоматически не создаются."/>}
       </section>}
 
       {org && page==='work' && <>
         <div className="section-head"><p className="muted">Черновик не считается выданным поручением.</p><button className="primary" disabled={!org.workspaces.length||!!editor} onClick={()=>startAssignment()}>＋ Новое поручение</button></div>
-        {editor ? <form className="card form-panel" data-testid="assignment-form" onSubmit={e=>{e.preventDefault();if(command({type:'SAVE_ASSIGNMENT',organizationId:org.id,...editor}))setEditor(null);}}>
+        {editor ? <form className="card form-panel" data-testid="assignment-form" onSubmit={e=>{e.preventDefault();if(command({type:'SAVE_ASSIGNMENT',organizationId:org.id,...editor,atlasRef:org.workspaces.find(w=>w.id===editor.workspaceId)?.atlasRef??null}))setEditor(null);}}>
           <div className="section-head"><h2>{editor.assignmentId?'Редактировать поручение':'Новое поручение'}</h2><button type="button" className="quiet" onClick={()=>setEditor(null)}>Закрыть редактор</button></div>
           <label>Что нужно сделать<input autoFocus value={editor.title} maxLength={200} required onChange={e=>editorField('title',e.target.value)} data-testid="task-title"/></label>
           <div className="form-grid">
@@ -162,18 +167,24 @@ export default function App() {
           </div>
           <label>Описание<textarea rows={3} maxLength={6000} value={editor.description} onChange={e=>editorField('description',e.target.value)} placeholder="Входные сведения и ожидаемый результат"/></label>
           <label>Критерии приёмки<textarea rows={3} maxLength={2000} value={editor.criteria} onChange={e=>editorField('criteria',e.target.value)} placeholder="Как понять, что работа выполнена?" data-testid="task-criteria"/></label>
+          <p className="muted">{org.workspaces.find(w=>w.id===editor.workspaceId)?.atlasRef ? `План Atlas для поручения: ${org.workspaces.find(w=>w.id===editor.workspaceId)?.atlasRef?.projectId}. Это черновая привязка.` : 'Для полного маршрута свяжите рабочую область с проектом Atlas.'}</p>
           <div className="form-footer"><span className="muted">Выдача через T3 пока не выполняется.</span><button className="primary" data-testid="save-assignment">Сохранить черновик</button></div>
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 
-      {org && page==='results' && <section className="card padded"><Empty title="Приёмка T3 ещё не подключена" text="Получение файла, проверка и корпоративное принятие будут разными действиями. Черновик или текст из буфера обмена не считается подписанным результатом."/><div className="flow"><span>Получить</span><span>Рассмотреть</span><span>Принять или вернуть</span><span>Использовать</span></div></section>}
-      {org && page==='programs' && <section className="card padded"><h2>Подключаемые возможности</h2><p className="muted">Для подготовки поручений дополнительные программы не нужны.</p>{[['T3','Полномочия, подписанный обмен и корпоративная приёмка'],['Personal Agent','Личное выполнение поручения участником'],['Atlas','Проекты, планы и зависимости'],['Специализированные агенты','Разрешённый процесс решения конкретной задачи']].map(([name,desc])=><div className="simple-row" key={name}><div><strong>{name}</strong><small>{desc}</small></div><span className="status neutral">Не подключено</span></div>)}</section>}
-      {org && page==='data' && <section className="card padded"><h2>Черновики и перенос</h2><p>Черновики находятся в текущем окне. Сохраните файл перед закрытием и откройте его для продолжения работы.</p><div className="actions"><button className="primary" onClick={saveFile}>Сохранить черновики в файл</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button></div><div className="notice subdued">JSON-файл сохраняет организационные черновики. Он не является .iwxa, не содержит ключей и не заменяет полную резервную копию T3.</div></section>}
-      {!org && <div className="landing-actions"><button className="secondary" onClick={openFile}>Открыть файл черновиков</button><p className="muted">Без аккаунта, сети и обязательного Personal Agent.</p></div>}
+      {org && page==='results' && <section className="card padded"><Empty title="Приёмка результатов сотрудников готовится" text="Сотрудник передаёт результат из Personal Agent. Руководитель проверяет его и принимает решение. Подписанный обмен и приёмка пока не подключены."/><div className="flow"><span>Получить из Personal Agent</span><span>Проверить</span><span>Принять или вернуть</span><span>Использовать в организации</span></div></section>}
+      {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
+        <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
+        {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button></div>)}
+        {!org.participants.length && <Empty title="Сначала добавьте сотрудников" text="Для каждого сотрудника можно подготовить план доступа к Personal Agent."/>}
+        <div className="notice subdued">Разделение ответственности: Publisher выпускает программные лицензии и издательские статусы; Admin Center распределяет подтверждённые места организации и управляет организационными полномочиями. Ни одна кнопка здесь пока не активирует программу.</div>
+      </section>}
+      {org && page==='data' && <section className="card padded"><h2>Черновики и защищённый обмен</h2><p>Сохраните рабочие черновики перед закрытием. Для поручений и результатов в полном выпуске используется существующий подписанный обмен IWXA с шифрованием age для выбранных получателей.</p><div className="actions"><button className="primary" onClick={saveFile}>Сохранить черновики в файл</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button></div><div className="notice subdued">Этот JSON сохраняет только черновики. Это не .iwxa и не .iwxa.age, в нём нет ключей или решений. Шифрование, получение и восстановление организационных пакетов подключаются к действующему механизму T3 и пока не доступны в интерфейсе.</div></section>}
+      {!org && <div className="landing-actions"><button className="secondary" onClick={openFile}>Открыть файл черновиков</button><p className="muted">Работа руководителя связана с Atlas и Personal Agent сотрудников. Сейчас доступна подготовка структуры, без реальной отправки поручений.</p></div>}
       <input ref={fileInput} type="file" accept=".json,application/json" hidden data-testid="open-draft" onChange={async e=>{const file=e.target.files?.[0];if(file)await readDraft(await file.text());e.target.value='';}}/>
       <footer className="footer"><span>IWXA Admin Center · 0.1.0-dev.1</span><span>{dirty||editor?'Есть несохранённые изменения':'Черновик в текущем окне'}</span></footer>
     </main>
-    <aside className="inspector" aria-label="Контекст работы"><div className="eyebrow">КОНТЕКСТ</div><h2>{org?.name??'Ваша организация'}</h2><p className="muted">{org?'Работа относится только к выбранной организации.':'Создайте группу или организацию и подготовьте первые поручения.'}</p><div className="inspector-card"><strong>Следующий шаг</strong><p>{!org?'Укажите название организации.':!org.workspaces.length?'Добавьте рабочую область.':!org.participants.length?'Добавьте участников работы.':!org.assignments.length?'Сформулируйте первое поручение.':'Проверьте критерии и сохраните черновики.'}</p></div><div className="inspector-card"><strong>Текущий этап</strong><p>Подготовка структуры и поручений.</p><small>Права, подписи, принятие и применение остаются у существующего T3 runtime.</small></div></aside>
+    <aside className="inspector" aria-label="Контекст работы руководителя"><div className="eyebrow">КОНТЕКСТ РУКОВОДИТЕЛЯ</div><h2>{org?.name??'Ваша организация'}</h2><p className="muted">{org?'Работа относится только к выбранной организации.':'Создайте группу или организацию и подготовьте первые поручения.'}</p><div className="inspector-card"><strong>Следующий шаг</strong><p>{!org?'Укажите название организации.':!org.workspaces.length?'Добавьте рабочую область и свяжите план Atlas.':!org.participants.length?'Добавьте сотрудников и запланируйте доступ к Personal Agent.':!org.assignments.length?'Подготовьте поручение для сотрудника.':'Проверьте связь с планом и критерии результата.'}</p></div><div className="inspector-card"><strong>Текущий этап</strong><p>Подготовка структуры и поручений.</p><small>В полном выпуске Admin Center управляет корпоративными правами, пакетами и приёмкой через существующие механизмы уровня T3.</small></div></aside>
   </div>;
 }
 function Empty({title,text}:{title:string;text:string}) {return <div className="empty"><span className="empty-icon" aria-hidden="true">◇</span><h3>{title}</h3><p>{text}</p></div>;}
