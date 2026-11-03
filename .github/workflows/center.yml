@@ -1,0 +1,59 @@
+name: Center source and desktop
+on:
+  push:
+    branches: ['work/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: center-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  model:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: npm test
+  interface:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: npx playwright install --with-deps firefox
+      - run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: center-interface
+          path: |
+            artifacts/
+            package-lock.json
+            dist/
+  windows-shell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: npm install --no-audit --no-fund
+      - run: npm run desktop:build -- --no-bundle
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: center-windows-preparation-shell
+          path: |
+            src-tauri/target/release/iwxa-admin-center.exe
+            src-tauri/Cargo.lock
+            package-lock.json

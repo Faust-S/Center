@@ -1,0 +1,32 @@
+{
+  "name": "iwxa-admin-center",
+  "version": "0.1.0-dev.1",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test:ui": "node tests/browser-smoke.mjs",
+    "desktop": "tauri",
+    "desktop:build": "tauri build"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@types/node": "22.15.30",
+    "typescript": "5.9.3",
+    "vite": "7.1.0",
+    "@tauri-apps/cli": "2.12.2",
+    "playwright": "1.56.1"
+  }
+}

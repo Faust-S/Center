@@ -1,0 +1,180 @@
+import React, {useRef, useState} from 'react';
+import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
+import './style.css';
+
+type Participant = {id: string; name: string; roleLabel: string; credentialState: string};
+type Assignment = {id: string; title: string; workspaceId: string; assigneeId: string | null; reviewerId: string | null; description: string; criteria: string; dueDate: string; priority: string; editNumber: number; status: string; atlasRef: null; createdAt: string; updatedAt: string};
+type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string}[]; participants: Participant[]; assignments: Assignment[]};
+type Draft = {format: string; version: number; organizations: Organization[]; activeOrganizationId: string | null; updatedAt: string};
+type Editor = {assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string};
+type Page = 'overview'|'work'|'results'|'resources'|'people'|'programs'|'data';
+const pages: [Page, string, string][] = [['overview','Обзор','◫'],['work','Поручения','☷'],['results','Результаты','▤'],['resources','Проекты и ресурсы','◇'],['people','Участники','♧'],['programs','Программы','▦'],['data','Данные и настройки','⚙']];
+const initialEditor = (org: Organization): Editor => ({title:'', workspaceId: org.workspaces[0]?.id ?? '', assigneeId: org.participants[0]?.id ?? '', reviewerId: org.participants[1]?.id ?? org.participants[0]?.id ?? '', description:'', criteria:'', dueDate:'', priority:'normal'});
+const errors: Record<string,string> = {
+  DRAFT_FORMAT_INVALID:'Это не файл черновиков Admin Center.',
+  DRAFT_JSON_INVALID:'Файл повреждён или имеет неподдерживаемый формат.',
+  DRAFT_SIZE_INVALID:'Файл черновиков превышает допустимый размер.',
+  DRAFT_EDIT_CONFLICT:'Поручение изменилось. Откройте его актуальный черновик.',
+  ORGANIZATION_CONTEXT_CHANGED:'Выбрана другая организация. Откройте поручение заново.',
+  DUE_DATE_INVALID:'Проверьте дату выполнения.',
+  DRAFT_AUTHORITY_CLAIM_DENIED:'Черновик не может содержать подтверждённые корпоративные решения.',
+  DRAFT_CREDENTIAL_CLAIM_DENIED:'В этом файле допустимы контакты, но не выданные полномочия.',
+  ACTIVE_ORGANIZATION_INVALID:'В файле отсутствует выбранная организация.'
+};
+
+async function nativeInvoke(command: string, args?: Record<string, unknown>): Promise<any> {
+  const internal = (window as any).__TAURI_INTERNALS__;
+  if (!internal) throw Error('NATIVE_HOST_UNAVAILABLE');
+  return internal.invoke(command, args);
+}
+export default function App() {
+  const [state,setState] = useState<Draft>(() => emptyDraft() as Draft);
+  const [page,setPage] = useState<Page>('overview');
+  const [editor,setEditor] = useState<Editor|null>(null);
+  const [creatingOrg,setCreatingOrg] = useState(false);
+  const [menuOpen,setMenuOpen] = useState(false);
+  const [dirty,setDirty] = useState(false);
+  const [message,setMessage] = useState('');
+  const [error,setError] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
+  const org = state.organizations.find(row => row.id === state.activeOrganizationId);
+  const stats = overview(state);
+  const title = pages.find(row => row[0] === page)![1];
+
+  const problem = (e: unknown) => {
+    const code = e instanceof Error ? e.message : String(e);
+    setError(errors[code] ?? 'Изменение не выполнено. Проверьте поля и повторите действие.');
+    setMessage('');
+  };
+  const command = (value: any) => {
+    try {
+      const next = applyDraftCommand(state,value) as Draft;
+      setState(next); setDirty(true); setError(''); setMessage('Черновик изменён. Сохраните его в файл.'); return true;
+    } catch(e) {problem(e); return false;}
+  };
+  const go = (next: Page) => {setPage(next); setMenuOpen(false);};
+  const startAssignment = (item?: Assignment) => {
+    if (!org) return;
+    setEditor(item ? {assignmentId:item.id, expectedEditNumber:item.editNumber, title:item.title, workspaceId:item.workspaceId, assigneeId:item.assigneeId ?? '', reviewerId:item.reviewerId ?? '', description:item.description, criteria:item.criteria, dueDate:item.dueDate, priority:item.priority} : initialEditor(org));
+    go('work');
+  };
+  const editorField = (name: keyof Editor, value: string) => setEditor(old => old ? {...old,[name]:value} : null);
+  const selectOrg = (organizationId: string) => {
+    if (editor) {setError('Сохраните или закройте открытый редактор поручения перед сменой организации.'); return;}
+    command({type:'SELECT_ORGANIZATION',organizationId});
+  };
+  async function saveFile() {
+    if (editor) {setError('Сначала сохраните изменения из редактора поручения.'); return;}
+    try {
+      const content = encodeDraft(state);
+      if ((window as any).__TAURI_INTERNALS__) {
+        const saved = await nativeInvoke('save_draft_file',{content});
+        if (!saved) return;
+      } else {
+        const url = URL.createObjectURL(new Blob([content],{type:'application/json'}));
+        const link = document.createElement('a');link.href=url;link.download='admin-center-draft.json';link.click();
+        setTimeout(()=>URL.revokeObjectURL(url),10000);
+      }
+      setDirty(false);setMessage('Файл черновиков подготовлен. Это не пакет .iwxa и не полная резервная копия T3.');setError('');
+    } catch(e) {problem(e);}
+  }
+  async function readDraft(raw: string) {
+    try {
+      const next = decodeDraft(raw) as Draft;
+      if ((dirty || editor) && !window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.')) return;
+      setState(next);setDirty(false);setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
+    } catch(e) {problem(e);}
+  }
+  async function openFile() {
+    if ((window as any).__TAURI_INTERNALS__) {
+      try {const content=await nativeInvoke('open_draft_file');if(content!==null)await readDraft(content);}catch(e){problem(e);}
+    } else fileInput.current?.click();
+  }
+
+  const organizationForm = <form className="card form-panel" data-testid="organization-form" onSubmit={e=>{
+    e.preventDefault();const data=new FormData(e.currentTarget);
+    if(command({type:'CREATE_ORGANIZATION',name:data.get('name'),kind:data.get('kind')}))setCreatingOrg(false);
+  }}>
+    <div className="section-head"><h2>Новая организация</h2>{org && <button type="button" className="quiet" onClick={()=>setCreatingOrg(false)}>Отмена</button>}</div>
+    <p className="muted">Начните с названия. Юридический статус и права не возникают из создания черновика.</p>
+    <div className="form-grid">
+      <label>Название<input name="name" data-testid="org-name" maxLength={160} required autoFocus placeholder="Например, рабочая группа" /></label>
+      <label>Тип<select name="kind"><option value="GROUP">Группа или команда</option><option value="ORGANIZATION">Организация</option></select></label>
+    </div>
+    <button className="primary" data-testid="create-org">Создать черновик организации</button>
+  </form>;
+
+  return <div className={`app ${menuOpen?'menu-open':''}`}>
+    <aside className="sidebar" aria-label="Основная навигация">
+      <div className="brand"><div><strong>IWXA</strong><small>Admin Center</small></div><span className="version">0.1</span></div>
+      <div className="organization-select">
+        <label htmlFor="active-organization">Организация</label>
+        <select id="active-organization" value={state.activeOrganizationId??''} onChange={e=>selectOrg(e.target.value)}>
+          {!org && <option value="">Не выбрана</option>}{state.organizations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+        <button className="sidebar-add" onClick={()=>{if(editor){setError('Сначала сохраните открытый редактор.');return;}setCreatingOrg(true);go('overview');}}>＋ Добавить организацию</button>
+      </div>
+      <nav>{pages.map(([id,label,icon])=><button key={id} className={`nav-link ${page===id?'active':''}`} aria-current={page===id?'page':undefined} onClick={()=>go(id)} data-testid={`nav-${id}`}><span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span>{id==='work' && !!stats.drafts && <em>{stats.drafts}</em>}</button>)}</nav>
+      <div className="sidebar-bottom"><div className="local-label"><span className="dot" />Локальная подготовка</div><p>Данные не отправляются в сеть. Подписанный обмен T3 ещё не подключён.</p></div>
+    </aside>
+
+    <main className="main">
+      <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb">{org?.name??'Начало работы'} <span>/ {title}</span></div><button className="secondary top-save" onClick={saveFile} disabled={!org}>Сохранить файл</button></header>
+      <div className="page-heading"><div><div className="eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>
+      {error && <div className="notice error" role="alert">{error}</div>}
+      {message && <div className="notice" role="status">{message}</div>}
+      {(!org || creatingOrg) && organizationForm}
+
+      {org && !creatingOrg && page==='overview' && <>
+        <section className="hero"><div className="eyebrow">СОВМЕСТНАЯ РАБОТА</div><h2>От цели к понятному поручению</h2><p>Определите рабочую область, исполнителя и ожидаемый результат.</p><div className="actions"><button className="primary" onClick={()=>startAssignment()} disabled={!org.workspaces.length}>＋ Новое поручение</button><button className="secondary" onClick={()=>go(org.workspaces.length?'people':'resources')}>{org.workspaces.length?'Добавить участника':'Создать рабочую область'}</button></div></section>
+        <div className="metrics">
+          {[['Рабочие области',stats.workspaces],['Участники',stats.participants],['Черновики поручений',stats.drafts]].map(([label,value])=><div className="card metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}
+        </div>
+        <section className="card padded"><div className="section-head"><h2>Продолжить работу</h2><button className="quiet" onClick={()=>go('work')}>Все поручения →</button></div>
+          {!org.assignments.length ? <Empty title="Пока нет поручений" text="Создайте рабочую область и подготовьте первое поручение с критериями результата."/> : org.assignments.slice(-4).reverse().map(a=><AssignmentRow key={a.id} item={a} org={org} onClick={()=>startAssignment(a)}/>)}
+        </section>
+      </>}
+
+      {org && page==='resources' && <section className="card padded"><h2>Рабочие области</h2><p className="muted">Объединяйте поручения по направлению деятельности. Планы, зависимости и портфели остаются в Atlas.</p>
+        <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
+        {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><strong>{w.name}</strong><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span></div>)}
+        <div className="notice subdued">Подключение Atlas не требуется для подготовки поручений. Второй реестр проектов здесь не создаётся.</div>
+      </section>}
+
+      {org && page==='people' && <section className="card padded"><h2>Участники</h2><p className="muted">Сейчас это список участников для подготовки работы. Название роли не выдаёт полномочия T3.</p>
+        <form className="form-grid member-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;const data=new FormData(form);if(command({type:'ADD_PARTICIPANT',organizationId:org.id,name:data.get('name'),roleLabel:data.get('role')}))form.reset();}}>
+          <label>Имя<input name="name" required maxLength={160} data-testid="person-name"/></label><label>Функция в команде<input name="role" maxLength={160} placeholder="Например, руководитель"/></label><button className="primary" data-testid="add-person">Добавить участника</button>
+        </form>
+        {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.roleLabel||'Функция не указана'}</small></div><span className="status neutral">Без выданных прав</span></div>)}
+        {!org.participants.length && <Empty title="Добавьте первого участника" text="Организация может начинать работу с одного человека. Тестовые участники автоматически не создаются."/>}
+      </section>}
+
+      {org && page==='work' && <>
+        <div className="section-head"><p className="muted">Черновик не считается выданным поручением.</p><button className="primary" disabled={!org.workspaces.length||!!editor} onClick={()=>startAssignment()}>＋ Новое поручение</button></div>
+        {editor ? <form className="card form-panel" data-testid="assignment-form" onSubmit={e=>{e.preventDefault();if(command({type:'SAVE_ASSIGNMENT',organizationId:org.id,...editor}))setEditor(null);}}>
+          <div className="section-head"><h2>{editor.assignmentId?'Редактировать поручение':'Новое поручение'}</h2><button type="button" className="quiet" onClick={()=>setEditor(null)}>Закрыть редактор</button></div>
+          <label>Что нужно сделать<input autoFocus value={editor.title} maxLength={200} required onChange={e=>editorField('title',e.target.value)} data-testid="task-title"/></label>
+          <div className="form-grid">
+            <label>Рабочая область<select value={editor.workspaceId} onChange={e=>editorField('workspaceId',e.target.value)}>{org.workspaces.map(w=><option value={w.id} key={w.id}>{w.name}</option>)}</select></label>
+            <label>Срок<input type="date" value={editor.dueDate} onChange={e=>editorField('dueDate',e.target.value)}/></label>
+            <label>Исполнитель<select value={editor.assigneeId} onChange={e=>editorField('assigneeId',e.target.value)}><option value="">Выбрать позже</option>{org.participants.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+            <label>Кто принимает результат<select value={editor.reviewerId} onChange={e=>editorField('reviewerId',e.target.value)}><option value="">Выбрать позже</option>{org.participants.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+          </div>
+          <label>Описание<textarea rows={3} maxLength={6000} value={editor.description} onChange={e=>editorField('description',e.target.value)} placeholder="Входные сведения и ожидаемый результат"/></label>
+          <label>Критерии приёмки<textarea rows={3} maxLength={2000} value={editor.criteria} onChange={e=>editorField('criteria',e.target.value)} placeholder="Как понять, что работа выполнена?" data-testid="task-criteria"/></label>
+          <div className="form-footer"><span className="muted">Выдача через T3 пока не выполняется.</span><button className="primary" data-testid="save-assignment">Сохранить черновик</button></div>
+        </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
+      </>}
+
+      {org && page==='results' && <section className="card padded"><Empty title="Приёмка T3 ещё не подключена" text="Получение файла, проверка и корпоративное принятие будут разными действиями. Черновик или текст из буфера обмена не считается подписанным результатом."/><div className="flow"><span>Получить</span><span>Рассмотреть</span><span>Принять или вернуть</span><span>Использовать</span></div></section>}
+      {org && page==='programs' && <section className="card padded"><h2>Подключаемые возможности</h2><p className="muted">Для подготовки поручений дополнительные программы не нужны.</p>{[['T3','Полномочия, подписанный обмен и корпоративная приёмка'],['Personal Agent','Личное выполнение поручения участником'],['Atlas','Проекты, планы и зависимости'],['Специализированные агенты','Разрешённый процесс решения конкретной задачи']].map(([name,desc])=><div className="simple-row" key={name}><div><strong>{name}</strong><small>{desc}</small></div><span className="status neutral">Не подключено</span></div>)}</section>}
+      {org && page==='data' && <section className="card padded"><h2>Черновики и перенос</h2><p>Черновики находятся в текущем окне. Сохраните файл перед закрытием и откройте его для продолжения работы.</p><div className="actions"><button className="primary" onClick={saveFile}>Сохранить черновики в файл</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button></div><div className="notice subdued">JSON-файл сохраняет организационные черновики. Он не является .iwxa, не содержит ключей и не заменяет полную резервную копию T3.</div></section>}
+      {!org && <div className="landing-actions"><button className="secondary" onClick={openFile}>Открыть файл черновиков</button><p className="muted">Без аккаунта, сети и обязательного Personal Agent.</p></div>}
+      <input ref={fileInput} type="file" accept=".json,application/json" hidden data-testid="open-draft" onChange={async e=>{const file=e.target.files?.[0];if(file)await readDraft(await file.text());e.target.value='';}}/>
+      <footer className="footer"><span>IWXA Admin Center · 0.1.0-dev.1</span><span>{dirty||editor?'Есть несохранённые изменения':'Черновик в текущем окне'}</span></footer>
+    </main>
+    <aside className="inspector" aria-label="Контекст работы"><div className="eyebrow">КОНТЕКСТ</div><h2>{org?.name??'Ваша организация'}</h2><p className="muted">{org?'Работа относится только к выбранной организации.':'Создайте группу или организацию и подготовьте первые поручения.'}</p><div className="inspector-card"><strong>Следующий шаг</strong><p>{!org?'Укажите название организации.':!org.workspaces.length?'Добавьте рабочую область.':!org.participants.length?'Добавьте участников работы.':!org.assignments.length?'Сформулируйте первое поручение.':'Проверьте критерии и сохраните черновики.'}</p></div><div className="inspector-card"><strong>Текущий этап</strong><p>Подготовка структуры и поручений.</p><small>Права, подписи, принятие и применение остаются у существующего T3 runtime.</small></div></aside>
+  </div>;
+}
+function Empty({title,text}:{title:string;text:string}) {return <div className="empty"><span className="empty-icon" aria-hidden="true">◇</span><h3>{title}</h3><p>{text}</p></div>;}
+function AssignmentRow({item,org,onClick}:{item:Assignment;org:Organization;onClick:()=>void}) {return <button className="assignment-row" onClick={onClick} data-testid="assignment-row"><span className="task-mark">▤</span><span className="row-content"><strong>{item.title}</strong><small>{org.participants.find(p=>p.id===item.assigneeId)?.name??'Исполнитель не выбран'} · {item.dueDate||'Без срока'}</small></span><span className="status neutral">Черновик {item.editNumber}</span><span aria-hidden="true">›</span></button>;}

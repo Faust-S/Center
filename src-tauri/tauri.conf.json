@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "IWXA Admin Center",
+  "version": "0.1.0-dev.1",
+  "identifier": "ru.iwxa.admin-center",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "IWXA Admin Center - preparation preview",
+        "width": 1366,
+        "height": 900,
+        "minWidth": 720,
+        "minHeight": 500
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
+  }
+}
