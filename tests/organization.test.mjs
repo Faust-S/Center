@@ -26,3 +26,47 @@ test('draft file cannot claim issued credentials or accepted result', () => {con
 test('format for existing T3 task preserves criteria and recipient', () => {const f=fixture();f.run(f.assignment);const org=f.state.organizations[0];const s=assignmentText(org,org.assignments[0]);assert.match(s,/Three alternatives/);assert.match(s,/Anna/);assert.match(s,/Boris/);assert.match(s,/2026-11-10/);});
 test('blank fields and invalid date are rejected', () => {const f=fixture();assert.throws(()=>f.run({...f.assignment,title:'  '}),/TITLE_REQUIRED/);assert.throws(()=>f.run({...f.assignment,dueDate:'2026-02-30'}),/DUE_DATE_INVALID/);});
 test('pure command never mutates old state on success or failure', () => {const f=fixture();const before=encodeDraft(f.state);const old=f.state;f.run(f.assignment);assert.equal(encodeDraft(old),before);const next=encodeDraft(f.state);assert.throws(()=>f.run({...f.assignment,priority:'invalid'}));assert.equal(encodeDraft(f.state),next);});
+
+test('manager plans Personal Agent access without issuing a license or a grant', () => {
+  const f=fixture(), person=f.state.organizations[0].participants[0];
+  f.run({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:f.orgId,participantId:person.id,plan:'PLANNED'});
+  const updated=f.state.organizations[0].participants[0];
+  assert.equal(updated.personalAgentPlan,'PLANNED');
+  assert.equal(updated.credentialState,'NOT_ENROLLED');
+  assert.equal('licenseId' in updated,false);
+  assert.equal('entitlement' in updated,false);
+  assert.throws(()=>f.run({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:f.orgId,participantId:person.id,plan:'ACTIVE'}),/AGENT_SEAT_PLAN_INVALID/);
+  assert.equal(f.state.organizations[0].participants[0].personalAgentPlan,'PLANNED');
+  f.run({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:f.orgId,participantId:person.id,plan:'NONE'});
+  assert.equal(f.state.organizations[0].participants[0].personalAgentPlan,'NONE');
+});
+
+test('Atlas plan link follows exact project revision and survives manager draft roundtrip', () => {
+  const f=fixture(), workspace=f.state.organizations[0].workspaces[0];
+  f.run({type:'LINK_ATLAS_WORKSPACE',organizationId:f.orgId,workspaceId:workspace.id,
+    atlasRef:{projectId:'atlas:project-42',revision:'revision-1'}});
+  const link=f.state.organizations[0].workspaces[0].atlasRef;
+  f.run({...f.assignment,atlasRef:link});
+  f.run({type:'LINK_ATLAS_WORKSPACE',organizationId:f.orgId,workspaceId:workspace.id,
+    atlasRef:{projectId:'atlas:project-42',revision:'revision-2'}});
+  assert.equal(f.state.organizations[0].assignments[0].atlasRef.revision,'revision-1');
+  assert.equal(f.state.organizations[0].workspaces[0].atlasRef.revision,'revision-2');
+  assert.deepEqual(decodeDraft(encodeDraft(f.state)),f.state);
+  const org=f.state.organizations[0];
+  assert.match(assignmentText(org,org.assignments[0]),/atlas:project-42 @ revision-1/);
+  assert.throws(()=>f.run({type:'LINK_ATLAS_WORKSPACE',organizationId:f.orgId,workspaceId:workspace.id,atlasRef:{projectId:'',revision:'revision-3'}}),/ATLAS_REFERENCE_INVALID/);
+});
+
+test('Atlas and license plans cannot be edited across organizational contexts', () => {
+  const f=fixture(),org=f.state.organizations[0],person=org.participants[0],workspace=org.workspaces[0];
+  f.run({type:'CREATE_ORGANIZATION',name:'Second'});
+  assert.throws(()=>f.run({type:'LINK_ATLAS_WORKSPACE',organizationId:f.orgId,workspaceId:workspace.id,atlasRef:null}),/ORGANIZATION_CONTEXT_CHANGED/);
+  assert.throws(()=>f.run({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:f.orgId,participantId:person.id,plan:'PLANNED'}),/ORGANIZATION_CONTEXT_CHANGED/);
+});
+
+test('older manager draft without Agent and Atlas fields still loads', () => {
+  const f=fixture(), old=structuredClone(f.state);
+  for(const p of old.organizations[0].participants)delete p.personalAgentPlan;
+  for(const w of old.organizations[0].workspaces)delete w.atlasRef;
+  assert.deepEqual(decodeDraft(JSON.stringify(old)),old);
+});

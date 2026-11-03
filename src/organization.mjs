@@ -28,16 +28,27 @@ export function validateDraft(state) {
     }
     for (const workspace of org.workspaces) {
       text(workspace.id, 'WORKSPACE_ID_INVALID', 160); text(workspace.name, 'WORKSPACE_NAME_REQUIRED', 160);
+      if (workspace.atlasRef !== undefined && workspace.atlasRef !== null) validateAtlasRef(workspace.atlasRef);
     }
     for (const person of org.participants) {
       text(person.id, 'PARTICIPANT_ID_INVALID', 160); text(person.name, 'PARTICIPANT_NAME_REQUIRED', 160);
       requireValue(typeof person.roleLabel === 'string' && person.roleLabel.length <= 160, 'ROLE_LABEL_INVALID');
       requireValue(person.credentialState === 'NOT_ENROLLED', 'DRAFT_CREDENTIAL_CLAIM_DENIED');
+      // Planning a Personal Agent seat does not issue a Publisher license or an organization grant.
+      requireValue(person.personalAgentPlan === undefined || ['NONE', 'PLANNED'].includes(person.personalAgentPlan), 'AGENT_SEAT_PLAN_INVALID');
     }
     for (const assignment of org.assignments) validateAssignment(org, assignment);
   }
   requireValue(state.activeOrganizationId === null || state.organizations.some(org => org.id === state.activeOrganizationId), 'ACTIVE_ORGANIZATION_INVALID');
   return state;
+}
+
+function validateAtlasRef(value) {
+  requireValue(value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.keys(value).length === 2, 'ATLAS_REFERENCE_INVALID');
+  text(value.projectId, 'ATLAS_REFERENCE_INVALID', 160);
+  text(value.revision, 'ATLAS_REFERENCE_INVALID', 160);
+  // A draft link is never evidence that Atlas has verified this project or revision.
 }
 
 function validateAssignment(org, assignment) {
@@ -52,7 +63,7 @@ function validateAssignment(org, assignment) {
   requireValue(['normal', 'high'].includes(assignment.priority), 'PRIORITY_INVALID');
   requireValue(Number.isSafeInteger(assignment.editNumber) && assignment.editNumber > 0, 'EDIT_NUMBER_INVALID');
   requireValue(iso(assignment.createdAt) && iso(assignment.updatedAt), 'ASSIGNMENT_DATE_INVALID');
-  requireValue(assignment.atlasRef === null || (typeof assignment.atlasRef === 'object' && typeof assignment.atlasRef.projectId === 'string' && typeof assignment.atlasRef.revision === 'string'), 'ATLAS_REFERENCE_INVALID');
+  if (assignment.atlasRef !== null) validateAtlasRef(assignment.atlasRef);
 }
 
 export function applyDraftCommand(current, command, {id = () => crypto.randomUUID(), now = () => new Date().toISOString()} = {}) {
@@ -68,9 +79,18 @@ export function applyDraftCommand(current, command, {id = () => crypto.randomUUI
     const org = byId(state.organizations, command.organizationId, 'ORGANIZATION_NOT_FOUND');
     requireValue(state.activeOrganizationId === org.id, 'ORGANIZATION_CONTEXT_CHANGED');
     if (command.type === 'ADD_WORKSPACE') {
-      org.workspaces.push({id: id(), name: text(command.name, 'WORKSPACE_NAME_REQUIRED', 160)});
+      org.workspaces.push({id: id(), name: text(command.name, 'WORKSPACE_NAME_REQUIRED', 160), atlasRef: null});
     } else if (command.type === 'ADD_PARTICIPANT') {
-      org.participants.push({id: id(), name: text(command.name, 'PARTICIPANT_NAME_REQUIRED', 160), roleLabel: command.roleLabel?.trim() ?? '', credentialState: 'NOT_ENROLLED'});
+      org.participants.push({id: id(), name: text(command.name, 'PARTICIPANT_NAME_REQUIRED', 160), roleLabel: command.roleLabel?.trim() ?? '', credentialState: 'NOT_ENROLLED', personalAgentPlan: 'NONE'});
+    } else if (command.type === 'PLAN_PERSONAL_AGENT_ACCESS') {
+      const person = byId(org.participants, command.participantId, 'PARTICIPANT_NOT_FOUND');
+      requireValue(['NONE', 'PLANNED'].includes(command.plan), 'AGENT_SEAT_PLAN_INVALID');
+      person.personalAgentPlan = command.plan;
+    } else if (command.type === 'LINK_ATLAS_WORKSPACE') {
+      const workspace = byId(org.workspaces, command.workspaceId, 'WORKSPACE_NOT_FOUND');
+      const ref = command.atlasRef;
+      if (ref !== null) validateAtlasRef(ref);
+      workspace.atlasRef = ref;
     } else if (command.type === 'SAVE_ASSIGNMENT') {
       const old = command.assignmentId ? byId(org.assignments, command.assignmentId, 'ASSIGNMENT_NOT_FOUND') : null;
       if (old) requireValue(old.editNumber === command.expectedEditNumber, 'DRAFT_EDIT_CONFLICT');
@@ -110,7 +130,8 @@ export function assignmentText(org, assignment) {
   requireValue(assignment.criteria.trim() && assignment.assigneeId && assignment.reviewerId, 'ASSIGNMENT_NOT_READY');
   const assignee = byId(org.participants, assignment.assigneeId, 'ASSIGNEE_NOT_FOUND');
   const reviewer = byId(org.participants, assignment.reviewerId, 'REVIEWER_NOT_FOUND');
-  const value = `${assignment.title}\n\n${assignment.description}\n\nAcceptance criteria:\n${assignment.criteria}\n\nAssignee: ${assignee.name}\nReviewer: ${reviewer.name}\nDue: ${assignment.dueDate || 'Not specified'}`;
+  const atlas = assignment.atlasRef ? `\nAtlas project: ${assignment.atlasRef.projectId} @ ${assignment.atlasRef.revision}` : '';
+  const value = `${assignment.title}\n\n${assignment.description}\n\nAcceptance criteria:\n${assignment.criteria}\n\nAssignee: ${assignee.name}\nReviewer: ${reviewer.name}\nDue: ${assignment.dueDate || 'Not specified'}${atlas}`;
   requireValue(value.length <= 10000, 'ASSIGNMENT_TEXT_TOO_LARGE');
   return value;
 }
