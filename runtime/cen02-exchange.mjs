@@ -1,4 +1,5 @@
 import {assignmentText} from '../src/organization.mjs';
+import {readAppliedResults} from './cen03-applied-results.mjs';
 import {readAtlasPortfolio} from '../src/atlas-integration.mjs';
 import {serialize as serializeAtlas} from '../vendor/atlas/src/core.mjs';
 const requireValue=(ok,code)=>{if(!ok)throw Error(code);};
@@ -31,6 +32,21 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
       requireValue(project,'T3_ATLAS_PROJECT_NOT_IN_SOURCE');
       requireValue(project.workItems.some(x=>x.id===ref.workId),
         'T3_ATLAS_WORK_NOT_IN_SOURCE');
+      if(assignment.sourceResultRef){
+        // An unsigned draft reference alone is not evidence of prior application.
+        const ref=assignment.sourceResultRef;
+        requireValue(ref.organizationId===organization.id&&
+          ref.workspaceId===assignment.workspaceId&&
+          current.workspaceId===assignment.workspaceId,
+          'T3_REUSED_RESULT_SCOPE_MISMATCH');
+        const readback=readAppliedResults(snapshot(),organization.id,assignment.workspaceId);
+        requireValue(readback.records.some(x=>x.taskId===ref.taskId&&
+          x.taskRevisionId===ref.taskRevisionId&&
+          x.resultRevisionId===ref.resultRevisionId&&
+          x.acceptanceId===ref.acceptanceId),
+          'T3_REUSED_RESULT_NOT_IN_DURABLE_STORE');
+        bind(binding);
+      }
       requireValue(typeof runtime.createTask==='function','T3_TASK_ISSUER_NOT_CONNECTED');
       const bytes=runtime.createTask(text);
       requireValue(bytes instanceof Uint8Array && bytes.byteLength>0,

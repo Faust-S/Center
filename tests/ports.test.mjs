@@ -199,3 +199,29 @@ test('CEN02 refuses a malformed owner issuance result rather than marking it sig
   const port=createT3AdminPort(owner,{openAtlas:async()=>fixture.observed});
   await assert.rejects(()=>port.issue(fixture),/T3_SIGNED_TASK_CARRIER_REQUIRED/);
 });
+
+test('CEN02 independently rechecks applied Result in original owner Store before signing follow-up',async()=>{
+ const f=issueFixture(),r=issuingRuntime();
+ r.state.organizationId=f.organization.id;r.state.workspaceId=f.assignment.workspaceId;
+ const binding={...f.binding,organizationId:f.organization.id,workspaceId:f.assignment.workspaceId};
+ const source={organizationId:f.organization.id,workspaceId:f.assignment.workspaceId,
+   taskId:'task:prior',taskRevisionId:'c'.repeat(64),resultRevisionId:'d'.repeat(64),
+   acceptanceId:'acceptance:prior'};
+ const assignment={...f.assignment,sourceResultRef:source};
+ const port=createT3AdminPort(r,{openAtlas:async()=>f.observed});
+ await assert.rejects(()=>port.issue({...f,assignment,binding}),/T3_REUSED_RESULT_NOT_IN_DURABLE_STORE/);
+ assert.equal(r.calls.length,0);
+ r.state.application={status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false,
+   records:[{...source,executorId:'staff',result:'Signed accepted report'}]};
+ await port.issue({...f,assignment,binding});
+ assert.match(r.calls[0].text,/Previously applied Result reference/);
+ assert.equal(r.calls.filter(x=>x.type==='createTask').length,1);
+});
+test('CEN02 never signs continued task with foreign-organization source Result',async()=>{
+ const f=issueFixture(),r=issuingRuntime(),port=createT3AdminPort(r,{openAtlas:async()=>f.observed});
+ const source={organizationId:'foreign',workspaceId:f.assignment.workspaceId,taskId:'task:prior',
+   taskRevisionId:'c'.repeat(64),resultRevisionId:'d'.repeat(64),acceptanceId:'acceptance:prior'};
+ await assert.rejects(()=>port.issue({...f,assignment:{...f.assignment,sourceResultRef:source}}),
+   /DRAFT_SOURCE_RESULT_SCOPE_CHANGED/);
+ assert.equal(r.calls.length,0);
+});

@@ -48,6 +48,7 @@
    requireValue(typeof existingText==='string' &&
      (!existingText.trim() || existingText===text),'CEN_REUSE_EDITOR_NOT_EMPTY');
    return {description:text,source:{taskId:source.taskId,taskRevisionId:source.taskRevisionId,
-     resultRevisionId:source.resultRevisionId,acceptanceId:source.acceptanceId},
+     resultRevisionId:source.resultRevisionId,acceptanceId:source.acceptanceId,
+     organizationId:source.organizationId,workspaceId:source.workspaceId},
      effect:'DRAFT_EDITOR_ONLY',newSignedTask:false,delivered:false};
  }

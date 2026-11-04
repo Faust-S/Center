@@ -88,3 +88,33 @@ test('work-level Atlas binding preserves exact plan edition during edits and rel
  f.run({...f.assignment,assignmentId:saved.id,expectedEditNumber:2,atlasRef:null});
  assert.equal(f.state.organizations[0].assignments[0].atlasRef,null);
 });
+
+test('signed Task preparation retains source applied Result IDs through local draft restart',()=>{
+  const f=fixture(),base=f.state.organizations[0];
+  const ref={organizationId:f.orgId,workspaceId:base.workspaces[0].id,
+    taskId:'task:prior',taskRevisionId:'a'.repeat(64),
+    resultRevisionId:'b'.repeat(64),acceptanceId:'acceptance:prior'};
+  f.run({...f.assignment,sourceResultRef:ref});
+  const before=f.state.organizations[0].assignments[0];
+  assert.deepEqual(decodeDraft(encodeDraft(f.state)).organizations[0].assignments[0].sourceResultRef,ref);
+  const signed=assignmentText(f.state.organizations[0],before);
+  assert.match(signed,/Previously applied Result reference/);
+  assert.match(signed,/acceptance:prior/);
+  f.run({...f.assignment,assignmentId:before.id,expectedEditNumber:1,title:'Updated work'});
+  assert.deepEqual(f.state.organizations[0].assignments[0].sourceResultRef,ref);
+  f.run({...f.assignment,assignmentId:before.id,expectedEditNumber:2,sourceResultRef:null});
+  assert.equal(f.state.organizations[0].assignments[0].sourceResultRef,null);
+});
+test('cross-org and unproven Result refs are rejected in local draft input',()=>{
+  const f=fixture(),base=f.state.organizations[0];
+  const ref={organizationId:f.orgId,workspaceId:base.workspaces[0].id,
+    taskId:'task:prior',taskRevisionId:'a'.repeat(64),
+    resultRevisionId:'b'.repeat(64),acceptanceId:'acceptance:prior'};
+  assert.throws(()=>f.run({...f.assignment,sourceResultRef:{...ref,organizationId:'other'}}),
+    /DRAFT_SOURCE_RESULT_SCOPE_CHANGED/);
+  assert.throws(()=>f.run({...f.assignment,sourceResultRef:{...ref,resultRevisionId:'invalid'}}),
+    /DRAFT_SOURCE_RESULT_REFERENCE_INVALID/);
+  assert.throws(()=>f.run({...f.assignment,sourceResultRef:{...ref,accepted:true}}),
+    /DRAFT_SOURCE_RESULT_REFERENCE_INVALID/);
+  assert.equal(f.state.organizations[0].assignments.length,0);
+});
