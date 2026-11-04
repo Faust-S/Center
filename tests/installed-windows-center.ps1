@@ -171,6 +171,19 @@ function Wait-SavedProject([int]$expectedWorkCount,[string]$organizationId='',
   }
   throw "Native Atlas did not persist $projectName / work count $expectedWorkCount in organization $organizationId"
 }
+function Wait-SavedDraftOrganizationCount([int]$count){
+  for($i=0;$i -lt 90;$i++){
+    if(Test-Path $localDraft){
+      try {
+        $current=Get-Content -LiteralPath $localDraft -Raw | ConvertFrom-Json -Depth 100
+        if(@($current.organizations).Count -eq $count -and
+           $current.activeOrganizationId){return $current}
+      } catch { }
+    }
+    Start-Sleep -Milliseconds 300
+  }
+  throw "Manager draft did not persist $count organizations"
+}
 function Select-OrganizationByKeyboard([string]$movement){
   # React's native organization select is the only selected corporate context.
   # WebView2 exposes the labeled <select> as a ComboBox to Windows UIA.
@@ -301,8 +314,7 @@ try {
   Type-Control 'Название' $expectedSecondOrganization
   Click-Control 'Создать черновик организации'
   Click-Control 'Сохранить на компьютере'
-  $twoOrgDraft=Get-Content -LiteralPath $localDraft -Raw | ConvertFrom-Json -Depth 100
-  if(@($twoOrgDraft.organizations).Count -ne 2){throw 'Second organization missing from saved manager draft'}
+  $twoOrgDraft=Wait-SavedDraftOrganizationCount 2
   $secondOrgId=[string]$twoOrgDraft.activeOrganizationId
   if(!$secondOrgId -or $secondOrgId -eq $saved.organizationId -or
      [string]$twoOrgDraft.organizations[0].id -ne $saved.organizationId -or

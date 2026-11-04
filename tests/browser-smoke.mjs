@@ -65,7 +65,13 @@ try{
   await page.reload();await page.getByTestId('open-draft').setInputFiles({name:'draft.json',mimeType:'application/json',buffer:Buffer.from(raw)});
   await page.getByTestId('nav-work').click();assert.equal(await page.getByTestId('assignment-row').count(),1);checks.push('reload-import-original-ids');
   await page.getByTestId('nav-resources').click();assert.ok(await page.getByText('Файл Atlas не открыт').isVisible());checks.push('atlas-preview-not-persisted-as-authority');
-  await page.getByTestId('open-draft').setInputFiles({name:'broken.json',mimeType:'application/json',buffer:Buffer.from('{broken')});assert.ok(await page.getByRole('alert').isVisible());await page.getByTestId('nav-work').click();assert.equal(await page.getByTestId('assignment-row').count(),1);checks.push('bad-file-preserves-open-work');
+  await page.getByTestId('open-draft').setInputFiles({name:'broken.json',mimeType:'application/json',buffer:Buffer.from('{broken')});
+  await page.getByRole('alert').waitFor({state:'visible'});
+  assert.match(await page.getByRole('alert').innerText(),/изменение не выполнено|проверьте поля|черновик|файл/i);
+  await page.getByTestId('nav-work').click();
+  assert.equal(await page.getByTestId('assignment-row').count(),1);
+  assert.equal(await page.getByTestId('assignment-row').first().locator('strong').innerText(),'Compare four suppliers');
+  checks.push('bad-file-preserves-open-work');
   await page.getByTestId('open-draft').setInputFiles({name:'draft.json',mimeType:'application/json',buffer:Buffer.from(raw)});
   await page.getByTestId('nav-resources').click();
   await page.getByTestId('atlas-import-file').setInputFiles({name:'north-project.json',mimeType:'application/json',buffer:Buffer.from(atlas)});
@@ -76,7 +82,7 @@ try{
   await page.getByTestId('create-org').click();
   await page.getByTestId('nav-resources').click();
   assert.equal(await page.getByTestId('atlas-project-count').count(),0);
-  assert.ok(await page.getByText('Откройте портфель Atlas',{exact:true}).isVisible());
+  await page.getByText('Откройте портфель Atlas',{exact:true}).waitFor({state:'visible'});
   await page.getByTestId('workspace-name').fill('South quality');
   await page.getByTestId('add-workspace').click();
   await page.getByTestId('nav-work').click();
