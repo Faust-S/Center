@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readAppliedResults,prepareAppliedReuse,verifyAppliedCommitReadback} from '../runtime/cen03-applied-results.mjs';
 import {createT3AdminPort} from '../runtime/t3-admin-port.mjs';
-import {canDecideReviewedResult,acceptedApplicationSelection} from '../runtime/cen03-review.mjs';
+import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint} from '../runtime/cen03-review.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64);
 const record={organizationId:'org:1',workspaceId:'workspace:1',taskId:'task:old',
@@ -166,5 +166,34 @@ test('CEN03 validates original T3 receipt against the same applied effect and Re
  ]){
    const copy=structuredClone(args);mutate(copy);
    assert.throws(()=>verifyAppliedCommitReadback(copy),/T3_APPLICATION_POSTCOMMIT_READBACK_HOLD/);
+ }
+});
+
+test('CEN03 manager session invalidates pending decisions across T3 context changes',()=>{
+ const s={status:'OWNER_READY',snapshot:{product:'admin',organizationId:'org:1',
+   workspaceId:'workspace:1',personId:'person:admin',contextEpoch:3,
+   productionActivation:true,T3_READY:true,selectedOperatorId:'operator:a'}};
+ const baseline=ownerSessionFingerprint(s,'org:1');
+ assert.equal(typeof baseline,'string');
+ assert.equal(ownerSessionFingerprint(s,'org:1'),baseline);
+ for(const change of [
+   x=>x.snapshot.organizationId='org:2',
+   x=>x.snapshot.workspaceId='workspace:other',
+   x=>x.snapshot.personId='person:other',
+   x=>x.snapshot.contextEpoch=4,
+   x=>x.snapshot.selectedOperatorId='operator:b'
+ ]){
+   const next=structuredClone(s);change(next);
+   assert.notEqual(ownerSessionFingerprint(next,'org:1'),baseline);
+ }
+ for(const change of [
+   x=>x.status='REFERENCE_ONLY',
+   x=>x.snapshot.productionActivation=false,
+   x=>x.snapshot.T3_READY=false,
+   x=>delete x.snapshot.workspaceId,
+   x=>x.snapshot.contextEpoch='3'
+ ]){
+   const invalid=structuredClone(s);change(invalid);
+   assert.equal(ownerSessionFingerprint(invalid,'org:1'),null);
  }
 });

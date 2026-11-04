@@ -47,6 +47,21 @@ export function acceptedApplicationSelection(review,packageSha256) {
   return {acceptanceId:review.receipt.acceptanceId,revisionIds};
 }
 
+// UI-only session identity over the existing organization-owner readback.
+// It never creates authority. A different operator, workspace, epoch or
+// activation status invalidates all transient manager decisions.
+export function ownerSessionFingerprint(view,organizationId) {
+  const s=view?.snapshot;
+  if(view?.status!=='OWNER_READY' || s?.product!=='admin' ||
+    s.organizationId!==organizationId ||
+    typeof s.workspaceId!=='string' || !s.workspaceId ||
+    typeof s.personId!=='string' || !s.personId ||
+    !Number.isSafeInteger(s.contextEpoch) ||
+    s.productionActivation!==true || s.T3_READY!==true) return null;
+  return JSON.stringify([s.organizationId,s.workspaceId,s.personId,
+    s.contextEpoch,s.selectedOperatorId??null]);
+}
+
 // CEN03: UI-facing delegation over existing T3 Reconciliation. No local
 // conflict classifier, no acceptance state machine, no independent Store.
 export function createCen03Review({runtime,snapshot,bind}) {

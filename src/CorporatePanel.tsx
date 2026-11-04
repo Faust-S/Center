@@ -1,6 +1,6 @@
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
-import {canDecideReviewedResult,acceptedApplicationSelection} from '../runtime/cen03-review.mjs';
+import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint} from '../runtime/cen03-review.mjs';
 
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
@@ -25,26 +25,40 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  const [reuseKey,setReuseKey]=useState('');
  const [reuseText,setReuseText]=useState('');
  const organizationId=organization.id;
- const ready=owner?.status==='OWNER_READY'&&owner.snapshot?.product==='admin'&&owner.snapshot?.organizationId===organizationId;
+ const requestRef=useRef(0),sessionRef=useRef<string|null>(null),actionRef=useRef(false);
+ const ready=ownerSessionFingerprint(owner,organizationId)!==null;
  const resetReview=()=>{setReview(null);setConsent(false);setRejectReason('');setPreview(null);setApplyConsent(false);setApplyDecided(false)};
+ const adoptOwner=(candidate:any)=>{
+   const fingerprint=ownerSessionFingerprint(candidate,organizationId);
+   if(fingerprint!==sessionRef.current){
+     sessionRef.current=fingerprint;
+     setHash('');setFile(null);setSelected('');setReuseKey('');setReuseText('');
+     resetReview();
+   }
+   const valid=fingerprint===null?null:candidate;
+   setOwner(valid);
+   return valid;
+ };
  const refresh=async()=>{
-   if(!invoke){setOwner(null);return null;}
+   const seq=++requestRef.current;
+   if(!invoke)return adoptOwner(null);
    try{
-     const result=await invoke('center_corporate_state',{organizationId});
-     if(result?.status==='OWNER_READY'&&result.snapshot?.product==='admin'&&
-       result.snapshot.organizationId===organizationId&&result.snapshot.workspaceId&&
-       Number.isSafeInteger(result.snapshot.contextEpoch)){setOwner(result);return result;}
-     setOwner(null);return null;
-   }catch{setOwner(null);return null;}
+     const next=await invoke('center_corporate_state',{organizationId});
+     return seq===requestRef.current?adoptOwner(next):null;
+   }catch{
+     return seq===requestRef.current?adoptOwner(null):null;
+   }
  };
  useEffect(()=>{
    let cancelled=false;
-   setOwner(null);setHash('');setError('');setNotice('');setReview(null);setPreview(null);
+   const seq=++requestRef.current;
+   adoptOwner(null);setError('');setNotice('');
    if(invoke)void invoke('center_corporate_state',{organizationId}).then(r=>{
-     if(!cancelled)setOwner(r?.status==='OWNER_READY'&&r.snapshot?.organizationId===organizationId&&
-       r.snapshot?.product==='admin'&&Number.isSafeInteger(r.snapshot.contextEpoch)&&r.snapshot.workspaceId?r:null);
-   }).catch(()=>{if(!cancelled)setOwner(null)});
-   return()=>{cancelled=true};
+     if(!cancelled&&seq===requestRef.current)adoptOwner(r);
+   }).catch(()=>{
+     if(!cancelled&&seq===requestRef.current)adoptOwner(null);
+   });
+   return()=>{cancelled=true;requestRef.current++};
  },[invoke,organizationId]);
  const execute=async(operation:string,input:Record<string,unknown>={})=>{
    if(!ready||!invoke)throw Error('CEN_OWNER_NOT_CONNECTED');
@@ -55,9 +69,13 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
    return r;
  };
  const act=async(success:string,fn:()=>Promise<void>)=>{
+   // The disabled React button alone is not an atomic guard against two
+   // quick event dispatches. Never dispatch Apply twice in one UI session.
+   if(actionRef.current)return;
+   actionRef.current=true;
    setBusy(true);setError('');setNotice('');
    try{await fn();setNotice(success)}catch(e){setError(why(e))}
-   finally{await refresh();setBusy(false)}
+   finally{await refresh();actionRef.current=false;setBusy(false)}
  };
  const applied=(()=>{
    if(!ready)return {status:'NOT_CONNECTED',records:[] as any[]};
@@ -98,7 +116,8 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
   </div>
   <div className="nested-form" data-testid="cen03-section">
    <h3>2. Result сотрудника и Review</h3>
-   <label>Полученный пакет .iwxa<input type="file" accept=".iwxa" onChange={e=>setFile(e.target.files?.[0]??null)}/></label>
+   <label>Полученный пакет .iwxa<input key={sessionRef.current??'unbound'}
+      type="file" accept=".iwxa" onChange={e=>setFile(e.target.files?.[0]??null)}/></label>
    <button className="secondary" data-testid="corporate-receive" disabled={!ready||!file||busy}
     onClick={()=>act('Пакет получен. Корпоративное принятие ещё не выполнено.',async()=>{
       if(!file||file.size===0||file.size>8*1024*1024)throw Error('T3_PACKAGE_SIZE_UNSUPPORTED');
