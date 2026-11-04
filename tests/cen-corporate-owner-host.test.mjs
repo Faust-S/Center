@@ -1,0 +1,60 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createCorporateOwnerHost} from '../runtime/cen-corporate-owner-host.mjs';
+
+const A='a'.repeat(64),B='b'.repeat(64);
+const binding={organizationId:'org:1',workspaceId:'work:1',contextEpoch:1};
+function owner(){
+ const calls=[];
+ const state={product:'admin',organizationId:'org:1',workspaceId:'work:1',
+   personId:'person:1',contextEpoch:1,task:{id:'task:1',taskRevisionId:B},
+   application:{status:'NOT_PRESENT',records:[],externalContextCoreApplied:false}};
+ return {product:'admin',state,calls,snapshot:()=>structuredClone(state),
+  taskBytes(){calls.push('taskBytes');return Buffer.from('owner-signed-carrier')},
+  receive(bytes){calls.push(['receive',Buffer.from(bytes)]);return {transportReceipt:{packageSha256:A,state:'RECEIVED'}}},
+  review(hash){calls.push(['review',hash]);return {preview:{packageSha256:hash,previewDigest:'preview'},verificationState:'VERIFIED'}},
+  decide(hash,input){calls.push(['decide',hash,input]);return {acceptanceState:'ACCEPTED'}},
+  close(){calls.push('close')}
+ };
+}
+test('CEN host dispatch delegates signed carrier and received result to source owner',async()=>{
+ const runtime=owner(),host=createCorporateOwnerHost({runtime});
+ const snapshot=host.state({organizationId:'org:1'});
+ assert.equal(snapshot.status,'OWNER_READY');
+ const bytes=await host.action({organizationId:'org:1',operation:'exportIssuedTask',
+   binding,input:{taskId:'task:1',taskRevisionId:B}});
+ assert.deepEqual(Buffer.from(bytes.bytes),Buffer.from('owner-signed-carrier'));
+ assert.equal(bytes.deliveryState,'NOT_CONFIRMED');
+ const receipt=await host.action({organizationId:'org:1',operation:'receive',
+   binding,input:{bytes:[80,75,3,4]}});
+ assert.equal(receipt.transportReceipt.packageSha256,A);
+ assert.deepEqual(runtime.calls.slice(0,2),['taskBytes',['receive',Buffer.from([80,75,3,4])]]);
+ const inspection=await host.action({organizationId:'org:1',operation:'inspect',
+   binding,input:{packageSha256:A}});
+ assert.equal(inspection.verificationState,'VERIFIED');
+ const accepted=await host.action({organizationId:'org:1',operation:'decide',
+   binding,input:{packageSha256:A,previewDigest:'preview',decision:'ACCEPT'}});
+ assert.equal(accepted.acceptanceState,'ACCEPTED');
+ assert.equal(runtime.calls.at(-1)[0],'decide');
+});
+test('CEN host rejects unverified organization, bytes, unknown action and issuance resolver absence',async()=>{
+ const runtime=owner(),host=createCorporateOwnerHost({runtime});
+ assert.throws(()=>host.state({organizationId:'org:2'}),/ORGANIZATION_MISMATCH/);
+ await assert.rejects(()=>host.action({organizationId:'org:2',operation:'receive',binding,
+   input:{bytes:[1]}}),/ORGANIZATION_MISMATCH/);
+ await assert.rejects(()=>host.action({organizationId:'org:1',operation:'receive',binding,
+   input:{bytes:[256]}}),/PACKAGE_BYTES_INVALID/);
+ await assert.rejects(()=>host.action({organizationId:'org:1',operation:'applyWithoutReview',binding}),
+   /OPERATION_NOT_SUPPORTED/);
+ await assert.rejects(()=>host.action({organizationId:'org:1',operation:'issue',binding,
+   input:{assignmentId:'draft:1'}}),/ASSIGNMENT_RESOLVER_REQUIRED/);
+ assert.deepEqual(runtime.calls,[]);
+});
+test('CEN host verifies authoritative assignment mapping before issue',async()=>{
+ const runtime=owner();
+ const host=createCorporateOwnerHost({runtime,resolveAssignment:async()=>({
+   organization:{id:'org:wrong'},assignment:{id:'draft:1'},binding})});
+ await assert.rejects(()=>host.action({organizationId:'org:1',operation:'issue',binding,
+   input:{assignmentId:'draft:1'}}),/ASSIGNMENT_MISMATCH/);
+ assert.deepEqual(runtime.calls,[]);
+});
