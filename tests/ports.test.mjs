@@ -15,7 +15,7 @@ function runtimeDouble() {
    application:{status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false}};
  return {product:'admin',snapshot:()=>structuredClone(state),calls,state,
    decide(...args){calls.push(args);return {acceptanceState:'ACCEPTED'};},
-   receive(){calls.push('RECEIVE');return {packageSha256:'a'.repeat(64)};},
+   receive(){calls.push('RECEIVE');return {transportReceipt:{state:'RECEIVED',packageSha256:'a'.repeat(64)},preview:{classification:'NEW_REVISION'}};},
    review(hash){calls.push('REVIEW');return {hash,acceptanceState:'PENDING'};},
    previewApplication(args){calls.push('PREVIEW_APPLICATION');return {args,writeAllowed:false};},
    decideApplication(){calls.push('DECIDE_APPLICATION');return {status:'APPLICATION_DECISION_RECORDED',writeAllowed:false};},
@@ -32,13 +32,28 @@ test('CEN02 receive and CEN03 review stay separate and never imply acceptance',(
  assert.throws(()=>port.inspect({bytes:Buffer.from('synthetic'),binding}),/T3_PACKAGE_SHA_REQUIRED/);
  assert.equal(runtime.calls.length,0);
  const ownerReceipt=port.receive({bytes:Buffer.from('contract-double'),binding});
- assert.equal(ownerReceipt.packageSha256,PACKAGE_SHA);
+ assert.equal(ownerReceipt.transportReceipt.packageSha256,PACKAGE_SHA);
+ assert.equal(ownerReceipt.transportReceipt.state,'RECEIVED');
+ assert.equal(ownerReceipt.acceptanceState,undefined);
  assert.equal(runtime.calls.length,1);
  assert.equal(runtime.calls[0],'RECEIVE');
- const preview=port.inspect({packageSha256:ownerReceipt.packageSha256,binding});
+ const preview=port.inspect({packageSha256:ownerReceipt.transportReceipt.packageSha256,binding});
  assert.equal(preview.acceptanceState,'PENDING');
  assert.equal(runtime.calls.length,2);
  assert.deepEqual(runtime.calls.slice(0,2),['RECEIVE','REVIEW']);
+});
+test('CEN02 requires the owning T3 nested transport receipt, including duplicate readback',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ const duplicate={transportReceipt:{state:'RECEIVED',packageSha256:PACKAGE_SHA},
+   preview:{classification:'DUPLICATE_ARCHIVE'}};
+ runtime.receive=()=>duplicate;
+ const received=port.receive({bytes:Buffer.from('synthetic signed carrier'),binding});
+ assert.equal(received,duplicate);
+ assert.equal(received.acceptanceState,undefined);
+ runtime.receive=()=>({packageSha256:PACKAGE_SHA});
+ assert.throws(()=>port.receive({bytes:Buffer.from('carrier'),binding}),/T3_RECEIPT_SHAPE_UNSUPPORTED/);
+ runtime.receive=()=>({transportReceipt:{packageSha256:'not-sha256'}});
+ assert.throws(()=>port.receive({bytes:Buffer.from('carrier'),binding}),/T3_RECEIPT_SHAPE_UNSUPPORTED/);
 });
 test('CEN03 application preview, explicit decision, commit and owner readback are distinct',()=>{
  const runtime=runtimeDouble(),port=createT3AdminPort(runtime);

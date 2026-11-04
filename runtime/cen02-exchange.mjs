@@ -45,8 +45,8 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
       requireValue(bytes instanceof Uint8Array,'T3_PACKAGE_BYTES_REQUIRED');
       requireValue(typeof runtime.receive==='function','T3_RECEIVE_NOT_CONNECTED');
       const receipt=runtime.receive(bytes);
-      requireValue(typeof receipt?.packageSha256==='string' &&
-        /^[a-f0-9]{64}$/.test(receipt.packageSha256),'T3_RECEIPT_SHAPE_UNSUPPORTED');
+      requireValue(typeof receipt?.transportReceipt?.packageSha256==='string' &&
+        /^[a-f0-9]{64}$/.test(receipt.transportReceipt.packageSha256),'T3_RECEIPT_SHAPE_UNSUPPORTED');
       // Return the original owner receipt. Receiving never accepts or applies.
       return receipt;
     }
