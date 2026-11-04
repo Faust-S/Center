@@ -9,12 +9,65 @@ function storeDouble() {let revision=0, bytes=null;return {read:()=>({revision,b
 test('repository delegates commit and obtains same bytes on readback',()=>{const repo=createDraftRepository(storeDouble()),data=emptyDraft('2026-11-04T00:00:00Z');const saved=repo.save(data,0);assert.equal(saved.revision,1);assert.deepEqual(repo.load().draft,data);assert.throws(()=>repo.save(data,0),/CONCURRENT_REVISION/);});
 test('failed write never reports persisted success',()=>{const repo=createDraftRepository({read:()=>({revision:0,bytes:null}),write(){throw Error('disk full');}});assert.throws(()=>repo.save(emptyDraft(),0),/disk full/);});
 test('readback mismatch is visible',()=>{const repo=createDraftRepository({read:()=>({revision:0,bytes:null}),write:()=>({revision:1})});assert.throws(()=>repo.save(emptyDraft(),0),/READBACK_MISMATCH/);});
-function runtimeDouble() {const calls=[];const state={organizationId:'org',workspaceId:'work',contextEpoch:1,personId:'person'};return {product:'admin',snapshot:()=>structuredClone(state),calls,state,decide(...args){calls.push(args);return {acceptanceState:'ACCEPTED'};},receive(){return {packageSha256:'abc'};},review(hash){return {hash,acceptanceState:'PENDING'};},previewApplication(args){return {args,writeAllowed:false};}};}
+function runtimeDouble() {
+ const calls=[];
+ const state={organizationId:'org',workspaceId:'work',contextEpoch:1,personId:'person',
+   application:{status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false}};
+ return {product:'admin',snapshot:()=>structuredClone(state),calls,state,
+   decide(...args){calls.push(args);return {acceptanceState:'ACCEPTED'};},
+   receive(){calls.push('RECEIVE');return {packageSha256:'a'.repeat(64)};},
+   review(hash){calls.push('REVIEW');return {hash,acceptanceState:'PENDING'};},
+   previewApplication(args){calls.push('PREVIEW_APPLICATION');return {args,writeAllowed:false};},
+   decideApplication(){calls.push('DECIDE_APPLICATION');return {status:'APPLICATION_DECISION_RECORDED',writeAllowed:false};},
+   commitApplication(){calls.push('COMMIT_APPLICATION');return {status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false};}
+ };
+}
 const binding={organizationId:'org',workspaceId:'work',contextEpoch:1};
+const PACKAGE_SHA='a'.repeat(64);
 test('acceptance uses owning runtime and does not imply application',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);const r=port.decide({packageSha256:'abc',previewDigest:'preview',decision:'ACCEPT',binding});assert.equal(r.acceptanceState,'ACCEPTED');assert.equal(runtime.calls.length,1);assert.deepEqual(runtime.calls[0],['abc',{previewDigest:'preview',decision:'ACCEPT',reason:''}]);assert.equal(r.applied,undefined);});
 test('context switch prevents a stale decision',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);runtime.state.contextEpoch++;assert.throws(()=>port.decide({decision:'ACCEPT',binding}),/CONTEXT_CHANGED/);assert.equal(runtime.calls.length,0);});
 test('return for changes is not silently substituted with rejection',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);assert.throws(()=>port.decide({decision:'CHANGES_REQUESTED',binding}),/RETURN_OPERATION_NOT_AVAILABLE/);assert.equal(runtime.calls.length,0);});
-test('inspection does not perform acceptance',()=>{const runtime=runtimeDouble();assert.equal(createT3AdminPort(runtime).inspect({bytes:Buffer.from('synthetic'),binding}).acceptanceState,'PENDING');assert.equal(runtime.calls.length,0);});
+test('CEN02 receive and CEN03 review stay separate and never imply acceptance',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ assert.throws(()=>port.inspect({bytes:Buffer.from('synthetic'),binding}),/T3_PACKAGE_SHA_REQUIRED/);
+ assert.equal(runtime.calls.length,0);
+ const ownerReceipt=port.receive({bytes:Buffer.from('contract-double'),binding});
+ assert.equal(ownerReceipt.packageSha256,PACKAGE_SHA);
+ assert.equal(runtime.calls.length,1);
+ assert.equal(runtime.calls[0],'RECEIVE');
+ const preview=port.inspect({packageSha256:ownerReceipt.packageSha256,binding});
+ assert.equal(preview.acceptanceState,'PENDING');
+ assert.equal(runtime.calls.length,2);
+ assert.deepEqual(runtime.calls.slice(0,2),['RECEIVE','REVIEW']);
+});
+test('CEN03 application preview, explicit decision, commit and owner readback are distinct',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ const preview=port.previewApplication({acceptanceId:'accepted',revisionIds:['rev1'],binding});
+ assert.equal(preview.writeAllowed,false);
+ assert.deepEqual(runtime.calls,['PREVIEW_APPLICATION']);
+ const decision=port.decideApplication({previewId:'preview-id',previewDigest:'preview-digest',binding});
+ assert.equal(decision.status,'APPLICATION_DECISION_RECORDED');
+ assert.deepEqual(runtime.calls,['PREVIEW_APPLICATION','DECIDE_APPLICATION']);
+ const committed=port.commitApplication({previewId:'preview-id',previewDigest:'preview-digest',binding});
+ assert.equal(committed.status,'LOCAL_ENCRYPTED_STORE_CONFIRMED');
+ assert.equal(committed.externalContextCoreApplied,false);
+ assert.deepEqual(runtime.calls,['PREVIEW_APPLICATION','DECIDE_APPLICATION','COMMIT_APPLICATION']);
+ assert.equal(port.applicationState({binding}).status,'LOCAL_ENCRYPTED_STORE_CONFIRMED');
+});
+test('stale organization context prevents receive, review and application commits',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ runtime.state.contextEpoch=2;
+ assert.throws(()=>port.receive({bytes:Buffer.from('test'),binding}),/T3_CONTEXT_CHANGED/);
+ assert.throws(()=>port.inspect({packageSha256:PACKAGE_SHA,binding}),/T3_CONTEXT_CHANGED/);
+ assert.throws(()=>port.commitApplication({previewId:'p',previewDigest:'d',binding}),/T3_CONTEXT_CHANGED/);
+ assert.deepEqual(runtime.calls,[]);
+});
+test('without the owning application runtime Center cannot claim an applied result',()=>{
+ const runtime=runtimeDouble();
+ delete runtime.commitApplication;
+ assert.throws(()=>createT3AdminPort(runtime).commitApplication({previewId:'p',previewDigest:'d',binding}),/T3_APPLY_NOT_CONNECTED/);
+ assert.deepEqual(runtime.calls,[]);
+});
 test('wrong runtime cannot be bound',()=>assert.throws(()=>createT3AdminPort({product:'control'}),/ADMIN_RUNTIME_REQUIRED/));
 
 function issueFixture() {
