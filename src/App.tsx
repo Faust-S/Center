@@ -1,4 +1,4 @@
-import React, {useRef, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
 import {readAtlasPortfolio, linkableAtlasProject, atlasLinkReadback} from './atlas-integration.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
@@ -36,6 +36,8 @@ async function nativeInvoke(command: string, args?: Record<string, unknown>): Pr
   return internal.invoke(command, args);
 }
 export default function App() {
+  const nativeHost = Boolean((window as any).__TAURI_INTERNALS__);
+  const [nativeRestoring,setNativeRestoring] = useState(nativeHost);
   const [state,setState] = useState<Draft>(() => emptyDraft() as Draft);
   const [page,setPage] = useState<Page>('overview');
   const [editor,setEditor] = useState<Editor|null>(null);
@@ -49,6 +51,20 @@ export default function App() {
   const [message,setMessage] = useState('');
   const [error,setError] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!nativeHost) return;
+    let cancelled=false;
+    nativeInvoke('center_draft_read_local').then((content: string|null)=>{
+      if(cancelled || content===null)return;
+      const restored=decodeDraft(content) as Draft;
+      setState(current=>current.organizations.length===0 ? restored : current);
+      setDirty(false);
+      setMessage('Открыты черновики с этого компьютера. Они не являются организационным реестром T3.');
+    }).catch((e: unknown)=>{
+      if(!cancelled)setError('Локальный черновик не открыт. Исходные данные сохранены: '+String(e));
+    }).finally(()=>{if(!cancelled)setNativeRestoring(false)});
+    return ()=>{cancelled=true};
+  }, []);
   const org = state.organizations.find(row => row.id === state.activeOrganizationId);
   const stats = overview(state);
   const title = pages.find(row => row[0] === page)![1];
@@ -83,26 +99,39 @@ export default function App() {
     command({type:'SELECT_ORGANIZATION',organizationId});
     setAtlasView(null);setAtlasSelected('');
   };
-  async function saveFile() {
-    if (editor) {setError('Сначала сохраните изменения из редактора поручения.'); return;}
+  async function exportFile() {
+    if (editor) {setError('Сначала сохраните изменения поручения.'); return;}
     try {
-      const content = encodeDraft(state);
-      if ((window as any).__TAURI_INTERNALS__) {
-        const saved = await nativeInvoke('save_draft_file',{content});
-        if (!saved) return;
+      const content=encodeDraft(state);
+      if (nativeHost) {
+        const exported=await nativeInvoke('save_draft_file',{content});
+        if(!exported)return;
       } else {
-        const url = URL.createObjectURL(new Blob([content],{type:'application/json'}));
-        const link = document.createElement('a');link.href=url;link.download='admin-center-draft.json';link.click();
+        const url=URL.createObjectURL(new Blob([content],{type:'application/json'}));
+        const link=document.createElement('a');link.href=url;link.download='admin-center-draft.json';link.click();
         setTimeout(()=>URL.revokeObjectURL(url),10000);
       }
-      setDirty(false);setMessage('Файл черновиков подготовлен. Это не пакет .iwxa и не полная резервная копия T3.');setError('');
-    } catch(e) {problem(e);}
+      if (!nativeHost)setDirty(false);
+      setError('');
+      setMessage('Файл черновиков экспортирован. Это не .iwxa и не резервная копия организации.');
+    } catch(e){problem(e);}
+  }
+  async function saveFile() {
+    if (editor) {setError('Сначала сохраните изменения поручения.'); return;}
+    if(!nativeHost){await exportFile();return;}
+    try {
+      const content=encodeDraft(state);
+      const saved=await nativeInvoke('center_draft_save_local',{content});
+      if(!saved)throw Error('Не удалось сохранить черновик');
+      setDirty(false);setError('');
+      setMessage('Черновики сохранены на этом компьютере. Подписанные полномочия T3 пока не подключены.');
+    } catch(e){problem(e);}
   }
   async function readDraft(raw: string) {
     try {
       const next = decodeDraft(raw) as Draft;
       if ((dirty || editor) && !window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.')) return;
-      setState(next);setAtlasView(null);setAtlasSelected('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
+      setState(next);setDirty(nativeHost);setAtlasView(null);setAtlasSelected('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
     } catch(e) {problem(e);}
   }
   async function openFile() {
@@ -124,6 +153,7 @@ export default function App() {
     <button className="primary" data-testid="create-org">Создать черновик организации</button>
   </form>;
 
+  if(nativeRestoring)return <div className="app"><main className="main"><div className="card padded" role="status">Открываем сохранённую работу...</div></main></div>;
   return <div className={`app ${menuOpen?'menu-open':''}`}>
     <aside className="sidebar" aria-label="Основная навигация">
       <div className="brand"><div><strong>IWXA</strong><small>Admin Center</small></div><span className="version">0.1</span></div>
@@ -139,7 +169,7 @@ export default function App() {
     </aside>
 
     <main className="main">
-      <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb">{org?.name??'Начало работы'} <span>/ {title}</span></div><button className="secondary top-save" onClick={saveFile} disabled={!org}>Сохранить файл</button></header>
+      <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb">{org?.name??'Начало работы'} <span>/ {title}</span></div><button className="secondary top-save" onClick={saveFile} disabled={!org}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
       <div className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ ОРГАНИЗАЦИЕЙ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>
       {error && <div className="notice error" role="alert">{error}</div>}
       {message && <div className="notice" role="status">{message}</div>}
@@ -216,10 +246,10 @@ export default function App() {
         {!org.participants.length && <Empty title="Сначала добавьте сотрудников" text="Для каждого сотрудника можно подготовить план доступа к Personal Agent."/>}
         <div className="notice subdued">Разделение ответственности: Publisher выпускает программные лицензии и издательские статусы; Admin Center распределяет подтверждённые места организации и управляет организационными полномочиями. Ни одна кнопка здесь пока не активирует программу.</div>
       </section>}
-      {org && page==='data' && <section className="card padded"><h2>Черновики и защищённый обмен</h2><p>Сохраните рабочие черновики перед закрытием. Для поручений и результатов в полном выпуске используется существующий подписанный обмен IWXA с шифрованием age для выбранных получателей.</p><div className="actions"><button className="primary" onClick={saveFile}>Сохранить черновики в файл</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button></div><div className="notice subdued">Этот JSON сохраняет только черновики. Это не .iwxa и не .iwxa.age, в нём нет ключей или решений. Шифрование, получение и восстановление организационных пакетов подключаются к действующему механизму T3 и пока не доступны в интерфейсе.</div></section>}
+      {org && page==='data' && <section className="card padded"><h2>Черновики и защищённый обмен</h2><p>Сохраните рабочие черновики перед закрытием. Для поручений и результатов в полном выпуске используется существующий подписанный обмен IWXA с шифрованием age для выбранных получателей.</p><div className="actions"><button className="primary" onClick={saveFile}>{nativeHost?'Сохранить локально':'Сохранить файл черновиков'}</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button>{nativeHost&&<button className="secondary" onClick={exportFile}>Экспортировать JSON</button>}</div><div className="notice subdued">Локальное сохранение и экспорт содержат только подготовительные черновики. Это не .iwxa и не .iwxa.age, в них нет ключей или принятых решений. Шифрование, получение и восстановление организационных пакетов подключаются к действующему механизму T3 и пока не доступны в интерфейсе.</div></section>}
       {!org && <div className="landing-actions"><button className="secondary" onClick={openFile}>Открыть файл черновиков</button><p className="muted">Работа руководителя связана с Atlas и Personal Agent сотрудников. Сейчас доступна подготовка структуры, без реальной отправки поручений.</p></div>}
       <input ref={fileInput} type="file" accept=".json,application/json" hidden data-testid="open-draft" onChange={async e=>{const file=e.target.files?.[0];if(file)await readDraft(await file.text());e.target.value='';}}/>
-      <footer className="footer"><span>IWXA Admin Center · 0.1.0-dev.1</span><span>{dirty||editor?'Есть несохранённые изменения':'Черновик в текущем окне'}</span></footer>
+      <footer className="footer"><span>IWXA Admin Center · 0.1.0-dev.1</span><span>{dirty||editor?'Есть несохранённые изменения':nativeHost?'Локальный черновик открыт':'Черновик в текущем окне'}</span></footer>
     </main>
     <aside className="inspector" aria-label="Контекст работы руководителя"><div className="eyebrow">КОНТЕКСТ РУКОВОДИТЕЛЯ</div><h2>{org?.name??'Ваша организация'}</h2><p className="muted">{org?'Работа относится только к выбранной организации.':'Создайте группу или организацию и подготовьте первые поручения.'}</p><div className="inspector-card"><strong>Следующий шаг</strong><p>{!org?'Укажите название организации.':!org.workspaces.length?'Добавьте рабочую область и свяжите план Atlas.':!org.participants.length?'Добавьте сотрудников и запланируйте доступ к Personal Agent.':!org.assignments.length?'Подготовьте поручение для сотрудника.':'Проверьте связь с планом и критерии результата.'}</p></div><div className="inspector-card"><strong>Текущий этап</strong><p>Подготовка структуры и поручений.</p><small>В полном выпуске Admin Center управляет корпоративными правами, пакетами и приёмкой через существующие механизмы уровня T3.</small></div></aside>
   </div>;

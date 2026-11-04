@@ -37,6 +37,54 @@ fn center_atlas_commit(
     commit_root(&center_atlas_root(&app, &organization_id)?, &expected_generation, snapshot)
 }
 
+// Preparation drafts are explicitly NOT organizational records, grants,
+// credentials or a backup. Existing Atlas atomic file publication is reused;
+// authoritative organization state will be migrated only through T3 Store.
+const CENTER_DRAFT_LIMIT: usize = 8 * 1024 * 1024;
+fn center_draft_root(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(path_for(app)?.join("preparation"))
+}
+fn center_draft_validate(content: &str) -> Result<(), String> {
+    if content.len() > CENTER_DRAFT_LIMIT {
+        return Err("Черновик превышает допустимый размер".into());
+    }
+    let parsed: Value = serde_json::from_str(content)
+        .map_err(|_| "Файл черновика повреждён".to_string())?;
+    if parsed.get("format").and_then(Value::as_str) != Some("iwxa.admin-center.draft")
+        || parsed.get("version").and_then(Value::as_u64) != Some(1)
+        || !parsed.get("organizations").is_some_and(Value::is_array) {
+        return Err("Это не файл черновиков Admin Center".into());
+    }
+    Ok(())
+}
+fn center_draft_save_root(root: &Path, content: &str) -> Result<(), String> {
+    center_draft_validate(content)?;
+    let _guard = lock(root)?;
+    publish(root, &root.join("draft.json"), content.as_bytes())
+}
+fn center_draft_read_root(root: &Path) -> Result<Option<String>, String> {
+    let _guard = lock(root)?;
+    let path = root.join("draft.json");
+    if !path.exists() { return Ok(None); }
+    let bytes = read_limited(&path)?;
+    if bytes.len() > CENTER_DRAFT_LIMIT {
+        return Err("Сохранённый черновик превышает допустимый размер".into());
+    }
+    let content = String::from_utf8(bytes)
+        .map_err(|_| "Сохранённый черновик повреждён".to_string())?;
+    center_draft_validate(&content)?;
+    Ok(Some(content))
+}
+#[tauri::command]
+fn center_draft_save_local(app: AppHandle, content: String) -> Result<bool, String> {
+    center_draft_save_root(&center_draft_root(&app)?, &content)?;
+    Ok(true)
+}
+#[tauri::command]
+fn center_draft_read_local(app: AppHandle) -> Result<Option<String>, String> {
+    center_draft_read_root(&center_draft_root(&app)?)
+}
+
 // Legacy draft-file operations remain separate from Atlas native persistence.
 // A draft is never automatically promoted to a corporate signed operation.
 #[tauri::command]
@@ -64,7 +112,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            save_draft_file, open_draft_file, center_atlas_open, center_atlas_commit
+            save_draft_file, open_draft_file, center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit
         ])
         .run(tauri::generate_context!())
         .expect("Admin Center could not start");
@@ -157,6 +205,26 @@ mod center_atlas_integration_tests {
             }
             other => panic!("Unknown qualification phase: {other:?}"),
         }
+    }
+
+    #[test]
+    fn preparation_draft_survives_reopen_without_pretending_to_be_t3_grant() {
+        let base = scratch();
+        let path = base.join("preparation");
+        let valid = serde_json::json!({
+            "format": "iwxa.admin-center.draft", "version": 1,
+            "organizations": [], "activeOrganizationId": null,
+            "updatedAt": "2026-11-04T00:00:00.000Z"
+        }).to_string();
+        assert!(center_draft_read_root(&path).unwrap().is_none());
+        center_draft_save_root(&path, &valid).unwrap();
+        let reopened = center_draft_read_root(&path).unwrap().unwrap();
+        assert_eq!(reopened, valid);
+        assert!(center_draft_save_root(&path, "{\"format\":\"fake\"}").is_err());
+        assert_eq!(center_draft_read_root(&path).unwrap().unwrap(), valid);
+        assert!(center_draft_save_root(&path, &"x".repeat(CENTER_DRAFT_LIMIT + 1)).is_err());
+        assert_eq!(center_draft_read_root(&path).unwrap().unwrap(), valid);
+        let _ = fs::remove_dir_all(base);
     }
 
 }

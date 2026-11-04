@@ -89,6 +89,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
           "$($installer.Name) SHA256=$($sha.Hash) SIZE=$($installer.Length)" | Set-Content "artifacts/installer-sha256.txt"
           Write-Host "OFFLINE_NSIS_BUNDLE_READY: $($installer.Name), size=$($installer.Length), SHA256=$($sha.Hash)"
+      - name: Qualify installed Windows GUI Atlas and manager draft persistence
+        shell: pwsh
+        timeout-minutes: 5
+        run: ./tests/installed-windows-center.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -97,5 +101,7 @@ jobs:
             src-tauri/target/release/iwxa-admin-center.exe
             src-tauri/target/release/bundle/nsis/*.exe
             artifacts/installer-sha256.txt
+            artifacts/installed-gui-result.json
+            artifacts/installed-gui-failure.png
             src-tauri/Cargo.lock
             package-lock.json
