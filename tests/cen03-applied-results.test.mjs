@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
 import {createT3AdminPort} from '../runtime/t3-admin-port.mjs';
+import {canDecideReviewedResult,acceptedApplicationSelection} from '../runtime/cen03-review.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64);
 const record={organizationId:'org:1',workspaceId:'workspace:1',taskId:'task:old',
@@ -79,4 +80,50 @@ test('CEN03 rechecks owner context after reading application snapshot',()=>{
  const owner={product:'admin',snapshot(){const s=snapshot();s.contextEpoch=epoch;epoch++;return s;}};
  const port=createT3AdminPort(owner);
  assert.throws(()=>port.reusableResults({binding}),/CONTEXT_CHANGED/);
+});
+
+const H='d'.repeat(64),REV='e'.repeat(64),DIGEST='f'.repeat(64);
+function reviewed(state='PENDING'){
+  return {verificationState:'VERIFIED',reviewLedgerConsistent:true,
+    taskBinding:{proven:true,taskRevisionId:A},
+    preview:{packageSha256:H,previewDigest:DIGEST,
+      allowedAction:state==='PENDING'?'EXPLICIT_ACCEPT_ONLY':'ALREADY_DECIDED'},
+    receipt:state==='PENDING'?null:
+      {packageSha256:H,acceptanceState:state,acceptanceId:'acceptance:verified'},
+    changes:[{operation:'UPSERT',revisionId:REV}],
+    revisionCurrentness:[{revisionId:REV,
+      currentness:state==='ACCEPTED'?'CURRENT_BOUNDED':'NOT_ACCEPTED',
+      eligibleForLocalInterpretation:state==='ACCEPTED',
+      protectedActionAuthorized:false}]};
+}
+test('CEN03 UI only permits explicit decisions before a persisted receipt',()=>{
+ const pending=reviewed();
+ assert.equal(canDecideReviewedResult(pending,H,'ACCEPT'),true);
+ assert.equal(canDecideReviewedResult(pending,H,'REJECT'),true);
+ assert.equal(acceptedApplicationSelection(pending,H),null);
+ assert.equal(canDecideReviewedResult(pending,'0'.repeat(64),'ACCEPT'),false);
+ assert.equal(canDecideReviewedResult(pending,H,'CHANGES_REQUESTED'),false);
+ const accepted=reviewed('ACCEPTED');
+ assert.equal(canDecideReviewedResult(accepted,H,'ACCEPT'),false);
+ assert.equal(canDecideReviewedResult(accepted,H,'REJECT'),false);
+ assert.deepEqual(acceptedApplicationSelection(accepted,H),{
+   acceptanceId:'acceptance:verified',revisionIds:[REV]});
+ assert.equal(acceptedApplicationSelection(reviewed('REJECTED'),H),null);
+});
+test('CEN03 UI never enables Apply from stale, untrusted or mismatched review evidence',()=>{
+ const valid=reviewed('ACCEPTED');
+ const withPatch=(mutate)=>{const copy=structuredClone(valid);mutate(copy);return copy};
+ const invalid=[
+  withPatch(x=>x.verificationState='UNTRUSTED'),
+  withPatch(x=>x.reviewLedgerConsistent=false),
+  withPatch(x=>x.taskBinding.proven=false),
+  withPatch(x=>x.receipt.packageSha256='0'.repeat(64)),
+  withPatch(x=>x.revisionCurrentness[0].currentness='UNKNOWN_EVIDENCE'),
+  withPatch(x=>x.revisionCurrentness[0].eligibleForLocalInterpretation=false),
+  withPatch(x=>x.revisionCurrentness[0].protectedActionAuthorized=true),
+  withPatch(x=>x.revisionCurrentness=[]),
+  withPatch(x=>x.changes.push({...x.changes[0]}))
+ ];
+ for(const bad of invalid)assert.equal(acceptedApplicationSelection(bad,H),null);
+ assert.equal(acceptedApplicationSelection(valid,'0'.repeat(64)),null);
 });

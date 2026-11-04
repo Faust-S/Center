@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
+import {canDecideReviewedResult,acceptedApplicationSelection} from '../runtime/cen03-review.mjs';
 
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
@@ -64,13 +65,9 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  })();
  const records=applied.records as any[];
  const chosen=records.find(r=>r.taskId+'|'+r.resultRevisionId===reuseKey);
- const revisionIds=(review?.changes??[]).filter((r:any)=>r.operation==='UPSERT'&&hex.test(r.revisionId)).map((r:any)=>r.revisionId) as string[];
- const current=review?.reviewLedgerConsistent===true&&revisionIds.length>0&&revisionIds.every(id=>{
-   const x=review.revisionCurrentness?.find((r:any)=>r.revisionId===id);
-   return x?.currentness==='CURRENT_BOUNDED'&&x.eligibleForLocalInterpretation===true;
- });
- const canApply=ready&&review?.receipt?.acceptanceState==='ACCEPTED'&&
-   review.preview?.packageSha256===hash&&current&&owner.snapshot?.application?.status!=='HOLD_FOR_EXPLICIT_RECOVERY';
+ const acceptedSelection=acceptedApplicationSelection(review,hash);
+ const canApply=ready&&!!acceptedSelection&&
+   owner.snapshot?.application?.status!=='HOLD_FOR_EXPLICIT_RECOVERY';
  return <section className="card padded" data-testid="corporate-panel">
   <div className="section-head"><h2>Поручения и корпоративная приёмка</h2><button className="secondary" disabled={busy} onClick={()=>act('Состояние перечитано.',async()=>{await refresh();resetReview()})}>Обновить</button></div>
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
@@ -124,16 +121,36 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
     <p>Подпись: {review.verificationState??'не подтверждена'} · тип: {review.preview?.classification??'неизвестен'}</p>
     <p>Task revision: {review.taskBinding?.proven?review.taskBinding.taskRevisionId:'не доказана'} · конфликт: {review.causalReview?.classification??'нет сведений'}</p>
     <p>Приёмка: {review.receipt?.acceptanceState??'ожидается'}. ACCEPT не означает Apply.</p>
+    {review.receipt?.acceptanceState==='ACCEPTED'&&
+      <p data-testid="corporate-apply-readiness">{acceptedSelection
+        ? 'Принятая редакция подтверждена повторным Review. Применение требует отдельного решения.'
+        : 'Решение ACCEPT существует, но актуальность редакции для применения не подтверждена.'}</p>}
     <label><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> Я проверил пакет и подтверждаю решение</label>
     <div className="actions">
-     <button className="primary" data-testid="corporate-accept" disabled={!ready||busy||!consent||review.preview?.allowedAction!=='EXPLICIT_ACCEPT_ONLY'||review.reviewLedgerConsistent!==true}
+     <button className="primary" data-testid="corporate-accept" disabled={!ready||busy||!consent||!canDecideReviewedResult(review,hash,'ACCEPT')}
       onClick={()=>act('ACCEPT сохранён отдельно, применения ещё не было.',async()=>{
-       await execute('decide',{packageSha256:hash,previewDigest:review.preview.previewDigest,decision:'ACCEPT'});
+       const decision=await execute('decide',{packageSha256:hash,previewDigest:review.preview.previewDigest,decision:'ACCEPT'});
+       if(decision.acceptanceState!=='ACCEPTED')throw Error('T3_ACCEPT_RECEIPT_NOT_CONFIRMED');
        resetReview();
+       // Just as in the verified T3 reference UI: ACCEPT -> fresh owner
+       // review. Only the new receipt and revision observation can permit Apply.
+       const confirmed=await execute('inspect',{packageSha256:hash});
+       if(confirmed.receipt?.acceptanceState!=='ACCEPTED'||
+         confirmed.receipt?.packageSha256!==hash||
+         confirmed.preview?.packageSha256!==hash)
+         throw Error('T3_ACCEPT_READBACK_NOT_CONFIRMED');
+       setReview(confirmed);
       })}>ACCEPT</button>
-     <button className="secondary" disabled={!ready||busy||!consent||!review.preview?.previewDigest}
+     <button className="secondary" data-testid="corporate-reject" disabled={!ready||busy||!consent||!canDecideReviewedResult(review,hash,'REJECT')}
       onClick={()=>act('REJECT сохранён отдельно.',async()=>{
-       await execute('decide',{packageSha256:hash,previewDigest:review.preview.previewDigest,decision:'REJECT'});resetReview();
+       const decision=await execute('decide',{packageSha256:hash,previewDigest:review.preview.previewDigest,decision:'REJECT'});
+       if(decision.acceptanceState!=='REJECTED')throw Error('T3_REJECT_RECEIPT_NOT_CONFIRMED');
+       resetReview();
+       const confirmed=await execute('inspect',{packageSha256:hash});
+       if(confirmed.receipt?.acceptanceState!=='REJECTED'||
+         confirmed.receipt?.packageSha256!==hash)
+         throw Error('T3_REJECT_READBACK_NOT_CONFIRMED');
+       setReview(confirmed);
       })}>REJECT</button>
     </div>
    </div>}
@@ -143,7 +160,9 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
    <p>Текущее состояние Store/Journal: {owner?.snapshot?.application?.status??'нет сведений'}</p>
    <button className="secondary" data-testid="corporate-apply-preview" disabled={!canApply||busy} onClick={()=>act('Предварительный просмотр без записи.',async()=>{
      setPreview(null);setApplyConsent(false);setApplyDecided(false);
-     const r=await execute('previewApplication',{acceptanceId:review.receipt.acceptanceId,revisionIds});
+     const selected=acceptedApplicationSelection(review,hash);
+     if(!selected)throw Error('T3_APPLICATION_SOURCE_NOT_CURRENT');
+     const r=await execute('previewApplication',selected);
      if(r.status==='ALREADY_COMMITTED_NO_WRITE')return;
      if(!r.previewId||!r.previewDigest)throw Error('T3_APPLICATION_PREVIEW_REQUIRED');
      setPreview(r);
