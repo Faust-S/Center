@@ -66,3 +66,14 @@ export function atlasLinkReadback(view, link) {
   if (!p) return 'PROJECT_MISSING_IN_SOURCE';
   return String(link.revision) === view.revision ? 'SOURCE_REVISION_MATCHES' : 'SOURCE_REVISION_CHANGED';
 }
+
+// Observes only the opened canonical Atlas source; no T3 authority is inferred.
+// Historical references are never rewritten by this read-only comparison.
+export function atlasWorkReadback(view,ref) {
+  if(!ref?.workId)return 'WORK_NOT_LINKED';
+  if(!view)return 'NOT_OBSERVED';
+  const project=view.projects.find(p=>p.id===ref.projectId);
+  if(!project)return 'PROJECT_MISSING_IN_SOURCE';
+  if(!project.workItems.some(w=>w.id===ref.workId))return 'WORK_MISSING_IN_SOURCE';
+  return String(view.revision)===String(ref.revision) ? 'SOURCE_REVISION_MATCHES' : 'SOURCE_REVISION_CHANGED';
+}

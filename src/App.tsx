@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
-import {readAtlasPortfolio, linkableAtlasProject, linkableAtlasWork, atlasLinkReadback} from './atlas-integration.mjs';
+import {readAtlasPortfolio, linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback} from './atlas-integration.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import './style.css';
 
@@ -13,6 +13,14 @@ type AtlasPortfolioView = {source:string;revision:string;authorization:string;mo
 type Editor = {assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
 type Page = 'overview'|'work'|'results'|'resources'|'people'|'programs'|'data';
 const pages: [Page, string, string][] = [['overview','Обзор','◫'],['resources','Планы Atlas','◇'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['programs','Personal Agent и лицензии','▦'],['data','Данные и настройки','⚙']];
+const workStatusLabels:Record<string,string>={
+  NOT_OBSERVED:'Источник Atlas не открыт - редакция не проверена.',
+  WORK_NOT_LINKED:'В поручении пока не выбрана работа Atlas.',
+  PROJECT_MISSING_IN_SOURCE:'Проект отсутствует в открытом Atlas.',
+  WORK_MISSING_IN_SOURCE:'Работа отсутствует в открытом проекте.',
+  SOURCE_REVISION_CHANGED:'План Atlas изменился - проверьте связь перед выдачей.',
+  SOURCE_REVISION_MATCHES:'Работа и редакция совпадают с открытым Atlas. Права T3 не проверены.'
+};
 const initialEditor = (org: Organization): Editor => ({title:'', workspaceId: org.workspaces[0]?.id ?? '', assigneeId: org.participants[0]?.id ?? '', reviewerId: org.participants[1]?.id ?? org.participants[0]?.id ?? '', description:'', criteria:'', dueDate:'', priority:'normal',atlasRef:org.workspaces[0]?.atlasRef??null});
 const errors: Record<string,string> = {
   DRAFT_FORMAT_INVALID:'Это не файл черновиков Admin Center.',
@@ -47,6 +55,7 @@ export default function App() {
   const [menuOpen,setMenuOpen] = useState(false);
   const [dirty,setDirty] = useState(false);
   const [atlasView,setAtlasView] = useState<AtlasPortfolioView|null>(null);
+  const [nativeAtlas,setNativeAtlas] = useState<{organizationId:string;view:AtlasPortfolioView}|null>(null);
   const [atlasSelected,setAtlasSelected] = useState('');
   const [atlasWorkspace,setAtlasWorkspace] = useState('');
   const atlasInput = useRef<HTMLInputElement>(null);
@@ -68,6 +77,7 @@ export default function App() {
     return ()=>{cancelled=true};
   }, []);
   const org = state.organizations.find(row => row.id === state.activeOrganizationId);
+  const observedAtlas = nativeAtlas?.organizationId===org?.id ? nativeAtlas.view : atlasView;
   const stats = overview(state);
   const title = pages.find(row => row[0] === page)![1];
 
@@ -96,6 +106,10 @@ export default function App() {
   });
   const prepareAtlasWork = (ref: AtlasRef) => {
     if (!org) return;
+    if (editor) {
+      setError('Сохраните или закройте открытый редактор перед выбором другой работы Atlas.');
+      return;
+    }
     const workspace=org.workspaces.find(w=>w.atlasRef?.projectId===ref.projectId && w.atlasRef?.revision===ref.revision);
     if (!workspace) {
       setError('Сначала свяжите рабочую область с этой редакцией проекта Atlas.');
@@ -114,7 +128,7 @@ export default function App() {
   const selectOrg = (organizationId: string) => {
     if (editor) {setError('Сохраните или закройте открытый редактор поручения перед сменой организации.'); return;}
     command({type:'SELECT_ORGANIZATION',organizationId});
-    setAtlasView(null);setAtlasSelected('');
+    setAtlasView(null);setAtlasSelected('');setNativeAtlas(null);
   };
   async function exportFile() {
     if (editor) {setError('Сначала сохраните изменения поручения.'); return;}
@@ -148,7 +162,7 @@ export default function App() {
     try {
       const next = decodeDraft(raw) as Draft;
       if ((dirty || editor) && !window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.')) return;
-      setState(next);setDirty(nativeHost);setAtlasView(null);setAtlasSelected('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
+      setState(next);setDirty(nativeHost);setAtlasView(null);setNativeAtlas(null);setAtlasSelected('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
     } catch(e) {problem(e);}
   }
   async function openFile() {
@@ -198,14 +212,14 @@ export default function App() {
           {[['Рабочие области',stats.workspaces],['Участники',stats.participants],['Черновики поручений',stats.drafts]].map(([label,value])=><div className="card metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}
         </div>
         <section className="card padded"><div className="section-head"><h2>Продолжить работу</h2><button className="quiet" onClick={()=>go('work')}>Все поручения →</button></div>
-          {!org.assignments.length ? <Empty title="Пока нет поручений" text="Создайте рабочую область и подготовьте первое поручение с критериями результата."/> : org.assignments.slice(-4).reverse().map(a=><AssignmentRow key={a.id} item={a} org={org} onClick={()=>startAssignment(a)}/>)}
+          {!org.assignments.length ? <Empty title="Пока нет поручений" text="Создайте рабочую область и подготовьте первое поручение с критериями результата."/> : org.assignments.slice(-4).reverse().map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}
         </section>
       </>}
 
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает общую картину проектов и зависимостей. Здесь руководитель связывает рабочую область с конкретной редакцией плана. Пока это только черновая ссылка - подключение Atlas ещё не проверено.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span></div>)}
-        <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork}/>
+        <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>setNativeAtlas(view?{organizationId:id,view}:null)}/>
         <div className="card nested-form" data-testid="atlas-link-panel">
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
           <p className="muted">Откройте файл портфеля из Atlas. Admin Center читает настоящую модель Atlas и показывает проекты, работы и зависимости. Данные проекта не копируются в корпоративные черновики.</p>
@@ -257,8 +271,16 @@ export default function App() {
           <p className="muted" data-testid="assignment-atlas-binding">{editor.atlasRef
             ? `Черновая связь: проект ${editor.atlasRef.projectId}, редакция ${editor.atlasRef.revision}${editor.atlasRef.workId?', работа '+editor.atlasRef.workId:''}. При редактировании редакция не меняется автоматически.`
             : 'Для полного маршрута свяжите рабочую область с проектом Atlas.'}</p>
+          <p className="muted" data-testid="assignment-atlas-currentness">{workStatusLabels[atlasWorkReadback(observedAtlas,editor.atlasRef)]}</p>
+          {editor.atlasRef?.workId && observedAtlas &&
+            atlasWorkReadback(observedAtlas,editor.atlasRef)==='SOURCE_REVISION_CHANGED' &&
+            <button type="button" className="secondary" data-testid="refresh-assignment-atlas"
+              onClick={()=>setEditor(old=>old?.atlasRef?.workId ? {...old,
+                atlasRef:linkableAtlasWork(observedAtlas,old.atlasRef.projectId,old.atlasRef.workId)} : old)}>
+              Привязать к открытой редакции плана
+            </button>}
           <div className="form-footer"><span className="muted">Выдача через T3 пока не выполняется.</span><button className="primary" data-testid="save-assignment">Сохранить черновик</button></div>
-        </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
+        </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 
       {org && page==='results' && <section className="card padded"><Empty title="Приёмка результатов сотрудников готовится" text="Сотрудник передаёт результат из Personal Agent. Руководитель проверяет его и принимает решение. Подписанный обмен и приёмка пока не подключены."/><div className="flow"><span>Получить из Personal Agent</span><span>Проверить</span><span>Принять или вернуть</span><span>Использовать в организации</span></div></section>}
@@ -277,4 +299,7 @@ export default function App() {
   </div>;
 }
 function Empty({title,text}:{title:string;text:string}) {return <div className="empty"><span className="empty-icon" aria-hidden="true">◇</span><h3>{title}</h3><p>{text}</p></div>;}
-function AssignmentRow({item,org,onClick}:{item:Assignment;org:Organization;onClick:()=>void}) {return <button className="assignment-row" onClick={onClick} data-testid="assignment-row"><span className="task-mark">▤</span><span className="row-content"><strong>{item.title}</strong><small>{org.participants.find(p=>p.id===item.assigneeId)?.name??'Исполнитель не выбран'} · {item.dueDate||'Без срока'}</small></span><span className="status neutral">Черновик {item.editNumber}</span><span aria-hidden="true">›</span></button>;}
+function AssignmentRow({item,org,atlasView,onClick}:{item:Assignment;org:Organization;atlasView:AtlasPortfolioView|null;onClick:()=>void}) {
+ const status=atlasWorkReadback(atlasView,item.atlasRef);
+ return <button className="assignment-row" onClick={onClick} data-testid="assignment-row"><span className="task-mark">▤</span><span className="row-content"><strong>{item.title}</strong><small>{org.participants.find(p=>p.id===item.assigneeId)?.name??'Исполнитель не выбран'} · {item.dueDate||'Без срока'}</small><small className="muted" data-testid="assignment-atlas-status">{workStatusLabels[status]}</small></span><span className="status neutral">Черновик {item.editNumber}</span><span aria-hidden="true">›</span></button>;
+}

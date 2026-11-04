@@ -6,8 +6,8 @@ import {linkableAtlasProject,linkableAtlasWork} from './atlas-integration.mjs';
 const isDesktop=()=>Boolean((window as any).__TAURI_INTERNALS__);
 const invoke=(name:string,args:any)=>(window as any).__TAURI_INTERNALS__.invoke(name,args);
 type Session={organizationId:string;generation:string;snapshot:any};
-type View={source:string;revision:string;mode:string;authorization:string;projects:Array<{id:string;name:string;total:number;done:number;blocked:number;progress:number|null;workItems:Array<{id:string;title:string}>}>};
-export default function NativeAtlasPanel({organizationId,onLink,onLinkWork}:{organizationId:string;onLink:(ref:{projectId:string;revision:string})=>void;onLinkWork:(ref:{projectId:string;revision:string;workId:string})=>void}){
+type View={source:string;revision:string;mode:string;authorization:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
+export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObserved}:{organizationId:string;onLink:(ref:{projectId:string;revision:string})=>void;onLinkWork:(ref:{projectId:string;revision:string;workId:string})=>void;onObserved?:(organizationId:string,view:View|null)=>void}){
  const [session,setSession]=useState<Session|null>(null);
  const [view,setView]=useState<View|null>(null);
  const [selected,setSelected]=useState('');
@@ -17,8 +17,10 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork}:{org
  const [error,setError]=useState('');
  const [busy,setBusy]=useState(false);
  const epoch=useRef(0),locked=useRef(false);
+ const observedCallback=useRef(onObserved);
+ observedCallback.current=onObserved;
  const port=()=>createNativeAtlasPort(invoke);
- useEffect(()=>{epoch.current++;setSession(null);setView(null);setSelected('');setSelectedWork('');setError('');setProjectName('');setWorkName('');},[organizationId]);
+ useEffect(()=>{epoch.current++;setSession(null);setView(null);setSelected('');setSelectedWork('');setError('');setProjectName('');setWorkName('');observedCallback.current?.(organizationId,null);},[organizationId]);
  if(!isDesktop())return null;
  async function act(run:(p:ReturnType<typeof createNativeAtlasPort>)=>Promise<any>){
    if(locked.current)return;
@@ -29,7 +31,7 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork}:{org
      if(current!==epoch.current)return;
      if(s.organizationId!==organizationId)throw Error('Контекст организации изменился.');
      const next=p.view(s) as View;
-     setSession(s);setView(next);
+     setSession(s);setView(next);observedCallback.current?.(organizationId,next);
      const nextSelected=result.projectId??(next.projects.find(x=>x.id===selected)?.id||next.projects[0]?.id||'');
      setSelected(nextSelected);
      const works=next.projects.find(x=>x.id===nextSelected)?.workItems??[];

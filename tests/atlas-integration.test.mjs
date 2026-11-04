@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {empty,createProject,createItem,editItem,serialize} from '../vendor/atlas/src/core.mjs';
 import {addPortfolioLink} from '../vendor/atlas/src/portfolio.mjs';
-import {readAtlasPortfolio,linkableAtlasProject,linkableAtlasWork,atlasLinkReadback,ATLAS_SOURCE_REVISION} from '../src/atlas-integration.mjs';
+import {readAtlasPortfolio,linkableAtlasProject,linkableAtlasWork,atlasLinkReadback,atlasWorkReadback,ATLAS_SOURCE_REVISION} from '../src/atlas-integration.mjs';
 import {emptyDraft,applyDraftCommand} from '../src/organization.mjs';
 
 function sample() {
@@ -70,4 +70,17 @@ test('canonical Atlas work reference binds exact item and portfolio revision',()
  assert.throws(()=>linkableAtlasWork(view,b,item),/ATLAS_WORK_NOT_IN_PREVIEW/);
  assert.throws(()=>linkableAtlasWork(view,a,'missing'),/ATLAS_WORK_NOT_IN_PREVIEW/);
  assert.throws(()=>linkableAtlasWork(null,a,item),/ATLAS_PREVIEW_REQUIRED/);
+});
+
+test('work link observation detects revision drift but retains previous reference',()=>{
+ const {snapshot,a,item}=sample();
+ const current=readAtlasPortfolio(serialize(snapshot)),ref=linkableAtlasWork(current,a,item);
+ assert.equal(atlasWorkReadback(current,ref),'SOURCE_REVISION_MATCHES');
+ assert.equal(atlasWorkReadback(current,{...ref,revision:'0'}),'SOURCE_REVISION_CHANGED');
+ assert.equal(atlasWorkReadback(current,{...ref,workId:'not-existing'}),'WORK_MISSING_IN_SOURCE');
+ assert.equal(atlasWorkReadback(current,{...ref,projectId:'not-existing'}),'PROJECT_MISSING_IN_SOURCE');
+ assert.equal(atlasWorkReadback(null,ref),'NOT_OBSERVED');
+ assert.equal(atlasWorkReadback(current,{projectId:a,revision:current.revision}),'WORK_NOT_LINKED');
+ assert.equal(atlasWorkReadback(current,null),'WORK_NOT_LINKED');
+ assert.deepEqual(ref,linkableAtlasWork(current,a,item));
 });
