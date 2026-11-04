@@ -194,6 +194,28 @@ function Select-OrganizationByKeyboard([string]$movement){
   [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
   Start-Sleep -Milliseconds 450
 }
+function Find-TextContaining([string]$value){
+  # Reads WebView2's real UIA text nodes; not a DOM/browser mock.
+  for($i=0;$i -lt 65;$i++){
+    $root=Root-Element
+    $nodes=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+      [System.Windows.Automation.Condition]::TrueCondition)
+    foreach($node in $nodes){
+      try{
+        if($node.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text -and
+           $node.Current.Name.Contains($value)){return $node}
+      }catch{}
+    }
+    Start-Sleep -Milliseconds 350
+  }
+  throw "Installed Corporate Panel text not found: $value"
+}
+function Assert-ButtonDisabled([string]$label){
+  $button=Find-ProjectButton $label
+  if($button.Current.IsEnabled){
+    throw "Unauthorized corporate action is enabled: $label"
+  }
+}
 function Visible-ButtonContaining([string]$name){
   $root=Root-Element
   $nodes=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
@@ -293,6 +315,17 @@ try {
   Click-ButtonContaining 'Поручения'
   $assignmentButton=Find-ProjectButton $expectedAssignment
   if(!$assignmentButton){throw 'Persisted Atlas assignment not shown after installed GUI restart'}
+  # The actual installed WebView must fail closed: no approved T3 owner is
+  # packaged. Contract-double results cannot enable real corporate actions.
+  Click-Control 'Результаты'
+  [void](Find-TextContaining 'NOT_CONNECTED')
+  Assert-ButtonDisabled 'Выдать через CEN02'
+  Assert-ButtonDisabled 'Сохранить .iwxa'
+  Assert-ButtonDisabled 'Получить Result'
+  if(Visible-ButtonContaining 'ACCEPT' -or Visible-ButtonContaining 'Apply'){
+    throw 'Corporate decision or application appeared without an owner Review'
+  }
+  Write-Host "CENTER_INSTALLED_GUI_CORPORATE_OWNER_NOT_CONNECTED_PASS"
   Click-Control 'Планы Atlas'
   Click-Control 'Открыть локальный Atlas'
   $projectButton=Find-ProjectButton $expectedProject
@@ -383,6 +416,8 @@ try {
     secondGeneration=$secondSaved.generation;secondRevision=$secondSaved.revision;
     secondReopenedGeneration=$secondReopened.generation;
     organizationIsolation='TWO_NATIVE_ATLAS_ROOTS_AND_GUI_SWITCH_RESTART_PASS';
+    corporateOwner='NOT_CONNECTED';
+    corporateActions='ISSUE_EXPORT_RECEIVE_DISABLED_NO_REVIEW_OR_APPLY';
     installerSha256=(Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash;
     installerBytes=$installer.Length}|ConvertTo-Json|Set-Content (Join-Path $artifactDir 'installed-gui-result.json')
 } catch {
