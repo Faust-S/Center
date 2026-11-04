@@ -203,6 +203,7 @@ test('CEN02 refuses a malformed owner issuance result rather than marking it sig
 test('CEN02 independently rechecks applied Result in original owner Store before signing follow-up',async()=>{
  const f=issueFixture(),r=issuingRuntime();
  r.state.product='admin';
+ r.state.application={status:'NOT_PRESENT',records:[],externalContextCoreApplied:false};
  r.state.organizationId=f.organization.id;r.state.workspaceId=f.assignment.workspaceId;
  const binding={...f.binding,organizationId:f.organization.id,workspaceId:f.assignment.workspaceId};
  const source={organizationId:f.organization.id,workspaceId:f.assignment.workspaceId,
