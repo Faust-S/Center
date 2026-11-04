@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {empty,createProject,createItem,editItem,serialize} from '../vendor/atlas/src/core.mjs';
 import {addPortfolioLink} from '../vendor/atlas/src/portfolio.mjs';
-import {readAtlasPortfolio,linkableAtlasProject,atlasLinkReadback,ATLAS_SOURCE_REVISION} from '../src/atlas-integration.mjs';
+import {readAtlasPortfolio,linkableAtlasProject,linkableAtlasWork,atlasLinkReadback,ATLAS_SOURCE_REVISION} from '../src/atlas-integration.mjs';
 import {emptyDraft,applyDraftCommand} from '../src/organization.mjs';
 
 function sample() {
@@ -61,4 +61,13 @@ test('Center stores Atlas reference only, never a competing project snapshot',()
  assert.equal('projects' in draft.organizations[0],false);
  assert.equal('workItems' in draft.organizations[0],false);
  assert.equal(JSON.stringify(draft).includes('Inspect delivery'),false);
+});
+
+test('canonical Atlas work reference binds exact item and portfolio revision',()=>{
+ const {snapshot,a,b,item}=sample(),view=readAtlasPortfolio(serialize(snapshot));
+ const ref=linkableAtlasWork(view,a,item);
+ assert.deepEqual(ref,{projectId:a,workId:item,revision:String(snapshot.revision)});
+ assert.throws(()=>linkableAtlasWork(view,b,item),/ATLAS_WORK_NOT_IN_PREVIEW/);
+ assert.throws(()=>linkableAtlasWork(view,a,'missing'),/ATLAS_WORK_NOT_IN_PREVIEW/);
+ assert.throws(()=>linkableAtlasWork(null,a,item),/ATLAS_PREVIEW_REQUIRED/);
 });

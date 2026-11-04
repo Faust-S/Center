@@ -1,18 +1,19 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
-import {readAtlasPortfolio, linkableAtlasProject, atlasLinkReadback} from './atlas-integration.mjs';
+import {readAtlasPortfolio, linkableAtlasProject, linkableAtlasWork, atlasLinkReadback} from './atlas-integration.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import './style.css';
 
 type Participant = {id: string; name: string; roleLabel: string; credentialState: string; personalAgentPlan?: 'NONE'|'PLANNED'};
-type Assignment = {id: string; title: string; workspaceId: string; assigneeId: string | null; reviewerId: string | null; description: string; criteria: string; dueDate: string; priority: string; editNumber: number; status: string; atlasRef: null; createdAt: string; updatedAt: string};
-type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string; atlasRef?: {projectId:string;revision:string}|null}[]; participants: Participant[]; assignments: Assignment[]};
+type AtlasRef = {projectId:string;revision:string;workId?:string};
+type Assignment = {id: string; title: string; workspaceId: string; assigneeId: string | null; reviewerId: string | null; description: string; criteria: string; dueDate: string; priority: string; editNumber: number; status: string; atlasRef: AtlasRef|null; createdAt: string; updatedAt: string};
+type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string; atlasRef?: AtlasRef|null}[]; participants: Participant[]; assignments: Assignment[]};
 type Draft = {format: string; version: number; organizations: Organization[]; activeOrganizationId: string | null; updatedAt: string};
 type AtlasPortfolioView = {source:string;revision:string;authorization:string;mode:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
-type Editor = {assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string};
+type Editor = {assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
 type Page = 'overview'|'work'|'results'|'resources'|'people'|'programs'|'data';
 const pages: [Page, string, string][] = [['overview','Обзор','◫'],['resources','Планы Atlas','◇'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['programs','Personal Agent и лицензии','▦'],['data','Данные и настройки','⚙']];
-const initialEditor = (org: Organization): Editor => ({title:'', workspaceId: org.workspaces[0]?.id ?? '', assigneeId: org.participants[0]?.id ?? '', reviewerId: org.participants[1]?.id ?? org.participants[0]?.id ?? '', description:'', criteria:'', dueDate:'', priority:'normal'});
+const initialEditor = (org: Organization): Editor => ({title:'', workspaceId: org.workspaces[0]?.id ?? '', assigneeId: org.participants[0]?.id ?? '', reviewerId: org.participants[1]?.id ?? org.participants[0]?.id ?? '', description:'', criteria:'', dueDate:'', priority:'normal',atlasRef:org.workspaces[0]?.atlasRef??null});
 const errors: Record<string,string> = {
   DRAFT_FORMAT_INVALID:'Это не файл черновиков Admin Center.',
   DRAFT_JSON_INVALID:'Файл повреждён или имеет неподдерживаемый формат.',
@@ -27,7 +28,8 @@ const errors: Record<string,string> = {
   AGENT_SEAT_PLAN_INVALID:'Не удалось изменить план доступа к Personal Agent.',
   ATLAS_SNAPSHOT_INVALID:'Не удалось прочитать портфель Atlas. Выберите корректный файл экспорта.',
   ATLAS_SNAPSHOT_SIZE_INVALID:'Файл Atlas слишком велик для предварительного просмотра.',
-  ATLAS_PROJECT_NOT_IN_PREVIEW:'Выбранный проект отсутствует в открытом портфеле Atlas.'
+  ATLAS_PROJECT_NOT_IN_PREVIEW:'Выбранный проект отсутствует в открытом портфеле Atlas.',
+  ATLAS_WORK_NOT_IN_PREVIEW:'Выбранная работа отсутствует в открытом проекте Atlas.'
 };
 
 async function nativeInvoke(command: string, args?: Record<string, unknown>): Promise<any> {
@@ -83,10 +85,25 @@ export default function App() {
   const go = (next: Page) => {setPage(next); setMenuOpen(false);};
   const startAssignment = (item?: Assignment) => {
     if (!org) return;
-    setEditor(item ? {assignmentId:item.id, expectedEditNumber:item.editNumber, title:item.title, workspaceId:item.workspaceId, assigneeId:item.assigneeId ?? '', reviewerId:item.reviewerId ?? '', description:item.description, criteria:item.criteria, dueDate:item.dueDate, priority:item.priority} : initialEditor(org));
+    setEditor(item ? {assignmentId:item.id, expectedEditNumber:item.editNumber, title:item.title, workspaceId:item.workspaceId, assigneeId:item.assigneeId ?? '', reviewerId:item.reviewerId ?? '', description:item.description, criteria:item.criteria, dueDate:item.dueDate, priority:item.priority, atlasRef:item.atlasRef} : initialEditor(org));
     go('work');
   };
-  const editorField = (name: keyof Editor, value: string) => setEditor(old => old ? {...old,[name]:value} : null);
+  const editorField = (name: Exclude<keyof Editor,'atlasRef'>, value: string) => setEditor(old => {
+    if (!old) return null;
+    if (name==='workspaceId') return {...old,workspaceId:value,
+      atlasRef:org?.workspaces.find(w=>w.id===value)?.atlasRef??null};
+    return {...old,[name]:value};
+  });
+  const prepareAtlasWork = (ref: AtlasRef) => {
+    if (!org) return;
+    const workspace=org.workspaces.find(w=>w.atlasRef?.projectId===ref.projectId && w.atlasRef?.revision===ref.revision);
+    if (!workspace) {
+      setError('Сначала свяжите рабочую область с этой редакцией проекта Atlas.');
+      return;
+    }
+    setEditor({...initialEditor(org),workspaceId:workspace.id,atlasRef:ref});
+    setError('');go('work');
+  };
   const importAtlas = async (file: File) => {
     try {
       const preview=readAtlasPortfolio(await file.text()) as AtlasPortfolioView;
@@ -188,7 +205,7 @@ export default function App() {
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает общую картину проектов и зависимостей. Здесь руководитель связывает рабочую область с конкретной редакцией плана. Пока это только черновая ссылка - подключение Atlas ещё не проверено.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span></div>)}
-        <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=atlasWorkspace||org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}}/>
+        <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork}/>
         <div className="card nested-form" data-testid="atlas-link-panel">
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
           <p className="muted">Откройте файл портфеля из Atlas. Admin Center читает настоящую модель Atlas и показывает проекты, работы и зависимости. Данные проекта не копируются в корпоративные черновики.</p>
@@ -206,6 +223,9 @@ export default function App() {
               <h3>Связать выбранный проект с рабочей областью</h3><div className="form-grid"><label>Рабочая область<select data-testid="atlas-workspace-select" value={atlasWorkspace||org.workspaces[0].id} onChange={e=>setAtlasWorkspace(e.target.value)}>{org.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>Выбранный проект<input readOnly value={atlasView.projects.find(p=>p.id===atlasSelected)?.name??''} /></label></div>
               <button className="secondary" data-testid="link-atlas">Связать с планом</button>
             </form>}
+            {!!atlasSelected && atlasView.projects.find(p=>p.id===atlasSelected)?.workItems.map(item=>
+              <button type="button" key={item.id} className="secondary" data-testid="atlas-file-work-to-assignment"
+                onClick={()=>prepareAtlasWork(linkableAtlasWork(atlasView,atlasSelected,item.id))}>Подготовить поручение: {item.title}</button>)}
             <p className="muted fine-print">Источник: Atlas project/1 · редакция {atlasView.revision}. Права на проект и актуальность файла не проверены. Связь сохраняет только ID и редакцию.</p>
           </> : <Empty title="Откройте портфель Atlas" text="Когда вы выберете файл экспорта Atlas, здесь появятся проекты, прогресс и зависимости."/>}
           {org.workspaces.some(w=>w.atlasRef)&&<div className="atlas-link-readback">{org.workspaces.filter(w=>w.atlasRef).map(w=><p key={w.id}><strong>{w.name}:</strong> {w.atlasRef?.projectId} · {atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_MATCHES'?'Редакция совпадает':atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_CHANGED'?'Редакция плана изменилась':atlasView?'Проект отсутствует в открытом файле':'Файл Atlas не открыт'}</p>)}</div>}
@@ -223,7 +243,7 @@ export default function App() {
 
       {org && page==='work' && <>
         <div className="section-head"><p className="muted">Черновик не считается выданным поручением.</p><button className="primary" disabled={!org.workspaces.length||!!editor} onClick={()=>startAssignment()}>＋ Новое поручение</button></div>
-        {editor ? <form className="card form-panel" data-testid="assignment-form" onSubmit={e=>{e.preventDefault();if(command({type:'SAVE_ASSIGNMENT',organizationId:org.id,...editor,atlasRef:org.workspaces.find(w=>w.id===editor.workspaceId)?.atlasRef??null}))setEditor(null);}}>
+        {editor ? <form className="card form-panel" data-testid="assignment-form" onSubmit={e=>{e.preventDefault();if(command({type:'SAVE_ASSIGNMENT',organizationId:org.id,...editor}))setEditor(null);}}>
           <div className="section-head"><h2>{editor.assignmentId?'Редактировать поручение':'Новое поручение'}</h2><button type="button" className="quiet" onClick={()=>setEditor(null)}>Закрыть редактор</button></div>
           <label>Что нужно сделать<input autoFocus value={editor.title} maxLength={200} required onChange={e=>editorField('title',e.target.value)} data-testid="task-title"/></label>
           <div className="form-grid">
@@ -234,7 +254,9 @@ export default function App() {
           </div>
           <label>Описание<textarea rows={3} maxLength={6000} value={editor.description} onChange={e=>editorField('description',e.target.value)} placeholder="Входные сведения и ожидаемый результат"/></label>
           <label>Критерии приёмки<textarea rows={3} maxLength={2000} value={editor.criteria} onChange={e=>editorField('criteria',e.target.value)} placeholder="Как понять, что работа выполнена?" data-testid="task-criteria"/></label>
-          <p className="muted">{org.workspaces.find(w=>w.id===editor.workspaceId)?.atlasRef ? `План Atlas для поручения: ${org.workspaces.find(w=>w.id===editor.workspaceId)?.atlasRef?.projectId}. Это черновая привязка.` : 'Для полного маршрута свяжите рабочую область с проектом Atlas.'}</p>
+          <p className="muted" data-testid="assignment-atlas-binding">{editor.atlasRef
+            ? `Черновая связь: проект ${editor.atlasRef.projectId}, редакция ${editor.atlasRef.revision}${editor.atlasRef.workId?', работа '+editor.atlasRef.workId:''}. При редактировании редакция не меняется автоматически.`
+            : 'Для полного маршрута свяжите рабочую область с проектом Atlas.'}</p>
           <div className="form-footer"><span className="muted">Выдача через T3 пока не выполняется.</span><button className="primary" data-testid="save-assignment">Сохранить черновик</button></div>
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}

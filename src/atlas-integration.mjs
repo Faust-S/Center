@@ -51,6 +51,15 @@ export function linkableAtlasProject(view, projectId) {
   return {projectId:p.id,revision:view.revision};
 }
 
+// A work link is derived from an existing canonical Atlas item, never from free text.
+export function linkableAtlasWork(view, projectId, workId) {
+  const link = linkableAtlasProject(view, projectId);
+  const project = view.projects.find(p => p.id === projectId);
+  const work = project.workItems.find(item => item.id === workId);
+  if (!work) fail('ATLAS_WORK_NOT_IN_PREVIEW');
+  return {...link, workId: work.id};
+}
+
 export function atlasLinkReadback(view, link) {
   if (!link || !view) return 'NOT_OBSERVED';
   const p = view.projects.find(p => p.id === link.projectId);

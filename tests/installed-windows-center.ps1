@@ -191,6 +191,15 @@ try {
   Click-Control 'Добавить работу'
   $saved=Wait-SavedProject 1
   if($saved.revision -lt 2){throw 'Atlas did not advance native revision'}
+  $projectId=[string]$saved.project.id
+  $workId=[string]$saved.project.items[0].id
+  if([string]::IsNullOrWhiteSpace($projectId) -or [string]::IsNullOrWhiteSpace($workId)){
+    throw 'Native Atlas project/work identifiers are missing'
+  }
+  if($projectId -ne [string]$projectOnly.project.id -or
+     $saved.organizationId -ne $projectOnly.organizationId){
+    throw 'Native Atlas project identity changed while creating a work item'
+  }
   Click-Control 'Сохранить на компьютере'
   for($i=0;$i -lt 60 -and !(Test-Path $localDraft);$i++){Start-Sleep -Milliseconds 300}
   if(!(Test-Path $localDraft)){throw 'Manager draft not stored locally'}
@@ -206,14 +215,23 @@ try {
   $projectButton=Find-ProjectButton $expectedProject
   if(!$projectButton){throw 'Installed GUI did not reopen previous Atlas project'}
   $reopened=Wait-SavedProject 1
-  if($reopened.generation -ne $saved.generation -or $reopened.organizationId -ne $saved.organizationId){
-    throw 'Native project generation or organization changed during installed app restart'
+  if($reopened.generation -ne $saved.generation -or $reopened.organizationId -ne $saved.organizationId -or
+     $reopened.revision -ne $saved.revision){
+    throw 'Native project generation, revision or organization changed during installed app restart'
   }
-  Write-Host "CENTER_INSTALLED_GUI_ATLAS_RESTART_PASS generation=$($saved.generation)"
+  if([string]$reopened.project.id -ne $projectId -or
+     [string]$reopened.project.items[0].id -ne $workId -or
+     [string]$reopened.project.items[0].title -ne $expectedWork){
+    throw 'Native Atlas project/work identity or content changed during installed app restart'
+  }
+  Write-Host "CENTER_INSTALLED_GUI_ATLAS_RESTART_PASS organization=$($saved.organizationId) project=$projectId work=$workId generation=$($saved.generation) revision=$($saved.revision)"
   Close-Center
   [pscustomobject]@{status='INSTALLED_GUI_ATLAS_PROJECT_AND_WORK_RESTART_PASS';
     orgId=$saved.organizationId;generation=$saved.generation;revision=$saved.revision;
-    project=$expectedProject;work=$expectedWork}|ConvertTo-Json|Set-Content (Join-Path $artifactDir 'installed-gui-result.json')
+    reopenedGeneration=$reopened.generation;reopenedRevision=$reopened.revision;
+    projectId=$projectId;workId=$workId;project=$expectedProject;work=$expectedWork;
+    installerSha256=(Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash;
+    installerBytes=$installer.Length}|ConvertTo-Json|Set-Content (Join-Path $artifactDir 'installed-gui-result.json')
 } catch {
   Write-Host "CENTER_INSTALLED_GUI_FAIL $($_.Exception.Message)"
   Capture-CenterFailure

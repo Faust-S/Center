@@ -70,3 +70,21 @@ test('older manager draft without Agent and Atlas fields still loads', () => {
   for(const w of old.organizations[0].workspaces)delete w.atlasRef;
   assert.deepEqual(decodeDraft(JSON.stringify(old)),old);
 });
+
+test('work-level Atlas binding preserves exact plan edition during edits and relinks',()=>{
+ const f=fixture(),workspace=f.state.organizations[0].workspaces[0];
+ f.run({type:'LINK_ATLAS_WORKSPACE',organizationId:f.orgId,workspaceId:workspace.id,
+   atlasRef:{projectId:'atlas:project',revision:'7'}});
+ f.run({...f.assignment,atlasRef:{projectId:'atlas:project',workId:'atlas:work-3',revision:'7'}});
+ const first=f.state.organizations[0].assignments[0];
+ f.run({type:'LINK_ATLAS_WORKSPACE',organizationId:f.orgId,workspaceId:workspace.id,
+   atlasRef:{projectId:'atlas:project',revision:'8'}});
+ f.run({...f.assignment,assignmentId:first.id,expectedEditNumber:1,title:'Edited work'});
+ const saved=f.state.organizations[0].assignments[0];
+ assert.deepEqual(saved.atlasRef,{projectId:'atlas:project',workId:'atlas:work-3',revision:'7'});
+ assert.match(assignmentText(f.state.organizations[0],saved),/Atlas work: atlas:work-3/);
+ assert.deepEqual(decodeDraft(encodeDraft(f.state)),f.state);
+ assert.throws(()=>f.run({...f.assignment,atlasRef:{projectId:'atlas:project',workId:'',revision:'7'}}),/ATLAS_REFERENCE_INVALID/);
+ f.run({...f.assignment,assignmentId:saved.id,expectedEditNumber:2,atlasRef:null});
+ assert.equal(f.state.organizations[0].assignments[0].atlasRef,null);
+});

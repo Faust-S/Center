@@ -44,10 +44,13 @@ export function validateDraft(state) {
 }
 
 function validateAtlasRef(value) {
-  requireValue(value && typeof value === 'object' && !Array.isArray(value) &&
-    Object.keys(value).length === 2, 'ATLAS_REFERENCE_INVALID');
+  requireValue(value && typeof value === 'object' && !Array.isArray(value), 'ATLAS_REFERENCE_INVALID');
+  const keys = Object.keys(value);
+  requireValue((keys.length === 2 || (keys.length === 3 && Object.hasOwn(value, 'workId'))) &&
+    keys.every(key => ['projectId', 'revision', 'workId'].includes(key)), 'ATLAS_REFERENCE_INVALID');
   text(value.projectId, 'ATLAS_REFERENCE_INVALID', 160);
   text(value.revision, 'ATLAS_REFERENCE_INVALID', 160);
+  if (Object.hasOwn(value, 'workId')) text(value.workId, 'ATLAS_REFERENCE_INVALID', 160);
   // A draft link is never evidence that Atlas has verified this project or revision.
 }
 
@@ -97,7 +100,7 @@ export function applyDraftCommand(current, command, {id = () => crypto.randomUUI
       const record = {id: old?.id ?? id(), title: text(command.title, 'ASSIGNMENT_TITLE_REQUIRED', 200), workspaceId: command.workspaceId,
         assigneeId: command.assigneeId || null, reviewerId: command.reviewerId || null,
         description: command.description ?? '', criteria: command.criteria ?? '', dueDate: command.dueDate ?? '', priority: command.priority ?? 'normal',
-        atlasRef: command.atlasRef ?? old?.atlasRef ?? null, status: 'DRAFT', editNumber: (old?.editNumber ?? 0) + 1,
+        atlasRef: Object.hasOwn(command, 'atlasRef') ? command.atlasRef : (old?.atlasRef ?? null), status: 'DRAFT', editNumber: (old?.editNumber ?? 0) + 1,
         createdAt: old?.createdAt ?? at, updatedAt: at};
       validateAssignment(org, record);
       if (old) org.assignments[org.assignments.findIndex(row => row.id === old.id)] = record;
@@ -130,7 +133,7 @@ export function assignmentText(org, assignment) {
   requireValue(assignment.criteria.trim() && assignment.assigneeId && assignment.reviewerId, 'ASSIGNMENT_NOT_READY');
   const assignee = byId(org.participants, assignment.assigneeId, 'ASSIGNEE_NOT_FOUND');
   const reviewer = byId(org.participants, assignment.reviewerId, 'REVIEWER_NOT_FOUND');
-  const atlas = assignment.atlasRef ? `\nAtlas project: ${assignment.atlasRef.projectId} @ ${assignment.atlasRef.revision}` : '';
+  const atlas = assignment.atlasRef ? `\nAtlas project: ${assignment.atlasRef.projectId} @ ${assignment.atlasRef.revision}${assignment.atlasRef.workId ? `\nAtlas work: ${assignment.atlasRef.workId}` : ''}` : '';
   const value = `${assignment.title}\n\n${assignment.description}\n\nAcceptance criteria:\n${assignment.criteria}\n\nAssignee: ${assignee.name}\nReviewer: ${reviewer.name}\nDue: ${assignment.dueDate || 'Not specified'}${atlas}`;
   requireValue(value.length <= 10000, 'ASSIGNMENT_TEXT_TOO_LARGE');
   return value;
