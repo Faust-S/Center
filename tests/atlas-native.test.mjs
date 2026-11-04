@@ -97,6 +97,6 @@ test('native readback with changed values must still reject a successful commit 
    return result;
  };
  const port=createNativeAtlasPort(invoke);
- await assert.rejects(()=>port.addProject(await port.open('org-corrupt'),{name:'Actual project'}),/ATLAS_NATIVE_READBACK_MISMATCH/);
+ await assert.rejects(async()=>port.addProject(await port.open('org-corrupt'),{name:'Actual project'}),/ATLAS_NATIVE_READBACK_MISMATCH/);
  assert.equal(ipc.calls.filter(x=>x==='center_atlas_commit').length,1);
 });
