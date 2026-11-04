@@ -68,13 +68,14 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
    if(!r||r.status==='NOT_CONNECTED')throw Error('CEN_OWNER_NOT_CONNECTED');
    return r;
  };
- const act=async(success:string,fn:()=>Promise<void>)=>{
+ const act=async(success:string,fn:()=>Promise<void|boolean>)=>{
    // The disabled React button alone is not an atomic guard against two
    // quick event dispatches. Never dispatch Apply twice in one UI session.
    if(actionRef.current)return;
    actionRef.current=true;
    setBusy(true);setError('');setNotice('');
-   try{await fn();setNotice(success)}catch(e){setError(why(e))}
+   try{const saved=await fn();if(saved!==false)setNotice(success)}
+   catch(e){setError(why(e))}
    finally{await refresh();actionRef.current=false;setBusy(false)}
  };
  const applied=(()=>{
@@ -116,10 +117,12 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
        const task=owner.snapshot.task;
        const result=await execute('exportIssuedTask',{taskId:task.id,taskRevisionId:task.taskRevisionId});
        if(!Array.isArray(result.bytes)||!result.bytes.length)throw Error('T3_SIGNED_TASK_CARRIER_REQUIRED');
-       const bytes=Uint8Array.from(result.bytes);
-       const url=URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer],{type:'application/vnd.iwxa.package'}));
-       const a=document.createElement('a');a.href=url;a.download='task.iwxa';a.click();
-       setTimeout(()=>URL.revokeObjectURL(url),10000);
+       // WebView2 blob downloads are not the native product export path.
+       // Save exactly the original T3 taskBytes() output through Windows
+       // file dialog. A cancelled chooser never claims delivery or export.
+       if(!invoke)throw Error('CEN_NATIVE_FILE_DIALOG_UNAVAILABLE');
+       const saved=await invoke('center_save_iwxa_file',{bytes:result.bytes});
+       if(saved!==true)return false;
      })}>Сохранить .iwxa</button>
    </div>
   </div>

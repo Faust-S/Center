@@ -108,11 +108,35 @@ fn open_draft_file() -> Result<Option<String>, String> {
     }
 }
 
+// Only a native file chooser / byte-for-byte transfer for an already issued
+// T3 carrier. No signing, trusted-key inspection, permission or issuance.
+// Those remain exclusively with the original interop/runtime.mjs:taskBytes().
+fn center_iwxa_carrier_validate(bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() || bytes.len() > CENTER_DRAFT_LIMIT {
+        return Err("Неподдерживаемый размер подписанного пакета IWXA".into());
+    }
+    Ok(())
+}
+#[tauri::command]
+fn center_save_iwxa_file(bytes: Vec<u8>) -> Result<bool, String> {
+    center_iwxa_carrier_validate(&bytes)?;
+    let path = rfd::FileDialog::new()
+        .add_filter("IWXA", &["iwxa"])
+        .set_file_name("task.iwxa")
+        .save_file();
+    match path {
+        Some(path) => std::fs::write(path, &bytes)
+            .map(|_| true).map_err(|e| e.to_string()),
+        None => Ok(false),
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            save_draft_file, open_draft_file, center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit
+            save_draft_file, open_draft_file, center_save_iwxa_file,
+            center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit
         ])
         .run(tauri::generate_context!())
         .expect("Admin Center could not start");
@@ -207,6 +231,18 @@ mod center_atlas_integration_tests {
         }
     }
 
+    #[test]
+    fn native_signed_iwxa_export_is_opaque_and_bounded() {
+        assert!(center_iwxa_carrier_validate(&[]).is_err());
+        assert!(center_iwxa_carrier_validate(&vec![0_u8; CENTER_DRAFT_LIMIT + 1]).is_err());
+        let bytes: Vec<u8> = vec![0, 0xff, 0x41, 0, 0x42];
+        center_iwxa_carrier_validate(&bytes).expect("opaque carrier accepted for file save");
+        let dir = scratch();
+        let path = dir.join("roundtrip.iwxa");
+        std::fs::write(&path, &bytes).expect("write opaque carrier bytes");
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        std::fs::remove_dir_all(dir).expect("clean scratch");
+    }
     #[test]
     fn preparation_draft_survives_reopen_without_pretending_to_be_t3_grant() {
         let base = scratch();
