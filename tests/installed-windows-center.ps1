@@ -28,6 +28,9 @@ $localDraft=Join-Path $base 'preparation\draft.json'
 $expectedProject='CenterGUIProject'
 $expectedWork='CenterGUIWork'
 $expectedAssignment='CenterGUIAssignment'
+$expectedSecondOrganization='CenterGUISecondOrganization'
+$expectedSecondProject='CenterGUISecondProject'
+$expectedSecondWork='CenterGUISecondWork'
 
 function Capture-CenterFailure {
   try {
@@ -61,6 +64,8 @@ function Root-Element {
 function Find-Control([string]$name,[string]$kind='Button',[int]$attempts=65){
   $desired=if($kind -eq 'Edit'){
     [System.Windows.Automation.ControlType]::Edit
+  } elseif($kind -eq 'ComboBox'){
+    [System.Windows.Automation.ControlType]::ComboBox
   } else {
     [System.Windows.Automation.ControlType]::Button
   }
@@ -130,9 +135,16 @@ function Find-ProjectButton([string]$text){
   }
   throw "Project not visible in installed GUI: $text"
 }
-function Read-NativeProject {
+function Read-NativeProject([string]$organizationId='') {
   if(!(Test-Path $organizationsRoot)){return $null}
-  $heads=@(Get-ChildItem -LiteralPath $organizationsRoot -Filter 'head.json' -Recurse -File -ErrorAction SilentlyContinue)
+  if($organizationId) {
+    if($organizationId -notmatch '^[a-zA-Z0-9_-]{1,100}$'){throw 'Invalid organization ID in Windows acceptance'}
+    $headPath=Join-Path (Join-Path $organizationsRoot $organizationId) 'head.json'
+    if(!(Test-Path $headPath)){return $null}
+    $heads=@(Get-Item -LiteralPath $headPath)
+  } else {
+    $heads=@(Get-ChildItem -LiteralPath $organizationsRoot -Filter 'head.json' -Recurse -File -ErrorAction SilentlyContinue)
+  }
   if($heads.Count -ne 1){return $null}
   $head=$heads[0]|Get-Content -Raw|ConvertFrom-Json -Depth 100
   if(@($head.projects).Count -ne 1){return $null}
@@ -145,18 +157,41 @@ function Read-NativeProject {
   return [pscustomobject]@{generation=[string]$head.generation;revision=[long]$head.revision;
     organizationId=Split-Path $root -Leaf;project=$project}
 }
-function Wait-SavedProject([int]$expectedWorkCount){
+function Wait-SavedProject([int]$expectedWorkCount,[string]$organizationId='',
+  [string]$projectName=$expectedProject,[string]$workName=$expectedWork){
   for($i=0;$i -lt 90;$i++){
-    $snapshot=Read-NativeProject
-    if($null -ne $snapshot -and $snapshot.project.name -eq $expectedProject -and
+    $snapshot=Read-NativeProject $organizationId
+    if($null -ne $snapshot -and $snapshot.project.name -eq $projectName -and
       @($snapshot.project.items).Count -eq $expectedWorkCount){
-      if($expectedWorkCount -eq 0 -or (@($snapshot.project.items|ForEach-Object{$_.title}) -contains $expectedWork)){
+      if($expectedWorkCount -eq 0 -or (@($snapshot.project.items|ForEach-Object{$_.title}) -contains $workName)){
         return $snapshot
       }
     }
     Start-Sleep -Milliseconds 350
   }
-  throw "Native Atlas did not persist project/work count $expectedWorkCount"
+  throw "Native Atlas did not persist $projectName / work count $expectedWorkCount in organization $organizationId"
+}
+function Select-OrganizationByKeyboard([string]$movement){
+  # React's native organization select is the only selected corporate context.
+  # WebView2 exposes the labeled <select> as a ComboBox to Windows UIA.
+  $picker=Find-Control 'Организация' 'ComboBox'
+  $picker.SetFocus()
+  Start-Sleep -Milliseconds 150
+  [System.Windows.Forms.SendKeys]::SendWait($movement)
+  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+  Start-Sleep -Milliseconds 450
+}
+function Visible-ButtonContaining([string]$name){
+  $root=Root-Element
+  $nodes=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition)
+  foreach($node in $nodes){
+    try{
+      if($node.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+         $node.Current.Name.Contains($name)){return $true}
+    } catch {}
+  }
+  return $false
 }
 function Close-Center {
   $proc.Refresh()
@@ -260,12 +295,82 @@ try {
     throw 'Native Atlas project/work identity or content changed during installed app restart'
   }
   Write-Host "CENTER_INSTALLED_GUI_ATLAS_RESTART_PASS organization=$($saved.organizationId) project=$projectId work=$workId generation=$($saved.generation) revision=$($saved.revision)"
+  # Qualify two independent organization roots using the REAL installed UI,
+  # not direct calls to the storage layer or a fabricated imported draft.
+  Click-ButtonContaining 'Добавить организацию'
+  Type-Control 'Название' $expectedSecondOrganization
+  Click-Control 'Создать черновик организации'
+  Click-Control 'Сохранить на компьютере'
+  $twoOrgDraft=Get-Content -LiteralPath $localDraft -Raw | ConvertFrom-Json -Depth 100
+  if(@($twoOrgDraft.organizations).Count -ne 2){throw 'Second organization missing from saved manager draft'}
+  $secondOrgId=[string]$twoOrgDraft.activeOrganizationId
+  if(!$secondOrgId -or $secondOrgId -eq $saved.organizationId -or
+     [string]$twoOrgDraft.organizations[0].id -ne $saved.organizationId -or
+     [string]$twoOrgDraft.organizations[0].assignments[0].id -ne [string]$task.id){
+    throw 'Creating second organization overwrote the first organizational draft'
+  }
+  if($null -ne (Read-NativeProject $secondOrgId)){
+    throw 'New organization sees first organization native Atlas project'
+  }
+  Click-Control 'Планы Atlas'
+  Type-Control 'Название рабочей области' 'CenterGUISecondWorkspace'
+  Click-Control 'Добавить'
+  Click-Control 'Открыть локальный Atlas'
+  if(Visible-ButtonContaining $expectedProject){
+    throw 'First organization's Atlas project leaked into second organization GUI'
+  }
+  Type-Control 'Новый проект Atlas' $expectedSecondProject
+  Click-Control 'Создать проект'
+  $secondProjectOnly=Wait-SavedProject 0 $secondOrgId $expectedSecondProject $expectedSecondWork
+  Type-Control 'Работа Atlas' $expectedSecondWork
+  Click-Control 'Добавить работу'
+  $secondSaved=Wait-SavedProject 1 $secondOrgId $expectedSecondProject $expectedSecondWork
+  $secondProjectId=[string]$secondSaved.project.id
+  $secondWorkId=[string]$secondSaved.project.items[0].id
+  if(!$secondProjectId -or !$secondWorkId -or $secondProjectId -eq $projectId -or
+     $secondSaved.organizationId -ne $secondOrgId){
+    throw 'Second Atlas organization reused first project/work identity'
+  }
+  $firstAfterSecond=Read-NativeProject $saved.organizationId
+  if($firstAfterSecond.generation -ne $saved.generation -or
+     $firstAfterSecond.project.id -ne $projectId -or
+     [string]$firstAfterSecond.project.items[0].id -ne $workId){
+    throw 'Second organization mutated first Atlas storage'
+  }
+  Click-Control 'Сохранить на компьютере'
+  Write-Host "CENTER_INSTALLED_GUI_TWO_ORG_STORAGE_ISOLATION_PASS first=$($saved.organizationId) second=$secondOrgId"
   Close-Center
-  [pscustomobject]@{status='INSTALLED_GUI_ATLAS_PROJECT_AND_WORK_RESTART_PASS';
+  Start-Center
+  Click-Control 'Планы Atlas'
+  Click-Control 'Открыть локальный Atlas'
+  if(!(Find-ProjectButton $expectedSecondProject)){throw 'Second Atlas organization did not reopen after restart'}
+  if(Visible-ButtonContaining $expectedProject){throw 'First organization project visible in second after restart'}
+  $secondReopened=Wait-SavedProject 1 $secondOrgId $expectedSecondProject $expectedSecondWork
+  if($secondReopened.project.id -ne $secondProjectId -or
+     [string]$secondReopened.project.items[0].id -ne $secondWorkId -or
+     $secondReopened.generation -ne $secondSaved.generation){
+    throw 'Second Atlas organization lost identity or revision after restart'
+  }
+  Select-OrganizationByKeyboard '{HOME}'
+  Click-Control 'Планы Atlas'
+  Click-Control 'Открыть локальный Atlas'
+  if(!(Find-ProjectButton $expectedProject)){throw 'First organization was not restored after context switch'}
+  if(Visible-ButtonContaining $expectedSecondProject){throw 'Second project leaked into first organization GUI'}
+  $firstFinal=Wait-SavedProject 1 $saved.organizationId
+  if($firstFinal.generation -ne $saved.generation -or $firstFinal.project.id -ne $projectId){
+    throw 'First organizational Atlas identity changed after context switch and restart'
+  }
+  Write-Host "CENTER_INSTALLED_GUI_TWO_ORG_SWITCH_RESTART_PASS first=$($saved.organizationId) second=$secondOrgId"
+  Close-Center
+  [pscustomobject]@{status='INSTALLED_GUI_TWO_ORG_ATLAS_RESTART_PASS';
     orgId=$saved.organizationId;generation=$saved.generation;revision=$saved.revision;
     reopenedGeneration=$reopened.generation;reopenedRevision=$reopened.revision;
     projectId=$projectId;workId=$workId;project=$expectedProject;work=$expectedWork;
     assignmentId=$task.id;assignment=$expectedAssignment;assignmentAtlasRevision=$task.atlasRef.revision;
+    secondOrgId=$secondOrgId;secondProjectId=$secondProjectId;secondWorkId=$secondWorkId;
+    secondGeneration=$secondSaved.generation;secondRevision=$secondSaved.revision;
+    secondReopenedGeneration=$secondReopened.generation;
+    organizationIsolation='TWO_NATIVE_ATLAS_ROOTS_AND_GUI_SWITCH_RESTART_PASS';
     installerSha256=(Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash;
     installerBytes=$installer.Length}|ConvertTo-Json|Set-Content (Join-Path $artifactDir 'installed-gui-result.json')
 } catch {

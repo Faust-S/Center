@@ -54,7 +54,10 @@ export default function App() {
   const [creatingOrg,setCreatingOrg] = useState(false);
   const [menuOpen,setMenuOpen] = useState(false);
   const [dirty,setDirty] = useState(false);
-  const [atlasView,setAtlasView] = useState<AtlasPortfolioView|null>(null);
+  // A file preview belongs only to the organization where it was opened.
+  // It must never become a cross-organization project/authorization source.
+  const [atlasFile,setAtlasFile] = useState<{organizationId:string;view:AtlasPortfolioView}|null>(null);
+  const activeOrganizationRef=useRef<string|null>(null);
   const [nativeAtlas,setNativeAtlas] = useState<{organizationId:string;view:AtlasPortfolioView}|null>(null);
   const [atlasSelected,setAtlasSelected] = useState('');
   const [atlasWorkspace,setAtlasWorkspace] = useState('');
@@ -77,6 +80,8 @@ export default function App() {
     return ()=>{cancelled=true};
   }, []);
   const org = state.organizations.find(row => row.id === state.activeOrganizationId);
+  activeOrganizationRef.current=state.activeOrganizationId;
+  const atlasView = atlasFile?.organizationId===org?.id ? atlasFile.view : null;
   const observedAtlas = nativeAtlas?.organizationId===org?.id ? nativeAtlas?.view ?? null : atlasView;
   const stats = overview(state);
   const title = pages.find(row => row[0] === page)![1];
@@ -119,16 +124,22 @@ export default function App() {
     setError('');go('work');
   };
   const importAtlas = async (file: File) => {
+    const sourceOrganizationId=org?.id;
+    if(!sourceOrganizationId){setError('Сначала выберите организацию.');return;}
     try {
       const preview=readAtlasPortfolio(await file.text()) as AtlasPortfolioView;
-      setAtlasView(preview);setAtlasSelected(preview.projects[0]?.id??'');
+      // File reading may finish after the manager selected another organization.
+      if(activeOrganizationRef.current!==sourceOrganizationId)return;
+      setAtlasFile({organizationId:sourceOrganizationId,view:preview});
+      setAtlasSelected(preview.projects[0]?.id??'');
       setError('');setMessage(`Портфель Atlas прочитан: ${preview.projects.length} проектов. Это просмотр выбранного файла, не живая синхронизация.`);
-    } catch(e){problem(e);}
+    } catch(e){if(activeOrganizationRef.current===sourceOrganizationId)problem(e);}
   };
   const selectOrg = (organizationId: string) => {
     if (editor) {setError('Сохраните или закройте открытый редактор поручения перед сменой организации.'); return;}
-    command({type:'SELECT_ORGANIZATION',organizationId});
-    setAtlasView(null);setAtlasSelected('');setNativeAtlas(null);
+    if(command({type:'SELECT_ORGANIZATION',organizationId})){
+      setAtlasFile(null);setAtlasSelected('');setAtlasWorkspace('');setNativeAtlas(null);
+    }
   };
   async function exportFile() {
     if (editor) {setError('Сначала сохраните изменения поручения.'); return;}
@@ -162,7 +173,7 @@ export default function App() {
     try {
       const next = decodeDraft(raw) as Draft;
       if ((dirty || editor) && !window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.')) return;
-      setState(next);setDirty(nativeHost);setAtlasView(null);setNativeAtlas(null);setAtlasSelected('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
+      setState(next);setDirty(nativeHost);setAtlasFile(null);setNativeAtlas(null);setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
     } catch(e) {problem(e);}
   }
   async function openFile() {
@@ -173,7 +184,9 @@ export default function App() {
 
   const organizationForm = <form className="card form-panel" data-testid="organization-form" onSubmit={e=>{
     e.preventDefault();const data=new FormData(e.currentTarget);
-    if(command({type:'CREATE_ORGANIZATION',name:data.get('name'),kind:data.get('kind')}))setCreatingOrg(false);
+    if(command({type:'CREATE_ORGANIZATION',name:data.get('name'),kind:data.get('kind')})){
+      setCreatingOrg(false);setAtlasFile(null);setNativeAtlas(null);setAtlasSelected('');setAtlasWorkspace('');
+    }
   }}>
     <div className="section-head"><h2>Новая организация</h2>{org && <button type="button" className="quiet" onClick={()=>setCreatingOrg(false)}>Отмена</button>}</div>
     <p className="muted">Начните с названия. Юридический статус и права не возникают из создания черновика.</p>
