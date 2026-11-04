@@ -1,3 +1,4 @@
+import {readAppliedResults} from './cen03-applied-results.mjs';
 const requireValue=(ok,code)=>{if(!ok)throw Error(code);};
 
 // CEN03: UI-facing delegation over existing T3 Reconciliation. No local
@@ -38,6 +39,12 @@ export function createCen03Review({runtime,snapshot,bind}) {
     applicationState({binding}) {
       bind(binding);
       return snapshot().application??null;
+    },
+    reusableResults({binding}) {
+      const current=bind(binding);
+      const view=readAppliedResults(snapshot(),current.organizationId,current.workspaceId);
+      bind(binding);
+      return view;
     }
   });
 }
