@@ -63,3 +63,40 @@ test('damaged native response is never shown as an empty project',async()=>{
  await assert.rejects(()=>p.open('org-a'),/Invalid Atlas snapshot/);
  await assert.rejects(()=>p.open('../other'),/ATLAS_ORGANIZATION_INVALID/);
 });
+
+test('native Rust JSON key reordering must not falsely reject a persisted project and work',async()=>{
+ const ipc=transport();
+ const rekey=value=>JSON.parse(JSON.stringify(value,(_,entry)=>
+   entry && typeof entry==='object' && !Array.isArray(entry)
+     ? Object.fromEntries(Object.keys(entry).sort().map(k=>[k,entry[k]]))
+     : entry));
+ const invoke=async(name,args)=>{
+   const result=await ipc.invoke(name,args);
+   if(name==='center_atlas_open')return {...result,snapshot:rekey(result.snapshot)};
+   return result;
+ };
+ const port=createNativeAtlasPort(invoke);
+ let session=await port.open('org-reordered');
+ const created=await port.addProject(session,{name:'Windows Atlas project'});
+ session=created.session;
+ assert.equal(session.snapshot.projects[0].name,'Windows Atlas project');
+ const worked=await port.addWork(session,{projectId:created.projectId,title:'Windows Atlas work'});
+ assert.equal(worked.session.snapshot.projects[0].items[0].title,'Windows Atlas work');
+ assert.equal((await port.open('org-reordered')).generation,worked.session.generation);
+ assert.equal(ipc.calls.filter(x=>x==='center_atlas_commit').length,2);
+});
+test('native readback with changed values must still reject a successful commit receipt',async()=>{
+ const ipc=transport();
+ const invoke=async(name,args)=>{
+   const result=await ipc.invoke(name,args);
+   if(name==='center_atlas_open'&&result.snapshot.projects.length){
+     const changed=structuredClone(result.snapshot);
+     changed.projects[0].name='Wrong project';
+     return {...result,snapshot:changed};
+   }
+   return result;
+ };
+ const port=createNativeAtlasPort(invoke);
+ await assert.rejects(()=>port.addProject(await port.open('org-corrupt'),{name:'Actual project'}),/ATLAS_NATIVE_READBACK_MISMATCH/);
+ assert.equal(ipc.calls.filter(x=>x==='center_atlas_commit').length,1);
+});

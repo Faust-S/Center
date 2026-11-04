@@ -6,6 +6,14 @@ import {readAtlasPortfolio} from './atlas-integration.mjs';
 const fail = code => {throw Error(code);};
 const validOrganizationId = id => typeof id==='string' && /^[a-zA-Z0-9_-]{1,100}$/.test(id);
 const row = x => x!==null&&typeof x==='object'&&!Array.isArray(x)?x:null;
+// serde_json::Value in the original Atlas Rust store sorts JSON object keys.
+// The Rust roundtrip is semantically lossless but may reorder every object,
+// so textual JSON.stringify equality creates false write failures in WebView2.
+// Arrays and values remain order-sensitive. This is readback comparison only:
+// generation, revision, and native content validation remain mandatory.
+const canonicalJson = value => JSON.stringify(value, (_, entry) =>
+  row(entry) ? Object.fromEntries(Object.keys(entry).sort().map(key=>[key,entry[key]])) : entry
+);
 
 export function createNativeAtlasPort(invoke) {
   if(typeof invoke!=='function')fail('ATLAS_NATIVE_INVOKE_REQUIRED');
@@ -23,7 +31,7 @@ export function createNativeAtlasPort(invoke) {
       fail('ATLAS_NATIVE_SESSION_INVALID');
     const snapshot=deserialize(serialize(nextSnapshot));
     if(snapshot.revision<=session.snapshot.revision)fail('ATLAS_REVISION_NOT_INCREASED');
-    const expected=serialize(snapshot);
+    const expected=canonicalJson(snapshot);
     let receipt,writeError;
     try {
       receipt=await invoke('center_atlas_commit',{
@@ -35,7 +43,7 @@ export function createNativeAtlasPort(invoke) {
     try {opened=await open(session.organizationId);}
     catch(e){if(writeError)throw writeError;throw e;}
     // A failed/lost acknowledgement is not permission to repeat the write.
-    if(serialize(opened.snapshot)!==expected) {
+    if(canonicalJson(opened.snapshot)!==expected) {
       if(writeError)throw writeError;
       fail('ATLAS_NATIVE_READBACK_MISMATCH');
     }

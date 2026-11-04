@@ -169,6 +169,9 @@ try {
   Type-Control 'Новый проект Atlas' $expectedProject
   Click-Control 'Создать проект'
   $projectOnly=Wait-SavedProject 0
+  $visible=Find-ProjectButton $expectedProject
+  if(!$visible){throw 'Native Atlas project was stored but was not rendered'}
+  Write-Host "CENTER_INSTALLED_GUI_ATLAS_PROJECT_READBACK_PASS generation=$($projectOnly.generation)"
   Type-Control 'Работа Atlas' $expectedWork
   Click-Control 'Добавить работу'
   $saved=Wait-SavedProject 1
