@@ -16,11 +16,16 @@ fn center_atlas_root(app: &AppHandle, organization_id: &str) -> Result<PathBuf, 
     center_atlas_root_under(&path_for(app)?, organization_id)
 }
 
+fn center_atlas_open_root(root: &Path) -> Result<OpenResult, String> {
+    // Opening an as-yet empty organization must create its Atlas root first,
+    // just as the original Atlas application does before its first read.
+    let _guard = lock(root)?;
+    load_root(root)
+}
+
 #[tauri::command]
 fn center_atlas_open(app: AppHandle, organization_id: String) -> Result<OpenResult, String> {
-    let root = center_atlas_root(&app, &organization_id)?;
-    let _guard = lock(&root)?;
-    load_root(&root)
+    center_atlas_open_root(&center_atlas_root(&app, &organization_id)?)
 }
 
 #[tauri::command]
@@ -92,10 +97,10 @@ mod center_atlas_integration_tests {
         let snapshot = serde_json::json!({"schema":"atlas.project/1","revision":1,"projects":[]});
         let outcome = commit_root(&first, "none", snapshot.clone()).unwrap();
         assert_eq!(outcome.revision, 1);
-        let read = load_root(&first).unwrap();
+        let read = center_atlas_open_root(&first).unwrap();
         assert_eq!(read.generation, outcome.generation);
         assert_eq!(read.snapshot, snapshot);
-        assert_eq!(load_root(&second).unwrap().generation, "none");
+        assert_eq!(center_atlas_open_root(&second).unwrap().generation, "none");
         assert!(commit_root(&first, "none", snapshot).is_err());
         let _ = fs::remove_dir_all(base);
     }
@@ -137,16 +142,16 @@ mod center_atlas_integration_tests {
                 let receipt = commit_root(&org_a, "none", snapshot).expect("first process write");
                 fs::write(root.join("generation.txt"), receipt.generation)
                     .expect("write verified receipt");
-                assert_eq!(load_root(&org_b).unwrap().generation, "none");
+                assert_eq!(center_atlas_open_root(&org_b).unwrap().generation, "none");
             }
             Ok("read") => {
                 let original = fs::read_to_string(root.join("generation.txt"))
                     .expect("first process generation");
-                let readback = load_root(&org_a).expect("second process readback");
+                let readback = center_atlas_open_root(&org_a).expect("second process readback");
                 assert_eq!(readback.generation, original);
                 assert_eq!(readback.snapshot["schema"], "atlas.project/1");
                 assert_eq!(readback.snapshot["revision"], 1);
-                assert_eq!(load_root(&org_b).unwrap().generation, "none");
+                assert_eq!(center_atlas_open_root(&org_b).unwrap().generation, "none");
                 assert!(commit_root(&org_a, "none", readback.snapshot).is_err(),
                     "stale write cannot replace readback");
             }
