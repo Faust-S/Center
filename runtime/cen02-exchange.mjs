@@ -33,12 +33,44 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
         'T3_ATLAS_WORK_NOT_IN_SOURCE');
       requireValue(typeof runtime.createTask==='function','T3_TASK_ISSUER_NOT_CONNECTED');
       const bytes=runtime.createTask(text);
+      requireValue(bytes instanceof Uint8Array && bytes.byteLength>0,
+        'T3_SIGNED_TASK_CARRIER_REQUIRED');
       const after=snapshot();
-      requireValue(after.task?.id && after.task?.taskRevisionId,
+      requireValue(typeof after.task?.id==='string' && after.task.id.startsWith('task:') &&
+        typeof after.task.taskRevisionId==='string' &&
+        /^[a-f0-9]{64}$/.test(after.task.taskRevisionId) &&
+        after.organizationId===current.organizationId &&
+        after.workspaceId===current.workspaceId &&
+        after.personId===current.personId,
         'T3_ISSUE_READBACK_REQUIRED');
       return {bytes,taskId:after.task.id,taskRevisionId:after.task.taskRevisionId,
         atlasRef:{projectId:ref.projectId,workId:ref.workId,revision:ref.revision},
         deliveryState:'NOT_CONFIRMED'};
+    },
+    // Original T3 interop/runtime.mjs:taskBytes reads the previously signed
+    // revision from its own carrier store and performs a fresh owner JIT check.
+    // This is a manual export, not a delivery acknowledgment.
+    exportIssuedTask({taskId,taskRevisionId,binding}) {
+      const current=bind(binding);
+      const before=snapshot();
+      requireValue(before.task?.id===taskId &&
+        before.task?.taskRevisionId===taskRevisionId &&
+        typeof taskId==='string' && taskId.startsWith('task:') &&
+        typeof taskRevisionId==='string' && /^[a-f0-9]{64}$/.test(taskRevisionId),
+        'T3_SIGNED_TASK_REVISION_NOT_SELECTED');
+      requireValue(typeof runtime.taskBytes==='function',
+        'T3_SIGNED_TASK_EXPORT_NOT_CONNECTED');
+      const bytes=runtime.taskBytes();
+      requireValue(bytes instanceof Uint8Array && bytes.byteLength>0,
+        'T3_SIGNED_TASK_CARRIER_REQUIRED');
+      const after=snapshot();
+      requireValue(after.organizationId===current.organizationId &&
+        after.workspaceId===current.workspaceId &&
+        after.personId===current.personId &&
+        after.task?.id===taskId &&
+        after.task?.taskRevisionId===taskRevisionId,
+        'T3_SIGNED_TASK_SOURCE_CHANGED');
+      return {bytes,taskId,taskRevisionId,deliveryState:'NOT_CONFIRMED'};
     },
     receive({bytes,binding}) {
       bind(binding);

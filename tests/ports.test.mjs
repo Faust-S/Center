@@ -24,6 +24,7 @@ function runtimeDouble() {
 }
 const binding={organizationId:'org',workspaceId:'work',contextEpoch:1};
 const PACKAGE_SHA='a'.repeat(64);
+const TASK_REVISION='b'.repeat(64);
 test('acceptance uses owning runtime and does not imply application',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);const r=port.decide({packageSha256:'abc',previewDigest:'preview',decision:'ACCEPT',binding});assert.equal(r.acceptanceState,'ACCEPTED');assert.equal(runtime.calls.length,1);assert.deepEqual(runtime.calls[0],['abc',{previewDigest:'preview',decision:'ACCEPT',reason:''}]);assert.equal(r.applied,undefined);});
 test('context switch prevents a stale decision',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);runtime.state.contextEpoch++;assert.throws(()=>port.decide({decision:'ACCEPT',binding}),/CONTEXT_CHANGED/);assert.equal(runtime.calls.length,0);});
 test('return for changes is not silently substituted with rejection',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);assert.throws(()=>port.decide({decision:'CHANGES_REQUESTED',binding}),/RETURN_OPERATION_NOT_AVAILABLE/);assert.equal(runtime.calls.length,0);});
@@ -114,7 +115,7 @@ function issuingRuntime() {
   const runtime=runtimeDouble();
   runtime.createTask=text=>{
     runtime.calls.push({type:'createTask',text});
-    runtime.state.task={id:'task:owner',taskRevisionId:'revision:owner'};
+    runtime.state.task={id:'task:owner',taskRevisionId:TASK_REVISION};
     runtime.state.contextEpoch++;
     return Buffer.from('contract-double-not-a-real-signature');
   };
@@ -127,7 +128,7 @@ test('T3 task issue requires native Atlas work and exact plan revision',async()=
   assert.equal(r.calls.length,1);
   assert.match(r.calls[0].text,/Atlas work:/);
   assert.equal(issued.taskId,'task:owner');
-  assert.equal(issued.taskRevisionId,'revision:owner');
+  assert.equal(issued.taskRevisionId,TASK_REVISION);
   assert.deepEqual(issued.atlasRef,f.assignment.atlasRef);
   assert.equal(issued.deliveryState,'NOT_CONFIRMED');
 });
@@ -157,4 +158,44 @@ test('T3 issue rechecks context epoch after native I/O and keeps reviewer bindin
   await assert.rejects(()=>port2.issue({...f,binding:{...f.binding,draftReviewerId:'other'}}),
     /T3_DRAFT_BINDING_CHANGED/);
   assert.equal(r.calls.length,0);assert.equal(second.calls.length,0);
+});
+
+test('CEN02 exports the exact previously signed Task from T3 taskBytes without reissuing',async()=>{
+  const fixture=issueFixture(),owner=issuingRuntime(),carrier=Buffer.from('owner-signed-iwxa-carrier');
+  owner.taskBytes=()=>{
+    owner.calls.push({type:'taskBytes'});
+    return carrier;
+  };
+  const port=createT3AdminPort(owner,{openAtlas:async()=>fixture.observed});
+  const issued=await port.issue(fixture);
+  assert.equal(owner.calls.filter(c=>c.type==='createTask').length,1);
+  const exported=port.exportIssuedTask({taskId:issued.taskId,taskRevisionId:issued.taskRevisionId,binding:{
+    ...fixture.binding,contextEpoch:owner.state.contextEpoch
+  }});
+  assert.deepEqual(exported.bytes,carrier);
+  assert.equal(exported.taskRevisionId,TASK_REVISION);
+  assert.equal(exported.deliveryState,'NOT_CONFIRMED');
+  assert.equal(owner.calls.filter(c=>c.type==='taskBytes').length,1);
+  assert.equal(owner.calls.filter(c=>c.type==='createTask').length,1);
+});
+test('CEN02 refuses a changed selected signed Task revision before reading carrier bytes',()=>{
+  const fixture=issueFixture(),owner=issuingRuntime(),port=createT3AdminPort(owner);
+  owner.state.task={id:'task:existing',taskRevisionId:TASK_REVISION};
+  owner.taskBytes=()=>{owner.calls.push({type:'taskBytes'});return Buffer.from('carrier');};
+  assert.throws(()=>port.exportIssuedTask({taskId:'task:existing',taskRevisionId:'0'.repeat(64),
+    binding:fixture.binding}),/T3_SIGNED_TASK_REVISION_NOT_SELECTED/);
+  assert.equal(owner.calls.length,0);
+});
+test('CEN02 refuses a missing T3 owner carrier operation, not a simulated exported file',()=>{
+  const fixture=issueFixture(),owner=issuingRuntime(),port=createT3AdminPort(owner);
+  owner.state.task={id:'task:existing',taskRevisionId:TASK_REVISION};
+  assert.throws(()=>port.exportIssuedTask({taskId:'task:existing',taskRevisionId:TASK_REVISION,
+    binding:fixture.binding}),/T3_SIGNED_TASK_EXPORT_NOT_CONNECTED/);
+  assert.equal(owner.calls.length,0);
+});
+test('CEN02 refuses a malformed owner issuance result rather than marking it signed',async()=>{
+  const fixture=issueFixture(),owner=issuingRuntime();
+  owner.createTask=()=>({unsigned:'not an IWXA archive'});
+  const port=createT3AdminPort(owner,{openAtlas:async()=>fixture.observed});
+  await assert.rejects(()=>port.issue(fixture),/T3_SIGNED_TASK_CARRIER_REQUIRED/);
 });
