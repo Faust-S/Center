@@ -31,6 +31,7 @@ $expectedAssignment='CenterGUIAssignment'
 $expectedSecondOrganization='CenterGUISecondOrganization'
 $expectedSecondProject='CenterGUISecondProject'
 $expectedSecondWork='CenterGUISecondWork'
+$expectedAdditionalWork='CenterGUIAdditionalWork'
 
 function Capture-CenterFailure {
   try {
@@ -341,6 +342,39 @@ try {
     throw 'Native Atlas project/work identity or content changed during installed app restart'
   }
   Write-Host "CENTER_INSTALLED_GUI_ATLAS_RESTART_PASS organization=$($saved.organizationId) project=$projectId work=$workId generation=$($saved.generation) revision=$($saved.revision)"
+  # U05: create a second work in the installed GUI and observe the originally
+  # linked assignment become stale without rewriting its saved Atlas reference.
+  Type-Control 'Работа Atlas' $expectedAdditionalWork
+  Click-Control 'Добавить работу'
+  $changed=Wait-SavedProject 2 $saved.organizationId $expectedProject $expectedAdditionalWork
+  $added=@($changed.project.items | Where-Object { $_.title -eq $expectedAdditionalWork })
+  if($added.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$added[0].id) -or
+     $changed.revision -le $saved.revision -or
+     $changed.generation -eq $saved.generation -or
+     [string]$changed.project.id -ne $projectId -or
+     [string]$changed.project.items[0].id -ne $workId){
+    throw 'Second work changed identity or failed to advance Atlas revision'
+  }
+  $additionalWorkId=[string]$added[0].id
+  Click-ButtonContaining 'Поручения'
+  Click-ButtonContaining $expectedAssignment
+  [void](Find-TextContaining 'План Atlas изменился')
+  $draftAfterChange=Get-Content -LiteralPath $localDraft -Raw | ConvertFrom-Json -Depth 100
+  $linked=@($draftAfterChange.organizations[0].assignments | Where-Object { $_.id -eq $task.id })
+  if($linked.Count -ne 1 -or $linked[0].atlasRef.projectId -ne $projectId -or
+     $linked[0].atlasRef.workId -ne $workId -or
+     [string]$linked[0].atlasRef.revision -ne [string]$task.atlasRef.revision){
+    throw 'Stale Center assignment reference silently changed after Atlas revision advanced'
+  }
+  Write-Host "CENTER_INSTALLED_GUI_U05_STALE_WORK_REF_PASS old=$($task.atlasRef.revision) new=$($changed.revision) work=$workId secondWork=$additionalWorkId"
+  Click-Control 'Планы Atlas'
+  Click-Control 'Открыть локальный Atlas'
+  $changedReopened=Wait-SavedProject 2 $saved.organizationId $expectedProject $expectedAdditionalWork
+  if($changedReopened.generation -ne $changed.generation -or
+     $changedReopened.revision -ne $changed.revision){
+    throw 'Second work not durably visible after source reopen'
+  }
+  $saved=$changedReopened
   # Qualify two independent organization roots using the REAL installed UI,
   # not direct calls to the storage layer or a fabricated imported draft.
   Click-ButtonContaining 'Добавить организацию'
@@ -401,8 +435,11 @@ try {
   Click-Control 'Открыть локальный Atlas'
   if(!(Find-ProjectButton $expectedProject)){throw 'First organization was not restored after context switch'}
   if(Visible-ButtonContaining $expectedSecondProject){throw 'Second project leaked into first organization GUI'}
-  $firstFinal=Wait-SavedProject 1 $saved.organizationId
-  if($firstFinal.generation -ne $saved.generation -or $firstFinal.project.id -ne $projectId){
+  $firstFinal=Wait-SavedProject 2 $saved.organizationId $expectedProject $expectedAdditionalWork
+  if($firstFinal.generation -ne $saved.generation -or
+     $firstFinal.revision -ne $saved.revision -or $firstFinal.project.id -ne $projectId -or
+     [string]$firstFinal.project.items[0].id -ne $workId -or
+     [string]$firstFinal.project.items[1].id -ne $additionalWorkId){
     throw 'First organizational Atlas identity changed after context switch and restart'
   }
   Write-Host "CENTER_INSTALLED_GUI_TWO_ORG_SWITCH_RESTART_PASS first=$($saved.organizationId) second=$secondOrgId"
@@ -416,6 +453,8 @@ try {
     secondGeneration=$secondSaved.generation;secondRevision=$secondSaved.revision;
     secondReopenedGeneration=$secondReopened.generation;
     organizationIsolation='TWO_NATIVE_ATLAS_ROOTS_AND_GUI_SWITCH_RESTART_PASS';
+    u05StaleOriginalWork='VERIFIED_IN_INSTALLED_GUI';
+    additionalWorkId=$additionalWorkId;advancedPortfolioRevision=$saved.revision;
     corporateOwner='NOT_CONNECTED';
     corporateActions='ISSUE_EXPORT_RECEIVE_DISABLED_NO_REVIEW_OR_APPLY';
     installerSha256=(Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash;
