@@ -99,4 +99,59 @@ mod center_atlas_integration_tests {
         assert!(commit_root(&first, "none", snapshot).is_err());
         let _ = fs::remove_dir_all(base);
     }
+ 
+    #[test]
+    fn native_atlas_reopens_in_a_second_windows_process() {
+        // This is an actual process boundary, not a second call to load_root
+        // in the same process. The second execution uses the same filesystem.
+        let base = scratch();
+        let executable = std::env::current_exe().expect("current test executable");
+        for phase in ["write", "read"] {
+            let output = std::process::Command::new(&executable)
+                .args(["--exact", "center_atlas_integration_tests::native_atlas_child_phase", "--nocapture"])
+                .env("IWXA_CENTER_ATLAS_RELAUNCH_ROOT", &base)
+                .env("IWXA_CENTER_ATLAS_RELAUNCH_PHASE", phase)
+                .output()
+                .expect("launch independent native Atlas phase");
+            assert!(output.status.success(),
+                "Native Atlas {phase} failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr));
+        }
+        assert!(base.join("generation.txt").exists());
+        fs::remove_dir_all(base).expect("clean scratch root");
+    }
+    #[test]
+    fn native_atlas_child_phase() {
+        let root = match std::env::var_os("IWXA_CENTER_ATLAS_RELAUNCH_ROOT") {
+            Some(path) => PathBuf::from(path),
+            None => return,
+        };
+        let org_a = center_atlas_root_under(&root, "org-a").expect("org A");
+        let org_b = center_atlas_root_under(&root, "org-b").expect("org B");
+        match std::env::var("IWXA_CENTER_ATLAS_RELAUNCH_PHASE").as_deref() {
+            Ok("write") => {
+                let snapshot = serde_json::json!({
+                    "schema":"atlas.project/1","revision":1,"projects":[]
+                });
+                let receipt = commit_root(&org_a, "none", snapshot).expect("first process write");
+                fs::write(root.join("generation.txt"), receipt.generation)
+                    .expect("write verified receipt");
+                assert_eq!(load_root(&org_b).unwrap().generation, "none");
+            }
+            Ok("read") => {
+                let original = fs::read_to_string(root.join("generation.txt"))
+                    .expect("first process generation");
+                let readback = load_root(&org_a).expect("second process readback");
+                assert_eq!(readback.generation, original);
+                assert_eq!(readback.snapshot["schema"], "atlas.project/1");
+                assert_eq!(readback.snapshot["revision"], 1);
+                assert_eq!(load_root(&org_b).unwrap().generation, "none");
+                assert!(commit_root(&org_a, "none", readback.snapshot).is_err(),
+                    "stale write cannot replace readback");
+            }
+            other => panic!("Unknown qualification phase: {other:?}"),
+        }
+    }
+
 }

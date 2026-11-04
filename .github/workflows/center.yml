@@ -74,12 +74,28 @@ jobs:
         with:
           node-version: '22.16.0'
       - run: npm install --no-audit --no-fund
-      - run: npm run desktop:build -- --no-bundle
+      - name: Build native Center with original Atlas storage
+        run: npm run desktop:build -- --no-bundle
+      - name: Native Atlas storage tests, including two separate processes
+        run: cargo test --manifest-path src-tauri/Cargo.toml --bin iwxa-admin-center -- --nocapture
+      - name: Bundle offline Windows installer (NSIS with embedded WebView2)
+        run: npm run desktop:build
+      - name: Verify installer bundle and record hashes
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "No Windows installer produced" }
+          $sha = Get-FileHash $installer.FullName -Algorithm SHA256
+          New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
+          "$($installer.Name) SHA256=$($sha.Hash) SIZE=$($installer.Length)" | Set-Content "artifacts/installer-sha256.txt"
+          Write-Host "OFFLINE_NSIS_BUNDLE_READY: $($installer.Name), size=$($installer.Length), SHA256=$($sha.Hash)"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: center-windows-preparation-shell
           path: |
             src-tauri/target/release/iwxa-admin-center.exe
+            src-tauri/target/release/bundle/nsis/*.exe
+            artifacts/installer-sha256.txt
             src-tauri/Cargo.lock
             package-lock.json

@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "IWXA Admin Center - preparation preview",
+        "title": "IWXA Admin Center - development",
         "width": 1366,
         "height": 900,
         "minWidth": 720,
@@ -24,10 +24,18 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"
-    ]
+    ],
+    "targets": [
+      "nsis"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      }
+    }
   }
 }
