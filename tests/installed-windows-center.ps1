@@ -329,7 +329,7 @@ try {
   Click-Control 'Добавить'
   Click-Control 'Открыть локальный Atlas'
   if(Visible-ButtonContaining $expectedProject){
-    throw 'First organization's Atlas project leaked into second organization GUI'
+    throw 'First Atlas project leaked into second organization GUI'
   }
   Type-Control 'Новый проект Atlas' $expectedSecondProject
   Click-Control 'Создать проект'
