@@ -74,7 +74,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  return <section className="card padded" data-testid="corporate-panel">
   <div className="section-head"><h2>Поручения и корпоративная приёмка</h2><button className="secondary" disabled={busy} onClick={()=>act('Состояние перечитано.',async()=>{await refresh();resetReview()})}>Обновить</button></div>
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
-  <p className="notice subdued" data-testid="corporate-owner-status">{ready?'Подтверждённая организационная сессия владельца.':'NOT_CONNECTED: механизмы корпоративного обмена не поставлены с этим установленным Admin Center. Действия недоступны.'}</p>
+  <p className="notice subdued" data-testid="corporate-owner-status">{ready?'Подтверждённая организационная сессия владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
   <div className="nested-form" data-testid="cen02-section">
    <h3>1. Выдать подписанное поручение</h3>

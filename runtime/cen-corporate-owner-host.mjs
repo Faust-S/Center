@@ -24,14 +24,24 @@ export function createCorporateOwnerHost({runtime,openAtlas,resolveAssignment}={
       'CEN_OWNER_ORGANIZATION_MISMATCH');
     return snapshot;
   };
+  // The T3 reference scenario explicitly reports both flags false.
+  // It can qualify the API, but must not be advertised as an activated
+  // organizational product, or execute a corporate action in Center.
+  const activated=snapshot=>snapshot.productionActivation===true&&snapshot.T3_READY===true;
   return Object.freeze({
     state({organizationId}){
       const snapshot=observe(organizationId);
-      return {status:'OWNER_READY',snapshot};
+      return activated(snapshot)
+        ? {status:'OWNER_READY',snapshot}
+        : {status:'REFERENCE_ONLY',reason:'T3 technology qualification is not production activation',
+            snapshot:{product:snapshot.product,organizationId:snapshot.organizationId,
+              workspaceId:snapshot.workspaceId,contextEpoch:snapshot.contextEpoch,
+              productionActivation:false,T3_READY:false}};
     },
     async action({organizationId,operation,input={},binding}={}){
       check(typeof organizationId==='string','CEN_OWNER_ORGANIZATION_REQUIRED');
-      observe(organizationId);
+      const current=observe(organizationId);
+      check(activated(current),'CEN_OWNER_PRODUCTION_NOT_ACTIVATED');
       check(binding?.organizationId===organizationId,'CEN_OWNER_ORGANIZATION_MISMATCH');
       check(typeof operation==='string','CEN_OWNER_OPERATION_INVALID');
       check(input&&typeof input==='object'&&!Array.isArray(input),'CEN_OWNER_INPUT_INVALID');

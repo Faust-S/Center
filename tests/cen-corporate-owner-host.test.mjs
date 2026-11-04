@@ -6,7 +6,7 @@ const A='a'.repeat(64),B='b'.repeat(64);
 const binding={organizationId:'org:1',workspaceId:'work:1',contextEpoch:1};
 function owner(){
  const calls=[];
- const state={product:'admin',organizationId:'org:1',workspaceId:'work:1',
+ const state={product:'admin',productionActivation:true,T3_READY:true,organizationId:'org:1',workspaceId:'work:1',
    personId:'person:1',contextEpoch:1,task:{id:'task:1',taskRevisionId:B},
    application:{status:'NOT_PRESENT',records:[],externalContextCoreApplied:false}};
  return {product:'admin',state,calls,snapshot:()=>structuredClone(state),
@@ -56,5 +56,29 @@ test('CEN host verifies authoritative assignment mapping before issue',async()=>
    organization:{id:'org:wrong'},assignment:{id:'draft:1'},binding})});
  await assert.rejects(()=>host.action({organizationId:'org:1',operation:'issue',binding,
    input:{assignmentId:'draft:1'}}),/ASSIGNMENT_MISMATCH/);
+ assert.deepEqual(runtime.calls,[]);
+});
+
+test('original T3 qualification flags cannot activate Center corporate actions',async()=>{
+ const runtime=owner(),host=createCorporateOwnerHost({runtime});
+ runtime.state.productionActivation=false;runtime.state.T3_READY=false;
+ const view=host.state({organizationId:'org:1'});
+ assert.equal(view.status,'REFERENCE_ONLY');
+ assert.equal(view.snapshot.productionActivation,false);
+ assert.equal(view.snapshot.T3_READY,false);
+ assert.equal(view.snapshot.task,undefined);
+ await assert.rejects(()=>host.action({organizationId:'org:1',operation:'receive',
+   binding,input:{bytes:[80,75,3,4]}}),/CEN_OWNER_PRODUCTION_NOT_ACTIVATED/);
+ assert.deepEqual(runtime.calls,[]);
+});
+test('missing single T3 activation flag is never sufficient for readiness',async()=>{
+ const runtime=owner(),host=createCorporateOwnerHost({runtime});
+ for(const flags of [[true,false],[false,true],[undefined,true],[true,undefined]]){
+   runtime.state.productionActivation=flags[0];
+   runtime.state.T3_READY=flags[1];
+   assert.equal(host.state({organizationId:'org:1'}).status,'REFERENCE_ONLY');
+   await assert.rejects(()=>host.action({organizationId:'org:1',operation:'inspect',
+     binding,input:{packageSha256:A}}),/PRODUCTION_NOT_ACTIVATED/);
+ }
  assert.deepEqual(runtime.calls,[]);
 });
