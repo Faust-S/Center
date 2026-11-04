@@ -6,6 +6,18 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Drawing
 
+# Post WM_CLOSE to the real installed Tauri HWND, identical to clicking X in
+# the window chrome. The UIA Window root itself is not focusable in WebView2.
+# Do not kill the process or bypass the application's window-close lifecycle.
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class CenterNativeWindow {
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+}
+'@
+
 $artifactDir=Join-Path $env:GITHUB_WORKSPACE 'artifacts'
 [void][System.IO.Directory]::CreateDirectory($artifactDir)
 $proc=$null
@@ -134,14 +146,17 @@ function Wait-SavedProject([int]$expectedWorkCount){
 function Close-Center {
   $proc.Refresh()
   if($proc.HasExited){throw 'Installed GUI exited before deliberate close'}
-  $root=Root-Element
-  $root.SetFocus()
-  [System.Windows.Forms.SendKeys]::SendWait('%{F4}')
+  $window=$proc.MainWindowHandle
+  if($window -eq [IntPtr]::Zero){throw 'Installed Center window handle unavailable before close'}
+  # WM_CLOSE goes to the native window itself; UIA root.SetFocus() is invalid.
+  if(-not [CenterNativeWindow]::PostMessage($window,0x0010,[IntPtr]::Zero,[IntPtr]::Zero)){
+    throw 'Installed Center could not receive native WM_CLOSE'
+  }
   if(!$proc.WaitForExit(9000)){
-    throw 'Installed Center did not close after Alt+F4'
+    throw 'Installed Center did not close after native window close'
   }
   if($proc.ExitCode -ne 0){throw "Installed Center exit code $($proc.ExitCode)"}
-  Write-Host "CENTER_INSTALLED_GUI_GRACEFUL_EXIT_PASS"
+  Write-Host "CENTER_INSTALLED_GUI_GRACEFUL_WINDOW_CLOSE_PASS"
 }
 
 try {
