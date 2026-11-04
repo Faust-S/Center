@@ -144,10 +144,10 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
    </p>
    <label>Полученные результаты<select data-testid="corporate-package" value={hash} onChange={e=>{setHash(e.target.value);resetReview()}}>
     <option value="">Выберите пакет для Review</option>
-    {inbox.items.map(item=><option key={item.packageSha256} value={item.packageSha256}>
+    {inbox.items.map((item:{packageSha256:string;status:string;acceptanceId:string|null})=><option key={item.packageSha256} value={item.packageSha256}>
       {inboxLabels[item.status]??'Проверить'} · {item.packageSha256.slice(0,16)}…
     </option>)}
-    {hash&&!inbox.items.some(item=>item.packageSha256===hash)&&
+    {hash&&!inbox.items.some((item:{packageSha256:string;status:string;acceptanceId:string|null})=>item.packageSha256===hash)&&
       <option value={hash}>Недавно полученный пакет · {hash.slice(0,16)}…</option>}
    </select></label>
    <button className="secondary" data-testid="corporate-review" disabled={!ready||!hash||busy}
