@@ -94,6 +94,12 @@ try{
   await page.locator('#active-organization').selectOption({label:'South workshop'});
   assert.equal(await page.getByTestId('atlas-project-count').count(),0);
   checks.push('two-organization-draft-isolation-and-file-source-scope');
+  await page.getByTestId('nav-results').click();
+  await page.getByTestId('corporate-owner-status').waitFor({state:'visible'});
+  assert.match(await page.getByTestId('corporate-owner-status').innerText(),/NOT_CONNECTED/);
+  assert.equal(await page.getByTestId('corporate-issue').isEnabled(),false);
+  assert.equal(await page.getByTestId('corporate-accept').count(),0);
+  checks.push('corporate-workbench-fail-closed-without-private-owner');
   await page.getByTestId('nav-overview').click();await page.screenshot({path:'artifacts/overview-1366.png',fullPage:true});
   await page.setViewportSize({width:320,height:800});assert.ok(await page.locator('.menu-button').isVisible());await page.locator('.menu-button').click();await page.getByTestId('nav-work').click();
   const sizes=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert.ok(sizes.scroll<=sizes.width+1,JSON.stringify(sizes));checks.push('navigation-and-no-overflow-320');

@@ -2,6 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
 import {readAtlasPortfolio, linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback} from './atlas-integration.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
+import CorporatePanel from './CorporatePanel';
 import './style.css';
 
 type Participant = {id: string; name: string; roleLabel: string; credentialState: string; personalAgentPlan?: 'NONE'|'PLANNED'};
@@ -98,6 +99,12 @@ export default function App() {
     } catch(e) {problem(e); return false;}
   };
   const go = (next: Page) => {setPage(next); setMenuOpen(false);};
+  const reuseAppliedResult = (description:string) => {
+    if(!org)return;
+    if(editor){setError('Сначала сохраните или закройте редактор поручения.');return;}
+    setEditor({...initialEditor(org),description});
+    setError('');go('work');
+  };
   const startAssignment = (item?: Assignment) => {
     if (!org) return;
     setEditor(item ? {assignmentId:item.id, expectedEditNumber:item.editNumber, title:item.title, workspaceId:item.workspaceId, assigneeId:item.assigneeId ?? '', reviewerId:item.reviewerId ?? '', description:item.description, criteria:item.criteria, dueDate:item.dueDate, priority:item.priority, atlasRef:item.atlasRef} : initialEditor(org));
@@ -296,7 +303,7 @@ export default function App() {
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 
-      {org && page==='results' && <section className="card padded"><Empty title="Приёмка результатов сотрудников готовится" text="Сотрудник передаёт результат из Personal Agent. Руководитель проверяет его и принимает решение. Подписанный обмен и приёмка пока не подключены."/><div className="flow"><span>Получить из Personal Agent</span><span>Проверить</span><span>Принять или вернуть</span><span>Использовать в организации</span></div></section>}
+       {org && page==='results' && <CorporatePanel organization={org} invoke={nativeHost?nativeInvoke:null} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()}/>} 
       {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
         <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
         {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button></div>)}
