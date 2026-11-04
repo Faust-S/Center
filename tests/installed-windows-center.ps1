@@ -81,6 +81,26 @@ function Find-Control([string]$name,[string]$kind='Button',[int]$attempts=65){
     }
     Start-Sleep -Milliseconds 350
   }
+  # On a real installed WebView, a missing control can mean app rendering,
+  # navigation or UIA provider failure. Capture bounded evidence before failing,
+  # rather than silently extending all waits or treating it as a Store defect.
+  $diagnostic=@()
+  try {
+    $root=Root-Element
+    $all=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+      [System.Windows.Automation.Condition]::TrueCondition)
+    foreach($node in $all){
+      if($diagnostic.Count -ge 24){break}
+      try {
+        $label=[string]$node.Current.Name
+        if($label.Length -gt 0){
+          $diagnostic+=([string]$node.Current.ControlType.ProgrammaticName+':' +
+            $label.Substring(0,[Math]::Min(90,$label.Length)))
+        }
+      } catch {}
+    }
+    Write-Host "CENTER_INSTALLED_UIA_CONTROL_DIAGNOSTIC count=$($all.Count) sample=$($diagnostic -join ' | ')"
+  } catch {Write-Host "CENTER_INSTALLED_UIA_DIAGNOSTIC_UNAVAILABLE $($_.Exception.Message)"}
   throw "UI Automation control not found: $kind '$name'"
 }
 function Click-Control([string]$name){
