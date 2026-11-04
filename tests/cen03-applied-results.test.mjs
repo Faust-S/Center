@@ -23,6 +23,8 @@ test('CEN03 reads only owner-confirmed applied results, with exact source IDs',(
    text:'Inspect the revised delivery'});
  assert.equal(reuse.description,'Inspect the revised delivery');
  assert.equal(reuse.source.taskRevisionId,A);
+ assert.equal(reuse.source.organizationId,'org:1');
+ assert.equal(reuse.source.workspaceId,'workspace:1');
  assert.equal(reuse.effect,'DRAFT_EDITOR_ONLY');
  assert.equal(reuse.newSignedTask,false);
  assert.equal(reuse.delivered,false);

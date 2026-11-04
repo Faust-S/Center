@@ -7,11 +7,12 @@ import './style.css';
 
 type Participant = {id: string; name: string; roleLabel: string; credentialState: string; personalAgentPlan?: 'NONE'|'PLANNED'};
 type AtlasRef = {projectId:string;revision:string;workId?:string};
-type Assignment = {id: string; title: string; workspaceId: string; assigneeId: string | null; reviewerId: string | null; description: string; criteria: string; dueDate: string; priority: string; editNumber: number; status: string; atlasRef: AtlasRef|null; createdAt: string; updatedAt: string};
+type SourceResultRef={organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string};
+type Assignment = {sourceResultRef?:SourceResultRef|null;id: string; title: string; workspaceId: string; assigneeId: string | null; reviewerId: string | null; description: string; criteria: string; dueDate: string; priority: string; editNumber: number; status: string; atlasRef: AtlasRef|null; createdAt: string; updatedAt: string};
 type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string; atlasRef?: AtlasRef|null}[]; participants: Participant[]; assignments: Assignment[]};
 type Draft = {format: string; version: number; organizations: Organization[]; activeOrganizationId: string | null; updatedAt: string};
 type AtlasPortfolioView = {source:string;revision:string;authorization:string;mode:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
-type Editor = {assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
+type Editor = {sourceResultRef:SourceResultRef|null;assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
 type Page = 'overview'|'work'|'results'|'resources'|'people'|'programs'|'data';
 const pages: [Page, string, string][] = [['overview','Обзор','◫'],['resources','Планы Atlas','◇'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['programs','Personal Agent и лицензии','▦'],['data','Данные и настройки','⚙']];
 const workStatusLabels:Record<string,string>={
@@ -22,7 +23,7 @@ const workStatusLabels:Record<string,string>={
   SOURCE_REVISION_CHANGED:'План Atlas изменился - проверьте связь перед выдачей.',
   SOURCE_REVISION_MATCHES:'Работа и редакция совпадают с открытым Atlas. Права T3 не проверены.'
 };
-const initialEditor = (org: Organization): Editor => ({title:'', workspaceId: org.workspaces[0]?.id ?? '', assigneeId: org.participants[0]?.id ?? '', reviewerId: org.participants[1]?.id ?? org.participants[0]?.id ?? '', description:'', criteria:'', dueDate:'', priority:'normal',atlasRef:org.workspaces[0]?.atlasRef??null});
+const initialEditor = (org: Organization): Editor => ({title:'', workspaceId: org.workspaces[0]?.id ?? '', assigneeId: org.participants[0]?.id ?? '', reviewerId: org.participants[1]?.id ?? org.participants[0]?.id ?? '', description:'', criteria:'', dueDate:'', priority:'normal',atlasRef:org.workspaces[0]?.atlasRef??null,sourceResultRef:null});
 const errors: Record<string,string> = {
   DRAFT_FORMAT_INVALID:'Это не файл черновиков Admin Center.',
   DRAFT_JSON_INVALID:'Файл повреждён или имеет неподдерживаемый формат.',
@@ -99,21 +100,27 @@ export default function App() {
     } catch(e) {problem(e); return false;}
   };
   const go = (next: Page) => {setPage(next); setMenuOpen(false);};
-  const reuseAppliedResult = (description:string) => {
+  const reuseAppliedResult = ({description,source}:{description:string;source:SourceResultRef}) => {
     if(!org)return;
     if(editor){setError('Сначала сохраните или закройте редактор поручения.');return;}
-    setEditor({...initialEditor(org),description});
+    const workspace=org.workspaces.find(w=>w.id===source.workspaceId);
+    if(source.organizationId!==org.id||!workspace){
+      setError('Исходный Result принадлежит другой организации или рабочей области.');return;
+    }
+    setEditor({...initialEditor(org),workspaceId:workspace.id,
+      atlasRef:workspace.atlasRef??null,sourceResultRef:source,description});
     setError('');go('work');
   };
   const startAssignment = (item?: Assignment) => {
     if (!org) return;
-    setEditor(item ? {assignmentId:item.id, expectedEditNumber:item.editNumber, title:item.title, workspaceId:item.workspaceId, assigneeId:item.assigneeId ?? '', reviewerId:item.reviewerId ?? '', description:item.description, criteria:item.criteria, dueDate:item.dueDate, priority:item.priority, atlasRef:item.atlasRef} : initialEditor(org));
+    setEditor(item ? {assignmentId:item.id, expectedEditNumber:item.editNumber, title:item.title, workspaceId:item.workspaceId, assigneeId:item.assigneeId ?? '', reviewerId:item.reviewerId ?? '', description:item.description, criteria:item.criteria, dueDate:item.dueDate, priority:item.priority, atlasRef:item.atlasRef,sourceResultRef:item.sourceResultRef??null} : initialEditor(org));
     go('work');
   };
   const editorField = (name: Exclude<keyof Editor,'atlasRef'>, value: string) => setEditor(old => {
     if (!old) return null;
     if (name==='workspaceId') return {...old,workspaceId:value,
-      atlasRef:org?.workspaces.find(w=>w.id===value)?.atlasRef??null};
+      atlasRef:org?.workspaces.find(w=>w.id===value)?.atlasRef??null,
+      sourceResultRef:old.sourceResultRef?.workspaceId===value?old.sourceResultRef:null};
     return {...old,[name]:value};
   });
   const prepareAtlasWork = (ref: AtlasRef) => {
@@ -292,6 +299,9 @@ export default function App() {
             ? `Черновая связь: проект ${editor.atlasRef.projectId}, редакция ${editor.atlasRef.revision}${editor.atlasRef.workId?', работа '+editor.atlasRef.workId:''}. При редактировании редакция не меняется автоматически.`
             : 'Для полного маршрута свяжите рабочую область с проектом Atlas.'}</p>
           <p className="muted" data-testid="assignment-atlas-currentness">{workStatusLabels[atlasWorkReadback(observedAtlas,editor.atlasRef)]}</p>
+          {editor.sourceResultRef&&<p className="muted" data-testid="assignment-source-result">Источник: Task {editor.sourceResultRef.taskId}, Result revision {editor.sourceResultRef.resultRevisionId}. Ссылка будет проверена перед выпуском новой подписанной Task.
+            <button type="button" className="quiet" onClick={()=>setEditor(old=>old?{...old,sourceResultRef:null}:old)}>Убрать связь</button>
+          </p>}
           {editor.atlasRef?.workId && observedAtlas &&
             atlasWorkReadback(observedAtlas,editor.atlasRef)==='SOURCE_REVISION_CHANGED' &&
             <button type="button" className="secondary" data-testid="refresh-assignment-atlas"

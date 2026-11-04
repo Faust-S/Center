@@ -7,7 +7,7 @@ type Invoke=(command:string,args?:Record<string,unknown>)=>Promise<any>;
 type Org={id:string;name:string;assignments:Array<{id:string;title:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
 const hex=/^[a-f0-9]{64}$/;
 const why=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{organization:Org;invoke:Invoke|null;onReuse:(text:string)=>void;onPrepare:()=>void}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
  const [owner,setOwner]=useState<any>(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
@@ -177,7 +177,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
    <label>Фрагмент для нового поручения<textarea rows={4} value={reuseText} maxLength={10000} data-testid="corporate-reuse-text" onChange={e=>setReuseText(e.target.value)}/></label>
    <p className="muted">{reuseText.length}/10000 символов; в описание помещается не более 6000.</p>
    <button className="secondary" data-testid="corporate-reuse" disabled={!ready||busy||!chosen||!reuseText.trim()||reuseText.length>6000}
-    onClick={()=>{try{const r=prepareAppliedReuse(applied,{taskId:chosen.taskId,resultRevisionId:chosen.resultRevisionId,text:reuseText});onReuse(r.description)}
+    onClick={()=>{try{const r=prepareAppliedReuse(applied,{taskId:chosen.taskId,resultRevisionId:chosen.resultRevisionId,text:reuseText});onReuse({description:r.description,source:r.source})}
     catch(e){setError(why(e))}}}>Вставить в новый черновик</button>
   </div>
  </section>;
