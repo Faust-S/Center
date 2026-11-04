@@ -367,6 +367,9 @@ try {
     throw 'Stale Center assignment reference silently changed after Atlas revision advanced'
   }
   Write-Host "CENTER_INSTALLED_GUI_U05_STALE_WORK_REF_PASS old=$($task.atlasRef.revision) new=$($changed.revision) work=$workId secondWork=$additionalWorkId"
+  # The visible assignment editor must be closed before creating another
+  # organization; Center deliberately refuses to change context while it is open.
+  Click-Control 'Закрыть редактор'
   Click-Control 'Планы Atlas'
   Click-Control 'Открыть локальный Atlas'
   $changedReopened=Wait-SavedProject 2 $saved.organizationId $expectedProject $expectedAdditionalWork
@@ -443,6 +446,13 @@ try {
     throw 'First organizational Atlas identity changed after context switch and restart'
   }
   Write-Host "CENTER_INSTALLED_GUI_TWO_ORG_SWITCH_RESTART_PASS first=$($saved.organizationId) second=$secondOrgId"
+  # The assignment is still linked to the old revision after a real process
+  # relaunch and a switch away to another organization and back.
+  Click-ButtonContaining 'Поручения'
+  Click-ButtonContaining $expectedAssignment
+  [void](Find-TextContaining 'План Atlas изменился')
+  Click-Control 'Закрыть редактор'
+  Write-Host "CENTER_INSTALLED_GUI_U05_STALE_AFTER_RESTART_PASS old=$($task.atlasRef.revision) new=$($saved.revision)"
   Close-Center
   [pscustomobject]@{status='INSTALLED_GUI_TWO_ORG_ATLAS_RESTART_PASS';
     orgId=$saved.organizationId;generation=$saved.generation;revision=$saved.revision;
