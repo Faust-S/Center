@@ -89,6 +89,20 @@ function Click-Control([string]$name){
   }
   Start-Sleep -Milliseconds 350
 }
+# Button accessible names include dynamic React badge counts (e.g. "Поручения 1").
+# Keep exact-name matching for ordinary controls; use substring match for
+# navigation where the badge is an intentional part of the accessible name.
+function Click-ButtonContaining([string]$name){
+  $control=Find-ProjectButton $name
+  try {
+    $pattern=$control.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+    $pattern.Invoke()
+  } catch {
+    $control.SetFocus()
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  }
+  Start-Sleep -Milliseconds 350
+}
 function Type-Control([string]$name,[string]$value){
   $control=Find-Control $name 'Edit'
   $control.SetFocus()
@@ -228,7 +242,7 @@ try {
   Write-Host "CENTER_INSTALLED_GUI_PROJECT_WORK_AND_DRAFT_SAVED_PASS revision=$($saved.revision)"
   Close-Center
   Start-Center
-  Click-Control 'Поручения'
+  Click-ButtonContaining 'Поручения'
   $assignmentButton=Find-ProjectButton $expectedAssignment
   if(!$assignmentButton){throw 'Persisted Atlas assignment not shown after installed GUI restart'}
   Click-Control 'Планы Atlas'
