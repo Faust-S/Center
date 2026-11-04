@@ -18,6 +18,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  const [hash,setHash]=useState('');
  const [review,setReview]=useState<any>(null);
  const [consent,setConsent]=useState(false);
+ const [rejectReason,setRejectReason]=useState('');
  const [preview,setPreview]=useState<any>(null);
  const [applyConsent,setApplyConsent]=useState(false);
  const [applyDecided,setApplyDecided]=useState(false);
@@ -25,7 +26,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  const [reuseText,setReuseText]=useState('');
  const organizationId=organization.id;
  const ready=owner?.status==='OWNER_READY'&&owner.snapshot?.product==='admin'&&owner.snapshot?.organizationId===organizationId;
- const resetReview=()=>{setReview(null);setConsent(false);setPreview(null);setApplyConsent(false);setApplyDecided(false)};
+ const resetReview=()=>{setReview(null);setConsent(false);setRejectReason('');setPreview(null);setApplyConsent(false);setApplyDecided(false)};
  const refresh=async()=>{
    if(!invoke){setOwner(null);return null;}
    try{
@@ -126,6 +127,10 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
         ? 'Принятая редакция подтверждена повторным Review. Применение требует отдельного решения.'
         : 'Решение ACCEPT существует, но актуальность редакции для применения не подтверждена.'}</p>}
     <label><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> Я проверил пакет и подтверждаю решение</label>
+    <label>Причина отказа (обязательна для REJECT)
+      <textarea data-testid="corporate-reject-reason" rows={2} maxLength={1000} value={rejectReason}
+        onChange={e=>setRejectReason(e.target.value)}/>
+    </label>
     <div className="actions">
      <button className="primary" data-testid="corporate-accept" disabled={!ready||busy||!consent||!canDecideReviewedResult(review,hash,'ACCEPT')}
       onClick={()=>act('ACCEPT сохранён отдельно, применения ещё не было.',async()=>{
@@ -141,9 +146,10 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
          throw Error('T3_ACCEPT_READBACK_NOT_CONFIRMED');
        setReview(confirmed);
       })}>ACCEPT</button>
-     <button className="secondary" data-testid="corporate-reject" disabled={!ready||busy||!consent||!canDecideReviewedResult(review,hash,'REJECT')}
+     <button className="secondary" data-testid="corporate-reject" disabled={!ready||busy||!consent||!rejectReason.trim()||rejectReason.length>1000||!canDecideReviewedResult(review,hash,'REJECT')}
       onClick={()=>act('REJECT сохранён отдельно.',async()=>{
-       const decision=await execute('decide',{packageSha256:hash,previewDigest:review.preview.previewDigest,decision:'REJECT'});
+       if(!rejectReason.trim())throw Error('RECONCILIATION_REJECTION_REASON_REQUIRED');
+       const decision=await execute('decide',{packageSha256:hash,previewDigest:review.preview.previewDigest,decision:'REJECT',reason:rejectReason});
        if(decision.acceptanceState!=='REJECTED')throw Error('T3_REJECT_RECEIPT_NOT_CONFIRMED');
        resetReview();
        const confirmed=await execute('inspect',{packageSha256:hash});

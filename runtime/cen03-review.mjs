@@ -5,16 +5,20 @@ const requireValue=(ok,code)=>{if(!ok)throw Error(code);};
 // causal, revision and authority decisions; these functions never accept
 // or apply a Result and cannot replace owner JIT checks.
 export function canDecideReviewedResult(review,packageSha256,decision) {
-  return (decision==='ACCEPT'||decision==='REJECT') &&
+  const stable=(decision==='ACCEPT'||decision==='REJECT') &&
     typeof packageSha256==='string' &&
     /^[a-f0-9]{64}$/.test(packageSha256) &&
-    review?.verificationState==='VERIFIED' &&
     review?.reviewLedgerConsistent===true &&
     review?.preview?.packageSha256===packageSha256 &&
     typeof review?.preview?.previewDigest==='string' &&
     review.preview.previewDigest.length>0 &&
-    review.preview.allowedAction==='EXPLICIT_ACCEPT_ONLY' &&
     !['ACCEPTED','REJECTED'].includes(review?.receipt?.acceptanceState);
+  // REJECT may be needed specifically because a package is untrusted or
+  // otherwise ineligible for ACCEPT. The original T3 reconciliation decides
+  // whether the rejection itself is authorized and records its reason.
+  return stable && (decision==='REJECT'||(
+    review?.verificationState==='VERIFIED' &&
+    review?.preview?.allowedAction==='EXPLICIT_ACCEPT_ONLY'));
 }
 
 // The owner must first persist ACCEPT and then be reviewed again.

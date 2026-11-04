@@ -127,3 +127,13 @@ test('CEN03 UI never enables Apply from stale, untrusted or mismatched review ev
  for(const bad of invalid)assert.equal(acceptedApplicationSelection(bad,H),null);
  assert.equal(acceptedApplicationSelection(valid,'0'.repeat(64)),null);
 });
+
+test('CEN03 permits reasoned REJECT of stable but untrusted packages without enabling ACCEPT',()=>{
+  const untrusted=reviewed();
+  untrusted.verificationState='UNTRUSTED';
+  untrusted.preview.allowedAction='HOLD_FOR_REVIEW';
+  assert.equal(canDecideReviewedResult(untrusted,H,'ACCEPT'),false);
+  assert.equal(canDecideReviewedResult(untrusted,H,'REJECT'),true);
+  untrusted.reviewLedgerConsistent=false;
+  assert.equal(canDecideReviewedResult(untrusted,H,'REJECT'),false);
+});
