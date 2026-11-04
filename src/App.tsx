@@ -81,7 +81,7 @@ export default function App() {
   }, []);
   const org = state.organizations.find(row => row.id === state.activeOrganizationId);
   activeOrganizationRef.current=state.activeOrganizationId;
-  const atlasView = atlasFile?.organizationId===org?.id ? atlasFile.view : null;
+  const atlasView = atlasFile?.organizationId===org?.id ? atlasFile?.view ?? null : null;
   const observedAtlas = nativeAtlas?.organizationId===org?.id ? nativeAtlas?.view ?? null : atlasView;
   const stats = overview(state);
   const title = pages.find(row => row[0] === page)![1];
