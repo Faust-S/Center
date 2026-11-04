@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
-import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint} from '../runtime/cen03-review.mjs';
+import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox} from '../runtime/cen03-review.mjs';
 
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
@@ -84,6 +84,15 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  })();
  const records=applied.records as any[];
  const chosen=records.find(r=>r.taskId+'|'+r.resultRevisionId===reuseKey);
+ const inbox=(()=>{
+  if(!ready)return {status:'NOT_CONNECTED',items:[] as any[],counts:null};
+  try{return receivedResultInbox(owner.snapshot,organizationId,owner.snapshot.workspaceId)}
+  catch{return {status:'OWNER_READBACK_INVALID',items:[] as any[],counts:null}}
+ })();
+ const inboxLabels:Record<string,string>={
+  REVIEW_REQUIRED:'Ожидает Review',RECEIPT_CONFLICT:'Проверить квитанции',
+  ACCEPTED:'ACCEPT (не Apply)',REJECTED:'REJECT'
+ };
  const acceptedSelection=acceptedApplicationSelection(review,hash);
  const canApply=ready&&!!acceptedSelection&&
    owner.snapshot?.application?.status!=='HOLD_FOR_EXPLICIT_RECOVERY';
@@ -126,10 +135,20 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
       if(!hex.test(sha))throw Error('T3_RECEIPT_SHAPE_UNSUPPORTED');
       setHash(sha);resetReview();
     })}>Получить Result</button>
-   <label>SHA-256 принятого пакета<select data-testid="corporate-package" value={hash} onChange={e=>{setHash(e.target.value);resetReview()}}>
-    <option value="">Выберите пакет</option>
-    {(owner?.snapshot?.packages??[]).filter((s:unknown)=>typeof s==='string'&&hex.test(s)).map((s:string)=><option key={s} value={s}>{s}</option>)}
-    {hash&&!(owner?.snapshot?.packages??[]).includes(hash)&&<option value={hash}>{hash}</option>}
+   <p className="muted" data-testid="corporate-inbox-summary">
+    {inbox.status==='NOT_CONNECTED'?'Получение результатов недоступно до подключения организации.':
+      inbox.status!=='OWNER_READBACK'?'Подтверждённый список Result владельца недоступен.':
+      `Получено: ${inbox.items.length}. Ожидают Review: ${inbox.counts?.reviewRequired}.
+      Проблемные квитанции: ${inbox.counts?.receiptConflict}.
+      ACCEPT (не Apply): ${inbox.counts?.accepted}. REJECT: ${inbox.counts?.rejected}.`}
+   </p>
+   <label>Полученные результаты<select data-testid="corporate-package" value={hash} onChange={e=>{setHash(e.target.value);resetReview()}}>
+    <option value="">Выберите пакет для Review</option>
+    {inbox.items.map(item=><option key={item.packageSha256} value={item.packageSha256}>
+      {inboxLabels[item.status]??'Проверить'} · {item.packageSha256.slice(0,16)}…
+    </option>)}
+    {hash&&!inbox.items.some(item=>item.packageSha256===hash)&&
+      <option value={hash}>Недавно полученный пакет · {hash.slice(0,16)}…</option>}
    </select></label>
    <button className="secondary" data-testid="corporate-review" disabled={!ready||!hash||busy}
     onClick={()=>act('Проверка подписи, редакций и конфликтов выполнена владельцем.',async()=>{

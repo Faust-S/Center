@@ -30,7 +30,7 @@ export function acceptedApplicationSelection(review,packageSha256) {
     review?.preview?.packageSha256!==packageSha256 ||
     review?.receipt?.packageSha256!==packageSha256 ||
     review?.receipt?.acceptanceState!=='ACCEPTED' ||
-    typeof review?.receipt?.acceptanceId!=='string' ||
+    !/^[a-f0-9]{64}$/.test(review?.receipt?.acceptanceId??'') ||
     !Array.isArray(review?.changes)) return null;
   const revisions=review.changes.filter(x=>x?.operation==='UPSERT');
   if(revisions.length===0 || revisions.length>32 ||
@@ -45,6 +45,36 @@ export function acceptedApplicationSelection(review,packageSha256) {
       records[0].protectedActionAuthorized===false;
   })) return null;
   return {acceptanceId:review.receipt.acceptanceId,revisionIds};
+}
+
+// Read-only list over T3 interop/runtime.mjs:snapshot().packages and
+// .receipts. The original Reconciliation ledger owns all decisions.
+export function receivedResultInbox(snapshot,organizationId,workspaceId){
+ const bad='CEN03_OWNER_INBOX_READBACK_INVALID';
+ requireValue(snapshot?.product==='admin' &&
+   snapshot.organizationId===organizationId &&
+   snapshot.workspaceId===workspaceId &&
+   Array.isArray(snapshot.packages)&&Array.isArray(snapshot.receipts),bad);
+ const packages=snapshot.packages,receipts=snapshot.receipts;
+ requireValue(packages.length<=10000 &&
+   packages.every(x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x)) &&
+   new Set(packages).size===packages.length,bad);
+ const items=packages.map(packageSha256=>{
+   const matching=receipts.filter(r=>r?.packageSha256===packageSha256 &&
+     ['ACCEPTED','REJECTED'].includes(r.acceptanceState));
+   const acceptedReceipt=matching.length===1 &&
+     /^[a-f0-9]{64}$/.test(matching[0].acceptanceId??'')?matching[0]:null;
+   const status=matching.length>1||(matching.length===1&&!acceptedReceipt)
+     ?'RECEIPT_CONFLICT':acceptedReceipt?.acceptanceState??'REVIEW_REQUIRED';
+   return {packageSha256,status,acceptanceId:acceptedReceipt?.acceptanceId??null};
+ });
+ const rank={REVIEW_REQUIRED:0,RECEIPT_CONFLICT:0,ACCEPTED:1,REJECTED:2};
+ items.sort((a,b)=>rank[a.status]-rank[b.status]||
+   a.packageSha256.localeCompare(b.packageSha256));
+ const count=status=>items.filter(item=>item.status===status).length;
+ return {status:'OWNER_READBACK',items,counts:{
+   reviewRequired:count('REVIEW_REQUIRED'),receiptConflict:count('RECEIPT_CONFLICT'),
+   accepted:count('ACCEPTED'),rejected:count('REJECTED')}};
 }
 
 // UI-only session identity over the existing organization-owner readback.

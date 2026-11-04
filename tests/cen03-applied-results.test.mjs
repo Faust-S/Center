@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readAppliedResults,prepareAppliedReuse,verifyAppliedCommitReadback} from '../runtime/cen03-applied-results.mjs';
 import {createT3AdminPort} from '../runtime/t3-admin-port.mjs';
-import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint} from '../runtime/cen03-review.mjs';
+import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox} from '../runtime/cen03-review.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64);
 const record={organizationId:'org:1',workspaceId:'workspace:1',taskId:'task:old',
@@ -82,14 +82,14 @@ test('CEN03 rechecks owner context after reading application snapshot',()=>{
  assert.throws(()=>port.reusableResults({binding}),/CONTEXT_CHANGED/);
 });
 
-const H='d'.repeat(64),REV='e'.repeat(64),DIGEST='f'.repeat(64);
+const H='d'.repeat(64),REV='e'.repeat(64),DIGEST='f'.repeat(64),ACCEPTANCE='c'.repeat(64);
 function reviewed(state='PENDING'){
   return {verificationState:'VERIFIED',reviewLedgerConsistent:true,
     taskBinding:{proven:true,taskRevisionId:A},
     preview:{packageSha256:H,previewDigest:DIGEST,
       allowedAction:state==='PENDING'?'EXPLICIT_ACCEPT_ONLY':'ALREADY_DECIDED'},
     receipt:state==='PENDING'?null:
-      {packageSha256:H,acceptanceState:state,acceptanceId:'acceptance:verified'},
+      {packageSha256:H,acceptanceState:state,acceptanceId:ACCEPTANCE},
     changes:[{operation:'UPSERT',revisionId:REV}],
     revisionCurrentness:[{revisionId:REV,
       currentness:state==='ACCEPTED'?'CURRENT_BOUNDED':'NOT_ACCEPTED',
@@ -107,7 +107,7 @@ test('CEN03 UI only permits explicit decisions before a persisted receipt',()=>{
  assert.equal(canDecideReviewedResult(accepted,H,'ACCEPT'),false);
  assert.equal(canDecideReviewedResult(accepted,H,'REJECT'),false);
  assert.deepEqual(acceptedApplicationSelection(accepted,H),{
-   acceptanceId:'acceptance:verified',revisionIds:[REV]});
+   acceptanceId:ACCEPTANCE,revisionIds:[REV]});
  assert.equal(acceptedApplicationSelection(reviewed('REJECTED'),H),null);
 });
 test('CEN03 UI never enables Apply from stale, untrusted or mismatched review evidence',()=>{
@@ -117,6 +117,7 @@ test('CEN03 UI never enables Apply from stale, untrusted or mismatched review ev
   withPatch(x=>x.verificationState='UNTRUSTED'),
   withPatch(x=>x.reviewLedgerConsistent=false),
   withPatch(x=>x.taskBinding.proven=false),
+  withPatch(x=>x.receipt.acceptanceId='invalid'),
   withPatch(x=>x.receipt.packageSha256='0'.repeat(64)),
   withPatch(x=>x.revisionCurrentness[0].currentness='UNKNOWN_EVIDENCE'),
   withPatch(x=>x.revisionCurrentness[0].eligibleForLocalInterpretation=false),
@@ -196,4 +197,47 @@ test('CEN03 manager session invalidates pending decisions across T3 context chan
    const invalid=structuredClone(s);change(invalid);
    assert.equal(ownerSessionFingerprint(invalid,'org:1'),null);
  }
+});
+
+test('CEN03 incoming Result list only reads T3 owner packages and decision receipts',()=>{
+ const a='a'.repeat(64),b='b'.repeat(64),c='c'.repeat(64);
+ const snapshot={product:'admin',organizationId:'org:1',workspaceId:'workspace:1',
+  packages:[c,b,a],receipts:[
+   {packageSha256:b,acceptanceState:'ACCEPTED',acceptanceId:'d'.repeat(64)},
+   {packageSha256:c,acceptanceState:'REJECTED',acceptanceId:'e'.repeat(64)},
+   {packageSha256:a,acceptanceState:'ACCEPTED_FOR_LOCAL_RESOLUTION',acceptanceId:'f'.repeat(64)}
+  ]};
+ const before=structuredClone(snapshot);
+ const inbox=receivedResultInbox(snapshot,'org:1','workspace:1');
+ assert.equal(inbox.status,'OWNER_READBACK');
+ assert.deepEqual(inbox.counts,{reviewRequired:1,receiptConflict:0,accepted:1,rejected:1});
+ assert.deepEqual(inbox.items.map(x=>[x.packageSha256,x.status]),[
+  [a,'REVIEW_REQUIRED'],[b,'ACCEPTED'],[c,'REJECTED']]);
+ assert.deepEqual(snapshot,before);
+ assert.equal(inbox.items[1].acceptanceId,'d'.repeat(64));
+});
+test('CEN03 inbox never invents ACCEPT for unknown/corrupt receipts or foreign scope',()=>{
+ const hash='a'.repeat(64);
+ const snapshot={product:'admin',organizationId:'org:1',workspaceId:'workspace:1',
+  packages:[hash],receipts:[
+   {packageSha256:hash,acceptanceState:'ACCEPTED',acceptanceId:'invalid'},
+   {packageSha256:hash,acceptanceState:'REJECTED',acceptanceId:'b'.repeat(64)}
+  ]};
+ const actual=receivedResultInbox(snapshot,'org:1','workspace:1');
+ assert.equal(actual.items[0].status,'RECEIPT_CONFLICT');
+ assert.equal(actual.counts.accepted,0);
+ for(const change of [
+  x=>x.organizationId='another',
+  x=>x.workspaceId='another',
+  x=>x.packages=[hash,hash],
+  x=>x.packages=['bad'],
+  x=>delete x.receipts,
+  x=>x.product='control'
+ ]){
+  const corrupted=structuredClone(snapshot);change(corrupted);
+  assert.throws(()=>receivedResultInbox(corrupted,'org:1','workspace:1'),
+   /CEN03_OWNER_INBOX_READBACK_INVALID/);
+ }
+ snapshot.receipts=[{packageSha256:hash,acceptanceState:'ACCEPTED',acceptanceId:'invalid'}];
+ assert.equal(receivedResultInbox(snapshot,'org:1','workspace:1').items[0].status,'RECEIPT_CONFLICT');
 });
