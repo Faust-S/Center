@@ -2,6 +2,7 @@ import {assignmentText} from '../src/organization.mjs';
 import {readAppliedResults} from './cen03-applied-results.mjs';
 import {readAtlasPortfolio} from '../src/atlas-integration.mjs';
 import {serialize as serializeAtlas} from '../vendor/atlas/src/core.mjs';
+import {requireCurrentWorkReference} from '../vendor/atlas/src/project-reference.mjs';
 const requireValue=(ok,code)=>{if(!ok)throw Error(code);};
 
 // CEN02: bounded adapter, not a package issuer or delivery/receipt database.
@@ -26,12 +27,19 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
       requireValue(observed && observed.organizationId===organization.id &&
         typeof observed.generation==='string' && observed.generation!=='none',
         'T3_ATLAS_ORGANIZATION_MISMATCH');
-      const view=readAtlasPortfolio(serializeAtlas(observed.snapshot));
-      requireValue(view.revision===ref.revision,'T3_ATLAS_REVISION_CHANGED');
-      const project=view.projects.find(x=>x.id===ref.projectId);
-      requireValue(project,'T3_ATLAS_PROJECT_NOT_IN_SOURCE');
-      requireValue(project.workItems.some(x=>x.id===ref.workId),
-        'T3_ATLAS_WORK_NOT_IN_SOURCE');
+      // Retain Center's bounded source validation, then ask the canonical Atlas
+      // owner model to enforce exact portfolio revision and work identity.
+      readAtlasPortfolio(serializeAtlas(observed.snapshot));
+      try {requireCurrentWorkReference(observed.snapshot,ref);}
+      catch(error){
+        const codes={
+          ATLAS_SOURCE_REVISION_CHANGED:'T3_ATLAS_REVISION_CHANGED',
+          ATLAS_PROJECT_NOT_IN_SOURCE:'T3_ATLAS_PROJECT_NOT_IN_SOURCE',
+          ATLAS_WORK_NOT_IN_SOURCE:'T3_ATLAS_WORK_NOT_IN_SOURCE',
+          ATLAS_WORK_REFERENCE_INVALID:'T3_ATLAS_WORK_BINDING_REQUIRED'
+        };
+        throw Error(codes[error?.code]||'T3_ATLAS_SNAPSHOT_INVALID');
+      }
       if(assignment.sourceResultRef){
         // An unsigned draft reference alone is not evidence of prior application.
         const ref=assignment.sourceResultRef;

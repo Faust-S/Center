@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createDraftRepository} from '../runtime/t3-draft-repository.mjs';
 import {createT3AdminPort} from '../runtime/t3-admin-port.mjs';
 import {emptyDraft,applyDraftCommand} from '../src/organization.mjs';
-import {empty as emptyAtlas,createProject,createItem} from '../vendor/atlas/src/core.mjs';
+import {empty as emptyAtlas,createProject,createItem,editItem} from '../vendor/atlas/src/core.mjs';
 // Explicit contract doubles: these tests do not qualify signatures, T3 or native persistence.
 function storeDouble() {let revision=0, bytes=null;return {read:()=>({revision,bytes}),write(expected,data){if(expected!==revision)throw Error('SUBJECT_CONCURRENT_REVISION');bytes=Buffer.from(data);return {revision:++revision};},close(){}};}
 test('repository delegates commit and obtains same bytes on readback',()=>{const repo=createDraftRepository(storeDouble()),data=emptyDraft('2026-11-04T00:00:00Z');const saved=repo.save(data,0);assert.equal(saved.revision,1);assert.deepEqual(repo.load().draft,data);assert.throws(()=>repo.save(data,0),/CONCURRENT_REVISION/);});
@@ -150,6 +150,22 @@ test('T3 task issue rejects stale revision, missing work and project-only link',
     /T3_ATLAS_WORK_BINDING_REQUIRED/);
   assert.equal(r.calls.length,0);
 });
+test('U05 refuses signing when native Atlas changes after assignment was linked',async()=>{
+ const f=issueFixture(),r=issuingRuntime();
+ let current=f.observed;
+ const port=createT3AdminPort(r,{openAtlas:async()=>current});
+ const sourceRef=f.assignment.atlasRef;
+ const updated=editItem(f.observed.snapshot,sourceRef.projectId,sourceRef.workId,{state:'done'});
+ current={...current,snapshot:updated};
+ await assert.rejects(()=>port.issue(f),/T3_ATLAS_REVISION_CHANGED/);
+ assert.deepEqual(r.calls,[]);
+ assert.equal(f.assignment.atlasRef.revision,sourceRef.revision);
+ const fresh={...f,assignment:{...f.assignment,atlasRef:{...sourceRef,revision:String(updated.revision)}}};
+ const issued=await port.issue(fresh);
+ assert.equal(issued.atlasRef.revision,String(updated.revision));
+ assert.equal(r.calls.filter(x=>x.type==='createTask').length,1);
+});
+
 test('T3 issue rechecks context epoch after native I/O and keeps reviewer binding',async()=>{
   const f=issueFixture(),r=issuingRuntime();
   const port=createT3AdminPort(r,{openAtlas:async()=>{r.state.contextEpoch++;return f.observed;}});
