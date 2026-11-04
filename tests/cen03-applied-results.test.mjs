@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
+import {readAppliedResults,prepareAppliedReuse,verifyAppliedCommitReadback} from '../runtime/cen03-applied-results.mjs';
 import {createT3AdminPort} from '../runtime/t3-admin-port.mjs';
 import {canDecideReviewedResult,acceptedApplicationSelection} from '../runtime/cen03-review.mjs';
 
@@ -136,4 +136,35 @@ test('CEN03 permits reasoned REJECT of stable but untrusted packages without ena
   assert.equal(canDecideReviewedResult(untrusted,H,'REJECT'),true);
   untrusted.reviewLedgerConsistent=false;
   assert.equal(canDecideReviewedResult(untrusted,H,'REJECT'),false);
+});
+
+test('CEN03 validates original T3 receipt against the same applied effect and Result versions',()=>{
+ const acceptanceId='c'.repeat(64),effectKey='f'.repeat(64);
+ const target={consumerId:'IWXA_ADMIN_CENTER',processId:'admin.applied-results',
+   subjectId:'org:1',workspaceId:'workspace:1'};
+ const receipt={schema:'IWXA_T3_LOCAL_APPLICATION_EFFECT_RECEIPT/1',
+   status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',journalStatus:'COMMITTED',
+   effectKey,sourceAcceptanceId:acceptanceId,target,
+   action:'application.apply',externalContextCoreApplied:false};
+ const state=snapshot();
+ state.application.effects=[{effectKey,status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',
+   journalStatus:'COMMITTED'}];
+ state.application.records[0].acceptanceId=acceptanceId;
+ const args={receipt,snapshot:state,organizationId:'org:1',
+   workspaceId:'workspace:1',acceptanceId,revisionIds:[B]};
+ assert.deepEqual(verifyAppliedCommitReadback(args).verifiedRevisionIds,[B]);
+ for (const mutate of [
+   x=>x.receipt.effectKey='0'.repeat(64),
+   x=>x.receipt.target.workspaceId='another',
+   x=>x.receipt.sourceAcceptanceId='0'.repeat(64),
+   x=>x.receipt.journalStatus='PREPARED',
+   x=>x.snapshot.application.effects[0].journalStatus='PREPARED',
+   x=>x.snapshot.application.effects=[],
+   x=>x.snapshot.application.records=[],
+   x=>x.snapshot.application.status='HOLD_FOR_EXPLICIT_RECOVERY',
+   x=>x.revisionIds=['0'.repeat(64)]
+ ]){
+   const copy=structuredClone(args);mutate(copy);
+   assert.throws(()=>verifyAppliedCommitReadback(copy),/T3_APPLICATION_POSTCOMMIT_READBACK_HOLD/);
+ }
 });

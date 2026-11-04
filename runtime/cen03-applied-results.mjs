@@ -52,3 +52,43 @@
      organizationId:source.organizationId,workspaceId:source.workspaceId},
      effect:'DRAFT_EDITOR_ONLY',newSignedTask:false,delivered:false};
  }
+
+// This read-only projection compares the original T3 effect receipt with a
+// fresh T3 applicationSummary() readback of encrypted Store and Journal.
+// It does not verify signatures independently, perform writes or authorize
+// any application in Atlas/Personal Agent.
+export function verifyAppliedCommitReadback({
+  receipt,snapshot,organizationId,workspaceId,acceptanceId,revisionIds
+}={}){
+  const fail='T3_APPLICATION_POSTCOMMIT_READBACK_HOLD';
+  requireValue(isHex64(acceptanceId) && Array.isArray(revisionIds) &&
+    revisionIds.length>0 && revisionIds.length<=32 &&
+    revisionIds.every(isHex64) && new Set(revisionIds).size===revisionIds.length,fail);
+  requireValue(receipt?.schema==='IWXA_T3_LOCAL_APPLICATION_EFFECT_RECEIPT/1' &&
+    receipt.status==='LOCAL_ENCRYPTED_STORE_CONFIRMED' &&
+    receipt.journalStatus==='COMMITTED' &&
+    isHex64(receipt.effectKey) &&
+    receipt.sourceAcceptanceId===acceptanceId &&
+    receipt.target?.subjectId===organizationId &&
+    receipt.target?.workspaceId===workspaceId &&
+    receipt.target?.consumerId==='IWXA_ADMIN_CENTER' &&
+    receipt.target?.processId==='admin.applied-results' &&
+    receipt.action==='application.apply' &&
+    receipt.externalContextCoreApplied===false,fail);
+  let view;
+  try { view=readAppliedResults(snapshot,organizationId,workspaceId); }
+  catch { throw Error(fail); }
+  requireValue(view.status==='LOCAL_ENCRYPTED_STORE_CONFIRMED',fail);
+  const matches=snapshot.application.effects?.filter(effect=>
+    effect.effectKey===receipt.effectKey &&
+    effect.status==='LOCAL_ENCRYPTED_STORE_CONFIRMED' &&
+    effect.journalStatus==='COMMITTED');
+  requireValue(matches?.length===1,fail);
+  for (const id of revisionIds) {
+    requireValue(view.records.filter(row=>
+      row.resultRevisionId===id && row.acceptanceId===acceptanceId).length===1,fail);
+  }
+  return {status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',
+    effectKey:receipt.effectKey,sourceAcceptanceId:acceptanceId,
+    verifiedRevisionIds:[...revisionIds],externalContextCoreApplied:false};
+}

@@ -170,7 +170,12 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
      if(!selected)throw Error('T3_APPLICATION_SOURCE_NOT_CURRENT');
      const r=await execute('previewApplication',selected);
      if(r.status==='ALREADY_COMMITTED_NO_WRITE')return;
-     if(!r.previewId||!r.previewDigest)throw Error('T3_APPLICATION_PREVIEW_REQUIRED');
+     if(!r.previewId||!r.previewDigest||
+       r.acceptanceId!==selected.acceptanceId||
+       !Array.isArray(r.revisionIds)||
+       r.revisionIds.length!==selected.revisionIds.length||
+       !selected.revisionIds.every((id:string)=>r.revisionIds.includes(id)))
+       throw Error('T3_APPLICATION_PREVIEW_SOURCE_MISMATCH');
      setPreview(r);
    })}>Посмотреть применение</button>
    {preview&&<div>
@@ -184,8 +189,14 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
      })}>Подтвердить решение</button>
      <button className="primary" data-testid="corporate-apply-commit" disabled={!ready||busy||!applyDecided} onClick={()=>act('Состояние перечитано из Store/Journal.',async()=>{
        const p=preview;setPreview(null);setApplyConsent(false);setApplyDecided(false);
-       try{await execute('commitApplication',{previewId:p.previewId,previewDigest:p.previewDigest})}
-       catch{throw Error('COMMIT_UNKNOWN: проверьте журнал и Store, не повторяйте запись вслепую.')}
+       try{
+         const result=await execute('commitApplication',{previewId:p.previewId,
+           previewDigest:p.previewDigest,acceptanceId:p.acceptanceId,
+           revisionIds:p.revisionIds});
+         if(result.verifiedReadback?.status!=='LOCAL_ENCRYPTED_STORE_CONFIRMED'||
+           result.verifiedReadback?.effectKey!==result.effectKey)
+           throw Error('T3_APPLICATION_POSTCOMMIT_READBACK_HOLD');
+       }catch{throw Error('COMMIT_UNKNOWN: проверьте журнал и Store, не повторяйте запись вслепую.')}
      })}>Apply</button>
     </div>
    </div>}

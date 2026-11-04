@@ -1,4 +1,4 @@
-import {readAppliedResults} from './cen03-applied-results.mjs';
+import {readAppliedResults,verifyAppliedCommitReadback} from './cen03-applied-results.mjs';
 const requireValue=(ok,code)=>{if(!ok)throw Error(code);};
 
 // A presentation gate only. The original T3 review owns cryptographic,
@@ -75,12 +75,23 @@ export function createCen03Review({runtime,snapshot,bind}) {
       requireValue(typeof runtime.decideApplication==='function','T3_APPLY_NOT_CONNECTED');
       return runtime.decideApplication(previewId,previewDigest);
     },
-    commitApplication({previewId,previewDigest,binding}) {
-      bind(binding);
+    commitApplication({previewId,previewDigest,acceptanceId,revisionIds,binding}) {
+      const current=bind(binding);
       requireValue(typeof runtime.commitApplication==='function','T3_APPLY_NOT_CONNECTED');
-      // Owner returns a durable receipt. Do not relabel a local commit as
-      // application inside an external Personal Agent or Atlas host.
-      return runtime.commitApplication(previewId,previewDigest);
+      requireValue(typeof acceptanceId==='string' && /^[a-f0-9]{64}$/.test(acceptanceId) &&
+        Array.isArray(revisionIds) && revisionIds.length>0 && revisionIds.length<=32 &&
+        revisionIds.every(x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x)) &&
+        new Set(revisionIds).size===revisionIds.length,'T3_APPLICATION_EXPECTED_SOURCE_REQUIRED');
+      // The original T3 owns the sole write and the sealed receipt.
+      // Re-read the same confirmed effect and selected revisions from its
+      // Store/Journal; an uncertain commit must never be silently retried.
+      const receipt=runtime.commitApplication(previewId,previewDigest);
+      const observed=snapshot();
+      const verifiedReadback=verifyAppliedCommitReadback({receipt,snapshot:observed,
+        organizationId:current.organizationId,workspaceId:current.workspaceId,
+        acceptanceId,revisionIds});
+      bind(binding);
+      return {...receipt,verifiedReadback};
     },
     applicationState({binding}) {
       bind(binding);

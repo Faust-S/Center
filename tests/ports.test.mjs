@@ -64,8 +64,27 @@ test('CEN03 application preview, explicit decision, commit and owner readback ar
  const decision=port.decideApplication({previewId:'preview-id',previewDigest:'preview-digest',binding});
  assert.equal(decision.status,'APPLICATION_DECISION_RECORDED');
  assert.deepEqual(runtime.calls,['PREVIEW_APPLICATION','DECIDE_APPLICATION']);
- const committed=port.commitApplication({previewId:'preview-id',previewDigest:'preview-digest',binding});
+ const acceptanceId='c'.repeat(64),revisionId='d'.repeat(64),effectKey='e'.repeat(64);
+ runtime.commitApplication=()=>{
+   runtime.calls.push('COMMIT_APPLICATION');
+   runtime.state.product='admin';
+   runtime.state.application={
+     status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false,
+     records:[{organizationId:'org',workspaceId:'work',taskId:'task:qualified',
+       taskRevisionId:TASK_REVISION,resultRevisionId:revisionId,
+       acceptanceId,executorId:'person:employee',result:'Verified result'}],
+     effects:[{effectKey,status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',journalStatus:'COMMITTED'}]
+   };
+   return {schema:'IWXA_T3_LOCAL_APPLICATION_EFFECT_RECEIPT/1',
+     status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',effectKey,sourceAcceptanceId:acceptanceId,
+     target:{consumerId:'IWXA_ADMIN_CENTER',processId:'admin.applied-results',
+       subjectId:'org',workspaceId:'work'},
+     journalStatus:'COMMITTED',action:'application.apply',externalContextCoreApplied:false};
+ };
+ const committed=port.commitApplication({previewId:'preview-id',previewDigest:'preview-digest',
+   acceptanceId,revisionIds:[revisionId],binding});
  assert.equal(committed.status,'LOCAL_ENCRYPTED_STORE_CONFIRMED');
+ assert.deepEqual(committed.verifiedReadback.verifiedRevisionIds,[revisionId]);
  assert.equal(committed.externalContextCoreApplied,false);
  assert.deepEqual(runtime.calls,['PREVIEW_APPLICATION','DECIDE_APPLICATION','COMMIT_APPLICATION']);
  assert.equal(port.applicationState({binding}).status,'LOCAL_ENCRYPTED_STORE_CONFIRMED');
@@ -226,4 +245,28 @@ test('CEN02 never signs continued task with foreign-organization source Result',
  await assert.rejects(()=>port.issue({...f,assignment:{...f.assignment,sourceResultRef:source}}),
    /DRAFT_SOURCE_RESULT_SCOPE_CHANGED/);
  assert.equal(r.calls.length,0);
+});
+
+test('CEN03 cannot claim Apply from a commit receipt without matching owner Store/Journal readback',()=>{
+ const owner=runtimeDouble(),port=createT3AdminPort(owner);
+ const acceptanceId='c'.repeat(64),revisionId='d'.repeat(64),effectKey='e'.repeat(64);
+ owner.commitApplication=()=>{
+   owner.calls.push('COMMIT_APPLICATION');
+   return {schema:'IWXA_T3_LOCAL_APPLICATION_EFFECT_RECEIPT/1',
+     status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',effectKey,sourceAcceptanceId:acceptanceId,
+     target:{consumerId:'IWXA_ADMIN_CENTER',processId:'admin.applied-results',
+       subjectId:'org',workspaceId:'work'},
+     journalStatus:'COMMITTED',action:'application.apply',externalContextCoreApplied:false};
+ };
+ assert.throws(()=>port.commitApplication({previewId:'p',previewDigest:'v',
+   acceptanceId,revisionIds:[revisionId],binding}),/POSTCOMMIT_READBACK_HOLD/);
+ assert.deepEqual(owner.calls,['COMMIT_APPLICATION']);
+});
+test('CEN03 requires exact source IDs before asking T3 to apply',()=>{
+ const owner=runtimeDouble(),port=createT3AdminPort(owner);
+ assert.throws(()=>port.commitApplication({previewId:'p',previewDigest:'v',
+   acceptanceId:'invalid',revisionIds:['d'.repeat(64)],binding}),/EXPECTED_SOURCE_REQUIRED/);
+ assert.throws(()=>port.commitApplication({previewId:'p',previewDigest:'v',
+   acceptanceId:'c'.repeat(64),revisionIds:[],binding}),/EXPECTED_SOURCE_REQUIRED/);
+ assert.deepEqual(owner.calls,[]);
 });
