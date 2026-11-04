@@ -27,6 +27,7 @@ $organizationsRoot=Join-Path $base 'organizations'
 $localDraft=Join-Path $base 'preparation\draft.json'
 $expectedProject='CenterGUIProject'
 $expectedWork='CenterGUIWork'
+$expectedAssignment='CenterGUIAssignment'
 
 function Capture-CenterFailure {
   try {
@@ -200,6 +201,11 @@ try {
      $saved.organizationId -ne $projectOnly.organizationId){
     throw 'Native Atlas project identity changed while creating a work item'
   }
+  Click-Control 'Связать с рабочей областью'
+  Click-Control 'Подготовить поручение по работе'
+  Type-Control 'Что нужно сделать' $expectedAssignment
+  Type-Control 'Критерии приёмки' 'Verified delivery report'
+  Click-Control 'Сохранить черновик'
   Click-Control 'Сохранить на компьютере'
   for($i=0;$i -lt 60 -and !(Test-Path $localDraft);$i++){Start-Sleep -Milliseconds 300}
   if(!(Test-Path $localDraft)){throw 'Manager draft not stored locally'}
@@ -207,9 +213,24 @@ try {
   if($draft.organizations[0].id -ne $saved.organizationId){
     throw 'Saved Center organization does not match native Atlas organization root'
   }
+  if(@($draft.organizations[0].assignments).Count -ne 1){
+    throw 'Manager assignment draft was not persisted'
+  }
+  $task=$draft.organizations[0].assignments[0]
+  if($task.title -ne $expectedAssignment -or
+     $task.atlasRef.projectId -ne $projectId -or
+     $task.atlasRef.workId -ne $workId -or
+     [string]$task.atlasRef.revision -ne [string]$saved.revision -or
+     $task.status -ne 'DRAFT'){
+    throw 'Assignment lost exact Atlas work and revision binding'
+  }
+  Write-Host "CENTER_INSTALLED_GUI_ATLAS_WORK_ASSIGNMENT_LINK_PASS assignment=$($task.id) project=$projectId work=$workId revision=$($saved.revision)"
   Write-Host "CENTER_INSTALLED_GUI_PROJECT_WORK_AND_DRAFT_SAVED_PASS revision=$($saved.revision)"
   Close-Center
   Start-Center
+  Click-Control 'Поручения'
+  $assignmentButton=Find-ProjectButton $expectedAssignment
+  if(!$assignmentButton){throw 'Persisted Atlas assignment not shown after installed GUI restart'}
   Click-Control 'Планы Atlas'
   Click-Control 'Открыть локальный Atlas'
   $projectButton=Find-ProjectButton $expectedProject
@@ -230,6 +251,7 @@ try {
     orgId=$saved.organizationId;generation=$saved.generation;revision=$saved.revision;
     reopenedGeneration=$reopened.generation;reopenedRevision=$reopened.revision;
     projectId=$projectId;workId=$workId;project=$expectedProject;work=$expectedWork;
+    assignmentId=$task.id;assignment=$expectedAssignment;assignmentAtlasRevision=$task.atlasRef.revision;
     installerSha256=(Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash;
     installerBytes=$installer.Length}|ConvertTo-Json|Set-Content (Join-Path $artifactDir 'installed-gui-result.json')
 } catch {
