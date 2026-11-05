@@ -113,7 +113,16 @@ export default function App() {
   };
   const startAssignment = (item?: Assignment) => {
     if (!org) return;
+    // A manager may navigate to Results while an assignment editor is open.
+    // Returning through "Prepare assignment" must not replace the live draft,
+    // its exact Atlas revision, or a manually selected applied Result source.
+    if (editor) {
+      setError('Уже открыт редактор поручения. Сохраните или закройте его перед созданием другого.');
+      go('work');
+      return;
+    }
     setEditor(item ? {assignmentId:item.id, expectedEditNumber:item.editNumber, title:item.title, workspaceId:item.workspaceId, assigneeId:item.assigneeId ?? '', reviewerId:item.reviewerId ?? '', description:item.description, criteria:item.criteria, dueDate:item.dueDate, priority:item.priority, atlasRef:item.atlasRef,sourceResultRef:item.sourceResultRef??null} : initialEditor(org));
+    setError('');
     go('work');
   };
   const editorField = (name: Exclude<keyof Editor,'atlasRef'>, value: string) => setEditor(old => {

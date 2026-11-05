@@ -56,6 +56,15 @@ try{
   assert.ok((await page.getByTestId('assignment-atlas-currentness').textContent()).includes('совпадают'));
   await page.getByTestId('save-assignment').click();
   checks.push('explicit-plan-relink-keeps-unsaved-editor-and-original-work-id');
+  await page.getByTestId('assignment-row').first().click();
+  await page.getByTestId('task-title').fill('This unsaved next task must be retained');
+  await page.getByTestId('nav-results').click();
+  await page.getByRole('button',{name:'Подготовить поручение'}).click();
+  assert.equal(await page.getByTestId('task-title').inputValue(),
+    'This unsaved next task must be retained');
+  assert.match(await page.getByRole('alert').innerText(),/Уже открыт редактор/);
+  await page.getByRole('button',{name:'Закрыть редактор'}).click();
+  checks.push('results-prepare-keeps-existing-unsaved-task-editor');
   const downloaded=page.waitForEvent('download');await page.locator('.top-save').click();const download=await downloaded;const path=await download.path();const raw=readFileSync(path,'utf8');const saved=JSON.parse(raw);
   assert.equal(saved.organizations[0].assignments[0].editNumber,3);assert.equal(saved.organizations[0].participants.length,2);
   assert.equal(saved.organizations[0].assignments[0].atlasRef.projectId,first.id);
