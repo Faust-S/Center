@@ -170,12 +170,18 @@ try {
     }
     $afterReadHash=[Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($manifest)))
     if($afterReadHash -ne $newManifestHash){throw 'U05_CENTER_READ_MODIFIED_NEW_OWNER_MANIFEST'}
-    $initial.ownerRevisionAfterChange=[string]$head.revision
-    $initial.ownerGenerationAfterChange=[string]$head.generation
-    $initial.ownerManifestSha256AfterChange=$afterReadHash
-    $initial.staleAfterOwnerGUIEdit='VERIFIED_IN_INSTALLED_CENTER'
-    $initial.status='U05_TWO_INSTALLED_OWNER_CHANGED_STALE_PASS'
-    $initial | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $artifact
+    # Convert the persisted JSON receipt into a mutable hashtable; ordinary
+    # PSCustomObject property assignment cannot add arbitrary new keys.
+    $requalified=@{}
+    foreach($property in $initial.PSObject.Properties){
+      $requalified[$property.Name]=$property.Value
+    }
+    $requalified['ownerRevisionAfterChange']=[string]$head.revision
+    $requalified['ownerGenerationAfterChange']=[string]$head.generation
+    $requalified['ownerManifestSha256AfterChange']=$afterReadHash
+    $requalified['staleAfterOwnerGUIEdit']='VERIFIED_IN_INSTALLED_CENTER'
+    $requalified['status']='U05_TWO_INSTALLED_OWNER_CHANGED_STALE_PASS'
+    $requalified | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $artifact
     Write-Host "U05_TWO_INSTALLED_OWNER_CHANGED_STALE_PASS old=$originalRevision new=$($head.revision) project=$originalId work=$originalWorkId"
     return
   }
