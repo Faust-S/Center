@@ -56,6 +56,11 @@ export default function App() {
   const [creatingOrg,setCreatingOrg] = useState(false);
   const [menuOpen,setMenuOpen] = useState(false);
   const [dirty,setDirty] = useState(false);
+  const [saving,setSaving] = useState(false);
+  const revisionRef = useRef(0);
+  const savingRef = useRef(false);
+  const editorBaselineRef = useRef<string|null>(null);
+  const pendingCloseRef = useRef(false);
   // A file preview belongs only to the organization where it was opened.
   // It must never become a cross-organization project/authorization source.
   const [atlasFile,setAtlasFile] = useState<{organizationId:string;view:AtlasPortfolioView}|null>(null);
@@ -67,6 +72,30 @@ export default function App() {
   const [message,setMessage] = useState('');
   const [error,setError] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+  const editorChanged=!!editor&&JSON.stringify(editor)!==editorBaselineRef.current;
+  pendingCloseRef.current=dirty||editorChanged||saving;
+  useEffect(()=>{
+    if(nativeHost){
+      let active=true;
+      let unlisten:(()=>void)|undefined;
+      import('@tauri-apps/api/window')
+        .then(({getCurrentWindow})=>getCurrentWindow().onCloseRequested(event=>{
+          if(pendingCloseRef.current &&
+             !window.confirm('Есть несохранённые изменения. Закрыть Admin Center без сохранения?'))
+            event.preventDefault();
+        }))
+        .then(dispose=>{if(active)unlisten=dispose;else dispose();})
+        .catch(()=>{if(active)setError('Не удалось подключить защиту закрытия окна. Сохраните работу перед выходом.');});
+      return ()=>{active=false;unlisten?.();};
+    }
+    const beforeUnload=(event:BeforeUnloadEvent)=>{
+      if(!pendingCloseRef.current)return;
+      event.preventDefault();
+      event.returnValue='';
+    };
+    window.addEventListener('beforeunload',beforeUnload);
+    return ()=>window.removeEventListener('beforeunload',beforeUnload);
+  },[nativeHost]);
   useEffect(() => {
     if (!nativeHost) return;
     let cancelled=false;
@@ -96,6 +125,7 @@ export default function App() {
   const command = (value: any) => {
     try {
       const next = applyDraftCommand(state,value) as Draft;
+      revisionRef.current++;
       setState(next); setDirty(true); setError(''); setMessage('Черновик изменён. Сохраните его в файл.'); return true;
     } catch(e) {problem(e); return false;}
   };
@@ -107,6 +137,7 @@ export default function App() {
     if(source.organizationId!==org.id||!workspace){
       setError('Исходный Result принадлежит другой организации или рабочей области.');return;
     }
+    editorBaselineRef.current=JSON.stringify(initialEditor(org));
     setEditor({...initialEditor(org),workspaceId:workspace.id,
       atlasRef:workspace.atlasRef??null,sourceResultRef:source,description});
     setError('');go('work');
@@ -121,9 +152,16 @@ export default function App() {
       go('work');
       return;
     }
-    setEditor(item ? {assignmentId:item.id, expectedEditNumber:item.editNumber, title:item.title, workspaceId:item.workspaceId, assigneeId:item.assigneeId ?? '', reviewerId:item.reviewerId ?? '', description:item.description, criteria:item.criteria, dueDate:item.dueDate, priority:item.priority, atlasRef:item.atlasRef,sourceResultRef:item.sourceResultRef??null} : initialEditor(org));
+    const next=item ? {assignmentId:item.id, expectedEditNumber:item.editNumber, title:item.title, workspaceId:item.workspaceId, assigneeId:item.assigneeId ?? '', reviewerId:item.reviewerId ?? '', description:item.description, criteria:item.criteria, dueDate:item.dueDate, priority:item.priority, atlasRef:item.atlasRef,sourceResultRef:item.sourceResultRef??null} : initialEditor(org);
+    editorBaselineRef.current=JSON.stringify(next);
+    setEditor(next);
     setError('');
     go('work');
+  };
+  const closeEditor=()=>{
+    if(editorChanged&&!window.confirm('Закрыть редактор? Несохранённые изменения поручения будут потеряны.'))return;
+    editorBaselineRef.current=null;
+    setEditor(null);
   };
   const editorField = (name: Exclude<keyof Editor,'atlasRef'>, value: string) => setEditor(old => {
     if (!old) return null;
@@ -143,6 +181,7 @@ export default function App() {
       setError('Сначала свяжите рабочую область с этой редакцией проекта Atlas.');
       return;
     }
+    editorBaselineRef.current=JSON.stringify(initialEditor(org));
     setEditor({...initialEditor(org),workspaceId:workspace.id,atlasRef:ref});
     setError('');go('work');
   };
@@ -166,6 +205,7 @@ export default function App() {
   };
   async function exportFile() {
     if (editor) {setError('Сначала сохраните изменения поручения.'); return;}
+    if(savingRef.current){setError('Сначала завершите текущее сохранение.');return;}
     try {
       const content=encodeDraft(state);
       if (nativeHost) {
@@ -176,26 +216,39 @@ export default function App() {
         const link=document.createElement('a');link.href=url;link.download='admin-center-draft.json';link.click();
         setTimeout(()=>URL.revokeObjectURL(url),10000);
       }
-      if (!nativeHost)setDirty(false);
+      // A browser download does not prove a durable disk write.
       setError('');
-      setMessage('Файл черновиков экспортирован. Это не .iwxa и не резервная копия организации.');
+      setMessage(nativeHost
+        ? 'Файл черновиков экспортирован и проверен. Это не .iwxa и не резервная копия организации.'
+        : 'Начата загрузка файла черновиков. Проверьте сохранённый файл перед закрытием.');
     } catch(e){problem(e);}
   }
   async function saveFile() {
     if (editor) {setError('Сначала сохраните изменения поручения.'); return;}
+    if(savingRef.current){setError('Сохранение уже выполняется.');return;}
     if(!nativeHost){await exportFile();return;}
+    const revision=revisionRef.current;
+    savingRef.current=true;setSaving(true);
     try {
       const content=encodeDraft(state);
       const saved=await nativeInvoke('center_draft_save_local',{content});
       if(!saved)throw Error('Не удалось сохранить черновик');
-      setDirty(false);setError('');
-      setMessage('Черновики сохранены на этом компьютере. Подписанные полномочия T3 пока не подключены.');
+      if(revisionRef.current===revision){
+        setDirty(false);setError('');
+        setMessage('Черновики сохранены на этом компьютере. Подписанные полномочия T3 пока не подключены.');
+      }else{
+        setDirty(true);setError('');
+        setMessage('Черновики изменены во время сохранения. Сохраните новую редакцию повторно.');
+      }
     } catch(e){problem(e);}
+    finally{savingRef.current=false;setSaving(false);}
   }
   async function readDraft(raw: string) {
     try {
       const next = decodeDraft(raw) as Draft;
-      if ((dirty || editor) && !window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.')) return;
+      if(pendingCloseRef.current&&!window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.'))return;
+      revisionRef.current++;
+      editorBaselineRef.current=null;
       setState(next);setDirty(nativeHost);setAtlasFile(null);setNativeAtlas(null);setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
     } catch(e) {problem(e);}
   }
@@ -236,7 +289,7 @@ export default function App() {
     </aside>
 
     <main className="main">
-      <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb">{org?.name??'Начало работы'} <span>/ {title}</span></div><button className="secondary top-save" onClick={saveFile} disabled={!org}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
+      <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb">{org?.name??'Начало работы'} <span>/ {title}</span></div><button className="secondary top-save" onClick={saveFile} disabled={!org||saving}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
       <div className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ ОРГАНИЗАЦИЕЙ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>
       {error && <div className="notice error" role="alert">{error}</div>}
       {message && <div className="notice" role="status">{message}</div>}
@@ -293,8 +346,8 @@ export default function App() {
 
       {org && page==='work' && <>
         <div className="section-head"><p className="muted">Черновик не считается выданным поручением.</p><button className="primary" disabled={!org.workspaces.length||!!editor} onClick={()=>startAssignment()}>＋ Новое поручение</button></div>
-        {editor ? <form className="card form-panel" data-testid="assignment-form" onSubmit={e=>{e.preventDefault();if(command({type:'SAVE_ASSIGNMENT',organizationId:org.id,...editor}))setEditor(null);}}>
-          <div className="section-head"><h2>{editor.assignmentId?'Редактировать поручение':'Новое поручение'}</h2><button type="button" className="quiet" onClick={()=>setEditor(null)}>Закрыть редактор</button></div>
+        {editor ? <form className="card form-panel" data-testid="assignment-form" onSubmit={e=>{e.preventDefault();if(command({type:'SAVE_ASSIGNMENT',organizationId:org.id,...editor})){editorBaselineRef.current=null;setEditor(null);}}}>
+          <div className="section-head"><h2>{editor.assignmentId?'Редактировать поручение':'Новое поручение'}</h2><button type="button" className="quiet" onClick={closeEditor}>Закрыть редактор</button></div>
           <label>Что нужно сделать<input autoFocus value={editor.title} maxLength={200} required onChange={e=>editorField('title',e.target.value)} data-testid="task-title"/></label>
           <div className="form-grid">
             <label>Рабочая область<select value={editor.workspaceId} onChange={e=>editorField('workspaceId',e.target.value)}>{org.workspaces.map(w=><option value={w.id} key={w.id}>{w.name}</option>)}</select></label>
@@ -329,10 +382,10 @@ export default function App() {
         {!org.participants.length && <Empty title="Сначала добавьте сотрудников" text="Для каждого сотрудника можно подготовить план доступа к Personal Agent."/>}
         <div className="notice subdued">Разделение ответственности: Publisher выпускает программные лицензии и издательские статусы; Admin Center распределяет подтверждённые места организации и управляет организационными полномочиями. Ни одна кнопка здесь пока не активирует программу.</div>
       </section>}
-      {org && page==='data' && <section className="card padded"><h2>Черновики и защищённый обмен</h2><p>Сохраните рабочие черновики перед закрытием. Для поручений и результатов в полном выпуске используется существующий подписанный обмен IWXA с шифрованием age для выбранных получателей.</p><div className="actions"><button className="primary" onClick={saveFile}>{nativeHost?'Сохранить локально':'Сохранить файл черновиков'}</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button>{nativeHost&&<button className="secondary" onClick={exportFile}>Экспортировать JSON</button>}</div><div className="notice subdued">Локальное сохранение и экспорт содержат только подготовительные черновики. Это не .iwxa и не .iwxa.age, в них нет ключей или принятых решений. Шифрование, получение и восстановление организационных пакетов подключаются к действующему механизму T3 и пока не доступны в интерфейсе.</div></section>}
+      {org && page==='data' && <section className="card padded"><h2>Черновики и защищённый обмен</h2><p>Сохраните рабочие черновики перед закрытием. Для поручений и результатов в полном выпуске используется существующий подписанный обмен IWXA с шифрованием age для выбранных получателей.</p><div className="actions"><button className="primary" disabled={saving} onClick={saveFile}>{nativeHost?'Сохранить локально':'Сохранить файл черновиков'}</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button>{nativeHost&&<button className="secondary" onClick={exportFile}>Экспортировать JSON</button>}</div><div className="notice subdued">Локальное сохранение и экспорт содержат только подготовительные черновики. Это не .iwxa и не .iwxa.age, в них нет ключей или принятых решений. Шифрование, получение и восстановление организационных пакетов подключаются к действующему механизму T3 и пока не доступны в интерфейсе.</div></section>}
       {!org && <div className="landing-actions"><button className="secondary" onClick={openFile}>Открыть файл черновиков</button><p className="muted">Работа руководителя связана с Atlas и Personal Agent сотрудников. Сейчас доступна подготовка структуры, без реальной отправки поручений.</p></div>}
       <input ref={fileInput} type="file" accept=".json,application/json" hidden data-testid="open-draft" onChange={async e=>{const file=e.target.files?.[0];if(file)await readDraft(await file.text());e.target.value='';}}/>
-      <footer className="footer"><span>IWXA Admin Center · 0.2.0-dev.1</span><span>{dirty||editor?'Есть несохранённые изменения':nativeHost?'Локальный черновик открыт':'Черновик в текущем окне'}</span></footer>
+      <footer className="footer"><span>IWXA Admin Center · 0.2.0-dev.1</span><span>{saving?'Сохранение выполняется':dirty||editorChanged?'Есть несохранённые изменения':nativeHost?'Локальный черновик открыт':'Черновик в текущем окне'}</span></footer>
     </main>
     <aside className="inspector" aria-label="Контекст работы руководителя"><div className="eyebrow">КОНТЕКСТ РУКОВОДИТЕЛЯ</div><h2>{org?.name??'Ваша организация'}</h2><p className="muted">{org?'Работа относится только к выбранной организации.':'Создайте группу или организацию и подготовьте первые поручения.'}</p><div className="inspector-card"><strong>Следующий шаг</strong><p>{!org?'Укажите название организации.':!org.workspaces.length?'Добавьте рабочую область и свяжите план Atlas.':!org.participants.length?'Добавьте сотрудников и запланируйте доступ к Personal Agent.':!org.assignments.length?'Подготовьте поручение для сотрудника.':'Проверьте связь с планом и критерии результата.'}</p></div><div className="inspector-card"><strong>Текущий этап</strong><p>Подготовка структуры и поручений.</p><small>В полном выпуске Admin Center управляет корпоративными правами, пакетами и приёмкой через существующие механизмы уровня T3.</small></div></aside>
   </div>;
