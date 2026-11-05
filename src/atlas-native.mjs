@@ -24,9 +24,22 @@ export function createNativeAtlasPort(invoke) {
       fail('ATLAS_NATIVE_READBACK_INVALID');
     const snapshot=deserialize(JSON.stringify(result.snapshot));
     if(result.needsConfirmation)fail('ATLAS_NATIVE_REQUIRES_RECOVERY');
-    return {organizationId,generation:result.generation,snapshot};
+    return {organizationId,generation:result.generation,snapshot,sourceKind:'CENTER_LOCAL_PREPARATION'};
+  }
+  // Same-user, fixed-path Atlas Desktop source, with no commit capability.
+  async function openPublicAtlas(organizationId) {
+    if(!validOrganizationId(organizationId))fail('ATLAS_ORGANIZATION_INVALID');
+    const result=row(await invoke('center_atlas_public_open',{}));
+    if(!result||typeof result.generation!=='string'||result.generation==='none'||
+       typeof result.needsConfirmation!=='boolean')fail('ATLAS_PUBLIC_READBACK_INVALID');
+    if(result.needsConfirmation)fail('ATLAS_PUBLIC_RECOVERY_REQUIRED');
+    const snapshot=deserialize(JSON.stringify(result.snapshot));
+    return {organizationId,generation:result.generation,snapshot,
+      sourceKind:'PUBLIC_ATLAS_READ_ONLY'};
   }
   async function commit(session,nextSnapshot) {
+    if(session?.sourceKind!=='CENTER_LOCAL_PREPARATION')
+      fail('ATLAS_PUBLIC_SOURCE_READ_ONLY');
     if(!session||!validOrganizationId(session.organizationId)||typeof session.generation!=='string')
       fail('ATLAS_NATIVE_SESSION_INVALID');
     const snapshot=deserialize(serialize(nextSnapshot));
@@ -55,16 +68,23 @@ export function createNativeAtlasPort(invoke) {
   }
   function view(session) {
     const output=readAtlasPortfolio(serialize(session.snapshot));
-    return {...output,mode:'NATIVE_ATLAS_LOCAL_ORGANIZATION',authorization:'NOT_CHECKED'};
+    if(!['CENTER_LOCAL_PREPARATION','PUBLIC_ATLAS_READ_ONLY'].includes(session?.sourceKind))
+      fail('ATLAS_NATIVE_SESSION_INVALID');
+    return {...output,
+      mode:session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'
+        ? 'NATIVE_ATLAS_PUBLIC_READ_ONLY':'NATIVE_ATLAS_LOCAL_ORGANIZATION',
+      authorization:'NOT_CHECKED'};
   }
   return Object.freeze({
-    open,commit,view,
+    open,openPublicAtlas,commit,view,
     async addProject(session,{name,type='business'}) {
+      if(session?.sourceKind!=='CENTER_LOCAL_PREPARATION')fail('ATLAS_PUBLIC_SOURCE_READ_ONLY');
       const next=createProject(session.snapshot,{name,type});
       const saved=await commit(session,next.state);
       return {session:saved,projectId:next.id};
     },
     async addWork(session,{projectId,title}) {
+      if(session?.sourceKind!=='CENTER_LOCAL_PREPARATION')fail('ATLAS_PUBLIC_SOURCE_READ_ONLY');
       const next=createItem(session.snapshot,projectId,{title});
       const saved=await commit(session,next.state);
       return {session:saved,workId:next.id};

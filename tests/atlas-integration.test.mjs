@@ -84,3 +84,14 @@ test('work link observation detects revision drift but retains previous referenc
  assert.equal(atlasWorkReadback(current,null),'WORK_NOT_LINKED');
  assert.deepEqual(ref,linkableAtlasWork(current,a,item));
 });
+
+
+test('canonical desktop owner projection permits exact work links but never confers T3 grants',()=>{
+ const {snapshot,a,item}=sample();
+ const view={...readAtlasPortfolio(serialize(snapshot)),mode:'NATIVE_ATLAS_PUBLIC_READ_ONLY'};
+ const reference=linkableAtlasWork(view,a,item);
+ assert.deepEqual(reference,{projectId:a,workId:item,revision:String(snapshot.revision)});
+ assert.equal(atlasWorkReadback(view,reference),'SOURCE_REVISION_MATCHES');
+ assert.equal(view.authorization,'NOT_CHECKED');
+ assert.equal(view.projects.length,2);
+});

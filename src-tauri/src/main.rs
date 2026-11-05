@@ -16,6 +16,35 @@ fn center_atlas_root(app: &AppHandle, organization_id: &str) -> Result<PathBuf, 
     center_atlas_root_under(&path_for(app)?, organization_id)
 }
 
+// Resolve only the fixed, same-user Atlas Desktop data root. The caller never
+// supplies a path; this adapter cannot browse arbitrary filesystem content.
+fn center_public_atlas_root_under(center_app_data: &Path) -> Result<PathBuf, String> {
+    if center_app_data.file_name().and_then(|name| name.to_str())
+        != Some("ru.iwxa.admin-center") {
+        return Err("ATLAS_PUBLIC_APP_SCOPE_INVALID".into());
+    }
+    let parent = center_app_data.parent().ok_or("ATLAS_PUBLIC_BASE_NOT_FOUND")?;
+    Ok(parent.join("ru.iwxa.atlas").join("atlas-store-v1"))
+}
+fn center_public_atlas_open_root(root: &Path) -> Result<OpenResult, String> {
+    if !root.join("head.json").is_file() {
+        return Err("ATLAS_PUBLIC_SOURCE_NOT_FOUND".into());
+    }
+    // Reuse canonical Atlas locking, manifest, block checks and recovery flags.
+    // Never call commit_root or create a second portfolio for the public source.
+    let _guard = lock(root)?;
+    let value = load_root(root)?;
+    if value.needs_confirmation {
+        return Err("ATLAS_PUBLIC_RECOVERY_REQUIRED".into());
+    }
+    Ok(value)
+}
+#[tauri::command]
+fn center_atlas_public_open(app: AppHandle) -> Result<OpenResult, String> {
+    let local = app.path().app_local_data_dir().map_err(|_| "ATLAS_PUBLIC_BASE_NOT_FOUND")?;
+    center_public_atlas_open_root(&center_public_atlas_root_under(&local)?)
+}
+
 fn center_atlas_open_root(root: &Path) -> Result<OpenResult, String> {
     // Opening an as-yet empty organization must create its Atlas root first,
     // just as the original Atlas application does before its first read.
@@ -112,7 +141,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            save_draft_file, open_draft_file, center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit
+            save_draft_file, open_draft_file, center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open
         ])
         .run(tauri::generate_context!())
         .expect("Admin Center could not start");
@@ -136,6 +165,41 @@ mod center_atlas_integration_tests {
             assert!(center_atlas_root_under(&base, bad).is_err(), "{bad}");
         }
         let _ = fs::remove_dir_all(base);
+    }
+    #[test]
+    fn center_reads_real_atlas_desktop_store_without_owning_a_second_copy() {
+        let base = scratch();
+        let center_dir = base.join("ru.iwxa.admin-center");
+        let public_root = center_public_atlas_root_under(&center_dir).unwrap();
+        assert_eq!(public_root, base.join("ru.iwxa.atlas").join("atlas-store-v1"));
+        assert!(center_public_atlas_root_under(&base.join("wrong-application")).is_err());
+        assert!(center_public_atlas_open_root(&public_root).is_err());
+        assert!(!public_root.exists(), "read-only open must not create missing Atlas root");
+        let project = serde_json::json!({
+            "id":"atlas-project-1", "items":[{"id":"atlas-work-1","title":"Work"}],
+            "dependencies":[]
+        });
+        let first = serde_json::json!({
+            "schema":"atlas.project/1", "revision":1, "projects":[project]
+        });
+        let written = commit_root(&public_root, "none", first.clone()).unwrap();
+        let observed = center_public_atlas_open_root(&public_root).unwrap();
+        assert_eq!(observed.generation, written.generation);
+        assert_eq!(observed.snapshot, first);
+        let revised = serde_json::json!({
+            "schema":"atlas.project/1", "revision":2,
+            "projects":[{"id":"atlas-project-1","items":[
+                {"id":"atlas-work-1","title":"Work"},
+                {"id":"atlas-work-2","title":"Added"}],"dependencies":[]}]
+        });
+        let next = commit_root(&public_root, &written.generation, revised.clone()).unwrap();
+        let readback = center_public_atlas_open_root(&public_root).unwrap();
+        assert_eq!(readback.snapshot, revised);
+        assert_eq!(readback.generation, next.generation);
+        assert_eq!(readback.snapshot["projects"][0]["items"][0]["id"], "atlas-work-1");
+        assert!(!center_dir.join("atlas-store-v1").exists(),
+            "public Atlas read must never initialize a Center project store");
+        fs::remove_dir_all(base).unwrap();
     }
     #[test]
     fn real_atlas_native_commit_restart_and_cross_org_isolation() {

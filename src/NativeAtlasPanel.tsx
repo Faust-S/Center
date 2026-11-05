@@ -5,7 +5,7 @@ import {linkableAtlasProject,linkableAtlasWork} from './atlas-integration.mjs';
 // Genuine desktop host. Browser preview intentionally has no native authority.
 const isDesktop=()=>Boolean((window as any).__TAURI_INTERNALS__);
 const invoke=(name:string,args:any)=>(window as any).__TAURI_INTERNALS__.invoke(name,args);
-type Session={organizationId:string;generation:string;snapshot:any};
+type Session={organizationId:string;generation:string;snapshot:any;sourceKind:'CENTER_LOCAL_PREPARATION'|'PUBLIC_ATLAS_READ_ONLY'};
 type View={source:string;revision:string;mode:string;authorization:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
 export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObserved}:{organizationId:string;onLink:(ref:{projectId:string;revision:string})=>void;onLinkWork:(ref:{projectId:string;revision:string;workId:string})=>void;onObserved?:(organizationId:string,view:View|null)=>void}){
  const [session,setSession]=useState<Session|null>(null);
@@ -42,29 +42,29 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
  }
  const selectedProject=view?.projects.find(x=>x.id===selected);
  return <div className="card nested-form" data-testid="native-atlas-panel">
-   <div className="section-head"><h3>Планы организации</h3><button className="primary" disabled={busy} onClick={()=>void act(p=>p.open(organizationId))} data-testid="native-atlas-open">Открыть локальный Atlas</button></div>
-   <p className="muted">Проекты сохраняются через оригинальное нативное хранилище Atlas, отдельно для каждой организации. Подтверждение организационных полномочий T3 ещё не подключено.</p>
+   <div className="section-head"><h3>Планы Atlas</h3><div className="inline-form"><button className="primary" disabled={busy} onClick={()=>void act(p=>p.openPublicAtlas(organizationId))} data-testid="native-atlas-public-open">Открыть Atlas Desktop</button><button className="secondary" disabled={busy} onClick={()=>void act(p=>p.open(organizationId))} data-testid="native-atlas-open">Локальный план Center</button></div></div>
+   <p className="muted">Atlas Desktop читается из исходного нативного каталога этой учётной записи, без копирования проектов. Локальные планы Center — отдельная подготовительная область. Оба просмотра не подтверждают корпоративные полномочия T3.</p>
    {error&&<div className="notice error" role="alert">{error}</div>}
    {session&&view&&<div>
-     <p className="muted" data-testid="native-atlas-revision">Редакция портфеля: {view.revision}. Проектов: {view.projects.length}.</p>
-     <form className="inline-form" onSubmit={e=>{e.preventDefault();void act(async p=>{
+     <p className="muted" data-testid="native-atlas-revision">{session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'?'Atlas Desktop · только чтение':'Локальная подготовка Center'} · редакция портфеля: {view.revision}. Проектов: {view.projects.length}.</p>
+     {session.sourceKind!=='PUBLIC_ATLAS_READ_ONLY'&&<form className="inline-form" onSubmit={e=>{e.preventDefault();void act(async p=>{
        const result=await p.addProject(session,{name:projectName,type:'business'});
        setProjectName('');return result;
      });}}>
        <input aria-label="Новый проект Atlas" maxLength={160} value={projectName} onChange={e=>setProjectName(e.target.value)} required placeholder="Название проекта"/>
        <button className="secondary" disabled={busy||!projectName.trim()} data-testid="native-atlas-create-project">Создать проект</button>
-     </form>
+     </form>}
      {view.projects.map(p=><button key={p.id} className={`assignment-row ${selected===p.id?'chosen':''}`} onClick={()=>{setSelected(p.id);setSelectedWork(p.workItems[0]?.id||'');}} data-testid="native-atlas-project">
        <span className="row-content"><strong>{p.name}</strong><small>Работ: {p.total}, завершено: {p.done}, заблокировано: {p.blocked}</small></span><span className="status neutral">{p.progress===null?'Без работ':p.progress+'%'}</span>
      </button>)}
      {!!selected&&<>
-       <form className="inline-form" onSubmit={e=>{e.preventDefault();void act(async p=>{
+       {session.sourceKind!=='PUBLIC_ATLAS_READ_ONLY'&&<form className="inline-form" onSubmit={e=>{e.preventDefault();void act(async p=>{
          const result=await p.addWork(session,{projectId:selected,title:workName});
          setWorkName('');return result;
        });}}>
          <input aria-label="Работа Atlas" maxLength={160} value={workName} required onChange={e=>setWorkName(e.target.value)} placeholder="Работа в выбранном проекте"/>
          <button className="secondary" disabled={busy||!workName.trim()} data-testid="native-atlas-add-work">Добавить работу</button>
-       </form>
+       </form>}
        <button className="secondary" disabled={busy} onClick={()=>onLink(linkableAtlasProject(view,selected))} data-testid="native-atlas-link">Связать с рабочей областью</button>
        {selectedProject && selectedProject.workItems.length>0 && <div className="inline-form">
          <label>Работа Atlas <select aria-label="Выбранная работа Atlas" value={selectedWork||selectedProject.workItems[0].id} onChange={e=>setSelectedWork(e.target.value)}>
@@ -74,7 +74,7 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
            onClick={()=>onLinkWork(linkableAtlasWork(view,selected,selectedWork||selectedProject.workItems[0].id))}>Подготовить поручение по работе</button>
        </div>}
      </>}
-     <p className="muted">Сохранение и повторное чтение проверяются нативным Atlas. Это локальная подготовка, не корпоративная приёмка или T3-допуск.</p>
+     <p className="muted">{session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'?'Связь с работой Atlas Desktop — только черновая ссылка. Выдача требует отдельной проверки источника и полномочий перед подписанием.':'Сохранение локального плана Center не делает его общим проектом Atlas Desktop.'}</p>
    </div>}
  </div>;
 }

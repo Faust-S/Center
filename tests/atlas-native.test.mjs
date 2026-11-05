@@ -100,3 +100,46 @@ test('native readback with changed values must still reject a successful commit 
  await assert.rejects(async()=>port.addProject(await port.open('org-corrupt'),{name:'Actual project'}),/ATLAS_NATIVE_READBACK_MISMATCH/);
  assert.equal(ipc.calls.filter(x=>x==='center_atlas_commit').length,1);
 });
+
+
+test('same-user public Atlas reader observes the actual owner revision without copying or mutating the source',async()=>{
+ const project=createProject(empty(),{name:'Owner public project',type:'business',owner:'private owner'});
+ const work=createItem(project.state,project.id,{title:'Personal assignment'});
+ const original=work.state;
+ let owner={generation:'atlas-generation-1',snapshot:original};
+ const calls=[];
+ const invoke=async(name,args)=>{
+   calls.push(name);
+   if(name==='center_atlas_public_open') {
+     assert.deepEqual(args,{});
+     return {...owner,needsConfirmation:false,restoredFromBackup:false};
+   }
+   throw Error('PUBLIC_ATLAS_NO_WRITE_OR_LOCAL_FALLBACK');
+ };
+ const port=createNativeAtlasPort(invoke);
+ const session=await port.openPublicAtlas('org-one');
+ const view=port.view(session);
+ assert.equal(view.mode,'NATIVE_ATLAS_PUBLIC_READ_ONLY');
+ assert.equal(view.revision,String(original.revision));
+ assert.equal(view.projects[0].workItems[0].id,work.id);
+ await assert.rejects(()=>port.addProject(session,{name:'Not authorized'}),/ATLAS_PUBLIC_SOURCE_READ_ONLY/);
+ await assert.rejects(()=>port.addWork(session,{projectId:project.id,title:'Not authorized'}),/ATLAS_PUBLIC_SOURCE_READ_ONLY/);
+ await assert.rejects(()=>port.commit(session,{...original,revision:original.revision+1}),/ATLAS_PUBLIC_SOURCE_READ_ONLY/);
+ assert.deepEqual(calls,['center_atlas_public_open']);
+ const revised=createItem(original,project.id,{title:'Another owner work'});
+ owner={generation:'atlas-generation-2',snapshot:revised.state};
+ const fresh=await port.openPublicAtlas('org-one');
+ assert.equal(port.view(fresh).revision,String(revised.state.revision));
+ assert.equal(port.view(fresh).projects[0].workItems[0].id,work.id);
+ assert.equal(view.revision,String(original.revision));
+ assert.deepEqual(calls,['center_atlas_public_open','center_atlas_public_open']);
+});
+test('public owner absent, damaged or requesting recovery never falls back to local Center Atlas',async()=>{
+ const missing=createNativeAtlasPort(async()=>{throw Error('ATLAS_PUBLIC_SOURCE_NOT_FOUND');});
+ await assert.rejects(()=>missing.openPublicAtlas('org-one'),/ATLAS_PUBLIC_SOURCE_NOT_FOUND/);
+ const damaged=createNativeAtlasPort(async()=>({generation:'g1',needsConfirmation:false,snapshot:{schema:'fake'}}));
+ await assert.rejects(()=>damaged.openPublicAtlas('org-one'),/Invalid Atlas snapshot/);
+ const recovery=createNativeAtlasPort(async()=>({generation:'g1',needsConfirmation:true,snapshot:empty()}));
+ await assert.rejects(()=>recovery.openPublicAtlas('org-one'),/ATLAS_PUBLIC_RECOVERY_REQUIRED/);
+ await assert.rejects(()=>recovery.openPublicAtlas('../escape'),/ATLAS_ORGANIZATION_INVALID/);
+});
