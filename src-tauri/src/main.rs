@@ -30,10 +30,9 @@ fn center_public_atlas_open_root(root: &Path) -> Result<OpenResult, String> {
     if !root.join("head.json").is_file() {
         return Err("ATLAS_PUBLIC_SOURCE_NOT_FOUND".into());
     }
-    // Reuse canonical Atlas locking, manifest, block checks and recovery flags.
-    // Never call commit_root or create a second portfolio for the public source.
-    let _guard = lock(root)?;
-    let value = load_root(root)?;
+    // Canonical Atlas shared-lock reader. This never creates directories,
+    // lock files or project blocks in the Atlas Desktop owner store.
+    let value = read_root_readonly(root)?;
     if value.needs_confirmation {
         return Err("ATLAS_PUBLIC_RECOVERY_REQUIRED".into());
     }
