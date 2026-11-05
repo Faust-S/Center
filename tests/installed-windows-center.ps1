@@ -31,6 +31,8 @@ $expectedAssignment='CenterGUIAssignment'
 $expectedSecondOrganization='CenterGUISecondOrganization'
 $expectedSecondProject='CenterGUISecondProject'
 $expectedSecondWork='CenterGUISecondWork'
+$expectedRevisedAssignment='CenterGUIAssignmentRevised'
+$staffNames=@('CenterGUIStaffA','CenterGUIStaffB')
 
 function Capture-CenterFailure {
   try {
@@ -204,6 +206,25 @@ function Wait-SavedDraftOrganizationCount([int]$count){
   }
   throw "Manager draft did not persist $count organizations"
 }
+function Wait-FirstOrganizationQualification([string]$orgId){
+  for($i=0;$i -lt 90;$i++){
+    try{
+      if(Test-Path $localDraft){
+        $draft=Get-Content -LiteralPath $localDraft -Raw | ConvertFrom-Json -Depth 100
+        $org=@($draft.organizations|Where-Object{$_.id -eq $orgId})|Select-Object -First 1
+        if($org -and @($org.participants).Count -eq 2 -and
+           @($org.participants|Where-Object{$_.personalAgentPlan -eq 'PLANNED'}).Count -eq 1 -and
+           @($org.assignments).Count -eq 1 -and
+           $org.assignments[0].title -eq $expectedRevisedAssignment -and
+           $org.assignments[0].editNumber -eq 2){
+          return $org
+        }
+      }
+    }catch{}
+    Start-Sleep -Milliseconds 300
+  }
+  throw 'Installed GUI did not persist participant/seat plan and edited assignment'
+}
 function Select-OrganizationByKeyboard([string]$movement){
   # React's native organization select is the only selected corporate context.
   # WebView2 exposes the labeled <select> as a ComboBox to Windows UIA.
@@ -330,11 +351,52 @@ try {
   }
   Write-Host "CENTER_INSTALLED_GUI_ATLAS_WORK_ASSIGNMENT_LINK_PASS assignment=$($task.id) project=$projectId work=$workId revision=$($saved.revision)"
   Write-Host "CENTER_INSTALLED_GUI_PROJECT_WORK_AND_DRAFT_SAVED_PASS revision=$($saved.revision)"
+  # Qualify the ordinary manager journey in the installed GUI, not just
+  # creating one assignment. Planning a seat must NOT issue any license.
+  Click-Control 'Сотрудники и роли'
+  foreach($staffName in $staffNames){
+    Type-Control 'Имя' $staffName
+    Click-Control 'Добавить участника'
+  }
+  Click-Control 'Personal Agent и лицензии'
+  Click-ButtonContaining 'Запланировать место'
+  Click-ButtonContaining 'Поручения'
+  Click-ButtonContaining $expectedAssignment
+  Type-Control 'Что нужно сделать' $expectedRevisedAssignment
+  Type-Control 'Критерии приёмки' 'Revised verified acceptance report'
+  Click-Control 'Сохранить черновик'
+  Click-Control 'Сохранить на компьютере'
+  $qualified=Wait-FirstOrganizationQualification $saved.organizationId
+  $staffIds=@($qualified.participants|ForEach-Object{$_.id})
+  if(@($staffIds|Select-Object -Unique).Count -ne 2 -or
+     @($qualified.participants|ForEach-Object{$_.name}) -ne $null -and
+     $qualified.assignments[0].atlasRef.projectId -ne $projectId){
+    throw 'Installed manager participant IDs or Atlas source binding changed after editing'
+  }
+  if($qualified.assignments[0].atlasRef.workId -ne $workId -or
+     [string]$qualified.assignments[0].atlasRef.revision -ne [string]$saved.revision -or
+     $qualified.assignments[0].status -ne 'DRAFT'){
+    throw 'Edited assignment changed its original Atlas work or revision'
+  }
+  Write-Host "CENTER_INSTALLED_GUI_STAFF_SEAT_EDIT_SAVE_PASS employees=2 plannedSeats=1 edit=2"
   Close-Center
   Start-Center
   Click-ButtonContaining 'Поручения'
-  $assignmentButton=Find-ProjectButton $expectedAssignment
-  if(!$assignmentButton){throw 'Persisted Atlas assignment not shown after installed GUI restart'}
+  $assignmentButton=Find-ProjectButton $expectedRevisedAssignment
+  if(!$assignmentButton){throw 'Edited Atlas assignment not shown after installed GUI restart'}
+  Click-Control 'Сотрудники и роли'
+  [void](Find-TextContaining $staffNames[0])
+  [void](Find-TextContaining $staffNames[1])
+  Click-Control 'Personal Agent и лицензии'
+  [void](Find-TextContaining 'Места запланированы')
+  $reopenedDraft=Get-Content -LiteralPath $localDraft -Raw | ConvertFrom-Json -Depth 100
+  $reopenedOrg=@($reopenedDraft.organizations|Where-Object{$_.id -eq $saved.organizationId})[0]
+  if(@($reopenedOrg.participants).Count -ne 2 -or
+     @($reopenedOrg.participants|Where-Object{$_.personalAgentPlan -eq 'PLANNED'}).Count -ne 1 -or
+     $reopenedOrg.assignments[0].title -ne $expectedRevisedAssignment){
+    throw 'Edited assignment or planned Personal Agent seat did not survive installed restart'
+  }
+  Write-Host "CENTER_INSTALLED_GUI_STAFF_SEAT_EDIT_RESTART_PASS employees=2 plannedSeats=1"
   # The actual installed WebView must fail closed: no approved T3 owner is
   # packaged. Contract-double results cannot enable real corporate actions.
   Click-Control 'Результаты'
@@ -435,6 +497,9 @@ try {
     secondOrgId=$secondOrgId;secondProjectId=$secondProjectId;secondWorkId=$secondWorkId;
     secondGeneration=$secondSaved.generation;secondRevision=$secondSaved.revision;
     secondReopenedGeneration=$secondReopened.generation;
+    managerStaffCount=2;managerPlannedAgentSeats=1;
+    managerAssignmentEditNumber=2;managerEditedAssignment=$expectedRevisedAssignment;
+    managerStaffSeatEditRestart='PASS_INSTALLED_GUI';
     organizationIsolation='TWO_NATIVE_ATLAS_ROOTS_AND_GUI_SWITCH_RESTART_PASS';
     corporateOwner='NOT_CONNECTED';
     corporateActions='ISSUE_EXPORT_RECEIVE_DISABLED_NO_REVIEW_OR_APPLY';
