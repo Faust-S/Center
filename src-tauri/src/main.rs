@@ -117,6 +117,15 @@ fn center_iwxa_carrier_validate(bytes: &[u8]) -> Result<(), String> {
     }
     Ok(())
 }
+// Keep the complete signed Task revision in the proposed filename to avoid
+// confusing older and newer exported carriers. This is not verification.
+fn center_iwxa_carrier_file_name(task_revision_id: &str) -> Result<String, String> {
+    if task_revision_id.len() != 64 || !task_revision_id.bytes().all(|b|
+        b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+        return Err("Недопустимая редакция подписанного поручения".into());
+    }
+    Ok(format!("task-{task_revision_id}.iwxa"))
+}
 // Select a received .iwxa carrier without parsing or trusting it.
  // This bound is the same as CEN03's existing receive() transport limit;
  // signature, recipient, causal and revision checks belong to T3 only.
@@ -129,6 +138,16 @@ fn center_iwxa_carrier_read(path: &Path) -> Result<Vec<u8>, String> {
     center_iwxa_carrier_validate(&bytes)?;
     Ok(bytes)
 }
+// A successful export requires readback of those same opaque carrier bytes.
+// Signature, recipient and authorization validation remain with original T3.
+fn center_iwxa_carrier_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    center_iwxa_carrier_validate(bytes)?;
+    std::fs::write(path, bytes).map_err(|e| e.to_string())?;
+    if center_iwxa_carrier_read(path)?.as_slice() != bytes {
+        return Err("Записанный пакет IWXA не совпадает с исходным".into());
+    }
+    Ok(())
+}
 #[tauri::command]
 fn center_open_iwxa_file() -> Result<Option<Vec<u8>>, String> {
     let path = rfd::FileDialog::new()
@@ -140,15 +159,15 @@ fn center_open_iwxa_file() -> Result<Option<Vec<u8>>, String> {
     }
 }
 #[tauri::command]
-fn center_save_iwxa_file(bytes: Vec<u8>) -> Result<bool, String> {
+fn center_save_iwxa_file(bytes: Vec<u8>, task_revision_id: String) -> Result<bool, String> {
     center_iwxa_carrier_validate(&bytes)?;
+    let file_name = center_iwxa_carrier_file_name(&task_revision_id)?;
     let path = rfd::FileDialog::new()
         .add_filter("IWXA", &["iwxa"])
-        .set_file_name("task.iwxa")
+        .set_file_name(&file_name)
         .save_file();
     match path {
-        Some(path) => std::fs::write(path, &bytes)
-            .map(|_| true).map_err(|e| e.to_string()),
+        Some(path) => center_iwxa_carrier_write(&path, &bytes).map(|_| true),
         None => Ok(false),
     }
 }
@@ -276,9 +295,28 @@ mod center_atlas_integration_tests {
         center_iwxa_carrier_validate(&bytes).expect("opaque carrier accepted for file save");
         let dir = scratch();
         let path = dir.join("roundtrip.iwxa");
-        std::fs::write(&path, &bytes).expect("write opaque carrier bytes");
-        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        center_iwxa_carrier_write(&path, &bytes).expect("write and verify opaque bytes");
+        assert_eq!(center_iwxa_carrier_read(&path).unwrap(), bytes);
+        assert!(center_iwxa_carrier_write(&path, &[]).is_err());
+        assert_eq!(center_iwxa_carrier_read(&path).unwrap(), bytes);
         std::fs::remove_dir_all(dir).expect("clean scratch");
+    }
+    #[test]
+    fn named_signed_carrier_export_uses_exact_revision_and_rejects_bad_destination() {
+        let revision = "a".repeat(64);
+        let file_name = center_iwxa_carrier_file_name(&revision).unwrap();
+        assert_eq!(file_name, format!("task-{revision}.iwxa"));
+        for invalid in ["", "0", "../outside", "AAAAAAAA", "g"] {
+            assert!(center_iwxa_carrier_file_name(invalid).is_err());
+        }
+        assert!(center_iwxa_carrier_file_name(&"A".repeat(64)).is_err());
+        let dir = scratch();
+        let bytes = [0x50, 0x4b, 0, 0xff, 0x01];
+        assert!(center_iwxa_carrier_write(&dir, &bytes).is_err());
+        let path = dir.join(file_name);
+        center_iwxa_carrier_write(&path, &bytes).unwrap();
+        assert_eq!(center_iwxa_carrier_read(&path).unwrap(), bytes);
+        std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn preparation_draft_survives_reopen_without_pretending_to_be_t3_grant() {

@@ -120,7 +120,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
        // Save exactly the original T3 taskBytes() output through Windows
        // file dialog. A cancelled chooser never claims delivery or export.
        if(!invoke)throw Error('CEN_NATIVE_FILE_DIALOG_UNAVAILABLE');
-       const saved=await invoke('center_save_iwxa_file',{bytes:result.bytes});
+       const saved=await invoke('center_save_iwxa_file',{bytes:result.bytes,taskRevisionId:task.taskRevisionId});
        if(saved!==true)return false;
      })}>Сохранить .iwxa</button>
    </div>
