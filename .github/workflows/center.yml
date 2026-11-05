@@ -26,6 +26,14 @@ jobs:
           ref: 7a0a2c8a458617a011a3db78b72c3dd1adbc12c2
           path: vendor/atlas
           persist-credentials: false
+      # Test CEN05 against the original, pinned public U04 bridge; never
+      # vendor/copy the implementation into the Center product.
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Br-test
+          ref: a163977db7140e86ba8692e47b99d3939c142d12
+          path: vendor/brtest
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
