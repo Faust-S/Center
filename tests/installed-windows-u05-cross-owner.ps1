@@ -107,6 +107,9 @@ try {
   $revisionNode=Find-UI "редакция портфеля: $revision" 'Text' $true
   if(!$revisionNode){throw 'U05_ATLAS_REVISION_NOT_VISIBLE'}
   Click $projectTitle $true
+  # Preparation requires linking the existing organization workspace to this
+  # exact canonical project revision. A free-floating work cannot be issued.
+  Click 'Связать с рабочей областью'
   Click 'Подготовить поручение по работе'
   Text 'Что нужно сделать' 'U05PublicAtlasLinked'
   Text 'Критерии приёмки' 'Exact canonical work reference'
