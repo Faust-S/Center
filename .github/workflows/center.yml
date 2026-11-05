@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 1c606cd5c54ec466a1152a1e707f149cdeee883e
+          ref: bb861c905129ff1e4c5f444fee44c11653227a1e
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 1c606cd5c54ec466a1152a1e707f149cdeee883e
+          ref: bb861c905129ff1e4c5f444fee44c11653227a1e
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 1c606cd5c54ec466a1152a1e707f149cdeee883e
+          ref: bb861c905129ff1e4c5f444fee44c11653227a1e
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/setup-node@v4
