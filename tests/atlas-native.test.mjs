@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createNativeAtlasPort} from '../src/atlas-native.mjs';
-import {empty} from '../vendor/atlas/src/core.mjs';
+import {empty,createProject,createItem} from '../vendor/atlas/src/core.mjs';
 
 // Fake IPC transport only; domain mutations/readback use actual Atlas core.
 // Native filesystem itself is tested by Rust and Windows Actions.
