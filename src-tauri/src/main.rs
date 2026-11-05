@@ -85,17 +85,35 @@ fn center_draft_read_local(app: AppHandle) -> Result<Option<String>, String> {
     center_draft_read_root(&center_draft_root(&app)?)
 }
 
-// Legacy draft-file operations remain separate from Atlas native persistence.
-// A draft is never automatically promoted to a corporate signed operation.
+// The manual JSON file is a preparation-draft export, never a corporate
+// backup. Reuse its existing validator and read back the exact selected file.
+fn center_draft_export_file(path: &Path, content: &str) -> Result<(), String> {
+    center_draft_validate(content)?;
+    std::fs::write(path, content.as_bytes()).map_err(|e| e.to_string())?;
+    let exported = center_draft_import_file(path)?;
+    if exported != content {
+        return Err("Экспортированный черновик отличается от исходного".into());
+    }
+    Ok(())
+}
+fn center_draft_import_file(path: &Path) -> Result<String, String> {
+    let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
+    if size == 0 || size > CENTER_DRAFT_LIMIT as u64 {
+        return Err("Файл черновиков превышает допустимый размер или пуст".into());
+    }
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    center_draft_validate(&content)?;
+    Ok(content)
+}
 #[tauri::command]
 fn save_draft_file(content: String) -> Result<bool, String> {
+    center_draft_validate(&content)?;
     let path = rfd::FileDialog::new()
         .add_filter("JSON", &["json"])
         .set_file_name("admin-center-draft.json")
         .save_file();
     match path {
-        Some(path) => std::fs::write(path, content.as_bytes())
-            .map(|_| true).map_err(|e| e.to_string()),
+        Some(path) => center_draft_export_file(&path, &content).map(|_| true),
         None => Ok(false),
     }
 }
@@ -103,7 +121,7 @@ fn save_draft_file(content: String) -> Result<bool, String> {
 fn open_draft_file() -> Result<Option<String>, String> {
     let path = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file();
     match path {
-        Some(path) => std::fs::read_to_string(path).map(Some).map_err(|e| e.to_string()),
+        Some(path) => center_draft_import_file(&path).map(Some),
         None => Ok(None),
     }
 }
@@ -317,6 +335,33 @@ mod center_atlas_integration_tests {
         center_iwxa_carrier_write(&path, &bytes).unwrap();
         assert_eq!(center_iwxa_carrier_read(&path).unwrap(), bytes);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn native_manual_draft_export_import_is_bounded_and_roundtrips_exactly() {
+        let root = scratch();
+        let exported = root.join("manager-export.json");
+        let content = serde_json::json!({
+            "format":"iwxa.admin-center.draft","version":1,
+            "organizations":[{"id":"test-org","name":"Manager test","workspaces":[],
+              "participants":[],"assignments":[]}],
+            "activeOrganizationId":"test-org",
+            "updatedAt":"2026-11-05T00:00:00.000Z"
+        }).to_string();
+        center_draft_export_file(&exported, &content).unwrap();
+        assert_eq!(center_draft_import_file(&exported).unwrap(), content);
+        assert!(center_draft_export_file(&exported, "{invalid").is_err());
+        assert_eq!(center_draft_import_file(&exported).unwrap(), content,
+            "invalid export must not overwrite previously exported work");
+        fs::write(&exported, "{}").unwrap();
+        assert!(center_draft_import_file(&exported).is_err());
+        fs::write(&exported, []).unwrap();
+        assert!(center_draft_import_file(&exported).is_err());
+        let large = fs::File::create(&exported).unwrap();
+        large.set_len((CENTER_DRAFT_LIMIT + 1) as u64).unwrap();
+        drop(large);
+        assert!(center_draft_import_file(&exported).is_err());
+        assert!(center_draft_export_file(&root, &content).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn preparation_draft_survives_reopen_without_pretending_to_be_t3_grant() {
