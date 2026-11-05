@@ -368,8 +368,9 @@ try {
   Click-Control 'Сохранить на компьютере'
   $qualified=Wait-FirstOrganizationQualification $saved.organizationId
   $staffIds=@($qualified.participants|ForEach-Object{$_.id})
+  $savedNames=@($qualified.participants|ForEach-Object{$_.name})
   if(@($staffIds|Select-Object -Unique).Count -ne 2 -or
-     @($qualified.participants|ForEach-Object{$_.name}) -ne $null -and
+     @($savedNames|Where-Object{$_ -in $staffNames}).Count -ne 2 -or
      $qualified.assignments[0].atlasRef.projectId -ne $projectId){
     throw 'Installed manager participant IDs or Atlas source binding changed after editing'
   }
