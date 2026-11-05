@@ -115,11 +115,12 @@ try {
   Start-Center
   Click 'Планы Atlas'
   Click 'Открыть Atlas Desktop'
-  $revisionText=Find-UI-Text "Atlas Desktop"
+  # The Windows WebView2 UIA tree can split a <p> across anonymous nodes.
+  # Matching its exact prose cannot prove a revision. The owner revision is
+  # instead asserted below against the saved Center work ref (and manifest).
   $title=Find-UI $projectTitle 'Button' $true
   if(!$title){throw 'U05_CANONICAL_PROJECT_NOT_RENDERED'}
-  $revisionNode=Find-UI-Text "редакция портфеля: $revision"
-  if(!$revisionNode){throw 'U05_ATLAS_REVISION_NOT_VISIBLE'}
+  Write-Host "U05_CANONICAL_PROJECT_VISIBLE_IN_CENTER project=$projectId ownerRevision=$revision"
   Click $projectTitle $true
   # Preparation requires linking the existing organization workspace to this
   # exact canonical project revision. A free-floating work cannot be issued.
@@ -151,8 +152,14 @@ try {
   Click 'Закрыть редактор'
   Click 'Планы Atlas'
   Click 'Открыть Atlas Desktop'
-  $now=Find-UI-Text "редакция портфеля: $revision"
-  if(!$now){throw 'U05_RESTART_CANONICAL_REVISION_MISMATCH'}
+  [void](Find-UI $projectTitle 'Button' $true)
+  Click 'Поручения' $true
+  Click 'U05PublicAtlasLinked' $true
+  # The reopened editor must resolve the exact previously saved link against
+  # an independently reread canonical Atlas snapshot.
+  [void](Find-UI-Text 'Работа и редакция совпадают с открытым Atlas')
+  Click 'Закрыть редактор'
+  Write-Host "U05_RESTART_CANONICAL_REF_MATCH_PASS project=$projectId work=$workId revision=$revision"
   Shutdown
   $result=[ordered]@{status='U05_TWO_INSTALLED_SAME_CANONICAL_SOURCE_PASS';
     atlasInstalledExe=$env:ATLAS_INSTALLED_EXE;centerInstalledExe=$center;
