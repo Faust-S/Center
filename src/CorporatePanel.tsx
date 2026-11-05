@@ -14,7 +14,6 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  const [error,setError]=useState('');
  const [notice,setNotice]=useState('');
  const [selected,setSelected]=useState('');
- const [file,setFile]=useState<File|null>(null);
  const [hash,setHash]=useState('');
  const [review,setReview]=useState<any>(null);
  const [consent,setConsent]=useState(false);
@@ -32,7 +31,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
    const fingerprint=ownerSessionFingerprint(candidate,organizationId);
    if(fingerprint!==sessionRef.current){
      sessionRef.current=fingerprint;
-     setHash('');setFile(null);setSelected('');setReuseKey('');setReuseText('');
+     setHash('');setSelected('');setReuseKey('');setReuseText('');
      resetReview();
    }
    const valid=fingerprint===null?null:candidate;
@@ -128,12 +127,15 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
   </div>
   <div className="nested-form" data-testid="cen03-section">
    <h3>2. Result сотрудника и Review</h3>
-   <label>Полученный пакет .iwxa<input key={sessionRef.current??'unbound'}
-      type="file" accept=".iwxa" onChange={e=>setFile(e.target.files?.[0]??null)}/></label>
-   <button className="secondary" data-testid="corporate-receive" disabled={!ready||!file||busy}
+   <p className="muted">Выберите файл результата через системный диалог Windows. Приёмка и проверка подписи выполняются отдельно.</p>
+   <button className="secondary" data-testid="corporate-receive" disabled={!ready||busy}
     onClick={()=>act('Пакет получен. Корпоративное принятие ещё не выполнено.',async()=>{
-      if(!file||file.size===0||file.size>8*1024*1024)throw Error('T3_PACKAGE_SIZE_UNSUPPORTED');
-      const r=await execute('receive',{bytes:Array.from(new Uint8Array(await file.arrayBuffer()))});
+      if(!invoke)throw Error('CEN_NATIVE_FILE_DIALOG_UNAVAILABLE');
+      const bytes=await invoke('center_open_iwxa_file');
+      if(bytes===null)return false;
+      if(!Array.isArray(bytes)||bytes.length===0||bytes.length>8*1024*1024)
+        throw Error('T3_PACKAGE_SIZE_UNSUPPORTED');
+      const r=await execute('receive',{bytes});
       const sha=r.transportReceipt?.packageSha256;
       if(!hex.test(sha))throw Error('T3_RECEIPT_SHAPE_UNSUPPORTED');
       setHash(sha);resetReview();

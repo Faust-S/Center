@@ -117,6 +117,28 @@ fn center_iwxa_carrier_validate(bytes: &[u8]) -> Result<(), String> {
     }
     Ok(())
 }
+// Select a received .iwxa carrier without parsing or trusting it.
+ // This bound is the same as CEN03's existing receive() transport limit;
+ // signature, recipient, causal and revision checks belong to T3 only.
+fn center_iwxa_carrier_read(path: &Path) -> Result<Vec<u8>, String> {
+    let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
+    if size == 0 || size > CENTER_DRAFT_LIMIT as u64 {
+        return Err("Неподдерживаемый размер пакета IWXA".into());
+    }
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    center_iwxa_carrier_validate(&bytes)?;
+    Ok(bytes)
+}
+#[tauri::command]
+fn center_open_iwxa_file() -> Result<Option<Vec<u8>>, String> {
+    let path = rfd::FileDialog::new()
+        .add_filter("IWXA", &["iwxa"])
+        .pick_file();
+    match path {
+        Some(path) => center_iwxa_carrier_read(&path).map(Some),
+        None => Ok(None),
+    }
+}
 #[tauri::command]
 fn center_save_iwxa_file(bytes: Vec<u8>) -> Result<bool, String> {
     center_iwxa_carrier_validate(&bytes)?;
@@ -135,7 +157,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            save_draft_file, open_draft_file, center_save_iwxa_file,
+            save_draft_file, open_draft_file, center_save_iwxa_file, center_open_iwxa_file,
             center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit
         ])
         .run(tauri::generate_context!())
@@ -231,6 +253,21 @@ mod center_atlas_integration_tests {
         }
     }
 
+    #[test]
+    fn native_received_iwxa_uses_same_opaque_transport_and_size_limit() {
+        let dir = scratch();
+        let file = dir.join("employee-result.iwxa");
+        let original: Vec<u8> = vec![0x50, 0x4b, 0x03, 0x04, 0xff, 0x00, 0x78, 0x01];
+        fs::write(&file, &original).unwrap();
+        assert_eq!(center_iwxa_carrier_read(&file).unwrap(), original);
+        fs::write(&file, []).unwrap();
+        assert!(center_iwxa_carrier_read(&file).is_err());
+        let over_limit = std::fs::File::create(&file).unwrap();
+        over_limit.set_len((CENTER_DRAFT_LIMIT + 1) as u64).unwrap();
+        drop(over_limit);
+        assert!(center_iwxa_carrier_read(&file).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn native_signed_iwxa_export_is_opaque_and_bounded() {
         assert!(center_iwxa_carrier_validate(&[]).is_err());
