@@ -12,10 +12,11 @@ test('readback mismatch is visible',()=>{const repo=createDraftRepository({read:
 function runtimeDouble() {
  const calls=[];
  const state={organizationId:'org',workspaceId:'work',contextEpoch:1,personId:'person',
+   packages:[],
    application:{status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false}};
  return {product:'admin',snapshot:()=>structuredClone(state),calls,state,
    decide(...args){calls.push(args);return {acceptanceState:'ACCEPTED'};},
-   receive(){calls.push('RECEIVE');return {transportReceipt:{state:'RECEIVED',packageSha256:'a'.repeat(64)},preview:{classification:'NEW_REVISION'}};},
+   receive(){calls.push('RECEIVE');state.packages.push('a'.repeat(64));return {transportReceipt:{state:'RECEIVED',packageSha256:'a'.repeat(64)},preview:{classification:'NEW_REVISION'}};},
    review(hash){calls.push('REVIEW');return {hash,acceptanceState:'PENDING'};},
    previewApplication(args){calls.push('PREVIEW_APPLICATION');return {args,writeAllowed:false};},
    decideApplication(){calls.push('DECIDE_APPLICATION');return {status:'APPLICATION_DECISION_RECORDED',writeAllowed:false};},
@@ -47,6 +48,7 @@ test('CEN02 requires the owning T3 nested transport receipt, including duplicate
  const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
  const duplicate={transportReceipt:{state:'RECEIVED',packageSha256:PACKAGE_SHA},
    preview:{classification:'DUPLICATE_ARCHIVE'}};
+ runtime.state.packages.push(PACKAGE_SHA);
  runtime.receive=()=>duplicate;
  const received=port.receive({bytes:Buffer.from('synthetic signed carrier'),binding});
  assert.equal(received,duplicate);
@@ -55,6 +57,39 @@ test('CEN02 requires the owning T3 nested transport receipt, including duplicate
  assert.throws(()=>port.receive({bytes:Buffer.from('carrier'),binding}),/T3_RECEIPT_SHAPE_UNSUPPORTED/);
  runtime.receive=()=>({transportReceipt:{packageSha256:'not-sha256'}});
  assert.throws(()=>port.receive({bytes:Buffer.from('carrier'),binding}),/T3_RECEIPT_SHAPE_UNSUPPORTED/);
+});
+test('CEN02 holds a receipt when original owner quarantine has no matching carrier',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ let called=0;
+ runtime.receive=()=>{called++;return {transportReceipt:{state:'RECEIVED',packageSha256:PACKAGE_SHA}};};
+ assert.throws(()=>port.receive({bytes:Buffer.from('opaque .iwxa'),binding}),
+   /T3_RECEIVE_STORE_READBACK_HOLD/);
+ assert.equal(called,1,'a failed readback must not repeat receive');
+ runtime.state.packages.push('0'.repeat(64));
+ assert.throws(()=>port.receive({bytes:Buffer.from('opaque .iwxa'),binding}),
+   /T3_RECEIVE_STORE_READBACK_HOLD/);
+ assert.equal(called,2);
+ runtime.state.packages=[PACKAGE_SHA];
+ assert.equal(port.receive({bytes:Buffer.from('opaque .iwxa'),binding})
+   .transportReceipt.packageSha256,PACKAGE_SHA);
+ assert.equal(called,3);
+});
+test('CEN02 holds a receipt if operator or organization context changes during receive',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ runtime.receive=()=>{
+   runtime.state.packages.push(PACKAGE_SHA);
+   runtime.state.personId='person:other';
+   return {transportReceipt:{state:'RECEIVED',packageSha256:PACKAGE_SHA}};
+ };
+ assert.throws(()=>port.receive({bytes:Buffer.from('carrier'),binding}),
+   /T3_RECEIVE_STORE_READBACK_HOLD/);
+ runtime.state.personId='person';
+ runtime.receive=()=>{
+   runtime.state.contextEpoch++;
+   return {transportReceipt:{state:'RECEIVED',packageSha256:PACKAGE_SHA}};
+ };
+ assert.throws(()=>port.receive({bytes:Buffer.from('carrier'),binding}),
+   /T3_CONTEXT_CHANGED/);
 });
 test('CEN03 application preview, explicit decision, commit and owner readback are distinct',()=>{
  const runtime=runtimeDouble(),port=createT3AdminPort(runtime);

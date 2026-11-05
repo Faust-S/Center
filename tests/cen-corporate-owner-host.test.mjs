@@ -8,10 +8,10 @@ function owner(){
  const calls=[];
  const state={product:'admin',productionActivation:true,T3_READY:true,organizationId:'org:1',workspaceId:'work:1',
    personId:'person:1',contextEpoch:1,task:{id:'task:1',taskRevisionId:B},
-   application:{status:'NOT_PRESENT',records:[],externalContextCoreApplied:false}};
+   packages:[],application:{status:'NOT_PRESENT',records:[],externalContextCoreApplied:false}};
  return {product:'admin',state,calls,snapshot:()=>structuredClone(state),
   taskBytes(){calls.push('taskBytes');return Buffer.from('owner-signed-carrier')},
-  receive(bytes){calls.push(['receive',Buffer.from(bytes)]);return {transportReceipt:{packageSha256:A,state:'RECEIVED'}}},
+  receive(bytes){calls.push(['receive',Buffer.from(bytes)]);state.packages.push(A);return {transportReceipt:{packageSha256:A,state:'RECEIVED'}}},
   review(hash){calls.push(['review',hash]);return {preview:{packageSha256:hash,previewDigest:'preview'},verificationState:'VERIFIED'}},
   decide(hash,input){calls.push(['decide',hash,input]);return {acceptanceState:'ACCEPTED'}},
   close(){calls.push('close')}

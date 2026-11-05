@@ -89,13 +89,22 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
       return {bytes,taskId,taskRevisionId,deliveryState:'NOT_CONFIRMED'};
     },
     receive({bytes,binding}) {
-      bind(binding);
+      const current=bind(binding);
       requireValue(bytes instanceof Uint8Array,'T3_PACKAGE_BYTES_REQUIRED');
       requireValue(typeof runtime.receive==='function','T3_RECEIVE_NOT_CONNECTED');
       const receipt=runtime.receive(bytes);
-      requireValue(typeof receipt?.transportReceipt?.packageSha256==='string' &&
-        /^[a-f0-9]{64}$/.test(receipt.transportReceipt.packageSha256),'T3_RECEIPT_SHAPE_UNSUPPORTED');
-      // Return the original owner receipt. Receiving never accepts or applies.
+      const packageSha256=receipt?.transportReceipt?.packageSha256;
+      requireValue(typeof packageSha256==='string' &&
+        /^[a-f0-9]{64}$/.test(packageSha256),'T3_RECEIPT_SHAPE_UNSUPPORTED');
+      // Original T3 snapshot().packages enumerates its quarantine. A receipt
+      // alone cannot establish durable receipt in the owning Store. If the
+      // readback fails, do not auto-receive a second time: surface HOLD.
+      const observed=bind(binding);
+      requireValue(observed.personId===current.personId &&
+        Array.isArray(observed.packages) &&
+        observed.packages.includes(packageSha256),
+        'T3_RECEIVE_STORE_READBACK_HOLD');
+      // Never infer ACCEPTED or APPLIED from this original transport receipt.
       return receipt;
     }
   });
