@@ -42,7 +42,7 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
  }
  const selectedProject=view?.projects.find(x=>x.id===selected);
  return <div className="card nested-form" data-testid="native-atlas-panel">
-   <div className="section-head"><h3>Планы Atlas</h3><div className="inline-form"><button className="primary" disabled={busy} onClick={()=>void act(p=>p.openPublicAtlas(organizationId))} data-testid="native-atlas-public-open">Открыть Atlas Desktop</button><button className="secondary" disabled={busy} onClick={()=>void act(p=>p.open(organizationId))} data-testid="native-atlas-open">Локальный план Center</button></div></div>
+   <div className="section-head"><h3>Планы Atlas</h3><div className="inline-form"><button className="primary" disabled={busy} onClick={()=>void act(p=>p.openPublicAtlas(organizationId))} data-testid="native-atlas-public-open">Открыть Atlas Desktop</button><button className="secondary" disabled={busy} onClick={()=>void act(p=>p.open(organizationId))} data-testid="native-atlas-open" aria-label="Открыть локальный Atlas">Локальный план Center</button></div></div>
    <p className="muted">Atlas Desktop читается из исходного нативного каталога этой учётной записи, без копирования проектов. Локальные планы Center — отдельная подготовительная область. Оба просмотра не подтверждают корпоративные полномочия T3.</p>
    {error&&<div className="notice error" role="alert">{error}</div>}
    {session&&view&&<div>
