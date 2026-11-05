@@ -4,7 +4,7 @@
 import {deserialize, summary} from '../vendor/atlas/src/core.mjs';
 import {portfolioNetwork} from '../vendor/atlas/src/portfolio.mjs';
 
-export const ATLAS_SOURCE_REVISION = 'e5cc6ff593aa12eec3da8e8940ad5af5819b66fd';
+export const ATLAS_SOURCE_REVISION = '7a0a2c8a458617a011a3db78b72c3dd1adbc12c2';
 export const ATLAS_SNAPSHOT_LIMIT = 16 * 1024 * 1024;
 const fail = code => {throw Object.assign(new Error(code), {code});};
 
@@ -44,7 +44,8 @@ export function readAtlasPortfolio(raw) {
 
 export function linkableAtlasProject(view, projectId) {
   if (!view || view.source !== 'atlas.project/1' ||
-      !['READ_ONLY_USER_SELECTED_FILE','NATIVE_ATLAS_LOCAL_ORGANIZATION'].includes(view.mode) ||
+      !['READ_ONLY_USER_SELECTED_FILE','NATIVE_ATLAS_LOCAL_ORGANIZATION',
+        'NATIVE_ATLAS_PUBLIC_READ_ONLY'].includes(view.mode) ||
       view.authorization !== 'NOT_CHECKED') fail('ATLAS_PREVIEW_REQUIRED');
   const p = view.projects.find(p => p.id === projectId);
   if (!p) fail('ATLAS_PROJECT_NOT_IN_PREVIEW');
