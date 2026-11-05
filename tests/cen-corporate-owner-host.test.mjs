@@ -59,6 +59,44 @@ test('CEN host verifies authoritative assignment mapping before issue',async()=>
  assert.deepEqual(runtime.calls,[]);
 });
 
+test('CEN host exposes only real owner staff and operator selections with fresh epoch',async()=>{
+ const runtime=owner(),host=createCorporateOwnerHost({runtime});
+ const staff={id:'staff:1',personId:'person:employee',workspaceId:'work:employee',name:'Employee'};
+ runtime.state.staff=[staff];
+ runtime.state.operators=[{id:'operator:1',personId:'person:manager',name:'Manager'}];
+ runtime.selectStaff=id=>{
+   runtime.calls.push(['selectStaff',id]);runtime.state.selectedStaffId=id;
+   runtime.state.personId=staff.personId;runtime.state.workspaceId=staff.workspaceId;
+   runtime.state.contextEpoch++;return {staffId:id,contextEpoch:runtime.state.contextEpoch};
+ };
+ runtime.selectOperator=id=>{
+   runtime.calls.push(['selectOperator',id]);runtime.state.selectedOperatorId=id;
+   runtime.state.contextEpoch++;return {operatorId:id,contextEpoch:runtime.state.contextEpoch};
+ };
+ assert.deepEqual(runtime.calls,[]);
+ const selected=await host.action({organizationId:'org:1',operation:'selectStaff',
+   input:{staffId:'staff:1'},binding});
+ assert.equal(selected.contextEpoch,2);
+ assert.equal(host.state({organizationId:'org:1'}).snapshot.personId,staff.personId);
+ await assert.rejects(()=>host.action({organizationId:'org:1',operation:'selectOperator',
+   input:{operatorId:'operator:1'},binding}),/T3_CONTEXT_CHANGED/);
+ const updated={organizationId:'org:1',workspaceId:staff.workspaceId,contextEpoch:2};
+ const switched=await host.action({organizationId:'org:1',operation:'selectOperator',
+   input:{operatorId:'operator:1'},binding:updated});
+ assert.equal(switched.contextEpoch,3);
+ assert.equal(host.state({organizationId:'org:1'}).snapshot.selectedOperatorId,'operator:1');
+ assert.deepEqual(runtime.calls,[['selectStaff','staff:1'],['selectOperator','operator:1']]);
+});
+test('CEN host never selects employees without owner activation or genuine source method',async()=>{
+ const runtime=owner(),host=createCorporateOwnerHost({runtime});
+ runtime.state.staff=[{id:'staff:1',personId:'person:1',workspaceId:'work:1'}];
+ await assert.rejects(()=>host.action({organizationId:'org:1',operation:'selectStaff',
+   input:{staffId:'staff:1'},binding}),/T3_STAFF_SELECTION_NOT_CONNECTED/);
+ runtime.state.productionActivation=false;
+ await assert.rejects(()=>host.action({organizationId:'org:1',operation:'selectStaff',
+   input:{staffId:'staff:1'},binding}),/CEN_OWNER_PRODUCTION_NOT_ACTIVATED/);
+ assert.deepEqual(runtime.calls,[]);
+});
 test('original T3 qualification flags cannot activate Center corporate actions',async()=>{
  const runtime=owner(),host=createCorporateOwnerHost({runtime});
  runtime.state.productionActivation=false;runtime.state.T3_READY=false;

@@ -26,6 +26,73 @@ function runtimeDouble() {
 const binding={organizationId:'org',workspaceId:'work',contextEpoch:1};
 const PACKAGE_SHA='a'.repeat(64);
 const TASK_REVISION='b'.repeat(64);
+test('CEN02 chooses an existing original T3 employee with exact owner context readback',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ const person={id:'staff:real-one',name:'Employee',personId:'person:staff1',workspaceId:'other-work'};
+ runtime.state.staff=[person];
+ runtime.selectStaff=id=>{
+   runtime.calls.push(['selectStaff',id]);
+   runtime.state.selectedStaffId=id;
+   runtime.state.personId=person.personId;
+   runtime.state.workspaceId=person.workspaceId;
+   runtime.state.contextEpoch++;
+   return {staffId:id,contextEpoch:runtime.state.contextEpoch};
+ };
+ assert.throws(()=>port.selectStaff({staffId:'staff:nonexistent',binding}),
+   /T3_STAFF_NOT_IN_OWNER/);
+ assert.deepEqual(runtime.calls,[]);
+ const selected=port.selectStaff({staffId:person.id,binding});
+ assert.equal(selected.staffId,person.id);
+ assert.equal(runtime.snapshot().workspaceId,person.workspaceId);
+ assert.equal(runtime.snapshot().personId,person.personId);
+ assert.deepEqual(runtime.calls,[['selectStaff',person.id]]);
+ assert.throws(()=>port.selectStaff({staffId:person.id,binding}),/T3_CONTEXT_CHANGED/);
+});
+test('CEN02 does not claim employee selection when owner readback is missing',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ runtime.state.staff=[{id:'staff:1',personId:'person:staff',workspaceId:'work'}];
+ runtime.selectStaff=id=>({staffId:id,contextEpoch:runtime.state.contextEpoch+1});
+ assert.throws(()=>port.selectStaff({staffId:'staff:1',binding}),
+   /T3_STAFF_SELECTION_READBACK_HOLD/);
+ delete runtime.selectStaff;
+ assert.throws(()=>port.selectStaff({staffId:'staff:1',binding}),
+   /T3_STAFF_SELECTION_NOT_CONNECTED/);
+});
+test('CEN02 chooses a confirmed T3 operator without inventing role or private key',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ runtime.state.operators=[{id:'operator:one',name:'Manager',personId:'person:manager'}];
+ runtime.state.selectedOperatorId='operator:old';
+ runtime.selectOperator=id=>{
+   runtime.calls.push(['selectOperator',id]);
+   runtime.state.selectedOperatorId=id;
+   runtime.state.contextEpoch++;
+   return {operatorId:id,contextEpoch:runtime.state.contextEpoch};
+ };
+ assert.throws(()=>port.selectOperator({operatorId:'operator:unknown',binding}),
+   /T3_OPERATOR_NOT_IN_OWNER/);
+ assert.equal(runtime.calls.length,0);
+ const receipt=port.selectOperator({operatorId:'operator:one',binding});
+ assert.equal(receipt.operatorId,'operator:one');
+ assert.equal(runtime.snapshot().selectedOperatorId,'operator:one');
+ assert.deepEqual(runtime.calls,[['selectOperator','operator:one']]);
+ assert.throws(()=>port.selectOperator({operatorId:'operator:one',binding}),
+   /T3_CONTEXT_CHANGED/);
+});
+test('CEN02 never acknowledges an operator switch on stale or mismatched readback',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ runtime.state.operators=[{id:'operator:one',personId:'person:manager'}];
+ runtime.selectOperator=id=>({operatorId:id,contextEpoch:runtime.state.contextEpoch+1});
+ assert.throws(()=>port.selectOperator({operatorId:'operator:one',binding}),
+   /T3_OPERATOR_SELECTION_READBACK_HOLD/);
+ runtime.selectOperator=id=>{
+   runtime.state.organizationId='foreign';
+   runtime.state.selectedOperatorId=id;
+   runtime.state.contextEpoch++;
+   return {operatorId:id,contextEpoch:runtime.state.contextEpoch};
+ };
+ assert.throws(()=>port.selectOperator({operatorId:'operator:one',binding}),
+   /T3_OPERATOR_SELECTION_READBACK_HOLD/);
+});
 test('acceptance uses owning runtime and does not imply application',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);const r=port.decide({packageSha256:'abc',previewDigest:'preview',decision:'ACCEPT',binding});assert.equal(r.acceptanceState,'ACCEPTED');assert.equal(runtime.calls.length,1);assert.deepEqual(runtime.calls[0],['abc',{previewDigest:'preview',decision:'ACCEPT',reason:''}]);assert.equal(r.applied,undefined);});
 test('context switch prevents a stale decision',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);runtime.state.contextEpoch++;assert.throws(()=>port.decide({decision:'ACCEPT',binding}),/CONTEXT_CHANGED/);assert.equal(runtime.calls.length,0);});
 test('return for changes is not silently substituted with rejection',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);assert.throws(()=>port.decide({decision:'CHANGES_REQUESTED',binding}),/RETURN_OPERATION_NOT_AVAILABLE/);assert.equal(runtime.calls.length,0);});

@@ -4,7 +4,7 @@ import {createT3AdminPort} from './t3-admin-port.mjs';
 // package. Neither the WebView nor this module owns signed carriers, grants,
 // encryption, Reconciliation or the persistent organization ledger.
 // The Windows host is NOT wired until its approved owner distribution exists.
-const allowed=new Set(['exportIssuedTask','receive','inspect','decide',
+const allowed=new Set(['selectStaff','selectOperator','exportIssuedTask','receive','inspect','decide',
   'previewApplication','decideApplication','commitApplication']);
 const check=(value,code)=>{if(!value)throw Error(code);};
 const decodeBinary=value=>{
@@ -61,6 +61,11 @@ export function createCorporateOwnerHost({runtime,openAtlas,resolveAssignment}={
       const args={...input,binding};
       if(operation==='receive')args.bytes=decodeBinary(input.bytes);
       const value=await port[operation](args);
+      if(operation==='selectStaff'||operation==='selectOperator'){
+        // Both selections revoke the old UI contextEpoch. Do not accept a
+        // synthetic selection receipt or continue if production readiness was lost.
+        check(activated(observe(organizationId)),'CEN_OWNER_SELECTION_NOT_READY');
+      }
       if(operation==='exportIssuedTask')return {...value,bytes:encodeCarrier(value.bytes)};
       return value;
     },

@@ -8,6 +8,46 @@ const requireValue=(ok,code)=>{if(!ok)throw Error(code);};
 // The owning T3 runtime signs Task revisions, receives .iwxa and owns history.
 export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
   return Object.freeze({
+    // Original T3 interop/runtime.mjs owns the employee/organization context.
+    // Center only selects a staff identity already present in the owner readback.
+    selectStaff({staffId,binding}) {
+      const before=bind(binding);
+      const selected=Array.isArray(before.staff) ? before.staff.find(x=>
+        x?.id===staffId && typeof x.personId==='string' && x.personId &&
+        typeof x.workspaceId==='string' && x.workspaceId) : null;
+      requireValue(selected,'T3_STAFF_NOT_IN_OWNER');
+      requireValue(typeof runtime.selectStaff==='function','T3_STAFF_SELECTION_NOT_CONNECTED');
+      const receipt=runtime.selectStaff(staffId);
+      const after=snapshot();
+      requireValue(receipt?.staffId===staffId &&
+        receipt.contextEpoch===after.contextEpoch &&
+        after.product==='admin' && after.organizationId===before.organizationId &&
+        after.selectedStaffId===staffId &&
+        after.personId===selected.personId && after.workspaceId===selected.workspaceId &&
+        Number.isSafeInteger(after.contextEpoch) &&
+        after.contextEpoch>before.contextEpoch,
+        'T3_STAFF_SELECTION_READBACK_HOLD');
+      return receipt;
+    },
+    // Actor identity and key custody remain exclusively in the original T3.
+    selectOperator({operatorId,binding}) {
+      const before=bind(binding);
+      const selected=Array.isArray(before.operators) ? before.operators.find(x=>
+        x?.id===operatorId && typeof x.personId==='string' && x.personId) : null;
+      requireValue(selected,'T3_OPERATOR_NOT_IN_OWNER');
+      requireValue(typeof runtime.selectOperator==='function','T3_OPERATOR_SELECTION_NOT_CONNECTED');
+      const receipt=runtime.selectOperator(operatorId);
+      const after=snapshot();
+      requireValue(receipt?.operatorId===operatorId &&
+        receipt.contextEpoch===after.contextEpoch &&
+        after.product==='admin' && after.organizationId===before.organizationId &&
+        after.workspaceId===before.workspaceId && after.personId===before.personId &&
+        after.selectedOperatorId===operatorId &&
+        Number.isSafeInteger(after.contextEpoch) &&
+        after.contextEpoch>before.contextEpoch,
+        'T3_OPERATOR_SELECTION_READBACK_HOLD');
+      return receipt;
+    },
     async issue({organization,assignment,binding}) {
       const current=bind(binding);
       requireValue(binding.draftOrganizationId===organization.id &&

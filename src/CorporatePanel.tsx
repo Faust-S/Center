@@ -98,6 +98,14 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
   REVIEW_REQUIRED:'Ожидает Review',RECEIPT_CONFLICT:'Проверить квитанции',
   ACCEPTED:'ACCEPT (не Apply)',REJECTED:'REJECT'
  };
+ // Real staff/operator identities are projections of the ORIGINAL T3 owner,
+ // not the draft participants in CEN01 and not a license or credential issuer.
+ const staff=ready&&Array.isArray(owner?.snapshot?.staff)
+   ?owner.snapshot.staff.filter((x:any)=>typeof x?.id==='string' &&
+      typeof x?.personId==='string'&&typeof x?.workspaceId==='string'):[];
+ const operators=ready&&Array.isArray(owner?.snapshot?.operators)
+   ?owner.snapshot.operators.filter((x:any)=>typeof x?.id==='string' &&
+      typeof x?.personId==='string'):[];
  const acceptedSelection=acceptedApplicationSelection(review,hash);
  const canApply=ready&&!!acceptedSelection&&
    owner.snapshot?.application?.status!=='HOLD_FOR_EXPLICIT_RECOVERY';
@@ -106,6 +114,34 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
   <p className="notice subdued" data-testid="corporate-owner-status">{ready?'Подтверждённая организационная сессия владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
+  <div className="nested-form" data-testid="cen02-owner-people">
+   <h3>Ответственные в организации</h3>
+   <p className="muted">Выбор выполняется только из подтверждённого реестра T3. Черновики сотрудников и запланированные места Personal Agent не дают полномочий.</p>
+   <div className="form-grid">
+    <label>Сотрудник (владелец T3)
+     <select data-testid="cen02-select-staff" value={owner?.snapshot?.selectedStaffId??''}
+      disabled={!ready||busy||staff.length===0}
+      onChange={e=>{const staffId=e.target.value;if(staffId)void act('Контекст сотрудника перечитан из T3.',async()=>{
+       const changed=await execute('selectStaff',{staffId});
+       if(changed.staffId!==staffId)throw Error('T3_STAFF_SELECTION_READBACK_HOLD');
+      })}}>
+      <option value="">Выберите подтверждённого сотрудника</option>
+      {staff.map((p:any)=><option key={p.id} value={p.id}>{p.name||p.personId} · {p.workspaceId}</option>)}
+     </select>
+    </label>
+    <label>Оператор решения (владелец T3)
+     <select data-testid="cen02-select-operator" value={owner?.snapshot?.selectedOperatorId??''}
+      disabled={!ready||busy||operators.length===0}
+      onChange={e=>{const operatorId=e.target.value;if(operatorId)void act('Оператор перечитан из T3.',async()=>{
+       const changed=await execute('selectOperator',{operatorId});
+       if(changed.operatorId!==operatorId)throw Error('T3_OPERATOR_SELECTION_READBACK_HOLD');
+      })}}>
+      <option value="">Выберите подтверждённого оператора</option>
+      {operators.map((p:any)=><option key={p.id} value={p.id}>{p.name||p.personId}</option>)}
+     </select>
+    </label>
+   </div>
+  </div>
   <div className="nested-form" data-testid="cen02-section">
    <h3>1. Выдать подписанное поручение</h3>
    <label>Черновик<select value={selected} onChange={e=>setSelected(e.target.value)} data-testid="corporate-assignment"><option value="">Выберите поручение</option>{organization.assignments.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}</select></label>
