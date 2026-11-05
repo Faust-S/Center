@@ -112,6 +112,73 @@ function Start-Center {
   throw 'U05_CENTER_MAIN_WINDOW_MISSING'
 }
 try {
+  if($env:U05_VERIFY_STALE_AFTER_OWNER_CHANGE -eq '1') {
+    if(!(Test-Path -LiteralPath $artifact)){throw 'U05_PREVIOUS_INSTALLED_LINK_RECEIPT_MISSING'}
+    $initial=Get-Content -LiteralPath $artifact -Raw | ConvertFrom-Json -Depth 100
+    if($initial.status -ne 'U05_TWO_INSTALLED_SAME_CANONICAL_SOURCE_PASS'){
+      throw 'U05_PREVIOUS_INSTALLED_LINK_NOT_QUALIFIED'
+    }
+    if([string]$head.revision -le [long]$initial.sourceRevision -or
+       [string]$head.generation -eq [string]$initial.sourceGeneration){
+      throw 'U05_ATLAS_OWNER_REVISION_NOT_ADVANCED'
+    }
+    $originalId=[string]$initial.projectId
+    $originalWorkId=[string]$initial.workId
+    $originalRevision=[string]$initial.refRevision
+    $originalProjectFound=$false
+    foreach($entry in @($head.projects)){
+      $block=Join-Path (Join-Path $atlas 'blocks') ("$($entry.sha256).json")
+      $record=Get-Content -LiteralPath $block -Raw | ConvertFrom-Json -Depth 100
+      if([string]$record.id -eq $originalId) {
+        if(@($record.items | Where-Object { [string]$_.id -eq $originalWorkId }).Count -ne 1){
+          throw 'U05_ORIGINAL_WORK_ID_DISAPPEARED_AFTER_ATLAS_EDIT'
+        }
+        $originalProjectFound=$true
+      }
+    }
+    if(!$originalProjectFound){throw 'U05_ORIGINAL_PROJECT_DISAPPEARED_AFTER_ATLAS_EDIT'}
+    $persisted=Get-Content -LiteralPath $centerDraft -Raw | ConvertFrom-Json -Depth 100
+    $links=@($persisted.organizations | ForEach-Object {$_.assignments} |
+       Where-Object { $_.title -eq 'U05PublicAtlasLinked' })
+    if($links.Count -ne 1 -or
+       [string]$links[0].atlasRef.projectId -ne $originalId -or
+       [string]$links[0].atlasRef.workId -ne $originalWorkId -or
+       [string]$links[0].atlasRef.revision -ne $originalRevision) {
+      throw 'U05_CENTER_SILENTLY_REWROTE_OLD_WORK_REFERENCE'
+    }
+    $newManifestHash=[Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($manifest)))
+    if($newManifestHash -eq [string]$initial.atlasStoreManifestSha256){
+      throw 'U05_ATLAS_GUI_NEW_REVISION_MANIFEST_NOT_CHANGED'
+    }
+    Start-Center
+    Click 'Планы Atlas'
+    Click 'Открыть Atlas Desktop'
+    [void](Find-UI "U05AfterCenterLink" 'Button' $true)
+    [void](Find-UI $projectTitle 'Button' $true)
+    Click 'Поручения' $true
+    Click 'U05PublicAtlasLinked' $true
+    [void](Find-UI-Text 'План Atlas изменился')
+    Click 'Закрыть редактор'
+    Shutdown
+    $still=Get-Content -LiteralPath $centerDraft -Raw | ConvertFrom-Json -Depth 100
+    $post=@($still.organizations | ForEach-Object {$_.assignments} |
+       Where-Object { $_.title -eq 'U05PublicAtlasLinked' })
+    if($post.Count -ne 1 -or
+       [string]$post[0].atlasRef.revision -ne $originalRevision -or
+       [string]$post[0].atlasRef.workId -ne $originalWorkId) {
+      throw 'U05_STALE_PREVIEW_MODIFIED_SAVED_LINK'
+    }
+    $afterReadHash=[Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($manifest)))
+    if($afterReadHash -ne $newManifestHash){throw 'U05_CENTER_READ_MODIFIED_NEW_OWNER_MANIFEST'}
+    $initial.ownerRevisionAfterChange=[string]$head.revision
+    $initial.ownerGenerationAfterChange=[string]$head.generation
+    $initial.ownerManifestSha256AfterChange=$afterReadHash
+    $initial.staleAfterOwnerGUIEdit='VERIFIED_IN_INSTALLED_CENTER'
+    $initial.status='U05_TWO_INSTALLED_OWNER_CHANGED_STALE_PASS'
+    $initial | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $artifact
+    Write-Host "U05_TWO_INSTALLED_OWNER_CHANGED_STALE_PASS old=$originalRevision new=$($head.revision) project=$originalId work=$originalWorkId"
+    return
+  }
   Start-Center
   Click 'Планы Atlas'
   Click 'Открыть Atlas Desktop'
