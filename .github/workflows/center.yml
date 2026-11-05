@@ -93,6 +93,39 @@ jobs:
         shell: pwsh
         timeout-minutes: 5
         run: ./tests/installed-windows-center.ps1
+      # U05: both real installed Windows products on the SAME hosted profile.
+      # Reuse Atlas's own GUI acceptance driver and native persistence.
+      - name: Build exact canonical Atlas Desktop installer
+        shell: pwsh
+        timeout-minutes: 25
+        working-directory: vendor/atlas/desktop
+        run: |
+          npm ci --no-audit --no-fund
+          npm run desktop:build
+      - name: Install canonical Atlas and create real projects in its GUI
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference='Stop'
+          $installer=Get-ChildItem 'vendor/atlas/desktop/src-tauri/target/release/bundle/nsis/*.exe'|Select-Object -First 1
+          if(!$installer){throw 'U05_ATLAS_INSTALLER_MISSING'}
+          $process=Start-Process -FilePath $installer.FullName -ArgumentList '/S' -PassThru
+          if(!$process.WaitForExit(120000)){Stop-Process -Id $process.Id -Force;throw 'U05_ATLAS_INSTALL_TIMEOUT'}
+          if($process.ExitCode -ne 0){throw "U05_ATLAS_INSTALL_ERROR $($process.ExitCode)"}
+          $exe=Join-Path $env:LOCALAPPDATA 'IWXA Atlas/iwxa-atlas-desktop.exe'
+          if(!(Test-Path -LiteralPath $exe)){throw 'U05_ATLAS_INSTALLED_EXE_MISSING'}
+          "ATLAS_INSTALLED_EXE=$exe"|Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "U05_ATLAS_INSTALLED_PASS SHA256=$((Get-FileHash $exe -Algorithm SHA256).Hash)"
+      - name: Create actual Atlas Desktop project and works with installed GUI
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          New-Item -ItemType Directory -Force -Path 'desktop/test-artifacts'|Out-Null
+          ./vendor/atlas/desktop/tests/installed-windows-keyboard.ps1
+      - name: Installed Center reads Atlas Desktop canonical work and saves exact ref
+        shell: pwsh
+        timeout-minutes: 5
+        run: ./tests/installed-windows-u05-cross-owner.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
