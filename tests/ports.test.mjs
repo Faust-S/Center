@@ -11,7 +11,7 @@ test('failed write never reports persisted success',()=>{const repo=createDraftR
 test('readback mismatch is visible',()=>{const repo=createDraftRepository({read:()=>({revision:0,bytes:null}),write:()=>({revision:1})});assert.throws(()=>repo.save(emptyDraft(),0),/READBACK_MISMATCH/);});
 function runtimeDouble() {
  const calls=[];
- const state={organizationId:'org',workspaceId:'work',contextEpoch:1,personId:'person',
+ const state={product:'admin',organizationId:'org',workspaceId:'work',contextEpoch:1,personId:'person',
    packages:[],
    application:{status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false}};
  return {product:'admin',snapshot:()=>structuredClone(state),calls,state,
