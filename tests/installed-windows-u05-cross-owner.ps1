@@ -64,6 +64,20 @@ function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false) {
   }
   throw "U05_CENTER_UI_CONTROL_MISSING $type $name"
 }
+function Find-UI-Text([string]$needle) {
+  for($attempt=0;$attempt -lt 75;$attempt++){
+    $root=Root
+    $controls=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+      [System.Windows.Automation.Condition]::TrueCondition)
+    foreach($control in $controls){
+      try{
+        if(([string]$control.Current.Name).Contains($needle)){return $control}
+      }catch{}
+    }
+    Start-Sleep -Milliseconds 300
+  }
+  throw "U05_UI_TEXT_NOT_FOUND $needle"
+}
 function Click([string]$name,[bool]$contains=$false) {
   $button=Find-UI $name 'Button' $contains
   try{$button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()}
@@ -101,10 +115,10 @@ try {
   Start-Center
   Click 'Планы Atlas'
   Click 'Открыть Atlas Desktop'
-  $revisionText=Find-UI "Atlas Desktop" 'Text' $true
+  $revisionText=Find-UI-Text "Atlas Desktop"
   $title=Find-UI $projectTitle 'Button' $true
   if(!$title){throw 'U05_CANONICAL_PROJECT_NOT_RENDERED'}
-  $revisionNode=Find-UI "редакция портфеля: $revision" 'Text' $true
+  $revisionNode=Find-UI-Text "редакция портфеля: $revision"
   if(!$revisionNode){throw 'U05_ATLAS_REVISION_NOT_VISIBLE'}
   Click $projectTitle $true
   # Preparation requires linking the existing organization workspace to this
@@ -137,7 +151,7 @@ try {
   Click 'Закрыть редактор'
   Click 'Планы Atlas'
   Click 'Открыть Atlas Desktop'
-  $now=Find-UI "редакция портфеля: $revision" 'Text' $true
+  $now=Find-UI-Text "редакция портфеля: $revision"
   if(!$now){throw 'U05_RESTART_CANONICAL_REVISION_MISMATCH'}
   Shutdown
   $result=[ordered]@{status='U05_TWO_INSTALLED_SAME_CANONICAL_SOURCE_PASS';
