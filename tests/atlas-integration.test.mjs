@@ -28,7 +28,7 @@ test('Atlas actual owner model is imported, validated and summarized without rew
  assert.equal(view.authorization,'NOT_CHECKED');
  assert.equal(view.mode,'READ_ONLY_USER_SELECTED_FILE');
  assert.equal(serialize(snapshot),before);
- assert.equal(ATLAS_SOURCE_REVISION,'e5cc6ff593aa12eec3da8e8940ad5af5819b66fd');
+ assert.equal(ATLAS_SOURCE_REVISION,'7a0a2c8a458617a011a3db78b72c3dd1adbc12c2');
 });
 test('only a project from current Atlas preview can be linked with exact portfolio revision',()=>{
  const {snapshot,a}=sample(),view=readAtlasPortfolio(serialize(snapshot));
@@ -83,4 +83,15 @@ test('work link observation detects revision drift but retains previous referenc
  assert.equal(atlasWorkReadback(current,{projectId:a,revision:current.revision}),'WORK_NOT_LINKED');
  assert.equal(atlasWorkReadback(current,null),'WORK_NOT_LINKED');
  assert.deepEqual(ref,linkableAtlasWork(current,a,item));
+});
+
+
+test('canonical desktop owner projection permits exact work links but never confers T3 grants',()=>{
+ const {snapshot,a,item}=sample();
+ const view={...readAtlasPortfolio(serialize(snapshot)),mode:'NATIVE_ATLAS_PUBLIC_READ_ONLY'};
+ const reference=linkableAtlasWork(view,a,item);
+ assert.deepEqual(reference,{projectId:a,workId:item,revision:String(snapshot.revision)});
+ assert.equal(atlasWorkReadback(view,reference),'SOURCE_REVISION_MATCHES');
+ assert.equal(view.authorization,'NOT_CHECKED');
+ assert.equal(view.projects.length,2);
 });
