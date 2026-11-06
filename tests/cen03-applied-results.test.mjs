@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readAppliedResults,prepareAppliedReuse,verifyAppliedCommitReadback} from '../runtime/cen03-applied-results.mjs';
+import {readAppliedResults,prepareAppliedReuse,verifyAppliedCommitReadback,projectAppliedAtlasEvidence} from '../runtime/cen03-applied-results.mjs';
 import {createT3AdminPort} from '../runtime/t3-admin-port.mjs';
 import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox} from '../runtime/cen03-review.mjs';
 
@@ -240,4 +240,54 @@ test('CEN03 inbox never invents ACCEPT for unknown/corrupt receipts or foreign s
  }
  snapshot.receipts=[{packageSha256:hash,acceptanceState:'ACCEPTED',acceptanceId:'invalid'}];
  assert.equal(receivedResultInbox(snapshot,'org:1','workspace:1').items[0].status,'RECEIPT_CONFLICT');
+});
+
+
+test('CEN05 shows a T3-applied Result against issuer WorkRef without changing Atlas',()=>{
+ const issued={organizationId:'org:1',workspaceId:'workspace:1',assignmentId:'assign:1',
+   recipientId:'person:staff',taskId:'task:old',taskRevisionId:A,
+   atlasRef:{projectId:'p1',workId:'w1',revision:'7'},deliveryState:'NOT_CONFIRMED'};
+ const view={source:'atlas.project/1',revision:'7',authorization:'NOT_CHECKED',
+   mode:'READ_ONLY_USER_SELECTED_FILE',
+   projects:[{id:'p1',workItems:[{id:'w1',state:'todo'}]}]};
+ const owner=snapshot(),before=structuredClone(owner),beforeView=structuredClone(view);
+ const args={ownerSnapshot:owner,issuedTask:issued,resultRevisionId:B,atlasView:view};
+ const observed=projectAppliedAtlasEvidence(args);
+ assert.equal(observed.status,'APPLIED_RESULT_OBSERVED');
+ assert.deepEqual(observed.atlasRef,issued.atlasRef);
+ assert.equal(observed.atlasObservation,'SOURCE_REVISION_MATCHES');
+ assert.equal(observed.result.taskRevisionId,A);
+ assert.equal(observed.result.resultRevisionId,B);
+ assert.equal(observed.result.acceptanceId,record.acceptanceId);
+ assert.equal(observed.result.text,record.result);
+ assert.equal(observed.authority,'READ_ONLY_EVIDENCE');
+ assert.equal(observed.associationProof,'LOCAL_ISSUER_SIDE_REFERENCE_ONLY');
+ assert.equal(observed.atlasWritePerformed,false);
+ assert.equal(observed.workCompletionAsserted,false);
+ assert.deepEqual(owner,before);assert.deepEqual(view,beforeView);
+ assert.equal(view.projects[0].workItems[0].state,'todo');
+ assert.equal(projectAppliedAtlasEvidence({...args,atlasView:{...view,revision:'8'}}).atlasObservation,
+  'SOURCE_REVISION_CHANGED');
+ assert.equal(projectAppliedAtlasEvidence({...args,atlasView:null}).atlasObservation,'NOT_OBSERVED');
+});
+test('CEN05 refuses unconfirmed or mismatched T3 source even if WorkRef is provided',()=>{
+ const issued={organizationId:'org:1',workspaceId:'workspace:1',assignmentId:'assign:1',
+   recipientId:'person:staff',taskId:'task:old',taskRevisionId:A,
+   atlasRef:{projectId:'p1',workId:'w1',revision:'7'},deliveryState:'NOT_CONFIRMED'};
+ const args={ownerSnapshot:snapshot(),issuedTask:issued,resultRevisionId:B};
+ for(const change of [
+   x=>x.issuedTask.taskId='task:other',
+   x=>x.issuedTask.taskRevisionId='0'.repeat(64),
+   x=>x.issuedTask.workspaceId='workspace:foreign',
+   x=>x.issuedTask.organizationId='org:foreign',
+   x=>x.resultRevisionId='0'.repeat(64),
+   x=>x.ownerSnapshot.application.records[0].resultRevisionId='0'.repeat(64),
+   x=>x.ownerSnapshot.application.status='NOT_PRESENT'
+ ]){
+   const bad=structuredClone(args);change(bad);
+   assert.throws(()=>projectAppliedAtlasEvidence(bad),/CEN_/);
+ }
+ assert.throws(()=>projectAppliedAtlasEvidence({...args,atlasView:{
+  source:'other',authorization:'NOT_CHECKED',mode:'READ_ONLY_USER_SELECTED_FILE',projects:[]
+ }}),/CEN_ATLAS_SOURCE_VIEW_REQUIRED/);
 });

@@ -59,7 +59,10 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
         after.workspaceId===current.workspaceId &&
         after.personId===current.personId,
         'T3_ISSUE_READBACK_REQUIRED');
+      // Issuer-side association, not a T3 signature over the Atlas reference.
       return {bytes,taskId:after.task.id,taskRevisionId:after.task.taskRevisionId,
+        organizationId:current.organizationId,workspaceId:current.workspaceId,
+        assignmentId:assignment.id,recipientId:binding.recipientId,
         atlasRef:{projectId:ref.projectId,workId:ref.workId,revision:ref.revision},
         deliveryState:'NOT_CONFIRMED'};
     },

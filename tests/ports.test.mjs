@@ -185,6 +185,10 @@ test('T3 task issue requires native Atlas work and exact plan revision',async()=
   assert.equal(issued.taskRevisionId,TASK_REVISION);
   assert.deepEqual(issued.atlasRef,f.assignment.atlasRef);
   assert.equal(issued.deliveryState,'NOT_CONFIRMED');
+  assert.equal(issued.organizationId,'org');
+  assert.equal(issued.workspaceId,'work');
+  assert.equal(issued.assignmentId,f.assignment.id);
+  assert.equal(issued.recipientId,'person');
 });
 test('T3 task issue fails closed without native source or when organization changes',async()=>{
   const f=issueFixture(),r=issuingRuntime();

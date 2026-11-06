@@ -1,3 +1,4 @@
+import {atlasWorkReadback} from '../src/atlas-integration.mjs';
 // Read-only view over original T3 interop/runtime.mjs applicationSummary().
  // The owner validates signatures, Store/Journal and causal evidence. This
  // projection neither verifies signatures itself nor stores independent results.
@@ -91,4 +92,43 @@ export function verifyAppliedCommitReadback({
   return {status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',
     effectKey:receipt.effectKey,sourceAcceptanceId:acceptanceId,
     verifiedRevisionIds:[...revisionIds],externalContextCoreApplied:false};
+}
+
+
+/**
+ * Match an original Center issuance to a confirmed T3 result, as a read-only
+ * Atlas observation. The WorkRef is a local issuer-side association; neither
+ * the signed T3 Result nor this view grants authority to alter Atlas.
+ */
+export function projectAppliedAtlasEvidence({ownerSnapshot,issuedTask,resultRevisionId,atlasView=null}={}){
+ const invalid='CEN_ATLAS_ISSUE_REFERENCE_REQUIRED';
+ requireValue(issuedTask && typeof issuedTask.organizationId==='string' &&
+   typeof issuedTask.workspaceId==='string' && typeof issuedTask.assignmentId==='string' &&
+   issuedTask.assignmentId.length>0 && typeof issuedTask.recipientId==='string' &&
+   issuedTask.recipientId.length>0 && typeof issuedTask.taskId==='string' &&
+   issuedTask.taskId.startsWith('task:') && isHex64(issuedTask.taskRevisionId) &&
+   issuedTask.deliveryState==='NOT_CONFIRMED' &&
+   typeof issuedTask.atlasRef?.projectId==='string' && issuedTask.atlasRef.projectId.length>0 &&
+   typeof issuedTask.atlasRef?.workId==='string' && issuedTask.atlasRef.workId.length>0 &&
+   typeof issuedTask.atlasRef?.revision==='string' &&
+   /^(0|[1-9][0-9]*)$/.test(issuedTask.atlasRef.revision),invalid);
+ requireValue(isHex64(resultRevisionId),'CEN_ATLAS_RESULT_REVISION_REQUIRED');
+ const owner=readAppliedResults(ownerSnapshot,issuedTask.organizationId,issuedTask.workspaceId);
+ requireValue(owner.status==='LOCAL_ENCRYPTED_STORE_CONFIRMED','CEN_ATLAS_RESULT_NOT_APPLIED');
+ const rows=owner.records.filter(x=>x.taskId===issuedTask.taskId &&
+   x.taskRevisionId===issuedTask.taskRevisionId && x.resultRevisionId===resultRevisionId);
+ requireValue(rows.length===1,'CEN_ATLAS_RESULT_BINDING_NOT_FOUND');
+ if(atlasView!==null)requireValue(atlasView?.source==='atlas.project/1' &&
+   atlasView.authorization==='NOT_CHECKED' &&
+   ['READ_ONLY_USER_SELECTED_FILE','NATIVE_ATLAS_LOCAL_ORGANIZATION'].includes(atlasView.mode) &&
+   Array.isArray(atlasView.projects),'CEN_ATLAS_SOURCE_VIEW_REQUIRED');
+ const x=rows[0],ref=issuedTask.atlasRef;
+ return {status:'APPLIED_RESULT_OBSERVED',atlasRef:{...ref},
+   atlasObservation:atlasWorkReadback(atlasView,ref),
+   result:{taskId:x.taskId,taskRevisionId:x.taskRevisionId,
+     resultRevisionId:x.resultRevisionId,acceptanceId:x.acceptanceId,
+     organizationId:x.organizationId,workspaceId:x.workspaceId,
+     executorId:x.executorId,text:x.result},
+   authority:'READ_ONLY_EVIDENCE',associationProof:'LOCAL_ISSUER_SIDE_REFERENCE_ONLY',
+   atlasWritePerformed:false,workCompletionAsserted:false};
 }
