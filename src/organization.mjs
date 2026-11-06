@@ -82,7 +82,7 @@ const linkShape=['assignmentEditNumber','assignmentId','associationProof','assig
   'atlasRef','deliveryState','organizationId','ownerPersonId','recordedAt',
   'reviewerId','taskId','taskRevisionId','workspaceId'];
 const exactLink=(x)=>x&&typeof x==='object'&&!Array.isArray(x)&&
-  Object.keys(x).sort().join()===linkShape.join();
+  Object.keys(x).sort().join()===linkShape.slice().sort().join();
 const issuedLinkKey=x=>JSON.stringify([x.taskId,x.taskRevisionId]);
 // Preparation-only association to a signed T3 Task, not the original signed
 // carrier, an issuer record, or proof that Atlas/employee accepted anything.
