@@ -79,10 +79,19 @@ export default function App() {
       let active=true;
       let unlisten:(()=>void)|undefined;
       import('@tauri-apps/api/window')
-        .then(({getCurrentWindow})=>getCurrentWindow().onCloseRequested(event=>{
-          if(pendingCloseRef.current &&
-             !window.confirm('Есть несохранённые изменения. Закрыть Admin Center без сохранения?'))
-            event.preventDefault();
+        .then(({getCurrentWindow})=>getCurrentWindow().onCloseRequested(async event=>{
+          if(!pendingCloseRef.current)return;
+          // WebView2's synchronous window.confirm can fail during a native
+          // WM_CLOSE callback. Use the already-installed Tauri dialog plugin.
+          // A failed dialog is treated as Cancel, never silent data loss.
+          let confirmed=false;
+          try {
+            const {confirm}=await import('@tauri-apps/plugin-dialog');
+            confirmed=await confirm('Есть несохранённые изменения. Закрыть Admin Center без сохранения?',{
+              title:'IWXA Admin Center',kind:'warning'
+            });
+          } catch {confirmed=false;}
+          if(!confirmed)event.preventDefault();
         }))
         .then(dispose=>{if(active)unlisten=dispose;else dispose();})
         .catch(()=>{if(active)setError('Не удалось подключить защиту закрытия окна. Сохраните работу перед выходом.');});
