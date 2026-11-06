@@ -9,7 +9,7 @@ type Participant = {id: string; name: string; roleLabel: string; credentialState
 type AtlasRef = {projectId:string;revision:string;workId?:string};
 type SourceResultRef={organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string};
 type Assignment = {sourceResultRef?:SourceResultRef|null;id: string; title: string; workspaceId: string; assigneeId: string | null; reviewerId: string | null; description: string; criteria: string; dueDate: string; priority: string; editNumber: number; status: string; atlasRef: AtlasRef|null; createdAt: string; updatedAt: string};
-type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string; atlasRef?: AtlasRef|null}[]; participants: Participant[]; assignments: Assignment[]};
+type Organization = {issuedTaskLinks?:Array<Record<string,unknown>>;id: string; name: string; kind: string; workspaces: {id: string; name: string; atlasRef?: AtlasRef|null}[]; participants: Participant[]; assignments: Assignment[]};
 type Draft = {format: string; version: number; organizations: Organization[]; activeOrganizationId: string | null; updatedAt: string};
 type AtlasPortfolioView = {source:string;revision:string;authorization:string;mode:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
 type Editor = {sourceResultRef:SourceResultRef|null;assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
@@ -100,6 +100,34 @@ export default function App() {
     } catch(e) {problem(e); return false;}
   };
   const go = (next: Page) => {setPage(next); setMenuOpen(false);};
+
+  const persistIssuedTaskLink = async (issued:any,ownerPersonId:string) => {
+    const organization=state.organizations.find(x=>x.id===issued.organizationId);
+    const assignment=organization?.assignments.find(x=>x.id===issued.assignmentId);
+    if(!nativeHost||!organization||!assignment||
+       organization.id!==state.activeOrganizationId||!ownerPersonId)
+      throw Error('TASK_ALREADY_ISSUED_LINK_NOT_SAVED');
+    let next:Draft;
+    try{
+      next=applyDraftCommand(state,{type:'RECORD_ISSUED_TASK_LINK',
+        organizationId:organization.id,assignmentId:assignment.id,
+        assignmentEditNumber:assignment.editNumber,workspaceId:issued.workspaceId,
+        assigneeId:assignment.assigneeId,reviewerId:assignment.reviewerId,
+        ownerPersonId,taskId:issued.taskId,taskRevisionId:issued.taskRevisionId,
+        atlasRef:issued.atlasRef}) as Draft;
+      const content=encodeDraft(next);
+      if(await nativeInvoke('center_draft_save_local',{content})!==true)
+        throw Error('LOCAL_SAVE_NOT_CONFIRMED');
+      const readback=await nativeInvoke('center_draft_read_local');
+      if(readback!==content||encodeDraft(decodeDraft(readback))!==content)
+        throw Error('LOCAL_SAVE_READBACK_MISMATCH');
+    }catch{
+      // The T3 Task may already be signed; never retry issue automatically.
+      throw Error('TASK_ALREADY_ISSUED_LINK_NOT_SAVED');
+    }
+    setState(next);setDirty(false);setError('');
+    setMessage('Связь подписанной Task с WorkRef локально сохранена; доставка не подтверждена.');
+  };
   const reuseAppliedResult = ({description,source}:{description:string;source:SourceResultRef}) => {
     if(!org)return;
     if(editor){setError('Сначала сохраните или закройте редактор поручения.');return;}
@@ -322,7 +350,7 @@ export default function App() {
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 
-       {org && page==='results' && <CorporatePanel key={org.id} organization={org} invoke={nativeHost?nativeInvoke:null} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()}/>} 
+       {org && page==='results' && <CorporatePanel key={org.id} organization={org} invoke={nativeHost?nativeInvoke:null} onIssued={persistIssuedTaskLink} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()}/>} 
       {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
         <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
         {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button></div>)}

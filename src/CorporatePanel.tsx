@@ -11,9 +11,11 @@ const why=(e:unknown)=>{
  const message=e instanceof Error?e.message:String(e);
  return message.includes('T3_RECEIVE_STORE_READBACK_HOLD')
    ? 'Получение не подтверждено хранилищем организации. Обновите список Result и проверьте журнал перед повторной передачей файла.'
-   : message;
+   : message==='TASK_ALREADY_ISSUED_LINK_NOT_SAVED'
+     ? 'Подписанная Task могла быть выдана, но привязка Atlas не сохранена. Проверьте T3, повторно выдавать вслепую нельзя.'
+     : message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onIssued}:{organization:Org;invoke:Invoke|null;onIssued:(issued:any,personId:string)=>Promise<void>;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
  const [owner,setOwner]=useState<any>(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
@@ -129,8 +131,21 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
     <button className="secondary" onClick={onPrepare}>Подготовить поручение</button>
     <button className="primary" data-testid="corporate-issue" disabled={!ready||busy||!organization.assignments.find(a=>a.id===selected)?.atlasRef?.workId}
      onClick={()=>act('Подписанная редакция создана владельцем. Доставка сотруднику не подтверждена.',async()=>{
+       const before=owner.snapshot;
        const out=await execute('issue',{assignmentId:selected});
-       if(!out.taskId||!hex.test(out.taskRevisionId)||out.deliveryState!=='NOT_CONFIRMED')throw Error('T3_ISSUE_READBACK_REQUIRED');
+       if(!out.taskId||!hex.test(out.taskRevisionId)||out.deliveryState!=='NOT_CONFIRMED'||
+          out.assignmentId!==selected||out.organizationId!==organizationId||
+          out.workspaceId!==before.workspaceId||out.recipientId!==before.personId||
+          !out.atlasRef?.workId)throw Error('TASK_ALREADY_ISSUED_LINK_NOT_SAVED');
+       // The original T3 increments contextEpoch on issuance.
+       const after=await refresh();
+       if(!after||after.snapshot.personId!==before.personId||
+          after.snapshot.organizationId!==before.organizationId||
+          after.snapshot.workspaceId!==before.workspaceId||
+          after.snapshot.task?.id!==out.taskId||
+          after.snapshot.task?.taskRevisionId!==out.taskRevisionId)
+         throw Error('TASK_ALREADY_ISSUED_LINK_NOT_SAVED');
+       await onIssued(out,before.personId);
      })}>Выдать через CEN02</button>
     <button className="secondary" data-testid="corporate-export" disabled={!ready||busy||!owner.snapshot?.task?.taskRevisionId}
      onClick={()=>act('Подписанный .iwxa сохранён на выбранный носитель. Передача и открытие сотрудником не подтверждены.',async()=>{
