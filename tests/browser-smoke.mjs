@@ -118,6 +118,7 @@ try{
   assert.equal(await page.getByTestId('corporate-issue').isEnabled(),false);
   assert.equal(await page.getByTestId('corporate-export').isEnabled(),false);
   assert.equal(await page.getByTestId('corporate-receive').isEnabled(),false);
+  assert.match(await page.getByTestId('cen05-not-connected').innerText(),/NOT_CONNECTED/);
   assert.equal(await page.getByTestId('corporate-accept').count(),0);
   checks.push('corporate-workbench-offline-handoff-reality-and-fail-closed-without-private-owner');
   await page.getByTestId('nav-overview').click();await page.screenshot({path:'artifacts/overview-1366.png',fullPage:true});

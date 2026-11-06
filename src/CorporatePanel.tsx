@@ -1,11 +1,11 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
+import {readAppliedResults,prepareAppliedReuse,projectAppliedAtlasEvidence} from '../runtime/cen03-applied-results.mjs';
 import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox} from '../runtime/cen03-review.mjs';
 
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
 type Invoke=(command:string,args?:Record<string,unknown>)=>Promise<any>;
-type Org={id:string;name:string;assignments:Array<{id:string;title:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
+type Org={id:string;name:string;issuedTaskLinks?:Array<any>;assignments:Array<{id:string;title:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
 const hex=/^[a-f0-9]{64}$/;
 const why=(e:unknown)=>{
  const message=e instanceof Error?e.message:String(e);
@@ -15,7 +15,7 @@ const why=(e:unknown)=>{
      ? 'Подписанная Task могла быть выдана, но привязка Atlas не сохранена. Проверьте T3, повторно выдавать вслепую нельзя.'
      : message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onIssued}:{organization:Org;invoke:Invoke|null;onIssued:(issued:any,personId:string)=>Promise<void>;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onIssued,atlasView}:{organization:Org;atlasView:any|null;invoke:Invoke|null;onIssued:(issued:any,personId:string)=>Promise<void>;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
  const [owner,setOwner]=useState<any>(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
@@ -90,6 +90,25 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    catch{return {status:'HOLD_FOR_EXPLICIT_RECOVERY',records:[] as any[]}}
  })();
  const records=applied.records as any[];
+ // The signed application comes from T3; the WorkRef is a local, read-only
+ // issuer association, never a signature over the Atlas project.
+ const atlasEvidence=(()=>{
+   if(!ready||applied.status!=='LOCAL_ENCRYPTED_STORE_CONFIRMED')return [];
+   const links=organization.issuedTaskLinks??[],rows:any[]=[];
+   for(const record of records){
+     const candidates=links.filter(link=>
+       link.organizationId===organizationId &&
+       link.workspaceId===owner.snapshot.workspaceId &&
+       link.taskId===record.taskId &&
+       link.taskRevisionId===record.taskRevisionId);
+     if(candidates.length!==1)continue;
+     try{
+       rows.push(projectAppliedAtlasEvidence({ownerSnapshot:owner.snapshot,
+         issuedTask:candidates[0],resultRevisionId:record.resultRevisionId,atlasView}));
+     }catch{/* No inference of project completion from invalid local links. */}
+   }
+   return rows;
+ })();
  const chosen=records.find(r=>r.taskId+'|'+r.resultRevisionId===reuseKey);
  const inbox=(()=>{
   if(!ready)return {status:'NOT_CONNECTED',items:[] as any[],counts:null};
@@ -279,6 +298,17 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
      })}>Apply</button>
     </div>
    </div>}
+  </div>
+  <div className="nested-form" data-testid="cen05-result-projection">
+   <h3>5. Применённые результаты и работы Atlas</h3>
+   <p className="muted">Только подтверждённые T3 Apply и локальные исходные WorkRef. Это наблюдение, а не изменение проекта Atlas; ACCEPT и Apply не завершают работу автоматически.</p>
+   {!ready?<p data-testid="cen05-not-connected">NOT_CONNECTED: организационный T3 не подключён.</p>:
+    atlasEvidence.length===0?<p data-testid="cen05-no-projection">Нет подтверждённого Result со связью Atlas. Необходимы T3 Apply и сохранённая исходная привязка.</p>:
+    <ul data-testid="cen05-applied-list">{atlasEvidence.map((e:any)=><li key={e.result.taskId+'|'+e.result.resultRevisionId}>
+      <strong>Работа {e.atlasRef.workId}</strong> · проект {e.atlasRef.projectId} · редакция {e.atlasRef.revision}.
+      <span> {e.atlasObservation==='SOURCE_REVISION_MATCHES'?'Редакция Atlas совпадает':e.atlasObservation==='SOURCE_REVISION_CHANGED'?'Редакция Atlas изменилась':e.atlasObservation==='NOT_OBSERVED'?'Atlas не открыт':'Связь с Atlas требует проверки'}.</span>
+      <small> Task {e.result.taskId} · Result {e.result.resultRevisionId.slice(0,12)} · выполнение работы не утверждается.</small>
+    </li>)}</ul>}
   </div>
   <div className="nested-form" data-testid="cen03-reuse">
    <h3>4. Использовать применённый Result</h3>
