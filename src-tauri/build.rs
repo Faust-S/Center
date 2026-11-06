@@ -17,5 +17,26 @@ fn main() {
         PathBuf::from(env::var("OUT_DIR").expect("output directory")).join("atlas_native.rs"),
         source_without_inner_docs,
     ).expect("prepare canonical Atlas native module");
+    // U04 and U01 remain owned by the exact pinned public Br-test checkout.
+    // Assemble their original native implementations at build time rather than
+    // copying or independently reimplementing either component in Center.
+    for (relative, output) in [
+        ("u04-presentation/native/windows_port.rs", "u04_original_windows.rs"),
+        ("universal-install/host-bindings/rust-port/src/lib.rs", "u01_original_program.rs"),
+    ] {
+        let upstream = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("cargo directory"))
+            .join("../vendor/brtest").join(relative);
+        println!("cargo:rerun-if-changed={}", upstream.display());
+        let original = fs::read_to_string(&upstream)
+            .expect("Pinned public Br-test U01/U04 source is required");
+        // Inner crate docs cannot be included as nested modules.
+        let assembled = original.lines()
+            .filter(|line| !line.trim_start().starts_with("//!"))
+            .collect::<Vec<_>>().join("\n");
+        fs::write(
+            PathBuf::from(env::var("OUT_DIR").expect("output directory")).join(output),
+            assembled,
+        ).expect("prepare original public U01/U04 native module");
+    }
     tauri_build::build();
 }
