@@ -477,6 +477,16 @@ mod center_atlas_integration_tests {
         let attempted = center_draft_save_root(&root, &initial, &old.generation);
         assert_eq!(attempted.err().unwrap(), "CEN_DRAFT_CONCURRENT_UPDATE");
         assert_eq!(center_draft_state_root(&root).unwrap().generation, latest.generation);
+        // Even a repeated write of the original bytes is a stale-window
+        // conflict when a different process has advanced the generation.
+        let repeated = center_draft_save_root(&root, &initial, &old.generation);
+        assert_eq!(repeated.err().unwrap(), "CEN_DRAFT_CONCURRENT_UPDATE");
+        // But the newest generation may save the same exact bytes idempotently.
+        let confirmed = center_draft_save_root(
+            &root, latest.content.as_ref().unwrap(), &latest.generation
+        ).unwrap();
+        assert_eq!(confirmed.generation, latest.generation);
+        assert_eq!(confirmed.content, latest.content);
         let _ = fs::remove_dir_all(base);
     }
     #[test]
