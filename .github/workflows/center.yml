@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: center-${{ github.ref }}-${{ startsWith(github.event.head_commit.message, 'ci(ui):') && 'ui' || 'full' }}
   cancel-in-progress: true
@@ -159,3 +160,53 @@ jobs:
             artifacts/u05-two-installed-result.json
             src-tauri/Cargo.lock
             package-lock.json
+  upgrade-windows:
+    needs: windows-shell
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: 60ec9a3483f4f947f2e83c098c62807f6af6c05e
+          path: baseline-01
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/Center
+          run-id: 42032007719
+          github-token: ${{ github.token }}
+          name: center-windows-preparation-shell
+          path: baseline-artifact
+      - uses: actions/download-artifact@v4
+        with:
+          name: center-windows-preparation-shell
+          path: candidate-artifact
+      - name: Verify exact 0.1 artifact for real baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $installer=Get-ChildItem 'baseline-artifact' -Recurse -File -Filter '*_x64-setup.exe'|Select-Object -First 1
+          if(!$installer){throw 'CENTER_UPGRADE_01_INSTALLER_MISSING'}
+          $hash=(Get-FileHash $installer.FullName -Algorithm SHA256).Hash
+          if($hash -ne 'D47AD4DF82B998FF3BE2FE97548A38D5AE60390E1CC6DF82192EF746919C08C5'){throw 'CENTER_UPGRADE_01_HASH_MISMATCH'}
+          $dir='baseline-01/src-tauri/target/release/bundle/nsis'
+          New-Item -ItemType Directory -Force -Path $dir|Out-Null
+          Copy-Item -LiteralPath $installer.FullName -Destination $dir -Force
+          Write-Host "CENTER_UPGRADE_01_INSTALLER_VERIFIED SHA256=$hash"
+      - name: Install 0.1 and create two organizations, employees, Atlas Work and assignment in installed GUI
+        working-directory: baseline-01
+        shell: pwsh
+        timeout-minutes: 8
+        run: ./tests/installed-windows-center.ps1
+      - name: Install 0.2 over 0.1 and verify original IDs in real GUI and Atlas Store
+        shell: pwsh
+        timeout-minutes: 6
+        run: ./tests/installed-windows-upgrade.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: center-windows-in-place-upgrade
+          path: |
+            artifacts/upgrade-01-to-02-result.json
+            artifacts/upgrade-failure.png
