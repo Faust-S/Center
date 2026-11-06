@@ -29,6 +29,8 @@ const errors: Record<string,string> = {
   DRAFT_JSON_INVALID:'Файл повреждён или имеет неподдерживаемый формат.',
   DRAFT_SIZE_INVALID:'Файл черновиков превышает допустимый размер.',
   DRAFT_EDIT_CONFLICT:'Поручение изменилось. Откройте его актуальный черновик.',
+  CEN_DRAFT_CONCURRENT_UPDATE:'Другое окно Center изменило сохранённые черновики. Здесь они не перезаписаны. Экспортируйте текущие изменения, затем откройте сохранённые данные.',
+  CEN_DRAFT_POSTCOMMIT_READBACK_HOLD:'Сохранение не подтверждено. Проверьте локальные данные перед повторной записью.',
   ORGANIZATION_CONTEXT_CHANGED:'Выбрана другая организация. Откройте поручение заново.',
   DUE_DATE_INVALID:'Проверьте дату выполнения.',
   DRAFT_AUTHORITY_CLAIM_DENIED:'Черновик не может содержать подтверждённые корпоративные решения.',
@@ -56,6 +58,9 @@ export default function App() {
   const [creatingOrg,setCreatingOrg] = useState(false);
   const [menuOpen,setMenuOpen] = useState(false);
   const [dirty,setDirty] = useState(false);
+  // Existing Atlas native lock/publisher returns a compare-and-swap generation
+  // for this one preparation draft, without a second storage engine.
+  const draftGenerationRef=useRef('none');
   // A file preview belongs only to the organization where it was opened.
   // It must never become a cross-organization project/authorization source.
   const [atlasFile,setAtlasFile] = useState<{organizationId:string;view:AtlasPortfolioView}|null>(null);
@@ -70,12 +75,16 @@ export default function App() {
   useEffect(() => {
     if (!nativeHost) return;
     let cancelled=false;
-    nativeInvoke('center_draft_read_local').then((content: string|null)=>{
-      if(cancelled || content===null)return;
-      const restored=decodeDraft(content) as Draft;
-      setState(current=>current.organizations.length===0 ? restored : current);
+    nativeInvoke('center_draft_read_state_local').then((readback:{content:string|null;generation:string})=>{
+      if(cancelled)return;
+      if(!readback || typeof readback.generation!=='string' ||
+         !/^(none|[a-f0-9]{64})$/.test(readback.generation))
+        throw Error('CEN_DRAFT_GENERATION_INVALID');
+      const restored=readback.content===null?null:decodeDraft(readback.content) as Draft;
+      draftGenerationRef.current=readback.generation;
+      if(restored)setState(current=>current.organizations.length===0?restored:current);
       setDirty(false);
-      setMessage('Открыты черновики с этого компьютера. Они не являются организационным реестром T3.');
+      if(restored)setMessage('Открыты локальные черновики. Это не реестр полномочий T3.');
     }).catch((e: unknown)=>{
       if(!cancelled)setError('Локальный черновик не открыт. Исходные данные сохранены: '+String(e));
     }).finally(()=>{if(!cancelled)setNativeRestoring(false)});
@@ -116,11 +125,13 @@ export default function App() {
         ownerPersonId,taskId:issued.taskId,taskRevisionId:issued.taskRevisionId,
         atlasRef:issued.atlasRef}) as Draft;
       const content=encodeDraft(next);
-      if(await nativeInvoke('center_draft_save_local',{content})!==true)
-        throw Error('LOCAL_SAVE_NOT_CONFIRMED');
-      const readback=await nativeInvoke('center_draft_read_local');
-      if(readback!==content||encodeDraft(decodeDraft(readback))!==content)
+      const readback=await nativeInvoke('center_draft_save_local',{
+        content,expectedGeneration:draftGenerationRef.current
+      });
+      if(readback?.content!==content || !/^[a-f0-9]{64}$/.test(readback?.generation) ||
+         encodeDraft(decodeDraft(readback.content))!==content)
         throw Error('LOCAL_SAVE_READBACK_MISMATCH');
+      draftGenerationRef.current=readback.generation;
     }catch{
       // The T3 Task may already be signed; never retry issue automatically.
       throw Error('TASK_ALREADY_ISSUED_LINK_NOT_SAVED');
@@ -214,8 +225,13 @@ export default function App() {
     if(!nativeHost){await exportFile();return;}
     try {
       const content=encodeDraft(state);
-      const saved=await nativeInvoke('center_draft_save_local',{content});
-      if(!saved)throw Error('Не удалось сохранить черновик');
+      const readback=await nativeInvoke('center_draft_save_local',{
+        content,expectedGeneration:draftGenerationRef.current
+      });
+      if(readback?.content!==content || !/^[a-f0-9]{64}$/.test(readback?.generation) ||
+         encodeDraft(decodeDraft(readback.content))!==content)
+        throw Error('CEN_DRAFT_POSTCOMMIT_READBACK_HOLD');
+      draftGenerationRef.current=readback.generation;
       setDirty(false);setError('');
       setMessage('Черновики сохранены на этом компьютере. Подписанные полномочия T3 пока не подключены.');
     } catch(e){problem(e);}
