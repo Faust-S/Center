@@ -225,12 +225,17 @@ fn center_save_iwxa_file(bytes: Vec<u8>, task_revision_id: String) -> Result<boo
     }
 }
 
+mod cen05_host;
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(std::sync::Mutex::new(cen05_host::Session::default()))
         .invoke_handler(tauri::generate_handler![
             save_draft_file, open_draft_file, center_save_iwxa_file, center_open_iwxa_file,
-            center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open
+            center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open,
+            cen05_host::center_u04_open, cen05_host::center_u04_activate,
+            cen05_host::center_u04_return, cen05_host::center_u04_detach
         ])
         .run(tauri::generate_context!())
         .expect("Admin Center could not start");
