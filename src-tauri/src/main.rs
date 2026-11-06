@@ -117,7 +117,10 @@ fn center_draft_read_local(app: AppHandle) -> Result<Option<String>, String> {
 // backup. Reuse its existing validator and read back the exact selected file.
 fn center_draft_export_file(path: &Path, content: &str) -> Result<(), String> {
     center_draft_validate(content)?;
-    std::fs::write(path, content.as_bytes()).map_err(|e| e.to_string())?;
+    // Original Atlas atomic publication writes and synchronizes a temporary
+    // file alongside the chosen destination before replacing an existing copy.
+    let parent=path.parent().ok_or("Каталог для экспорта не найден")?;
+    publish(parent, path, content.as_bytes())?;
     let exported = center_draft_import_file(path)?;
     if exported != content {
         return Err("Экспортированный черновик отличается от исходного".into());
@@ -188,7 +191,8 @@ fn center_iwxa_carrier_read(path: &Path) -> Result<Vec<u8>, String> {
 // Signature, recipient and authorization validation remain with original T3.
 fn center_iwxa_carrier_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     center_iwxa_carrier_validate(bytes)?;
-    std::fs::write(path, bytes).map_err(|e| e.to_string())?;
+    let parent=path.parent().ok_or("Каталог для пакета IWXA не найден")?;
+    publish(parent, path, bytes)?;
     if center_iwxa_carrier_read(path)?.as_slice() != bytes {
         return Err("Записанный пакет IWXA не совпадает с исходным".into());
     }
@@ -425,6 +429,37 @@ mod center_atlas_integration_tests {
         assert!(center_draft_import_file(&exported).is_err());
         assert!(center_draft_export_file(&root, &content).is_err());
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn manual_exports_preserve_existing_data_on_invalid_input_or_destination() {
+        let dir=scratch();
+        let json=dir.join("existing-draft.json");
+        let original=serde_json::json!({
+            "format":"iwxa.admin-center.draft","version":1,
+            "organizations":[],"activeOrganizationId":null,
+            "updatedAt":"2026-11-06T00:00:00.000Z"
+        }).to_string();
+        center_draft_export_file(&json,&original).unwrap();
+        assert_eq!(center_draft_import_file(&json).unwrap(),original);
+        assert!(center_draft_export_file(&json,"{bad").is_err());
+        assert_eq!(center_draft_import_file(&json).unwrap(),original);
+        let carrier=dir.join("existing-result.iwxa");
+        let previous=b"previous opaque payload".to_vec();
+        center_iwxa_carrier_write(&carrier,&previous).unwrap();
+        assert!(center_iwxa_carrier_write(&carrier,&[]).is_err());
+        assert_eq!(center_iwxa_carrier_read(&carrier).unwrap(),previous);
+        // An existing directory cannot be replaced by a file; publication
+        // failure must leave the directory in place, not create a partial file.
+        let folder=dir.join("already-a-folder");
+        fs::create_dir_all(&folder).unwrap();
+        assert!(center_draft_export_file(&folder,&original).is_err());
+        assert!(folder.is_dir());
+        assert!(center_iwxa_carrier_write(&folder,&previous).is_err());
+        assert!(folder.is_dir());
+        let updated=b"new verified opaque package".to_vec();
+        center_iwxa_carrier_write(&carrier,&updated).unwrap();
+        assert_eq!(center_iwxa_carrier_read(&carrier).unwrap(),updated);
+        fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn preparation_draft_survives_reopen_without_pretending_to_be_t3_grant() {
