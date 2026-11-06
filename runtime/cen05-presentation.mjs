@@ -14,6 +14,13 @@ const observationMatches=(observation,ref)=>observation?.status==='SOURCE_REVISI
   String(observation.revision)===ref.revision;
 
 export function createCen05PresentationConsumer({u04,observeWork,resolveLaunch}={}) {
+  // Per-session presentation bindings belong to one organizational context.
+  // The U04 hostRef alone does not distinguish Center organizations.
+  const bound=new Map();
+  const matches=(candidate,{organizationId,hostRef,workRef})=>
+    candidate?.organizationId===organizationId&&candidate.hostRef===hostRef&&
+    candidate.projectId===workRef.projectId&&candidate.workId===workRef.workId&&
+    candidate.revision===workRef.revision;
   const available=()=>compatible(u04)&&typeof observeWork==='function'&&
     typeof resolveLaunch==='function';
   async function preflight({organizationId,workRef}) {
@@ -43,6 +50,8 @@ export function createCen05PresentationConsumer({u04,observeWork,resolveLaunch}=
     if(!allowedOpening.has(result?.status)||result?.binding?.hostRef!==hostRef||
        result.binding.appRef!=='iwxa.atlas'||!validText(result.binding.bindingRef))
       return {status:result?.status??'PRESENTATION_OPEN_UNCONFIRMED'};
+    bound.set(result.binding.bindingRef,{organizationId,hostRef,
+      projectId:workRef.projectId,workId:workRef.workId,revision:workRef.revision});
     // No Atlas deep-link has been qualified; a launched window is not proof
     // that the desired project/work is selected in the external application.
     return {status:result.status,bindingRef:result.binding.bindingRef,
@@ -50,6 +59,10 @@ export function createCen05PresentationConsumer({u04,observeWork,resolveLaunch}=
   }
   async function activateAtlas({organizationId,hostRef,workRef,bindingRef}) {
     if(!validText(hostRef)||!validText(bindingRef))fail('CEN05_BINDING_INVALID');
+    const attached=bound.get(bindingRef);
+    if(!attached)return {status:'CEN05_BINDING_NOT_FOUND',focused:false};
+    if(!matches(attached,{organizationId,hostRef,workRef}))
+      return {status:'CEN05_BINDING_CONTEXT_CHANGED',focused:false};
     const observation=await preflight({organizationId,workRef});
     if(observation.status!=='SOURCE_REVISION_MATCHES')return observation;
     const result=await u04.activate({bindingRef,hostRef});
@@ -60,7 +73,13 @@ export function createCen05PresentationConsumer({u04,observeWork,resolveLaunch}=
   async function detachAtlas({hostRef,bindingRef}) {
     if(!validText(hostRef)||!validText(bindingRef))fail('CEN05_BINDING_INVALID');
     if(!compatible(u04))return {status:'PRESENTATION_NOT_CONNECTED'};
+    const attached=bound.get(bindingRef);
+    if(!attached)return {status:'CEN05_BINDING_NOT_FOUND',processTerminated:false};
+    if(attached.hostRef!==hostRef)
+      return {status:'CEN05_BINDING_CONTEXT_CHANGED',processTerminated:false};
     const result=await u04.closeBinding({bindingRef,hostRef});
+    if(['BINDING_CLOSED','BINDING_NOT_FOUND'].includes(result?.status))
+      bound.delete(bindingRef);
     return {status:result?.status??'PRESENTATION_DETACH_UNCONFIRMED',
       processTerminated:false};
   }

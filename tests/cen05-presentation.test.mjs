@@ -56,6 +56,33 @@ test('CEN05 delegates Atlas launch, activate and detach to the actual U04 contra
  assert.equal(f.nativeCalls.some(c=>c[0]==='kill'),false);
 });
 
+test('CEN05 never focuses a U04 binding from another organization or host',async()=>{
+ const f=make();
+ const opened=await f.port.openAtlas({organizationId:'org-A',hostRef:'center-manager',workRef:f.ref});
+ assert.equal(opened.status,'WINDOW_OBSERVED');
+ const before=f.nativeCalls.length;
+ const anotherOrg=await f.port.activateAtlas({organizationId:'org-B',hostRef:'center-manager',
+   workRef:f.ref,bindingRef:opened.bindingRef});
+ assert.deepEqual(anotherOrg,{status:'CEN05_BINDING_CONTEXT_CHANGED',focused:false});
+ const anotherHost=await f.port.activateAtlas({organizationId:'org-A',hostRef:'another-center',
+   workRef:f.ref,bindingRef:opened.bindingRef});
+ assert.deepEqual(anotherHost,{status:'CEN05_BINDING_CONTEXT_CHANGED',focused:false});
+ const alteredRef=await f.port.activateAtlas({organizationId:'org-A',hostRef:'center-manager',
+   workRef:{...f.ref,workId:'not-original'},bindingRef:opened.bindingRef});
+ assert.deepEqual(alteredRef,{status:'CEN05_BINDING_CONTEXT_CHANGED',focused:false});
+ assert.equal(f.nativeCalls.length,before,'no original OS observation/focus on mismatched context');
+ assert.deepEqual(await f.port.detachAtlas({hostRef:'another-center',
+   bindingRef:opened.bindingRef}),{status:'CEN05_BINDING_CONTEXT_CHANGED',processTerminated:false});
+ const focused=await f.port.activateAtlas({organizationId:'org-A',hostRef:'center-manager',
+   workRef:f.ref,bindingRef:opened.bindingRef});
+ assert.equal(focused.status,'WINDOW_FOCUSED');
+ assert.equal(focused.focused,true);
+ assert.equal((await f.port.detachAtlas({hostRef:'center-manager',
+   bindingRef:opened.bindingRef})).status,'BINDING_CLOSED');
+ assert.deepEqual(await f.port.activateAtlas({organizationId:'org-A',hostRef:'center-manager',
+   workRef:f.ref,bindingRef:opened.bindingRef}),{status:'CEN05_BINDING_NOT_FOUND',focused:false});
+});
+
 test('CEN05 rejects stale Atlas revision before U01 launch or U04 focus',async()=>{
  const f=make();
  const opened=await f.port.openAtlas({organizationId:'org-A',hostRef:'center-manager',workRef:f.ref});

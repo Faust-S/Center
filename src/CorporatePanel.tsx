@@ -174,7 +174,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
       if(!invoke)throw Error('CEN_NATIVE_FILE_DIALOG_UNAVAILABLE');
       const bytes=await invoke('center_open_iwxa_file');
       if(bytes===null)return false;
-      if(!Array.isArray(bytes)||bytes.length===0||bytes.length>8*1024*1024)
+      if(!Array.isArray(bytes)||bytes.length===0||bytes.length>32*1024*1024)
         throw Error('T3_PACKAGE_SIZE_UNSUPPORTED');
       const r=await execute('receive',{bytes});
       const sha=r.transportReceipt?.packageSha256;

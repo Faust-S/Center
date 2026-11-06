@@ -69,6 +69,9 @@ fn center_atlas_commit(
 // credentials or a backup. Existing Atlas atomic file publication is reused;
 // authoritative organization state will be migrated only through T3 Store.
 const CENTER_DRAFT_LIMIT: usize = 8 * 1024 * 1024;
+// Original T3 access-control/iwxa-package.mjs supports 32 MiB IWXA archives.
+// File carriers stay opaque here; signatures are checked only by T3 receive().
+const CENTER_IWXA_CARRIER_LIMIT: usize = 32 * 1024 * 1024;
 fn center_draft_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(path_for(app)?.join("preparation"))
 }
@@ -161,7 +164,7 @@ fn open_draft_file() -> Result<Option<String>, String> {
 // T3 carrier. No signing, trusted-key inspection, permission or issuance.
 // Those remain exclusively with the original interop/runtime.mjs:taskBytes().
 fn center_iwxa_carrier_validate(bytes: &[u8]) -> Result<(), String> {
-    if bytes.is_empty() || bytes.len() > CENTER_DRAFT_LIMIT {
+    if bytes.is_empty() || bytes.len() > CENTER_IWXA_CARRIER_LIMIT {
         return Err("Неподдерживаемый размер подписанного пакета IWXA".into());
     }
     Ok(())
@@ -180,7 +183,7 @@ fn center_iwxa_carrier_file_name(task_revision_id: &str) -> Result<String, Strin
  // signature, recipient, causal and revision checks belong to T3 only.
 fn center_iwxa_carrier_read(path: &Path) -> Result<Vec<u8>, String> {
     let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
-    if size == 0 || size > CENTER_DRAFT_LIMIT as u64 {
+    if size == 0 || size > CENTER_IWXA_CARRIER_LIMIT as u64 {
         return Err("Неподдерживаемый размер пакета IWXA".into());
     }
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
@@ -367,7 +370,7 @@ mod center_atlas_integration_tests {
         fs::write(&file, []).unwrap();
         assert!(center_iwxa_carrier_read(&file).is_err());
         let over_limit = std::fs::File::create(&file).unwrap();
-        over_limit.set_len((CENTER_DRAFT_LIMIT + 1) as u64).unwrap();
+        over_limit.set_len((CENTER_IWXA_CARRIER_LIMIT + 1) as u64).unwrap();
         drop(over_limit);
         assert!(center_iwxa_carrier_read(&file).is_err());
         fs::remove_dir_all(dir).unwrap();
@@ -375,7 +378,9 @@ mod center_atlas_integration_tests {
     #[test]
     fn native_signed_iwxa_export_is_opaque_and_bounded() {
         assert!(center_iwxa_carrier_validate(&[]).is_err());
-        assert!(center_iwxa_carrier_validate(&vec![0_u8; CENTER_DRAFT_LIMIT + 1]).is_err());
+        assert!(center_iwxa_carrier_validate(&vec![0_u8; CENTER_IWXA_CARRIER_LIMIT + 1]).is_err());
+        center_iwxa_carrier_validate(&vec![0_u8; CENTER_DRAFT_LIMIT + 1])
+            .expect("a 9 MiB original T3 carrier must not be rejected as a draft");
         let bytes: Vec<u8> = vec![0, 0xff, 0x41, 0, 0x42];
         center_iwxa_carrier_validate(&bytes).expect("opaque carrier accepted for file save");
         let dir = scratch();
