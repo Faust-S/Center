@@ -9,6 +9,7 @@ using System;
 using System.Runtime.InteropServices;
 public static class CenterUpgradeClose {
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h,uint msg,IntPtr w,IntPtr l);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extraInfo);
 }
 '@
 $proc=$null
@@ -20,6 +21,95 @@ function InstalledExe {
     if(Test-Path -LiteralPath $p){return $p}
   }
   throw 'CENTER_UPGRADE_EXE_MISSING'
+}
+function Click-UpgradeElement($node,[string]$label) {
+  try {
+    $pattern=$node.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+    $pattern.Invoke()
+    return
+  } catch {
+    try {
+      $node.SetFocus()
+      [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+      return
+    } catch {
+      $bounds=$node.Current.BoundingRectangle
+      if($node.Current.IsOffscreen -or $bounds.IsEmpty -or
+         $bounds.Width -lt 2 -or $bounds.Height -lt 2){
+        throw "CENTER_UPGRADE_UIA_TARGET_NOT_CLICKABLE: $label"
+      }
+      $point=[System.Drawing.Point]::new(
+        [int][Math]::Round($bounds.Left+$bounds.Width/2),
+        [int][Math]::Round($bounds.Top+$bounds.Height/2)
+      )
+      [System.Windows.Forms.Cursor]::Position=$point
+      [CenterUpgradeClose]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 60
+      [CenterUpgradeClose]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+      Write-Host "CENTER_UPGRADE_REAL_MOUSE_FALLBACK $label"
+    }
+  }
+}
+function Upgrade-Button([string]$label){
+  for($i=0;$i -lt 70;$i++){
+    $proc.Refresh()
+    if($proc.HasExited){throw 'CENTER_UPGRADE_APP_EXITED_BEFORE_BUTTON'}
+    if($proc.MainWindowHandle -ne [IntPtr]::Zero){
+      $root=[System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+      $nodes=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      foreach($node in $nodes){
+        try{
+          if($node.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+             $node.Current.Name.Contains($label)){
+            Click-UpgradeElement $node $label
+            Start-Sleep -Milliseconds 350
+            return
+          }
+        }catch{
+          if($_.Exception.Message -like 'CENTER_UPGRADE_UIA_TARGET_NOT_CLICKABLE*'){throw}
+        }
+      }
+    }
+    Start-Sleep -Milliseconds 350
+  }
+  throw "CENTER_UPGRADE_UIA_BUTTON_MISSING: $label"
+}
+function Select-FirstUpgradeOrganization {
+  for($i=0;$i -lt 70;$i++){
+    $proc.Refresh()
+    if($proc.HasExited){throw 'CENTER_UPGRADE_APP_EXITED_BEFORE_ORGANIZATION'}
+    if($proc.MainWindowHandle -ne [IntPtr]::Zero){
+      $root=[System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+      $condition=[System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::NameProperty,'Организация'
+      )
+      $nodes=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)
+      foreach($node in $nodes){
+        try{
+          if($node.Current.ControlType -ne [System.Windows.Automation.ControlType]::ComboBox){continue}
+          try{$node.SetFocus()}catch{
+            $bounds=$node.Current.BoundingRectangle
+            if($node.Current.IsOffscreen -or $bounds.IsEmpty){throw}
+            [System.Windows.Forms.Cursor]::Position=[System.Drawing.Point]::new(
+              [int][Math]::Round($bounds.Left+$bounds.Width/2),
+              [int][Math]::Round($bounds.Top+$bounds.Height/2)
+            )
+            [CenterUpgradeClose]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero)
+            Start-Sleep -Milliseconds 60
+            [CenterUpgradeClose]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+          }
+          Start-Sleep -Milliseconds 150
+          [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+          [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+          Start-Sleep -Milliseconds 450
+          return
+        }catch{}
+      }
+    }
+    Start-Sleep -Milliseconds 350
+  }
+  throw 'CENTER_UPGRADE_FIRST_ORGANIZATION_NOT_SELECTABLE'
 }
 function Open-Assignments {
   for($i=0;$i -lt 70;$i++){
@@ -33,13 +123,7 @@ function Open-Assignments {
         try {
           if($node.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
              $node.Current.Name.Contains('Поручения')){
-            try {
-              $invoke=$node.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-              $invoke.Invoke()
-            }catch {
-              $node.SetFocus()
-              [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-            }
+            Click-UpgradeElement $node 'Поручения'
             return
           }
         }catch{}
@@ -106,9 +190,16 @@ try{
   $exe=InstalledExe
   $proc=Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
   WaitUi 'IWXA Admin Center · 0.2.0-dev.1'
+  # The 0.1 fixture last saved its SECOND organization. Checking the first
+  # organization's assignment requires explicitly switching back in the real UI.
+  Select-FirstUpgradeOrganization
   Open-Assignments
   WaitUi $baseline.managerEditedAssignment
   Write-Host "CENTER_UPGRADE_01_TO_02_GUI_READBACK_PASS project=$($baseline.projectId) work=$($baseline.workId)"
+  # Organization selection modifies the manager draft; save the selected
+  # context before requesting a normal close to avoid masking the guard.
+  Upgrade-Button 'Сохранить на компьютере'
+  WaitUi 'Черновики сохранены на этом компьютере'
   $proc.Refresh()
   Check ([CenterUpgradeClose]::PostMessage($proc.MainWindowHandle,0x0010,[IntPtr]::Zero,[IntPtr]::Zero)) 'CENTER_UPGRADE_CLOSE_POST_FAILED'
   Check ($proc.WaitForExit(9000)) 'CENTER_UPGRADE_CLOSE_FAILED'

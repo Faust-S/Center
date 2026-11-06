@@ -15,6 +15,8 @@ using System.Runtime.InteropServices;
 public static class CenterNativeWindow {
   [DllImport("user32.dll", SetLastError=true)]
   public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
 }
 '@
 
@@ -105,14 +107,38 @@ function Find-Control([string]$name,[string]$kind='Button',[int]$attempts=65){
   } catch {Write-Host "CENTER_INSTALLED_UIA_DIAGNOSTIC_UNAVAILABLE $($_.Exception.Message)"}
   throw "UI Automation control not found: $kind '$name'"
 }
+function Click-VisibleUiButton($control,[string]$name){
+  # UIA's InvokePattern and focus can intermittently fail in installed WebView2.
+  # Fall back to an actual native desktop mouse click at the visible element.
+  $bounds=$control.Current.BoundingRectangle
+  if($control.Current.IsOffscreen -or $bounds.IsEmpty -or
+     $bounds.Width -lt 2 -or $bounds.Height -lt 2){
+    throw "CENTER_UIA_BUTTON_NOT_CLICKABLE: $name"
+  }
+  $point=[System.Drawing.Point]::new(
+    [int][Math]::Round($bounds.Left + $bounds.Width/2),
+    [int][Math]::Round($bounds.Top + $bounds.Height/2)
+  )
+  [System.Windows.Forms.Cursor]::Position=$point
+  [CenterNativeWindow]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 60
+  [CenterNativeWindow]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+  Write-Host "CENTER_UIA_REAL_MOUSE_FALLBACK name=$name"
+}
 function Click-Control([string]$name){
   $control=Find-Control $name 'Button'
   try {
     $pattern=$control.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
     $pattern.Invoke()
   } catch {
-    $control.SetFocus()
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    # Try ordinary keyboard navigation; some WebView2 controls report a
+    # focusable-looking node but reject SetFocus.
+    try {
+      $control.SetFocus()
+      [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    } catch {
+      Click-VisibleUiButton $control $name
+    }
   }
   Start-Sleep -Milliseconds 350
 }
@@ -125,8 +151,14 @@ function Click-ButtonContaining([string]$name){
     $pattern=$control.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
     $pattern.Invoke()
   } catch {
-    $control.SetFocus()
-    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    # Try ordinary keyboard navigation; some WebView2 controls report a
+    # focusable-looking node but reject SetFocus.
+    try {
+      $control.SetFocus()
+      [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    } catch {
+      Click-VisibleUiButton $control $name
+    }
   }
   Start-Sleep -Milliseconds 350
 }
