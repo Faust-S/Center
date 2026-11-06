@@ -160,11 +160,43 @@ fn center_iwxa_carrier_read(path: &Path) -> Result<Vec<u8>, String> {
 // Signature, recipient and authorization validation remain with original T3.
 fn center_iwxa_carrier_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     center_iwxa_carrier_validate(bytes)?;
-    std::fs::write(path, bytes).map_err(|e| e.to_string())?;
-    if center_iwxa_carrier_read(path)?.as_slice() != bytes {
-        return Err("Записанный пакет IWXA не совпадает с исходным".into());
+    if !path.extension().and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("iwxa")) {
+        return Err("Выберите файл с расширением .iwxa".into());
     }
-    Ok(())
+
+    // An offline recipient may already have the file for this exact Task
+    // revision. Identical re-export is a no-op; a different payload must
+    // never silently replace a package previously copied to USB.
+    if path.exists() {
+        return match center_iwxa_carrier_read(path) {
+            Ok(existing) if existing == bytes => Ok(()),
+            _ => Err("Выбранный файл .iwxa уже существует и отличается от пакета".into()),
+        };
+    }
+
+    // FileDialog is a filename picker, not an exclusive write primitive.
+    // Create the selected file only when absent to avoid a race replacing
+    // another revision. This works on removable FAT/exFAT media as well.
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true).create_new(true).open(path)
+        .map_err(|e| format!("Не удалось создать новый пакет .iwxa: {e}"))?;
+    let verified = (|| -> Result<(), String> {
+        file.write_all(bytes).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        drop(file);
+        if center_iwxa_carrier_read(path)?.as_slice() != bytes {
+            return Err("Записанный пакет IWXA не совпадает с исходным".into());
+        }
+        Ok(())
+    })();
+    // Only a file created by this invocation can be removed on failure.
+    // An earlier user file is never truncated or deleted.
+    if verified.is_err() {
+        let _ = std::fs::remove_file(path);
+    }
+    verified
 }
 #[tauri::command]
 fn center_open_iwxa_file() -> Result<Option<Vec<u8>>, String> {
@@ -315,8 +347,14 @@ mod center_atlas_integration_tests {
         let path = dir.join("roundtrip.iwxa");
         center_iwxa_carrier_write(&path, &bytes).expect("write and verify opaque bytes");
         assert_eq!(center_iwxa_carrier_read(&path).unwrap(), bytes);
+        // Re-exporting the same signed carrier must be idempotent.
+        center_iwxa_carrier_write(&path, &bytes).expect("identical re-export is safe");
+        // But a changed carrier for the same path must not overwrite it.
+        assert!(center_iwxa_carrier_write(&path, &[0x50, 0x4b, 0xaa]).is_err());
         assert!(center_iwxa_carrier_write(&path, &[]).is_err());
         assert_eq!(center_iwxa_carrier_read(&path).unwrap(), bytes);
+        assert!(center_iwxa_carrier_write(&dir.join("wrong.txt"), &bytes).is_err());
+        assert!(!dir.join("wrong.txt").exists());
         std::fs::remove_dir_all(dir).expect("clean scratch");
     }
     #[test]
