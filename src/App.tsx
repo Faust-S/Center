@@ -61,6 +61,8 @@ export default function App() {
   const savingRef = useRef(false);
   const editorBaselineRef = useRef<string|null>(null);
   const pendingCloseRef = useRef(false);
+  const closeDialogOpenRef = useRef(false);
+  const closeConfirmedRef = useRef(false);
   // A file preview belongs only to the organization where it was opened.
   // It must never become a cross-organization project/authorization source.
   const [atlasFile,setAtlasFile] = useState<{organizationId:string;view:AtlasPortfolioView}|null>(null);
@@ -79,20 +81,34 @@ export default function App() {
       let active=true;
       let unlisten:(()=>void)|undefined;
       import('@tauri-apps/api/window')
-        .then(({getCurrentWindow})=>getCurrentWindow().onCloseRequested(async event=>{
-          if(!pendingCloseRef.current)return;
-          // WebView2's synchronous window.confirm can fail during a native
-          // WM_CLOSE callback. Use the already-installed Tauri dialog plugin.
-          // A failed dialog is treated as Cancel, never silent data loss.
-          let confirmed=false;
-          try {
-            const {confirm}=await import('@tauri-apps/plugin-dialog');
-            confirmed=await confirm('Есть несохранённые изменения. Закрыть Admin Center без сохранения?',{
-              title:'IWXA Admin Center',kind:'warning'
-            });
-          } catch {confirmed=false;}
-          if(!confirmed)event.preventDefault();
-        }))
+        .then(({getCurrentWindow})=>{
+          const appWindow=getCurrentWindow();
+          return appWindow.onCloseRequested(event=>{
+            // Cancel synchronously; an awaited dialog cannot undo WM_CLOSE.
+            if(closeConfirmedRef.current||!pendingCloseRef.current)return;
+            event.preventDefault();
+            if(closeDialogOpenRef.current)return;
+            closeDialogOpenRef.current=true;
+            void import('@tauri-apps/plugin-dialog')
+              .then(({confirm})=>confirm(
+                'Есть несохранённые изменения. Закрыть Admin Center без сохранения?',
+                {title:'IWXA Admin Center',kind:'warning'}
+              ))
+              .then(async approved=>{
+                if(!approved)return;
+                closeConfirmedRef.current=true;
+                try {await appWindow.close();}
+                catch {
+                  closeConfirmedRef.current=false;
+                  if(active)setError('Не удалось закрыть окно. Сохраните работу перед выходом.');
+                }
+              })
+              .catch(()=>{
+                if(active)setError('Не удалось запросить подтверждение закрытия. Работа сохранена в редакторе.');
+              })
+              .finally(()=>{closeDialogOpenRef.current=false;});
+          });
+        })
         .then(dispose=>{if(active)unlisten=dispose;else dispose();})
         .catch(()=>{if(active)setError('Не удалось подключить защиту закрытия окна. Сохраните работу перед выходом.');});
       return ()=>{active=false;unlisten?.();};
