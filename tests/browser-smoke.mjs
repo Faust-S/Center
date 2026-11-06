@@ -12,7 +12,12 @@ try{
   assert.ok(ready,'preview server started');
   browser=await firefox.launch();
   const page=await browser.newPage({viewport:{width:1366,height:900}});
-  page.on('pageerror',e=>errors.push(e.message));page.on('dialog',dialog=>dialog.accept());
+  let dismissNextConfirmation=false;
+  page.on('pageerror',e=>errors.push(e.message));
+  page.on('dialog',dialog=>{
+    if(dismissNextConfirmation){dismissNextConfirmation=false;return dialog.dismiss();}
+    return dialog.accept();
+  });
   await page.goto('http://127.0.0.1:4173');
   await page.getByTestId('org-name').fill('North workshop');await page.getByTestId('create-org').click();
   await page.getByTestId('nav-resources').click();await page.getByTestId('workspace-name').fill('Procurement');await page.getByTestId('add-workspace').click();
@@ -63,8 +68,13 @@ try{
   assert.equal(await page.getByTestId('task-title').inputValue(),
     'This unsaved next task must be retained');
   assert.match(await page.getByRole('alert').innerText(),/Уже открыт редактор/);
+  dismissNextConfirmation=true;
   await page.getByRole('button',{name:'Закрыть редактор'}).click();
-  checks.push('results-prepare-keeps-existing-unsaved-task-editor');
+  assert.equal(await page.getByTestId('task-title').inputValue(),
+    'This unsaved next task must be retained','cancel must not discard unsaved editor');
+  await page.getByRole('button',{name:'Закрыть редактор'}).click();
+  assert.equal(await page.getByTestId('assignment-form').count(),0);
+  checks.push('results-prepare-keeps-existing-unsaved-task-editor-and-confirmed-discard');
   const downloaded=page.waitForEvent('download');await page.locator('.top-save').click();const download=await downloaded;const path=await download.path();const raw=readFileSync(path,'utf8');const saved=JSON.parse(raw);
   assert.equal(saved.organizations[0].assignments[0].editNumber,3);assert.equal(saved.organizations[0].participants.length,2);
   assert.equal(saved.organizations[0].assignments[0].atlasRef.projectId,first.id);

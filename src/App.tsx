@@ -73,7 +73,7 @@ export default function App() {
   const [error,setError] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
   const editorChanged=!!editor&&JSON.stringify(editor)!==editorBaselineRef.current;
-  pendingCloseRef.current=dirty||editorChanged||saving;
+  pendingCloseRef.current=dirty||!!editor||saving;
   useEffect(()=>{
     if(nativeHost){
       let active=true;
