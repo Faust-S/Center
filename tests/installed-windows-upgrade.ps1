@@ -21,6 +21,34 @@ function InstalledExe {
   }
   throw 'CENTER_UPGRADE_EXE_MISSING'
 }
+function Open-Assignments {
+  for($i=0;$i -lt 70;$i++){
+    $proc.Refresh()
+    if($proc.HasExited){throw 'CENTER_UPGRADE_GUI_EXITED_BEFORE_NAVIGATION'}
+    if($proc.MainWindowHandle -ne [IntPtr]::Zero){
+      $root=[System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+      $nodes=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      foreach($node in $nodes){
+        try {
+          if($node.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+             $node.Current.Name.Contains('Поручения')){
+            try {
+              $invoke=$node.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+              $invoke.Invoke()
+            }catch {
+              $node.SetFocus()
+              [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+            }
+            return
+          }
+        }catch{}
+      }
+    }
+    Start-Sleep -Milliseconds 350
+  }
+  throw 'CENTER_UPGRADE_ASSIGNMENTS_NAV_NOT_FOUND'
+}
 function OwnerHead([string]$root,[string]$org){
   $path=Join-Path (Join-Path (Join-Path $root 'organizations') $org) 'head.json'
   Check (Test-Path $path) "CENTER_UPGRADE_HEAD_MISSING_$org"
@@ -78,6 +106,7 @@ try{
   $exe=InstalledExe
   $proc=Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
   WaitUi 'IWXA Admin Center · 0.2.0-dev.1'
+  Open-Assignments
   WaitUi $baseline.managerEditedAssignment
   Write-Host "CENTER_UPGRADE_01_TO_02_GUI_READBACK_PASS project=$($baseline.projectId) work=$($baseline.workId)"
   $proc.Refresh()
