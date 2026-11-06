@@ -57,13 +57,22 @@ fn center_draft_validate(content: &str) -> Result<(), String> {
     }
     Ok(())
 }
-fn center_draft_save_root(root: &Path, content: &str) -> Result<(), String> {
-    center_draft_validate(content)?;
-    let _guard = lock(root)?;
-    publish(root, &root.join("draft.json"), content.as_bytes())
+// Reuse the original Atlas native file lock + atomic publisher. Generation
+// guards protect local preparation drafts against a stale second Center window.
+// This is neither a second Project Store nor T3 organizational authority.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CenterDraftReadback {
+    content: Option<String>,
+    generation: String,
 }
-fn center_draft_read_root(root: &Path) -> Result<Option<String>, String> {
-    let _guard = lock(root)?;
+fn center_draft_generation(content: Option<&str>) -> String {
+    match content {
+        None => "none".to_string(),
+        Some(value) => format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(value.as_bytes())),
+    }
+}
+fn center_draft_read_unlocked(root: &Path) -> Result<Option<String>, String> {
     let path = root.join("draft.json");
     if !path.exists() { return Ok(None); }
     let bytes = read_limited(&path)?;
@@ -75,10 +84,47 @@ fn center_draft_read_root(root: &Path) -> Result<Option<String>, String> {
     center_draft_validate(&content)?;
     Ok(Some(content))
 }
+fn center_draft_state_unlocked(root: &Path) -> Result<CenterDraftReadback, String> {
+    let content = center_draft_read_unlocked(root)?;
+    let generation = center_draft_generation(content.as_deref());
+    Ok(CenterDraftReadback {content, generation})
+}
+fn center_draft_state_root(root: &Path) -> Result<CenterDraftReadback, String> {
+    let _guard = lock(root)?;
+    center_draft_state_unlocked(root)
+}
+fn center_draft_save_root(
+    root: &Path, content: &str, expected_generation: &str,
+) -> Result<CenterDraftReadback, String> {
+    center_draft_validate(content)?;
+    let _guard = lock(root)?;
+    let previous = center_draft_state_unlocked(root)?;
+    if previous.generation != expected_generation {
+        return Err("CEN_DRAFT_CONCURRENT_UPDATE".into());
+    }
+    if previous.content.as_deref() != Some(content) {
+        publish(root, &root.join("draft.json"), content.as_bytes())?;
+    }
+    // Read the saved bytes under the SAME lock; a claimed write must be
+    // the exact persisted UTF-8 content, never merely a successful rename.
+    let stored = center_draft_state_unlocked(root)?;
+    if stored.content.as_deref() != Some(content) {
+        return Err("CEN_DRAFT_POSTCOMMIT_READBACK_HOLD".into());
+    }
+    Ok(stored)
+}
+fn center_draft_read_root(root: &Path) -> Result<Option<String>, String> {
+    Ok(center_draft_state_root(root)?.content)
+}
 #[tauri::command]
-fn center_draft_save_local(app: AppHandle, content: String) -> Result<bool, String> {
-    center_draft_save_root(&center_draft_root(&app)?, &content)?;
-    Ok(true)
+fn center_draft_save_local(
+    app: AppHandle, content: String, expected_generation: String,
+) -> Result<CenterDraftReadback, String> {
+    center_draft_save_root(&center_draft_root(&app)?, &content, &expected_generation)
+}
+#[tauri::command]
+fn center_draft_read_state_local(app: AppHandle) -> Result<CenterDraftReadback, String> {
+    center_draft_state_root(&center_draft_root(&app)?)
 }
 #[tauri::command]
 fn center_draft_read_local(app: AppHandle) -> Result<Option<String>, String> {
@@ -227,7 +273,8 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             save_draft_file, open_draft_file, center_save_iwxa_file, center_open_iwxa_file,
-            center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit
+            center_draft_save_local, center_draft_read_local, center_draft_read_state_local,
+            center_atlas_open, center_atlas_commit
         ])
         .run(tauri::generate_context!())
         .expect("Admin Center could not start");
@@ -402,6 +449,54 @@ mod center_atlas_integration_tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn preparation_draft_rejects_stale_write_from_another_process() {
+        // Two independent invocations share the same preparation/draft.json.
+        // A second window that read an old generation must not silently
+        // overwrite newly saved assignment/issuedTaskLinks metadata.
+        let base = scratch();
+        let root = base.join("preparation");
+        let initial = serde_json::json!({
+            "format":"iwxa.admin-center.draft","version":1,
+            "organizations":[], "activeOrganizationId":null,
+            "updatedAt":"2026-11-06T00:00:00.000Z"
+        }).to_string();
+        let old = center_draft_save_root(&root, &initial, "none").unwrap();
+        let executable = std::env::current_exe().expect("test executable");
+        let output = std::process::Command::new(&executable)
+            .args(["--exact",
+                "center_atlas_integration_tests::preparation_draft_child_commit", "--nocapture"])
+            .env("IWXA_CENTER_PREPARATION_CHILD_ROOT", &root)
+            .output()
+            .expect("start second preparation process");
+        assert!(output.status.success(), "second process failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr));
+        let latest = center_draft_state_root(&root).unwrap();
+        assert_ne!(latest.generation, old.generation);
+        assert!(latest.content.as_deref().unwrap().contains("issuedTaskLinks"));
+        let attempted = center_draft_save_root(&root, &initial, &old.generation);
+        assert_eq!(attempted.err().unwrap(), "CEN_DRAFT_CONCURRENT_UPDATE");
+        assert_eq!(center_draft_state_root(&root).unwrap().generation, latest.generation);
+        let _ = fs::remove_dir_all(base);
+    }
+    #[test]
+    fn preparation_draft_child_commit() {
+        let Some(root) = std::env::var_os("IWXA_CENTER_PREPARATION_CHILD_ROOT") else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        let before = center_draft_state_root(&root).expect("second process read");
+        let changed = serde_json::json!({
+            "format":"iwxa.admin-center.draft","version":1,
+            "organizations":[{"id":"synthetic-org","issuedTaskLinks":[]}],
+            "activeOrganizationId":"synthetic-org",
+            "updatedAt":"2026-11-06T00:01:00.000Z"
+        }).to_string();
+        let committed = center_draft_save_root(&root, &changed, &before.generation)
+            .expect("second process atomic publish");
+        assert_eq!(committed.content.as_deref(), Some(changed.as_str()));
+    }
+    #[test]
     fn preparation_draft_survives_reopen_without_pretending_to_be_t3_grant() {
         let base = scratch();
         let path = base.join("preparation");
@@ -410,13 +505,20 @@ mod center_atlas_integration_tests {
             "organizations": [], "activeOrganizationId": null,
             "updatedAt": "2026-11-04T00:00:00.000Z"
         }).to_string();
-        assert!(center_draft_read_root(&path).unwrap().is_none());
-        center_draft_save_root(&path, &valid).unwrap();
-        let reopened = center_draft_read_root(&path).unwrap().unwrap();
-        assert_eq!(reopened, valid);
-        assert!(center_draft_save_root(&path, "{\"format\":\"fake\"}").is_err());
+        let empty = center_draft_state_root(&path).unwrap();
+        assert!(empty.content.is_none());
+        assert_eq!(empty.generation, "none");
+        let first = center_draft_save_root(&path, &valid, &empty.generation).unwrap();
+        assert_eq!(first.content.as_deref(), Some(valid.as_str()));
+        assert_eq!(first.generation.len(), 64);
         assert_eq!(center_draft_read_root(&path).unwrap().unwrap(), valid);
-        assert!(center_draft_save_root(&path, &"x".repeat(CENTER_DRAFT_LIMIT + 1)).is_err());
+        // Saving the identical bytes with a matching generation is idempotent.
+        assert_eq!(center_draft_save_root(&path, &valid, &first.generation).unwrap().generation,
+            first.generation);
+        assert!(center_draft_save_root(&path, "{\"format\":\"fake\"}", &first.generation).is_err());
+        assert_eq!(center_draft_read_root(&path).unwrap().unwrap(), valid);
+        assert!(center_draft_save_root(&path, &"x".repeat(CENTER_DRAFT_LIMIT + 1),
+            &first.generation).is_err());
         assert_eq!(center_draft_read_root(&path).unwrap().unwrap(), valid);
         let _ = fs::remove_dir_all(base);
     }
