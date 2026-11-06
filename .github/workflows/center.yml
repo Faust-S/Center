@@ -78,6 +78,13 @@ jobs:
           ref: 7a0a2c8a458617a011a3db78b72c3dd1adbc12c2
           path: vendor/atlas
           persist-credentials: false
+      # Original U01/U04 native modules are required by Center's build.rs.
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Br-test
+          ref: 07df66ab6bd3e1b87036c33b90e49d228d5ab820
+          path: vendor/brtest
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
