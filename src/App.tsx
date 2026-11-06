@@ -97,7 +97,7 @@ export default function App() {
               .then(async approved=>{
                 if(!approved)return;
                 closeConfirmedRef.current=true;
-                try {await appWindow.close();}
+                try {await appWindow.destroy();}
                 catch {
                   closeConfirmedRef.current=false;
                   if(active)setError('Не удалось закрыть окно. Сохраните работу перед выходом.');
