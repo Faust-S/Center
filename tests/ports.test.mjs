@@ -232,6 +232,33 @@ test('CEN02 exports the exact previously signed Task from T3 taskBytes without r
   assert.equal(owner.calls.filter(c=>c.type==='taskBytes').length,1);
   assert.equal(owner.calls.filter(c=>c.type==='createTask').length,1);
 });
+test('CEN02 signed carrier export rechecks context after T3 readback',()=>{
+ const fixture=issueFixture(),owner=issuingRuntime();
+ owner.state.task={id:'task:existing',taskRevisionId:TASK_REVISION};
+ let reads=0;
+ owner.taskBytes=()=>{
+   reads++;
+   owner.state.contextEpoch++;
+   return Buffer.from('signed-carrier-from-existing-owner');
+ };
+ const port=createT3AdminPort(owner);
+ assert.throws(()=>port.exportIssuedTask({
+   taskId:'task:existing',taskRevisionId:TASK_REVISION,binding:fixture.binding
+ }),/T3_CONTEXT_CHANGED/);
+ assert.equal(reads,1,'do not retry a T3 read or claim delivery');
+});
+test('CEN02 signed carrier export detects a changed selected Task after T3 readback',()=>{
+ const fixture=issueFixture(),owner=issuingRuntime();
+ owner.state.task={id:'task:existing',taskRevisionId:TASK_REVISION};
+ owner.taskBytes=()=>{
+   owner.state.task={id:'task:other',taskRevisionId:TASK_REVISION};
+   return Buffer.from('owner-carrier');
+ };
+ const port=createT3AdminPort(owner);
+ assert.throws(()=>port.exportIssuedTask({
+   taskId:'task:existing',taskRevisionId:TASK_REVISION,binding:fixture.binding
+ }),/T3_SIGNED_TASK_SOURCE_CHANGED/);
+});
 test('CEN02 refuses a changed selected signed Task revision before reading carrier bytes',()=>{
   const fixture=issueFixture(),owner=issuingRuntime(),port=createT3AdminPort(owner);
   owner.state.task={id:'task:existing',taskRevisionId:TASK_REVISION};
