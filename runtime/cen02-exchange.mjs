@@ -79,6 +79,10 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
       const bytes=runtime.taskBytes();
       requireValue(bytes instanceof Uint8Array && bytes.byteLength>0,
         'T3_SIGNED_TASK_CARRIER_REQUIRED');
+      // T3 owns carrier signing and JIT checks. Before reporting an
+      // export, revalidate the original operator/workspace/epoch after
+      // the T3 read: it may have changed while the file was prepared.
+      bind(binding);
       const after=snapshot();
       requireValue(after.organizationId===current.organizationId &&
         after.workspaceId===current.workspaceId &&
