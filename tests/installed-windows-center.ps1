@@ -379,6 +379,11 @@ try {
      $qualified.assignments[0].status -ne 'DRAFT'){
     throw 'Edited assignment changed its original Atlas work or revision'
   }
+  # Reading draft.json proves the disk write, not that the asynchronous
+  # WebView invoke acknowledgement reached React. Closing during an in-flight
+  # save must show the unsaved-work guard; this ordinary close is AFTER the
+  # UI confirms the exact saved revision.
+  [void](Find-TextContaining 'Черновики сохранены на этом компьютере')
   Write-Host "CENTER_INSTALLED_GUI_STAFF_SEAT_EDIT_SAVE_PASS employees=2 plannedSeats=1 edit=2"
   Close-Center
   Start-Center
