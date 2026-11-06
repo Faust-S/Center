@@ -99,6 +99,7 @@ export function verifyAppliedCommitReadback({
  * Match an original Center issuance to a confirmed T3 result, as a read-only
  * Atlas observation. The WorkRef is a local issuer-side association; neither
  * the signed T3 Result nor this view grants authority to alter Atlas.
+ * @param {{ownerSnapshot?: any, issuedTask?: any, resultRevisionId?: string, atlasView?: any}} [options]
  */
 export function projectAppliedAtlasEvidence({ownerSnapshot,issuedTask,resultRevisionId,atlasView=null}={}){
  const invalid='CEN_ATLAS_ISSUE_REFERENCE_REQUIRED';
