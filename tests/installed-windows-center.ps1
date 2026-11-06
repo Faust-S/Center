@@ -494,6 +494,22 @@ try {
     throw 'First organizational Atlas identity changed after context switch and restart'
   }
   Write-Host "CENTER_INSTALLED_GUI_TWO_ORG_SWITCH_RESTART_PASS first=$($saved.organizationId) second=$secondOrgId"
+  # Selecting another organization persists a different active context and
+  # intentionally dirties the manager draft. Prove the native unsaved-close
+  # guard first, then save the selected context before ordinary WM_CLOSE.
+  $proc.Refresh()
+  if(-not [CenterNativeWindow]::PostMessage($proc.MainWindowHandle,0x0010,
+      [IntPtr]::Zero,[IntPtr]::Zero)){throw 'Unsaved native WM_CLOSE could not be posted'}
+  Start-Sleep -Milliseconds 900
+  $proc.Refresh()
+  if($proc.HasExited){throw 'Unsaved manager context closed without confirmation'}
+  [System.Windows.Forms.SendKeys]::SendWait('{ESC}')
+  Start-Sleep -Milliseconds 300
+  $proc.Refresh()
+  if($proc.HasExited){throw 'Cancelling unsaved close still terminated the GUI'}
+  Write-Host "CENTER_INSTALLED_GUI_UNSAVED_CONTEXT_CLOSE_CANCEL_PASS"
+  Click-Control 'Сохранить на компьютере'
+  [void](Find-TextContaining 'Черновики сохранены на этом компьютере')
   Close-Center
   [pscustomobject]@{status='INSTALLED_GUI_TWO_ORG_ATLAS_RESTART_PASS';
     orgId=$saved.organizationId;generation=$saved.generation;revision=$saved.revision;
