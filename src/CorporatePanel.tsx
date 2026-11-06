@@ -105,6 +105,22 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
   <div className="section-head"><h2>Поручения и корпоративная приёмка</h2><button className="secondary" disabled={busy} onClick={()=>act('Состояние перечитано.',async()=>{await refresh();resetReview()})}>Обновить</button></div>
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
   <p className="notice subdued" data-testid="corporate-owner-status">{ready?'Подтверждённая организационная сессия владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
+  <div className="notice subdued" data-testid="corporate-offline-summary">
+   <strong>Работа без сети — обмен файлами между компьютерами</strong>
+   <p data-testid="corporate-offline-readiness">{ready
+    ? 'Организационный T3 подключён. Можно подготовить подписанное поручение и сохранить его в .iwxa. Файл нужно передать сотруднику отдельно.'
+    : 'Сейчас T3 организации не подключён. Можно создавать черновики и связывать работы Atlas, но подписанные поручения и приём Result пока недоступны.'}</p>
+   <details data-testid="corporate-offline-instructions">
+    <summary>Как передавать поручения и результаты на автономных ПК</summary>
+    <ol>
+     <li>В Atlas сохраните JSON-портфель и откройте его в разделе «Планы Atlas». Это снимок проекта и WorkRef, не подписанный пакет поручения.</li>
+     <li>После подключения организационного T3 выдайте поручение и нажмите «Сохранить .iwxa». Перенесите файл на компьютер сотрудника через выбранный носитель.</li>
+     <li>Сотрудник открывает подписанный файл в действующем локальном клиенте T3, выполняет работу с Personal Agent и формирует Result через T3. Личный экспорт Agent .iwxa не заменяет подписанный корпоративный Result.</li>
+     <li>Передайте Result .iwxa обратно, нажмите «Получить Result», выполните Review, отдельно решите ACCEPT/REJECT и, если применимо, Apply.</li>
+    </ol>
+    <p>Сохранение .iwxa не доказывает доставку; получение файла не означает принятие; ACCEPT не выполняет Apply. Без нового пакета нельзя узнать фактическое состояние отключённого ПК.</p>
+   </details>
+  </div>
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
   <div className="nested-form" data-testid="cen02-section">
    <h3>1. Выдать подписанное поручение</h3>
@@ -117,7 +133,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
        if(!out.taskId||!hex.test(out.taskRevisionId)||out.deliveryState!=='NOT_CONFIRMED')throw Error('T3_ISSUE_READBACK_REQUIRED');
      })}>Выдать через CEN02</button>
     <button className="secondary" data-testid="corporate-export" disabled={!ready||busy||!owner.snapshot?.task?.taskRevisionId}
-     onClick={()=>act('Выдана копия подписанного carrier; доставка не подтверждена.',async()=>{
+     onClick={()=>act('Подписанный .iwxa сохранён на выбранный носитель. Передача и открытие сотрудником не подтверждены.',async()=>{
        const task=owner.snapshot.task;
        const result=await execute('exportIssuedTask',{taskId:task.id,taskRevisionId:task.taskRevisionId});
        if(!Array.isArray(result.bytes)||!result.bytes.length)throw Error('T3_SIGNED_TASK_CARRIER_REQUIRED');
