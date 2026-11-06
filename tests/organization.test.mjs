@@ -118,3 +118,79 @@ test('cross-org and unproven Result refs are rejected in local draft input',()=>
     /DRAFT_SOURCE_RESULT_REFERENCE_INVALID/);
   assert.equal(f.state.organizations[0].assignments.length,0);
 });
+
+
+test('CEN02 issuer-side Task link survives manager restart without becoming T3 authority',()=>{
+ const f=fixture(),org=f.state.organizations[0];
+ const linkWork={projectId:'project:p1',workId:'work:w1',revision:'7'};
+ f.run({...f.assignment,atlasRef:linkWork});
+ const assignment=f.state.organizations[0].assignments[0];
+ const issue={type:'RECORD_ISSUED_TASK_LINK',organizationId:f.orgId,
+   assignmentId:assignment.id,assignmentEditNumber:assignment.editNumber,
+   workspaceId:assignment.workspaceId,assigneeId:assignment.assigneeId,
+   reviewerId:assignment.reviewerId,ownerPersonId:'person:T3-owner',
+   taskId:'task:issued-1',taskRevisionId:'a'.repeat(64),atlasRef:linkWork};
+ f.run(issue);
+ const stored=encodeDraft(f.state),reopened=decodeDraft(stored);
+ const link=reopened.organizations[0].issuedTaskLinks[0];
+ assert.equal(link.taskId,'task:issued-1');
+ assert.equal(link.taskRevisionId,issue.taskRevisionId);
+ assert.deepEqual(link.atlasRef,linkWork);
+ assert.equal(link.assignmentEditNumber,1);
+ assert.equal(link.ownerPersonId,'person:T3-owner');
+ assert.equal(link.associationProof,'LOCAL_ISSUER_SIDE_REFERENCE_ONLY');
+ assert.equal(link.deliveryState,'NOT_CONFIRMED');
+ assert.equal('issued' in reopened.organizations[0].assignments[0],false);
+ assert.equal('signed' in link,false);
+ const before=stored;
+ f.run(issue);
+ assert.equal(encodeDraft(f.state),before);
+ f.run({...f.assignment,assignmentId:assignment.id,expectedEditNumber:1,
+   atlasRef:{...linkWork,revision:'8'},title:'New revision'});
+ assert.equal(f.state.organizations[0].issuedTaskLinks[0].atlasRef.revision,'7');
+ assert.equal(f.state.organizations[0].assignments[0].atlasRef.revision,'8');
+});
+test('issuer-side WorkRef recording rejects changed draft, forged status and cross-org reuse',()=>{
+ const f=fixture(),org=f.state.organizations[0],ref={projectId:'p',workId:'w',revision:'7'};
+ f.run({...f.assignment,atlasRef:ref});
+ const assignment=f.state.organizations[0].assignments[0];
+ const command={type:'RECORD_ISSUED_TASK_LINK',organizationId:f.orgId,
+   assignmentId:assignment.id,assignmentEditNumber:1,workspaceId:assignment.workspaceId,
+   assigneeId:assignment.assigneeId,reviewerId:assignment.reviewerId,
+   ownerPersonId:'person:owner',taskId:'task:issued-2',taskRevisionId:'b'.repeat(64),atlasRef:ref};
+ for(const alter of [
+  {assignmentEditNumber:2},{workspaceId:'foreign'},{assigneeId:'foreign'},
+  {reviewerId:'foreign'},{atlasRef:{...ref,revision:'8'}},
+  {taskRevisionId:'invalid'},{ownerPersonId:''}
+ ]){
+  assert.throws(()=>f.run({...command,...alter}),/DRAFT_/);
+ }
+ f.run(command);
+ const before=encodeDraft(f.state);
+ assert.throws(()=>f.run({...command,ownerPersonId:'other'}),/DRAFT_ISSUED_LINK_CONFLICT/);
+ assert.equal(encodeDraft(f.state),before);
+ const malformed=structuredClone(f.state);
+ malformed.organizations[0].issuedTaskLinks[0].deliveryState='DELIVERED';
+ assert.throws(()=>decodeDraft(JSON.stringify(malformed)),/DRAFT_ISSUED_LINK_INVALID/);
+ malformed.organizations[0].issuedTaskLinks[0].deliveryState='NOT_CONFIRMED';
+ malformed.organizations[0].issuedTaskLinks[0].accepted=true;
+ assert.throws(()=>decodeDraft(JSON.stringify(malformed)),/DRAFT_ISSUED_LINK_INVALID/);
+ f.run({type:'CREATE_ORGANIZATION',name:'Other'});
+ assert.throws(()=>f.run(command),/ORGANIZATION_CONTEXT_CHANGED/);
+ assert.equal(f.state.organizations[1].issuedTaskLinks,undefined);
+});
+test('historical draft without issued links remains valid; duplicate identities are rejected',()=>{
+ const f=fixture(),saved=encodeDraft(f.state);
+ assert.deepEqual(decodeDraft(saved),f.state);
+ const org=f.state.organizations[0];
+ const ref={projectId:'p1',workId:'w1',revision:'7'};
+ f.run({...f.assignment,atlasRef:ref});
+ const a=f.state.organizations[0].assignments[0];
+ f.run({type:'RECORD_ISSUED_TASK_LINK',organizationId:f.orgId,
+   assignmentId:a.id,assignmentEditNumber:a.editNumber,workspaceId:a.workspaceId,
+   assigneeId:a.assigneeId,reviewerId:a.reviewerId,ownerPersonId:'person:owner',
+   taskId:'task:issued-3',taskRevisionId:'c'.repeat(64),atlasRef:ref});
+ const corrupted=structuredClone(f.state);
+ corrupted.organizations[0].issuedTaskLinks.push({...corrupted.organizations[0].issuedTaskLinks[0]});
+ assert.throws(()=>decodeDraft(JSON.stringify(corrupted)),/DRAFT_ISSUED_LINK_DUPLICATE/);
+});

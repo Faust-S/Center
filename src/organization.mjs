@@ -38,6 +38,15 @@ export function validateDraft(state) {
       requireValue(person.personalAgentPlan === undefined || ['NONE', 'PLANNED'].includes(person.personalAgentPlan), 'AGENT_SEAT_PLAN_INVALID');
     }
     for (const assignment of org.assignments) validateAssignment(org, assignment);
+    // The property is optional so every historical v1 manager draft remains
+    // byte-compatible. It has no organizational signing or decision authority.
+    if (org.issuedTaskLinks !== undefined) {
+      requireValue(Array.isArray(org.issuedTaskLinks) &&
+        org.issuedTaskLinks.length<=2000,'DRAFT_ISSUED_LINKS_INVALID');
+      for (const link of org.issuedTaskLinks) validateIssuedTaskLink(org,link);
+      requireValue(new Set(org.issuedTaskLinks.map(issuedLinkKey)).size===
+        org.issuedTaskLinks.length,'DRAFT_ISSUED_LINK_DUPLICATE');
+    }
   }
   requireValue(state.activeOrganizationId === null || state.organizations.some(org => org.id === state.activeOrganizationId), 'ACTIVE_ORGANIZATION_INVALID');
   return state;
@@ -68,6 +77,35 @@ function validateSourceResultRef(org,assignment,ref){
     typeof ref.acceptanceId==='string'&&ref.acceptanceId.length>0&&ref.acceptanceId.length<=160,
     'DRAFT_SOURCE_RESULT_REFERENCE_INVALID');
 }
+
+const linkShape=['assignmentEditNumber','assignmentId','associationProof','assigneeId',
+  'atlasRef','deliveryState','organizationId','ownerPersonId','recordedAt',
+  'reviewerId','taskId','taskRevisionId','workspaceId'];
+const exactLink=(x)=>x&&typeof x==='object'&&!Array.isArray(x)&&
+  Object.keys(x).sort().join()===linkShape.join();
+const issuedLinkKey=x=>JSON.stringify([x.taskId,x.taskRevisionId]);
+// Preparation-only association to a signed T3 Task, not the original signed
+// carrier, an issuer record, or proof that Atlas/employee accepted anything.
+function validateIssuedTaskLink(org,link){
+  requireValue(exactLink(link),'DRAFT_ISSUED_LINK_INVALID');
+  requireValue(link.organizationId===org.id &&
+    org.workspaces.some(x=>x.id===link.workspaceId) &&
+    org.assignments.some(x=>x.id===link.assignmentId) &&
+    org.participants.some(x=>x.id===link.assigneeId) &&
+    org.participants.some(x=>x.id===link.reviewerId) &&
+    typeof link.ownerPersonId==='string'&&link.ownerPersonId.length>0&&link.ownerPersonId.length<=160 &&
+    Number.isSafeInteger(link.assignmentEditNumber)&&link.assignmentEditNumber>0 &&
+    typeof link.taskId==='string'&&/^task:[a-zA-Z0-9:-]+$/.test(link.taskId) &&
+    typeof link.taskRevisionId==='string'&&/^[a-f0-9]{64}$/.test(link.taskRevisionId) &&
+    iso(link.recordedAt) &&
+    link.associationProof==='LOCAL_ISSUER_SIDE_REFERENCE_ONLY' &&
+    link.deliveryState==='NOT_CONFIRMED','DRAFT_ISSUED_LINK_INVALID');
+  validateAtlasRef(link.atlasRef);
+  requireValue(Object.hasOwn(link.atlasRef,'workId') &&
+    /^(0|[1-9][0-9]*)$/.test(link.atlasRef.revision),
+    'DRAFT_ISSUED_LINK_ATLAS_REF_INVALID');
+}
+
 function validateAssignment(org, assignment) {
   text(assignment.id, 'ASSIGNMENT_ID_INVALID', 160); text(assignment.title, 'ASSIGNMENT_TITLE_REQUIRED', 200);
   requireValue(assignment.status === 'DRAFT', 'DRAFT_AUTHORITY_CLAIM_DENIED');
@@ -122,6 +160,42 @@ export function applyDraftCommand(current, command, {id = () => crypto.randomUUI
       validateAssignment(org, record);
       if (old) org.assignments[org.assignments.findIndex(row => row.id === old.id)] = record;
       else org.assignments.push(record);
+
+    } else if (command.type === 'RECORD_ISSUED_TASK_LINK') {
+      // Called only after CEN02 returns a T3 owner readback; the draft
+      // persists a local correlation, never a grant, delivery or ACCEPT.
+      const assignment=byId(org.assignments,command.assignmentId,'ASSIGNMENT_NOT_FOUND');
+      const ref=command.atlasRef;
+      requireValue(assignment.editNumber===command.assignmentEditNumber &&
+        assignment.workspaceId===command.workspaceId &&
+        assignment.assigneeId===command.assigneeId &&
+        assignment.reviewerId===command.reviewerId &&
+        assignment.atlasRef?.projectId===ref?.projectId &&
+        assignment.atlasRef?.workId===ref?.workId &&
+        assignment.atlasRef?.revision===ref?.revision,
+        'DRAFT_ISSUE_SOURCE_CHANGED');
+      const link={
+        organizationId:org.id,workspaceId:command.workspaceId,
+        assignmentId:assignment.id,assignmentEditNumber:assignment.editNumber,
+        assigneeId:assignment.assigneeId,reviewerId:assignment.reviewerId,
+        ownerPersonId:command.ownerPersonId,taskId:command.taskId,
+        taskRevisionId:command.taskRevisionId,
+        atlasRef:clone(ref),recordedAt:at,deliveryState:'NOT_CONFIRMED',
+        associationProof:'LOCAL_ISSUER_SIDE_REFERENCE_ONLY'
+      };
+      validateIssuedTaskLink(org,link);
+      const links=org.issuedTaskLinks??(org.issuedTaskLinks=[]);
+      const previous=links.find(x=>issuedLinkKey(x)===issuedLinkKey(link));
+      if(previous){
+        requireValue(linkShape.every(k=>k==='recordedAt' ||
+          JSON.stringify(previous[k])===JSON.stringify(link[k])),
+          'DRAFT_ISSUED_LINK_CONFLICT');
+        // A duplicate host callback must not create a second entry or
+        // alter the original time of recording.
+        return current;
+      }
+      requireValue(links.length<2000,'DRAFT_ISSUED_LINKS_INVALID');
+      links.push(link);
     } else fail('COMMAND_UNKNOWN');
   }
   state.updatedAt = at;
