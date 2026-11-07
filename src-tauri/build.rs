@@ -36,10 +36,12 @@ fn main() {
         // belong to the pinned owner qualification, not Center's host tests.
         // Center exercises only the U01 inspect port through its own tests.
         let original = if output == "u01_original_program.rs" {
-            let marker = "\n#[cfg(test)]\nmod tests {";
-            original.split_once(marker)
-                .expect("Pinned U01 source must end in its owner-only tests")
-                .0.to_owned()
+            let lines: Vec<&str> = original.lines().collect();
+            let start = lines.windows(2)
+                .position(|pair| pair[0].trim() == "#[cfg(test)]"
+                    && pair[1].trim() == "mod tests {")
+                .expect("Pinned U01 source must end in its owner-only tests");
+            lines[..start].join("\n")
         } else {
             original
         };
