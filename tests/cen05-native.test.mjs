@@ -62,3 +62,16 @@ test('CEN05 distinguishes changed/missing Atlas source after actual Center retur
  assert.match(describeCen05Error(Error('WINDOW_FOCUS_DENIED')),/Windows не разрешила/);
  assert.match(describeCen05Error('SOURCE_REVISION_CHANGED'),/План Atlas изменился/);
 });
+
+test('CEN05 reuses exact native U04 work binding without claiming new window or automatic work selection',async()=>{
+ const api=createCen05NativePort(async()=>({
+  schema:'IWXA_PRESENTATION_BRIDGE/1.0.0',
+  status:'BINDING_REUSED',bindingRef:'existing-owner-binding',
+  openedWorkAutomatically:false,processId:4242
+ }));
+ const response=await api.open({organizationId:'org:1',projectId:'project:1',workId:'work:1',revision:'7'});
+ assert.equal(response.status,'BINDING_REUSED');
+ assert.equal(response.bindingRef,'existing-owner-binding');
+ assert.equal(response.openedWorkAutomatically,false);
+ assert.match(describeCen05Status('open',response),/без повторного запуска/);
+});

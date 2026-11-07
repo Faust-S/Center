@@ -24,6 +24,8 @@ export function describeCen05Status(operation,result){
     return 'Окно Atlas запущено. Работа внутри Atlas автоматически не выбирается.';
   if(operation==='open'&&status==='LAUNCHED_NO_WINDOW')
     return 'Atlas запущен, но окно пока не обнаружено. Когда оно появится, нажмите «Фокус Atlas». Работа автоматически не выбирается.';
+  if(operation==='open'&&status==='BINDING_REUSED')
+    return 'Прежняя связь с Atlas восстановлена без повторного запуска. Для проверки окна нажмите «Фокус Atlas».';
   if(operation==='activate'&&status==='WINDOW_FOCUSED')
     return 'Окно Atlas получило фокус.';
   if(operation==='return'&&status==='CENTER_WINDOW_FOCUSED')

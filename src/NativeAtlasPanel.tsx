@@ -58,11 +58,11 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
      else if(operation==='return')result=await api.returnToCenter({...request,bindingRef:presentation!.bindingRef});
      else result=await api.detach({organizationId,bindingRef:presentation!.bindingRef});
      if(current!==epoch.current)return;
-     if(operation==='open'&&['WINDOW_OBSERVED','LAUNCHED_NO_WINDOW'].includes(result.status)){
+     if(operation==='open'&&['WINDOW_OBSERVED','LAUNCHED_NO_WINDOW','BINDING_REUSED'].includes(result.status)){
        setPresentation({...request,bindingRef:result.bindingRef});
      }
      if(operation==='detach'&&result.status==='BINDING_CLOSED')setPresentation(null);
-     if(!['WINDOW_OBSERVED','LAUNCHED_NO_WINDOW','WINDOW_FOCUSED','CENTER_WINDOW_FOCUSED','WORK_SOURCE_NOT_CURRENT','BINDING_CLOSED'].includes(result.status))
+     if(!['WINDOW_OBSERVED','LAUNCHED_NO_WINDOW','BINDING_REUSED','WINDOW_FOCUSED','CENTER_WINDOW_FOCUSED','WORK_SOURCE_NOT_CURRENT','BINDING_CLOSED'].includes(result.status))
        throw Error(result.status);
      // The manager returns to Center even if the readback is stale or fails.
      // Show that return receipt before asking the canonical Atlas owner again.
