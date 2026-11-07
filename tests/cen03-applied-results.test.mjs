@@ -291,3 +291,19 @@ test('CEN05 refuses unconfirmed or mismatched T3 source even if WorkRef is provi
   source:'other',authorization:'NOT_CHECKED',mode:'READ_ONLY_USER_SELECTED_FILE',projects:[]
  }}),/CEN_ATLAS_SOURCE_VIEW_REQUIRED/);
 });
+
+test('CEN05 never attributes an applied Result to the wrong original recipient',()=>{
+ const issued={organizationId:'org:1',workspaceId:'workspace:1',assignmentId:'assign:1',
+   recipientId:'person:other',taskId:'task:old',taskRevisionId:A,
+   atlasRef:{projectId:'p1',workId:'w1',revision:'7'},deliveryState:'NOT_CONFIRMED'};
+ const args={ownerSnapshot:snapshot(),issuedTask:issued,resultRevisionId:B};
+ assert.throws(()=>projectAppliedAtlasEvidence(args),/CEN_ATLAS_RESULT_BINDING_NOT_FOUND/);
+ const mixed={...issued,recipientId:'person:staff',ownerPersonId:'person:other'};
+ assert.throws(()=>projectAppliedAtlasEvidence({...args,issuedTask:mixed}),
+   /CEN_ATLAS_ISSUE_REFERENCE_REQUIRED/);
+ const original={...issued,recipientId:'person:staff'};
+ const legacy={...original,ownerPersonId:original.recipientId};
+ delete legacy.recipientId;
+ assert.equal(projectAppliedAtlasEvidence({...args,issuedTask:legacy}).result.executorId,
+   'person:staff');
+});

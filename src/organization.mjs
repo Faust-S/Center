@@ -79,10 +79,17 @@ function validateSourceResultRef(org,assignment,ref){
 }
 
 const linkShape=['assignmentEditNumber','assignmentId','associationProof','assigneeId',
-  'atlasRef','deliveryState','organizationId','ownerPersonId','recordedAt',
+  'atlasRef','deliveryState','organizationId','recipientId','recordedAt',
   'reviewerId','taskId','taskRevisionId','workspaceId'];
+// A preactivation preparation draft could store the selected T3 person under
+// the misleading ownerPersonId name. It was the T3 recipient (CEN02's
+// binding.recipientId === snapshot.personId), not an owner/grant claim.
+// Read those existing drafts without silently rewriting historical bytes.
+const legacyLinkShape=linkShape.map(x=>x==='recipientId'?'ownerPersonId':x);
 const exactLink=(x)=>x&&typeof x==='object'&&!Array.isArray(x)&&
-  Object.keys(x).sort().join()===linkShape.slice().sort().join();
+  [linkShape,legacyLinkShape].some(shape=>
+    Object.keys(x).sort().join()===shape.slice().sort().join());
+const linkRecipientId=x=>Object.hasOwn(x,'recipientId')?x.recipientId:x.ownerPersonId;
 const issuedLinkKey=x=>JSON.stringify([x.taskId,x.taskRevisionId]);
 // Preparation-only association to a signed T3 Task, not the original signed
 // carrier, an issuer record, or proof that Atlas/employee accepted anything.
@@ -93,7 +100,8 @@ function validateIssuedTaskLink(org,link){
     org.assignments.some(x=>x.id===link.assignmentId) &&
     org.participants.some(x=>x.id===link.assigneeId) &&
     org.participants.some(x=>x.id===link.reviewerId) &&
-    typeof link.ownerPersonId==='string'&&link.ownerPersonId.length>0&&link.ownerPersonId.length<=160 &&
+    typeof linkRecipientId(link)==='string'&&
+    linkRecipientId(link).length>0&&linkRecipientId(link).length<=160 &&
     Number.isSafeInteger(link.assignmentEditNumber)&&link.assignmentEditNumber>0 &&
     typeof link.taskId==='string'&&/^task:[a-zA-Z0-9:-]+$/.test(link.taskId) &&
     typeof link.taskRevisionId==='string'&&/^[a-f0-9]{64}$/.test(link.taskRevisionId) &&
@@ -174,11 +182,15 @@ export function applyDraftCommand(current, command, {id = () => crypto.randomUUI
         assignment.atlasRef?.workId===ref?.workId &&
         assignment.atlasRef?.revision===ref?.revision,
         'DRAFT_ISSUE_SOURCE_CHANGED');
+      // Never rename a recipient into an organization owner. The old command
+      // property remains accepted for idempotent callbacks from older GUI code.
+      requireValue(!(command.recipientId&&command.ownerPersonId&&
+        command.recipientId!==command.ownerPersonId),'DRAFT_ISSUED_LINK_INVALID');
       const link={
         organizationId:org.id,workspaceId:command.workspaceId,
         assignmentId:assignment.id,assignmentEditNumber:assignment.editNumber,
         assigneeId:assignment.assigneeId,reviewerId:assignment.reviewerId,
-        ownerPersonId:command.ownerPersonId,taskId:command.taskId,
+        recipientId:command.recipientId??command.ownerPersonId,taskId:command.taskId,
         taskRevisionId:command.taskRevisionId,
         atlasRef:clone(ref),recordedAt:at,deliveryState:'NOT_CONFIRMED',
         associationProof:'LOCAL_ISSUER_SIDE_REFERENCE_ONLY'
@@ -187,8 +199,9 @@ export function applyDraftCommand(current, command, {id = () => crypto.randomUUI
       const links=org.issuedTaskLinks??(org.issuedTaskLinks=[]);
       const previous=links.find(x=>issuedLinkKey(x)===issuedLinkKey(link));
       if(previous){
-        requireValue(linkShape.every(k=>k==='recordedAt' ||
-          JSON.stringify(previous[k])===JSON.stringify(link[k])),
+        requireValue(linkShape.every(k=>k==='recordedAt'||k==='recipientId' ||
+          JSON.stringify(previous[k])===JSON.stringify(link[k])) &&
+          linkRecipientId(previous)===link.recipientId,
           'DRAFT_ISSUED_LINK_CONFLICT');
         // A duplicate host callback must not create a second entry or
         // alter the original time of recording.

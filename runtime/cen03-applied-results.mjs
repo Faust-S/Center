@@ -103,10 +103,15 @@ export function verifyAppliedCommitReadback({
  */
 export function projectAppliedAtlasEvidence({ownerSnapshot,issuedTask,resultRevisionId,atlasView=null}={}){
  const invalid='CEN_ATLAS_ISSUE_REFERENCE_REQUIRED';
+ // Older Center draft links called this recipient ownerPersonId. Both are
+ // issuer-side hints, not signed organizational authority.
+ const recipientId=issuedTask?.recipientId??issuedTask?.ownerPersonId;
+ requireValue(!(issuedTask && Object.hasOwn(issuedTask,'recipientId') &&
+   Object.hasOwn(issuedTask,'ownerPersonId')),invalid);
  requireValue(issuedTask && typeof issuedTask.organizationId==='string' &&
    typeof issuedTask.workspaceId==='string' && typeof issuedTask.assignmentId==='string' &&
-   issuedTask.assignmentId.length>0 && typeof issuedTask.recipientId==='string' &&
-   issuedTask.recipientId.length>0 && typeof issuedTask.taskId==='string' &&
+   issuedTask.assignmentId.length>0 && typeof recipientId==='string' &&
+   recipientId.length>0 && typeof issuedTask.taskId==='string' &&
    issuedTask.taskId.startsWith('task:') && isHex64(issuedTask.taskRevisionId) &&
    issuedTask.deliveryState==='NOT_CONFIRMED' &&
    typeof issuedTask.atlasRef?.projectId==='string' && issuedTask.atlasRef.projectId.length>0 &&
@@ -117,7 +122,8 @@ export function projectAppliedAtlasEvidence({ownerSnapshot,issuedTask,resultRevi
  const owner=readAppliedResults(ownerSnapshot,issuedTask.organizationId,issuedTask.workspaceId);
  requireValue(owner.status==='LOCAL_ENCRYPTED_STORE_CONFIRMED','CEN_ATLAS_RESULT_NOT_APPLIED');
  const rows=owner.records.filter(x=>x.taskId===issuedTask.taskId &&
-   x.taskRevisionId===issuedTask.taskRevisionId && x.resultRevisionId===resultRevisionId);
+   x.taskRevisionId===issuedTask.taskRevisionId &&
+   x.resultRevisionId===resultRevisionId && x.executorId===recipientId);
  requireValue(rows.length===1,'CEN_ATLAS_RESULT_BINDING_NOT_FOUND');
  if(atlasView!==null)requireValue(atlasView?.source==='atlas.project/1' &&
    atlasView.authorization==='NOT_CHECKED' &&

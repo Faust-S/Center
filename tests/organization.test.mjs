@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {emptyDraft, applyDraftCommand as apply, encodeDraft, decodeDraft, overview, assignmentText} from '../src/organization.mjs';
+import {projectAppliedAtlasEvidence} from '../runtime/cen03-applied-results.mjs';
 const time = '2026-11-04T12:00:00.000Z';
 function fixture() {
   let sequence = 0, state = emptyDraft(time);
@@ -128,7 +129,7 @@ test('CEN02 issuer-side Task link survives manager restart without becoming T3 a
  const issue={type:'RECORD_ISSUED_TASK_LINK',organizationId:f.orgId,
    assignmentId:assignment.id,assignmentEditNumber:assignment.editNumber,
    workspaceId:assignment.workspaceId,assigneeId:assignment.assigneeId,
-   reviewerId:assignment.reviewerId,ownerPersonId:'person:T3-owner',
+   reviewerId:assignment.reviewerId,recipientId:'person:T3-recipient',
    taskId:'task:issued-1',taskRevisionId:'a'.repeat(64),atlasRef:linkWork};
  f.run(issue);
  const stored=encodeDraft(f.state),reopened=decodeDraft(stored);
@@ -137,7 +138,7 @@ test('CEN02 issuer-side Task link survives manager restart without becoming T3 a
  assert.equal(link.taskRevisionId,issue.taskRevisionId);
  assert.deepEqual(link.atlasRef,linkWork);
  assert.equal(link.assignmentEditNumber,1);
- assert.equal(link.ownerPersonId,'person:T3-owner');
+ assert.equal(link.recipientId,'person:T3-recipient');
  assert.equal(link.associationProof,'LOCAL_ISSUER_SIDE_REFERENCE_ONLY');
  assert.equal(link.deliveryState,'NOT_CONFIRMED');
  assert.equal('issued' in reopened.organizations[0].assignments[0],false);
@@ -157,17 +158,17 @@ test('issuer-side WorkRef recording rejects changed draft, forged status and cro
  const command={type:'RECORD_ISSUED_TASK_LINK',organizationId:f.orgId,
    assignmentId:assignment.id,assignmentEditNumber:1,workspaceId:assignment.workspaceId,
    assigneeId:assignment.assigneeId,reviewerId:assignment.reviewerId,
-   ownerPersonId:'person:owner',taskId:'task:issued-2',taskRevisionId:'b'.repeat(64),atlasRef:ref};
+   recipientId:'person:staff',taskId:'task:issued-2',taskRevisionId:'b'.repeat(64),atlasRef:ref};
  for(const alter of [
   {assignmentEditNumber:2},{workspaceId:'foreign'},{assigneeId:'foreign'},
   {reviewerId:'foreign'},{atlasRef:{...ref,revision:'8'}},
-  {taskRevisionId:'invalid'},{ownerPersonId:''}
+  {taskRevisionId:'invalid'},{recipientId:''}
  ]){
   assert.throws(()=>f.run({...command,...alter}),/DRAFT_/);
  }
  f.run(command);
  const before=encodeDraft(f.state);
- assert.throws(()=>f.run({...command,ownerPersonId:'other'}),/DRAFT_ISSUED_LINK_CONFLICT/);
+ assert.throws(()=>f.run({...command,recipientId:'other'}),/DRAFT_ISSUED_LINK_CONFLICT/);
  assert.equal(encodeDraft(f.state),before);
  const malformed=structuredClone(f.state);
  malformed.organizations[0].issuedTaskLinks[0].deliveryState='DELIVERED';
@@ -188,9 +189,55 @@ test('historical draft without issued links remains valid; duplicate identities 
  const a=f.state.organizations[0].assignments[0];
  f.run({type:'RECORD_ISSUED_TASK_LINK',organizationId:f.orgId,
    assignmentId:a.id,assignmentEditNumber:a.editNumber,workspaceId:a.workspaceId,
-   assigneeId:a.assigneeId,reviewerId:a.reviewerId,ownerPersonId:'person:owner',
+   assigneeId:a.assigneeId,reviewerId:a.reviewerId,recipientId:'person:staff',
    taskId:'task:issued-3',taskRevisionId:'c'.repeat(64),atlasRef:ref});
  const corrupted=structuredClone(f.state);
  corrupted.organizations[0].issuedTaskLinks.push({...corrupted.organizations[0].issuedTaskLinks[0]});
  assert.throws(()=>decodeDraft(JSON.stringify(corrupted)),/DRAFT_ISSUED_LINK_DUPLICATE/);
+});
+
+test('CEN05 projects actual reopened CEN02 link only for matching T3 Result executor',()=>{
+ const f=fixture(),ref={projectId:'atlas:project',workId:'atlas:work',revision:'7'};
+ f.run({...f.assignment,atlasRef:ref});
+ const a=f.state.organizations[0].assignments[0];
+ const issued={type:'RECORD_ISSUED_TASK_LINK',organizationId:f.orgId,
+   assignmentId:a.id,assignmentEditNumber:a.editNumber,workspaceId:a.workspaceId,
+   assigneeId:a.assigneeId,reviewerId:a.reviewerId,recipientId:'person:staff',
+   taskId:'task:issued',taskRevisionId:'a'.repeat(64),atlasRef:ref};
+ f.run(issued);
+ const reopened=decodeDraft(encodeDraft(f.state));
+ const link=reopened.organizations[0].issuedTaskLinks[0];
+ assert.equal(link.recipientId,'person:staff');
+ assert.equal(Object.hasOwn(link,'ownerPersonId'),false);
+ const application={product:'admin',organizationId:f.orgId,workspaceId:a.workspaceId,
+   application:{status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false,
+   records:[{organizationId:f.orgId,workspaceId:a.workspaceId,taskId:'task:issued',
+     taskRevisionId:'a'.repeat(64),resultRevisionId:'b'.repeat(64),
+     acceptanceId:'acceptance:one',executorId:'person:staff',result:'Observed work'}]}};
+ const view={source:'atlas.project/1',revision:'7',authorization:'NOT_CHECKED',
+   mode:'READ_ONLY_USER_SELECTED_FILE',projects:[
+     {id:ref.projectId,workItems:[{id:ref.workId,state:'todo'}]}]};
+ const observed=projectAppliedAtlasEvidence({ownerSnapshot:application,issuedTask:link,
+   resultRevisionId:'b'.repeat(64),atlasView:view});
+ assert.equal(observed.status,'APPLIED_RESULT_OBSERVED');
+ assert.equal(observed.result.executorId,link.recipientId);
+ assert.deepEqual(observed.atlasRef,ref);
+ assert.equal(observed.atlasObservation,'SOURCE_REVISION_MATCHES');
+ assert.equal(observed.workCompletionAsserted,false);
+ assert.equal(view.projects[0].workItems[0].state,'todo');
+ const other=structuredClone(application);
+ other.application.records[0].executorId='person:other';
+ assert.throws(()=>projectAppliedAtlasEvidence({ownerSnapshot:other,issuedTask:link,
+   resultRevisionId:'b'.repeat(64),atlasView:view}),/CEN_ATLAS_RESULT_BINDING_NOT_FOUND/);
+ // Existing preparation drafts retain their stored bytes. The old person
+ // field is accepted only as the exact historical recipient alias.
+ const historical=structuredClone(reopened);
+ const oldLink=historical.organizations[0].issuedTaskLinks[0];
+ oldLink.ownerPersonId=oldLink.recipientId;delete oldLink.recipientId;
+ assert.deepEqual(decodeDraft(encodeDraft(historical)),historical);
+ const oldEvidence=projectAppliedAtlasEvidence({ownerSnapshot:application,issuedTask:oldLink,
+   resultRevisionId:'b'.repeat(64),atlasView:view});
+ assert.deepEqual(oldEvidence.result,observed.result);
+ const unchanged=apply(historical,issued,{now:()=>time});
+ assert.deepEqual(unchanged,historical,'legacy duplicate preserves original stored draft');
 });
