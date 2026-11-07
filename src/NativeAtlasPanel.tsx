@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createNativeAtlasPort} from './atlas-native.mjs';
 import {linkableAtlasProject,linkableAtlasWork} from './atlas-integration.mjs';
-import {createCen05NativePort} from './cen05-native.mjs';
+import {createCen05NativePort,describeCen05Status,describeCen05Error} from './cen05-native.mjs';
 
 // Genuine desktop host. Browser preview intentionally has no native authority.
 const isDesktop=()=>Boolean((window as any).__TAURI_INTERNALS__);
@@ -64,23 +64,20 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
      if(operation==='detach'&&result.status==='BINDING_CLOSED')setPresentation(null);
      if(!['WINDOW_OBSERVED','LAUNCHED_NO_WINDOW','WINDOW_FOCUSED','CENTER_WINDOW_FOCUSED','WORK_SOURCE_NOT_CURRENT','BINDING_CLOSED'].includes(result.status))
        throw Error(result.status);
+     // The manager returns to Center even if the readback is stale or fails.
+     // Show that return receipt before asking the canonical Atlas owner again.
+     if(operation==='return'&&result.status==='WORK_SOURCE_NOT_CURRENT')
+       setPresentationStatus(describeCen05Status(operation,result));
      if(operation==='return'){
-       // Native U04 first returns focus to Center even if Atlas is now stale.
-       // Reopen the real canonical owner for fresh UI readback, never overwrite
-       // the manager's unsaved assignment editor or silently change its link.
+       // Refresh only the read-only source projection; never silently rewrite
+       // an assignment's older revision or an unsaved editor.
        const latest=await port().openPublicAtlas(organizationId);
        if(current!==epoch.current)return;
        const updated=port().view(latest) as View;
        setSession(latest as Session);setView(updated);observedCallback.current?.(organizationId,updated);
-       if(result.status==='WORK_SOURCE_NOT_CURRENT'){
-         setPresentationStatus('Возврат в Center выполнен. План Atlas изменился; прежняя ссылка поручения не изменена.');
-         return;
-       }
      }
-     setPresentationStatus(operation==='open'?'Окно Atlas запущено. Работа внутри Atlas автоматически не выбирается.':
-       operation==='activate'?'Окно Atlas получило фокус.':
-       operation==='return'?'Возврат в Center: редакция Atlas перепроверена.':'Связь с окном закрыта; Atlas продолжает работать.');
-   }catch(e){if(current===epoch.current)setError(e instanceof Error?e.message:String(e));}
+     setPresentationStatus(describeCen05Status(operation,result));
+   }catch(e){if(current===epoch.current)setError(describeCen05Error(e));}
    finally{locked.current=false;setBusy(false);}
  }
  const selectedProject=view?.projects.find(x=>x.id===selected);

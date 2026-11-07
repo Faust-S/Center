@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createCen05NativePort} from '../src/cen05-native.mjs';
+import {createCen05NativePort,describeCen05Status,describeCen05Error} from '../src/cen05-native.mjs';
 
 test('native U04 uses exact work/organization and never accepts executable or HWND',async()=>{
  const seen=[];
@@ -43,4 +43,22 @@ test('stale Atlas revision after window return is a visible native readback stat
  assert.equal(result.revisionMatches,false);
  assert.equal(result.centerFocused,true);
  assert.equal(result.openedWorkAutomatically,false);
+});
+
+test('CEN05 reports a launched process without claiming an observed window',()=>{
+ const waiting=describeCen05Status('open',{status:'LAUNCHED_NO_WINDOW'});
+ assert.match(waiting,/окно пока не обнаружено/);
+ assert.doesNotMatch(waiting,/Окно Atlas запущено/);
+ assert.match(describeCen05Status('open',{status:'WINDOW_OBSERVED'}),/Окно Atlas запущено/);
+});
+test('CEN05 distinguishes changed/missing Atlas source after actual Center return',()=>{
+ const stale=describeCen05Status('return',{status:'WORK_SOURCE_NOT_CURRENT',reason:'SOURCE_REVISION_CHANGED'});
+ const missing=describeCen05Status('return',{status:'WORK_SOURCE_NOT_CURRENT',reason:'WORK_MISSING_IN_SOURCE'});
+ const unreadable=describeCen05Status('return',{status:'WORK_SOURCE_NOT_CURRENT',reason:'ATLAS_READ_FAILED'});
+ assert.match(stale,/Редакция Atlas изменилась/);
+ assert.match(missing,/работа больше не найдена/);
+ assert.match(unreadable,/Актуальность источника Atlas не подтверждена/);
+ for(const s of [stale,missing,unreadable])assert.match(s,/ссылка поручения не изменена/);
+ assert.match(describeCen05Error(Error('WINDOW_FOCUS_DENIED')),/Windows не разрешила/);
+ assert.match(describeCen05Error('SOURCE_REVISION_CHANGED'),/План Atlas изменился/);
 });
