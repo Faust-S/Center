@@ -267,6 +267,23 @@ try {
   [uint32]$foregroundPid=0
   [void][U05Window]::GetWindowThreadProcessId($foreground,[ref]$foregroundPid)
   if($foregroundPid -ne [uint32]$proc.Id){throw "U04_CENTER_RETURN_FOCUS_MISMATCH pid=$foregroundPid"}
+  # WebView navigation unmounts NativeAtlasPanel, but the original U04 native
+  # binding is owned by Tauri. Reopen the same exact WorkRef without a second
+  # external process or silent new window binding.
+  $originalAtlasPids=@($atlasPids | Sort-Object)
+  Click 'Поручения' $true
+  Click 'Планы Atlas'
+  Click 'Открыть Atlas Desktop'
+  Click $projectTitle $true
+  Click 'Открыть окно Atlas'
+  [void](Find-UI-Text 'Прежняя связь с Atlas восстановлена без повторного запуска')
+  $afterReattachPids=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
+    Where-Object { $_.ExecutablePath -eq $atlasExe } |
+    ForEach-Object { [uint32]$_.ProcessId } | Sort-Object)
+  if(($afterReattachPids -join ',') -ne ($originalAtlasPids -join ',')){
+    throw "U04_REATTACH_SPAWNED_NEW_ATLAS_PROCESS before=$($originalAtlasPids -join ',') after=$($afterReattachPids -join ',')"
+  }
+  Write-Host "U04_NAVIGATION_REATTACH_SAME_PROCESS_PASS atlasPids=$($originalAtlasPids -join ',')"
   Click 'Отсоединить окно'
   [void](Find-UI-Text 'Atlas продолжает работать')
   if(@(Get-Process -Name 'iwxa-atlas-desktop' -ErrorAction SilentlyContinue).Count -lt 1){
