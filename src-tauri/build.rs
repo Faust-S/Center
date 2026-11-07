@@ -30,6 +30,19 @@ fn main() {
         let original = fs::read_to_string(&upstream)
             .expect("Pinned public Br-test U01/U04 source is required");
         // Inner crate docs cannot be included as nested modules.
+        // U01 is included as a production dependency, not a test crate:
+        // keep its source verbatim apart from crate-level docs and the
+        // upstream-only test module. Upstream's CLI stress/timeout checks
+        // belong to the pinned owner qualification, not Center's host tests.
+        // Center exercises only the U01 inspect port through its own tests.
+        let original = if output == "u01_original_program.rs" {
+            let marker = "\n#[cfg(test)]\nmod tests {";
+            original.split_once(marker)
+                .expect("Pinned U01 source must end in its owner-only tests")
+                .0.to_owned()
+        } else {
+            original
+        };
         let assembled = original.lines()
             .filter(|line| !line.trim_start().starts_with("//!"))
             .collect::<Vec<_>>().join("\n");
