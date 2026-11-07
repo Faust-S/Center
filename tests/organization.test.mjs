@@ -234,7 +234,13 @@ test('CEN05 projects actual reopened CEN02 link only for matching T3 Result exec
  const historical=structuredClone(reopened);
  const oldLink=historical.organizations[0].issuedTaskLinks[0];
  oldLink.ownerPersonId=oldLink.recipientId;delete oldLink.recipientId;
- assert.deepEqual(decodeDraft(encodeDraft(historical)),historical);
+ const legacyBytes=encodeDraft(historical);
+ assert.deepEqual(decodeDraft(legacyBytes),historical);
+ assert.equal(encodeDraft(decodeDraft(legacyBytes)),legacyBytes,
+   'reading the legacy alias must never rewrite source bytes');
+ const forged=structuredClone(historical);
+ forged.organizations[0].issuedTaskLinks[0].recipientId='person:other';
+ assert.throws(()=>decodeDraft(JSON.stringify(forged)),/DRAFT_ISSUED_LINK_INVALID/);
  const oldEvidence=projectAppliedAtlasEvidence({ownerSnapshot:application,issuedTask:oldLink,
    resultRevisionId:'b'.repeat(64),atlasView:view});
  assert.deepEqual(oldEvidence.result,observed.result);
