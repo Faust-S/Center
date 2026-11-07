@@ -222,7 +222,10 @@ try {
   $atlasExe=Join-Path $env:LOCALAPPDATA 'IWXA Atlas/iwxa-atlas-desktop.exe'
   if(!(Test-Path -LiteralPath $atlasExe)){throw 'U04_INSTALLED_ATLAS_BINARY_MISSING'}
   Click 'Открыть окно Atlas'
-  [void](Find-UI-Text 'Окно Atlas запущено')
+  # Both original U04 states are valid: WINDOW_OBSERVED and
+  # LAUNCHED_NO_WINDOW. Verify the honest UI status, then separately verify
+  # the real installed process/HWND and native Windows foreground PID below.
+  [void](Find-UI-Text 'автоматически не выбирается')
   $atlasProcesses=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
       Where-Object { $_.ExecutablePath -eq $atlasExe })
   if($atlasProcesses.Count -lt 1){throw 'U04_ORIGINAL_ATLAS_PROCESS_NOT_LAUNCHED'}
