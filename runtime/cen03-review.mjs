@@ -104,11 +104,35 @@ export function createCen03Review({runtime,snapshot,bind}) {
       return runtime.review(packageSha256);
     },
     decide({packageSha256,previewDigest,decision,reason='',binding}) {
-      bind(binding);
+      const before=bind(binding);
       requireValue(decision!=='CHANGES_REQUESTED','T3_RETURN_OPERATION_NOT_AVAILABLE');
       requireValue(['ACCEPT','REJECT'].includes(decision),'DECISION_INVALID');
+      requireValue(typeof packageSha256==='string'&&/^[a-f0-9]{64}$/.test(packageSha256),
+        'T3_PACKAGE_SHA_REQUIRED');
+      requireValue(typeof previewDigest==='string'&&previewDigest.length>0,
+        'T3_PREVIEW_DIGEST_REQUIRED');
       requireValue(typeof runtime.decide==='function','T3_DECISION_NOT_CONNECTED');
-      return runtime.decide(packageSha256,{previewDigest,decision,reason});
+      // Only original T3 authorizes and persists ACCEPT/REJECT. A returned
+      // receipt alone cannot confirm Store/Journal write; uncertain results
+      // must HOLD, never trigger automatic decision replay.
+      const receipt=runtime.decide(packageSha256,{previewDigest,decision,reason});
+      const after=bind(binding);
+      const expected=decision==='ACCEPT'?'ACCEPTED':'REJECTED';
+      requireValue(after.personId===before.personId &&
+        after.selectedOperatorId===before.selectedOperatorId,
+        'T3_DECISION_CONTEXT_READBACK_HOLD');
+      requireValue(typeof receipt?.acceptanceId==='string' &&
+        /^[a-f0-9]{64}$/.test(receipt.acceptanceId) &&
+        receipt.packageSha256===packageSha256 &&
+        receipt.acceptanceState===expected,'T3_DECISION_RECEIPT_UNCONFIRMED');
+      const terminal=Array.isArray(after.receipts)?after.receipts.filter(r=>
+        r?.packageSha256===packageSha256 &&
+        ['ACCEPTED','REJECTED'].includes(r.acceptanceState)):null;
+      requireValue(terminal?.length===1 &&
+        terminal[0].acceptanceId===receipt.acceptanceId &&
+        terminal[0].acceptanceState===expected,
+        'T3_DECISION_STORE_READBACK_HOLD');
+      return receipt;
     },
     previewApplication({acceptanceId,revisionIds,binding}) {
       bind(binding);
