@@ -207,14 +207,41 @@ try {
   $atlasProcesses=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
       Where-Object { $_.ExecutablePath -eq $atlasExe })
   if($atlasProcesses.Count -lt 1){throw 'U04_ORIGINAL_ATLAS_PROCESS_NOT_LAUNCHED'}
-  Click 'Фокус Atlas'
-  [void](Find-UI-Text 'Окно Atlas получило фокус')
-  $foreground=[U05Window]::GetForegroundWindow()
-  [uint32]$foregroundPid=0
-  [void][U05Window]::GetWindowThreadProcessId($foreground,[ref]$foregroundPid)
-  if($foregroundPid -notin @($atlasProcesses | ForEach-Object { [uint32]$_.ProcessId })){
-    throw "U04_ATLAS_FOREGROUND_MISMATCH pid=$foregroundPid"
+  # GUI focus is an OS fact, not a text marker in the now-background
+  # Center WebView2 accessibility tree. Wait for the independent installed
+  # Atlas HWND, retry actual UI clicks if Windows denies foreground focus,
+  # and independently verify the foreground owner PID.
+  $atlasPids=@($atlasProcesses | ForEach-Object { [uint32]$_.ProcessId })
+  $atlasWindowReady=$false
+  for($windowAttempt=0;$windowAttempt -lt 45;$windowAttempt++){
+    foreach($pidValue in $atlasPids){
+      $targetProcess=Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+      if($null -ne $targetProcess -and $targetProcess.MainWindowHandle -ne [IntPtr]::Zero){
+        $atlasWindowReady=$true;break
+      }
+    }
+    if($atlasWindowReady){break}
+    Start-Sleep -Milliseconds 300
   }
+  if(!$atlasWindowReady){throw 'U04_INSTALLED_ATLAS_VISIBLE_WINDOW_NOT_OBSERVED'}
+  $atlasFocused=$false
+  [uint32]$foregroundPid=0
+  for($focusAttempt=1;$focusAttempt -le 4;$focusAttempt++){
+    Click 'Фокус Atlas'
+    for($foregroundAttempt=0;$foregroundAttempt -lt 12;$foregroundAttempt++){
+      Start-Sleep -Milliseconds 250
+      $foreground=[U05Window]::GetForegroundWindow()
+      [uint32]$foregroundPid=0
+      [void][U05Window]::GetWindowThreadProcessId($foreground,[ref]$foregroundPid)
+      if($foregroundPid -in $atlasPids){$atlasFocused=$true;break}
+    }
+    if($atlasFocused){break}
+    Write-Host "U04_FOCUS_RETRY_REQUIRED attempt=$focusAttempt foreground_pid=$foregroundPid"
+  }
+  if(!$atlasFocused){
+    throw "U04_ATLAS_FOREGROUND_NOT_CONFIRMED foreground_pid=$foregroundPid atlas_pids=$($atlasPids -join ',')"
+  }
+  Write-Host "U04_NATIVE_ATLAS_FOREGROUND_PASS foreground_pid=$foregroundPid"
   Click 'Вернуться в Center и проверить'
   [void](Find-UI-Text 'Возврат в Center: редакция Atlas перепроверена')
   $foreground=[U05Window]::GetForegroundWindow()
