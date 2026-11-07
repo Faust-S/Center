@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createNativeAtlasPort} from './atlas-native.mjs';
 import {linkableAtlasProject,linkableAtlasWork} from './atlas-integration.mjs';
+import {createCen05NativePort} from './cen05-native.mjs';
 
 // Genuine desktop host. Browser preview intentionally has no native authority.
 const isDesktop=()=>Boolean((window as any).__TAURI_INTERNALS__);
@@ -16,11 +17,13 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
  const [workName,setWorkName]=useState('');
  const [error,setError]=useState('');
  const [busy,setBusy]=useState(false);
+ const [presentation,setPresentation]=useState<{organizationId:string;projectId:string;workId:string;revision:string;bindingRef:string}|null>(null);
+ const [presentationStatus,setPresentationStatus]=useState('');
  const epoch=useRef(0),locked=useRef(false);
  const observedCallback=useRef(onObserved);
  observedCallback.current=onObserved;
  const port=()=>createNativeAtlasPort(invoke);
- useEffect(()=>{epoch.current++;setSession(null);setView(null);setSelected('');setSelectedWork('');setError('');setProjectName('');setWorkName('');observedCallback.current?.(organizationId,null);},[organizationId]);
+ useEffect(()=>{epoch.current++;setSession(null);setView(null);setSelected('');setSelectedWork('');setError('');setProjectName('');setWorkName('');setPresentation(null);setPresentationStatus('');observedCallback.current?.(organizationId,null);},[organizationId]);
  if(!isDesktop())return null;
  async function act(run:(p:ReturnType<typeof createNativeAtlasPort>)=>Promise<any>){
    if(locked.current)return;
@@ -37,6 +40,42 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
      const works=next.projects.find(x=>x.id===nextSelected)?.workItems??[];
      setSelectedWork(result.workId&&works.some(x=>x.id===result.workId)?result.workId:
        works.some(x=>x.id===selectedWork)?selectedWork:(works[0]?.id||''));
+   }catch(e){if(current===epoch.current)setError(e instanceof Error?e.message:String(e));}
+   finally{locked.current=false;setBusy(false);}
+ }
+ async function present(operation:'open'|'activate'|'return'|'detach') {
+   if(locked.current||!session||session.sourceKind!=='PUBLIC_ATLAS_READ_ONLY'||!view)return;
+   locked.current=true;setBusy(true);setError('');
+   const current=epoch.current;
+   try {
+     const api=createCen05NativePort(invoke);
+     const ref=operation==='open'?linkableAtlasWork(view,selected,selectedWork||selectedProject?.workItems[0]?.id||''):presentation;
+     if(!ref)throw Error('Сначала выберите работу Atlas.');
+     const request={organizationId,projectId:ref.projectId,workId:ref.workId,revision:ref.revision};
+     let result;
+     if(operation==='open')result=await api.open(request);
+     else if(operation==='activate')result=await api.activate({...request,bindingRef:presentation!.bindingRef});
+     else if(operation==='return')result=await api.returnToCenter({...request,bindingRef:presentation!.bindingRef});
+     else result=await api.detach({organizationId,bindingRef:presentation!.bindingRef});
+     if(current!==epoch.current)return;
+     if(operation==='open'&&['WINDOW_OBSERVED','LAUNCHED_NO_WINDOW'].includes(result.status)){
+       setPresentation({...request,bindingRef:result.bindingRef});
+     }
+     if(operation==='detach'&&result.status==='BINDING_CLOSED')setPresentation(null);
+     if(!['WINDOW_OBSERVED','LAUNCHED_NO_WINDOW','WINDOW_FOCUSED','CENTER_WINDOW_FOCUSED','BINDING_CLOSED'].includes(result.status))
+       throw Error(result.status);
+     if(operation==='return'){
+       // The native command checked exact Atlas state before Center focus.
+       // Reopen the real canonical owner for fresh UI readback, never overwrite
+       // the manager's unsaved assignment editor or silently change its link.
+       const latest=await port().openPublicAtlas(organizationId);
+       if(current!==epoch.current)return;
+       const updated=port().view(latest) as View;
+       setSession(latest);setView(updated);observedCallback.current?.(organizationId,updated);
+     }
+     setPresentationStatus(operation==='open'?'Окно Atlas запущено. Работа внутри Atlas автоматически не выбирается.':
+       operation==='activate'?'Окно Atlas получило фокус.':
+       operation==='return'?'Возврат в Center: редакция Atlas перепроверена.':'Связь с окном закрыта; Atlas продолжает работать.');
    }catch(e){if(current===epoch.current)setError(e instanceof Error?e.message:String(e));}
    finally{locked.current=false;setBusy(false);}
  }
@@ -74,6 +113,17 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
            onClick={()=>onLinkWork(linkableAtlasWork(view,selected,selectedWork||selectedProject.workItems[0].id))}>Подготовить поручение по работе</button>
        </div>}
      </>}
+     {session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'&&selectedProject&&selectedProject.workItems.length>0&&<div className="nested-form" data-testid="cen05-native-presentation">
+       <h4>Открыть установленный Atlas</h4>
+       <p className="muted">Работа и редакция проверяются в оригинальном Atlas перед запуском и возвратом. При отсутствии официальной ссылки работа внутри окна не выбирается автоматически.</p>
+       <div className="actions">
+         <button type="button" className="secondary" disabled={busy||!!presentation} data-testid="cen05-u04-open" onClick={()=>void present('open')}>Открыть окно Atlas</button>
+         <button type="button" className="secondary" disabled={busy||!presentation} data-testid="cen05-u04-activate" onClick={()=>void present('activate')}>Фокус Atlas</button>
+         <button type="button" className="secondary" disabled={busy||!presentation} data-testid="cen05-u04-return" onClick={()=>void present('return')}>Вернуться в Center и проверить</button>
+         <button type="button" className="secondary" disabled={busy||!presentation} data-testid="cen05-u04-detach" onClick={()=>void present('detach')}>Отсоединить окно</button>
+       </div>
+       {presentationStatus&&<p className="muted" role="status" data-testid="cen05-u04-status">{presentationStatus}</p>}
+     </div>}
      <p className="muted">{session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'?'Связь с работой Atlas Desktop — только черновая ссылка. Выдача требует отдельной проверки источника и полномочий перед подписанием.':'Сохранение локального плана Center не делает его общим проектом Atlas Desktop.'}</p>
    </div>}
  </div>;
