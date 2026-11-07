@@ -12,10 +12,16 @@ test('readback mismatch is visible',()=>{const repo=createDraftRepository({read:
 function runtimeDouble() {
  const calls=[];
  const state={product:'admin',organizationId:'org',workspaceId:'work',contextEpoch:1,personId:'person',
-   packages:[],
+   packages:[],receipts:[],
    application:{status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false}};
  return {product:'admin',snapshot:()=>structuredClone(state),calls,state,
-   decide(...args){calls.push(args);return {acceptanceState:'ACCEPTED'};},
+   decide(hash,options){
+     calls.push([hash,options]);
+     const receipt={acceptanceId:'c'.repeat(64),packageSha256:hash,
+       acceptanceState:options.decision==='ACCEPT'?'ACCEPTED':'REJECTED'};
+     state.receipts.push(receipt);
+     return receipt;
+   },
    receive(){calls.push('RECEIVE');state.packages.push('a'.repeat(64));return {transportReceipt:{state:'RECEIVED',packageSha256:'a'.repeat(64)},preview:{classification:'NEW_REVISION'}};},
    review(hash){calls.push('REVIEW');return {hash,acceptanceState:'PENDING'};},
    previewApplication(args){calls.push('PREVIEW_APPLICATION');return {args,writeAllowed:false};},
@@ -93,7 +99,60 @@ test('CEN02 never acknowledges an operator switch on stale or mismatched readbac
  assert.throws(()=>port.selectOperator({operatorId:'operator:one',binding}),
    /T3_OPERATOR_SELECTION_READBACK_HOLD/);
 });
-test('acceptance uses owning runtime and does not imply application',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);const r=port.decide({packageSha256:'abc',previewDigest:'preview',decision:'ACCEPT',binding});assert.equal(r.acceptanceState,'ACCEPTED');assert.equal(runtime.calls.length,1);assert.deepEqual(runtime.calls[0],['abc',{previewDigest:'preview',decision:'ACCEPT',reason:''}]);assert.equal(r.applied,undefined);});
+test('CEN03 acceptance requires T3 durable receipt and does not imply application',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ const r=port.decide({packageSha256:PACKAGE_SHA,previewDigest:'preview',decision:'ACCEPT',binding});
+ assert.equal(r.acceptanceState,'ACCEPTED');
+ assert.equal(r.acceptanceId,'c'.repeat(64));
+ assert.equal(runtime.calls.length,1);
+ assert.deepEqual(runtime.calls[0],[PACKAGE_SHA,{previewDigest:'preview',decision:'ACCEPT',reason:''}]);
+ assert.deepEqual(runtime.snapshot().receipts,[r]);
+ assert.equal(r.applied,undefined);
+});
+test('CEN03 owner REJECT requires durable receipt, never implies application',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ const r=port.decide({packageSha256:PACKAGE_SHA,previewDigest:'preview',
+   decision:'REJECT',reason:'wrong scope',binding});
+ assert.equal(r.acceptanceState,'REJECTED');
+ assert.equal(r.applied,undefined);
+ assert.equal(runtime.calls.length,1);
+});
+test('CEN03 HOLD does not retry if owner returns decision missing from Store',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ runtime.decide=(hash,options)=>{
+   runtime.calls.push([hash,options]);
+   return {acceptanceId:'c'.repeat(64),packageSha256:hash,acceptanceState:'ACCEPTED'};
+ };
+ assert.throws(()=>port.decide({packageSha256:PACKAGE_SHA,previewDigest:'preview',
+   decision:'ACCEPT',binding}),/T3_DECISION_STORE_READBACK_HOLD/);
+ assert.equal(runtime.calls.length,1);
+ assert.deepEqual(runtime.state.receipts,[]);
+});
+test('CEN03 refuses conflicting owner ACCEPT and REJECT receipts',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ runtime.decide=(hash,options)=>{
+   runtime.calls.push([hash,options]);
+   const accepted={acceptanceId:'c'.repeat(64),packageSha256:hash,acceptanceState:'ACCEPTED'};
+   runtime.state.receipts.push(accepted,{acceptanceId:'d'.repeat(64),packageSha256:hash,acceptanceState:'REJECTED'});
+   return accepted;
+ };
+ assert.throws(()=>port.decide({packageSha256:PACKAGE_SHA,previewDigest:'preview',
+   decision:'ACCEPT',binding}),/T3_DECISION_STORE_READBACK_HOLD/);
+ assert.equal(runtime.calls.length,1);
+});
+test('CEN03 rejects invalid package SHA and malformed owner decision receipt',()=>{
+ const runtime=runtimeDouble(),port=createT3AdminPort(runtime);
+ assert.throws(()=>port.decide({packageSha256:'invalid',previewDigest:'preview',
+   decision:'ACCEPT',binding}),/T3_PACKAGE_SHA_REQUIRED/);
+ assert.equal(runtime.calls.length,0);
+ runtime.decide=(hash,options)=>{
+   runtime.calls.push([hash,options]);
+   return {acceptanceId:'invalid',packageSha256:hash,acceptanceState:'ACCEPTED'};
+ };
+ assert.throws(()=>port.decide({packageSha256:PACKAGE_SHA,previewDigest:'preview',
+   decision:'ACCEPT',binding}),/T3_DECISION_RECEIPT_UNCONFIRMED/);
+ assert.equal(runtime.calls.length,1);
+});
 test('context switch prevents a stale decision',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);runtime.state.contextEpoch++;assert.throws(()=>port.decide({decision:'ACCEPT',binding}),/CONTEXT_CHANGED/);assert.equal(runtime.calls.length,0);});
 test('return for changes is not silently substituted with rejection',()=>{const runtime=runtimeDouble(),port=createT3AdminPort(runtime);assert.throws(()=>port.decide({decision:'CHANGES_REQUESTED',binding}),/RETURN_OPERATION_NOT_AVAILABLE/);assert.equal(runtime.calls.length,0);});
 test('CEN02 receive and CEN03 review stay separate and never imply acceptance',()=>{
