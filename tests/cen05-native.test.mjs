@@ -87,3 +87,18 @@ test('CEN05 treats project, work, revision and organization changes as a differe
  assert.equal(presentationMatchesWork(active,null),false);
  assert.equal(presentationMatchesWork(null,ref),false);
 });
+
+test('CEN05 distinguishes verified cross-organization U04 reattach from a second launch',()=>{
+ const sameWindow=describeCen05Status('open',{
+  status:'WINDOW_OBSERVED',reusedProcess:true,openedWorkAutomatically:false
+ });
+ const waiting=describeCen05Status('open',{
+  status:'LAUNCHED_NO_WINDOW',reusedProcess:true,openedWorkAutomatically:false
+ });
+ assert.match(sameWindow,/без повторного запуска/);
+ assert.match(sameWindow,/автоматически не выбирается/);
+ assert.doesNotMatch(sameWindow,/Окно Atlas запущено/);
+ assert.match(waiting,/без повторного запуска/);
+ assert.match(waiting,/окно пока не обнаружено/);
+ assert.match(describeCen05Error('PROCESS_IDENTITY_CHANGED'),/процесс Atlas больше не подтверждён/);
+});

@@ -38,6 +38,7 @@ if(!$projectBlock){throw 'U05_ATLAS_GUI_WORK_NOT_PERSISTED'}
 $projectId=[string]$projectBlock.id
 $projectTitle=[string]$projectBlock.name
 $workId=[string]$projectBlock.items[0].id
+if(@($projectBlock.items).Count -lt 2){throw 'U04_WORK_REF_SWITCH_NEEDS_TWO_CANONICAL_WORKS'}
 $revision=[string]$head.revision
 $generation=[string]$head.generation
 $beforeBytes=[System.IO.File]::ReadAllBytes($manifest)
@@ -287,8 +288,55 @@ try {
     throw "U04_REATTACH_SPAWNED_NEW_ATLAS_PROCESS before=$($originalAtlasPids -join ',') after=$($afterReattachPids -join ',')"
   }
   Write-Host "U04_NAVIGATION_REATTACH_SAME_PROCESS_PASS atlasPids=$($originalAtlasPids -join ',')"
+  # A different exact WorkRef in the same organization rebinds U04 without
+  # launching another installed Atlas process or selecting work in Atlas.
+  $workPicker=Find-UI 'Выбранная работа Atlas' 'ComboBox'
+  $workPicker.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('{END}')
+  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+  Start-Sleep -Milliseconds 350
+  [void](Find-UI-Text 'Выбрана другая работа или редакция Atlas')
+  Click 'Открыть окно Atlas'
+  [void](Find-UI-Text 'Прежняя связь с Atlas восстановлена без повторного запуска')
+  $afterWorkPids=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
+    Where-Object { $_.ExecutablePath -eq $atlasExe } |
+    ForEach-Object { [uint32]$_.ProcessId } | Sort-Object)
+  if(($afterWorkPids -join ',') -ne ($originalAtlasPids -join ',')){
+    throw 'U04_WORK_REF_SWITCH_SPAWNED_SECOND_ATLAS'
+  }
+  Write-Host "U04_WORK_REF_REBIND_SAME_PROCESS_PASS atlasPids=$($originalAtlasPids -join ',')"
+  # The installed Center already has two real organizations from its GUI test.
+  # Change only Center's context. The original U04 verified reattach must
+  # preserve the external PID without leaking the previous organization's ref.
+  $orgPicker=Find-UI 'Организация' 'ComboBox'
+  $orgPicker.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('{END}')
+  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+  Start-Sleep -Milliseconds 400
+  Click 'Планы Atlas'
+  Click 'Открыть Atlas Desktop'
+  Click $projectTitle $true
+  Click 'Открыть окно Atlas'
+  # Depending on timing, original U04 may observe the HWND immediately or
+  # report the verified process with its window still appearing.
+  [void](Find-UI-Text 'без повторного запуска')
+  $afterOrgPids=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
+    Where-Object { $_.ExecutablePath -eq $atlasExe } |
+    ForEach-Object { [uint32]$_.ProcessId } | Sort-Object)
+  if(($afterOrgPids -join ',') -ne ($originalAtlasPids -join ',')){
+    throw 'U04_ORGANIZATION_SWITCH_SPAWNED_SECOND_ATLAS'
+  }
+  Write-Host "U04_ORGANIZATION_REATTACH_SAME_PROCESS_PASS atlasPids=$($originalAtlasPids -join ',')"
   Click 'Отсоединить окно'
   [void](Find-UI-Text 'Atlas продолжает работать')
+  $orgPicker=Find-UI 'Организация' 'ComboBox'
+  $orgPicker.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+  Start-Sleep -Milliseconds 400
+  Click 'Планы Atlas'
+  Click 'Открыть Atlas Desktop'
+  Click $projectTitle $true
   if(@(Get-Process -Name 'iwxa-atlas-desktop' -ErrorAction SilentlyContinue).Count -lt 1){
     throw 'U04_DETACH_TERMINATED_ATLAS'
   }

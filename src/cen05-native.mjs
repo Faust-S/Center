@@ -20,6 +20,10 @@ const atlasSourceMessage={
 // authority. In particular LAUNCHED_NO_WINDOW is NOT WINDOW_OBSERVED.
 export function describeCen05Status(operation,result){
   const status=result?.status;
+  if(operation==='open'&&status==='WINDOW_OBSERVED'&&result.reusedProcess===true)
+    return 'Существующее окно Atlas подключено без повторного запуска. Работа автоматически не выбирается.';
+  if(operation==='open'&&status==='LAUNCHED_NO_WINDOW'&&result.reusedProcess===true)
+    return 'Существующий процесс Atlas подключён без повторного запуска, но окно пока не обнаружено.';
   if(operation==='open'&&status==='WINDOW_OBSERVED')
     return 'Окно Atlas запущено. Работа внутри Atlas автоматически не выбирается.';
   if(operation==='open'&&status==='LAUNCHED_NO_WINDOW')
@@ -42,6 +46,7 @@ const cen05ErrorMessage={
   WINDOW_NOT_FOUND:'Окно Atlas не найдено. Проверьте запуск программы и повторите фокусировку.',
   WINDOW_FOCUS_DENIED:'Windows не разрешила активировать окно Atlas. Повторите нажатие «Фокус Atlas».',
   PROCESS_EXITED:'Atlas завершил работу. Отсоедините прежнее окно и откройте Atlas снова.',
+  PROCESS_IDENTITY_CHANGED:'Прежний процесс Atlas больше не подтверждён. Повторите открытие, не используя старую привязку.',
   SOURCE_REVISION_CHANGED:'План Atlas изменился. Перечитайте его в Center, не заменяя старую ссылку автоматически.',
   ATLAS_INSTALL_NOT_FOUND:'Установленный Atlas не найден. Проверьте установку канонического Atlas Desktop.',
   CEN05_BINDING_ALREADY_ACTIVE:'Сначала отсоедините предыдущую связь с окном Atlas.'

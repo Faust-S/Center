@@ -28,6 +28,12 @@ mod u04 {
         pub fn for_approved_atlas(path: PathBuf) -> Self {
             Self { target: Some((path, Vec::new())), reattach: None, bound: None }
         }
+        // Re-enter the ORIGINAL U04 verified reattach path after switching
+        // Center organization. Identity must be checked by U04, never by a
+        // guessed PID, and failed reattach must not fall back to spawning.
+        pub fn for_verified_reattach(path: PathBuf, pid: u32, stamp: u64) -> Self {
+            Self { target: Some((path, Vec::new())), reattach: Some((pid, stamp)), bound: None }
+        }
     }
 }
 mod u01 {
@@ -131,11 +137,16 @@ pub fn center_u04_open(app: AppHandle, state: tauri::State<'_, Mutex<Session>>,
     // A previously opened Atlas binding can outlive a WebView page change.
     // Reuse exactly the same WorkRef without launching a second Atlas, or
     // detach the prior U04 binding without terminating the external program.
-    if let Some(existing)=prepare_native_open(&mut session,
-        &organization_id,&project_id,&work_id,&revision)? {
+    let (existing,reattach)=prepare_native_open(&mut session,
+        &organization_id,&project_id,&work_id,&revision)?;
+    if let Some(existing)=existing {
         return Ok(existing);
     }
-    let mut port=u04::Port::for_approved_atlas(target);
+    let reused_process=reattach.is_some();
+    let mut port=match reattach {
+        Some((pid,stamp))=>u04::Port::for_verified_reattach(target,pid,stamp),
+        None=>u04::Port::for_approved_atlas(target),
+    };
     let result=port.handle("open");
     let status=result["status"].as_str().unwrap_or("PRESENTATION_OPEN_UNCONFIRMED");
     if !["WINDOW_OBSERVED","LAUNCHED_NO_WINDOW"].contains(&status) {
@@ -149,43 +160,53 @@ pub fn center_u04_open(app: AppHandle, state: tauri::State<'_, Mutex<Session>>,
     session.revision=revision;
     session.port=Some(port);
     Ok(respond(status,json!({"bindingRef":session.binding_ref,
-        "processId":result["processId"],"windowRef":result["binding"]["windowRef"]})))
+        "processId":result["processId"],"windowRef":result["binding"]["windowRef"],
+        "reusedProcess":reused_process && result["spawned"]==false})))
 }
+// Existing U04 bindings outlive webview navigation. An organization change
+// must release the old Center context while keeping the exact external Atlas
+// process; the original U04 reattach checks its OS process creation stamp.
 fn prepare_native_open(session:&mut Session,organization_id:&str,
-    project_id:&str,work_id:&str,revision:&str)->Result<Option<Value>,String>{
-    let Some(port)=session.port.as_mut() else {return Ok(None)};
-    if session.organization_id==organization_id {
-        let observed=port.handle("getBinding");
-        if observed["status"]=="BOUND" &&
-            observed["binding"]["bindingRef"]==session.binding_ref {
-            // The U04 binding is an Atlas WINDOW, not a deep-link to a work.
-            // After the canonical Atlas preflight, a new work/revision within
-            // this same organization reuses the existing window and PID.
-            let changed=session.project_id!=project_id ||
-                session.work_id!=work_id || session.revision!=revision;
-            if changed {
-                session.project_id=project_id.into();
-                session.work_id=work_id.into();
-                session.revision=revision.into();
-            }
-            // U04 getBinding only proves an existing native binding; activate
-            // subsequently verifies live HWND/focus. Never claim selected Work.
-            return Ok(Some(respond("BINDING_REUSED",json!({
-                "bindingRef":session.binding_ref,
-                "processId":observed["processId"],
-                "windowRef":observed["binding"]["windowRef"],
-                "reboundWorkRef":changed
-            }))));
-        }
+    project_id:&str,work_id:&str,revision:&str)
+    ->Result<(Option<Value>,Option<(u32,u64)>),String>{
+    let Some(port)=session.port.as_mut() else {return Ok((None,None))};
+    let observed=port.handle("getBinding");
+    if observed["status"]!="BOUND" ||
+        observed["binding"]["bindingRef"]!=session.binding_ref {
+        return Err("CEN05_PREVIOUS_BINDING_UNVERIFIED".into());
     }
-    // Cross-organization bindings must be detached; missing native bindings
-    // are also released. U04 closeBinding does not terminate Atlas.
+    if session.organization_id==organization_id {
+        // U04 binds a window, not a selected work. A new WorkRef within the
+        // same organization changes only Center's checked reference.
+        let changed=session.project_id!=project_id ||
+            session.work_id!=work_id || session.revision!=revision;
+        if changed {
+            session.project_id=project_id.into();
+            session.work_id=work_id.into();
+            session.revision=revision.into();
+        }
+        // U04 activate verifies live OS identity and HWND before focus.
+        return Ok((Some(respond("BINDING_REUSED",json!({
+            "bindingRef":session.binding_ref,
+            "processId":observed["processId"],
+            "windowRef":observed["binding"]["windowRef"],
+            "reboundWorkRef":changed
+        }))),None));
+    }
+    let pid=observed["processId"].as_u64()
+        .and_then(|id|u32::try_from(id).ok()).filter(|id|*id>0)
+        .ok_or("CEN05_PREVIOUS_PROCESS_ID_UNAVAILABLE")?;
+    let stamp=observed["processStamp"].as_str()
+        .and_then(|value|value.parse::<u64>().ok()).filter(|value|*value>0)
+        .ok_or("CEN05_PREVIOUS_PROCESS_STAMP_UNAVAILABLE")?;
     let detached=port.handle("closeBinding");
     if detached["status"]!="BINDING_CLOSED" {
         return Err("CEN05_PREVIOUS_BINDING_DETACH_FAILED".into());
     }
     *session=Session::default();
-    Ok(None)
+    // NEVER launch a second Atlas as an implicit fallback if U04 rejects
+    // this process identity. A subsequent deliberate open may launch anew.
+    Ok((None,Some((pid,stamp))))
 }
 fn context_matches(session:&Session,organization_id:&str,project_id:&str,
     work_id:&str,revision:&str,binding_ref:&str)->bool{
@@ -283,15 +304,19 @@ mod tests {
         session.project_id="project-a".into();
         session.work_id="work-a".into();
         session.revision="1".into();
-        let reused=prepare_native_open(&mut session,"org-a","project-a","work-a","1")
-            .unwrap().expect("same work reuses original U04 binding");
+        let (existing,reattach)=prepare_native_open(&mut session,"org-a","project-a","work-a","1")
+            .unwrap();
+        assert!(reattach.is_none());
+        let reused=existing.expect("same work reuses original U04 binding");
         assert_eq!(reused["status"],"BINDING_REUSED");
         assert_eq!(reused["bindingRef"],"test-bound-window");
         assert_eq!(reused["processId"],4242);
         assert_eq!(reused["openedWorkAutomatically"],false);
         assert_eq!(session.port.as_mut().unwrap().handle("getBinding")["status"],"BOUND");
-        let rebound=prepare_native_open(&mut session,"org-a","project-a","work-b","2")
-            .unwrap().expect("same organization reuses installed Atlas process");
+        let (existing,reattach)=prepare_native_open(&mut session,"org-a","project-a","work-b","2")
+            .unwrap();
+        assert!(reattach.is_none());
+        let rebound=existing.expect("same organization reuses installed Atlas process");
         assert_eq!(rebound["status"],"BINDING_REUSED");
         assert_eq!(rebound["reboundWorkRef"],true);
         assert_eq!(rebound["processId"],4242);
@@ -310,8 +335,12 @@ mod tests {
         session.project_id="project-a".into();
         session.work_id="work-a".into();
         session.revision="1".into();
-        assert!(prepare_native_open(&mut session,"org-b","project-a","work-a","1")
-            .unwrap().is_none());
+        let (existing,reattach)=prepare_native_open(&mut session,"org-b","project-a","work-a","1")
+            .unwrap();
+        assert!(existing.is_none());
+        assert_eq!(reattach,Some((4242,123)));
+        let mut native=u04::Port::for_verified_reattach(PathBuf::from("unused"),4242,123);
+        assert_eq!(native.handle("capabilities")["reattachAvailable"],true);
         assert!(session.port.is_none());
         assert!(session.binding_ref.is_empty());
         assert!(session.organization_id.is_empty());
