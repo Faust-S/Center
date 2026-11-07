@@ -8,7 +8,7 @@ mod u04 {
     include!(concat!(env!("OUT_DIR"), "/u04_original_windows.rs"));
     #[cfg(test)]
     impl Port {
-        fn bound_for_host_test() -> Self {
+        pub(super) fn bound_for_host_test() -> Self {
             Self {
                 target: None,
                 reattach: None,
