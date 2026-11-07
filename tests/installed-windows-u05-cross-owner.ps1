@@ -12,6 +12,7 @@ public static class U05Window {
   public static extern bool PostMessage(IntPtr hwnd,uint msg,IntPtr wParam,IntPtr lParam);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd,out uint pid);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extraInfo);
 }
 '@
 $atlas=Join-Path $env:LOCALAPPDATA 'ru.iwxa.atlas/atlas-store-v1'
@@ -84,6 +85,24 @@ function Click([string]$name,[bool]$contains=$false) {
   $button=Find-UI $name 'Button' $contains
   try{$button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()}
   catch{$button.SetFocus();[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')}
+  Start-Sleep -Milliseconds 350
+}
+# A genuine pointer event is necessary for foreground activation on Windows.
+# UIA InvokePattern triggers a button programmatically but does not establish
+# recent user input for the Center process. Do not call SetForegroundWindow
+# from the acceptance script: the original U04 must actually do the focus.
+function Click-Physical([string]$name) {
+  $button=Find-UI $name 'Button'
+  $bounds=$button.Current.BoundingRectangle
+  if($bounds.IsEmpty -or $bounds.Width -lt 6 -or $bounds.Height -lt 6){
+    throw "U04_GUI_BUTTON_NOT_VISIBLE $name"
+  }
+  $x=[int]($bounds.Left + $bounds.Width / 2)
+  $y=[int]($bounds.Top + $bounds.Height / 2)
+  [System.Windows.Forms.Cursor]::Position=[System.Drawing.Point]::new($x,$y)
+  Start-Sleep -Milliseconds 100
+  [U05Window]::mouse_event([uint32]0x0002,0,0,0,[UIntPtr]::Zero)
+  [U05Window]::mouse_event([uint32]0x0004,0,0,0,[UIntPtr]::Zero)
   Start-Sleep -Milliseconds 350
 }
 function Text([string]$name,[string]$value) {
@@ -227,7 +246,7 @@ try {
   $atlasFocused=$false
   [uint32]$foregroundPid=0
   for($focusAttempt=1;$focusAttempt -le 4;$focusAttempt++){
-    Click 'Фокус Atlas'
+    Click-Physical 'Фокус Atlas'
     for($foregroundAttempt=0;$foregroundAttempt -lt 12;$foregroundAttempt++){
       Start-Sleep -Milliseconds 250
       $foreground=[U05Window]::GetForegroundWindow()
