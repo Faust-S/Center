@@ -112,6 +112,16 @@ pub fn center_u04_open(app: AppHandle, state: tauri::State<'_, Mutex<Session>>,
     let target=installed_atlas(&app)?;
     discover_with_original_u01(&target)?;
     let mut session=state.lock().map_err(|_|"CEN05_SESSION_UNAVAILABLE")?;
+    // A GUI organization switch must not strand a former organization's
+    // binding in the native host. U04 detaches without terminating Atlas,
+    // and the next organization still passes its own exact WorkRef preflight.
+    if session.port.is_some() && session.organization_id != organization_id {
+        let detached=session.port.as_mut().expect("bound port").handle("closeBinding");
+        if detached["status"]!="BINDING_CLOSED" {
+            return Err("CEN05_PREVIOUS_BINDING_DETACH_FAILED".into());
+        }
+        *session=Session::default();
+    }
     if session.port.is_some() {return Err("CEN05_BINDING_ALREADY_ACTIVE".into());}
     let mut port=u04::Port::for_approved_atlas(target);
     let result=port.handle("open");
@@ -215,6 +225,19 @@ mod tests {
         assert_eq!(stale["centerFocused"],true);
         assert_eq!(stale["revisionMatches"],false);
         assert_eq!(stale["openedWorkAutomatically"],false);
+    }
+    #[test]
+    fn organization_switch_does_not_inherit_previous_window_binding() {
+        let mut session=Session::default();
+        session.organization_id="org-a".into();
+        session.binding_ref="window-binding-a".into();
+        session.project_id="project-a".into();
+        session.work_id="work-a".into();
+        session.revision="1".into();
+        // A session without an owning U04 port never authorizes any operation.
+        assert!(!context_matches(&session,"org-b","project-a","work-a","1","window-binding-a"));
+        *session=Session::default();
+        assert!(session.binding_ref.is_empty() && session.organization_id.is_empty());
     }
     #[test]
     fn binding_context_never_crosses_organizations_or_revisions() {
