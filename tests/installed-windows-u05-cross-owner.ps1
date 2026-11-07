@@ -10,6 +10,8 @@ using System.Runtime.InteropServices;
 public static class U05Window {
   [DllImport("user32.dll", SetLastError=true)]
   public static extern bool PostMessage(IntPtr hwnd,uint msg,IntPtr wParam,IntPtr lParam);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd,out uint pid);
 }
 '@
 $atlas=Join-Path $env:LOCALAPPDATA 'ru.iwxa.atlas/atlas-store-v1'
@@ -195,6 +197,36 @@ try {
   if(!$title){throw 'U05_CANONICAL_PROJECT_NOT_RENDERED'}
   Write-Host "U05_CANONICAL_PROJECT_VISIBLE_IN_CENTER project=$projectId ownerRevision=$revision"
   Click $projectTitle $true
+  # Real installed Center -> pinned U01 discovery -> original native U04
+  # Windows port -> independent installed Atlas window -> return to Center.
+  # This is an actual WebView2 control route, not direct test IPC.
+  $atlasExe=Join-Path $env:LOCALAPPDATA 'IWXA Atlas/iwxa-atlas-desktop.exe'
+  if(!(Test-Path -LiteralPath $atlasExe)){throw 'U04_INSTALLED_ATLAS_BINARY_MISSING'}
+  Click 'Открыть окно Atlas'
+  [void](Find-UI-Text 'Окно Atlas запущено')
+  $atlasProcesses=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
+      Where-Object { $_.ExecutablePath -eq $atlasExe })
+  if($atlasProcesses.Count -lt 1){throw 'U04_ORIGINAL_ATLAS_PROCESS_NOT_LAUNCHED'}
+  Click 'Фокус Atlas'
+  [void](Find-UI-Text 'Окно Atlas получило фокус')
+  $foreground=[U05Window]::GetForegroundWindow()
+  [uint32]$foregroundPid=0
+  [void][U05Window]::GetWindowThreadProcessId($foreground,[ref]$foregroundPid)
+  if($foregroundPid -notin @($atlasProcesses | ForEach-Object { [uint32]$_.ProcessId })){
+    throw "U04_ATLAS_FOREGROUND_MISMATCH pid=$foregroundPid"
+  }
+  Click 'Вернуться в Center и проверить'
+  [void](Find-UI-Text 'Возврат в Center: редакция Atlas перепроверена')
+  $foreground=[U05Window]::GetForegroundWindow()
+  [uint32]$foregroundPid=0
+  [void][U05Window]::GetWindowThreadProcessId($foreground,[ref]$foregroundPid)
+  if($foregroundPid -ne [uint32]$proc.Id){throw "U04_CENTER_RETURN_FOCUS_MISMATCH pid=$foregroundPid"}
+  Click 'Отсоединить окно'
+  [void](Find-UI-Text 'Atlas продолжает работать')
+  if(@(Get-Process -Name 'iwxa-atlas-desktop' -ErrorAction SilentlyContinue).Count -lt 1){
+    throw 'U04_DETACH_TERMINATED_ATLAS'
+  }
+  Write-Host "U04_CROSS_INSTALLED_OPEN_FOCUS_RETURN_PASS atlasPid=$($atlasProcesses[0].ProcessId) revision=$revision"
   # Preparation requires linking the existing organization workspace to this
   # exact canonical project revision. A free-floating work cannot be issued.
   Click 'Связать с рабочей областью'
