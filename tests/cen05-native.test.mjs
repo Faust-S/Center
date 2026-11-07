@@ -30,3 +30,17 @@ test('native U04 consumer refuses invented focus, auto-selected work, and invali
    openedWorkAutomatically:true}));
  await assert.rejects(()=>fakeSelection.open(ref),/CEN05_NATIVE_RESPONSE_INVALID/);
 });
+
+test('stale Atlas revision after window return is a visible native readback status',async()=>{
+ const api=createCen05NativePort(async(command)=>({
+  schema:'IWXA_PRESENTATION_BRIDGE/1.0.0',
+  status:command==='center_u04_return'?'WORK_SOURCE_NOT_CURRENT':'WINDOW_OBSERVED',
+  revisionMatches:false,openedWorkAutomatically:false,centerFocused:true,
+  reason:'SOURCE_REVISION_CHANGED'
+ }));
+ const result=await api.returnToCenter({organizationId:'org',projectId:'p',workId:'w',revision:'1',bindingRef:'b'});
+ assert.equal(result.status,'WORK_SOURCE_NOT_CURRENT');
+ assert.equal(result.revisionMatches,false);
+ assert.equal(result.centerFocused,true);
+ assert.equal(result.openedWorkAutomatically,false);
+});

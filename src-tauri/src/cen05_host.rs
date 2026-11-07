@@ -173,10 +173,21 @@ pub fn center_u04_return(app:AppHandle,state:tauri::State<'_,Mutex<Session>>,
         return Err("CEN05_BINDING_CONTEXT_CHANGED".into());
     }
     drop(session);
-    observe_atlas(&app,&project_id,&work_id,&revision)?;
+    // Always bring the manager home, including when the canonical Atlas
+    // revision changed while the external window was in use. Returning
+    // focus does not authorize or rewrite an outdated WorkRef.
+    let revision_check=observe_atlas(&app,&project_id,&work_id,&revision);
     let win=app.get_webview_window("main").ok_or("CENTER_WINDOW_NOT_FOUND")?;
     win.set_focus().map_err(|_|"CENTER_FOCUS_DENIED")?;
-    Ok(respond("CENTER_WINDOW_FOCUSED",json!({"revisionMatches":true})))
+    Ok(return_receipt(revision_check))
+}
+fn return_receipt(revision_check: Result<(),String>) -> Value {
+    match revision_check {
+        Ok(())=>respond("CENTER_WINDOW_FOCUSED",
+            json!({"revisionMatches":true,"centerFocused":true})),
+        Err(reason)=>respond("WORK_SOURCE_NOT_CURRENT",
+            json!({"revisionMatches":false,"centerFocused":true,"reason":reason})),
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -192,6 +203,18 @@ mod tests {
         }
         assert!(exact_work(&json!({"schema":"other","revision":3,
             "projects":[]}),"p","w","3").is_err());
+    }
+    #[test]
+    fn returning_to_center_never_hides_a_changed_atlas_revision() {
+        let current=return_receipt(Ok(()));
+        assert_eq!(current["status"],"CENTER_WINDOW_FOCUSED");
+        assert_eq!(current["revisionMatches"],true);
+        let stale=return_receipt(Err("SOURCE_REVISION_CHANGED".into()));
+        assert_eq!(stale["status"],"WORK_SOURCE_NOT_CURRENT");
+        assert_eq!(stale["reason"],"SOURCE_REVISION_CHANGED");
+        assert_eq!(stale["centerFocused"],true);
+        assert_eq!(stale["revisionMatches"],false);
+        assert_eq!(stale["openedWorkAutomatically"],false);
     }
     #[test]
     fn binding_context_never_crosses_organizations_or_revisions() {

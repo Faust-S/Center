@@ -62,16 +62,20 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
        setPresentation({...request,bindingRef:result.bindingRef});
      }
      if(operation==='detach'&&result.status==='BINDING_CLOSED')setPresentation(null);
-     if(!['WINDOW_OBSERVED','LAUNCHED_NO_WINDOW','WINDOW_FOCUSED','CENTER_WINDOW_FOCUSED','BINDING_CLOSED'].includes(result.status))
+     if(!['WINDOW_OBSERVED','LAUNCHED_NO_WINDOW','WINDOW_FOCUSED','CENTER_WINDOW_FOCUSED','WORK_SOURCE_NOT_CURRENT','BINDING_CLOSED'].includes(result.status))
        throw Error(result.status);
      if(operation==='return'){
-       // The native command checked exact Atlas state before Center focus.
+       // Native U04 first returns focus to Center even if Atlas is now stale.
        // Reopen the real canonical owner for fresh UI readback, never overwrite
        // the manager's unsaved assignment editor or silently change its link.
        const latest=await port().openPublicAtlas(organizationId);
        if(current!==epoch.current)return;
        const updated=port().view(latest) as View;
        setSession(latest as Session);setView(updated);observedCallback.current?.(organizationId,updated);
+       if(result.status==='WORK_SOURCE_NOT_CURRENT'){
+         setPresentationStatus('Возврат в Center выполнен. План Atlas изменился; прежняя ссылка поручения не изменена.');
+         return;
+       }
      }
      setPresentationStatus(operation==='open'?'Окно Atlas запущено. Работа внутри Atlas автоматически не выбирается.':
        operation==='activate'?'Окно Atlas получило фокус.':
