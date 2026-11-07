@@ -71,7 +71,7 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
        const latest=await port().openPublicAtlas(organizationId);
        if(current!==epoch.current)return;
        const updated=port().view(latest) as View;
-       setSession(latest);setView(updated);observedCallback.current?.(organizationId,updated);
+       setSession(latest as Session);setView(updated);observedCallback.current?.(organizationId,updated);
      }
      setPresentationStatus(operation==='open'?'Окно Atlas запущено. Работа внутри Atlas автоматически не выбирается.':
        operation==='activate'?'Окно Atlas получило фокус.':
