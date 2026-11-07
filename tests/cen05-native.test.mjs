@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createCen05NativePort,describeCen05Status,describeCen05Error} from '../src/cen05-native.mjs';
+import {createCen05NativePort,describeCen05Status,describeCen05Error,presentationMatchesWork} from '../src/cen05-native.mjs';
 
 test('native U04 uses exact work/organization and never accepts executable or HWND',async()=>{
  const seen=[];
@@ -74,4 +74,16 @@ test('CEN05 reuses exact native U04 work binding without claiming new window or 
  assert.equal(response.bindingRef,'existing-owner-binding');
  assert.equal(response.openedWorkAutomatically,false);
  assert.match(describeCen05Status('open',response),/без повторного запуска/);
+});
+
+test('CEN05 treats project, work, revision and organization changes as a different presentation',()=>{
+ const active={organizationId:'org:a',projectId:'project:a',workId:'work:a',revision:'7',bindingRef:'u04'};
+ const ref={organizationId:'org:a',projectId:'project:a',workId:'work:a',revision:'7'};
+ assert.equal(presentationMatchesWork(active,ref),true);
+ assert.equal(presentationMatchesWork(active,{...ref,organizationId:'org:b'}),false);
+ assert.equal(presentationMatchesWork(active,{...ref,projectId:'project:b'}),false);
+ assert.equal(presentationMatchesWork(active,{...ref,workId:'work:b'}),false);
+ assert.equal(presentationMatchesWork(active,{...ref,revision:'8'}),false);
+ assert.equal(presentationMatchesWork(active,null),false);
+ assert.equal(presentationMatchesWork(null,ref),false);
 });

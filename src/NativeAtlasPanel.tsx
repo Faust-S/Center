@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createNativeAtlasPort} from './atlas-native.mjs';
 import {linkableAtlasProject,linkableAtlasWork} from './atlas-integration.mjs';
-import {createCen05NativePort,describeCen05Status,describeCen05Error} from './cen05-native.mjs';
+import {createCen05NativePort,describeCen05Status,describeCen05Error,presentationMatchesWork} from './cen05-native.mjs';
 
 // Genuine desktop host. Browser preview intentionally has no native authority.
 const isDesktop=()=>Boolean((window as any).__TAURI_INTERNALS__);
@@ -81,6 +81,13 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
    finally{locked.current=false;setBusy(false);}
  }
  const selectedProject=view?.projects.find(x=>x.id===selected);
+ const selectedWorkRef=session?.sourceKind==='PUBLIC_ATLAS_READ_ONLY'&&view&&
+   selectedProject?.workItems.length
+   ?linkableAtlasWork(view,selected,selectedWork||selectedProject.workItems[0].id)
+   :null;
+ const bindingForSelectedWork=presentationMatchesWork(presentation,selectedWorkRef&&{
+   organizationId,...selectedWorkRef
+ });
  return <div className="card nested-form" data-testid="native-atlas-panel">
    <div className="section-head"><h3>Планы Atlas</h3><div className="inline-form"><button className="primary" disabled={busy} onClick={()=>void act(p=>p.openPublicAtlas(organizationId))} data-testid="native-atlas-public-open">Открыть Atlas Desktop</button><button className="secondary" disabled={busy} onClick={()=>void act(p=>p.open(organizationId))} data-testid="native-atlas-open" aria-label="Открыть локальный Atlas">Локальный план Center</button></div></div>
    <p className="muted">Atlas Desktop читается из исходного нативного каталога этой учётной записи, без копирования проектов. Локальные планы Center — отдельная подготовительная область. Оба просмотра не подтверждают корпоративные полномочия T3.</p>
@@ -118,11 +125,12 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
        <h4>Открыть установленный Atlas</h4>
        <p className="muted">Работа и редакция проверяются в оригинальном Atlas перед запуском и возвратом. При отсутствии официальной ссылки работа внутри окна не выбирается автоматически.</p>
        <div className="actions">
-         <button type="button" className="secondary" disabled={busy||!!presentation} data-testid="cen05-u04-open" onClick={()=>void present('open')}>Открыть окно Atlas</button>
-         <button type="button" className="secondary" disabled={busy||!presentation} data-testid="cen05-u04-activate" onClick={()=>void present('activate')}>Фокус Atlas</button>
-         <button type="button" className="secondary" disabled={busy||!presentation} data-testid="cen05-u04-return" onClick={()=>void present('return')}>Вернуться в Center и проверить</button>
+         <button type="button" className="secondary" disabled={busy||bindingForSelectedWork} data-testid="cen05-u04-open" onClick={()=>void present('open')}>Открыть окно Atlas</button>
+         <button type="button" className="secondary" disabled={busy||!bindingForSelectedWork} data-testid="cen05-u04-activate" onClick={()=>void present('activate')}>Фокус Atlas</button>
+         <button type="button" className="secondary" disabled={busy||!bindingForSelectedWork} data-testid="cen05-u04-return" onClick={()=>void present('return')}>Вернуться в Center и проверить</button>
          <button type="button" className="secondary" disabled={busy||!presentation} data-testid="cen05-u04-detach" onClick={()=>void present('detach')}>Отсоединить окно</button>
        </div>
+       {presentation&&!bindingForSelectedWork&&<p className="muted" data-testid="cen05-u04-context-changed">Выбрана другая работа или редакция Atlas. Нажмите «Открыть окно Atlas», чтобы переключить привязку. Прежнее окно не закрывается.</p>}
        {presentationStatus&&<p className="muted" role="status" data-testid="cen05-u04-status">{presentationStatus}</p>}
      </div>}
      <p className="muted">{session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'?'Связь с работой Atlas Desktop — только черновая ссылка. Выдача требует отдельной проверки источника и полномочий перед подписанием.':'Сохранение локального плана Center не делает его общим проектом Atlas Desktop.'}</p>

@@ -51,6 +51,16 @@ export function describeCen05Error(error){
   return cen05ErrorMessage[code]??code;
 }
 
+// An already bound window belongs to one exact canonical Atlas work revision.
+// Changing project, work or source revision must re-enable Open (and cannot
+// silently act on the previously bound work from another selection).
+export function presentationMatchesWork(presentation,work){
+  return Boolean(presentation&&work&&
+    presentation.organizationId===work.organizationId&&
+    presentation.projectId===work.projectId&&
+    presentation.workId===work.workId&&
+    presentation.revision===work.revision);
+}
 export function createCen05NativePort(invoke) {
   if(typeof invoke!=='function')throw Error('CEN05_NATIVE_HOST_UNAVAILABLE');
   return Object.freeze({
