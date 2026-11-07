@@ -154,25 +154,32 @@ pub fn center_u04_open(app: AppHandle, state: tauri::State<'_, Mutex<Session>>,
 fn prepare_native_open(session:&mut Session,organization_id:&str,
     project_id:&str,work_id:&str,revision:&str)->Result<Option<Value>,String>{
     let Some(port)=session.port.as_mut() else {return Ok(None)};
-    let same_work=session.organization_id==organization_id &&
-        session.project_id==project_id &&
-        session.work_id==work_id &&
-        session.revision==revision;
-    if same_work {
+    if session.organization_id==organization_id {
         let observed=port.handle("getBinding");
         if observed["status"]=="BOUND" &&
             observed["binding"]["bindingRef"]==session.binding_ref {
-            // An existing native binding is not proof that the HWND is still
-            // visible or focused. The original U04 checks that on activate().
+            // The U04 binding is an Atlas WINDOW, not a deep-link to a work.
+            // After the canonical Atlas preflight, a new work/revision within
+            // this same organization reuses the existing window and PID.
+            let changed=session.project_id!=project_id ||
+                session.work_id!=work_id || session.revision!=revision;
+            if changed {
+                session.project_id=project_id.into();
+                session.work_id=work_id.into();
+                session.revision=revision.into();
+            }
+            // U04 getBinding only proves an existing native binding; activate
+            // subsequently verifies live HWND/focus. Never claim selected Work.
             return Ok(Some(respond("BINDING_REUSED",json!({
                 "bindingRef":session.binding_ref,
                 "processId":observed["processId"],
-                "windowRef":observed["binding"]["windowRef"]
+                "windowRef":observed["binding"]["windowRef"],
+                "reboundWorkRef":changed
             }))));
         }
     }
-    // U04 closeBinding releases the window reference only: Atlas remains
-    // independent. This also handles changing WorkRef within one organization.
+    // Cross-organization bindings must be detached; missing native bindings
+    // are also released. U04 closeBinding does not terminate Atlas.
     let detached=port.handle("closeBinding");
     if detached["status"]!="BINDING_CLOSED" {
         return Err("CEN05_PREVIOUS_BINDING_DETACH_FAILED".into());
@@ -283,10 +290,16 @@ mod tests {
         assert_eq!(reused["processId"],4242);
         assert_eq!(reused["openedWorkAutomatically"],false);
         assert_eq!(session.port.as_mut().unwrap().handle("getBinding")["status"],"BOUND");
-        assert!(prepare_native_open(&mut session,"org-a","project-a","work-b","1")
-            .unwrap().is_none());
-        assert!(session.port.is_none());
-        assert!(session.binding_ref.is_empty());
+        let rebound=prepare_native_open(&mut session,"org-a","project-a","work-b","2")
+            .unwrap().expect("same organization reuses installed Atlas process");
+        assert_eq!(rebound["status"],"BINDING_REUSED");
+        assert_eq!(rebound["reboundWorkRef"],true);
+        assert_eq!(rebound["processId"],4242);
+        assert_eq!(rebound["openedWorkAutomatically"],false);
+        assert_eq!(session.work_id,"work-b");
+        assert_eq!(session.revision,"2");
+        assert_eq!(session.binding_ref,"test-bound-window");
+        assert_eq!(session.port.as_mut().unwrap().handle("getBinding")["status"],"BOUND");
     }
     #[test]
     fn organization_switch_detaches_original_u04_binding_without_terminating_atlas() {
