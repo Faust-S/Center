@@ -7,13 +7,20 @@ import {createT3AdminPort} from './t3-admin-port.mjs';
 const allowed=new Set(['selectStaff','selectOperator','exportIssuedTask','receive','inspect','decide',
   'previewApplication','decideApplication','commitApplication']);
 const check=(value,code)=>{if(!value)throw Error(code);};
+// The original T3 IWXA transport limit is 32 MiB. This boundary must match
+// Center's native file picker; its 8 MiB JSON draft limit is unrelated.
+export const MAX_CEN_IWXA_CARRIER_BYTES=32*1024*1024;
 const decodeBinary=value=>{
-  check(Array.isArray(value)&&value.length>0&&value.length<=8*1024*1024&&
-    value.every(n=>Number.isInteger(n)&&n>=0&&n<=255),'CEN_PACKAGE_BYTES_INVALID');
+  check(Array.isArray(value)&&value.length>0&&
+    value.length<=MAX_CEN_IWXA_CARRIER_BYTES,'CEN_PACKAGE_BYTES_INVALID');
+  // Array.prototype.every skips holes. A sparse carrier must not silently
+  // become an altered zero-filled package before T3 verifies signatures.
+  for(const n of value)check(Number.isInteger(n)&&n>=0&&n<=255,'CEN_PACKAGE_BYTES_INVALID');
   return Uint8Array.from(value);
 };
 const encodeCarrier=bytes=>{
   check(bytes instanceof Uint8Array&&bytes.byteLength>0,'CEN_OWNER_CARRIER_REQUIRED');
+  check(bytes.byteLength<=MAX_CEN_IWXA_CARRIER_BYTES,'CEN_OWNER_CARRIER_LIMIT');
   return Array.from(bytes);
 };
 export function createCorporateOwnerHost({runtime,openAtlas,resolveAssignment}={}){

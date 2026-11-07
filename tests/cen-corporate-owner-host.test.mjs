@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createCorporateOwnerHost} from '../runtime/cen-corporate-owner-host.mjs';
+import {createCorporateOwnerHost,MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64);
 const binding={organizationId:'org:1',workspaceId:'work:1',contextEpoch:1};
@@ -119,4 +119,33 @@ test('missing single T3 activation flag is never sufficient for readiness',async
      binding,input:{packageSha256:A}}),/PRODUCTION_NOT_ACTIVATED/);
  }
  assert.deepEqual(runtime.calls,[]);
+});
+
+test('CEN02 owner bridge honors the original 32 MiB IWXA carrier boundary, not the 8 MiB draft limit',async()=>{
+ assert.equal(MAX_CEN_IWXA_CARRIER_BYTES,32*1024*1024);
+ const runtime=owner(),host=createCorporateOwnerHost({runtime});
+ let receivedBytes=-1;
+ runtime.receive=bytes=>{
+   receivedBytes=bytes.byteLength;
+   runtime.state.packages.push(A);
+   return {transportReceipt:{packageSha256:A,state:'RECEIVED'}};
+ };
+ const justOverDraft=new Array(8*1024*1024+1).fill(0);
+ const receipt=await host.action({organizationId:'org:1',operation:'receive',
+   binding,input:{bytes:justOverDraft}});
+ assert.equal(receipt.transportReceipt.packageSha256,A);
+ assert.equal(receivedBytes,8*1024*1024+1);
+ const tooLarge=[];tooLarge.length=MAX_CEN_IWXA_CARRIER_BYTES+1;
+ await assert.rejects(()=>host.action({organizationId:'org:1',operation:'receive',
+   binding,input:{bytes:tooLarge}}),/CEN_PACKAGE_BYTES_INVALID/);
+ assert.equal(receivedBytes,8*1024*1024+1);
+});
+test('CEN02 owner bridge rejects sparse carrier and oversized signed export without faking owner confirmation',async()=>{
+ const runtime=owner(),host=createCorporateOwnerHost({runtime});
+ await assert.rejects(()=>host.action({organizationId:'org:1',operation:'receive',
+   binding,input:{bytes:[80,,75]}}),/CEN_PACKAGE_BYTES_INVALID/);
+ assert.deepEqual(runtime.calls,[]);
+ runtime.taskBytes=()=>new Uint8Array(MAX_CEN_IWXA_CARRIER_BYTES+1);
+ await assert.rejects(()=>host.action({organizationId:'org:1',operation:'exportIssuedTask',
+   binding,input:{taskId:'task:1',taskRevisionId:B}}),/CEN_OWNER_CARRIER_LIMIT/);
 });
