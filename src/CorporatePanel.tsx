@@ -15,7 +15,7 @@ const why=(e:unknown)=>{
      ? 'Подписанная Task могла быть выдана, но привязка Atlas не сохранена. Проверьте T3, повторно выдавать вслепую нельзя.'
      : message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onIssued,atlasView}:{organization:Org;atlasView:any|null;invoke:Invoke|null;onIssued:(issued:any,personId:string)=>Promise<void>;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onIssued,atlasView}:{organization:Org;atlasView:any|null;invoke:Invoke|null;onIssued:(issued:any,recipientId:string)=>Promise<void>;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
  const [owner,setOwner]=useState<any>(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');

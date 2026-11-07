@@ -110,11 +110,11 @@ export default function App() {
   };
   const go = (next: Page) => {setPage(next); setMenuOpen(false);};
 
-  const persistIssuedTaskLink = async (issued:any,ownerPersonId:string) => {
+  const persistIssuedTaskLink = async (issued:any,recipientId:string) => {
     const organization=state.organizations.find(x=>x.id===issued.organizationId);
     const assignment=organization?.assignments.find(x=>x.id===issued.assignmentId);
     if(!nativeHost||!organization||!assignment||
-       organization.id!==state.activeOrganizationId||!ownerPersonId)
+       organization.id!==state.activeOrganizationId||!recipientId)
       throw Error('TASK_ALREADY_ISSUED_LINK_NOT_SAVED');
     let next:Draft;
     try{
@@ -122,7 +122,7 @@ export default function App() {
         organizationId:organization.id,assignmentId:assignment.id,
         assignmentEditNumber:assignment.editNumber,workspaceId:issued.workspaceId,
         assigneeId:assignment.assigneeId,reviewerId:assignment.reviewerId,
-        ownerPersonId,taskId:issued.taskId,taskRevisionId:issued.taskRevisionId,
+        recipientId,taskId:issued.taskId,taskRevisionId:issued.taskRevisionId,
         atlasRef:issued.atlasRef}) as Draft;
       const content=encodeDraft(next);
       const readback=await nativeInvoke('center_draft_save_local',{
