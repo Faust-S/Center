@@ -15,6 +15,7 @@ const why=(e:unknown)=>{
 };
 export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
  const [owner,setOwner]=useState<any>(null);
+ const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
  const [notice,setNotice]=useState('');
@@ -41,17 +42,29 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
    }
    const valid=fingerprint===null?null:candidate;
    setOwner(valid);
+    setOwnerAvailability(valid?'OWNER_READY':
+      candidate===null||candidate?.status==='NOT_CONNECTED'||candidate?.status==='REFERENCE_ONLY'
+        ?'NOT_CONNECTED':'OWNER_READ_FAILED');
    return valid;
  };
+ const ownerReadFailure=(e:unknown)=>{
+   const reason=e instanceof Error?e.message:String(e);
+   adoptOwner(null);
+   // Distinguish a missing Tauri command from a real owner readback failure.
+   setOwnerAvailability(/unknown command|command .*not found|center_corporate_state.*not found/i.test(reason)
+     ?'NOT_CONNECTED':'OWNER_READ_FAILED');
+ };
+
  const refresh=async()=>{
    const seq=++requestRef.current;
    if(!invoke)return adoptOwner(null);
    try{
      const next=await invoke('center_corporate_state',{organizationId});
      return seq===requestRef.current?adoptOwner(next):null;
-   }catch{
-     return seq===requestRef.current?adoptOwner(null):null;
-   }
+    }catch(e){
+      if(seq===requestRef.current)ownerReadFailure(e);
+      return null;
+    }
  };
  useEffect(()=>{
    let cancelled=false;
@@ -59,9 +72,9 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
    adoptOwner(null);setError('');setNotice('');
    if(invoke)void invoke('center_corporate_state',{organizationId}).then(r=>{
      if(!cancelled&&seq===requestRef.current)adoptOwner(r);
-   }).catch(()=>{
-     if(!cancelled&&seq===requestRef.current)adoptOwner(null);
-   });
+   }).catch(e=>{
+      if(!cancelled&&seq===requestRef.current)ownerReadFailure(e);
+    });
    return()=>{cancelled=true;requestRef.current++};
  },[invoke,organizationId]);
  const execute=async(operation:string,input:Record<string,unknown>={})=>{
@@ -112,7 +125,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  return <section className="card padded" data-testid="corporate-panel">
   <div className="section-head"><h2>Поручения и корпоративная приёмка</h2><button className="secondary" disabled={busy} onClick={()=>act('Состояние перечитано.',async()=>{await refresh();resetReview()})}>Обновить</button></div>
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
-  <p className="notice subdued" data-testid="corporate-owner-status">{ready?'Подтверждённая организационная сессия владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
+  <p className="notice subdued" data-testid="corporate-owner-status">{ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; проверьте состояние владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
   <div className="nested-form" data-testid="cen02-owner-people">
    <h3>Ответственные в организации</h3>
