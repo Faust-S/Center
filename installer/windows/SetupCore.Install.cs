@@ -251,6 +251,11 @@ namespace IwxaSetup
             string root = RootFor(info);
             if (Directory.Exists(PreviousFor(info)) || File.Exists(PreviousFor(info)))
                 throw new InvalidOperationException("SETUP_UPGRADE_PENDING_RESOLUTION");
+            // A crash can happen after the ownership receipt has been
+            // removed but before the final HKCU authority key is deleted.
+            // Complete that narrow, verified phase without touching user data.
+            if (!File.Exists(Path.Combine(root, ReceiptFile)))
+                return FinishPendingUninstall(info, root);
             IDictionary<string, object> receipt = ReadReceipt(root);
             if ((string)receipt["product"] != info.Id ||
                 (string)receipt["packageSha256"] != info.PackageSha256 ||
@@ -262,7 +267,8 @@ namespace IwxaSetup
             {
                 if (reg == null ||
                     !SamePath(Convert.ToString(reg.GetValue("InstallLocation")), root) ||
-                    Convert.ToString(reg.GetValue("PackageSha256")) != info.PackageSha256)
+                    Convert.ToString(reg.GetValue("PackageSha256")) != info.PackageSha256 ||
+                    Convert.ToString(reg.GetValue("Version")) != info.Version)
                     throw new InvalidOperationException("SETUP_INSTALL_AUTHORITY_MISSING");
             }
             string app = Path.Combine(root,
@@ -310,22 +316,70 @@ namespace IwxaSetup
                     throw new InvalidDataException("SETUP_RECEIPT_ROOT_ESCAPE");
                 files.Add(file);
             }
-            // Fail BEFORE deleting anything when an owned file or an
-            // intermediate directory is read-only or redirected. Otherwise a
-            // late filesystem refusal could leave an incomplete application.
+            // Preflight ALL managed targets before the first destructive step.
             RequireUninstallTargetsReady(root, files);
-            // Only delete known installation files. Unexpected user files in
-            // the install directory, user data and external programs survive.
+            // The existing HKCU owner remains the final authority until all
+            // managed files and the receipt are gone. Restarting the original
+            // verified Setup EXE can resume after any filesystem interruption.
+            using (var writable = Registry.CurrentUser.OpenSubKey(
+                RegistryProducts + info.Id, true))
+            {
+                if (writable == null)
+                    throw new InvalidOperationException("SETUP_INSTALL_AUTHORITY_MISSING");
+                writable.SetValue("UninstallPending", 1, RegistryValueKind.DWord);
+            }
+            bool removedFirstFile = false;
+            string ownedUninstaller = Path.Combine(root, UninstallExe);
             foreach (string file in files)
             {
-                if (File.Exists(file))
+                // Keep the full signed V2 uninstaller and the receipt until
+                // the payload is gone. No user-created file is enumerated here.
+                if (SamePath(file, ownedUninstaller)) continue;
+                if (!File.Exists(file)) continue;
+                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+                    throw new InvalidDataException("SETUP_UNINSTALL_LINK_FORBIDDEN");
+                File.Delete(file);
+                if (!removedFirstFile)
                 {
-                    if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
-                        throw new InvalidDataException("SETUP_UNINSTALL_LINK_FORBIDDEN");
-                    File.Delete(file);
+                    removedFirstFile = true;
+                    TestUninstallFailure(info, "after-first-payload");
                 }
             }
+            if (File.Exists(ownedUninstaller))
+                File.Delete(ownedUninstaller);
+            // A staged NSIS migration never owns the old Start Menu entry.
+            if (!receipt.ContainsKey("legacyHandoff")) DeleteShortcut(info);
+            // Delete Windows uninstall registration first, not the private
+            // ownership key. Its absence is harmless when retrying.
+            Registry.CurrentUser.DeleteSubKeyTree(WindowsUninstall + info.Id, false);
+            TestUninstallFailure(info, "after-windows-registration");
+            DeleteEmptyUninstallDirectories(root);
             File.Delete(Path.Combine(root, ReceiptFile));
+            TestUninstallFailure(info, "after-receipt");
+            if (Directory.Exists(root) &&
+                Directory.GetFileSystemEntries(root).Length == 0)
+                Directory.Delete(root);
+            // Last destructive step; a crash before this is resumable from
+            // UninstallPending even if the receipt was already removed.
+            Registry.CurrentUser.DeleteSubKeyTree(RegistryProducts + info.Id, false);
+            return new InstallOutcome {
+                Status = "UNINSTALLED_USER_DATA_PRESERVED",
+                Product = info.Id, Version = info.Version, Root = root
+            };
+        }
+
+        private static void TestUninstallFailure(BundleInfo info, string phase)
+        {
+            // Test-only fixture; never enabled for any shipped IWXA product.
+            if (info.Id == "iwxa.setup.fastfixture" &&
+                Environment.GetEnvironmentVariable(
+                    "IWXA_SETUP_TEST_UNINSTALL_FAIL_AT") == phase)
+                throw new IOException("SETUP_TEST_UNINSTALL_FAILURE_" + phase);
+        }
+
+        private static void DeleteEmptyUninstallDirectories(string root)
+        {
+            if (!Directory.Exists(root)) return;
             var directories = new List<string>();
             var pending = new Stack<string>();
             pending.Push(root);
@@ -344,11 +398,35 @@ namespace IwxaSetup
             foreach (string dir in directories)
                 if (Directory.GetFileSystemEntries(dir).Length == 0)
                     Directory.Delete(dir);
-            if (Directory.GetFileSystemEntries(root).Length == 0)
+        }
+
+        private static InstallOutcome FinishPendingUninstall(
+            BundleInfo info, string root)
+        {
+            using (var owner = Registry.CurrentUser.OpenSubKey(
+                RegistryProducts + info.Id))
+            {
+                if (owner == null ||
+                    Convert.ToInt32(owner.GetValue("UninstallPending", 0)) != 1 ||
+                    !SamePath(Convert.ToString(owner.GetValue("InstallLocation")), root) ||
+                    Convert.ToString(owner.GetValue("Version")) != info.Version ||
+                    Convert.ToString(owner.GetValue("PackageSha256")) != info.PackageSha256)
+                    throw new InvalidOperationException(
+                        "SETUP_UNINSTALL_RESUME_AUTHORITY_MISSING");
+            }
+            if (File.Exists(Path.Combine(root, UninstallExe)) ||
+                File.Exists(Path.Combine(root,
+                    info.Entrypoint.Replace('/', Path.DirectorySeparatorChar))) ||
+                File.Exists(Path.Combine(root, ReceiptFile)))
+                throw new InvalidOperationException(
+                    "SETUP_UNINSTALL_RESUME_MANAGED_FILES_REMAIN");
+            DeleteShortcut(info);
+            DeleteEmptyUninstallDirectories(root);
+            if (Directory.Exists(root) &&
+                Directory.GetFileSystemEntries(root).Length == 0)
                 Directory.Delete(root);
-            // A staged NSIS migration never owns the old Start Menu entry.
-            if (!receipt.ContainsKey("legacyHandoff")) DeleteShortcut(info);
-            Deregister(info, root);
+            Registry.CurrentUser.DeleteSubKeyTree(WindowsUninstall + info.Id, false);
+            Registry.CurrentUser.DeleteSubKeyTree(RegistryProducts + info.Id, false);
             return new InstallOutcome {
                 Status = "UNINSTALLED_USER_DATA_PRESERVED",
                 Product = info.Id, Version = info.Version, Root = root
