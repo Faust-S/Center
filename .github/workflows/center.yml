@@ -75,11 +75,33 @@ jobs:
           node-version: '22.16.0'
       - run: npm install --no-audit --no-fund
       - name: Build native Center with original Atlas storage
-        run: npm run desktop:build -- --no-bundle
+        # Pass the Tauri flag directly. The prior npm script invocation dropped
+        # --no-bundle, unexpectedly downloading NSIS before the Rust tests.
+        run: npx --no-install tauri build --no-bundle
       - name: Native Atlas storage tests, including two separate processes
         run: cargo test --manifest-path src-tauri/Cargo.toml --bin iwxa-admin-center -- --nocapture
       - name: Bundle offline Windows installer (NSIS with embedded WebView2)
-        run: npm run desktop:build
+        shell: pwsh
+        run: |
+          # Reuse the already-compiled EXE. A temporary NSIS download 504
+          # must not force a second Rust build or skip native tests.
+          $completed = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+              npx --no-install tauri bundle --bundles nsis
+              if ($LASTEXITCODE -eq 0) {
+                Write-Host "CENTER_NSIS_BUNDLE_CONFIRMED attempt=$attempt"
+                $completed = $true
+                break
+              }
+            } catch {
+              Write-Warning "NSIS bundle attempt $attempt failed: $_"
+            }
+            if ($attempt -lt 3) {
+              Start-Sleep -Seconds (10 * $attempt)
+            }
+          }
+          if (-not $completed) { throw "CENTER_NSIS_BUNDLE_UNAVAILABLE_AFTER_3_ATTEMPTS" }
       - name: Verify installer bundle and record hashes
         shell: pwsh
         run: |
