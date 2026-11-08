@@ -22,6 +22,8 @@ namespace IwxaSetup
                     WriteResult(args[1], new Dictionary<string, object> {
                         {"status", "VERIFIED"}, {"product", result.Id},
                         {"version", result.Version}, {"architecture", result.Architecture},
+                        {"entrypoint", result.Entrypoint},
+                        {"requiresWebView2", result.NeedsWebView2},
                         {"files", result.FileCount}, {"sourceCommit", result.SourceCommit},
                         {"packageSha256", result.PackageSha256},
                         {"packageFormat", result.PackageFormat}
