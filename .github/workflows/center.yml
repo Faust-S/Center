@@ -209,6 +209,19 @@ jobs:
       - name: Build/install/launch/uninstall Publisher with original IWXA Setup Core
         shell: pwsh
         run: ./publisher/tests/installed-setupcore-publisher.ps1
+      - name: Validate Publisher two-file Setup Core payload in PUBLIC CI only
+        shell: pwsh
+        run: |
+          # Transport-only: an already public EXE is an opaque second-file
+          # fixture, NOT a signer. No T3 source/credentials or issuer in CI.
+          ./publisher/tests/installed-setupcore-publisher.ps1 -OwnerComponentPath 'publisher/src-tauri/target/release/iwxa-publisher.exe' -TransportOnly
+          $receipt = Get-Content 'artifacts/publisher-setupcore-transport/result.json' -Raw | ConvertFrom-Json
+          if($receipt.status -ne 'PUBLISHER_TWO_FILE_TRANSPORT_ONLY_PASS' -or
+             $receipt.fileCount -ne 2 -or $receipt.signedLicenseIssued -ne $false -or
+             $receipt.productionActivation -ne $false -or $receipt.activeSeats -ne 0){
+            throw 'PUBLISHER_PUBLIC_TWO_FILE_TRANSPORT_GATE_FAILED'
+          }
+          Write-Host 'PUBLISHER_CENTER_PUBLIC_TWO_FILE_SETUP_CORE_TRANSPORT_PASS_NO_PRIVATE_T3'
       - name: Preserve Publisher Setup Core evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -217,6 +230,7 @@ jobs:
           path: |
             artifacts/publisher-setupcore/*.json
             artifacts/publisher-setupcore/*.png
+            artifacts/publisher-setupcore-transport/result.json
             artifacts/publisher-setupcore/*.exe
             publisher/src-tauri/target/release/iwxa-publisher.exe
             publisher/src-tauri/Cargo.lock
