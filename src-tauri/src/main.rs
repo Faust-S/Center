@@ -225,6 +225,10 @@ fn center_save_iwxa_file(bytes: Vec<u8>, task_revision_id: String) -> Result<boo
     }
 }
 
+#[path="../../native/t3_product_component.rs"]
+mod t3_product_component;
+mod t3_consumer;
+
 mod cen05_host;
 
 fn main() {
@@ -235,7 +239,8 @@ fn main() {
             save_draft_file, open_draft_file, center_save_iwxa_file, center_open_iwxa_file,
             center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open,
             cen05_host::center_u04_open, cen05_host::center_u04_activate,
-            cen05_host::center_u04_return, cen05_host::center_u04_detach
+            cen05_host::center_u04_return, cen05_host::center_u04_detach,
+            t3_consumer::center_cen04_t3_read, t3_consumer::center_cen04_t3_import
         ])
         .run(tauri::generate_context!())
         .expect("Admin Center could not start");
