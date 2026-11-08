@@ -24,6 +24,7 @@ namespace IwxaSetup
         internal long PayloadBytes;
         internal string SourceCommit;
         internal string PackageSha256;
+        internal string PackageFormat;
         internal int FileCount;
     }
 
@@ -128,6 +129,7 @@ namespace IwxaSetup
                     Entrypoint = SafePath(StringValue(product, "entrypoint")),
                     InstallDir = SafePath(StringValue(product, "install_dir")),
                     PackageSha256 = Hex(zipHash),
+                    PackageFormat = resourcePackage ? "PE_RESOURCE_V2" : "ZIP_OVERLAY_V1",
                 };
                 if (!Regex.IsMatch(info.Id, @"\A[a-z][a-z0-9.-]{2,63}\z") ||
                     !Regex.IsMatch(info.Version, @"\A\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?\z") ||

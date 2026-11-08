@@ -71,7 +71,8 @@ try {
         }
         $identity = Invoke-Setup $signed '--inspect-file' 'signed-inspect'
         Expect $identity 'VERIFIED' 'SIGNED_INSPECT'
-        if ($identity.product -ne $product.id -or $identity.version -ne $product.version -or
+        if ($identity.packageFormat -ne 'PE_RESOURCE_V2' -or
+            $identity.product -ne $product.id -or $identity.version -ne $product.version -or
             $identity.sourceCommit -ne $head) {
             throw 'SETUP_V2_SIGNED_IDENTITY_INVALID'
         }
@@ -95,7 +96,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'SETUP_V2_UPGRADE_SIGN_FAILED' }
         $newIdentity = Invoke-Setup $upgrade '--inspect-file' 'upgrade-inspect'
         Expect $newIdentity 'VERIFIED' 'UPGRADE_INSPECT'
-        if ($newIdentity.version -ne '0.3.0-dev.2' -or
+        if ($newIdentity.packageFormat -ne 'PE_RESOURCE_V2' -or
+            $newIdentity.version -ne '0.3.0-dev.2' -or
             $newIdentity.packageSha256 -ne $identity.packageSha256) {
             throw 'SETUP_V2_UPGRADE_IDENTITY_CHANGED'
         }

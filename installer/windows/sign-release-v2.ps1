@@ -94,6 +94,9 @@ function Inspect([string]$binary,[string]$phase,[string]$mode) {
 }
 New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
 $before = Inspect $source 'before-sign' '--inspect-file'
+if ($before.packageFormat -ne 'PE_RESOURCE_V2') {
+    throw 'SETUP_RELEASE_PE_RESOURCE_V2_REQUIRED'
+}
 if ($before.sourceCommit -ne $ExpectedSourceCommit) {
     throw 'SETUP_RELEASE_SOURCE_COMMIT_MISMATCH'
 }
@@ -116,7 +119,8 @@ try {
     }
     $after = Inspect $target 'after-sign' '--inspect-file'
     $staged = Inspect $target 'after-sign-stage' '--stage-test-file'
-    if ($after.packageSha256 -ne $before.packageSha256 -or
+    if ($after.packageFormat -ne 'PE_RESOURCE_V2' -or
+        $after.packageSha256 -ne $before.packageSha256 -or
         $after.sourceCommit -ne $before.sourceCommit -or
         $after.version -ne $before.version -or
         $staged.packageSha256 -ne $before.packageSha256) {

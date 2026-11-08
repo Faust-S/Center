@@ -23,7 +23,8 @@ namespace IwxaSetup
                         {"status", "VERIFIED"}, {"product", result.Id},
                         {"version", result.Version}, {"architecture", result.Architecture},
                         {"files", result.FileCount}, {"sourceCommit", result.SourceCommit},
-                        {"packageSha256", result.PackageSha256}
+                        {"packageSha256", result.PackageSha256},
+                        {"packageFormat", result.PackageFormat}
                     });
                     return 0;
                 }

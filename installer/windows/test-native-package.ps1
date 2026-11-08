@@ -62,7 +62,9 @@ try {
     $native = Invoke-NativeInspection $bundle $report 0
     if ($native.status -ne 'VERIFIED' -or $native.product -ne $manifest.product -or
         $native.version -ne '0.3.0-dev.1' -or $native.sourceCommit -ne $sourceHead -or
-        $native.packageSha256 -ne $manifest.payload_sha256 -or $native.files -ne $manifest.file_count) {
+        $native.packageSha256 -ne $manifest.payload_sha256 -or
+        $native.packageFormat -ne 'ZIP_OVERLAY_V1' -or
+        $native.files -ne $manifest.file_count) {
         throw 'SETUP_NATIVE_PYTHON_DISAGREEMENT'
     }
     Write-Host "IWXA_SETUP_NATIVE_PACKAGE_PASS files=$($native.files) version=$($native.version)"
@@ -85,7 +87,8 @@ try {
         Join-Path $artifact 'setup-resource-v2-inspect.json') 0
     if($resourceNative.status -ne 'VERIFIED' -or
        $resourceNative.sourceCommit -ne $sourceHead -or
-       $resourceNative.packageSha256 -ne $manifest.payload_sha256){
+       $resourceNative.packageSha256 -ne $manifest.payload_sha256 -or
+       $resourceNative.packageFormat -ne 'PE_RESOURCE_V2'){
       throw 'SETUP_RESOURCE_V2_NATIVE_INSPECTION_INVALID'
     }
     $resourceStage=Invoke-NativeInspection $resourceFile (
