@@ -115,7 +115,7 @@ export default function App(){
  function go(p:Page){setPage(p);setMobileNav(false);setError('');setMessage('');}
  return <div className={'app publisher-app'+(mobileNav?' menu-open':'')}>
    <aside className="sidebar">
-     <header className="brand"><div><strong>IWXA</strong><small>Publisher · 0.2 development</small></div><span className="version">PREVIEW</span></header>
+     <header className="brand"><div><strong>IWXA</strong><small>Publisher · 0.2.0-dev.2</small></div><span className="version">PREVIEW</span></header>
      <nav aria-label="Разделы Publisher">
        {navigation.map(([key,label,symbol])=><button key={key} type="button" className={'nav-link'+(page===key?' active':'')} onClick={()=>go(key)} aria-current={page===key?'page':undefined}><span className="nav-icon" aria-hidden="true">{symbol}</span><span>{label}</span></button>)}
      </nav>
@@ -128,7 +128,7 @@ export default function App(){
        <span className="status neutral">{loaded?'Локально сохранено':'Состояние не загружено'}</span>
      </header>
      <div className="page-heading"><div><div className="eyebrow">OWNER-SIDE PUBLISHER</div><h1>{navigation.find(v=>v[0]===page)?.[1]}</h1></div></div>
-     <div className="notice">Версия разработки 0.2. Состояние подготовки: лицензии не выдаются, подпись издателя не подключена, выпуск релиза не разрешён. {nativeHost?'Черновики хранятся отдельно от Admin Center.':'В браузере доступны только локальные подготовительные черновики.'}</div>
+     <div className="notice">Версия разработки 0.2.0-dev.2. Состояние подготовки: лицензии не выдаются, подпись издателя не подключена, выпуск релиза не разрешён. {nativeHost?'Черновики хранятся отдельно от Admin Center.':'В браузере доступны только локальные подготовительные черновики.'}</div>
      {error&&<div className="notice error" role="alert">{error}</div>}
      {message&&<div className="notice" role="status">{message}</div>}
      {!loaded?<section className="card padded" role="status">Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.</section>:<>

@@ -144,6 +144,7 @@ fn validate_test_request(content: &str) -> Result<(), String> {
     if subject.len()!=3 || !["type","id","name"].iter().all(|key|subject.contains_key(*key))
         || value["subject"]["type"]!="ORGANIZATION"
         || value["subject"]["id"].as_str().is_none_or(str::is_empty)
+        || value["subject"]["id"].as_str().is_some_and(|v|v.starts_with("holder:"))
         || value["subject"]["name"].as_str().is_none_or(str::is_empty) {
         return Err("TEST_REQUEST_SUBJECT_INVALID".into());
     }
@@ -270,7 +271,7 @@ mod tests {
             "kind":"TEST_LICENSE_REQUEST","requestId":"proposal:123",
             "requestedAt":"2026-11-08T00:00:00.000Z",
             "environment":"TEST",
-            "subject":{"type":"ORGANIZATION","id":"holder:123","name":"Demo"},
+            "subject":{"type":"ORGANIZATION","id":"11111111-1111-4111-8111-111111111111","name":"Demo"},
             "product":{"id":"IWXA_ADMIN_CENTER","version":"0.3.0"},
             "featureIds":["WORKSPACE"],"termDays":30,"seats":3,
             "status":"UNSIGNED_REQUEST"

@@ -77,6 +77,13 @@ try {
   const dimensions=await page.evaluate(()=>({viewport:window.innerWidth,body:document.body.scrollWidth,doc:document.documentElement.scrollWidth}));
   assert.ok(dimensions.body<=dimensions.viewport && dimensions.doc<=dimensions.viewport,JSON.stringify(dimensions));
   checks.push('mobile-navigation-no-horizontal-overflow');
+  await page.getByRole('button',{name:'Открыть навигацию'}).click();
+  await page.getByRole('button',{name:'Запросы на лицензии'}).click();
+  const requestWidth=await page.evaluate(()=>Math.max(document.body.scrollWidth,document.documentElement.scrollWidth));
+  assert.ok(requestWidth<=320,'TEST request interface overflows 320px: '+requestWidth);
+  checks.push('mobile-test-license-request-no-horizontal-overflow');
+  await page.getByRole('button',{name:'Открыть навигацию'}).click();
+  await page.getByRole('button',{name:'Обзор'}).click();
 
   await page.screenshot({path:'artifacts/publisher/overview-320.png',fullPage:true});
   await page.setViewportSize({width:1366,height:900});

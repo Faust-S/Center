@@ -24,7 +24,7 @@ export function validateTestLicenseRequest(value) {
     reject('TEST_REQUEST_SCHEMA_OR_STATUS_INVALID');
   if (!validId(value.requestId) || !validIso(value.requestedAt)) reject('TEST_REQUEST_ID_OR_TIME_INVALID');
   fields(value.subject, ['type','id','name'], 'TEST_REQUEST_SUBJECT_INVALID');
-  if (value.subject.type !== 'ORGANIZATION' || !validId(value.subject.id) ||
+  if (value.subject.type !== 'ORGANIZATION' || !validId(value.subject.id) || value.subject.id.startsWith('holder:') ||
       typeof value.subject.name !== 'string' || value.subject.name.length < 1 || value.subject.name.length > 130)
     reject('TEST_REQUEST_SUBJECT_INVALID');
   fields(value.product, ['id','version'], 'TEST_REQUEST_PRODUCT_INVALID');
@@ -50,6 +50,7 @@ export function prepareTestLicenseRequest(draft, { proposalId, seats }) {
   if (!subject || !product) reject('TEST_REQUEST_UNRESOLVED_DRAFT');
   if (subject.type !== 'ORGANIZATION' || product.id !== 'IWXA_ADMIN_CENTER')
     reject('TEST_REQUEST_SCOPE_NOT_SUPPORTED');
+  if (subject.id.startsWith('holder:')) reject('TEST_REQUEST_SOURCE_ORGANIZATION_ID_REQUIRED');
   return validateTestLicenseRequest({
     schema: TEST_LICENSE_REQUEST_SCHEMA,
     kind: 'TEST_LICENSE_REQUEST',

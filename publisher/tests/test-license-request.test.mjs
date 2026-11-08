@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {emptyPublisherDraft, applyPublisherDraftCommand} from '../src/preparation.mjs';
+import {emptyDraft as emptyAdminDraft, applyDraftCommand as applyAdminCommand} from '../../src/organization.mjs';
 import {prepareTestLicenseRequest, validateTestLicenseRequest, encodeTestLicenseRequest, decodeTestLicenseRequest, suggestedTestRequestFileName} from '../src/test-license-request.mjs';
 
 function fixture(kind='ORGANIZATION',productId='IWXA_ADMIN_CENTER',features=['WORKSPACE']){
@@ -32,6 +33,19 @@ test('scoped TEST issuer request refuses a PERSONAL holder, Control Center and a
     const d=fixture(holder,product);
     assert.throws(()=>prepareTestLicenseRequest(d,{proposalId:d.proposals[0].id,seats:1}),{code:'TEST_REQUEST_SCOPE_NOT_SUPPORTED'});
   }
+});
+test('request subject binds exactly to the original Admin Center organization draft identity',()=>{
+  const original='11111111-1111-4111-8111-111111111111';
+  const admin=applyAdminCommand(emptyAdminDraft(),{type:'CREATE_ORGANIZATION',name:'Source organization',kind:'ORGANIZATION'},{
+    id:()=>original, now:()=>new Date('2026-11-08T00:00:00.000Z').toISOString()
+  });
+  const publisher=fixture();
+  const request=prepareTestLicenseRequest(publisher,{proposalId:publisher.proposals[0].id,seats:4});
+  assert.equal(request.subject.id,admin.organizations[0].id);
+  assert.equal(request.subject.type,'ORGANIZATION');
+  assert.equal(request.seats,4);
+  assert.equal(request.status,'UNSIGNED_REQUEST');
+  assert.equal(admin.organizations[0].id,admin.activeOrganizationId);
 });
 test('issuer request cannot be generated for empty or unselected features, wrong proposal ID or extra fields',()=>{
   const d=fixture('ORGANIZATION','IWXA_ADMIN_CENTER',[]);

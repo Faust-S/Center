@@ -88,7 +88,7 @@ export function applyPublisherDraftCommand(draft, command) {
   if (command.kind === 'addProduct') {
     next.products.push({id:command.id, name:command.name, version:command.version});
   } else if (command.kind === 'addHolder') {
-    next.holders.push({id:'holder:'+crypto.randomUUID(), name:command.name, type:command.type});
+    next.holders.push({id:command.id, name:command.name, type:command.type});
   } else if (command.kind === 'addProposal') {
     next.proposals.push({id:'proposal:'+crypto.randomUUID(), holderId:command.holderId, productId:command.productId,features:command.features,termDays:command.termDays,createdAt:new Date().toISOString(),status:'DRAFT_NOT_ISSUED'});
   } else if (command.kind === 'addArtifact') {
