@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   model:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') }}
     strategy:
       fail-fast: false
       matrix:
@@ -44,6 +44,7 @@ jobs:
       - name: Verify universal Setup Core package contract
         run: python -m unittest discover -s installer/tests -p 'test_*.py' -v
   interface:
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +72,7 @@ jobs:
             package-lock.json
             dist/
   windows-shell:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -178,3 +179,71 @@ jobs:
             artifacts/u05-two-installed-result.json
             src-tauri/Cargo.lock
             package-lock.json
+
+  # Opt-in only: exact stable 0.2 Windows NSIS acceptance, no new workflow.
+  windows-legacy-preview:
+    if: ${{ startsWith(github.event.head_commit.message, 'ci(legacy):') }}
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Atlas
+          ref: 7a0a2c8a458617a011a3db78b72c3dd1adbc12c2
+          path: vendor/atlas
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Br-test
+          ref: 07df66ab6bd3e1b87036c33b90e49d228d5ab820
+          path: vendor/brtest
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: 2439f236cb7017135e661ee5bfd37b1d318868e1
+          path: legacy
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: center-windows-preparation-shell
+          repository: Faust-S/Center
+          run-id: 42410786028
+          github-token: ${{ github.token }}
+          path: legacy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: npm install --no-audit --no-fund
+      - name: Build current candidate for exact legacy preview
+        run: npx tauri build --no-bundle
+      - name: Build and test native Setup Core
+        shell: pwsh
+        timeout-minutes: 5
+        run: ./installer/windows/test-native-package.ps1
+      - name: Install exact stable NSIS 0.2 and create real data
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $nsis = @(Get-ChildItem 'legacy/src-tauri/target/release/bundle/nsis/*.exe')
+          if ($nsis.Count -ne 1) { throw 'LEGACY_NSIS_0_2_PIN_ARTIFACT_MISSING' }
+          Push-Location legacy
+          try { ./tests/installed-windows-center.ps1 }
+          finally { Pop-Location }
+      - name: Stage 0.3 beside original NSIS and verify user data
+        shell: pwsh
+        timeout-minutes: 5
+        run: ./tests/installed-windows-legacy-preview.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: center-legacy-nsis-to-native-preview
+          path: |
+            artifacts/legacy-nsis-preview-*.json
+            artifacts/setup-core-legacy-*.json
+            artifacts/installed-gui-result.json
+            artifacts/installed-gui-failure.png
