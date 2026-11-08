@@ -96,6 +96,31 @@ try {
       throw 'SETUP_RESOURCE_V2_NATIVE_STAGING_INVALID'
     }
     Write-Host 'IWXA_SETUP_RESOURCE_V2_PACK_INSPECT_STAGE_PASS'
+    # A developer self-signed code-signing key must never pass the production
+    # signing gate, even if the PE-resource V2 payload itself is valid.
+    $probeCert = New-SelfSignedCertificate -Type CodeSigningCert -HashAlgorithm SHA256 -Subject 'CN=IWXA Test Not Trusted' -CertStoreLocation 'Cert:\CurrentUser\My'
+    try {
+        $refusedOutput = Join-Path $artifact 'setup-core-v2-selfsigned-release-rejected.exe'
+        if (Test-Path -LiteralPath $refusedOutput) {
+            throw 'SETUP_RELEASE_TEST_OUTPUT_ALREADY_EXISTS'
+        }
+        $rejected = $false
+        try {
+            & (Join-Path $PSScriptRoot 'sign-release-v2.ps1') -UnsignedSetupExe $resourceFile -SignedSetupExe $refusedOutput -CertificateThumbprint $probeCert.Thumbprint -ExpectedCertificateSubject $probeCert.Subject -ExpectedUnsignedSha256 (Get-FileHash -LiteralPath $resourceFile -Algorithm SHA256).Hash -ExpectedSourceCommit $sourceHead
+        } catch {
+            if ($_.Exception.Message -notlike '*SETUP_RELEASE_SELF_SIGNED_CERTIFICATE_FORBIDDEN*') {
+                throw
+            }
+            $rejected = $true
+        }
+        if (!$rejected -or (Test-Path -LiteralPath $refusedOutput)) {
+            throw 'SETUP_RELEASE_SELF_SIGNED_CERTIFICATE_ACCEPTED'
+        }
+        Write-Host 'IWXA_SETUP_RELEASE_SELF_SIGNED_CERTIFICATE_REFUSED_PASS'
+    } finally {
+        Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $probeCert.Thumbprint) -Force -ErrorAction SilentlyContinue
+    }
+
     # Exercise the common installer verification with an unsigned Setup EXE,
     # independently of whether the hosted Windows image has WebView2.
     $badComponentReport = Join-Path $artifact 'setup-core-webview2-unsigned.json'
