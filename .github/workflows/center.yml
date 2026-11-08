@@ -54,6 +54,16 @@ jobs:
         shell: powershell
         timeout-minutes: 4
         run: ./installer/windows/qualify-uninstall-and-shortcut-fast.ps1 -Stub artifacts/iwxa-setup-core-early.exe
+      - name: Profile native Setup Core PE resource V2 packaging (25 MiB)
+        if: ${{ runner.os == 'Windows' && startsWith(github.event.head_commit.message, 'perf(setup):') }}
+        shell: pwsh
+        timeout-minutes: 7
+        run: ./installer/windows/benchmark-package.ps1 -Stub artifacts/iwxa-setup-core-early.exe -SizesMiB 25
+      - uses: actions/upload-artifact@v4
+        if: ${{ runner.os == 'Windows' && startsWith(github.event.head_commit.message, 'perf(setup):') }}
+        with:
+          name: setup-core-benchmark-25
+          path: artifacts/setup-core-benchmark-25.json
   interface:
     if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
     runs-on: ubuntu-24.04
