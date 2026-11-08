@@ -138,7 +138,16 @@ namespace IwxaSetup
                             Convert.ToString(handoff["version"]) == legacy.Version &&
                             Convert.ToString(handoff["registryName"]) ==
                                 legacy.RegistryName &&
-                            legacy.Status == "LEGACY_CONFIRMED_READ_ONLY" ?
+                            Convert.ToString(handoff["uninstaller"]) ==
+                                legacy.Uninstaller &&
+                            Convert.ToString(handoff["status"]) ==
+                                "PREVIEW_ONLY_NSIS_RETAINED" &&
+                            legacy.Status == "LEGACY_CONFIRMED_READ_ONLY" &&
+                            FingerprintLegacyFile(Path.Combine(legacy.Root,
+                                info.Entrypoint.Replace('/', Path.DirectorySeparatorChar))) ==
+                                Convert.ToString(handoff["applicationSha256"]) &&
+                            FingerprintLegacyFile(legacy.Uninstaller) ==
+                                Convert.ToString(handoff["uninstallerSha256"]) ?
                                 "LEGACY_MIGRATION_PENDING_GUI_READBACK" :
                                 "LEGACY_MIGRATION_REVIEW_REQUIRED";
                         return plan;

@@ -480,6 +480,25 @@ try {
                 (Get-FileHash -LiteralPath $oldUninstaller -Algorithm SHA256).Hash -ne $oldUninstallerHash) {
                 throw 'SETUP_S3_LEGACY_0_2_MODIFIED_DURING_PREVIEW'
             }
+            # NSIS original binary changes must invalidate the staged handoff.
+            # Each fixture byte is restored before the cancellation test.
+            foreach ($target in @($oldExe, $oldUninstaller)) {
+                $original = [IO.File]::ReadAllBytes($target)
+                try {
+                    [IO.File]::WriteAllText($target, 'CHANGED_AFTER_PREVIEW')
+                    $review = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
+                    if ($review.status -ne 'LEGACY_MIGRATION_REVIEW_REQUIRED') {
+                        throw ('SETUP_LEGACY_MODIFIED_BINARY_STILL_ACCEPTED_' + (Split-Path -Leaf $target))
+                    }
+                } finally {
+                    [IO.File]::WriteAllBytes($target, $original)
+                }
+                $restoredPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
+                if ($restoredPlan.status -ne 'LEGACY_MIGRATION_PENDING_GUI_READBACK') {
+                    throw 'SETUP_LEGACY_BINARY_RECOVERY_NOT_RECOGNIZED'
+                }
+            }
+            Write-Host 'IWXA_SETUP_S3_LEGACY_BINARY_SNAPSHOT_REVIEW_GATE_PASS'
             $previewRemoved = Invoke-NativeInspection $bundle (Join-Path $artifact 'setup-core-legacy-preview-removed.json') 0 '--uninstall-file'
             if ($previewRemoved.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
                 (Test-Path -LiteralPath $stagedLegacy.installRoot) -or

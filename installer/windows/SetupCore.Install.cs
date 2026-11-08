@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Web.Script.Serialization;
 using Microsoft.Win32;
@@ -170,14 +171,23 @@ namespace IwxaSetup
                 {"files", installedFiles}
             };
             if (legacy != null)
+            {
+                // The preview must not silently adopt a different or replaced
+                // NSIS 0.2 binary between staging and the handoff decision.
+                // Preserve identity evidence only; never uninstall legacy here.
+                string originalExe = Path.Combine(legacy.Root,
+                    verified.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
                 receipt["legacyHandoff"] = new Dictionary<string, object> {
                     {"schema", "IWXA_SETUP_LEGACY_HANDOFF/1"},
                     {"root", legacy.Root},
                     {"version", legacy.Version},
                     {"registryName", legacy.RegistryName},
                     {"uninstaller", legacy.Uninstaller},
+                    {"applicationSha256", FingerprintLegacyFile(originalExe)},
+                    {"uninstallerSha256", FingerprintLegacyFile(legacy.Uninstaller)},
                     {"status", "PREVIEW_ONLY_NSIS_RETAINED"}
                 };
+            }
             File.WriteAllText(Path.Combine(staged, ReceiptFile),
                 new JavaScriptSerializer().Serialize(receipt) + "\n",
                 new UTF8Encoding(false));
@@ -321,6 +331,20 @@ namespace IwxaSetup
             }
             catch (ArgumentException) { }
             return UninstallOwned(exe);
+        }
+
+        private static string FingerprintLegacyFile(string file)
+        {
+            if (String.IsNullOrWhiteSpace(file) || !File.Exists(file) ||
+                (File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("SETUP_LEGACY_BINARY_UNTRUSTED");
+            using (var input = new FileStream(file, FileMode.Open, FileAccess.Read,
+                FileShare.Read))
+            using (var digest = SHA256.Create())
+            {
+                return BitConverter.ToString(digest.ComputeHash(input))
+                    .Replace("-", "").ToLowerInvariant();
+            }
         }
 
         private static IDictionary<string, object> ReadReceipt(string root)
