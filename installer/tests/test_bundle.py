@@ -102,6 +102,18 @@ class BundleTests(unittest.TestCase):
         install = (core / "SetupCore.Install.cs").read_text(encoding="utf-8")
         self.assertIn("BundleReader.ExtractVerified(bundle, staged)", install)
 
+    def test_native_progress_is_honest_and_close_action_accessible(self):
+        form = (Path(__file__).resolve().parents[1] / "windows" /
+                "SetupCore.Form.cs").read_text(encoding="utf-8")
+        self.assertIn("ProgressBarStyle.Marquee", form)
+        self.assertIn("activity.Visible = true", form)
+        self.assertIn("activity.Visible = false", form)
+        self.assertIn("activity.AccessibleName", form)
+        self.assertIn('closeSetup.Text = T("Закрыть", "Close")', form)
+        self.assertIn("closeSetup.Visible = alternate == SetupOperation.None", form)
+        self.assertIn("closeSetup.Click += (sender, args) => Close()", form)
+        self.assertIn("retry.AccessibleName = retry.Text", form)
+
     def test_two_other_product_profiles_share_same_package_contract(self):
         for suffix in ("alpha", "beta"):
             with self.subTest(product=suffix):

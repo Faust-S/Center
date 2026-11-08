@@ -21,6 +21,8 @@ namespace IwxaSetup
         private readonly Label version = new Label();
         private readonly Label packageDetails = new Label();
         private readonly Button retry = new Button();
+        private readonly Button closeSetup = new Button();
+        private readonly ProgressBar activity = new ProgressBar();
         private readonly Button install = new Button();
         private readonly Button secondary = new Button();
         private readonly LinkLabel openApplication = new LinkLabel();
@@ -165,6 +167,18 @@ namespace IwxaSetup
             packageDetails.Location = new Point(21, 133);
             packageDetails.Size = new Size(530, 50);
             card.Controls.Add(packageDetails);
+            // Honest indeterminate progress during hashing, verification and
+            // filesystem operations. No fictional percentage or extra screen.
+            activity.Style = ProgressBarStyle.Marquee;
+            activity.MarqueeAnimationSpeed = 22;
+            activity.Location = new Point(21, 186);
+            activity.Size = new Size(530, 6);
+            activity.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+            activity.AccessibleName = T("Установщик выполняет операцию",
+                                        "Setup is working");
+            activity.TabStop = false;
+            activity.Visible = false;
+            card.Controls.Add(activity);
 
             var note = Label(
                 T("Новая установка сохраняет личные данные и другие программы.\nПроверка пакета не изменяет установленную программу.",
@@ -197,6 +211,7 @@ namespace IwxaSetup
             install.AccessibleDescription = T("Основное действие установщика",
                 "Primary installer action");
             install.TabStop = true;
+            install.TabIndex = 0;
             install.Enabled = false;
             install.Size = new Size(192, 40);
             install.Margin = new Padding(5, 0, 5, 0);
@@ -208,6 +223,7 @@ namespace IwxaSetup
             actions.Controls.Add(install);
 
             secondary.Visible = false;
+            secondary.TabIndex = 1;
             secondary.AccessibleDescription = T("Отменить обновление и вернуть предыдущую версию",
                 "Cancel update and restore previous release");
             secondary.Size = new Size(160, 40);
@@ -220,6 +236,8 @@ namespace IwxaSetup
             actions.Controls.Add(secondary);
 
             retry.Text = T("Проверить снова", "Verify again");
+            retry.AccessibleName = retry.Text;
+            retry.TabIndex = 2;
             retry.Size = new Size(145, 40);
             retry.Margin = new Padding(5, 0, 5, 0);
             retry.BackColor = Color.White;
@@ -228,6 +246,21 @@ namespace IwxaSetup
             retry.ForeColor = Color.FromArgb(39, 78, 133);
             retry.Click += async (sender, args) => await VerifyAsync();
             actions.Controls.Add(retry);
+
+            closeSetup.Text = T("Закрыть", "Close");
+            closeSetup.AccessibleName = closeSetup.Text;
+            closeSetup.AccessibleDescription = T(
+                "Закрыть окно установщика без изменений данных",
+                "Close the installer without changing application data");
+            closeSetup.TabIndex = 3;
+            closeSetup.Size = new Size(105, 40);
+            closeSetup.Margin = new Padding(5, 0, 5, 0);
+            closeSetup.BackColor = Color.White;
+            closeSetup.ForeColor = Color.FromArgb(39, 78, 133);
+            closeSetup.FlatStyle = FlatStyle.Flat;
+            closeSetup.FlatAppearance.BorderColor = Color.FromArgb(187, 205, 227);
+            closeSetup.Click += (sender, args) => Close();
+            actions.Controls.Add(closeSetup);
         }
 
         private void SetWizardStep(int current)
@@ -280,6 +313,12 @@ namespace IwxaSetup
                     T("Отменить предпросмотр, сохранив прежнюю установку",
                       "Cancel the preview without changing the existing installation") : "";
             secondary.TabStop = alternate != SetupOperation.None;
+            // Four full-width buttons would overflow the smallest supported
+            // laptop width. Keep Close available whenever no secondary
+            // recovery action needs to be displayed.
+            closeSetup.Visible = alternate == SetupOperation.None;
+            closeSetup.TabStop = closeSetup.Visible;
+            closeSetup.Enabled = !performingOperation;
         }
 
         private void ShowDiskSpaceRequired(SetupDiskPlan disk, string versionLine)
@@ -437,7 +476,9 @@ namespace IwxaSetup
             install.Enabled = false;
             secondary.Enabled = false;
             retry.Enabled = false;
+            closeSetup.Enabled = false;
             openApplication.Enabled = false;
+            activity.Visible = true;
             status.ForeColor = Dark;
             status.Text = operation == SetupOperation.Upgrade ?
                 T("Обновление программы…", "Updating application…") :
@@ -569,7 +610,9 @@ namespace IwxaSetup
             finally
             {
                 performingOperation = false;
+                activity.Visible = false;
                 retry.Enabled = true;
+                closeSetup.Enabled = true;
                 openApplication.Enabled = true;
             }
             if (failure != null)
@@ -636,6 +679,7 @@ namespace IwxaSetup
         {
             if (performingOperation) return null;
             retry.Enabled = false;
+            activity.Visible = true;
             SetWizardStep(1);
             ConfigureActions(SetupOperation.None, SetupOperation.None,
                 T("Недоступно", "Unavailable"));
@@ -908,7 +952,14 @@ namespace IwxaSetup
                     "Installation is blocked. Obtain a valid distribution.");
                 return null;
             }
-            finally { if (!IsDisposed && !Disposing) retry.Enabled = true; }
+            finally
+            {
+                if (!IsDisposed && !Disposing)
+                {
+                    activity.Visible = false;
+                    retry.Enabled = true;
+                }
+            }
         }
 
     }

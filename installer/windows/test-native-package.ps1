@@ -829,6 +829,25 @@ try {
                 }
             } catch {}
         }
+        # Close Setup must be a real, named, visible native button, not
+        # a hidden link or a keyboard trap.
+        $closeAccessible = $false
+        foreach ($control in $descendants) {
+            try {
+                if ($control.Current.Name -eq 'Закрыть' -or
+                    $control.Current.Name -eq 'Close') {
+                    $rect = $control.Current.BoundingRectangle
+                    if ($rect.Width -ge 75 -and $rect.Height -ge 25 -and
+                        !$control.Current.IsOffscreen) {
+                        $closeAccessible = $true
+                    }
+                }
+            } catch {}
+        }
+        if (!$closeAccessible) {
+            throw 'SETUP_NATIVE_CLOSE_ACTION_NOT_ACCESSIBLE'
+        }
+        Write-Host 'IWXA_SETUP_NATIVE_CLOSE_ACTION_ACCESSIBLE_PASS'
         if ($null -eq $titleElement) {
             Write-Host ("IWXA_SETUP_UIA_NAMES=" +
                 ((@($descendants | ForEach-Object { try { $_.Current.Name } catch {} }) |
