@@ -1,6 +1,6 @@
 import {firefox} from 'playwright';
 import {spawn} from 'node:child_process';
-import {mkdirSync, writeFileSync} from 'node:fs';
+import {mkdirSync, writeFileSync, readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 
 mkdirSync('artifacts/publisher',{recursive:true});
@@ -42,6 +42,22 @@ try {
   await page.getByText('Подготовленные запросы (1)').waitFor();
   assert.match(await page.locator('main').innerText(),/Не выдано/);
   checks.push('proposal-not-issued');
+  await page.getByLabel('Места для TEST-запроса').fill('3');
+  const waiting=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Подготовить TEST-запрос'}).click();
+  const downloaded=await waiting;
+  const testRequest=JSON.parse(readFileSync(await downloaded.path(),'utf8'));
+  assert.equal(testRequest.schema,'IWXA_PUBLISHER_TEST_LICENSE_REQUEST/1');
+  assert.equal(testRequest.kind,'TEST_LICENSE_REQUEST');
+  assert.equal(testRequest.status,'UNSIGNED_REQUEST');
+  assert.equal(testRequest.environment,'TEST');
+  assert.equal(testRequest.seats,3);
+  assert.equal(testRequest.product.id,'IWXA_ADMIN_CENTER');
+  assert.equal(testRequest.subject.type,'ORGANIZATION');
+  assert.deepEqual(testRequest.featureIds,['FEATURE_A','FEATURE_B']);
+  assert.ok(!('licenseId' in testRequest) && !('signature' in testRequest));
+  assert.match(await page.locator('main').innerText(),/Лицензия не выдана/);
+  checks.push('export-exact-unsigned-product-holder-test-request');
 
   await page.reload();
   await page.getByRole('button',{name:'Запросы на лицензии'}).click();

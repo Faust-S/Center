@@ -1,5 +1,6 @@
 import React, {useEffect,useState} from 'react';
 import { emptyPublisherDraft, decodePublisherDraft, encodePublisherDraft, applyPublisherDraftCommand } from '../src/preparation.mjs';
+import { prepareTestLicenseRequest, encodeTestLicenseRequest, suggestedTestRequestFileName } from '../src/test-license-request.mjs';
 import '../../src/style.css';
 import './style.css';
 
@@ -50,6 +51,7 @@ export default function App(){
  const [proposalHolder,setProposalHolder]=useState('');
  const [features,setFeatures]=useState('');
  const [termDays,setTermDays]=useState('30');
+ const [testSeats,setTestSeats]=useState('1');
  const [inspected,setInspected]=useState<Inspection|null>(null);
  const [releaseProduct,setReleaseProduct]=useState('');
  const [releasePlatform,setReleasePlatform]=useState('windows-x64');
@@ -82,6 +84,28 @@ export default function App(){
      if(result){setInspected(result as Inspection);setMessage('Байты файла проверены. Источник и разрешение на выпуск ещё не подтверждены.');}
    }catch(e){setError(getError(e));}
    finally{setBusy(false);}
+ }
+ async function exportTestRequest(proposalId:string) {
+   if(busy||!loaded)return;
+   setBusy(true);setError('');setMessage('');
+   try {
+     const request=prepareTestLicenseRequest(state,{proposalId,seats:Number(testSeats)});
+     const content=encodeTestLicenseRequest(request);
+     const filename=suggestedTestRequestFileName(request);
+     if(nativeHost) {
+       const saved=await invoke('publisher_save_test_request',{content,suggestedFileName:filename});
+       if(!saved){setMessage('Сохранение TEST-запроса отменено.');return;}
+     } else {
+       const url=URL.createObjectURL(new Blob([content],{type:'application/json;charset=utf-8'}));
+       try {
+         const link=document.createElement('a');link.href=url;link.download=filename;
+         document.body.appendChild(link);link.click();link.remove();
+         await new Promise(resolve=>setTimeout(resolve,0));
+       } finally {URL.revokeObjectURL(url);}
+     }
+     setMessage('Неподписанный TEST-запрос экспортирован. Лицензия не выдана.');
+   } catch(e) {setError(getError(e));}
+   finally {setBusy(false);}
  }
  const productTitle=(id:string)=>state.products.find(p=>p.id===id)?.name||id;
  const holderTitle=(id:string)=>state.holders.find(h=>h.id===id)?.name||id;
@@ -141,7 +165,13 @@ export default function App(){
            <label>Срок в днях<input type="number" min={1} max={3650} required value={termDays} onChange={e=>setTermDays(e.target.value)}/></label></div>
            <button type="submit" className="primary" disabled={busy}>Сохранить запрос</button></form>}</section>
          <section className="card padded"><h2>Подготовленные запросы ({state.proposals.length})</h2>
-         {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small></div><span className="status neutral">Не выдано</span><button className="quiet" disabled={busy} type="button" onClick={()=>void change({kind:'removeProposal',id:p.id},'Черновик удалён.')}>Удалить</button></div>)}
+          {state.proposals.length>0&&<div className="publisher-test-request">
+            <p className="muted">Экспорт TEST-запроса для будущего оригинального издателя T3. Файл не подписан и не предоставляет права Admin Center.</p>
+            <label>Места для TEST-запроса<input aria-label="Места для TEST-запроса" type="number" min={1} max={10000} value={testSeats} onChange={e=>setTestSeats(e.target.value)}/></label>
+          </div>
+         {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small></div><span className="status neutral">Не выдано</span>
+            <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>void exportTestRequest(p.id)}>Подготовить TEST-запрос</button>
+            <button className="quiet" disabled={busy} type="button" onClick={()=>void change({kind:'removeProposal',id:p.id},'Черновик удалён.')}>Удалить</button></div>)}
          </section>
        </>}
        {page==='releases'&&<>
