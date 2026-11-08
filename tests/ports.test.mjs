@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDraftRepository} from '../runtime/t3-draft-repository.mjs';
 import {createT3AdminPort} from '../runtime/t3-admin-port.mjs';
+import {issuedTaskExportSelection} from '../runtime/cen02-exchange.mjs';
 import {emptyDraft,applyDraftCommand} from '../src/organization.mjs';
 import {empty as emptyAtlas,createProject,createItem} from '../vendor/atlas/src/core.mjs';
 // Explicit contract doubles: these tests do not qualify signatures, T3 or native persistence.
@@ -335,4 +336,39 @@ test('CEN03 requires exact source IDs before asking T3 to apply',()=>{
  assert.throws(()=>port.commitApplication({previewId:'p',previewDigest:'v',
    acceptanceId:'c'.repeat(64),revisionIds:[],binding}),/EXPECTED_SOURCE_REQUIRED/);
  assert.deepEqual(owner.calls,[]);
+});
+
+
+test('CEN02 export requires unique persisted issuer WorkRef for current signed T3 Task',()=>{
+ const owner={product:'admin',organizationId:'org',workspaceId:'work',
+   personId:'person:staff',task:{id:'task:issued',taskRevisionId:TASK_REVISION}};
+ const link={organizationId:'org',workspaceId:'work',assignmentId:'assignment:1',
+   assignmentEditNumber:1,assigneeId:'draft:staff',reviewerId:'draft:lead',
+   recipientId:'person:staff',taskId:'task:issued',taskRevisionId:TASK_REVISION,
+   atlasRef:{projectId:'project:p',workId:'work:w',revision:'7'},
+   associationProof:'LOCAL_ISSUER_SIDE_REFERENCE_ONLY',deliveryState:'NOT_CONFIRMED'};
+ const expected={taskId:'task:issued',taskRevisionId:TASK_REVISION,
+   recipientId:'person:staff',atlasRef:link.atlasRef};
+ assert.deepEqual(issuedTaskExportSelection([link],owner,'org'),expected);
+ assert.equal(issuedTaskExportSelection([],owner,'org'),null);
+ assert.equal(issuedTaskExportSelection([link],owner,'other'),null);
+ assert.equal(issuedTaskExportSelection([link],{...owner,product:'control'},'org'),null);
+ assert.equal(issuedTaskExportSelection([link],{...owner,personId:'person:other'},'org'),null);
+ assert.equal(issuedTaskExportSelection([link],{...owner,
+   task:{...owner.task,taskRevisionId:'c'.repeat(64)}},'org'),null);
+ assert.equal(issuedTaskExportSelection([link,structuredClone(link)],owner,'org'),null,
+   'ambiguous issuer links must block export');
+ for(const change of [
+   {organizationId:'other'}, {workspaceId:'other'},
+   {recipientId:'person:other'}, {deliveryState:'DELIVERED'},
+   {associationProof:'UNVERIFIED'}, {assignmentEditNumber:0},
+   {atlasRef:{...link.atlasRef,workId:''}}
+ ]){
+   assert.equal(issuedTaskExportSelection([{...link,...change}],owner,'org'),null);
+ }
+ const legacy={...link,ownerPersonId:link.recipientId};
+ delete legacy.recipientId;
+ assert.deepEqual(issuedTaskExportSelection([legacy],owner,'org'),expected,
+   'historical ownerPersonId alias was the recipient, never corporate authority');
+ assert.equal(issuedTaskExportSelection([{...legacy,recipientId:'person:staff'}],owner,'org'),null);
 });
