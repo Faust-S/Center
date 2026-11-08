@@ -284,6 +284,7 @@ jobs:
           name: center-legacy-nsis-to-native-preview
           path: |
             artifacts/legacy-nsis-preview-*.json
+            artifacts/legacy-real-organizations-result.json
             artifacts/installed-gui-result.json
             artifacts/installed-gui-failure.png
 
