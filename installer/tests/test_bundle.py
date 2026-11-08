@@ -77,7 +77,7 @@ class BundleTests(unittest.TestCase):
                        "ExpectedGuiAccessibleName",
                        "offlineNetworkIsolationVerified",
                        "productUninstallQualified",
-                       "status = 'NOT_QUALIFIED'"):
+                       "Write-Qualification 'NOT_QUALIFIED'"):
             with self.subTest(marker=marker):
                 self.assertIn(marker, source)
         self.assertNotIn("iwxa.admin-center", source)

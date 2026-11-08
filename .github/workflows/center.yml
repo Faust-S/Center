@@ -335,7 +335,7 @@ jobs:
         shell: pwsh
         timeout-minutes: 2
         run: ./installer/windows/build-stub.ps1 -Output artifacts/webview2-signature-probe.exe
-      - name: Verify clean-VM qualification script parses and rejects connected runner
+      - name: Validate offline WebView2 witness parses and rejects connected runner
         shell: pwsh
         timeout-minutes: 2
         run: |
@@ -343,13 +343,12 @@ jobs:
           $script = Join-Path $env:GITHUB_WORKSPACE 'installer/windows/qualify-webview2-clean-windows.ps1'
           $tokens=$null
           $errors=$null
-          $ast=[System.Management.Automation.Language.Parser]::ParseFile(
-            $script, [ref]$tokens, [ref]$errors)
-          if($errors.Count -ne 0){throw "WEBVIEW2_CLEAN_VM_POWERSHELL_PARSE_FAILED $($errors[0])"}
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors)
+          if($errors.Count -ne 0){throw 'WEBVIEW2_CLEAN_VM_POWERSHELL_PARSE_FAILED'}
           $functions=@($ast.FindAll({
-            param($n)
-            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-              $n.Name -eq 'Assert-OfflineNetworkIsolation'
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+              $node.Name -eq 'Assert-OfflineNetworkIsolation'
           },$true))
           if($functions.Count -ne 1){throw 'WEBVIEW2_CLEAN_VM_NETWORK_ASSERT_MISSING'}
           . ([scriptblock]::Create($functions[0].Extent.Text))
@@ -357,71 +356,11 @@ jobs:
           try {
             $null=Assert-OfflineNetworkIsolation
           } catch {
-            if($_.Exception.Message -notmatch '^WEBVIEW2_CLEAN_VM_OFFLINE_(DEFAULT_ROUTE_PRESENT|HTTPS_REACHABLE|NETWORK_UNCERTAIN)
-        timeout-minutes: 3
-        run: |
-          $ErrorActionPreference='Stop'
-          $official=Join-Path $env:GITHUB_WORKSPACE 'artifacts/MicrosoftEdgeWebview2Setup.exe'
-          $stub=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-signature-probe.exe'
-          $report=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-official-verification.json'
-          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $official -MaximumRedirection 6 -TimeoutSec 60
-          if(!(Test-Path -LiteralPath $official)){throw 'WEBVIEW2_REAL_BOOTSTRAPPER_MISSING'}
-          $p=Start-Process -FilePath $stub -ArgumentList ('--verify-webview2-installer-file "{0}" "{1}"' -f $official,$report) -PassThru
-          try {
-            if(!$p.WaitForExit(55000)){Stop-Process -Id $p.Id -Force; throw 'WEBVIEW2_MICROSOFT_VERIFY_TIMEOUT'}
-            if($p.ExitCode -ne 0){throw "WEBVIEW2_MICROSOFT_SIGNED_VALIDATION_EXIT_$($p.ExitCode)"}
-          } finally {$p.Dispose()}
-          $result=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
-          if($result.status -ne 'WEBVIEW2_MICROSOFT_INSTALLER_VERIFIED'){
-            throw "WEBVIEW2_MICROSOFT_BOOTSTRAPPER_INVALID_$($result.status)"
-          }
-          Write-Host "WEBVIEW2_OFFICIAL_BOOTSTRAPPER_AUTHENTICODE_PASS size=$((Get-Item $official).Length) sha256=$((Get-FileHash $official -Algorithm SHA256).Hash)"
-          # The genuine ~2 MB Microsoft bootstrapper is not a full offline
-          # installer. Catch incorrect offline selection before running it.
-          $offlineReport=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-bootstraper-offline-rejected.json'
-          $offline=Start-Process -FilePath $stub -ArgumentList ('--verify-webview2-standalone-file "{0}" "{1}"' -f $official,$offlineReport) -PassThru
-          try {
-            if(!$offline.WaitForExit(55000)){Stop-Process -Id $offline.Id -Force;throw 'WEBVIEW2_STANDALONE_PROBE_TIMEOUT'}
-            if($offline.ExitCode -ne 2){throw 'WEBVIEW2_BOOTSTRAPPER_ACCEPTED_AS_OFFLINE'}
-          } finally {$offline.Dispose()}
-          $offlineState=Get-Content -LiteralPath $offlineReport -Raw|ConvertFrom-Json
-          if($offlineState.status -ne 'ERROR' -or
-             $offlineState.reason -ne 'SETUP_WEBVIEW2_OFFLINE_STANDALONE_REQUIRED'){
-            throw 'WEBVIEW2_BOOTSTRAPPER_OFFLINE_REJECTION_INVALID'
-          }
-          Write-Host 'WEBVIEW2_BOOTSTRAPPER_REJECTED_AS_OFFLINE_PASS'
-          $tampered=Join-Path $env:GITHUB_WORKSPACE 'artifacts/MicrosoftEdgeWebview2Setup-tampered.exe'
-          Copy-Item -LiteralPath $official -Destination $tampered
-          $file=[System.IO.File]::Open($tampered,[System.IO.FileMode]::Open,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]::None)
-          try {
-            $null=$file.Seek(4096,[System.IO.SeekOrigin]::Begin)
-            $b=$file.ReadByte()
-            if($b -lt 0){throw 'WEBVIEW2_TAMPER_POSITION_INVALID'}
-            $null=$file.Seek(4096,[System.IO.SeekOrigin]::Begin)
-            $file.WriteByte([byte]($b -bxor 1))
-          } finally {$file.Dispose()}
-          $tamperReport=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-tamper-rejected.json'
-          $bad=Start-Process -FilePath $stub -ArgumentList ('--verify-webview2-installer-file "{0}" "{1}"' -f $tampered,$tamperReport) -PassThru
-          try {
-            if(!$bad.WaitForExit(55000)){Stop-Process -Id $bad.Id -Force; throw 'WEBVIEW2_TAMPER_VERIFY_TIMEOUT'}
-            if($bad.ExitCode -ne 2){throw "WEBVIEW2_TAMPER_WAS_ACCEPTED_$($bad.ExitCode)"}
-          } finally {$bad.Dispose()}
-          $result=Get-Content -LiteralPath $tamperReport -Raw|ConvertFrom-Json
-          if($result.status -ne 'ERROR'){throw 'WEBVIEW2_TAMPER_REPORT_MISSING_ERROR'}
-          Write-Host 'WEBVIEW2_TAMPERED_MICROSOFT_BOOTSTRAPPER_REJECTED_PASS'
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: center-webview2-verification
-          path: |
-            artifacts/webview2-*.json
-){
-              throw
-            }
+            if($_.Exception.Message -notlike 'WEBVIEW2_CLEAN_VM_OFFLINE_*'){throw}
             $rejected=$true
           }
-          if(!$rejected){throw 'WEBVIEW2_CONNECTED_WINDOWS_RUNNER_ACCEPTED_AS_OFFLINE'}
-          Write-Host 'IWXA_WEBVIEW2_CONNECTED_WINDOWS_OFFLINE_PROBE_REJECTED_PASS'
+          if(!$rejected){throw 'WEBVIEW2_CONNECTED_RUNNER_ACCEPTED_AS_OFFLINE'}
+          Write-Host 'IWXA_WEBVIEW2_CONNECTED_WINDOWS_OFFLINE_REJECTION_PASS'
       - name: Fetch Microsoft WebView2 bootstrapper and verify signed binary
         shell: pwsh
         timeout-minutes: 3
