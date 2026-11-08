@@ -118,9 +118,12 @@ function Click-SetupGuiAction([string[]]$labels,[bool]$expectNative) {
              !$node.Current.IsEnabled -or $node.Current.IsOffscreen){continue}
           $rect=$node.Current.BoundingRectangle
           if($rect.Width -lt 24 -or $rect.Height -lt 18){continue}
-          Capture-SetupPreview $setup (
-            if($expectNative){'setup-core-visual-legacy-before-preview.png'}
-            else{'setup-core-visual-legacy-before-cancel.png'})
+          $imageFile = if ($expectNative) {
+            'setup-core-visual-legacy-before-preview.png'
+          } else {
+            'setup-core-visual-legacy-before-cancel.png'
+          }
+          Capture-SetupPreview $setup $imageFile
           try {
             $invoke=$node.GetCurrentPattern(
               [System.Windows.Automation.InvokePattern]::Pattern)
