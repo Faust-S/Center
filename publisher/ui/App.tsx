@@ -12,10 +12,20 @@ type Artifact = {id:string;productId:string;version:string;platform:string;sourc
 type Draft = {format:string;version:number;products:Product[];holders:Holder[];proposals:Proposal[];artifacts:Artifact[];updatedAt:string};
 type Inspection = {name:string;size:number;sha256:string};
 type Page = 'overview'|'products'|'holders'|'proposals'|'releases'|'trust';
-const navigation: [Page,string,string][] = [
- ['overview','Обзор','◫'],['products','Продукты','▣'],['holders','Получатели','♧'],
- ['proposals','Запросы на лицензии','▤'],['releases','Релизы','◇'],['trust','Доверие и ключи','⚑']
+const navigation: [Page,string][] = [
+ ['overview','Обзор'],['products','Продукты'],['holders','Получатели'],
+ ['proposals','Запросы на лицензии'],['releases','Релизы'],['trust','Доверие и ключи']
 ];
+function PublisherNavIcon({section}:{section:Page}){
+ return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+   {section==='overview'&&<><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/></>}
+   {section==='products'&&<><path d="m3 7 9-4 9 4v10l-9 4-9-4Z"/><path d="m3 7 9 4 9-4M12 11v10"/></>}
+   {section==='holders'&&<><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20v-2a6.5 6.5 0 0 1 13 0v2M17 5a3 3 0 0 1 0 6M17 14a5.5 5.5 0 0 1 4.5 5.5V20"/></>}
+   {section==='proposals'&&<><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></>}
+   {section==='releases'&&<><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 15v5h16v-5"/></>}
+   {section==='trust'&&<><path d="M12 2 20 6v6c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6Z"/><path d="m9 12 2 2 4-4"/></>}
+ </svg>;
+}
 const storageKey='iwxa.publisher.preparation/1';
 function getError(error:unknown) {return error instanceof Error ? error.message : String(error);}
 const nativeHost=Boolean((window as any).__TAURI_INTERNALS__);
@@ -179,9 +189,16 @@ export default function App(){
  function go(p:Page){setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);}
  return <div className={'app publisher-app'+(mobileNav?' menu-open':'')}>
    <aside className="sidebar">
-     <header className="brand"><div><strong>IWXA</strong><small>Publisher · 0.2.0-dev.2</small></div><span className="version">PREVIEW</span></header>
+     <header className="brand publisher-brand">
+       <div className="publisher-brand-lockup">
+         <img className="publisher-brand-logo" src="/favicon.svg" alt="IWXA" width="43" height="43"/>
+         <div className="publisher-brand-copy"><strong>IWXA</strong><small>Publisher</small></div>
+       </div>
+       <span className="version publisher-version">0.2</span>
+     </header>
+     <div className="publisher-nav-caption">ИЗДАТЕЛЬ И ЛИЦЕНЗИИ</div>
      <nav aria-label="Разделы Publisher">
-       {navigation.map(([key,label,symbol])=><button key={key} type="button" className={'nav-link'+(page===key?' active':'')} onClick={()=>go(key)} aria-current={page===key?'page':undefined}><span className="nav-icon" aria-hidden="true">{symbol}</span><span>{label}</span></button>)}
+       {navigation.map(([key,label])=><button key={key} type="button" className={'nav-link'+(page===key?' active':'')} onClick={()=>go(key)} aria-current={page===key?'page':undefined}><span className="nav-icon"><PublisherNavIcon section={key}/></span><span>{label}</span></button>)}
      </nav>
      <div className="sidebar-bottom"><p className="local-label"><span className="dot"></span>{nativeHost?'Локальная программа':'Режим браузерного просмотра'}</p><p>Черновики не являются лицензиями, релизами или правами пользователей.</p></div>
    </aside>
@@ -189,16 +206,33 @@ export default function App(){
      <header className="top">
        <button className="menu-button secondary" type="button" onClick={()=>setMobileNav(!mobileNav)} aria-label="Открыть навигацию">☰</button>
        <div className="breadcrumb"><span>IWXA</span> / Publisher / {navigation.find(v=>v[0]===page)?.[1]}</div>
-       <span className="status neutral">{loaded?'Локально сохранено':'Состояние не загружено'}</span>
+       <span className="status neutral publisher-top-status"><span className="publisher-top-status-dot" aria-hidden="true"></span>{loaded?'Локально сохранено':'Состояние не загружено'}</span>
      </header>
-     <div className="page-heading"><div><div className="eyebrow">OWNER-SIDE PUBLISHER</div><h1>{navigation.find(v=>v[0]===page)?.[1]}</h1></div></div>
+     <div className="page-heading"><div><div className="eyebrow publisher-section-eyebrow">IWXA / РАБОЧЕЕ МЕСТО ИЗДАТЕЛЯ</div><h1>{navigation.find(v=>v[0]===page)?.[1]}</h1></div></div>
      <div className="notice">Версия разработки 0.2.0-dev.2. Состояние подготовки: лицензии не выдаются, подпись издателя не подключена, выпуск релиза не разрешён. {nativeHost?'Черновики хранятся отдельно от Admin Center.':'В браузере доступны только локальные подготовительные черновики.'}</div>
      {error&&<div className="notice error" role="alert">{error}</div>}
      {message&&<div className="notice" role="status">{message}</div>}
      {!loaded?<section className="card padded" role="status">Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.</section>:<>
        {page==='overview'&&<>
-         <div className="metrics"><div className="card metric"><span>Продукты</span><strong>{state.products.length}</strong></div><div className="card metric"><span>Получатели</span><strong>{state.holders.length}</strong></div><div className="card metric"><span>Черновики запросов</span><strong>{state.proposals.length}</strong></div></div>
-         <section className="hero"><div className="eyebrow">РАБОТА ИЗДАТЕЛЯ</div><h2>Подготовка лицензий и выпусков IWXA</h2><p>Создайте запись продукта, получателя и проект условий лицензии. Действительное право появится только после подписи и проверки исходным механизмом издателя.</p><div className="actions"><button type="button" className="primary" onClick={()=>go('products')}>Добавить продукт</button><button type="button" className="secondary" onClick={()=>go('releases')}>Проверить сборку</button></div></section>
+         <div className="metrics">
+           <div className="card metric publisher-metric"><span>Продукты</span><strong>{state.products.length}</strong><small>Каталог в подготовке</small></div>
+           <div className="card metric publisher-metric"><span>Получатели</span><strong>{state.holders.length}</strong><small>Привязанные идентификаторы</small></div>
+           <div className="card metric publisher-metric"><span>Черновики запросов</span><strong>{state.proposals.length}</strong><small>Без выданных лицензий</small></div>
+         </div>
+         <section className="hero publisher-hero">
+           <div className="publisher-hero-body">
+             <div className="publisher-hero-copy">
+               <div className="eyebrow">РАБОТА ИЗДАТЕЛЯ</div>
+               <h2>Подготовка лицензий и выпусков IWXA</h2>
+               <p>Продукт, получатель и условия выдачи — в одном рабочем месте. Действительные права появятся только после подписи и независимой проверки T3.</p>
+             </div>
+             <div className="publisher-hero-symbol" aria-hidden="true"><span className="publisher-hero-symbol-inner">IX</span></div>
+           </div>
+           <div className="actions publisher-hero-actions">
+             <button type="button" className="secondary" onClick={()=>go('products')}>Добавить продукт</button>
+             <button type="button" className="secondary" onClick={()=>go('releases')}>Проверить сборку</button>
+           </div>
+         </section>
          <section className="card padded"><h2>Текущее состояние</h2><p className="muted">Заявок на публикацию: {state.artifacts.length}. Подтверждённых релизов: 0. Подписанных лицензий: 0.</p><p className="muted">Реальные источники подписей, trust catalog и приём лицензии в Admin Center пока не включены в этот исполняемый продукт.</p></section>
          <section className="card padded" data-testid="publisher-preparation-backup">
            <h2>Резервная копия черновиков</h2>

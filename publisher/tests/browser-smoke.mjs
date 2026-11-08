@@ -22,6 +22,18 @@ try {
   assert.match(await page.locator('main').innerText(),/Подтверждённых релизов: 0/);
   assert.match(await page.locator('main').innerText(),/Подписанных лицензий: 0/);
   checks.push('empty-owner-first-run-no-synthetic-license');
+  const mark=page.locator('.publisher-brand-logo');
+  assert.equal(await mark.getAttribute('src'),'/favicon.svg');
+  assert.equal(await mark.getAttribute('alt'),'IWXA');
+  const brandSvg=await (await page.request.get('http://127.0.0.1:4175/favicon.svg')).text();
+  assert.match(brandSvg,/fill="#FFFFFF"/);
+  assert.match(brandSvg,/fill="#05070D"/);
+  assert.match(brandSvg,/M29 14 L51 50 M51 14 L29 50/);
+  assert.ok(!brandSvg.includes('#B6F24B'),'Publisher still uses Agent green background');
+  const logoStyle=await mark.evaluate(el=>({w:el.getBoundingClientRect().width,loaded:el.complete&&el.naturalWidth>0}));
+  assert.ok(logoStyle.loaded&&logoStyle.w>=36,'Publisher mark not rendered in agent shell');
+  assert.equal(await page.locator('nav[aria-label="Разделы Publisher"] .nav-link svg').count(),6);
+  checks.push('agent-exact-ix-glyph-white-logo-and-six-vector-navigation-icons');
   assert.equal(await page.getByRole('button',{name:'Сохранить копию черновиков'}).isDisabled(),true);
   assert.equal(await page.getByRole('button',{name:'Восстановить черновики'}).isDisabled(),true);
   assert.match(await page.getByTestId('publisher-preparation-backup').innerText(),/ключей издателя в этой копии нет/);
