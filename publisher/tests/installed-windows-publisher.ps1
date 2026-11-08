@@ -84,8 +84,10 @@ function Find-Text([string]$piece) {
   throw "Publisher installed GUI accessible text missing: $piece"
 }
 
-function Save-Json-Through-Publisher-Dialog([string]$buttonName,[string]$destination) {
-  if(Test-Path -LiteralPath $destination){throw 'PUBLISHER_SAVE_EXPECTED_NEW_DESTINATION'}
+function Use-Json-Through-Publisher-Dialog([string]$buttonName,[string]$destination,[bool]$existing) {
+  if((Test-Path -LiteralPath $destination -PathType Leaf) -ne $existing){
+    throw "PUBLISHER_FILE_DIALOG_EXPECTED_EXISTS_$existing"
+  }
   Click-Publisher $buttonName
   $dialog=$null
   for($i=0;$i -lt 60;$i++){
@@ -114,6 +116,7 @@ function Save-Json-Through-Publisher-Dialog([string]$buttonName,[string]$destina
   [System.Windows.Forms.SendKeys]::SendWait('^a')
   [System.Windows.Forms.SendKeys]::SendWait($destination)
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  if($existing){return}
   for($i=0;$i -lt 60;$i++){
     if(Test-Path -LiteralPath $destination -PathType Leaf){return}
     Start-Sleep -Milliseconds 250
@@ -186,7 +189,7 @@ try {
   [void](Find-Text 'Действительных лицензированных мест: 0')
   Write-Host 'PUBLISHER_INSTALLED_GUI_SIMULATION_ZERO_ACTIVE_PASS'
   $testRequest=Join-Path ([IO.Path]::GetFullPath('artifacts/publisher-setupcore')) 'native-unsigned-test-request.json'
-  Save-Json-Through-Publisher-Dialog 'Подготовить TEST-запрос' $testRequest
+  Use-Json-Through-Publisher-Dialog 'Подготовить TEST-запрос' $testRequest $false
   $exported=Get-Content -LiteralPath $testRequest -Raw -Encoding utf8|ConvertFrom-Json -Depth 50
   if($exported.requestId -ne $proposalId -or $exported.kind -ne 'TEST_LICENSE_REQUEST' -or
      $exported.status -ne 'UNSIGNED_REQUEST' -or $exported.environment -ne 'TEST' -or
@@ -217,7 +220,7 @@ try {
   Write-Host 'PUBLISHER_INSTALLED_GUI_RESTART_READBACK_PASS'
   $backup=Join-Path ([IO.Path]::GetFullPath('artifacts/publisher-setupcore')) 'installed-preparation-backup.json'
   Click-Publisher 'Обзор'
-  Save-Json-Through-Publisher-Dialog 'Сохранить копию черновиков' $backup
+  Use-Json-Through-Publisher-Dialog 'Сохранить копию черновиков' $backup $false
   $copy=Get-Content -LiteralPath $backup -Raw -Encoding utf8
   $live=Get-Content -LiteralPath $data -Raw -Encoding utf8
   if($copy -cne $live){throw 'PUBLISHER_NATIVE_BACKUP_EXACT_READBACK_MISMATCH'}
@@ -228,6 +231,47 @@ try {
     throw 'PUBLISHER_NATIVE_BACKUP_REQUEST_BINDING_INVALID'
   }
   Write-Host 'PUBLISHER_INSTALLED_GUI_NATIVE_BACKUP_EXPORT_PASS'
+  Click-Publisher 'Запросы на лицензии'
+  Click-Publisher 'Удалить'
+  $removed=$false
+  for($i=0;$i -lt 60;$i++){
+    try{
+      $current=Get-Content -LiteralPath $data -Raw -Encoding utf8|ConvertFrom-Json -Depth 50
+      if(@($current.proposals).Count -eq 0){$removed=$true;break}
+    }catch{}
+    Start-Sleep -Milliseconds 250
+  }
+  if(!$removed){throw 'PUBLISHER_GUI_DELETE_DID_NOT_PERSIST'}
+  Write-Host 'PUBLISHER_INSTALLED_GUI_DRAFT_REMOVED_BEFORE_RESTORE_PASS'
+  Click-Publisher 'Обзор'
+  Use-Json-Through-Publisher-Dialog 'Восстановить черновики' $backup $true
+  [void](Find-Control 'Отмена восстановления' 'Button')
+  Click-Publisher 'Отмена восстановления'
+  $afterCancel=Get-Content -LiteralPath $data -Raw -Encoding utf8|ConvertFrom-Json -Depth 50
+  if(@($afterCancel.proposals).Count -ne 0){throw 'PUBLISHER_RESTORE_CANCEL_CHANGED_DRAFT'}
+  Write-Host 'PUBLISHER_INSTALLED_GUI_RESTORE_CANCEL_PRESERVES_LIVE_PASS'
+  Use-Json-Through-Publisher-Dialog 'Восстановить черновики' $backup $true
+  [void](Find-Control 'Заменить текущие черновики' 'Button')
+  Click-Publisher 'Заменить текущие черновики'
+  $restored=$null
+  for($i=0;$i -lt 60;$i++){
+    try{
+      $candidate=Get-Content -LiteralPath $data -Raw -Encoding utf8|ConvertFrom-Json -Depth 50
+      if(@($candidate.proposals).Count -eq 1 -and $candidate.proposals[0].id -eq $proposalId){
+        $restored=$candidate;break
+      }
+    }catch{}
+    Start-Sleep -Milliseconds 250
+  }
+  if(!$restored){throw 'PUBLISHER_GUI_RESTORE_EXACT_PROPOSAL_NOT_PERSISTED'}
+  Write-Host 'PUBLISHER_INSTALLED_GUI_NATIVE_BACKUP_RESTORE_PASS'
+  Close-Publisher
+  Start-Publisher
+  $reloaded=Get-Content -LiteralPath $data -Raw -Encoding utf8|ConvertFrom-Json -Depth 50
+  if(@($reloaded.proposals).Count -ne 1 -or $reloaded.proposals[0].id -ne $proposalId){
+    throw 'PUBLISHER_BACKUP_RESTORE_LOST_AFTER_RESTART'
+  }
+  Write-Host 'PUBLISHER_INSTALLED_GUI_BACKUP_RESTORE_RESTART_PASS'
 } catch {
   Write-Host "PUBLISHER_INSTALLED_GUI_PRIMARY_FAILURE $($_.Exception.Message)"
   try {

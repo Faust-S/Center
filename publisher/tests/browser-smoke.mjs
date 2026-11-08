@@ -2,6 +2,7 @@ import {firefox} from 'playwright';
 import {spawn} from 'node:child_process';
 import {mkdirSync, writeFileSync, readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
+import {emptyPublisherDraft,applyPublisherDraftCommand,encodePublisherDraft} from '../src/preparation.mjs';
 
 mkdirSync('artifacts/publisher',{recursive:true});
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview','--config','publisher/vite.config.ts','--host','127.0.0.1','--port','4175','--strictPort'],{stdio:'pipe'});
@@ -111,6 +112,46 @@ try {
   await page.screenshot({path:'artifacts/publisher/overview-320.png',fullPage:true});
   await page.setViewportSize({width:1366,height:900});
   await page.screenshot({path:'artifacts/publisher/overview-1366.png',fullPage:true});
+  // A bounded native-command double tests the confirmation UI without
+  // pretending this is installed Windows, a T3 issuer or a real signed license.
+  let backupDraft=emptyPublisherDraft();
+  backupDraft=applyPublisherDraftCommand(backupDraft,{kind:'addProduct',id:'IWXA_ADMIN_CENTER',name:'Restorable Product',version:'0.3.0'});
+  backupDraft=applyPublisherDraftCommand(backupDraft,{kind:'addHolder',id:'11111111-1111-4111-8111-111111111111',name:'Restorable Organization',type:'ORGANIZATION'});
+  backupDraft=applyPublisherDraftCommand(backupDraft,{kind:'addProposal',productId:'IWXA_ADMIN_CENTER',holderId:'11111111-1111-4111-8111-111111111111',features:['WORKSPACE'],termDays:30});
+  const restoreData=encodePublisherDraft(backupDraft);
+  const nativeMockPage=await browser.newPage({viewport:{width:1366,height:900}});
+  nativeMockPage.on('pageerror',e=>errors.push('native fixture: '+e.message));
+  await nativeMockPage.addInitScript(({restoreData})=>{
+    window.__publisherMockSaved=[];
+    window.confirm=()=>{throw new Error('Blocking browser confirm is not allowed for Publisher restore');};
+    window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
+      if(command==='publisher_draft_read')return null;
+      if(command==='publisher_pick_preparation_backup')return restoreData;
+      if(command==='publisher_draft_save'){window.__publisherMockSaved.push(args.content);return true;}
+      if(command==='publisher_export_preparation_backup')return true;
+      throw new Error('Unexpected native command '+command);
+    }};
+  },{restoreData});
+  await nativeMockPage.goto('http://127.0.0.1:4175');
+  await nativeMockPage.getByRole('button',{name:'Восстановить черновики'}).click();
+  const confirmation=nativeMockPage.getByTestId('publisher-restore-confirmation');
+  await confirmation.waitFor();
+  assert.match(await confirmation.innerText(),/неподписанных запросов — 1/);
+  assert.equal(await nativeMockPage.evaluate(()=>window.__publisherMockSaved.length),0,'Import before confirmation wrote live data');
+  await nativeMockPage.getByRole('button',{name:'Отмена восстановления'}).click();
+  assert.equal(await confirmation.count(),0);
+  assert.equal(await nativeMockPage.evaluate(()=>window.__publisherMockSaved.length),0,'Cancel overwrote native data');
+  checks.push('restore-cancel-does-not-write');
+  await nativeMockPage.getByRole('button',{name:'Восстановить черновики'}).click();
+  await confirmation.waitFor();
+  await nativeMockPage.getByRole('button',{name:'Заменить текущие черновики'}).click();
+  await nativeMockPage.getByText('Черновики восстановлены из копии и сохранены. Подписи и права не изменены.').waitFor();
+  const saved=await nativeMockPage.evaluate(()=>window.__publisherMockSaved);
+  assert.equal(saved.length,1,'Confirm must write once');
+  assert.deepEqual(JSON.parse(saved[0]),backupDraft);
+  assert.equal(await confirmation.count(),0);
+  checks.push('restore-confirm-atomically-writes-only-strict-draft');
+  await nativeMockPage.close();
   assert.deepEqual(errors,[]);
   checks.push('no-browser-page-errors');
   const report={status:'PASS',checks,errors,environment:'Firefox Playwright; local preview without native issuer',issuer:'NOT_CONNECTED',signature:'NOT_TESTED'};

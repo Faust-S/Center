@@ -55,6 +55,11 @@ export default function App(){
  const [termDays,setTermDays]=useState('30');
  const [testSeats,setTestSeats]=useState('1');
  const [simulated,setSimulated]=useState<{requestId:string;organizationId:string;modeledSeats:number;actualSeats:number;state:string}|null>(null);
+ const [pendingRestore,setPendingRestore]=useState<Draft|null>(null);
+ const restoreConfirmationRef=React.useRef<HTMLDivElement>(null);
+ useEffect(()=>{
+   if(pendingRestore)restoreConfirmationRef.current?.scrollIntoView({block:'center'});
+ },[pendingRestore]);
  const simulationResultRef=React.useRef<HTMLDivElement>(null);
  useEffect(()=>{
    // The result sits below the proposal list; reveal it in the native scroll
@@ -81,6 +86,7 @@ export default function App(){
      const next=applyPublisherDraftCommand(state,command) as Draft;
      await persistDraft(next);
      setState(next);
+     setPendingRestore(null);
      setMessage(success);
    }catch(e){setError(getError(e));}
    finally{setBusy(false);}
@@ -105,20 +111,30 @@ export default function App(){
  }
  async function restorePreparationBackup(){
    if(busy||!loaded||!nativeHost)return;
-   setBusy(true);setError('');setMessage('');
+   setBusy(true);setError('');setMessage('');setPendingRestore(null);
    try {
      const selected=await invoke('publisher_pick_preparation_backup');
      if(selected===null){setMessage('Выбор копии отменён.');return;}
      const restored=decodePublisherDraft(selected) as Draft;
-     if(!window.confirm('Заменить текущие черновики данными выбранной копии? Это не восстанавливает лицензии или ключи.')){
-       setMessage('Восстановление отменено. Текущие черновики сохранены.');return;
-     }
-     // Strict JS validation finishes before the existing atomic native writer.
-     await persistDraft(restored);
-     setState(restored);setSimulated(null);setInspected(null);
+     // Selecting a file must never overwrite data. Require a separate,
+     // accessible in-app confirmation rather than browser-native confirm().
+     setPendingRestore(restored);
+     setMessage('Копия проверена. Подтвердите замену текущих черновиков.');
+   } catch(e){setError('Не удалось открыть копию, текущие черновики сохранены: '+getError(e));}
+   finally{setBusy(false);}
+ }
+ async function confirmPreparationRestore(){
+   if(!pendingRestore||busy||!nativeHost||!loaded)return;
+   setBusy(true);setError('');setMessage('');
+   try {
+     await persistDraft(pendingRestore);
+     setState(pendingRestore);setPendingRestore(null);setSimulated(null);setInspected(null);
      setMessage('Черновики восстановлены из копии и сохранены. Подписи и права не изменены.');
    } catch(e){setError('Восстановление не выполнено, текущие черновики не заменены: '+getError(e));}
    finally{setBusy(false);}
+ }
+ function cancelPreparationRestore(){
+   setPendingRestore(null);setMessage('Восстановление отменено. Текущие черновики сохранены.');
  }
  async function exportTestRequest(proposalId:string) {
    if(busy||!loaded)return;
@@ -160,7 +176,7 @@ export default function App(){
  const activeProduct=proposalProduct||state.products[0]?.id||'';
  const activeHolder=proposalHolder||state.holders[0]?.id||'';
  const selectedReleaseProduct=releaseProduct||state.products[0]?.id||'';
- function go(p:Page){setPage(p);setMobileNav(false);setError('');setMessage('');}
+ function go(p:Page){setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);}
  return <div className={'app publisher-app'+(mobileNav?' menu-open':'')}>
    <aside className="sidebar">
      <header className="brand"><div><strong>IWXA</strong><small>Publisher · 0.2.0-dev.2</small></div><span className="version">PREVIEW</span></header>
@@ -193,6 +209,15 @@ export default function App(){
              <button type="button" className="secondary" disabled={!nativeHost||busy} onClick={()=>void restorePreparationBackup()}>Восстановить черновики</button>
            </div>
            {!nativeHost&&<p className="muted">Экспорт и восстановление доступны в установленном Publisher.</p>}
+           {pendingRestore&&<div ref={restoreConfirmationRef} className="publisher-test-request" role="group" aria-label="Подтверждение восстановления черновиков" data-testid="publisher-restore-confirmation">
+             <strong>Подтвердите замену черновиков</strong>
+             <p>В выбранной копии: продуктов — {pendingRestore.products.length}, получателей — {pendingRestore.holders.length}, неподписанных запросов — {pendingRestore.proposals.length}.</p>
+             <p>После подтверждения текущие локальные черновики будут заменены. Лицензии, ключи и издательские полномочия этим действием не создаются.</p>
+             <div className="actions">
+               <button type="button" className="primary" disabled={busy} onClick={()=>void confirmPreparationRestore()}>Заменить текущие черновики</button>
+               <button type="button" className="secondary" disabled={busy} onClick={cancelPreparationRestore}>Отмена восстановления</button>
+             </div>
+           </div>}
          </section>
        </>}
        {page==='products'&&<>
