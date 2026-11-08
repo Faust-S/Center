@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from installer.build_bundle import (
-    FOOTER, MAGIC, SetupBundleError, create_bundle, inspect_bundle, safe_relative,
+    FOOTER, MAGIC, RESOURCE_MAGIC, MAX_PE_RESOURCE_BYTES, SetupBundleError,
+    _build_resource_blob, create_bundle, inspect_bundle, safe_relative,
     validate_product,
 )
 
@@ -106,6 +109,32 @@ class BundleTests(unittest.TestCase):
                 self.assertEqual(inspected["version"], "1.4.0")
                 (self.payload / profile["entrypoint"]).rename(
                     self.payload / "iwxa-admin-center.exe")
+
+    def test_v2_resource_stream_matches_existing_signed_format_exactly(self):
+        self.bundle()
+        resource = self.root / "v2-resource.bin"
+        size, digest = _build_resource_blob(self.out, self.stub, resource)
+        overlay = self.out.read_bytes()
+        fields = FOOTER.unpack(overlay[-FOOTER.size:])
+        expected = overlay[fields[1]:-FOOTER.size] + FOOTER.pack(
+            RESOURCE_MAGIC, 0, fields[2], fields[3],
+            bytes(32), fields[5], fields[6],
+        )
+        self.assertEqual(size, len(expected))
+        self.assertEqual(resource.read_bytes(), expected)
+        self.assertEqual(digest, hashlib.sha256(expected).digest())
+        with patch("installer.build_bundle.MAX_PE_RESOURCE_BYTES", size - 1):
+            with self.assertRaisesRegex(SetupBundleError, "pe_resource_maximum_payload_exceeded"):
+                _build_resource_blob(self.out, self.stub, self.root / "blocked-resource.bin")
+        self.assertLess(size, MAX_PE_RESOURCE_BYTES)
+
+    def test_v2_resource_stream_rejects_invalid_overlay_footer(self):
+        self.bundle()
+        content = bytearray(self.out.read_bytes())
+        content[-FOOTER.size] ^= 1
+        self.out.write_bytes(content)
+        with self.assertRaisesRegex(SetupBundleError, "pe_resource_original_bundle_invalid"):
+            _build_resource_blob(self.out, self.stub, self.root / "damaged-resource.bin")
 
     def test_stable_reproducible_single_exe_and_identity(self):
         result = self.bundle()
