@@ -63,8 +63,22 @@ namespace IwxaSetup
 
         private void BuildLayout()
         {
-            var sidebar = new Panel { Dock = DockStyle.Left, Width = 235, BackColor = Dark };
-            Controls.Add(sidebar);
+            // A two-column container prevents DockStyle.Fill from painting
+            // underneath the left navigation panel (confirmed in real CI PNG).
+            var shell = new TableLayoutPanel {
+                Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1,
+                Margin = Padding.Empty, Padding = Padding.Empty,
+                BackColor = Color.FromArgb(246, 249, 253)
+            };
+            shell.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 235F));
+            shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            Controls.Add(shell);
+            var sidebar = new Panel {
+                Dock = DockStyle.Fill, Margin = Padding.Empty,
+                BackColor = Dark, AccessibleName = "IWXA setup navigation"
+            };
+            shell.Controls.Add(sidebar, 0, 0);
             sidebar.Controls.Add(Label("IWXA", 27, 35, 180, 45, 27, Color.White, true));
             sidebar.Controls.Add(Label("SETUP CORE", 29, 82, 175, 22, 10,
                 Color.FromArgb(170, 189, 215), false));
@@ -86,12 +100,12 @@ namespace IwxaSetup
             bottom.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
             sidebar.Controls.Add(bottom);
 
-            var area = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(246, 249, 253) };
-            Controls.Add(area);
-            area.BringToFront();
-            // Keep both areas visible: the sidebar has a fixed 235-pixel width.
-            area.Dock = DockStyle.Fill;
-            sidebar.BringToFront();
+            var area = new Panel {
+                Dock = DockStyle.Fill, Margin = Padding.Empty,
+                BackColor = Color.FromArgb(246, 249, 253),
+                AccessibleName = "IWXA setup content"
+            };
+            shell.Controls.Add(area, 1, 0);
 
             var eyebrow = Label(T("ДИСТРИБУТИВ IWXA", "IWXA DISTRIBUTION"),
                 32, 32, 550, 25, 9, Accent, true);

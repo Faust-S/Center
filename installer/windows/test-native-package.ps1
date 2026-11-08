@@ -428,6 +428,43 @@ try {
         Add-Type -AssemblyName UIAutomationClient
         $window = [System.Windows.Automation.AutomationElement]::FromHandle($gui.MainWindowHandle)
         $windowBounds = $window.Current.BoundingRectangle
+        # Previously the entire main panel started at window X=0 underneath
+        # the navigation, making the program title and details unreadable.
+        # Assert real WinForms UIA geometry, not just process/window existence.
+        $descendants = $window.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition)
+        $navigation = $null
+        $contentPane = $null
+        $productTitle = $null
+        foreach ($element in $descendants) {
+            try {
+                if ($element.Current.Name -eq 'IWXA setup navigation') {
+                    $navigation = $element
+                }
+                if ($element.Current.Name -eq 'IWXA setup content') {
+                    $contentPane = $element
+                }
+                if ($element.Current.Name -eq 'IWXA Admin Center' -and
+                    $element.Current.ControlType.ProgrammaticName -like '*.Text') {
+                    $productTitle = $element
+                }
+            } catch {}
+        }
+        if ($null -eq $navigation -or $null -eq $contentPane -or $null -eq $productTitle) {
+            throw 'SETUP_VISUAL_LAYOUT_UIA_ELEMENTS_NOT_FOUND'
+        }
+        $navRect = $navigation.Current.BoundingRectangle
+        $bodyRect = $contentPane.Current.BoundingRectangle
+        $titleRect = $productTitle.Current.BoundingRectangle
+        if ($bodyRect.Left -lt ($navRect.Right - 2) -or
+            $titleRect.Left -lt ($navRect.Right + 10) -or
+            $titleRect.Right -gt ($bodyRect.Right + 2) -or
+            $titleRect.Top -lt $bodyRect.Top) {
+            throw ('SETUP_VISUAL_SIDEBAR_OVERLAP navRight={0} contentLeft={1} titleLeft={2}' -f
+                $navRect.Right, $bodyRect.Left, $titleRect.Left)
+        }
+        Write-Host 'IWXA_SETUP_VISUAL_NO_SIDEBAR_OVERLAP_PASS'
         $screenBounds = [System.Windows.Forms.Screen]::FromHandle($gui.MainWindowHandle).Bounds
         $left = [int][Math]::Max($screenBounds.Left, $windowBounds.Left)
         $top = [int][Math]::Max($screenBounds.Top, $windowBounds.Top)
