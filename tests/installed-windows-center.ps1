@@ -302,7 +302,7 @@ function Visible-ButtonContaining([string]$name){
   return $false
 }
 function Open-Cen04-Iwxa-NativeFileDialog([string]$file){
-  Click-Control 'Открыть TEST .iwxa'
+  Click-Control 'Предпросмотр .iwxa'
   $dialog=$null
   for($i=0;$i -lt 60;$i++){
     $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
