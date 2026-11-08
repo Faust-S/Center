@@ -80,6 +80,34 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            if (args.Length == 2 &&
+                (args[0] == "--upgrade-file" ||
+                 args[0] == "--rollback-upgrade-file" ||
+                 args[0] == "--confirm-upgrade-file"))
+            {
+                try
+                {
+                    InstallOutcome result;
+                    if (args[0] == "--upgrade-file")
+                        result = SetupInstallation.UpgradeOwned(Application.ExecutablePath);
+                    else if (args[0] == "--rollback-upgrade-file")
+                        result = SetupInstallation.RollbackOwned(Application.ExecutablePath);
+                    else
+                        result = SetupInstallation.ConfirmUpgrade(Application.ExecutablePath);
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", result.Status}, {"product", result.Product},
+                        {"version", result.Version}, {"installRoot", result.Root}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             if (args.Length == 2 && args[0] == "--stage-test-file")
             {
                 try

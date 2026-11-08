@@ -50,6 +50,22 @@ namespace IwxaSetup
                 return plan;
             }
             string root = plan.InstallRoot;
+            if (Directory.Exists(PreviousFor(info)) ||
+                File.Exists(PreviousFor(info)))
+            {
+                using (var owned = Registry.CurrentUser.OpenSubKey(
+                    RegistryProducts + info.Id))
+                {
+                    if (Directory.Exists(root) && owned != null &&
+                        String.Equals(Convert.ToString(
+                            owned.GetValue("PackageSha256")), info.PackageSha256,
+                            StringComparison.OrdinalIgnoreCase))
+                        plan.Status = "UPGRADE_PENDING_CONFIRMATION";
+                    else
+                        plan.Status = "UPGRADE_RECOVERY_REQUIRED";
+                    return plan;
+                }
+            }
             using (var reg = Registry.CurrentUser.OpenSubKey(RegistryProducts + info.Id))
             {
                 if (reg == null)

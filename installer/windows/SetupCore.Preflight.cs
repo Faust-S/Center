@@ -30,6 +30,12 @@ namespace IwxaSetup
             string local = Environment.GetFolderPath(
                 Environment.SpecialFolder.LocalApplicationData);
             string root = Path.Combine(local, "Programs", info.InstallDir);
+            if (Directory.Exists(root + ".iwxa-previous") ||
+                File.Exists(root + ".iwxa-previous"))
+            {
+                result.Status = "UPGRADE_RECOVERY_REQUIRED";
+                return result;
+            }
             string legacy = Path.Combine(local, info.InstallDir);
             // Do not replace any directory not registered as ours, including
             // the user's existing Tauri NSIS 0.2 install. S3 owns migration.

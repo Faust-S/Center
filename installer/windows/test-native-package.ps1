@@ -97,6 +97,19 @@ try {
     if ($preflight.status -ne 'READY_FOR_FIRST_INSTALL') {
         throw "SETUP_NATIVE_FRESH_INSTALL_BLOCKED_$($preflight.status)"
     }
+    # Build a second package with the same payload and a newer profile.
+    $upgradeProfile = Join-Path $artifact 'setup-core-upgrade-product.json'
+    $upgradeCandidate = Join-Path $artifact 'setup-core-center-upgrade.exe'
+    $upgradeProduct = Get-Content -LiteralPath $profile -Raw | ConvertFrom-Json
+    $upgradeProduct.version = '0.3.0-dev.2'
+    $upgradeProduct | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $upgradeProfile -Encoding UTF8
+    $nextArgs = @('-m', 'installer.build_bundle', 'build', '--product', $upgradeProfile,
+        '--payload', $payload, '--stub', $stub, '--output', $upgradeCandidate,
+        '--source-commit', $sourceHead, '--source-tree', $sourceTree)
+    $null = & python @nextArgs
+    if ($LASTEXITCODE -ne 0) { throw 'SETUP_S3_NEW_VERSION_BUILD_FAILED' }
+    $nextIdentity = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-next-identity.json') 0
+    if ($nextIdentity.version -ne '0.3.0-dev.2') { throw 'SETUP_S3_NEW_VERSION_INVALID' }
     $installedReport = Join-Path $artifact 'setup-core-installed.json'
     $duplicateReport = Join-Path $artifact 'setup-core-duplicate.json'
     $removedReport = Join-Path $artifact 'setup-core-uninstalled.json'
@@ -145,6 +158,36 @@ try {
             throw 'SETUP_NATIVE_DUPLICATE_INSTALL_ACCEPTED'
         }
         Write-Host 'IWXA_SETUP_NATIVE_DUPLICATE_INSTALL_REJECTED_PASS'
+
+        $planNext = Invoke-NativeInspection $upgradeCandidate $upgradePlanFile 0 '--upgrade-plan-file'
+        if ($planNext.status -ne 'UPGRADE_CANDIDATE_NOT_ACTIVATED') {
+            throw 'SETUP_S3_UPGRADE_PLAN_INVALID'
+        }
+        $changed = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-upgrade-applied.json') 0 '--upgrade-file'
+        if ($changed.status -ne 'UPGRADED_BACKUP_RETAINED' -or
+            $changed.version -ne '0.3.0-dev.2') {
+            throw 'SETUP_S3_UPGRADE_NOT_APPLIED'
+        }
+        if (!(Test-Path -LiteralPath ($installed.installRoot + '.iwxa-previous'))) {
+            throw 'SETUP_S3_PREVIOUS_RELEASE_NOT_RETAINED'
+        }
+        $pending = Invoke-NativeInspection $upgradeCandidate $upgradePlanFile 0 '--upgrade-plan-file'
+        if ($pending.status -ne 'UPGRADE_PENDING_CONFIRMATION') {
+            throw 'SETUP_S3_CONFIRMATION_GATE_MISSING'
+        }
+        $rolled = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-rollback.json') 0 '--rollback-upgrade-file'
+        if ($rolled.status -ne 'ROLLBACK_RESTORED_PREVIOUS' -or
+            $rolled.version -ne '0.3.0-dev.1') {
+            throw 'SETUP_S3_ROLLBACK_FAILED'
+        }
+        $restored = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
+        if ($restored.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED') {
+            throw 'SETUP_S3_ROLLBACK_READBACK_INVALID'
+        }
+        if ((Get-Content -LiteralPath $userData -Raw) -ne 'unchanged-after-first-install') {
+            throw 'SETUP_S3_ROLLBACK_USER_DATA_CHANGED'
+        }
+        Write-Host 'IWXA_SETUP_S3_NATIVE_UPGRADE_ROLLBACK_PASS'
     }
     finally {
         if (Test-Path -LiteralPath $installedReport -PathType Leaf) {

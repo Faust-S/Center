@@ -61,39 +61,7 @@ namespace IwxaSetup
             Directory.CreateDirectory(staged);
             try
             {
-                BundleInfo verified = BundleReader.ExtractVerified(bundle, staged);
-                if (verified.Id != info.Id || verified.PackageSha256 != info.PackageSha256 ||
-                    verified.SourceCommit != info.SourceCommit)
-                    throw new InvalidDataException("SETUP_PACKAGE_CHANGED_DURING_STAGE");
-
-                string appPath = Path.Combine(staged,
-                    verified.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
-                if (!File.Exists(appPath))
-                    throw new InvalidDataException("SETUP_ENTRYPOINT_NOT_STAGED");
-
-                // Keep the original verified package as a self-contained
-                // registered uninstaller. No Python or additional framework
-                // has to be installed on the user's Windows machine.
-                string packagedUninstaller = Path.Combine(staged, UninstallExe);
-                if (File.Exists(packagedUninstaller) ||
-                    File.Exists(Path.Combine(staged, ReceiptFile)))
-                    throw new InvalidDataException("SETUP_RESERVED_FILE_COLLISION");
-                File.Copy(bundle, packagedUninstaller);
-
-                var installedFiles = new List<string>();
-                foreach (string f in Directory.GetFiles(staged, "*", SearchOption.AllDirectories))
-                    installedFiles.Add(f.Substring(staged.Length + 1)
-                        .Replace(Path.DirectorySeparatorChar, '/'));
-                installedFiles.Sort(StringComparer.OrdinalIgnoreCase);
-                var receipt = new Dictionary<string, object> {
-                    {"schema", "IWXA_SETUP_OWNERSHIP/1"}, {"product", info.Id},
-                    {"version", info.Version}, {"sourceCommit", info.SourceCommit},
-                    {"packageSha256", info.PackageSha256}, {"installRoot", root},
-                    {"files", installedFiles}
-                };
-                File.WriteAllText(Path.Combine(staged, ReceiptFile),
-                    new JavaScriptSerializer().Serialize(receipt) + "\n",
-                    new UTF8Encoding(false));
+                PrepareVerifiedStage(bundle, info, staged, root);
 
                 Directory.Move(staged, root);
                 activated = true;
@@ -125,6 +93,45 @@ namespace IwxaSetup
             }
         }
 
+        private static void PrepareVerifiedStage(string bundle, BundleInfo info,
+            string staged, string root)
+        {
+            BundleInfo verified = BundleReader.ExtractVerified(bundle, staged);
+            if (verified.Id != info.Id || verified.PackageSha256 != info.PackageSha256 ||
+                verified.SourceCommit != info.SourceCommit)
+                throw new InvalidDataException("SETUP_PACKAGE_CHANGED_DURING_STAGE");
+
+            string appPath = Path.Combine(staged,
+                verified.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(appPath))
+                throw new InvalidDataException("SETUP_ENTRYPOINT_NOT_STAGED");
+
+            // Keep the original verified package as a self-contained
+            // registered uninstaller. No Python or additional framework
+            // has to be installed on the user's Windows machine.
+            string packagedUninstaller = Path.Combine(staged, UninstallExe);
+            if (File.Exists(packagedUninstaller) ||
+                File.Exists(Path.Combine(staged, ReceiptFile)))
+                throw new InvalidDataException("SETUP_RESERVED_FILE_COLLISION");
+            File.Copy(bundle, packagedUninstaller);
+
+            var installedFiles = new List<string>();
+            foreach (string f in Directory.GetFiles(staged, "*", SearchOption.AllDirectories))
+                installedFiles.Add(f.Substring(staged.Length + 1)
+                    .Replace(Path.DirectorySeparatorChar, '/'));
+            installedFiles.Sort(StringComparer.OrdinalIgnoreCase);
+            var receipt = new Dictionary<string, object> {
+                {"schema", "IWXA_SETUP_OWNERSHIP/1"}, {"product", info.Id},
+                {"version", info.Version}, {"sourceCommit", info.SourceCommit},
+                {"packageSha256", info.PackageSha256}, {"installRoot", root},
+                {"files", installedFiles}
+            };
+            File.WriteAllText(Path.Combine(staged, ReceiptFile),
+                new JavaScriptSerializer().Serialize(receipt) + "\n",
+                new UTF8Encoding(false));
+
+        }
+
         internal static InstallOutcome UninstallOwned(string bundle)
         {
             BundleInfo info = BundleReader.Inspect(bundle);
@@ -139,6 +146,8 @@ namespace IwxaSetup
         private static InstallOutcome UninstallLocked(BundleInfo info)
         {
             string root = RootFor(info);
+            if (Directory.Exists(PreviousFor(info)) || File.Exists(PreviousFor(info)))
+                throw new InvalidOperationException("SETUP_UPGRADE_PENDING_RESOLUTION");
             IDictionary<string, object> receipt = ReadReceipt(root);
             if ((string)receipt["product"] != info.Id ||
                 (string)receipt["packageSha256"] != info.PackageSha256 ||
