@@ -10,7 +10,7 @@ type License={licenseId:string;status:'ACTIVE'|'SUSPENDED'|'REVOKED';
 type View={organizationId:string;productId:string;licenses:License[];
  revision:number;activeSeats:0;assignableSeats:0;productionActivation:false};
 type Props={organizationId:string;invoke:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null};
-const error=e=>e instanceof Error?e.message:String(e);
+const error=(e:unknown)=>e instanceof Error?e.message:String(e);
 export default function Cen04LicensePanel({organizationId,invoke}:Props){
  const [preview,setPreview]=useState<Preview|null>(null);
  const [verified,setVerified]=useState<View|null>(null);
