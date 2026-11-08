@@ -38,6 +38,31 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            // Read-only support/acceptance check for the installed release.
+            // The same strict owned-file verification protects the GUI from
+            // claiming success after a missing file or changed receipt.
+            if (args.Length == 2 && args[0] == "--verify-installed-file")
+            {
+                try
+                {
+                    BundleInfo expected = BundleReader.Inspect(
+                        Application.ExecutablePath);
+                    SetupInstallation.VerifyInstalledState(expected);
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "OWNED_FILES_VERIFIED"},
+                        {"product", expected.Id},
+                        {"version", expected.Version}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             // Report a truthful, non-mutating capacity estimate for Windows
             // acceptance and explain insufficient disk before activation.
             if (args.Length == 2 && args[0] == "--disk-plan-file")

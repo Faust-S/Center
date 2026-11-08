@@ -80,13 +80,9 @@ try {
     # required: a successful native return code alone is never sufficient.
     $assembly=[Reflection.Assembly]::LoadFrom($stubPath)
     $formType=$assembly.GetType('IwxaSetup.SetupForm', $true)
-    $installType=$assembly.GetType('IwxaSetup.SetupInstallation', $true)
-    $bundleType=$assembly.GetType('IwxaSetup.BundleReader', $true)
     $flags=[Reflection.BindingFlags]'Static, Public, NonPublic'
     $gate=$formType.GetMethod('CompletionMatches', $flags)
-    $inspect=$bundleType.GetMethod('Inspect', $flags)
-    $installedState=$installType.GetMethod('VerifyInstalledState', $flags)
-    if($null -eq $gate -or $null -eq $inspect -or $null -eq $installedState){
+    if($null -eq $gate){
         throw 'SETUP_FAST_UI_COMPLETION_GATE_NOT_EXPOSED'
     }
     function Assert-Completion([string]$operation,[string]$native,[string]$plan,[bool]$expected){
@@ -106,19 +102,17 @@ try {
     Assert-Completion 'Repair' 'REPAIRED_BACKUP_RETAINED' 'REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK' $true
     Assert-Completion 'CancelLegacyPreview' 'UNINSTALLED_USER_DATA_PRESERVED' 'LEGACY_MIGRATION_HOLD' $true
     Assert-Completion 'InstallWebView2' 'WEBVIEW2_INSTALLED_VERIFIED' 'WEBVIEW2_MISSING' $false
-    $arguments=New-Object 'System.Object[]' 1
-    $arguments[0]=[string]$bundle
-    $expectedBundle=$inspect.Invoke($null,$arguments)
-    if($expectedBundle -is [System.Management.Automation.PSObject]){
-        $expectedBundle=$expectedBundle.BaseObject
-    }
+    $ownedStateTag=0
     function Assert-OwnedState([bool]$expected){
-        $valid=$true
-        $arguments=New-Object 'System.Object[]' 1
-        $arguments[0]=$expectedBundle
-        try{$null=$installedState.Invoke($null,$arguments)}
-        catch [Reflection.TargetInvocationException]{$valid=$false}
-        if($valid -ne $expected){throw 'SETUP_FAST_OWNERSHIP_READBACK_MISMATCH'}
+        $script:ownedStateTag++
+        $tag='post-owner-state-'+$script:ownedStateTag
+        $result=Invoke-Setup '--verify-installed-file' $tag $(if($expected){0}else{2})
+        if ($expected -and $result.status -ne 'OWNED_FILES_VERIFIED'){
+            throw 'SETUP_FAST_VALID_OWNER_REJECTED'
+        }
+        if (!$expected -and $result.status -ne 'ERROR'){
+            throw 'SETUP_FAST_BAD_OWNER_ACCEPTED'
+        }
     }
     Write-Host 'IWXA_SETUP_UI_COMPLETION_GATE_STATUS_MATRIX_PASS'
     $shell=New-Object -ComObject WScript.Shell
