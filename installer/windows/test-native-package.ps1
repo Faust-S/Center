@@ -66,6 +66,36 @@ try {
         throw 'SETUP_NATIVE_PYTHON_DISAGREEMENT'
     }
     Write-Host "IWXA_SETUP_NATIVE_PACKAGE_PASS files=$($native.files) version=$($native.version)"
+
+    # Resource-based format V2 is a separate experimental delivery backend.
+    # It uses the SAME verified ZIP/manifest and native extraction engine.
+    # No test certificate here; signer verification has its own isolated CI.
+    $resourceFile=Join-Path $artifact 'iwxa-setup-core-resource-v2.exe'
+    $resourceArgs=@('-m','installer.build_bundle','build-resource',
+        '--product',$profile,'--payload',$payload,'--stub',$stub,
+        '--output',$resourceFile,'--source-commit',$sourceHead,'--source-tree',$sourceTree)
+    $resourceBuild=& python @resourceArgs
+    if($LASTEXITCODE -ne 0){throw 'SETUP_RESOURCE_V2_BUILD_FAILED'}
+    $resourceManifest=($resourceBuild|Out-String)|ConvertFrom-Json
+    if($resourceManifest.status -ne 'VERIFIED' -or
+       $resourceManifest.format -ne 'PE_RESOURCE_V2'){
+      throw 'SETUP_RESOURCE_V2_BUILD_RECEIPT_INVALID'
+    }
+    $resourceNative=Invoke-NativeInspection $resourceFile (
+        Join-Path $artifact 'setup-resource-v2-inspect.json') 0
+    if($resourceNative.status -ne 'VERIFIED' -or
+       $resourceNative.sourceCommit -ne $sourceHead -or
+       $resourceNative.packageSha256 -ne $manifest.payload_sha256){
+      throw 'SETUP_RESOURCE_V2_NATIVE_INSPECTION_INVALID'
+    }
+    $resourceStage=Invoke-NativeInspection $resourceFile (
+        Join-Path $artifact 'setup-resource-v2-stage.json') 0 '--stage-test-file'
+    if($resourceStage.status -ne 'STAGED_VERIFIED' -or
+       $resourceStage.files -ne $native.files -or
+       $resourceStage.packageSha256 -ne $native.packageSha256){
+      throw 'SETUP_RESOURCE_V2_NATIVE_STAGING_INVALID'
+    }
+    Write-Host 'IWXA_SETUP_RESOURCE_V2_PACK_INSPECT_STAGE_PASS'
     # Exercise the common installer verification with an unsigned Setup EXE,
     # independently of whether the hosted Windows image has WebView2.
     $badComponentReport = Join-Path $artifact 'setup-core-webview2-unsigned.json'
