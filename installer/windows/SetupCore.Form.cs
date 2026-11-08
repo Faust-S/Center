@@ -33,6 +33,7 @@ namespace IwxaSetup
         private SetupOperation primaryAction = SetupOperation.None;
         private SetupOperation secondaryAction = SetupOperation.None;
         private bool performingOperation = false;
+        private bool verifyingState = false;
 
         internal SetupForm()
         {
@@ -275,9 +276,11 @@ namespace IwxaSetup
             secondaryAction = alternate;
             install.Text = primaryLabel;
             install.AccessibleName = primaryLabel;
-            install.Enabled = !performingOperation && primary != SetupOperation.None;
+            install.Enabled = !performingOperation && !verifyingState &&
+                primary != SetupOperation.None;
             secondary.Visible = alternate != SetupOperation.None;
-            secondary.Enabled = !performingOperation && alternate != SetupOperation.None;
+            secondary.Enabled = !performingOperation && !verifyingState &&
+                alternate != SetupOperation.None;
             if (alternate == SetupOperation.Rollback)
                 secondary.Text = T("Вернуть прежнюю", "Roll back");
             else if (alternate == SetupOperation.InstallWebView2Offline)
@@ -411,7 +414,8 @@ namespace IwxaSetup
 
         private async Task ExecuteAsync(SetupOperation operation)
         {
-            if (performingOperation || operation == SetupOperation.None) return;
+            if (performingOperation || verifyingState ||
+                operation == SetupOperation.None) return;
             string offlineInstaller = null;
             if (operation == SetupOperation.InstallWebView2Offline)
             {
@@ -518,8 +522,7 @@ namespace IwxaSetup
                 });
                 // Recheck on-disk ownership; the display is never advanced
                 // merely because a background operation returned a status.
-                performingOperation = false;
-                UpgradeAssessment verified = await VerifyAsync();
+                UpgradeAssessment verified = await VerifyAsync(true);
                 if (IsDisposed || Disposing) return;
                 if (verified == null ||
                     !CompletionMatches(operation.ToString(), result.Status,
@@ -587,6 +590,9 @@ namespace IwxaSetup
                 busyProgress.Visible = false;
                 retry.Enabled = true;
                 openApplication.Enabled = true;
+                // Actions remain locked throughout operation + post-readback.
+                install.Enabled = primaryAction != SetupOperation.None;
+                secondary.Enabled = secondaryAction != SetupOperation.None;
             }
             if (failure != null)
             {
@@ -648,9 +654,12 @@ namespace IwxaSetup
             }
         }
 
-        private async Task<UpgradeAssessment> VerifyAsync()
+        private async Task<UpgradeAssessment> VerifyAsync(
+            bool fromOperation = false)
         {
-            if (performingOperation) return null;
+            if (verifyingState || (performingOperation && !fromOperation))
+                return null;
+            verifyingState = true;
             busyProgress.Visible = true;
             retry.Enabled = false;
             SetWizardStep(1);
@@ -927,10 +936,17 @@ namespace IwxaSetup
             }
             finally
             {
+                verifyingState = false;
                 if (!IsDisposed && !Disposing)
                 {
-                    busyProgress.Visible = false;
-                    retry.Enabled = true;
+                    // The caller keeps the form busy until the complete
+                    // ownership readback finishes, even after VerifyAsync.
+                    if (!performingOperation) busyProgress.Visible = false;
+                    retry.Enabled = !performingOperation;
+                    install.Enabled = !performingOperation &&
+                        primaryAction != SetupOperation.None;
+                    secondary.Enabled = !performingOperation &&
+                        secondaryAction != SetupOperation.None;
                 }
             }
         }

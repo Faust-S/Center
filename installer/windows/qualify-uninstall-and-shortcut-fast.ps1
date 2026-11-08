@@ -82,6 +82,11 @@ try {
     $formType=$assembly.GetType('IwxaSetup.SetupForm', $true)
     $flags=[Reflection.BindingFlags]'Static, Public, NonPublic'
     $gate=$formType.GetMethod('CompletionMatches', $flags)
+    $verifyGuard=$formType.GetField('verifyingState',
+        [Reflection.BindingFlags]'Instance, NonPublic')
+    if($null -eq $verifyGuard -or $verifyGuard.FieldType -ne [bool]){
+        throw 'SETUP_FAST_POST_VERIFICATION_GUARD_MISSING'
+    }
     if($null -eq $gate){
         throw 'SETUP_FAST_UI_COMPLETION_GATE_NOT_EXPOSED'
     }

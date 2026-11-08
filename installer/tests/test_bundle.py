@@ -67,6 +67,16 @@ class BundleTests(unittest.TestCase):
         self.assertIn("info.Version", gui)
         self.assertIn("old.Version", gui)
 
+    def test_post_operation_verification_cannot_reenable_actions_early(self):
+        source = (Path(__file__).resolve().parents[1] / "windows" /
+                  "SetupCore.Form.cs").read_text(encoding="utf-8")
+        self.assertIn("private bool verifyingState = false;", source)
+        self.assertIn("UpgradeAssessment verified = await VerifyAsync(true);", source)
+        self.assertIn("if (verifyingState || (performingOperation && !fromOperation))", source)
+        self.assertIn("!performingOperation && !verifyingState", source)
+        self.assertIn("install.Enabled = !performingOperation &&", source)
+        self.assertNotIn("performingOperation = false;\n                UpgradeAssessment verified", source)
+
     def test_native_setup_displays_honest_busy_state_without_fake_percent(self):
         source = (Path(__file__).resolve().parents[1] / "windows" /
                   "SetupCore.Form.cs").read_text(encoding="utf-8")
