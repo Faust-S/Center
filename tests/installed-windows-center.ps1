@@ -343,7 +343,21 @@ try {
   $installReport=Join-Path $artifactDir 'center-setup-core-installed.json'
   $installProcess=Start-Process -FilePath $installer.FullName -ArgumentList ('--install-file "{0}"' -f $installReport) -PassThru
   if(!$installProcess.WaitForExit(120000)){Stop-Process -Id $installProcess.Id -Force;throw 'IWXA Setup Core install timed out'}
-  if($installProcess.ExitCode -ne 0){throw "IWXA Setup Core install failed: $($installProcess.ExitCode)"}
+  if($installProcess.ExitCode -ne 0){
+    # Show Setup Core's machine-readable reason; exit 2 alone hides
+    # whether the failure was ownership, disk, prerequisites or a race.
+    $diagnostic = 'SETUP_REPORT_MISSING'
+    if(Test-Path -LiteralPath $installReport -PathType Leaf){
+      try {
+        $failedSetup=Get-Content -LiteralPath $installReport -Raw|ConvertFrom-Json
+        $diagnostic=('status={0};reason={1}' -f $failedSetup.status,$failedSetup.reason)
+      } catch {
+        $diagnostic='SETUP_REPORT_UNREADABLE'
+      }
+    }
+    Write-Host ('CENTER_SETUP_INSTALL_DIAGNOSTIC ' + $diagnostic)
+    throw ('IWXA Setup Core install failed: exit={0}; {1}' -f $installProcess.ExitCode,$diagnostic)
+  }
   if(!(Test-Path -LiteralPath $installReport -PathType Leaf)){throw 'IWXA Setup Core install report missing'}
   $setupResult=Get-Content -LiteralPath $installReport -Raw|ConvertFrom-Json
   $expectedRoot=Join-Path $env:LOCALAPPDATA 'Programs\IWXA Admin Center'
