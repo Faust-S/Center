@@ -18,7 +18,7 @@ const why=(e:unknown)=>{
 
 /** Expand only on request: evidence text is read from T3's confirmed
  * application snapshot; it is not an Atlas write or a completion claim. */
-function AppliedEvidenceRow({e}:{e:any}){
+function AppliedEvidenceRow({e,onInspectWork}:{e:any;onInspectWork:(ref:{projectId:string;workId:string;revision:string})=>void}){
  const [expanded,setExpanded]=useState(false);
  return <li data-testid="cen05-applied-work">
    <strong>{e.atlasCurrentWork?.title??('Работа '+e.atlasRef.workId)}</strong> · проект {e.atlasRef.projectId} · WorkRef {e.atlasRef.workId} · редакция {e.atlasRef.revision}.
@@ -27,6 +27,7 @@ function AppliedEvidenceRow({e}:{e:any}){
      e.atlasObservation==='SOURCE_REVISION_CHANGED'?'Редакция Atlas изменилась':
      e.atlasObservation==='NOT_OBSERVED'?'Atlas не открыт':'Связь с Atlas требует проверки'}.</span>
    <small> Task {e.result.taskId} · Result {e.result.resultRevisionId.slice(0,12)} · выполнение работы не утверждается.</small>
+   <button type="button" className="secondary" data-testid="cen05-go-to-atlas" onClick={()=>onInspectWork(e.atlasRef)}>Найти исходную работу в планах Atlas</button>
    <details data-testid="cen05-evidence-details" onToggle={event=>setExpanded(event.currentTarget.open)}>
      <summary>Прочитать полный подтверждённый Result</summary>
      {expanded&&<div>
@@ -43,7 +44,7 @@ function AppliedEvidenceRow({e}:{e:any}){
  </li>;
 }
 
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onIssued,atlasView}:{organization:Org;atlasView:any|null;invoke:Invoke|null;onIssued:(issued:any,recipientId:string)=>Promise<void>;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onIssued,atlasView,onInspectWork}:{organization:Org;atlasView:any|null;invoke:Invoke|null;onInspectWork:(ref:{projectId:string;workId:string;revision:string})=>void;onIssued:(issued:any,recipientId:string)=>Promise<void>;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
  const [owner,setOwner]=useState<any>(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
@@ -337,7 +338,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    {!ready?<p data-testid="cen05-not-connected">NOT_CONNECTED: организационный T3 не подключён.</p>:
     atlasEvidence.length===0?<p data-testid="cen05-no-projection">Нет подтверждённого Result со связью Atlas. Необходимы T3 Apply и сохранённая исходная привязка.</p>:
     <ul data-testid="cen05-applied-list">{atlasEvidence.map((e:any)=>
-      <AppliedEvidenceRow key={e.result.taskId+'|'+e.result.resultRevisionId} e={e}/>)}</ul>}
+      <AppliedEvidenceRow key={e.result.taskId+'|'+e.result.resultRevisionId} e={e} onInspectWork={onInspectWork}/>)}</ul>}
    {unlinkedAppliedCount>0&&<p data-testid="cen05-unlinked-count">
      Применённых Result без проверенной связи с WorkRef: {unlinkedAppliedCount}. Уточните исходную выдачу Task в T3 и локальную привязку Center. Нельзя назначать работу по совпадению названий.
    </p>}

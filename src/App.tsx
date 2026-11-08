@@ -68,6 +68,8 @@ export default function App() {
   const [nativeAtlas,setNativeAtlas] = useState<{organizationId:string;view:AtlasPortfolioView}|null>(null);
   const [atlasSelected,setAtlasSelected] = useState('');
   const [atlasWorkspace,setAtlasWorkspace] = useState('');
+  // UI-only navigation hint. It is not a new project source or accepted Result.
+  const [atlasEvidenceFocus,setAtlasEvidenceFocus] = useState<{organizationId:string;ref:AtlasRef}|null>(null);
   const atlasInput = useRef<HTMLInputElement>(null);
   const [message,setMessage] = useState('');
   const [error,setError] = useState('');
@@ -171,6 +173,13 @@ export default function App() {
       sourceResultRef:old.sourceResultRef?.workspaceId===value?old.sourceResultRef:null};
     return {...old,[name]:value};
   });
+  const inspectAppliedAtlasWork = (ref: AtlasRef) => {
+    if(!org || !ref?.workId) return;
+    setAtlasEvidenceFocus({organizationId:org.id,ref:{...ref}});
+    setAtlasSelected(ref.projectId);
+    setError('');
+    go('resources');
+  };
   const prepareAtlasWork = (ref: AtlasRef) => {
     if (!org) return;
     if (editor) {
@@ -200,7 +209,7 @@ export default function App() {
   const selectOrg = (organizationId: string) => {
     if (editor) {setError('Сохраните или закройте открытый редактор поручения перед сменой организации.'); return;}
     if(command({type:'SELECT_ORGANIZATION',organizationId})){
-      setAtlasFile(null);setAtlasSelected('');setAtlasWorkspace('');setNativeAtlas(null);
+      setAtlasFile(null);setAtlasSelected('');setAtlasWorkspace('');setNativeAtlas(null);setAtlasEvidenceFocus(null);
     }
   };
   async function exportFile() {
@@ -240,7 +249,7 @@ export default function App() {
     try {
       const next = decodeDraft(raw) as Draft;
       if ((dirty || editor) && !window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.')) return;
-      setState(next);setDirty(nativeHost);setAtlasFile(null);setNativeAtlas(null);setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
+      setState(next);setDirty(nativeHost);setAtlasFile(null);setNativeAtlas(null);setAtlasSelected('');setAtlasWorkspace('');setAtlasEvidenceFocus(null);setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
     } catch(e) {problem(e);}
   }
   async function openFile() {
@@ -299,6 +308,16 @@ export default function App() {
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает общую картину проектов и зависимостей. Здесь руководитель связывает рабочую область с конкретной редакцией плана. Ссылка сохраняет ID и редакцию выбранного проекта; файл Atlas открывается вручную и не синхронизируется автоматически.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span></div>)}
+        {atlasEvidenceFocus?.organizationId===org.id && <div className="card nested-form" data-testid="cen05-atlas-work-focus">
+          <div className="section-head"><h3>Работа по применённому Result</h3><button type="button" className="quiet" onClick={()=>setAtlasEvidenceFocus(null)}>Скрыть</button></div>
+          <p>Проект {atlasEvidenceFocus.ref.projectId} · WorkRef {atlasEvidenceFocus.ref.workId} · исходная редакция {atlasEvidenceFocus.ref.revision}.</p>
+          <p data-testid="cen05-atlas-focus-status">{workStatusLabels[atlasWorkReadback(observedAtlas,atlasEvidenceFocus.ref)]}</p>
+          {atlasWorkReadback(observedAtlas,atlasEvidenceFocus.ref)==='SOURCE_REVISION_MATCHES' && (() => {
+            const work=observedAtlas?.projects.find(p=>p.id===atlasEvidenceFocus.ref.projectId)?.workItems.find(w=>w.id===atlasEvidenceFocus.ref.workId);
+            return work?<p data-testid="cen05-atlas-focus-work"><strong>{work.title}</strong> · состояние в Atlas: {work.state}</p>:null;
+          })()}
+          <p className="muted">Это read-only переход к исходной работе. Подписанный Result и квитанция ACCEPT остаются в «Результаты»; ни состояние работы, ни план Atlas здесь не меняются.</p>
+        </div>}
         <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>setNativeAtlas(view?{organizationId:id,view}:null)}/>
         <div className="card nested-form" data-testid="atlas-link-panel">
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
@@ -366,7 +385,7 @@ export default function App() {
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 
-       {org && page==='results' && <CorporatePanel key={org.id} organization={org} atlasView={observedAtlas} invoke={nativeHost?nativeInvoke:null} onIssued={persistIssuedTaskLink} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()}/>} 
+       {org && page==='results' && <CorporatePanel key={org.id} organization={org} atlasView={observedAtlas} invoke={nativeHost?nativeInvoke:null} onInspectWork={inspectAppliedAtlasWork} onIssued={persistIssuedTaskLink} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()}/>} 
       {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
         <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
         {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button></div>)}

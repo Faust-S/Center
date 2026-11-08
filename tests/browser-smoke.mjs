@@ -185,6 +185,14 @@ try{
   assert.match(await evidencePage.getByTestId('cen05-evidence-details').innerText(),/не утверждается/);
   await evidencePage.getByTestId('cen05-evidence-details').locator('summary').click();
   assert.equal(await evidencePage.getByTestId('cen05-applied-result-text').count(),0);
+  await evidencePage.getByTestId('cen05-go-to-atlas').click();
+  await evidencePage.getByTestId('cen05-atlas-work-focus').waitFor({state:'visible'});
+  assert.match(await evidencePage.getByTestId('cen05-atlas-work-focus').innerText(),/work:synthetic/);
+  assert.match(await evidencePage.getByTestId('cen05-atlas-focus-status').innerText(),/не открыт/);
+  assert.equal(await evidencePage.getByTestId('cen05-atlas-focus-work').count(),0,
+    'an absent Atlas source cannot assert a work title or completion state');
+  await evidencePage.getByTestId('nav-results').click();
+  assert.equal(await evidencePage.getByTestId('cen05-applied-work').count(),1);
   await evidencePage.close();
   checks.push('synthetic-t3-owner-applied-result-expanded-full-read-only-no-html-execution');
 
