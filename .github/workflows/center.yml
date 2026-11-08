@@ -116,6 +116,10 @@ jobs:
         run: ./tests/installed-windows-center.ps1
       # U05: both real installed Windows products on the SAME hosted profile.
       # Reuse Atlas's own GUI acceptance driver and native persistence.
+      - name: Upgrade installed Center and verify manager data after restart
+        shell: pwsh
+        timeout-minutes: 5
+        run: ./tests/installed-windows-setup-upgrade.ps1
       - name: Build exact canonical Atlas Desktop installer
         shell: pwsh
         timeout-minutes: 25

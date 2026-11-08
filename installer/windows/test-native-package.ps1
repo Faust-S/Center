@@ -159,6 +159,22 @@ try {
         }
         Write-Host 'IWXA_SETUP_NATIVE_DUPLICATE_INSTALL_REJECTED_PASS'
 
+        # Emulate a crash immediately after moving the old release aside.
+        $previousRoot = $installed.installRoot + '.iwxa-previous'
+        [IO.Directory]::Move($installed.installRoot, $previousRoot)
+        $missingPlan = Invoke-NativeInspection $upgradeCandidate $upgradePlanFile 0 '--upgrade-plan-file'
+        if ($missingPlan.status -ne 'UPGRADE_RECOVERY_REQUIRED') {
+            throw 'SETUP_S3_MISSING_ROOT_NOT_DETECTED'
+        }
+        $recovered = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-recovered-missing.json') 0 '--recover-upgrade-file'
+        if ($recovered.status -ne 'RECOVERED_PREVIOUS_RELEASE' -or
+            $recovered.version -ne '0.3.0-dev.1' -or
+            !(Test-Path -LiteralPath (Join-Path $installed.installRoot 'iwxa-admin-center.exe')) -or
+            (Test-Path -LiteralPath $previousRoot)) {
+            throw 'SETUP_S3_MISSING_ROOT_RECOVERY_FAILED'
+        }
+        Write-Host 'IWXA_SETUP_S3_RECOVER_AFTER_OLD_MOVE_PASS'
+
         $planNext = Invoke-NativeInspection $upgradeCandidate $upgradePlanFile 0 '--upgrade-plan-file'
         if ($planNext.status -ne 'UPGRADE_CANDIDATE_NOT_ACTIVATED') {
             throw 'SETUP_S3_UPGRADE_PLAN_INVALID'
@@ -174,6 +190,29 @@ try {
         $pending = Invoke-NativeInspection $upgradeCandidate $upgradePlanFile 0 '--upgrade-plan-file'
         if ($pending.status -ne 'UPGRADE_PENDING_CONFIRMATION') {
             throw 'SETUP_S3_CONFIRMATION_GATE_MISSING'
+        }
+        $stillPending = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-recovery-pending.json') 0 '--recover-upgrade-file'
+        if ($stillPending.status -ne 'UPGRADE_PENDING_CONFIRMATION') {
+            throw 'SETUP_S3_COMPLETED_SWITCH_ROLLED_BACK'
+        }
+
+        # Model a terminated process between activation and HKCU commit.
+        Set-ItemProperty -Path $ownerKey -Name PackageSha256 -Value $originalHash
+        Set-ItemProperty -Path $ownerKey -Name Version -Value '0.3.0-dev.1'
+        $interrupted = Invoke-NativeInspection $upgradeCandidate $upgradePlanFile 0 '--upgrade-plan-file'
+        if ($interrupted.status -ne 'UPGRADE_RECOVERY_REQUIRED') {
+            throw 'SETUP_S3_PRE_REGISTRATION_CRASH_NOT_DETECTED'
+        }
+        $recoveredRegistration = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-recovered-registration.json') 0 '--recover-upgrade-file'
+        if ($recoveredRegistration.status -ne 'RECOVERED_PREVIOUS_RELEASE' -or
+            $recoveredRegistration.version -ne '0.3.0-dev.1' -or
+            (Test-Path -LiteralPath $previousRoot)) {
+            throw 'SETUP_S3_PRE_REGISTRATION_RECOVERY_FAILED'
+        }
+        Write-Host 'IWXA_SETUP_S3_RECOVER_AFTER_NEW_MOVE_PASS'
+        $reapplied = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-upgrade-reapplied.json') 0 '--upgrade-file'
+        if ($reapplied.status -ne 'UPGRADED_BACKUP_RETAINED') {
+            throw 'SETUP_S3_REAPPLY_AFTER_RECOVERY_FAILED'
         }
         $rolled = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-rollback.json') 0 '--rollback-upgrade-file'
         if ($rolled.status -ne 'ROLLBACK_RESTORED_PREVIOUS' -or

@@ -83,7 +83,8 @@ namespace IwxaSetup
             if (args.Length == 2 &&
                 (args[0] == "--upgrade-file" ||
                  args[0] == "--rollback-upgrade-file" ||
-                 args[0] == "--confirm-upgrade-file"))
+                 args[0] == "--confirm-upgrade-file" ||
+                 args[0] == "--recover-upgrade-file"))
             {
                 try
                 {
@@ -92,6 +93,8 @@ namespace IwxaSetup
                         result = SetupInstallation.UpgradeOwned(Application.ExecutablePath);
                     else if (args[0] == "--rollback-upgrade-file")
                         result = SetupInstallation.RollbackOwned(Application.ExecutablePath);
+                    else if (args[0] == "--recover-upgrade-file")
+                        result = SetupInstallation.RecoverOwned(Application.ExecutablePath);
                     else
                         result = SetupInstallation.ConfirmUpgrade(Application.ExecutablePath);
                     WriteResult(args[1], new Dictionary<string, object> {

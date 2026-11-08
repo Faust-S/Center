@@ -60,7 +60,23 @@ namespace IwxaSetup
                         String.Equals(Convert.ToString(
                             owned.GetValue("PackageSha256")), info.PackageSha256,
                             StringComparison.OrdinalIgnoreCase))
-                        plan.Status = "UPGRADE_PENDING_CONFIRMATION";
+                    {
+                        try
+                        {
+                            BundleInfo current = ReadOwnedRelease(root, root, info.Id);
+                            BundleInfo old = ReadOwnedRelease(
+                                PreviousFor(info), root, info.Id);
+                            plan.Status = current.PackageSha256 == info.PackageSha256 &&
+                                Convert.ToString(owned.GetValue("Version")) == info.Version &&
+                                old.Id == info.Id ?
+                                "UPGRADE_PENDING_CONFIRMATION" :
+                                "UPGRADE_RECOVERY_REQUIRED";
+                        }
+                        catch (Exception)
+                        {
+                            plan.Status = "UPGRADE_RECOVERY_REQUIRED";
+                        }
+                    }
                     else
                         plan.Status = "UPGRADE_RECOVERY_REQUIRED";
                     return plan;

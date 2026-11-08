@@ -112,6 +112,70 @@ namespace IwxaSetup
             }
         }
 
+        // Recover only releases proven to belong to the same product.
+        // NSIS installations are never adopted here.
+        internal static InstallOutcome RecoverOwned(string bundle)
+        {
+            BundleInfo candidate = BundleReader.Inspect(bundle);
+            using (var mutex = new System.Threading.Mutex(false,
+                "Local\\IWXA.SetupCore." + candidate.Id))
+            {
+                if (!mutex.WaitOne(0))
+                    throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
+                try { return RecoverLocked(candidate); }
+                finally { mutex.ReleaseMutex(); }
+            }
+        }
+
+        private static InstallOutcome RecoverLocked(BundleInfo candidate)
+        {
+            string root = RootFor(candidate), previous = PreviousFor(candidate);
+            if (!Directory.Exists(previous) ||
+                (File.GetAttributes(previous) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidOperationException("SETUP_RECOVERY_BACKUP_MISSING");
+            BundleInfo old = ReadOwnedRelease(previous, root, candidate.Id);
+            RequireOnlyOwnedFiles(previous);
+            bool registryOld, registryNew;
+            using (var reg = Registry.CurrentUser.OpenSubKey(
+                RegistryProducts + candidate.Id))
+            {
+                if (reg == null || !SamePath(Convert.ToString(
+                    reg.GetValue("InstallLocation")), root))
+                    throw new InvalidOperationException(
+                        "SETUP_RECOVERY_AUTHORITY_MISSING");
+                string version = Convert.ToString(reg.GetValue("Version"));
+                string hash = Convert.ToString(reg.GetValue("PackageSha256"));
+                registryOld = version == old.Version && hash == old.PackageSha256;
+                registryNew = version == candidate.Version &&
+                    hash == candidate.PackageSha256;
+            }
+
+            // Interrupted before registry commit, or after moving the original
+            // root away: RollbackLocked validates ownership and restores it.
+            if (registryOld)
+            {
+                InstallOutcome restored = RollbackLocked(candidate);
+                restored.Status = "RECOVERED_PREVIOUS_RELEASE";
+                return restored;
+            }
+
+            // Do not silently revert an activated, registered release.
+            if (registryNew && Directory.Exists(root) &&
+                (File.GetAttributes(root) & FileAttributes.ReparsePoint) == 0)
+            {
+                BundleInfo current = ReadOwnedRelease(root, root, candidate.Id);
+                if (current.Version == candidate.Version &&
+                    current.PackageSha256 == candidate.PackageSha256)
+                    return new InstallOutcome {
+                        Status = "UPGRADE_PENDING_CONFIRMATION",
+                        Product = candidate.Id, Version = candidate.Version,
+                        Root = root
+                    };
+            }
+            throw new InvalidOperationException(
+                "SETUP_RECOVERY_OWNERSHIP_MISMATCH");
+        }
+
         private static InstallOutcome RollbackLocked(BundleInfo candidate)
         {
             string root = RootFor(candidate), previous = PreviousFor(candidate);
