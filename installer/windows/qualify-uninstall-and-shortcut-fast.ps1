@@ -36,7 +36,7 @@ try {
     }
     [IO.File]::WriteAllText($profilePath,
         ($profile|ConvertTo-Json -Depth 5),
-        (New-Object System.Text.UTF8Encoding($false)))
+        ([System.Text.UTF8Encoding]::new($false)))
     New-Item -Path $payload -ItemType Directory|Out-Null
     Copy-Item -LiteralPath $stubPath -Destination (Join-Path $payload $appName)
     New-Item -Path (Join-Path $payload 'assets') -ItemType Directory|Out-Null
@@ -203,7 +203,7 @@ try {
         $nextPath=Join-Path $work 'upgrade-profile.json'
         [IO.File]::WriteAllText($nextPath,
             ($nextProfile|ConvertTo-Json -Depth 5),
-            (New-Object System.Text.UTF8Encoding($false)))
+            ([System.Text.UTF8Encoding]::new($false)))
         $upgradeBundle=Join-Path $work 'upgrade.exe'
         $upgradeArgs=@('-m','installer.build_bundle','build-resource',
             '--product',$nextPath,'--payload',$payload,'--stub',$stubPath,
