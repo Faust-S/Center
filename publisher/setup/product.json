@@ -1,0 +1,14 @@
+{
+  "schema": "IWXA_SETUP_PRODUCT/1",
+  "id": "iwxa.publisher",
+  "display_name": "IWXA Publisher",
+  "publisher": "IWXA",
+  "version": "0.2.0",
+  "architecture": "windows-x64",
+  "install_dir": "IWXA Publisher",
+  "entrypoint": "iwxa-publisher.exe",
+  "data_namespace": "ru.iwxa.publisher",
+  "requirements": [
+    "webview2-evergreen"
+  ]
+}

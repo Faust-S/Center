@@ -56,6 +56,7 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run build
       - run: npm run publisher:build
+      - run: node --test publisher/tests/setup-contract.test.mjs
       - run: npx playwright install --with-deps firefox
       - run: npm run test:ui
       - run: npm run publisher:test:ui
