@@ -226,7 +226,7 @@ export default function App(){
                <h2>Подготовка лицензий и выпусков IWXA</h2>
                <p>Продукт, получатель и условия выдачи — в одном рабочем месте. Действительные права появятся только после подписи и независимой проверки T3.</p>
              </div>
-             <div className="publisher-hero-symbol" aria-hidden="true"><span className="publisher-hero-symbol-inner">IX</span></div>
+             <div className="publisher-hero-symbol" aria-hidden="true"><img className="publisher-hero-symbol-inner" src="/favicon.svg" alt="" width="79" height="79"/></div>
            </div>
            <div className="actions publisher-hero-actions">
              <button type="button" className="secondary" onClick={()=>go('products')}>Добавить продукт</button>

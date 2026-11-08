@@ -121,9 +121,23 @@ try {
   await page.getByRole('button',{name:'Открыть навигацию'}).click();
   await page.getByRole('button',{name:'Обзор'}).click();
 
+  await page.getByRole('button',{name:'Открыть навигацию'}).click();
+  await page.screenshot({path:'artifacts/publisher/navigation-320.png',fullPage:true});
+  await page.getByRole('button',{name:'Обзор',exact:true}).click();
   await page.screenshot({path:'artifacts/publisher/overview-320.png',fullPage:true});
   await page.setViewportSize({width:1366,height:900});
   await page.screenshot({path:'artifacts/publisher/overview-1366.png',fullPage:true});
+  for(const [label,slug] of [
+    ['Продукты','products'],['Получатели','holders'],
+    ['Запросы на лицензии','proposals'],['Релизы','releases'],['Доверие и ключи','trust']
+  ]){
+    await page.getByRole('button',{name:label,exact:true}).click();
+    const bounds=await page.evaluate(()=>({width:window.innerWidth,scroll:document.documentElement.scrollWidth}));
+    assert.ok(bounds.scroll<=bounds.width,slug+' overflows desktop viewport');
+    await page.screenshot({path:'artifacts/publisher/'+slug+'-1366.png',fullPage:true});
+  }
+  await page.getByRole('button',{name:'Обзор',exact:true}).click();
+  checks.push('agent-shell-consistent-on-all-six-publisher-pages');
   // A bounded native-command double tests the confirmation UI without
   // pretending this is installed Windows, a T3 issuer or a real signed license.
   let backupDraft=emptyPublisherDraft();

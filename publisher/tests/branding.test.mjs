@@ -9,10 +9,11 @@ const expected=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <path d="M29 14 L51 50 M51 14 L29 50" stroke="#05070D" stroke-width="7" stroke-linecap="butt"/>
 </svg>`;
 test('Publisher uses the EXACT Personal Agent IX glyph, changing green background to white only',()=>{
- const actual=read('publisher/public/favicon.svg').trim();
+ const actual=read('publisher/public/favicon.svg').replace(/\r\n/g,'\n').trim();
  assert.equal(actual,expected);
  assert.match(read('publisher/index.html'),/href="\/favicon\.svg"/);
  assert.match(read('publisher/ui/App.tsx'),/className="publisher-brand-logo" src="\/favicon\.svg"/);
+ assert.match(read('publisher/ui/App.tsx'),/className="publisher-hero-symbol-inner" src="\/favicon\.svg"/);
 });
 test('Publisher Windows icon depicts white Agent IX mark instead of placeholder',()=>{
  const png=readFileSync('publisher/src-tauri/icons/icon.png');
