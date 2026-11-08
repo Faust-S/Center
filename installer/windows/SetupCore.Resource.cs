@@ -106,10 +106,13 @@ namespace IwxaSetup
             }
             public override long Seek(long offset, SeekOrigin origin)
             {
-                long next = origin == SeekOrigin.Begin ? offset :
-                    origin == SeekOrigin.Current ? checked(position + offset) :
-                    origin == SeekOrigin.End ? checked(length + offset) :
-                    throw new ArgumentOutOfRangeException("origin");
+                long next;
+                if (origin == SeekOrigin.Begin) next = offset;
+                else if (origin == SeekOrigin.Current)
+                    next = checked(position + offset);
+                else if (origin == SeekOrigin.End)
+                    next = checked(length + offset);
+                else throw new ArgumentOutOfRangeException("origin");
                 Position = next;
                 return next;
             }

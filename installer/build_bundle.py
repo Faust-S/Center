@@ -7,6 +7,8 @@ the user's machine. Hashes prove byte integrity, not publisher authenticity.
 from __future__ import annotations
 
 import argparse
+import ctypes
+import shutil
 import hashlib
 import json
 import os
@@ -339,18 +341,140 @@ def inspect_bundle(path: Path, *, verify_files: bool = False) -> dict[str, Any]:
     }
 
 
+
+# Experimental native signed-delivery format: place the same verified
+# ZIP and canonical manifest in the Win32 PE resource section before
+# signing. Windows Authenticode covers section bytes; the legacy format
+# remains supported for pre-release backward-compatible snapshots.
+RESOURCE_MAGIC = b"IWXA_SETUP_RSRC2"
+RESOURCE_ID = 101
+RESOURCE_TYPE = 10  # RT_RCDATA
+
+
+def _pe_resource_api():
+    if os.name != "nt":
+        raise SetupBundleError("pe_resource_windows_only")
+    library = ctypes.WinDLL("kernel32", use_last_error=True)
+    ptr = ctypes.c_void_p
+    library.BeginUpdateResourceW.argtypes = (ctypes.c_wchar_p, ctypes.c_int)
+    library.BeginUpdateResourceW.restype = ptr
+    library.UpdateResourceW.argtypes = (
+        ptr, ptr, ptr, ctypes.c_ushort, ptr, ctypes.c_uint32
+    )
+    library.UpdateResourceW.restype = ctypes.c_int
+    library.EndUpdateResourceW.argtypes = (ptr, ctypes.c_int)
+    library.EndUpdateResourceW.restype = ctypes.c_int
+    library.LoadLibraryExW.argtypes = (ctypes.c_wchar_p, ptr, ctypes.c_uint32)
+    library.LoadLibraryExW.restype = ptr
+    library.FindResourceW.argtypes = (ptr, ptr, ptr)
+    library.FindResourceW.restype = ptr
+    library.SizeofResource.argtypes = (ptr, ptr)
+    library.SizeofResource.restype = ctypes.c_uint32
+    library.LoadResource.argtypes = (ptr, ptr)
+    library.LoadResource.restype = ptr
+    library.LockResource.argtypes = (ptr,)
+    library.LockResource.restype = ptr
+    library.FreeLibrary.argtypes = (ptr,)
+    library.FreeLibrary.restype = ctypes.c_int
+    return library
+
+
+def _inject_pe_resource(path: Path, content: bytes) -> None:
+    if len(content) > 0x7FFFFFFF:
+        raise SetupBundleError("pe_resource_maximum_payload_exceeded")
+    kernel = _pe_resource_api()
+    handle = kernel.BeginUpdateResourceW(str(path.resolve()), 0)
+    if not handle:
+        raise SetupBundleError(f"pe_resource_update_open_failed_{ctypes.get_last_error()}")
+    success = False
+    try:
+        data = ctypes.create_string_buffer(content, len(content))
+        if not kernel.UpdateResourceW(handle, RESOURCE_TYPE, RESOURCE_ID,
+                                      0, data, len(content)):
+            raise SetupBundleError(
+                f"pe_resource_write_failed_{ctypes.get_last_error()}"
+            )
+        success = True
+    finally:
+        if not kernel.EndUpdateResourceW(handle, not success):
+            raise SetupBundleError(
+                f"pe_resource_update_commit_failed_{ctypes.get_last_error()}"
+            )
+
+
+def read_pe_resource(path: Path) -> bytes:
+    kernel = _pe_resource_api()
+    module = kernel.LoadLibraryExW(str(path.resolve()), None, 0x2)
+    if not module:
+        raise SetupBundleError("pe_resource_module_unavailable")
+    try:
+        handle = kernel.FindResourceW(module, RESOURCE_ID, RESOURCE_TYPE)
+        if not handle:
+            raise SetupBundleError("pe_resource_missing")
+        size = kernel.SizeofResource(module, handle)
+        if size < FOOTER.size or size > 0x7FFFFFFF:
+            raise SetupBundleError("pe_resource_invalid_size")
+        loaded = kernel.LoadResource(module, handle)
+        address = kernel.LockResource(loaded)
+        if not address:
+            raise SetupBundleError("pe_resource_lock_failed")
+        return ctypes.string_at(address, size)
+    finally:
+        kernel.FreeLibrary(module)
+
+
+def create_resource_bundle(*, product_json: Path, payload_dir: Path,
+                           stub: Path, output: Path, source_commit: str,
+                           source_tree: str) -> dict[str, Any]:
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="iwxa-resource-pack-",
+                                     dir=output.parent) as tmp:
+        tmpdir = Path(tmp)
+        unsigned = tmpdir / "validated-overlay.exe"
+        inspected = create_bundle(
+            product_json=product_json, payload_dir=payload_dir, stub=stub,
+            output=unsigned, source_commit=source_commit, source_tree=source_tree,
+        )
+        with unsigned.open("rb") as stream:
+            stream.seek(-FOOTER.size, os.SEEK_END)
+            magic, stub_size, zip_size, meta_size, stub_hash, zip_hash, meta_hash = (
+                FOOTER.unpack(stream.read(FOOTER.size))
+            )
+            if magic != MAGIC or stub_size != Path(stub).stat().st_size:
+                raise SetupBundleError("pe_resource_original_bundle_invalid")
+            stream.seek(stub_size)
+            content = stream.read(zip_size + meta_size)
+        resource = content + FOOTER.pack(
+            RESOURCE_MAGIC, 0, zip_size, meta_size,
+            bytes(32), zip_hash, meta_hash,
+        )
+        staged = tmpdir / "resource-embedded.exe"
+        shutil.copyfile(stub, staged)
+        _inject_pe_resource(staged, resource)
+        if read_pe_resource(staged) != resource:
+            raise SetupBundleError("pe_resource_final_readback_mismatch")
+        os.replace(staged, output)
+    inspected["format"] = "PE_RESOURCE_V2"
+    inspected["setup_sha256"] = _digest_file(output)
+    inspected["bytes"] = output.stat().st_size
+    return inspected
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Build or inspect a product-neutral IWXA Windows Setup bundle")
     sub = p.add_subparsers(dest="action", required=True)
-    build = sub.add_parser("build")
-    for field in ("product", "payload", "stub", "output", "source-commit", "source-tree"):
-        build.add_argument("--" + field, required=True)
+    for command in ("build", "build-resource"):
+        build = sub.add_parser(command)
+        for field in ("product", "payload", "stub", "output", "source-commit", "source-tree"):
+            build.add_argument("--" + field, required=True)
     inspect = sub.add_parser("inspect")
     inspect.add_argument("path")
     args = p.parse_args(argv)
     try:
-        if args.action == "build":
-            result = create_bundle(product_json=Path(args.product), payload_dir=Path(args.payload),
+        if args.action in ("build", "build-resource"):
+            method = create_resource_bundle if args.action == "build-resource" else create_bundle
+            result = method(product_json=Path(args.product), payload_dir=Path(args.payload),
                 stub=Path(args.stub), output=Path(args.output),
                 source_commit=args.source_commit, source_tree=args.source_tree)
         else:
