@@ -101,6 +101,10 @@ jobs:
         shell: pwsh
         timeout-minutes: 5
         run: ./installer/windows/test-native-package.ps1
+      - name: Qualify signed V2 Setup Core installation lifecycle (test certificate only)
+        shell: pwsh
+        timeout-minutes: 6
+        run: ./installer/windows/qualify-signed-resource-install.ps1
       - name: Native Atlas storage tests, including two separate processes
         run: cargo test --manifest-path src-tauri/Cargo.toml --bin iwxa-admin-center -- --nocapture
       - name: Verify IWXA Setup Core Windows distribution and record hashes
