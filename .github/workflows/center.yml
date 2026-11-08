@@ -37,6 +37,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - name: Compile IWXA Setup Core early (Windows model gate)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./installer/windows/build-stub.ps1 -Output artifacts/iwxa-setup-core-early.exe
       - run: npm test
       - uses: actions/setup-python@v5
         with:
