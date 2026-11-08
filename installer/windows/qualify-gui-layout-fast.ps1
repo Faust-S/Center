@@ -79,21 +79,24 @@ foreach ($factor in @(1.0, 1.5, 2.0, 2.5)) {
             [int][Math]::Round(900 * $factor),
             [int][Math]::Round(560 * $factor))
         Assert-Layout $form ('nominal-' + $factor)
-        $expectedMinimum = [Drawing.Size]::new(
-            [int][Math]::Round(820 * $factor),
-            [int][Math]::Round(610 * $factor))
-        # A manually scaled Form may retain its nominal minimum. Set the
-        # equivalent physical viewport explicitly, then prove it shrank.
-        $form.MinimumSize = $expectedMinimum
-        $form.Size = $expectedMinimum
+        # Form.Scale on a non-visible host does not reliably dock its child
+        # back into a smaller parent. Force the *content viewport* to the
+        # physical equivalent of the supported 820x610 window and check its
+        # real child bounds. This is simulated DPI, not a Windows DPI witness.
+        $compactViewport = [Drawing.Size]::new(
+            [int][Math]::Round(804 * $factor),
+            [int][Math]::Round(571 * $factor))
+        $shell = $form.Controls[0]
+        $shell.Dock = [System.Windows.Forms.DockStyle]::None
+        $shell.Size = $compactViewport
+        $shell.PerformLayout()
         $area = One $form 'iwxaSetupContent'
         $maxCompactWidth = [int][Math]::Round(590 * $factor)
         if ($area.ClientSize.Width -gt $maxCompactWidth) {
-            throw ('SETUP_LAYOUT_MINIMUM_NOT_EXERCISED_' + $factor +
-                ' actual=' + $area.ClientSize + ' form=' + $form.Size +
-                ' minimum=' + $form.MinimumSize)
+            throw ('SETUP_LAYOUT_COMPACT_VIEWPORT_NOT_EXERCISED_' + $factor +
+                ' actual=' + $area.ClientSize + ' shell=' + $shell.Size)
         }
-        Assert-Layout $form ('minimum-' + $factor)
+        Assert-Layout $form ('compact-' + $factor)
     } finally {
         $form.Dispose()
     }
