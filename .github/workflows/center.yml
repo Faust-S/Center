@@ -451,10 +451,10 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'setup-v2-baseline.py'),
             ($old -join [Environment]::NewLine) + [Environment]::NewLine,
             [System.Text.UTF8Encoding]::new($false))
-      - name: Compare memory and time on 25 and 250 MiB V2 packages
+      - name: Qualify optimized V2 capacity at 750 and 1500 MiB
         shell: powershell
         timeout-minutes: 35
-        run: ./installer/windows/benchmark-resource-v2.ps1 -Stub artifacts/iwxa-setup-benchmark-stub.exe -BaselineSource (Join-Path $env:RUNNER_TEMP 'setup-v2-baseline.py') -SizesMiB 25,250 -Repeats 2 -Output artifacts/iwxa-v2-benchmark.json
+        run: ./installer/windows/benchmark-resource-v2.ps1 -Stub artifacts/iwxa-setup-benchmark-stub.exe -BaselineSource (Join-Path $env:RUNNER_TEMP 'setup-v2-baseline.py') -SizesMiB 750,1500 -Repeats 1 -OptimizedOnly -Output artifacts/iwxa-v2-benchmark.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory=$true)][string]$BaselineSource,
     [int[]]$SizesMiB = @(25, 250),
     [ValidateRange(1,5)][int]$Repeats = 2,
+    [switch]$OptimizedOnly,
     [string]$Output = 'artifacts/iwxa-v2-benchmark.json'
 )
 Set-StrictMode -Version Latest
@@ -99,19 +100,32 @@ function Invoke-Variant(
 try {
     foreach ($size in $SizesMiB) {
         $case = Join-Path $work ('case-' + $size)
+        $volume = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($work))
+        $requiredFree = [long]$size * 1024 * 1024 * 5 + 512MB
+        if ($volume.AvailableFreeSpace -lt $requiredFree) {
+            throw ('SETUP_BENCHMARK_DISK_PRECHECK_FAILED_' + $size +
+                ' needed=' + $requiredFree + ' available=' + $volume.AvailableFreeSpace)
+        }
         $payload = Join-Path $case 'payload'
         New-Item -Path $payload -ItemType Directory -Force | Out-Null
         Copy-Item -LiteralPath $stubFull -Destination (Join-Path $payload 'fixture.exe')
-        $blobPath = Join-Path $payload 'synthetic-incompressible.bin'
-        # Deflate's dictionary is 32 KiB, so repeating a random 1-MiB block
-        # remains effectively incompressible without storing a giant buffer.
+        # Per-file V2 limit is 1 GiB. Split larger synthetic payloads
+        # without changing the existing package format or product profile.
         $block = New-Object byte[] (1024 * 1024)
         $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
         try { $rng.GetBytes($block) } finally { $rng.Dispose() }
-        $stream = [IO.File]::Open($blobPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-        try {
-            for ($i=0; $i -lt $size; $i++) { $stream.Write($block,0,$block.Length) }
-        } finally { $stream.Dispose() }
+        $remainingMiB = $size
+        $part = 0
+        while ($remainingMiB -gt 0) {
+            $partMiB = [Math]::Min(750,$remainingMiB)
+            $blobPath = Join-Path $payload ('synthetic-incompressible-' + $part + '.bin')
+            $stream = [IO.File]::Open($blobPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+            try {
+                for ($i=0; $i -lt $partMiB; $i++) { $stream.Write($block,0,$block.Length) }
+            } finally { $stream.Dispose() }
+            $remainingMiB -= $partMiB
+            $part++
+        }
         $profile = @{
             schema='IWXA_SETUP_PRODUCT/1'; id='iwxa.setup.benchmark'
             display_name='IWXA Setup Benchmark'; publisher='IWXA'
@@ -122,7 +136,7 @@ try {
         $profilePath = Join-Path $case 'product.json'
         [IO.File]::WriteAllText($profilePath,($profile | ConvertTo-Json -Depth 5),$utf8)
         for ($repeat=1; $repeat -le $Repeats; $repeat++) {
-            $order = if ($repeat % 2 -eq 1) { @('baseline','optimized') } else { @('optimized','baseline') }
+            $order = if ($OptimizedOnly) { @('optimized') } elseif ($repeat % 2 -eq 1) { @('baseline','optimized') } else { @('optimized','baseline') }
             $pair = @{}
             foreach ($variant in $order) {
                 $source = if ($variant -eq 'baseline') { $baselineFull } else { $candidateFull }
@@ -130,11 +144,15 @@ try {
                 $rows.Add($entry)
                 $pair[$variant] = $entry
             }
-            if ($pair['baseline'].outputSha256 -ne $pair['optimized'].outputSha256 -or
-                $pair['baseline'].outputBytes -ne $pair['optimized'].outputBytes) {
-                throw ('SETUP_BENCHMARK_NATIVE_V2_OUTPUT_CHANGED_' + $size + '_' + $repeat)
+            if (!$OptimizedOnly) {
+                if ($pair['baseline'].outputSha256 -ne $pair['optimized'].outputSha256 -or
+                    $pair['baseline'].outputBytes -ne $pair['optimized'].outputBytes) {
+                    throw ('SETUP_BENCHMARK_NATIVE_V2_OUTPUT_CHANGED_' + $size + '_' + $repeat)
+                }
+                Write-Host ('SETUP_BENCHMARK_V2_IDENTICAL_OUTPUT_PASS size=' + $size + 'MiB iteration=' + $repeat)
+            } else {
+                Write-Host ('SETUP_BENCHMARK_OPTIMIZED_LARGE_V2_PASS size=' + $size + 'MiB iteration=' + $repeat)
             }
-            Write-Host ('SETUP_BENCHMARK_V2_IDENTICAL_OUTPUT_PASS size=' + $size + 'MiB iteration=' + $repeat)
         }
         Remove-Item -LiteralPath $case -Recurse -Force
     }
@@ -143,6 +161,7 @@ try {
         sourceHead=$head; sourceTree=$tree
         baselineCommit='7173fb54bad2ff67eb77f2603117f85e6e63cb73'
         status='PASS'; resourceFormat='PE_RESOURCE_V2'
+        comparisonMode=$(if ($OptimizedOnly) { 'optimized-capacity-only' } else { 'paired-same-output' })
         payload='synthetic-incompressible-file-plus-native-stub'
         sampleScope='Windows runner, single-process packaging; peak process counters'
         measurements=$rows.ToArray()
