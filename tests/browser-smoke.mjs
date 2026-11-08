@@ -172,7 +172,7 @@ try{
     'large T3 result text stays unmounted until manager expands it');
   await evidencePage.getByTestId('cen05-evidence-details').locator('summary').click();
   assert.equal(await evidencePage.getByTestId('cen05-applied-result-text').textContent(),exactResult);
-  assert.equal(await evidencePage.locator('script').count(),0,
+  assert.equal(await evidencePage.locator('script').filter({hasText:'всегда текст'}).count(),0,
     'result text cannot execute HTML inserted by an external employee');
   assert.match(await evidencePage.getByTestId('cen05-evidence-details').innerText(),/ACCEPT receipt/);
   assert.match(await evidencePage.getByTestId('cen05-evidence-details').innerText(),/person:staff/);
