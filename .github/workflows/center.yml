@@ -49,7 +49,9 @@ jobs:
         run: python -m unittest discover -s installer/tests -p 'test_*.py' -v
       - name: Fast native Windows uninstall and shortcut ownership fixture
         if: runner.os == 'Windows'
-        shell: pwsh
+        # Setup Core uses .NET Framework System.Web.Extensions: exercise its
+        # real managed readback via Windows PowerShell 5.1, not PowerShell 7.
+        shell: powershell
         timeout-minutes: 4
         run: ./installer/windows/qualify-uninstall-and-shortcut-fast.ps1 -Stub artifacts/iwxa-setup-core-early.exe
   interface:
