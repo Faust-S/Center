@@ -96,6 +96,10 @@ jobs:
       - run: npm install --no-audit --no-fund
       - name: Build native Center with original Atlas storage
         run: npm run desktop:build -- --no-bundle
+      - name: Qualify IWXA Setup Core native package and GUI (Center 0.3)
+        shell: pwsh
+        timeout-minutes: 5
+        run: ./installer/windows/test-native-package.ps1
       - name: Native Atlas storage tests, including two separate processes
         run: cargo test --manifest-path src-tauri/Cargo.toml --bin iwxa-admin-center -- --nocapture
       - name: Bundle offline Windows installer (NSIS with embedded WebView2)
@@ -165,6 +169,8 @@ jobs:
           path: |
             src-tauri/target/release/iwxa-admin-center.exe
             src-tauri/target/release/bundle/nsis/*.exe
+            artifacts/iwxa-setup-core-*.exe
+            artifacts/setup-core-*.json
             artifacts/installer-sha256.txt
             artifacts/installed-gui-result.json
             artifacts/installed-gui-failure.png
