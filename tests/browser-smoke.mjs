@@ -121,10 +121,71 @@ try{
   assert.match(await page.getByTestId('cen05-not-connected').innerText(),/NOT_CONNECTED/);
   assert.equal(await page.getByTestId('corporate-accept').count(),0);
   checks.push('corporate-workbench-offline-handoff-reality-and-fail-closed-without-private-owner');
+
+  // Strictly synthetic owner stub: this checks rendering of a confirmed T3
+  // application-shaped readback without activating any production PA/T3 port.
+  const {emptyDraft,applyDraftCommand,encodeDraft}=await import('../src/organization.mjs');
+  const ids=['org:synthetic','workspace:synthetic','person:staff','person:reviewer','assignment:synthetic'];
+  const ops={id:()=>ids.shift(),now:()=>'2026-11-08T00:00:00.000Z'};
+  let synthetic=emptyDraft(ops.now());
+  const use=(cmd)=>{synthetic=applyDraftCommand(synthetic,cmd,ops)};
+  use({type:'CREATE_ORGANIZATION',name:'Isolated synthetic owner'});
+  const oid=synthetic.activeOrganizationId;
+  use({type:'ADD_WORKSPACE',organizationId:oid,name:'Delivery'});
+  use({type:'ADD_PARTICIPANT',organizationId:oid,name:'Employee',roleLabel:'Executor'});
+  use({type:'ADD_PARTICIPANT',organizationId:oid,name:'Reviewer',roleLabel:'Reviewer'});
+  const org=synthetic.organizations[0],workId=org.workspaces[0].id;
+  const people=org.participants,workRef={projectId:'project:synthetic',workId:'work:synthetic',revision:'7'};
+  use({type:'SAVE_ASSIGNMENT',organizationId:oid,workspaceId:workId,title:'Inspect evidence',
+    assigneeId:people[0].id,reviewerId:people[1].id,description:'Work',criteria:'Verified',
+    atlasRef:workRef});
+  const assignment=synthetic.organizations[0].assignments[0],taskRevisionId='a'.repeat(64),resultRevisionId='b'.repeat(64);
+  use({type:'RECORD_ISSUED_TASK_LINK',organizationId:oid,workspaceId:workId,
+    assignmentId:assignment.id,assignmentEditNumber:assignment.editNumber,
+    assigneeId:people[0].id,reviewerId:people[1].id,recipientId:'person:staff',
+    taskId:'task:synthetic',taskRevisionId,atlasRef:workRef});
+  const exactResult='Полный результат T3.\\nВторая строка <script>всегда текст</script>.\\n'.replaceAll('\\n','\n')+'Данные проверки без сокращений.';
+  const snapshot={product:'admin',organizationId:oid,workspaceId:workId,personId:'person:reviewer',
+    contextEpoch:1,productionActivation:true,T3_READY:true,packages:[],receipts:[],
+    application:{status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false,
+      records:[{organizationId:oid,workspaceId:workId,taskId:'task:synthetic',
+        taskRevisionId,resultRevisionId,executorId:'person:staff',
+        acceptanceId:'acceptance:synthetic',result:exactResult}]}};
+  const draftText=encodeDraft(synthetic);
+  const view={status:'OWNER_READY',snapshot};
+  const evidencePage=await browser.newPage({viewport:{width:1200,height:900}});
+  evidencePage.on('pageerror',e=>errors.push(e.message));
+  await evidencePage.addInitScript(({draftText,view})=>{
+    window.__TAURI_INTERNALS__={invoke:async command=>{
+      if(command==='center_draft_read_state_local')return {content:draftText,generation:'a'.repeat(64)};
+      if(command==='center_corporate_state')return view;
+      throw Error('TEST_ONLY_UNSUPPORTED_NATIVE_OPERATION');
+    }};
+  },{draftText,view});
+  await evidencePage.goto('http://127.0.0.1:4173');
+  await evidencePage.getByTestId('nav-results').click();
+  await evidencePage.getByTestId('cen05-applied-list').waitFor({state:'visible'});
+  assert.equal(await evidencePage.getByTestId('cen05-applied-work').count(),1);
+  assert.match(await evidencePage.getByTestId('cen05-applied-list').innerText(),/work:synthetic/);
+  assert.match(await evidencePage.getByTestId('cen05-applied-list').innerText(),/Atlas не открыт/);
+  assert.equal(await evidencePage.getByTestId('cen05-applied-result-text').count(),0,
+    'large T3 result text stays unmounted until manager expands it');
+  await evidencePage.getByTestId('cen05-evidence-details').locator('summary').click();
+  assert.equal(await evidencePage.getByTestId('cen05-applied-result-text').textContent(),exactResult);
+  assert.equal(await evidencePage.locator('script').count(),0,
+    'result text cannot execute HTML inserted by an external employee');
+  assert.match(await evidencePage.getByTestId('cen05-evidence-details').innerText(),/ACCEPT receipt/);
+  assert.match(await evidencePage.getByTestId('cen05-evidence-details').innerText(),/person:staff/);
+  assert.match(await evidencePage.getByTestId('cen05-evidence-details').innerText(),/не утверждается/);
+  await evidencePage.getByTestId('cen05-evidence-details').locator('summary').click();
+  assert.equal(await evidencePage.getByTestId('cen05-applied-result-text').count(),0);
+  await evidencePage.close();
+  checks.push('synthetic-t3-owner-applied-result-expanded-full-read-only-no-html-execution');
+
   await page.getByTestId('nav-overview').click();await page.screenshot({path:'artifacts/overview-1366.png',fullPage:true});
   await page.setViewportSize({width:320,height:800});assert.ok(await page.locator('.menu-button').isVisible());await page.locator('.menu-button').click();await page.getByTestId('nav-work').click();
   const sizes=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert.ok(sizes.scroll<=sizes.width+1,JSON.stringify(sizes));checks.push('navigation-and-no-overflow-320');
   await page.screenshot({path:'artifacts/work-320.png',fullPage:true});assert.deepEqual(errors,[]);checks.push('no-page-errors');
-  writeFileSync('artifacts/ui-report.json',JSON.stringify({status:'PASS_BROWSER_DRAFT_SCOPE',browser:'Firefox',checks,errors,t3RuntimeIntegrated:false,installedWindowsGui:false},null,2));
+  writeFileSync('artifacts/ui-report.json',JSON.stringify({status:'PASS_BROWSER_DRAFT_SCOPE',browser:'Firefox',checks,errors,t3RuntimeIntegrated:false,syntheticT3ReadbackOnly:true,installedWindowsGui:false},null,2));
   console.log('CENTER_DRAFT_UI_PASS',checks.length);
 }finally{await browser?.close();server.kill();}
