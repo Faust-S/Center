@@ -38,6 +38,7 @@ namespace IwxaSetup
         private const int MaxFiles = 10000;
         private const int BufferSize = 1024 * 1024;
         private const string Magic = "IWXA_SETUP_CORE1";
+        private const string ResourceMagic = "IWXA_SETUP_RSRC2";
         private const string Schema = "IWXA_SETUP_BUNDLE/1";
         private const string ProductSchema = "IWXA_SETUP_PRODUCT/1";
 
@@ -64,7 +65,10 @@ namespace IwxaSetup
 
         private static BundleInfo InspectOrStage(string executable, string stagingRoot)
         {
-            using (var source = new FileStream(executable, FileMode.Open, FileAccess.Read,
+            Stream fromResource = PeResourcePayload.TryOpen(executable);
+            bool resourcePackage = fromResource != null;
+            using (Stream source = fromResource ?? new FileStream(executable,
+                FileMode.Open, FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete))
             using (var binary = new BinaryReader(source, Encoding.UTF8, true))
             {
@@ -74,7 +78,8 @@ namespace IwxaSetup
                 source.Position = source.Length - FooterSize;
                 byte[] magicBytes = binary.ReadBytes(16);
                 if (magicBytes.Length != 16 ||
-                    Encoding.ASCII.GetString(magicBytes) != Magic)
+                    Encoding.ASCII.GetString(magicBytes) !=
+                        (resourcePackage ? ResourceMagic : Magic))
                     throw new InvalidDataException("SETUP_PACKAGE_MISSING");
 
                 long stubLength = Size(binary.ReadUInt64(), "STUB_LENGTH_INVALID");
@@ -83,14 +88,18 @@ namespace IwxaSetup
                 byte[] stubHash = binary.ReadBytes(32);
                 byte[] zipHash = binary.ReadBytes(32);
                 byte[] manifestHash = binary.ReadBytes(32);
-                if (stubLength < 1024 || zipLength <= 0 ||
-                    manifestLength <= 0 || manifestLength > MaxManifestSize ||
-                    stubLength > source.Length ||
-                    stubLength + zipLength > source.Length ||
+                if (zipLength <= 0 || manifestLength <= 0 ||
+                    manifestLength > MaxManifestSize ||
+                    (resourcePackage ? stubLength != 0 : stubLength < 1024) ||
+                    zipLength > source.Length ||
                     stubLength + zipLength + manifestLength + FooterSize != source.Length)
                     throw new InvalidDataException("SETUP_LAYOUT_INVALID");
-
-                if (!Same(HashRegion(source, 0, stubLength), stubHash))
+                if (resourcePackage)
+                {
+                    if (!Same(stubHash, new byte[32]))
+                        throw new InvalidDataException("SETUP_RESOURCE_HEADER_INVALID");
+                }
+                else if (!Same(HashRegion(source, 0, stubLength), stubHash))
                     throw new InvalidDataException("SETUP_STUB_HASH_INVALID");
                 if (!Same(HashRegion(source, stubLength, zipLength), zipHash))
                     throw new InvalidDataException("SETUP_PACKAGE_HASH_INVALID");
@@ -302,7 +311,7 @@ namespace IwxaSetup
             return builder.ToString();
         }
 
-        private static byte[] HashRegion(FileStream stream, long start, long length)
+        private static byte[] HashRegion(Stream stream, long start, long length)
         {
             stream.Position = start;
             byte[] buffer = new byte[BufferSize];
@@ -322,10 +331,10 @@ namespace IwxaSetup
 
         private sealed class RegionStream : Stream
         {
-            private readonly FileStream source;
+            private readonly Stream source;
             private readonly long start, length;
             private long position;
-            internal RegionStream(FileStream source, long start, long length)
+            internal RegionStream(Stream source, long start, long length)
             {
                 this.source = source;
                 this.start = start;
