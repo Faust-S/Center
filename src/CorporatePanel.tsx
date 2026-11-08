@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {readAppliedResults,prepareAppliedReuse,projectAppliedAtlasEvidence} from '../runtime/cen03-applied-results.mjs';
-import {issuedTaskExportSelection} from '../runtime/cen02-exchange.mjs';
+import {issuedTaskExportSelection,prepareIssuedTaskLinkRecovery} from '../runtime/cen02-exchange.mjs';
 import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox} from '../runtime/cen03-review.mjs';
 
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
@@ -10,6 +10,27 @@ type Org={id:string;name:string;issuedTaskLinks?:Array<any>;assignments:Array<{i
 const hex=/^[a-f0-9]{64}$/;
 const why=(e:unknown)=>{
  const message=e instanceof Error?e.message:String(e);
+ const recoveryErrors:Record<string,string>={
+   CEN02_RECOVERY_ASSIGNMENT_NOT_SELECTED:'Выберите исходный черновик поручения с WorkRef.',
+   CEN02_RECOVERY_OWNER_NOT_READY:'Проверьте текущую организационную сессию T3.',
+   CEN02_RECOVERY_SIGNED_TASK_NOT_SELECTED:'В T3 нет подходящей текущей подписанной Task.',
+   CEN02_RECOVERY_SIGNED_CLAIMS_CHANGED:'Исходное содержимое и подписанная редакция Task не совпали с T3. Восстановление отменено.',
+   CEN02_RECOVERY_TASK_TEXT_CHANGED:'Содержимое подписанной T3 Task отличается от текущего черновика. Нельзя угадать исходную связь.',
+   CEN02_RECOVERY_AMBIGUOUS_ASSIGNMENT:'Несколько поручений соответствуют Task или выбран не исходный черновик. Восстановление без однозначного источника запрещено.',
+   CEN02_RECOVERY_AMBIGUOUS_ISSUER_LINK:'В локальном черновике неоднозначные связи с Task.',
+   CEN02_RECOVERY_EXISTING_LINK_CONFLICT:'У этой Task уже есть другая локальная WorkRef. Не перезаписывайте её.',
+   CEN02_RECOVERY_UNSAVED_LOCAL_CHANGES:'Сохраните или закройте текущие изменения Center перед восстановлением связи.',
+   CEN02_RECOVERY_NATIVE_DRAFT_REQUIRED:'Не найден свежий сохранённый черновик Center. Сначала сохраните его локально.',
+   CEN02_RECOVERY_ORGANIZATION_CHANGED:'Во время восстановления изменилась организация. Откройте актуальный черновик.',
+   CEN02_RECOVERY_ASSIGNMENT_CHANGED:'Черновик поручения был изменён в другом окне. Восстановление остановлено.',
+   CEN02_RECOVERY_OWNER_CONTEXT_CHANGED:'Оператор, Workspace, редакция или сессия T3 изменились. Обновите состояние перед восстановлением.',
+   CEN02_RECOVERY_SIGNED_SOURCE_CHANGED:'Источник подписанной Task изменился при проверке. Восстановление остановлено.',
+   CEN02_RECOVERY_LOCAL_CONTEXT_CHANGED:'Локальный черновик изменился во время проверки. Сохранение остановлено.',
+   CEN02_RECOVERY_POSTCOMMIT_READBACK_HOLD:'Не подтверждена запись восстановленной связи. Проверьте свежий черновик до повторного действия.',
+   CEN02_RECOVERY_POSTCOMMIT_LOCAL_CHANGED_HOLD:'Восстановление могло сохраниться, но открытая форма изменилась. Перечитайте локальные данные.',
+   CEN_DRAFT_CONCURRENT_UPDATE:'Другое окно успело сохранить черновик. Связь не перезаписана; перечитайте свежие данные и повторите проверку.'
+ };
+ if(recoveryErrors[message])return recoveryErrors[message];
  return message.includes('T3_RECEIVE_STORE_READBACK_HOLD')
    ? 'Получение не подтверждено хранилищем организации. Обновите список Result и проверьте журнал перед повторной передачей файла.'
    : message==='TASK_ALREADY_ISSUED_LINK_NOT_SAVED'
@@ -45,7 +66,7 @@ function AppliedEvidenceRow({e,onInspectWork}:{e:any;onInspectWork:(ref:{project
  </li>;
 }
 
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onIssued,atlasView,onInspectWork}:{organization:Org;atlasView:any|null;invoke:Invoke|null;onInspectWork:(ref:{projectId:string;workId:string;revision:string})=>void;onIssued:(issued:any,recipientId:string)=>Promise<void>;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onIssued,onRecoverIssued,atlasView,onInspectWork}:{organization:Org;atlasView:any|null;invoke:Invoke|null;onInspectWork:(ref:{projectId:string;workId:string;revision:string})=>void;onIssued:(issued:any,recipientId:string)=>Promise<void>;onRecoverIssued:(input:{assignmentId:string;snapshot:any})=>Promise<void>;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
  const [owner,setOwner]=useState<any>(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
@@ -60,6 +81,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  const [applyDecided,setApplyDecided]=useState(false);
  const [reuseKey,setReuseKey]=useState('');
  const [reuseText,setReuseText]=useState('');
+ const [recoverConsent,setRecoverConsent]=useState(false);
  const organizationId=organization.id;
  const requestRef=useRef(0),sessionRef=useRef<string|null>(null),actionRef=useRef(false);
  const ready=ownerSessionFingerprint(owner,organizationId)!==null;
@@ -67,12 +89,20 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  const exportableTask=ready
    ?issuedTaskExportSelection(organization.issuedTaskLinks,owner.snapshot,organizationId)
    :null;
+ const recoverAssignment=organization.assignments.find(a=>a.id===selected);
+ const recoverState=(()=>{
+   if(!ready||exportableTask||!owner.snapshot?.task||!recoverAssignment)
+     return {preview:null as any,error:''};
+   try{return {preview:prepareIssuedTaskLinkRecovery({
+     organization,assignment:recoverAssignment,snapshot:owner.snapshot}),error:''}}
+   catch(e){return {preview:null as any,error:why(e)}}
+ })();
  const resetReview=()=>{setReview(null);setConsent(false);setRejectReason('');setPreview(null);setApplyConsent(false);setApplyDecided(false)};
  const adoptOwner=(candidate:any)=>{
    const fingerprint=ownerSessionFingerprint(candidate,organizationId);
    if(fingerprint!==sessionRef.current){
      sessionRef.current=fingerprint;
-     setHash('');setSelected('');setReuseKey('');setReuseText('');
+     setHash('');setSelected('');setReuseKey('');setReuseText('');setRecoverConsent(false);
      resetReview();
    }
    const valid=fingerprint===null?null:candidate;
@@ -183,7 +213,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
   <div className="nested-form" data-testid="cen02-section">
    <h3>1. Выдать подписанное поручение</h3>
-   <label>Черновик<select value={selected} onChange={e=>setSelected(e.target.value)} data-testid="corporate-assignment"><option value="">Выберите поручение</option>{organization.assignments.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}</select></label>
+   <label>Черновик<select value={selected} onChange={e=>{setSelected(e.target.value);setRecoverConsent(false)}} data-testid="corporate-assignment"><option value="">Выберите поручение</option>{organization.assignments.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}</select></label>
    <div className="actions">
     <button className="secondary" onClick={onPrepare}>Подготовить поручение</button>
     <button className="primary" data-testid="corporate-issue" disabled={!ready||busy||!organization.assignments.find(a=>a.id===selected)?.atlasRef?.workId}
@@ -223,6 +253,40 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
        if(saved!==true)return false;
      })}>Сохранить .iwxa</button>
    </div>
+   {ready&&!exportableTask&&owner.snapshot?.task&&<div className="nested-form" data-testid="cen02-recovery">
+     <h4>Восстановить связь ранее подписанной Task</h4>
+     <p>Повторной выдачи не будет. Сверка использует текущую редакцию и содержимое подписанной Task в T3, исходный черновик и свежие данные локального хранилища Center.</p>
+     {!selected?<p>Выберите исходное поручение выше.</p>:
+       recoverState.error?<p data-testid="cen02-recovery-blocked">{recoverState.error}</p>:
+       recoverState.preview?<div data-testid="cen02-recovery-preview">
+         <p><strong>Поручение:</strong> {recoverState.preview.assignmentTitle}</p>
+         <p><strong>Task:</strong> {recoverState.preview.taskId}</p>
+         <p><strong>Task revision:</strong> {recoverState.preview.taskRevisionId}</p>
+         <p><strong>Получатель:</strong> {recoverState.preview.recipientId}</p>
+         <p><strong>Исходная WorkRef:</strong> {recoverState.preview.atlasRef.projectId} / {recoverState.preview.atlasRef.workId} @ {recoverState.preview.atlasRef.revision}</p>
+         <p>Только локальная корреляция. Не подписывает Task, не подтверждает доставку, не меняет Atlas.</p>
+         <label><input type="checkbox" data-testid="cen02-recovery-consent"
+           checked={recoverConsent} onChange={e=>setRecoverConsent(e.target.checked)}/>
+           Я проверил исходное поручение и подписанную редакцию Task. Восстановить только локальную WorkRef.</label>
+         <button type="button" className="secondary" data-testid="cen02-recover-link"
+           disabled={busy||!recoverConsent||!invoke}
+           onClick={()=>act('Исходная WorkRef перечитана и сохранена без повторной выдачи Task.',async()=>{
+             const fingerprint=ownerSessionFingerprint(owner,organizationId);
+             const before=recoverState.preview;
+             if(!fingerprint||!before||!recoverConsent)throw Error('CEN02_RECOVERY_OWNER_CONTEXT_CHANGED');
+             const current=await refresh();
+             if(ownerSessionFingerprint(current,organizationId)!==fingerprint)
+               throw Error('CEN02_RECOVERY_OWNER_CONTEXT_CHANGED');
+             const again=prepareIssuedTaskLinkRecovery({
+               organization,assignment:recoverAssignment,snapshot:current.snapshot
+             });
+             if(JSON.stringify(again.command)!==JSON.stringify(before.command))
+               throw Error('CEN02_RECOVERY_SIGNED_SOURCE_CHANGED');
+             await onRecoverIssued({assignmentId:selected,snapshot:current.snapshot});
+             setRecoverConsent(false);
+           })}>Проверить и восстановить связь</button>
+       </div>:null}
+   </div>}
    {ready&&!exportableTask&&<p className="muted" data-testid="cen02-export-link-missing">
      Экспорт через Center недоступен: текущая редакция T3 Task не имеет единственной сохранённой связи с WorkRef. Task могла быть подписана; проверьте журнал T3 и локальный черновик Center, не выдавайте Task повторно вслепую.
    </p>}
