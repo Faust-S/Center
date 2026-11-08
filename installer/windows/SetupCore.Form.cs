@@ -41,7 +41,9 @@ namespace IwxaSetup
             StartPosition = FormStartPosition.CenterScreen;
             Font = new Font("Segoe UI", 10F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            MinimumSize = new Size(800, 550);
+            // MinimumSize includes the Windows title bar and frame. Preserve
+            // usable content height for the status card, controls and footer.
+            MinimumSize = new Size(820, 610);
             ClientSize = new Size(900, 560);
             BackColor = Color.FromArgb(246, 249, 253);
             MaximizeBox = false;
@@ -117,6 +119,7 @@ namespace IwxaSetup
             sidebar.Controls.Add(bottom);
 
             var area = new Panel {
+                Name = "iwxaSetupContent",
                 Dock = DockStyle.Fill, Margin = Padding.Empty,
                 BackColor = Color.FromArgb(246, 249, 253),
                 AccessibleName = "IWXA setup content"
@@ -144,28 +147,34 @@ namespace IwxaSetup
             area.Controls.Add(description);
 
             var card = new Panel {
+                Name = "iwxaSetupPackageCard",
                 BackColor = Color.White, Location = new Point(30, 199),
                 Size = new Size(580, 197), Anchor = AnchorStyles.Top |
                     AnchorStyles.Left | AnchorStyles.Right
             };
             area.Controls.Add(card);
-            card.Controls.Add(Label(T("ПАКЕТ ПРОГРАММЫ", "APPLICATION PACKAGE"),
-                20, 16, 500, 25, 9, Secondary, true));
+            Label cardHeading = Label(T("ПАКЕТ ПРОГРАММЫ",
+                "APPLICATION PACKAGE"), 20, 16, 500, 25, 9, Secondary, true);
+            cardHeading.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+            card.Controls.Add(cardHeading);
             status.Text = T("Проверка выполняется…", "Verification in progress…");
             status.Font = new Font("Segoe UI", 13, FontStyle.Bold);
             status.ForeColor = Dark;
             status.Location = new Point(20, 50);
             status.Size = new Size(525, 37);
+            status.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
             card.Controls.Add(status);
             version.Text = "—";
             version.ForeColor = Color.FromArgb(48, 83, 131);
             version.Location = new Point(21, 93);
             version.Size = new Size(525, 29);
+            version.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
             card.Controls.Add(version);
             packageDetails.Text = T("Ожидание проверки содержимого…", "Waiting for content verification…");
             packageDetails.ForeColor = Secondary;
             packageDetails.Location = new Point(21, 133);
             packageDetails.Size = new Size(530, 43);
+            packageDetails.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
             card.Controls.Add(packageDetails);
             // Native indeterminate activity, never a fabricated completion percent.
             // Keep this inside the package card to avoid added wizard screens.
@@ -184,15 +193,19 @@ namespace IwxaSetup
             card.Controls.Add(busyProgress);
 
             var note = Label(
-                T("Новая установка сохраняет личные данные и другие программы.\nПроверка пакета не изменяет установленную программу.",
-                  "Fresh installation preserves user data and other applications.\nPackage inspection does not modify the installed application."),
-                33, 417, 559, 51, 9, Secondary, false);
+                T("Личные данные и другие программы сохраняются.\nПроверка не изменяет установленное приложение.",
+                  "User data and other apps stay unchanged.\nPackage verification does not modify the installed app."),
+                33, 404, 559, 46, 9, Secondary, false);
+            note.Name = "iwxaSetupPreservationNote";
+            note.AccessibleDescription = note.Text;
             note.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             area.Controls.Add(note);
 
             openApplication.Text = T("Открыть установленную программу", "Open installed application");
-            openApplication.Location = new Point(32, 472);
+            openApplication.Name = "iwxaSetupRelatedAction";
+            openApplication.Location = new Point(32, 458);
             openApplication.Size = new Size(560, 25);
+            openApplication.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             openApplication.LinkColor = Accent;
             openApplication.Visible = false;
             openApplication.TabStop = true;
@@ -200,6 +213,7 @@ namespace IwxaSetup
             area.Controls.Add(openApplication);
 
             var actions = new FlowLayoutPanel {
+                Name = "iwxaSetupActions",
                 Dock = DockStyle.Bottom,
                 Height = 67,
                 FlowDirection = FlowDirection.RightToLeft,
@@ -245,6 +259,29 @@ namespace IwxaSetup
             retry.ForeColor = Color.FromArgb(39, 78, 133);
             retry.Click += async (sender, args) => await VerifyAsync();
             actions.Controls.Add(retry);
+            // Reflow the supporting text when the window or DPI changes.
+            // The package card and action bar remain fixed in their visual hierarchy.
+            area.SizeChanged += (sender, args) =>
+                ArrangeSupportingContent(area, card, note, actions);
+            card.SizeChanged += (sender, args) =>
+                ArrangeSupportingContent(area, card, note, actions);
+            ArrangeSupportingContent(area, card, note, actions);
+        }
+
+        private void ArrangeSupportingContent(
+            Panel area, Panel card, Label note, FlowLayoutPanel actions)
+        {
+            if (area.ClientSize.Height <= 0 || card.Height <= 0) return;
+            int gap = Math.Max(6, (int)Math.Round(8.0 * card.Height / 197.0));
+            int noteTop = card.Bottom + gap;
+            int lastLinkTop = area.ClientSize.Height - actions.Height -
+                openApplication.Height - gap;
+            int availableNote = Math.Max(0, lastLinkTop - noteTop - gap);
+            int preferredNote = Math.Max(note.Font.Height * 2 + 4,
+                (int)Math.Round(46.0 * card.Height / 197.0));
+            note.Top = noteTop;
+            note.Height = Math.Min(preferredNote, availableNote);
+            openApplication.Top = note.Bottom + gap;
         }
 
         private void SetWizardStep(int current)

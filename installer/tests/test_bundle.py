@@ -77,6 +77,21 @@ class BundleTests(unittest.TestCase):
         self.assertIn("install.Enabled = !performingOperation &&", source)
         self.assertNotIn("performingOperation = false;\n                UpgradeAssessment verified", source)
 
+    def test_native_setup_preserves_action_geometry_at_small_sizes(self):
+        source = (Path(__file__).resolve().parents[1] / "windows" /
+                  "SetupCore.Form.cs").read_text(encoding="utf-8")
+        for marker in (
+            'MinimumSize = new Size(820, 610)',
+            'ArrangeSupportingContent(area, card, note, actions)',
+            'Name = "iwxaSetupPackageCard"',
+            'Name = "iwxaSetupPreservationNote"',
+            'Name = "iwxaSetupActions"',
+            'packageDetails.Anchor = AnchorStyles.Left | AnchorStyles.Right',
+            'status.Anchor = AnchorStyles.Left | AnchorStyles.Right',
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, source)
+
     def test_native_setup_displays_honest_busy_state_without_fake_percent(self):
         source = (Path(__file__).resolve().parents[1] / "windows" /
                   "SetupCore.Form.cs").read_text(encoding="utf-8")

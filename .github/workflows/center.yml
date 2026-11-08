@@ -54,6 +54,11 @@ jobs:
         shell: powershell
         timeout-minutes: 4
         run: ./installer/windows/qualify-uninstall-and-shortcut-fast.ps1 -Stub artifacts/iwxa-setup-core-early.exe
+      - name: Qualify native Setup window layout at 100-250 percent scaling
+        if: runner.os == 'Windows'
+        shell: powershell
+        timeout-minutes: 3
+        run: ./installer/windows/qualify-gui-layout-fast.ps1 -Stub artifacts/iwxa-setup-core-early.exe
   interface:
     if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') }}
     runs-on: ubuntu-24.04
