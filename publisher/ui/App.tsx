@@ -18,10 +18,6 @@ type OfflineCopiesCheck = {
  signedReleaseMetadataVerified:boolean;
 };
 type IwxaTransfer={size:number;sha256:string;integrityVerified:false;signatureVerified:false;statusVerified:false;activeSeats:0;productionActivation:false;};
-type TestDeliverySelection={size:number;sha256:string;licenseId:string;
- organizationId:string;claimedStatus:string;claimedSeats:number;statusSequence:number;
- signatureVerified:false;statusVerified:false;commercialAuthorityProven:false;
- productionActivation:false;activeSeats:0;};
 type Page = 'overview'|'products'|'holders'|'proposals'|'releases'|'trust';
 const navigation: [Page,string][] = [
  ['overview','Обзор'],['products','Продукты'],['holders','Получатели'],
@@ -90,7 +86,6 @@ export default function App(){
  },[simulated]);
  const [inspected,setInspected]=useState<Inspection|null>(null);
  const [offlineCopies,setOfflineCopies]=useState<OfflineCopiesCheck|null>(null);
- const [selectedTestDelivery,setSelectedTestDelivery]=useState<TestDeliverySelection|null>(null);
  const [selectedIwxa,setSelectedIwxa]=useState<IwxaTransfer|null>(null);
  const [releaseProduct,setReleaseProduct]=useState('');
  const [releasePlatform,setReleasePlatform]=useState('windows-x64');
@@ -208,31 +203,6 @@ export default function App(){
  const activeProduct=proposalProduct||state.products[0]?.id||'';
  const activeHolder=proposalHolder||state.holders[0]?.id||'';
  const selectedReleaseProduct=releaseProduct||state.products[0]?.id||'';
- async function chooseTestDelivery(){
-   if(busy||!loaded||!nativeHost)return;
-   setBusy(true);setError('');setMessage('');setSelectedTestDelivery(null);
-   try{
-     const v=await invoke('publisher_select_test_delivery');
-     if(v===null){setMessage('Выбор файла из T3 отменён.');return;}
-     if(!v||typeof v.sha256!=='string'||!/^[0-9a-f]{64}$/.test(v.sha256)||
-        v.signatureVerified!==false||v.statusVerified!==false||
-        v.commercialAuthorityProven!==false||v.productionActivation!==false||
-        v.activeSeats!==0||!['ACTIVE','SUSPENDED','REVOKED'].includes(v.claimedStatus))
-       throw Error('TEST_DELIVERY_UNVERIFIED_NATIVE_RESULT_REQUIRED');
-     setSelectedTestDelivery(v as TestDeliverySelection);
-     setMessage('Байты TEST-файла загружены без изменений. Подлинность проверит только оригинальный T3 Consumer.');
-   }catch(e){setError('TEST-файл не выбран: '+getError(e));}
-   finally{setBusy(false);}
- }
- async function exportTestDelivery(){
-   if(busy||!loaded||!nativeHost||!selectedTestDelivery)return;
-   setBusy(true);setError('');setMessage('');
-   try{
-     const saved=await invoke('publisher_export_test_delivery',{expectedSha256:selectedTestDelivery.sha256});
-     setMessage(saved?'Точная копия TEST-файла экспортирована. Это транспорт, а не активация; Center обязан проверить её в T3.':'Экспорт TEST-файла отменён.');
-   }catch(e){setError('Экспорт TEST-файла не выполнен: '+getError(e));}
-   finally{setBusy(false);}
- }
  async function selectTestIwxa(){
    if(busy||!loaded||!nativeHost)return;
    setBusy(true);setError('');setMessage('');setSelectedIwxa(null);

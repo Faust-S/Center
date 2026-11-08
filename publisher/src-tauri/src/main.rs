@@ -186,132 +186,30 @@ fn publisher_compare_offline_copies() -> Result<Option<OfflineCopiesCheck>, Stri
     compare_offline_copies(&first, &second).map(Some)
 }
 
-// Publisher copies a T3 owner-exported pair of signed envelopes BYTES FOR
-// BYTES. This adapter cannot sign, verify issuer trust, or activate seats.
-// The real authorizing signer is only the previously configured T3 owner Host.
-const TEST_DELIVERY_MAX_BYTES: usize=4*1024*1024;
+const PUBLISHER_TEST_IWXA_MAX_BYTES: usize = 4 * 1024 * 1024;
 struct DeliveryLock(Mutex<Option<Vec<u8>>>);
-#[derive(Serialize)]
-#[serde(rename_all="camelCase")]
-struct TestDeliverySelection {
-    size: usize,
-    sha256: String,
-    license_id: String,
-    organization_id: String,
-    claimed_status: String,
-    claimed_seats: u64,
-    status_sequence: u64,
-    signature_verified: bool,
-    status_verified: bool,
-    commercial_authority_proven: bool,
-    production_activation: bool,
-    active_seats: u8,
-}
-fn read_test_delivery(path:&Path)->Result<(Vec<u8>,TestDeliverySelection),String>{
-    let meta=fs::metadata(path).map_err(|_|"TEST_DELIVERY_SOURCE_UNREADABLE")?;
-    if !meta.is_file()||meta.len()==0||meta.len()>TEST_DELIVERY_MAX_BYTES as u64 {
-        return Err("TEST_DELIVERY_SIZE_INVALID".into());
-    }
-    let bytes=fs::read(path).map_err(|_|"TEST_DELIVERY_SOURCE_UNREADABLE")?;
-    if bytes.len()!=meta.len() as usize{return Err("TEST_DELIVERY_CHANGED".into());}
-    let doc:Value=serde_json::from_slice(&bytes).map_err(|_|"TEST_DELIVERY_JSON_INVALID")?;
-    let pair=doc.as_object().ok_or("TEST_DELIVERY_SIGNED_PAIR_REQUIRED")?;
-    if pair.len()!=2||!pair.contains_key("license")||!pair.contains_key("statusEnvelope"){
-        return Err("TEST_DELIVERY_SIGNED_PAIR_REQUIRED".into());
-    }
-    let envelopes=["license","statusEnvelope"].map(|key|{
-        pair.get(key).and_then(Value::as_object)
-    });
-    for envelope in envelopes{
-        let e=envelope.ok_or("TEST_DELIVERY_ENVELOPE_REQUIRED")?;
-        if e.len()!=4 || e.get("schema").and_then(Value::as_str)!=Some("IWXA_T3_ACCESS_SIGNED/1") ||
-           !["keyId","payload","signature"].iter().all(|k|e.contains_key(*k)){
-            return Err("TEST_DELIVERY_ENVELOPE_REQUIRED".into());
-        }
-    }
-    let lp=&doc["license"]["payload"];let sp=&doc["statusEnvelope"]["payload"];
-    if lp["schema"]!="IWXA_T3_PRODUCT_LICENSE/1"||lp["environment"]!="TEST"||
-       lp["kind"]!="LICENSE"||lp["product"]["id"]!="IWXA_ADMIN_CENTER"||
-       lp["subject"]["type"]!="ORGANIZATION"||
-       sp["schema"]!="IWXA_T3_PRODUCT_LICENSE_STATUS/1"||sp["environment"]!="TEST"||
-       sp["kind"]!="LICENSE_STATUS" {
-        return Err("TEST_DELIVERY_PRODUCT_PROFILE_INVALID".into());
-    }
-    let id=lp["id"].as_str().ok_or("TEST_DELIVERY_LICENSE_ID_REQUIRED")?;
-    let org=lp["subject"]["id"].as_str().ok_or("TEST_DELIVERY_ORG_REQUIRED")?;
-    let status=sp["state"].as_str().ok_or("TEST_DELIVERY_STATUS_REQUIRED")?;
-    let seats=lp["seats"].as_u64().ok_or("TEST_DELIVERY_SEATS_INVALID")?;
-    let sequence=sp["sequence"].as_u64().ok_or("TEST_DELIVERY_SEQUENCE_INVALID")?;
-    if id.is_empty()||org.is_empty()||!["ACTIVE","SUSPENDED","REVOKED"].contains(&status)||
-       seats==0||sequence==0||
-       sp["licenseId"]!=lp["id"]||sp["requestId"]!=lp["requestId"]||
-       sp["organizationId"]!=lp["subject"]["id"]||
-       sp["productId"]!=lp["product"]["id"]||
-       sp["issuerAuthorityId"]!=lp["issuerAuthorityId"] {
-        return Err("TEST_DELIVERY_SIGNED_BINDING_CLAIM_INVALID".into());
-    }
-    let selected=TestDeliverySelection {
-        size:bytes.len(),sha256:format!("{:x}",Sha256::digest(&bytes)),
-        license_id:id.to_owned(),organization_id:org.to_owned(),
-        claimed_status:status.to_owned(),claimed_seats:seats,status_sequence:sequence,
-        signature_verified:false,status_verified:false,commercial_authority_proven:false,
-        production_activation:false,active_seats:0
-    };
-    Ok((bytes,selected))
-}
-fn write_test_delivery_copy(path:&Path,bytes:&[u8])->Result<(),String>{
-    if bytes.is_empty()||bytes.len()>TEST_DELIVERY_MAX_BYTES{return Err("TEST_DELIVERY_SIZE_INVALID".into());}
-    if path.exists(){return Err("TEST_DELIVERY_DESTINATION_EXISTS".into());}
-    let folder=path.parent().ok_or("TEST_DELIVERY_DESTINATION_INVALID")?;
-    if !folder.is_dir(){return Err("TEST_DELIVERY_DESTINATION_INVALID".into());}
-    let now=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"TEST_DELIVERY_TIME_INVALID")?.as_nanos();
+fn write_publisher_iwxa_copy(path:&Path,bytes:&[u8])->Result<(),String>{
+    if bytes.is_empty()||bytes.len()>PUBLISHER_TEST_IWXA_MAX_BYTES{return Err("PUBLISHER_IWXA_SIZE_INVALID".into());}
+    if path.exists(){return Err("PUBLISHER_IWXA_DESTINATION_EXISTS".into());}
+    let folder=path.parent().ok_or("PUBLISHER_IWXA_DESTINATION_INVALID")?;
+    if !folder.is_dir(){return Err("PUBLISHER_IWXA_DESTINATION_INVALID".into());}
+    let now=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"PUBLISHER_IWXA_TIME_INVALID")?.as_nanos();
     let temp=folder.join(format!(".iwxa-test-delivery-{}-{now}.tmp",std::process::id()));
     let result=(||->Result<(),String>{
         let mut file=OpenOptions::new().write(true).create_new(true).open(&temp)
-            .map_err(|_|"TEST_DELIVERY_DESTINATION_UNWRITABLE")?;
-        file.write_all(bytes).map_err(|_|"TEST_DELIVERY_DESTINATION_UNWRITABLE")?;
-        file.sync_all().map_err(|_|"TEST_DELIVERY_DESTINATION_UNWRITABLE")?;
-        fs::rename(&temp,path).map_err(|_|"TEST_DELIVERY_DESTINATION_UNWRITABLE")?;
-        if fs::read(path).map_err(|_|"TEST_DELIVERY_READBACK_FAILED")?!=bytes{
-            return Err("TEST_DELIVERY_READBACK_FAILED".into());
+            .map_err(|_|"PUBLISHER_IWXA_DESTINATION_UNWRITABLE")?;
+        file.write_all(bytes).map_err(|_|"PUBLISHER_IWXA_DESTINATION_UNWRITABLE")?;
+        file.sync_all().map_err(|_|"PUBLISHER_IWXA_DESTINATION_UNWRITABLE")?;
+        fs::rename(&temp,path).map_err(|_|"PUBLISHER_IWXA_DESTINATION_UNWRITABLE")?;
+        if fs::read(path).map_err(|_|"PUBLISHER_IWXA_READBACK_FAILED")?!=bytes{
+            return Err("PUBLISHER_IWXA_READBACK_FAILED".into());
         }
         Ok(())
     })();
     if result.is_err(){let _=fs::remove_file(&temp);let _=fs::remove_file(path);}
     result
 }
-#[tauri::command]
-fn publisher_select_test_delivery(state:State<DeliveryLock>)->Result<Option<TestDeliverySelection>,String>{
-    *state.0.lock().map_err(|_|"TEST_DELIVERY_LOCK_FAILED")?=None;
-    let path=rfd::FileDialog::new().set_title("Publisher: файл из доверенного T3 Host")
-        .add_filter("TEST JSON",&["json"]).pick_file();
-    match path{
-        Some(path)=>{
-            let (bytes,selection)=read_test_delivery(&path)?;
-            *state.0.lock().map_err(|_|"TEST_DELIVERY_LOCK_FAILED")?=Some(bytes);
-            Ok(Some(selection))
-        },
-        None=>Ok(None)
-    }
-}
-#[tauri::command]
-fn publisher_export_test_delivery(state:State<DeliveryLock>,expected_sha256:String)->Result<bool,String>{
-    let saved=state.0.lock().map_err(|_|"TEST_DELIVERY_LOCK_FAILED")?;
-    let bytes=saved.as_ref().ok_or("TEST_DELIVERY_NOT_SELECTED")?;
-    if expected_sha256!=format!("{:x}",Sha256::digest(bytes)){
-        return Err("TEST_DELIVERY_SELECTION_CHANGED".into());
-    }
-    let destination=rfd::FileDialog::new().set_title("Publisher: передать TEST-файл в Admin Center")
-        .add_filter("TEST JSON",&["json"]).set_file_name("iwxa-product-test-delivery.json")
-        .save_file();
-    match destination{
-        Some(path)=>write_test_delivery_copy(&path,bytes).map(|_|true),
-        None=>Ok(false)
-    }
-}
 
-
-const PUBLISHER_TEST_IWXA_MAX_BYTES: usize = 4 * 1024 * 1024;
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 struct UnverifiedIwxaCarrier {
@@ -375,7 +273,7 @@ fn publisher_export_test_iwxa(state:State<DeliveryLock>,expected_sha256:String)-
             if path.extension().and_then(|x|x.to_str())!=Some("iwxa"){
                 return Err("PUBLISHER_IWXA_EXTENSION_REQUIRED".into());
             }
-            write_test_delivery_copy(&path,bytes).map(|_|true)
+            write_publisher_iwxa_copy(&path,bytes).map(|_|true)
         },
         None=>Ok(false)
     }
@@ -565,7 +463,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             publisher_draft_read, publisher_draft_save, publisher_inspect_artifact, publisher_save_test_request,
             publisher_export_preparation_backup, publisher_pick_preparation_backup,
-            publisher_compare_offline_copies, publisher_select_test_delivery, publisher_export_test_delivery,
+            publisher_compare_offline_copies,
             publisher_select_test_iwxa, publisher_export_test_iwxa
         ])
         .run(tauri::generate_context!())
@@ -722,50 +620,5 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert!(files[0].to_string_lossy().contains("preparation"));
         let _ = fs::remove_dir_all(root);
-    }
-}
-
-#[cfg(test)]
-mod test_delivery_native_tests {
-    use super::*;
-    #[test]
-    fn owner_signed_pair_is_an_exact_unverified_byte_carrier_and_does_not_mint_seats(){
-        let path=std::env::temp_dir().join(format!("publisher-test-delivery-{}-{}.json",
-            std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
-        let out=path.with_extension("out.json");
-        let item=serde_json::json!({
-            "license":{"schema":"IWXA_T3_ACCESS_SIGNED/1","keyId":"fake:license","signature":"not-real",
-                "payload":{"schema":"IWXA_T3_PRODUCT_LICENSE/1","kind":"LICENSE","environment":"TEST",
-                    "id":"license:test:1","requestId":"request:test:1","issuerAuthorityId":"publisher:test",
-                    "subject":{"type":"ORGANIZATION","id":"org:test"},"product":{"id":"IWXA_ADMIN_CENTER"},
-                    "seats":4}},
-            "statusEnvelope":{"schema":"IWXA_T3_ACCESS_SIGNED/1","keyId":"fake:status","signature":"not-real",
-                "payload":{"schema":"IWXA_T3_PRODUCT_LICENSE_STATUS/1","kind":"LICENSE_STATUS",
-                    "environment":"TEST","licenseId":"license:test:1","requestId":"request:test:1",
-                    "issuerAuthorityId":"publisher:test","organizationId":"org:test",
-                    "productId":"IWXA_ADMIN_CENTER","state":"ACTIVE","sequence":1}}
-        });
-        let original=serde_json::to_vec(&item).unwrap();
-        fs::write(&path,&original).unwrap();
-        let (bytes,preview)=read_test_delivery(&path).unwrap();
-        assert_eq!(bytes,original);
-        assert_eq!(preview.size,original.len());
-        assert_eq!(preview.sha256,format!("{:x}",Sha256::digest(&original)));
-        assert_eq!(preview.claimed_seats,4);
-        assert!(!preview.signature_verified);
-        assert!(!preview.commercial_authority_proven);
-        assert!(!preview.production_activation);
-        assert_eq!(preview.active_seats,0);
-        write_test_delivery_copy(&out,&bytes).unwrap();
-        assert_eq!(fs::read(&out).unwrap(),original);
-        assert!(write_test_delivery_copy(&out,&bytes).is_err());
-        let mut forged=item.clone();
-        forged["trust"]=serde_json::json!({"fake":true});
-        fs::write(&path,serde_json::to_vec(&forged).unwrap()).unwrap();
-        assert!(read_test_delivery(&path).is_err());
-        fs::write(&path,vec![b'X';TEST_DELIVERY_MAX_BYTES+1]).unwrap();
-        assert!(read_test_delivery(&path).is_err());
-        let _=fs::remove_file(&path);
-        let _=fs::remove_file(&out);
     }
 }

@@ -49,14 +49,6 @@ try {
         if(args.expectedSha256!=='b'.repeat(64))throw new Error('PUBLISHER_IWXA_SELECTION_CHANGED');
         return true;
       }
-      if(command==='publisher_select_test_delivery')return {
-        size:256,sha256:'a'.repeat(64),licenseId:'license:test:delivery:1',organizationId:'org:test',
-        claimedStatus:'ACTIVE',claimedSeats:4,statusSequence:1,signatureVerified:false,
-        statusVerified:false,commercialAuthorityProven:false,productionActivation:false,activeSeats:0};
-      if(command==='publisher_export_test_delivery'){
-        if(args.expectedSha256!=='a'.repeat(64))throw new Error('TEST_SHA256_SELECTION_MISMATCH');
-        return true;
-      }
       if(command==='publisher_compare_offline_copies')return {
         name:'iwxa-publisher.exe',size:12500,sha256:'a'.repeat(64),
         copiesChecked:2,sameContent:true,distinctSelectedPaths:true,
