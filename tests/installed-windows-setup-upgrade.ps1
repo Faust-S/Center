@@ -7,6 +7,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
 $artifact = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
 $oldSetup = Join-Path $artifact 'iwxa-setup-core-center-0.3-preview.exe'
 $newSetup = Join-Path $artifact 'setup-core-center-upgrade.exe'
@@ -47,6 +49,11 @@ $plan = Invoke-Setup $oldSetup '--upgrade-plan-file' 'old-plan'
 if ($plan.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED') {
     throw "S3_E2E_PREVIOUS_VERSION_MISSING $($plan.status)"
 }
+$newPlan = Invoke-Setup $newSetup '--upgrade-plan-file' 'new-plan'
+Write-Host "IWXA_SETUP_S3_PRE_GUI_PLAN status=$($newPlan.status) installed=$($newPlan.installedVersion) candidate=$($newPlan.candidateVersion)"
+if ($newPlan.status -ne 'UPGRADE_CANDIDATE_NOT_ACTIVATED') {
+    throw "S3_E2E_NEW_VERSION_NOT_ELIGIBLE_$($newPlan.status)"
+}
 # Exercise the actual Setup GUI Update button, not only its CLI equivalent.
 $setupUi = Start-Process -FilePath $newSetup -PassThru
 try {
@@ -78,7 +85,46 @@ try {
         }
         if ($clicked) { break }
     }
-    if (!$clicked) { throw 'S3_SETUP_GUI_UPDATE_BUTTON_MISSING' }
+    if (!$clicked) {
+        try {
+            $setupUi.Refresh()
+            $window = [System.Windows.Automation.AutomationElement]::FromHandle($setupUi.MainWindowHandle)
+            $controls = $window.FindAll(
+                [System.Windows.Automation.TreeScope]::Descendants,
+                [System.Windows.Automation.Condition]::TrueCondition)
+            $description = @()
+            foreach ($control in $controls) {
+                try {
+                    $description += ('{0}:{1}:enabled={2}:offscreen={3}' -f
+                        $control.Current.ControlType.ProgrammaticName,
+                        $control.Current.Name,
+                        $control.Current.IsEnabled,
+                        $control.Current.IsOffscreen)
+                } catch {}
+            }
+            Write-Host ('IWXA_SETUP_GUI_UIA_DIAGNOSTIC count={0} values={1}' -f
+                $controls.Count, (($description | Select-Object -First 45) -join ' | '))
+        } catch {
+            Write-Host "IWXA_SETUP_GUI_UIA_DIAGNOSTIC_FAILED $($_.Exception.Message)"
+        }
+        try {
+            $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = [System.Drawing.Bitmap]::new($screen.Width,$screen.Height)
+            $graphics = [System.Drawing.Graphics]::FromImage($bmp)
+            try {
+                $graphics.CopyFromScreen(
+                    $screen.Location,[System.Drawing.Point]::Empty,$screen.Size)
+                $bmp.Save((Join-Path $artifact 'setup-core-gui-update-failure.png'),
+                    [System.Drawing.Imaging.ImageFormat]::Png)
+            } finally {
+                $graphics.Dispose()
+                $bmp.Dispose()
+            }
+        } catch {
+            Write-Host "IWXA_SETUP_GUI_SCREENSHOT_FAILED $($_.Exception.Message)"
+        }
+        throw 'S3_SETUP_GUI_UPDATE_BUTTON_MISSING'
+    }
     $switched = $false
     for ($i=0; $i -lt 90; $i++) {
         Start-Sleep -Milliseconds 350

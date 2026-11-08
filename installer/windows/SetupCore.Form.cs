@@ -162,6 +162,10 @@ namespace IwxaSetup
             area.Controls.Add(actions);
 
             install.Text = T("Установить", "Install");
+            install.AccessibleName = install.Text;
+            install.AccessibleDescription = T("Основное действие установщика",
+                "Primary installer action");
+            install.TabStop = true;
             install.Enabled = false;
             install.Size = new Size(165, 40);
             install.Margin = new Padding(5, 0, 5, 0);
@@ -173,6 +177,8 @@ namespace IwxaSetup
             actions.Controls.Add(install);
 
             secondary.Visible = false;
+            secondary.AccessibleDescription = T("Отменить обновление и вернуть предыдущую версию",
+                "Cancel update and restore previous release");
             secondary.Size = new Size(170, 40);
             secondary.Margin = new Padding(5, 0, 5, 0);
             secondary.BackColor = Color.White;
@@ -199,11 +205,13 @@ namespace IwxaSetup
             primaryAction = primary;
             secondaryAction = alternate;
             install.Text = primaryLabel;
+            install.AccessibleName = primaryLabel;
             install.Enabled = !performingOperation && primary != SetupOperation.None;
             secondary.Visible = alternate != SetupOperation.None;
             secondary.Enabled = !performingOperation && alternate != SetupOperation.None;
             if (alternate == SetupOperation.Rollback)
                 secondary.Text = T("Вернуть прежнюю", "Roll back");
+            secondary.AccessibleName = secondary.Text;
         }
 
         private void SetState(
