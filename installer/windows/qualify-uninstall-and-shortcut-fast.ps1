@@ -295,6 +295,65 @@ try {
             throw 'SETUP_FAST_USER_FILES_OR_SHORTCUT_NOT_PRESERVED'
         }
         Write-Host 'IWXA_SETUP_FAST_UNINSTALL_PRESERVED_USER_SHORTCUT_PASS'
+
+        # Inject a real process failure at three distinct deletion checkpoints.
+        # The original owner key and receipt (until the last stage) must
+        # survive so the same signed V2 setup can resume without losing data.
+        foreach($phase in @(
+            'after-first-payload','after-windows-registration','after-receipt')){
+            if(Test-Path -LiteralPath $link){
+                Remove-Item -LiteralPath $link -Force
+            }
+            $again=Invoke-Setup '--install-file' ('reinstall-'+$phase)
+            if($again.status -ne 'INSTALLED_NOT_LAUNCHED' -or
+               !(Test-Path -LiteralPath $owner) -or
+               !(Test-Path -LiteralPath $receipt) -or
+               !(Test-Path -LiteralPath $uninstallKey)){
+                throw ('SETUP_FAST_RESUME_INSTALL_INVALID_'+$phase)
+            }
+            try {
+                $env:IWXA_SETUP_TEST_UNINSTALL_FAIL_AT=$phase
+                $interrupted=Invoke-Setup '--uninstall-file' ('fault-'+$phase) 2
+            } finally {
+                Remove-Item Env:IWXA_SETUP_TEST_UNINSTALL_FAIL_AT -ErrorAction SilentlyContinue
+            }
+            if ($interrupted.status -ne 'ERROR' -or
+                $interrupted.reason -ne ('SETUP_TEST_UNINSTALL_FAILURE_'+$phase) -or
+                !(Test-Path -LiteralPath $owner) -or
+                [IO.File]::ReadAllText($userData) -ne 'outside-user-data'){
+                throw ('SETUP_FAST_FAULT_WAS_NOT_FAIL_CLOSED_'+$phase)
+            }
+            $receiptExpected = $phase -ne 'after-receipt'
+            if ((Test-Path -LiteralPath $receipt) -ne $receiptExpected) {
+                throw ('SETUP_FAST_FAULT_RECEIPT_PHASE_WRONG_'+$phase)
+            }
+            if ($phase -ne 'after-first-payload' -and
+                (Test-Path -LiteralPath $uninstallKey)){
+                throw ('SETUP_FAST_FAULT_UNINSTALL_REGISTRY_NOT_CLEAN_'+$phase)
+            }
+            if ($phase -eq 'after-receipt'){
+                # A missing ownership marker must never authorize deletion.
+                Set-ItemProperty -Path $owner -Name 'UninstallPending' -Value 0
+                $refused=Invoke-Setup '--uninstall-file' 'resume-no-authority' 2
+                if ($refused.status -ne 'ERROR' -or
+                    $refused.reason -ne 'SETUP_UNINSTALL_RESUME_AUTHORITY_MISSING' -or
+                    !(Test-Path -LiteralPath $owner)){
+                    throw 'SETUP_FAST_UNTRUSTED_RESUME_ACCEPTED'
+                }
+                Set-ItemProperty -Path $owner -Name 'UninstallPending' -Value 1
+            }
+            $continued=Invoke-Setup '--uninstall-file' ('resumed-'+$phase)
+            if ($continued.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
+                (Test-Path -LiteralPath $owner) -or
+                (Test-Path -LiteralPath $uninstallKey) -or
+                (Test-Path -LiteralPath $receipt) -or
+                (Test-Path -LiteralPath $root) -or
+                (Test-Path -LiteralPath $link) -or
+                [IO.File]::ReadAllText($userData) -ne 'outside-user-data'){
+                throw ('SETUP_FAST_UNINSTALL_RESUME_FAILED_'+$phase)
+            }
+            Write-Host ('IWXA_SETUP_FAST_UNINSTALL_FAULT_RESUME_PASS_'+$phase)
+        }
     }finally{
         if(Test-Path -LiteralPath $link){Remove-Item -LiteralPath $link -Force}
         if(Test-Path -LiteralPath $userData){Remove-Item -LiteralPath $userData -Force}
