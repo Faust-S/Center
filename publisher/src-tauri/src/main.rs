@@ -336,7 +336,7 @@ fn publisher_read_test_iwxa(path: &Path) -> Result<(Vec<u8>, UnverifiedIwxaCarri
     if bytes.len() != metadata.len() as usize {return Err("PUBLISHER_IWXA_FILE_CHANGED".into());}
     // Only the canonical T3 package codec may validate manifest, signatures
     // or issuer. Rust does not parse private T3 contracts or install trust.
-    if !bytes.starts_with(b"PK\\x03\\x04") {
+    if !bytes.starts_with(b"PK\x03\x04") {
         return Err("PUBLISHER_IWXA_NOT_ZIP".into());
     }
     let summary=UnverifiedIwxaCarrier{
@@ -387,7 +387,7 @@ mod publisher_iwxa_carrier_native_tests {
     fn native_transport_never_calls_zip_signer_or_claims_entitlements() {
         let name=std::env::temp_dir().join(format!("test-iwxa-native-{}-{}.iwxa",
             std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
-        let contents=b"PK\\x03\\x04\\x00opaque-test-only-not-a-verified-license";
+        let contents=b"PK\x03\x04\x00opaque-test-only-not-a-verified-license";
         fs::write(&name,contents).unwrap();
         let (selected,preview)=publisher_read_test_iwxa(&name).unwrap();
         assert_eq!(selected,contents);
