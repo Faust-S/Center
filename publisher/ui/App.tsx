@@ -1,6 +1,7 @@
 import React, {useEffect,useState} from 'react';
 import { emptyPublisherDraft, decodePublisherDraft, encodePublisherDraft, applyPublisherDraftCommand } from '../src/preparation.mjs';
 import { prepareTestLicenseRequest, encodeTestLicenseRequest, suggestedTestRequestFileName } from '../src/test-license-request.mjs';
+import {simulateIssuerEvent} from '../src/issuer-simulation.mjs';
 import '../../src/style.css';
 import './style.css';
 
@@ -53,6 +54,7 @@ export default function App(){
  const [features,setFeatures]=useState('');
  const [termDays,setTermDays]=useState('30');
  const [testSeats,setTestSeats]=useState('1');
+ const [simulated,setSimulated]=useState<{requestId:string;organizationId:string;modeledSeats:number;actualSeats:number;state:string}|null>(null);
  const [inspected,setInspected]=useState<Inspection|null>(null);
  const [releaseProduct,setReleaseProduct]=useState('');
  const [releasePlatform,setReleasePlatform]=useState('windows-x64');
@@ -68,7 +70,7 @@ export default function App(){
  },[]);
  async function change(command:Record<string,unknown>,success:string){
    if(busy||!loaded)return;
-   setBusy(true);setError('');setMessage('');
+   setBusy(true);setError('');setMessage('');setSimulated(null);
    try{
      const next=applyPublisherDraftCommand(state,command) as Draft;
      await persistDraft(next);
@@ -107,6 +109,19 @@ export default function App(){
      setMessage('Неподписанный TEST-запрос экспортирован. Лицензия не выдана.');
    } catch(e) {setError(getError(e));}
    finally {setBusy(false);}
+ }
+ function simulateTestDecision(proposalId:string) {
+   setError('');setMessage('');
+   try {
+     const request=prepareTestLicenseRequest(state,{proposalId,seats:Number(testSeats)});
+     const event=simulateIssuerEvent(request,{decision:'SIMULATED_ISSUED',sequence:1,observedAt:new Date().toISOString()});
+     setSimulated({requestId:request.requestId,organizationId:request.subject.id,
+       modeledSeats:request.seats,actualSeats:event.effectiveSeats,state:event.status});
+     setMessage('Проверен модельный ответ издателя. Никакие лицензии или права не созданы.');
+   } catch(e) {
+     setSimulated(null);
+     setError(getError(e));
+   }
  }
  const productTitle=(id:string)=>state.products.find(p=>p.id===id)?.name||id;
  const holderTitle=(id:string)=>state.holders.find(h=>h.id===id)?.name||id;
@@ -173,7 +188,14 @@ export default function App(){
           </div>}
          {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small></div><span className="status neutral">Не выдано</span>
             <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>void exportTestRequest(p.id)}>Подготовить TEST-запрос</button>
+            <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>simulateTestDecision(p.id)}>Моделировать TEST-ответ</button>
             <button className="quiet" disabled={busy} type="button" onClick={()=>void change({kind:'removeProposal',id:p.id},'Черновик удалён.')}>Удалить</button></div>)}
+         {simulated&&<div className="publisher-test-request" data-testid="publisher-test-simulation-result" role="status">
+           <strong>СИМУЛЯЦИЯ · НЕ ЛИЦЕНЗИЯ</strong>
+           <p>Модельный запрос {simulated.requestId} для организации {simulated.organizationId}.</p>
+           <p>Смоделировано мест: {simulated.modeledSeats}. Действительных лицензированных мест: {simulated.actualSeats}.</p>
+           <p>Подпись T3 и доверие издателю не проверялись. Активация и распределение мест недоступны.</p>
+         </div>}
          </section>
        </>}
        {page==='releases'&&<>

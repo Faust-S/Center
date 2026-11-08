@@ -6,3 +6,5 @@
 .publisher-test-request input{max-width:95px}
 .publisher-app .simple-row>.secondary{flex-shrink:0;font-size:11px}
 @media(max-width:700px){.publisher-app .simple-row>.secondary{min-height:38px}.publisher-test-request{padding:12px}}
+
+.publisher-test-request strong{display:block;margin:0 0 8px;color:#7c3526}.publisher-test-request p{overflow-wrap:anywhere}

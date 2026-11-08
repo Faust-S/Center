@@ -44,6 +44,13 @@ try {
   assert.match(await page.locator('main').innerText(),/Не выдано/);
   checks.push('proposal-not-issued');
   await page.getByLabel('Места для TEST-запроса').fill('3');
+  await page.getByRole('button',{name:'Моделировать TEST-ответ'}).click();
+  const simulatedText=await page.getByTestId('publisher-test-simulation-result').innerText();
+  assert.match(simulatedText,/СИМУЛЯЦИЯ · НЕ ЛИЦЕНЗИЯ/);
+  assert.match(simulatedText,/Смоделировано мест: 3/);
+  assert.match(simulatedText,/Действительных лицензированных мест: 0/);
+  assert.match(simulatedText,/Активация и распределение мест недоступны/);
+  checks.push('simulation-shows-no-signed-license-or-active-seats');
   const waiting=page.waitForEvent('download');
   await page.getByRole('button',{name:'Подготовить TEST-запрос'}).click();
   const downloaded=await waiting;
@@ -63,6 +70,7 @@ try {
 
   await page.reload();
   await page.getByRole('button',{name:'Запросы на лицензии'}).click();
+  assert.equal(await page.getByTestId('publisher-test-simulation-result').count(),0,'simulation was incorrectly persisted');
   await page.getByText('Подготовленные запросы (1)').waitFor();
   assert.match(await page.locator('main').innerText(),/Test Corporation/);
   checks.push('same-origin-restart-persistence');
