@@ -492,6 +492,11 @@ namespace IwxaSetup
 
         private static void CreateShortcutAt(BundleInfo info, string root, string path)
         {
+            // Recheck immediately before the COM write: a different process
+            // may have created a shortcut after the initial machine preflight.
+            if (File.Exists(path) || Directory.Exists(path))
+                throw new InvalidOperationException(
+                    "SETUP_START_MENU_SHORTCUT_CONFLICT");
             Directory.CreateDirectory(Path.GetDirectoryName(path));
             Type shellType = Type.GetTypeFromProgID("WScript.Shell");
             if (shellType == null)
