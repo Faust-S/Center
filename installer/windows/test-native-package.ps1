@@ -304,6 +304,34 @@ try {
                 throw 'SETUP_S3_LEGACY_OWNERSHIP_PROBE_FAILED'
             }
 
+            $oldApplicationHash = (Get-FileHash -LiteralPath $oldExe -Algorithm SHA256).Hash
+            $oldUninstallerHash = (Get-FileHash -LiteralPath $oldUninstaller -Algorithm SHA256).Hash
+            $oldRegistry = (Get-ItemProperty -LiteralPath $legacyKey).DisplayVersion
+            $stagedLegacy = Invoke-NativeInspection $bundle (Join-Path $artifact 'setup-core-legacy-staged.json') 0 '--stage-legacy-file'
+            if ($stagedLegacy.status -ne 'LEGACY_MIGRATION_STAGED_NSIS_PRESERVED' -or
+                $stagedLegacy.version -ne '0.3.0-dev.1' -or
+                !(Test-Path -LiteralPath (Join-Path $stagedLegacy.installRoot 'iwxa-admin-center.exe'))) {
+                throw 'SETUP_S3_LEGACY_PREVIEW_NOT_STAGED'
+            }
+            $pendingLegacy = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
+            if ($pendingLegacy.status -ne 'LEGACY_MIGRATION_PENDING_GUI_READBACK') {
+                throw 'SETUP_S3_LEGACY_PREVIEW_STATUS_INVALID'
+            }
+            if ((Get-ItemProperty -LiteralPath $legacyKey).DisplayVersion -ne $oldRegistry -or
+                (Get-FileHash -LiteralPath $oldExe -Algorithm SHA256).Hash -ne $oldApplicationHash -or
+                (Get-FileHash -LiteralPath $oldUninstaller -Algorithm SHA256).Hash -ne $oldUninstallerHash) {
+                throw 'SETUP_S3_LEGACY_0_2_MODIFIED_DURING_PREVIEW'
+            }
+            $previewRemoved = Invoke-NativeInspection $bundle (Join-Path $artifact 'setup-core-legacy-preview-removed.json') 0 '--uninstall-file'
+            if ($previewRemoved.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
+                (Test-Path -LiteralPath $stagedLegacy.installRoot) -or
+                !(Test-Path -LiteralPath $oldExe) -or
+                !(Test-Path -LiteralPath $oldUninstaller) -or
+                !(Test-Path -LiteralPath $legacyKey)) {
+                throw 'SETUP_S3_LEGACY_PREVIEW_CANCEL_BROKE_NSIS'
+            }
+            Write-Host 'IWXA_SETUP_S3_LEGACY_PREVIEW_AND_CANCEL_PRESERVE_NSIS_PASS'
+
             # A conflicting duplicate NSIS record must block adoption.
             $second = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\IWXA.Setup.Legacy.Fixture2'
             if (Test-Path -LiteralPath $second) { throw 'SETUP_LEGACY_SECOND_KEY_ALREADY_PRESENT' }
@@ -313,6 +341,11 @@ try {
                 $ambiguous = Invoke-NativeInspection $bundle $legacyProbe 0 '--legacy-inspect-file'
                 if ($ambiguous.status -ne 'LEGACY_AMBIGUOUS_HOLD') {
                     throw 'SETUP_S3_LEGACY_DUPLICATE_REGISTRY_ACCEPTED'
+                }
+                $denied = Invoke-NativeInspection $bundle (Join-Path $artifact 'setup-core-legacy-ambiguous-rejected.json') 2 '--stage-legacy-file'
+                if ($denied.status -ne 'ERROR' -or
+                    $denied.reason -notlike '*SETUP_LEGACY_OWNER_NOT_CONFIRMED*') {
+                    throw 'SETUP_S3_LEGACY_AMBIGUOUS_STAGE_ALLOWED'
                 }
             } finally {
                 Remove-Item -LiteralPath $second -Recurse -Force -ErrorAction SilentlyContinue

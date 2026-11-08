@@ -43,11 +43,50 @@ namespace IwxaSetup
             }
         }
 
-        private static InstallOutcome InstallLocked(string bundle, BundleInfo info)
+        // An explicit preview of a registered NSIS installation. It installs
+        // our separate native-owned root; old NSIS files, registry and shortcuts
+        // stay untouched until a future verified, user-approved handoff.
+        internal static InstallOutcome StageLegacy(string bundle)
+        {
+            BundleInfo candidate = BundleReader.Inspect(bundle);
+            using (var mutex = new System.Threading.Mutex(false,
+                "Local\\IWXA.SetupCore." + candidate.Id))
+            {
+                if (!mutex.WaitOne(0))
+                    throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
+                try
+                {
+                    InstallPreflight preflight = SetupReadiness.Check(candidate);
+                    if (preflight.Status != "LEGACY_INSTALLATION")
+                        throw new InvalidOperationException(
+                            "SETUP_LEGACY_STAGE_BLOCKED_" + preflight.Status);
+                    LegacyAssessment legacy = SetupLegacy.Inspect(candidate);
+                    if (legacy.Status != "LEGACY_CONFIRMED_READ_ONLY")
+                        throw new InvalidOperationException(
+                            "SETUP_LEGACY_OWNER_NOT_CONFIRMED_" + legacy.Status);
+                    if (CompareVersions(candidate.Version, legacy.Version) <= 0)
+                        throw new InvalidOperationException(
+                            "SETUP_LEGACY_DOWNGRADE_BLOCKED");
+                    if (candidate.NeedsWebView2 &&
+                        String.IsNullOrWhiteSpace(
+                            SetupReadiness.DetectWebView2Version()))
+                        throw new InvalidOperationException(
+                            "SETUP_LEGACY_WEBVIEW2_MISSING");
+                    AssertNotRunning(candidate, legacy.Root);
+                    return InstallLocked(bundle, candidate, legacy);
+                }
+                finally { mutex.ReleaseMutex(); }
+            }
+        }
+
+        private static InstallOutcome InstallLocked(string bundle, BundleInfo info,
+            LegacyAssessment legacy = null)
         {
             InstallPreflight readiness = SetupReadiness.Check(info);
-            if (readiness.Status != "READY_FOR_FIRST_INSTALL")
+            if (legacy == null && readiness.Status != "READY_FOR_FIRST_INSTALL")
                 throw new InvalidOperationException("SETUP_BLOCKED_" + readiness.Status);
+            if (legacy != null && readiness.Status != "LEGACY_INSTALLATION")
+                throw new InvalidOperationException("SETUP_LEGACY_STATE_CHANGED");
             string root = RootFor(info);
             string parent = Path.GetDirectoryName(root);
             Directory.CreateDirectory(parent);
@@ -61,15 +100,19 @@ namespace IwxaSetup
             Directory.CreateDirectory(staged);
             try
             {
-                PrepareVerifiedStage(bundle, info, staged, root);
+                PrepareVerifiedStage(bundle, info, staged, root, legacy);
 
                 Directory.Move(staged, root);
                 activated = true;
 
                 Register(info, root);
-                CreateShortcut(info, root);
+                // The original NSIS shortcut must remain usable while the
+                // preview is being qualified.
+                if (legacy == null) CreateShortcut(info, root);
                 return new InstallOutcome {
-                    Status = "INSTALLED_NOT_LAUNCHED", Product = info.Id,
+                    Status = legacy == null ?
+                        "INSTALLED_NOT_LAUNCHED" :
+                        "LEGACY_MIGRATION_STAGED_NSIS_PRESERVED", Product = info.Id,
                     Version = info.Version, Root = root
                 };
             }
@@ -94,7 +137,7 @@ namespace IwxaSetup
         }
 
         private static void PrepareVerifiedStage(string bundle, BundleInfo info,
-            string staged, string root)
+            string staged, string root, LegacyAssessment legacy = null)
         {
             BundleInfo verified = BundleReader.ExtractVerified(bundle, staged);
             if (verified.Id != info.Id || verified.PackageSha256 != info.PackageSha256 ||
@@ -126,6 +169,15 @@ namespace IwxaSetup
                 {"packageSha256", info.PackageSha256}, {"installRoot", root},
                 {"files", installedFiles}
             };
+            if (legacy != null)
+                receipt["legacyHandoff"] = new Dictionary<string, object> {
+                    {"schema", "IWXA_SETUP_LEGACY_HANDOFF/1"},
+                    {"root", legacy.Root},
+                    {"version", legacy.Version},
+                    {"registryName", legacy.RegistryName},
+                    {"uninstaller", legacy.Uninstaller},
+                    {"status", "PREVIEW_ONLY_NSIS_RETAINED"}
+                };
             File.WriteAllText(Path.Combine(staged, ReceiptFile),
                 new JavaScriptSerializer().Serialize(receipt) + "\n",
                 new UTF8Encoding(false));
@@ -231,7 +283,8 @@ namespace IwxaSetup
                     Directory.Delete(dir);
             if (Directory.GetFileSystemEntries(root).Length == 0)
                 Directory.Delete(root);
-            DeleteShortcut(info);
+            // A staged NSIS migration never owns the old Start Menu entry.
+            if (!receipt.ContainsKey("legacyHandoff")) DeleteShortcut(info);
             Deregister(info, root);
             return new InstallOutcome {
                 Status = "UNINSTALLED_USER_DATA_PRESERVED",

@@ -125,6 +125,24 @@ namespace IwxaSetup
                         return plan;
                     }
                     plan.InstalledVersion = oldVersion;
+                    if (receipt.ContainsKey("legacyHandoff"))
+                    {
+                        var handoff = receipt["legacyHandoff"] as
+                            IDictionary<string, object>;
+                        LegacyAssessment legacy = SetupLegacy.Inspect(info);
+                        plan.Status = handoff != null &&
+                            Convert.ToString(handoff["schema"]) ==
+                                "IWXA_SETUP_LEGACY_HANDOFF/1" &&
+                            String.Equals(Convert.ToString(handoff["root"]),
+                                legacy.Root, StringComparison.OrdinalIgnoreCase) &&
+                            Convert.ToString(handoff["version"]) == legacy.Version &&
+                            Convert.ToString(handoff["registryName"]) ==
+                                legacy.RegistryName &&
+                            legacy.Status == "LEGACY_CONFIRMED_READ_ONLY" ?
+                                "LEGACY_MIGRATION_PENDING_GUI_READBACK" :
+                                "LEGACY_MIGRATION_REVIEW_REQUIRED";
+                        return plan;
+                    }
                 }
                 catch (Exception ex)
                 {

@@ -160,13 +160,17 @@ namespace IwxaSetup
                 }
             }
             if (args.Length == 2 &&
-                (args[0] == "--install-file" || args[0] == "--uninstall-file"))
+                (args[0] == "--install-file" ||
+                 args[0] == "--stage-legacy-file" ||
+                 args[0] == "--uninstall-file"))
             {
                 try
                 {
                     InstallOutcome result = args[0] == "--install-file" ?
                         SetupInstallation.InstallFresh(Application.ExecutablePath) :
-                        SetupInstallation.UninstallOwned(Application.ExecutablePath);
+                        args[0] == "--stage-legacy-file" ?
+                            SetupInstallation.StageLegacy(Application.ExecutablePath) :
+                            SetupInstallation.UninstallOwned(Application.ExecutablePath);
                     WriteResult(args[1], new Dictionary<string, object> {
                         {"status", result.Status}, {"product", result.Product},
                         {"version", result.Version}, {"installRoot", result.Root}
