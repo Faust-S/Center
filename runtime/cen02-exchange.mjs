@@ -1,4 +1,4 @@
-import {assignmentText} from '../src/organization.mjs';
+import {assignmentText,sameAtlasWorkRef} from '../src/organization.mjs';
 import {readAppliedResults} from './cen03-applied-results.mjs';
 import {readAtlasPortfolio} from '../src/atlas-integration.mjs';
 import {serialize as serializeAtlas} from '../vendor/atlas/src/core.mjs';
@@ -70,6 +70,10 @@ export function prepareIssuedTaskLinkRecovery({organization,assignment,snapshot}
     Number.isSafeInteger(snapshot.contextEpoch) &&
     snapshot.productionActivation===true&&snapshot.T3_READY===true,
     'CEN02_RECOVERY_OWNER_NOT_READY');
+  // A T3 workspace cannot silently be mapped onto a different local
+  // assignment workspace. Mapping belongs to the future authorized host.
+  fail(assignment.workspaceId===snapshot.workspaceId,
+    'CEN02_RECOVERY_WORKSPACE_MISMATCH');
   fail(typeof task?.id==='string'&&/^task:[a-zA-Z0-9:-]+$/.test(task.id) &&
     typeof task.taskRevisionId==='string'&&/^[a-f0-9]{64}$/.test(task.taskRevisionId) &&
     typeof task.task==='string'&&task.task.length>0&&task.task.length<=10000 &&
@@ -129,7 +133,7 @@ export function prepareIssuedTaskLinkRecovery({organization,assignment,snapshot}
       recipient===command.recipientId &&
       old.deliveryState==='NOT_CONFIRMED' &&
       old.associationProof==='LOCAL_ISSUER_SIDE_REFERENCE_ONLY' &&
-      JSON.stringify(old.atlasRef)===JSON.stringify(command.atlasRef),
+      sameAtlasWorkRef(old.atlasRef,command.atlasRef),
       'CEN02_RECOVERY_EXISTING_LINK_CONFLICT');
   }
   return {command,alreadyRecorded:Boolean(old),
@@ -150,6 +154,12 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
         binding.draftWorkspaceId===assignment.workspaceId &&
         binding.draftAssigneeId===assignment.assigneeId &&
         binding.draftReviewerId===assignment.reviewerId,'T3_DRAFT_BINDING_CHANGED');
+      // No implicit mapping between a local draft and an independently
+      // selected T3 authority/workspace. Reject BEFORE the owner signs.
+      requireValue(current.organizationId===organization.id,
+        'T3_DRAFT_ORGANIZATION_NOT_SELECTED');
+      requireValue(current.workspaceId===assignment.workspaceId,
+        'T3_DRAFT_WORKSPACE_NOT_SELECTED');
       requireValue(binding.recipientId===current.personId,'T3_RECIPIENT_CHANGED');
       const ref=assignment.atlasRef;
       requireValue(ref && typeof ref.workId==='string' && ref.workId.length>0,
