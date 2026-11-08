@@ -47,6 +47,11 @@ jobs:
           python-version: '3.12'
       - name: Verify universal Setup Core package contract
         run: python -m unittest discover -s installer/tests -p 'test_*.py' -v
+      - name: Fast native Windows uninstall and shortcut ownership fixture
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 4
+        run: ./installer/windows/qualify-uninstall-and-shortcut-fast.ps1 -Stub artifacts/iwxa-setup-core-early.exe
   interface:
     if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
     runs-on: ubuntu-24.04
