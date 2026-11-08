@@ -511,8 +511,25 @@ namespace IwxaSetup
 
         private static void DeleteShortcut(BundleInfo info)
         {
+            // The user may have changed the Start Menu shortcut since install.
+            // Only remove it while it still opens our exact installed EXE.
             string path = ShortcutPath(info);
-            if (File.Exists(path)) File.Delete(path);
+            try
+            {
+                if (!File.Exists(path) ||
+                    (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                    return;
+                string ownedExecutable = Path.Combine(RootFor(info),
+                    info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+                if (!SamePath(GetLegacyShortcutTarget(path), ownedExecutable))
+                    return;
+                File.Delete(path);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (System.Runtime.InteropServices.COMException) { }
+            catch (InvalidOperationException) { }
+            catch (ArgumentException) { }
         }
 
         private static bool SamePath(string a, string b)

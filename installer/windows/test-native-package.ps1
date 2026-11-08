@@ -301,6 +301,39 @@ try {
     $userData = Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center/setup-core-preserved.txt'
     New-Item -ItemType Directory -Path (Split-Path -Parent $userData) -Force | Out-Null
     Set-Content -LiteralPath $userData -Value 'unchanged-after-first-install' -NoNewline
+    # A first install must refuse to overwrite an unrelated Start Menu
+    # shortcut. Neither the original link nor Windows ownership may change.
+    $startMenuLink = Join-Path ([Environment]::GetFolderPath('Programs')) ($product.install_dir + '.lnk')
+    $expectedFreshRoot = Join-Path $env:LOCALAPPDATA ('Programs/' + $product.install_dir)
+    $foreignTarget = Join-Path $env:WINDIR 'System32/notepad.exe'
+    if (Test-Path -LiteralPath $startMenuLink) {
+        throw 'SETUP_SHORTCUT_CONFLICT_FIXTURE_NOT_CLEAN'
+    }
+    $shellObject = New-Object -ComObject WScript.Shell
+    $foreignShortcut = $shellObject.CreateShortcut($startMenuLink)
+    $foreignShortcut.TargetPath = $foreignTarget
+    $foreignShortcut.Description = 'Test-owned foreign shortcut'
+    $foreignShortcut.Save()
+    $foreignHash = (Get-FileHash -LiteralPath $startMenuLink -Algorithm SHA256).Hash
+    try {
+        $conflict = Invoke-NativeInspection $bundle (
+            Join-Path $artifact 'setup-core-shortcut-conflict-preflight.json') 0 '--preflight-file'
+        if ($conflict.status -ne 'START_MENU_SHORTCUT_CONFLICT') {
+            throw 'SETUP_FOREIGN_SHORTCUT_NOT_DETECTED'
+        }
+        $deniedInstall = Invoke-NativeInspection $bundle (
+            Join-Path $artifact 'setup-core-shortcut-conflict-denied.json') 2 '--install-file'
+        if ($deniedInstall.status -ne 'ERROR' -or
+            $deniedInstall.reason -ne 'SETUP_BLOCKED_START_MENU_SHORTCUT_CONFLICT' -or
+            (Get-FileHash -LiteralPath $startMenuLink -Algorithm SHA256).Hash -ne $foreignHash -or
+            (Test-Path -LiteralPath $expectedFreshRoot)) {
+            throw 'SETUP_FOREIGN_SHORTCUT_WAS_OVERWRITTEN'
+        }
+    } finally {
+        Remove-Item -LiteralPath $startMenuLink -Force -ErrorAction SilentlyContinue
+    }
+    Write-Host 'IWXA_SETUP_FOREIGN_START_MENU_SHORTCUT_FIRST_INSTALL_REFUSED_PASS'
+    $customShortcutHash = ''
     try {
         $installed = Invoke-NativeInspection $bundle $installedReport 0 '--install-file'
         if ($installed.status -ne 'INSTALLED_NOT_LAUNCHED' -or
@@ -506,6 +539,13 @@ try {
                 }
             }
             Write-Host 'IWXA_SETUP_UNINSTALL_PRECHECK_READONLY_NO_PARTIAL_REMOVAL_PASS'
+            # Deliberate user modification of the Start Menu shortcut must
+            # be retained after uninstalling our application.
+            $userEditedShortcut = $shellObject.CreateShortcut($startMenuLink)
+            $userEditedShortcut.TargetPath = $foreignTarget
+            $userEditedShortcut.Description = 'User-owned modified shortcut'
+            $userEditedShortcut.Save()
+            $customShortcutHash = (Get-FileHash -LiteralPath $startMenuLink -Algorithm SHA256).Hash
             $removed = Invoke-NativeInspection $bundle $removedReport 0 '--uninstall-file'
             if ($removed.status -ne 'UNINSTALLED_USER_DATA_PRESERVED') {
                 throw 'SETUP_NATIVE_UNINSTALL_INVALID'
@@ -513,6 +553,15 @@ try {
             if (Test-Path -LiteralPath $installed.installRoot) {
                 throw 'SETUP_NATIVE_UNINSTALL_ROOT_REMAINS'
             }
+            if (!$customShortcutHash -or
+                !(Test-Path -LiteralPath $startMenuLink -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $startMenuLink -Algorithm SHA256).Hash -ne $customShortcutHash) {
+                throw 'SETUP_UNINSTALL_DESTROYED_USER_EDITED_SHORTCUT'
+            }
+            Write-Host 'IWXA_SETUP_USER_MODIFIED_START_MENU_SHORTCUT_RETAINED_PASS'
+        }
+        if (Test-Path -LiteralPath $startMenuLink) {
+            Remove-Item -LiteralPath $startMenuLink -Force
         }
         if ((Get-Content -LiteralPath $userData -Raw) -ne 'unchanged-after-first-install') {
             throw 'SETUP_NATIVE_USER_DATA_CHANGED'

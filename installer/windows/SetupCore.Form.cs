@@ -616,6 +616,16 @@ namespace IwxaSetup
                             check.Status, versionLine, true);
                     }
                 }
+                else if (plan.Status == "START_MENU_SHORTCUT_CONFLICT")
+                {
+                    SetState(T("Ярлык меню «Пуск» уже существует",
+                               "Start Menu shortcut already exists"),
+                        T("Нельзя подтвердить принадлежность существующего ярлыка. Он не будет перезаписан. Сохраните или переименуйте его и повторите проверку.",
+                          "The existing shortcut is not owned by this installation and will not be overwritten. Save or rename it, then verify again."),
+                        versionLine, true);
+                    ConfigureActions(SetupOperation.None, SetupOperation.None,
+                        T("Установка заблокирована", "Installation blocked"));
+                }
                 else if (plan.Status == "UPGRADE_CANDIDATE_NOT_ACTIVATED")
                 {
                     SetupDiskPlan disk = SetupInstallation.CheckStageSpace(info);
