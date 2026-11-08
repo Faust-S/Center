@@ -83,6 +83,56 @@ function Find-Text([string]$piece) {
   }
   throw "Publisher installed GUI accessible text missing: $piece"
 }
+
+function Save-Json-Through-Publisher-Dialog([string]$buttonName,[string]$destination) {
+  if(Test-Path -LiteralPath $destination){throw 'PUBLISHER_SAVE_EXPECTED_NEW_DESTINATION'}
+  Click-Publisher $buttonName
+  $dialog=$null
+  for($i=0;$i -lt 60;$i++){
+    $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+      [System.Windows.Automation.TreeScope]::Children,
+      [System.Windows.Automation.Condition]::TrueCondition)
+    foreach($window in $windows){
+      try {
+        if($window.Current.ProcessId -eq $proc.Id -and
+           $window.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window -and
+           $window.Current.NativeWindowHandle -ne $proc.MainWindowHandle){
+          $dialog=$window;break
+        }
+      } catch {}
+    }
+    if($dialog){break}
+    Start-Sleep -Milliseconds 200
+  }
+  if(!$dialog){throw "PUBLISHER_NATIVE_SAVE_DIALOG_MISSING button=$buttonName"}
+  Write-Host "PUBLISHER_NATIVE_SAVE_DIALOG_PASS button=$buttonName"
+  $input=$dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.PropertyCondition]::new(
+      [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'1001'))
+  try {
+    if($input){
+      $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($destination)
+    }else{
+      $dialog.SetFocus()
+      [System.Windows.Forms.SendKeys]::SendWait('%n')
+      Start-Sleep -Milliseconds 150
+      [System.Windows.Forms.SendKeys]::SendWait('^a')
+      [System.Windows.Forms.SendKeys]::SendWait($destination)
+    }
+  } catch {
+    $dialog.SetFocus()
+    [System.Windows.Forms.SendKeys]::SendWait('%n')
+    Start-Sleep -Milliseconds 150
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait($destination)
+  }
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  for($i=0;$i -lt 60;$i++){
+    if(Test-Path -LiteralPath $destination -PathType Leaf){return}
+    Start-Sleep -Milliseconds 250
+  }
+  throw "PUBLISHER_NATIVE_FILE_SAVE_NOT_WRITTEN button=$buttonName"
+}
 function Close-Publisher {
   $proc.Refresh()
   if(!$proc.HasExited) {
@@ -148,6 +198,19 @@ try {
   Click-Publisher 'Моделировать TEST-ответ'
   [void](Find-Text 'Действительных лицензированных мест: 0')
   Write-Host 'PUBLISHER_INSTALLED_GUI_SIMULATION_ZERO_ACTIVE_PASS'
+  $testRequest=Join-Path ([IO.Path]::GetFullPath('artifacts/publisher-setupcore')) 'native-unsigned-test-request.json'
+  Save-Json-Through-Publisher-Dialog 'Подготовить TEST-запрос' $testRequest
+  $exported=Get-Content -LiteralPath $testRequest -Raw -Encoding utf8|ConvertFrom-Json -Depth 50
+  if($exported.requestId -ne $proposalId -or $exported.kind -ne 'TEST_LICENSE_REQUEST' -or
+     $exported.status -ne 'UNSIGNED_REQUEST' -or $exported.environment -ne 'TEST' -or
+     $exported.subject.id -ne '11111111-1111-4111-8111-111111111111' -or
+     $exported.product.id -ne 'IWXA_ADMIN_CENTER' -or
+     $exported.seats -ne 1 -or ((@($exported.featureIds) -join ',') -ne 'WORKSPACE,REVIEW') -or
+     $exported.PSObject.Properties.Name -contains 'licenseId' -or
+     $exported.PSObject.Properties.Name -contains 'signature'){
+    throw 'PUBLISHER_NATIVE_TEST_REQUEST_IS_NOT_EXACT_UNSIGNED_REQUEST'
+  }
+  Write-Host 'PUBLISHER_INSTALLED_GUI_UNSIGNED_TEST_REQUEST_EXPORT_PASS'
   Close-Publisher
   Start-Publisher
   Click-Publisher 'Продукты'
@@ -165,6 +228,19 @@ try {
     throw 'Publisher preparation and unsigned proposal readback mismatch after relaunch'
   }
   Write-Host 'PUBLISHER_INSTALLED_GUI_RESTART_READBACK_PASS'
+  $backup=Join-Path ([IO.Path]::GetFullPath('artifacts/publisher-setupcore')) 'installed-preparation-backup.json'
+  Click-Publisher 'Обзор'
+  Save-Json-Through-Publisher-Dialog 'Сохранить копию черновиков' $backup
+  $copy=Get-Content -LiteralPath $backup -Raw -Encoding utf8
+  $live=Get-Content -LiteralPath $data -Raw -Encoding utf8
+  if($copy -cne $live){throw 'PUBLISHER_NATIVE_BACKUP_EXACT_READBACK_MISMATCH'}
+  $backupValue=$copy|ConvertFrom-Json -Depth 50
+  if($backupValue.proposals[0].id -ne $proposalId -or
+     $backupValue.proposals[0].status -ne 'DRAFT_NOT_ISSUED' -or
+     @($backupValue.holders).Count -ne 1){
+    throw 'PUBLISHER_NATIVE_BACKUP_REQUEST_BINDING_INVALID'
+  }
+  Write-Host 'PUBLISHER_INSTALLED_GUI_NATIVE_BACKUP_EXPORT_PASS'
 } catch {
   Write-Host "PUBLISHER_INSTALLED_GUI_PRIMARY_FAILURE $($_.Exception.Message)"
   try {
