@@ -9,7 +9,7 @@ type IssuerCapabilities={operation:'TEST_CAPABILITIES';issuers:string[];
 type License={licenseId:string;requestId:string;issuerAuthorityId:string;
  organizationId:string;claimedSeats:number;status:string;sequence:number;activeSeats:0};
 type Props={draft:any;invoke:(name:string,args?:Record<string,unknown>)=>Promise<any>};
-const error=e=>e instanceof Error?e.message:String(e);
+const error=(e:unknown)=>e instanceof Error?e.message:String(e);
 export default function PublisherT3OwnerPanel({draft,invoke}:Props){
  const [issuerIds,setIssuerIds]=useState<string[]>([]);
  const [issuer,setIssuer]=useState('');
