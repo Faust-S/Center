@@ -10,3 +10,4 @@ private-runtime/
 /vendor/atlas/
 /publisher/src-tauri/target/
 /publisher/src-tauri/gen/
+/vendor/setupcore/

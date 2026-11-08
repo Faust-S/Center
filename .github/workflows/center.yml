@@ -55,8 +55,20 @@ jobs:
           node-version: '22.16.0'
       - run: npm install --no-audit --no-fund
       - run: npm run build
+      - uses: actions/checkout@v4
+        if: ${{ startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') }}
+        with:
+          repository: Faust-S/Center
+          ref: ad8d6bf8f489fd13154585efc5da1e26adf15600
+          path: vendor/setupcore
+          persist-credentials: false
       - run: npm run publisher:build
       - run: node --test publisher/tests/setup-contract.test.mjs
+      - name: Verify Publisher product against original IWXA Setup Core
+        if: ${{ startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') }}
+        shell: bash
+        run: |
+          python -c "import json,runpy; validator=runpy.run_path('vendor/setupcore/installer/build_bundle.py')['validate_product']; validator(json.load(open('publisher/setup/product.json',encoding='utf-8'))); print('PUBLISHER_SETUP_CORE_ORIGINAL_MANIFEST_PASS')"
       - run: npx playwright install --with-deps firefox
       - run: npm run test:ui
       - run: npm run publisher:test:ui
