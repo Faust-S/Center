@@ -28,7 +28,33 @@ $cert=New-SelfSignedCertificate -Type CodeSigningCert -HashAlgorithm SHA256 -Sub
 try{
   & $tool.FullName sign /fd SHA256 /sha1 $cert.Thumbprint $signed
   if($LASTEXITCODE -ne 0){throw 'SIGN_PROBE_SIGN_FAILED'}
+  # Trust only this ephemeral developer certificate on the disposable
+  # runner, so the probe distinguishes hash/layout failure from UntrustedRoot.
+  $certFile=Join-Path $art 'sign-probe-public-cert.cer'
+  $null=Export-Certificate -Cert $cert -FilePath $certFile
+  $null=Import-Certificate -FilePath $certFile -CertStoreLocation 'Cert:\CurrentUser\Root'
   $auth=Get-AuthenticodeSignature -LiteralPath $signed
+  $data=[IO.File]::ReadAllBytes($signed)
+  $peOffset=[BitConverter]::ToInt32($data,0x3c)
+  $optOffset=$peOffset+24
+  $magic=[BitConverter]::ToUInt16($data,$optOffset)
+  $dirOffset=$optOffset + $(if($magic -eq 0x20b){112}else{96}) + 32
+  $certOffset=[BitConverter]::ToUInt32($data,$dirOffset)
+  $certLength=[BitConverter]::ToUInt32($data,$dirOffset+4)
+  $checksum=[BitConverter]::ToUInt32($data,$optOffset+64)
+  $unsignedSize=(Get-Item -LiteralPath $unsigned).Length
+  $certificateLayout=[pscustomobject]@{
+    peMagic=$magic
+    checksum=$checksum
+    securityDirectoryOffset=$dirOffset
+    certificateStart=$certOffset
+    certificateBytes=$certLength
+    signedFileBytes=$data.Length
+    originalUnsignedBytes=$unsignedSize
+    bytesBetweenFooterAndCertificate=($certOffset-$unsignedSize)
+    trailingBytesAfterCertificate=($data.Length-$certOffset-$certLength)
+  }
+  Write-Host "SIGN_CERT_LAYOUT certStart=$certOffset certBytes=$certLength unsignedSize=$unsignedSize trailing=$($certificateLayout.trailingBytesAfterCertificate)"
   $report=Join-Path $art 'signed-inspection-result.json'
   $proc=Start-Process -FilePath $signed -ArgumentList ('--inspect-file "{0}"' -f $report) -PassThru
   try{
@@ -44,6 +70,7 @@ try{
     unsignedPackageSha256=(Get-FileHash -LiteralPath $unsigned -Algorithm SHA256).Hash
     signedPackageSha256=(Get-FileHash -LiteralPath $signed -Algorithm SHA256).Hash
     authenticodeStatus=[string]$auth.Status
+    certificateLayout=$certificateLayout
     nativeInspectExit=$exit
     nativeInspectStatus=$verified.status
     nativeInspectError=$verified.reason
@@ -53,4 +80,5 @@ try{
   Write-Host 'IWXA_SETUP_SIGN_RELEASE_ACCEPTED=NO'
 }finally{
   Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $cert.Thumbprint) -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath ('Cert:\CurrentUser\Root\' + $cert.Thumbprint) -Force -ErrorAction SilentlyContinue
 }
