@@ -73,6 +73,41 @@ try {
        $verified.packageFormat -ne 'PE_RESOURCE_V2' -or $verified.requiresWebView2){
         throw 'SETUP_FAST_IDENTITY_INVALID'
     }
+    # Execute the real WinForms completion gate without launching a second UI.
+    # Both the observed plan and the on-disk receipt check are independently
+    # required: a successful native return code alone is never sufficient.
+    $assembly=[Reflection.Assembly]::LoadFrom($stubPath)
+    $formType=$assembly.GetType('IwxaSetup.SetupForm', $true)
+    $installType=$assembly.GetType('IwxaSetup.SetupInstallation', $true)
+    $bundleType=$assembly.GetType('IwxaSetup.BundleReader', $true)
+    $flags=[Reflection.BindingFlags]'Static, Public, NonPublic'
+    $gate=$formType.GetMethod('CompletionMatches', $flags)
+    $inspect=$bundleType.GetMethod('Inspect', $flags)
+    $installedState=$installType.GetMethod('VerifyInstalledState', $flags)
+    if($null -eq $gate -or $null -eq $inspect -or $null -eq $installedState){
+        throw 'SETUP_FAST_UI_COMPLETION_GATE_NOT_EXPOSED'
+    }
+    function Assert-Completion([string]$operation,[string]$native,[string]$plan,[bool]$expected){
+        $answer=[bool]$gate.Invoke($null, @($operation,$native,$plan))
+        if($answer -ne $expected){
+            throw ('SETUP_FAST_COMPLETION_MISMATCH_'+$operation+'_'+$native+'_'+$plan)
+        }
+    }
+    Assert-Completion 'Install' 'INSTALLED_NOT_LAUNCHED' 'REPAIR_CANDIDATE_NOT_ACTIVATED' $true
+    Assert-Completion 'Install' 'INSTALLED_NOT_LAUNCHED' 'OWNERSHIP_MISMATCH' $false
+    Assert-Completion 'Install' 'INSTALLED_NOT_LAUNCHED' '' $false
+    Assert-Completion 'Upgrade' 'UPGRADED_BACKUP_RETAINED' 'UPGRADE_RECOVERY_REQUIRED' $false
+    Assert-Completion 'Repair' 'REPAIRED_BACKUP_RETAINED' 'REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK' $true
+    Assert-Completion 'CancelLegacyPreview' 'UNINSTALLED_USER_DATA_PRESERVED' 'LEGACY_MIGRATION_HOLD' $true
+    Assert-Completion 'InstallWebView2' 'WEBVIEW2_INSTALLED_VERIFIED' 'WEBVIEW2_MISSING' $false
+    $expectedBundle=$inspect.Invoke($null,@($bundle))
+    function Assert-OwnedState([bool]$expected){
+        $valid=$true
+        try{$null=$installedState.Invoke($null,@($expectedBundle))}
+        catch [Reflection.TargetInvocationException]{$valid=$false}
+        if($valid -ne $expected){throw 'SETUP_FAST_OWNERSHIP_READBACK_MISMATCH'}
+    }
+    Write-Host 'IWXA_SETUP_UI_COMPLETION_GATE_STATUS_MATRIX_PASS'
     $shell=New-Object -ComObject WScript.Shell
     try{
         $foreignLink=$shell.CreateShortcut($link)
@@ -106,6 +141,33 @@ try {
         $uninstaller=Join-Path $root 'IWXA.SetupCore.Uninstall.exe'
         $appHash=(Get-FileHash -LiteralPath $app -Algorithm SHA256).Hash
         $uninstallerHash=(Get-FileHash -LiteralPath $uninstaller -Algorithm SHA256).Hash
+        Assert-OwnedState $true
+        $receiptBytes=[IO.File]::ReadAllBytes($receipt)
+        try {
+            $editedReceipt=[IO.File]::ReadAllText($receipt) | ConvertFrom-Json
+            $editedReceipt.packageSha256=('0' * 64)
+            $editedReceipt | ConvertTo-Json -Depth 16 |
+                Set-Content -LiteralPath $receipt -Encoding UTF8
+            $badPlan=Invoke-Setup '--upgrade-plan-file' 'post-operation-bad-receipt'
+            if($badPlan.status -ne 'OWNERSHIP_MISMATCH'){
+                throw 'SETUP_FAST_RECEIPT_CORRUPTION_PLAN_ACCEPTED'
+            }
+            Assert-Completion 'Install' 'INSTALLED_NOT_LAUNCHED' $badPlan.status $false
+            Assert-OwnedState $false
+        } finally {
+            [IO.File]::WriteAllBytes($receipt,$receiptBytes)
+        }
+        Assert-OwnedState $true
+        $assetFile=Join-Path $root 'assets/owned.txt'
+        $assetContent=[IO.File]::ReadAllBytes($assetFile)
+        try {
+            Remove-Item -LiteralPath $assetFile -Force
+            Assert-OwnedState $false
+        } finally {
+            [IO.File]::WriteAllBytes($assetFile,$assetContent)
+        }
+        Assert-OwnedState $true
+        Write-Host 'IWXA_SETUP_POST_OPERATION_TAMPERED_RECEIPT_AND_MISSING_ASSET_REJECTED_PASS'
 
         # Repair, Upgrade and Rollback must never reset a user's customized
         # Start Menu description when the entrypoint remains at the same path.
