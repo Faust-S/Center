@@ -24,6 +24,8 @@ namespace IwxaSetup
         private readonly Button install = new Button();
         private readonly Button secondary = new Button();
         private readonly LinkLabel openApplication = new LinkLabel();
+        private readonly Panel[] progressPanels = new Panel[3];
+        private readonly Label[] progressLabels = new Label[3];
         private enum SetupOperation { None, Install, Upgrade, Recover, Confirm, Rollback,
             StageLegacyPreview, CancelLegacyPreview, ActivateLegacyDefault,
             RestoreLegacyDefault, InstallWebView2, InstallWebView2Offline, Repair }
@@ -85,17 +87,28 @@ namespace IwxaSetup
                 Color.FromArgb(170, 189, 215), false));
             sidebar.Controls.Add(Label(T("УНИВЕРСАЛЬНАЯ УСТАНОВКА", "UNIVERSAL INSTALL"),
                 29, 144, 195, 42, 9, Color.FromArgb(213, 227, 242), true));
-            var step = new Panel {
-                Location = new Point(12, 218), Size = new Size(213, 60),
-                BackColor = Color.FromArgb(53, 87, 130)
+            string[] steps = new [] {
+                T("01  Проверка пакета", "01  Verify package"),
+                T("02  Установка", "02  Installation"),
+                T("03  Готовность", "03  Ready")
             };
-            step.Controls.Add(Label(T("01  Проверка пакета", "01  Verify package"),
-                12, 14, 193, 32, 10, Color.White, true));
-            sidebar.Controls.Add(step);
-            sidebar.Controls.Add(Label(T("02  Установка", "02  Installation"),
-                26, 298, 182, 28, 10, Color.FromArgb(186, 202, 223), false));
-            sidebar.Controls.Add(Label(T("03  Готовность", "03  Ready"),
-                26, 344, 182, 28, 10, Color.FromArgb(186, 202, 223), false));
+            for (int i = 0; i < steps.Length; i++)
+            {
+                Panel item = new Panel {
+                    Location = new Point(12, 218 + i * 62),
+                    Size = new Size(213, 56), BackColor = Dark,
+                    AccessibleName = "IWXA setup stage " + (i + 1)
+                };
+                Label stage = Label(steps[i], 12, 12, 193, 33, 10,
+                    Color.FromArgb(186, 202, 223), false);
+                stage.AccessibleName = steps[i];
+                stage.AutoEllipsis = true;
+                item.Controls.Add(stage);
+                sidebar.Controls.Add(item);
+                progressPanels[i] = item;
+                progressLabels[i] = stage;
+            }
+            SetWizardStep(1);
             var bottom = Label("IWXA  •  WINDOWS", 26, 516, 186, 28,
                 9, Color.FromArgb(186, 202, 223), false);
             bottom.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
@@ -215,6 +228,23 @@ namespace IwxaSetup
             retry.ForeColor = Color.FromArgb(39, 78, 133);
             retry.Click += async (sender, args) => await VerifyAsync();
             actions.Controls.Add(retry);
+        }
+
+        private void SetWizardStep(int current)
+        {
+            for (int i = 0; i < progressPanels.Length; i++)
+            {
+                bool active = i + 1 == current;
+                progressPanels[i].BackColor = active ?
+                    Color.FromArgb(53, 87, 130) : Dark;
+                progressLabels[i].ForeColor = active ?
+                    Color.White : Color.FromArgb(186, 202, 223);
+                progressLabels[i].Font = new Font("Segoe UI", 10,
+                    active ? FontStyle.Bold : FontStyle.Regular);
+                progressLabels[i].AccessibleDescription = active ?
+                    T("Текущий этап установки", "Current installation stage") :
+                    T("Другой этап установки", "Other installation stage");
+            }
         }
 
         private void ConfigureActions(
@@ -517,6 +547,7 @@ namespace IwxaSetup
         {
             if (performingOperation) return;
             retry.Enabled = false;
+            SetWizardStep(1);
             ConfigureActions(SetupOperation.None, SetupOperation.None,
                 T("Недоступно", "Unavailable"));
             openApplication.Visible = false;
@@ -531,6 +562,11 @@ namespace IwxaSetup
                 UpgradeAssessment plan = await Task.Run(
                     () => SetupInstallation.PlanUpgrade(Application.ExecutablePath));
                 if (IsDisposed || Disposing) return;
+                bool readyForReview =
+                    plan.Status == "UPGRADE_PENDING_CONFIRMATION" ||
+                    plan.Status == "LEGACY_MIGRATION_PENDING_GUI_READBACK" ||
+                    plan.Status == "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED";
+                SetWizardStep(readyForReview ? 3 : 2);
 
                 productName.Text = info.Name;
                 productName.AccessibleName = info.Name;
