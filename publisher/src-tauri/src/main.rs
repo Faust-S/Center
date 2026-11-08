@@ -84,7 +84,9 @@ fn inspect_artifact(path: &Path) -> Result<ArtifactInspection, String> {
     }
     let mut file = File::open(path).map_err(|e| e.to_string())?;
     let mut hash = Sha256::new();
-    let mut buffer = [0_u8; 1024 * 1024];
+    // Two inspections in one Tauri command must not exhaust the Windows
+    // UI thread stack. Keep the bounded 1 MiB streaming buffer on the heap.
+    let mut buffer = vec![0_u8; 1024 * 1024];
     let mut total = 0_u64;
     loop {
         let n = file.read(&mut buffer).map_err(|e| e.to_string())?;
@@ -480,6 +482,15 @@ mod tests {
         fs::write(&b, b"").unwrap();
         assert_eq!(compare_offline_copies(&a, &b).err().unwrap(),
                    "ARTIFACT_SIZE_UNSUPPORTED");
+        // Regression: two large sequential hashes on the same native Tauri
+        // command stack. Both buffers must remain heap-backed and bounded.
+        let large_bytes = vec![0x5a_u8; 3 * 1024 * 1024 + 19];
+        fs::write(&a, &large_bytes).unwrap();
+        fs::write(&b, &large_bytes).unwrap();
+        let large = compare_offline_copies(&a, &b).unwrap();
+        assert_eq!(large.size, large_bytes.len() as u64);
+        assert_eq!(large.sha256, format!("{:x}", Sha256::digest(&large_bytes)));
+        assert!(!large.publisher_authorized);
         let _ = fs::remove_dir_all(root);
     }
     #[test]
