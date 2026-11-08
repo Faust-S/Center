@@ -64,7 +64,7 @@ function Invoke-Variant(
         if (-not $process.HasExited) { $process.Kill() }
         $process.Dispose()
     }
-    if ($exit -ne 0 -or -not (Test-Path -LiteralPath $out)) {
+    if (($null -ne $exit -and $exit -ne 0) -or -not (Test-Path -LiteralPath $out -PathType Leaf)) {
         $details = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
         $outputLog = Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue
         $exists = Test-Path -LiteralPath $out -PathType Leaf
@@ -75,7 +75,13 @@ function Invoke-Variant(
         throw ('SETUP_BENCHMARK_BUILD_FAILED_' + $prefix + ': ' + $details)
     }
     $result = Get-Content -LiteralPath $stdout -Raw | ConvertFrom-Json
-    if ($result.format -ne 'PE_RESOURCE_V2') { throw ('SETUP_BENCHMARK_WRONG_FORMAT_' + $prefix) }
+    if ($result.format -ne 'PE_RESOURCE_V2' -or $result.status -ne 'VERIFIED') {
+        throw ('SETUP_BENCHMARK_WRONG_FORMAT_OR_STATUS_' + $prefix)
+    }
+    $fileHash = (Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($fileHash -ne $result.setup_sha256 -or $peakWorkingSet -le 0) {
+        throw ('SETUP_BENCHMARK_HASH_OR_MEMORY_UNVERIFIED_' + $prefix)
+    }
     $entry = [pscustomobject]@{
         sizeMiB=$size
         iteration=$iteration
@@ -84,7 +90,7 @@ function Invoke-Variant(
         peakWorkingSetMiB=[Math]::Round($peakWorkingSet / 1MB,1)
         peakPagedMemoryMiB=[Math]::Round($peakPaged / 1MB,1)
         outputBytes=(Get-Item -LiteralPath $out).Length
-        outputSha256=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+        outputSha256=$fileHash
     }
     Remove-Item -LiteralPath $out -Force
     Write-Host ('SETUP_BENCHMARK {0} {1}MiB run={2} ms={3} peakWS={4}MiB peakPaged={5}MiB' -f $variant,$size,$iteration,$entry.elapsedMs,$entry.peakWorkingSetMiB,$entry.peakPagedMemoryMiB)
