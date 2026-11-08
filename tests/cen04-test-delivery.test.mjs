@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {inspectCen04TestDeliveryText,CEN04_TEST_DELIVERY_LIMIT} from '../runtime/cen04-test-delivery-preview.mjs';
-import {receiveCen04TestDeliveryText} from '../runtime/cen04-test-delivery-receive.mjs';
+import {receiveCen04TestDeliveryText,receiveCen04TestDeliveryIwxa} from '../runtime/cen04-test-delivery-receive.mjs';
 const org='11111111-1111-4111-8111-111111111111';
 const licenseId='license:test:delivery:1',requestId='request:test:one',issuer='publisher:test:owner';
 const envelope=(payload,keyId)=>({schema:'IWXA_T3_ACCESS_SIGNED/1',keyId,payload,
@@ -57,4 +57,27 @@ test('authoritative receive invokes supplied T3 consumer and requires its truste
  assert.equal(n,1);
  assert.throws(()=>receiveCen04TestDeliveryText({
   raw:JSON.stringify(v),organizationId:org}),/CEN04_T3_CONSUMER_REQUIRED/);
+});
+
+test('canonical .iwxa uses only original T3 inspecting and verifying consumer',()=>{
+ const bytes=Buffer.from('PK\\x03\\x04'+'fixture-only');
+ assert.throws(()=>receiveCen04TestDeliveryIwxa({bytes,organizationId:org}),
+   /CEN04_T3_ORIGINAL_IWXA_INSPECTOR_REQUIRED/);
+ let inspected=0,received=0;
+ const inspectT3Iwxa=b=>{inspected++;assert.deepEqual(b,bytes);
+   return {integrityVerified:true,signatureVerified:false,productionActivation:false,
+     pair:sample()};
+ };
+ const consumer={receive(){received++;throw Error('T3_SIGNATURE_INVALID');},
+   view(){throw Error('MUST_NOT_READ_AFTER_INVALID_SIGNATURE');}};
+ assert.throws(()=>receiveCen04TestDeliveryIwxa({bytes,organizationId:org,
+   inspectT3Iwxa,consumer}),/T3_SIGNATURE_INVALID/);
+ assert.equal(inspected,1);assert.equal(received,1);
+ assert.throws(()=>receiveCen04TestDeliveryIwxa({
+   bytes,organizationId:org,inspectT3Iwxa:()=>({integrityVerified:false,
+     signatureVerified:true,productionActivation:false,pair:sample()}),consumer
+ }),/CEN04_T3_IWXA_INTEGRITY_RESULT_REQUIRED/);
+ assert.throws(()=>receiveCen04TestDeliveryIwxa({
+   bytes:Buffer.alloc(4*1024*1024+1),organizationId:org,
+   inspectT3Iwxa,consumer}),/CEN04_IWXA_BYTES_INVALID/);
 });

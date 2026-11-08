@@ -34,8 +34,8 @@ try{
   for(const name of ['Anna','Boris']){await page.getByTestId('person-name').fill(name);await page.getByTestId('add-person').click();}
   await page.getByTestId('nav-programs').click();await page.getByTestId('plan-agent-seat').first().click();
   assert.equal(await page.getByTestId('planned-agent-seats').textContent(),'1');checks.push('manager-plans-agent-seat-no-license-claim');
-  assert.equal(await page.getByTestId('cen04-select-test-file').isEnabled(),false);
-  assert.equal(await page.getByTestId('cen04-unverified-preview').count(),0);
+  assert.equal(await page.getByTestId('cen04-select-test-iwxa').isEnabled(),false);
+  assert.equal(await page.getByTestId('cen04-iwxa-unverified').count(),0);
   assert.match(await page.getByTestId('cen04-test-license-panel').innerText(),/установленном Admin Center/);
   checks.push('cen04-desktop-file-picker-disabled-without-native-host-and-zero-seats');
   await page.getByTestId('nav-resources').click();

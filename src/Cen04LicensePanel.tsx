@@ -1,11 +1,10 @@
 import React,{useState} from 'react';
-import {inspectCen04TestDeliveryText} from '../runtime/cen04-test-delivery-preview.mjs';
 
-// No signing, no local trust installation, no seat assignment in this panel.
-// It only opens a local file via the installed Tauri desktop and labels every
-// claim unverified until an original T3 native consumer is connected.
-type Preview={status:string;licenseId:string;claimedSeats:number;
- claimedStatus:string;claimedSequence:number;activeSeats:number;assignableSeats:number;};
+// Only the original native Center .iwxa picker is used. No copy of private
+// T3 verification, trust installation, or credential material exists in UI.
+// A selected archive is NOT an admitted license or seat.
+const MAX_TEST_IWXA=4*1024*1024;
+type Preview={size:number;source:'IWXA_SELECTED_NOT_VERIFIED'};
 type Props={organizationId:string;invoke:((command:string,args?:Record<string,unknown>)=>Promise<unknown>)|null};
 function err(e:unknown){return e instanceof Error?e.message:String(e);}
 export default function Cen04LicensePanel({organizationId,invoke}:Props){
@@ -14,34 +13,39 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
  const [message,setMessage]=useState('');
  const [error,setError]=useState('');
  async function open(){
-  if(!invoke||busy)return;
-  setBusy(true);setPreview(null);setError('');setMessage('');
-  try{
-   const selected=await invoke('center_cen04_open_test_delivery_file');
-   if(selected===null){setMessage('Выбор TEST-файла отменён.');return;}
-   if(typeof selected!=='string')throw Error('CEN04_NATIVE_FILE_INVALID');
-   const report=inspectCen04TestDeliveryText(selected,{organizationId}) as Preview;
-   setPreview(report);
-   setMessage('Файл выбран для предварительного просмотра. T3 пока не проверил подпись и статус.');
-  }catch(e){setError('Файл не принят для просмотра: '+err(e));}
-  finally{setBusy(false);}
+   if(!invoke||busy)return;
+   setBusy(true);setPreview(null);setError('');setMessage('');
+   try{
+     // Exact same native file chooser and bounded file reader already used by
+     // Center CEN02/CEN03; package profile validation remains exclusively T3.
+     const raw=await invoke('center_open_iwxa_file');
+     if(raw===null){setMessage('Выбор пакета отменён.');return;}
+     if(!Array.isArray(raw)||raw.length<4||raw.length>MAX_TEST_IWXA||
+       raw.slice(0,4).some((v,i)=>v!==[80,75,3,4][i])||
+       !raw.every(v=>Number.isInteger(v)&&v>=0&&v<=255))
+       throw Error('CEN04_IWXA_CARRIER_BYTES_INVALID');
+     // Do not cache or serialize untrusted license bytes as an organizational
+     // draft. The trusted T3 Host will re-open/receive after native integration.
+     setPreview({size:raw.length,source:'IWXA_SELECTED_NOT_VERIFIED'});
+     setMessage('Пакет .iwxa выбран. Подпись, полномочия и текущий статус ещё не проверены T3.');
+   }catch(e){setError('Не удалось открыть .iwxa: '+err(e));}
+   finally{setBusy(false);}
  }
  return <section className="card padded" data-testid="cen04-test-license-panel">
    <h3>Лицензия Admin Center от Publisher</h3>
-   <p className="muted">Можно выбрать подписанную пару TEST-лицензии и статуса из файла. Это ещё не импорт в T3 и не выдача доступа.</p>
+   <p className="muted">Выберите переданный Publisher пакет .iwxa. Его открытие не добавляет доверие к издателю, не сохраняет лицензию и не назначает мест.</p>
    <div className="actions">
-    <button type="button" className="secondary" data-testid="cen04-select-test-file"
-      onClick={open} disabled={!invoke||busy}>{busy?'Открываем файл…':'Выбрать TEST-файл'}</button>
+     <button type="button" className="secondary" data-testid="cen04-select-test-iwxa"
+       onClick={open} disabled={!invoke||busy}>{busy?'Открываем пакет…':'Открыть TEST .iwxa'}</button>
    </div>
-   {!invoke&&<p className="muted">Выбор файла доступен только в установленном Admin Center.</p>}
+   {!invoke&&<p className="muted">Выбор пакета доступен только в установленном Admin Center.</p>}
    {message&&<p role="status">{message}</p>}
    {error&&<p role="alert">{error}</p>}
-   {preview&&<div data-testid="cen04-unverified-preview">
-     <p><strong>Заявка из файла:</strong> {preview.licenseId}</p>
-     <p>Заявленный статус: <strong>{preview.claimedStatus} (не проверен)</strong>,
-        последовательность: {preview.claimedSequence}, мест в заявке: {preview.claimedSeats}.</p>
-     <p><strong>Подтверждённые места: 0.</strong> Для проверки подписи, статуса и сохранения необходим отдельный доверенный T3 Host.</p>
+   {preview&&<div data-testid="cen04-iwxa-unverified">
+      <p><strong>Файл выбран. Проверка T3 ещё не выполнялась.</strong></p>
+      <p>Объём: {preview.size} байт. Организация для независимой проверки: {organizationId}.</p>
+      <p><strong>Подтверждённых мест: 0.</strong> Для приёма необходим оригинальный T3 Consumer с установленным вне пакета доверием.</p>
    </div>}
-   <div className="notice subdued">Подписанный TEST-файл сам не устанавливает доверие к издателю. Коммерческая активация и распределение мест отключены.</div>
+   <div className="notice subdued">TEST-лицензия и статус проверяются только оригинальным T3 Host. Коммерческая активация остаётся отключённой.</div>
  </section>;
 }
