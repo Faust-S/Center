@@ -47,11 +47,55 @@ $plan = Invoke-Setup $oldSetup '--upgrade-plan-file' 'old-plan'
 if ($plan.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED') {
     throw "S3_E2E_PREVIOUS_VERSION_MISSING $($plan.status)"
 }
-$switched = Invoke-Setup $newSetup '--upgrade-file' 'apply'
-if ($switched.status -ne 'UPGRADED_BACKUP_RETAINED' -or
-    $switched.version -ne '0.3.0-dev.2' -or
-    !(Test-Path -LiteralPath ($root + '.iwxa-previous'))) {
-    throw 'S3_E2E_UPGRADE_FAILED'
+# Exercise the actual Setup GUI Update button, not only its CLI equivalent.
+$setupUi = Start-Process -FilePath $newSetup -PassThru
+try {
+    $clicked = $false
+    for ($i=0; $i -lt 75; $i++) {
+        Start-Sleep -Milliseconds 400
+        $setupUi.Refresh()
+        if ($setupUi.HasExited) { throw 'S3_SETUP_GUI_EARLY_EXIT' }
+        if ($setupUi.MainWindowHandle -eq [IntPtr]::Zero) { continue }
+        $window = [System.Windows.Automation.AutomationElement]::FromHandle($setupUi.MainWindowHandle)
+        if ($null -eq $window) { continue }
+        $condition = [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::NameProperty,'Обновить')
+        $buttons = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)
+        foreach ($button in $buttons) {
+            try {
+                if ($button.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+                    $button.Current.IsEnabled) {
+                    $pattern = $button.GetCurrentPattern(
+                        [System.Windows.Automation.InvokePattern]::Pattern)
+                    $pattern.Invoke()
+                    $clicked = $true
+                    break
+                }
+            } catch {}
+        }
+        if ($clicked) { break }
+    }
+    if (!$clicked) { throw 'S3_SETUP_GUI_UPDATE_BUTTON_MISSING' }
+    $switched = $false
+    for ($i=0; $i -lt 90; $i++) {
+        Start-Sleep -Milliseconds 350
+        $installed = Get-ItemProperty -Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center' -ErrorAction SilentlyContinue
+        if ($installed.Version -eq '0.3.0-dev.2' -and
+            (Test-Path -LiteralPath ($root + '.iwxa-previous'))) {
+            $switched = $true
+            break
+        }
+    }
+    if (!$switched) { throw 'S3_SETUP_GUI_UPDATE_NOT_ACTIVATED' }
+    Write-Host 'IWXA_SETUP_S3_REAL_GUI_UPDATE_BUTTON_PASS'
+} finally {
+    if (!$setupUi.HasExited) {
+        $null = $setupUi.CloseMainWindow()
+        if (!$setupUi.WaitForExit(10000)) {
+            Stop-Process -Id $setupUi.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $setupUi.Dispose()
 }
 if ((Snapshot-Data) -ne $before) { throw 'S3_E2E_DATA_CHANGED_ON_UPGRADE' }
 Write-Host 'IWXA_SETUP_S3_TWO_ORGANIZATIONS_NATIVE_READBACK_PASS'
