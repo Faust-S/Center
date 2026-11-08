@@ -116,9 +116,22 @@ jobs:
         run: |
           $installer = Get-Item -LiteralPath 'artifacts/iwxa-setup-core-center-0.3-preview.exe' -ErrorAction Stop
           $sha = Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256
+          $identityPath=Join-Path 'artifacts' 'setup-core-dist-v2-identity.json'
+          $native=Start-Process -FilePath $installer.FullName -ArgumentList ('--inspect-file "{0}"' -f (Join-Path $env:GITHUB_WORKSPACE $identityPath)) -PassThru
+          try {
+            if(!$native.WaitForExit(60000)){Stop-Process -Id $native.Id -Force;throw 'SETUP_DIST_NATIVE_INSPECT_TIMEOUT'}
+            if($native.ExitCode -ne 0){throw 'SETUP_DIST_NATIVE_REJECTED'}
+          } finally {$native.Dispose()}
+          $identity=Get-Content -LiteralPath $identityPath -Raw | ConvertFrom-Json
+          if($identity.status -ne 'VERIFIED' -or
+             $identity.packageFormat -ne 'PE_RESOURCE_V2' -or
+             $identity.product -ne 'iwxa.admin-center' -or
+             $identity.sourceCommit -ne $env:GITHUB_SHA){
+            throw 'SETUP_DIST_UNSIGNED_V1_OR_PROVENANCE_INVALID'
+          }
           New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
           "$($installer.Name) SHA256=$($sha.Hash) SIZE=$($installer.Length)" | Set-Content 'artifacts/installer-sha256.txt'
-          Write-Host "IWXA_SETUP_CORE_BUNDLE_READY: $($installer.Name), size=$($installer.Length), SHA256=$($sha.Hash)"
+          Write-Host "IWXA_SETUP_CORE_V2_DISTRIBUTION_VERIFIED: $($installer.Name), size=$($installer.Length), SHA256=$($sha.Hash)"
       - name: Qualify installed Windows GUI Atlas and manager draft persistence
         shell: pwsh
         timeout-minutes: 5
@@ -254,7 +267,7 @@ jobs:
           ./installer/windows/build-stub.ps1 -Output $stub
           $sourceHead=[string]$env:GITHUB_SHA
           $sourceTree=[string](& git rev-parse 'HEAD^{tree}').Trim()
-          $args=@('-m','installer.build_bundle','build',
+          $args=@('-m','installer.build_bundle','build-resource',
             '--product',$profile,'--payload',$payload,
             '--stub',$stub,'--output',$bundle,
             '--source-commit',$sourceHead,'--source-tree',$sourceTree)
@@ -262,7 +275,18 @@ jobs:
           if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $bundle)){
             throw 'LEGACY_GUI_NEW_BUNDLE_FAILED'
           }
-          Write-Host "LEGACY_GUI_UPDATED_SETUP_BUILD_PASS_SHA256=$((Get-FileHash $bundle -Algorithm SHA256).Hash)"
+          $receipt=Join-Path $artifact 'legacy-v2-package-identity.json'
+          $verify=Start-Process -FilePath $bundle -ArgumentList ('--inspect-file "{0}"' -f $receipt) -PassThru
+          try {
+            if(!$verify.WaitForExit(60000)){Stop-Process -Id $verify.Id -Force;throw 'LEGACY_V2_INSPECT_TIMEOUT'}
+            if($verify.ExitCode -ne 0){throw 'LEGACY_V2_INSPECT_FAILED'}
+          } finally {$verify.Dispose()}
+          $identity=Get-Content -LiteralPath $receipt -Raw|ConvertFrom-Json
+          if($identity.packageFormat -ne 'PE_RESOURCE_V2' -or
+             $identity.product -ne 'iwxa.admin-center'){
+            throw 'LEGACY_PREVIEW_NOT_V2'
+          }
+          Write-Host "LEGACY_GUI_UPDATED_SETUP_V2_BUILD_PASS_SHA256=$((Get-FileHash $bundle -Algorithm SHA256).Hash)"
       - name: Install exact NSIS 0.2 independently of legacy GUI driver
         shell: pwsh
         timeout-minutes: 4

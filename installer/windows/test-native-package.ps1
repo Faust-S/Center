@@ -31,14 +31,16 @@ try {
     }
 
     $arguments = @(
-        '-m', 'installer.build_bundle', 'build',
+        '-m', 'installer.build_bundle', 'build-resource',
         '--product', $profile, '--payload', $payload, '--stub', $stub,
         '--output', $bundle, '--source-commit', $sourceHead, '--source-tree', $sourceTree
     )
     $details = & python @arguments
     if ($LASTEXITCODE -ne 0) { throw 'SETUP_BUNDLE_BUILD_FAILED' }
     $manifest = $details | ConvertFrom-Json
-    if ($manifest.status -ne 'VERIFIED' -or $manifest.product -ne 'iwxa.admin-center') {
+    if ($manifest.status -ne 'VERIFIED' -or
+        $manifest.product -ne 'iwxa.admin-center' -or
+        $manifest.format -ne 'PE_RESOURCE_V2') {
         throw 'SETUP_BUNDLE_MANIFEST_INVALID'
     }
 
@@ -73,15 +75,36 @@ try {
     if ($native.status -ne 'VERIFIED' -or $native.product -ne $manifest.product -or
         $native.version -ne '0.3.0-dev.1' -or $native.sourceCommit -ne $sourceHead -or
         $native.packageSha256 -ne $manifest.payload_sha256 -or
-        $native.packageFormat -ne 'ZIP_OVERLAY_V1' -or
+        $native.packageFormat -ne 'PE_RESOURCE_V2' -or
         $native.files -ne $manifest.file_count) {
         throw 'SETUP_NATIVE_PYTHON_DISAGREEMENT'
     }
     Write-Host "IWXA_SETUP_NATIVE_PACKAGE_PASS files=$($native.files) version=$($native.version)"
 
-    # Resource-based format V2 is a separate experimental delivery backend.
-    # It uses the SAME verified ZIP/manifest and native extraction engine.
-    # No test certificate here; signer verification has its own isolated CI.
+    # The actual Center 0.3 installation candidate above is now V2.
+    # Retain an explicitly named V1 overlay as an independent
+    # backward-compatibility / tampering test only.
+    $overlayFile = Join-Path $artifact 'setup-core-legacy-overlay-v1-compat.exe'
+    $overlayArgs = @('-m', 'installer.build_bundle', 'build',
+        '--product', $profile, '--payload', $payload, '--stub', $stub,
+        '--output', $overlayFile, '--source-commit', $sourceHead,
+        '--source-tree', $sourceTree)
+    $overlayBuild = & python @overlayArgs
+    if ($LASTEXITCODE -ne 0) { throw 'SETUP_OVERLAY_V1_COMPAT_BUILD_FAILED' }
+    $overlayManifest = ($overlayBuild | Out-String) | ConvertFrom-Json
+    $overlayNative = Invoke-NativeInspection $overlayFile (
+        Join-Path $artifact 'setup-core-overlay-v1-compat-inspect.json') 0
+    if ($overlayNative.packageFormat -ne 'ZIP_OVERLAY_V1' -or
+        $overlayNative.status -ne 'VERIFIED' -or
+        $overlayNative.packageSha256 -ne $native.packageSha256 -or
+        $overlayManifest.payload_sha256 -ne $manifest.payload_sha256) {
+        throw 'SETUP_OVERLAY_V1_BACKWARD_COMPAT_INVALID'
+    }
+    Write-Host 'IWXA_SETUP_OVERLAY_V1_READ_COMPAT_PASS'
+
+    # Separate V2 packaging is retained for authenticated extraction and
+    # test-certificate signing evidence; it is not the primary distribution.
+    # The primary distribution itself is now a PE-resource V2 EXE.
     $resourceFile=Join-Path $artifact 'iwxa-setup-core-resource-v2.exe'
     $resourceArgs=@('-m','installer.build_bundle','build-resource',
         '--product',$profile,'--payload',$payload,'--stub',$stub,
@@ -230,13 +253,16 @@ try {
     $upgradeProduct = Get-Content -LiteralPath $profile -Raw | ConvertFrom-Json
     $upgradeProduct.version = '0.3.0-dev.2'
     $upgradeProduct | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $upgradeProfile -Encoding UTF8
-    $nextArgs = @('-m', 'installer.build_bundle', 'build', '--product', $upgradeProfile,
+    $nextArgs = @('-m', 'installer.build_bundle', 'build-resource', '--product', $upgradeProfile,
         '--payload', $payload, '--stub', $stub, '--output', $upgradeCandidate,
         '--source-commit', $sourceHead, '--source-tree', $sourceTree)
     $null = & python @nextArgs
     if ($LASTEXITCODE -ne 0) { throw 'SETUP_S3_NEW_VERSION_BUILD_FAILED' }
     $nextIdentity = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-next-identity.json') 0
-    if ($nextIdentity.version -ne '0.3.0-dev.2') { throw 'SETUP_S3_NEW_VERSION_INVALID' }
+    if ($nextIdentity.version -ne '0.3.0-dev.2' -or
+        $nextIdentity.packageFormat -ne 'PE_RESOURCE_V2') {
+        throw 'SETUP_S3_NEW_VERSION_INVALID'
+    }
     $installedReport = Join-Path $artifact 'setup-core-installed.json'
     $duplicateReport = Join-Path $artifact 'setup-core-duplicate.json'
     $removedReport = Join-Path $artifact 'setup-core-uninstalled.json'
@@ -545,8 +571,9 @@ try {
         Remove-Item -LiteralPath $legacy -Force -Recurse
     }
 
-    # Mutate the authenticated ZIP overlay without touching the PE executable.
-    $bytes = [IO.File]::ReadAllBytes($bundle)
+    # Mutate the deprecated V1 overlay; it remains read-only compatible,
+    # but never becomes the user-facing signed distribution.
+    $bytes = [IO.File]::ReadAllBytes($overlayFile)
     $start = [int][BitConverter]::ToUInt64($bytes, ($bytes.Length - 136 + 16))
     if ($start -le 1024 -or $start + 40 -ge $bytes.Length - 136) {
         throw 'SETUP_TAMPER_TEST_LAYOUT_INVALID'
