@@ -106,26 +106,13 @@ function Save-Json-Through-Publisher-Dialog([string]$buttonName,[string]$destina
   }
   if(!$dialog){throw "PUBLISHER_NATIVE_SAVE_DIALOG_MISSING button=$buttonName"}
   Write-Host "PUBLISHER_NATIVE_SAVE_DIALOG_PASS button=$buttonName"
-  $input=$dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.PropertyCondition]::new(
-      [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'1001'))
-  try {
-    if($input){
-      $input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($destination)
-    }else{
-      $dialog.SetFocus()
-      [System.Windows.Forms.SendKeys]::SendWait('%n')
-      Start-Sleep -Milliseconds 150
-      [System.Windows.Forms.SendKeys]::SendWait('^a')
-      [System.Windows.Forms.SendKeys]::SendWait($destination)
-    }
-  } catch {
-    $dialog.SetFocus()
-    [System.Windows.Forms.SendKeys]::SendWait('%n')
-    Start-Sleep -Milliseconds 150
-    [System.Windows.Forms.SendKeys]::SendWait('^a')
-    [System.Windows.Forms.SendKeys]::SendWait($destination)
-  }
+  # The native Save As dialog is already foreground and its filename input
+  # is selected. Window.SetFocus() fails for this COM-owned dialog on CI.
+  # Use the filename mnemonic, not focus on the dialog/root AutomationElement.
+  [System.Windows.Forms.SendKeys]::SendWait('%n')
+  Start-Sleep -Milliseconds 150
+  [System.Windows.Forms.SendKeys]::SendWait('^a')
+  [System.Windows.Forms.SendKeys]::SendWait($destination)
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   for($i=0;$i -lt 60;$i++){
     if(Test-Path -LiteralPath $destination -PathType Leaf){return}
