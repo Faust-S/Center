@@ -477,6 +477,35 @@ try {
     }
     finally {
         if (Test-Path -LiteralPath $installedReport -PathType Leaf) {
+            # A late read-only uninstaller used to leave a half-removed app:
+            # the entrypoint could be deleted before the uninstaller refused
+            # deletion. Fail the whole removal before modifying ANY owned file.
+            $installedUninstaller = Join-Path $installed.installRoot 'IWXA.SetupCore.Uninstall.exe'
+            $liveApp = Join-Path $installed.installRoot 'iwxa-admin-center.exe'
+            $liveReceipt = Join-Path $installed.installRoot '.iwxa-setup-ownership.json'
+            $appBefore = (Get-FileHash -LiteralPath $liveApp -Algorithm SHA256).Hash
+            $uninstallBefore = (Get-FileHash -LiteralPath $installedUninstaller -Algorithm SHA256).Hash
+            $beforeAttr = [IO.File]::GetAttributes($installedUninstaller)
+            try {
+                [IO.File]::SetAttributes($installedUninstaller,
+                    ($beforeAttr -bor [IO.FileAttributes]::ReadOnly))
+                $denied = Invoke-NativeInspection $bundle (
+                    Join-Path $artifact 'setup-core-readonly-uninstall-denied.json') 2 '--uninstall-file'
+                if ($denied.status -ne 'ERROR' -or
+                    $denied.reason -ne 'SETUP_UNINSTALL_READONLY_FILE' -or
+                    !(Test-Path -LiteralPath $liveApp -PathType Leaf) -or
+                    !(Test-Path -LiteralPath $liveReceipt -PathType Leaf) -or
+                    (Get-FileHash -LiteralPath $liveApp -Algorithm SHA256).Hash -ne $appBefore -or
+                    (Get-FileHash -LiteralPath $installedUninstaller -Algorithm SHA256).Hash -ne $uninstallBefore -or
+                    !(Test-Path -LiteralPath $ownerKey)) {
+                    throw 'SETUP_UNINSTALL_READONLY_CHANGED_INSTALLED_STATE'
+                }
+            } finally {
+                if (Test-Path -LiteralPath $installedUninstaller -PathType Leaf) {
+                    [IO.File]::SetAttributes($installedUninstaller, $beforeAttr)
+                }
+            }
+            Write-Host 'IWXA_SETUP_UNINSTALL_PRECHECK_READONLY_NO_PARTIAL_REMOVAL_PASS'
             $removed = Invoke-NativeInspection $bundle $removedReport 0 '--uninstall-file'
             if ($removed.status -ne 'UNINSTALLED_USER_DATA_PRESERVED') {
                 throw 'SETUP_NATIVE_UNINSTALL_INVALID'

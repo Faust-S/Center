@@ -310,6 +310,10 @@ namespace IwxaSetup
                     throw new InvalidDataException("SETUP_RECEIPT_ROOT_ESCAPE");
                 files.Add(file);
             }
+            // Fail BEFORE deleting anything when an owned file or an
+            // intermediate directory is read-only or redirected. Otherwise a
+            // late filesystem refusal could leave an incomplete application.
+            RequireUninstallTargetsReady(root, files);
             // Only delete known installation files. Unexpected user files in
             // the install directory, user data and external programs survive.
             foreach (string file in files)
@@ -349,6 +353,40 @@ namespace IwxaSetup
                 Status = "UNINSTALLED_USER_DATA_PRESERVED",
                 Product = info.Id, Version = info.Version, Root = root
             };
+        }
+
+        private static void RequireUninstallTargetsReady(
+            string root, IList<string> files)
+        {
+            if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("SETUP_UNINSTALL_ROOT_LINK_FORBIDDEN");
+            foreach (string file in files)
+            {
+                string parent = Path.GetDirectoryName(file);
+                while (!String.IsNullOrEmpty(parent) && !SamePath(parent, root))
+                {
+                    if (Directory.Exists(parent))
+                    {
+                        if ((File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
+                            throw new InvalidDataException(
+                                "SETUP_UNINSTALL_PARENT_LINK_FORBIDDEN");
+                    }
+                    else if (File.Exists(parent))
+                        throw new InvalidDataException(
+                            "SETUP_UNINSTALL_PARENT_NOT_DIRECTORY");
+                    parent = Path.GetDirectoryName(parent);
+                }
+                if (Directory.Exists(file))
+                    throw new InvalidDataException(
+                        "SETUP_UNINSTALL_OWNED_FILE_REPLACED_BY_DIRECTORY");
+                if (!File.Exists(file)) continue;
+                FileAttributes flags = File.GetAttributes(file);
+                if ((flags & FileAttributes.ReparsePoint) != 0)
+                    throw new InvalidDataException("SETUP_UNINSTALL_LINK_FORBIDDEN");
+                if ((flags & FileAttributes.ReadOnly) != 0)
+                    throw new InvalidOperationException(
+                        "SETUP_UNINSTALL_READONLY_FILE");
+            }
         }
 
         internal static void LaunchUninstallerFromInstalledCopy(string executable)
