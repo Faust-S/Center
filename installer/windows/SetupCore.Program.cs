@@ -58,6 +58,28 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            if (args.Length == 2 && args[0] == "--upgrade-plan-file")
+            {
+                try
+                {
+                    UpgradeAssessment plan = SetupInstallation.PlanUpgrade(
+                        Application.ExecutablePath);
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", plan.Status}, {"product", plan.Product},
+                        {"candidateVersion", plan.CandidateVersion},
+                        {"installedVersion", plan.InstalledVersion},
+                        {"installRoot", plan.InstallRoot}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             if (args.Length == 2 && args[0] == "--stage-test-file")
             {
                 try

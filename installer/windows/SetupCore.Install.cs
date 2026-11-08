@@ -18,7 +18,7 @@ namespace IwxaSetup
         internal string Root;
     }
 
-    internal static class SetupInstallation
+    internal static partial class SetupInstallation
     {
         private const string ReceiptFile = ".iwxa-setup-ownership.json";
         private const string UninstallExe = "IWXA.SetupCore.Uninstall.exe";

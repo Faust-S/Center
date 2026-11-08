@@ -85,7 +85,7 @@ namespace IwxaSetup
             return false;
         }
 
-        private static string DetectWebView2Version()
+        internal static string DetectWebView2Version()
         {
             string branch = @"Software\Microsoft\EdgeUpdate\Clients\" + WebView2Guid;
             // Microsoft publishes the machine pv in the 32-bit registry view,

@@ -77,6 +77,13 @@ try {
             'ARCHITECTURE_UNSUPPORTED'
         )) { throw 'SETUP_NATIVE_PREFLIGHT_INVALID' }
     Write-Host "IWXA_SETUP_NATIVE_PREFLIGHT_PASS status=$($preflight.status)"
+    $upgradePlanFile = Join-Path $artifact 'setup-core-upgrade-plan.json'
+    $freshPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
+    if ($freshPlan.status -ne 'NO_OWNED_INSTALLATION' -or
+        $freshPlan.product -ne $manifest.product) {
+        throw 'SETUP_S3_FRESH_PLAN_INVALID'
+    }
+    Write-Host 'IWXA_SETUP_S3_FRESH_PLAN_PASS'
     $stage = Invoke-NativeInspection $bundle $stagingReport 0 '--stage-test-file'
     if ($stage.status -ne 'STAGED_VERIFIED' -or
         $stage.product -ne $manifest.product -or
@@ -113,6 +120,24 @@ try {
             throw 'SETUP_NATIVE_START_MENU_SHORTCUT_MISSING'
         }
         Write-Host "IWXA_SETUP_NATIVE_FIRST_INSTALL_PASS root=$($installed.installRoot)"
+        $ownedPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
+        if ($ownedPlan.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED' -or
+            $ownedPlan.installedVersion -ne '0.3.0-dev.1' -or
+            $ownedPlan.installRoot -ne $installed.installRoot) {
+            throw 'SETUP_S3_OWNED_PLAN_INVALID'
+        }
+        $ownerKey = 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center'
+        $originalHash = [string]$registered.PackageSha256
+        Set-ItemProperty -Path $ownerKey -Name PackageSha256 -Value ('0' * 64)
+        try {
+            $refusedPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
+            if ($refusedPlan.status -ne 'OWNERSHIP_MISMATCH') {
+                throw 'SETUP_S3_MISMATCHED_OWNER_ACCEPTED'
+            }
+        } finally {
+            Set-ItemProperty -Path $ownerKey -Name PackageSha256 -Value $originalHash
+        }
+        Write-Host 'IWXA_SETUP_S3_OWNERSHIP_PLAN_PASS'
 
         $refused = Invoke-NativeInspection $bundle $duplicateReport 2 '--install-file'
         if ($refused.status -ne 'ERROR' -or
@@ -158,6 +183,11 @@ try {
             throw 'SETUP_NATIVE_LEGACY_OVERWRITE_NOT_BLOCKED'
         }
         Write-Host 'IWXA_SETUP_NATIVE_LEGACY_INSTALLATION_HOLD_PASS'
+        $legacyPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
+        if ($legacyPlan.status -ne 'LEGACY_MIGRATION_HOLD') {
+            throw 'SETUP_S3_LEGACY_MIGRATION_NOT_BLOCKED'
+        }
+        Write-Host 'IWXA_SETUP_S3_LEGACY_PLAN_PASS'
     } finally {
         Remove-Item -LiteralPath $legacy -Force -Recurse
     }
