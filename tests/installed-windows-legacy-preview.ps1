@@ -20,6 +20,34 @@ public static class LegacySetupMouse {
 '@
 
 $artifact=Join-Path $env:GITHUB_WORKSPACE 'artifacts'
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
+function Capture-SetupPreview([System.Diagnostics.Process]$process,[string]$filename){
+  $process.Refresh()
+  if($process.MainWindowHandle -eq [IntPtr]::Zero){
+    throw 'LEGACY_SETUP_VISUAL_WINDOW_MISSING'
+  }
+  $window=[System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+  $bounds=$window.Current.BoundingRectangle
+  $screen=[System.Windows.Forms.Screen]::FromHandle($process.MainWindowHandle).Bounds
+  $x=[int][Math]::Max($screen.Left,$bounds.Left)
+  $y=[int][Math]::Max($screen.Top,$bounds.Top)
+  $width=[int][Math]::Min($screen.Right,$bounds.Right)-$x
+  $height=[int][Math]::Min($screen.Bottom,$bounds.Bottom)-$y
+  if($width -lt 400 -or $height -lt 300){
+    throw 'LEGACY_SETUP_VISUAL_BOUNDS_INVALID'
+  }
+  $image=[System.Drawing.Bitmap]::new($width,$height)
+  $graphics=[System.Drawing.Graphics]::FromImage($image)
+  try{
+    $graphics.CopyFromScreen([System.Drawing.Point]::new($x,$y),
+      [System.Drawing.Point]::Empty,$image.Size)
+    $image.Save((Join-Path $artifact $filename),
+      [System.Drawing.Imaging.ImageFormat]::Png)
+  }finally{$graphics.Dispose();$image.Dispose()}
+  Write-Host "LEGACY_SETUP_REAL_VISUAL_CAPTURE_PASS $filename"
+}
+
 $bundle=Join-Path $artifact 'iwxa-setup-core-center-0.3-preview.exe'
 $oldRoot=Join-Path $env:LOCALAPPDATA 'IWXA Admin Center'
 $newRoot=Join-Path $env:LOCALAPPDATA 'Programs/IWXA Admin Center'
@@ -90,6 +118,9 @@ function Click-SetupGuiAction([string[]]$labels,[bool]$expectNative) {
              !$node.Current.IsEnabled -or $node.Current.IsOffscreen){continue}
           $rect=$node.Current.BoundingRectangle
           if($rect.Width -lt 24 -or $rect.Height -lt 18){continue}
+          Capture-SetupPreview $setup (
+            if($expectNative){'setup-core-visual-legacy-before-preview.png'}
+            else{'setup-core-visual-legacy-before-cancel.png'})
           try {
             $invoke=$node.GetCurrentPattern(
               [System.Windows.Automation.InvokePattern]::Pattern)

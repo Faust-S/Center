@@ -216,6 +216,14 @@ namespace IwxaSetup
             else if (alternate == SetupOperation.InstallWebView2Offline)
                 secondary.Text = T("Из файла…", "From file…");
             secondary.AccessibleName = secondary.Text;
+            secondary.AccessibleDescription =
+                alternate == SetupOperation.InstallWebView2Offline ?
+                    T("Выбрать официальный автономный установщик WebView2 на диске",
+                      "Choose Microsoft's offline WebView2 installer file") :
+                alternate == SetupOperation.Rollback ?
+                    T("Восстановить прежнюю установленную версию",
+                      "Restore the previously installed version") : "";
+            secondary.TabStop = alternate != SetupOperation.None;
         }
 
         private void SetState(
@@ -304,8 +312,8 @@ namespace IwxaSetup
                 operation == SetupOperation.CancelLegacyPreview ?
                 T("Отмена пробного перехода…", "Cancelling preview installation…") :
                 operation == SetupOperation.StageLegacyPreview ?
-                T("Подготовка 0.3 отдельно от 0.2…",
-                  "Preparing 0.3 alongside 0.2…") :
+                T("Подготовка пробной версии отдельно от прежней…",
+                  "Preparing a preview beside the existing version…") :
                 operation == SetupOperation.InstallWebView2 ||
                 operation == SetupOperation.InstallWebView2Offline ?
                 T("Установка Microsoft WebView2…",
@@ -356,11 +364,11 @@ namespace IwxaSetup
                 else if (operation == SetupOperation.Confirm)
                     status.Text = T("Обновление завершено", "Upgrade finalized");
                 else if (operation == SetupOperation.StageLegacyPreview)
-                    status.Text = T("0.3 готова к проверке — старая 0.2 сохранена",
-                        "0.3 ready for verification — original 0.2 retained");
+                    status.Text = T("Пробная версия готова — прежняя установка сохранена",
+                        "Preview ready — existing installation retained");
                 else if (operation == SetupOperation.CancelLegacyPreview)
-                    status.Text = T("Переход отменён — NSIS 0.2 сохранён",
-                        "Preview cancelled — NSIS 0.2 retained");
+                    status.Text = T("Пробный переход отменён — прежняя установка сохранена",
+                        "Preview cancelled — existing installation retained");
                 else if (operation == SetupOperation.InstallWebView2 ||
                          operation == SetupOperation.InstallWebView2Offline)
                     status.Text = T("WebView2 готов — можно установить программу",
@@ -491,9 +499,9 @@ namespace IwxaSetup
                         info.NeedsWebView2 &&
                         String.IsNullOrWhiteSpace(SetupReadiness.DetectWebView2Version()))
                     {
-                        SetState(T("Для 0.3 необходим WebView2", "0.3 needs WebView2"),
-                            T("Старая 0.2 сохранена. Установите Runtime через интернет или из автономного файла Microsoft.",
-                              "Original 0.2 remains installed. Install the Runtime online or from an offline Microsoft installer."),
+                        SetState(T("Для новой версии необходим WebView2", "New version requires WebView2"),
+                            T("Прежняя программа сохранена. Установите Runtime через интернет или из автономного файла Microsoft.",
+                              "The existing application is retained. Install the Runtime online or from an offline Microsoft installer."),
                             versionLine, true);
                         ConfigureActions(SetupOperation.InstallWebView2,
                             SetupOperation.InstallWebView2Offline,
@@ -507,8 +515,8 @@ namespace IwxaSetup
                     {
                         SetState(T("Найдена прежняя версия " + old.Version,
                                    "Installed legacy version " + old.Version),
-                            T("Установить 0.3 отдельно для проверки. Старый NSIS, ярлыки и данные не удаляются.",
-                              "Install 0.3 separately to evaluate it. Existing NSIS, shortcuts and data remain unchanged."),
+                            T("Установить " + info.Version + " отдельно для проверки. Прежняя программа, ярлыки и данные не удаляются.",
+                              "Install " + info.Version + " separately for review. Existing program, shortcuts and data remain unchanged."),
                             versionLine, false);
                         ConfigureActions(SetupOperation.StageLegacyPreview,
                             SetupOperation.None, T("Установить для проверки", "Install to preview"));
@@ -521,14 +529,16 @@ namespace IwxaSetup
                 }
                 else if (plan.Status == "LEGACY_MIGRATION_PENDING_GUI_READBACK")
                 {
-                    SetState(T("0.3 установлена для проверки", "0.3 preview is installed"),
-                        T("Запустите 0.3, проверьте свои данные. Старый NSIS 0.2 сохранён. Можно отменить переход.",
-                          "Launch 0.3 and inspect your data. Original NSIS 0.2 is retained. You can cancel the preview."),
+                    SetState(T("Пробная версия " + info.Version + " установлена",
+                            "Preview version " + info.Version + " is installed"),
+                        T("Откройте пробную версию и проверьте данные. Прежняя программа сохранена; переход можно отменить.",
+                          "Open the preview and verify your data. The existing application is retained; you may cancel this preview."),
                         versionLine, true);
                     ConfigureActions(SetupOperation.CancelLegacyPreview,
                         SetupOperation.None, T("Отменить переход", "Cancel preview"));
                     openApplication.Tag = "APPLICATION";
-                    openApplication.Text = T("Открыть пробную 0.3", "Open preview 0.3");
+                    openApplication.Text = T("Открыть пробную " + info.Version,
+                        "Open preview " + info.Version);
                     openApplication.Visible = true;
                 }
                 else if (plan.Status == "LEGACY_MIGRATION_REVIEW_REQUIRED")

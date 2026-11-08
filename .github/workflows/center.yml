@@ -173,6 +173,7 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
             artifacts/iwxa-setup-core-*.exe
             artifacts/setup-core-*.json
+            artifacts/setup-core-visual-*.png
             artifacts/installer-sha256.txt
             artifacts/installed-gui-result.json
             artifacts/installed-gui-failure.png
@@ -285,6 +286,7 @@ jobs:
           path: |
             artifacts/legacy-nsis-preview-*.json
             artifacts/legacy-real-organizations-result.json
+            artifacts/setup-core-visual-*.png
             artifacts/installed-gui-result.json
             artifacts/installed-gui-failure.png
 

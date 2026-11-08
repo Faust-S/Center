@@ -53,6 +53,39 @@ class BundleTests(unittest.TestCase):
         return create_bundle(product_json=self.profile, payload_dir=self.payload,
             stub=self.stub, output=self.out, source_commit="a" * 40, source_tree="b" * 40)
 
+
+    def test_native_ui_is_product_neutral_and_versions_are_dynamic(self):
+        gui = (Path(__file__).resolve().parents[1] / "windows" / "SetupCore.Form.cs").read_text(encoding="utf-8")
+        for forbidden in ("IWXA Admin Center", "IWXA Atlas", "IWXA Publisher",
+                          "NSIS 0.2", "0.2", "0.3"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, gui)
+        self.assertIn("info.Name", gui)
+        self.assertIn("info.Version", gui)
+        self.assertIn("old.Version", gui)
+
+    def test_two_other_product_profiles_share_same_package_contract(self):
+        for suffix in ("alpha", "beta"):
+            with self.subTest(product=suffix):
+                profile = copy.deepcopy(PRODUCT)
+                profile["id"] = "iwxa.fixture-" + suffix
+                profile["display_name"] = "IWXA Fixture " + suffix.title()
+                profile["install_dir"] = "IWXA Fixture " + suffix.title()
+                profile["entrypoint"] = "iwxa-fixture-" + suffix + ".exe"
+                profile["data_namespace"] = "ru.iwxa.fixture-" + suffix
+                profile["version"] = "1.4.0"
+                profile["requirements"] = [] if suffix == "alpha" else ["webview2-evergreen"]
+                (self.payload / "iwxa-admin-center.exe").rename(
+                    self.payload / profile["entrypoint"])
+                self.profile.write_text(json.dumps(profile), encoding="utf-8")
+                packed = self.bundle()
+                inspected = inspect_bundle(self.out, verify_files=True)
+                self.assertEqual(packed["product"], profile["id"])
+                self.assertEqual(inspected["product"], profile["id"])
+                self.assertEqual(inspected["version"], "1.4.0")
+                (self.payload / profile["entrypoint"]).rename(
+                    self.payload / "iwxa-admin-center.exe")
+
     def test_stable_reproducible_single_exe_and_identity(self):
         result = self.bundle()
         first = self.out.read_bytes()

@@ -422,6 +422,34 @@ try {
         }
         if (!$found) { throw 'SETUP_GUI_PRODUCT_NAME_NOT_VISIBLE' }
         Write-Host "IWXA_SETUP_NATIVE_GUI_PASS title=$($gui.MainWindowTitle)"
+
+        Add-Type -AssemblyName System.Drawing
+        Add-Type -AssemblyName UIAutomationClient
+        $window = [System.Windows.Automation.AutomationElement]::FromHandle($gui.MainWindowHandle)
+        $windowBounds = $window.Current.BoundingRectangle
+        $screenBounds = [System.Windows.Forms.Screen]::FromHandle($gui.MainWindowHandle).Bounds
+        $left = [int][Math]::Max($screenBounds.Left, $windowBounds.Left)
+        $top = [int][Math]::Max($screenBounds.Top, $windowBounds.Top)
+        $right = [int][Math]::Min($screenBounds.Right, $windowBounds.Right)
+        $bottom = [int][Math]::Min($screenBounds.Bottom, $windowBounds.Bottom)
+        if ($right - $left -lt 400 -or $bottom - $top -lt 300) {
+            throw 'SETUP_VISUAL_WINDOW_BOUNDS_INVALID'
+        }
+        $bitmap = [System.Drawing.Bitmap]::new($right - $left, $bottom - $top)
+        $drawing = [System.Drawing.Graphics]::FromImage($bitmap)
+        try {
+            $drawing.CopyFromScreen(
+                [System.Drawing.Point]::new($left, $top),
+                [System.Drawing.Point]::Empty,
+                $bitmap.Size)
+            $imagePath = Join-Path $artifact 'setup-core-visual-first-install.png'
+            $bitmap.Save($imagePath, [System.Drawing.Imaging.ImageFormat]::Png)
+            Write-Host "IWXA_SETUP_NATIVE_GUI_VISUAL_CAPTURED $imagePath"
+        } finally {
+            $drawing.Dispose()
+            $bitmap.Dispose()
+        }
+
     } finally {
         if (!$gui.HasExited) {
             $null = $gui.CloseMainWindow()
