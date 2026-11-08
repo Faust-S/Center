@@ -62,6 +62,13 @@ namespace IwxaSetup
                     + plan.Status);
 
             BundleInfo old = ReadOwnedRelease(root, root, candidate.Id);
+            // Changing the entrypoint requires a separately witnessed handoff.
+            // The regular upgrade/repair path deliberately never rewrites
+            // Start Menu shortcuts owned or customized by the user.
+            if (!String.Equals(old.Entrypoint, candidate.Entrypoint,
+                StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    "SETUP_ENTRYPOINT_CHANGE_REQUIRES_EXPLICIT_MIGRATION");
             RequireRegistryOwnership(candidate.Id, root, old);
             RequireOnlyOwnedFiles(root);
             AssertNotRunning(old, root);
@@ -85,7 +92,9 @@ namespace IwxaSetup
                 Directory.Move(staged, root);
                 movedNew = true;
                 Register(candidate, root);
-                CreateShortcut(candidate, root);
+                // Upgrade and same-version Repair preserve the existing
+                // Start Menu link exactly. The owned installation root and
+                // entrypoint are stable; rewriting it destroys user edits.
                 return new InstallOutcome {
                     Status = repairMode ? "REPAIRED_BACKUP_RETAINED" :
                         "UPGRADED_BACKUP_RETAINED",
@@ -105,7 +114,8 @@ namespace IwxaSetup
                         if (!Directory.Exists(root))
                             throw new InvalidOperationException("SETUP_UPGRADE_RECOVERY_REQUIRED");
                         Register(old, root);
-                        CreateShortcut(old, root);
+                        // Keep the user's existing shortcut unchanged while
+                        // restoring the previous owned binary and registry.
                     }
                     catch (Exception restoration)
                     {
@@ -237,7 +247,8 @@ namespace IwxaSetup
                 Directory.Move(previous, root);
                 restoredOld = true;
                 Register(old, root);
-                CreateShortcut(old, root);
+                // The same installed path is restored; preserve any
+                // customized or intentionally deleted Start Menu shortcut.
             }
             catch
             {

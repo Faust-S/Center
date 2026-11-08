@@ -368,6 +368,12 @@ try {
             throw 'SETUP_PRIMARY_V2_UNINSTALLER_IDENTITY_MISMATCH'
         }
         Write-Host 'IWXA_SETUP_PRIMARY_V2_INSTALLED_UNINSTALLER_IDENTITY_PASS'
+        # A user's customized shortcut must not be recreated on repair,
+        # upgrade or rollback even when the application target is unchanged.
+        $customizedLink = $shellObject.CreateShortcut($startMenuLink)
+        $customizedLink.Description = 'IWXA_OWNER_CUSTOMIZED_START_MENU_LINK'
+        $customizedLink.Save()
+        $customizedLinkHash = (Get-FileHash -LiteralPath $startMenuLink -Algorithm SHA256).Hash
         $ownedPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
         if ($ownedPlan.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED' -or
             $ownedPlan.installedVersion -ne '0.3.0-dev.1' -or
@@ -436,6 +442,10 @@ try {
         }
         if ((Get-Content -LiteralPath $userData -Raw) -ne 'unchanged-after-first-install') {
             throw 'SETUP_NATIVE_REPAIR_USER_DATA_CHANGED'
+        }
+        if ((Get-FileHash -LiteralPath $startMenuLink -Algorithm SHA256).Hash -ne
+            $customizedLinkHash) {
+            throw 'SETUP_REPAIR_OVERWROTE_USER_SHORTCUT'
         }
         Write-Host 'IWXA_SETUP_NATIVE_SAME_VERSION_REPAIR_PASS'
 
@@ -506,6 +516,11 @@ try {
         if ((Get-Content -LiteralPath $userData -Raw) -ne 'unchanged-after-first-install') {
             throw 'SETUP_S3_ROLLBACK_USER_DATA_CHANGED'
         }
+        if ((Get-FileHash -LiteralPath $startMenuLink -Algorithm SHA256).Hash -ne
+            $customizedLinkHash) {
+            throw 'SETUP_UPGRADE_OR_ROLLBACK_OVERWROTE_USER_SHORTCUT'
+        }
+        Write-Host 'IWXA_SETUP_USER_SHORTCUT_CUSTOMIZATION_REPAIR_UPGRADE_ROLLBACK_PASS'
         Write-Host 'IWXA_SETUP_S3_NATIVE_UPGRADE_ROLLBACK_PASS'
     }
     finally {
