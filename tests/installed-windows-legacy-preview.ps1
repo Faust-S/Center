@@ -286,6 +286,63 @@ Assert-Original
 Assert-RealOrganizations 'AFTER_ACTIVATE'
 Write-Host 'LEGACY_REAL_START_MENU_DEFAULT_SWITCH_PASS'
 
+function Expect-SetupDenied([string]$command, [string]$tag, [string]$code) {
+  $deniedPath=Join-Path $artifact "legacy-nsis-preview-$tag.json"
+  if(Test-Path -LiteralPath $deniedPath){Remove-Item -LiteralPath $deniedPath -Force}
+  $process=Start-Process -FilePath $bundle -ArgumentList (
+    '{0} "{1}"' -f $command,$deniedPath) -PassThru
+  try {
+    if(!$process.WaitForExit(80000)){
+      Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+      throw ('LEGACY_DENIAL_TEST_TIMEOUT_'+$tag)
+    }
+    if($process.ExitCode -ne 2){
+      throw ('LEGACY_DENIAL_TEST_UNEXPECTED_EXIT_'+$tag+'_'+$process.ExitCode)
+    }
+  } finally {$process.Dispose()}
+  $denied=Get-Content -LiteralPath $deniedPath -Raw|ConvertFrom-Json
+  if($denied.status -ne 'ERROR' -or $denied.reason -notlike ('*'+$code+'*')){
+    throw ('LEGACY_DENIAL_TEST_REASON_INCORRECT_'+$tag+'_'+$denied.reason)
+  }
+}
+
+# Never silently remove the candidate while its Start Menu shortcut is live.
+Expect-SetupDenied '--uninstall-file' 'uninstall-active-denied' 'SETUP_LEGACY_RESTORE_DEFAULT_BEFORE_UNINSTALL'
+Write-Host 'LEGACY_ACTIVE_UNINSTALL_REQUIRES_RESTORE_PASS'
+
+# A user-replaced shortcut must never be overwritten by an automated restore.
+$ownedShortcutBytes=[IO.File]::ReadAllBytes($shortcut)
+try {
+  [IO.File]::WriteAllBytes($shortcut, ([byte[]]($ownedShortcutBytes + [byte]0)))
+  $changedPlan=Call-Setup '--upgrade-plan-file' 'shortcut-modified-plan'
+  if($changedPlan.status -ne 'LEGACY_MIGRATION_REVIEW_REQUIRED'){
+    throw 'LEGACY_USER_MODIFIED_SHORTCUT_NOT_DETECTED'
+  }
+  Expect-SetupDenied '--restore-legacy-file' 'shortcut-modified-denied' 'SETUP_LEGACY_SHORTCUT_MODIFIED_REVIEW_REQUIRED'
+} finally {
+  [IO.File]::WriteAllBytes($shortcut, $ownedShortcutBytes)
+}
+$activeAgain=Call-Setup '--upgrade-plan-file' 'shortcut-restored-plan'
+if($activeAgain.status -ne 'LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED'){
+  throw 'LEGACY_VALID_SHORTCUT_NOT_RECOGNIZED_AFTER_RESTORE'
+}
+Write-Host 'LEGACY_USER_SHORTCUT_NOT_OVERWRITTEN_PASS'
+
+# Simulate process termination after switching the shortcut but before
+# persisting the final activation receipt. Explicit restore must work.
+$receiptPath=Join-Path $newRoot '.iwxa-setup-ownership.json'
+$receipt=Get-Content -LiteralPath $receiptPath -Raw|ConvertFrom-Json -AsHashtable -Depth 100
+if($receipt.legacyHandoff.status -ne 'LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED'){
+  throw 'LEGACY_RECOVERY_FIXTURE_NOT_ACTIVE'
+}
+$receipt.legacyHandoff.status='LEGACY_SHORTCUT_SWITCH_PENDING'
+$receipt|ConvertTo-Json -Depth 100 -Compress|Set-Content -LiteralPath $receiptPath -Encoding utf8
+$recoveryPlan=Call-Setup '--upgrade-plan-file' 'interrupted-switch-plan'
+if($recoveryPlan.status -ne 'LEGACY_SWITCH_RECOVERY_REQUIRED'){
+  throw ('LEGACY_INTERRUPTED_SWITCH_NOT_DETECTED_'+$recoveryPlan.status)
+}
+Write-Host 'LEGACY_INTERRUPTED_SHORTCUT_SWITCH_RECOVERY_PLAN_PASS'
+
 $restored=Call-Setup '--restore-legacy-file' 'restore-shortcut'
 if($restored.status -ne 'LEGACY_DEFAULT_RESTORED_NSIS_PRESERVED'){
   throw 'LEGACY_DEFAULT_RESTORE_FAILED'
