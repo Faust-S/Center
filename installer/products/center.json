@@ -1,0 +1,12 @@
+{
+  "schema": "IWXA_SETUP_PRODUCT/1",
+  "id": "iwxa.admin-center",
+  "display_name": "IWXA Admin Center",
+  "publisher": "IWXA",
+  "version": "0.2.0",
+  "architecture": "windows-x64",
+  "install_dir": "IWXA Admin Center",
+  "entrypoint": "iwxa-admin-center.exe",
+  "data_namespace": "ru.iwxa.admin-center",
+  "requirements": ["webview2-evergreen"]
+}

@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""IWXA Setup Core: reproducible product-neutral single-EXE package builder.
+
+The native GUI stub is built separately on Windows; no Python is needed on
+the user's machine. Hashes prove byte integrity, not publisher authenticity.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import io
+import json
+import os
+import re
+import stat
+import struct
+import sys
+import tempfile
+import zipfile
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+MAGIC = b"IWXA_SETUP_CORE1"
+FOOTER = struct.Struct("<16sQQQ32s32s32s")
+SCHEMA = "IWXA_SETUP_BUNDLE/1"
+PRODUCT_SCHEMA = "IWXA_SETUP_PRODUCT/1"
+MAX_FILES = 10000
+MAX_TOTAL_BYTES = 4 * 1024**3
+MAX_FILE_BYTES = 1024**3
+MAX_METADATA_BYTES = 2 * 1024**2
+CHUNK = 1024 * 1024
+PRODUCT_ID = re.compile(r"[a-z][a-z0-9.-]{2,63}\Z")
+VERSION = re.compile(r"\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?\Z")
+SHA = re.compile(r"[0-9a-f]{40}\Z")
+DISALLOWED_CHARS = set('<>:"|?*')
+WINDOWS_NAMES = {"CON", "PRN", "AUX", "NUL", *("COM" + str(i) for i in range(1, 10)), *("LPT" + str(i) for i in range(1, 10))}
+
+
+class SetupBundleError(ValueError):
+    pass
+
+
+def _canonical(value: Any) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def _digest_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(CHUNK), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _hash_region(handle, offset: int, size: int) -> bytes:
+    handle.seek(offset)
+    digest = hashlib.sha256()
+    remaining = size
+    while remaining:
+        block = handle.read(min(CHUNK, remaining))
+        if not block:
+            raise SetupBundleError("bundle_truncated")
+        digest.update(block)
+        remaining -= len(block)
+    return digest.digest()
+
+
+def safe_relative(value: str) -> str:
+    if not isinstance(value, str) or not value or len(value) > 512 or "\\" in value:
+        raise SetupBundleError("unsafe_relative_path")
+    if value.startswith("/") or value.startswith("//") or "//" in value:
+        raise SetupBundleError("unsafe_relative_path")
+    parts = value.split("/")
+    for part in parts:
+        if (
+            part in ("", ".", "..") or part.endswith((".", " "))
+            or any(ord(c) < 32 or c in DISALLOWED_CHARS for c in part)
+            or part.split(".", 1)[0].upper() in WINDOWS_NAMES
+        ):
+            raise SetupBundleError("unsafe_relative_path")
+    return PurePosixPath(*parts).as_posix()
+
+
+def simple_folder(value: str) -> str:
+    if not isinstance(value, str) or "/" in value or "\\" in value:
+        raise SetupBundleError("invalid_install_folder")
+    return safe_relative(value)
+
+
+def validate_product(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {
+        "schema", "id", "display_name", "publisher", "version", "architecture",
+        "install_dir", "entrypoint", "data_namespace", "requirements"
+    }:
+        raise SetupBundleError("product_schema_invalid")
+    if value["schema"] != PRODUCT_SCHEMA:
+        raise SetupBundleError("product_schema_version_invalid")
+    if not isinstance(value["id"], str) or not PRODUCT_ID.fullmatch(value["id"]):
+        raise SetupBundleError("product_id_invalid")
+    if not isinstance(value["version"], str) or not VERSION.fullmatch(value["version"]):
+        raise SetupBundleError("product_version_invalid")
+    if value["architecture"] not in ("windows-x64", "windows-arm64"):
+        raise SetupBundleError("product_architecture_unsupported")
+    if any(
+        not isinstance(value[k], str) or not 1 <= len(value[k]) <= 80
+        or any(ord(c) < 32 for c in value[k])
+        for k in ("display_name", "publisher", "data_namespace")
+    ):
+        raise SetupBundleError("product_identity_invalid")
+    if not PRODUCT_ID.fullmatch(value["data_namespace"]):
+        raise SetupBundleError("product_data_namespace_invalid")
+    simple_folder(value["install_dir"])
+    safe_relative(value["entrypoint"])
+    if not value["entrypoint"].lower().endswith(".exe"):
+        raise SetupBundleError("product_entrypoint_not_exe")
+    requirements = value["requirements"]
+    if not isinstance(requirements, list) or len(requirements) > 8 or len(set(map(str, requirements))) != len(requirements):
+        raise SetupBundleError("product_requirements_invalid")
+    if any(req not in ("webview2-evergreen",) for req in requirements):
+        raise SetupBundleError("product_requirement_unknown")
+    return value
+
+
+def _payload_files(root: Path) -> list[tuple[str, Path, int, str]]:
+    if root.is_symlink() or not root.is_dir():
+        raise SetupBundleError("payload_root_invalid")
+    files: list[tuple[str, Path, int, str]] = []
+    seen: set[str] = set()
+    total = 0
+    for item in sorted(root.rglob("*"), key=lambda p: p.relative_to(root).as_posix().casefold()):
+        if item.is_symlink() or (item.lstat().st_mode & stat.S_IFMT(item.lstat().st_mode)) == stat.S_IFLNK:
+            raise SetupBundleError("payload_symlink_forbidden")
+        if item.is_dir():
+            continue
+        if not item.is_file():
+            raise SetupBundleError("payload_not_regular_file")
+        rel = safe_relative(item.relative_to(root).as_posix())
+        fold = rel.casefold()
+        if fold in seen:
+            raise SetupBundleError("payload_duplicate_case_insensitive")
+        seen.add(fold)
+        size = item.stat().st_size
+        total += size
+        if size > MAX_FILE_BYTES or total > MAX_TOTAL_BYTES or len(files) >= MAX_FILES:
+            raise SetupBundleError("payload_limits_exceeded")
+        files.append((rel, item, size, _digest_file(item)))
+    if not files:
+        raise SetupBundleError("payload_empty")
+    return files
+
+
+def create_bundle(*, product_json: Path, payload_dir: Path, stub: Path,
+                  output: Path, source_commit: str, source_tree: str) -> dict[str, Any]:
+    if not SHA.fullmatch(source_commit) or not SHA.fullmatch(source_tree):
+        raise SetupBundleError("source_identity_invalid")
+    product = validate_product(json.loads(Path(product_json).read_text(encoding="utf-8")))
+    files = _payload_files(Path(payload_dir))
+    if product["entrypoint"].casefold() not in {row[0].casefold() for row in files}:
+        raise SetupBundleError("product_entrypoint_missing")
+    stub = Path(stub)
+    if not stub.is_file() or stub.is_symlink() or stub.stat().st_size < 1024:
+        raise SetupBundleError("native_gui_stub_missing")
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "schema": SCHEMA, "product": product,
+        "source": {"commit": source_commit, "tree": source_tree},
+        "files": [{"path": path, "bytes": size, "sha256": digest} for path, _, size, digest in files],
+    }
+    meta = _canonical(manifest)
+    if len(meta) > MAX_METADATA_BYTES:
+        raise SetupBundleError("bundle_metadata_too_large")
+    # ZIP is built on disk to avoid reading large product payloads into memory.
+    with tempfile.TemporaryDirectory(prefix="iwxa-setup-pack-", dir=output.parent) as work:
+        zip_path = Path(work) / "payload.zip"
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9, allowZip64=True) as z:
+            for rel, file, _, _ in files:
+                info = zipfile.ZipInfo(rel, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = 0o100644 << 16
+                with file.open("rb") as src, z.open(info, "w", force_zip64=True) as dst:
+                    for block in iter(lambda: src.read(CHUNK), b""):
+                        dst.write(block)
+        fd, temporary = tempfile.mkstemp(prefix=output.name + ".", suffix=".tmp", dir=output.parent)
+        try:
+            with os.fdopen(fd, "wb") as out:
+                sizes: list[int] = []
+                hashes: list[bytes] = []
+                for path in (stub, zip_path):
+                    digest = hashlib.sha256()
+                    n = 0
+                    with path.open("rb") as src:
+                        for block in iter(lambda: src.read(CHUNK), b""):
+                            out.write(block)
+                            digest.update(block)
+                            n += len(block)
+                    sizes.append(n)
+                    hashes.append(digest.digest())
+                out.write(meta)
+                out.write(FOOTER.pack(MAGIC, sizes[0], sizes[1], len(meta),
+                                      hashes[0], hashes[1], hashlib.sha256(meta).digest()))
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(temporary, output)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+    result = inspect_bundle(output, verify_files=True)
+    result["setup_sha256"] = _digest_file(output)
+    result["file_count"] = len(files)
+    return result
+
+
+def inspect_bundle(path: Path, *, verify_files: bool = False) -> dict[str, Any]:
+    path = Path(path)
+    with path.open("rb") as handle:
+        length = path.stat().st_size
+        if length < FOOTER.size:
+            raise SetupBundleError("bundle_too_short")
+        handle.seek(length - FOOTER.size)
+        magic, stub_size, zip_size, meta_size, stub_hash, zip_hash, meta_hash = FOOTER.unpack(handle.read(FOOTER.size))
+        if magic != MAGIC or stub_size < 1024 or not 0 < zip_size <= length or not 0 < meta_size <= MAX_METADATA_BYTES:
+            raise SetupBundleError("bundle_footer_invalid")
+        if stub_size + zip_size + meta_size + FOOTER.size != length:
+            raise SetupBundleError("bundle_layout_invalid")
+        if _hash_region(handle, 0, stub_size) != stub_hash:
+            raise SetupBundleError("bundle_stub_sha256_invalid")
+        if _hash_region(handle, stub_size, zip_size) != zip_hash:
+            raise SetupBundleError("bundle_package_sha256_invalid")
+        handle.seek(stub_size + zip_size)
+        meta = handle.read(meta_size)
+    if hashlib.sha256(meta).digest() != meta_hash:
+        raise SetupBundleError("bundle_manifest_sha256_invalid")
+    value = json.loads(meta.decode("utf-8"))
+    if _canonical(value) != meta or not isinstance(value, dict) or set(value) != {"schema", "product", "source", "files"}:
+        raise SetupBundleError("bundle_manifest_invalid")
+    if value["schema"] != SCHEMA:
+        raise SetupBundleError("bundle_manifest_schema_invalid")
+    validate_product(value["product"])
+    rows = value["files"]
+    if not isinstance(rows, list) or not 0 < len(rows) <= MAX_FILES:
+        raise SetupBundleError("bundle_file_index_invalid")
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"path", "bytes", "sha256"}:
+            raise SetupBundleError("bundle_file_row_invalid")
+        rel = safe_relative(row["path"])
+        if rel.casefold() in seen:
+            raise SetupBundleError("bundle_duplicate_file")
+        seen.add(rel.casefold())
+        if type(row["bytes"]) is not int or not 0 <= row["bytes"] <= MAX_FILE_BYTES:
+            raise SetupBundleError("bundle_file_length_invalid")
+        if not isinstance(row["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]):
+            raise SetupBundleError("bundle_file_hash_invalid")
+    if value["product"]["entrypoint"].casefold() not in seen:
+        raise SetupBundleError("bundle_entrypoint_missing")
+    if verify_files:
+        # Developer-side verification; native Setup independently checks ZIP members.
+        with path.open("rb") as f:
+            f.seek(stub_size)
+            compressed = f.read(zip_size)
+        with zipfile.ZipFile(io.BytesIO(compressed), "r") as archive:
+            listed = [i for i in archive.infolist() if not i.is_dir()]
+            if len(listed) != len(rows):
+                raise SetupBundleError("bundle_zip_file_count_mismatch")
+            lookup = {i.filename: i for i in listed}
+            if set(lookup) != {r["path"] for r in rows}:
+                raise SetupBundleError("bundle_zip_file_list_mismatch")
+            for row in rows:
+                info = lookup[row["path"]]
+                if info.file_size != row["bytes"]:
+                    raise SetupBundleError("bundle_zip_entry_size_mismatch")
+                digest = hashlib.sha256()
+                with archive.open(info) as src:
+                    for block in iter(lambda: src.read(CHUNK), b""):
+                        digest.update(block)
+                if digest.hexdigest() != row["sha256"]:
+                    raise SetupBundleError("bundle_zip_entry_digest_mismatch")
+    return {
+        "status": "VERIFIED",
+        "schema": value["schema"],
+        "product": value["product"]["id"],
+        "version": value["product"]["version"],
+        "architecture": value["product"]["architecture"],
+        "source": value["source"],
+        "payload_sha256": zip_hash.hex(),
+        "stub_sha256": stub_hash.hex(),
+        "manifest_sha256": meta_hash.hex(),
+        "bytes": length,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(description="Build or inspect a product-neutral IWXA Windows Setup bundle")
+    sub = p.add_subparsers(dest="action", required=True)
+    build = sub.add_parser("build")
+    for field in ("product", "payload", "stub", "output", "source-commit", "source-tree"):
+        build.add_argument("--" + field, required=True)
+    inspect = sub.add_parser("inspect")
+    inspect.add_argument("path")
+    args = p.parse_args(argv)
+    try:
+        if args.action == "build":
+            result = create_bundle(product_json=Path(args.product), payload_dir=Path(args.payload),
+                stub=Path(args.stub), output=Path(args.output),
+                source_commit=args.source_commit, source_tree=args.source_tree)
+        else:
+            result = inspect_bundle(Path(args.path), verify_files=True)
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return 0
+    except (OSError, ValueError, zipfile.BadZipFile, json.JSONDecodeError) as exc:
+        print("IWXA_SETUP_CORE_ERROR: " + str(exc), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
