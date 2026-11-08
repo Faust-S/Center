@@ -51,7 +51,41 @@ namespace IwxaSetup
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
             catch { Icon = SystemIcons.Application; }
             BuildLayout();
-            Shown += async (sender, args) => await VerifyAsync();
+            Shown += async (sender, args) =>
+            {
+                FitInitialWindowToWorkingArea();
+                await VerifyAsync();
+            };
+        }
+
+        // Use physical window and working-area sizes after WinForms DPI
+        // scaling. The requested size must never force the bottom action row
+        // below the visible desktop, especially on 1080p / 200% displays.
+        internal static Size FitToWorkingAreaSize(
+            Size requested, Size minimum, Size available)
+        {
+            if (available.Width <= 0 || available.Height <= 0)
+                return requested;
+            int width = Math.Max(Math.Min(minimum.Width, available.Width),
+                Math.Min(requested.Width, available.Width));
+            int height = Math.Max(Math.Min(minimum.Height, available.Height),
+                Math.Min(requested.Height, available.Height));
+            return new Size(width, height);
+        }
+
+        private void FitInitialWindowToWorkingArea()
+        {
+            Rectangle work = Screen.FromControl(this).WorkingArea;
+            if (work.Width <= 0 || work.Height <= 0) return;
+            Size size = FitToWorkingAreaSize(Size, MinimumSize, work.Size);
+            if (MinimumSize.Width > work.Width ||
+                MinimumSize.Height > work.Height)
+                MinimumSize = new Size(
+                    Math.Min(MinimumSize.Width, work.Width),
+                    Math.Min(MinimumSize.Height, work.Height));
+            Size = size;
+            Location = new Point(work.Left + (work.Width - Width) / 2,
+                work.Top + (work.Height - Height) / 2);
         }
 
         private string T(string russian, string english)

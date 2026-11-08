@@ -110,6 +110,21 @@ foreach ($factor in @(1.0, 1.5, 2.0, 2.5)) {
         $form.Dispose()
     }
 }
+# 1920x1080 Windows desktop with a 40px taskbar and 200% scaling:
+# native requested window is 1800x1200, minimum 1500x1040, work 1920x1040.
+$fit = $formType.GetMethod('FitToWorkingAreaSize',
+    [Reflection.BindingFlags]'Static, Public, NonPublic')
+if ($null -eq $fit) { throw 'SETUP_1080P_WORKAREA_FIT_MISSING' }
+$fitArgs = New-Object 'System.Object[]' 3
+$fitArgs[0] = [Drawing.Size]::new(1800,1200)
+$fitArgs[1] = [Drawing.Size]::new(1500,1040)
+$fitArgs[2] = [Drawing.Size]::new(1920,1040)
+$fitted = [Drawing.Size]$fit.Invoke($null,$fitArgs)
+if ($fitted.Width -ne 1800 -or $fitted.Height -ne 1040) {
+    throw ('SETUP_1080P_200PCT_WINDOW_OUTSIDE_WORKAREA_' + $fitted)
+}
+Write-Host 'IWXA_SETUP_1080P_200PCT_WORKAREA_FIT_PASS'
+
 Write-Host 'IWXA_SETUP_NATIVE_DPI_LAYOUT_MATRIX_PASS'
 # The manifest must affect the native *process*, not just exist in source.
 # System-aware DPI is the supported .NET Framework WinForms policy.

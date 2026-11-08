@@ -101,6 +101,8 @@ class BundleTests(unittest.TestCase):
             'Name = "iwxaSetupPreservationNote"',
             'Name = "iwxaSetupActions"',
             'bool shortView = area.ClientSize.Height < 540.0 * scale',
+            'FitInitialWindowToWorkingArea()',
+            'internal static Size FitToWorkingAreaSize(',
             'bool narrowView = area.ClientSize.Width < 600.0 * scale',
             'packageDetails.Anchor = AnchorStyles.Left | AnchorStyles.Right',
             'status.Anchor = AnchorStyles.Left | AnchorStyles.Right',
