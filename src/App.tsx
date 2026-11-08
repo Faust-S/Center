@@ -3,6 +3,8 @@ import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from 
 import {readAtlasPortfolio, linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback} from './atlas-integration.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
+import {prepareIssuedTaskLinkRecovery} from '../runtime/cen02-exchange.mjs';
+import {ownerSessionFingerprint} from '../runtime/cen03-review.mjs';
 import './style.css';
 
 type Participant = {id: string; name: string; roleLabel: string; credentialState: string; personalAgentPlan?: 'NONE'|'PLANNED'};
@@ -53,6 +55,7 @@ export default function App() {
   const nativeHost = Boolean((window as any).__TAURI_INTERNALS__);
   const [nativeRestoring,setNativeRestoring] = useState(nativeHost);
   const [state,setState] = useState<Draft>(() => emptyDraft() as Draft);
+  const stateRef=useRef(state);stateRef.current=state;
   const [page,setPage] = useState<Page>('overview');
   const [editor,setEditor] = useState<Editor|null>(null);
   const [creatingOrg,setCreatingOrg] = useState(false);
@@ -141,6 +144,72 @@ export default function App() {
     setState(next);setDirty(false);setError('');
     setMessage('Связь подписанной Task с WorkRef локально сохранена; доставка не подтверждена.');
   };
+
+  const recoverIssuedTaskLink = async ({assignmentId,snapshot}:{assignmentId:string;snapshot:any}) => {
+    // This operation deliberately does not call T3 issue/sign/export.
+    // Work only from an already-signed T3 owner readback and the freshest
+    // existing native draft generation, never overwrite another Center window.
+    const orgId=state.activeOrganizationId;
+    const local=state.organizations.find(x=>x.id===orgId);
+    const assignment=local?.assignments.find(x=>x.id===assignmentId);
+    if(!nativeHost||nativeRestoring||dirty||editor||!local||!assignment||
+       activeOrganizationRef.current!==orgId)
+      throw Error('CEN02_RECOVERY_UNSAVED_LOCAL_CHANGES');
+    const originFingerprint=ownerSessionFingerprint({status:'OWNER_READY',snapshot},orgId);
+    if(!originFingerprint)throw Error('CEN02_RECOVERY_OWNER_NOT_READY');
+    const preview=prepareIssuedTaskLinkRecovery({organization:local,assignment,snapshot});
+    const capturedState=state;
+    const read=await nativeInvoke('center_draft_read_state_local');
+    if(!read||typeof read.generation!=='string'||
+       !/^[a-f0-9]{64}$/.test(read.generation)||
+       typeof read.content!=='string')
+      throw Error('CEN02_RECOVERY_NATIVE_DRAFT_REQUIRED');
+    const latest=decodeDraft(read.content) as Draft;
+    if(latest.activeOrganizationId!==orgId||
+       activeOrganizationRef.current!==orgId)
+      throw Error('CEN02_RECOVERY_ORGANIZATION_CHANGED');
+    const latestOrg=latest.organizations.find(x=>x.id===orgId);
+    const latestAssignment=latestOrg?.assignments.find(x=>x.id===assignmentId);
+    if(!latestOrg||!latestAssignment||
+       JSON.stringify(latestAssignment)!==JSON.stringify(assignment))
+      throw Error('CEN02_RECOVERY_ASSIGNMENT_CHANGED');
+    // Re-read the actual owner before committing; T3 could have changed
+    // operator, context or Task while the latest draft was loading.
+    const owner=await nativeInvoke('center_corporate_state',{organizationId:orgId});
+    if(ownerSessionFingerprint(owner,orgId)!==originFingerprint)
+      throw Error('CEN02_RECOVERY_OWNER_CONTEXT_CHANGED');
+    const evidence=prepareIssuedTaskLinkRecovery({
+      organization:latestOrg,assignment:latestAssignment,snapshot:owner.snapshot
+    });
+    if(evidence.taskId!==preview.taskId||
+       evidence.taskRevisionId!==preview.taskRevisionId||
+       JSON.stringify(evidence.command)!==JSON.stringify(preview.command))
+      throw Error('CEN02_RECOVERY_SIGNED_SOURCE_CHANGED');
+    if(activeOrganizationRef.current!==orgId||stateRef.current!==capturedState)
+      throw Error('CEN02_RECOVERY_LOCAL_CONTEXT_CHANGED');
+    if(evidence.alreadyRecorded){
+      // A parallel Center window completed recovery. Read it back, no write.
+      draftGenerationRef.current=read.generation;
+      setState(latest);setDirty(false);setError('');
+      setMessage('Исходная связь Task и WorkRef уже сохранена другим окном. Данные перечитаны; доставка по-прежнему не подтверждена.');
+      return;
+    }
+    const next=applyDraftCommand(latest,evidence.command) as Draft;
+    const content=encodeDraft(next);
+    const written=await nativeInvoke('center_draft_save_local',{
+      content,expectedGeneration:read.generation
+    });
+    if(written?.content!==content||
+       !/^[a-f0-9]{64}$/.test(written?.generation)||
+       encodeDraft(decodeDraft(written.content))!==content)
+      throw Error('CEN02_RECOVERY_POSTCOMMIT_READBACK_HOLD');
+    if(activeOrganizationRef.current!==orgId||stateRef.current!==capturedState)
+      throw Error('CEN02_RECOVERY_POSTCOMMIT_LOCAL_CHANGED_HOLD');
+    draftGenerationRef.current=written.generation;
+    setState(next);setDirty(false);setError('');
+    setMessage('Точная связь ранее подписанной T3 Task с исходной Atlas WorkRef восстановлена и сохранена. Task не перевыпускалась; доставка не подтверждена.');
+  };
+
   const reuseAppliedResult = ({description,source}:{description:string;source:SourceResultRef}) => {
     if(!org)return;
     if(editor){setError('Сначала сохраните или закройте редактор поручения.');return;}
@@ -385,7 +454,7 @@ export default function App() {
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 
-       {org && page==='results' && <CorporatePanel key={org.id} organization={org} atlasView={observedAtlas} invoke={nativeHost?nativeInvoke:null} onInspectWork={inspectAppliedAtlasWork} onIssued={persistIssuedTaskLink} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()}/>} 
+       {org && page==='results' && <CorporatePanel key={org.id} organization={org} atlasView={observedAtlas} invoke={nativeHost?nativeInvoke:null} onInspectWork={inspectAppliedAtlasWork} onIssued={persistIssuedTaskLink} onRecoverIssued={recoverIssuedTaskLink} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()}/>} 
       {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
         <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
         {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button></div>)}
