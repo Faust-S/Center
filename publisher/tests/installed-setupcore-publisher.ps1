@@ -34,9 +34,19 @@ $duplicateFile=Join-Path $artifact 'duplicate.json'
 $uninstallFile=Join-Path $artifact 'uninstall.json'
 function Invoke-Setup([string]$verb,[string]$file,[int]$expected) {
   if(Test-Path -LiteralPath $file){Remove-Item -LiteralPath $file -Force}
-  & $bundle $verb $file
-  $code=$LASTEXITCODE
-  if($code -ne $expected -or !(Test-Path -LiteralPath $file -PathType Leaf)){throw "PUBLISHER_SETUP_OPERATION_FAILED verb=$verb code=$code expected=$expected"}
+  # Original Setup Core is a Windows GUI executable: native "& exe" does not
+  # wait for the report. Use the original owning test's process-wait contract.
+  $cmd=Start-Process -FilePath $bundle -ArgumentList ('{0} "{1}"' -f $verb,$file) -PassThru
+  try{
+    if(!$cmd.WaitForExit(90000)){
+      Stop-Process -Id $cmd.Id -Force -ErrorAction SilentlyContinue
+      throw "PUBLISHER_SETUP_OPERATION_TIMEOUT verb=$verb"
+    }
+    if($cmd.ExitCode -ne $expected){
+      throw "PUBLISHER_SETUP_OPERATION_FAILED verb=$verb code=$($cmd.ExitCode) expected=$expected"
+    }
+  } finally {$cmd.Dispose()}
+  if(!(Test-Path -LiteralPath $file -PathType Leaf)){throw "PUBLISHER_SETUP_REPORT_MISSING verb=$verb"}
   return (Get-Content -LiteralPath $file -Raw | ConvertFrom-Json -Depth 50)
 }
 $inspection=Invoke-Setup '--inspect-file' $inspectionFile 0
