@@ -196,6 +196,36 @@ try {
     # When WebView2 is already installed, ensuring the dependency must be
     # idempotent and must not download or launch an installer.
     if ($preflight.webview2Version) {
+        # The clean-Windows qualification must refuse an ordinary hosted
+        # runner that already has Runtime; never falsely award first-install PASS.
+        $negativeRoot = Join-Path $artifact 'setup-core-webview2-not-clean'
+        $witness = Join-Path $PSScriptRoot 'qualify-webview2-clean-windows.ps1'
+        $shell = (Get-Process -Id $PID).Path
+        $negativeArgs = ('-NoProfile -NonInteractive -File "{0}" -SetupExe "{1}" -Mode Online -ExpectedGuiAccessibleName "{2}" -ReportDirectory "{3}"' -f
+            $witness, $bundle, 'Организация', $negativeRoot)
+        $negative = Start-Process -FilePath $shell -ArgumentList $negativeArgs -PassThru
+        try {
+            if (!$negative.WaitForExit(60000)) {
+                Stop-Process -Id $negative.Id -Force -ErrorAction SilentlyContinue
+                throw 'SETUP_WEBVIEW2_CLEAN_HOST_NEGATIVE_TIMEOUT'
+            }
+            if ($negative.ExitCode -eq 0) {
+                throw 'SETUP_WEBVIEW2_PRESENT_HOST_FALSE_PASS'
+            }
+        } finally { $negative.Dispose() }
+        $negativeReceipt = Join-Path $negativeRoot 'qualification.json'
+        if (!(Test-Path -LiteralPath $negativeReceipt -PathType Leaf)) {
+            throw 'SETUP_WEBVIEW2_NEGATIVE_RECEIPT_MISSING'
+        }
+        $negativeEvidence = Get-Content -LiteralPath $negativeReceipt -Raw | ConvertFrom-Json
+        if ($negativeEvidence.status -ne 'NOT_QUALIFIED' -or
+            $negativeEvidence.reason -ne 'WEBVIEW2_CLEAN_VM_REQUIRED_RUNTIME_ALREADY_PRESENT_OR_UNEXPECTED_STATE' -or
+            $negativeEvidence.runtimeAbsentBefore -or
+            $negativeEvidence.installedBySetup -or
+            $negativeEvidence.installedProductGuiOpened) {
+            throw 'SETUP_WEBVIEW2_EXISTING_RUNTIME_FALSE_CLEAN_EVIDENCE'
+        }
+        Write-Host 'IWXA_WEBVIEW2_EXISTING_RUNTIME_CLEAN_VM_REFUSED_PASS'
         $componentFile = Join-Path $artifact 'setup-core-webview2-available.json'
         $component = Invoke-NativeInspection $bundle $componentFile 0 '--ensure-webview2-file'
         if ($component.status -ne 'WEBVIEW2_ALREADY_INSTALLED' -or
