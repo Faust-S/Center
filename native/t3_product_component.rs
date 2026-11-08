@@ -65,6 +65,22 @@ fn checked_output(output:std::process::Output) -> Result<Value,String> {
     }
     Ok(result)
 }
+// Keep draining even if the content exceeds its cap: never allow a child
+// to block on an unread full pipe. Output beyond cap is discarded and the
+// existing checked_output() subsequently rejects oversized stdout.
+fn drain_pipe<R: std::io::Read>(mut stream:R,cap:usize)->Result<Vec<u8>,String>{
+    let mut output=Vec::new();
+    let mut buffer=[0_u8;4096];
+    loop {
+        let n=stream.read(&mut buffer)
+            .map_err(|_|"T3_PRODUCT_COMPONENT_OUTPUT_READ_FAILED")?;
+        if n==0 {break;}
+        let available=cap.saturating_sub(output.len());
+        output.extend_from_slice(&buffer[..n.min(available)]);
+    }
+    Ok(output)
+}
+
 pub fn run(app:&AppHandle,role:&str,action:&str,details:&[String]) -> Result<Value,String> {
     if !availability(app,role){return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());}
     if !action.bytes().all(|b|b.is_ascii_lowercase()||b==b'-') ||
@@ -84,23 +100,32 @@ pub fn run(app:&AppHandle,role:&str,action:&str,details:&[String]) -> Result<Val
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
     let mut child=cmd.spawn().map_err(|_|"T3_PRODUCT_COMPONENT_START_FAILED")?;
+    // Drain both pipes from the moment the child starts. Waiting for process
+    // exit before reading stdout causes a Windows pipe-capacity deadlock when
+    // the original T3 owner inventory contains many licensed entries.
+    let stdout=child.stdout.take().ok_or("T3_PRODUCT_COMPONENT_STDOUT_UNAVAILABLE")?;
+    let stderr=child.stderr.take().ok_or("T3_PRODUCT_COMPONENT_STDERR_UNAVAILABLE")?;
+    let stdout_reader=std::thread::spawn(move||drain_pipe(stdout,MAX_OUTPUT+1));
+    let stderr_reader=std::thread::spawn(move||drain_pipe(stderr,4096));
     let start=Instant::now();
-    loop {
+    let status=loop {
         match child.try_wait() {
-            Ok(Some(_))=>{
-                let output=child.wait_with_output()
-                    .map_err(|_|"T3_PRODUCT_COMPONENT_OUTPUT_FAILED")?;
-                return checked_output(output);
-            }
+            Ok(Some(status))=>break Some(status),
             Ok(None) if start.elapsed() < MAX_EXECUTION =>
                 std::thread::sleep(Duration::from_millis(50)),
             _ => {
                 let _=child.kill();
                 let _=child.wait();
-                return Err("T3_PRODUCT_COMPONENT_TIMEOUT_OR_WAIT_FAILED".into());
+                break None;
             }
         }
-    }
+    };
+    let out=stdout_reader.join()
+        .map_err(|_|"T3_PRODUCT_COMPONENT_OUTPUT_READER_FAILED")??;
+    let err=stderr_reader.join()
+        .map_err(|_|"T3_PRODUCT_COMPONENT_OUTPUT_READER_FAILED")??;
+    let status=status.ok_or("T3_PRODUCT_COMPONENT_TIMEOUT_OR_WAIT_FAILED")?;
+    checked_output(std::process::Output{status,stdout:out,stderr:err})
 }
 pub fn valid_identifier(s:&str)->bool{
     !s.is_empty() && s.len()<=160 &&
@@ -120,6 +145,11 @@ mod tests {
  use super::*;
  #[test]
  fn native_component_adapter_does_not_trust_strings_or_commercial_seats() {
+    // A simulated stdout larger than the Windows pipe capacity is drained
+    // without buffering unbounded data or deadlocking the child.
+    let payload=vec![b'X';2*MAX_OUTPUT];
+    assert_eq!(drain_pipe(std::io::Cursor::new(payload),MAX_OUTPUT+1)
+      .unwrap().len(),MAX_OUTPUT+1);
     assert!(valid_identifier("publisher:issuer:1"));
     assert!(!valid_identifier("../relative"));
     assert!(!valid_identifier("bad name"));
