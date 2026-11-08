@@ -24,7 +24,8 @@ namespace IwxaSetup
         private readonly Button secondary = new Button();
         private readonly LinkLabel openApplication = new LinkLabel();
         private enum SetupOperation { None, Install, Upgrade, Recover, Confirm, Rollback,
-            StageLegacyPreview, CancelLegacyPreview, InstallWebView2 }
+            StageLegacyPreview, CancelLegacyPreview, InstallWebView2,
+            InstallWebView2Offline }
         private SetupOperation primaryAction = SetupOperation.None;
         private SetupOperation secondaryAction = SetupOperation.None;
         private bool performingOperation = false;
@@ -212,6 +213,8 @@ namespace IwxaSetup
             secondary.Enabled = !performingOperation && alternate != SetupOperation.None;
             if (alternate == SetupOperation.Rollback)
                 secondary.Text = T("Вернуть прежнюю", "Roll back");
+            else if (alternate == SetupOperation.InstallWebView2Offline)
+                secondary.Text = T("Из файла…", "From file…");
             secondary.AccessibleName = secondary.Text;
         }
 
@@ -260,6 +263,22 @@ namespace IwxaSetup
         private async Task ExecuteAsync(SetupOperation operation)
         {
             if (performingOperation || operation == SetupOperation.None) return;
+            string offlineInstaller = null;
+            if (operation == SetupOperation.InstallWebView2Offline)
+            {
+                using (var select = new OpenFileDialog {
+                    Title = T("Выберите автономный WebView2 Runtime",
+                              "Select the offline WebView2 Runtime installer"),
+                    Filter = T("Установщики Windows (*.exe)|*.exe",
+                               "Windows installers (*.exe)|*.exe"),
+                    Multiselect = false,
+                    CheckFileExists = true
+                })
+                {
+                    if (select.ShowDialog(this) != DialogResult.OK) return;
+                    offlineInstaller = select.FileName;
+                }
+            }
             if (operation == SetupOperation.Confirm)
             {
                 DialogResult answer = MessageBox.Show(
@@ -287,7 +306,8 @@ namespace IwxaSetup
                 operation == SetupOperation.StageLegacyPreview ?
                 T("Подготовка 0.3 отдельно от 0.2…",
                   "Preparing 0.3 alongside 0.2…") :
-                operation == SetupOperation.InstallWebView2 ?
+                operation == SetupOperation.InstallWebView2 ||
+                operation == SetupOperation.InstallWebView2Offline ?
                 T("Установка Microsoft WebView2…",
                   "Installing Microsoft WebView2…") :
                 T("Установка проверенных файлов…", "Installing verified files…");
@@ -308,7 +328,11 @@ namespace IwxaSetup
                         case SetupOperation.CancelLegacyPreview:
                             return SetupInstallation.UninstallOwned(executable);
                         case SetupOperation.InstallWebView2:
-                            string componentStatus = SetupReadiness.EnsureWebView2Online();
+                        case SetupOperation.InstallWebView2Offline:
+                            string componentStatus =
+                                operation == SetupOperation.InstallWebView2 ?
+                                    SetupReadiness.EnsureWebView2Online() :
+                                    SetupReadiness.EnsureWebView2Offline(offlineInstaller);
                             return new InstallOutcome {
                                 Status = componentStatus, Product = "webview2-evergreen",
                                 Version = SetupReadiness.DetectWebView2Version(),
@@ -337,7 +361,8 @@ namespace IwxaSetup
                 else if (operation == SetupOperation.CancelLegacyPreview)
                     status.Text = T("Переход отменён — NSIS 0.2 сохранён",
                         "Preview cancelled — NSIS 0.2 retained");
-                else if (operation == SetupOperation.InstallWebView2)
+                else if (operation == SetupOperation.InstallWebView2 ||
+                         operation == SetupOperation.InstallWebView2Offline)
                     status.Text = T("WebView2 готов — можно установить программу",
                         "WebView2 ready — application can now be installed");
                 status.ForeColor = Color.FromArgb(24, 119, 91);
@@ -402,7 +427,7 @@ namespace IwxaSetup
                               "Install the Evergreen Runtime. Use Microsoft's standalone installer if offline."),
                             versionLine, true);
                         ConfigureActions(SetupOperation.InstallWebView2,
-                            SetupOperation.None,
+                            SetupOperation.InstallWebView2Offline,
                             T("Установить WebView2", "Install WebView2"));
                         openApplication.Tag = "WEBVIEW2";
                         openApplication.Text = T("Официальный автономный установщик (Microsoft)",
@@ -462,7 +487,23 @@ namespace IwxaSetup
                 else if (plan.Status == "LEGACY_MIGRATION_HOLD")
                 {
                     LegacyAssessment old = SetupLegacy.Inspect(info);
-                    if (old.Status == "LEGACY_CONFIRMED_READ_ONLY")
+                    if (old.Status == "LEGACY_CONFIRMED_READ_ONLY" &&
+                        info.NeedsWebView2 &&
+                        String.IsNullOrWhiteSpace(SetupReadiness.DetectWebView2Version()))
+                    {
+                        SetState(T("Для 0.3 необходим WebView2", "0.3 needs WebView2"),
+                            T("Старая 0.2 сохранена. Установите Runtime через интернет или из автономного файла Microsoft.",
+                              "Original 0.2 remains installed. Install the Runtime online or from an offline Microsoft installer."),
+                            versionLine, true);
+                        ConfigureActions(SetupOperation.InstallWebView2,
+                            SetupOperation.InstallWebView2Offline,
+                            T("Установить WebView2", "Install WebView2"));
+                        openApplication.Tag = "WEBVIEW2";
+                        openApplication.Text = T("Автономный WebView2 от Microsoft",
+                            "Offline WebView2 installer from Microsoft");
+                        openApplication.Visible = true;
+                    }
+                    else if (old.Status == "LEGACY_CONFIRMED_READ_ONLY")
                     {
                         SetState(T("Найдена прежняя версия " + old.Version,
                                    "Installed legacy version " + old.Version),

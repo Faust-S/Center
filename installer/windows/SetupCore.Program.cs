@@ -35,6 +35,28 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            // Verification is read-only and works on an unbundled Setup stub.
+            // It is used to reject an unsigned or unrelated EXE in CI.
+            if (args.Length == 3 &&
+                args[0] == "--verify-webview2-installer-file")
+            {
+                try
+                {
+                    string status = SetupReadiness.VerifyWebView2Installer(args[1]);
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", status},
+                        {"file", Path.GetFileName(args[1])}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             if (args.Length == 2 && args[0] == "--legacy-inspect-file")
             {
                 try

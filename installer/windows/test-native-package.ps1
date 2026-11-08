@@ -66,6 +66,29 @@ try {
         throw 'SETUP_NATIVE_PYTHON_DISAGREEMENT'
     }
     Write-Host "IWXA_SETUP_NATIVE_PACKAGE_PASS files=$($native.files) version=$($native.version)"
+    # Exercise the common installer verification with an unsigned Setup EXE,
+    # independently of whether the hosted Windows image has WebView2.
+    $badComponentReport = Join-Path $artifact 'setup-core-webview2-unsigned.json'
+    $badComponent = Start-Process -FilePath $stub -ArgumentList (
+        '--verify-webview2-installer-file "{0}" "{1}"' -f $stub, $badComponentReport
+    ) -PassThru
+    try {
+        if (!$badComponent.WaitForExit(45000)) {
+            Stop-Process -Id $badComponent.Id -Force -ErrorAction SilentlyContinue
+            throw 'SETUP_WEBVIEW2_UNSIGNED_CHECK_TIMEOUT'
+        }
+        if ($badComponent.ExitCode -ne 2) {
+            throw 'SETUP_WEBVIEW2_UNSIGNED_EXE_ACCEPTED'
+        }
+    } finally { $badComponent.Dispose() }
+    $badComponentResult = Get-Content -LiteralPath $badComponentReport -Raw |
+        ConvertFrom-Json
+    if ($badComponentResult.status -ne 'ERROR' -or
+        $badComponentResult.reason -notlike '*SETUP_WEBVIEW2_AUTHENTICODE_INVALID*') {
+        throw 'SETUP_WEBVIEW2_UNSIGNED_REJECTION_INVALID'
+    }
+    Write-Host 'IWXA_SETUP_WEBVIEW2_UNSIGNED_EXE_REJECTED_PASS'
+
 
     $preflightReport = Join-Path $artifact 'setup-core-preflight.json'
     $stagingReport = Join-Path $artifact 'setup-core-staged-readback.json'

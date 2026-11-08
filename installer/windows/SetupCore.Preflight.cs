@@ -113,41 +113,7 @@ namespace IwxaSetup
                                 "SETUP_WEBVIEW2_BOOTSTRAPPER_INCOMPLETE");
                     }
                 }
-                using (var file = File.OpenRead(temp))
-                {
-                    if (file.ReadByte() != 'M' || file.ReadByte() != 'Z')
-                        throw new InvalidDataException(
-                            "SETUP_WEBVIEW2_BOOTSTRAPPER_NOT_EXECUTABLE");
-                }
-                VerifyMicrosoftAuthenticode(temp);
-                using (Process installer = Process.Start(new ProcessStartInfo(temp,
-                    "/silent /install") {
-                    UseShellExecute = false, CreateNoWindow = true
-                }))
-                {
-                    if (installer == null)
-                        throw new InvalidOperationException(
-                            "SETUP_WEBVIEW2_BOOTSTRAPPER_START_FAILED");
-                    if (!installer.WaitForExit(180000))
-                    {
-                        try { installer.Kill(); }
-                        catch (InvalidOperationException) { }
-                        throw new InvalidOperationException(
-                            "SETUP_WEBVIEW2_INSTALL_TIMEOUT");
-                    }
-                    if (installer.ExitCode != 0 &&
-                        String.IsNullOrWhiteSpace(DetectWebView2Version()))
-                        throw new InvalidOperationException(
-                            "SETUP_WEBVIEW2_INSTALL_EXIT_" + installer.ExitCode);
-                }
-                for (int i = 0; i < 20; i++)
-                {
-                    if (!String.IsNullOrWhiteSpace(DetectWebView2Version()))
-                        return "WEBVIEW2_INSTALLED_VERIFIED";
-                    Thread.Sleep(750);
-                }
-                throw new InvalidOperationException(
-                    "SETUP_WEBVIEW2_INSTALL_NOT_DETECTED");
+                return InstallVerifiedWebView2(temp);
             }
             finally
             {
@@ -155,6 +121,82 @@ namespace IwxaSetup
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
             }
+        }
+
+
+        // User-selected official offline Evergreen installer. Do not bundle the
+        // large Runtime into the small Setup Core executable.
+        internal static string EnsureWebView2Offline(string executable)
+        {
+            if (!String.IsNullOrWhiteSpace(DetectWebView2Version()))
+                return "WEBVIEW2_ALREADY_INSTALLED";
+            return InstallVerifiedWebView2(executable);
+        }
+
+        // Also callable in a non-mutating Windows acceptance probe: test the
+        // real verification code without uninstalling the machine Runtime.
+        internal static string VerifyWebView2Installer(string executable)
+        {
+            if (String.IsNullOrWhiteSpace(executable) ||
+                !File.Exists(executable))
+                throw new FileNotFoundException(
+                    "SETUP_WEBVIEW2_INSTALLER_FILE_MISSING");
+            string filename = Path.GetFullPath(executable);
+            var length = new FileInfo(filename).Length;
+            if (length < 65536 || length > 1024L * 1024 * 1024)
+                throw new InvalidDataException(
+                    "SETUP_WEBVIEW2_INSTALLER_SIZE_INVALID");
+            using (var file = File.OpenRead(filename))
+            {
+                if (file.ReadByte() != 'M' || file.ReadByte() != 'Z')
+                    throw new InvalidDataException(
+                        "SETUP_WEBVIEW2_INSTALLER_NOT_EXECUTABLE");
+            }
+            VerifyMicrosoftAuthenticode(filename);
+            string product = FileVersionInfo.GetVersionInfo(filename).ProductName;
+            if (String.IsNullOrWhiteSpace(product) ||
+                (product.IndexOf("Edge", StringComparison.OrdinalIgnoreCase) < 0 &&
+                 product.IndexOf("WebView", StringComparison.OrdinalIgnoreCase) < 0))
+                throw new InvalidDataException(
+                    "SETUP_WEBVIEW2_INSTALLER_PRODUCT_UNEXPECTED");
+            return "WEBVIEW2_MICROSOFT_INSTALLER_VERIFIED";
+        }
+
+        private static string InstallVerifiedWebView2(string executable)
+        {
+            VerifyWebView2Installer(executable);
+            // Do not launch another installer if an asynchronous updater
+            // completed while validation was running.
+            if (!String.IsNullOrWhiteSpace(DetectWebView2Version()))
+                return "WEBVIEW2_ALREADY_INSTALLED";
+            using (Process installer = Process.Start(new ProcessStartInfo(
+                executable, "/silent /install") {
+                UseShellExecute = false, CreateNoWindow = true
+            }))
+            {
+                if (installer == null)
+                    throw new InvalidOperationException(
+                        "SETUP_WEBVIEW2_BOOTSTRAPPER_START_FAILED");
+                if (!installer.WaitForExit(180000))
+                {
+                    try { installer.Kill(); }
+                    catch (InvalidOperationException) { }
+                    throw new InvalidOperationException(
+                        "SETUP_WEBVIEW2_INSTALL_TIMEOUT");
+                }
+                if (installer.ExitCode != 0 &&
+                    String.IsNullOrWhiteSpace(DetectWebView2Version()))
+                    throw new InvalidOperationException(
+                        "SETUP_WEBVIEW2_INSTALL_EXIT_" + installer.ExitCode);
+            }
+            for (int i = 0; i < 20; i++)
+            {
+                if (!String.IsNullOrWhiteSpace(DetectWebView2Version()))
+                    return "WEBVIEW2_INSTALLED_VERIFIED";
+                Thread.Sleep(750);
+            }
+            throw new InvalidOperationException(
+                "SETUP_WEBVIEW2_INSTALL_NOT_DETECTED");
         }
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
