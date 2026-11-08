@@ -52,10 +52,12 @@ try {
     if((($built|Out-String)|ConvertFrom-Json).format -ne 'PE_RESOURCE_V2'){
         throw 'SETUP_FAST_NOT_V2'
     }
-    function Invoke-Setup([string]$mode,[string]$tag,[int]$expected=0){
+    function Invoke-Setup(
+        [string]$mode,[string]$tag,[int]$expected=0,[string]$binary=''){
+        if(!$binary){$binary=$bundle}
         $report=Join-Path $work ($tag+'.json')
         if(Test-Path -LiteralPath $report){Remove-Item -LiteralPath $report -Force}
-        $p=Start-Process -FilePath $bundle -ArgumentList ('{0} "{1}"' -f $mode,$report) -PassThru
+        $p=Start-Process -FilePath $binary -ArgumentList ('{0} "{1}"' -f $mode,$report) -PassThru
         try{
             if(!$p.WaitForExit(60000)){
                 Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
@@ -104,6 +106,51 @@ try {
         $uninstaller=Join-Path $root 'IWXA.SetupCore.Uninstall.exe'
         $appHash=(Get-FileHash -LiteralPath $app -Algorithm SHA256).Hash
         $uninstallerHash=(Get-FileHash -LiteralPath $uninstaller -Algorithm SHA256).Hash
+
+        # Repair, Upgrade and Rollback must never reset a user's customized
+        # Start Menu description when the entrypoint remains at the same path.
+        $ownedShortcut=$shell.CreateShortcut($link)
+        $ownedShortcut.Description='CUSTOMIZED_START_MENU_DESCRIPTION_PRESERVE_ME'
+        $ownedShortcut.Save()
+        $ownedShortcutHash=(Get-FileHash -LiteralPath $link -Algorithm SHA256).Hash
+        $repair=Invoke-Setup '--repair-file' 'repair'
+        if($repair.status -ne 'REPAIRED_BACKUP_RETAINED' -or
+           (Get-FileHash -LiteralPath $link -Algorithm SHA256).Hash -ne $ownedShortcutHash){
+            throw 'SETUP_FAST_REPAIR_OVERWROTE_USER_SHORTCUT'
+        }
+        $confirm=Invoke-Setup '--confirm-upgrade-file' 'repair-confirm'
+        if($confirm.status -ne 'UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED' -or
+           (Test-Path -LiteralPath ($root+'.iwxa-previous'))){
+            throw 'SETUP_FAST_REPAIR_CONFIRM_FAILED'
+        }
+        $nextProfile=$profile.Clone()
+        $nextProfile.version='0.3.0-dev.2'
+        $nextPath=Join-Path $work 'upgrade-profile.json'
+        $nextProfile|ConvertTo-Json -Depth 5|
+            Set-Content -LiteralPath $nextPath -Encoding UTF8
+        $upgradeBundle=Join-Path $work 'upgrade.exe'
+        $upgradeArgs=@('-m','installer.build_bundle','build-resource',
+            '--product',$nextPath,'--payload',$payload,'--stub',$stubPath,
+            '--output',$upgradeBundle,'--source-commit',$head,'--source-tree',$tree)
+        $builtUpgrade=& python @upgradeArgs
+        if($LASTEXITCODE -ne 0 -or
+           (($builtUpgrade|Out-String)|ConvertFrom-Json).format -ne 'PE_RESOURCE_V2'){
+            throw 'SETUP_FAST_UPGRADE_PACKAGE_BUILD_FAILED'
+        }
+        $upgraded=Invoke-Setup '--upgrade-file' 'upgrade' 0 $upgradeBundle
+        if($upgraded.status -ne 'UPGRADED_BACKUP_RETAINED' -or
+           (Get-FileHash -LiteralPath $link -Algorithm SHA256).Hash -ne $ownedShortcutHash){
+            throw 'SETUP_FAST_UPGRADE_OVERWROTE_USER_SHORTCUT'
+        }
+        $rolled=Invoke-Setup '--rollback-upgrade-file' 'rollback' 0 $upgradeBundle
+        if($rolled.status -ne 'ROLLBACK_RESTORED_PREVIOUS' -or
+           (Get-FileHash -LiteralPath $link -Algorithm SHA256).Hash -ne $ownedShortcutHash -or
+           (Get-FileHash -LiteralPath $app -Algorithm SHA256).Hash -ne $appHash -or
+           (Test-Path -LiteralPath ($root+'.iwxa-previous'))){
+            throw 'SETUP_FAST_ROLLBACK_OVERWROTE_USER_SHORTCUT'
+        }
+        Write-Host 'IWXA_SETUP_FAST_REPAIR_UPGRADE_ROLLBACK_PRESERVE_SHORTCUT_PASS'
+
         $originalFlags=[IO.File]::GetAttributes($uninstaller)
         try{
             [IO.File]::SetAttributes($uninstaller,
