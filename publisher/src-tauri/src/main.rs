@@ -189,7 +189,7 @@ fn publisher_compare_offline_copies() -> Result<Option<OfflineCopiesCheck>, Stri
 // Publisher copies a T3 owner-exported pair of signed envelopes BYTES FOR
 // BYTES. This adapter cannot sign, verify issuer trust, or activate seats.
 // The real authorizing signer is only the previously configured T3 owner Host.
-const TEST_DELIVERY_MAX_BYTES: usize=1024*1024;
+const TEST_DELIVERY_MAX_BYTES: usize=4*1024*1024;
 struct DeliveryLock(Mutex<Option<Vec<u8>>>);
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
@@ -307,6 +307,101 @@ fn publisher_export_test_delivery(state:State<DeliveryLock>,expected_sha256:Stri
     match destination{
         Some(path)=>write_test_delivery_copy(&path,bytes).map(|_|true),
         None=>Ok(false)
+    }
+}
+
+
+const PUBLISHER_TEST_IWXA_MAX_BYTES: usize = 4 * 1024 * 1024;
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+struct UnverifiedIwxaCarrier {
+    size: usize,
+    sha256: String,
+    integrity_verified: bool,
+    signature_verified: bool,
+    status_verified: bool,
+    active_seats: u8,
+    production_activation: bool,
+}
+fn publisher_read_test_iwxa(path: &Path) -> Result<(Vec<u8>, UnverifiedIwxaCarrier), String> {
+    if path.extension().and_then(|x|x.to_str()) != Some("iwxa") {
+        return Err("PUBLISHER_IWXA_EXTENSION_REQUIRED".into());
+    }
+    let metadata=fs::metadata(path).map_err(|_| "PUBLISHER_IWXA_FILE_UNREADABLE")?;
+    if !metadata.is_file() || metadata.len()==0 ||
+       metadata.len() > PUBLISHER_TEST_IWXA_MAX_BYTES as u64 {
+        return Err("PUBLISHER_IWXA_SIZE_INVALID".into());
+    }
+    let bytes=fs::read(path).map_err(|_| "PUBLISHER_IWXA_FILE_UNREADABLE")?;
+    if bytes.len() != metadata.len() as usize {return Err("PUBLISHER_IWXA_FILE_CHANGED".into());}
+    // Only the canonical T3 package codec may validate manifest, signatures
+    // or issuer. Rust does not parse private T3 contracts or install trust.
+    if !bytes.starts_with(b"PK\\x03\\x04") {
+        return Err("PUBLISHER_IWXA_NOT_ZIP".into());
+    }
+    let summary=UnverifiedIwxaCarrier{
+        size:bytes.len(),sha256:format!("{:x}",Sha256::digest(&bytes)),
+        integrity_verified:false,signature_verified:false,status_verified:false,
+        active_seats:0,production_activation:false
+    };
+    Ok((bytes,summary))
+}
+#[tauri::command]
+fn publisher_select_test_iwxa(state:State<DeliveryLock>)->Result<Option<UnverifiedIwxaCarrier>,String>{
+    *state.0.lock().map_err(|_|"PUBLISHER_IWXA_LOCK_FAILED")?=None;
+    let selection=rfd::FileDialog::new().set_title("Publisher: пакет .iwxa из T3")
+        .add_filter("IWXA",&["iwxa"]).pick_file();
+    match selection {
+        Some(path)=>{
+            let (bytes,summary)=publisher_read_test_iwxa(&path)?;
+            *state.0.lock().map_err(|_|"PUBLISHER_IWXA_LOCK_FAILED")?=Some(bytes);
+            Ok(Some(summary))
+        },
+        None=>Ok(None)
+    }
+}
+#[tauri::command]
+fn publisher_export_test_iwxa(state:State<DeliveryLock>,expected_sha256:String)->Result<bool,String>{
+    let saved=state.0.lock().map_err(|_|"PUBLISHER_IWXA_LOCK_FAILED")?;
+    let bytes=saved.as_ref().ok_or("PUBLISHER_IWXA_NOT_SELECTED")?;
+    if bytes.len() > PUBLISHER_TEST_IWXA_MAX_BYTES ||
+       expected_sha256!=format!("{:x}",Sha256::digest(bytes)) {
+        return Err("PUBLISHER_IWXA_SELECTION_CHANGED".into());
+    }
+    let path=rfd::FileDialog::new().set_title("Publisher: передать TEST .iwxa в Admin Center")
+        .add_filter("IWXA",&["iwxa"]).set_file_name("iwxa-product-test-delivery.iwxa").save_file();
+    match path {
+        Some(path)=>{
+            if path.extension().and_then(|x|x.to_str())!=Some("iwxa"){
+                return Err("PUBLISHER_IWXA_EXTENSION_REQUIRED".into());
+            }
+            write_test_delivery_copy(&path,bytes).map(|_|true)
+        },
+        None=>Ok(false)
+    }
+}
+#[cfg(test)]
+mod publisher_iwxa_carrier_native_tests {
+    use super::*;
+    #[test]
+    fn native_transport_never_calls_zip_signer_or_claims_entitlements() {
+        let name=std::env::temp_dir().join(format!("test-iwxa-native-{}-{}.iwxa",
+            std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let contents=b"PK\\x03\\x04\\x00opaque-test-only-not-a-verified-license";
+        fs::write(&name,contents).unwrap();
+        let (selected,preview)=publisher_read_test_iwxa(&name).unwrap();
+        assert_eq!(selected,contents);
+        assert!(!preview.integrity_verified);
+        assert!(!preview.signature_verified);
+        assert!(!preview.status_verified);
+        assert_eq!(preview.active_seats,0);
+        assert!(!preview.production_activation);
+        assert_eq!(preview.sha256,format!("{:x}",Sha256::digest(contents)));
+        let other=name.with_extension("json");
+        fs::write(&other,contents).unwrap();
+        assert!(publisher_read_test_iwxa(&other).is_err());
+        let _=fs::remove_file(&name);
+        let _=fs::remove_file(&other);
     }
 }
 
@@ -470,7 +565,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             publisher_draft_read, publisher_draft_save, publisher_inspect_artifact, publisher_save_test_request,
             publisher_export_preparation_backup, publisher_pick_preparation_backup,
-            publisher_compare_offline_copies, publisher_select_test_delivery, publisher_export_test_delivery
+            publisher_compare_offline_copies, publisher_select_test_delivery, publisher_export_test_delivery,
+            publisher_select_test_iwxa, publisher_export_test_iwxa
         ])
         .run(tauri::generate_context!())
         .expect("IWXA Publisher could not start");

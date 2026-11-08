@@ -42,6 +42,13 @@ try {
       if(command==='publisher_export_preparation_backup')return false;
       if(command==='publisher_pick_preparation_backup')return null;
       if(command==='publisher_inspect_artifact')return null;
+      if(command==='publisher_select_test_iwxa')return {
+        size:348,sha256:'b'.repeat(64),integrityVerified:false,signatureVerified:false,
+        statusVerified:false,productionActivation:false,activeSeats:0};
+      if(command==='publisher_export_test_iwxa'){
+        if(args.expectedSha256!=='b'.repeat(64))throw new Error('PUBLISHER_IWXA_SELECTION_CHANGED');
+        return true;
+      }
       if(command==='publisher_select_test_delivery')return {
         size:256,sha256:'a'.repeat(64),licenseId:'license:test:delivery:1',organizationId:'org:test',
         claimedStatus:'ACTIVE',claimedSeats:4,statusSequence:1,signatureVerified:false,
@@ -64,16 +71,16 @@ try {
   assert.match(await page.locator('main').innerText(),/Подписанных лицензий: 0/);
   checks.push('empty-owner-first-run-no-synthetic-license');
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
-  const select=page.getByTestId('publisher-select-test-delivery');
-  const exportButton=page.getByTestId('publisher-export-test-delivery');
+  const select=page.getByTestId('publisher-select-test-iwxa');
+  const exportButton=page.getByTestId('publisher-export-test-iwxa');
   assert.equal(await exportButton.isEnabled(),false);
   await select.click();
-  await page.getByTestId('publisher-test-delivery-unverified').waitFor();
-  assert.match(await page.getByTestId('publisher-test-delivery-unverified').innerText(),/Подтверждённых мест: 0/);
-  assert.match(await page.getByTestId('publisher-test-delivery-unverified').innerText(),/подлинность ещё не проверена/);
+  await page.getByTestId('publisher-iwxa-unverified').waitFor();
+  assert.match(await page.getByTestId('publisher-iwxa-unverified').innerText(),/Подтверждённых мест: 0/);
+  assert.match(await page.getByTestId('publisher-iwxa-unverified').innerText(),/Подлинность и статус не проверены/);
   await exportButton.click();
-  assert.match(await page.locator('main').innerText(),/Точная копия TEST-файла экспортирована/);
-  checks.push('publisher-test-delivery-native-transport-unverified-zero-seats');
+  assert.match(await page.locator('main').innerText(),/Пакет .iwxa передан без изменения байтов/);
+  checks.push('publisher-canonical-iwxa-native-transport-unverified-zero-seats');
   await page.getByRole('button',{name:'Обзор'}).click();
 
   const mark=page.locator('.publisher-brand-logo');

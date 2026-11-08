@@ -17,6 +17,7 @@ type OfflineCopiesCheck = {
  physicalIndependenceVerified:boolean;publisherAuthorized:boolean;
  signedReleaseMetadataVerified:boolean;
 };
+type IwxaTransfer={size:number;sha256:string;integrityVerified:false;signatureVerified:false;statusVerified:false;activeSeats:0;productionActivation:false;};
 type TestDeliverySelection={size:number;sha256:string;licenseId:string;
  organizationId:string;claimedStatus:string;claimedSeats:number;statusSequence:number;
  signatureVerified:false;statusVerified:false;commercialAuthorityProven:false;
@@ -90,6 +91,7 @@ export default function App(){
  const [inspected,setInspected]=useState<Inspection|null>(null);
  const [offlineCopies,setOfflineCopies]=useState<OfflineCopiesCheck|null>(null);
  const [selectedTestDelivery,setSelectedTestDelivery]=useState<TestDeliverySelection|null>(null);
+ const [selectedIwxa,setSelectedIwxa]=useState<IwxaTransfer|null>(null);
  const [releaseProduct,setReleaseProduct]=useState('');
  const [releasePlatform,setReleasePlatform]=useState('windows-x64');
  const [releaseRepo,setReleaseRepo]=useState('Faust-S/Center');
@@ -229,6 +231,31 @@ export default function App(){
      const saved=await invoke('publisher_export_test_delivery',{expectedSha256:selectedTestDelivery.sha256});
      setMessage(saved?'Точная копия TEST-файла экспортирована. Это транспорт, а не активация; Center обязан проверить её в T3.':'Экспорт TEST-файла отменён.');
    }catch(e){setError('Экспорт TEST-файла не выполнен: '+getError(e));}
+   finally{setBusy(false);}
+ }
+ async function selectTestIwxa(){
+   if(busy||!loaded||!nativeHost)return;
+   setBusy(true);setError('');setMessage('');setSelectedIwxa(null);
+   try{
+     const v=await invoke('publisher_select_test_iwxa');
+     if(v===null){setMessage('Выбор пакета отменён.');return;}
+     if(!v||!Number.isSafeInteger(v.size)||v.size<=0||
+       typeof v.sha256!=='string'||!/^[0-9a-f]{64}$/.test(v.sha256)||
+       v.integrityVerified!==false||v.signatureVerified!==false||
+       v.statusVerified!==false||v.productionActivation!==false||v.activeSeats!==0)
+       throw Error('PUBLISHER_IWXA_NATIVE_UNVERIFIED_REPORT_REQUIRED');
+     setSelectedIwxa(v as IwxaTransfer);
+     setMessage('Пакет .iwxa выбран. Проверка T3 и выдача доступа ещё не выполнялись.');
+   }catch(e){setError('Не удалось выбрать .iwxa: '+getError(e));}
+   finally{setBusy(false);}
+ }
+ async function exportTestIwxa(){
+   if(busy||!loaded||!nativeHost||!selectedIwxa)return;
+   setBusy(true);setError('');setMessage('');
+   try{
+     const saved=await invoke('publisher_export_test_iwxa',{expectedSha256:selectedIwxa.sha256});
+     setMessage(saved?'Пакет .iwxa передан без изменения байтов. Подпись и текущий статус проверит Admin Center через T3.':'Передача пакета отменена.');
+   }catch(e){setError('Не удалось передать .iwxa: '+getError(e));}
    finally{setBusy(false);}
  }
  function go(p:Page){setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);setOfflineCopies(null);}
@@ -390,17 +417,16 @@ export default function App(){
            <div className="simple-row"><div><strong>Подпись статуса</strong><small>Независимый purpose key</small></div><span className="status neutral">Недоступно</span></div>
            <p className="muted">Планируемое подключение не является действительным issuer, лицензией или назначением прав.</p>
            <div className="divider"></div>
-           <h3>Передача подписанной пары из T3</h3>
-           <p className="muted">Выберите файл, ранее экспортированный уполномоченным T3 Host. Publisher копирует точные байты для передачи в Admin Center, но самостоятельно не проверяет подписи и не создаёт лицензии.</p>
+           <h3>Передача продуктовой TEST-лицензии через .iwxa</h3>
+           <p className="muted">Пакет выдаётся доверенным Owner Host уровня T3. Publisher передаёт его в Admin Center без изменения байтов. Приватные ключи и права не экспортируются.</p>
            <div className="actions">
-             <button className="secondary" data-testid="publisher-select-test-delivery" disabled={busy} onClick={chooseTestDelivery}>Выбрать файл T3</button>
-             <button className="secondary" data-testid="publisher-export-test-delivery" disabled={busy||!selectedTestDelivery} onClick={exportTestDelivery}>Экспортировать для Center</button>
+             <button className="secondary" data-testid="publisher-select-test-iwxa" disabled={busy} onClick={selectTestIwxa}>Открыть пакет .iwxa</button>
+             <button className="secondary" data-testid="publisher-export-test-iwxa" disabled={busy||!selectedIwxa} onClick={exportTestIwxa}>Передать .iwxa в Center</button>
            </div>
-           {selectedTestDelivery&&<div data-testid="publisher-test-delivery-unverified" role="status">
-              <p><strong>Файл выбран, подлинность ещё не проверена.</strong></p>
-              <p>Лицензия {selectedTestDelivery.licenseId}, организация {selectedTestDelivery.organizationId}. Заявленный статус {selectedTestDelivery.claimedStatus}, последовательность {selectedTestDelivery.statusSequence}.</p>
-              <p>Заявлено мест: {selectedTestDelivery.claimedSeats}. Подтверждённых мест: 0.</p>
-              <p className="muted">SHA-256 выбранных байтов: <code>{selectedTestDelivery.sha256}</code></p>
+           {selectedIwxa&&<div data-testid="publisher-iwxa-unverified" role="status">
+             <p><strong>Пакет выбран. Подлинность и статус не проверены.</strong></p>
+             <p>Размер: {selectedIwxa.size} байт. Подтверждённых мест: 0.</p>
+             <p className="muted">SHA-256: <code>{selectedIwxa.sha256}</code></p>
            </div>}
            </section>}
      </>}
