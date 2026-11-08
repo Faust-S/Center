@@ -64,8 +64,20 @@ jobs:
         with:
           name: setup-core-benchmark-25
           path: artifacts/setup-core-benchmark-25.json
+      # Explicitly opt-in high-memory stress only with perf(large): commits.
+      # Keep ordinary feature push CI unchanged and without 1.5 GiB fixtures.
+      - name: Stress PE-resource packaging at 250 750 and 1500 MiB
+        if: ${{ runner.os == 'Windows' && startsWith(github.event.head_commit.message, 'perf(large):') }}
+        shell: pwsh
+        timeout-minutes: 30
+        run: ./installer/windows/benchmark-package.ps1 -Stub artifacts/iwxa-setup-core-early.exe -SizesMiB 250,750,1500
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && runner.os == 'Windows' && startsWith(github.event.head_commit.message, 'perf(large):') }}
+        with:
+          name: setup-core-benchmark-large
+          path: artifacts/setup-core-benchmark-*.json
   interface:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'perf(large):') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -93,7 +105,7 @@ jobs:
             package-lock.json
             dist/
   windows-shell:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'perf(large):') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

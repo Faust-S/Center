@@ -31,17 +31,28 @@ try {
         New-Item -ItemType Directory -Path $root | Out-Null
         $payload=Join-Path $root 'payload'
         New-Item -ItemType Directory -Path $payload | Out-Null
-        $data=Join-Path $payload 'synthetic.dat'
-        $stream=[IO.File]::Open($data,[IO.FileMode]::CreateNew,
-            [IO.FileAccess]::Write,[IO.FileShare]::None)
+        # Keep each member under the real 1 GiB per-file limit; 1.5 GiB
+        # stress is a supported three-file product, not an unsafe exception.
         $buffer=New-Object 'System.Byte[]' (1024*1024)
         $rng=[Security.Cryptography.RandomNumberGenerator]::Create()
         try{
-            for($k=0;$k -lt $mib;$k++){
-                $rng.GetBytes($buffer)
-                $stream.Write($buffer,0,$buffer.Length)
+            [int]$remaining=$mib
+            [int]$part=0
+            while($remaining -gt 0){
+                [int]$size=[Math]::Min(500,$remaining)
+                $data=Join-Path $payload ('synthetic-{0:d2}.dat' -f $part)
+                $stream=[IO.File]::Open($data,[IO.FileMode]::CreateNew,
+                    [IO.FileAccess]::Write,[IO.FileShare]::None)
+                try{
+                    for($k=0;$k -lt $size;$k++){
+                        $rng.GetBytes($buffer)
+                        $stream.Write($buffer,0,$buffer.Length)
+                    }
+                } finally {$stream.Dispose()}
+                $remaining-=$size
+                $part++
             }
-        }finally{$rng.Dispose();$stream.Dispose()}
+        }finally{$rng.Dispose()}
         $profile=@{
             schema='IWXA_SETUP_PRODUCT/1'
             id='iwxa.setup.benchmark'
