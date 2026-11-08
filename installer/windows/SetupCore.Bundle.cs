@@ -22,6 +22,7 @@ namespace IwxaSetup
         internal string InstallDir;
         internal bool NeedsWebView2;
         internal long PayloadBytes;
+        internal long PackageBytes;
         internal string SourceCommit;
         internal string PackageSha256;
         internal string PackageFormat;
@@ -129,6 +130,7 @@ namespace IwxaSetup
                     Entrypoint = SafePath(StringValue(product, "entrypoint")),
                     InstallDir = SafePath(StringValue(product, "install_dir")),
                     PackageSha256 = Hex(zipHash),
+                    PackageBytes = new FileInfo(executable).Length,
                     PackageFormat = resourcePackage ? "PE_RESOURCE_V2" : "ZIP_OVERLAY_V1",
                 };
                 if (!Regex.IsMatch(info.Id, @"\A[a-z][a-z0-9.-]{2,63}\z") ||

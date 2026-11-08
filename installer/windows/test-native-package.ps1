@@ -60,6 +60,16 @@ try {
     }
 
     $native = Invoke-NativeInspection $bundle $report 0
+    $disk = Invoke-NativeInspection $bundle (
+        Join-Path $artifact 'setup-core-disk-plan.json') 0 '--disk-plan-file'
+    if ($disk.status -ne 'DISK_SPACE_READY' -or
+        $disk.product -ne 'iwxa.admin-center' -or
+        $disk.packageBytes -ne (Get-Item -LiteralPath $bundle).Length -or
+        $disk.requiredBytes -lt ($disk.packageBytes + $disk.payloadBytes) -or
+        $disk.availableBytes -lt $disk.requiredBytes) {
+        throw 'SETUP_DISK_PLAN_INVALID_OR_INSUFFICIENT_ON_CI'
+    }
+    Write-Host "IWXA_SETUP_NATIVE_DISK_CAPACITY_PLAN_PASS required=$($disk.requiredBytes) available=$($disk.availableBytes)"
     if ($native.status -ne 'VERIFIED' -or $native.product -ne $manifest.product -or
         $native.version -ne '0.3.0-dev.1' -or $native.sourceCommit -ne $sourceHead -or
         $native.packageSha256 -ne $manifest.payload_sha256 -or

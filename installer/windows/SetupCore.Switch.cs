@@ -68,6 +68,8 @@ namespace IwxaSetup
             if (Directory.Exists(previous) || File.Exists(previous))
                 throw new InvalidOperationException("SETUP_UPGRADE_RECOVERY_REQUIRED");
 
+            // Reject insufficient disk before changing the registered release.
+            RequireStageSpace(candidate);
             // Same-volume stage; each payload file is verified by BundleReader.
             string staged = root + ".iwxa-new-" + Guid.NewGuid().ToString("N");
             Directory.CreateDirectory(staged);

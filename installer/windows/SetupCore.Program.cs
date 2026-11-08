@@ -36,6 +36,31 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            // Report a truthful, non-mutating capacity estimate for Windows
+            // acceptance and explain insufficient disk before activation.
+            if (args.Length == 2 && args[0] == "--disk-plan-file")
+            {
+                try
+                {
+                    BundleInfo info = BundleReader.Inspect(Application.ExecutablePath);
+                    SetupDiskPlan plan = SetupInstallation.CheckStageSpace(info);
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", plan.Status}, {"product", info.Id},
+                        {"requiredBytes", plan.RequiredBytes},
+                        {"availableBytes", plan.AvailableBytes},
+                        {"packageBytes", info.PackageBytes},
+                        {"payloadBytes", info.PayloadBytes}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             // Verification is read-only and works on an unbundled Setup stub.
             // It is used to reject an unsigned or unrelated EXE in CI.
             if (args.Length == 3 &&

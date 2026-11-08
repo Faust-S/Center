@@ -242,6 +242,18 @@ namespace IwxaSetup
             secondary.TabStop = alternate != SetupOperation.None;
         }
 
+        private void ShowDiskSpaceRequired(SetupDiskPlan disk, string versionLine)
+        {
+            long missingMiB = (disk.RequiredBytes - disk.AvailableBytes +
+                1024 * 1024 - 1) / (1024 * 1024);
+            SetState(T("Недостаточно места на диске",
+                       "Not enough free disk space"),
+                T("Освободите ещё примерно ", "Free approximately ") +
+                missingMiB + T(" МБ и повторите проверку. Данные не изменены.",
+                               " MB and verify again. No application files were changed."),
+                versionLine, true);
+        }
+
         private void SetState(
             string heading, string details, string versionLine, bool warning)
         {
@@ -446,6 +458,17 @@ namespace IwxaSetup
                             "Повторите установку или выберите автономный файл Microsoft. Приложение не изменено.",
                             "Retry or select Microsoft's offline installer. Application files were not changed.");
                 }
+                else if (failure.Message.StartsWith(
+                    "SETUP_DISK_SPACE_INSUFFICIENT", StringComparison.Ordinal))
+                {
+                    status.Text = T("Недостаточно места на диске",
+                        "Not enough free disk space");
+                    version.Text = T("Освободите место и повторите попытку",
+                        "Free disk space and try again");
+                    packageDetails.Text = T(
+                        "Установка не переключала версию приложения. Освободите место на диске и проверьте снова.",
+                        "The existing version was not switched. Free disk space and verify again.");
+                }
                 else
                 {
                     status.Text = T("Операция не завершена", "Operation incomplete");
@@ -490,10 +513,15 @@ namespace IwxaSetup
                     InstallPreflight check = SetupReadiness.Check(info);
                     if (check.Status == "READY_FOR_FIRST_INSTALL")
                     {
-                        SetState(T("Готово к установке", "Ready to install"),
-                            packageLine, versionLine, false);
-                        ConfigureActions(SetupOperation.Install, SetupOperation.None,
-                            T("Установить", "Install"));
+                        SetupDiskPlan disk = SetupInstallation.CheckStageSpace(info);
+                        if (disk.Status == "DISK_SPACE_READY")
+                        {
+                            SetState(T("Готово к установке", "Ready to install"),
+                                packageLine, versionLine, false);
+                            ConfigureActions(SetupOperation.Install, SetupOperation.None,
+                                T("Установить", "Install"));
+                        }
+                        else ShowDiskSpaceRequired(disk, versionLine);
                     }
                     else if (check.Status == "WEBVIEW2_MISSING")
                     {
@@ -517,6 +545,13 @@ namespace IwxaSetup
                 }
                 else if (plan.Status == "UPGRADE_CANDIDATE_NOT_ACTIVATED")
                 {
+                    SetupDiskPlan disk = SetupInstallation.CheckStageSpace(info);
+                    if (disk.Status != "DISK_SPACE_READY")
+                    {
+                        ShowDiskSpaceRequired(disk, versionLine);
+                    }
+                    else
+                    {
                     SetState(T("Доступно обновление", "Update available"),
                         T("Текущая версия: ", "Installed version: ") +
                         plan.InstalledVersion + "   •   " +
@@ -525,6 +560,7 @@ namespace IwxaSetup
                         versionLine, false);
                     ConfigureActions(SetupOperation.Upgrade, SetupOperation.None,
                         T("Обновить", "Update"));
+                    }
                 }
                 else if (plan.Status == "UPGRADE_PENDING_CONFIRMATION")
                 {
@@ -550,6 +586,13 @@ namespace IwxaSetup
                 }
                 else if (plan.Status == "REPAIR_CANDIDATE_NOT_ACTIVATED")
                 {
+                    SetupDiskPlan disk = SetupInstallation.CheckStageSpace(info);
+                    if (disk.Status != "DISK_SPACE_READY")
+                    {
+                        ShowDiskSpaceRequired(disk, versionLine);
+                    }
+                    else
+                    {
                     SetState(T("Эта версия уже установлена", "This version is installed"),
                         T("Если программа повреждена, её файлы можно восстановить без удаления личных данных.",
                           "If the application is damaged, repair its files without deleting personal data."),
@@ -560,6 +603,7 @@ namespace IwxaSetup
                     openApplication.Text = T("Открыть установленную программу",
                         "Open installed application");
                     openApplication.Visible = true;
+                    }
                 }
                 else if (plan.Status == "LEGACY_MIGRATION_HOLD")
                 {
@@ -582,6 +626,13 @@ namespace IwxaSetup
                     }
                     else if (old.Status == "LEGACY_CONFIRMED_READ_ONLY")
                     {
+                        SetupDiskPlan disk = SetupInstallation.CheckStageSpace(info);
+                        if (disk.Status != "DISK_SPACE_READY")
+                        {
+                            ShowDiskSpaceRequired(disk, versionLine);
+                        }
+                        else
+                        {
                         SetState(T("Найдена прежняя версия " + old.Version,
                                    "Installed legacy version " + old.Version),
                             T("Установить " + info.Version + " отдельно для проверки. Прежняя программа, ярлыки и данные не удаляются.",
@@ -589,6 +640,7 @@ namespace IwxaSetup
                             versionLine, false);
                         ConfigureActions(SetupOperation.StageLegacyPreview,
                             SetupOperation.None, T("Установить для проверки", "Install to preview"));
+                        }
                     }
                     else
                     {

@@ -19,6 +19,13 @@ namespace IwxaSetup
         internal string Root;
     }
 
+    internal sealed class SetupDiskPlan
+    {
+        internal string Status;
+        internal long RequiredBytes;
+        internal long AvailableBytes;
+    }
+
     internal static partial class SetupInstallation
     {
         private const string ReceiptFile = ".iwxa-setup-ownership.json";
@@ -31,6 +38,39 @@ namespace IwxaSetup
             return Path.GetFullPath(Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Programs", info.InstallDir));
+        }
+
+        internal static SetupDiskPlan CheckStageSpace(BundleInfo info)
+        {
+            // Verified unpacked bytes + a complete same-volume installer copy.
+            // The existing release is moved, not copied, during upgrade.
+            // Reserve 64 MiB plus 2% for NTFS metadata and extraction overhead.
+            if (info.PayloadBytes <= 0 || info.PackageBytes <= 0)
+                throw new InvalidDataException("SETUP_DISK_PACKAGE_SIZE_UNKNOWN");
+            long required = checked(info.PayloadBytes + info.PackageBytes +
+                64L * 1024 * 1024 + info.PayloadBytes / 50);
+            string driveRoot = Path.GetPathRoot(RootFor(info));
+            if (String.IsNullOrWhiteSpace(driveRoot))
+                throw new IOException("SETUP_DISK_VOLUME_UNAVAILABLE");
+            var volume = new DriveInfo(driveRoot);
+            if (!volume.IsReady)
+                throw new IOException("SETUP_DISK_VOLUME_UNAVAILABLE");
+            long available = volume.AvailableFreeSpace;
+            return new SetupDiskPlan {
+                Status = available >= required ?
+                    "DISK_SPACE_READY" : "DISK_SPACE_INSUFFICIENT",
+                RequiredBytes = required,
+                AvailableBytes = available
+            };
+        }
+
+        private static void RequireStageSpace(BundleInfo info)
+        {
+            SetupDiskPlan disk = CheckStageSpace(info);
+            if (disk.Status != "DISK_SPACE_READY")
+                throw new InvalidOperationException(
+                    "SETUP_DISK_SPACE_INSUFFICIENT_required=" +
+                    disk.RequiredBytes + "_available=" + disk.AvailableBytes);
         }
 
         internal static InstallOutcome InstallFresh(string bundle)
@@ -89,6 +129,7 @@ namespace IwxaSetup
             if (legacy != null && readiness.Status != "LEGACY_INSTALLATION")
                 throw new InvalidOperationException("SETUP_LEGACY_STATE_CHANGED");
             string root = RootFor(info);
+            RequireStageSpace(info);
             string parent = Path.GetDirectoryName(root);
             Directory.CreateDirectory(parent);
             if (Directory.Exists(root) || File.Exists(root))
