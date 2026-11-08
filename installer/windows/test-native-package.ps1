@@ -12,6 +12,8 @@ try {
     $bundle = Join-Path $artifact 'iwxa-setup-core-center-0.3-preview.exe'
     $payload = Join-Path $artifact 'setup-core-test-payload'
     $report = Join-Path $artifact 'setup-core-native-inspection.json'
+    $script:nativeTimings = New-Object System.Collections.ArrayList
+    $builderTimer = [Diagnostics.Stopwatch]::StartNew()
     $damaged = Join-Path $artifact 'setup-core-tampered.exe'
     $badReport = Join-Path $artifact 'setup-core-tampered-report.json'
     $exe = Join-Path $root 'src-tauri/target/release/iwxa-admin-center.exe'
@@ -36,6 +38,7 @@ try {
         '--output', $bundle, '--source-commit', $sourceHead, '--source-tree', $sourceTree
     )
     $details = & python @arguments
+    $builderTimer.Stop()
     if ($LASTEXITCODE -ne 0) { throw 'SETUP_BUNDLE_BUILD_FAILED' }
     $manifest = $details | ConvertFrom-Json
     if ($manifest.status -ne 'VERIFIED' -or
@@ -45,6 +48,7 @@ try {
     }
 
     function Invoke-NativeInspection([string]$binary, [string]$jsonPath, [int]$expected, [string]$mode = '--inspect-file') {
+        $timer = [Diagnostics.Stopwatch]::StartNew()
         $cmd = Start-Process -FilePath $binary -ArgumentList ('{0} "{1}"' -f $mode, $jsonPath) -PassThru
         try {
             if (!$cmd.WaitForExit(90000)) {
@@ -54,7 +58,19 @@ try {
             if ($cmd.ExitCode -ne $expected) {
                 throw ('SETUP_NATIVE_INSPECTION_EXIT actual={0} expected={1}' -f $cmd.ExitCode, $expected)
             }
-        } finally { $cmd.Dispose() }
+        } finally {
+            $timer.Stop()
+            [long]$peak = 0
+            try { $peak = [long]$cmd.PeakWorkingSet64 } catch {}
+            [void]$script:nativeTimings.Add([pscustomobject]@{
+                mode = $mode
+                label = [IO.Path]::GetFileNameWithoutExtension($jsonPath)
+                durationMs = $timer.ElapsedMilliseconds
+                peakWorkingSetBytes = $peak
+                binaryBytes = (Get-Item -LiteralPath $binary).Length
+            })
+            $cmd.Dispose()
+        }
         if (!(Test-Path -LiteralPath $jsonPath -PathType Leaf)) {
             throw 'SETUP_NATIVE_INSPECTION_REPORT_MISSING'
         }
@@ -767,6 +783,7 @@ try {
     Write-Host 'IWXA_SETUP_NATIVE_TAMPER_REJECTED_PASS'
 
     # The native form is not an installer yet; check real Windows GUI / title.
+    $windowTimer = [Diagnostics.Stopwatch]::StartNew()
     $gui = Start-Process -FilePath $bundle -PassThru
     try {
         $found = $false
@@ -848,6 +865,37 @@ try {
             throw 'SETUP_NATIVE_CLOSE_ACTION_NOT_ACCESSIBLE'
         }
         Write-Host 'IWXA_SETUP_NATIVE_CLOSE_ACTION_ACCESSIBLE_PASS'
+        # Window title is not proof that VerifyAsync has completed. Wait for
+        # the actual native primary action to become enabled and visible.
+        [long]$readyMilliseconds = -1
+        for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            $controls = $window.FindAll(
+                [System.Windows.Automation.TreeScope]::Descendants,
+                [System.Windows.Automation.Condition]::TrueCondition)
+            $ready = $false
+            foreach ($control in $controls) {
+                try {
+                    if ($control.Current.Name -in @(
+                        'Установить', 'Install', 'Восстановить файлы', 'Repair files',
+                        'Обновить', 'Update') -and
+                        $control.Current.IsEnabled -and
+                        !$control.Current.IsOffscreen) {
+                        $ready = $true
+                        break
+                    }
+                } catch {}
+            }
+            if ($ready) {
+                $windowTimer.Stop()
+                $readyMilliseconds = $windowTimer.ElapsedMilliseconds
+                break
+            }
+            Start-Sleep -Milliseconds 100
+        }
+        if ($readyMilliseconds -lt 0) {
+            throw 'SETUP_NATIVE_FIRST_ACTION_READY_NOT_OBSERVED'
+        }
+        Write-Host "IWXA_SETUP_WINDOW_FIRST_ACTION_READY_MS=$readyMilliseconds"
         if ($null -eq $titleElement) {
             Write-Host ("IWXA_SETUP_UIA_NAMES=" +
                 ((@($descendants | ForEach-Object { try { $_.Current.Name } catch {} }) |
@@ -873,6 +921,23 @@ try {
         $gui.Dispose()
     }
     $hash = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash
+    $nativePerf = [ordered]@{
+        schema = 'IWXA_SETUP_NATIVE_LIFECYCLE_PERF/1'
+        sourceHead = $sourceHead
+        sourceTree = $sourceTree
+        hostOS = [Environment]::OSVersion.VersionString
+        nativeWindowsEXE = 'iwxa-admin-center.exe'
+        firstActionReadyMs = $readyMilliseconds
+        primaryBundleBytes = (Get-Item -LiteralPath $bundle).Length
+        installedUninstallerBytes = (Get-Item -LiteralPath $bundle).Length
+        initialPackagingMs = $builderTimer.ElapsedMilliseconds
+        operations = @($script:nativeTimings)
+    }
+    $perfPath = Join-Path $artifact 'setup-core-native-performance.json'
+    [IO.File]::WriteAllText($perfPath,
+        ($nativePerf | ConvertTo-Json -Depth 6),
+        ([Text.UTF8Encoding]::new($false)))
+    Write-Host "IWXA_SETUP_NATIVE_PERFORMANCE_REPORT_PASS path=$perfPath operations=$($script:nativeTimings.Count)"
     Write-Host "IWXA_SETUP_CORE_S1_PASS SHA256=$hash SIZE=$((Get-Item $bundle).Length)"
 }
 finally { Pop-Location }
