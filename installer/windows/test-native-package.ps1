@@ -424,6 +424,7 @@ try {
         Write-Host "IWXA_SETUP_NATIVE_GUI_PASS title=$($gui.MainWindowTitle)"
 
         Add-Type -AssemblyName System.Drawing
+        Add-Type -AssemblyName System.Windows.Forms
         Add-Type -AssemblyName UIAutomationClient
         $window = [System.Windows.Automation.AutomationElement]::FromHandle($gui.MainWindowHandle)
         $windowBounds = $window.Current.BoundingRectangle
