@@ -17,6 +17,10 @@ type OfflineCopiesCheck = {
  physicalIndependenceVerified:boolean;publisherAuthorized:boolean;
  signedReleaseMetadataVerified:boolean;
 };
+type TestDeliverySelection={size:number;sha256:string;licenseId:string;
+ organizationId:string;claimedStatus:string;claimedSeats:number;statusSequence:number;
+ signatureVerified:false;statusVerified:false;commercialAuthorityProven:false;
+ productionActivation:false;activeSeats:0;};
 type Page = 'overview'|'products'|'holders'|'proposals'|'releases'|'trust';
 const navigation: [Page,string][] = [
  ['overview','Обзор'],['products','Продукты'],['holders','Получатели'],
@@ -85,6 +89,7 @@ export default function App(){
  },[simulated]);
  const [inspected,setInspected]=useState<Inspection|null>(null);
  const [offlineCopies,setOfflineCopies]=useState<OfflineCopiesCheck|null>(null);
+ const [selectedTestDelivery,setSelectedTestDelivery]=useState<TestDeliverySelection|null>(null);
  const [releaseProduct,setReleaseProduct]=useState('');
  const [releasePlatform,setReleasePlatform]=useState('windows-x64');
  const [releaseRepo,setReleaseRepo]=useState('Faust-S/Center');
@@ -201,6 +206,31 @@ export default function App(){
  const activeProduct=proposalProduct||state.products[0]?.id||'';
  const activeHolder=proposalHolder||state.holders[0]?.id||'';
  const selectedReleaseProduct=releaseProduct||state.products[0]?.id||'';
+ async function chooseTestDelivery(){
+   if(busy||!loaded||!nativeHost)return;
+   setBusy(true);setError('');setMessage('');setSelectedTestDelivery(null);
+   try{
+     const v=await invoke('publisher_select_test_delivery');
+     if(v===null){setMessage('Выбор файла из T3 отменён.');return;}
+     if(!v||typeof v.sha256!=='string'||!/^[0-9a-f]{64}$/.test(v.sha256)||
+        v.signatureVerified!==false||v.statusVerified!==false||
+        v.commercialAuthorityProven!==false||v.productionActivation!==false||
+        v.activeSeats!==0||!['ACTIVE','SUSPENDED','REVOKED'].includes(v.claimedStatus))
+       throw Error('TEST_DELIVERY_UNVERIFIED_NATIVE_RESULT_REQUIRED');
+     setSelectedTestDelivery(v as TestDeliverySelection);
+     setMessage('Байты TEST-файла загружены без изменений. Подлинность проверит только оригинальный T3 Consumer.');
+   }catch(e){setError('TEST-файл не выбран: '+getError(e));}
+   finally{setBusy(false);}
+ }
+ async function exportTestDelivery(){
+   if(busy||!loaded||!nativeHost||!selectedTestDelivery)return;
+   setBusy(true);setError('');setMessage('');
+   try{
+     const saved=await invoke('publisher_export_test_delivery',{expectedSha256:selectedTestDelivery.sha256});
+     setMessage(saved?'Точная копия TEST-файла экспортирована. Это транспорт, а не активация; Center обязан проверить её в T3.':'Экспорт TEST-файла отменён.');
+   }catch(e){setError('Экспорт TEST-файла не выполнен: '+getError(e));}
+   finally{setBusy(false);}
+ }
  function go(p:Page){setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);setOfflineCopies(null);}
  if(!nativeHost){
    return <main className="publisher-desktop-required" data-testid="publisher-desktop-required">
@@ -358,7 +388,21 @@ export default function App(){
            <div className="simple-row"><div><strong>Доверенный root издателя</strong><small>Публичное решение владельца</small></div><span className="status neutral">Не подключён</span></div>
            <div className="simple-row"><div><strong>Подпись лицензии</strong><small>Исходный issuer: T3 license-engine.mjs</small></div><span className="status neutral">Недоступно</span></div>
            <div className="simple-row"><div><strong>Подпись статуса</strong><small>Независимый purpose key</small></div><span className="status neutral">Недоступно</span></div>
-           <p className="muted">Планируемое подключение не является действительным issuer, лицензией или назначением прав.</p></section>}
+           <p className="muted">Планируемое подключение не является действительным issuer, лицензией или назначением прав.</p>
+           <div className="divider"></div>
+           <h3>Передача подписанной пары из T3</h3>
+           <p className="muted">Выберите файл, ранее экспортированный уполномоченным T3 Host. Publisher копирует точные байты для передачи в Admin Center, но самостоятельно не проверяет подписи и не создаёт лицензии.</p>
+           <div className="actions">
+             <button className="secondary" data-testid="publisher-select-test-delivery" disabled={busy} onClick={chooseTestDelivery}>Выбрать файл T3</button>
+             <button className="secondary" data-testid="publisher-export-test-delivery" disabled={busy||!selectedTestDelivery} onClick={exportTestDelivery}>Экспортировать для Center</button>
+           </div>
+           {selectedTestDelivery&&<div data-testid="publisher-test-delivery-unverified" role="status">
+              <p><strong>Файл выбран, подлинность ещё не проверена.</strong></p>
+              <p>Лицензия {selectedTestDelivery.licenseId}, организация {selectedTestDelivery.organizationId}. Заявленный статус {selectedTestDelivery.claimedStatus}, последовательность {selectedTestDelivery.statusSequence}.</p>
+              <p>Заявлено мест: {selectedTestDelivery.claimedSeats}. Подтверждённых мест: 0.</p>
+              <p className="muted">SHA-256 выбранных байтов: <code>{selectedTestDelivery.sha256}</code></p>
+           </div>}
+           </section>}
      </>}
      <footer className="footer"><span>IWXA Publisher · отдельная owner-side программа</span><span>Локальные подготовительные данные · не лицензия и не release authority</span></footer>
    </main>
