@@ -337,6 +337,7 @@ namespace IwxaSetup
                 T("Установка Microsoft WebView2…",
                   "Installing Microsoft WebView2…") :
                 T("Установка проверенных файлов…", "Installing verified files…");
+            Exception failure = null;
             try
             {
                 InstallOutcome result = await Task.Run(() =>
@@ -399,23 +400,34 @@ namespace IwxaSetup
             }
             catch (Exception ex)
             {
-                // Reinspect after failures so online/offline retry and recovery
-                // actions are not left disabled behind a technical error code.
+                // C# 5 native compiler cannot await inside a catch block.
+                failure = ex;
+            }
+            finally
+            {
                 performingOperation = false;
+                retry.Enabled = true;
+                openApplication.Enabled = true;
+            }
+            if (failure != null)
+            {
+                // After catch/finally, await is supported by the Windows C# 5
+                // compiler. Restore actions from a fresh real machine check.
                 await VerifyAsync();
+                if (IsDisposed || Disposing) return;
                 bool dependency = operation == SetupOperation.InstallWebView2 ||
                     operation == SetupOperation.InstallWebView2Offline;
                 if (dependency)
                 {
                     status.Text = T("Не удалось установить WebView2",
                         "WebView2 installation incomplete");
-                    string code = ex is WebException ?
-                        "SETUP_WEBVIEW2_NETWORK_UNAVAILABLE" : ex.Message;
+                    string code = failure is WebException ?
+                        "SETUP_WEBVIEW2_NETWORK_UNAVAILABLE" : failure.Message;
                     if (!code.StartsWith("SETUP_WEBVIEW2_",
                             StringComparison.Ordinal) || code.Length > 90)
                         code = "SETUP_WEBVIEW2_INSTALL_UNAVAILABLE";
                     version.Text = T("Код диагностики: ", "Diagnostic code: ") + code;
-                    if (ex is WebException)
+                    if (failure is WebException)
                         packageDetails.Text = T(
                             "Проверьте интернет и повторите попытку либо выберите официальный автономный установщик Microsoft.",
                             "Check the connection and retry, or choose Microsoft's official offline installer.");
@@ -433,18 +445,12 @@ namespace IwxaSetup
                 else
                 {
                     status.Text = T("Операция не завершена", "Operation incomplete");
-                    version.Text = ex.Message;
+                    version.Text = failure.Message;
                     packageDetails.Text = T(
                         "Проверьте состояние установки и используйте доступное действие восстановления.",
                         "Review the installation state and use the available recovery action.");
                 }
                 status.ForeColor = Color.FromArgb(170, 52, 59);
-            }
-            finally
-            {
-                performingOperation = false;
-                retry.Enabled = true;
-                openApplication.Enabled = true;
             }
         }
 
