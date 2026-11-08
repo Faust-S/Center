@@ -270,6 +270,10 @@ jobs:
             throw 'LEGACY_NSIS_REAL_BINARIES_MISSING'
           }
           Write-Host "LEGACY_REAL_NSIS_02_INSTALLED_SHA256=$((Get-FileHash (Join-Path $root 'iwxa-admin-center.exe') -Algorithm SHA256).Hash)"
+      - name: Create two real organizations through installed stable 0.2 GUI
+        shell: pwsh
+        timeout-minutes: 4
+        run: ./tests/installed-windows-legacy-real-organizations.ps1
       - name: Preview native 0.3 beside real 0.2 and cancel preserving old program
         shell: pwsh
         timeout-minutes: 5

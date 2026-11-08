@@ -139,6 +139,26 @@ function Click-SetupGuiAction([string[]]$labels,[bool]$expectNative) {
     $setup.Dispose()
   }
 }
+$savedDraft=Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center/atlas-store-v1/preparation/draft.json'
+$guiProof=Join-Path $artifact 'legacy-real-organizations-result.json'
+if(!(Test-Path -LiteralPath $guiProof)){throw 'LEGACY_REAL_ORG_GUI_PROOF_MISSING'}
+$beforeData=Get-Content -LiteralPath $savedDraft -Raw|ConvertFrom-Json -Depth 100
+if(@($beforeData.organizations).Count -ne 2){throw 'LEGACY_REAL_ORG_EXPECTED_TWO'}
+$namesBefore=@($beforeData.organizations|ForEach-Object{$_.name}|Sort-Object)
+$idsBefore=@($beforeData.organizations|ForEach-Object{$_.id}|Sort-Object)
+$hashBefore=(Get-FileHash -LiteralPath $savedDraft -Algorithm SHA256).Hash
+function Assert-RealOrganizations([string]$phase){
+  $afterData=Get-Content -LiteralPath $savedDraft -Raw|ConvertFrom-Json -Depth 100
+  $names=@($afterData.organizations|ForEach-Object{$_.name}|Sort-Object)
+  $ids=@($afterData.organizations|ForEach-Object{$_.id}|Sort-Object)
+  if(@($afterData.organizations).Count -ne 2 -or
+    ($names -join '|') -ne ($namesBefore -join '|') -or
+    ($ids -join '|') -ne ($idsBefore -join '|') -or
+    (Get-FileHash -LiteralPath $savedDraft -Algorithm SHA256).Hash -ne $hashBefore){
+    throw ('LEGACY_REAL_ORG_READBACK_CHANGED_{0}' -f $phase)
+  }
+  Write-Host ('LEGACY_REAL_ORG_READBACK_{0}_PASS' -f $phase)
+}
 $hashOld=(Get-FileHash -LiteralPath $oldExe -Algorithm SHA256).Hash
 $hashUninstaller=(Get-FileHash -LiteralPath $oldUninstall -Algorithm SHA256).Hash
 $before=Call-Setup '--legacy-inspect-file' 'before'
@@ -192,6 +212,7 @@ if($plan.status -ne 'LEGACY_MIGRATION_PENDING_GUI_READBACK'){
   throw ('LEGACY_PREVIEW_PLAN_INVALID_{0}' -f $plan.status)
 }
 Check-Window (Join-Path $newRoot 'iwxa-admin-center.exe') 'NEW_03'
+Assert-RealOrganizations 'AFTER_03'
 Assert-Original
 $null=Click-SetupGuiAction @('Cancel preview','Отменить переход') $false
 $gone=$false
@@ -211,5 +232,6 @@ if($after.status -ne 'LEGACY_CONFIRMED_READ_ONLY' -or
   throw 'LEGACY_02_NSIS_REGISTRY_CHANGED_AFTER_PREVIEW'
 }
 Check-Window $oldExe 'RESTORED_02'
+Assert-RealOrganizations 'AFTER_CANCEL'
 Write-Host 'LEGACY_REAL_NSIS_GUI_PREVIEW_AND_CANCEL_PASS'
 Write-Host 'LEGACY_FULL_ORGANIZATIONAL_DATA_MIGRATION_ACCEPTED=NO'
