@@ -102,17 +102,14 @@ jobs:
         run: ./installer/windows/test-native-package.ps1
       - name: Native Atlas storage tests, including two separate processes
         run: cargo test --manifest-path src-tauri/Cargo.toml --bin iwxa-admin-center -- --nocapture
-      - name: Bundle offline Windows installer (NSIS with embedded WebView2)
-        run: npm run desktop:build
-      - name: Verify installer bundle and record hashes
+      - name: Verify IWXA Setup Core Windows distribution and record hashes
         shell: pwsh
         run: |
-          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
-          if (-not $installer) { throw "No Windows installer produced" }
-          $sha = Get-FileHash $installer.FullName -Algorithm SHA256
-          New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
-          "$($installer.Name) SHA256=$($sha.Hash) SIZE=$($installer.Length)" | Set-Content "artifacts/installer-sha256.txt"
-          Write-Host "OFFLINE_NSIS_BUNDLE_READY: $($installer.Name), size=$($installer.Length), SHA256=$($sha.Hash)"
+          $installer = Get-Item -LiteralPath 'artifacts/iwxa-setup-core-center-0.3-preview.exe' -ErrorAction Stop
+          $sha = Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256
+          New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
+          "$($installer.Name) SHA256=$($sha.Hash) SIZE=$($installer.Length)" | Set-Content 'artifacts/installer-sha256.txt'
+          Write-Host "IWXA_SETUP_CORE_BUNDLE_READY: $($installer.Name), size=$($installer.Length), SHA256=$($sha.Hash)"
       - name: Qualify installed Windows GUI Atlas and manager draft persistence
         shell: pwsh
         timeout-minutes: 5

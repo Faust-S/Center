@@ -318,18 +318,23 @@ function Close-Center {
 }
 
 try {
-  $installer=Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe'|Select-Object -First 1
-  if(!$installer){throw 'NSIS installer absent'}
-  $installProcess=Start-Process -FilePath $installer.FullName -ArgumentList '/S' -PassThru
-  if(!$installProcess.WaitForExit(120000)){Stop-Process -Id $installProcess.Id -Force;throw 'Installer timed out'}
-  if($installProcess.ExitCode -ne 0){throw "Installer failed: $($installProcess.ExitCode)"}
-  $candidates=@(
-    (Join-Path $env:LOCALAPPDATA 'IWXA Admin Center\iwxa-admin-center.exe'),
-    (Join-Path $env:LOCALAPPDATA 'Programs\IWXA Admin Center\iwxa-admin-center.exe')
-  )
-  $exe=$candidates|Where-Object {Test-Path $_}|Select-Object -First 1
-  if(!$exe){throw "Installer exited but no installed app found: $($candidates -join '; ')"}
-  Write-Host "CENTER_NSIS_INSTALL_PASS exe=$exe"
+  $installer=Get-Item -LiteralPath 'artifacts/iwxa-setup-core-center-0.3-preview.exe' -ErrorAction Stop
+  $installReport=Join-Path $artifactDir 'center-setup-core-installed.json'
+  $installProcess=Start-Process -FilePath $installer.FullName -ArgumentList ('--install-file "{0}"' -f $installReport) -PassThru
+  if(!$installProcess.WaitForExit(120000)){Stop-Process -Id $installProcess.Id -Force;throw 'IWXA Setup Core install timed out'}
+  if($installProcess.ExitCode -ne 0){throw "IWXA Setup Core install failed: $($installProcess.ExitCode)"}
+  if(!(Test-Path -LiteralPath $installReport -PathType Leaf)){throw 'IWXA Setup Core install report missing'}
+  $setupResult=Get-Content -LiteralPath $installReport -Raw|ConvertFrom-Json
+  $expectedRoot=Join-Path $env:LOCALAPPDATA 'Programs\IWXA Admin Center'
+  if($setupResult.status -ne 'INSTALLED_NOT_LAUNCHED' -or
+      $setupResult.product -ne 'iwxa.admin-center' -or
+      $setupResult.version -ne '0.3.0-dev.1' -or
+      [IO.Path]::GetFullPath([string]$setupResult.installRoot) -ne [IO.Path]::GetFullPath($expectedRoot)){
+    throw 'IWXA Setup Core installed receipt mismatch'
+  }
+  $exe=Join-Path $expectedRoot 'iwxa-admin-center.exe'
+  if(!(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'IWXA Setup Core installed executable not found'}
+  Write-Host "CENTER_SETUP_CORE_INSTALL_PASS exe=$exe"
   if(Test-Path $localDraft){throw 'Windows runner already contains Center draft state'}
   if(Test-Path $organizationsRoot){throw 'Windows runner already contains Center organizational Atlas data'}
   Start-Center

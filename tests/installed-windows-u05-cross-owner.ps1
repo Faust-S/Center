@@ -16,7 +16,7 @@ public static class U05Window {
 }
 '@
 $atlas=Join-Path $env:LOCALAPPDATA 'ru.iwxa.atlas/atlas-store-v1'
-$center=Join-Path $env:LOCALAPPDATA 'IWXA Admin Center/iwxa-admin-center.exe'
+$center=Join-Path $env:LOCALAPPDATA 'Programs/IWXA Admin Center/iwxa-admin-center.exe'
 $centerDraft=Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center/atlas-store-v1/preparation/draft.json'
 $artifact=Join-Path $env:GITHUB_WORKSPACE 'artifacts/u05-two-installed-result.json'
 $manifest=Join-Path $atlas 'head.json'
