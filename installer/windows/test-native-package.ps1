@@ -911,6 +911,67 @@ try {
         Write-Host ('IWXA_SETUP_VISUAL_NO_SIDEBAR_OVERLAP_PASS titleLeft={0}' -f
             $titleBounds.Left)
 
+        # Exercise a real compact WinForms window, not a static screenshot
+        # or a synthetic browser resize. Confirm that the key actions remain
+        # visible and clickable when the card becomes narrower.
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class SetupWindowPosition {
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern bool SetWindowPos(
+        IntPtr handle, IntPtr after, int x, int y,
+        int width, int height, uint flags);
+}
+'@
+        if (![SetupWindowPosition]::SetWindowPos(
+            $gui.MainWindowHandle, [IntPtr]::Zero, [int]$windowBounds.Left,
+            [int]$windowBounds.Top, 820, 570, 0x0004)) {
+            throw 'SETUP_MIN_SIZE_RESIZE_FAILED'
+        }
+        Start-Sleep -Milliseconds 350
+        $smallRect=$window.Current.BoundingRectangle
+        if($smallRect.Width -gt 860 -or $smallRect.Height -gt 610){
+            throw 'SETUP_MIN_SIZE_RESIZE_IGNORED'
+        }
+        $smallControls=$window.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition)
+        foreach($name in @('Close','Verify again','Install')){
+            $controlFound=$false
+            foreach($control in $smallControls){
+                try{
+                    if($control.Current.Name -eq $name -and
+                       !$control.Current.IsOffscreen){
+                        $bounds=$control.Current.BoundingRectangle
+                        if($bounds.Width -ge 65 -and $bounds.Height -ge 24 -and
+                           $bounds.Left -ge $smallRect.Left -and
+                           $bounds.Right -le $smallRect.Right + 2 -and
+                           $bounds.Bottom -le $smallRect.Bottom + 2){
+                            $controlFound=$true
+                        }
+                    }
+                }catch{}
+            }
+            if(!$controlFound){
+                throw ('SETUP_COMPACT_WINDOW_BUTTON_CLIPPED_'+$name)
+            }
+        }
+        $smallImage=[System.Drawing.Bitmap]::new(
+            [int]$smallRect.Width, [int]$smallRect.Height)
+        $smallGraphics=[System.Drawing.Graphics]::FromImage($smallImage)
+        try {
+            $smallGraphics.CopyFromScreen(
+                [System.Drawing.Point]::new([int]$smallRect.Left,[int]$smallRect.Top),
+                [System.Drawing.Point]::Empty, $smallImage.Size)
+            $smallImage.Save((Join-Path $artifact 'setup-core-visual-compact-window.png'),
+                [System.Drawing.Imaging.ImageFormat]::Png)
+        } finally {
+            $smallGraphics.Dispose()
+            $smallImage.Dispose()
+        }
+        Write-Host 'IWXA_SETUP_COMPACT_NATIVE_WINDOW_BUTTONS_VISIBLE_PASS'
+
     } finally {
         if (!$gui.HasExited) {
             $null = $gui.CloseMainWindow()

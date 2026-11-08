@@ -156,16 +156,19 @@ namespace IwxaSetup
             status.ForeColor = Dark;
             status.Location = new Point(20, 50);
             status.Size = new Size(525, 37);
+            status.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             card.Controls.Add(status);
             version.Text = "—";
             version.ForeColor = Color.FromArgb(48, 83, 131);
             version.Location = new Point(21, 93);
             version.Size = new Size(525, 29);
+            version.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             card.Controls.Add(version);
             packageDetails.Text = T("Ожидание проверки содержимого…", "Waiting for content verification…");
             packageDetails.ForeColor = Secondary;
             packageDetails.Location = new Point(21, 133);
             packageDetails.Size = new Size(530, 50);
+            packageDetails.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             card.Controls.Add(packageDetails);
             // Honest indeterminate progress during hashing, verification and
             // filesystem operations. No fictional percentage or extra screen.
@@ -261,6 +264,8 @@ namespace IwxaSetup
             closeSetup.FlatAppearance.BorderColor = Color.FromArgb(187, 205, 227);
             closeSetup.Click += (sender, args) => Close();
             actions.Controls.Add(closeSetup);
+            AcceptButton = install;
+            CancelButton = closeSetup;
         }
 
         private void SetWizardStep(int current)
