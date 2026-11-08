@@ -42,6 +42,12 @@ try {
       if(command==='publisher_export_preparation_backup')return false;
       if(command==='publisher_pick_preparation_backup')return null;
       if(command==='publisher_inspect_artifact')return null;
+      if(command==='publisher_compare_offline_copies')return {
+        name:'iwxa-publisher.exe',size:12500,sha256:'a'.repeat(64),
+        copiesChecked:2,sameContent:true,distinctSelectedPaths:true,
+        physicalIndependenceVerified:false,publisherAuthorized:false,
+        signedReleaseMetadataVerified:false
+      };
       throw new Error('UNEXPECTED_TEST_ONLY_IPC:'+command);
     }};
   });
@@ -131,6 +137,14 @@ try {
   assert.match(await page.locator('main').innerText(),/Операции подписи не подключены/);
   await page.getByRole('button',{name:'Релизы'}).click();
   assert.equal(await page.getByRole('button',{name:'Выбрать и проверить файл'}).isEnabled(),true);
+  await page.getByRole('button',{name:'Сверить две копии файла'}).click();
+  const copies=page.getByTestId('publisher-offline-copies-result');
+  await copies.waitFor();
+  assert.match(await copies.innerText(),/Сверены 2 файла — байты совпадают/);
+  assert.match(await copies.innerText(),/Независимость физических носителей не подтверждена/);
+  assert.match(await copies.innerText(),/Подписи и разрешения на выпуск нет/);
+  assert.match(await copies.innerText(),/a{64}/);
+  checks.push('offline-two-selected-paths-byte-match-without-physical-independence-or-release-claim');
   assert.equal(await page.evaluate(()=>window.__publisherMockNativeCommands.includes('publisher_save_test_request')),false);
   // __publisherMockNativeCommands is reset on reload: native IPC doesn't
   // provide a browser-only issuer implementation or a signed license.

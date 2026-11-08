@@ -11,6 +11,12 @@ type Proposal = {id:string;productId:string;holderId:string;features:string[];te
 type Artifact = {id:string;productId:string;version:string;platform:string;sourceRepository:string;sourceCommit:string;sourceTree:string;name:string;size:number;sha256:string;createdAt:string;status:'BYTES_INSPECTED_NOT_APPROVED'};
 type Draft = {format:string;version:number;products:Product[];holders:Holder[];proposals:Proposal[];artifacts:Artifact[];updatedAt:string};
 type Inspection = {name:string;size:number;sha256:string};
+type OfflineCopiesCheck = {
+ name:string;size:number;sha256:string;copiesChecked:number;
+ sameContent:boolean;distinctSelectedPaths:boolean;
+ physicalIndependenceVerified:boolean;publisherAuthorized:boolean;
+ signedReleaseMetadataVerified:boolean;
+};
 type Page = 'overview'|'products'|'holders'|'proposals'|'releases'|'trust';
 const navigation: [Page,string][] = [
  ['overview','Обзор'],['products','Продукты'],['holders','Получатели'],
@@ -78,6 +84,7 @@ export default function App(){
    if(simulated)simulationResultRef.current?.scrollIntoView({block:'center'});
  },[simulated]);
  const [inspected,setInspected]=useState<Inspection|null>(null);
+ const [offlineCopies,setOfflineCopies]=useState<OfflineCopiesCheck|null>(null);
  const [releaseProduct,setReleaseProduct]=useState('');
  const [releasePlatform,setReleasePlatform]=useState('windows-x64');
  const [releaseRepo,setReleaseRepo]=useState('Faust-S/Center');
@@ -110,6 +117,21 @@ export default function App(){
      const result=await invoke('publisher_inspect_artifact');
      if(result){setInspected(result as Inspection);setMessage('Байты файла проверены. Источник и разрешение на выпуск ещё не подтверждены.');}
    }catch(e){setError(getError(e));}
+   finally{setBusy(false);}
+ }
+ async function compareOfflineCopies(){
+   if(busy||!loaded||!nativeHost)return;
+   setBusy(true);setError('');setMessage('');setOfflineCopies(null);
+   try {
+     const result=await invoke('publisher_compare_offline_copies');
+     if(result===null){setMessage('Сверка копий отменена. Черновики не изменены.');return;}
+     const check=result as OfflineCopiesCheck;
+     if(check.copiesChecked!==2||check.sameContent!==true||check.distinctSelectedPaths!==true||
+        check.publisherAuthorized!==false||check.signedReleaseMetadataVerified!==false||
+        check.physicalIndependenceVerified!==false)throw Error('OFFLINE_COPIES_RESULT_INVALID');
+     setOfflineCopies(check);
+     setMessage('Байты двух выбранных файлов совпадают. Релиз не подписан и не утверждён.');
+   }catch(e){setError('Сверка файлов не выполнена: '+getError(e));}
    finally{setBusy(false);}
  }
  async function exportPreparationBackup(){
@@ -179,7 +201,7 @@ export default function App(){
  const activeProduct=proposalProduct||state.products[0]?.id||'';
  const activeHolder=proposalHolder||state.holders[0]?.id||'';
  const selectedReleaseProduct=releaseProduct||state.products[0]?.id||'';
- function go(p:Page){setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);}
+ function go(p:Page){setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);setOfflineCopies(null);}
  if(!nativeHost){
    return <main className="publisher-desktop-required" data-testid="publisher-desktop-required">
      <section className="publisher-desktop-required-card" role="status">
@@ -304,6 +326,17 @@ export default function App(){
          </section>
        </>}
        {page==='releases'&&<>
+         <section className="card form-panel" data-testid="publisher-offline-copies">
+           <h2>Сверка двух копий файла поставки</h2>
+           <p className="muted">Выберите два файла через системные диалоги. Publisher независимо прочитает байты каждого и сравнит имя, размер и SHA-256. Проверка не подтверждает независимость носителей, происхождение, подпись или разрешение на публикацию.</p>
+           <button type="button" className="secondary" disabled={busy} onClick={()=>void compareOfflineCopies()}>Сверить две копии файла</button>
+           {offlineCopies&&<div className="inspected" role="status" data-testid="publisher-offline-copies-result">
+             <strong>Сверены 2 файла — байты совпадают</strong>
+             <small>{offlineCopies.name} · {offlineCopies.size.toLocaleString('ru-RU')} байт</small>
+             <code>{offlineCopies.sha256}</code>
+             <p className="muted">Два разных выбранных пути. Независимость физических носителей не подтверждена. Подписи и разрешения на выпуск нет.</p>
+           </div>}
+         </section>
          <section className="card form-panel"><h2>Проверить настоящий файл сборки</h2><p className="muted">Проверяется фактический SHA-256 содержимого и размер файла. Версию исходников и право публикации проверяет отдельный выпускной процесс.</p>
            <button type="button" className="secondary" onClick={()=>void inspect()} disabled={busy||!nativeHost}>Выбрать и проверить файл</button>
            {inspected&&<div className="inspected"><strong>{inspected.name}</strong><small>{inspected.size.toLocaleString('ru-RU')} байт</small><code>{inspected.sha256}</code></div>}

@@ -111,6 +111,79 @@ fn publisher_inspect_artifact() -> Result<Option<ArtifactInspection>, String> {
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all="camelCase")]
+struct OfflineCopiesCheck {
+    name: String,
+    size: u64,
+    sha256: String,
+    copies_checked: u8,
+    same_content: bool,
+    distinct_selected_paths: bool,
+    physical_independence_verified: bool,
+    publisher_authorized: bool,
+    signed_release_metadata_verified: bool,
+}
+
+// The CLI verifies independently staged copies with a stronger filesystem
+// identity check. This *desktop* operation checks only two selected, distinct
+// canonical paths and actual bytes. It never grants release approval.
+fn compare_offline_copies(first: &Path, second: &Path) -> Result<OfflineCopiesCheck, String> {
+    let first_path = fs::canonicalize(first).map_err(|_| "OFFLINE_COPY_PATH_INVALID")?;
+    let second_path = fs::canonicalize(second).map_err(|_| "OFFLINE_COPY_PATH_INVALID")?;
+    if first_path == second_path {
+        return Err("OFFLINE_COPY_SAME_SELECTED_FILE".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let a = fs::metadata(&first_path).map_err(|_| "OFFLINE_COPY_PATH_INVALID")?;
+        let b = fs::metadata(&second_path).map_err(|_| "OFFLINE_COPY_PATH_INVALID")?;
+        if a.dev() == b.dev() && a.ino() == b.ino() {
+            return Err("OFFLINE_COPY_SAME_INODE".into());
+        }
+    }
+    // Read sequentially; inspect_artifact already hashes in 1 MiB chunks and
+    // rejects a changed file. No raw executable bytes enter the webview.
+    let one = inspect_artifact(&first_path)?;
+    let two = inspect_artifact(&second_path)?;
+    if one.name != two.name {
+        return Err("OFFLINE_COPY_FILENAME_MISMATCH".into());
+    }
+    if one.size != two.size {
+        return Err("OFFLINE_COPY_SIZE_MISMATCH".into());
+    }
+    if one.sha256 != two.sha256 {
+        return Err("OFFLINE_COPY_SHA256_MISMATCH".into());
+    }
+    Ok(OfflineCopiesCheck {
+        name: one.name,
+        size: one.size,
+        sha256: one.sha256,
+        copies_checked: 2,
+        same_content: true,
+        distinct_selected_paths: true,
+        physical_independence_verified: false,
+        publisher_authorized: false,
+        signed_release_metadata_verified: false,
+    })
+}
+
+#[tauri::command]
+fn publisher_compare_offline_copies() -> Result<Option<OfflineCopiesCheck>, String> {
+    let first = match rfd::FileDialog::new()
+        .set_title("Publisher: первая копия файла").pick_file() {
+        Some(path) => path,
+        None => return Ok(None),
+    };
+    let second = match rfd::FileDialog::new()
+        .set_title("Publisher: вторая копия файла").pick_file() {
+        Some(path) => path,
+        None => return Ok(None),
+    };
+    compare_offline_copies(&first, &second).map(Some)
+}
+
 const TEST_REQUEST_LIMIT: usize = 32 * 1024;
 
 fn validate_test_request(content: &str) -> Result<(), String> {
@@ -269,7 +342,8 @@ fn main() {
         .manage(DraftLock(Mutex::new(())))
         .invoke_handler(tauri::generate_handler![
             publisher_draft_read, publisher_draft_save, publisher_inspect_artifact, publisher_save_test_request,
-            publisher_export_preparation_backup, publisher_pick_preparation_backup
+            publisher_export_preparation_backup, publisher_pick_preparation_backup,
+            publisher_compare_offline_copies
         ])
         .run(tauri::generate_context!())
         .expect("IWXA Publisher could not start");
@@ -368,6 +442,46 @@ mod tests {
         let _=fs::remove_dir_all(root);
     }
 
+
+    #[test]
+    fn offline_copies_are_read_separately_without_making_release_or_signature_claims() {
+        let root = scratch();
+        let folder_a = root.join("copy-a");
+        let folder_b = root.join("copy-b");
+        fs::create_dir_all(&folder_a).unwrap();
+        fs::create_dir_all(&folder_b).unwrap();
+        let a = folder_a.join("publisher-test.exe");
+        let b = folder_b.join("publisher-test.exe");
+        fs::write(&a, b"publisher-artifact-v1").unwrap();
+        fs::write(&b, b"publisher-artifact-v1").unwrap();
+        let matching = compare_offline_copies(&a, &b).unwrap();
+        assert_eq!(matching.copies_checked, 2);
+        assert!(matching.same_content);
+        assert!(matching.distinct_selected_paths);
+        assert!(!matching.physical_independence_verified);
+        assert!(!matching.publisher_authorized);
+        assert!(!matching.signed_release_metadata_verified);
+        assert_eq!(matching.name, "publisher-test.exe");
+        assert_eq!(matching.sha256,
+                   format!("{:x}", Sha256::digest(b"publisher-artifact-v1")));
+        assert_eq!(compare_offline_copies(&a, &a).err().unwrap(),
+                   "OFFLINE_COPY_SAME_SELECTED_FILE");
+        fs::write(&b, b"publisher-artifact-v2").unwrap();
+        assert_eq!(compare_offline_copies(&a, &b).err().unwrap(),
+                   "OFFLINE_COPY_SHA256_MISMATCH");
+        fs::write(&b, b"not-same-size").unwrap();
+        assert_eq!(compare_offline_copies(&a, &b).err().unwrap(),
+                   "OFFLINE_COPY_SIZE_MISMATCH");
+        fs::write(&b, b"publisher-artifact-v1").unwrap();
+        let different_name = folder_b.join("renamed-file.exe");
+        fs::rename(&b, &different_name).unwrap();
+        assert_eq!(compare_offline_copies(&a, &different_name).err().unwrap(),
+                   "OFFLINE_COPY_FILENAME_MISMATCH");
+        fs::write(&b, b"").unwrap();
+        assert_eq!(compare_offline_copies(&a, &b).err().unwrap(),
+                   "ARTIFACT_SIZE_UNSUPPORTED");
+        let _ = fs::remove_dir_all(root);
+    }
     #[test]
     fn native_preparation_does_not_create_any_license_authority() {
         let root = scratch();

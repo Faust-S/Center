@@ -113,7 +113,7 @@ function Use-Json-Through-Publisher-Dialog([string]$buttonName,[string]$destinat
   if((Test-Path -LiteralPath $destination -PathType Leaf) -ne $existing){
     throw "PUBLISHER_FILE_DIALOG_EXPECTED_EXISTS_$existing"
   }
-  Click-Publisher $buttonName
+  if($buttonName){Click-Publisher $buttonName}
   $dialog=$null
   for($i=0;$i -lt 60;$i++){
     $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
@@ -304,6 +304,28 @@ try {
   Write-Host 'PUBLISHER_INSTALLED_GUI_BACKUP_RESTORE_RESTART_PASS'
   Click-Publisher 'Обзор'
   Capture-Installed-Desktop 'publisher-desktop-after-restore.png'
+  # PUB25: test two user-selected real file copies through installed Tauri
+  # dialogs, without claiming trusted mirrors or a signed release.
+  $copyBase=Join-Path ([IO.Path]::GetFullPath('artifacts/publisher-setupcore')) 'two-copy-input'
+  $directoryOne=Join-Path $copyBase 'copy-a'
+  $directoryTwo=Join-Path $copyBase 'copy-b'
+  New-Item -ItemType Directory -Force -Path $directoryOne,$directoryTwo|Out-Null
+  $copyOne=Join-Path $directoryOne 'publisher-check.exe'
+  $copyTwo=Join-Path $directoryTwo 'publisher-check.exe'
+  Copy-Item -LiteralPath $exe -Destination $copyOne
+  Copy-Item -LiteralPath $exe -Destination $copyTwo
+  if((Get-FileHash -LiteralPath $copyOne -Algorithm SHA256).Hash -ne
+     (Get-FileHash -LiteralPath $copyTwo -Algorithm SHA256).Hash){
+    throw 'PUBLISHER_TWO_TEST_FILES_ARE_NOT_IDENTICAL'
+  }
+  Click-Publisher 'Релизы'
+  Use-Json-Through-Publisher-Dialog 'Сверить две копии файла' $copyOne $true
+  Start-Sleep -Milliseconds 600
+  Use-Json-Through-Publisher-Dialog '' $copyTwo $true
+  [void](Find-Text 'Сверены 2 файла')
+  [void](Find-Text 'Независимость физических носителей не подтверждена')
+  Write-Host 'PUBLISHER_INSTALLED_GUI_TWO_SELECTED_FILES_BYTE_MATCH_PASS'
+  Capture-Installed-Desktop 'publisher-desktop-two-copies.png'
 } catch {
   Write-Host "PUBLISHER_INSTALLED_GUI_PRIMARY_FAILURE $($_.Exception.Message)"
   try {
