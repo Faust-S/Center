@@ -58,8 +58,11 @@ try {
         if ($setupUi.MainWindowHandle -eq [IntPtr]::Zero) { continue }
         $window = [System.Windows.Automation.AutomationElement]::FromHandle($setupUi.MainWindowHandle)
         if ($null -eq $window) { continue }
-        $condition = [System.Windows.Automation.PropertyCondition]::new(
-            [System.Windows.Automation.AutomationElement]::NameProperty,'Обновить')
+        $condition = [System.Windows.Automation.OrCondition]::new(
+            [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::NameProperty,'Обновить'),
+            [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::NameProperty,'Update'))
         $buttons = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)
         foreach ($button in $buttons) {
             try {
