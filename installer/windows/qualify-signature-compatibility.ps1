@@ -28,11 +28,8 @@ $cert=New-SelfSignedCertificate -Type CodeSigningCert -HashAlgorithm SHA256 -Sub
 try{
   & $tool.FullName sign /fd SHA256 /sha1 $cert.Thumbprint $signed
   if($LASTEXITCODE -ne 0){throw 'SIGN_PROBE_SIGN_FAILED'}
-  # Trust only this ephemeral developer certificate on the disposable
-  # runner, so the probe distinguishes hash/layout failure from UntrustedRoot.
-  $certFile=Join-Path $art 'sign-probe-public-cert.cer'
-  $null=Export-Certificate -Cert $cert -FilePath $certFile
-  $null=Import-Certificate -FilePath $certFile -CertStoreLocation 'Cert:\CurrentUser\Root'
+  # Do not import a test signer into Windows trusted roots. This probe
+  # measures package layout, not developer certificate trust.
   $auth=Get-AuthenticodeSignature -LiteralPath $signed
   $data=[IO.File]::ReadAllBytes($signed)
   $peOffset=[BitConverter]::ToInt32($data,0x3c)
@@ -80,5 +77,5 @@ try{
   Write-Host 'IWXA_SETUP_SIGN_RELEASE_ACCEPTED=NO'
 }finally{
   Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $cert.Thumbprint) -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath ('Cert:\CurrentUser\Root\' + $cert.Thumbprint) -Force -ErrorAction SilentlyContinue
+
 }
