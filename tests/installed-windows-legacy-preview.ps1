@@ -8,6 +8,16 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class LegacySetupMouse {
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")]
+  public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+}
+'@
 
 $artifact=Join-Path $env:GITHUB_WORKSPACE 'artifacts'
 $bundle=Join-Path $artifact 'iwxa-setup-core-center-0.3-preview.exe'
@@ -61,6 +71,61 @@ function Check-Window([string]$exe,[string]$label){
     $proc.Dispose()
   }
 }
+function Click-SetupGuiAction([string[]]$labels) {
+  $setup=Start-Process -FilePath $bundle -PassThru
+  try {
+    $clicked=$false
+    for($i=0;$i -lt 90;$i++){
+      Start-Sleep -Milliseconds 350
+      $setup.Refresh()
+      if($setup.HasExited){throw 'LEGACY_GUI_SETUP_EXITED_EARLY'}
+      if($setup.MainWindowHandle -eq [IntPtr]::Zero){continue}
+      $window=[System.Windows.Automation.AutomationElement]::FromHandle($setup.MainWindowHandle)
+      $nodes=$window.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      foreach($node in $nodes){
+        try {
+          if($node.Current.Name -notin $labels -or
+             !$node.Current.IsEnabled -or $node.Current.IsOffscreen){continue}
+          $rect=$node.Current.BoundingRectangle
+          if($rect.Width -lt 24 -or $rect.Height -lt 18){continue}
+          try {
+            $invoke=$node.GetCurrentPattern(
+              [System.Windows.Automation.InvokePattern]::Pattern)
+            $invoke.Invoke()
+          } catch {
+            $x=[int]($rect.Left+$rect.Width/2)
+            $y=[int]($rect.Top+$rect.Height/2)
+            if(![LegacySetupMouse]::SetCursorPos($x,$y)){
+              throw 'LEGACY_GUI_SET_MOUSE_POSITION_FAILED'
+            }
+            Start-Sleep -Milliseconds 80
+            [LegacySetupMouse]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero)
+            Start-Sleep -Milliseconds 80
+            [LegacySetupMouse]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+          }
+          $clicked=$true
+          Write-Host ('LEGACY_GUI_SETUP_BUTTON_CLICKED={0}' -f $node.Current.Name)
+          break
+        } catch {}
+      }
+      if($clicked){break}
+    }
+    if(!$clicked){throw ('LEGACY_GUI_ACTION_NOT_FOUND_{0}' -f ($labels -join '|'))}
+    return $true
+  } finally {
+    $setup.Refresh()
+    if(!$setup.HasExited){
+      $null=$setup.CloseMainWindow()
+      if(!$setup.WaitForExit(25000)){
+        Stop-Process -Id $setup.Id -Force -ErrorAction SilentlyContinue
+        throw 'LEGACY_GUI_SETUP_WINDOW_CLOSE_TIMEOUT'
+      }
+    }
+    $setup.Dispose()
+  }
+}
 $hashOld=(Get-FileHash -LiteralPath $oldExe -Algorithm SHA256).Hash
 $hashUninstaller=(Get-FileHash -LiteralPath $oldUninstall -Algorithm SHA256).Hash
 $before=Call-Setup '--legacy-inspect-file' 'before'
@@ -97,13 +162,17 @@ $preflight=Call-Setup '--preflight-file' 'preflight'
 if($preflight.status -ne 'LEGACY_INSTALLATION'){
   throw ('LEGACY_PREFLIGHT_STATUS_{0}' -f $preflight.status)
 }
-$staged=Call-Setup '--stage-legacy-file' 'stage'
-if($staged.status -ne 'LEGACY_MIGRATION_STAGED_NSIS_PRESERVED' -or
-   $staged.version -ne '0.3.0-dev.1' -or
-   $staged.installRoot -ne $newRoot -or
-   !(Test-Path -LiteralPath (Join-Path $newRoot 'iwxa-admin-center.exe'))){
-  throw ('LEGACY_STAGE_NOT_CONFIRMED_{0}' -f $staged.status)
+$null=Click-SetupGuiAction @('Install to preview','Установить для проверки')
+$ready=$false
+for($i=0;$i -lt 60;$i++){
+  Start-Sleep -Milliseconds 250
+  if((Test-Path -LiteralPath (Join-Path $newRoot 'iwxa-admin-center.exe')) -and
+     (Test-Path -LiteralPath (Join-Path $newRoot '.iwxa-setup-ownership.json'))){
+    $ready=$true;break
+  }
 }
+if(!$ready){throw 'LEGACY_GUI_STAGE_NOT_ACTIVATED'}
+Write-Host 'LEGACY_REAL_GUI_STAGE_ACCEPTED_03_PASS'
 Assert-Original
 $plan=Call-Setup '--upgrade-plan-file' 'pending'
 if($plan.status -ne 'LEGACY_MIGRATION_PENDING_GUI_READBACK'){
@@ -111,11 +180,16 @@ if($plan.status -ne 'LEGACY_MIGRATION_PENDING_GUI_READBACK'){
 }
 Check-Window (Join-Path $newRoot 'iwxa-admin-center.exe') 'NEW_03'
 Assert-Original
-$cancel=Call-Setup '--uninstall-file' 'cancel'
-if($cancel.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
-   (Test-Path -LiteralPath $newRoot)){
-  throw ('LEGACY_PREVIEW_CANCEL_FAILED_{0}' -f $cancel.status)
+$null=Click-SetupGuiAction @('Cancel preview','Отменить переход')
+$gone=$false
+for($i=0;$i -lt 60;$i++){
+  Start-Sleep -Milliseconds 250
+  if(!(Test-Path -LiteralPath $newRoot)){
+    $gone=$true;break
+  }
 }
+if(!$gone){throw 'LEGACY_GUI_CANCEL_NOT_ACTIVATED'}
+Write-Host 'LEGACY_REAL_GUI_CANCEL_PREVIEW_PASS'
 Assert-Original
 $after=Call-Setup '--legacy-inspect-file' 'after'
 if($after.status -ne 'LEGACY_CONFIRMED_READ_ONLY' -or
@@ -124,5 +198,5 @@ if($after.status -ne 'LEGACY_CONFIRMED_READ_ONLY' -or
   throw 'LEGACY_02_NSIS_REGISTRY_CHANGED_AFTER_PREVIEW'
 }
 Check-Window $oldExe 'RESTORED_02'
-Write-Host 'LEGACY_REAL_NSIS_PREVIEW_AND_CANCEL_PASS'
+Write-Host 'LEGACY_REAL_NSIS_GUI_PREVIEW_AND_CANCEL_PASS'
 Write-Host 'LEGACY_FULL_ORGANIZATIONAL_DATA_MIGRATION_ACCEPTED=NO'

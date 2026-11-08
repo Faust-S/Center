@@ -222,12 +222,38 @@ jobs:
           $native='accepted/artifacts/iwxa-setup-core-center-0.3-preview.exe'
           if(!(Test-Path -LiteralPath $native)) {throw 'LEGACY_ACCEPTED_NATIVE_SETUP_NOT_FOUND'}
           New-Item -ItemType Directory -Force 'artifacts'|Out-Null
-          Copy-Item -LiteralPath $native -Destination 'artifacts/iwxa-setup-core-center-0.3-preview.exe'
+          $payloadExe='accepted/src-tauri/target/release/iwxa-admin-center.exe'
+          if(!(Test-Path -LiteralPath $payloadExe)){throw 'LEGACY_ACCEPTED_03_EXE_NOT_FOUND'}
           if(Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center')) {
             throw 'LEGACY_PROFILE_NOT_CLEAN_BEFORE_STABLE_INSTALL'
           }
           Write-Host "LEGACY_SOURCE_INSTALLER_0_2_SHA256=$((Get-FileHash -LiteralPath $nsis[0].FullName -Algorithm SHA256).Hash)"
           Write-Host "ACCEPTED_SETUP_CORE_0_3_SHA256=$((Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash)"
+          Write-Host "ACCEPTED_CENTER_03_PAYLOAD_SHA256=$((Get-FileHash -LiteralPath $payloadExe -Algorithm SHA256).Hash)"
+      - name: Build updated Setup Core GUI around accepted 0.3 payload
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference='Stop'
+          $artifact=Join-Path $env:GITHUB_WORKSPACE 'artifacts'
+          $stub=Join-Path $artifact 'iwxa-setup-core-stub.exe'
+          $bundle=Join-Path $artifact 'iwxa-setup-core-center-0.3-preview.exe'
+          $profile='installer/products/center.json'
+          $payload=Join-Path $artifact 'legacy-gui-payload'
+          New-Item -ItemType Directory -Force -Path $payload|Out-Null
+          Copy-Item -LiteralPath 'accepted/src-tauri/target/release/iwxa-admin-center.exe' -Destination (Join-Path $payload 'iwxa-admin-center.exe')
+          ./installer/windows/build-stub.ps1 -Output $stub
+          $sourceHead=[string]$env:GITHUB_SHA
+          $sourceTree=[string](& git rev-parse 'HEAD^{tree}').Trim()
+          $args=@('-m','installer.build_bundle','build',
+            '--product',$profile,'--payload',$payload,
+            '--stub',$stub,'--output',$bundle,
+            '--source-commit',$sourceHead,'--source-tree',$sourceTree)
+          $null=& python @args
+          if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $bundle)){
+            throw 'LEGACY_GUI_NEW_BUNDLE_FAILED'
+          }
+          Write-Host "LEGACY_GUI_UPDATED_SETUP_BUILD_PASS_SHA256=$((Get-FileHash $bundle -Algorithm SHA256).Hash)"
       - name: Install exact NSIS 0.2 independently of legacy GUI driver
         shell: pwsh
         timeout-minutes: 4
