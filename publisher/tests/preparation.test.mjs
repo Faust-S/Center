@@ -1,0 +1,58 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { emptyPublisherDraft, validatePublisherDraft, applyPublisherDraftCommand, encodePublisherDraft, decodePublisherDraft } from '../src/preparation.mjs';
+
+const setup = () => {
+  let s = emptyPublisherDraft();
+  s=applyPublisherDraftCommand(s,{kind:'addProduct',id:'IWXA_ADMIN_CENTER',name:'IWXA Admin Center',version:'0.3.0'});
+  s=applyPublisherDraftCommand(s,{kind:'addHolder',name:'Test organization',type:'ORGANIZATION'});
+  return s;
+};
+test('empty publisher state is valid and produces no invented licenses', () => {
+ const s=emptyPublisherDraft();assert.equal(s.products.length,0);assert.equal(s.proposals.length,0);
+ assert.deepEqual(decodePublisherDraft(encodePublisherDraft(s)),s);
+});
+test('a real draft proposal remains NOT_ISSUED after save and reload', () => {
+ let s=setup();
+ s=applyPublisherDraftCommand(s,{kind:'addProposal',productId:s.products[0].id,holderId:s.holders[0].id,features:['PUBLISHER_TEST'],termDays:30});
+ const v=decodePublisherDraft(encodePublisherDraft(s));
+ assert.equal(v.proposals[0].status,'DRAFT_NOT_ISSUED');
+ assert.ok(!('licenseId' in v.proposals[0]));
+ assert.ok(!('signature' in v.proposals[0]));
+});
+test('release candidate records only an actual byte inspection, never approval', () => {
+ let s=setup();s=applyPublisherDraftCommand(s,{kind:'addArtifact',productId:'IWXA_ADMIN_CENTER',version:'0.3.0',platform:'windows-x64',sourceRepository:'Faust-S/Center',sourceCommit:'a'.repeat(40),sourceTree:'b'.repeat(40),name:'release.exe',size:32,sha256:'c'.repeat(64)});
+ const artifact=decodePublisherDraft(encodePublisherDraft(s)).artifacts[0];
+ assert.equal(artifact.status,'BYTES_INSPECTED_NOT_APPROVED');
+ assert.ok(!('approved' in artifact));
+});
+test('forged active proposal and signed release statuses fail on decode', () => {
+ let s=setup();s=applyPublisherDraftCommand(s,{kind:'addProposal',productId:s.products[0].id,holderId:s.holders[0].id,features:[],termDays:30});
+ let forged=structuredClone(s);forged.proposals[0].status='ACTIVE';
+ assert.throws(()=>decodePublisherDraft(JSON.stringify(forged)),{code:'UNAUTHORIZED_LICENSE_STATUS'});
+ forged.proposals[0].status='DRAFT_NOT_ISSUED';forged.proposals[0].privateKey='secret';
+ assert.throws(()=>validatePublisherDraft(forged),{code:'PROPOSAL_FIELDS_INVALID'});
+});
+test('rejects conflicting product IDs and nonexistent holder or product reference', () => {
+ let s=setup();
+ assert.throws(()=>applyPublisherDraftCommand(s,{kind:'addProduct',id:'IWXA_ADMIN_CENTER',name:'Another',version:'0.3.0'}),{code:'DUPLICATE_PRODUCT'});
+ assert.throws(()=>applyPublisherDraftCommand(s,{kind:'addProposal',productId:'IWXA_ADMIN_CENTER',holderId:'holder:missing',features:[],termDays:30}),{code:'PROPOSAL_REFERENCE_MISSING'});
+ assert.throws(()=>applyPublisherDraftCommand(s,{kind:'addArtifact',productId:'OTHER_PRODUCT',version:'0.3.0',platform:'windows-x64',sourceRepository:'Faust-S/Center',sourceCommit:'a'.repeat(40),sourceTree:'b'.repeat(40),name:'a.exe',size:1,sha256:'c'.repeat(64)}),{code:'ARTIFACT_PRODUCT_MISSING'});
+});
+test('rejects malformed source, untrusted statuses, unsafe names and negative term', () => {
+ let s=setup();
+ assert.throws(()=>applyPublisherDraftCommand(s,{kind:'addProposal',productId:'IWXA_ADMIN_CENTER',holderId:s.holders[0].id,features:[],termDays:-1}),{code:'TERM_INVALID'});
+ const a={kind:'addArtifact',productId:'IWXA_ADMIN_CENTER',version:'0.3.0',platform:'windows-x64',sourceRepository:'Faust-S/Center',sourceCommit:'a'.repeat(40),sourceTree:'b'.repeat(40),name:'a.exe',size:1,sha256:'c'.repeat(64)};
+ assert.throws(()=>applyPublisherDraftCommand(s,{...a,sourceTree:'not-a-commit'}),{code:'SOURCE_REVISION_INVALID'});
+ assert.throws(()=>applyPublisherDraftCommand(s,{...a,name:'../secret.exe'}),{code:'ARTIFACT_NAME_INVALID'});
+});
+test('a proposal can be removed explicitly without modifying the product or holder',()=>{
+ let s=setup();s=applyPublisherDraftCommand(s,{kind:'addProposal',productId:'IWXA_ADMIN_CENTER',holderId:s.holders[0].id,features:[],termDays:30});
+ s=applyPublisherDraftCommand(s,{kind:'removeProposal',id:s.proposals[0].id});
+ assert.equal(s.proposals.length,0);assert.equal(s.products.length,1);assert.equal(s.holders.length,1);
+});
+test('draft importer rejects arbitrary JSON and unknown authority-bearing fields',()=>{
+ assert.throws(()=>decodePublisherDraft('{'),{code:'DRAFT_JSON_INVALID'});
+ assert.throws(()=>decodePublisherDraft(JSON.stringify({...emptyPublisherDraft(),issuerPrivateKey:'x'})),{code:'DRAFT_FIELDS_INVALID'});
+ assert.throws(()=>decodePublisherDraft(JSON.stringify({...emptyPublisherDraft(),format:'iwxa.admin-center.draft'})),{code:'DRAFT_VERSION_INVALID'});
+});

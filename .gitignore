@@ -1,5 +1,6 @@
 node_modules/
 dist/
+publisher-dist/
 target/
 artifacts/
 *.log
@@ -7,3 +8,5 @@ artifacts/
 .env.*
 private-runtime/
 /vendor/atlas/
+/publisher/src-tauri/target/
+/publisher/src-tauri/gen/

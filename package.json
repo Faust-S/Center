@@ -14,7 +14,12 @@
     "preview": "vite preview --host 127.0.0.1",
     "test:ui": "node tests/browser-smoke.mjs",
     "desktop": "tauri",
-    "desktop:build": "tauri build"
+    "desktop:build": "tauri build",
+    "publisher:build": "tsc --noEmit -p publisher/tsconfig.json && vite build --config publisher/vite.config.ts",
+    "publisher:dev": "vite --config publisher/vite.config.ts",
+    "publisher:preview": "vite preview --config publisher/vite.config.ts",
+    "publisher:desktop:build": "cd publisher && npx tauri build",
+    "publisher:test:ui": "node publisher/tests/browser-smoke.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.12.3",
