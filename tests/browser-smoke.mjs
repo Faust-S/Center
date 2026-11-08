@@ -145,7 +145,8 @@ try{
     assigneeId:people[0].id,reviewerId:people[1].id,recipientId:'person:staff',
     taskId:'task:synthetic',taskRevisionId,atlasRef:workRef});
   const exactResult='Полный результат T3.\\nВторая строка <script>всегда текст</script>.\\n'.replaceAll('\\n','\n')+'Данные проверки без сокращений.';
-  const snapshot={product:'admin',organizationId:oid,workspaceId:workId,personId:'person:reviewer',
+  const snapshot={product:'admin',organizationId:oid,workspaceId:workId,personId:'person:staff',
+    task:{id:'task:synthetic',taskRevisionId},
     contextEpoch:1,productionActivation:true,T3_READY:true,packages:[],receipts:[],
     application:{status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false,
       records:[{organizationId:oid,workspaceId:workId,taskId:'task:synthetic',
@@ -169,6 +170,9 @@ try{
   await evidencePage.goto('http://127.0.0.1:4173');
   await evidencePage.getByTestId('nav-results').click();
   await evidencePage.getByTestId('cen05-applied-list').waitFor({state:'visible'});
+  assert.equal(await evidencePage.getByTestId('corporate-export').isEnabled(),true,
+    'only a signed Task with a saved exact issuer WorkRef may be offered for export');
+  assert.match(await evidencePage.getByTestId('cen02-export-link-confirmed').innerText(),/work:synthetic/);
   assert.equal(await evidencePage.getByTestId('cen05-applied-work').count(),1);
   assert.match(await evidencePage.getByTestId('cen05-unlinked-count').innerText(),/1/);
   assert.match(await evidencePage.getByTestId('cen05-unlinked-count').innerText(),/WorkRef/);
@@ -195,6 +199,27 @@ try{
   assert.equal(await evidencePage.getByTestId('cen05-applied-work').count(),1);
   await evidencePage.close();
   checks.push('synthetic-t3-owner-applied-result-expanded-full-read-only-no-html-execution');
+  // The same signed T3 Task without a durable Center WorkRef must NOT be
+  // exported. This is only a synthetic UI adapter test, not a T3 signature.
+  const noLinkDraft=structuredClone(synthetic);
+  delete noLinkDraft.organizations[0].issuedTaskLinks;
+  const noLinkPage=await browser.newPage({viewport:{width:1200,height:900}});
+  noLinkPage.on('pageerror',e=>errors.push(e.message));
+  await noLinkPage.addInitScript(({draftText,view})=>{
+    window.__TAURI_INTERNALS__={invoke:async command=>{
+      if(command==='center_draft_read_state_local')return {content:draftText,generation:'a'.repeat(64)};
+      if(command==='center_corporate_state')return view;
+      throw Error('TEST_ONLY_UNSUPPORTED_NATIVE_OPERATION');
+    }};
+  },{draftText:encodeDraft(noLinkDraft),view});
+  await noLinkPage.goto('http://127.0.0.1:4173');
+  await noLinkPage.getByTestId('nav-results').click();
+  await noLinkPage.getByTestId('cen02-export-link-missing').waitFor({state:'visible'});
+  assert.equal(await noLinkPage.getByTestId('corporate-export').isEnabled(),false);
+  assert.match(await noLinkPage.getByTestId('cen02-export-link-missing').innerText(),
+    /не выдавайте Task повторно/i);
+  await noLinkPage.close();
+  checks.push('synthetic-cen02-export-requires-persisted-exact-issuer-workref');
 
   await page.getByTestId('nav-overview').click();await page.screenshot({path:'artifacts/overview-1366.png',fullPage:true});
   await page.setViewportSize({width:320,height:800});assert.ok(await page.locator('.menu-button').isVisible());await page.locator('.menu-button').click();await page.getByTestId('nav-work').click();
