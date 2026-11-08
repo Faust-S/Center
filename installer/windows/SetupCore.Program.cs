@@ -382,9 +382,12 @@ namespace IwxaSetup
                         SetupInstallation.QueueOwnedUninstallWorkerCleanup(
                             Application.ExecutablePath, Process.GetCurrentProcess().Id);
                     }
-                    catch (IOException) { }
-                    catch (UnauthorizedAccessException) { }
-                    catch (InvalidOperationException) { }
+                    catch (Exception)
+                    {
+                        // A missing/blocked Windows PowerShell helper must
+                        // not falsify the already completed uninstall. The
+                        // specific temporary EXE may remain for manual cleanup.
+                    }
                 }
             }
             if (args.Length != 0) return 3;
