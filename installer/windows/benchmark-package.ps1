@@ -118,7 +118,8 @@ try {
             builderPeakWorkingSetBytes=[long]$build.builderPeakWorkingSetBytes
             peakWorkspaceBytes=$peakTemp
             syntheticPayloadBytes=($mib*1MB)
-            temporaryWorkspaceAbovePayloadBytes=[Math]::Max(0,$peakTemp-($mib*1MB))
+            temporaryWorkspaceAbovePayloadBytes=[Math]::Max(
+                [long]0, [long]($peakTemp-([long]$mib*1MB)))
             finalSetupBytes=$bytes
             installedUninstallerBytes=$bytes
             finalSetupSha256=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
