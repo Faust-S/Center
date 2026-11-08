@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import mmap
 import shutil
 import hashlib
 import json
@@ -379,27 +380,66 @@ def _pe_resource_api():
     return library
 
 
-def _inject_pe_resource(path: Path, content: bytes) -> None:
-    if len(content) > 0x7FFFFFFF:
+def _inject_pe_resource(path: Path, source: Path) -> None:
+    """Map the existing resource bytes from disk without Python-sized copies.
+
+    UpdateResourceW requires a stable pointer for the duration of the call.
+    ACCESS_COPY provides a writable, copy-on-write address without changing
+    the deterministic resource file or allocating another full-sized buffer.
+    """
+    size = source.stat().st_size
+    if size <= FOOTER.size or size > 0x7FFFFFFF:
         raise SetupBundleError("pe_resource_maximum_payload_exceeded")
     kernel = _pe_resource_api()
-    handle = kernel.BeginUpdateResourceW(str(path.resolve()), 0)
-    if not handle:
-        raise SetupBundleError(f"pe_resource_update_open_failed_{ctypes.get_last_error()}")
-    success = False
+    with source.open("r+b") as file, mmap.mmap(
+        file.fileno(), 0, access=mmap.ACCESS_COPY
+    ) as mapped:
+        pointer = ctypes.c_void_p(ctypes.addressof(ctypes.c_char.from_buffer(mapped)))
+        handle = kernel.BeginUpdateResourceW(str(path.resolve()), 0)
+        if not handle:
+            raise SetupBundleError(
+                f"pe_resource_update_open_failed_{ctypes.get_last_error()}"
+            )
+        success = False
+        try:
+            if not kernel.UpdateResourceW(
+                handle, RESOURCE_TYPE, RESOURCE_ID, 0, pointer, size
+            ):
+                raise SetupBundleError(
+                    f"pe_resource_write_failed_{ctypes.get_last_error()}"
+                )
+            success = True
+        finally:
+            if not kernel.EndUpdateResourceW(handle, not success):
+                raise SetupBundleError(
+                    f"pe_resource_update_commit_failed_{ctypes.get_last_error()}"
+                )
+
+
+def _digest_pe_resource(path: Path) -> tuple[int, str]:
+    """Compare the written RCDATA by streaming its mapped bytes in chunks."""
+    kernel = _pe_resource_api()
+    module = kernel.LoadLibraryExW(str(path.resolve()), None, 0x2)
+    if not module:
+        raise SetupBundleError("pe_resource_module_unavailable")
     try:
-        data = ctypes.create_string_buffer(content, len(content))
-        if not kernel.UpdateResourceW(handle, RESOURCE_TYPE, RESOURCE_ID,
-                                      0, data, len(content)):
-            raise SetupBundleError(
-                f"pe_resource_write_failed_{ctypes.get_last_error()}"
-            )
-        success = True
+        handle = kernel.FindResourceW(module, RESOURCE_ID, RESOURCE_TYPE)
+        if not handle:
+            raise SetupBundleError("pe_resource_missing")
+        size = kernel.SizeofResource(module, handle)
+        if size < FOOTER.size or size > 0x7FFFFFFF:
+            raise SetupBundleError("pe_resource_invalid_size")
+        loaded = kernel.LoadResource(module, handle)
+        pointer = kernel.LockResource(loaded)
+        if not pointer:
+            raise SetupBundleError("pe_resource_lock_failed")
+        digest = hashlib.sha256()
+        for offset in range(0, size, CHUNK):
+            digest.update(ctypes.string_at(pointer + offset,
+                                           min(CHUNK, size - offset)))
+        return size, digest.hexdigest()
     finally:
-        if not kernel.EndUpdateResourceW(handle, not success):
-            raise SetupBundleError(
-                f"pe_resource_update_commit_failed_{ctypes.get_last_error()}"
-            )
+        kernel.FreeLibrary(module)
 
 
 def read_pe_resource(path: Path) -> bytes:
@@ -444,15 +484,26 @@ def create_resource_bundle(*, product_json: Path, payload_dir: Path,
             if magic != MAGIC or stub_size != Path(stub).stat().st_size:
                 raise SetupBundleError("pe_resource_original_bundle_invalid")
             stream.seek(stub_size)
-            content = stream.read(zip_size + meta_size)
-        resource = content + FOOTER.pack(
-            RESOURCE_MAGIC, 0, zip_size, meta_size,
-            bytes(32), zip_hash, meta_hash,
-        )
+            resource_path = tmpdir / "resource-section.bin"
+            remaining = zip_size + meta_size
+            with resource_path.open("wb") as destination:
+                while remaining:
+                    block = stream.read(min(CHUNK, remaining))
+                    if not block:
+                        raise SetupBundleError("pe_resource_original_bundle_truncated")
+                    destination.write(block)
+                    remaining -= len(block)
+                destination.write(FOOTER.pack(
+                    RESOURCE_MAGIC, 0, zip_size, meta_size,
+                    bytes(32), zip_hash, meta_hash,
+                ))
+        resource_digest = _digest_file(resource_path)
         staged = tmpdir / "resource-embedded.exe"
         shutil.copyfile(stub, staged)
-        _inject_pe_resource(staged, resource)
-        if read_pe_resource(staged) != resource:
+        _inject_pe_resource(staged, resource_path)
+        if _digest_pe_resource(staged) != (
+            resource_path.stat().st_size, resource_digest
+        ):
             raise SetupBundleError("pe_resource_final_readback_mismatch")
         os.replace(staged, output)
     inspected["format"] = "PE_RESOURCE_V2"
