@@ -32,6 +32,12 @@ $compilerArgs = @(
     '/reference:System.IO.Compression.dll',
     '/reference:System.IO.Compression.FileSystem.dll'
 )
+$manifestPath = Join-Path $PSScriptRoot 'SetupCore.manifest'
+if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+    throw 'IWXA_SETUP_NATIVE_MANIFEST_MISSING'
+}
+# System-aware DPI in one signed EXE; do not depend on a sibling .config.
+$compilerArgs += "/win32manifest:$manifestPath"
 $iconPath = if ([IO.Path]::IsPathRooted($Icon)) {
     [IO.Path]::GetFullPath($Icon)
 } else {

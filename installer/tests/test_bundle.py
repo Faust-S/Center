@@ -7,6 +7,7 @@ import os
 import struct
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from unittest.mock import patch
 from pathlib import Path
 
@@ -76,6 +77,19 @@ class BundleTests(unittest.TestCase):
         self.assertIn("!performingOperation && !verifyingState", source)
         self.assertIn("install.Enabled = !performingOperation &&", source)
         self.assertNotIn("performingOperation = false;\n                UpgradeAssessment verified", source)
+
+    def test_native_stub_embeds_single_exe_system_dpi_manifest(self):
+        windows = Path(__file__).resolve().parents[1] / "windows"
+        manifest = ET.fromstring((windows / "SetupCore.manifest").read_text(encoding="utf-8"))
+        aware = manifest.find(".//{http://schemas.microsoft.com/SMI/2005/WindowsSettings}dpiAware")
+        execution = manifest.find(".//{urn:schemas-microsoft-com:asm.v3}requestedExecutionLevel")
+        self.assertIsNotNone(aware)
+        self.assertEqual(aware.text.strip(), "true")
+        self.assertIsNotNone(execution)
+        self.assertEqual(execution.attrib["level"], "asInvoker")
+        script = (windows / "build-stub.ps1").read_text(encoding="utf-8")
+        self.assertIn("/win32manifest:$manifestPath", script)
+        self.assertIn("IWXA_SETUP_NATIVE_MANIFEST_MISSING", script)
 
     def test_native_setup_preserves_action_geometry_at_small_sizes(self):
         source = (Path(__file__).resolve().parents[1] / "windows" /
