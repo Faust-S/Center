@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   model:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(sign):') }}
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +44,7 @@ jobs:
       - name: Verify universal Setup Core package contract
         run: python -m unittest discover -s installer/tests -p 'test_*.py' -v
   interface:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(sign):') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +72,7 @@ jobs:
             package-lock.json
             dist/
   windows-shell:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(sign):') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -348,3 +348,31 @@ jobs:
           name: center-webview2-verification
           path: |
             artifacts/webview2-*.json
+
+  windows-sign-compatibility-probe:
+    if: ${{ startsWith(github.event.head_commit.message, 'ci(sign):') }}
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: center-windows-preparation-shell
+          repository: Faust-S/Center
+          run-id: 42495177012
+          github-token: ${{ github.token }}
+          path: accepted
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test final EXE Authenticode signing against embedded package
+        shell: pwsh
+        timeout-minutes: 6
+        run: ./installer/windows/qualify-signature-compatibility.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: center-setup-signing-probe
+          path: artifacts/setup-sign-compatibility.json
