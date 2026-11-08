@@ -456,6 +456,10 @@ fn publisher_pick_preparation_backup() -> Result<Option<String>, String> {
     }
 }
 
+#[path="../../../native/t3_product_component.rs"]
+mod t3_product_component;
+mod t3_owner;
+
 fn main() {
     tauri::Builder::default()
         .manage(DraftLock(Mutex::new(())))
@@ -464,7 +468,10 @@ fn main() {
             publisher_draft_read, publisher_draft_save, publisher_inspect_artifact, publisher_save_test_request,
             publisher_export_preparation_backup, publisher_pick_preparation_backup,
             publisher_compare_offline_copies,
-            publisher_select_test_iwxa, publisher_export_test_iwxa
+            publisher_select_test_iwxa, publisher_export_test_iwxa,
+            t3_owner::publisher_t3_capabilities, t3_owner::publisher_t3_inventory,
+            t3_owner::publisher_t3_issue, t3_owner::publisher_t3_change_status,
+            t3_owner::publisher_t3_export
         ])
         .run(tauri::generate_context!())
         .expect("IWXA Publisher could not start");
