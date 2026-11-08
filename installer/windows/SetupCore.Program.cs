@@ -57,6 +57,27 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            // Standalone candidate validation is read-only and works even
+            // when WebView2 Runtime is installed on the CI host.
+            if (args.Length == 3 && args[0] == "--verify-webview2-standalone-file")
+            {
+                try
+                {
+                    string status =
+                        SetupReadiness.VerifyWebView2StandaloneCandidate(args[1]);
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", status}, {"file", Path.GetFileName(args[1])}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             if (args.Length == 2 && args[0] == "--legacy-inspect-file")
             {
                 try

@@ -130,6 +130,7 @@ namespace IwxaSetup
         {
             if (!String.IsNullOrWhiteSpace(DetectWebView2Version()))
                 return "WEBVIEW2_ALREADY_INSTALLED";
+            VerifyWebView2StandaloneCandidate(executable);
             return InstallVerifiedWebView2(executable);
         }
 
@@ -160,6 +161,18 @@ namespace IwxaSetup
                 throw new InvalidDataException(
                     "SETUP_WEBVIEW2_INSTALLER_PRODUCT_UNEXPECTED");
             return "WEBVIEW2_MICROSOFT_INSTALLER_VERIFIED";
+        }
+
+        // Reject the tiny online bootstrapper in the OFFLINE selection.
+        // Size is only a useful first-pass distinction: the actual offline
+        // installation must still succeed and Runtime registration read back.
+        internal static string VerifyWebView2StandaloneCandidate(string executable)
+        {
+            VerifyWebView2Installer(executable);
+            if (new FileInfo(executable).Length < 16L * 1024 * 1024)
+                throw new InvalidDataException(
+                    "SETUP_WEBVIEW2_OFFLINE_STANDALONE_REQUIRED");
+            return "WEBVIEW2_MICROSOFT_OFFLINE_CANDIDATE_VERIFIED";
         }
 
         private static string InstallVerifiedWebView2(string executable)

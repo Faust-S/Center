@@ -331,6 +331,20 @@ jobs:
             throw "WEBVIEW2_MICROSOFT_BOOTSTRAPPER_INVALID_$($result.status)"
           }
           Write-Host "WEBVIEW2_OFFICIAL_BOOTSTRAPPER_AUTHENTICODE_PASS size=$((Get-Item $official).Length) sha256=$((Get-FileHash $official -Algorithm SHA256).Hash)"
+          # The genuine ~2 MB Microsoft bootstrapper is not a full offline
+          # installer. Catch incorrect offline selection before running it.
+          $offlineReport=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-bootstraper-offline-rejected.json'
+          $offline=Start-Process -FilePath $stub -ArgumentList ('--verify-webview2-standalone-file "{0}" "{1}"' -f $official,$offlineReport) -PassThru
+          try {
+            if(!$offline.WaitForExit(55000)){Stop-Process -Id $offline.Id -Force;throw 'WEBVIEW2_STANDALONE_PROBE_TIMEOUT'}
+            if($offline.ExitCode -ne 2){throw 'WEBVIEW2_BOOTSTRAPPER_ACCEPTED_AS_OFFLINE'}
+          } finally {$offline.Dispose()}
+          $offlineState=Get-Content -LiteralPath $offlineReport -Raw|ConvertFrom-Json
+          if($offlineState.status -ne 'ERROR' -or
+             $offlineState.reason -ne 'SETUP_WEBVIEW2_OFFLINE_STANDALONE_REQUIRED'){
+            throw 'WEBVIEW2_BOOTSTRAPPER_OFFLINE_REJECTION_INVALID'
+          }
+          Write-Host 'WEBVIEW2_BOOTSTRAPPER_REJECTED_AS_OFFLINE_PASS'
           $tampered=Join-Path $env:GITHUB_WORKSPACE 'artifacts/MicrosoftEdgeWebview2Setup-tampered.exe'
           Copy-Item -LiteralPath $official -Destination $tampered
           $file=[System.IO.File]::Open($tampered,[System.IO.FileMode]::Open,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]::None)

@@ -431,6 +431,10 @@ namespace IwxaSetup
                         packageDetails.Text = T(
                             "Проверьте интернет и повторите попытку либо выберите официальный автономный установщик Microsoft.",
                             "Check the connection and retry, or choose Microsoft's official offline installer.");
+                    else if (code.Contains("OFFLINE_STANDALONE_REQUIRED"))
+                        packageDetails.Text = T(
+                            "Это маленький сетевой загрузчик. Выберите полный автономный WebView2 Runtime для Windows x64 с сайта Microsoft.",
+                            "This is a small online bootstrapper. Select Microsoft's full offline WebView2 Runtime for Windows x64.");
                     else if (code.Contains("AUTHENTICODE") ||
                              code.Contains("SIGNER") ||
                              code.Contains("PRODUCT_UNEXPECTED"))

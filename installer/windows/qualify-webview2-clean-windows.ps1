@@ -60,8 +60,8 @@ if ($before.status -ne 'WEBVIEW2_MISSING' -or $before.webview2Version) {
     throw 'WEBVIEW2_CLEAN_VM_REQUIRED_RUNTIME_ALREADY_PRESENT'
 }
 if ($Mode -eq 'Offline') {
-    $verified = Invoke-SetupJson '--verify-webview2-installer-file' 'standalone-signature' $StandaloneInstaller
-    if ($verified.status -ne 'WEBVIEW2_MICROSOFT_INSTALLER_VERIFIED') {
+    $verified = Invoke-SetupJson '--verify-webview2-standalone-file' 'standalone-signature' $StandaloneInstaller
+    if ($verified.status -ne 'WEBVIEW2_MICROSOFT_OFFLINE_CANDIDATE_VERIFIED') {
         throw 'WEBVIEW2_CLEAN_VM_STANDALONE_NOT_AUTHENTICATED'
     }
     $installedRuntime = Invoke-SetupJson '--ensure-webview2-offline-file' 'install-runtime-offline' $StandaloneInstaller
