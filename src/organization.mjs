@@ -52,6 +52,19 @@ export function validateDraft(state) {
   return state;
 }
 
+// Canonical equality for the original Atlas WorkRef. Native Atlas export and
+// historical preparation drafts may serialize the same three fields in a
+// different order. Require all three exact keys; never equate an incomplete
+// source or an unexpected extra field with a verified issuer-side reference.
+export function sameAtlasWorkRef(a,b) {
+  const exact=x=>x&&typeof x==='object'&&!Array.isArray(x)&&
+    Object.keys(x).length===3&&
+    ['projectId','workId','revision'].every(k=>Object.hasOwn(x,k)&&
+      typeof x[k]==='string'&&x[k].length>0);
+  return Boolean(exact(a)&&exact(b)&&a.projectId===b.projectId&&
+    a.workId===b.workId&&a.revision===b.revision);
+}
+
 function validateAtlasRef(value) {
   requireValue(value && typeof value === 'object' && !Array.isArray(value), 'ATLAS_REFERENCE_INVALID');
   const keys = Object.keys(value);
@@ -200,7 +213,8 @@ export function applyDraftCommand(current, command, {id = () => crypto.randomUUI
       const previous=links.find(x=>issuedLinkKey(x)===issuedLinkKey(link));
       if(previous){
         requireValue(linkShape.every(k=>k==='recordedAt'||k==='recipientId' ||
-          JSON.stringify(previous[k])===JSON.stringify(link[k])) &&
+          (k==='atlasRef'?sameAtlasWorkRef(previous[k],link[k]):
+            JSON.stringify(previous[k])===JSON.stringify(link[k]))) &&
           linkRecipientId(previous)===link.recipientId,
           'DRAFT_ISSUED_LINK_CONFLICT');
         // A duplicate host callback must not create a second entry or
