@@ -549,6 +549,11 @@ namespace IwxaSetup
                     if (disk.Status != "DISK_SPACE_READY")
                     {
                         ShowDiskSpaceRequired(disk, versionLine);
+                        // Disk pressure must not hide the already usable app.
+                        openApplication.Tag = "APPLICATION";
+                        openApplication.Text = T("Открыть установленную программу",
+                            "Open installed application");
+                        openApplication.Visible = true;
                     }
                     else
                     {
@@ -590,6 +595,11 @@ namespace IwxaSetup
                     if (disk.Status != "DISK_SPACE_READY")
                     {
                         ShowDiskSpaceRequired(disk, versionLine);
+                        // Disk pressure must not hide the already usable app.
+                        openApplication.Tag = "APPLICATION";
+                        openApplication.Text = T("Открыть установленную программу",
+                            "Open installed application");
+                        openApplication.Visible = true;
                     }
                     else
                     {
