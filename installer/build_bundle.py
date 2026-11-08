@@ -98,7 +98,9 @@ def validate_product(value: Any) -> dict[str, Any]:
         raise SetupBundleError("product_id_invalid")
     if not isinstance(value["version"], str) or not VERSION.fullmatch(value["version"]):
         raise SetupBundleError("product_version_invalid")
-    if value["architecture"] not in ("windows-x64", "windows-arm64"):
+    # Native Setup Core currently only installs x64 payloads. Do not allow
+    # package metadata to advertise ARM64 before ARM64 native acceptance.
+    if value["architecture"] != "windows-x64":
         raise SetupBundleError("product_architecture_unsupported")
     if any(
         not isinstance(value[k], str) or not 1 <= len(value[k]) <= 80

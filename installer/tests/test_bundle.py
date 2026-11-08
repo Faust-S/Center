@@ -155,6 +155,7 @@ class BundleTests(unittest.TestCase):
         for key, invalid in (
             ("id", "../pwn"), ("install_dir", "../other"),
             ("entrypoint", "../../secret.exe"), ("architecture", "win32"),
+            ("architecture", "windows-arm64"),
             ("requirements", ["cmd.exe /c something"])
         ):
             with self.subTest(key=key):
