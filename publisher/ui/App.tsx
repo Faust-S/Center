@@ -382,11 +382,8 @@ export default function App(){
          <section className="card padded"><h2>Проверенные файлы ({state.artifacts.length})</h2>
          {state.artifacts.length===0?<p className="muted">Файлы ещё не проверены. Подтверждённых релизов нет.</p>:state.artifacts.map(a=><div key={a.id} className="simple-row"><div><strong>{a.name}</strong><small>{productTitle(a.productId)} · {a.version} · {a.platform} · SHA-256 {a.sha256}</small><small>Заявленный источник: {a.sourceRepository} @ {a.sourceCommit.slice(0,12)} (не проверен независимо)</small></div><span className="status neutral">Не опубликовано</span></div>)}</section>
        </>}
-       {page==='trust'&&<section className="card padded"><h2>Издательские полномочия</h2><p>Операции подписи не подключены. Производственные ключи здесь не создаются и не импортируются.</p>
-           <div className="simple-row"><div><strong>Доверенный root издателя</strong><small>Публичное решение владельца</small></div><span className="status neutral">Не подключён</span></div>
-           <div className="simple-row"><div><strong>Подпись лицензии</strong><small>Исходный issuer: T3 license-engine.mjs</small></div><span className="status neutral">Недоступно</span></div>
-           <div className="simple-row"><div><strong>Подпись статуса</strong><small>Независимый purpose key</small></div><span className="status neutral">Недоступно</span></div>
-           <p className="muted">Планируемое подключение не является действительным issuer, лицензией или назначением прав.</p>
+       {page==='trust'&&<section className="card padded"><h2>Издательские полномочия</h2>
+           <p className="muted">TEST-подпись доступна только через ранее зарегистрированного владельца и оригинальный нативный компонент T3. Ни браузер, ни Publisher не получают закрытых ключей. Коммерческие права и выпуск производственных лицензий отключены.</p>
            <PublisherT3OwnerPanel draft={state} invoke={invoke}/>
            <div className="divider"></div>
            <h3>Передача продуктовой TEST-лицензии через .iwxa</h3>
@@ -404,8 +401,8 @@ export default function App(){
      </>}
      <footer className="footer"><span>IWXA Publisher · отдельная owner-side программа</span><span>Локальные подготовительные данные · не лицензия и не release authority</span></footer>
    </main>
-   <aside className="inspector"><div className="eyebrow">ИЗДАТЕЛЬСКАЯ ПАНЕЛЬ</div><h2>Только подготовка</h2>
-     <div className="inspector-card"><strong>Действительные лицензии</strong><p>0</p><small>До подключения проверенного issuer здесь не отображается ACTIVE.</small></div>
+   <aside className="inspector"><div className="eyebrow">ИЗДАТЕЛЬСКАЯ ПАНЕЛЬ</div><h2>TEST и подготовка</h2>
+     <div className="inspector-card"><strong>Действительные лицензии</strong><p>0</p><small>Подписанные TEST-лицензии не предоставляют коммерческих мест.</small></div>
      <div className="inspector-card"><strong>Подтверждённые релизы</strong><p>0</p><small>SHA-256 сам по себе не является решением о публикации.</small></div>
      <div className="inspector-card"><strong>Разделение полномочий</strong><small>Publisher выдаёт лицензии. Admin Center только потребляет подтверждённые права и распределяет места.</small></div>
    </aside>
