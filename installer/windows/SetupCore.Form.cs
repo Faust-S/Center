@@ -24,7 +24,7 @@ namespace IwxaSetup
         private readonly Button secondary = new Button();
         private readonly LinkLabel openApplication = new LinkLabel();
         private enum SetupOperation { None, Install, Upgrade, Recover, Confirm, Rollback,
-            StageLegacyPreview, CancelLegacyPreview }
+            StageLegacyPreview, CancelLegacyPreview, InstallWebView2 }
         private SetupOperation primaryAction = SetupOperation.None;
         private SetupOperation secondaryAction = SetupOperation.None;
         private bool performingOperation = false;
@@ -287,6 +287,9 @@ namespace IwxaSetup
                 operation == SetupOperation.StageLegacyPreview ?
                 T("Подготовка 0.3 отдельно от 0.2…",
                   "Preparing 0.3 alongside 0.2…") :
+                operation == SetupOperation.InstallWebView2 ?
+                T("Установка Microsoft WebView2…",
+                  "Installing Microsoft WebView2…") :
                 T("Установка проверенных файлов…", "Installing verified files…");
             try
             {
@@ -304,6 +307,13 @@ namespace IwxaSetup
                             return SetupInstallation.StageLegacy(executable);
                         case SetupOperation.CancelLegacyPreview:
                             return SetupInstallation.UninstallOwned(executable);
+                        case SetupOperation.InstallWebView2:
+                            string componentStatus = SetupReadiness.EnsureWebView2Online();
+                            return new InstallOutcome {
+                                Status = componentStatus, Product = "webview2-evergreen",
+                                Version = SetupReadiness.DetectWebView2Version(),
+                                Root = ""
+                            };
                         default: throw new InvalidOperationException("SETUP_OPERATION_UNSUPPORTED");
                     }
                 });
@@ -327,6 +337,9 @@ namespace IwxaSetup
                 else if (operation == SetupOperation.CancelLegacyPreview)
                     status.Text = T("Переход отменён — NSIS 0.2 сохранён",
                         "Preview cancelled — NSIS 0.2 retained");
+                else if (operation == SetupOperation.InstallWebView2)
+                    status.Text = T("WebView2 готов — можно установить программу",
+                        "WebView2 ready — application can now be installed");
                 status.ForeColor = Color.FromArgb(24, 119, 91);
             }
             catch (Exception ex)
@@ -388,9 +401,12 @@ namespace IwxaSetup
                             T("Для работы приложения установите Evergreen Runtime. Если интернета нет, используйте официальный автономный установщик.",
                               "Install the Evergreen Runtime. Use Microsoft's standalone installer if offline."),
                             versionLine, true);
+                        ConfigureActions(SetupOperation.InstallWebView2,
+                            SetupOperation.None,
+                            T("Установить WebView2", "Install WebView2"));
                         openApplication.Tag = "WEBVIEW2";
-                        openApplication.Text = T("Страница установки WebView2 (Microsoft)",
-                            "WebView2 download page (Microsoft)");
+                        openApplication.Text = T("Официальный автономный установщик (Microsoft)",
+                            "Official offline installer (Microsoft)");
                         openApplication.Visible = true;
                     }
                     else

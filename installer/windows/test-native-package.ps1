@@ -77,6 +77,17 @@ try {
             'ARCHITECTURE_UNSUPPORTED'
         )) { throw 'SETUP_NATIVE_PREFLIGHT_INVALID' }
     Write-Host "IWXA_SETUP_NATIVE_PREFLIGHT_PASS status=$($preflight.status)"
+    # When WebView2 is already installed, ensuring the dependency must be
+    # idempotent and must not download or launch an installer.
+    if ($preflight.webview2Version) {
+        $componentFile = Join-Path $artifact 'setup-core-webview2-available.json'
+        $component = Invoke-NativeInspection $bundle $componentFile 0 '--ensure-webview2-file'
+        if ($component.status -ne 'WEBVIEW2_ALREADY_INSTALLED' -or
+            !$component.webview2Version) {
+            throw 'SETUP_WEBVIEW2_ALREADY_PRESENT_NOT_IDEMPOTENT'
+        }
+        Write-Host 'IWXA_SETUP_WEBVIEW2_PRESENT_NO_BOOTSTRAP_PASS'
+    }
     $upgradePlanFile = Join-Path $artifact 'setup-core-upgrade-plan.json'
     $freshPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
     if ($freshPlan.status -ne 'NO_OWNED_INSTALLATION' -or

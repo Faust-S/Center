@@ -82,6 +82,29 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            if (args.Length == 2 && args[0] == "--ensure-webview2-file")
+            {
+                try
+                {
+                    BundleInfo info = BundleReader.Inspect(Application.ExecutablePath);
+                    string status = info.NeedsWebView2 ?
+                        SetupReadiness.EnsureWebView2Online() :
+                        "WEBVIEW2_NOT_REQUIRED";
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", status},
+                        {"product", info.Id},
+                        {"webview2Version", SetupReadiness.DetectWebView2Version()}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             if (args.Length == 2 && args[0] == "--upgrade-plan-file")
             {
                 try

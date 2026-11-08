@@ -1,5 +1,10 @@
 using System;
 using System.IO;
+using System.Diagnostics;
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using System.Linq;
 using System.Security;
 using Microsoft.Win32;
@@ -58,6 +63,174 @@ namespace IwxaSetup
                     result.Status = "WEBVIEW2_MISSING";
             }
             return result;
+        }
+
+
+        // Official Microsoft evergreen bootstrapper. The initial URL is the
+        // stable Microsoft download redirect; the final executable must pass
+        // Windows Authenticode verification and identify Microsoft Corporation.
+        // No runtime download is performed when a valid Runtime is present.
+        internal static string EnsureWebView2Online()
+        {
+            if (!String.IsNullOrWhiteSpace(DetectWebView2Version()))
+                return "WEBVIEW2_ALREADY_INSTALLED";
+            const string link =
+                "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
+            string temp = Path.Combine(Path.GetTempPath(),
+                "iwxa-webview2-" + Guid.NewGuid().ToString("N") + ".exe");
+            try
+            {
+                ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+                var request = (HttpWebRequest)WebRequest.Create(link);
+                request.Timeout = 45000;
+                request.ReadWriteTimeout = 45000;
+                request.AllowAutoRedirect = true;
+                request.MaximumAutomaticRedirections = 6;
+                using (var response = (HttpWebResponse)request.GetResponse())
+                {
+                    if (response.StatusCode != HttpStatusCode.OK ||
+                        response.ResponseUri == null ||
+                        response.ResponseUri.Scheme != Uri.UriSchemeHttps ||
+                        response.ContentLength > 16 * 1024 * 1024)
+                        throw new InvalidDataException("SETUP_WEBVIEW2_SOURCE_INVALID");
+                    using (Stream incoming = response.GetResponseStream())
+                    using (var output = new FileStream(temp, FileMode.CreateNew,
+                        FileAccess.Write, FileShare.None))
+                    {
+                        byte[] buffer = new byte[65536];
+                        long count = 0;
+                        int read;
+                        while ((read = incoming.Read(buffer, 0, buffer.Length)) > 0)
+                        {
+                            count += read;
+                            if (count > 16 * 1024 * 1024)
+                                throw new InvalidDataException(
+                                    "SETUP_WEBVIEW2_BOOTSTRAPPER_TOO_LARGE");
+                            output.Write(buffer, 0, read);
+                        }
+                        if (count < 65536)
+                            throw new InvalidDataException(
+                                "SETUP_WEBVIEW2_BOOTSTRAPPER_INCOMPLETE");
+                    }
+                }
+                using (var file = File.OpenRead(temp))
+                {
+                    if (file.ReadByte() != 'M' || file.ReadByte() != 'Z')
+                        throw new InvalidDataException(
+                            "SETUP_WEBVIEW2_BOOTSTRAPPER_NOT_EXECUTABLE");
+                }
+                VerifyMicrosoftAuthenticode(temp);
+                using (Process installer = Process.Start(new ProcessStartInfo(temp,
+                    "/silent /install") {
+                    UseShellExecute = false, CreateNoWindow = true
+                }))
+                {
+                    if (installer == null)
+                        throw new InvalidOperationException(
+                            "SETUP_WEBVIEW2_BOOTSTRAPPER_START_FAILED");
+                    if (!installer.WaitForExit(180000))
+                    {
+                        try { installer.Kill(); }
+                        catch (InvalidOperationException) { }
+                        throw new InvalidOperationException(
+                            "SETUP_WEBVIEW2_INSTALL_TIMEOUT");
+                    }
+                    if (installer.ExitCode != 0 &&
+                        String.IsNullOrWhiteSpace(DetectWebView2Version()))
+                        throw new InvalidOperationException(
+                            "SETUP_WEBVIEW2_INSTALL_EXIT_" + installer.ExitCode);
+                }
+                for (int i = 0; i < 20; i++)
+                {
+                    if (!String.IsNullOrWhiteSpace(DetectWebView2Version()))
+                        return "WEBVIEW2_INSTALLED_VERIFIED";
+                    Thread.Sleep(750);
+                }
+                throw new InvalidOperationException(
+                    "SETUP_WEBVIEW2_INSTALL_NOT_DETECTED");
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct TrustFile
+        {
+            internal uint cbStruct;
+            [MarshalAs(UnmanagedType.LPWStr)]
+            internal string pcwszFilePath;
+            internal IntPtr hFile;
+            internal IntPtr pgKnownSubject;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TrustData
+        {
+            internal uint cbStruct;
+            internal IntPtr pPolicyCallbackData;
+            internal IntPtr pSIPClientData;
+            internal uint dwUIChoice;
+            internal uint fdwRevocationChecks;
+            internal uint dwUnionChoice;
+            internal IntPtr pFile;
+            internal uint dwStateAction;
+            internal IntPtr hWVTStateData;
+            internal IntPtr pwszURLReference;
+            internal uint dwProvFlags;
+            internal uint dwUIContext;
+        }
+
+        [DllImport("wintrust.dll", PreserveSig = true)]
+        private static extern uint WinVerifyTrust(
+            IntPtr hwnd, [MarshalAs(UnmanagedType.LPStruct)] Guid action,
+            IntPtr data);
+
+        private static void VerifyMicrosoftAuthenticode(string executable)
+        {
+            var file = new TrustFile {
+                cbStruct = (uint)Marshal.SizeOf(typeof(TrustFile)),
+                pcwszFilePath = executable
+            };
+            IntPtr filePtr = Marshal.AllocHGlobal(
+                Marshal.SizeOf(typeof(TrustFile)));
+            IntPtr dataPtr = IntPtr.Zero;
+            try
+            {
+                Marshal.StructureToPtr(file, filePtr, false);
+                var options = new TrustData {
+                    cbStruct = (uint)Marshal.SizeOf(typeof(TrustData)),
+                    dwUIChoice = 2, dwUnionChoice = 1,
+                    pFile = filePtr
+                };
+                dataPtr = Marshal.AllocHGlobal(
+                    Marshal.SizeOf(typeof(TrustData)));
+                Marshal.StructureToPtr(options, dataPtr, false);
+                Guid policy = new Guid(
+                    "00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
+                uint result = WinVerifyTrust(IntPtr.Zero, policy, dataPtr);
+                if (result != 0)
+                    throw new InvalidDataException(
+                        "SETUP_WEBVIEW2_AUTHENTICODE_INVALID");
+                using (var signer = new X509Certificate2(
+                    X509Certificate.CreateFromSignedFile(executable)))
+                {
+                    if (signer.Subject.IndexOf("O=Microsoft Corporation",
+                        StringComparison.OrdinalIgnoreCase) < 0)
+                        throw new InvalidDataException(
+                            "SETUP_WEBVIEW2_SIGNER_UNEXPECTED");
+                }
+            }
+            finally
+            {
+                if (dataPtr != IntPtr.Zero)
+                    Marshal.FreeHGlobal(dataPtr);
+                Marshal.DestroyStructure(filePtr, typeof(TrustFile));
+                Marshal.FreeHGlobal(filePtr);
+            }
         }
 
         private static bool RegistryProductExists(BundleInfo info)
