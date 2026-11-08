@@ -34,7 +34,9 @@ try {
         install_dir=$dirName;entrypoint=$appName
         data_namespace='iwxa.setup.fastfixture';requirements=@()
     }
-    $profile|ConvertTo-Json -Depth 5|Set-Content -LiteralPath $profilePath -Encoding UTF8
+    [IO.File]::WriteAllText($profilePath,
+        ($profile|ConvertTo-Json -Depth 5),
+        (New-Object System.Text.UTF8Encoding($false)))
     New-Item -Path $payload -ItemType Directory|Out-Null
     Copy-Item -LiteralPath $stubPath -Destination (Join-Path $payload $appName)
     New-Item -Path (Join-Path $payload 'assets') -ItemType Directory|Out-Null
@@ -199,8 +201,9 @@ try {
         $nextProfile=$profile.Clone()
         $nextProfile.version='0.3.0-dev.2'
         $nextPath=Join-Path $work 'upgrade-profile.json'
-        $nextProfile|ConvertTo-Json -Depth 5|
-            Set-Content -LiteralPath $nextPath -Encoding UTF8
+        [IO.File]::WriteAllText($nextPath,
+            ($nextProfile|ConvertTo-Json -Depth 5),
+            (New-Object System.Text.UTF8Encoding($false)))
         $upgradeBundle=Join-Path $work 'upgrade.exe'
         $upgradeArgs=@('-m','installer.build_bundle','build-resource',
             '--product',$nextPath,'--payload',$payload,'--stub',$stubPath,
