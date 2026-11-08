@@ -209,6 +209,18 @@ jobs:
       - name: Build/install/launch/uninstall Publisher with original IWXA Setup Core
         shell: pwsh
         run: ./publisher/tests/installed-setupcore-publisher.ps1
+      - name: Validate Center-owned Windows dual-desktop acceptance driver syntax
+        shell: pwsh
+        run: |
+          $path=(Resolve-Path 'tests/installed-publisher-center-license.ps1').Path
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)|Out-Null
+          if($errors.Count -gt 0){
+            $errors|ForEach-Object {Write-Host $_.Message}
+            throw 'CENTER_PUBLIC_NATIVE_LICENSE_GUI_TEST_PARSE_FAILED'
+          }
+          Write-Host 'CENTER_PUBLIC_NATIVE_LICENSE_GUI_TEST_SYNTAX_PASS'
       - name: Validate Publisher two-file Setup Core payload in PUBLIC CI only
         shell: pwsh
         run: |
