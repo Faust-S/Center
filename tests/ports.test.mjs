@@ -142,8 +142,12 @@ test('without the owning application runtime Center cannot claim an applied resu
 test('wrong runtime cannot be bound',()=>assert.throws(()=>createT3AdminPort({product:'control'}),/ADMIN_RUNTIME_REQUIRED/));
 
 function issueFixture() {
+  // This contract fixture must use the SAME organization/workspace selected
+  // in T3 as the manager's source. Unmapped identifiers cannot authorize
+  // a corporate signature, even in a test double.
   let seq=0;
-  const options={id:()=>`draft-${++seq}`,now:()=>'2026-11-04T12:00:00.000Z'};
+  const ids=['org','work'];
+  const options={id:()=>ids.shift()??`draft-${++seq}`,now:()=>'2026-11-04T12:00:00.000Z'};
   let state=emptyDraft(options.now()),act=command=>(state=applyDraftCommand(state,command,options));
   act({type:'CREATE_ORGANIZATION',name:'Manager'});
   const organizationId=state.activeOrganizationId;
@@ -208,6 +212,25 @@ test('T3 task issue rejects stale revision, missing work and project-only link',
     atlasRef:{projectId:f.assignment.atlasRef.projectId,revision:f.assignment.atlasRef.revision}}}),
     /T3_ATLAS_WORK_BINDING_REQUIRED/);
   assert.equal(r.calls.length,0);
+});
+test('CEN02 refuses to sign Task for an unmapped organization or Workspace',async()=>{
+ const f=issueFixture();
+ const wrongWorkspace=issuingRuntime();
+ wrongWorkspace.state.workspaceId='other-t3-workspace';
+ const port=createT3AdminPort(wrongWorkspace,{openAtlas:async()=>f.observed});
+ await assert.rejects(()=>port.issue({...f,binding:{
+   ...f.binding,workspaceId:'other-t3-workspace'
+ }}),/T3_DRAFT_WORKSPACE_NOT_SELECTED/);
+ assert.equal(wrongWorkspace.calls.length,0,
+   'mismatched T3 workspace must never reach createTask');
+ const wrongOrg=issuingRuntime();
+ wrongOrg.state.organizationId='other-t3-org';
+ const port2=createT3AdminPort(wrongOrg,{openAtlas:async()=>f.observed});
+ await assert.rejects(()=>port2.issue({...f,binding:{
+   ...f.binding,organizationId:'other-t3-org'
+ }}),/T3_DRAFT_ORGANIZATION_NOT_SELECTED/);
+ assert.equal(wrongOrg.calls.length,0,
+   'mismatched T3 organization must never reach createTask');
 });
 test('T3 issue rechecks context epoch after native I/O and keeps reviewer binding',async()=>{
   const f=issueFixture(),r=issuingRuntime();
@@ -411,6 +434,18 @@ test('CEN02 recovers only the exact historical T3 signed Task as local issuer Wo
    assignment:restored.organizations[0].assignments[0],snapshot});
  assert.equal(already.alreadyRecorded,true,'idempotent readback requires no second write');
  assert.deepEqual(already.command,result.command);
+ const orderChanged=structuredClone(restored);
+ const historical=orderChanged.organizations[0].issuedTaskLinks[0];
+ historical.atlasRef={projectId:historical.atlasRef.projectId,
+   revision:historical.atlasRef.revision,workId:historical.atlasRef.workId};
+ const unchanged=prepareIssuedTaskLinkRecovery({
+   organization:orderChanged.organizations[0],
+   assignment:orderChanged.organizations[0].assignments[0],snapshot
+ });
+ assert.equal(unchanged.alreadyRecorded,true,
+   'reordered WorkRef fields must not appear to be a conflicting assignment');
+ assert.deepEqual(applyDraftCommand(orderChanged,unchanged.command),orderChanged,
+   'duplicate recovery must not rewrite an existing WorkRef');
 });
 test('CEN02 never guesses issuer WorkRef from stale text, duplicate drafts or changed T3 claims',()=>{
  const f=issueFixture(),snapshot=t3RecoverySnapshot(f);
@@ -438,6 +473,13 @@ test('CEN02 never guesses issuer WorkRef from stale text, duplicate drafts or ch
  const wrongRecipient={...snapshot,personId:'person:other'};
  assert.throws(()=>call(f.organization,f.assignment,wrongRecipient),
    /CEN02_RECOVERY_SIGNED_TASK_NOT_SELECTED/);
+ const wrongWorkspace=structuredClone(snapshot);
+ wrongWorkspace.workspaceId='other-t3-workspace';
+ wrongWorkspace.task.workspaceId='other-t3-workspace';
+ wrongWorkspace.task.signedClaims.scope.workspaceId='other-t3-workspace';
+ assert.throws(()=>call(f.organization,f.assignment,wrongWorkspace),
+   /CEN02_RECOVERY_WORKSPACE_MISMATCH/,
+   'recovery cannot guess an unsigned mapping from T3 workspace to draft workspace');
  const noClaim=structuredClone(snapshot);delete noClaim.task.signedClaims;
  assert.throws(()=>call(f.organization,f.assignment,noClaim),
    /CEN02_RECOVERY_SIGNED_CLAIMS_CHANGED/);
