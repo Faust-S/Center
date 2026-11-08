@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -37,7 +38,13 @@ class BundleTests(unittest.TestCase):
         (self.payload / "assets").mkdir()
         (self.payload / "assets" / "logo.txt").write_text("IWXA", encoding="utf-8")
         self.stub = self.root / "native-stub.exe"
-        self.stub.write_bytes(b"MZ" + b"0" * 5000)
+        # Synthetic PE GUI stub sufficient for validating the packaging contract.
+        pe = bytearray(b"MZ" + b"0" * 5000)
+        struct.pack_into("<I", pe, 0x3C, 0x80)
+        pe[0x80:0x84] = b"PE\x00\x00"
+        pe[0x98:0x9A] = b"\x0b\x01"
+        pe[0xDC:0xDE] = b"\x02\x00"
+        self.stub.write_bytes(pe)
         self.profile = self.root / "product.json"
         self.profile.write_text(json.dumps(PRODUCT), encoding="utf-8")
         self.out = self.root / "setup.exe"
@@ -72,6 +79,14 @@ class BundleTests(unittest.TestCase):
         self.out.write_bytes(original[:-1])
         with self.assertRaisesRegex(SetupBundleError, "bundle_footer_invalid|bundle_layout_invalid"):
             inspect_bundle(self.out)
+
+    def test_console_stub_rejected_without_publishing_output(self):
+        pe = bytearray(self.stub.read_bytes())
+        pe[0xDC:0xDE] = b"\x03\x00"
+        self.stub.write_bytes(pe)
+        with self.assertRaisesRegex(SetupBundleError, "native_stub_not_gui"):
+            self.bundle()
+        self.assertFalse(self.out.exists())
 
     def test_path_traversal_and_windows_aliases_rejected(self):
         for bad in ("../pwn", "/absolute", "C:/system", "foo\\bar", "x/./y", "x/../y",

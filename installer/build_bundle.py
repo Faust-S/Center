@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 import json
 import os
 import re
@@ -128,7 +127,7 @@ def _payload_files(root: Path) -> list[tuple[str, Path, int, str]]:
     seen: set[str] = set()
     total = 0
     for item in sorted(root.rglob("*"), key=lambda p: p.relative_to(root).as_posix().casefold()):
-        if item.is_symlink() or (item.lstat().st_mode & stat.S_IFMT(item.lstat().st_mode)) == stat.S_IFLNK:
+        if item.is_symlink() or stat.S_ISLNK(item.lstat().st_mode):
             raise SetupBundleError("payload_symlink_forbidden")
         if item.is_dir():
             continue
@@ -149,6 +148,30 @@ def _payload_files(root: Path) -> list[tuple[str, Path, int, str]]:
     return files
 
 
+def _verify_native_gui_stub(path: Path) -> None:
+    """Require PE GUI subsystem; never package a console or non-PE stub."""
+    with path.open("rb") as handle:
+        if handle.read(2) != b"MZ":
+            raise SetupBundleError("native_stub_not_pe")
+        handle.seek(0x3C)
+        offset_bytes = handle.read(4)
+        if len(offset_bytes) != 4:
+            raise SetupBundleError("native_stub_not_pe")
+        offset = struct.unpack("<I", offset_bytes)[0]
+        if offset < 64 or offset > path.stat().st_size - 96:
+            raise SetupBundleError("native_stub_not_pe")
+        handle.seek(offset)
+        if handle.read(4) != b"PE\x00\x00":
+            raise SetupBundleError("native_stub_not_pe")
+        handle.seek(offset + 24)
+        optional_magic = handle.read(2)
+        if optional_magic not in (b"\x0b\x01", b"\x0b\x02"):
+            raise SetupBundleError("native_stub_not_pe")
+        handle.seek(offset + 24 + 68)
+        if handle.read(2) != b"\x02\x00":
+            raise SetupBundleError("native_stub_not_gui")
+
+
 def create_bundle(*, product_json: Path, payload_dir: Path, stub: Path,
                   output: Path, source_commit: str, source_tree: str) -> dict[str, Any]:
     if not SHA.fullmatch(source_commit) or not SHA.fullmatch(source_tree):
@@ -160,6 +183,7 @@ def create_bundle(*, product_json: Path, payload_dir: Path, stub: Path,
     stub = Path(stub)
     if not stub.is_file() or stub.is_symlink() or stub.stat().st_size < 1024:
         raise SetupBundleError("native_gui_stub_missing")
+    _verify_native_gui_stub(stub)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     manifest = {
@@ -201,10 +225,13 @@ def create_bundle(*, product_json: Path, payload_dir: Path, stub: Path,
                                       hashes[0], hashes[1], hashlib.sha256(meta).digest()))
                 out.flush()
                 os.fsync(out.fileno())
+            # Verify the complete final bytes before replacing a prior
+            # distributable. This also catches payload mutation during build.
+            inspected = inspect_bundle(Path(temporary), verify_files=True)
             os.replace(temporary, output)
         finally:
             Path(temporary).unlink(missing_ok=True)
-    result = inspect_bundle(output, verify_files=True)
+    result = inspected
     result["setup_sha256"] = _digest_file(output)
     result["file_count"] = len(files)
     return result
@@ -240,6 +267,7 @@ def inspect_bundle(path: Path, *, verify_files: bool = False) -> dict[str, Any]:
     if not isinstance(rows, list) or not 0 < len(rows) <= MAX_FILES:
         raise SetupBundleError("bundle_file_index_invalid")
     seen = set()
+    total_unpacked = 0
     for row in rows:
         if not isinstance(row, dict) or set(row) != {"path", "bytes", "sha256"}:
             raise SetupBundleError("bundle_file_row_invalid")
@@ -249,32 +277,52 @@ def inspect_bundle(path: Path, *, verify_files: bool = False) -> dict[str, Any]:
         seen.add(rel.casefold())
         if type(row["bytes"]) is not int or not 0 <= row["bytes"] <= MAX_FILE_BYTES:
             raise SetupBundleError("bundle_file_length_invalid")
+        total_unpacked += row["bytes"]
+        if total_unpacked > MAX_TOTAL_BYTES:
+            raise SetupBundleError("bundle_total_extracted_limit_exceeded")
         if not isinstance(row["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", row["sha256"]):
             raise SetupBundleError("bundle_file_hash_invalid")
     if value["product"]["entrypoint"].casefold() not in seen:
         raise SetupBundleError("bundle_entrypoint_missing")
     if verify_files:
-        # Developer-side verification; native Setup independently checks ZIP members.
-        with path.open("rb") as f:
-            f.seek(stub_size)
-            compressed = f.read(zip_size)
-        with zipfile.ZipFile(io.BytesIO(compressed), "r") as archive:
-            listed = [i for i in archive.infolist() if not i.is_dir()]
-            if len(listed) != len(rows):
-                raise SetupBundleError("bundle_zip_file_count_mismatch")
-            lookup = {i.filename: i for i in listed}
-            if set(lookup) != {r["path"] for r in rows}:
-                raise SetupBundleError("bundle_zip_file_list_mismatch")
-            for row in rows:
-                info = lookup[row["path"]]
-                if info.file_size != row["bytes"]:
-                    raise SetupBundleError("bundle_zip_entry_size_mismatch")
-                digest = hashlib.sha256()
-                with archive.open(info) as src:
-                    for block in iter(lambda: src.read(CHUNK), b""):
-                        digest.update(block)
-                if digest.hexdigest() != row["sha256"]:
-                    raise SetupBundleError("bundle_zip_entry_digest_mismatch")
+        # Stream ZIP into a temporary file: the verifier must not allocate
+        # the entire compressed product in RAM, even for multi-GB packages.
+        with tempfile.TemporaryFile() as staged_zip:
+            with path.open("rb") as source:
+                source.seek(stub_size)
+                remaining = zip_size
+                while remaining:
+                    block = source.read(min(CHUNK, remaining))
+                    if not block:
+                        raise SetupBundleError("bundle_truncated")
+                    staged_zip.write(block)
+                    remaining -= len(block)
+            staged_zip.seek(0)
+            with zipfile.ZipFile(staged_zip, "r") as archive:
+                entries = archive.infolist()
+                if len(entries) != len(rows) or any(info.is_dir() for info in entries):
+                    raise SetupBundleError("bundle_zip_file_count_mismatch")
+                lookup = {info.filename: info for info in entries}
+                if len(lookup) != len(rows) or set(lookup) != {row["path"] for row in rows}:
+                    raise SetupBundleError("bundle_zip_file_list_mismatch")
+                for row in rows:
+                    info = lookup[row["path"]]
+                    if safe_relative(info.filename) != info.filename:
+                        raise SetupBundleError("bundle_zip_path_invalid")
+                    if info.file_size != row["bytes"]:
+                        raise SetupBundleError("bundle_zip_entry_size_mismatch")
+                    if ((info.external_attr >> 16) & 0o170000) == 0o120000:
+                        raise SetupBundleError("bundle_zip_symlink_forbidden")
+                    digest = hashlib.sha256()
+                    count = 0
+                    with archive.open(info) as member:
+                        for block in iter(lambda: member.read(CHUNK), b""):
+                            count += len(block)
+                            if count > row["bytes"]:
+                                raise SetupBundleError("bundle_zip_expansion_limit")
+                            digest.update(block)
+                    if count != row["bytes"] or digest.hexdigest() != row["sha256"]:
+                        raise SetupBundleError("bundle_zip_entry_digest_mismatch")
     return {
         "status": "VERIFIED",
         "schema": value["schema"],
