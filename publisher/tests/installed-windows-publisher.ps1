@@ -101,16 +101,27 @@ try {
   Write-Host "PUBLISHER_INSTALLED_EXE_PASS sha256=$((Get-FileHash $exe -Algorithm SHA256).Hash)"
   Start-Publisher
   Click-Publisher 'Продукты'
-  Enter-Value 'Идентификатор продукта' 'IWXA_PUBLISHER_TEST'
+  Enter-Value 'Идентификатор продукта' 'IWXA_ADMIN_CENTER'
   Enter-Value 'Название' 'PublisherInstalledTest'
   Enter-Value 'Версия' '0.2.0'
   Click-Publisher 'Сохранить продукт'
+  [void](Find-Text 'PublisherInstalledTest')
+  Click-Publisher 'Получатели'
+  Enter-Value 'Идентификатор субъекта' '11111111-1111-4111-8111-111111111111'
+  Enter-Value 'Название / имя' 'PublisherInstalledTestOrg'
+  Click-Publisher 'Сохранить получателя'
+  [void](Find-Text 'PublisherInstalledTestOrg')
+  Click-Publisher 'Запросы на лицензии'
+  Enter-Value 'Функции (коды через запятую)' 'WORKSPACE,REVIEW'
+  Click-Publisher 'Сохранить запрос'
   $readback=$null
   for($i=0;$i -lt 60;$i++) {
     if(Test-Path -LiteralPath $data){
       try{
         $candidate=Get-Content -LiteralPath $data -Raw|ConvertFrom-Json -Depth 50
-        if(@($candidate.products).Count -eq 1 -and $candidate.products[0].id -eq 'IWXA_PUBLISHER_TEST'){
+        if(@($candidate.products).Count -eq 1 -and
+           @($candidate.holders).Count -eq 1 -and
+           @($candidate.proposals).Count -eq 1){
           $readback=$candidate;break
         }
       }catch{}
@@ -118,16 +129,36 @@ try {
     Start-Sleep -Milliseconds 350
   }
   if(!$readback){throw 'Publisher GUI did not persist native preparation draft'}
-  if(@($readback.proposals).Count -ne 0){throw 'Publisher created a fake signed license'}
+  if($readback.products[0].id -ne 'IWXA_ADMIN_CENTER' -or
+     $readback.holders[0].id -ne '11111111-1111-4111-8111-111111111111' -or
+     $readback.holders[0].type -ne 'ORGANIZATION' -or
+     $readback.proposals[0].productId -ne 'IWXA_ADMIN_CENTER' -or
+     $readback.proposals[0].holderId -ne $readback.holders[0].id -or
+     $readback.proposals[0].status -ne 'DRAFT_NOT_ISSUED' -or
+     ((@($readback.proposals[0].features) -join ',') -ne 'WORKSPACE,REVIEW')){
+    throw 'Publisher installed organization and unsigned proposal mismatch'
+  }
+  $proposalId=[string]$readback.proposals[0].id
   Write-Host 'PUBLISHER_INSTALLED_GUI_NATIVE_DRAFT_WRITE_PASS'
+  Write-Host 'PUBLISHER_INSTALLED_GUI_ORG_PROPOSAL_READBACK_PASS'
+  Click-Publisher 'Моделировать TEST-ответ'
+  [void](Find-Text 'Действительных лицензированных мест: 0')
+  Write-Host 'PUBLISHER_INSTALLED_GUI_SIMULATION_ZERO_ACTIVE_PASS'
   Close-Publisher
   Start-Publisher
   Click-Publisher 'Продукты'
   [void](Find-Text 'PublisherInstalledTest')
+  Click-Publisher 'Получатели'
+  [void](Find-Text 'PublisherInstalledTestOrg')
+  Click-Publisher 'Запросы на лицензии'
+  [void](Find-Text 'PublisherInstalledTest')
   if(!(Test-Path -LiteralPath $data)){throw 'Publisher preparation disappeared after native restart'}
   $again=Get-Content -LiteralPath $data -Raw|ConvertFrom-Json -Depth 50
-  if(@($again.products).Count -ne 1 -or $again.products[0].name -ne 'PublisherInstalledTest'){
-    throw 'Publisher preparation readback mismatch after relaunch'
+  if(@($again.products).Count -ne 1 -or $again.products[0].name -ne 'PublisherInstalledTest' -or
+     @($again.holders).Count -ne 1 -or $again.holders[0].name -ne 'PublisherInstalledTestOrg' -or
+     @($again.proposals).Count -ne 1 -or $again.proposals[0].id -ne $proposalId -or
+     $again.proposals[0].status -ne 'DRAFT_NOT_ISSUED'){
+    throw 'Publisher preparation and unsigned proposal readback mismatch after relaunch'
   }
   Write-Host 'PUBLISHER_INSTALLED_GUI_RESTART_READBACK_PASS'
 } catch {

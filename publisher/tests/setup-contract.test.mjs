@@ -25,3 +25,17 @@ test('Publisher setup product identity is distinct from Admin Center and its dat
  assert.notEqual(m.display_name,admin.productName);
  assert.notEqual(m.entrypoint,'iwxa-admin-center.exe');
 });
+
+test('Publisher full release EXE is assembled with Tauri resources before Setup Core packaging',()=>{
+ const app=read('publisher/src-tauri/tauri.conf.json');
+ const scripts=read('package.json').scripts;
+ const workflow=readFileSync('.github/workflows/center.yml','utf8');
+ const publisherJob=workflow.split('\n  publisher-windows:')[1];
+ assert.ok(publisherJob,'Missing existing Publisher Windows job');
+ assert.equal(app.build.beforeBuildCommand,'npm run publisher:build');
+ assert.equal(app.build.frontendDist,'../../publisher-dist');
+ assert.equal(scripts['publisher:desktop:build'],'cd publisher && npx tauri build');
+ assert.match(publisherJob,/run:\s*npm run publisher:desktop:build -- --no-bundle/);
+ assert.doesNotMatch(publisherJob,/run:\s*cargo build --release/);
+ assert.match(publisherJob,/run:\s*\.\/publisher\/tests\/installed-setupcore-publisher\.ps1/);
+});
