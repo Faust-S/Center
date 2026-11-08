@@ -1,5 +1,6 @@
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -TypeDefinition @'
@@ -64,6 +65,20 @@ function Enter-Value([string]$name,[string]$value){
   [System.Windows.Forms.SendKeys]::SendWait($value)
   Start-Sleep -Milliseconds 150
 }
+function Find-Text([string]$piece) {
+  for($i=0;$i -lt 60;$i++) {
+    $nodes=(Root-Element).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+      [System.Windows.Automation.Condition]::TrueCondition)
+    foreach($node in $nodes) {
+      try {
+        if($node.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text -and
+           $node.Current.Name.Contains($piece)){return $node}
+      } catch {}
+    }
+    Start-Sleep -Milliseconds 300
+  }
+  throw "Publisher restarted GUI does not show product: $piece"
+}
 function Close-Publisher {
   $proc.Refresh()
   if(!$proc.HasExited) {
@@ -103,6 +118,8 @@ try {
   Write-Host 'PUBLISHER_INSTALLED_GUI_NATIVE_DRAFT_WRITE_PASS'
   Close-Publisher
   Start-Publisher
+  Click-Publisher 'Продукты'
+  [void](Find-Text 'PublisherInstalledTest')
   if(!(Test-Path -LiteralPath $data)){throw 'Publisher preparation disappeared after native restart'}
   $again=Get-Content -LiteralPath $data -Raw|ConvertFrom-Json -Depth 50
   if(@($again.products).Count -ne 1 -or $again.products[0].name -ne 'PublisherInstalledTest'){

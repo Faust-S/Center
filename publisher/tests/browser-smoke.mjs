@@ -25,7 +25,7 @@ try {
   await page.getByRole('button',{name:'Продукты',exact:true}).click();
   await page.getByLabel('Идентификатор продукта').fill('IWXA_ADMIN_CENTER');
   await page.getByLabel('Название').fill('IWXA Admin Center');
-  await page.getByLabel('Версия',exact:true).fill('0.3.0');
+  await page.getByLabel('Версия',{exact:true}).fill('0.3.0');
   await page.getByRole('button',{name:'Сохранить продукт'}).click();
   await page.getByText('Продукты (1)').waitFor();
   checks.push('create-product-draft');
