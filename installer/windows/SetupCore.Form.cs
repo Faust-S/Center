@@ -25,8 +25,8 @@ namespace IwxaSetup
         private readonly Button secondary = new Button();
         private readonly LinkLabel openApplication = new LinkLabel();
         private enum SetupOperation { None, Install, Upgrade, Recover, Confirm, Rollback,
-            StageLegacyPreview, CancelLegacyPreview, InstallWebView2,
-            InstallWebView2Offline, Repair }
+            StageLegacyPreview, CancelLegacyPreview, ActivateLegacyDefault,
+            RestoreLegacyDefault, InstallWebView2, InstallWebView2Offline, Repair }
         private SetupOperation primaryAction = SetupOperation.None;
         private SetupOperation secondaryAction = SetupOperation.None;
         private bool performingOperation = false;
@@ -231,6 +231,8 @@ namespace IwxaSetup
                 secondary.Text = T("Вернуть прежнюю", "Roll back");
             else if (alternate == SetupOperation.InstallWebView2Offline)
                 secondary.Text = T("Из файла…", "From file…");
+            else if (alternate == SetupOperation.CancelLegacyPreview)
+                secondary.Text = T("Отменить пробную", "Cancel preview");
             secondary.AccessibleName = secondary.Text;
             secondary.AccessibleDescription =
                 alternate == SetupOperation.InstallWebView2Offline ?
@@ -238,7 +240,10 @@ namespace IwxaSetup
                       "Choose Microsoft's offline WebView2 installer file") :
                 alternate == SetupOperation.Rollback ?
                     T("Восстановить прежнюю установленную версию",
-                      "Restore the previously installed version") : "";
+                      "Restore the previously installed version") :
+                alternate == SetupOperation.CancelLegacyPreview ?
+                    T("Отменить предпросмотр, не изменяя NSIS 0.2",
+                      "Cancel the preview without changing NSIS 0.2") : "";
             secondary.TabStop = alternate != SetupOperation.None;
         }
 
@@ -315,6 +320,17 @@ namespace IwxaSetup
                     offlineInstaller = select.FileName;
                 }
             }
+            if (operation == SetupOperation.ActivateLegacyDefault)
+            {
+                DialogResult approve = MessageBox.Show(
+                    T("Вы открыли пробную версию и проверили организации, проекты и сохранённые данные?\nМы переключим только ярлык меню «Пуск» на новую версию. NSIS 0.2 и её деинсталлятор останутся нетронутыми; прежний запуск можно вернуть.",
+                      "Have you opened the preview and checked your organizations, projects and data?\nOnly the Start Menu shortcut will switch to the new version. NSIS 0.2 and its uninstaller stay intact, and the original shortcut can be restored."),
+                    T("Подтвердить переключение запуска",
+                      "Confirm Start Menu handoff"),
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2);
+                if (approve != DialogResult.Yes) return;
+            }
             if (operation == SetupOperation.Confirm)
             {
                 DialogResult answer = MessageBox.Show(
@@ -344,6 +360,12 @@ namespace IwxaSetup
                 operation == SetupOperation.StageLegacyPreview ?
                 T("Подготовка пробной версии отдельно от прежней…",
                   "Preparing a preview beside the existing version…") :
+                operation == SetupOperation.ActivateLegacyDefault ?
+                T("Переключение ярлыка на новую версию…",
+                  "Switching the Start Menu shortcut…") :
+                operation == SetupOperation.RestoreLegacyDefault ?
+                T("Возврат ярлыка на NSIS 0.2…",
+                  "Restoring the original Start Menu shortcut…") :
                 operation == SetupOperation.InstallWebView2 ||
                 operation == SetupOperation.InstallWebView2Offline ?
                 T("Установка Microsoft WebView2…",
@@ -367,6 +389,10 @@ namespace IwxaSetup
                             return SetupInstallation.StageLegacy(executable);
                         case SetupOperation.CancelLegacyPreview:
                             return SetupInstallation.UninstallOwned(executable);
+                        case SetupOperation.ActivateLegacyDefault:
+                            return SetupInstallation.ActivateLegacyDefault(executable);
+                        case SetupOperation.RestoreLegacyDefault:
+                            return SetupInstallation.RestoreLegacyDefault(executable);
                         case SetupOperation.InstallWebView2:
                         case SetupOperation.InstallWebView2Offline:
                             string componentStatus =
@@ -404,6 +430,12 @@ namespace IwxaSetup
                 else if (operation == SetupOperation.CancelLegacyPreview)
                     status.Text = T("Пробный переход отменён — прежняя установка сохранена",
                         "Preview cancelled — existing installation retained");
+                else if (operation == SetupOperation.ActivateLegacyDefault)
+                    status.Text = T("Запуск переключён — NSIS 0.2 сохранена",
+                        "Start Menu switched — NSIS 0.2 preserved");
+                else if (operation == SetupOperation.RestoreLegacyDefault)
+                    status.Text = T("Прежний ярлык восстановлен",
+                        "Original Start Menu shortcut restored");
                 else if (operation == SetupOperation.InstallWebView2 ||
                          operation == SetupOperation.InstallWebView2Offline)
                     status.Text = T("WebView2 готов — можно установить программу",
@@ -665,12 +697,37 @@ namespace IwxaSetup
                         T("Откройте пробную версию и проверьте данные. Прежняя программа сохранена; переход можно отменить.",
                           "Open the preview and verify your data. The existing application is retained; you may cancel this preview."),
                         versionLine, true);
-                    ConfigureActions(SetupOperation.CancelLegacyPreview,
-                        SetupOperation.None, T("Отменить переход", "Cancel preview"));
+                    ConfigureActions(SetupOperation.ActivateLegacyDefault,
+                        SetupOperation.CancelLegacyPreview,
+                        T("Переключить запуск", "Use new version by default"));
                     openApplication.Tag = "APPLICATION";
                     openApplication.Text = T("Открыть пробную " + info.Version,
                         "Open preview " + info.Version);
                     openApplication.Visible = true;
+                }
+                else if (plan.Status == "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED")
+                {
+                    SetState(T("Основной запуск переключён на " + info.Version,
+                               "Start Menu now launches " + info.Version),
+                        T("NSIS 0.2 и данные не удалены. В любой момент верните старый ярлык до окончательной приёмки.",
+                          "NSIS 0.2 and user data remain intact. You can restore the old shortcut before final acceptance."),
+                        versionLine, true);
+                    ConfigureActions(SetupOperation.RestoreLegacyDefault,
+                        SetupOperation.None, T("Вернуть старый запуск", "Restore old shortcut"));
+                    openApplication.Tag = "APPLICATION";
+                    openApplication.Text = T("Открыть новую версию", "Open new version");
+                    openApplication.Visible = true;
+                }
+                else if (plan.Status == "LEGACY_SWITCH_RECOVERY_REQUIRED")
+                {
+                    SetState(T("Переключение запуска было прервано",
+                               "Start Menu switch was interrupted"),
+                        T("Старые файлы и данные сохранены. Верните исходный ярлык, затем повторите проверку.",
+                          "Old files and data are preserved. Restore the original shortcut, then verify again."),
+                        versionLine, true);
+                    ConfigureActions(SetupOperation.RestoreLegacyDefault,
+                        SetupOperation.None, T("Восстановить ярлык 0.2",
+                                              "Recover old shortcut"));
                 }
                 else if (plan.Status == "LEGACY_MIGRATION_REVIEW_REQUIRED")
                 {

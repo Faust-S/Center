@@ -130,7 +130,7 @@ namespace IwxaSetup
                         var handoff = receipt["legacyHandoff"] as
                             IDictionary<string, object>;
                         LegacyAssessment legacy = SetupLegacy.Inspect(info);
-                        plan.Status = handoff != null &&
+                        bool originalValid = handoff != null &&
                             Convert.ToString(handoff["schema"]) ==
                                 "IWXA_SETUP_LEGACY_HANDOFF/1" &&
                             String.Equals(Convert.ToString(handoff["root"]),
@@ -140,16 +140,30 @@ namespace IwxaSetup
                                 legacy.RegistryName &&
                             Convert.ToString(handoff["uninstaller"]) ==
                                 legacy.Uninstaller &&
-                            Convert.ToString(handoff["status"]) ==
-                                "PREVIEW_ONLY_NSIS_RETAINED" &&
                             legacy.Status == "LEGACY_CONFIRMED_READ_ONLY" &&
                             FingerprintLegacyFile(Path.Combine(legacy.Root,
                                 info.Entrypoint.Replace('/', Path.DirectorySeparatorChar))) ==
                                 Convert.ToString(handoff["applicationSha256"]) &&
                             FingerprintLegacyFile(legacy.Uninstaller) ==
-                                Convert.ToString(handoff["uninstallerSha256"]) ?
-                                "LEGACY_MIGRATION_PENDING_GUI_READBACK" :
-                                "LEGACY_MIGRATION_REVIEW_REQUIRED";
+                                Convert.ToString(handoff["uninstallerSha256"]);
+                        if (!originalValid || oldVersion != info.Version ||
+                            Convert.ToString(receipt["packageSha256"]) != info.PackageSha256)
+                            plan.Status = "LEGACY_MIGRATION_REVIEW_REQUIRED";
+                        else
+                        {
+                            string phase = Convert.ToString(handoff["status"]);
+                            if (phase == "PREVIEW_ONLY_NSIS_RETAINED")
+                                plan.Status = "LEGACY_MIGRATION_PENDING_GUI_READBACK";
+                            else if (phase == "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED")
+                                plan.Status = LegacyShortcutMatches(info, handoff) ?
+                                    "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED" :
+                                    "LEGACY_MIGRATION_REVIEW_REQUIRED";
+                            else if (phase == "LEGACY_SHORTCUT_SWITCH_PENDING" ||
+                                     phase == "LEGACY_SHORTCUT_RESTORE_PENDING")
+                                plan.Status = "LEGACY_SWITCH_RECOVERY_REQUIRED";
+                            else
+                                plan.Status = "LEGACY_MIGRATION_REVIEW_REQUIRED";
+                        }
                         return plan;
                     }
                 }

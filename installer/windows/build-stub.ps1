@@ -20,7 +20,7 @@ if (-not $compiler) { throw "IWXA_SETUP_CSC_MISSING" }
 
 $sources = @(Get-ChildItem -Path (Join-Path $PSScriptRoot 'SetupCore.*.cs') -File |
     Sort-Object Name | ForEach-Object { $_.FullName })
-if ($sources.Count -ne 8) { throw "IWXA_SETUP_NATIVE_SOURCES_INCOMPLETE" }
+if ($sources.Count -ne 9) { throw "IWXA_SETUP_NATIVE_SOURCES_INCOMPLETE" }
 $compilerArgs = @(
     '/nologo', '/target:winexe', '/platform:anycpu', '/optimize+',
     "/out:$target",

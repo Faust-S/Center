@@ -283,6 +283,14 @@ namespace IwxaSetup
                 finally { proc.Dispose(); }
             }
 
+            if (receipt.ContainsKey("legacyHandoff"))
+            {
+                var handoff = receipt["legacyHandoff"] as IDictionary<string, object>;
+                if (handoff == null || Convert.ToString(handoff["status"]) !=
+                    "PREVIEW_ONLY_NSIS_RETAINED")
+                    throw new InvalidOperationException(
+                        "SETUP_LEGACY_RESTORE_DEFAULT_BEFORE_UNINSTALL");
+            }
             var rows = receipt["files"] as IList;
             if (rows == null || rows.Count == 0 || rows.Count > 10000)
                 throw new InvalidDataException("SETUP_RECEIPT_FILES_INVALID");
@@ -441,7 +449,11 @@ namespace IwxaSetup
 
         private static void CreateShortcut(BundleInfo info, string root)
         {
-            string path = ShortcutPath(info);
+            CreateShortcutAt(info, root, ShortcutPath(info));
+        }
+
+        private static void CreateShortcutAt(BundleInfo info, string root, string path)
+        {
             Directory.CreateDirectory(Path.GetDirectoryName(path));
             Type shellType = Type.GetTypeFromProgID("WScript.Shell");
             if (shellType == null)

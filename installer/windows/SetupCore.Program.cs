@@ -281,6 +281,8 @@ namespace IwxaSetup
             if (args.Length == 2 &&
                 (args[0] == "--install-file" ||
                  args[0] == "--stage-legacy-file" ||
+                 args[0] == "--activate-legacy-file" ||
+                 args[0] == "--restore-legacy-file" ||
                  args[0] == "--uninstall-file"))
             {
                 try
@@ -289,6 +291,10 @@ namespace IwxaSetup
                         SetupInstallation.InstallFresh(Application.ExecutablePath) :
                         args[0] == "--stage-legacy-file" ?
                             SetupInstallation.StageLegacy(Application.ExecutablePath) :
+                        args[0] == "--activate-legacy-file" ?
+                            SetupInstallation.ActivateLegacyDefault(Application.ExecutablePath) :
+                        args[0] == "--restore-legacy-file" ?
+                            SetupInstallation.RestoreLegacyDefault(Application.ExecutablePath) :
                             SetupInstallation.UninstallOwned(Application.ExecutablePath);
                     WriteResult(args[1], new Dictionary<string, object> {
                         {"status", result.Status}, {"product", result.Product},
