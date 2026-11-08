@@ -51,6 +51,95 @@ export function issuedTaskExportSelection(links,snapshot,organizationId){
   };
 }
 
+/**
+ * Human-confirmed recovery of the original issuer-side WorkRef after the
+ * signed T3 Task was committed but a separate Center draft CAS failed.
+ * The signed claims are read back from the owning T3 host, not verified here.
+ * This does not issue/sign/export any Task, alter T3, or authorize Atlas writes.
+ */
+export function prepareIssuedTaskLinkRecovery({organization,assignment,snapshot}={}){
+  const fail=(ok,code)=>requireValue(ok,code);
+  const task=snapshot?.task,claim=task?.signedClaims;
+  fail(organization&&assignment&&Array.isArray(organization.assignments) &&
+    assignment.workspaceId && assignment.atlasRef?.workId &&
+    typeof organization.id==='string','CEN02_RECOVERY_ASSIGNMENT_NOT_SELECTED');
+  fail(snapshot?.product==='admin'&&
+    snapshot.organizationId===organization.id &&
+    typeof snapshot.workspaceId==='string'&&snapshot.workspaceId &&
+    typeof snapshot.personId==='string'&&snapshot.personId &&
+    Number.isSafeInteger(snapshot.contextEpoch) &&
+    snapshot.productionActivation===true&&snapshot.T3_READY===true,
+    'CEN02_RECOVERY_OWNER_NOT_READY');
+  fail(typeof task?.id==='string'&&/^task:[a-zA-Z0-9:-]+$/.test(task.id) &&
+    typeof task.taskRevisionId==='string'&&/^[a-f0-9]{64}$/.test(task.taskRevisionId) &&
+    typeof task.task==='string'&&task.task.length>0&&task.task.length<=10000 &&
+    task.organizationId===snapshot.organizationId &&
+    task.workspaceId===snapshot.workspaceId &&
+    task.assignedTo===snapshot.personId,
+    'CEN02_RECOVERY_SIGNED_TASK_NOT_SELECTED');
+  // The original T3 snapshot stores the signed claim alongside its current
+  // Task. Check its exact selected revision, scope and task text; only T3
+  // owns cryptographic verification and JIT authority.
+  const change=claim?.changes?.[0];
+  fail(claim?.schema==='IWXA_T3_RECONCILIATION_CLAIMS/1' &&
+    claim?.profile?.id==='interop.task' &&
+    Array.isArray(claim.changes)&&claim.changes.length===1 &&
+    claim.scope?.subjectId===snapshot.organizationId &&
+    claim.scope?.workspaceId===snapshot.workspaceId &&
+    claim.scope?.recipientId===snapshot.personId &&
+    change?.id===task.id&&change?.revisionId===task.taskRevisionId &&
+    change?.body?.schemaId==='interop.task.v1'&&
+    change?.body?.task===task.task,'CEN02_RECOVERY_SIGNED_CLAIMS_CHANGED');
+  let expectedText;
+  try {expectedText=assignmentText(organization,assignment)}
+  catch {throw Error('CEN02_RECOVERY_ASSIGNMENT_CHANGED')}
+  fail(expectedText===task.task,'CEN02_RECOVERY_TASK_TEXT_CHANGED');
+  // The historical T3 task text doesn't carry the local assignment ID.
+  // Equal names/text of two local assignments cannot be disambiguated
+  // without a signed issuer-assignment ID, so refuse to guess.
+  const matching=organization.assignments.filter(item=>{
+    if(!item.atlasRef?.workId)return false;
+    try{return assignmentText(organization,item)===task.task}
+    catch{return false}
+  });
+  fail(matching.length===1&&matching[0].id===assignment.id,
+    'CEN02_RECOVERY_AMBIGUOUS_ASSIGNMENT');
+  const command={
+    type:'RECORD_ISSUED_TASK_LINK',organizationId:organization.id,
+    assignmentId:assignment.id,assignmentEditNumber:assignment.editNumber,
+    workspaceId:assignment.workspaceId,assigneeId:assignment.assigneeId,
+    reviewerId:assignment.reviewerId,recipientId:snapshot.personId,
+    taskId:task.id,taskRevisionId:task.taskRevisionId,
+    atlasRef:{projectId:assignment.atlasRef.projectId,
+      workId:assignment.atlasRef.workId,revision:assignment.atlasRef.revision}
+  };
+  const previous=(organization.issuedTaskLinks??[]).filter(link=>
+    link.taskId===command.taskId&&link.taskRevisionId===command.taskRevisionId);
+  fail(previous.length<=1,'CEN02_RECOVERY_AMBIGUOUS_ISSUER_LINK');
+  const old=previous[0];
+  if(old){
+    const recipient=old.recipientId??old.ownerPersonId;
+    fail(!(Object.hasOwn(old,'recipientId')&&Object.hasOwn(old,'ownerPersonId')) &&
+      old.organizationId===command.organizationId &&
+      old.workspaceId===command.workspaceId &&
+      old.assignmentId===command.assignmentId &&
+      old.assignmentEditNumber===command.assignmentEditNumber &&
+      old.assigneeId===command.assigneeId &&
+      old.reviewerId===command.reviewerId &&
+      recipient===command.recipientId &&
+      old.deliveryState==='NOT_CONFIRMED' &&
+      old.associationProof==='LOCAL_ISSUER_SIDE_REFERENCE_ONLY' &&
+      JSON.stringify(old.atlasRef)===JSON.stringify(command.atlasRef),
+      'CEN02_RECOVERY_EXISTING_LINK_CONFLICT');
+  }
+  return {command,alreadyRecorded:Boolean(old),
+    assignmentTitle:assignment.title,taskId:task.id,
+    taskRevisionId:task.taskRevisionId,recipientId:snapshot.personId,
+    atlasRef:{...command.atlasRef},
+    effect:'LOCAL_PREPARATION_LINK_ONLY',taskReissued:false,
+    delivered:false,atlasWritePerformed:false};
+}
+
 // CEN02: bounded adapter, not a package issuer or delivery/receipt database.
 // The owning T3 runtime signs Task revisions, receives .iwxa and owns history.
 export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
