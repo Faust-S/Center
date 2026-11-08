@@ -188,25 +188,35 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: 806fd34d74ec4101a442f8550950e8c8047ba68b
+          path: vendor/setupcore
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: npm install --no-audit --no-fund
       - run: npm run publisher:build
-      - name: Publisher original native draft and exact artifact tests
+      - name: Publisher native preparation and TEST request tests
         run: cargo test --manifest-path publisher/src-tauri/Cargo.toml -- --nocapture
-      - name: Publisher standalone desktop and offline NSIS
-        run: npm run publisher:desktop:build
-      - name: Actual installed Publisher GUI and cold-restart readback
+      - name: Build actual Publisher EXE
+        run: cargo build --release --manifest-path publisher/src-tauri/Cargo.toml
+      - name: Build/install/launch/uninstall Publisher with original IWXA Setup Core
         shell: pwsh
-        run: ./publisher/tests/installed-windows-publisher.ps1
-      - name: Preserve Publisher evidence
+        run: ./publisher/tests/installed-setupcore-publisher.ps1
+      - name: Preserve Publisher Setup Core evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: publisher-windows
+          name: publisher-windows-setupcore
           path: |
+            artifacts/publisher-setupcore/*.json
+            artifacts/publisher-setupcore/*.exe
             publisher/src-tauri/target/release/iwxa-publisher.exe
-            publisher/src-tauri/target/release/bundle/nsis/*.exe
             publisher/src-tauri/Cargo.lock
             package-lock.json

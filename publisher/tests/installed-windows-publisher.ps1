@@ -13,7 +13,7 @@ public static class PublisherWindow {
   public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extraInfo);
 }
 '@
-$exe=Join-Path $env:LOCALAPPDATA 'IWXA Publisher\iwxa-publisher.exe'
+$exe=if($env:IWXA_PUBLISHER_INSTALLED_EXE){$env:IWXA_PUBLISHER_INSTALLED_EXE}else{Join-Path $env:LOCALAPPDATA 'IWXA Publisher\iwxa-publisher.exe'}
 $data=Join-Path $env:LOCALAPPDATA 'ru.iwxa.publisher\publisher-preparation-v1.json'
 $proc=$null
 function Start-Publisher {
@@ -88,11 +88,13 @@ function Close-Publisher {
   Write-Host "PUBLISHER_NATIVE_CLOSE_PASS"
 }
 try {
-  $installer=Get-ChildItem 'publisher/src-tauri/target/release/bundle/nsis/*.exe'|Select-Object -First 1
-  if(!$installer){throw 'Publisher NSIS installer absent'}
-  $install=Start-Process -FilePath $installer.FullName -ArgumentList '/S' -PassThru
-  if(!$install.WaitForExit(120000)){throw 'Publisher installation timed out'}
-  if($install.ExitCode -ne 0){throw "Publisher installer exit $($install.ExitCode)"}
+  if($env:IWXA_PUBLISHER_ALREADY_INSTALLED -ne '1') {
+    $installer=Get-ChildItem 'publisher/src-tauri/target/release/bundle/nsis/*.exe'|Select-Object -First 1
+    if(!$installer){throw 'Publisher NSIS installer absent'}
+    $install=Start-Process -FilePath $installer.FullName -ArgumentList '/S' -PassThru
+    if(!$install.WaitForExit(120000)){throw 'Publisher installation timed out'}
+    if($install.ExitCode -ne 0){throw "Publisher installer exit $($install.ExitCode)"}
+  }
   if(!(Test-Path -LiteralPath $exe)){throw "Installed Publisher exe missing: $exe"}
   Write-Host "PUBLISHER_INSTALLED_EXE_PASS sha256=$((Get-FileHash $exe -Algorithm SHA256).Hash)"
   Start-Publisher
