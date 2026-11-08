@@ -43,21 +43,26 @@ function Assert-Layout([System.Windows.Forms.Form]$form,[string]$case) {
             ' note=' + $note.Bounds + ' link=' + $related.Bounds +
             ' actions=' + $actions.Bounds)
     }
-    foreach ($element in @($progress, (One $form 'iwxaSetupActivity'))) {
+    foreach ($name in @('iwxaSetupStatus', 'iwxaSetupVersion',
+            'iwxaSetupDetails', 'iwxaSetupActivity')) {
+        $element = One $form $name
         if ($element.Right -gt $card.ClientSize.Width -or $element.Left -lt 0) {
-            throw ('SETUP_LAYOUT_PROGRESS_CLIPPED_' + $case)
+            throw ('SETUP_LAYOUT_CARD_CONTENT_CLIPPED_' + $case + '_' + $name)
         }
     }
     if ($note.Height -lt $note.Font.Height * 2) {
         throw ('SETUP_LAYOUT_PRESERVATION_TEXT_CLIPPED_' + $case +
             ' height=' + $note.Height + ' font=' + $note.Font.Height)
     }
-    if ($actions.ClientSize.Width -lt 565) {
-        # Two-button state is always usable at this width; when rollback
-        # appears the compact action group is asserted independently below.
-        if ($actions.ClientSize.Width -lt 520) {
-            throw ('SETUP_LAYOUT_ACTIONS_TOO_NARROW_' + $case)
-        }
+    # Check the widest native state: primary + Rollback + Verify again.
+    $needed = $actions.Padding.Horizontal
+    foreach ($button in @($actions.Controls | Where-Object {
+            $_ -is [System.Windows.Forms.Button] })) {
+        $needed += $button.Width + $button.Margin.Horizontal
+    }
+    if ($needed -gt $actions.ClientSize.Width) {
+        throw ('SETUP_LAYOUT_ACTIONS_CLIPPED_' + $case +
+            ' needed=' + $needed + ' available=' + $actions.ClientSize.Width)
     }
     Write-Host ('IWXA_SETUP_LAYOUT_PASS case=' + $case +
         ' area=' + $area.ClientSize + ' noteHeight=' + $note.Height +
@@ -74,9 +79,20 @@ foreach ($factor in @(1.0, 1.5, 2.0, 2.5)) {
             [int][Math]::Round(900 * $factor),
             [int][Math]::Round(560 * $factor))
         Assert-Layout $form ('nominal-' + $factor)
-        $form.Size = [Drawing.Size]::new(
+        $expectedMinimum = [Drawing.Size]::new(
             [int][Math]::Round(820 * $factor),
             [int][Math]::Round(610 * $factor))
+        # A manually scaled Form may retain its nominal minimum. Set the
+        # equivalent physical viewport explicitly, then prove it shrank.
+        $form.MinimumSize = $expectedMinimum
+        $form.Size = $expectedMinimum
+        $area = One $form 'iwxaSetupContent'
+        $maxCompactWidth = [int][Math]::Round(590 * $factor)
+        if ($area.ClientSize.Width -gt $maxCompactWidth) {
+            throw ('SETUP_LAYOUT_MINIMUM_NOT_EXERCISED_' + $factor +
+                ' actual=' + $area.ClientSize + ' form=' + $form.Size +
+                ' minimum=' + $form.MinimumSize)
+        }
         Assert-Layout $form ('minimum-' + $factor)
     } finally {
         $form.Dispose()

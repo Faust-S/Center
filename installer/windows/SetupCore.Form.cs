@@ -157,6 +157,7 @@ namespace IwxaSetup
                 "APPLICATION PACKAGE"), 20, 16, 500, 25, 9, Secondary, true);
             cardHeading.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
             card.Controls.Add(cardHeading);
+            status.Name = "iwxaSetupStatus";
             status.Text = T("Проверка выполняется…", "Verification in progress…");
             status.Font = new Font("Segoe UI", 13, FontStyle.Bold);
             status.ForeColor = Dark;
@@ -164,12 +165,14 @@ namespace IwxaSetup
             status.Size = new Size(525, 37);
             status.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
             card.Controls.Add(status);
+            version.Name = "iwxaSetupVersion";
             version.Text = "—";
             version.ForeColor = Color.FromArgb(48, 83, 131);
             version.Location = new Point(21, 93);
             version.Size = new Size(525, 29);
             version.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
             card.Controls.Add(version);
+            packageDetails.Name = "iwxaSetupDetails";
             packageDetails.Text = T("Ожидание проверки содержимого…", "Waiting for content verification…");
             packageDetails.ForeColor = Secondary;
             packageDetails.Location = new Point(21, 133);
