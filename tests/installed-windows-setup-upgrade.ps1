@@ -9,6 +9,17 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class SetupUiNativeMouse {
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")]
+    public static extern void mouse_event(uint flags, uint dx, uint dy,
+        uint data, UIntPtr extraInfo);
+}
+'@
 $artifact = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
 $oldSetup = Join-Path $artifact 'iwxa-setup-core-center-0.3-preview.exe'
 $newSetup = Join-Path $artifact 'setup-core-center-upgrade.exe'
@@ -73,11 +84,29 @@ try {
         $buttons = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)
         foreach ($button in $buttons) {
             try {
-                if ($button.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
-                    $button.Current.IsEnabled) {
-                    $pattern = $button.GetCurrentPattern(
-                        [System.Windows.Automation.InvokePattern]::Pattern)
-                    $pattern.Invoke()
+                # Windows WinForms can expose a real Button as a UIA Pane.
+                # Use InvokePattern when present, otherwise send a native
+                # mouse click to the actual visible control rectangle.
+                if ($button.Current.IsEnabled -and !$button.Current.IsOffscreen) {
+                    $bounds = $button.Current.BoundingRectangle
+                    Write-Host ("IWXA_SETUP_UPDATE_CONTROL type={0} bounds={1}" -f
+                        $button.Current.ControlType.ProgrammaticName, $bounds)
+                    if ($bounds.Width -lt 24 -or $bounds.Height -lt 18) { continue }
+                    try {
+                        $pattern = $button.GetCurrentPattern(
+                            [System.Windows.Automation.InvokePattern]::Pattern)
+                        $pattern.Invoke()
+                    } catch {
+                        $x = [int]($bounds.Left + $bounds.Width / 2)
+                        $y = [int]($bounds.Top + $bounds.Height / 2)
+                        if (![SetupUiNativeMouse]::SetCursorPos($x,$y)) {
+                            throw 'S3_SETUP_GUI_MOUSE_POSITION_FAILED'
+                        }
+                        Start-Sleep -Milliseconds 80
+                        [SetupUiNativeMouse]::mouse_event(0x0002,0,0,0,[UIntPtr]::Zero)
+                        Start-Sleep -Milliseconds 80
+                        [SetupUiNativeMouse]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
+                    }
                     $clicked = $true
                     break
                 }
