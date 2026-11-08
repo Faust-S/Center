@@ -42,8 +42,8 @@ try {
         throw 'SETUP_BUNDLE_MANIFEST_INVALID'
     }
 
-    function Invoke-NativeInspection([string]$binary, [string]$jsonPath, [int]$expected) {
-        $cmd = Start-Process -FilePath $binary -ArgumentList ('--inspect-file "{0}"' -f $jsonPath) -PassThru
+    function Invoke-NativeInspection([string]$binary, [string]$jsonPath, [int]$expected, [string]$mode = '--inspect-file') {
+        $cmd = Start-Process -FilePath $binary -ArgumentList ('{0} "{1}"' -f $mode, $jsonPath) -PassThru
         try {
             if (!$cmd.WaitForExit(90000)) {
                 Stop-Process -Id $cmd.Id -Force -ErrorAction SilentlyContinue
@@ -69,7 +69,7 @@ try {
 
     $preflightReport = Join-Path $artifact 'setup-core-preflight.json'
     $stagingReport = Join-Path $artifact 'setup-core-staged-readback.json'
-    $preflight = Invoke-NativeInspection $bundle $preflightReport 0
+    $preflight = Invoke-NativeInspection $bundle $preflightReport 0 '--preflight-file'
     if ($preflight.product -ne 'iwxa.admin-center' -or
         $preflight.status -notin @(
             'READY_FOR_FIRST_INSTALL', 'WEBVIEW2_MISSING',
@@ -77,7 +77,7 @@ try {
             'ARCHITECTURE_UNSUPPORTED'
         )) { throw 'SETUP_NATIVE_PREFLIGHT_INVALID' }
     Write-Host "IWXA_SETUP_NATIVE_PREFLIGHT_PASS status=$($preflight.status)"
-    $stage = Invoke-NativeInspection $bundle $stagingReport 0
+    $stage = Invoke-NativeInspection $bundle $stagingReport 0 '--stage-test-file'
     if ($stage.status -ne 'STAGED_VERIFIED' -or
         $stage.product -ne $manifest.product -or
         $stage.files -ne $manifest.file_count -or
