@@ -371,6 +371,10 @@ jobs:
         shell: pwsh
         timeout-minutes: 6
         run: ./installer/windows/qualify-signature-compatibility.ps1
+      - name: Probe PE resource-embedded package and Authenticode-covered payload
+        shell: pwsh
+        timeout-minutes: 5
+        run: ./installer/windows/qualify-resource-signing.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
