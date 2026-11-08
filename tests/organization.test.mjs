@@ -146,6 +146,11 @@ test('CEN02 issuer-side Task link survives manager restart without becoming T3 a
  const before=stored;
  f.run(issue);
  assert.equal(encodeDraft(f.state),before);
+ const atlasExportOrder={projectId:linkWork.projectId,
+   revision:linkWork.revision,workId:linkWork.workId};
+ f.run({...issue,atlasRef:atlasExportOrder});
+ assert.equal(encodeDraft(f.state),before,
+   'same WorkRef values in native Atlas key order must remain idempotent');
  f.run({...f.assignment,assignmentId:assignment.id,expectedEditNumber:1,
    atlasRef:{...linkWork,revision:'8'},title:'New revision'});
  assert.equal(f.state.organizations[0].issuedTaskLinks[0].atlasRef.revision,'7');
@@ -244,6 +249,9 @@ test('CEN05 projects actual reopened CEN02 link only for matching T3 Result exec
  const oldEvidence=projectAppliedAtlasEvidence({ownerSnapshot:application,issuedTask:oldLink,
    resultRevisionId:'b'.repeat(64),atlasView:view});
  assert.deepEqual(oldEvidence.result,observed.result);
- const unchanged=apply(historical,issued,{now:()=>time});
- assert.deepEqual(unchanged,historical,'legacy duplicate preserves original stored draft');
+ const unchanged=apply(historical,{
+   ...issued,atlasRef:{projectId:ref.projectId,revision:ref.revision,workId:ref.workId}
+ },{now:()=>time});
+ assert.deepEqual(unchanged,historical,
+   'legacy duplicate with differently ordered WorkRef preserves original stored draft');
 });
