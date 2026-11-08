@@ -232,7 +232,7 @@ namespace IwxaSetup
             else if (alternate == SetupOperation.InstallWebView2Offline)
                 secondary.Text = T("Из файла…", "From file…");
             else if (alternate == SetupOperation.CancelLegacyPreview)
-                secondary.Text = T("Отменить пробную", "Cancel preview");
+                secondary.Text = T("Отменить переход", "Cancel preview");
             secondary.AccessibleName = secondary.Text;
             secondary.AccessibleDescription =
                 alternate == SetupOperation.InstallWebView2Offline ?

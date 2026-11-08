@@ -248,6 +248,68 @@ if($plan.status -ne 'LEGACY_MIGRATION_PENDING_GUI_READBACK'){
 Check-Window (Join-Path $newRoot 'iwxa-admin-center.exe') 'NEW_03'
 Assert-RealOrganizations 'AFTER_03'
 Assert-Original
+
+# Explicit reversible default-launch handoff. This is NOT NSIS uninstall.
+# Keep exact bytes of the old Start Menu shortcut and its old uninstall entry.
+$shortcut=Join-Path ([Environment]::GetFolderPath('Programs')) 'IWXA Admin Center.lnk'
+$shortcutBeforeExists=Test-Path -LiteralPath $shortcut -PathType Leaf
+$shortcutBeforeSha=if($shortcutBeforeExists){
+  (Get-FileHash -LiteralPath $shortcut -Algorithm SHA256).Hash
+}else{''}
+$legacyUninstallKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\'+$before.registryName
+if(!(Test-Path -LiteralPath $legacyUninstallKey)){
+  throw 'LEGACY_SWITCH_OLD_UNINSTALL_REGISTRY_MISSING'
+}
+$oldUninstallCommand=(Get-ItemProperty -LiteralPath $legacyUninstallKey).UninstallString
+$active=Call-Setup '--activate-legacy-file' 'activate-shortcut'
+if($active.status -ne 'LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED'){
+  throw ('LEGACY_SWITCH_ACTIVATION_FAILED_'+$active.status)
+}
+$activePlan=Call-Setup '--upgrade-plan-file' 'active-shortcut-plan'
+if($activePlan.status -ne 'LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED'){
+  throw ('LEGACY_SWITCH_ACTIVE_PLAN_INVALID_'+$activePlan.status)
+}
+if(!(Test-Path -LiteralPath $shortcut -PathType Leaf)){
+  throw 'LEGACY_SWITCH_ACTIVE_SHORTCUT_MISSING'
+}
+$shortcutShell=New-Object -ComObject WScript.Shell
+$activeTarget=$shortcutShell.CreateShortcut($shortcut).TargetPath
+if([IO.Path]::GetFullPath($activeTarget) -ne
+   [IO.Path]::GetFullPath((Join-Path $newRoot 'iwxa-admin-center.exe'))){
+  throw 'LEGACY_SWITCH_START_MENU_NOT_NEW_EXE'
+}
+if((Get-ItemProperty -LiteralPath $legacyUninstallKey).UninstallString -ne
+   $oldUninstallCommand){
+  throw 'LEGACY_SWITCH_NSIS_UNINSTALL_CHANGED'
+}
+Assert-Original
+Assert-RealOrganizations 'AFTER_ACTIVATE'
+Write-Host 'LEGACY_REAL_START_MENU_DEFAULT_SWITCH_PASS'
+
+$restored=Call-Setup '--restore-legacy-file' 'restore-shortcut'
+if($restored.status -ne 'LEGACY_DEFAULT_RESTORED_NSIS_PRESERVED'){
+  throw 'LEGACY_DEFAULT_RESTORE_FAILED'
+}
+$restoredPlan=Call-Setup '--upgrade-plan-file' 'restored-shortcut-plan'
+if($restoredPlan.status -ne 'LEGACY_MIGRATION_PENDING_GUI_READBACK'){
+  throw ('LEGACY_DEFAULT_RESTORE_PLAN_INVALID_'+$restoredPlan.status)
+}
+if((Test-Path -LiteralPath $shortcut -PathType Leaf) -ne $shortcutBeforeExists){
+  throw 'LEGACY_SWITCH_SHORTCUT_PRESENCE_CHANGED_AFTER_RESTORE'
+}
+if($shortcutBeforeExists -and
+   (Get-FileHash -LiteralPath $shortcut -Algorithm SHA256).Hash -ne
+     $shortcutBeforeSha){
+  throw 'LEGACY_SWITCH_ORIGINAL_SHORTCUT_HASH_NOT_RESTORED'
+}
+if((Get-ItemProperty -LiteralPath $legacyUninstallKey).UninstallString -ne
+   $oldUninstallCommand){
+  throw 'LEGACY_SWITCH_NSIS_REGISTRY_CHANGED_AFTER_RESTORE'
+}
+Assert-Original
+Assert-RealOrganizations 'AFTER_RESTORE'
+Write-Host 'LEGACY_REAL_DEFAULT_SWITCH_REVERTED_PASS'
+
 $null=Click-SetupGuiAction @('Cancel preview','Отменить переход') $false
 $gone=$false
 for($i=0;$i -lt 60;$i++){
