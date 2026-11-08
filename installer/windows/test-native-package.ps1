@@ -449,6 +449,37 @@ try {
         }
         Write-Host 'IWXA_SETUP_NATIVE_SAME_VERSION_REPAIR_PASS'
 
+        # Missing executable is a real repair case, distinct from a byte
+        # corruption. The verified package, receipt and HKCU authority must
+        # agree before restoring the absent executable and preserving data.
+        Remove-Item -LiteralPath $installedExe -Force
+        $repairMissingPlan = Invoke-NativeInspection $bundle (
+            Join-Path $artifact 'setup-core-repair-missing-exe-plan.json') 0 '--upgrade-plan-file'
+        if ($repairMissingPlan.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED') {
+            throw 'SETUP_NATIVE_MISSING_EXE_REPAIR_NOT_OFFERED'
+        }
+        $repairMissing = Invoke-NativeInspection $bundle (
+            Join-Path $artifact 'setup-core-repair-missing-exe-applied.json') 0 '--repair-file'
+        if ($repairMissing.status -ne 'REPAIRED_BACKUP_RETAINED' -or
+            !(Test-Path -LiteralPath $installedExe -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $installedExe -Algorithm SHA256).Hash -ne $cleanHash) {
+            throw 'SETUP_NATIVE_MISSING_EXE_REPAIR_NOT_RESTORED'
+        }
+        $missingConfirmPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
+        if ($missingConfirmPlan.status -ne 'UPGRADE_PENDING_CONFIRMATION') {
+            throw 'SETUP_NATIVE_MISSING_EXE_REPAIR_CONFIRM_NOT_OFFERED'
+        }
+        $missingConfirmed = Invoke-NativeInspection $bundle (
+            Join-Path $artifact 'setup-core-repair-missing-exe-confirmed.json') 0 '--confirm-upgrade-file'
+        if ($missingConfirmed.status -ne 'UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED' -or
+            (Test-Path -LiteralPath ($installed.installRoot + '.iwxa-previous')) -or
+            (Get-FileHash -LiteralPath $startMenuLink -Algorithm SHA256).Hash -ne
+                $customizedLinkHash -or
+            (Get-Content -LiteralPath $userData -Raw) -ne 'unchanged-after-first-install') {
+            throw 'SETUP_NATIVE_MISSING_EXE_CONFIRM_OR_USER_DATA_CHANGED'
+        }
+        Write-Host 'IWXA_SETUP_NATIVE_REAL_CENTER_MISSING_EXE_REPAIR_CONFIRM_PASS'
+
         # Emulate a crash immediately after moving the old release aside.
         $previousRoot = $installed.installRoot + '.iwxa-previous'
         [IO.Directory]::Move($installed.installRoot, $previousRoot)

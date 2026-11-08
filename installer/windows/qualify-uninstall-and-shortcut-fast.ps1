@@ -156,19 +156,19 @@ try {
         $missingAsset=Join-Path $root 'assets/owned.txt'
         Remove-Item -LiteralPath $app -Force
         Remove-Item -LiteralPath $missingAsset -Force
-        $foreign=Join-Path $root 'unrelated-user-file.txt'
-        [IO.File]::WriteAllText($foreign,'DO_NOT_REMOVE')
+        $unownedInRoot=Join-Path $root 'unrelated-user-file.txt'
+        [IO.File]::WriteAllText($unownedInRoot,'DO_NOT_REMOVE')
         try {
             $blockedPlan=Invoke-Setup '--upgrade-plan-file' 'foreign-root-plan'
             $blockedRepair=Invoke-Setup '--repair-file' 'foreign-root-repair' 2
             if ($blockedPlan.status -ne 'OWNERSHIP_MISMATCH' -or
                 $blockedRepair.status -ne 'ERROR' -or
                 $blockedRepair.reason -ne 'SETUP_REPAIR_BLOCKED_OWNERSHIP_MISMATCH' -or
-                [IO.File]::ReadAllText($foreign) -ne 'DO_NOT_REMOVE') {
+                [IO.File]::ReadAllText($unownedInRoot) -ne 'DO_NOT_REMOVE') {
                 throw 'SETUP_FAST_MISSING_EXE_ADOPTED_UNOWNED_FILE'
             }
         } finally {
-            Remove-Item -LiteralPath $foreign -Force
+            Remove-Item -LiteralPath $unownedInRoot -Force
         }
         $missingPlan=Invoke-Setup '--upgrade-plan-file' 'missing-owned-plan'
         if ($missingPlan.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED') {
