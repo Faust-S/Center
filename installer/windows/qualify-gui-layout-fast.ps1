@@ -97,6 +97,15 @@ foreach ($factor in @(1.0, 1.5, 2.0, 2.5)) {
                 ' actual=' + $area.ClientSize + ' shell=' + $shell.Size)
         }
         Assert-Layout $form ('compact-' + $factor)
+        # At 200% this is a 1468x968 physical content viewport, suitable
+        # for a 1920x1080 laptop once its taskbar and titlebar are reserved.
+        # Test the real WinForms geometry, not an invented percentage.
+        $laptopViewport = [Drawing.Size]::new(
+            [int][Math]::Round(734 * $factor),
+            [int][Math]::Round(484 * $factor))
+        $shell.Size = $laptopViewport
+        $shell.PerformLayout()
+        Assert-Layout $form ('compact-laptop-' + $factor)
     } finally {
         $form.Dispose()
     }

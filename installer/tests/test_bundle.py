@@ -95,11 +95,13 @@ class BundleTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "windows" /
                   "SetupCore.Form.cs").read_text(encoding="utf-8")
         for marker in (
-            'MinimumSize = new Size(820, 610)',
-            'ArrangeSupportingContent(area, card, note, actions)',
+            'MinimumSize = new Size(750, 520)',
+            'ArrangeSupportingContent(area, card, note, actions, eyebrow)',
             'Name = "iwxaSetupPackageCard"',
             'Name = "iwxaSetupPreservationNote"',
             'Name = "iwxaSetupActions"',
+            'bool shortView = area.ClientSize.Height < 540.0 * scale',
+            'bool narrowView = area.ClientSize.Width < 600.0 * scale',
             'packageDetails.Anchor = AnchorStyles.Left | AnchorStyles.Right',
             'status.Anchor = AnchorStyles.Left | AnchorStyles.Right',
         ):

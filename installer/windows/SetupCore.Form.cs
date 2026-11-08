@@ -41,9 +41,10 @@ namespace IwxaSetup
             StartPosition = FormStartPosition.CenterScreen;
             Font = new Font("Segoe UI", 10F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            // MinimumSize includes the Windows title bar and frame. Preserve
-            // usable content height for the status card, controls and footer.
-            MinimumSize = new Size(820, 610);
+            // A 1920x1080 laptop at 200% has ~960x540 logical pixels.
+            // Use the existing compact layout rather than forcing the
+            // bottom action row outside the desktop working area.
+            MinimumSize = new Size(750, 520);
             ClientSize = new Size(900, 560);
             BackColor = Color.FromArgb(246, 249, 253);
             MaximizeBox = false;
@@ -265,23 +266,49 @@ namespace IwxaSetup
             // Reflow the supporting text when the window or DPI changes.
             // The package card and action bar remain fixed in their visual hierarchy.
             area.SizeChanged += (sender, args) =>
-                ArrangeSupportingContent(area, card, note, actions);
+                ArrangeSupportingContent(area, card, note, actions, eyebrow);
             card.SizeChanged += (sender, args) =>
-                ArrangeSupportingContent(area, card, note, actions);
-            ArrangeSupportingContent(area, card, note, actions);
+                ArrangeSupportingContent(area, card, note, actions, eyebrow);
+            ArrangeSupportingContent(area, card, note, actions, eyebrow);
         }
 
         private void ArrangeSupportingContent(
-            Panel area, Panel card, Label note, FlowLayoutPanel actions)
+            Panel area, Panel card, Label note, FlowLayoutPanel actions,
+            Label eyebrow)
         {
             if (area.ClientSize.Height <= 0 || card.Height <= 0) return;
-            int gap = Math.Max(6, (int)Math.Round(8.0 * card.Height / 197.0));
+            // A scaled native sidebar control provides the same geometric
+            // units as the WinForms layout; no extra DPI manager is needed.
+            double scale = Math.Max(0.75, progressPanels[0].Height / 56.0);
+            bool shortView = area.ClientSize.Height < 540.0 * scale;
+            bool narrowView = area.ClientSize.Width < 600.0 * scale;
+            Func<double, int> px = value =>
+                Math.Max(1, (int)Math.Round(value * scale));
+
+            eyebrow.Top = px(shortView ? 16 : 32);
+            productName.Top = px(shortView ? 45 : 68);
+            productName.Height = px(shortView ? 40 : 52);
+            description.Top = px(shortView ? 91 : 127);
+            description.Height = px(shortView ? 43 : 54);
+            card.Top = px(shortView ? 139 : 199);
+            card.Height = px(shortView ? 181 : 197);
+            packageDetails.Top = px(shortView ? 125 : 133);
+            packageDetails.Height = px(shortView ? 35 : 43);
+            busyProgress.Top = px(shortView ? 168 : 181);
+
+            // All three actions must fit in a narrow supported viewport,
+            // including when the secondary Rollback button becomes visible.
+            install.Width = px(narrowView ? 158 : 192);
+            secondary.Width = px(narrowView ? 145 : 160);
+            retry.Width = px(narrowView ? 130 : 145);
+
+            int gap = px(shortView ? 6 : 8);
             int noteTop = card.Bottom + gap;
             int lastLinkTop = area.ClientSize.Height - actions.Height -
                 openApplication.Height - gap;
             int availableNote = Math.Max(0, lastLinkTop - noteTop - gap);
-            int preferredNote = Math.Max(note.Font.Height * 2 + 4,
-                (int)Math.Round(46.0 * card.Height / 197.0));
+            int preferredNote = Math.Max(note.Font.Height * 2 + px(4),
+                px(shortView ? 42 : 46));
             note.Top = noteTop;
             note.Height = Math.Min(preferredNote, availableNote);
             openApplication.Top = note.Bottom + gap;
