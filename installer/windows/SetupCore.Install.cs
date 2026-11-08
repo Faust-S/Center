@@ -355,6 +355,37 @@ namespace IwxaSetup
             };
         }
 
+        internal static void VerifyInstalledState(BundleInfo expected)
+        {
+            string root = RootFor(expected);
+            BundleInfo current = ReadOwnedRelease(root, root, expected.Id);
+            if (current.Id != expected.Id)
+                throw new InvalidOperationException(
+                    "SETUP_POST_OWNED_PRODUCT_MISMATCH");
+            RequireRegistryOwnership(expected.Id, root, current);
+            RequireOnlyOwnedFiles(root);
+        }
+
+        internal static void VerifyUninstalledState(BundleInfo expected)
+        {
+            string root = RootFor(expected);
+            using (var owned = Registry.CurrentUser.OpenSubKey(
+                RegistryProducts + expected.Id))
+            using (var uninstall = Registry.CurrentUser.OpenSubKey(
+                WindowsUninstall + expected.Id))
+            {
+                if (owned != null || uninstall != null)
+                    throw new InvalidOperationException(
+                        "SETUP_POST_UNINSTALL_REGISTRY_REMAINS");
+            }
+            if (File.Exists(Path.Combine(root, ReceiptFile)) ||
+                File.Exists(Path.Combine(root, UninstallExe)) ||
+                File.Exists(Path.Combine(root,
+                    expected.Entrypoint.Replace('/', Path.DirectorySeparatorChar))))
+                throw new InvalidOperationException(
+                    "SETUP_POST_UNINSTALL_MANAGED_FILES_REMAIN");
+        }
+
         private static void RequireUninstallTargetsReady(
             string root, IList<string> files)
         {

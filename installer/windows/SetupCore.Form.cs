@@ -336,6 +336,63 @@ namespace IwxaSetup
             }
         }
 
+        // Native completion is a claim, not evidence of the installed state.
+        // Keep this table independent from the UI labels, so all outcomes
+        // must match a fresh UpgradeAssessment after the operation.
+        internal static bool CompletionMatches(
+            string operation, string nativeOutcome, string observedPlan)
+        {
+            if (String.IsNullOrEmpty(operation) ||
+                String.IsNullOrEmpty(nativeOutcome) ||
+                String.IsNullOrEmpty(observedPlan)) return false;
+            switch (operation)
+            {
+                case "Install":
+                    return nativeOutcome == "INSTALLED_NOT_LAUNCHED" &&
+                        observedPlan == "REPAIR_CANDIDATE_NOT_ACTIVATED";
+                case "Upgrade":
+                    return nativeOutcome == "UPGRADED_BACKUP_RETAINED" &&
+                        observedPlan == "UPGRADE_PENDING_CONFIRMATION";
+                case "Repair":
+                    return nativeOutcome == "REPAIRED_BACKUP_RETAINED" &&
+                        (observedPlan == "UPGRADE_PENDING_CONFIRMATION" ||
+                         observedPlan == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK");
+                case "Confirm":
+                    return nativeOutcome == "UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED" &&
+                        observedPlan == "REPAIR_CANDIDATE_NOT_ACTIVATED";
+                case "Rollback":
+                    return (nativeOutcome == "ROLLBACK_RESTORED_PREVIOUS" ||
+                            nativeOutcome == "ROLLBACK_RESTORED_USER_FILES_QUARANTINED") &&
+                        (observedPlan == "UPGRADE_CANDIDATE_NOT_ACTIVATED" ||
+                         observedPlan == "REPAIR_CANDIDATE_NOT_ACTIVATED");
+                case "Recover":
+                    return (nativeOutcome == "RECOVERED_PREVIOUS_RELEASE" &&
+                            (observedPlan == "UPGRADE_CANDIDATE_NOT_ACTIVATED" ||
+                             observedPlan == "REPAIR_CANDIDATE_NOT_ACTIVATED")) ||
+                           (nativeOutcome == "UPGRADE_PENDING_CONFIRMATION" &&
+                            observedPlan == "UPGRADE_PENDING_CONFIRMATION");
+                case "StageLegacyPreview":
+                    return nativeOutcome == "LEGACY_MIGRATION_STAGED_NSIS_PRESERVED" &&
+                        observedPlan == "LEGACY_MIGRATION_PENDING_GUI_READBACK";
+                case "CancelLegacyPreview":
+                    return nativeOutcome == "UNINSTALLED_USER_DATA_PRESERVED" &&
+                        observedPlan == "LEGACY_MIGRATION_HOLD";
+                case "ActivateLegacyDefault":
+                    return nativeOutcome == "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED" &&
+                        observedPlan == "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED";
+                case "RestoreLegacyDefault":
+                    return nativeOutcome == "LEGACY_DEFAULT_RESTORED_NSIS_PRESERVED" &&
+                        observedPlan == "LEGACY_MIGRATION_PENDING_GUI_READBACK";
+                case "InstallWebView2":
+                case "InstallWebView2Offline":
+                    return (nativeOutcome == "WEBVIEW2_ALREADY_INSTALLED" ||
+                            nativeOutcome == "WEBVIEW2_INSTALLED_VERIFIED") &&
+                        observedPlan != "WEBVIEW2_MISSING" &&
+                        observedPlan != "UNDETERMINED";
+                default: return false;
+            }
+        }
+
         private async Task ExecuteAsync(SetupOperation operation)
         {
             if (performingOperation || operation == SetupOperation.None) return;
@@ -445,7 +502,32 @@ namespace IwxaSetup
                 // Recheck on-disk ownership; the display is never advanced
                 // merely because a background operation returned a status.
                 performingOperation = false;
-                await VerifyAsync();
+                UpgradeAssessment verified = await VerifyAsync();
+                if (IsDisposed || Disposing) return;
+                if (verified == null ||
+                    !CompletionMatches(operation.ToString(), result.Status,
+                        verified.Status))
+                    throw new InvalidOperationException(
+                        "SETUP_POST_OPERATION_STATE_UNCONFIRMED");
+                if (operation == SetupOperation.InstallWebView2 ||
+                    operation == SetupOperation.InstallWebView2Offline)
+                {
+                    if (String.IsNullOrWhiteSpace(
+                        SetupReadiness.DetectWebView2Version()))
+                        throw new InvalidOperationException(
+                            "SETUP_POST_WEBVIEW2_RUNTIME_UNCONFIRMED");
+                }
+                else
+                {
+                    BundleInfo expected = await Task.Run(() =>
+                        BundleReader.Inspect(Application.ExecutablePath));
+                    if (operation == SetupOperation.CancelLegacyPreview)
+                        await Task.Run(() =>
+                            SetupInstallation.VerifyUninstalledState(expected));
+                    else
+                        await Task.Run(() =>
+                            SetupInstallation.VerifyInstalledState(expected));
+                }
                 if (operation == SetupOperation.Upgrade)
                     status.Text = T("Новая версия установлена — проверьте запуск",
                         "Update installed — verify the application");
@@ -548,9 +630,9 @@ namespace IwxaSetup
             }
         }
 
-        private async Task VerifyAsync()
+        private async Task<UpgradeAssessment> VerifyAsync()
         {
-            if (performingOperation) return;
+            if (performingOperation) return null;
             retry.Enabled = false;
             SetWizardStep(1);
             ConfigureActions(SetupOperation.None, SetupOperation.None,
@@ -566,7 +648,7 @@ namespace IwxaSetup
                     () => BundleReader.Inspect(Application.ExecutablePath));
                 UpgradeAssessment plan = await Task.Run(
                     () => SetupInstallation.PlanUpgrade(Application.ExecutablePath));
-                if (IsDisposed || Disposing) return;
+                if (IsDisposed || Disposing) return null;
                 bool readyForReview =
                     plan.Status == "UPGRADE_PENDING_CONFIRMATION" ||
                     plan.Status == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK" ||
@@ -811,16 +893,18 @@ namespace IwxaSetup
                         plan.Status + "   •   " + packageLine,
                         versionLine, true);
                 }
+                return plan;
             }
             catch (Exception ex)
             {
-                if (IsDisposed || Disposing) return;
+                if (IsDisposed || Disposing) return null;
                 status.Text = T("Пакет не подтверждён", "Package not verified");
                 status.ForeColor = Color.FromArgb(170, 52, 59);
                 version.Text = ex.Message;
                 packageDetails.Text = T(
                     "Установка заблокирована. Загрузите исправный дистрибутив.",
                     "Installation is blocked. Obtain a valid distribution.");
+                return null;
             }
             finally { if (!IsDisposed && !Disposing) retry.Enabled = true; }
         }
