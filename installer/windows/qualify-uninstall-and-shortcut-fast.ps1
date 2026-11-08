@@ -85,6 +85,34 @@ try {
     if($null -eq $gate){
         throw 'SETUP_FAST_UI_COMPLETION_GATE_NOT_EXPOSED'
     }
+    // The same immutable, verified bundle must produce the same plan as
+    // the legacy path API. This avoids a second complete resource hash in
+    // the UI while keeping the original API for all callers.
+    $bundleInfoType=$assembly.GetType('IwxaSetup.BundleInfo', $true)
+    $readerType=$assembly.GetType('IwxaSetup.BundleReader', $true)
+    $installationType=$assembly.GetType('IwxaSetup.SetupInstallation', $true)
+    $plannerByPath=$installationType.GetMethod('PlanUpgrade', $flags,
+        $null, [Type[]]@([string]), $null)
+    $plannerByInfo=$installationType.GetMethod('PlanUpgrade', $flags,
+        $null, [Type[]]@($bundleInfoType), $null)
+    $inspectBundle=$readerType.GetMethod('Inspect', $flags)
+    if($null -eq $plannerByPath -or $null -eq $plannerByInfo -or
+       $null -eq $inspectBundle){throw 'SETUP_FAST_VERIFIED_PLAN_API_MISSING'}
+    $planArgs=New-Object 'System.Object[]' 1
+    $planArgs[0]=[string]$bundle
+    $knownInfo=$inspectBundle.Invoke($null,$planArgs)
+    $planArgs[0]=$knownInfo
+    $knownPlan=$plannerByInfo.Invoke($null,$planArgs)
+    $planArgs[0]=[string]$bundle
+    $pathPlan=$plannerByPath.Invoke($null,$planArgs)
+    $planStatus=$knownPlan.GetType().GetField('Status',
+        [Reflection.BindingFlags]'Instance, Public, NonPublic')
+    if($null -eq $planStatus -or
+       $planStatus.GetValue($knownPlan) -ne $planStatus.GetValue($pathPlan) -or
+       $planStatus.GetValue($knownPlan) -ne 'NO_OWNED_INSTALLATION'){
+        throw 'SETUP_FAST_VERIFIED_PLAN_NOT_EQUIVALENT'
+    }
+    Write-Host 'IWXA_SETUP_VERIFIED_BUNDLE_PLAN_REUSE_PASS'
     function Assert-Completion([string]$operation,[string]$native,[string]$plan,[bool]$expected){
         $arguments=New-Object 'System.Object[]' 3
         $arguments[0]=[string]$operation

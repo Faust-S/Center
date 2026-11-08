@@ -647,7 +647,7 @@ namespace IwxaSetup
                 BundleInfo info = await Task.Run(
                     () => BundleReader.Inspect(Application.ExecutablePath));
                 UpgradeAssessment plan = await Task.Run(
-                    () => SetupInstallation.PlanUpgrade(Application.ExecutablePath));
+                    () => SetupInstallation.PlanUpgrade(info));
                 if (IsDisposed || Disposing) return null;
                 bool readyForReview =
                     plan.Status == "UPGRADE_PENDING_CONFIRMATION" ||

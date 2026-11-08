@@ -22,7 +22,14 @@ namespace IwxaSetup
     {
         internal static UpgradeAssessment PlanUpgrade(string bundle)
         {
-            BundleInfo info = BundleReader.Inspect(bundle);
+            return PlanUpgrade(BundleReader.Inspect(bundle));
+        }
+
+        // Reuse the already verified bundle for UI planning. Mutating operations
+        // continue to inspect their source package independently.
+        internal static UpgradeAssessment PlanUpgrade(BundleInfo info)
+        {
+            if (info == null) throw new ArgumentNullException("info");
             var plan = new UpgradeAssessment {
                 Product = info.Id, CandidateVersion = info.Version,
                 InstalledVersion = "", InstallRoot = RootFor(info),
