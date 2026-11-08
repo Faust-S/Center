@@ -42,6 +42,37 @@ try {
       if(command==='publisher_export_preparation_backup')return false;
       if(command==='publisher_pick_preparation_backup')return null;
       if(command==='publisher_inspect_artifact')return null;
+      if(command==='publisher_t3_capabilities')return {
+        operation:'TEST_CAPABILITIES',issuers:['publisher:owner:test'],
+        activeSeats:0,productionActivation:false,commercialAuthorityProven:false};
+      if(command==='publisher_t3_inventory')return {
+        operation:'TEST_INVENTORY',
+        licenses:JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]'),
+        activeSeats:0,productionActivation:false};
+      if(command==='publisher_t3_issue'){
+        const req=JSON.parse(args.requestJson),ledger=JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]');
+        if(req.environment!=='TEST'||args.issuerAuthorityId!=='publisher:owner:test')
+           throw Error('TEST_ISSUER_DENIED');
+        const entry={licenseId:'license:test:native-ui:one',requestId:req.requestId,
+          issuerAuthorityId:'publisher:owner:test',organizationId:req.subject.id,
+          claimedSeats:req.seats,status:'NOT_ACTIVATED',sequence:0,activeSeats:0};
+        if(!ledger.some(x=>x.requestId===req.requestId))ledger.push(entry);
+        sessionStorage.setItem('publisher-t3-mock-licenses',JSON.stringify(ledger));
+        return {operation:'TEST_ISSUE',outcome:'ISSUED_NEW',licenseId:entry.licenseId,
+          activeSeats:0,productionActivation:false};
+      }
+      if(command==='publisher_t3_change_status'){
+        const ledger=JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]');
+        const entry=ledger.find(x=>x.licenseId===args.licenseId);
+        if(!entry)throw Error('PRODUCT_OWNER_LICENSE_NOT_ISSUED');
+        entry.status=args.nextStatus;entry.sequence+=1;
+        sessionStorage.setItem('publisher-t3-mock-licenses',JSON.stringify(ledger));
+        return {operation:'TEST_STATUS',licenseId:entry.licenseId,state:entry.status,
+          activeSeats:0,productionActivation:false};
+      }
+      if(command==='publisher_t3_export')return {
+        operation:'TEST_IWXA_EXPORTED',licenseId:args.licenseId,
+        activeSeats:0,productionActivation:false};
       if(command==='publisher_select_test_iwxa')return {
         size:348,sha256:'b'.repeat(64),integrityVerified:false,signatureVerified:false,
         statusVerified:false,productionActivation:false,activeSeats:0};
@@ -145,6 +176,17 @@ try {
   assert.ok(!('licenseId' in testRequest) && !('signature' in testRequest));
   assert.match(await page.locator('main').innerText(),/Лицензия не выдана/);
   checks.push('export-exact-unsigned-product-holder-test-request');
+  await page.getByRole('button',{name:'Доверие и ключи'}).click();
+  await page.getByTestId('publisher-t3-issue').click();
+  await page.getByText('TEST-лицензия подписана T3 и сохранена в журнале издателя.').waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
+  await page.getByTestId('publisher-t3-change-status').click();
+  await page.getByText('Новый подписанный TEST-статус сохранён в T3: ACTIVE').waitFor();
+  await page.getByTestId('publisher-t3-export').click();
+  await page.getByText('Пакет .iwxa выпущен T3 и подтверждён повторным чтением.').waitFor();
+  assert.match(await page.getByTestId('publisher-t3-owner-panel').innerText(),/Активных мест: 0/);
+  checks.push('publisher-owner-operations-through-native-IPC-model-only-no-commercial-seats');
+  await page.getByRole('button',{name:'Запросы на лицензии'}).click();
 
   await page.reload();
   await page.getByRole('button',{name:'Запросы на лицензии'}).click();
