@@ -50,7 +50,7 @@ function Click([string]$name,[bool]$partial=$false){
   }
   Start-Sleep -Milliseconds 400
 }
-function Type([string]$name,[string]$value){
+function Type-Ui([string]$name,[string]$value){
   $node=FindNode $name 'Edit'
   $node.SetFocus()
   Start-Sleep -Milliseconds 150
@@ -79,13 +79,13 @@ try {
     if($p.HasExited){throw 'LEGACY_REAL_ORG_GUI_EXITED_EARLY'}
     if($p.MainWindowHandle -ne [IntPtr]::Zero){break}
   }
-  Type 'Название' 'LegacyVerifiedOrgOne'
+  Type-Ui 'Название' 'LegacyVerifiedOrgOne'
   Click 'Создать черновик организации'
   Click 'Сохранить на компьютере'
   $first=ReadCount 1
   Write-Host 'LEGACY_02_REAL_ORGANIZATION_ONE_SAVED_PASS'
   Click 'Добавить организацию' $true
-  Type 'Название' 'LegacyVerifiedOrgTwo'
+  Type-Ui 'Название' 'LegacyVerifiedOrgTwo'
   Click 'Создать черновик организации'
   Click 'Сохранить на компьютере'
   $second=ReadCount 2
@@ -104,6 +104,7 @@ try {
     $null=$p.CloseMainWindow()
     if(!$p.WaitForExit(10000)){
       Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+      throw 'LEGACY_REAL_ORG_WINDOW_DID_NOT_CLOSE'
     }
   }
   $p.Dispose()
