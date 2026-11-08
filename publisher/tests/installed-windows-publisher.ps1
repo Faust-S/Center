@@ -52,8 +52,34 @@ function Capture-Installed-Desktop([string]$name){
   } finally {$graphics.Dispose();$bitmap.Dispose()}
 }
 function Root-Element {
-  $proc.Refresh()
-  return [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+  # The second Win32 file picker may temporarily detach MainWindowHandle.
+  # Determine whether the process truly exited before declaring the GUI lost.
+  for($i=0;$i -lt 60;$i++){
+    $proc.Refresh()
+    if($proc.HasExited){
+      throw "PUBLISHER_PROCESS_EXITED_DURING_NATIVE_DIALOG exitCode=$($proc.ExitCode)"
+    }
+    if($proc.MainWindowHandle -ne [IntPtr]::Zero){
+      try {
+        return [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+      } catch {}
+    }
+    $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+      [System.Windows.Automation.TreeScope]::Children,
+      [System.Windows.Automation.Condition]::TrueCondition)
+    foreach($candidate in $windows){
+      try {
+        if($candidate.Current.ProcessId -eq $proc.Id -and
+           $candidate.Current.Name.StartsWith('IWXA Publisher') -and
+           $candidate.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window){
+          Write-Host 'PUBLISHER_NATIVE_WINDOW_RECOVERED_BY_PROCESS_ID'
+          return $candidate
+        }
+      } catch {}
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  throw 'PUBLISHER_NATIVE_WINDOW_HANDLE_NOT_AVAILABLE_AFTER_FILE_DIALOG'
 }
 function Find-Control([string]$name,[string]$kind){
   $expected=if($kind -eq 'Edit'){[System.Windows.Automation.ControlType]::Edit}else{[System.Windows.Automation.ControlType]::Button}
@@ -322,6 +348,11 @@ try {
   Use-Json-Through-Publisher-Dialog 'Сверить две копии файла' $copyOne $true
   Start-Sleep -Milliseconds 600
   Use-Json-Through-Publisher-Dialog '' $copyTwo $true
+  $proc.Refresh()
+  if($proc.HasExited){
+    throw "PUBLISHER_PROCESS_EXITED_AFTER_SECOND_COPY_DIALOG exitCode=$($proc.ExitCode)"
+  }
+  Write-Host 'PUBLISHER_SECOND_COPY_DIALOG_RETURNED_PROCESS_ALIVE'
   [void](Find-Text 'Сверены 2 файла')
   [void](Find-Text 'Независимость физических носителей не подтверждена')
   Write-Host 'PUBLISHER_INSTALLED_GUI_TWO_SELECTED_FILES_BYTE_MATCH_PASS'
