@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDraftRepository} from '../runtime/t3-draft-repository.mjs';
 import {createT3AdminPort} from '../runtime/t3-admin-port.mjs';
-import {issuedTaskExportSelection} from '../runtime/cen02-exchange.mjs';
-import {emptyDraft,applyDraftCommand} from '../src/organization.mjs';
+import {issuedTaskExportSelection,prepareIssuedTaskLinkRecovery} from '../runtime/cen02-exchange.mjs';
+import {emptyDraft,applyDraftCommand,assignmentText} from '../src/organization.mjs';
 import {empty as emptyAtlas,createProject,createItem} from '../vendor/atlas/src/core.mjs';
 // Explicit contract doubles: these tests do not qualify signatures, T3 or native persistence.
 function storeDouble() {let revision=0, bytes=null;return {read:()=>({revision,bytes}),write(expected,data){if(expected!==revision)throw Error('SUBJECT_CONCURRENT_REVISION');bytes=Buffer.from(data);return {revision:++revision};},close(){}};}
@@ -371,4 +371,82 @@ test('CEN02 export requires unique persisted issuer WorkRef for current signed T
  assert.deepEqual(issuedTaskExportSelection([legacy],owner,'org'),expected,
    'historical ownerPersonId alias was the recipient, never corporate authority');
  assert.equal(issuedTaskExportSelection([{...legacy,recipientId:'person:staff'}],owner,'org'),null);
+});
+
+function t3RecoverySnapshot(f){
+ const organization=f.organization,assignment=f.assignment,personId='person';
+ const taskId='task:already-signed',taskRevisionId=TASK_REVISION;
+ const taskText=assignmentText(organization,assignment);
+ return {product:'admin',organizationId:organization.id,
+   workspaceId:assignment.workspaceId,personId,contextEpoch:2,
+   productionActivation:true,T3_READY:true,
+   task:{id:taskId,taskRevisionId,task:taskText,assignedTo:personId,
+     organizationId:organization.id,workspaceId:assignment.workspaceId,
+     signedClaims:{schema:'IWXA_T3_RECONCILIATION_CLAIMS/1',
+       profile:{id:'interop.task'},scope:{subjectId:organization.id,
+         workspaceId:assignment.workspaceId,recipientId:personId},
+       changes:[{id:taskId,revisionId:taskRevisionId,
+         body:{schemaId:'interop.task.v1',task:taskText}}]}}
+ };
+}
+test('CEN02 recovers only the exact historical T3 signed Task as local issuer WorkRef',()=>{
+ const f=issueFixture(),snapshot=t3RecoverySnapshot(f);
+ const result=prepareIssuedTaskLinkRecovery({organization:f.organization,
+   assignment:f.assignment,snapshot});
+ assert.equal(result.alreadyRecorded,false);
+ assert.equal(result.taskReissued,false);
+ assert.equal(result.delivered,false);
+ assert.equal(result.atlasWritePerformed,false);
+ assert.equal(result.effect,'LOCAL_PREPARATION_LINK_ONLY');
+ assert.deepEqual(result.atlasRef,f.assignment.atlasRef);
+ assert.equal(result.taskId,snapshot.task.id);
+ assert.equal(result.taskRevisionId,snapshot.task.taskRevisionId);
+ // Use the existing draft command; no new store/issuer/format.
+ let draft=emptyDraft('2026-11-08T00:00:00Z');
+ draft.organizations=[structuredClone(f.organization)];
+ draft.activeOrganizationId=f.organization.id;
+ const restored=applyDraftCommand(draft,result.command,{now:()=> '2026-11-08T12:00:00.000Z'});
+ assert.equal(restored.organizations[0].issuedTaskLinks.length,1);
+ const already=prepareIssuedTaskLinkRecovery({organization:restored.organizations[0],
+   assignment:restored.organizations[0].assignments[0],snapshot});
+ assert.equal(already.alreadyRecorded,true,'idempotent readback requires no second write');
+ assert.deepEqual(already.command,result.command);
+});
+test('CEN02 never guesses issuer WorkRef from stale text, duplicate drafts or changed T3 claims',()=>{
+ const f=issueFixture(),snapshot=t3RecoverySnapshot(f);
+ const call=(org=f.organization,assignment=f.assignment,owner=snapshot)=>
+   prepareIssuedTaskLinkRecovery({organization:org,assignment,snapshot:owner});
+ assert.throws(()=>call(f.organization,{...f.assignment,description:'edited'}),
+   /CEN02_RECOVERY_TASK_TEXT_CHANGED/);
+ assert.throws(()=>call(f.organization,{...f.assignment,atlasRef:{
+   ...f.assignment.atlasRef,revision:'99'}}),/CEN02_RECOVERY_TASK_TEXT_CHANGED/);
+ const ambiguous=structuredClone(f.organization);
+ ambiguous.assignments.push({...structuredClone(f.assignment),id:'assignment:clone'});
+ assert.throws(()=>call(ambiguous,ambiguous.assignments[0]),
+   /CEN02_RECOVERY_AMBIGUOUS_ASSIGNMENT/);
+ const badRevision=structuredClone(snapshot);
+ badRevision.task.signedClaims.changes[0].revisionId='c'.repeat(64);
+ assert.throws(()=>call(f.organization,f.assignment,badRevision),
+   /CEN02_RECOVERY_SIGNED_CLAIMS_CHANGED/);
+ const badText=structuredClone(snapshot);
+ badText.task.signedClaims.changes[0].body.task='Different signed Task';
+ assert.throws(()=>call(f.organization,f.assignment,badText),
+   /CEN02_RECOVERY_SIGNED_CLAIMS_CHANGED/);
+ const oldEpoch={...snapshot,contextEpoch:null};
+ assert.throws(()=>call(f.organization,f.assignment,oldEpoch),
+   /CEN02_RECOVERY_OWNER_NOT_READY/);
+ const wrongRecipient={...snapshot,personId:'person:other'};
+ assert.throws(()=>call(f.organization,f.assignment,wrongRecipient),
+   /CEN02_RECOVERY_SIGNED_TASK_NOT_SELECTED/);
+ const noClaim=structuredClone(snapshot);delete noClaim.task.signedClaims;
+ assert.throws(()=>call(f.organization,f.assignment,noClaim),
+   /CEN02_RECOVERY_SIGNED_CLAIMS_CHANGED/);
+ const conflicting=structuredClone(f.organization);
+ conflicting.issuedTaskLinks=[{
+   ...call().command,associationProof:'LOCAL_ISSUER_SIDE_REFERENCE_ONLY',
+   deliveryState:'NOT_CONFIRMED',recordedAt:'2026-11-08T00:00:00.000Z',
+   atlasRef:{...f.assignment.atlasRef,workId:'other-work'}
+ }];
+ assert.throws(()=>call(conflicting,conflicting.assignments[0]),
+   /CEN02_RECOVERY_EXISTING_LINK_CONFLICT/);
 });
