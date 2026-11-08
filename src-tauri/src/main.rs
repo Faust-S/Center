@@ -160,6 +160,50 @@ fn open_draft_file() -> Result<Option<String>, String> {
     }
 }
 
+// CEN04 native transport ONLY: the returned text is deliberately not trusted.
+// The original T3 consumer, not Rust or WebView, verifies signed license/status,
+// preinstalled public trust, currentness and encrypted durable readback.
+const CENTER_CEN04_TEST_DELIVERY_LIMIT: u64 = 1024 * 1024;
+fn center_cen04_delivery_read(path: &std::path::Path) -> Result<String, String> {
+    let metadata = std::fs::metadata(path).map_err(|_| "CEN04_TEST_FILE_UNREADABLE")?;
+    if !metadata.is_file() || metadata.len() == 0
+        || metadata.len() > CENTER_CEN04_TEST_DELIVERY_LIMIT {
+        return Err("CEN04_TEST_FILE_SIZE_INVALID".into());
+    }
+    let bytes = std::fs::read(path).map_err(|_| "CEN04_TEST_FILE_UNREADABLE")?;
+    if bytes.len() as u64 != metadata.len() { return Err("CEN04_TEST_FILE_CHANGED".into()); }
+    let raw = String::from_utf8(bytes).map_err(|_| "CEN04_TEST_FILE_ENCODING_INVALID")?;
+    let json: Value = serde_json::from_str(&raw)
+        .map_err(|_| "CEN04_TEST_FILE_JSON_INVALID")?;
+    let pair = json.as_object().ok_or("CEN04_TEST_FILE_PAIR_REQUIRED")?;
+    if pair.len() != 2 || !pair.contains_key("license") || !pair.contains_key("statusEnvelope") {
+        return Err("CEN04_TEST_FILE_PAIR_REQUIRED".into());
+    }
+    for field in ["license", "statusEnvelope"] {
+        let envelope = pair.get(field).and_then(Value::as_object)
+            .ok_or("CEN04_TEST_FILE_ENVELOPE_REQUIRED")?;
+        if envelope.len() != 4 || envelope.get("schema").and_then(Value::as_str)
+            != Some("IWXA_T3_ACCESS_SIGNED/1") ||
+            !["keyId","payload","signature"].iter().all(|k| envelope.contains_key(*k)) ||
+            !envelope.get("payload").is_some_and(Value::is_object) {
+            return Err("CEN04_TEST_FILE_ENVELOPE_REQUIRED".into());
+        }
+    }
+    // Byte-preserving selection only. No trusted receipt, saved entitlement
+    // or activation is created by opening a local file.
+    Ok(raw)
+}
+#[tauri::command]
+fn center_cen04_open_test_delivery_file() -> Result<Option<String>, String> {
+    let selected = rfd::FileDialog::new()
+        .set_title("Admin Center — подписанный TEST-файл издателя")
+        .add_filter("TEST JSON", &["json"]).pick_file();
+    match selected {
+        Some(path) => center_cen04_delivery_read(&path).map(Some),
+        None => Ok(None),
+    }
+}
+
 // Only a native file chooser / byte-for-byte transfer for an already issued
 // T3 carrier. No signing, trusted-key inspection, permission or issuance.
 // Those remain exclusively with the original interop/runtime.mjs:taskBytes().
@@ -233,7 +277,7 @@ fn main() {
         .manage(std::sync::Mutex::new(cen05_host::Session::default()))
         .invoke_handler(tauri::generate_handler![
             save_draft_file, open_draft_file, center_save_iwxa_file, center_open_iwxa_file,
-            center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open,
+            center_draft_save_local, center_draft_read_local, center_cen04_open_test_delivery_file, center_atlas_open, center_atlas_commit, center_atlas_public_open,
             cen05_host::center_u04_open, cen05_host::center_u04_activate,
             cen05_host::center_u04_return, cen05_host::center_u04_detach
         ])
@@ -491,4 +535,31 @@ mod center_atlas_integration_tests {
         let _ = fs::remove_dir_all(base);
     }
 
+}
+
+#[cfg(test)]
+mod cen04_native_test_carrier_tests {
+    use super::*;
+    #[test]
+    fn chosen_signed_like_bytes_are_only_opaque_file_transport_not_verified_license() {
+        let path=std::env::temp_dir().join(format!("cen04-test-carrier-{}-{}.json",
+            std::process::id(), std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let carrier=serde_json::json!({
+            "license":{"schema":"IWXA_T3_ACCESS_SIGNED/1","keyId":"fake-issuer",
+                "payload":{"schema":"IWXA_T3_PRODUCT_LICENSE/1"},"signature":"not-a-signature"},
+            "statusEnvelope":{"schema":"IWXA_T3_ACCESS_SIGNED/1","keyId":"fake-status",
+                "payload":{"schema":"IWXA_T3_PRODUCT_LICENSE_STATUS/1"},"signature":"not-a-signature"}
+        }).to_string();
+        std::fs::write(&path,&carrier).unwrap();
+        assert_eq!(center_cen04_delivery_read(&path).unwrap(),carrier);
+        // A malformed or trust-injecting carrier never passes even transport.
+        std::fs::write(&path, r#"{"license":{},"statusEnvelope":{}}"#).unwrap();
+        assert!(center_cen04_delivery_read(&path).is_err());
+        std::fs::write(&path, r#"{"license":{},"statusEnvelope":{},"trust":{}}"#).unwrap();
+        assert!(center_cen04_delivery_read(&path).is_err());
+        std::fs::write(&path,"x".repeat(CENTER_CEN04_TEST_DELIVERY_LIMIT as usize + 1)).unwrap();
+        assert!(center_cen04_delivery_read(&path).is_err());
+        std::fs::remove_file(&path).unwrap();
+    }
 }
