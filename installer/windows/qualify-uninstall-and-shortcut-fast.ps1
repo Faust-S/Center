@@ -85,9 +85,9 @@ try {
     if($null -eq $gate){
         throw 'SETUP_FAST_UI_COMPLETION_GATE_NOT_EXPOSED'
     }
-    // The same immutable, verified bundle must produce the same plan as
-    // the legacy path API. This avoids a second complete resource hash in
-    // the UI while keeping the original API for all callers.
+    # The same immutable, verified bundle must produce the same plan as
+    # the legacy path API. This avoids a second complete resource hash in
+    # the UI while keeping the original API for all callers.
     $bundleInfoType=$assembly.GetType('IwxaSetup.BundleInfo', $true)
     $readerType=$assembly.GetType('IwxaSetup.BundleReader', $true)
     $installationType=$assembly.GetType('IwxaSetup.SetupInstallation', $true)
