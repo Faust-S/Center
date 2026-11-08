@@ -87,6 +87,81 @@ try {
     }
     Write-Host "IWXA_SETUP_NATIVE_STAGING_PASS files=$($stage.files) bytes=$($stage.bytes)"
 
+    if ($preflight.status -ne 'READY_FOR_FIRST_INSTALL') {
+        throw "SETUP_NATIVE_FRESH_INSTALL_BLOCKED_$($preflight.status)"
+    }
+    $installedReport = Join-Path $artifact 'setup-core-installed.json'
+    $duplicateReport = Join-Path $artifact 'setup-core-duplicate.json'
+    $removedReport = Join-Path $artifact 'setup-core-uninstalled.json'
+    $userData = Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center/setup-core-preserved.txt'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $userData) -Force | Out-Null
+    Set-Content -LiteralPath $userData -Value 'unchanged-after-first-install' -NoNewline
+    try {
+        $installed = Invoke-NativeInspection $bundle $installedReport 0 '--install-file'
+        if ($installed.status -ne 'INSTALLED_NOT_LAUNCHED' -or
+            $installed.product -ne $manifest.product -or
+            $installed.version -ne '0.3.0-dev.1' -or
+            !(Test-Path -LiteralPath (Join-Path $installed.installRoot 'iwxa-admin-center.exe'))) {
+            throw 'SETUP_NATIVE_FIRST_INSTALL_INVALID'
+        }
+        $registered = Get-ItemProperty -Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center'
+        if ($registered.InstallLocation -ne $installed.installRoot) {
+            throw 'SETUP_NATIVE_INSTALL_AUTHORITY_MISMATCH'
+        }
+        $startMenuLink = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\IWXA Admin Center.lnk'
+        if (!(Test-Path -LiteralPath $startMenuLink -PathType Leaf)) {
+            throw 'SETUP_NATIVE_START_MENU_SHORTCUT_MISSING'
+        }
+        Write-Host "IWXA_SETUP_NATIVE_FIRST_INSTALL_PASS root=$($installed.installRoot)"
+
+        $refused = Invoke-NativeInspection $bundle $duplicateReport 2 '--install-file'
+        if ($refused.status -ne 'ERROR' -or
+            $refused.reason -notlike 'SETUP_BLOCKED_EXISTING_INSTALLATION*') {
+            throw 'SETUP_NATIVE_DUPLICATE_INSTALL_ACCEPTED'
+        }
+        Write-Host 'IWXA_SETUP_NATIVE_DUPLICATE_INSTALL_REJECTED_PASS'
+    }
+    finally {
+        if (Test-Path -LiteralPath $installedReport -PathType Leaf) {
+            $removed = Invoke-NativeInspection $bundle $removedReport 0 '--uninstall-file'
+            if ($removed.status -ne 'UNINSTALLED_USER_DATA_PRESERVED') {
+                throw 'SETUP_NATIVE_UNINSTALL_INVALID'
+            }
+            if (Test-Path -LiteralPath $installed.installRoot) {
+                throw 'SETUP_NATIVE_UNINSTALL_ROOT_REMAINS'
+            }
+        }
+        if ((Get-Content -LiteralPath $userData -Raw) -ne 'unchanged-after-first-install') {
+            throw 'SETUP_NATIVE_USER_DATA_CHANGED'
+        }
+        Remove-Item -LiteralPath $userData -Force
+    }
+    if (Test-Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center') {
+        throw 'SETUP_NATIVE_UNINSTALL_AUTHORITY_REMAINS'
+    }
+    if (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\IWXA.SetupCore.iwxa.admin-center') {
+        throw 'SETUP_NATIVE_UNINSTALL_APP_REGISTRY_REMAINS'
+    }
+    Write-Host 'IWXA_SETUP_NATIVE_UNINSTALL_PRESERVES_DATA_PASS'
+
+    # An existing Tauri/NSIS installation is an explicit migration blocker.
+    # Never install the new package alongside a legacy Center directory.
+    $legacy = Join-Path $env:LOCALAPPDATA 'IWXA Admin Center'
+    if (Test-Path -LiteralPath $legacy) {
+        throw 'SETUP_NATIVE_LEGACY_FIXTURE_CONFLICT'
+    }
+    New-Item -ItemType Directory -Path $legacy -Force | Out-Null
+    try {
+        $legacyReport = Join-Path $artifact 'setup-core-legacy-preflight.json'
+        $legacyResult = Invoke-NativeInspection $bundle $legacyReport 0 '--preflight-file'
+        if ($legacyResult.status -ne 'LEGACY_INSTALLATION') {
+            throw 'SETUP_NATIVE_LEGACY_OVERWRITE_NOT_BLOCKED'
+        }
+        Write-Host 'IWXA_SETUP_NATIVE_LEGACY_INSTALLATION_HOLD_PASS'
+    } finally {
+        Remove-Item -LiteralPath $legacy -Force -Recurse
+    }
+
     # Mutate the authenticated ZIP overlay without touching the PE executable.
     $bytes = [IO.File]::ReadAllBytes($bundle)
     $start = [int][BitConverter]::ToUInt64($bytes, ($bytes.Length - 136 + 16))

@@ -128,8 +128,8 @@ namespace IwxaSetup
             card.Controls.Add(packageDetails);
 
             var note = Label(
-                T("Установка будет доступна после испытаний жизненного цикла.\nПроверка пакета не изменяет установленную программу.",
-                  "Installation will be enabled after lifecycle qualification.\nPackage inspection does not modify the installed application."),
+                T("Новая установка сохраняет личные данные и другие программы.\nПроверка пакета не изменяет установленную программу.",
+                  "Fresh installation preserves user data and other applications.\nPackage inspection does not modify the installed application."),
                 33, 417, 559, 51, 9, Secondary, false);
             note.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             area.Controls.Add(note);
@@ -154,11 +154,44 @@ namespace IwxaSetup
             install.FlatStyle = FlatStyle.Flat;
             install.FlatAppearance.BorderSize = 0;
             area.Controls.Add(install);
+            install.Click += async (sender, args) => await InstallAsync();
+        }
+
+        private async Task InstallAsync()
+        {
+            install.Enabled = false;
+            retry.Enabled = false;
+            status.Text = T("Установка проверенных файлов…",
+                "Installing verified files…");
+            status.ForeColor = Dark;
+            try
+            {
+                InstallOutcome result = await Task.Run(
+                    () => SetupInstallation.InstallFresh(Application.ExecutablePath));
+                status.Text = T("Приложение установлено", "Application installed");
+                status.ForeColor = Color.FromArgb(24, 119, 91);
+                version.Text = result.Version + "   •   " +
+                    T("Первый запуск ещё не проверен", "First launch not yet verified");
+                packageDetails.Text = T(
+                    "Данные других приложений и предыдущих установок не изменены.",
+                    "Other applications and previously installed data were not changed.");
+            }
+            catch (Exception ex)
+            {
+                status.Text = T("Установка не завершена", "Installation incomplete");
+                status.ForeColor = Color.FromArgb(170, 52, 59);
+                version.Text = ex.Message;
+                packageDetails.Text = T(
+                    "Действующая версия не заменялась. Исправьте причину и повторите.",
+                    "No existing version was replaced. Resolve the issue and retry.");
+            }
+            finally { retry.Enabled = true; }
         }
 
         private async Task VerifyAsync()
         {
             retry.Enabled = false;
+            install.Enabled = false;
             status.Text = T("Проверка целостности…", "Verifying integrity…");
             version.Text = "—";
             packageDetails.Text = "";
@@ -173,6 +206,7 @@ namespace IwxaSetup
                 version.Text = T("Версия ", "Version ") + info.Version +
                     "   •   " + info.Architecture;
                 InstallPreflight check = SetupReadiness.Check(info);
+                install.Enabled = check.Status == "READY_FOR_FIRST_INSTALL";
                 packageDetails.Text = T("Файлов: ", "Files: ") + info.FileCount +
                     "   •   SHA-256 " + info.PackageSha256.Substring(0, 16) + "…";
                 if (check.Status != "READY_FOR_FIRST_INSTALL")

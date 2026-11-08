@@ -233,7 +233,7 @@ namespace IwxaSetup
             }
         }
 
-        private static string SafePath(string value)
+        internal static string SafePath(string value)
         {
             if (String.IsNullOrEmpty(value) || value.Length > 512 ||
                 value[0] == '/' || value.IndexOf('\\') >= 0 ||

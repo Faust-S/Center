@@ -82,6 +82,63 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            if (args.Length == 2 &&
+                (args[0] == "--install-file" || args[0] == "--uninstall-file"))
+            {
+                try
+                {
+                    InstallOutcome result = args[0] == "--install-file" ?
+                        SetupInstallation.InstallFresh(Application.ExecutablePath) :
+                        SetupInstallation.UninstallOwned(Application.ExecutablePath);
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", result.Status}, {"product", result.Product},
+                        {"version", result.Version}, {"installRoot", result.Root}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
+            if (args.Length == 1 && args[0] == "--uninstall")
+            {
+                try
+                {
+                    SetupInstallation.LaunchUninstallerFromInstalledCopy(
+                        Application.ExecutablePath);
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "IWXA Setup",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return 2;
+                }
+            }
+            if (args.Length == 2 && args[0] == "--uninstall-worker")
+            {
+                try
+                {
+                    int pid;
+                    if (!Int32.TryParse(args[1], out pid) || pid <= 0)
+                        return 3;
+                    InstallOutcome result = SetupInstallation.UninstallFromWorker(
+                        Application.ExecutablePath, pid);
+                    MessageBox.Show(result.Status, "IWXA Setup",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "IWXA Setup",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return 2;
+                }
+            }
             if (args.Length != 0) return 3;
 
             Application.EnableVisualStyles();
