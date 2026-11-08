@@ -375,8 +375,14 @@ jobs:
         shell: pwsh
         timeout-minutes: 5
         run: ./installer/windows/qualify-resource-signing.ps1
+      - name: Qualify V2 native PE resource signed package and tamper rejection
+        shell: pwsh
+        timeout-minutes: 6
+        run: ./installer/windows/qualify-resource-v2.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: center-setup-signing-probe
-          path: artifacts/setup-sign-compatibility.json
+          path: |
+            artifacts/setup-sign-compatibility.json
+            artifacts/setup-resource-v2-qualification.json
