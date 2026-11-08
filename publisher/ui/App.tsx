@@ -263,7 +263,7 @@ export default function App(){
        <span className="status neutral publisher-top-status"><span className="publisher-top-status-dot" aria-hidden="true"></span>{loaded?'Локально сохранено':'Состояние не загружено'}</span>
      </header>
      <div className="page-heading"><div><div className="eyebrow publisher-section-eyebrow">IWXA / РАБОЧЕЕ МЕСТО ИЗДАТЕЛЯ</div><h1>{navigation.find(v=>v[0]===page)?.[1]}</h1></div></div>
-     <div className="notice">Версия разработки 0.2.0-dev.2. Состояние подготовки: лицензии не выдаются, подпись издателя не подключена, выпуск релиза не разрешён. Черновики хранятся отдельно от Admin Center.</div>
+     <div className="notice">Publisher 0.2.0-dev.2 · Черновики хранятся отдельно от Admin Center. Подписанные лицензии доступны только в режиме TEST через предварительно настроенный T3 Host. Коммерческая активация мест и выпуск релизов отключены.</div>
      {error&&<div className="notice error" role="alert">{error}</div>}
      {message&&<div className="notice" role="status">{message}</div>}
      {!loaded?<section className="card padded" role="status">Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.</section>:<>

@@ -14,6 +14,8 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
  const [issuerIds,setIssuerIds]=useState<string[]>([]);
  const [issuer,setIssuer]=useState('');
  const [licenses,setLicenses]=useState<License[]>([]);
+ const [inventoryTotal,setInventoryTotal]=useState(0);
+ const [inventoryTruncated,setInventoryTruncated]=useState(false);
  const [licenseId,setLicenseId]=useState('');
  const [proposalId,setProposalId]=useState('');
  const [seats,setSeats]=useState('1');
@@ -24,6 +26,13 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
  const [message,setMessage]=useState('');
  const [failure,setFailure]=useState('');
  const proposals=Array.isArray(draft?.proposals)?draft.proposals:[];
+ const products=Array.isArray(draft?.products)?draft.products:[];
+ const holders=Array.isArray(draft?.holders)?draft.holders:[];
+ const proposalLabel=(p:any)=>{
+   const product=products.find((v:any)=>v.id===p.productId);
+   const holder=holders.find((v:any)=>v.id===p.holderId);
+   return (product?.name??p.productId)+' · '+(holder?.name??p.holderId)+' · '+p.termDays+' дн.';
+ };
  useEffect(()=>{
   if(!proposals.some((p:any)=>p.id===proposalId))
     setProposalId(String(proposals[0]?.id??''));
@@ -35,6 +44,9 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
       throw Error('PUBLISHER_T3_INVENTORY_INVALID');
    const entries=value.licenses as License[];
    setLicenses(entries);
+   setInventoryTotal(Number.isSafeInteger(value.total)&&value.total>=entries.length?
+     value.total:entries.length);
+   setInventoryTruncated(value.truncated===true);
    setLicenseId(previous=>entries.some(x=>x.licenseId===previous)?previous:
        entries.at(-1)?.licenseId??'');
  }
@@ -82,7 +94,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
        </label>
        <label>Подготовленный запрос
          <select value={proposalId} onChange={e=>setProposalId(e.target.value)} disabled={busy}>
-           {proposals.map((p:any)=><option value={p.id} key={p.id}>{p.id} — {p.productId}</option>)}
+           {proposals.map((p:any)=><option value={p.id} key={p.id}>{proposalLabel(p)}</option>)}
          </select>
        </label>
        <label>Мест в TEST-запросе
@@ -105,6 +117,10 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
          })}>Выпустить TEST-лицензию</button>
      </div>
      <h4>Подписанные TEST-лицензии T3</h4>
+     <p className="muted" data-testid="publisher-t3-inventory-count">
+       В реестре: {inventoryTotal} TEST-записей.
+       {inventoryTruncated&&` Показаны последние ${licenses.length}.`}
+     </p>
      {licenses.length===0?<p className="muted">Пока нет выпущенных лицензий.</p>:
        <label>Лицензия
          <select value={licenseId} onChange={e=>setLicenseId(e.target.value)} disabled={busy}>

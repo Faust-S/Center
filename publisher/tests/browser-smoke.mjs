@@ -177,6 +177,13 @@ try {
   assert.match(await page.locator('main').innerText(),/Лицензия не выдана/);
   checks.push('export-exact-unsigned-product-holder-test-request');
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
+  const proposalChoice=page.getByTestId('publisher-t3-owner-panel')
+    .getByRole('combobox',{name:'Подготовленный запрос'});
+  assert.match(await proposalChoice.locator('option').first().innerText(),
+    /IWXA Admin Center · Test Corporation/);
+  const banner=await page.locator('main > .notice').first().innerText();
+  assert.match(banner,/Подписанные лицензии доступны только в режиме TEST/);
+  assert.doesNotMatch(banner,/подпись издателя не подключена/);
   await page.getByTestId('publisher-t3-issue').click();
   await page.getByText('TEST-лицензия подписана T3 и сохранена в журнале издателя.').waitFor();
   assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
