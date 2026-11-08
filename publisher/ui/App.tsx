@@ -2,6 +2,7 @@ import React, {useEffect,useState} from 'react';
 import { emptyPublisherDraft, decodePublisherDraft, encodePublisherDraft, applyPublisherDraftCommand } from '../src/preparation.mjs';
 import { prepareTestLicenseRequest, encodeTestLicenseRequest, suggestedTestRequestFileName } from '../src/test-license-request.mjs';
 import {simulateIssuerEvent} from '../src/issuer-simulation.mjs';
+import PublisherT3OwnerPanel from './PublisherT3OwnerPanel';
 import '../../src/style.css';
 import './style.css';
 
@@ -386,6 +387,7 @@ export default function App(){
            <div className="simple-row"><div><strong>Подпись лицензии</strong><small>Исходный issuer: T3 license-engine.mjs</small></div><span className="status neutral">Недоступно</span></div>
            <div className="simple-row"><div><strong>Подпись статуса</strong><small>Независимый purpose key</small></div><span className="status neutral">Недоступно</span></div>
            <p className="muted">Планируемое подключение не является действительным issuer, лицензией или назначением прав.</p>
+           <PublisherT3OwnerPanel draft={state} invoke={invoke}/>
            <div className="divider"></div>
            <h3>Передача продуктовой TEST-лицензии через .iwxa</h3>
            <p className="muted">Пакет выдаётся доверенным Owner Host уровня T3. Publisher передаёт его в Admin Center без изменения байтов. Приватные ключи и права не экспортируются.</p>
