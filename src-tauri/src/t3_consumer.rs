@@ -21,6 +21,23 @@ async fn invoke_t3(app:AppHandle,action:&'static str,org:String,more:Vec<String>
     .await.map_err(|_|"CEN04_T3_NATIVE_WORKER_FAILED".to_string())?
 }
 #[tauri::command]
+pub async fn center_cen04_t3_capabilities(app:AppHandle,organization_id:String)
+ ->Result<Value,String>{
+  let org=scope(&organization_id)?;
+  // Only the original T3 Consumer decides whether out-of-band trust and its
+  // Windows CurrentUser store are preconfigured. No prior status is declared
+  // current just because intake is configured.
+  let value=invoke_t3(app,"capabilities",org.clone(),vec![]).await?;
+  t3::validate_test_result(&value,"TEST_CAPABILITIES")?;
+  if value["organizationId"]!=Value::String(org) ||
+     value["productId"]!="IWXA_ADMIN_CENTER" ||
+     value["intakeConfigured"]!=true ||
+     value["assignableSeats"]!=0 {
+    return Err("CEN04_T3_NATIVE_INTAKE_CAPABILITIES_REQUIRED".into());
+  }
+  Ok(value)
+}
+#[tauri::command]
 pub async fn center_cen04_t3_read(app:AppHandle,organization_id:String)->Result<Value,String>{
   let org=scope(&organization_id)?;
   let value=invoke_t3(app,"read",org.clone(),vec![]).await?;

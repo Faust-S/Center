@@ -18,34 +18,54 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
  const [busy,setBusy]=useState(false);
  const [message,setMessage]=useState('');
  const [failure,setFailure]=useState('');
- async function readHost(){
-   if(!invoke)throw Error('CEN04_NATIVE_HOST_REQUIRED');
-   const result=await invoke('center_cen04_t3_read',{organizationId});
+ const readFailure=(e:unknown)=>{
+   const code=error(e);
+   if(code.includes('PRODUCT_STATUS_STALE'))
+     return 'Срок проверки сохранённого TEST-статуса истёк. Получите новый подписанный .iwxa в Publisher. Ранее сохранённые данные не изменены.';
+   return 'Не удалось прочитать подтверждённые статусы T3: '+code;
+ };
+ const checkedView=(result:any):View=>{
    const value=result?.view as View;
    if(result?.operation!=='TEST_READ'||result.productionActivation!==false||
       result.activeSeats!==0||value?.organizationId!==organizationId||
       value.productId!=='IWXA_ADMIN_CENTER'||value.productionActivation!==false||
       value.activeSeats!==0||!Array.isArray(value.licenses))
      throw Error('CEN04_T3_VERIFIED_READBACK_REQUIRED');
+   return value;
+ };
+ async function readHost(){
+   if(!invoke)throw Error('CEN04_NATIVE_HOST_REQUIRED');
+   const result=await invoke('center_cen04_t3_read',{organizationId});
+   const value=checkedView(result);
    setVerified(value);
-   setReady(true);
  }
  useEffect(()=>{
    setReady(false);setVerified(null);setPreview(null);setMessage('');setFailure('');
    let live=true;
    if(invoke){
-     invoke('center_cen04_t3_read',{organizationId})
-       .then(response=>{
+     (async()=>{
+       try{
+         const caps=await invoke('center_cen04_t3_capabilities',{organizationId});
+         if(caps?.operation!=='TEST_CAPABILITIES'||caps.organizationId!==organizationId||
+            caps.productId!=='IWXA_ADMIN_CENTER'||caps.intakeConfigured!==true||
+            caps.activeSeats!==0||caps.assignableSeats!==0||
+            caps.productionActivation!==false)
+           throw Error('CEN04_T3_INTAKE_CAPABILITIES_INVALID');
          if(!live)return;
-         const value=response?.view;
-         if(response?.operation==='TEST_READ'&&
-            response.productionActivation===false&&response.activeSeats===0&&
-            value?.organizationId===organizationId&&value.productId==='IWXA_ADMIN_CENTER'&&
-            value.productionActivation===false&&value.activeSeats===0&&
-            Array.isArray(value.licenses)){
-           setVerified(value);setReady(true);
-         }
-       }).catch(()=>{if(live)setReady(false);});
+         setReady(true);
+         // A stale historical record does NOT take away the ability to
+         // import a fresh signed status via the independently trusted T3 Host.
+         try{
+           const result=await invoke('center_cen04_t3_read',{organizationId});
+           if(live)setVerified(checkedView(result));
+         }catch(e){if(live)setFailure(readFailure(e));}
+       }catch(e){
+         if(!live)return;
+         setReady(false);
+         if(!error(e).includes('T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED'))
+           setFailure('Подключение T3 недоступно: '+error(e));
+       }
+     })();
    }
    return ()=>{live=false;};
  },[organizationId,invoke]);
@@ -76,9 +96,15 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
         receipt.signatureVerified!==true||receipt.statusVerified!==true||
         receipt.activeSeats!==0||receipt.productionActivation!==false)
        throw Error('CEN04_NATIVE_T3_SIGNED_RECEIPT_REQUIRED');
-     await readHost();
+     // The original T3 receive receipt proves signed verification and exact
+     // encrypted-store readback for THIS license. Historical unrelated
+     // expired statuses may still prevent rendering the full list.
      setPreview(null);
-     setMessage('TEST-лицензия проверена T3, сохранена в зашифрованном Store и повторно прочитана.');
+     let listFailure='';
+     try{await readHost();}
+     catch(e){setVerified(null);listFailure=readFailure(e);}
+     if(listFailure)setFailure(listFailure);
+     setMessage('TEST-лицензия проверена T3, сохранена в зашифрованном Store и подтверждена повторным чтением T3.');
    }catch(e){setFailure('T3 не принял лицензию: '+error(e));}
    finally{setBusy(false);}
  }
@@ -99,6 +125,9 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    {!ready&&<p className="muted" data-testid="cen04-native-consumer-unavailable">
       Оригинальный получатель T3 ещё не включён в установку или доверие издателя не настроено.
       Проверка и сохранение недоступны.
+   </p>}
+   {ready&&!verified&&<p className="muted" data-testid="cen04-intake-ready">
+      T3 Consumer подключён. Импорт нового подписанного .iwxa доступен даже при истёкшем статусе ранее сохранённой лицензии.
    </p>}
    {message&&<p role="status">{message}</p>}
    {failure&&<p role="alert">{failure}</p>}
