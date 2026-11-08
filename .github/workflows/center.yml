@@ -203,7 +203,7 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run publisher:build
       - name: Publisher native preparation and TEST request tests
-        run: cargo test --manifest-path publisher/src-tauri/Cargo.toml -- --nocapture
+        run: cargo test --release --manifest-path publisher/src-tauri/Cargo.toml -- --nocapture
       - name: Build actual Publisher EXE
         run: cargo build --release --manifest-path publisher/src-tauri/Cargo.toml
       - name: Build/install/launch/uninstall Publisher with original IWXA Setup Core
@@ -216,6 +216,7 @@ jobs:
           name: publisher-windows-setupcore
           path: |
             artifacts/publisher-setupcore/*.json
+            artifacts/publisher-setupcore/*.png
             artifacts/publisher-setupcore/*.exe
             publisher/src-tauri/target/release/iwxa-publisher.exe
             publisher/src-tauri/Cargo.lock

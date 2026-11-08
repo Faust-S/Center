@@ -43,6 +43,7 @@ function Find-Control([string]$name,[string]$kind){
   throw "Installed Publisher UIA control missing: $kind $name"
 }
 function Click-Publisher([string]$name){
+  Write-Host "PUBLISHER_GUI_CLICK $name"
   $node=Find-Control $name 'Button'
   try {
     $node.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
@@ -58,6 +59,7 @@ function Click-Publisher([string]$name){
   Start-Sleep -Milliseconds 300
 }
 function Enter-Value([string]$name,[string]$value){
+  Write-Host "PUBLISHER_GUI_ENTER $name"
   $node=Find-Control $name 'Edit'
   $node.SetFocus()
   Start-Sleep -Milliseconds 150
@@ -128,6 +130,21 @@ try {
     throw 'Publisher preparation readback mismatch after relaunch'
   }
   Write-Host 'PUBLISHER_INSTALLED_GUI_RESTART_READBACK_PASS'
+} catch {
+  Write-Host "PUBLISHER_INSTALLED_GUI_PRIMARY_FAILURE $($_.Exception.Message)"
+  try {
+    $folder='artifacts/publisher-setupcore'
+    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+    $rect=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $bitmap=New-Object System.Drawing.Bitmap($rect.Width,$rect.Height)
+    $graphics=[System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+      $graphics.CopyFromScreen($rect.Location,[System.Drawing.Point]::Empty,$rect.Size)
+      $bitmap.Save((Join-Path $folder 'gui-failure.png'),[System.Drawing.Imaging.ImageFormat]::Png)
+      Write-Host 'PUBLISHER_GUI_FAILURE_SCREENSHOT_CAPTURED'
+    } finally {$graphics.Dispose();$bitmap.Dispose()}
+  } catch {Write-Host "PUBLISHER_GUI_FAILURE_SCREENSHOT_UNAVAILABLE $($_.Exception.Message)"}
+  throw
 } finally {
   if($proc -and !$proc.HasExited){
     try{Close-Publisher}catch{Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue}

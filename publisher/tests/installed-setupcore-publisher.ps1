@@ -63,6 +63,7 @@ New-Item -ItemType Directory -Path $dataRoot -Force | Out-Null
 Set-Content -LiteralPath $dataSentinel -NoNewline -Value 'publisher-user-data-untouched'
 $installed=$false
 $root=''
+$guiFailure=$null
 try {
   $result=Invoke-Setup '--install-file' $installFile 0
   if($result.status -ne 'INSTALLED_NOT_LAUNCHED' -or $result.product -ne 'iwxa.publisher' -or $result.version -ne '0.2.0-dev.2'){throw 'PUBLISHER_SETUP_INSTALL_RESULT_INVALID'}
@@ -82,6 +83,11 @@ try {
   $env:IWXA_PUBLISHER_ALREADY_INSTALLED='1'
   $env:IWXA_PUBLISHER_INSTALLED_EXE=$app
   try {& ./publisher/tests/installed-windows-publisher.ps1}
+  catch {
+    $guiFailure=$_.Exception.Message
+    Write-Host "PUBLISHER_SETUP_GUI_PRIMARY_FAILURE $guiFailure"
+    throw
+  }
   finally {
     Remove-Item Env:IWXA_PUBLISHER_ALREADY_INSTALLED -ErrorAction SilentlyContinue
     Remove-Item Env:IWXA_PUBLISHER_INSTALLED_EXE -ErrorAction SilentlyContinue
@@ -92,7 +98,10 @@ try {
     $removed=Invoke-Setup '--uninstall-file' $uninstallFile 0
     if($removed.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or (Test-Path -LiteralPath $root) -or (Test-Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher')){throw 'PUBLISHER_SETUP_UNINSTALL_INVALID'}
     if(!(Test-Path -LiteralPath $dataSentinel) -or (Get-Content -LiteralPath $dataSentinel -Raw) -ne 'publisher-user-data-untouched'){throw 'PUBLISHER_SETUP_USER_DATA_WAS_CHANGED'}
-    if(!(Test-Path -LiteralPath (Join-Path $dataRoot 'publisher-preparation-v1.json'))){throw 'PUBLISHER_SETUP_USER_DRAFT_LOST'}
+    if(!(Test-Path -LiteralPath (Join-Path $dataRoot 'publisher-preparation-v1.json'))){
+      if($null -eq $guiFailure){throw 'PUBLISHER_SETUP_USER_DRAFT_LOST'}
+      Write-Host 'PUBLISHER_SETUP_DRAFT_NOT_WRITTEN_BEFORE_GUI_FAILURE'
+    }
     Write-Host 'PUBLISHER_SETUP_UNINSTALL_PRESERVES_USER_DATA_PASS'
   }
 }
