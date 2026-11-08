@@ -124,7 +124,7 @@ try{
 
   // Strictly synthetic owner stub: this checks rendering of a confirmed T3
   // application-shaped readback without activating any production PA/T3 port.
-  const {emptyDraft,applyDraftCommand,encodeDraft}=await import('../src/organization.mjs');
+  const {emptyDraft,applyDraftCommand,encodeDraft,assignmentText}=await import('../src/organization.mjs');
   const ids=['org:synthetic','workspace:synthetic','person:staff','person:reviewer','assignment:synthetic'];
   const ops={id:()=>ids.shift(),now:()=>'2026-11-08T00:00:00.000Z'};
   let synthetic=emptyDraft(ops.now());
@@ -220,6 +220,102 @@ try{
     /не выдавайте Task повторно/i);
   await noLinkPage.close();
   checks.push('synthetic-cen02-export-requires-persisted-exact-issuer-workref');
+
+  // The signed T3 Task still exists, but the native Center CAS failed.
+  // A second window may have changed unrelated draft data meanwhile.
+  // Recovery must rebase on the current stored generation without any
+  // createTask/issue/export or organizational authority simulation.
+  const taskText=assignmentText(org,assignment);
+  const signedTask={id:'task:synthetic',taskRevisionId,task:taskText,
+    assignedTo:'person:staff',organizationId:oid,workspaceId:workId,
+    signedClaims:{schema:'IWXA_T3_RECONCILIATION_CLAIMS/1',
+      profile:{id:'interop.task'},
+      scope:{subjectId:oid,workspaceId:workId,recipientId:'person:staff'},
+      changes:[{id:'task:synthetic',revisionId:taskRevisionId,
+        body:{schemaId:'interop.task.v1',task:taskText}}]}};
+  const recoveryView={status:'OWNER_READY',
+    snapshot:{...snapshot,task:signedTask}};
+  const externalDraft=applyDraftCommand(noLinkDraft,{
+    type:'ADD_WORKSPACE',organizationId:oid,name:'Another window new workspace'
+  },{id:()=> 'workspace:another-window',now:()=>'2026-11-08T13:00:00.000Z'});
+  const installRecoveryMock=async (page)=>{
+    await page.addInitScript(({draftText,view})=>{
+      let content=draftText,generation='a'.repeat(64),saves=0,ownerActions=0;
+      window.__TEST_RECOVERY__={
+        otherWindowSave(next){content=next;generation='c'.repeat(64)},
+        snapshot(){return {content,generation,saves,ownerActions}}
+      };
+      window.__TAURI_INTERNALS__={invoke:async (command,args)=>{
+        if(command==='center_draft_read_state_local')return {content,generation};
+        if(command==='center_corporate_state')return view;
+        if(command==='center_draft_save_local'){
+          if(args?.expectedGeneration!==generation)
+            throw Error('CEN_DRAFT_CONCURRENT_UPDATE');
+          content=args.content;generation='b'.repeat(64);saves++;
+          return {content,generation};
+        }
+        if(command==='center_corporate_action'){ownerActions++;throw Error('TEST_MUST_NOT_REISSUE_TASK')}
+        throw Error('TEST_ONLY_UNSUPPORTED_NATIVE_OPERATION: '+command);
+      }};
+    },{draftText:encodeDraft(noLinkDraft),view:recoveryView});
+  };
+  const recoveryPage=await browser.newPage({viewport:{width:1200,height:900}});
+  recoveryPage.on('pageerror',e=>errors.push(e.message));
+  await installRecoveryMock(recoveryPage);
+  await recoveryPage.goto('http://127.0.0.1:4173');
+  await recoveryPage.getByTestId('nav-results').click();
+  await recoveryPage.getByTestId('corporate-assignment').selectOption(assignment.id);
+  await recoveryPage.getByTestId('cen02-recovery-preview').waitFor({state:'visible'});
+  assert.equal(await recoveryPage.getByTestId('corporate-export').isEnabled(),false);
+  await recoveryPage.evaluate(next=>window.__TEST_RECOVERY__.otherWindowSave(next),
+    encodeDraft(externalDraft));
+  await recoveryPage.getByTestId('cen02-recovery-consent').check();
+  await recoveryPage.getByTestId('cen02-recover-link').click();
+  await recoveryPage.getByTestId('cen02-export-link-confirmed').waitFor({state:'visible'});
+  assert.equal(await recoveryPage.getByTestId('corporate-export').isEnabled(),true);
+  const recovered=await recoveryPage.evaluate(()=>window.__TEST_RECOVERY__.snapshot());
+  assert.equal(recovered.saves,1,'one native CAS write only');
+  assert.equal(recovered.ownerActions,0,'recovery cannot reissue, sign or export Task');
+  const recoveredDraft=JSON.parse(recovered.content);
+  assert.equal(recoveredDraft.organizations[0].workspaces.length,2,
+    'concurrent unrelated native draft edits must be preserved');
+  const recoveredLink=recoveredDraft.organizations[0].issuedTaskLinks[0];
+  assert.equal(recoveredLink.taskId,'task:synthetic');
+  assert.equal(recoveredLink.taskRevisionId,taskRevisionId);
+  assert.deepEqual(recoveredLink.atlasRef,workRef);
+  assert.equal(recoveredLink.deliveryState,'NOT_CONFIRMED');
+  await recoveryPage.close();
+
+  // A second window edits the SELECTED assignment. No recovery write may
+  // merge that changed source with the old signed task.
+  const changedDraft=applyDraftCommand(noLinkDraft,{
+    type:'SAVE_ASSIGNMENT',organizationId:oid,assignmentId:assignment.id,
+    expectedEditNumber:assignment.editNumber,workspaceId:workId,
+    title:assignment.title,assigneeId:assignment.assigneeId,
+    reviewerId:assignment.reviewerId,description:'Changed by another window',
+    criteria:assignment.criteria,dueDate:assignment.dueDate,
+    priority:assignment.priority,atlasRef:workRef
+  },{now:()=>'2026-11-08T13:01:00.000Z'});
+  const staleRecoveryPage=await browser.newPage({viewport:{width:1200,height:900}});
+  staleRecoveryPage.on('pageerror',e=>errors.push(e.message));
+  await installRecoveryMock(staleRecoveryPage);
+  await staleRecoveryPage.goto('http://127.0.0.1:4173');
+  await staleRecoveryPage.getByTestId('nav-results').click();
+  await staleRecoveryPage.getByTestId('corporate-assignment').selectOption(assignment.id);
+  await staleRecoveryPage.getByTestId('cen02-recovery-preview').waitFor({state:'visible'});
+  await staleRecoveryPage.evaluate(next=>window.__TEST_RECOVERY__.otherWindowSave(next),
+    encodeDraft(changedDraft));
+  await staleRecoveryPage.getByTestId('cen02-recovery-consent').check();
+  await staleRecoveryPage.getByTestId('cen02-recover-link').click();
+  await staleRecoveryPage.getByRole('alert').filter({hasText:/изменён в другом окне/})
+    .waitFor({state:'visible'});
+  const blocked=await staleRecoveryPage.evaluate(()=>window.__TEST_RECOVERY__.snapshot());
+  assert.equal(blocked.saves,0,'stale assignment cannot create a local WorkRef');
+  assert.equal(blocked.ownerActions,0,'no retry of T3 createTask');
+  assert.equal(JSON.parse(blocked.content).organizations[0].issuedTaskLinks,undefined);
+  await staleRecoveryPage.close();
+  checks.push('synthetic-cen02-recovery-preserves-parallel-draft-and-refuses-edited-source');
+
 
   await page.getByTestId('nav-overview').click();await page.screenshot({path:'artifacts/overview-1366.png',fullPage:true});
   await page.setViewportSize({width:320,height:800});assert.ok(await page.locator('.menu-button').isVisible());await page.locator('.menu-button').click();await page.getByTestId('nav-work').click();
