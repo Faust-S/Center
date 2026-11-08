@@ -116,3 +116,12 @@
  .publisher-app .publisher-hero-actions button{width:100%}
 }
 @media(prefers-reduced-motion:reduce){.publisher-app .nav-link{transition:none}}
+
+/* No web product: opening the packaged frontend outside the native Tauri
+   bridge shows only this informational desktop-required screen. */
+.publisher-desktop-required{min-height:100vh;display:grid;place-items:center;padding:24px;background:linear-gradient(125deg,#202d40,#3d5069);color:#203452}
+.publisher-desktop-required-card{width:min(510px,100%);padding:35px;border:1px solid #dbe5f1;border-radius:17px;background:#fff;box-shadow:0 20px 55px #030c1f55;text-align:center}
+.publisher-desktop-required-card img{display:block;margin:0 auto 16px;border-radius:11px}
+.publisher-desktop-required-card h1{margin:8px 0 15px;font-size:26px}
+.publisher-desktop-required-card p{line-height:1.65;font-size:13px;color:#405873}
+.publisher-desktop-required-card .muted{font-size:12px;color:#657994}

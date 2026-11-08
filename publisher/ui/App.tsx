@@ -26,9 +26,11 @@ function PublisherNavIcon({section}:{section:Page}){
    {section==='trust'&&<><path d="M12 2 20 6v6c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6Z"/><path d="m9 12 2 2 4-4"/></>}
  </svg>;
 }
-const storageKey='iwxa.publisher.preparation/1';
 function getError(error:unknown) {return error instanceof Error ? error.message : String(error);}
-const nativeHost=Boolean((window as any).__TAURI_INTERNALS__);
+// The shipped Publisher is a Tauri desktop program. There is deliberately
+// no browser draft fallback: opening its embedded assets in a normal
+// browser cannot create or modify Publisher drafts.
+const nativeHost=typeof (window as any).__TAURI_INTERNALS__?.invoke==='function';
 async function invoke(command:string,args?:Record<string,unknown>):Promise<any> {
  const fn=(window as any).__TAURI_INTERNALS__?.invoke;
  if(typeof fn!=='function')throw new Error('NATIVE_HOST_NOT_CONNECTED');
@@ -36,13 +38,12 @@ async function invoke(command:string,args?:Record<string,unknown>):Promise<any> 
 }
 function initialDraft():Draft{return emptyPublisherDraft() as Draft;}
 async function loadDraft():Promise<Draft> {
- const text=nativeHost?await invoke('publisher_draft_read'):localStorage.getItem(storageKey);
+ const text=await invoke('publisher_draft_read');
  return text===null?initialDraft():decodePublisherDraft(text) as Draft;
 }
 async function persistDraft(state:Draft):Promise<void> {
  const content=encodePublisherDraft(state);
- if(nativeHost)await invoke('publisher_draft_save',{content});
- else localStorage.setItem(storageKey,content);
+ await invoke('publisher_draft_save',{content});
 }
 function typeLabel(type:Holder['type']):string {return type==='ORGANIZATION'?'Организация':'Физическое лицо';}
 export default function App(){
@@ -84,6 +85,7 @@ export default function App(){
  const [releaseTree,setReleaseTree]=useState('');
  const [releaseVersion,setReleaseVersion]=useState('0.2.0');
  useEffect(()=>{
+   if(!nativeHost)return;
    let alive=true;
    loadDraft().then(data=>{if(alive){setState(data);setLoaded(true);}})
      .catch(e=>{if(alive){setError('Не удалось открыть сохранённые черновики: '+getError(e));setLoaded(false);}});
@@ -153,17 +155,8 @@ export default function App(){
      const request=prepareTestLicenseRequest(state,{proposalId,seats:Number(testSeats)});
      const content=encodeTestLicenseRequest(request);
      const filename=suggestedTestRequestFileName(request);
-     if(nativeHost) {
-       const saved=await invoke('publisher_save_test_request',{content,suggestedFileName:filename});
-       if(!saved){setMessage('Сохранение TEST-запроса отменено.');return;}
-     } else {
-       const url=URL.createObjectURL(new Blob([content],{type:'application/json;charset=utf-8'}));
-       try {
-         const link=document.createElement('a');link.href=url;link.download=filename;
-         document.body.appendChild(link);link.click();link.remove();
-         await new Promise(resolve=>setTimeout(resolve,0));
-       } finally {URL.revokeObjectURL(url);}
-     }
+     const saved=await invoke('publisher_save_test_request',{content,suggestedFileName:filename});
+     if(!saved){setMessage('Сохранение TEST-запроса отменено.');return;}
      setMessage('Неподписанный TEST-запрос экспортирован. Лицензия не выдана.');
    } catch(e) {setError(getError(e));}
    finally {setBusy(false);}
@@ -187,6 +180,17 @@ export default function App(){
  const activeHolder=proposalHolder||state.holders[0]?.id||'';
  const selectedReleaseProduct=releaseProduct||state.products[0]?.id||'';
  function go(p:Page){setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);}
+ if(!nativeHost){
+   return <main className="publisher-desktop-required" data-testid="publisher-desktop-required">
+     <section className="publisher-desktop-required-card" role="status">
+       <img src="/favicon.svg" width="64" height="64" alt="IWXA"/>
+       <div className="eyebrow">IWXA · DESKTOP</div>
+       <h1>IWXA Publisher</h1>
+       <p>Publisher — самостоятельная настольная программа. Откройте установленное приложение Windows; браузерная версия для работы с продуктами, запросами и лицензиями не предусмотрена.</p>
+       <p className="muted">Рабочие данные сохраняются нативным модулем Tauri/Rust на этом компьютере. Сайт и локальный сервер для работы не требуются.</p>
+     </section>
+   </main>;
+ }
  return <div className={'app publisher-app'+(mobileNav?' menu-open':'')}>
    <aside className="sidebar">
      <header className="brand publisher-brand">
@@ -200,7 +204,7 @@ export default function App(){
      <nav aria-label="Разделы Publisher">
        {navigation.map(([key,label])=><button key={key} type="button" className={'nav-link'+(page===key?' active':'')} onClick={()=>go(key)} aria-current={page===key?'page':undefined}><span className="nav-icon"><PublisherNavIcon section={key}/></span><span>{label}</span></button>)}
      </nav>
-     <div className="sidebar-bottom"><p className="local-label"><span className="dot"></span>{nativeHost?'Локальная программа':'Режим браузерного просмотра'}</p><p>Черновики не являются лицензиями, релизами или правами пользователей.</p></div>
+     <div className="sidebar-bottom"><p className="local-label"><span className="dot"></span>Локальная программа</p><p>Черновики не являются лицензиями, релизами или правами пользователей.</p></div>
    </aside>
    <main className="main">
      <header className="top">
@@ -209,7 +213,7 @@ export default function App(){
        <span className="status neutral publisher-top-status"><span className="publisher-top-status-dot" aria-hidden="true"></span>{loaded?'Локально сохранено':'Состояние не загружено'}</span>
      </header>
      <div className="page-heading"><div><div className="eyebrow publisher-section-eyebrow">IWXA / РАБОЧЕЕ МЕСТО ИЗДАТЕЛЯ</div><h1>{navigation.find(v=>v[0]===page)?.[1]}</h1></div></div>
-     <div className="notice">Версия разработки 0.2.0-dev.2. Состояние подготовки: лицензии не выдаются, подпись издателя не подключена, выпуск релиза не разрешён. {nativeHost?'Черновики хранятся отдельно от Admin Center.':'В браузере доступны только локальные подготовительные черновики.'}</div>
+     <div className="notice">Версия разработки 0.2.0-dev.2. Состояние подготовки: лицензии не выдаются, подпись издателя не подключена, выпуск релиза не разрешён. Черновики хранятся отдельно от Admin Center.</div>
      {error&&<div className="notice error" role="alert">{error}</div>}
      {message&&<div className="notice" role="status">{message}</div>}
      {!loaded?<section className="card padded" role="status">Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.</section>:<>
@@ -242,7 +246,7 @@ export default function App(){
              <button type="button" className="secondary" disabled={!nativeHost||busy} onClick={()=>void exportPreparationBackup()}>Сохранить копию черновиков</button>
              <button type="button" className="secondary" disabled={!nativeHost||busy} onClick={()=>void restorePreparationBackup()}>Восстановить черновики</button>
            </div>
-           {!nativeHost&&<p className="muted">Экспорт и восстановление доступны в установленном Publisher.</p>}
+
            {pendingRestore&&<div ref={restoreConfirmationRef} className="publisher-test-request" role="group" aria-label="Подтверждение восстановления черновиков" data-testid="publisher-restore-confirmation">
              <strong>Подтвердите замену черновиков</strong>
              <p>В выбранной копии: продуктов — {pendingRestore.products.length}, получателей — {pendingRestore.holders.length}, неподписанных запросов — {pendingRestore.proposals.length}.</p>

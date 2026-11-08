@@ -16,8 +16,34 @@ try {
   }
   assert.ok(ready,'Publisher preview server started');
   browser=await firefox.launch();
+  // Production assets opened without a Tauri bridge are informational only.
+  // There is no alternate browser Publisher or browser-local draft store.
+  const noNative=await browser.newPage({viewport:{width:1366,height:900}});
+  await noNative.goto('http://127.0.0.1:4175');
+  await noNative.getByTestId('publisher-desktop-required').waitFor();
+  assert.match(await noNative.locator('main').innerText(),/самостоятельная настольная программа/);
+  assert.equal(await noNative.getByRole('button',{name:'Сохранить продукт'}).count(),0);
+  assert.equal(await noNative.evaluate(()=>localStorage.getItem('iwxa.publisher.preparation/1')),null);
+  await noNative.close();
+  checks.push('browser-without-tauri-cannot-run-desktop-publisher');
+
+  // Firefox is a rendering/test harness only. Fake Tauri IPC is provided
+  // exclusively by this test script; the production Publisher has no fallback.
   const page=await browser.newPage({viewport:{width:1366,height:900}});
   page.on('pageerror',e=>errors.push(e.message));
+  await page.addInitScript(()=>{
+    window.__publisherMockNativeCommands=[];
+    window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
+      window.__publisherMockNativeCommands.push(command);
+      if(command==='publisher_draft_read')return sessionStorage.getItem('iwxa-publisher-test-native-draft');
+      if(command==='publisher_draft_save'){sessionStorage.setItem('iwxa-publisher-test-native-draft',args.content);return true;}
+      if(command==='publisher_save_test_request'){sessionStorage.setItem('iwxa-publisher-test-native-request',args.content);return true;}
+      if(command==='publisher_export_preparation_backup')return false;
+      if(command==='publisher_pick_preparation_backup')return null;
+      if(command==='publisher_inspect_artifact')return null;
+      throw new Error('UNEXPECTED_TEST_ONLY_IPC:'+command);
+    }};
+  });
   await page.goto('http://127.0.0.1:4175');
   assert.match(await page.locator('main').innerText(),/Подтверждённых релизов: 0/);
   assert.match(await page.locator('main').innerText(),/Подписанных лицензий: 0/);
@@ -34,10 +60,10 @@ try {
   assert.ok(logoStyle.loaded&&logoStyle.w>=36,'Publisher mark not rendered in agent shell');
   assert.equal(await page.locator('nav[aria-label="Разделы Publisher"] .nav-link svg').count(),6);
   checks.push('agent-exact-ix-glyph-white-logo-and-six-vector-navigation-icons');
-  assert.equal(await page.getByRole('button',{name:'Сохранить копию черновиков'}).isDisabled(),true);
-  assert.equal(await page.getByRole('button',{name:'Восстановить черновики'}).isDisabled(),true);
+  assert.equal(await page.getByRole('button',{name:'Сохранить копию черновиков'}).isEnabled(),true);
+  assert.equal(await page.getByRole('button',{name:'Восстановить черновики'}).isEnabled(),true);
   assert.match(await page.getByTestId('publisher-preparation-backup').innerText(),/ключей издателя в этой копии нет/);
-  checks.push('backup-is-native-only-and-never-exports-issuer-keys');
+  checks.push('backup-bound-to-test-only-native-ipc-without-issuer-keys');
 
   await page.getByRole('button',{name:'Продукты',exact:true}).click();
   await page.getByLabel('Идентификатор продукта').fill('IWXA_ADMIN_CENTER');
@@ -77,10 +103,9 @@ try {
   assert.ok(simInViewport,'Simulation result remains below the visible viewport');
   checks.push('simulation-shows-no-signed-license-or-active-seats');
   checks.push('simulation-result-auto-scrolls-into-view');
-  const waiting=page.waitForEvent('download');
   await page.getByRole('button',{name:'Подготовить TEST-запрос'}).click();
-  const downloaded=await waiting;
-  const testRequest=JSON.parse(readFileSync(await downloaded.path(),'utf8'));
+  await page.getByText('Неподписанный TEST-запрос экспортирован. Лицензия не выдана.').waitFor();
+  const testRequest=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-request')));
   assert.equal(testRequest.schema,'IWXA_PUBLISHER_TEST_LICENSE_REQUEST/1');
   assert.equal(testRequest.kind,'TEST_LICENSE_REQUEST');
   assert.equal(testRequest.status,'UNSIGNED_REQUEST');
@@ -104,27 +129,30 @@ try {
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
   assert.match(await page.locator('main').innerText(),/Операции подписи не подключены/);
   await page.getByRole('button',{name:'Релизы'}).click();
-  assert.equal(await page.getByRole('button',{name:'Выбрать и проверить файл'}).isDisabled(),true);
-  checks.push('browser-mode-does-not-offer-issuer-or-native-artifact-operation');
+  assert.equal(await page.getByRole('button',{name:'Выбрать и проверить файл'}).isEnabled(),true);
+  assert.equal(await page.evaluate(()=>window.__publisherMockNativeCommands.includes('publisher_save_test_request')),false);
+  // __publisherMockNativeCommands is reset on reload: native IPC doesn't
+  // provide a browser-only issuer implementation or a signed license.
+  checks.push('preview-harness-cannot-issue-or-sign-product-license');
 
-  await page.setViewportSize({width:320,height:800});
+  await page.setViewportSize({width:700,height:650});
   await page.getByRole('button',{name:'Открыть навигацию'}).click();
   await page.getByRole('button',{name:'Обзор'}).click();
   const dimensions=await page.evaluate(()=>({viewport:window.innerWidth,body:document.body.scrollWidth,doc:document.documentElement.scrollWidth}));
   assert.ok(dimensions.body<=dimensions.viewport && dimensions.doc<=dimensions.viewport,JSON.stringify(dimensions));
-  checks.push('mobile-navigation-no-horizontal-overflow');
+  checks.push('compact-desktop-navigation-no-horizontal-overflow');
   await page.getByRole('button',{name:'Открыть навигацию'}).click();
   await page.getByRole('button',{name:'Запросы на лицензии'}).click();
   const requestWidth=await page.evaluate(()=>Math.max(document.body.scrollWidth,document.documentElement.scrollWidth));
-  assert.ok(requestWidth<=320,'TEST request interface overflows 320px: '+requestWidth);
-  checks.push('mobile-test-license-request-no-horizontal-overflow');
+  assert.ok(requestWidth<=700,'TEST request interface overflows desktop minimum 700px: '+requestWidth);
+  checks.push('compact-desktop-test-license-request-no-horizontal-overflow');
   await page.getByRole('button',{name:'Открыть навигацию'}).click();
   await page.getByRole('button',{name:'Обзор'}).click();
 
   await page.getByRole('button',{name:'Открыть навигацию'}).click();
-  await page.screenshot({path:'artifacts/publisher/navigation-320.png',fullPage:true});
+  await page.screenshot({path:'artifacts/publisher/navigation-desktop-700.png',fullPage:true});
   await page.getByRole('button',{name:'Обзор',exact:true}).click();
-  await page.screenshot({path:'artifacts/publisher/overview-320.png',fullPage:true});
+  await page.screenshot({path:'artifacts/publisher/overview-desktop-700.png',fullPage:true});
   await page.setViewportSize({width:1366,height:900});
   await page.screenshot({path:'artifacts/publisher/overview-1366.png',fullPage:true});
   for(const [label,slug] of [
@@ -180,7 +208,7 @@ try {
   await nativeMockPage.close();
   assert.deepEqual(errors,[]);
   checks.push('no-browser-page-errors');
-  const report={status:'PASS',checks,errors,environment:'Firefox Playwright; local preview without native issuer',issuer:'NOT_CONNECTED',signature:'NOT_TESTED'};
+  const report={status:'PASS',checks,errors,environment:'Firefox rendering with explicit test-only mock Tauri IPC; NOT an installed application',issuer:'NOT_CONNECTED',signature:'NOT_TESTED'};
   writeFileSync('artifacts/publisher/browser-result.json',JSON.stringify(report,null,2));
   console.log('PUBLISHER_BROWSER_PREPARATION_PASS '+checks.join(', '));
 } finally {

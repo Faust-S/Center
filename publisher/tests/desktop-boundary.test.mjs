@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const read=p=>readFileSync(p,'utf8');
+test('Publisher has a native-only user route; no browser draft or browser file download',()=>{
+ const app=read('publisher/ui/App.tsx');
+ assert.match(app,/__TAURI_INTERNALS__/);
+ assert.match(app,/publisher_draft_read/);
+ assert.match(app,/publisher_draft_save/);
+ assert.match(app,/publisher_save_test_request/);
+ assert.match(app,/publisher-desktop-required/);
+ assert.doesNotMatch(app,/localStorage|sessionStorage|URL\.createObjectURL|document\.createElement\('a'\)|'Режим браузерного просмотра'/);
+ assert.match(app,/самостоятельная настольная программа/);
+ const tauri=JSON.parse(read('publisher/src-tauri/tauri.conf.json'));
+ assert.equal(tauri.build.frontendDist,'../../publisher-dist');
+ assert.equal(tauri.productName,'IWXA Publisher');
+ assert.equal(tauri.identifier,'ru.iwxa.publisher');
+ assert.ok(tauri.bundle.icon.includes('icons/icon.ico'));
+ assert.equal(tauri.app.windows[0].minWidth,700);
+ const packageScripts=JSON.parse(read('package.json')).scripts;
+ assert.equal(packageScripts['publisher:desktop:exe'],'cd publisher && npx tauri build --no-bundle');
+});
+test('Firefox preview is an isolated render harness, never a shippable browser product',()=>{
+ const testCode=read('publisher/tests/browser-smoke.mjs');
+ assert.match(testCode,/browser-without-tauri-cannot-run-desktop-publisher/);
+ assert.match(testCode,/__TAURI_INTERNALS__=\{invoke:async/);
+ assert.match(testCode,/sessionStorage\.setItem\('iwxa-publisher-test-native-draft'/);
+ assert.match(testCode,/compact-desktop-navigation-no-horizontal-overflow/);
+ assert.doesNotMatch(read('publisher/ui/App.tsx'),/__publisherMockNativeCommands|iwxa-publisher-test-native-draft/);
+});
