@@ -302,7 +302,7 @@ export default function App() {
   if(nativeRestoring)return <div className="app"><main className="main"><div className="card padded" role="status">Открываем сохранённую работу...</div></main></div>;
   return <div className={`app ${menuOpen?'menu-open':''}`}>
     <aside className="sidebar" aria-label="Основная навигация">
-      <div className="brand"><div><strong>IWXA</strong><small>Admin Center</small></div><span className="version">0.2</span></div>
+      <div className="brand"><div><strong>IWXA</strong><small>Admin Center</small></div><span className="version">0.3</span></div>
       <div className="organization-select">
         <label htmlFor="active-organization">Организация</label>
         <select id="active-organization" value={state.activeOrganizationId??''} onChange={e=>selectOrg(e.target.value)}>
