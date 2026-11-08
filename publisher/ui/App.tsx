@@ -55,6 +55,12 @@ export default function App(){
  const [termDays,setTermDays]=useState('30');
  const [testSeats,setTestSeats]=useState('1');
  const [simulated,setSimulated]=useState<{requestId:string;organizationId:string;modeledSeats:number;actualSeats:number;state:string}|null>(null);
+ const simulationResultRef=React.useRef<HTMLDivElement>(null);
+ useEffect(()=>{
+   // The result sits below the proposal list; reveal it in the native scroll
+   // container instead of leaving the successful response below the viewport.
+   if(simulated)simulationResultRef.current?.scrollIntoView({block:'nearest'});
+ },[simulated]);
  const [inspected,setInspected]=useState<Inspection|null>(null);
  const [releaseProduct,setReleaseProduct]=useState('');
  const [releasePlatform,setReleasePlatform]=useState('windows-x64');
@@ -190,7 +196,7 @@ export default function App(){
             <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>void exportTestRequest(p.id)}>Подготовить TEST-запрос</button>
             <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>simulateTestDecision(p.id)}>Моделировать TEST-ответ</button>
             <button className="quiet" disabled={busy} type="button" onClick={()=>void change({kind:'removeProposal',id:p.id},'Черновик удалён.')}>Удалить</button></div>)}
-         {simulated&&<div className="publisher-test-request" data-testid="publisher-test-simulation-result" role="status">
+         {simulated&&<div ref={simulationResultRef} className="publisher-test-request" data-testid="publisher-test-simulation-result" role="status">
            <strong>СИМУЛЯЦИЯ · НЕ ЛИЦЕНЗИЯ</strong>
            <p>Модельный запрос {simulated.requestId} для организации {simulated.organizationId}.</p>
            <p>Смоделировано мест: {simulated.modeledSeats}. Действительных лицензированных мест: {simulated.actualSeats}.</p>

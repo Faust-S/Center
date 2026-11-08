@@ -50,7 +50,15 @@ try {
   assert.match(simulatedText,/Смоделировано мест: 3/);
   assert.match(simulatedText,/Действительных лицензированных мест: 0/);
   assert.match(simulatedText,/Активация и распределение мест недоступны/);
+  // An installed WebView is shorter than the content; the simulation must be
+  // brought into view so the seat count can actually be read by a user/UIA.
+  const simInViewport=await page.getByTestId('publisher-test-simulation-result').evaluate(el=>{
+    const rect=el.getBoundingClientRect();
+    return rect.top>=0 && rect.top<window.innerHeight && rect.bottom<=window.innerHeight;
+  });
+  assert.ok(simInViewport,'Simulation result remains below the visible viewport');
   checks.push('simulation-shows-no-signed-license-or-active-seats');
+  checks.push('simulation-result-auto-scrolls-into-view');
   const waiting=page.waitForEvent('download');
   await page.getByRole('button',{name:'Подготовить TEST-запрос'}).click();
   const downloaded=await waiting;
