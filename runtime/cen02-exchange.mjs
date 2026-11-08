@@ -4,6 +4,53 @@ import {readAtlasPortfolio} from '../src/atlas-integration.mjs';
 import {serialize as serializeAtlas} from '../vendor/atlas/src/core.mjs';
 const requireValue=(ok,code)=>{if(!ok)throw Error(code);};
 
+
+/**
+ * Local issuer correlation before manual file export from Center. T3 alone
+ * authenticates signatures, permissions and the signed carrier. This check
+ * preserves the original Atlas WorkRef; it is not proof of delivery or Apply.
+ * @param {unknown} links
+ * @param {any} snapshot
+ * @param {string} organizationId
+ * @returns {{taskId:string,taskRevisionId:string,recipientId:string,atlasRef:{projectId:string,workId:string,revision:string}} | null}
+ */
+export function issuedTaskExportSelection(links,snapshot,organizationId){
+  if(!Array.isArray(links) || snapshot?.product!=='admin' ||
+    snapshot.organizationId!==organizationId ||
+    typeof snapshot.workspaceId!=='string' ||
+    typeof snapshot.personId!=='string' || !snapshot.personId ||
+    typeof snapshot.task?.id!=='string' ||
+    !snapshot.task.id.startsWith('task:') ||
+    typeof snapshot.task?.taskRevisionId!=='string' ||
+    !/^[a-f0-9]{64}$/.test(snapshot.task.taskRevisionId))return null;
+  const matching=links.filter(link=>{
+    const recipient=link?.recipientId??link?.ownerPersonId;
+    if(link && Object.hasOwn(link,'recipientId') && Object.hasOwn(link,'ownerPersonId'))
+      return false;
+    return link && link.organizationId===organizationId &&
+      link.workspaceId===snapshot.workspaceId &&
+      link.taskId===snapshot.task.id &&
+      link.taskRevisionId===snapshot.task.taskRevisionId &&
+      link.deliveryState==='NOT_CONFIRMED' &&
+      link.associationProof==='LOCAL_ISSUER_SIDE_REFERENCE_ONLY' &&
+      recipient===snapshot.personId &&
+      typeof link.assignmentId==='string' && link.assignmentId.length>0 &&
+      Number.isSafeInteger(link.assignmentEditNumber) && link.assignmentEditNumber>0 &&
+      typeof link.atlasRef?.projectId==='string' && link.atlasRef.projectId.length>0 &&
+      typeof link.atlasRef?.workId==='string' && link.atlasRef.workId.length>0 &&
+      typeof link.atlasRef?.revision==='string' &&
+      /^(0|[1-9][0-9]*)$/.test(link.atlasRef.revision);
+  });
+  if(matching.length!==1)return null;
+  const link=matching[0];
+  return {
+    taskId:link.taskId,taskRevisionId:link.taskRevisionId,
+    recipientId:snapshot.personId,
+    atlasRef:{projectId:link.atlasRef.projectId,workId:link.atlasRef.workId,
+      revision:link.atlasRef.revision}
+  };
+}
+
 // CEN02: bounded adapter, not a package issuer or delivery/receipt database.
 // The owning T3 runtime signs Task revisions, receives .iwxa and owns history.
 export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
