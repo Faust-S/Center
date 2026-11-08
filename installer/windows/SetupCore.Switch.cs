@@ -25,12 +25,27 @@ namespace IwxaSetup
             {
                 if (!mutex.WaitOne(0))
                     throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
-                try { return UpgradeLocked(bundle, candidate); }
+                try { return UpgradeLocked(bundle, candidate, false); }
                 finally { mutex.ReleaseMutex(); }
             }
         }
 
-        private static InstallOutcome UpgradeLocked(string bundle, BundleInfo candidate)
+        // Same-version Repair shares the already-qualified atomic switch and rollback.
+        internal static InstallOutcome RepairOwned(string bundle)
+        {
+            BundleInfo candidate = BundleReader.Inspect(bundle);
+            using (var mutex = new System.Threading.Mutex(false,
+                "Local\\IWXA.SetupCore." + candidate.Id))
+            {
+                if (!mutex.WaitOne(0))
+                    throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
+                try { return UpgradeLocked(bundle, candidate, true); }
+                finally { mutex.ReleaseMutex(); }
+            }
+        }
+
+        private static InstallOutcome UpgradeLocked(
+            string bundle, BundleInfo candidate, bool repairMode)
         {
             string root = RootFor(candidate), previous = PreviousFor(candidate);
             var proposed = new UpgradeAssessment {
@@ -38,8 +53,13 @@ namespace IwxaSetup
                 InstalledVersion = "", InstallRoot = root
             };
             UpgradeAssessment plan = PlanLocked(candidate, proposed);
-            if (plan.Status != "UPGRADE_CANDIDATE_NOT_ACTIVATED")
-                throw new InvalidOperationException("SETUP_UPGRADE_BLOCKED_" + plan.Status);
+            string required = repairMode ?
+                "REPAIR_CANDIDATE_NOT_ACTIVATED" :
+                "UPGRADE_CANDIDATE_NOT_ACTIVATED";
+            if (plan.Status != required)
+                throw new InvalidOperationException(
+                    (repairMode ? "SETUP_REPAIR_BLOCKED_" : "SETUP_UPGRADE_BLOCKED_")
+                    + plan.Status);
 
             BundleInfo old = ReadOwnedRelease(root, root, candidate.Id);
             RequireRegistryOwnership(candidate.Id, root, old);
@@ -65,7 +85,8 @@ namespace IwxaSetup
                 Register(candidate, root);
                 CreateShortcut(candidate, root);
                 return new InstallOutcome {
-                    Status = "UPGRADED_BACKUP_RETAINED",
+                    Status = repairMode ? "REPAIRED_BACKUP_RETAINED" :
+                        "UPGRADED_BACKUP_RETAINED",
                     Product = candidate.Id, Version = candidate.Version, Root = root
                 };
             }

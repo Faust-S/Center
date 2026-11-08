@@ -25,7 +25,7 @@ namespace IwxaSetup
         private readonly LinkLabel openApplication = new LinkLabel();
         private enum SetupOperation { None, Install, Upgrade, Recover, Confirm, Rollback,
             StageLegacyPreview, CancelLegacyPreview, InstallWebView2,
-            InstallWebView2Offline }
+            InstallWebView2Offline, Repair }
         private SetupOperation primaryAction = SetupOperation.None;
         private SetupOperation secondaryAction = SetupOperation.None;
         private bool performingOperation = false;
@@ -319,6 +319,8 @@ namespace IwxaSetup
             status.ForeColor = Dark;
             status.Text = operation == SetupOperation.Upgrade ?
                 T("Обновление программы…", "Updating application…") :
+                operation == SetupOperation.Repair ?
+                T("Восстановление файлов программы…", "Repairing application files…") :
                 operation == SetupOperation.Recover || operation == SetupOperation.Rollback ?
                 T("Восстановление предыдущей версии…", "Restoring previous version…") :
                 operation == SetupOperation.Confirm ?
@@ -342,6 +344,7 @@ namespace IwxaSetup
                     {
                         case SetupOperation.Install: return SetupInstallation.InstallFresh(executable);
                         case SetupOperation.Upgrade: return SetupInstallation.UpgradeOwned(executable);
+                        case SetupOperation.Repair: return SetupInstallation.RepairOwned(executable);
                         case SetupOperation.Recover: return SetupInstallation.RecoverOwned(executable);
                         case SetupOperation.Rollback: return SetupInstallation.RollbackOwned(executable);
                         case SetupOperation.Confirm: return SetupInstallation.ConfirmUpgrade(executable);
@@ -370,6 +373,9 @@ namespace IwxaSetup
                 if (operation == SetupOperation.Upgrade)
                     status.Text = T("Новая версия установлена — проверьте запуск",
                         "Update installed — verify the application");
+                else if (operation == SetupOperation.Repair)
+                    status.Text = T("Файлы восстановлены — проверьте запуск",
+                        "Files restored — verify the application");
                 else if (operation == SetupOperation.Install)
                     status.Text = T("Приложение установлено", "Application installed");
                 else if (operation == SetupOperation.Rollback ||
@@ -498,9 +504,11 @@ namespace IwxaSetup
                 else if (plan.Status == "REPAIR_CANDIDATE_NOT_ACTIVATED")
                 {
                     SetState(T("Эта версия уже установлена", "This version is installed"),
-                        T("Программа зарегистрирована. Личные данные не менялись.",
-                          "Application registration exists; personal data was not modified."),
+                        T("Если программа повреждена, её файлы можно восстановить без удаления личных данных.",
+                          "If the application is damaged, repair its files without deleting personal data."),
                         versionLine, false);
+                    ConfigureActions(SetupOperation.Repair, SetupOperation.None,
+                        T("Восстановить файлы", "Repair files"));
                     openApplication.Tag = "APPLICATION";
                     openApplication.Text = T("Открыть установленную программу",
                         "Open installed application");

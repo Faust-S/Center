@@ -151,6 +151,7 @@ namespace IwxaSetup
             }
             if (args.Length == 2 &&
                 (args[0] == "--upgrade-file" ||
+                 args[0] == "--repair-file" ||
                  args[0] == "--rollback-upgrade-file" ||
                  args[0] == "--confirm-upgrade-file" ||
                  args[0] == "--recover-upgrade-file"))
@@ -162,6 +163,8 @@ namespace IwxaSetup
                         result = SetupInstallation.UpgradeOwned(Application.ExecutablePath);
                     else if (args[0] == "--rollback-upgrade-file")
                         result = SetupInstallation.RollbackOwned(Application.ExecutablePath);
+                    else if (args[0] == "--repair-file")
+                        result = SetupInstallation.RepairOwned(Application.ExecutablePath);
                     else if (args[0] == "--recover-upgrade-file")
                         result = SetupInstallation.RecoverOwned(Application.ExecutablePath);
                     else

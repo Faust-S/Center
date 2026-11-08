@@ -197,6 +197,47 @@ try {
         }
         Write-Host 'IWXA_SETUP_NATIVE_DUPLICATE_INSTALL_REJECTED_PASS'
 
+        # Repair real deliberately corrupted bytes of the existing application;
+        # stage the exact original package and preserve user files.
+        $installedExe = Join-Path $installed.installRoot 'iwxa-admin-center.exe'
+        $cleanHash = (Get-FileHash -LiteralPath $installedExe -Algorithm SHA256).Hash
+        $handle = [IO.File]::Open($installedExe, [IO.FileMode]::Open,
+            [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        try {
+            [void]$handle.Seek(4096, [IO.SeekOrigin]::Begin)
+            $byte = $handle.ReadByte()
+            if ($byte -lt 0) { throw 'SETUP_REPAIR_FIXTURE_TOO_SMALL' }
+            [void]$handle.Seek(4096, [IO.SeekOrigin]::Begin)
+            $handle.WriteByte([byte]($byte -bxor 1))
+        } finally { $handle.Dispose() }
+        if ((Get-FileHash -LiteralPath $installedExe -Algorithm SHA256).Hash -eq $cleanHash) {
+            throw 'SETUP_REPAIR_FIXTURE_NOT_MODIFIED'
+        }
+        $repaired = Invoke-NativeInspection $bundle (
+            Join-Path $artifact 'setup-core-repaired.json') 0 '--repair-file'
+        if ($repaired.status -ne 'REPAIRED_BACKUP_RETAINED' -or
+            $repaired.version -ne '0.3.0-dev.1' -or
+            (Get-FileHash -LiteralPath $installedExe -Algorithm SHA256).Hash -ne $cleanHash) {
+            throw 'SETUP_NATIVE_REPAIR_DID_NOT_RESTORE_BINARY'
+        }
+        if (!(Test-Path -LiteralPath ($installed.installRoot + '.iwxa-previous'))) {
+            throw 'SETUP_NATIVE_REPAIR_PREVIOUS_RELEASE_NOT_RETAINED'
+        }
+        $repairPending = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
+        if ($repairPending.status -ne 'UPGRADE_PENDING_CONFIRMATION') {
+            throw 'SETUP_NATIVE_REPAIR_CONFIRM_GATE_MISSING'
+        }
+        $repairConfirm = Invoke-NativeInspection $bundle (
+            Join-Path $artifact 'setup-core-repair-confirmed.json') 0 '--confirm-upgrade-file'
+        if ($repairConfirm.status -ne 'UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED' -or
+            (Test-Path -LiteralPath ($installed.installRoot + '.iwxa-previous'))) {
+            throw 'SETUP_NATIVE_REPAIR_CONFIRM_FAILED'
+        }
+        if ((Get-Content -LiteralPath $userData -Raw) -ne 'unchanged-after-first-install') {
+            throw 'SETUP_NATIVE_REPAIR_USER_DATA_CHANGED'
+        }
+        Write-Host 'IWXA_SETUP_NATIVE_SAME_VERSION_REPAIR_PASS'
+
         # Emulate a crash immediately after moving the old release aside.
         $previousRoot = $installed.installRoot + '.iwxa-previous'
         [IO.Directory]::Move($installed.installRoot, $previousRoot)
