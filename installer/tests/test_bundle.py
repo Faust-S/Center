@@ -67,6 +67,15 @@ class BundleTests(unittest.TestCase):
         self.assertIn("info.Version", gui)
         self.assertIn("old.Version", gui)
 
+    def test_native_setup_displays_honest_busy_state_without_fake_percent(self):
+        source = (Path(__file__).resolve().parents[1] / "windows" /
+                  "SetupCore.Form.cs").read_text(encoding="utf-8")
+        self.assertIn("ProgressBarStyle.Marquee", source)
+        self.assertIn("busyProgress.Visible = true", source)
+        self.assertIn("busyProgress.Visible = false", source)
+        self.assertIn("busyProgress.AccessibleName", source)
+        self.assertNotIn("busyProgress.Value =", source)
+
     def test_clean_vm_webview2_witness_cannot_report_offline_without_proof(self):
         source = (Path(__file__).resolve().parents[1] / "windows" /
                   "qualify-webview2-clean-windows.ps1").read_text(encoding="utf-8")

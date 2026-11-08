@@ -85,6 +85,13 @@ try {
     if($null -eq $gate){
         throw 'SETUP_FAST_UI_COMPLETION_GATE_NOT_EXPOSED'
     }
+    $activityField=$formType.GetField('busyProgress',
+        [Reflection.BindingFlags]'Instance, NonPublic')
+    if($null -eq $activityField -or
+       $activityField.FieldType.FullName -ne 'System.Windows.Forms.ProgressBar'){
+        throw 'SETUP_FAST_NATIVE_ACTIVITY_INDICATOR_MISSING'
+    }
+    Write-Host 'IWXA_SETUP_NATIVE_ACTIVITY_INDICATOR_PASS'
     # The same immutable, verified bundle must produce the same plan as
     # the legacy path API. This avoids a second complete resource hash in
     # the UI while keeping the original API for all callers.

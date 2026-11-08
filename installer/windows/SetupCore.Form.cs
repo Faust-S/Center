@@ -24,6 +24,7 @@ namespace IwxaSetup
         private readonly Button install = new Button();
         private readonly Button secondary = new Button();
         private readonly LinkLabel openApplication = new LinkLabel();
+        private readonly ProgressBar busyProgress = new ProgressBar();
         private readonly Panel[] progressPanels = new Panel[3];
         private readonly Label[] progressLabels = new Label[3];
         private enum SetupOperation { None, Install, Upgrade, Recover, Confirm, Rollback,
@@ -163,8 +164,23 @@ namespace IwxaSetup
             packageDetails.Text = T("Ожидание проверки содержимого…", "Waiting for content verification…");
             packageDetails.ForeColor = Secondary;
             packageDetails.Location = new Point(21, 133);
-            packageDetails.Size = new Size(530, 50);
+            packageDetails.Size = new Size(530, 43);
             card.Controls.Add(packageDetails);
+            // Native indeterminate activity, never a fabricated completion percent.
+            // Keep this inside the package card to avoid added wizard screens.
+            busyProgress.Name = "iwxaSetupActivity";
+            busyProgress.AccessibleName = T("Выполняется операция установки",
+                "Setup operation in progress");
+            busyProgress.AccessibleDescription = T(
+                "Операция выполняется, точное время завершения неизвестно",
+                "Working, no estimated completion time");
+            busyProgress.Location = new Point(21, 181);
+            busyProgress.Size = new Size(530, 10);
+            busyProgress.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+            busyProgress.Style = ProgressBarStyle.Marquee;
+            busyProgress.MarqueeAnimationSpeed = 24;
+            busyProgress.Visible = false;
+            card.Controls.Add(busyProgress);
 
             var note = Label(
                 T("Новая установка сохраняет личные данные и другие программы.\nПроверка пакета не изменяет установленную программу.",
@@ -434,6 +450,7 @@ namespace IwxaSetup
                 if (answer != DialogResult.Yes) return;
             }
             performingOperation = true;
+            busyProgress.Visible = true;
             install.Enabled = false;
             secondary.Enabled = false;
             retry.Enabled = false;
@@ -567,6 +584,7 @@ namespace IwxaSetup
             finally
             {
                 performingOperation = false;
+                busyProgress.Visible = false;
                 retry.Enabled = true;
                 openApplication.Enabled = true;
             }
@@ -633,6 +651,7 @@ namespace IwxaSetup
         private async Task<UpgradeAssessment> VerifyAsync()
         {
             if (performingOperation) return null;
+            busyProgress.Visible = true;
             retry.Enabled = false;
             SetWizardStep(1);
             ConfigureActions(SetupOperation.None, SetupOperation.None,
@@ -906,7 +925,14 @@ namespace IwxaSetup
                     "Installation is blocked. Obtain a valid distribution.");
                 return null;
             }
-            finally { if (!IsDisposed && !Disposing) retry.Enabled = true; }
+            finally
+            {
+                if (!IsDisposed && !Disposing)
+                {
+                    busyProgress.Visible = false;
+                    retry.Enabled = true;
+                }
+            }
         }
 
     }

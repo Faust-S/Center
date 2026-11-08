@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   model:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') }}
     strategy:
       fail-fast: false
       matrix:
@@ -55,7 +55,7 @@ jobs:
         timeout-minutes: 4
         run: ./installer/windows/qualify-uninstall-and-shortcut-fast.ps1 -Stub artifacts/iwxa-setup-core-early.exe
   interface:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -83,7 +83,7 @@ jobs:
             package-lock.json
             dist/
   windows-shell:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -427,3 +427,36 @@ jobs:
           name: center-webview2-verification
           path: |
             artifacts/webview2-*.json
+  # One optional benchmark job in the EXISTING public CI workflow.
+  resource-benchmark:
+    if: ${{ startsWith(github.event.head_commit.message, 'ci(bench):') }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile unchanged native Setup Core stub
+        shell: pwsh
+        run: ./installer/windows/build-stub.ps1 -Output artifacts/iwxa-setup-benchmark-stub.exe
+      - name: Materialize pinned pre-optimization baseline
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $old=@(& git show '7173fb54bad2ff67eb77f2603117f85e6e63cb73:installer/build_bundle.py')
+          if($LASTEXITCODE -ne 0 -or $old.Count -lt 300){throw 'SETUP_BENCHMARK_BASELINE_MISSING'}
+          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'setup-v2-baseline.py'),
+            ($old -join [Environment]::NewLine) + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+      - name: Compare memory and time on 25 and 250 MiB V2 packages
+        shell: powershell
+        timeout-minutes: 35
+        run: ./installer/windows/benchmark-resource-v2.ps1 -Stub artifacts/iwxa-setup-benchmark-stub.exe -BaselineSource (Join-Path $env:RUNNER_TEMP 'setup-v2-baseline.py') -SizesMiB 25,250 -Repeats 2 -Output artifacts/iwxa-v2-benchmark.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iwxa-setup-v2-resource-benchmark
+          path: artifacts/iwxa-v2-benchmark.json
