@@ -47,7 +47,7 @@ try {
             id='iwxa.setup.benchmark'
             display_name='IWXA Setup Benchmark'
             publisher='IWXA'
-            version='1.0-benchmark.1'
+            version='1.0.0-dev.1'
             architecture='windows-x64'
             install_dir='IWXA Setup Benchmark'
             entrypoint='benchmark.exe'
