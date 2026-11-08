@@ -402,6 +402,34 @@ def _inject_pe_resource(path: Path, content: bytes) -> None:
             )
 
 
+def _process_peak_working_set() -> int:
+    """Get peak memory of the Python packaging process, not its launcher."""
+    if os.name != "nt":
+        return 0
+    class Counters(ctypes.Structure):
+        _fields_ = [
+            ("cb", ctypes.c_uint32), ("PageFaultCount", ctypes.c_uint32),
+            ("PeakWorkingSetSize", ctypes.c_size_t),
+            ("WorkingSetSize", ctypes.c_size_t),
+            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+            ("PagefileUsage", ctypes.c_size_t),
+            ("PeakPagefileUsage", ctypes.c_size_t),
+        ]
+    counters = Counters()
+    counters.cb = ctypes.sizeof(counters)
+    process = ctypes.WinDLL("kernel32").GetCurrentProcess
+    process.restype = ctypes.c_void_p
+    read = ctypes.WinDLL("psapi").GetProcessMemoryInfo
+    read.argtypes = (ctypes.c_void_p, ctypes.POINTER(Counters), ctypes.c_uint32)
+    read.restype = ctypes.c_int
+    if not read(process(), ctypes.byref(counters), counters.cb):
+        raise SetupBundleError("benchmark_process_memory_unavailable")
+    return int(counters.PeakWorkingSetSize)
+
+
 def read_pe_resource(path: Path) -> bytes:
     kernel = _pe_resource_api()
     module = kernel.LoadLibraryExW(str(path.resolve()), None, 0x2)
@@ -456,6 +484,8 @@ def create_resource_bundle(*, product_json: Path, payload_dir: Path,
             raise SetupBundleError("pe_resource_final_readback_mismatch")
         os.replace(staged, output)
     inspected["format"] = "PE_RESOURCE_V2"
+    if os.environ.get("IWXA_SETUP_BENCHMARK") == "1":
+        inspected["builderPeakWorkingSetBytes"] = _process_peak_working_set()
     inspected["setup_sha256"] = _digest_file(output)
     inspected["bytes"] = output.stat().st_size
     return inspected

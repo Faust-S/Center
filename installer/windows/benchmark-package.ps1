@@ -64,7 +64,12 @@ try {
         $arguments='-m installer.build_bundle build-resource --product "{0}" --payload "{1}" --stub "{2}" --output "{3}" --source-commit {4} --source-tree {5}' -f
             $profilePath,$payload,$stubPath,$target,$head,$tree
         $clock=[Diagnostics.Stopwatch]::StartNew()
-        $process=Start-Process -FilePath 'python' -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $env:IWXA_SETUP_BENCHMARK='1'
+        try {
+            $process=Start-Process -FilePath 'python' -ArgumentList $arguments -PassThru -NoNewWindow -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        } finally {
+            Remove-Item Env:IWXA_SETUP_BENCHMARK -ErrorAction SilentlyContinue
+        }
         [long]$peakResident=0
         [long]$peakTemp=0
         try {
@@ -98,7 +103,8 @@ try {
             sizeMiB=$mib
             format='PE_RESOURCE_V2'
             wallMs=$clock.ElapsedMilliseconds
-            peakWorkingSetBytes=$peakResident
+            launcherPeakWorkingSetBytes=$peakResident
+            builderPeakWorkingSetBytes=[long]$build.builderPeakWorkingSetBytes
             peakWorkspaceBytes=$peakTemp
             syntheticPayloadBytes=($mib*1MB)
             temporaryWorkspaceAbovePayloadBytes=[Math]::Max(0,$peakTemp-($mib*1MB))
@@ -110,6 +116,6 @@ try {
         [IO.File]::WriteAllText($report,($metrics|ConvertTo-Json -Depth 5),
             ([Text.UTF8Encoding]::new($false)))
         Write-Host ('IWXA_SETUP_BENCHMARK_PASS sizeMiB={0} wallMs={1} peakRSS={2} workspacePeak={3} finalBytes={4}' -f
-            $mib,$clock.ElapsedMilliseconds,$peakResident,$peakTemp,$bytes)
+            $mib,$clock.ElapsedMilliseconds,[long]$build.builderPeakWorkingSetBytes,$peakTemp,$bytes)
     }
 } finally { Pop-Location }
