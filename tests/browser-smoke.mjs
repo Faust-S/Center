@@ -150,7 +150,11 @@ try{
     application:{status:'LOCAL_ENCRYPTED_STORE_CONFIRMED',externalContextCoreApplied:false,
       records:[{organizationId:oid,workspaceId:workId,taskId:'task:synthetic',
         taskRevisionId,resultRevisionId,executorId:'person:staff',
-        acceptanceId:'acceptance:synthetic',result:exactResult}]}};
+        acceptanceId:'acceptance:synthetic',result:exactResult},
+        {organizationId:oid,workspaceId:workId,taskId:'task:unlinked',
+         taskRevisionId:'c'.repeat(64),resultRevisionId:'d'.repeat(64),
+         executorId:'person:staff',acceptanceId:'acceptance:unlinked',
+         result:'T3 Apply without an issuer-side Atlas WorkRef'}]}};
   const draftText=encodeDraft(synthetic);
   const view={status:'OWNER_READY',snapshot};
   const evidencePage=await browser.newPage({viewport:{width:1200,height:900}});
@@ -166,6 +170,8 @@ try{
   await evidencePage.getByTestId('nav-results').click();
   await evidencePage.getByTestId('cen05-applied-list').waitFor({state:'visible'});
   assert.equal(await evidencePage.getByTestId('cen05-applied-work').count(),1);
+  assert.match(await evidencePage.getByTestId('cen05-unlinked-count').innerText(),/1/);
+  assert.match(await evidencePage.getByTestId('cen05-unlinked-count').innerText(),/WorkRef/);
   assert.match(await evidencePage.getByTestId('cen05-applied-list').innerText(),/work:synthetic/);
   assert.match(await evidencePage.getByTestId('cen05-applied-list').innerText(),/Atlas не открыт/);
   assert.equal(await evidencePage.getByTestId('cen05-applied-result-text').count(),0,

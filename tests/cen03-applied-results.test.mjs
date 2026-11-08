@@ -249,13 +249,14 @@ test('CEN05 shows a T3-applied Result against issuer WorkRef without changing At
    atlasRef:{projectId:'p1',workId:'w1',revision:'7'},deliveryState:'NOT_CONFIRMED'};
  const view={source:'atlas.project/1',revision:'7',authorization:'NOT_CHECKED',
    mode:'READ_ONLY_USER_SELECTED_FILE',
-   projects:[{id:'p1',workItems:[{id:'w1',state:'todo'}]}]};
+   projects:[{id:'p1',workItems:[{id:'w1',title:'Inspect delivery',state:'todo'}]}]};
  const owner=snapshot(),before=structuredClone(owner),beforeView=structuredClone(view);
  const args={ownerSnapshot:owner,issuedTask:issued,resultRevisionId:B,atlasView:view};
  const observed=projectAppliedAtlasEvidence(args);
  assert.equal(observed.status,'APPLIED_RESULT_OBSERVED');
  assert.deepEqual(observed.atlasRef,issued.atlasRef);
  assert.equal(observed.atlasObservation,'SOURCE_REVISION_MATCHES');
+ assert.deepEqual(observed.atlasCurrentWork,{title:'Inspect delivery',state:'todo'});
  assert.equal(observed.result.taskRevisionId,A);
  assert.equal(observed.result.resultRevisionId,B);
  assert.equal(observed.result.acceptanceId,record.acceptanceId);
@@ -266,9 +267,13 @@ test('CEN05 shows a T3-applied Result against issuer WorkRef without changing At
  assert.equal(observed.workCompletionAsserted,false);
  assert.deepEqual(owner,before);assert.deepEqual(view,beforeView);
  assert.equal(view.projects[0].workItems[0].state,'todo');
- assert.equal(projectAppliedAtlasEvidence({...args,atlasView:{...view,revision:'8'}}).atlasObservation,
-  'SOURCE_REVISION_CHANGED');
+ const newer={...view,revision:'8',projects:[{id:'p1',workItems:[
+   {id:'w1',title:'Renamed after assignment',state:'done'}]}]};
+ const observedNewer=projectAppliedAtlasEvidence({...args,atlasView:newer});
+ assert.equal(observedNewer.atlasObservation,'SOURCE_REVISION_CHANGED');
+ assert.equal(observedNewer.atlasCurrentWork,null,'new revision cannot relabel original assignment');
  assert.equal(projectAppliedAtlasEvidence({...args,atlasView:null}).atlasObservation,'NOT_OBSERVED');
+ assert.equal(projectAppliedAtlasEvidence({...args,atlasView:null}).atlasCurrentWork,null);
 });
 test('CEN05 refuses unconfirmed or mismatched T3 source even if WorkRef is provided',()=>{
  const issued={organizationId:'org:1',workspaceId:'workspace:1',assignmentId:'assign:1',

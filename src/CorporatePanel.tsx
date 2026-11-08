@@ -21,7 +21,8 @@ const why=(e:unknown)=>{
 function AppliedEvidenceRow({e}:{e:any}){
  const [expanded,setExpanded]=useState(false);
  return <li data-testid="cen05-applied-work">
-   <strong>Работа {e.atlasRef.workId}</strong> · проект {e.atlasRef.projectId} · редакция {e.atlasRef.revision}.
+   <strong>{e.atlasCurrentWork?.title??('Работа '+e.atlasRef.workId)}</strong> · проект {e.atlasRef.projectId} · WorkRef {e.atlasRef.workId} · редакция {e.atlasRef.revision}.
+   {e.atlasCurrentWork&&<span data-testid="cen05-atlas-current-work"> Atlas: {e.atlasCurrentWork.state} (состояние исходного снимка, не эффект T3 Result).</span>}
    <span> {e.atlasObservation==='SOURCE_REVISION_MATCHES'?'Редакция Atlas совпадает':
      e.atlasObservation==='SOURCE_REVISION_CHANGED'?'Редакция Atlas изменилась':
      e.atlasObservation==='NOT_OBSERVED'?'Atlas не открыт':'Связь с Atlas требует проверки'}.</span>
@@ -136,6 +137,10 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    }
    return rows;
  })();
+ // A verified T3 Apply may lack a single issuer-side WorkRef correlation.
+ // Do not silently hide that result or guess its project by matching titles.
+ const unlinkedAppliedCount=ready&&applied.status==='LOCAL_ENCRYPTED_STORE_CONFIRMED'
+   ?Math.max(0,records.length-atlasEvidence.length):0;
  const chosen=records.find(r=>r.taskId+'|'+r.resultRevisionId===reuseKey);
  const inbox=(()=>{
   if(!ready)return {status:'NOT_CONNECTED',items:[] as any[],counts:null};
@@ -333,6 +338,9 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
     atlasEvidence.length===0?<p data-testid="cen05-no-projection">Нет подтверждённого Result со связью Atlas. Необходимы T3 Apply и сохранённая исходная привязка.</p>:
     <ul data-testid="cen05-applied-list">{atlasEvidence.map((e:any)=>
       <AppliedEvidenceRow key={e.result.taskId+'|'+e.result.resultRevisionId} e={e}/>)}</ul>}
+   {unlinkedAppliedCount>0&&<p data-testid="cen05-unlinked-count">
+     Применённых Result без проверенной связи с WorkRef: {unlinkedAppliedCount}. Уточните исходную выдачу Task в T3 и локальную привязку Center. Нельзя назначать работу по совпадению названий.
+   </p>}
   </div>
   <div className="nested-form" data-testid="cen03-reuse">
    <h3>4. Использовать применённый Result</h3>

@@ -130,8 +130,17 @@ export function projectAppliedAtlasEvidence({ownerSnapshot,issuedTask,resultRevi
    ['READ_ONLY_USER_SELECTED_FILE','NATIVE_ATLAS_LOCAL_ORGANIZATION'].includes(atlasView.mode) &&
    Array.isArray(atlasView.projects),'CEN_ATLAS_SOURCE_VIEW_REQUIRED');
  const x=rows[0],ref=issuedTask.atlasRef;
+ const atlasObservation=atlasWorkReadback(atlasView,ref);
+ // Current source detail may be shown only for the EXACT saved Atlas revision.
+ // A newer snapshot cannot silently rewrite historical WorkRef evidence.
+ const sourceWork=atlasObservation==='SOURCE_REVISION_MATCHES'
+   ?atlasView.projects.find(p=>p.id===ref.projectId)?.workItems.find(w=>w.id===ref.workId)
+   :null;
+ const atlasCurrentWork=typeof sourceWork?.title==='string' &&
+   typeof sourceWork?.state==='string'
+   ?{title:sourceWork.title,state:sourceWork.state}:null;
  return {status:'APPLIED_RESULT_OBSERVED',atlasRef:{...ref},
-   atlasObservation:atlasWorkReadback(atlasView,ref),
+   atlasObservation,atlasCurrentWork,
    result:{taskId:x.taskId,taskRevisionId:x.taskRevisionId,
      resultRevisionId:x.resultRevisionId,acceptanceId:x.acceptanceId,
      organizationId:x.organizationId,workspaceId:x.workspaceId,
