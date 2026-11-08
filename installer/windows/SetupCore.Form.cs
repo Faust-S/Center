@@ -277,8 +277,8 @@ namespace IwxaSetup
                     T("Восстановить прежнюю установленную версию",
                       "Restore the previously installed version") :
                 alternate == SetupOperation.CancelLegacyPreview ?
-                    T("Отменить предпросмотр, не изменяя NSIS 0.2",
-                      "Cancel the preview without changing NSIS 0.2") : "";
+                    T("Отменить предпросмотр, сохранив прежнюю установку",
+                      "Cancel the preview without changing the existing installation") : "";
             secondary.TabStop = alternate != SetupOperation.None;
         }
 
@@ -358,8 +358,8 @@ namespace IwxaSetup
             if (operation == SetupOperation.ActivateLegacyDefault)
             {
                 DialogResult approve = MessageBox.Show(
-                    T("Вы открыли пробную версию и проверили организации, проекты и сохранённые данные?\nМы переключим только ярлык меню «Пуск» на новую версию. NSIS 0.2 и её деинсталлятор останутся нетронутыми; прежний запуск можно вернуть.",
-                      "Have you opened the preview and checked your organizations, projects and data?\nOnly the Start Menu shortcut will switch to the new version. NSIS 0.2 and its uninstaller stay intact, and the original shortcut can be restored."),
+                    T("Вы открыли пробную версию и проверили организации, проекты и сохранённые данные?\nМы переключим только ярлык меню «Пуск» на новую версию. Прежняя программа и её деинсталлятор останутся нетронутыми; прежний запуск можно вернуть.",
+                      "Have you opened the preview and checked your organizations, projects and data?\nOnly the Start Menu shortcut will switch to the new version. The previous application and its uninstaller stay intact, and the original shortcut can be restored."),
                     T("Подтвердить переключение запуска",
                       "Confirm Start Menu handoff"),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
@@ -399,7 +399,7 @@ namespace IwxaSetup
                 T("Переключение ярлыка на новую версию…",
                   "Switching the Start Menu shortcut…") :
                 operation == SetupOperation.RestoreLegacyDefault ?
-                T("Возврат ярлыка на NSIS 0.2…",
+                T("Возврат ярлыка на прежнюю версию…",
                   "Restoring the original Start Menu shortcut…") :
                 operation == SetupOperation.InstallWebView2 ||
                 operation == SetupOperation.InstallWebView2Offline ?
@@ -466,8 +466,8 @@ namespace IwxaSetup
                     status.Text = T("Пробный переход отменён — прежняя установка сохранена",
                         "Preview cancelled — existing installation retained");
                 else if (operation == SetupOperation.ActivateLegacyDefault)
-                    status.Text = T("Запуск переключён — NSIS 0.2 сохранена",
-                        "Start Menu switched — NSIS 0.2 preserved");
+                    status.Text = T("Запуск переключён — прежняя программа сохранена",
+                        "Start Menu switched — previous application preserved");
                 else if (operation == SetupOperation.RestoreLegacyDefault)
                     status.Text = T("Прежний ярлык восстановлен",
                         "Original Start Menu shortcut restored");
@@ -750,8 +750,8 @@ namespace IwxaSetup
                 {
                     SetState(T("Основной запуск переключён на " + info.Version,
                                "Start Menu now launches " + info.Version),
-                        T("NSIS 0.2 и данные не удалены. В любой момент верните старый ярлык до окончательной приёмки.",
-                          "NSIS 0.2 and user data remain intact. You can restore the old shortcut before final acceptance."),
+                        T("Прежняя программа и данные не удалены. В любой момент верните старый ярлык до окончательной приёмки.",
+                          "The previous application and user data remain intact. You can restore the old shortcut before final acceptance."),
                         versionLine, true);
                     ConfigureActions(SetupOperation.RestoreLegacyDefault,
                         SetupOperation.None, T("Вернуть старый запуск", "Restore old shortcut"));
@@ -767,7 +767,7 @@ namespace IwxaSetup
                           "Old files and data are preserved. Restore the original shortcut, then verify again."),
                         versionLine, true);
                     ConfigureActions(SetupOperation.RestoreLegacyDefault,
-                        SetupOperation.None, T("Восстановить ярлык 0.2",
+                        SetupOperation.None, T("Восстановить прежний ярлык",
                                               "Recover old shortcut"));
                 }
                 else if (plan.Status == "LEGACY_MIGRATION_REVIEW_REQUIRED")
