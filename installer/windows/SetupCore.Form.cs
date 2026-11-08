@@ -239,8 +239,13 @@ namespace IwxaSetup
                     Color.FromArgb(53, 87, 130) : Dark;
                 progressLabels[i].ForeColor = active ?
                     Color.White : Color.FromArgb(186, 202, 223);
-                progressLabels[i].Font = new Font("Segoe UI", 10,
-                    active ? FontStyle.Bold : FontStyle.Regular);
+                if (progressLabels[i].Font.Bold != active)
+                {
+                    Font previousFont = progressLabels[i].Font;
+                    progressLabels[i].Font = new Font(previousFont,
+                        active ? FontStyle.Bold : FontStyle.Regular);
+                    previousFont.Dispose();
+                }
                 progressLabels[i].AccessibleDescription = active ?
                     T("Текущий этап установки", "Current installation stage") :
                     T("Другой этап установки", "Other installation stage");
