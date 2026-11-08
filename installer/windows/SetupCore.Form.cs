@@ -674,6 +674,9 @@ namespace IwxaSetup
                 }
                 else if (plan.Status == "REPAIR_CANDIDATE_NOT_ACTIVATED")
                 {
+                    bool entrypointMissing = !File.Exists(Path.Combine(
+                        SetupInstallation.RootFor(info),
+                        info.Entrypoint.Replace('/', Path.DirectorySeparatorChar)));
                     SetupDiskPlan disk = SetupInstallation.CheckStageSpace(info);
                     if (disk.Status != "DISK_SPACE_READY")
                     {
@@ -686,10 +689,13 @@ namespace IwxaSetup
                     }
                     else
                     {
-                    SetState(T("Эта версия уже установлена", "This version is installed"),
-                        T("Если программа повреждена, её файлы можно восстановить без удаления личных данных.",
-                          "If the application is damaged, repair its files without deleting personal data."),
-                        versionLine, false);
+                    SetState(entrypointMissing ?
+                            T("Файлы программы отсутствуют — доступно восстановление",
+                              "Application files missing — repair available") :
+                            T("Эта версия уже установлена", "This version is installed"),
+                        T("Восстановление заменит отсутствующие или повреждённые файлы программы. Личные данные останутся без изменений.",
+                          "Repair restores missing or damaged application files without changing personal data."),
+                        versionLine, entrypointMissing);
                     ConfigureActions(SetupOperation.Repair, SetupOperation.None,
                         T("Восстановить файлы", "Repair files"));
                     openApplication.Tag = "APPLICATION";

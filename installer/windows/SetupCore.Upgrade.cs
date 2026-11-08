@@ -65,7 +65,14 @@ namespace IwxaSetup
                         {
                             BundleInfo current = ReadOwnedRelease(root, root, info.Id);
                             BundleInfo old = ReadOwnedRelease(
-                                PreviousFor(info), root, info.Id);
+                                PreviousFor(info), root, info.Id, true);
+                            // A damaged same-version backup is expected after
+                            // Repair, but an incomplete previous upgrade
+                            // cannot silently be treated as verified.
+                            bool repairedVersion = old.Version == current.Version &&
+                                old.PackageSha256 == current.PackageSha256;
+                            RequireOnlyOwnedFiles(
+                                PreviousFor(info), repairedVersion);
                             plan.Status = current.PackageSha256 == info.PackageSha256 &&
                                 Convert.ToString(owned.GetValue("Version")) == info.Version &&
                                 old.Id == info.Id ?
@@ -117,11 +124,44 @@ namespace IwxaSetup
                         oldVersion != Convert.ToString(reg.GetValue("Version")) ||
                         Convert.ToString(receipt["packageSha256"]) !=
                             Convert.ToString(reg.GetValue("PackageSha256")) ||
-                        !File.Exists(Path.Combine(root, UninstallExe)) ||
-                        !File.Exists(Path.Combine(root,
-                            info.Entrypoint.Replace('/', Path.DirectorySeparatorChar))))
+                        !File.Exists(Path.Combine(root, UninstallExe)))
                     {
                         plan.Status = "OWNERSHIP_MISMATCH";
+                        return plan;
+                    }
+                    string app = Path.Combine(root,
+                        info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+                    if (!File.Exists(app))
+                    {
+                        // The installed EXE may be absent, but Repair is
+                        // permitted ONLY for the exact same verified package.
+                        // Never use this route to adopt an unrelated root,
+                        // damaged receipt, symlink or legacy NSIS preview.
+                        if (receipt.ContainsKey("legacyHandoff") ||
+                            oldVersion != info.Version ||
+                            Convert.ToString(receipt["packageSha256"]) !=
+                                info.PackageSha256)
+                        {
+                            plan.Status = "OWNERSHIP_MISMATCH";
+                            return plan;
+                        }
+                        BundleInfo damaged = ReadOwnedRelease(
+                            root, root, info.Id, true);
+                        if (!String.Equals(damaged.Entrypoint, info.Entrypoint,
+                                StringComparison.OrdinalIgnoreCase) ||
+                            damaged.Version != info.Version ||
+                            damaged.PackageSha256 != info.PackageSha256)
+                        {
+                            plan.Status = "OWNERSHIP_MISMATCH";
+                            return plan;
+                        }
+                        RequireOnlyOwnedFiles(root, true);
+                        plan.InstalledVersion = oldVersion;
+                        plan.Status = info.NeedsWebView2 &&
+                            String.IsNullOrWhiteSpace(
+                                SetupReadiness.DetectWebView2Version()) ?
+                            "WEBVIEW2_MISSING" :
+                            "REPAIR_CANDIDATE_NOT_ACTIVATED";
                         return plan;
                     }
                     plan.InstalledVersion = oldVersion;

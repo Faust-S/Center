@@ -151,6 +151,47 @@ try {
         }
         Write-Host 'IWXA_SETUP_FAST_REPAIR_UPGRADE_ROLLBACK_PRESERVE_SHORTCUT_PASS'
 
+        # Do not adopt unexpected files, even when the app executable is
+        # missing. Restoring the package is a repair, not a disk cleanup.
+        $missingAsset=Join-Path $root 'assets/owned.txt'
+        Remove-Item -LiteralPath $app -Force
+        Remove-Item -LiteralPath $missingAsset -Force
+        $foreign=Join-Path $root 'unrelated-user-file.txt'
+        [IO.File]::WriteAllText($foreign,'DO_NOT_REMOVE')
+        try {
+            $blockedPlan=Invoke-Setup '--upgrade-plan-file' 'foreign-root-plan'
+            $blockedRepair=Invoke-Setup '--repair-file' 'foreign-root-repair' 2
+            if ($blockedPlan.status -ne 'OWNERSHIP_MISMATCH' -or
+                $blockedRepair.status -ne 'ERROR' -or
+                $blockedRepair.reason -ne 'SETUP_REPAIR_BLOCKED_OWNERSHIP_MISMATCH' -or
+                [IO.File]::ReadAllText($foreign) -ne 'DO_NOT_REMOVE') {
+                throw 'SETUP_FAST_MISSING_EXE_ADOPTED_UNOWNED_FILE'
+            }
+        } finally {
+            Remove-Item -LiteralPath $foreign -Force
+        }
+        $missingPlan=Invoke-Setup '--upgrade-plan-file' 'missing-owned-plan'
+        if ($missingPlan.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED') {
+            throw 'SETUP_FAST_MISSING_EXE_REPAIR_PLAN_NOT_OFFERED'
+        }
+        $repairedMissing=Invoke-Setup '--repair-file' 'repair-missing-files'
+        if ($repairedMissing.status -ne 'REPAIRED_BACKUP_RETAINED' -or
+            (Get-FileHash -LiteralPath $app -Algorithm SHA256).Hash -ne $appHash -or
+            [IO.File]::ReadAllText($missingAsset) -ne 'fixture' -or
+            [IO.File]::ReadAllText($userData) -ne 'outside-user-data') {
+            throw 'SETUP_FAST_MISSING_FILES_NOT_RESTORED'
+        }
+        $pendingMissing=Invoke-Setup '--upgrade-plan-file' 'repair-missing-confirm-plan'
+        if ($pendingMissing.status -ne 'UPGRADE_PENDING_CONFIRMATION') {
+            throw 'SETUP_FAST_INCOMPLETE_BACKUP_NOT_CONFIRMED'
+        }
+        $confirmedMissing=Invoke-Setup '--confirm-upgrade-file' 'repair-missing-confirm'
+        if ($confirmedMissing.status -ne 'UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED' -or
+            (Test-Path -LiteralPath ($root+'.iwxa-previous'))) {
+            throw 'SETUP_FAST_MISSING_FILES_REPAIR_CONFIRM_FAILED'
+        }
+        Write-Host 'IWXA_SETUP_FAST_MISSING_EXE_ASSET_REPAIR_CONFIRM_PASS'
+
         $originalFlags=[IO.File]::GetAttributes($uninstaller)
         try{
             [IO.File]::SetAttributes($uninstaller,

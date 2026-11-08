@@ -61,7 +61,7 @@ namespace IwxaSetup
                     (repairMode ? "SETUP_REPAIR_BLOCKED_" : "SETUP_UPGRADE_BLOCKED_")
                     + plan.Status);
 
-            BundleInfo old = ReadOwnedRelease(root, root, candidate.Id);
+            BundleInfo old = ReadOwnedRelease(root, root, candidate.Id, repairMode);
             // Changing the entrypoint requires a separately witnessed handoff.
             // The regular upgrade/repair path deliberately never rewrites
             // Start Menu shortcuts owned or customized by the user.
@@ -70,7 +70,9 @@ namespace IwxaSetup
                 throw new InvalidOperationException(
                     "SETUP_ENTRYPOINT_CHANGE_REQUIRES_EXPLICIT_MIGRATION");
             RequireRegistryOwnership(candidate.Id, root, old);
-            RequireOnlyOwnedFiles(root);
+            // Repair may restore missing owned files, but never adopts
+            // unexpected files, redirected paths or a different package.
+            RequireOnlyOwnedFiles(root, repairMode);
             AssertNotRunning(old, root);
             if (Directory.Exists(previous) || File.Exists(previous))
                 throw new InvalidOperationException("SETUP_UPGRADE_RECOVERY_REQUIRED");
@@ -298,8 +300,14 @@ namespace IwxaSetup
             if (installed.PackageSha256 != candidate.PackageSha256)
                 throw new InvalidOperationException("SETUP_CONFIRM_CANDIDATE_MISMATCH");
             RequireRegistryOwnership(candidate.Id, root, installed);
-            ReadOwnedRelease(previous, root, candidate.Id);
-            RequireOnlyOwnedFiles(previous);
+            BundleInfo backedUp = ReadOwnedRelease(
+                previous, root, candidate.Id, true);
+            // A same-version repair can legitimately back up a damaged
+            // installation with some files missing. Do not let this prevent
+            // confirmation after the new installation has been verified.
+            bool previousWasRepair = backedUp.Version == installed.Version &&
+                backedUp.PackageSha256 == installed.PackageSha256;
+            RequireOnlyOwnedFiles(previous, previousWasRepair);
 
             // Calling E2E must prove launch/readback before invoking confirm.
             string retired = root + ".iwxa-confirmed-" + Guid.NewGuid().ToString("N");
@@ -312,7 +320,8 @@ namespace IwxaSetup
         }
 
         private static BundleInfo ReadOwnedRelease(
-            string folder, string logicalRoot, string productId)
+            string folder, string logicalRoot, string productId,
+            bool allowMissingEntrypoint = false)
         {
             if (!Directory.Exists(folder) ||
                 (File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0)
@@ -327,9 +336,12 @@ namespace IwxaSetup
                 Convert.ToString(receipt["product"]) != original.Id ||
                 Convert.ToString(receipt["version"]) != original.Version ||
                 Convert.ToString(receipt["packageSha256"]) != original.PackageSha256 ||
-                !SamePath(Convert.ToString(receipt["installRoot"]), logicalRoot) ||
-                !File.Exists(Path.Combine(folder,
-                    original.Entrypoint.Replace('/', Path.DirectorySeparatorChar))))
+                !SamePath(Convert.ToString(receipt["installRoot"]), logicalRoot))
+                throw new InvalidDataException("SETUP_OWNERSHIP_MISMATCH");
+            string application = Path.Combine(folder,
+                original.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+            if (Directory.Exists(application) ||
+                (!allowMissingEntrypoint && !File.Exists(application)))
                 throw new InvalidDataException("SETUP_OWNERSHIP_MISMATCH");
             return original;
         }
@@ -348,7 +360,8 @@ namespace IwxaSetup
             }
         }
 
-        private static void RequireOnlyOwnedFiles(string root)
+        private static void RequireOnlyOwnedFiles(
+            string root, bool allowMissingOwnedFiles = false)
         {
             IDictionary<string, object> receipt = ReadReceipt(root);
             var entries = receipt["files"] as IList;
@@ -386,7 +399,9 @@ namespace IwxaSetup
                     queue.Push(sub);
                 }
             }
-            if (!known.SetEquals(actual))
+            if (!actual.IsSubsetOf(known) ||
+                (!allowMissingOwnedFiles && !known.SetEquals(actual)) ||
+                !actual.Contains(UninstallExe) || !actual.Contains(ReceiptFile))
                 throw new InvalidDataException("SETUP_OWNED_FILES_MISSING");
         }
 
