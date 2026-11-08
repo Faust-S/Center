@@ -151,6 +151,10 @@ try {
             Set-ItemProperty -Path $ownerKey -Name PackageSha256 -Value $originalHash
         }
         Write-Host 'IWXA_SETUP_S3_OWNERSHIP_PLAN_PASS'
+        $noLegacy = Invoke-NativeInspection $bundle (Join-Path $artifact 'setup-core-no-legacy.json') 0 '--legacy-inspect-file'
+        if ($noLegacy.status -ne 'LEGACY_NOT_PRESENT') {
+            throw 'SETUP_S3_NEW_SETUP_MISTAKEN_FOR_LEGACY'
+        }
 
         $refused = Invoke-NativeInspection $bundle $duplicateReport 2 '--install-file'
         if ($refused.status -ne 'ERROR' -or
@@ -270,6 +274,53 @@ try {
             throw 'SETUP_S3_LEGACY_MIGRATION_NOT_BLOCKED'
         }
         Write-Host 'IWXA_SETUP_S3_LEGACY_PLAN_PASS'
+
+        $legacyProbe = Join-Path $artifact 'setup-core-legacy-inspection.json'
+        $unregistered = Invoke-NativeInspection $bundle $legacyProbe 0 '--legacy-inspect-file'
+        if ($unregistered.status -ne 'LEGACY_DIRECTORY_UNREGISTERED_HOLD') {
+            throw 'SETUP_S3_LEGACY_UNREGISTERED_NOT_BLOCKED'
+        }
+
+        # Use only an isolated synthetic HKCU entry, never a real NSIS
+        # uninstaller. The original 0.2 is tested separately.
+        $legacyKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\IWXA.Setup.Legacy.Fixture'
+        if (Test-Path -LiteralPath $legacyKey) { throw 'SETUP_LEGACY_FIXTURE_KEY_ALREADY_PRESENT' }
+        $oldExe = Join-Path $legacy 'iwxa-admin-center.exe'
+        $oldUninstaller = Join-Path $legacy 'uninstall.exe'
+        [IO.File]::WriteAllText($oldExe, 'IWXA_FIXTURE_APPLICATION')
+        [IO.File]::WriteAllText($oldUninstaller, 'IWXA_FIXTURE_UNINSTALLER_NOT_EXECUTABLE')
+        New-Item -Path $legacyKey -Force | Out-Null
+        try {
+            New-ItemProperty -LiteralPath $legacyKey -Name DisplayName -Value 'IWXA Admin Center' -PropertyType String | Out-Null
+            New-ItemProperty -LiteralPath $legacyKey -Name DisplayVersion -Value '0.2.0' -PropertyType String | Out-Null
+            New-ItemProperty -LiteralPath $legacyKey -Name InstallLocation -Value ('"{0}"' -f $legacy) -PropertyType String | Out-Null
+            New-ItemProperty -LiteralPath $legacyKey -Name UninstallString -Value ('"{0}"' -f $oldUninstaller) -PropertyType String | Out-Null
+            New-ItemProperty -LiteralPath $legacyKey -Name Publisher -Value 'IWXA' -PropertyType String | Out-Null
+            $matched = Invoke-NativeInspection $bundle $legacyProbe 0 '--legacy-inspect-file'
+            if ($matched.status -ne 'LEGACY_CONFIRMED_READ_ONLY' -or
+                $matched.installedVersion -ne '0.2.0' -or
+                $matched.installRoot -ne $legacy -or
+                !(Test-Path -LiteralPath $oldUninstaller)) {
+                throw 'SETUP_S3_LEGACY_OWNERSHIP_PROBE_FAILED'
+            }
+
+            # A conflicting duplicate NSIS record must block adoption.
+            $second = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\IWXA.Setup.Legacy.Fixture2'
+            if (Test-Path -LiteralPath $second) { throw 'SETUP_LEGACY_SECOND_KEY_ALREADY_PRESENT' }
+            New-Item -Path $second -Force | Out-Null
+            try {
+                New-ItemProperty -LiteralPath $second -Name DisplayName -Value 'IWXA Admin Center' -PropertyType String | Out-Null
+                $ambiguous = Invoke-NativeInspection $bundle $legacyProbe 0 '--legacy-inspect-file'
+                if ($ambiguous.status -ne 'LEGACY_AMBIGUOUS_HOLD') {
+                    throw 'SETUP_S3_LEGACY_DUPLICATE_REGISTRY_ACCEPTED'
+                }
+            } finally {
+                Remove-Item -LiteralPath $second -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        } finally {
+            Remove-Item -LiteralPath $legacyKey -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        Write-Host 'IWXA_SETUP_S3_LEGACY_READ_ONLY_DISCOVERY_PASS'
     } finally {
         Remove-Item -LiteralPath $legacy -Force -Recurse
     }

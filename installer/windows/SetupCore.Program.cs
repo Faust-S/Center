@@ -35,6 +35,30 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            if (args.Length == 2 && args[0] == "--legacy-inspect-file")
+            {
+                try
+                {
+                    BundleInfo info = BundleReader.Inspect(Application.ExecutablePath);
+                    LegacyAssessment state = SetupLegacy.Inspect(info);
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", state.Status},
+                        {"product", state.Product},
+                        {"installRoot", state.Root},
+                        {"installedVersion", state.Version},
+                        {"registryName", state.RegistryName},
+                        {"uninstaller", state.Uninstaller}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             if (args.Length == 2 && args[0] == "--preflight-file")
             {
                 try

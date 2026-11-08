@@ -122,6 +122,156 @@ namespace IwxaSetup
         }
     }
 
+    // Read-only discovery of the original Tauri/NSIS installation.
+    // No adoption, uninstall command execution or migration is performed.
+    internal sealed class LegacyAssessment
+    {
+        internal string Status;
+        internal string Product;
+        internal string Root;
+        internal string Version;
+        internal string RegistryName;
+        internal string Uninstaller;
+    }
+
+    internal static class SetupLegacy
+    {
+        private const string WindowsUninstall =
+            @"Software\Microsoft\Windows\CurrentVersion\Uninstall";
+
+        internal static LegacyAssessment Inspect(BundleInfo info)
+        {
+            string root = Path.GetFullPath(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                info.InstallDir));
+            var result = new LegacyAssessment {
+                Status = "LEGACY_NOT_PRESENT", Product = info.Id,
+                Root = root, Version = "", RegistryName = "", Uninstaller = ""
+            };
+            bool exists = Directory.Exists(root);
+            if (File.Exists(root) || (exists &&
+                (File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0))
+            {
+                result.Status = "LEGACY_ROOT_UNTRUSTED_HOLD";
+                return result;
+            }
+
+            var candidates = new System.Collections.Generic.List<string>();
+            using (var uninstall = Registry.CurrentUser.OpenSubKey(WindowsUninstall))
+            {
+                if (uninstall != null)
+                {
+                    foreach (string name in uninstall.GetSubKeyNames())
+                    {
+                        // The new Setup Core uses the same product display name.
+                        // It is not a second legacy NSIS installation.
+                        if (String.Equals(name, "IWXA.SetupCore." + info.Id,
+                                StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        using (var entry = uninstall.OpenSubKey(name))
+                        {
+                            if (entry != null && String.Equals(
+                                Convert.ToString(entry.GetValue("DisplayName")),
+                                info.Name, StringComparison.OrdinalIgnoreCase))
+                                candidates.Add(name);
+                        }
+                    }
+                }
+            }
+
+            if (candidates.Count == 0)
+            {
+                result.Status = exists ?
+                    "LEGACY_DIRECTORY_UNREGISTERED_HOLD" :
+                    "LEGACY_NOT_PRESENT";
+                return result;
+            }
+            if (candidates.Count != 1)
+            {
+                result.Status = "LEGACY_AMBIGUOUS_HOLD";
+                return result;
+            }
+            result.RegistryName = candidates[0];
+            using (var entry = Registry.CurrentUser.OpenSubKey(
+                WindowsUninstall + @"\" + candidates[0]))
+            {
+                if (entry == null)
+                {
+                    result.Status = "LEGACY_REGISTRY_CHANGED_HOLD";
+                    return result;
+                }
+                result.Version = Convert.ToString(entry.GetValue("DisplayVersion"));
+                string installedAt = Unquote(Convert.ToString(
+                    entry.GetValue("InstallLocation")));
+                string uninstallCommand = Convert.ToString(
+                    entry.GetValue("UninstallString"));
+                string publisher = Convert.ToString(entry.GetValue("Publisher"));
+                string uninstaller = ExtractExecutable(uninstallCommand);
+                result.Uninstaller = uninstaller;
+                if (!exists)
+                    result.Status = "LEGACY_DIRECTORY_MISSING_HOLD";
+                else if (!String.IsNullOrWhiteSpace(publisher) &&
+                    !String.Equals(publisher, info.Publisher,
+                        StringComparison.OrdinalIgnoreCase))
+                    result.Status = "LEGACY_PUBLISHER_MISMATCH_HOLD";
+                else if (!String.IsNullOrWhiteSpace(installedAt) &&
+                    !SameDirectory(installedAt, root))
+                    result.Status = "LEGACY_INSTALL_PATH_MISMATCH_HOLD";
+                else if (String.IsNullOrWhiteSpace(result.Version) ||
+                    !System.Text.RegularExpressions.Regex.IsMatch(
+                        result.Version,
+                        @"\A\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\z"))
+                    result.Status = "LEGACY_VERSION_UNKNOWN_HOLD";
+                else if (!String.Equals(uninstaller,
+                    Path.Combine(root, "uninstall.exe"),
+                    StringComparison.OrdinalIgnoreCase) ||
+                    !File.Exists(uninstaller))
+                    result.Status = "LEGACY_UNINSTALLER_MISMATCH_HOLD";
+                else if (!File.Exists(Path.Combine(root,
+                    info.Entrypoint.Replace('/', Path.DirectorySeparatorChar))))
+                    result.Status = "LEGACY_APPLICATION_MISSING_HOLD";
+                else
+                    result.Status = "LEGACY_CONFIRMED_READ_ONLY";
+            }
+            return result;
+        }
+
+        private static string Unquote(string value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) return "";
+            string path = value.Trim();
+            return path.Length > 1 && path[0] == '"' &&
+                path[path.Length - 1] == '"' ?
+                path.Substring(1, path.Length - 2) : path;
+        }
+
+        private static string ExtractExecutable(string command)
+        {
+            if (String.IsNullOrWhiteSpace(command)) return "";
+            string text = command.Trim();
+            if (text.StartsWith("\"", StringComparison.Ordinal))
+            {
+                int quote = text.IndexOf('"', 1);
+                return quote > 1 ? text.Substring(1, quote - 1) : "";
+            }
+            int end = text.IndexOf(".exe",
+                StringComparison.OrdinalIgnoreCase);
+            return end >= 0 ? text.Substring(0, end + 4) : "";
+        }
+
+        private static bool SameDirectory(string a, string b)
+        {
+            try
+            {
+                return String.Equals(Path.GetFullPath(a).TrimEnd('\\'),
+                    Path.GetFullPath(b).TrimEnd('\\'),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch (ArgumentException) { return false; }
+            catch (NotSupportedException) { return false; }
+        }
+    }
+
     internal static class StagingProbe
     {
         // All package bytes are extracted into a newly created, uniquely named
