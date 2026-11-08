@@ -42,6 +42,14 @@ try {
       if(command==='publisher_export_preparation_backup')return false;
       if(command==='publisher_pick_preparation_backup')return null;
       if(command==='publisher_inspect_artifact')return null;
+      if(command==='publisher_select_test_delivery')return {
+        size:256,sha256:'a'.repeat(64),licenseId:'license:test:delivery:1',organizationId:'org:test',
+        claimedStatus:'ACTIVE',claimedSeats:4,statusSequence:1,signatureVerified:false,
+        statusVerified:false,commercialAuthorityProven:false,productionActivation:false,activeSeats:0};
+      if(command==='publisher_export_test_delivery'){
+        if(args.expectedSha256!=='a'.repeat(64))throw new Error('TEST_SHA256_SELECTION_MISMATCH');
+        return true;
+      }
       if(command==='publisher_compare_offline_copies')return {
         name:'iwxa-publisher.exe',size:12500,sha256:'a'.repeat(64),
         copiesChecked:2,sameContent:true,distinctSelectedPaths:true,
@@ -55,6 +63,19 @@ try {
   assert.match(await page.locator('main').innerText(),/Подтверждённых релизов: 0/);
   assert.match(await page.locator('main').innerText(),/Подписанных лицензий: 0/);
   checks.push('empty-owner-first-run-no-synthetic-license');
+  await page.getByRole('button',{name:'Доверие и ключи'}).click();
+  const select=page.getByTestId('publisher-select-test-delivery');
+  const exportButton=page.getByTestId('publisher-export-test-delivery');
+  assert.equal(await exportButton.isEnabled(),false);
+  await select.click();
+  await page.getByTestId('publisher-test-delivery-unverified').waitFor();
+  assert.match(await page.getByTestId('publisher-test-delivery-unverified').innerText(),/Подтверждённых мест: 0/);
+  assert.match(await page.getByTestId('publisher-test-delivery-unverified').innerText(),/подлинность ещё не проверена/);
+  await exportButton.click();
+  assert.match(await page.locator('main').innerText(),/Точная копия TEST-файла экспортирована/);
+  checks.push('publisher-test-delivery-native-transport-unverified-zero-seats');
+  await page.getByRole('button',{name:'Обзор'}).click();
+
   const mark=page.locator('.publisher-brand-logo');
   assert.equal(await mark.getAttribute('src'),'/favicon.svg');
   assert.equal(await mark.getAttribute('alt'),'IWXA');
