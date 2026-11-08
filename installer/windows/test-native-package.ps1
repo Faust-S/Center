@@ -286,6 +286,23 @@ try {
             throw 'SETUP_NATIVE_START_MENU_SHORTCUT_MISSING'
         }
         Write-Host "IWXA_SETUP_NATIVE_FIRST_INSTALL_PASS root=$($installed.installRoot)"
+        # The actual product's registered uninstall executable must be an
+        # identical self-contained PE-resource V2 package, not a V1 overlay.
+        $installedUninstaller = Join-Path $installed.installRoot 'IWXA.SetupCore.Uninstall.exe'
+        if (!(Test-Path -LiteralPath $installedUninstaller -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $installedUninstaller -Algorithm SHA256).Hash -ne
+            (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash) {
+            throw 'SETUP_PRIMARY_V2_UNINSTALLER_NOT_EXACT_COPY'
+        }
+        $uninstallIdentity = Invoke-NativeInspection $installedUninstaller (
+            Join-Path $artifact 'setup-core-owned-uninstaller-identity.json') 0 '--inspect-file'
+        if ($uninstallIdentity.status -ne 'VERIFIED' -or
+            $uninstallIdentity.packageFormat -ne 'PE_RESOURCE_V2' -or
+            $uninstallIdentity.sourceCommit -ne $sourceHead -or
+            $uninstallIdentity.packageSha256 -ne $native.packageSha256) {
+            throw 'SETUP_PRIMARY_V2_UNINSTALLER_IDENTITY_MISMATCH'
+        }
+        Write-Host 'IWXA_SETUP_PRIMARY_V2_INSTALLED_UNINSTALLER_IDENTITY_PASS'
         $ownedPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
         if ($ownedPlan.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED' -or
             $ownedPlan.installedVersion -ne '0.3.0-dev.1' -or
