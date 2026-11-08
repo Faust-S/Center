@@ -88,7 +88,11 @@ try {
         throw 'SETUP_FAST_UI_COMPLETION_GATE_NOT_EXPOSED'
     }
     function Assert-Completion([string]$operation,[string]$native,[string]$plan,[bool]$expected){
-        $answer=[bool]$gate.Invoke($null, @($operation,$native,$plan))
+        $arguments=New-Object 'System.Object[]' 3
+        $arguments[0]=[string]$operation
+        $arguments[1]=[string]$native
+        $arguments[2]=[string]$plan
+        $answer=[bool]$gate.Invoke($null, $arguments)
         if($answer -ne $expected){
             throw ('SETUP_FAST_COMPLETION_MISMATCH_'+$operation+'_'+$native+'_'+$plan)
         }
@@ -100,10 +104,17 @@ try {
     Assert-Completion 'Repair' 'REPAIRED_BACKUP_RETAINED' 'REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK' $true
     Assert-Completion 'CancelLegacyPreview' 'UNINSTALLED_USER_DATA_PRESERVED' 'LEGACY_MIGRATION_HOLD' $true
     Assert-Completion 'InstallWebView2' 'WEBVIEW2_INSTALLED_VERIFIED' 'WEBVIEW2_MISSING' $false
-    $expectedBundle=$inspect.Invoke($null,@($bundle))
+    $arguments=New-Object 'System.Object[]' 1
+    $arguments[0]=[string]$bundle
+    $expectedBundle=$inspect.Invoke($null,$arguments)
+    if($expectedBundle -is [System.Management.Automation.PSObject]){
+        $expectedBundle=$expectedBundle.BaseObject
+    }
     function Assert-OwnedState([bool]$expected){
         $valid=$true
-        try{$null=$installedState.Invoke($null,@($expectedBundle))}
+        $arguments=New-Object 'System.Object[]' 1
+        $arguments[0]=$expectedBundle
+        try{$null=$installedState.Invoke($null,$arguments)}
         catch [Reflection.TargetInvocationException]{$valid=$false}
         if($valid -ne $expected){throw 'SETUP_FAST_OWNERSHIP_READBACK_MISMATCH'}
     }
