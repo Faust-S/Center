@@ -66,6 +66,12 @@ function Invoke-Variant(
     }
     if ($exit -ne 0 -or -not (Test-Path -LiteralPath $out)) {
         $details = Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue
+        $outputLog = Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue
+        $exists = Test-Path -LiteralPath $out -PathType Leaf
+        Write-Host ('SETUP_BENCHMARK_DIAGNOSTIC variant=' + $variant +
+            ' exit=' + $exit + ' outputExists=' + $exists +
+            ' command=' + $python + ' ' + $line +
+            ' stdout=' + $outputLog + ' stderr=' + $details)
         throw ('SETUP_BENCHMARK_BUILD_FAILED_' + $prefix + ': ' + $details)
     }
     $result = Get-Content -LiteralPath $stdout -Raw | ConvertFrom-Json
