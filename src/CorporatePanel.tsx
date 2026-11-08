@@ -13,6 +13,9 @@ const why=(e:unknown)=>{
  const recoveryErrors:Record<string,string>={
    CEN02_RECOVERY_ASSIGNMENT_NOT_SELECTED:'Выберите исходный черновик поручения с WorkRef.',
    CEN02_RECOVERY_OWNER_NOT_READY:'Проверьте текущую организационную сессию T3.',
+   CEN02_RECOVERY_WORKSPACE_MISMATCH:'В T3 выбран другой Workspace. Переключите его на исходную рабочую область; нельзя переназначать подписанную Task по сходству названий.',
+   T3_DRAFT_ORGANIZATION_NOT_SELECTED:'Организация T3 не совпадает с организацией черновика. Выдача остановлена до подписи.',
+   T3_DRAFT_WORKSPACE_NOT_SELECTED:'Workspace T3 не совпадает с рабочей областью исходного поручения. Выдача остановлена до подписи.',
    CEN02_RECOVERY_SIGNED_TASK_NOT_SELECTED:'В T3 нет подходящей текущей подписанной Task.',
    CEN02_RECOVERY_SIGNED_CLAIMS_CHANGED:'Исходное содержимое и подписанная редакция Task не совпали с T3. Восстановление отменено.',
    CEN02_RECOVERY_TASK_TEXT_CHANGED:'Содержимое подписанной T3 Task отличается от текущего черновика. Нельзя угадать исходную связь.',
