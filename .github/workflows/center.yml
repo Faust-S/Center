@@ -95,7 +95,7 @@ jobs:
           node-version: '22.16.0'
       - run: npm install --no-audit --no-fund
       - name: Build native Center with original Atlas storage
-        run: npm run desktop:build -- --no-bundle
+        run: npx tauri build --no-bundle
       - name: Qualify IWXA Setup Core native package and GUI (Center 0.3)
         shell: pwsh
         timeout-minutes: 5
