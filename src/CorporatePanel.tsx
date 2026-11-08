@@ -1,5 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {readAppliedResults,prepareAppliedReuse,projectAppliedAtlasEvidence} from '../runtime/cen03-applied-results.mjs';
+import {issuedTaskExportSelection} from '../runtime/cen02-exchange.mjs';
 import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox} from '../runtime/cen03-review.mjs';
 
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
@@ -62,6 +63,10 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  const organizationId=organization.id;
  const requestRef=useRef(0),sessionRef=useRef<string|null>(null),actionRef=useRef(false);
  const ready=ownerSessionFingerprint(owner,organizationId)!==null;
+ // Export must have exactly one local issuer WorkRef for the signed T3 Task.
+ const exportableTask=ready
+   ?issuedTaskExportSelection(organization.issuedTaskLinks,owner.snapshot,organizationId)
+   :null;
  const resetReview=()=>{setReview(null);setConsent(false);setRejectReason('');setPreview(null);setApplyConsent(false);setApplyDecided(false)};
  const adoptOwner=(candidate:any)=>{
    const fingerprint=ownerSessionFingerprint(candidate,organizationId);
@@ -199,11 +204,17 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
          throw Error('TASK_ALREADY_ISSUED_LINK_NOT_SAVED');
        await onIssued(out,before.personId);
      })}>Выдать через CEN02</button>
-    <button className="secondary" data-testid="corporate-export" disabled={!ready||busy||!owner.snapshot?.task?.taskRevisionId}
+    <button className="secondary" data-testid="corporate-export" disabled={!ready||busy||!exportableTask}
      onClick={()=>act('Подписанный .iwxa сохранён на выбранный носитель. Передача и открытие сотрудником не подтверждены.',async()=>{
-       const task=owner.snapshot.task;
-       const result=await execute('exportIssuedTask',{taskId:task.id,taskRevisionId:task.taskRevisionId});
-       if(!Array.isArray(result.bytes)||!result.bytes.length)throw Error('T3_SIGNED_TASK_CARRIER_REQUIRED');
+       const task=issuedTaskExportSelection(organization.issuedTaskLinks,owner.snapshot,organizationId);
+       if(!task)throw Error('CEN02_ISSUE_LINK_NOT_SAVED');
+       const result=await execute('exportIssuedTask',{
+         taskId:task.taskId,taskRevisionId:task.taskRevisionId
+       });
+       if(result.taskId!==task.taskId||result.taskRevisionId!==task.taskRevisionId||
+          result.deliveryState!=='NOT_CONFIRMED'||
+          !Array.isArray(result.bytes)||!result.bytes.length)
+         throw Error('T3_SIGNED_TASK_CARRIER_REQUIRED');
        // WebView2 blob downloads are not the native product export path.
        // Save exactly the original T3 taskBytes() output through Windows
        // file dialog. A cancelled chooser never claims delivery or export.
@@ -212,6 +223,12 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
        if(saved!==true)return false;
      })}>Сохранить .iwxa</button>
    </div>
+   {ready&&!exportableTask&&<p className="muted" data-testid="cen02-export-link-missing">
+     Экспорт через Center недоступен: текущая редакция T3 Task не имеет единственной сохранённой связи с WorkRef. Task могла быть подписана; проверьте журнал T3 и локальный черновик Center, не выдавайте Task повторно вслепую.
+   </p>}
+   {ready&&exportableTask&&<p className="muted" data-testid="cen02-export-link-confirmed">
+     Редакция T3 Task связана с WorkRef {exportableTask.atlasRef.workId} (редакция {exportableTask.atlasRef.revision}) только локально. Доставка не подтверждена.
+   </p>}
   </div>
   <div className="nested-form" data-testid="cen03-section">
    <h3>2. Result сотрудника и Review</h3>
