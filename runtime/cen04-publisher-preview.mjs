@@ -14,7 +14,7 @@ const fail=code=>{throw new CenterPublisherPreviewError(code);};
 const iso=v=>typeof v==='string'&&Number.isFinite(Date.parse(v))&&new Date(v).toISOString()===v;
 
 export function previewSimulatedPublisherSeats({
- centerDraft,request,event,observedAt,priorSequenceFloor=0
+ centerDraft,request,event,observedAt,priorSequenceFloor=0,simulatedAssigneeIds=[]
 }){
  const draft=validateDraft(structuredClone(centerDraft));
  const desired=validateTestLicenseRequest(request);
@@ -23,11 +23,20 @@ export function previewSimulatedPublisherSeats({
  if(!Number.isSafeInteger(priorSequenceFloor)||priorSequenceFloor<0)
    fail('CEN04_PREVIEW_SEQUENCE_FLOOR_INVALID');
  const org=draft.organizations.find(x=>x.id===desired.subject.id);
- const planned=org?.participants.filter(p=>p.personalAgentPlan==='PLANNED').length??0;
+ // Hypothetical assignments must be explicitly supplied for THIS product.
+ // A Personal Agent seat plan in CEN01 is not a Publisher/Center license seat.
+ if(!Array.isArray(simulatedAssigneeIds)||simulatedAssigneeIds.length>10000||
+   simulatedAssigneeIds.some(id=>typeof id!=='string'||id.length<1||id.length>160)||
+   new Set(simulatedAssigneeIds).size!==simulatedAssigneeIds.length)
+   fail('CEN04_SIMULATION_ASSIGNEES_INVALID');
+ const planned=simulatedAssigneeIds.length;
  let state='MATCHED_TEST_SIMULATION';
  if(!org||org.kind!=='ORGANIZATION')state='ORGANIZATION_NOT_FOUND';
  else if(draft.activeOrganizationId!==org.id)state='ORGANIZATION_CONTEXT_CHANGED';
  else if(!matchSimulatedEventToRequest(desired,sample))state='REQUEST_BINDING_CHANGED';
+ else if(simulatedAssigneeIds.some(id=>!org.participants.some(p=>p.id===id)))
+   state='SIMULATED_ASSIGNEE_NOT_FOUND';
+ else if(simulatedAssigneeIds.length>desired.seats)state='SIMULATED_SEATS_EXCEEDED';
  else if(sample.sequence<=priorSequenceFloor)state='SIMULATED_EVENT_REPLAY';
  else if(Date.parse(sample.observedAt)>Date.parse(observedAt))state='SIMULATED_EVENT_IN_FUTURE';
  else if(Date.parse(sample.expiresAt)<=Date.parse(observedAt))state='SIMULATED_EVENT_EXPIRED';

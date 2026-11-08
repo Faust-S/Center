@@ -4,7 +4,7 @@ import {emptyDraft,applyDraftCommand} from '../../src/organization.mjs';
 import {emptyPublisherDraft,applyPublisherDraftCommand} from '../../publisher/src/preparation.mjs';
 import {prepareTestLicenseRequest} from '../../publisher/src/test-license-request.mjs';
 import {simulateIssuerEvent} from '../../publisher/src/issuer-simulation.mjs';
-import {previewSimulatedPublisherSeats} from '../cen04-publisher-preview.mjs';
+import {previewSimulatedPublisherSeats} from '../../runtime/cen04-publisher-preview.mjs';
 const NOW='2026-11-08T14:00:00.000Z',ORG='00000000-0000-4000-8000-000000000001';
 function fixture(){
  let center=applyDraftCommand(emptyDraft(),{type:'CREATE_ORGANIZATION',kind:'ORGANIZATION',name:'Training company'},{
@@ -24,7 +24,7 @@ const examine=(v)=>previewSimulatedPublisherSeats(v);
 test('CEN04 independently matches exact Admin organization and counts modeled seats with 0 real rights',()=>{
  const {center,request}=fixture(),before=JSON.stringify(center);
  const event=simulateIssuerEvent(request,{observedAt:NOW,sequence:1});
- const r=examine({centerDraft:center,request,event,observedAt:NOW});
+ const r=examine({centerDraft:center,request,event,observedAt:NOW,simulatedAssigneeIds:['participant:1']});
  assert.equal(r.state,'MATCHED_TEST_SIMULATION');
  assert.equal(r.modeledRequestedSeats,3);
  assert.equal(r.modeledPlannedSeats,1);
@@ -48,6 +48,19 @@ test('different organization, context or forged requested seats are never previe
  r=examine({centerDraft:center,request:{...request,seats:99},event,observedAt:NOW});
  assert.equal(r.state,'REQUEST_BINDING_CHANGED');
  for(const result of [r])assert.equal(result.actualLicensedSeats,0);
+});
+test('Personal Agent seat plans never become Publisher-licensed seats by implication',()=>{
+ const {center,request}=fixture(),event=simulateIssuerEvent(request,{observedAt:NOW});
+ const r=examine({centerDraft:center,request,event,observedAt:NOW});
+ assert.equal(r.modeledPlannedSeats,0);
+ assert.equal(r.modeledUnassignedCapacity,3);
+ assert.equal(r.actualLicensedSeats,0);
+ assert.throws(()=>examine({centerDraft:center,request,event,observedAt:NOW,
+   simulatedAssigneeIds:['participant:1','participant:1']}),{code:'CEN04_SIMULATION_ASSIGNEES_INVALID'});
+ const missing=examine({centerDraft:center,request,event,observedAt:NOW,
+   simulatedAssigneeIds:['participant:missing']});
+ assert.equal(missing.state,'SIMULATED_ASSIGNEE_NOT_FOUND');
+ assert.equal(missing.actualLicensedSeats,0);
 });
 test('simulated suspension, revocation, expiry and stale sequence never grant rights',()=>{
  const {center,request}=fixture();
