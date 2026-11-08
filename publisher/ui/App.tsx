@@ -94,6 +94,32 @@ export default function App(){
    }catch(e){setError(getError(e));}
    finally{setBusy(false);}
  }
+ async function exportPreparationBackup(){
+   if(busy||!loaded||!nativeHost)return;
+   setBusy(true);setError('');setMessage('');
+   try {
+     const saved=await invoke('publisher_export_preparation_backup',{content:encodePublisherDraft(state)});
+     setMessage(saved?'Копия черновиков сохранена и проверена. Лицензии и ключи издателя не включены.':'Создание копии отменено.');
+   } catch(e){setError('Не удалось сохранить копию: '+getError(e));}
+   finally{setBusy(false);}
+ }
+ async function restorePreparationBackup(){
+   if(busy||!loaded||!nativeHost)return;
+   setBusy(true);setError('');setMessage('');
+   try {
+     const selected=await invoke('publisher_pick_preparation_backup');
+     if(selected===null){setMessage('Выбор копии отменён.');return;}
+     const restored=decodePublisherDraft(selected) as Draft;
+     if(!window.confirm('Заменить текущие черновики данными выбранной копии? Это не восстанавливает лицензии или ключи.')){
+       setMessage('Восстановление отменено. Текущие черновики сохранены.');return;
+     }
+     // Strict JS validation finishes before the existing atomic native writer.
+     await persistDraft(restored);
+     setState(restored);setSimulated(null);setInspected(null);
+     setMessage('Черновики восстановлены из копии и сохранены. Подписи и права не изменены.');
+   } catch(e){setError('Восстановление не выполнено, текущие черновики не заменены: '+getError(e));}
+   finally{setBusy(false);}
+ }
  async function exportTestRequest(proposalId:string) {
    if(busy||!loaded)return;
    setBusy(true);setError('');setMessage('');
@@ -158,6 +184,16 @@ export default function App(){
          <div className="metrics"><div className="card metric"><span>Продукты</span><strong>{state.products.length}</strong></div><div className="card metric"><span>Получатели</span><strong>{state.holders.length}</strong></div><div className="card metric"><span>Черновики запросов</span><strong>{state.proposals.length}</strong></div></div>
          <section className="hero"><div className="eyebrow">РАБОТА ИЗДАТЕЛЯ</div><h2>Подготовка лицензий и выпусков IWXA</h2><p>Создайте запись продукта, получателя и проект условий лицензии. Действительное право появится только после подписи и проверки исходным механизмом издателя.</p><div className="actions"><button type="button" className="primary" onClick={()=>go('products')}>Добавить продукт</button><button type="button" className="secondary" onClick={()=>go('releases')}>Проверить сборку</button></div></section>
          <section className="card padded"><h2>Текущее состояние</h2><p className="muted">Заявок на публикацию: {state.artifacts.length}. Подтверждённых релизов: 0. Подписанных лицензий: 0.</p><p className="muted">Реальные источники подписей, trust catalog и приём лицензии в Admin Center пока не включены в этот исполняемый продукт.</p></section>
+         <section className="card padded" data-testid="publisher-preparation-backup">
+           <h2>Резервная копия черновиков</h2>
+           <p className="muted">Включает только каталог продуктов, получателей, неподписанные запросы и записи проверок файлов. Подписанных лицензий, решений о публикации и ключей издателя в этой копии нет.</p>
+           <p className="muted">Восстановление заменит текущие черновики после отдельного подтверждения. Выберите сохранённый JSON-файл.</p>
+           <div className="actions">
+             <button type="button" className="secondary" disabled={!nativeHost||busy} onClick={()=>void exportPreparationBackup()}>Сохранить копию черновиков</button>
+             <button type="button" className="secondary" disabled={!nativeHost||busy} onClick={()=>void restorePreparationBackup()}>Восстановить черновики</button>
+           </div>
+           {!nativeHost&&<p className="muted">Экспорт и восстановление доступны в установленном Publisher.</p>}
+         </section>
        </>}
        {page==='products'&&<>
          <section className="card form-panel"><h2>Новый продукт в локальном черновике каталога</h2>

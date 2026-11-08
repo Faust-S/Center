@@ -19,6 +19,7 @@
     "publisher:dev": "vite --config publisher/vite.config.ts",
     "publisher:preview": "vite preview --config publisher/vite.config.ts",
     "publisher:desktop:build": "cd publisher && npx tauri build",
+    "publisher:desktop:exe": "cd publisher && npx tauri build --no-bundle",
     "publisher:test:ui": "node publisher/tests/browser-smoke.mjs"
   },
   "dependencies": {

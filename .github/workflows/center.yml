@@ -205,7 +205,7 @@ jobs:
       - name: Publisher native preparation and TEST request tests
         run: cargo test --release --manifest-path publisher/src-tauri/Cargo.toml -- --nocapture
       - name: Build actual Publisher EXE with Tauri CLI (no duplicate installer)
-        run: npm run publisher:desktop:build -- --no-bundle
+        run: npm run publisher:desktop:exe
       - name: Build/install/launch/uninstall Publisher with original IWXA Setup Core
         shell: pwsh
         run: ./publisher/tests/installed-setupcore-publisher.ps1

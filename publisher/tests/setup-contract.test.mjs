@@ -35,7 +35,8 @@ test('Publisher full release EXE is assembled with Tauri resources before Setup 
  assert.equal(app.build.beforeBuildCommand,'npm run publisher:build');
  assert.equal(app.build.frontendDist,'../../publisher-dist');
  assert.equal(scripts['publisher:desktop:build'],'cd publisher && npx tauri build');
- assert.match(publisherJob,/run:\s*npm run publisher:desktop:build -- --no-bundle/);
+ assert.equal(scripts['publisher:desktop:exe'],'cd publisher && npx tauri build --no-bundle');
+ assert.match(publisherJob,/run:\s*npm run publisher:desktop:exe/);
  assert.doesNotMatch(publisherJob,/run:\s*cargo build --release/);
  assert.match(publisherJob,/run:\s*\.\/publisher\/tests\/installed-setupcore-publisher\.ps1/);
 });

@@ -62,3 +62,15 @@ test('draft importer rejects arbitrary JSON and unknown authority-bearing fields
  assert.throws(()=>decodePublisherDraft(JSON.stringify({...emptyPublisherDraft(),issuerPrivateKey:'x'})),{code:'DRAFT_FIELDS_INVALID'});
  assert.throws(()=>decodePublisherDraft(JSON.stringify({...emptyPublisherDraft(),format:'iwxa.admin-center.draft'})),{code:'DRAFT_VERSION_INVALID'});
 });
+
+test('preparation backup payload is strictly validated before replacing live drafts',()=>{
+ const before=setup();
+ const archive=encodePublisherDraft(before);
+ assert.deepEqual(decodePublisherDraft(archive),before);
+ assert.deepEqual(validatePublisherDraft(before),before);
+ const invalid=JSON.parse(archive);invalid.privateKey='not allowed';
+ assert.throws(()=>decodePublisherDraft(JSON.stringify(invalid)),{code:'DRAFT_FIELDS_INVALID'});
+ assert.equal(decodePublisherDraft(archive).holders[0].id,before.holders[0].id);
+ const forged=JSON.parse(archive);forged.products[0].approved=true;
+ assert.throws(()=>decodePublisherDraft(JSON.stringify(forged)),{code:'PRODUCT_FIELDS_INVALID'});
+});

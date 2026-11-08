@@ -21,6 +21,10 @@ try {
   assert.match(await page.locator('main').innerText(),/Подтверждённых релизов: 0/);
   assert.match(await page.locator('main').innerText(),/Подписанных лицензий: 0/);
   checks.push('empty-owner-first-run-no-synthetic-license');
+  assert.equal(await page.getByRole('button',{name:'Сохранить копию черновиков'}).isDisabled(),true);
+  assert.equal(await page.getByRole('button',{name:'Восстановить черновики'}).isDisabled(),true);
+  assert.match(await page.getByTestId('publisher-preparation-backup').innerText(),/ключей издателя в этой копии нет/);
+  checks.push('backup-is-native-only-and-never-exports-issuer-keys');
 
   await page.getByRole('button',{name:'Продукты',exact:true}).click();
   await page.getByLabel('Идентификатор продукта').fill('IWXA_ADMIN_CENTER');

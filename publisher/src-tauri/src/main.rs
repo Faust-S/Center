@@ -207,11 +207,69 @@ fn publisher_save_test_request(content: String, suggested_file_name: String) -> 
     }
 }
 
+// Backup contains preparation drafts only. No issuer credentials, signed
+// licenses, status receipts or release approvals are written by this API.
+const BACKUP_NAME: &str = "iwxa-publisher-preparation-backup.json";
+
+fn write_preparation_backup(path: &Path, content: &str) -> Result<(), String> {
+    validate_preparation(content)?;
+    if path.extension().and_then(|v| v.to_str()) != Some("json") {
+        return Err("PUBLISHER_BACKUP_FILE_EXTENSION_INVALID".into());
+    }
+    if path.exists() { return Err("PUBLISHER_BACKUP_DESTINATION_EXISTS".into()); }
+    let folder = path.parent().ok_or("PUBLISHER_BACKUP_DESTINATION_INVALID")?;
+    if !folder.is_dir() { return Err("PUBLISHER_BACKUP_DESTINATION_INVALID".into()); }
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
+    let tmp = folder.join(format!(".publisher-backup-{}-{now}.tmp", std::process::id()));
+    let result = (|| -> Result<(), String> {
+        let mut f = OpenOptions::new().write(true).create_new(true).open(&tmp).map_err(|e| e.to_string())?;
+        f.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+        f.sync_all().map_err(|e| e.to_string())?;
+        fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+        let copied = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        if copied != content { return Err("PUBLISHER_BACKUP_READBACK_MISMATCH".into()); }
+        Ok(())
+    })();
+    if result.is_err() { let _ = fs::remove_file(&tmp); }
+    result
+}
+
+fn read_preparation_backup(path: &Path) -> Result<String, String> {
+    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
+    if !metadata.is_file() || metadata.len() > MAX_DRAFT_BYTES as u64 {
+        return Err("PUBLISHER_BACKUP_SIZE_INVALID".into());
+    }
+    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    validate_preparation(&text)?;
+    Ok(text)
+}
+
+#[tauri::command]
+fn publisher_export_preparation_backup(content: String) -> Result<bool, String> {
+    validate_preparation(&content)?;
+    let path = rfd::FileDialog::new()
+        .add_filter("JSON", &["json"]).set_file_name(BACKUP_NAME).save_file();
+    match path {
+        Some(destination) => write_preparation_backup(&destination, &content).map(|_| true),
+        None => Ok(false),
+    }
+}
+
+#[tauri::command]
+fn publisher_pick_preparation_backup() -> Result<Option<String>, String> {
+    let path = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file();
+    match path {
+        Some(source) => read_preparation_backup(&source).map(Some),
+        None => Ok(None),
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(DraftLock(Mutex::new(())))
         .invoke_handler(tauri::generate_handler![
-            publisher_draft_read, publisher_draft_save, publisher_inspect_artifact, publisher_save_test_request
+            publisher_draft_read, publisher_draft_save, publisher_inspect_artifact, publisher_save_test_request,
+            publisher_export_preparation_backup, publisher_pick_preparation_backup
         ])
         .run(tauri::generate_context!())
         .expect("IWXA Publisher could not start");
@@ -227,6 +285,29 @@ mod tests {
     fn valid_preparation() -> String {
         r#"{"format":"iwxa.publisher.preparation","version":1,"products":[],"holders":[],"proposals":[],"artifacts":[],"updatedAt":"2026-11-08T00:00:00.000Z"}"#.to_string()
     }
+    #[test]
+    fn backup_roundtrip_is_exact_rejects_overwrite_and_never_changes_live_draft() {
+        let root = scratch();
+        fs::create_dir_all(&root).unwrap();
+        let draft = valid_preparation();
+        write_preparation(&root, &draft).unwrap();
+        let backup = root.join("publisher-backup.json");
+        write_preparation_backup(&backup, &draft).unwrap();
+        assert_eq!(read_preparation_backup(&backup).unwrap(), draft);
+        assert!(write_preparation_backup(&backup, &draft).is_err());
+        let changed = draft.replace("\"products\":[]", "\"products\":[{\"id\":\"changed\"}]");
+        write_preparation(&root, &changed).unwrap();
+        assert_eq!(read_preparation(&root).unwrap().unwrap(), changed);
+        write_preparation(&root, &read_preparation_backup(&backup).unwrap()).unwrap();
+        assert_eq!(read_preparation(&root).unwrap().unwrap(), draft);
+        let malformed = root.join("malformed.json");
+        fs::write(&malformed, r#"{"format":"invalid"}"#).unwrap();
+        assert!(read_preparation_backup(&malformed).is_err());
+        assert_eq!(read_preparation(&root).unwrap().unwrap(), draft);
+        assert!(write_preparation_backup(&root.join("unsupported.txt"), &draft).is_err());
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn first_run_is_empty_and_preparation_survives_new_open() {
         let root = scratch();
