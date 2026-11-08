@@ -13,7 +13,16 @@ const keys=(v,ks,code)=>{
   if(!plain(v)||Object.keys(v).length!==ks.length||ks.some(k=>!Object.hasOwn(v,k)))fail(code);
 };
 const iso=v=>typeof v==='string'&&Number.isFinite(Date.parse(v))&&new Date(v).toISOString()===v;
-const equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+const equal=(a,b)=>{
+  if(Object.is(a,b))return true;
+  if(Array.isArray(a)||Array.isArray(b))
+    return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((v,i)=>equal(v,b[i]));
+  if(plain(a)&&plain(b)){
+    const ak=Object.keys(a),bk=Object.keys(b);
+    return ak.length===bk.length&&ak.every(k=>Object.hasOwn(b,k)&&equal(a[k],b[k]));
+  }
+  return false;
+};
 
 // No license envelope, signature, signer or private key ever exists in this
 // module. This models the business handoff while the original T3 product issuer
@@ -38,7 +47,7 @@ export function validateSimulatedIssuerEvent(value) {
   return {...structuredClone(value),request};
 }
 
-export function simulateIssuerEvent(request,{decision='SIMULATED_ISSUED',observedAt,sequence=1}={}) {
+export function simulateIssuerEvent(request,{decision='SIMULATED_ISSUED',observedAt,sequence=1}) {
   const original=validateTestLicenseRequest(request);
   if(!iso(observedAt))fail('SIMULATION_TIME_REQUIRED');
   const start=Date.parse(observedAt);

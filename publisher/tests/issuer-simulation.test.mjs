@@ -46,6 +46,12 @@ test('subject/product/feature/seat edits after simulation are detected before re
   {...r,termDays:45},
  ])assert.equal(matchSimulatedEventToRequest(modified,e),false);
 });
+test('same TEST request with reordered JSON object fields remains the same binding',()=>{
+ const r=request(),e=simulateIssuerEvent(r,{observedAt:now});
+ const reorder=o=>Object.fromEntries(Object.entries(o).reverse());
+ const swapped=reorder({...r,product:reorder(r.product),subject:reorder(r.subject)});
+ assert.equal(matchSimulatedEventToRequest(swapped,e),true);
+});
 test('simulation events can model suspension and revocation without authority',()=>{
  const r=request();
  const a=simulateIssuerEvent(r,{observedAt:now,decision:'SIMULATED_ISSUED',sequence:1});
