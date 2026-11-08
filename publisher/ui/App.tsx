@@ -46,6 +46,7 @@ export default function App(){
  const [productName,setProductName]=useState('');
  const [productVersion,setProductVersion]=useState('0.2.0');
  const [holderName,setHolderName]=useState('');
+ const [holderSourceId,setHolderSourceId]=useState('');
  const [holderType,setHolderType]=useState<Holder['type']>('ORGANIZATION');
  const [proposalProduct,setProposalProduct]=useState('');
  const [proposalHolder,setProposalHolder]=useState('');
@@ -150,8 +151,9 @@ export default function App(){
          <section className="card padded"><h2>Продукты ({state.products.length})</h2>{state.products.length===0?<p className="muted">Каталог пуст. Ни один продукт не допущен к распространению.</p>:state.products.map(p=><div className="simple-row" key={p.id}><div><strong>{p.name}</strong><small>{p.id} · {p.version}</small></div><span className="status neutral">Черновик</span></div>)}</section>
        </>}
        {page==='holders'&&<>
-         <section className="card form-panel"><h2>Новый получатель</h2><form onSubmit={e=>{e.preventDefault();void change({kind:'addHolder',name:holderName.trim(),type:holderType},'Получатель добавлен в локальный черновик.');setHolderName('');}}>
-           <div className="form-grid"><label>Название / имя<input required maxLength={130} value={holderName} onChange={e=>setHolderName(e.target.value)}/></label>
+         <section className="card form-panel"><h2>Новый получатель</h2><form onSubmit={e=>{e.preventDefault();void change({kind:'addHolder',id:holderSourceId.trim(),name:holderName.trim(),type:holderType},'Получатель добавлен в локальный черновик.');setHolderName('');setHolderSourceId('');}}>
+           <p className="muted">Укажите точный идентификатор субъекта из Admin Center или исходной системы. Запись здесь не создаёт организационных полномочий.</p>
+           <div className="form-grid"><label>Идентификатор субъекта<input required maxLength={90} placeholder="UUID организации из Admin Center" value={holderSourceId} onChange={e=>setHolderSourceId(e.target.value)}/></label><label>Название / имя<input required maxLength={130} value={holderName} onChange={e=>setHolderName(e.target.value)}/></label>
            <label>Тип субъекта<select value={holderType} onChange={e=>setHolderType(e.target.value as Holder['type'])}><option value="ORGANIZATION">Организация</option><option value="PERSON">Физическое лицо</option></select></label></div>
            <button className="primary" disabled={busy} type="submit">Сохранить получателя</button></form></section>
          <section className="card padded"><h2>Получатели ({state.holders.length})</h2>{state.holders.length===0?<p className="muted">Получателей пока нет.</p>:state.holders.map(h=><div key={h.id} className="simple-row"><div><strong>{h.name}</strong><small>{typeLabel(h.type)} · {h.id}</small></div><span className="status neutral">Подготовка</span></div>)}</section>

@@ -31,6 +31,7 @@ try {
   checks.push('create-product-draft');
 
   await page.getByRole('button',{name:'Получатели'}).click();
+  await page.getByLabel('Идентификатор субъекта').fill('11111111-1111-4111-8111-111111111111');
   await page.getByLabel('Название / имя').fill('Test Corporation');
   await page.getByRole('button',{name:'Сохранить получателя'}).click();
   await page.getByText('Получатели (1)').waitFor();
@@ -54,6 +55,7 @@ try {
   assert.equal(testRequest.seats,3);
   assert.equal(testRequest.product.id,'IWXA_ADMIN_CENTER');
   assert.equal(testRequest.subject.type,'ORGANIZATION');
+  assert.equal(testRequest.subject.id,'11111111-1111-4111-8111-111111111111');
   assert.deepEqual(testRequest.featureIds,['FEATURE_A','FEATURE_B']);
   assert.ok(!('licenseId' in testRequest) && !('signature' in testRequest));
   assert.match(await page.locator('main').innerText(),/Лицензия не выдана/);

@@ -7,7 +7,7 @@ import {prepareTestLicenseRequest, validateTestLicenseRequest, encodeTestLicense
 function fixture(kind='ORGANIZATION',productId='IWXA_ADMIN_CENTER',features=['WORKSPACE']){
   let s=emptyPublisherDraft();
   s=applyPublisherDraftCommand(s,{kind:'addProduct',id:productId,name:'Test product',version:'0.3.0'});
-  s=applyPublisherDraftCommand(s,{kind:'addHolder',name:'Test holder',type:kind});
+  s=applyPublisherDraftCommand(s,{kind:'addHolder',id:'11111111-1111-4111-8111-111111111111',name:'Test holder',type:kind});
   s=applyPublisherDraftCommand(s,{kind:'addProposal',holderId:s.holders[0].id,productId,features,termDays:90});
   return s;
 }
@@ -46,6 +46,12 @@ test('request subject binds exactly to the original Admin Center organization dr
   assert.equal(request.seats,4);
   assert.equal(request.status,'UNSIGNED_REQUEST');
   assert.equal(admin.organizations[0].id,admin.activeOrganizationId);
+});
+test('legacy generated placeholder holder IDs are not authoritative source identities',()=>{
+ const d=fixture();
+ d.holders[0].id='holder:synthetic';
+ d.proposals[0].holderId='holder:synthetic';
+ assert.throws(()=>prepareTestLicenseRequest(d,{proposalId:d.proposals[0].id,seats:1}),{code:'TEST_REQUEST_SOURCE_ORGANIZATION_ID_REQUIRED'});
 });
 test('issuer request cannot be generated for empty or unselected features, wrong proposal ID or extra fields',()=>{
   const d=fixture('ORGANIZATION','IWXA_ADMIN_CENTER',[]);
