@@ -196,7 +196,7 @@ try {
   checks.push('same-origin-restart-persistence');
 
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
-  assert.match(await page.locator('main').innerText(),/Операции подписи не подключены/);
+  assert.match(await page.locator('main').innerText(),/TEST-подпись доступна только через ранее зарегистрированного владельца/);
   await page.getByRole('button',{name:'Релизы'}).click();
   assert.equal(await page.getByRole('button',{name:'Выбрать и проверить файл'}).isEnabled(),true);
   await page.getByRole('button',{name:'Сверить две копии файла'}).click();
