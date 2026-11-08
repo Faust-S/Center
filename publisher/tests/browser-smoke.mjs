@@ -53,6 +53,7 @@ try {
   assert.match(simulatedText,/СИМУЛЯЦИЯ · НЕ ЛИЦЕНЗИЯ/);
   assert.match(simulatedText,/Смоделировано мест: 3/);
   assert.match(simulatedText,/Действительных лицензированных мест: 0/);
+  assert.match(await page.getByTestId('publisher-test-simulation-result').getAttribute('aria-label'),/Действительных лицензированных мест: 0/);
   assert.match(simulatedText,/Активация и распределение мест недоступны/);
   // An installed WebView is shorter than the content; the simulation must be
   // brought into view so the seat count can actually be read by a user/UIA.

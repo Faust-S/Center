@@ -73,8 +73,9 @@ function Find-Text([string]$piece) {
       [System.Windows.Automation.Condition]::TrueCondition)
     foreach($node in $nodes) {
       try {
-        if($node.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text -and
-           $node.Current.Name.Contains($piece)){return $node}
+        # WebView2 may expose a live region as Group rather than Text.
+        # Check the accessible name of visible descendants, not only Text nodes.
+        if($node.Current.Name.Contains($piece) -and !$node.Current.IsOffscreen){return $node}
       } catch {}
     }
     Start-Sleep -Milliseconds 300
