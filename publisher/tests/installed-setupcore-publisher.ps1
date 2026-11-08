@@ -51,11 +51,12 @@ if($componentSource){
   }
 }
 $stub=Join-Path $artifact 'setup-core-stub.exe'
-$bundle=Join-Path $artifact (if($TransportOnly){
+$bundleName=if($TransportOnly){
   'IWXA-Publisher-Transport-0.2.0-dev.2.exe'
 }else{
   'IWXA-Publisher-SetupCore-0.2.0-dev.2.exe'
-})
+}
+$bundle=Join-Path $artifact $bundleName
 $icon=[IO.Path]::GetFullPath('publisher/src-tauri/icons/icon.ico')
 & ./vendor/setupcore/installer/windows/build-stub.ps1 -Output $stub -Icon $icon
 if(!(Test-Path -LiteralPath $stub -PathType Leaf)){throw 'PUBLISHER_SETUP_STUB_BUILD_FAILED'}
@@ -161,8 +162,9 @@ try {
     Write-Host 'PUBLISHER_SETUP_UNINSTALL_PRESERVES_USER_DATA_PASS'
   }
 }
+$reportStatus=if($TransportOnly){'PUBLISHER_TWO_FILE_TRANSPORT_ONLY_PASS'}else{'PUBLISHER_SETUP_CORE_INSTALLED_GUI_PASS'}
 $report=[ordered]@{
-  status=if($TransportOnly){'PUBLISHER_TWO_FILE_TRANSPORT_ONLY_PASS'}else{'PUBLISHER_SETUP_CORE_INSTALLED_GUI_PASS'}
+  status=$reportStatus
   sourceHead=$head;sourceTree=$tree;setupCorePin=$pin
   product='iwxa.publisher';version='0.2.0-dev.2'
   setupSha256=$manifest.setup_sha256
