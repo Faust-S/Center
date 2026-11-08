@@ -71,7 +71,7 @@ function Check-Window([string]$exe,[string]$label){
     $proc.Dispose()
   }
 }
-function Click-SetupGuiAction([string[]]$labels) {
+function Click-SetupGuiAction([string[]]$labels,[bool]$expectNative) {
   $setup=Start-Process -FilePath $bundle -PassThru
   try {
     $clicked=$false
@@ -113,6 +113,19 @@ function Click-SetupGuiAction([string[]]$labels) {
       if($clicked){break}
     }
     if(!$clicked){throw ('LEGACY_GUI_ACTION_NOT_FOUND_{0}' -f ($labels -join '|'))}
+    $settled=$false
+    for($wait=0;$wait -lt 120;$wait++){
+      Start-Sleep -Milliseconds 250
+      $registered=Test-Path -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center'
+      $active=Test-Path -LiteralPath (Join-Path $newRoot 'iwxa-admin-center.exe')
+      $receipt=Test-Path -LiteralPath (Join-Path $newRoot '.iwxa-setup-ownership.json')
+      if($expectNative){
+        if($registered -and $active -and $receipt){$settled=$true;break}
+      } else {
+        if(!$registered -and !(Test-Path -LiteralPath $newRoot)){$settled=$true;break}
+      }
+    }
+    if(!$settled){throw ('LEGACY_GUI_ACTION_DID_NOT_FINISH_{0}' -f ($labels -join '|'))}
     return $true
   } finally {
     $setup.Refresh()
@@ -162,7 +175,7 @@ $preflight=Call-Setup '--preflight-file' 'preflight'
 if($preflight.status -ne 'LEGACY_INSTALLATION'){
   throw ('LEGACY_PREFLIGHT_STATUS_{0}' -f $preflight.status)
 }
-$null=Click-SetupGuiAction @('Install to preview','Установить для проверки')
+$null=Click-SetupGuiAction @('Install to preview','Установить для проверки') $true
 $ready=$false
 for($i=0;$i -lt 60;$i++){
   Start-Sleep -Milliseconds 250
@@ -180,7 +193,7 @@ if($plan.status -ne 'LEGACY_MIGRATION_PENDING_GUI_READBACK'){
 }
 Check-Window (Join-Path $newRoot 'iwxa-admin-center.exe') 'NEW_03'
 Assert-Original
-$null=Click-SetupGuiAction @('Cancel preview','Отменить переход')
+$null=Click-SetupGuiAction @('Cancel preview','Отменить переход') $false
 $gone=$false
 for($i=0;$i -lt 60;$i++){
   Start-Sleep -Milliseconds 250
