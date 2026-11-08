@@ -285,6 +285,18 @@ namespace IwxaSetup
             Func<double, int> px = value =>
                 Math.Max(1, (int)Math.Round(value * scale));
 
+            // WinForms anchors can retain the pre-scale width when a hidden
+            // native form is resized. Set the intended content bounds from
+            // the actual client rectangle on each layout pass.
+            card.Left = px(30);
+            card.Width = Math.Max(px(320), area.ClientSize.Width - px(60));
+            eyebrow.Width = Math.Max(px(220), area.ClientSize.Width - px(64));
+            productName.Width = Math.Max(px(220), area.ClientSize.Width - px(64));
+            description.Width = Math.Max(px(220), area.ClientSize.Width - px(66));
+            note.Width = Math.Max(px(220), area.ClientSize.Width - px(66));
+            openApplication.Width = Math.Max(px(220),
+                area.ClientSize.Width - px(64));
+
             eyebrow.Top = px(shortView ? 16 : 32);
             productName.Top = px(shortView ? 45 : 68);
             productName.Height = px(shortView ? 40 : 52);
