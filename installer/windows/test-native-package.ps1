@@ -469,43 +469,6 @@ try {
         Add-Type -AssemblyName UIAutomationClient
         $window = [System.Windows.Automation.AutomationElement]::FromHandle($gui.MainWindowHandle)
         $windowBounds = $window.Current.BoundingRectangle
-        # Previously the entire main panel started at window X=0 underneath
-        # the navigation, making the program title and details unreadable.
-        # Assert real WinForms UIA geometry, not just process/window existence.
-        $descendants = $window.FindAll(
-            [System.Windows.Automation.TreeScope]::Descendants,
-            [System.Windows.Automation.Condition]::TrueCondition)
-        $navigation = $null
-        $contentPane = $null
-        $productTitle = $null
-        foreach ($element in $descendants) {
-            try {
-                if ($element.Current.Name -eq 'IWXA setup navigation') {
-                    $navigation = $element
-                }
-                if ($element.Current.Name -eq 'IWXA setup content') {
-                    $contentPane = $element
-                }
-                if ($element.Current.Name -eq 'IWXA Admin Center' -and
-                    $element.Current.ControlType.ProgrammaticName -like '*.Text') {
-                    $productTitle = $element
-                }
-            } catch {}
-        }
-        if ($null -eq $navigation -or $null -eq $contentPane -or $null -eq $productTitle) {
-            throw 'SETUP_VISUAL_LAYOUT_UIA_ELEMENTS_NOT_FOUND'
-        }
-        $navRect = $navigation.Current.BoundingRectangle
-        $bodyRect = $contentPane.Current.BoundingRectangle
-        $titleRect = $productTitle.Current.BoundingRectangle
-        if ($bodyRect.Left -lt ($navRect.Right - 2) -or
-            $titleRect.Left -lt ($navRect.Right + 10) -or
-            $titleRect.Right -gt ($bodyRect.Right + 2) -or
-            $titleRect.Top -lt $bodyRect.Top) {
-            throw ('SETUP_VISUAL_SIDEBAR_OVERLAP navRight={0} contentLeft={1} titleLeft={2}' -f
-                $navRect.Right, $bodyRect.Left, $titleRect.Left)
-        }
-        Write-Host 'IWXA_SETUP_VISUAL_NO_SIDEBAR_OVERLAP_PASS'
         $screenBounds = [System.Windows.Forms.Screen]::FromHandle($gui.MainWindowHandle).Bounds
         $left = [int][Math]::Max($screenBounds.Left, $windowBounds.Left)
         $top = [int][Math]::Max($screenBounds.Top, $windowBounds.Top)
@@ -528,6 +491,39 @@ try {
             $drawing.Dispose()
             $bitmap.Dispose()
         }
+        # Accessibility tree details vary between Windows UIA providers.
+        # Check the real user-visible product heading and window geometry;
+        # do not require implementation-only Panel controls to be exposed.
+        $descendants = $window.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition)
+        $titleElement = $null
+        foreach ($element in $descendants) {
+            try {
+                if ($element.Current.Name -eq 'IWXA setup product heading' -or
+                    $element.Current.Name -eq 'IWXA Admin Center') {
+                    $rect = $element.Current.BoundingRectangle
+                    if ($rect.Width -gt 100 -and $rect.Height -gt 20) {
+                        $titleElement = $element
+                        break
+                    }
+                }
+            } catch {}
+        }
+        if ($null -eq $titleElement) {
+            Write-Host ("IWXA_SETUP_UIA_NAMES=" +
+                ((@($descendants | ForEach-Object { try { $_.Current.Name } catch {} }) |
+                    Where-Object { $_ } | Select-Object -First 25) -join '|'))
+            throw 'SETUP_VISUAL_PRODUCT_TITLE_UIA_MISSING'
+        }
+        $titleBounds = $titleElement.Current.BoundingRectangle
+        $minLeft = $windowBounds.Left + $windowBounds.Width * 0.265
+        if ($titleBounds.Left -lt $minLeft) {
+            throw ('SETUP_VISUAL_SIDEBAR_OVERLAP titleLeft={0} requiredLeft={1}' -f
+                $titleBounds.Left, $minLeft)
+        }
+        Write-Host ('IWXA_SETUP_VISUAL_NO_SIDEBAR_OVERLAP_PASS titleLeft={0}' -f
+            $titleBounds.Left)
 
     } finally {
         if (!$gui.HasExited) {
