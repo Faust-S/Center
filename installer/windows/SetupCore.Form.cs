@@ -23,7 +23,8 @@ namespace IwxaSetup
         private readonly Button install = new Button();
         private readonly Button secondary = new Button();
         private readonly LinkLabel openApplication = new LinkLabel();
-        private enum SetupOperation { None, Install, Upgrade, Recover, Confirm, Rollback }
+        private enum SetupOperation { None, Install, Upgrade, Recover, Confirm, Rollback,
+            StageLegacyPreview, CancelLegacyPreview }
         private SetupOperation primaryAction = SetupOperation.None;
         private SetupOperation secondaryAction = SetupOperation.None;
         private bool performingOperation = false;
@@ -167,7 +168,7 @@ namespace IwxaSetup
                 "Primary installer action");
             install.TabStop = true;
             install.Enabled = false;
-            install.Size = new Size(165, 40);
+            install.Size = new Size(192, 40);
             install.Margin = new Padding(5, 0, 5, 0);
             install.BackColor = Accent;
             install.ForeColor = Color.White;
@@ -179,7 +180,7 @@ namespace IwxaSetup
             secondary.Visible = false;
             secondary.AccessibleDescription = T("Отменить обновление и вернуть предыдущую версию",
                 "Cancel update and restore previous release");
-            secondary.Size = new Size(170, 40);
+            secondary.Size = new Size(160, 40);
             secondary.Margin = new Padding(5, 0, 5, 0);
             secondary.BackColor = Color.White;
             secondary.ForeColor = Color.FromArgb(39, 78, 133);
@@ -189,7 +190,7 @@ namespace IwxaSetup
             actions.Controls.Add(secondary);
 
             retry.Text = T("Проверить снова", "Verify again");
-            retry.Size = new Size(153, 40);
+            retry.Size = new Size(145, 40);
             retry.Margin = new Padding(5, 0, 5, 0);
             retry.BackColor = Color.White;
             retry.FlatStyle = FlatStyle.Flat;
@@ -281,6 +282,11 @@ namespace IwxaSetup
                 T("Восстановление предыдущей версии…", "Restoring previous version…") :
                 operation == SetupOperation.Confirm ?
                 T("Завершение обновления…", "Finalizing upgrade…") :
+                operation == SetupOperation.CancelLegacyPreview ?
+                T("Отмена пробного перехода…", "Cancelling preview installation…") :
+                operation == SetupOperation.StageLegacyPreview ?
+                T("Подготовка 0.3 отдельно от 0.2…",
+                  "Preparing 0.3 alongside 0.2…") :
                 T("Установка проверенных файлов…", "Installing verified files…");
             try
             {
@@ -294,6 +300,10 @@ namespace IwxaSetup
                         case SetupOperation.Recover: return SetupInstallation.RecoverOwned(executable);
                         case SetupOperation.Rollback: return SetupInstallation.RollbackOwned(executable);
                         case SetupOperation.Confirm: return SetupInstallation.ConfirmUpgrade(executable);
+                        case SetupOperation.StageLegacyPreview:
+                            return SetupInstallation.StageLegacy(executable);
+                        case SetupOperation.CancelLegacyPreview:
+                            return SetupInstallation.UninstallOwned(executable);
                         default: throw new InvalidOperationException("SETUP_OPERATION_UNSUPPORTED");
                     }
                 });
@@ -311,6 +321,12 @@ namespace IwxaSetup
                     status.Text = T("Предыдущая версия восстановлена", "Previous version restored");
                 else if (operation == SetupOperation.Confirm)
                     status.Text = T("Обновление завершено", "Upgrade finalized");
+                else if (operation == SetupOperation.StageLegacyPreview)
+                    status.Text = T("0.3 готова к проверке — старая 0.2 сохранена",
+                        "0.3 ready for verification — original 0.2 retained");
+                else if (operation == SetupOperation.CancelLegacyPreview)
+                    status.Text = T("Переход отменён — NSIS 0.2 сохранён",
+                        "Preview cancelled — NSIS 0.2 retained");
                 status.ForeColor = Color.FromArgb(24, 119, 91);
             }
             catch (Exception ex)
@@ -429,9 +445,41 @@ namespace IwxaSetup
                 }
                 else if (plan.Status == "LEGACY_MIGRATION_HOLD")
                 {
-                    SetState(T("Обнаружена прежняя установка", "Previous installer detected"),
-                        T("Установленная версия NSIS сохранена. Переход на IWXA Setup пока недоступен.",
-                          "The existing NSIS application is preserved. Migration is not yet available."),
+                    LegacyAssessment old = SetupLegacy.Inspect(info);
+                    if (old.Status == "LEGACY_CONFIRMED_READ_ONLY")
+                    {
+                        SetState(T("Найдена прежняя версия " + old.Version,
+                                   "Installed legacy version " + old.Version),
+                            T("Установить 0.3 отдельно для проверки. Старый NSIS, ярлыки и данные не удаляются.",
+                              "Install 0.3 separately to evaluate it. Existing NSIS, shortcuts and data remain unchanged."),
+                            versionLine, false);
+                        ConfigureActions(SetupOperation.StageLegacyPreview,
+                            SetupOperation.None, T("Установить для проверки", "Install to preview"));
+                    }
+                    else
+                    {
+                        SetState(T("Переход пока недоступен", "Legacy migration blocked"),
+                            old.Status, versionLine, true);
+                    }
+                }
+                else if (plan.Status == "LEGACY_MIGRATION_PENDING_GUI_READBACK")
+                {
+                    SetState(T("0.3 установлена для проверки", "0.3 preview is installed"),
+                        T("Запустите 0.3, проверьте свои данные. Старый NSIS 0.2 сохранён. Можно отменить переход.",
+                          "Launch 0.3 and inspect your data. Original NSIS 0.2 is retained. You can cancel the preview."),
+                        versionLine, true);
+                    ConfigureActions(SetupOperation.CancelLegacyPreview,
+                        SetupOperation.None, T("Отменить переход", "Cancel preview"));
+                    openApplication.Tag = "APPLICATION";
+                    openApplication.Text = T("Открыть пробную 0.3", "Open preview 0.3");
+                    openApplication.Visible = true;
+                }
+                else if (plan.Status == "LEGACY_MIGRATION_REVIEW_REQUIRED")
+                {
+                    SetState(T("Проверка старой установки не пройдена",
+                               "Original installation requires inspection"),
+                        T("Переход заблокирован; данные и прежняя установка не менялись.",
+                          "Preview is blocked; the existing installation and data are unchanged."),
                         versionLine, true);
                 }
                 else
