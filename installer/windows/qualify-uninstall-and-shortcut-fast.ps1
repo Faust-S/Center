@@ -125,6 +125,75 @@ try {
         throw 'SETUP_FAST_VERIFIED_PLAN_NOT_EQUIVALENT'
     }
     Write-Host 'IWXA_SETUP_VERIFIED_BUNDLE_PLAN_REUSE_PASS'
+    # A genuine short-lived worker cannot delete its running EXE. Confirm
+    # that the one-shot cleanup waits for exit, deletes only a hashed owned
+    # copy, and never cleans a foreign/replaced path.
+    $cleanup=$installationType.GetMethod('QueueOwnedUninstallWorkerCleanup',$flags)
+    if($null -eq $cleanup){throw 'SETUP_FAST_UNINSTALL_WORKER_CLEANUP_API_MISSING'}
+    $tempRoot=[IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $ownedTemp=Join-Path $tempRoot ('iwxa-uninstall-'+[Guid]::NewGuid().ToString('N')+'.exe')
+    $foreignTemp=Join-Path $tempRoot ('foreign-uninstall-'+[Guid]::NewGuid().ToString('N')+'.exe')
+    $replacedTemp=Join-Path $tempRoot ('iwxa-uninstall-'+[Guid]::NewGuid().ToString('N')+'.exe')
+    Copy-Item -LiteralPath $stubPath -Destination $ownedTemp
+    Copy-Item -LiteralPath $stubPath -Destination $foreignTemp
+    Copy-Item -LiteralPath $stubPath -Destination $replacedTemp
+    $powershell=Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
+    $sleeper=$null
+    $other=$null
+    try {
+        $arguments=New-Object 'System.Object[]' 2
+        $arguments[0]=[string]$foreignTemp
+        $arguments[1]=[int]123
+        $foreignDenied=$false
+        try {$null=$cleanup.Invoke($null,$arguments)} catch [Reflection.TargetInvocationException] {
+            $foreignDenied=$_.Exception.InnerException.Message -eq 'SETUP_UNINSTALL_CLEANUP_NOT_OWNED'
+        }
+        if(!$foreignDenied -or !(Test-Path -LiteralPath $foreignTemp)){
+            throw 'SETUP_FAST_FOREIGN_TEMP_WORKER_ACCEPTED'
+        }
+        $sleeper=Start-Process -FilePath $powershell -ArgumentList '-NoProfile -NonInteractive -Command Start-Sleep -Seconds 2' -PassThru -WindowStyle Hidden
+        $arguments[0]=[string]$ownedTemp
+        $arguments[1]=[int]$sleeper.Id
+        $null=$cleanup.Invoke($null,$arguments)
+        if(!(Test-Path -LiteralPath $ownedTemp)){
+            throw 'SETUP_FAST_WORKER_REMOVED_BEFORE_PROCESS_EXIT'
+        }
+        if(!$sleeper.WaitForExit(12000)){throw 'SETUP_FAST_OWNED_TEMP_WITNESS_TIMEOUT'}
+        $removed=$false
+        for($i=0;$i -lt 60;$i++){
+            if(!(Test-Path -LiteralPath $ownedTemp)){$removed=$true;break}
+            Start-Sleep -Milliseconds 200
+        }
+        if(!$removed){throw 'SETUP_FAST_OWNED_TEMP_WORKER_NOT_REMOVED'}
+        $other=Start-Process -FilePath $powershell -ArgumentList '-NoProfile -NonInteractive -Command Start-Sleep -Seconds 2' -PassThru -WindowStyle Hidden
+        $arguments[0]=[string]$replacedTemp
+        $arguments[1]=[int]$other.Id
+        $null=$cleanup.Invoke($null,$arguments)
+        [IO.File]::WriteAllText($replacedTemp,'FILE_REPLACED_AFTER_CLEANUP_QUEUED')
+        if(!$other.WaitForExit(12000)){throw 'SETUP_FAST_CHANGED_TEMP_WITNESS_TIMEOUT'}
+        Start-Sleep -Milliseconds 1200
+        if(!(Test-Path -LiteralPath $replacedTemp) -or
+            [IO.File]::ReadAllText($replacedTemp) -ne 'FILE_REPLACED_AFTER_CLEANUP_QUEUED'){
+            throw 'SETUP_FAST_CHANGED_TEMP_WORKER_DELETED'
+        }
+        Write-Host 'IWXA_SETUP_TEMP_UNINSTALL_OWNED_CLEANUP_PASS'
+        Write-Host 'IWXA_SETUP_TEMP_UNINSTALL_FOREIGN_REPLACED_PRESERVED_PASS'
+    } finally {
+        foreach($process in @($sleeper,$other)){
+            if($null -ne $process){
+                if(!$process.HasExited){
+                    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                }
+                $process.Dispose()
+            }
+        }
+        foreach($item in @($ownedTemp,$foreignTemp,$replacedTemp)){
+            if(Test-Path -LiteralPath $item){
+                Remove-Item -LiteralPath $item -Force
+            }
+        }
+    }
+
     function Assert-Completion([string]$operation,[string]$native,[string]$plan,[bool]$expected){
         $arguments=New-Object 'System.Object[]' 3
         $arguments[0]=[string]$operation

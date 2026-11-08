@@ -6,6 +6,7 @@ using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 using Microsoft.Win32;
 
@@ -508,13 +509,27 @@ namespace IwxaSetup
             string worker = Path.Combine(Path.GetTempPath(),
                 "iwxa-uninstall-" + Guid.NewGuid().ToString("N") + ".exe");
             File.Copy(executable, worker);
-            var start = new ProcessStartInfo(worker,
-                "--uninstall-worker " + Process.GetCurrentProcess().Id) {
-                UseShellExecute = false, WorkingDirectory = Path.GetTempPath()
-            };
-            Process process = Process.Start(start);
-            if (process == null) throw new InvalidOperationException("SETUP_UNINSTALL_WORKER_FAILED");
-            process.Dispose();
+            try
+            {
+                var start = new ProcessStartInfo(worker,
+                    "--uninstall-worker " + Process.GetCurrentProcess().Id) {
+                    UseShellExecute = false, WorkingDirectory = Path.GetTempPath()
+                };
+                using (Process process = Process.Start(start))
+                {
+                    if (process == null)
+                        throw new InvalidOperationException("SETUP_UNINSTALL_WORKER_FAILED");
+                }
+            }
+            catch
+            {
+                // Failed launch is the only case where the parent process can
+                // safely delete the private temporary copy itself.
+                try { File.Delete(worker); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                throw;
+            }
         }
 
         internal static InstallOutcome UninstallFromWorker(string exe, int parentId)
@@ -527,6 +542,61 @@ namespace IwxaSetup
             }
             catch (ArgumentException) { }
             return UninstallOwned(exe);
+        }
+
+        // The running EXE cannot delete itself. Launch one short-lived,
+        // hidden system PowerShell process to remove ONLY this exact owned
+        // temp worker after it exits. No service, scheduled task, or sweep
+        // of unrelated %TEMP% files is used.
+        internal static void QueueOwnedUninstallWorkerCleanup(
+            string executable, int exitingPid)
+        {
+            if (exitingPid <= 0 || String.IsNullOrWhiteSpace(executable))
+                throw new InvalidOperationException("SETUP_UNINSTALL_CLEANUP_INVALID_INPUT");
+            string path = Path.GetFullPath(executable);
+            string temp = Path.GetFullPath(Path.GetTempPath());
+            string name = Path.GetFileName(path);
+            if (!SamePath(Path.GetDirectoryName(path), temp) ||
+                !Regex.IsMatch(name, @"\Aiwxa-uninstall-[a-f0-9]{32}\.exe\z",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                throw new InvalidOperationException("SETUP_UNINSTALL_CLEANUP_NOT_OWNED");
+            // The expected bytes are measured before the helper starts.
+            // If the file is replaced while waiting, leave it untouched.
+            string expected = FingerprintLegacyFile(path);
+            string quoted = path.Replace("'", "''");
+            string script =
+                "$ErrorActionPreference='Stop';" +
+                "$file='" + quoted + "';" +
+                "$hash='" + expected + "';" +
+                "$workerPid=" + exitingPid + ";" +
+                "for($i=0;$i -lt 80;$i++){" +
+                "if(-not (Get-Process -Id $workerPid -ErrorAction SilentlyContinue)){break};" +
+                "Start-Sleep -Milliseconds 250};" +
+                "if(Get-Process -Id $workerPid -ErrorAction SilentlyContinue){exit 0};" +
+                "for($i=0;$i -lt 20;$i++){" +
+                "if(-not(Test-Path -LiteralPath $file -PathType Leaf)){break};" +
+                "$item=Get-Item -LiteralPath $file -Force;" +
+                "if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){break};" +
+                "if((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hash){break};" +
+                "try{Remove-Item -LiteralPath $file -Force -ErrorAction Stop;break}" +
+                "catch [IO.IOException]{Start-Sleep -Milliseconds 250}" +
+                "catch [UnauthorizedAccessException]{break}}";
+            string powershell = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                @"WindowsPowerShell\v1.0\powershell.exe");
+            if (!File.Exists(powershell))
+                throw new InvalidOperationException("SETUP_UNINSTALL_CLEANUP_POWERSHELL_MISSING");
+            string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+            var start = new ProcessStartInfo(powershell,
+                "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " + encoded) {
+                UseShellExecute = false, CreateNoWindow = true,
+                WorkingDirectory = temp
+            };
+            using (Process helper = Process.Start(start))
+            {
+                if (helper == null)
+                    throw new InvalidOperationException("SETUP_UNINSTALL_CLEANUP_NOT_STARTED");
+            }
         }
 
         private static string FingerprintLegacyFile(string file)

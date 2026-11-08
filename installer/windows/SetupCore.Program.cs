@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Web.Script.Serialization;
@@ -370,6 +371,20 @@ namespace IwxaSetup
                     MessageBox.Show(ex.Message, "IWXA Setup",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return 2;
+                }
+                finally
+                {
+                    // The worker can only clean its exact hashed temp copy.
+                    // Cleanup failure must never turn a completed uninstall
+                    // into a false failure or touch any application/user data.
+                    try
+                    {
+                        SetupInstallation.QueueOwnedUninstallWorkerCleanup(
+                            Application.ExecutablePath, Process.GetCurrentProcess().Id);
+                    }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                    catch (InvalidOperationException) { }
                 }
             }
             if (args.Length != 0) return 3;
