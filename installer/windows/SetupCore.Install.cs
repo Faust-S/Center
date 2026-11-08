@@ -487,7 +487,28 @@ namespace IwxaSetup
 
         private static void CreateShortcut(BundleInfo info, string root)
         {
-            CreateShortcutAt(info, root, ShortcutPath(info));
+            // Never let the COM Save() step overwrite an unrelated shortcut.
+            // Prepare privately and claim the final filename with File.Move,
+            // which fails if another process created the link concurrently.
+            string target = ShortcutPath(info);
+            string folder = Path.GetDirectoryName(target);
+            Directory.CreateDirectory(folder);
+            string staged = Path.Combine(folder,
+                ".iwxa-setup-" + Guid.NewGuid().ToString("N") + ".lnk");
+            try
+            {
+                CreateShortcutAt(info, root, staged);
+                string app = Path.Combine(root,
+                    info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+                if (!SamePath(GetLegacyShortcutTarget(staged), app))
+                    throw new InvalidDataException(
+                        "SETUP_START_MENU_SHORTCUT_STAGE_INVALID");
+                File.Move(staged, target);
+            }
+            finally
+            {
+                if (File.Exists(staged)) File.Delete(staged);
+            }
         }
 
         private static void CreateShortcutAt(BundleInfo info, string root, string path)
