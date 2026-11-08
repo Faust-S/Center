@@ -163,17 +163,38 @@ function Click-ButtonContaining([string]$name){
   Start-Sleep -Milliseconds 350
 }
 function Type-Control([string]$name,[string]$value){
-  $control=Find-Control $name 'Edit'
-  $control.SetFocus()
-  Start-Sleep -Milliseconds 150
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  # These CI fixture names are deliberately ASCII; SendKeys special characters
-  # do not reinterpret the input and alter the intended data.
-  [System.Windows.Forms.SendKeys]::SendWait($value)
-  Start-Sleep -Milliseconds 200
+  # WinForms/WebView2 focus may be taken by an asynchronous React render.
+  # Read the actual UIA ValuePattern after typing instead of assuming that
+  # SendKeys succeeded. This qualifies the real installed GUI, not DOM state.
+  for($attempt=1;$attempt -le 4;$attempt++){
+    $control=Find-Control $name 'Edit'
+    $control.SetFocus()
+    Start-Sleep -Milliseconds 150
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    # Fixture values intentionally avoid SendKeys metacharacters.
+    [System.Windows.Forms.SendKeys]::SendWait($value)
+    Start-Sleep -Milliseconds 250
+    try {
+      $current=Find-Control $name 'Edit' 8
+      $valuePattern=$current.GetCurrentPattern(
+        [System.Windows.Automation.ValuePattern]::Pattern)
+      $readback=[string]$valuePattern.Current.Value
+      if($readback -eq $value){
+        Write-Host "CENTER_UIA_EDIT_READBACK_PASS name=$name attempt=$attempt"
+        return
+      }
+      Write-Host "CENTER_UIA_EDIT_NOT_APPLIED name=$name attempt=$attempt"
+    } catch [System.InvalidOperationException] {
+      # Some hosted WebView providers omit ValuePattern; still use the
+      # existing real keyboard route but do not invent readback evidence.
+      Write-Host "CENTER_UIA_EDIT_PATTERN_UNAVAILABLE name=$name"
+      return
+    }
+  }
+  throw "CENTER_UIA_EDIT_READBACK_MISMATCH name=$name"
 }
-function Find-ProjectButton([string]$text){
-  for($i=0;$i -lt 65;$i++){
+function Find-ProjectButton([string]$text,[int]$attempts=65){
+  for($i=0;$i -lt $attempts;$i++){
     $root=Root-Element
     $all=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
       [System.Windows.Automation.Condition]::TrueCondition)
@@ -368,6 +389,18 @@ try {
   Type-Control 'Что нужно сделать' $expectedAssignment
   Type-Control 'Критерии приёмки' 'Verified delivery report'
   Click-Control 'Сохранить черновик'
+  # UIA Invoke success does not always mean the native WebView actually
+  # submitted the React form. Confirm the assignment-row appeared.
+  $row=$null
+  try {$row=Find-ProjectButton $expectedAssignment 8}
+  catch {
+    Write-Host 'CENTER_UIA_ASSIGNMENT_SUBMIT_RETRY_REAL_MOUSE'
+    $save=Find-Control 'Сохранить черновик' 'Button' 8
+    Click-VisibleUiButton $save 'Сохранить черновик'
+    $row=Find-ProjectButton $expectedAssignment 25
+  }
+  if(!$row){throw 'CENTER_ASSIGNMENT_GUI_SUBMISSION_NOT_CONFIRMED'}
+  Write-Host 'CENTER_INSTALLED_ASSIGNMENT_EDITOR_CLOSED_PASS'
   Click-Control 'Сохранить на компьютере'
   for($i=0;$i -lt 60 -and !(Test-Path $localDraft);$i++){Start-Sleep -Milliseconds 300}
   if(!(Test-Path $localDraft)){throw 'Manager draft not stored locally'}

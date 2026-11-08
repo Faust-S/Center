@@ -111,7 +111,7 @@ namespace IwxaSetup
                 32, 32, 550, 25, 9, Accent, true);
             area.Controls.Add(eyebrow);
             productName.Text = T("Проверка установщика", "Checking installer");
-            productName.AccessibleName = "IWXA setup product heading";
+            productName.AccessibleName = productName.Text;
             productName.Font = new Font("Segoe UI", 21, FontStyle.Bold);
             productName.ForeColor = Dark;
             productName.Location = new Point(31, 68);
@@ -433,6 +433,7 @@ namespace IwxaSetup
                 if (IsDisposed || Disposing) return;
 
                 productName.Text = info.Name;
+                productName.AccessibleName = info.Name;
                 Text = info.Name + " — IWXA Setup";
                 string versionLine = T("Версия ", "Version ") +
                     info.Version + "   •   " + info.Architecture;
