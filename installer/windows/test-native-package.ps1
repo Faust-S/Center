@@ -73,6 +73,8 @@ try {
     }
     Write-Host "IWXA_SETUP_NATIVE_DISK_CAPACITY_PLAN_PASS required=$($disk.requiredBytes) available=$($disk.availableBytes)"
     if ($native.status -ne 'VERIFIED' -or $native.product -ne $manifest.product -or
+        $native.entrypoint -ne $product.entrypoint -or
+        !$native.requiresWebView2 -or
         $native.version -ne '0.3.0-dev.1' -or $native.sourceCommit -ne $sourceHead -or
         $native.packageSha256 -ne $manifest.payload_sha256 -or
         $native.packageFormat -ne 'PE_RESOURCE_V2' -or

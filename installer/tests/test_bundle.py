@@ -64,6 +64,27 @@ class BundleTests(unittest.TestCase):
         self.assertIn("info.Version", gui)
         self.assertIn("old.Version", gui)
 
+    def test_clean_vm_webview2_witness_cannot_report_offline_without_proof(self):
+        source = (Path(__file__).resolve().parents[1] / "windows" /
+                  "qualify-webview2-clean-windows.ps1").read_text(encoding="utf-8")
+        native = (Path(__file__).resolve().parents[1] / "windows" /
+                  "SetupCore.Program.cs").read_text(encoding="utf-8")
+        for marker in ("Assert-OfflineNetworkIsolation",
+                       "Get-NetRoute -AddressFamily IPv4",
+                       "Get-NetRoute -AddressFamily IPv6",
+                       "WEBVIEW2_CLEAN_VM_OFFLINE_HTTPS_REACHABLE",
+                       "WEBVIEW2_CLEAN_VM_APP_CONTENT_NOT_FOUND",
+                       "ExpectedGuiAccessibleName",
+                       "offlineNetworkIsolationVerified",
+                       "productUninstallQualified",
+                       "status = 'NOT_QUALIFIED'"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, source)
+        self.assertNotIn("iwxa.admin-center", source)
+        self.assertNotIn("iwxa-admin-center.exe", source)
+        self.assertIn('{"entrypoint", result.Entrypoint}', native)
+        self.assertIn('{"requiresWebView2", result.NeedsWebView2}', native)
+
     def test_two_other_product_profiles_share_same_package_contract(self):
         for suffix in ("alpha", "beta"):
             with self.subTest(product=suffix):

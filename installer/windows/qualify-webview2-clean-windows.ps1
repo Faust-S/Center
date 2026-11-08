@@ -81,8 +81,7 @@ function Assert-OfflineNetworkIsolation {
             [System.Net.WebExceptionStatus]::ConnectFailure,
             [System.Net.WebExceptionStatus]::NameResolutionFailure,
             [System.Net.WebExceptionStatus]::ProxyNameResolutionFailure,
-            [System.Net.WebExceptionStatus]::Timeout,
-            [System.Net.WebExceptionStatus]::NetworkFailure
+            [System.Net.WebExceptionStatus]::Timeout
         )
         if ($_.Exception.Status -notin $allowed) {
             throw 'WEBVIEW2_CLEAN_VM_OFFLINE_NETWORK_UNCERTAIN'
