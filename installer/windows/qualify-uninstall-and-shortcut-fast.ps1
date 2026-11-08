@@ -145,8 +145,14 @@ try {
         $arguments[0]=[string]$foreignTemp
         $arguments[1]=[int]123
         $foreignDenied=$false
-        try {$null=$cleanup.Invoke($null,$arguments)} catch [Reflection.TargetInvocationException] {
-            $foreignDenied=$_.Exception.InnerException.Message -eq 'SETUP_UNINSTALL_CLEANUP_NOT_OWNED'
+        try {$null=$cleanup.Invoke($null,$arguments)} catch {
+            # Windows PowerShell wraps Reflection Invoke exceptions in its
+            # own MethodInvocationException, not TargetInvocationException.
+            $reason=[string]$_.Exception.Message
+            if($null -ne $_.Exception.InnerException){
+                $reason+=' '+[string]$_.Exception.InnerException.Message
+            }
+            $foreignDenied=$reason.Contains('SETUP_UNINSTALL_CLEANUP_NOT_OWNED')
         }
         if(!$foreignDenied -or !(Test-Path -LiteralPath $foreignTemp)){
             throw 'SETUP_FAST_FOREIGN_TEMP_WORKER_ACCEPTED'
