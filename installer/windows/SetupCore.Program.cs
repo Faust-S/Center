@@ -127,6 +127,30 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            // Explicit offline dependency route for a truly clean Windows VM.
+            // Never bypass package identity or installer Authenticode checks.
+            if (args.Length == 3 && args[0] == "--ensure-webview2-offline-file")
+            {
+                try
+                {
+                    BundleInfo info = BundleReader.Inspect(Application.ExecutablePath);
+                    string status = info.NeedsWebView2 ?
+                        SetupReadiness.EnsureWebView2Offline(args[1]) :
+                        "WEBVIEW2_NOT_REQUIRED";
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", status}, {"product", info.Id},
+                        {"webview2Version", SetupReadiness.DetectWebView2Version()}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             if (args.Length == 2 && args[0] == "--upgrade-plan-file")
             {
                 try

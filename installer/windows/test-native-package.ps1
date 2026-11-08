@@ -140,6 +140,31 @@ try {
             throw 'SETUP_WEBVIEW2_ALREADY_PRESENT_NOT_IDEMPOTENT'
         }
         Write-Host 'IWXA_SETUP_WEBVIEW2_PRESENT_NO_BOOTSTRAP_PASS'
+        # Exercising the production offline CLI on a runner with WebView2.
+        # The idempotent branch must not touch or inspect a nonexistent file.
+        $offlineReport = Join-Path $artifact 'setup-core-webview2-offline-present.json'
+        $missingFile = Join-Path $artifact 'never-exists-webview2-standalone.exe'
+        if (Test-Path -LiteralPath $missingFile) {
+            throw 'SETUP_WEBVIEW2_OFFLINE_PROBE_FILE_UNEXPECTED'
+        }
+        $offlineProcess = Start-Process -FilePath $bundle -ArgumentList (
+            '--ensure-webview2-offline-file "{0}" "{1}"' -f $missingFile, $offlineReport
+        ) -PassThru
+        try {
+            if (!$offlineProcess.WaitForExit(45000)) {
+                Stop-Process -Id $offlineProcess.Id -Force -ErrorAction SilentlyContinue
+                throw 'SETUP_WEBVIEW2_OFFLINE_PRESENT_PROBE_TIMEOUT'
+            }
+            if ($offlineProcess.ExitCode -ne 0) {
+                throw 'SETUP_WEBVIEW2_OFFLINE_PRESENT_PROBE_EXIT'
+            }
+        } finally { $offlineProcess.Dispose() }
+        $offlineState = Get-Content -LiteralPath $offlineReport -Raw | ConvertFrom-Json
+        if ($offlineState.status -ne 'WEBVIEW2_ALREADY_INSTALLED' -or
+            !$offlineState.webview2Version) {
+            throw 'SETUP_WEBVIEW2_OFFLINE_PRESENT_NOT_IDEMPOTENT'
+        }
+        Write-Host 'IWXA_SETUP_WEBVIEW2_OFFLINE_ALREADY_PRESENT_PASS'
     }
     $upgradePlanFile = Join-Path $artifact 'setup-core-upgrade-plan.json'
     $freshPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'

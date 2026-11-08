@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Diagnostics;
 using System.IO;
 using System.Globalization;
+using System.Net;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -398,12 +399,46 @@ namespace IwxaSetup
             }
             catch (Exception ex)
             {
-                status.Text = T("Операция не завершена", "Operation incomplete");
+                // Reinspect after failures so online/offline retry and recovery
+                // actions are not left disabled behind a technical error code.
+                performingOperation = false;
+                await VerifyAsync();
+                bool dependency = operation == SetupOperation.InstallWebView2 ||
+                    operation == SetupOperation.InstallWebView2Offline;
+                if (dependency)
+                {
+                    status.Text = T("Не удалось установить WebView2",
+                        "WebView2 installation incomplete");
+                    string code = ex is WebException ?
+                        "SETUP_WEBVIEW2_NETWORK_UNAVAILABLE" : ex.Message;
+                    if (!code.StartsWith("SETUP_WEBVIEW2_",
+                            StringComparison.Ordinal) || code.Length > 90)
+                        code = "SETUP_WEBVIEW2_INSTALL_UNAVAILABLE";
+                    version.Text = T("Код диагностики: ", "Diagnostic code: ") + code;
+                    if (ex is WebException)
+                        packageDetails.Text = T(
+                            "Проверьте интернет и повторите попытку либо выберите официальный автономный установщик Microsoft.",
+                            "Check the connection and retry, or choose Microsoft's official offline installer.");
+                    else if (code.Contains("AUTHENTICODE") ||
+                             code.Contains("SIGNER") ||
+                             code.Contains("PRODUCT_UNEXPECTED"))
+                        packageDetails.Text = T(
+                            "Выбранный файл не прошёл проверку Microsoft. Скачайте официальный автономный WebView2 Runtime.",
+                            "The file could not be verified as Microsoft's installer. Select the official standalone WebView2 Runtime.");
+                    else
+                        packageDetails.Text = T(
+                            "Повторите установку или выберите автономный файл Microsoft. Приложение не изменено.",
+                            "Retry or select Microsoft's offline installer. Application files were not changed.");
+                }
+                else
+                {
+                    status.Text = T("Операция не завершена", "Operation incomplete");
+                    version.Text = ex.Message;
+                    packageDetails.Text = T(
+                        "Проверьте состояние установки и используйте доступное действие восстановления.",
+                        "Review the installation state and use the available recovery action.");
+                }
                 status.ForeColor = Color.FromArgb(170, 52, 59);
-                version.Text = ex.Message;
-                packageDetails.Text = T(
-                    "Действующая версия сохранена, если не требуется восстановление. Нажмите «Проверить снова».",
-                    "Existing installation is preserved unless recovery is required. Select Verify again.");
             }
             finally
             {
