@@ -97,12 +97,20 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(safe_relative("assets/logo.txt"), "assets/logo.txt")
 
     def test_symlink_and_case_collisions_blocked(self):
-        (self.payload / "ASSETS").mkdir()
-        (self.payload / "ASSETS" / "logo.txt").write_text("duplicate", encoding="utf-8")
-        with self.assertRaisesRegex(SetupBundleError, "duplicate_case"):
-            self.bundle()
-        (self.payload / "ASSETS" / "logo.txt").unlink()
-        (self.payload / "ASSETS").rmdir()
+        collision_dir = self.payload / "ASSETS"
+        try:
+            collision_dir.mkdir()
+        except FileExistsError:
+            # Default macOS and some Windows volumes have a case-insensitive
+            # filesystem, so two case-alias folders cannot be materialized.
+            # The independent symlink rejection still runs below.
+            pass
+        else:
+            (collision_dir / "logo.txt").write_text("duplicate", encoding="utf-8")
+            with self.assertRaisesRegex(SetupBundleError, "duplicate_case"):
+                self.bundle()
+            (collision_dir / "logo.txt").unlink()
+            collision_dir.rmdir()
         try:
             os.symlink(self.payload / "iwxa-admin-center.exe", self.payload / "linked.exe")
         except (OSError, NotImplementedError):
