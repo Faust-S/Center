@@ -26,6 +26,31 @@ function Start-Publisher {
   }
   throw 'Installed Publisher did not expose a native window'
 }
+function Capture-Installed-Desktop([string]$name){
+  # Screenshot of the actual installed Tauri EXE, not a browser preview.
+  $folder='artifacts/publisher-setupcore'
+  New-Item -ItemType Directory -Path $folder -Force | Out-Null
+  $window=(Root-Element).Current.BoundingRectangle
+  $monitor=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+  if($window.IsEmpty){throw 'PUBLISHER_INSTALLED_NATIVE_WINDOW_BOUNDS_EMPTY'}
+  $left=[int][Math]::Max($monitor.Left,[Math]::Floor($window.Left))
+  $top=[int][Math]::Max($monitor.Top,[Math]::Floor($window.Top))
+  $right=[int][Math]::Min($monitor.Right,[Math]::Ceiling($window.Right))
+  $bottom=[int][Math]::Min($monitor.Bottom,[Math]::Ceiling($window.Bottom))
+  $width=$right-$left
+  $height=$bottom-$top
+  if($width -lt 500 -or $height -lt 350){throw 'PUBLISHER_INSTALLED_NATIVE_WINDOW_TOO_SMALL'}
+  $bitmap=New-Object System.Drawing.Bitmap($width,$height)
+  $graphics=[System.Drawing.Graphics]::FromImage($bitmap)
+  try {
+    $graphics.CopyFromScreen([System.Drawing.Point]::new($left,$top),
+      [System.Drawing.Point]::Empty,[System.Drawing.Size]::new($width,$height))
+    $target=Join-Path $folder $name
+    $bitmap.Save($target,[System.Drawing.Imaging.ImageFormat]::Png)
+    if((Get-Item -LiteralPath $target).Length -lt 1000){throw "PUBLISHER_INSTALLED_SCREENSHOT_TOO_SMALL $name"}
+    Write-Host "PUBLISHER_INSTALLED_DESKTOP_SCREENSHOT_PASS name=$name"
+  } finally {$graphics.Dispose();$bitmap.Dispose()}
+}
 function Root-Element {
   $proc.Refresh()
   return [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
@@ -142,6 +167,11 @@ try {
   if(!(Test-Path -LiteralPath $exe)){throw "Installed Publisher exe missing: $exe"}
   Write-Host "PUBLISHER_INSTALLED_EXE_PASS sha256=$((Get-FileHash $exe -Algorithm SHA256).Hash)"
   Start-Publisher
+  [void](Find-Control 'Продукты' 'Button')
+  $nativeTitle=(Root-Element).Current.Name
+  if(!$nativeTitle -or !$nativeTitle.Contains('IWXA Publisher')){throw "PUBLISHER_INSTALLED_NATIVE_WINDOW_TITLE_INVALID title=$nativeTitle"}
+  Write-Host "PUBLISHER_INSTALLED_NATIVE_WINDOW_PASS title=$nativeTitle"
+  Capture-Installed-Desktop 'publisher-desktop-first-launch.png'
   Click-Publisher 'Продукты'
   Enter-Value 'Идентификатор продукта' 'IWXA_ADMIN_CENTER'
   Enter-Value 'Название' 'PublisherInstalledTest'
@@ -272,6 +302,8 @@ try {
     throw 'PUBLISHER_BACKUP_RESTORE_LOST_AFTER_RESTART'
   }
   Write-Host 'PUBLISHER_INSTALLED_GUI_BACKUP_RESTORE_RESTART_PASS'
+  Click-Publisher 'Обзор'
+  Capture-Installed-Desktop 'publisher-desktop-after-restore.png'
 } catch {
   Write-Host "PUBLISHER_INSTALLED_GUI_PRIMARY_FAILURE $($_.Exception.Message)"
   try {

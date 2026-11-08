@@ -24,6 +24,7 @@ try {
   assert.match(await noNative.locator('main').innerText(),/самостоятельная настольная программа/);
   assert.equal(await noNative.getByRole('button',{name:'Сохранить продукт'}).count(),0);
   assert.equal(await noNative.evaluate(()=>localStorage.getItem('iwxa.publisher.preparation/1')),null);
+  await noNative.screenshot({path:'artifacts/publisher/desktop-required-no-tauri.png',fullPage:true});
   await noNative.close();
   checks.push('browser-without-tauri-cannot-run-desktop-publisher');
 
