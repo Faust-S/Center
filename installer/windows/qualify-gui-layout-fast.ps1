@@ -102,3 +102,35 @@ foreach ($factor in @(1.0, 1.5, 2.0, 2.5)) {
     }
 }
 Write-Host 'IWXA_SETUP_NATIVE_DPI_LAYOUT_MATRIX_PASS'
+# The manifest must affect the native *process*, not just exist in source.
+# System-aware DPI is the supported .NET Framework WinForms policy.
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class IwxaDpiProcessProbe {
+    [DllImport("shcore.dll")]
+    public static extern int GetProcessDpiAwareness(IntPtr handle, out int awareness);
+}
+'@
+$native = Start-Process -FilePath $stubFull -PassThru
+try {
+    $native.Refresh()
+    if ($native.HasExited) { throw 'SETUP_DPI_NATIVE_PROCESS_EARLY_EXIT' }
+    $awareness = -1
+    $hr = [IwxaDpiProcessProbe]::GetProcessDpiAwareness(
+        $native.Handle, [ref]$awareness)
+    if ($hr -ne 0 -or $awareness -ne 1) {
+        throw ('SETUP_DPI_PROCESS_NOT_SYSTEM_AWARE hr=' + $hr +
+            ' awareness=' + $awareness)
+    }
+    Write-Host 'IWXA_SETUP_SYSTEM_DPI_PROCESS_PASS'
+} finally {
+    if (-not $native.HasExited) {
+        $null = $native.CloseMainWindow()
+        if (-not $native.WaitForExit(3000)) {
+            Stop-Process -Id $native.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $native.Dispose()
+}
+
