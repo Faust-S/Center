@@ -15,6 +15,9 @@ namespace IwxaSetup
         internal string CandidateVersion;
         internal string InstalledVersion;
         internal string InstallRoot;
+        // The candidate was validated exactly once for this single read-only
+        // GUI verification; extraction still performs a fresh full hash check.
+        internal BundleInfo VerifiedCandidate;
     }
 
     // S3 preview: pure inspection. It does not update, migrate, or repair.
@@ -22,11 +25,22 @@ namespace IwxaSetup
     {
         internal static UpgradeAssessment PlanUpgrade(string bundle)
         {
-            BundleInfo info = BundleReader.Inspect(bundle);
+            // Preserve the public CLI contract: it performs a full inspection.
+            return PlanUpgrade(BundleReader.Inspect(bundle));
+        }
+
+        internal static UpgradeAssessment PlanUpgrade(BundleInfo inspected)
+        {
+            // The GUI passes its freshly inspected candidate. Reusing it
+            // avoids hashing the entire bundle a second time on one screen
+            // refresh. We never reuse it across operations or filesystem edits.
+            if (inspected == null)
+                throw new ArgumentNullException("inspected");
+            BundleInfo info = inspected;
             var plan = new UpgradeAssessment {
                 Product = info.Id, CandidateVersion = info.Version,
                 InstalledVersion = "", InstallRoot = RootFor(info),
-                Status = "UNDETERMINED"
+                Status = "UNDETERMINED", VerifiedCandidate = info
             };
             using (var mutex = new System.Threading.Mutex(false,
                 "Local\\IWXA.SetupCore." + info.Id))

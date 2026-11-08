@@ -519,8 +519,10 @@ namespace IwxaSetup
                 }
                 else
                 {
-                    BundleInfo expected = await Task.Run(() =>
-                        BundleReader.Inspect(Application.ExecutablePath));
+                    BundleInfo expected = verified.VerifiedCandidate;
+                    if (expected == null)
+                        throw new InvalidOperationException(
+                            "SETUP_POST_INSPECTED_CANDIDATE_MISSING");
                     if (operation == SetupOperation.CancelLegacyPreview)
                         await Task.Run(() =>
                             SetupInstallation.VerifyUninstalledState(expected));
@@ -647,7 +649,7 @@ namespace IwxaSetup
                 BundleInfo info = await Task.Run(
                     () => BundleReader.Inspect(Application.ExecutablePath));
                 UpgradeAssessment plan = await Task.Run(
-                    () => SetupInstallation.PlanUpgrade(Application.ExecutablePath));
+                    () => SetupInstallation.PlanUpgrade(info));
                 if (IsDisposed || Disposing) return null;
                 bool readyForReview =
                     plan.Status == "UPGRADE_PENDING_CONFIRMATION" ||

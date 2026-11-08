@@ -85,6 +85,23 @@ class BundleTests(unittest.TestCase):
         self.assertIn('{"entrypoint", result.Entrypoint}', native)
         self.assertIn('{"requiresWebView2", result.NeedsWebView2}', native)
 
+    def test_gui_verification_reuses_single_fully_inspected_bundle(self):
+        core = (Path(__file__).resolve().parents[1] / "windows")
+        form = (core / "SetupCore.Form.cs").read_text(encoding="utf-8")
+        plan = (core / "SetupCore.Upgrade.cs").read_text(encoding="utf-8")
+        self.assertIn("SetupInstallation.PlanUpgrade(info)", form)
+        self.assertIn("BundleInfo expected = verified.VerifiedCandidate", form)
+        self.assertIn("return PlanUpgrade(BundleReader.Inspect(bundle))", plan)
+        self.assertIn("internal static UpgradeAssessment PlanUpgrade(BundleInfo inspected)", plan)
+        self.assertIn("VerifiedCandidate = info", plan)
+        self.assertIn("BundleReader.Inspect(bundle)", plan)
+        self.assertNotIn("SetupInstallation.PlanUpgrade(Application.ExecutablePath)", form)
+        self.assertNotIn("BundleInfo expected = await Task.Run", form)
+        # The critical install stage MUST continue to hash exact source ZIP
+        # and all extracted owned bytes before changing the owned app.
+        install = (core / "SetupCore.Install.cs").read_text(encoding="utf-8")
+        self.assertIn("BundleReader.ExtractVerified(bundle, staged)", install)
+
     def test_two_other_product_profiles_share_same_package_contract(self):
         for suffix in ("alpha", "beta"):
             with self.subTest(product=suffix):
