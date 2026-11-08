@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,mkdir,link,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {verifySourceCheckout,verifyTwoOfflineCopies} from '../src/release-origin.mjs';
@@ -68,7 +68,7 @@ test('rejects duplicate paths, hardlinks, altered second copy and wrong claimed 
 
 test('offline release CLI returns the exact two-copy and source evidence with no approval',async t=>{
  const f=await fixture(t);
- const manifest=join(f.root,'input.json');
+ const manifest=join(dirname(f.root),'input.json');
  await writeFile(manifest,JSON.stringify(f.claim));
  const r=execFileSync(process.execPath,['publisher/bin/verify-offline-release.mjs',manifest,f.root,f.a,f.b],{encoding:'utf8'});
  const output=JSON.parse(r);
