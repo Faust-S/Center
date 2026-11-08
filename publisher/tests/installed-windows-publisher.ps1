@@ -357,6 +357,25 @@ try {
   [void](Find-Text 'Независимость физических носителей не подтверждена')
   Write-Host 'PUBLISHER_INSTALLED_GUI_TWO_SELECTED_FILES_BYTE_MATCH_PASS'
   Capture-Installed-Desktop 'publisher-desktop-two-copies.png'
+  # PUB23: installed native .iwxa file transport only. The bytes below are
+  # deliberately NOT a signed license, so the user interface must never
+  # claim signature verification, issuer authority or effective seats.
+  $inputIwxa=Join-Path ([IO.Path]::GetFullPath('artifacts/publisher-setupcore')) 'transport-unverified.iwxa'
+  $outputIwxa=Join-Path ([IO.Path]::GetFullPath('artifacts/publisher-setupcore')) 'transport-copied.iwxa'
+  $opaque=[byte[]]@(0x50,0x4b,0x03,0x04,0x00,0x00,0x00,0x00,0x54,0x45,0x53,0x54,0x2d,0x4e,0x4f,0x54,0x2d,0x53,0x49,0x47,0x4e,0x45,0x44)
+  [System.IO.File]::WriteAllBytes($inputIwxa,$opaque)
+  if(Test-Path -LiteralPath $outputIwxa){Remove-Item -LiteralPath $outputIwxa -Force}
+  Click-Publisher 'Доверие и ключи'
+  Use-Json-Through-Publisher-Dialog 'Открыть пакет .iwxa' $inputIwxa $true
+  [void](Find-Text 'Подтверждённых мест: 0')
+  [void](Find-Text 'Подлинность и статус не проверены')
+  Write-Host 'PUBLISHER_INSTALLED_UNVERIFIED_IWXA_PREVIEW_ZERO_SEATS_PASS'
+  Use-Json-Through-Publisher-Dialog 'Передать .iwxa в Center' $outputIwxa $false
+  $hashBefore=(Get-FileHash -LiteralPath $inputIwxa -Algorithm SHA256).Hash
+  $hashAfter=(Get-FileHash -LiteralPath $outputIwxa -Algorithm SHA256).Hash
+  if($hashBefore -ne $hashAfter){throw 'PUBLISHER_INSTALLED_IWXA_TRANSPORT_CHANGED_BYTES'}
+  Write-Host "PUBLISHER_INSTALLED_IWXA_BYTE_EXACT_TRANSFER_PASS sha256=$hashAfter"
+  Capture-Installed-Desktop 'publisher-desktop-iwxa-transfer.png'
 } catch {
   Write-Host "PUBLISHER_INSTALLED_GUI_PRIMARY_FAILURE $($_.Exception.Message)"
   try {
