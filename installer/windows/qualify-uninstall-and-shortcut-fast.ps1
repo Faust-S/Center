@@ -182,8 +182,14 @@ try {
             throw 'SETUP_FAST_MISSING_FILES_NOT_RESTORED'
         }
         $pendingMissing=Invoke-Setup '--upgrade-plan-file' 'repair-missing-confirm-plan'
-        if ($pendingMissing.status -ne 'UPGRADE_PENDING_CONFIRMATION') {
-            throw 'SETUP_FAST_INCOMPLETE_BACKUP_NOT_CONFIRMED'
+        if ($pendingMissing.status -ne 'REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK') {
+            throw 'SETUP_FAST_INCOMPLETE_BACKUP_ROLLBACK_OFFERED'
+        }
+        $unsafeRollback=Invoke-Setup '--rollback-upgrade-file' 'missing-backup-rollback-denied' 2
+        if ($unsafeRollback.status -ne 'ERROR' -or
+            $unsafeRollback.reason -ne 'SETUP_OWNERSHIP_MISMATCH' -or
+            (Get-FileHash -LiteralPath $app -Algorithm SHA256).Hash -ne $appHash) {
+            throw 'SETUP_FAST_DAMAGED_BACKUP_ROLLBACK_ACCEPTED'
         }
         $confirmedMissing=Invoke-Setup '--confirm-upgrade-file' 'repair-missing-confirm'
         if ($confirmedMissing.status -ne 'UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED' -or

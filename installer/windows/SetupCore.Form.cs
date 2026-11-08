@@ -569,6 +569,7 @@ namespace IwxaSetup
                 if (IsDisposed || Disposing) return;
                 bool readyForReview =
                     plan.Status == "UPGRADE_PENDING_CONFIRMATION" ||
+                    plan.Status == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK" ||
                     plan.Status == "LEGACY_MIGRATION_PENDING_GUI_READBACK" ||
                     plan.Status == "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED";
                 SetWizardStep(readyForReview ? 3 : 2);
@@ -650,13 +651,23 @@ namespace IwxaSetup
                         T("Обновить", "Update"));
                     }
                 }
-                else if (plan.Status == "UPGRADE_PENDING_CONFIRMATION")
+                else if (plan.Status == "UPGRADE_PENDING_CONFIRMATION" ||
+                         plan.Status == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK")
                 {
-                    SetState(T("Проверьте новую версию", "Verify the updated version"),
-                        T("Откройте приложение, проверьте данные. Затем подтвердите обновление или верните прежнюю версию.",
-                          "Open the application and check your data. Then confirm the update or roll back."),
+                    bool incompleteRepair =
+                        plan.Status == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK";
+                    SetState(incompleteRepair ?
+                            T("Файлы восстановлены — проверьте программу",
+                              "Files restored — verify the application") :
+                            T("Проверьте новую версию", "Verify the updated version"),
+                        incompleteRepair ?
+                            T("Откройте восстановленную программу и проверьте данные. Прежняя копия была неполной, поэтому возвращать повреждённые файлы нельзя. Подтвердите успешное восстановление.",
+                              "Open the repaired application and verify your data. The previous backup was incomplete and cannot safely be restored. Confirm the repair.") :
+                            T("Откройте приложение, проверьте данные. Затем подтвердите обновление или верните прежнюю версию.",
+                              "Open the application and check your data. Then confirm the update or roll back."),
                         versionLine, true);
-                    ConfigureActions(SetupOperation.Confirm, SetupOperation.Rollback,
+                    ConfigureActions(SetupOperation.Confirm,
+                        incompleteRepair ? SetupOperation.None : SetupOperation.Rollback,
                         T("Подтвердить", "Confirm"));
                     openApplication.Tag = "APPLICATION";
                     openApplication.Text = T("Открыть установленную программу",

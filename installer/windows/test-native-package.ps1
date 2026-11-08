@@ -466,8 +466,15 @@ try {
             throw 'SETUP_NATIVE_MISSING_EXE_REPAIR_NOT_RESTORED'
         }
         $missingConfirmPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
-        if ($missingConfirmPlan.status -ne 'UPGRADE_PENDING_CONFIRMATION') {
+        if ($missingConfirmPlan.status -ne 'REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK') {
             throw 'SETUP_NATIVE_MISSING_EXE_REPAIR_CONFIRM_NOT_OFFERED'
+        }
+        $missingRollback = Invoke-NativeInspection $bundle (
+            Join-Path $artifact 'setup-core-damaged-backup-rollback-denied.json') 2 '--rollback-upgrade-file'
+        if ($missingRollback.status -ne 'ERROR' -or
+            $missingRollback.reason -ne 'SETUP_OWNERSHIP_MISMATCH' -or
+            (Get-FileHash -LiteralPath $installedExe -Algorithm SHA256).Hash -ne $cleanHash) {
+            throw 'SETUP_NATIVE_DAMAGED_BACKUP_ROLLBACK_NOT_BLOCKED'
         }
         $missingConfirmed = Invoke-NativeInspection $bundle (
             Join-Path $artifact 'setup-core-repair-missing-exe-confirmed.json') 0 '--confirm-upgrade-file'

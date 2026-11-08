@@ -73,10 +73,23 @@ namespace IwxaSetup
                                 old.PackageSha256 == current.PackageSha256;
                             RequireOnlyOwnedFiles(
                                 PreviousFor(info), repairedVersion);
+                            bool incompleteRepairBackup = false;
+                            if (repairedVersion)
+                            {
+                                try { RequireOnlyOwnedFiles(PreviousFor(info)); }
+                                catch (InvalidDataException missing)
+                                {
+                                    if (missing.Message != "SETUP_OWNED_FILES_MISSING")
+                                        throw;
+                                    incompleteRepairBackup = true;
+                                }
+                            }
                             plan.Status = current.PackageSha256 == info.PackageSha256 &&
                                 Convert.ToString(owned.GetValue("Version")) == info.Version &&
                                 old.Id == info.Id ?
-                                "UPGRADE_PENDING_CONFIRMATION" :
+                                (incompleteRepairBackup ?
+                                    "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK" :
+                                    "UPGRADE_PENDING_CONFIRMATION") :
                                 "UPGRADE_RECOVERY_REQUIRED";
                         }
                         catch (Exception)
