@@ -290,6 +290,15 @@ namespace IwxaSetup
             // the actual client rectangle on each layout pass.
             card.Left = px(30);
             card.Width = Math.Max(px(320), area.ClientSize.Width - px(60));
+            // DPI auto-scaling can reapply the original anchored child width
+            // after the parent changes. Reconcile every package-card child
+            // against the actual current card width, not the old 580px box.
+            foreach (Control child in card.Controls)
+            {
+                int width = Math.Max(px(150),
+                    card.ClientSize.Width - child.Left - px(20));
+                if (child.Width != width) child.Width = width;
+            }
             eyebrow.Width = Math.Max(px(220), area.ClientSize.Width - px(64));
             productName.Width = Math.Max(px(220), area.ClientSize.Width - px(64));
             description.Width = Math.Max(px(220), area.ClientSize.Width - px(66));
