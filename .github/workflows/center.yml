@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   model:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +44,7 @@ jobs:
       - name: Verify universal Setup Core package contract
         run: python -m unittest discover -s installer/tests -p 'test_*.py' -v
   interface:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +72,7 @@ jobs:
             package-lock.json
             dist/
   windows-shell:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -282,3 +282,62 @@ jobs:
             artifacts/legacy-nsis-preview-*.json
             artifacts/installed-gui-result.json
             artifacts/installed-gui-failure.png
+
+  # Targeted Windows verification of official signed bootstrapper. Does
+  # not install or remove WebView2 on the hosted runner.
+  windows-webview2-probe:
+    if: ${{ startsWith(github.event.head_commit.message, 'ci(webview2):') }}
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Setup Core signature verifier without rebuilding Center
+        shell: pwsh
+        timeout-minutes: 2
+        run: ./installer/windows/build-stub.ps1 -Output artifacts/webview2-signature-probe.exe
+      - name: Fetch Microsoft WebView2 bootstrapper and verify signed binary
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $ErrorActionPreference='Stop'
+          $official=Join-Path $env:GITHUB_WORKSPACE 'artifacts/MicrosoftEdgeWebview2Setup.exe'
+          $stub=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-signature-probe.exe'
+          $report=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-official-verification.json'
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $official -MaximumRedirection 6 -TimeoutSec 60
+          if(!(Test-Path -LiteralPath $official)){throw 'WEBVIEW2_REAL_BOOTSTRAPPER_MISSING'}
+          $p=Start-Process -FilePath $stub -ArgumentList ('--verify-webview2-installer-file "{0}" "{1}"' -f $official,$report) -PassThru
+          try {
+            if(!$p.WaitForExit(55000)){Stop-Process -Id $p.Id -Force; throw 'WEBVIEW2_MICROSOFT_VERIFY_TIMEOUT'}
+            if($p.ExitCode -ne 0){throw "WEBVIEW2_MICROSOFT_SIGNED_VALIDATION_EXIT_$($p.ExitCode)"}
+          } finally {$p.Dispose()}
+          $result=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
+          if($result.status -ne 'WEBVIEW2_MICROSOFT_INSTALLER_VERIFIED'){
+            throw "WEBVIEW2_MICROSOFT_BOOTSTRAPPER_INVALID_$($result.status)"
+          }
+          Write-Host "WEBVIEW2_OFFICIAL_BOOTSTRAPPER_AUTHENTICODE_PASS size=$((Get-Item $official).Length) sha256=$((Get-FileHash $official -Algorithm SHA256).Hash)"
+          $tampered=Join-Path $env:GITHUB_WORKSPACE 'artifacts/MicrosoftEdgeWebview2Setup-tampered.exe'
+          Copy-Item -LiteralPath $official -Destination $tampered
+          $file=[System.IO.File]::Open($tampered,[System.IO.FileMode]::Open,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]::None)
+          try {
+            $null=$file.Seek(4096,[System.IO.SeekOrigin]::Begin)
+            $b=$file.ReadByte()
+            if($b -lt 0){throw 'WEBVIEW2_TAMPER_POSITION_INVALID'}
+            $null=$file.Seek(4096,[System.IO.SeekOrigin]::Begin)
+            $file.WriteByte([byte]($b -bxor 1))
+          } finally {$file.Dispose()}
+          $tamperReport=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-tamper-rejected.json'
+          $bad=Start-Process -FilePath $stub -ArgumentList ('--verify-webview2-installer-file "{0}" "{1}"' -f $tampered,$tamperReport) -PassThru
+          try {
+            if(!$bad.WaitForExit(55000)){Stop-Process -Id $bad.Id -Force; throw 'WEBVIEW2_TAMPER_VERIFY_TIMEOUT'}
+            if($bad.ExitCode -ne 2){throw "WEBVIEW2_TAMPER_WAS_ACCEPTED_$($bad.ExitCode)"}
+          } finally {$bad.Dispose()}
+          $result=Get-Content -LiteralPath $tamperReport -Raw|ConvertFrom-Json
+          if($result.status -ne 'ERROR'){throw 'WEBVIEW2_TAMPER_REPORT_MISSING_ERROR'}
+          Write-Host 'WEBVIEW2_TAMPERED_MICROSOFT_BOOTSTRAPPER_REJECTED_PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: center-webview2-verification
+          path: |
+            artifacts/webview2-*.json
