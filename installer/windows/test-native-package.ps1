@@ -67,6 +67,26 @@ try {
     }
     Write-Host "IWXA_SETUP_NATIVE_PACKAGE_PASS files=$($native.files) version=$($native.version)"
 
+    $preflightReport = Join-Path $artifact 'setup-core-preflight.json'
+    $stagingReport = Join-Path $artifact 'setup-core-staged-readback.json'
+    $preflight = Invoke-NativeInspection $bundle $preflightReport 0
+    if ($preflight.product -ne 'iwxa.admin-center' -or
+        $preflight.status -notin @(
+            'READY_FOR_FIRST_INSTALL', 'WEBVIEW2_MISSING',
+            'EXISTING_INSTALLATION', 'LEGACY_INSTALLATION',
+            'ARCHITECTURE_UNSUPPORTED'
+        )) { throw 'SETUP_NATIVE_PREFLIGHT_INVALID' }
+    Write-Host "IWXA_SETUP_NATIVE_PREFLIGHT_PASS status=$($preflight.status)"
+    $stage = Invoke-NativeInspection $bundle $stagingReport 0
+    if ($stage.status -ne 'STAGED_VERIFIED' -or
+        $stage.product -ne $manifest.product -or
+        $stage.files -ne $manifest.file_count -or
+        $stage.packageSha256 -ne $manifest.payload_sha256 -or
+        $stage.bytes -le 0) {
+        throw 'SETUP_NATIVE_STAGE_READBACK_INVALID'
+    }
+    Write-Host "IWXA_SETUP_NATIVE_STAGING_PASS files=$($stage.files) bytes=$($stage.bytes)"
+
     # Mutate the authenticated ZIP overlay without touching the PE executable.
     $bytes = [IO.File]::ReadAllBytes($bundle)
     $start = [int][BitConverter]::ToUInt64($bytes, ($bytes.Length - 136 + 16))

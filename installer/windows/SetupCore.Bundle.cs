@@ -19,6 +19,9 @@ namespace IwxaSetup
         internal string Version;
         internal string Architecture;
         internal string Entrypoint;
+        internal string InstallDir;
+        internal bool NeedsWebView2;
+        internal long PayloadBytes;
         internal string SourceCommit;
         internal string PackageSha256;
         internal int FileCount;
@@ -46,6 +49,20 @@ namespace IwxaSetup
         }
 
         internal static BundleInfo Inspect(string executable)
+        {
+            return InspectOrStage(executable, null);
+        }
+
+        internal static BundleInfo ExtractVerified(string executable, string stagingRoot)
+        {
+            if (!Directory.Exists(stagingRoot) ||
+                Directory.GetFileSystemEntries(stagingRoot).Length != 0 ||
+                (File.GetAttributes(stagingRoot) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("SETUP_STAGING_ROOT_NOT_EMPTY_OR_UNTRUSTED");
+            return InspectOrStage(executable, stagingRoot);
+        }
+
+        private static BundleInfo InspectOrStage(string executable, string stagingRoot)
         {
             using (var source = new FileStream(executable, FileMode.Open, FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete))
@@ -100,6 +117,7 @@ namespace IwxaSetup
                     Version = StringValue(product, "version"),
                     Architecture = StringValue(product, "architecture"),
                     Entrypoint = SafePath(StringValue(product, "entrypoint")),
+                    InstallDir = SafePath(StringValue(product, "install_dir")),
                     PackageSha256 = Hex(zipHash),
                 };
                 if (!Regex.IsMatch(info.Id, @"\A[a-z][a-z0-9.-]{2,63}\z") ||
@@ -107,13 +125,17 @@ namespace IwxaSetup
                     (info.Architecture != "windows-x64" && info.Architecture != "windows-arm64") ||
                     info.Name.Length > 80 || info.Publisher.Length > 80)
                     throw new InvalidDataException("SETUP_PRODUCT_IDENTITY_INVALID");
-                SafePath(StringValue(product, "install_dir"));
+                if (info.InstallDir.IndexOf('/') >= 0)
+                    throw new InvalidDataException("SETUP_INSTALL_DIR_MUST_BE_SIMPLE");
                 var req = manifest.ContainsKey("requirements") ? manifest["requirements"] : product["requirements"];
                 if (!(req is IList))
                     throw new InvalidDataException("SETUP_REQUIREMENTS_INVALID");
                 foreach (object element in (IList)req)
+                {
                     if (!(element is string) || (string)element != "webview2-evergreen")
                         throw new InvalidDataException("SETUP_REQUIREMENTS_INVALID");
+                    info.NeedsWebView2 = true;
+                }
 
                 var provenance = ObjectValue(manifest, "source");
                 info.SourceCommit = StringValue(provenance, "commit");
@@ -146,6 +168,7 @@ namespace IwxaSetup
                 }
                 if (!expected.ContainsKey(info.Entrypoint))
                     throw new InvalidDataException("SETUP_ENTRYPOINT_MISSING");
+                info.PayloadBytes = total;
 
                 // A segment stream lets ZipArchive inspect only the authenticated
                 // ZIP region without copying a potentially multi-GB archive to TEMP.
@@ -166,10 +189,28 @@ namespace IwxaSetup
                         Expected file = expected[relative];
                         if (entry.Length != file.Bytes)
                             throw new InvalidDataException("SETUP_ZIP_ENTRY_LENGTH_INVALID");
+                        // Stage only inside an empty caller-owned directory.
+                        // Extraction is the exact same bounded verification loop
+                        // used by pure inspection; no unverified files activate.
+                        string targetFile = null;
+                        if (stagingRoot != null)
+                        {
+                            string prefix = Path.GetFullPath(stagingRoot)
+                                .TrimEnd(Path.DirectorySeparatorChar) +
+                                Path.DirectorySeparatorChar;
+                            targetFile = Path.GetFullPath(Path.Combine(prefix,
+                                relative.Replace('/', Path.DirectorySeparatorChar)));
+                            if (!targetFile.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                                throw new InvalidDataException("SETUP_STAGING_ESCAPE");
+                            Directory.CreateDirectory(Path.GetDirectoryName(targetFile));
+                        }
                         long readLength = 0;
                         byte[] buffer = new byte[BufferSize];
                         using (var stream = entry.Open())
                         using (var hash = SHA256.Create())
+                        using (var dest = targetFile == null ? null :
+                            new FileStream(targetFile, FileMode.CreateNew,
+                                FileAccess.Write, FileShare.None))
                         {
                             int n;
                             while ((n = stream.Read(buffer, 0, buffer.Length)) != 0)
@@ -177,11 +218,13 @@ namespace IwxaSetup
                                 readLength += n;
                                 if (readLength > file.Bytes)
                                     throw new InvalidDataException("SETUP_ZIP_ENTRY_EXPANSION");
+                                if (dest != null) dest.Write(buffer, 0, n);
                                 hash.TransformBlock(buffer, 0, n, buffer, 0);
                             }
                             hash.TransformFinalBlock(new byte[0], 0, 0);
                             if (readLength != file.Bytes || Hex(hash.Hash) != file.Sha)
                                 throw new InvalidDataException("SETUP_ZIP_ENTRY_HASH_INVALID");
+                            if (dest != null) dest.Flush(true);
                         }
                     }
                 }

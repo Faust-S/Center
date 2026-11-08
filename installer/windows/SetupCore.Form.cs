@@ -172,8 +172,15 @@ namespace IwxaSetup
                 status.ForeColor = Color.FromArgb(24, 119, 91);
                 version.Text = T("Версия ", "Version ") + info.Version +
                     "   •   " + info.Architecture;
+                InstallPreflight check = SetupReadiness.Check(info);
                 packageDetails.Text = T("Файлов: ", "Files: ") + info.FileCount +
                     "   •   SHA-256 " + info.PackageSha256.Substring(0, 16) + "…";
+                if (check.Status != "READY_FOR_FIRST_INSTALL")
+                {
+                    version.Text += "   •   " + check.Status;
+                    status.Text = T("Требуется подготовка Windows",
+                        "Windows preparation needed");
+                }
             }
             catch (Exception ex)
             {

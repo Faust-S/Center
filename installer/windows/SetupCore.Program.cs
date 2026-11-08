@@ -35,6 +35,53 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            if (args.Length == 2 && args[0] == "--preflight-file")
+            {
+                try
+                {
+                    BundleInfo info = BundleReader.Inspect(Application.ExecutablePath);
+                    InstallPreflight check = SetupReadiness.Check(info);
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", check.Status},
+                        {"product", info.Id},
+                        {"version", info.Version},
+                        {"webview2Version", check.WebView2Version},
+                        {"sourceCommit", info.SourceCommit}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
+            if (args.Length == 2 && args[0] == "--stage-test-file")
+            {
+                try
+                {
+                    BundleInfo info = StagingProbe.ExtractVerifyAndClean(
+                        Application.ExecutablePath);
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "STAGED_VERIFIED"},
+                        {"product", info.Id},
+                        {"version", info.Version},
+                        {"files", info.FileCount},
+                        {"bytes", info.PayloadBytes},
+                        {"packageSha256", info.PackageSha256}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             if (args.Length != 0) return 3;
 
             Application.EnableVisualStyles();
