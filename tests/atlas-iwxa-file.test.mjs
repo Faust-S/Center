@@ -47,7 +47,7 @@ test("Center rejects tampered .iwxa, spoofed extensions, oversize and fake file 
  const changed=Uint8Array.from(valid);
  changed[changed.length-30]^=1;
  await assert.rejects(readAtlasSourceFile(fromBytes(changed)),/ATLAS_SOURCE_IWXA_INVALID/);
- await assert.rejects(readAtlasSourceFile(fromBytes(valid,"task.json")),/ATLAS_SNAPSHOT_INVALID|Unexpected/);
+ await assert.rejects(readAtlasSourceFile(fromText('{"format":"iwxa.package"}',"task.json")),/ATLAS_SNAPSHOT_INVALID/);
  await assert.rejects(readAtlasSourceFile(fromBytes(valid,"task.iwxa.exe")),/ATLAS_SOURCE_FILE_INVALID/);
  await assert.rejects(readAtlasSourceFile({...fromBytes(valid),size:0}),/ATLAS_SOURCE_FILE_SIZE_INVALID/);
  await assert.rejects(readAtlasSourceFile({...fromBytes(valid),size:33*1024*1024}),/ATLAS_SOURCE_FILE_SIZE_INVALID/);

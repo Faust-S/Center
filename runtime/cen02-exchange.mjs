@@ -2,7 +2,7 @@ import {assignmentText} from '../src/organization.mjs';
 import {readAppliedResults} from './cen03-applied-results.mjs';
 import {readAtlasPortfolio} from '../src/atlas-integration.mjs';
 import {serialize as serializeAtlas} from '../vendor/atlas/src/core.mjs';
-import {requireCurrentWorkReference} from '../vendor/atlas/src/project-reference.mjs';
+import {createAtlasSavedRef} from '../vendor/atlas/src/project-host-port.mjs';
 const requireValue=(ok,code)=>{if(!ok)throw Error(code);};
 
 // CEN02: bounded adapter, not a package issuer or delivery/receipt database.
@@ -70,12 +70,26 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
       // Validate the source projection, then use the canonical Atlas
       // WorkRef gate. This does not provide T3 organizational authority.
       readAtlasPortfolio(serializeAtlas(observed.snapshot));
-      try {requireCurrentWorkReference(observed.snapshot,ref);}
+      try {
+        // The current canonical Atlas module owns saved ProjectRef/WorkRef.
+        // Verify the selected revision before any T3 issuance; never trust
+        // a stale link simply because the project/work still exists.
+        if(typeof ref.revision!=='string'||!/^(0|[1-9][0-9]*)$/.test(ref.revision))
+          throw Object.assign(new Error('ATLAS_WORK_REFERENCE_INVALID'),{code:'ATLAS_WORK_REFERENCE_INVALID'});
+        const currentRef=createAtlasSavedRef(observed.snapshot,
+          {projectId:ref.projectId,workId:ref.workId},{persisted:true,dirty:false});
+        if(currentRef.revision!==ref.revision)
+          throw Object.assign(new Error('ATLAS_SOURCE_REVISION_CHANGED'),{code:'ATLAS_SOURCE_REVISION_CHANGED'});
+      }
       catch(error) {
         const codes={
           ATLAS_SOURCE_REVISION_CHANGED:'T3_ATLAS_REVISION_CHANGED',
           ATLAS_PROJECT_NOT_IN_SOURCE:'T3_ATLAS_PROJECT_NOT_IN_SOURCE',
           ATLAS_WORK_NOT_IN_SOURCE:'T3_ATLAS_WORK_NOT_IN_SOURCE',
+          ATLAS_PROJECT_NOT_FOUND:'T3_ATLAS_PROJECT_NOT_IN_SOURCE',
+          ATLAS_WORK_NOT_FOUND:'T3_ATLAS_WORK_NOT_IN_SOURCE',
+          ATLAS_PROJECT_ID_INVALID:'T3_ATLAS_WORK_BINDING_REQUIRED',
+          ATLAS_WORK_ID_INVALID:'T3_ATLAS_WORK_BINDING_REQUIRED',
           ATLAS_WORK_REFERENCE_INVALID:'T3_ATLAS_WORK_BINDING_REQUIRED'
         };
         throw Error(codes[error?.code]||'T3_ATLAS_SNAPSHOT_INVALID');

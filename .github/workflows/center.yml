@@ -57,6 +57,12 @@ jobs:
           ref: d56b8703325b7e94648e003066c807cf330384d6
           path: vendor/atlas
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Br-test
+          ref: 07df66ab6bd3e1b87036c33b90e49d228d5ab820
+          path: vendor/brtest
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
