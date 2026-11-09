@@ -174,8 +174,10 @@ namespace IwxaSetup
                         "This application does not require WebView2.") :
                     missing ? T("WebView2 не установлен. Требуется для работы.",
                         "WebView2 is missing and required for this application.") :
-                    T("Установлен WebView2, версия ", "WebView2 installed, version ") +
-                        version;
+                    T("Microsoft WebView2 установлен", "Microsoft WebView2 installed");
+                if (required && !missing)
+                    detailsHint.SetToolTip(componentStatus,
+                        "Microsoft WebView2: " + version);
                 webOnline.Visible = required && missing;
                 webOffline.Visible = required && missing;
                 webOnline.Enabled = required && missing &&

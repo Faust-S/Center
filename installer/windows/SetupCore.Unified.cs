@@ -14,6 +14,11 @@ namespace IwxaSetup
         private readonly Label unifiedExplanation = new Label();
         private readonly Label unifiedLocationHint = new Label();
         private readonly Label unifiedSectionTitle = new Label();
+        private readonly Label unifiedManageTitle = new Label();
+        private readonly Label unifiedReadyNotes = new Label();
+        private readonly Panel unifiedActionBox = new Panel();
+        private readonly TableLayoutPanel unifiedActionGrid =
+            new TableLayoutPanel();
         private readonly PictureBox unifiedBrand = new PictureBox();
         private readonly Panel unifiedPathPanel = new Panel();
         private readonly TableLayoutPanel unifiedMain = new TableLayoutPanel();
@@ -574,9 +579,31 @@ namespace IwxaSetup
             busyProgress.Style = ProgressBarStyle.Marquee;
             busyProgress.Visible = false;
             unifiedRight.Controls.Add(busyProgress, 0, 4);
-            unifiedRight.Controls.Add(UiLabel(T(
-                "Управление программой", "Manage application"),
-                11, true), 0, 5);
+            unifiedManageTitle.Text = T("Доступные действия", "Available actions");
+            unifiedManageTitle.ForeColor = Navy;
+            unifiedManageTitle.Font =
+                new Font("Segoe UI", 11F, FontStyle.Bold);
+            unifiedManageTitle.Dock = DockStyle.Fill;
+            unifiedRight.Controls.Add(unifiedManageTitle, 0, 5);
+            unifiedActionBox.Dock = DockStyle.Fill;
+            unifiedActionBox.BackColor = Color.White;
+            unifiedRight.Controls.Add(unifiedActionBox, 0, 6);
+            unifiedRight.SetRowSpan(unifiedActionBox, 3);
+            unifiedActionGrid.Dock = DockStyle.Fill;
+            unifiedActionGrid.ColumnCount = 1;
+            unifiedActionGrid.RowCount = 3;
+            unifiedActionGrid.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, 100));
+            foreach(float part in new [] {33F, 33F, 34F})
+                unifiedActionGrid.RowStyles.Add(
+                    new RowStyle(SizeType.Percent, part));
+            unifiedActionBox.Controls.Add(unifiedActionGrid);
+            unifiedReadyNotes.Dock = DockStyle.Fill;
+            unifiedReadyNotes.Font = new Font("Segoe UI", 9.25F);
+            unifiedReadyNotes.ForeColor = Secondary;
+            unifiedReadyNotes.TextAlign = ContentAlignment.TopLeft;
+            unifiedReadyNotes.Visible = false;
+            unifiedActionBox.Controls.Add(unifiedReadyNotes);
             openApplication.Visible = false;
             openApplication.Name = "iwxaSetupRelatedAction";
             openApplication.Text = T("Открыть программу",
@@ -587,7 +614,7 @@ namespace IwxaSetup
             openApplication.TextAlign = ContentAlignment.MiddleLeft;
             openApplication.LinkClicked += (sender, args) =>
                 OpenRelatedAction();
-            unifiedRight.Controls.Add(openApplication, 0, 6);
+            unifiedActionGrid.Controls.Add(openApplication, 0, 0);
             serviceOwnedSetup.Visible = false;
             serviceOwnedSetup.Name = "iwxaSetupOpenInstalledMaintenance";
             serviceOwnedSetup.Text = T("Восстановить установленный выпуск",
@@ -597,7 +624,7 @@ namespace IwxaSetup
             serviceOwnedSetup.Margin = new Padding(0, 1, 0, 2);
             serviceOwnedSetup.Click += (sender, args) =>
                 OpenInstalledMaintenance();
-            unifiedRight.Controls.Add(serviceOwnedSetup, 0, 7);
+            unifiedActionGrid.Controls.Add(serviceOwnedSetup, 0, 1);
             removeApplication.Visible = false;
             removeApplication.Name = "iwxaSetupRemoveApplication";
             removeApplication.Text = T("Удалить программу…",
@@ -610,7 +637,7 @@ namespace IwxaSetup
             removeApplication.Margin = new Padding(0, 2, 0, 0);
             removeApplication.Click += async (sender, args) =>
                 await BeginUninstallAsync();
-            unifiedRight.Controls.Add(removeApplication, 0, 8);
+            unifiedActionGrid.Controls.Add(removeApplication, 0, 2);
             compactSettings.Name = "iwxaSetupCompactSettings";
             compactSettings.Text = T("Настроить папки и запуск…",
                 "Configure folders and startup…");
@@ -714,6 +741,21 @@ namespace IwxaSetup
             bool first = inspectedStatus == "NO_OWNED_INSTALLATION";
             bool installed = inspectedBundle != null && !first;
             bool changes = locationDraftChanged;
+            unifiedManageTitle.Text = first ?
+                T("Перед установкой", "Before installation") :
+                T("Управление программой", "Manage application");
+            unifiedReadyNotes.Visible = first;
+            unifiedActionGrid.Visible = !first;
+            if (first)
+            {
+                unifiedReadyNotes.Text =
+                    primaryAction == SetupOperation.Install ?
+                    T("Пакет программы проверен. Места на диске достаточно. Папки и настройки запуска можно изменить перед установкой.",
+                      "The package is verified and disk space is sufficient. You may change folders and startup before installing.") :
+                    T("Проверьте состояние выше. Когда причина будет устранена, установка станет доступна.",
+                      "Review the status above. Installation becomes available once the blocker is resolved.");
+                unifiedReadyNotes.BringToFront();
+            }
 
             install.Visible = primaryAction != SetupOperation.None && 
                 (!changes || first);
