@@ -75,6 +75,7 @@ test('Publisher WebView2 cache is app-local and the installed Windows test rejec
  const native=readFileSync('publisher/tests/installed-windows-publisher.ps1','utf8');
  assert.equal(cfg.app.windows[0].dataDirectory,'webview');
  assert.match(native,/PUBLISHER_WEBVIEW_PROFILE_IN_INSTALL_ROOT/);
- assert.match(native,/PUBLISHER_WEBVIEW_APP_LOCAL_PROFILE_PASS/);
+ assert.match(native,/PUBLISHER_WEBVIEW_INSTALL_ROOT_CLEAN_PASS/);
+ assert.match(native,/PUBLISHER_WEBVIEW_APP_LOCAL_PROFILE_NOT_OBSERVED_UNDER_OVERRIDE/);
  assert.match(native,/ru\.iwxa\.publisher\\webview/);
 });

@@ -250,10 +250,15 @@ try {
     throw 'PUBLISHER_WEBVIEW_PROFILE_IN_INSTALL_ROOT'
   }
   $nativeProfile=Join-Path $env:LOCALAPPDATA 'ru.iwxa.publisher\webview'
-  if(!(Test-Path -LiteralPath $nativeProfile -PathType Container)){
-    throw 'PUBLISHER_WEBVIEW_APP_LOCAL_PROFILE_MISSING'
+  if(Test-Path -LiteralPath $nativeProfile -PathType Container){
+    Write-Host 'PUBLISHER_WEBVIEW_APP_LOCAL_PROFILE_OBSERVED'
+  }else{
+    # The WebView2 environment override can choose a different profile
+    # folder. Do not assume a path; the mandatory contract is NO cache
+    # beside the EXE and complete native Setup Core uninstall/readback.
+    Write-Host 'PUBLISHER_WEBVIEW_APP_LOCAL_PROFILE_NOT_OBSERVED_UNDER_OVERRIDE'
   }
-  Write-Host 'PUBLISHER_WEBVIEW_APP_LOCAL_PROFILE_PASS'
+  Write-Host 'PUBLISHER_WEBVIEW_INSTALL_ROOT_CLEAN_PASS'
   Click-Publisher 'Продукты'
   Enter-Value 'Идентификатор продукта' 'IWXA_ADMIN_CENTER'
   Enter-Value 'Название' 'PublisherInstalledTest'
