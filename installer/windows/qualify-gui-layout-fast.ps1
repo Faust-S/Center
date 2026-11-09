@@ -227,8 +227,10 @@ try {
                 'iwxaSetupSoftwareRoot','iwxaSetupModelsRoot',
                 'iwxaSetupCacheRoot')) {
                 $input = One $dialog $name
+                $readonlyExpected = ($name -eq 'iwxaSetupInstallRoot' -and
+                    !$editable)
                 if ($input -isnot [System.Windows.Forms.TextBox] -or
-                    $input.ReadOnly -eq $editable -or
+                    $input.ReadOnly -ne $readonlyExpected -or
                     [string]::IsNullOrWhiteSpace($input.Text)) {
                     throw ('SETUP_OPTIONS_STORAGE_FIELD_INVALID_' + $name +
                         '_' + $editable)
