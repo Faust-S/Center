@@ -74,3 +74,19 @@ test('followup rejects cross-product and cross-recipient forgery and cyclic chai
    ...Object.fromEntries(Object.entries(reordered.tariffs[0]).filter(([k])=>k!=='revision'))};
  assert.deepEqual(decodePublisherDraft(JSON.stringify(reordered)).proposals,repeated.proposals);
 });
+
+test('same metric can have different local/cloud quotas without joining balances',()=>{
+ let s=source();
+ const limits=[
+  {metric:'STORAGE',service:'LOCAL',unit:'GIB',period:'MONTH',max:20},
+  {metric:'STORAGE',service:'CLOUD',unit:'GIB',period:'MONTH',max:5}
+ ];
+ s=apply(s,{...tariff(),quotas:limits});
+ s=apply(s,{kind:'addTariffProposal',productId:'IWXA_ADMIN_CENTER',
+   tariffId:'PLAN',revision:1,holderId:'org:one'});
+ const p=decodePublisherDraft(encodePublisherDraft(s)).proposals[0];
+ assert.equal(p.tariffSnapshot.quotas.length,2);
+ assert.deepEqual(p.tariffSnapshot.quotas.map(q=>q.max),[20,5]);
+ assert.throws(()=>apply(source(),{...tariff(),quotas:[limits[0],{...limits[0],max:30}]}),
+  {code:'TARIFF_QUOTA_DUPLICATE'});
+});

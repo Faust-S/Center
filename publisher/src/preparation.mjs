@@ -54,7 +54,7 @@ function validateTariff(t){
     id(q.metric);
     if(!['LOCAL','CLOUD'].includes(q.service)||!['COUNT','TOKENS','MINUTES','GIB','CREDITS'].includes(q.unit)||!['TOTAL','DAY','MONTH'].includes(q.period)||!Number.isSafeInteger(q.max)||q.max<1||q.max>1000000000)reject('TARIFF_QUOTA_INVALID');
   }
-  unique(t.quotas.map(q=>q.metric+':'+q.period),'TARIFF_QUOTA_DUPLICATE');
+  unique(t.quotas.map(q=>[q.service,q.metric,q.period].join(':')),'TARIFF_QUOTA_DUPLICATE');
 }
 function validateProposal(p) {
   const hasTariff=plain(p)&&Object.hasOwn(p,'tariffSnapshot');

@@ -37,7 +37,23 @@ function PublisherNavIcon({section}:{section:Page}){
    {section==='trust'&&<><path d="M12 2 20 6v6c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6Z"/><path d="m9 12 2 2 4-4"/></>}
  </svg>;
 }
-function getError(error:unknown) {return error instanceof Error ? error.message : String(error);}
+const publisherDraftMessages:Record<string,string>={
+  DUPLICATE_TARIFF_REVISION:'Такая редакция тарифа уже сохранена. Создайте следующую редакцию.',
+  TARIFF_PROPOSAL_AMBIGUOUS:'Уточните продукт: одинаковое название тарифа используется в нескольких программах.',
+  TARIFF_PROPOSAL_HOLDER_MISMATCH:'Для выбранного клиента нужен тариф соответствующего типа.',
+  PROPOSAL_FOLLOWUP_SOURCE_INVALID:'Прежнюю подготовку найти не удалось. Выберите другую.',
+  PROPOSAL_FOLLOWUP_PRODUCT_MISMATCH:'Для повторной подготовки должен использоваться тот же продукт.',
+  PROPOSAL_HAS_FOLLOWUPS:'Сначала удалите более поздние подготовки, связанные с этой записью.',
+  TARIFF_ORGANIZATION_LIMITS_INVALID:'Проверьте места и число сотрудников организации.',
+  TARIFF_PERSON_LIMITS_INVALID:'Для личного тарифа укажите число устройств. Мест продукта должно быть одно.',
+  TARIFF_QUOTA_DUPLICATE:'Этот ресурс уже имеет ограничение за выбранный период.',
+  TARIFF_QUOTA_INVALID:'Проверьте единицу измерения, период и величину ресурса.',
+  TARIFF_PRODUCT_MISSING:'Сначала добавьте продукт, к которому относится тариф.'
+};
+function getError(error:unknown) {
+  const code=error instanceof Error?error.message:String(error);
+  return publisherDraftMessages[code]||code;
+}
 // The shipped Publisher is a Tauri desktop program. There is deliberately
 // no browser draft fallback: opening its embedded assets in a normal
 // browser cannot create or modify Publisher drafts.

@@ -59,7 +59,7 @@ export function prepareOfflineLicensePlanPreview(draft,input){
   if(!Array.isArray(input.quotas)||input.quotas.length>32)
     reject('OFFLINE_PLAN_QUOTAS_INVALID');
   input.quotas.forEach(quota);
-  const quotaIds=input.quotas.map(q=>q.metric+':'+q.period);
+  const quotaIds=input.quotas.map(q=>[q.service,q.metric,q.period].join(':'));
   if(new Set(quotaIds).size!==quotaIds.length)
     reject('OFFLINE_PLAN_QUOTAS_DUPLICATE');
 

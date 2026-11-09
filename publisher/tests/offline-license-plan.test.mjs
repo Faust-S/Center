@@ -83,7 +83,7 @@ test('quota validation rejects fake entitlement fields and duplicate resources',
   assert.throws(()=>prepareOfflineLicensePlanPreview(draft,{...person,issuerSecret:'x'}),
     {code:'OFFLINE_PLAN_INPUT_FIELDS_INVALID'});
   assert.throws(()=>prepareOfflineLicensePlanPreview(draft,{...person,quotas:[
-    person.quotas[0],{...person.quotas[0],service:'CLOUD'}]}),
+    person.quotas[0],{...person.quotas[0]}]}),
     {code:'OFFLINE_PLAN_QUOTAS_DUPLICATE'});
   assert.throws(()=>prepareOfflineLicensePlanPreview(draft,{...person,quotas:[
     {...person.quotas[0],max:-1}]}),
@@ -101,4 +101,18 @@ test('unchanged Publisher v1 draft roundtrips and invalid references fail',()=>{
     {...input('person:missing')}),{code:'OFFLINE_PLAN_REFERENCE_MISSING'});
   assert.throws(()=>prepareOfflineLicensePlanPreview(saved,
     {...input('person:local-1'),productId:'NOT_INSTALLED'}),{code:'OFFLINE_PLAN_REFERENCE_MISSING'});
+});
+
+test('one resource metric may have independent local and cloud limits in the same period',()=>{
+  const p=input('person:local-1');
+  const quotas=[
+    {metric:'MODEL_TOKENS',service:'LOCAL',unit:'TOKENS',period:'MONTH',max:100000},
+    {metric:'MODEL_TOKENS',service:'CLOUD',unit:'TOKENS',period:'MONTH',max:5000}
+  ];
+  const preview=prepareOfflineLicensePlanPreview(source(),{...p,quotas});
+  assert.equal(preview.limits.quotas.length,2);
+  assert.equal(preview.limits.quotas[0].enforcement,'LOCAL_PRODUCT_CHECK');
+  assert.equal(preview.limits.quotas[1].enforcement,'ONLINE_SERVICE_REQUIRED');
+  assert.deepEqual(preview.limits.quotas.map(v=>v.max),[100000,5000]);
+  assert.equal(preview.activeSeats,0);
 });
