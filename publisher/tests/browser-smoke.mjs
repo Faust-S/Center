@@ -131,7 +131,7 @@ try {
   await page.getByText('Продукты (1)').waitFor();
   checks.push('create-product-draft');
 
-  await page.getByRole('button',{name:'Тарифы и лимиты'}).click();
+  await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
   await page.getByLabel('Код тарифа').fill('TEAM');
   await page.getByLabel('Название тарифа').fill('Команда');
   await page.getByLabel('Функции и модули').fill('FEATURE_A,FEATURE_B');
@@ -155,7 +155,7 @@ try {
   checks.push('create-organization-holder');
 
   await page.getByRole('button',{name:'Лицензии'}).click();
-  await page.getByRole('button',{name:'Тарифы и лимиты'}).click();
+  await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
   await page.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
   await page.getByRole('button',{name:'Лицензии'}).click();
   await page.getByText('Подготовленные запросы (1)').waitFor();
