@@ -34,14 +34,73 @@ namespace IwxaSetup
         private const string RegistryProducts = @"Software\IWXA\SetupCore\Products\";
         private const string WindowsUninstall = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\IWXA.SetupCore.";
 
-        internal static string RootFor(BundleInfo info)
+        internal static string DefaultRootFor(BundleInfo info)
         {
             return Path.GetFullPath(Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Programs", info.InstallDir));
         }
 
-        internal static SetupDiskPlan CheckStageSpace(BundleInfo info)
+        // After first install the registered location is authoritative for
+        // repair, upgrade, rollback, launch and uninstall.
+        internal static string RootFor(BundleInfo info)
+        {
+            using (var key = Registry.CurrentUser.OpenSubKey(
+                RegistryProducts + info.Id))
+            {
+                if (key != null)
+                    return ValidateInstallRoot(Convert.ToString(
+                        key.GetValue("InstallLocation")));
+            }
+            return DefaultRootFor(info);
+        }
+
+        internal static string ValidateInstallRoot(string value)
+        {
+            if (String.IsNullOrWhiteSpace(value) || value.Length > 230 ||
+                !Path.IsPathRooted(value) ||
+                value.StartsWith(@"\\", StringComparison.Ordinal))
+                throw new InvalidOperationException("SETUP_INSTALL_ROOT_INVALID");
+            string root;
+            try { root = Path.GetFullPath(value.Trim()).TrimEnd('\\', '/'); }
+            catch (Exception ex)
+            {
+                if (ex is ArgumentException || ex is NotSupportedException ||
+                    ex is PathTooLongException)
+                    throw new InvalidOperationException("SETUP_INSTALL_ROOT_INVALID");
+                throw;
+            }
+            if (String.IsNullOrEmpty(root) ||
+                SamePath(root, Path.GetPathRoot(root)))
+                throw new InvalidOperationException("SETUP_INSTALL_ROOT_VOLUME_ROOT");
+            foreach (string reserved in new [] {
+                Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)
+            })
+            {
+                if (!String.IsNullOrWhiteSpace(reserved) &&
+                    (SamePath(root, reserved) ||
+                     root.StartsWith(Path.GetFullPath(reserved).TrimEnd('\\') + "\\",
+                        StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException("SETUP_INSTALL_ROOT_SYSTEM_FOLDER");
+            }
+            for (string part = root; !String.IsNullOrEmpty(part);
+                 part = Path.GetDirectoryName(part))
+            {
+                if (File.Exists(part))
+                    throw new InvalidOperationException("SETUP_INSTALL_ROOT_PARENT_FILE");
+                if (Directory.Exists(part) &&
+                    (File.GetAttributes(part) & FileAttributes.ReparsePoint) != 0)
+                    throw new InvalidOperationException("SETUP_INSTALL_ROOT_LINK");
+                string parent = Path.GetDirectoryName(part);
+                if (String.IsNullOrEmpty(parent) || parent == part) break;
+            }
+            return root;
+        }
+
+        internal static SetupDiskPlan CheckStageSpace(BundleInfo info, string selectedRoot = null)
         {
             // Verified unpacked bytes + a complete same-volume installer copy.
             // The existing release is moved, not copied, during upgrade.
@@ -50,7 +109,7 @@ namespace IwxaSetup
                 throw new InvalidDataException("SETUP_DISK_PACKAGE_SIZE_UNKNOWN");
             long required = checked(info.PayloadBytes + info.PackageBytes +
                 64L * 1024 * 1024 + info.PayloadBytes / 50);
-            string driveRoot = Path.GetPathRoot(RootFor(info));
+            string driveRoot = Path.GetPathRoot(selectedRoot == null ? RootFor(info) : ValidateInstallRoot(selectedRoot));
             if (String.IsNullOrWhiteSpace(driveRoot))
                 throw new IOException("SETUP_DISK_VOLUME_UNAVAILABLE");
             var volume = new DriveInfo(driveRoot);
@@ -65,9 +124,9 @@ namespace IwxaSetup
             };
         }
 
-        private static void RequireStageSpace(BundleInfo info)
+        private static void RequireStageSpace(BundleInfo info, string selectedRoot = null)
         {
-            SetupDiskPlan disk = CheckStageSpace(info);
+            SetupDiskPlan disk = CheckStageSpace(info, selectedRoot);
             if (disk.Status != "DISK_SPACE_READY")
                 throw new InvalidOperationException(
                     "SETUP_DISK_SPACE_INSUFFICIENT_required=" +
@@ -81,6 +140,19 @@ namespace IwxaSetup
             {
                 if (!mutex.WaitOne(0)) throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
                 try { return InstallLocked(bundle, info); }
+                finally { mutex.ReleaseMutex(); }
+            }
+        }
+
+        internal static InstallOutcome InstallFresh(string bundle, string selectedRoot)
+        {
+            BundleInfo info = BundleReader.Inspect(bundle);
+            string root = ValidateInstallRoot(selectedRoot);
+            using (var mutex = new System.Threading.Mutex(false, "Local\\IWXA.SetupCore." + info.Id))
+            {
+                if (!mutex.WaitOne(0))
+                    throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
+                try { return InstallLocked(bundle, info, null, root); }
                 finally { mutex.ReleaseMutex(); }
             }
         }
@@ -122,15 +194,15 @@ namespace IwxaSetup
         }
 
         private static InstallOutcome InstallLocked(string bundle, BundleInfo info,
-            LegacyAssessment legacy = null)
+            LegacyAssessment legacy = null, string selectedRoot = null)
         {
-            InstallPreflight readiness = SetupReadiness.Check(info);
+            string root = selectedRoot == null ? RootFor(info) : ValidateInstallRoot(selectedRoot);
+            InstallPreflight readiness = SetupReadiness.Check(info, root);
             if (legacy == null && readiness.Status != "READY_FOR_FIRST_INSTALL")
                 throw new InvalidOperationException("SETUP_BLOCKED_" + readiness.Status);
             if (legacy != null && readiness.Status != "LEGACY_INSTALLATION")
                 throw new InvalidOperationException("SETUP_LEGACY_STATE_CHANGED");
-            string root = RootFor(info);
-            RequireStageSpace(info);
+            RequireStageSpace(info, root);
             string parent = Path.GetDirectoryName(root);
             Directory.CreateDirectory(parent);
             if (Directory.Exists(root) || File.Exists(root))

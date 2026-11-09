@@ -22,7 +22,7 @@ namespace IwxaSetup
         private const string WebView2Guid =
             "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
 
-        internal static InstallPreflight Check(BundleInfo info)
+        internal static InstallPreflight Check(BundleInfo info, string selectedRoot = null)
         {
             var result = new InstallPreflight { Status = "READY_FOR_FIRST_INSTALL",
                 WebView2Version = "" };
@@ -34,7 +34,7 @@ namespace IwxaSetup
             }
             string local = Environment.GetFolderPath(
                 Environment.SpecialFolder.LocalApplicationData);
-            string root = Path.Combine(local, "Programs", info.InstallDir);
+            string root = selectedRoot == null ? SetupInstallation.RootFor(info) : SetupInstallation.ValidateInstallRoot(selectedRoot);
             if (Directory.Exists(root + ".iwxa-previous") ||
                 File.Exists(root + ".iwxa-previous"))
             {
