@@ -68,6 +68,45 @@ function Assert-Layout([System.Windows.Forms.Form]$form,[string]$case) {
         ' area=' + $area.ClientSize + ' noteHeight=' + $note.Height +
         ' actionsWidth=' + $actions.ClientSize.Width)
 }
+# Qualify the same WinForms recovery controls for both a fresh install
+# and an already installed product whose WebView2 Runtime has disappeared.
+# This does not mutate the host's shared WebView2 installation.
+$offer = $formType.GetMethod('OfferWebView2Recovery',
+    [Reflection.BindingFlags]'Instance, NonPublic')
+$flags = [Reflection.BindingFlags]'Instance, NonPublic'
+$primary = $formType.GetField('primaryAction', $flags)
+$alternate = $formType.GetField('secondaryAction', $flags)
+if ($null -eq $offer -or $null -eq $primary -or $null -eq $alternate) {
+    throw 'SETUP_WEBVIEW2_RECOVERY_NATIVE_ROUTE_MISSING'
+}
+foreach ($installedProduct in @($false, $true)) {
+    $recoveryForm = [System.Activator]::CreateInstance($formType, $true)
+    try {
+        $invokeArgs = New-Object 'System.Object[]' 2
+        $invokeArgs[0] = 'Version 0.3.0'
+        $invokeArgs[1] = [bool]$installedProduct
+        $null = $offer.Invoke($recoveryForm, $invokeArgs)
+        $related = One $recoveryForm 'iwxaSetupRelatedAction'
+        $heading = One $recoveryForm 'iwxaSetupStatus'
+        $details = One $recoveryForm 'iwxaSetupDetails'
+        if ([string]$primary.GetValue($recoveryForm) -ne 'InstallWebView2' -or
+            [string]$alternate.GetValue($recoveryForm) -ne 'InstallWebView2Offline' -or
+            [string]$related.Tag -ne 'WEBVIEW2' -or
+            $related.Text -notmatch 'Microsoft' -or
+            $heading.Text -notmatch 'WebView2') {
+            throw ('SETUP_WEBVIEW2_RECOVERY_ACTIONS_MISSING_installed=' +
+                $installedProduct)
+        }
+        if ($installedProduct -and
+            $details.Text -notmatch '(?:данные|user data)') {
+            throw 'SETUP_WEBVIEW2_OWNED_INSTALL_DATA_PRESERVATION_TEXT_MISSING'
+        }
+    } finally {
+        $recoveryForm.Dispose()
+    }
+}
+Write-Host 'IWXA_SETUP_WEBVIEW2_RECOVERY_NATIVE_CONTROLS_PASS'
+
 foreach ($factor in @(1.0, 1.5, 2.0, 2.5)) {
     $form = [System.Activator]::CreateInstance($formType,$true)
     try {

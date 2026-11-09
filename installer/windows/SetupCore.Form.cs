@@ -435,6 +435,28 @@ namespace IwxaSetup
                 versionLine, true);
         }
 
+        // The Runtime can disappear after a successful product installation
+        // (for example, after a Windows image reset or enterprise cleanup).
+        // Offer Microsoft's existing online/offline recovery path without
+        // replacing or touching any installed application or user data.
+        private void OfferWebView2Recovery(string versionLine, bool installedProduct)
+        {
+            SetState(T("Требуется Microsoft WebView2", "Microsoft WebView2 required"),
+                installedProduct ?
+                    T("Программа уже установлена, но WebView2 отсутствует. Установите официальный Runtime через интернет или из файла Microsoft. Файлы программы и личные данные не изменятся.",
+                      "The application is installed, but WebView2 is missing. Install Microsoft's Runtime online or from an offline file. Application files and user data will not be changed.") :
+                    T("Для работы приложения установите Evergreen Runtime. Если интернета нет, используйте официальный автономный установщик.",
+                      "Install the Evergreen Runtime. Use Microsoft's standalone installer if offline."),
+                versionLine, true);
+            ConfigureActions(SetupOperation.InstallWebView2,
+                SetupOperation.InstallWebView2Offline,
+                T("Установить WebView2", "Install WebView2"));
+            openApplication.Tag = "WEBVIEW2";
+            openApplication.Text = T("Официальный автономный установщик (Microsoft)",
+                "Official offline installer (Microsoft)");
+            openApplication.Visible = true;
+        }
+
         private void SetState(
             string heading, string details, string versionLine, bool warning)
         {
@@ -831,23 +853,19 @@ namespace IwxaSetup
                     }
                     else if (check.Status == "WEBVIEW2_MISSING")
                     {
-                        SetState(T("Требуется Microsoft WebView2", "Microsoft WebView2 required"),
-                            T("Для работы приложения установите Evergreen Runtime. Если интернета нет, используйте официальный автономный установщик.",
-                              "Install the Evergreen Runtime. Use Microsoft's standalone installer if offline."),
-                            versionLine, true);
-                        ConfigureActions(SetupOperation.InstallWebView2,
-                            SetupOperation.InstallWebView2Offline,
-                            T("Установить WebView2", "Install WebView2"));
-                        openApplication.Tag = "WEBVIEW2";
-                        openApplication.Text = T("Официальный автономный установщик (Microsoft)",
-                            "Official offline installer (Microsoft)");
-                        openApplication.Visible = true;
+                        OfferWebView2Recovery(versionLine, false);
                     }
                     else
                     {
                         SetState(T("Требуется подготовка Windows", "Windows preparation needed"),
                             check.Status, versionLine, true);
                     }
+                }
+                else if (plan.Status == "WEBVIEW2_MISSING")
+                {
+                    // PlanUpgrade returns this for an owned installed product
+                    // when its WebView2 Runtime is no longer available.
+                    OfferWebView2Recovery(versionLine, true);
                 }
                 else if (plan.Status == "START_MENU_SHORTCUT_CONFLICT")
                 {
