@@ -1,2 +1,25 @@
 <!doctype html>
-<html lang="ru"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>IWXA Publisher</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"/><meta name="theme-color" content="#26364c"/></head><body><div id="root"></div><script type="module" src="/ui/main.tsx"></script></body></html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>IWXA Publisher</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+<meta name="theme-color" content="#26364c"/>
+<style>
+  body{margin:0;background:#f4f7fb;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#213449}
+  .publisher-startup{max-width:420px;margin:clamp(35px,12vh,100px) auto;padding:28px;border:1px solid #d8e3ef;border-radius:14px;background:white;box-shadow:0 4px 25px rgba(27,47,69,.06)}
+  .publisher-startup strong{display:block;margin-bottom:9px;font-size:17px}
+  .publisher-startup p{margin:0;font-size:13px;line-height:1.55;color:#4a6380}
+</style>
+</head>
+<body>
+<div id="root">
+  <main class="publisher-startup" id="publisher-startup" role="status">
+    <strong>IWXA Publisher</strong>
+    <p>Загрузка интерфейса… Если окно остаётся на этом экране, закройте программу и откройте её снова.</p>
+  </main>
+</div>
+<script type="module" src="/ui/main.tsx"></script>
+</body>
+</html>

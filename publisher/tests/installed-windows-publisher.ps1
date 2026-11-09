@@ -91,6 +91,26 @@ function Find-Control([string]$name,[string]$kind){
     }
     Start-Sleep -Milliseconds 300
   }
+
+  # A real installed WebView can fail before the React shell mounts. Classify
+  # this separately from changed UIA labels instead of hiding a white window.
+  if($name -eq 'Продукты' -and $kind -eq 'Button'){
+    $nodes=(Root-Element).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+      [System.Windows.Automation.Condition]::TrueCondition)
+    $names=@()
+    foreach($node in $nodes){
+      try {if($node.Current.Name){$names+=($node.Current.Name)}} catch {}
+    }
+    if($names -match 'Загрузка интерфейса'){
+      throw 'PUBLISHER_NATIVE_RENDERER_NOT_READY_STARTUP_FALLBACK_VISIBLE'
+    }
+    if($names -match 'Не удалось открыть интерфейс Publisher'){
+      throw 'PUBLISHER_NATIVE_REACT_RENDER_FAILED'
+    }
+    if(@($names).Count -le 2){
+      throw 'PUBLISHER_NATIVE_BLANK_WEBVIEW_NO_ACCESSIBLE_CONTENT'
+    }
+  }
   throw "Installed Publisher UIA control missing: $kind $name"
 }
 function Click-Publisher([string]$name){

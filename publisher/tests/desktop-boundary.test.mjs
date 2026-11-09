@@ -45,3 +45,16 @@ test('Offline two-copy command remains byte-only without approving releases or p
  assert.match(app,/Независимость физических носителей не подтверждена/);
  assert.doesNotMatch(app,/localStorage|URL\.createObjectURL/);
 });
+
+test('native desktop startup has visible loading fallback and React recovery rather than blank screen',()=>{
+ const html=read('publisher/index.html');
+ const entry=read('publisher/ui/main.tsx');
+ assert.match(html,/id="publisher-startup"/);
+ assert.match(html,/Загрузка интерфейса/);
+ assert.match(html,/type="module" src="\/ui\/main\.tsx"/);
+ assert.match(entry,/class PublisherRenderBoundary/);
+ assert.match(entry,/PUBLISHER_DESKTOP_RENDER_FAILURE/);
+ assert.match(entry,/data-testid="publisher-recovery"/);
+ assert.match(entry,/Повторить запуск/);
+ assert.doesNotMatch(entry,/localStorage|sessionStorage|new Store|issuerKey|signRecord/);
+});
