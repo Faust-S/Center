@@ -276,7 +276,7 @@ try {
     $invokeArgs = New-Object 'System.Object[]' 1
     $invokeArgs[0] = $testException
     $spaceMessage = [string]$reasonMethod.Invoke($hostForm, $invokeArgs)
-    if ($spaceMessage -notmatch 'MB|МБ' -or
+    if ($spaceMessage -notmatch '[0-9].*[0-9]' -or
         $spaceMessage -match 'SETUP_STORAGE_DISK_SPACE_INSUFFICIENT') {
         throw 'SETUP_STORAGE_HUMAN_READABLE_DISK_SPACE_ERROR_INVALID'
     }
