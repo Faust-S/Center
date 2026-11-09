@@ -1113,7 +1113,16 @@ namespace IwxaSetup
 
         internal static void LaunchUninstallerFromInstalledCopy(string executable)
         {
+            LaunchUninstallerFromInstalledCopy(executable, 0);
+        }
+
+        internal static void LaunchUninstallerFromInstalledCopy(
+            string executable, int removalMask)
+        {
             BundleInfo info = BundleReader.Inspect(executable);
+            // Check availability before spawning a worker. The temp process
+            // independently repeats this validation before deleting anything.
+            ResolveRemovalTargets(info, removalMask);
             string root = RootFor(info);
             if (!SamePath(Path.GetDirectoryName(executable), root))
                 throw new InvalidOperationException("SETUP_UNINSTALL_WRONG_EXECUTABLE");
@@ -1124,7 +1133,8 @@ namespace IwxaSetup
             try
             {
                 var start = new ProcessStartInfo(worker,
-                    "--uninstall-worker " + Process.GetCurrentProcess().Id) {
+                    "--uninstall-worker " + Process.GetCurrentProcess().Id +
+                    " " + removalMask) {
                     UseShellExecute = false, WorkingDirectory = Path.GetTempPath()
                 };
                 using (Process process = Process.Start(start))
@@ -1146,6 +1156,12 @@ namespace IwxaSetup
 
         internal static InstallOutcome UninstallFromWorker(string exe, int parentId)
         {
+            return UninstallFromWorker(exe, parentId, 0);
+        }
+
+        internal static InstallOutcome UninstallFromWorker(
+            string exe, int parentId, int removalMask)
+        {
             try
             {
                 using (Process parent = Process.GetProcessById(parentId))
@@ -1153,7 +1169,189 @@ namespace IwxaSetup
                         throw new InvalidOperationException("SETUP_UNINSTALL_PARENT_STILL_RUNNING");
             }
             catch (ArgumentException) { }
-            return UninstallOwned(exe);
+            BundleInfo info = BundleReader.Inspect(exe);
+            string[] targets = ResolveRemovalTargets(info, removalMask);
+            // Verify every selected tree BEFORE the existing uninstaller
+            // removes the application; never discover an unsafe junction
+            // halfway through optional cleanup.
+            foreach (string target in targets)
+                if (!String.IsNullOrWhiteSpace(target) &&
+                    Directory.Exists(target))
+                    RequireRemovalTreeUnlinked(target);
+            // Preserve the established owned-file uninstall path. Optional
+            // data removal only begins AFTER the application is gone.
+            InstallOutcome result = UninstallOwned(exe);
+            bool anyRemoved = false;
+            try
+            {
+                foreach (string target in targets)
+                {
+                    if (String.IsNullOrWhiteSpace(target) || !Directory.Exists(target))
+                        continue;
+                    RequireRemovalTreeUnlinked(target);
+                    Directory.Delete(target, true);
+                    anyRemoved = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (ex is IOException || ex is UnauthorizedAccessException ||
+                    ex is InvalidDataException || ex is ArgumentException)
+                    throw new InvalidOperationException(
+                        "SETUP_UNINSTALL_DATA_CLEANUP_INCOMPLETE", ex);
+                throw;
+            }
+            if (anyRemoved)
+                result.Status = "UNINSTALLED_SELECTED_STORAGE_REMOVED";
+            return result;
+        }
+
+        // Categories mirror the installed product's four registered roots.
+        // Windows Programs & Features uses mask=0 and always keeps all data.
+        // Never accept an arbitrary path from a caller as a cleanup target.
+        internal static string CleanupBlockReason(BundleInfo info, int category)
+        {
+            if (category != 1 && category != 2 &&
+                category != 4 && category != 8)
+                return "SETUP_UNINSTALL_CATEGORY_INVALID";
+            try
+            {
+                ResolveRemovalTargets(info, category);
+                return "";
+            }
+            catch (InvalidOperationException ex) { return ex.Message; }
+            catch (InvalidDataException ex) { return ex.Message; }
+            catch (IOException ex) { return ex.Message; }
+            catch (UnauthorizedAccessException ex) { return ex.Message; }
+        }
+
+        private static string[] ResolveRemovalTargets(
+            BundleInfo info, int removalMask)
+        {
+            if (removalMask < 0 || (removalMask & ~15) != 0)
+                throw new InvalidOperationException(
+                    "SETUP_UNINSTALL_SELECTION_INVALID");
+            if (removalMask == 0) return new string[0];
+            SetupLocations locations = InstalledLocations(info);
+            string app = RootFor(info);
+            string[] candidates = {locations.DataRoot, locations.SoftwareRoot,
+                locations.ModelsRoot, locations.CacheRoot};
+            string[] targets = new string[4];
+            var chosen = new List<string>();
+            string shared = Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData), "IWXA");
+            using (var products = Registry.CurrentUser.OpenSubKey(RegistryProducts))
+            {
+                for (int index = 0; index < 4; index++)
+                {
+                    if ((removalMask & (1 << index)) == 0) continue;
+                    string path = ValidateInstallRoot(candidates[index]);
+                    if (PathOverlap(path, app))
+                        throw new InvalidOperationException(
+                            "SETUP_UNINSTALL_STORAGE_APP_OVERLAP");
+                    // Never erase a user profile, Windows library or their
+                    // ancestor even if a corrupt registry value points there.
+                    foreach (Environment.SpecialFolder protectedFolder in new [] {
+                        Environment.SpecialFolder.UserProfile,
+                        Environment.SpecialFolder.LocalApplicationData,
+                        Environment.SpecialFolder.ApplicationData,
+                        Environment.SpecialFolder.DesktopDirectory,
+                        Environment.SpecialFolder.MyDocuments,
+                        Environment.SpecialFolder.CommonApplicationData,
+                        Environment.SpecialFolder.CommonDocuments
+                    })
+                    {
+                        string protectedRoot =
+                            Environment.GetFolderPath(protectedFolder);
+                        if (!String.IsNullOrWhiteSpace(protectedRoot) &&
+                            (SamePath(path, protectedRoot) ||
+                             protectedRoot.StartsWith(
+                                path + Path.DirectorySeparatorChar,
+                                StringComparison.OrdinalIgnoreCase)))
+                            throw new InvalidOperationException(
+                                "SETUP_UNINSTALL_USER_FOLDER_PROTECTED");
+                    }
+                    // Shared IWXA locations, including their ancestors, do
+                    // not belong to a single product. Only product-namespaced
+                    // subfolders can be explicitly removed.
+                    if (PathOverlap(path, shared))
+                    {
+                        string prefix = shared + Path.DirectorySeparatorChar +
+                            info.Id + Path.DirectorySeparatorChar;
+                        if (!path.StartsWith(prefix,
+                                StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidOperationException(
+                                "SETUP_UNINSTALL_SHARED_STORAGE_PROTECTED");
+                    }
+                    if (Directory.Exists(path) &&
+                        (File.GetAttributes(path) &
+                            FileAttributes.ReparsePoint) != 0)
+                        throw new InvalidDataException(
+                            "SETUP_UNINSTALL_STORAGE_LINK_FORBIDDEN");
+                    foreach (string earlier in chosen)
+                        if (PathOverlap(path, earlier))
+                            throw new InvalidOperationException(
+                                "SETUP_UNINSTALL_STORAGE_PATHS_OVERLAP");
+                    if (products != null)
+                    {
+                        foreach (string productId in products.GetSubKeyNames())
+                        {
+                            if (String.Equals(productId, info.Id,
+                                    StringComparison.OrdinalIgnoreCase))
+                                continue;
+                            using (var other = products.OpenSubKey(productId))
+                            {
+                                if (other == null) continue;
+                                foreach (string name in new [] {
+                                    "InstallLocation", "DataLocation",
+                                    "SoftwareLocation", "ModelsLocation",
+                                    "CacheLocation"
+                                })
+                                {
+                                    string otherRoot = Convert.ToString(
+                                        other.GetValue(name));
+                                    if (String.IsNullOrWhiteSpace(otherRoot))
+                                        continue;
+                                    string resolved = Path.GetFullPath(otherRoot);
+                                    if (PathOverlap(path, resolved))
+                                        throw new InvalidOperationException(
+                                            "SETUP_UNINSTALL_OTHER_PRODUCT_STORAGE");
+                                }
+                            }
+                        }
+                    }
+                    if (!IsStorageVolumeReady(Path.GetPathRoot(path)))
+                        throw new InvalidOperationException(
+                            "SETUP_UNINSTALL_STORAGE_VOLUME_UNAVAILABLE");
+                    // A full file scan runs only in the uninstall worker,
+                    // not in the user-facing confirmation dialog.
+                    chosen.Add(path);
+                    targets[index] = path;
+                }
+            }
+            return targets;
+        }
+
+        private static void RequireRemovalTreeUnlinked(string root)
+        {
+            if (!Directory.Exists(root)) return;
+            var pending = new Stack<string>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                string current = pending.Pop();
+                if ((File.GetAttributes(current) &
+                        FileAttributes.ReparsePoint) != 0)
+                    throw new InvalidDataException(
+                        "SETUP_UNINSTALL_STORAGE_LINK_FORBIDDEN");
+                foreach (string child in Directory.GetDirectories(current))
+                    pending.Push(child);
+                foreach (string file in Directory.GetFiles(current))
+                    if ((File.GetAttributes(file) &
+                            FileAttributes.ReparsePoint) != 0)
+                        throw new InvalidDataException(
+                            "SETUP_UNINSTALL_STORAGE_LINK_FORBIDDEN");
+            }
         }
 
         // The running EXE cannot delete itself. Launch one short-lived,

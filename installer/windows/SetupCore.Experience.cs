@@ -24,6 +24,7 @@ namespace IwxaSetup
         private readonly Button serviceSecondary = new Button();
         private readonly Button serviceOwnedSetup = new Button();
         private readonly Button openRemoval = new Button();
+        private int selectedRemovalMask;
         private readonly Button overviewManage = new Button();
         private Button programBrowse;
         private FlowLayoutPanel experienceFooter;
@@ -388,10 +389,10 @@ namespace IwxaSetup
             locationSummary.Dock = DockStyle.Fill;
             locationSummary.ReadOnly = true;
             locationSummary.Multiline = true;
-            locationSummary.WordWrap = false;
-            locationSummary.ScrollBars = ScrollBars.Both;
+            locationSummary.WordWrap = true;
+            locationSummary.ScrollBars = ScrollBars.Vertical;
             locationSummary.BorderStyle = BorderStyle.None;
-            locationSummary.Font = new Font("Consolas", 9F);
+            locationSummary.Font = new Font("Segoe UI", 9.5F);
             locationSummary.ForeColor = Secondary;
             locationLayout.Controls.Add(locationSummary, 0, 0);
             locationLayout.SetColumnSpan(locationSummary, 2);
@@ -633,9 +634,9 @@ namespace IwxaSetup
             Stack(stack, ExperienceLabel(T("Удаление программы",
                 "Uninstall application"), 16, Dark, true), 58);
             Stack(stack, ExperienceLabel(T(
-                "Удаляется только проверенная программа. Действующие файлы пользователя, стороннее ПО, локальные модели и кэш сохраняются.",
-                "Only the verified application is removed. Your data, other software, local models and cache are kept."),
-                10, Secondary, false), 90);
+                "По умолчанию удаляется только программа. Личные данные, модели, другие программы и кэш остаются на компьютере. В подтверждении можно отдельно выбрать удаление доступных папок.",
+                "By default, only the application is removed. Personal data, models, other programs and cache remain. In the confirmation you can separately choose eligible folders to delete."),
+                10, Secondary, false), 100);
             removalExplanation.Name = "iwxaSetupUninstallExplanation";
             removalExplanation.ForeColor = Dark;
             removalExplanation.Font = new Font("Segoe UI", 11F);
@@ -648,11 +649,14 @@ namespace IwxaSetup
             removeApplication.Text = T("Удалить установленную программу…",
                 "Uninstall the installed application…");
             removeApplication.AccessibleDescription = T(
-                "Открыть подтверждение удаления с сохранением личных данных",
-                "Review uninstall while preserving personal data");
-            removeApplication.Font = new Font("Segoe UI", 13F, FontStyle.Bold);
-            removeApplication.LinkColor = Color.FromArgb(166, 53, 62);
-            removeApplication.LinkClicked += async (sender, args) =>
+                "Открыть подтверждение удаления; по умолчанию личные данные сохраняются",
+                "Review removal; personal data is preserved by default");
+            removeApplication.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            StyleSecondaryButton(removeApplication);
+            removeApplication.ForeColor = Color.FromArgb(160, 42, 54);
+            removeApplication.FlatAppearance.BorderColor =
+                Color.FromArgb(226, 173, 177);
+            removeApplication.Click += async (sender, args) =>
                 await BeginUninstallAsync();
             Stack(stack, removeApplication, 61);
         }
@@ -888,15 +892,12 @@ namespace IwxaSetup
                         Environment.NewLine +
                         T("Личные данные: ", "Personal data: ") + paths.DataRoot +
                         Environment.NewLine +
-                        T("Стороннее ПО: ", "External software: ") +
-                            paths.SoftwareRoot + Environment.NewLine +
-                        T("Модели: ", "Models: ") + paths.ModelsRoot +
-                            Environment.NewLine +
-                        T("Кэш: ", "Cache: ") + paths.CacheRoot +
-                            Environment.NewLine +
-                        T("Автозапуск: ", "Windows startup: ") +
+                        T("Автозапуск Windows: ", "Windows startup: ") +
                             (paths.StartWithWindows ? T("включён", "on") :
-                                T("выключен", "off"));
+                                T("выключен", "off")) +
+                        Environment.NewLine +
+                        T("Остальные папки — в разделе «Папки и запуск».",
+                          "Other locations are under Folders and startup.");
                 }
             }
             catch (Exception ex)
@@ -968,8 +969,8 @@ namespace IwxaSetup
             overviewManage.Enabled = ready && overviewManage.Visible;
             openRemoval.Enabled = ready && removeApplication.Visible;
             removalExplanation.Text = removeApplication.Visible ?
-                T("Программа установлена и может быть удалена. Перед удалением появится подтверждение с перечнем сохраняемых папок.",
-                    "An installed application can be removed. You will review the preserved locations before uninstalling.") :
+                T("Программа установлена и может быть удалена. Перед удалением появится подтверждение: все данные сохраняются, пока вы не выберете обратное.",
+                    "The application can be removed. The confirmation keeps all your data unless you explicitly choose otherwise.") :
                 inspectedStatus == "UPGRADE_PENDING_CONFIRMATION" ||
                 inspectedStatus == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK" ?
                 T("Сначала завершите текущее обновление или восстановление в разделе «Обслуживание». После этого удаление будет доступно. Личные данные остаются на месте.",
@@ -1085,64 +1086,153 @@ namespace IwxaSetup
 
         private DialogResult ConfirmExperienceUninstall(BundleInfo info)
         {
+            selectedRemovalMask = 0;
+            SetupLocations locations = SetupInstallation.InstalledLocations(info);
             using (var dialog = new Form {
                 Text = T("Удаление программы", "Uninstall application"),
                 StartPosition = FormStartPosition.CenterParent,
-                ClientSize = new Size(650, 410),
-                MinimumSize = new Size(500, 330),
+                ClientSize = new Size(730, 640),
+                MinimumSize = new Size(560, 430),
                 AutoScaleMode = AutoScaleMode.Dpi,
                 Font = new Font("Segoe UI", 10F),
-                BackColor = Color.White
+                BackColor = Color.White,
+                MaximizeBox = false
             })
             {
-                var stack = ExperienceStack();
                 var scroll = new Panel {
                     Dock = DockStyle.Fill, AutoScroll = true,
                     BackColor = Color.White
                 };
                 dialog.Controls.Add(scroll);
+                var stack = ExperienceStack();
                 scroll.Controls.Add(stack);
                 Stack(stack, ExperienceLabel(T("Удалить ", "Uninstall ") +
-                    info.Name + "?", 17, Dark, true), 58);
+                    info.Name + "?", 17, Dark, true), 59);
                 Stack(stack, ExperienceLabel(T(
-                    "Будут удалены только файлы программы, принадлежащие IWXA. После удаления она перестанет запускаться с этого компьютера.",
-                    "Only IWXA-owned application files are removed. The application will no longer launch from this computer."),
-                    10, Secondary, false), 77);
-                SetupLocations locations = SetupInstallation.InstalledLocations(info);
+                    "Программа будет удалена. По умолчанию ваши файлы, модели и другие программы сохраняются.",
+                    "The application will be removed. By default, your files, models and other applications are preserved."),
+                    10, Secondary, false), 63);
+                Stack(stack, ExperienceLabel(T("Что сделать с сохранёнными папками?",
+                    "What should happen to stored files?"), 13, Dark, true), 47);
                 Stack(stack, ExperienceLabel(T(
-                    "Останутся личные данные, сторонние программы, модели и кэш.",
-                    "Personal data, external applications, models and cache will be kept."),
-                    11, Dark, true), 62);
-                var paths = new TextBox {
-                    Multiline = true, ReadOnly = true, BorderStyle = BorderStyle.None,
-                    ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill,
-                    BackColor = Color.White, ForeColor = Secondary,
-                    Text = T("Личные данные: ", "Personal data: ") +
-                        locations.DataRoot + Environment.NewLine +
-                        T("Программы: ", "Software: ") +
-                        locations.SoftwareRoot + Environment.NewLine +
-                        T("Модели: ", "Models: ") +
-                        locations.ModelsRoot + Environment.NewLine +
-                        T("Кэш: ", "Cache: ") + locations.CacheRoot
+                    "Ничего не выбирайте, чтобы сохранить всё. Общие папки других продуктов IWXA удалять нельзя.",
+                    "Leave everything unchecked to preserve it all. Shared IWXA folders cannot be deleted."),
+                    9, Secondary, false), 63);
+
+                // Installed uninstaller owns all deletion. Older installed
+                // releases do not understand selective-cleanup parameters;
+                // they must still support the legacy application-only route.
+                bool selectiveRemovalAvailable = false;
+                try
+                {
+                    string ownExecutable = Path.Combine(
+                        SetupInstallation.RootFor(info),
+                        "IWXA.SetupCore.Uninstall.exe");
+                    BundleInfo ownBundle = BundleReader.Inspect(ownExecutable);
+                    selectiveRemovalAvailable =
+                        String.Equals(ownBundle.PackageSha256,
+                            info.PackageSha256,
+                            StringComparison.OrdinalIgnoreCase);
+                }
+                catch (Exception) { }
+                if (!selectiveRemovalAvailable)
+                    Stack(stack, ExperienceLabel(T(
+                        "Установленный выпуск поддерживает удаление только программы. Остальные папки останутся; их можно удалить отдельно после удаления.",
+                        "This installed release supports application-only uninstall. Other folders will remain and can be reviewed afterwards."),
+                        9, Color.FromArgb(151, 91, 28), false), 72);
+
+                int[] flags = {1, 8, 4, 2};
+                string[] titles = {
+                    T("Удалить личные данные", "Delete personal data"),
+                    T("Удалить кэш", "Delete cache"),
+                    T("Удалить локальные модели", "Delete local models"),
+                    T("Удалить сторонние программы", "Delete third-party software")
                 };
-                Stack(stack, paths, 101);
-                var actions = new FlowLayoutPanel {
+                string[] locationsByFlag = {
+                    locations.DataRoot, locations.CacheRoot,
+                    locations.ModelsRoot, locations.SoftwareRoot
+                };
+                var choices = new CheckBox[flags.Length];
+                for (int i = 0; i < flags.Length; i++)
+                {
+                    int category = flags[i];
+                    string storagePath = locationsByFlag[i];
+                    string block = SetupInstallation.CleanupBlockReason(
+                        info, category);
+                    bool allowed = selectiveRemovalAvailable &&
+                        String.IsNullOrWhiteSpace(block);
+                    var checkbox = new CheckBox {
+                        Name = "iwxaSetupRemoveStorage" + category,
+                        Text = titles[i], Checked = false,
+                        Dock = DockStyle.Fill, ForeColor = Dark,
+                        Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                        Enabled = allowed,
+                        AccessibleName = titles[i]
+                    };
+                    choices[i] = checkbox;
+                    Stack(stack, checkbox, 37);
+                    var location = new Label {
+                        Text = allowed ? storagePath :
+                            !selectiveRemovalAvailable ?
+                            T("Сохранится — в этом выпуске выбор удаления данных недоступен.",
+                                "Preserved — this installed release cannot selectively delete data.") :
+                            T("Недоступно: папка общая, системная или принадлежит другой программе.",
+                                "Unavailable: this folder is shared, protected or belongs to another application."),
+                        ForeColor = allowed ? Secondary :
+                            Color.FromArgb(154, 93, 41),
+                        AutoEllipsis = true,
+                        Dock = DockStyle.Fill,
+                        AccessibleDescription = storagePath
+                    };
+                    var hint = new ToolTip();
+                    hint.SetToolTip(location, storagePath);
+                    Stack(stack, location, 39);
+                }
+                Stack(stack, ExperienceLabel(T(
+                    "Выбранные папки удаляются без возможности восстановления. Файлы других программ IWXA не затрагиваются.",
+                    "Selected folders are permanently deleted. Files of other IWXA applications are not touched."),
+                    9, Color.FromArgb(157, 66, 52), false), 71);
+                var footer = new FlowLayoutPanel {
                     Dock = DockStyle.Fill,
-                    FlowDirection = FlowDirection.RightToLeft
+                    FlowDirection = FlowDirection.RightToLeft,
+                    WrapContents = false
                 };
-                var remove = ExperienceButton("iwxaSetupConfirmRemoval",
-                    T("Удалить только программу", "Uninstall application"), false);
-                remove.Size = new Size(240, 42);
-                remove.ForeColor = Color.FromArgb(158, 45, 57);
-                remove.DialogResult = DialogResult.Yes;
-                var cancel = ExperienceButton("iwxaSetupKeepInstallation",
-                    T("Оставить программу", "Keep application"), false);
-                cancel.DialogResult = DialogResult.Cancel;
-                cancel.Size = new Size(190, 42);
-                actions.Controls.Add(cancel);
-                actions.Controls.Add(remove);
-                Stack(stack, actions, 56);
-                dialog.CancelButton = cancel;
+                var confirm = ExperienceButton("iwxaSetupConfirmRemoval",
+                    T("Удалить программу", "Uninstall application"), false);
+                confirm.ForeColor = Color.FromArgb(158, 45, 57);
+                confirm.Size = new Size(226, 42);
+                var keep = ExperienceButton("iwxaSetupKeepInstallation",
+                    T("Отмена", "Cancel"), false);
+                keep.Size = new Size(170, 42);
+                keep.DialogResult = DialogResult.Cancel;
+                confirm.Click += (sender, args) =>
+                {
+                    int mask = 0;
+                    var chosen = new System.Text.StringBuilder();
+                    for (int i = 0; i < choices.Length; i++)
+                    {
+                        if (!choices[i].Checked || !choices[i].Enabled) continue;
+                        mask |= flags[i];
+                        chosen.AppendLine(titles[i] + ": " + locationsByFlag[i]);
+                    }
+                    if (mask != 0)
+                    {
+                        DialogResult approved = MessageBox.Show(dialog,
+                            T("Вы действительно хотите безвозвратно удалить выбранные папки после удаления программы?",
+                                "Permanently delete these folders after uninstalling the application?") +
+                            Environment.NewLine + chosen,
+                            T("Подтвердите удаление данных", "Confirm data removal"),
+                            MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                            MessageBoxDefaultButton.Button2);
+                        if (approved != DialogResult.Yes) return;
+                    }
+                    selectedRemovalMask = mask;
+                    dialog.DialogResult = DialogResult.Yes;
+                };
+                footer.Controls.Add(confirm);
+                footer.Controls.Add(keep);
+                Stack(stack, footer, 67);
+                dialog.CancelButton = keep;
                 dialog.Shown += (sender, args) => FitDialogToWorkingArea(dialog);
                 return dialog.ShowDialog(this);
             }

@@ -26,7 +26,7 @@ namespace IwxaSetup
         private readonly Button install = new Button();
         private readonly Button secondary = new Button();
         private readonly LinkLabel openApplication = new LinkLabel();
-        private readonly LinkLabel removeApplication = new LinkLabel();
+        private readonly Button removeApplication = new Button();
         private readonly LinkLabel technicalDetails = new LinkLabel();
         private string technicalReport = "";
         private readonly Button configureInstallation = new Button();
@@ -706,7 +706,7 @@ namespace IwxaSetup
                 return;
             }
             if (answer != DialogResult.Yes) return;
-
+            int optionalRemoval = selectedRemovalMask;
             FocusOperationProgress();
             performingOperation = true;
             busyProgress.Visible = true;
@@ -736,8 +736,12 @@ namespace IwxaSetup
                             "SETUP_OWNED_UNINSTALLER_WRONG_PRODUCT");
                     return path;
                 });
+                // Keep old installed uninstaller binaries functional. They
+                // recognize --uninstall but not the new optional mask.
+                string arguments = optionalRemoval == 0 ?
+                    "--uninstall" : "--uninstall " + optionalRemoval;
                 using (Process worker = Process.Start(new ProcessStartInfo(
-                    uninstaller, "--uninstall") {
+                    uninstaller, arguments) {
                     UseShellExecute = true,
                     WorkingDirectory = Path.GetDirectoryName(uninstaller)
                 }))
@@ -1418,7 +1422,11 @@ namespace IwxaSetup
                     openApplication.Tag = "APPLICATION";
                     openApplication.Text = T("Открыть установленную программу",
                         "Open installed application");
-                    openApplication.Visible = true;
+                    string ownedApp = Path.Combine(
+                        SetupInstallation.RootFor(info),
+                        info.Entrypoint.Replace('/',
+                            Path.DirectorySeparatorChar));
+                    openApplication.Visible = File.Exists(ownedApp);
                 }
                 else if (plan.Status == "LEGACY_MIGRATION_HOLD")
                 {

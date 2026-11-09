@@ -468,12 +468,19 @@ namespace IwxaSetup
                     return 2;
                 }
             }
-            if (args.Length == 1 && args[0] == "--uninstall")
+            if (args.Length >= 1 && args.Length <= 2 &&
+                args[0] == "--uninstall")
             {
                 try
                 {
+                    int removalMask = 0;
+                    if (args.Length == 2 &&
+                        (!Int32.TryParse(args[1], out removalMask) ||
+                         removalMask < 0 || removalMask > 15))
+                        throw new InvalidOperationException(
+                            "SETUP_UNINSTALL_SELECTION_INVALID");
                     SetupInstallation.LaunchUninstallerFromInstalledCopy(
-                        Application.ExecutablePath);
+                        Application.ExecutablePath, removalMask);
                     return 0;
                 }
                 catch (Exception ex)
@@ -483,22 +490,35 @@ namespace IwxaSetup
                     return 2;
                 }
             }
-            if (args.Length == 2 && args[0] == "--uninstall-worker")
+            if ((args.Length == 2 || args.Length == 3) &&
+                args[0] == "--uninstall-worker")
             {
                 try
                 {
                     int pid;
                     if (!Int32.TryParse(args[1], out pid) || pid <= 0)
                         return 3;
+                    int removalMask = 0;
+                    if (args.Length == 3 &&
+                        (!Int32.TryParse(args[2], out removalMask) ||
+                         removalMask < 0 || removalMask > 15))
+                        return 3;
                     InstallOutcome result = SetupInstallation.UninstallFromWorker(
-                        Application.ExecutablePath, pid);
-                    if (result.Status != "UNINSTALLED_USER_DATA_PRESERVED")
+                        Application.ExecutablePath, pid, removalMask);
+                    if (result.Status != "UNINSTALLED_USER_DATA_PRESERVED" &&
+                        result.Status != "UNINSTALLED_SELECTED_STORAGE_REMOVED")
                         throw new InvalidOperationException(
                             "SETUP_UNINSTALL_COMPLETION_UNEXPECTED");
                     bool russian = System.Globalization.CultureInfo.CurrentUICulture.
                         TwoLetterISOLanguageName == "ru";
+                    bool dataRemoved = result.Status ==
+                        "UNINSTALLED_SELECTED_STORAGE_REMOVED";
                     MessageBox.Show(russian ?
+                        dataRemoved ?
+                        "Программа удалена. Выбранные папки удалены. Остальные данные сохранены." :
                         "Программа удалена. Личные данные, модели и сторонние программы сохранены." :
+                        dataRemoved ?
+                        "Application removed. Selected folders were deleted. Other data was preserved." :
                         "Application removed. Personal data, models and third-party software were preserved.",
                         "IWXA Setup", MessageBoxButtons.OK,
                         MessageBoxIcon.Information);
@@ -549,6 +569,15 @@ namespace IwxaSetup
                 return russian ?
                     "Обновление ещё не завершено. Сначала подтвердите новую версию или верните прежнюю." :
                     "An update is still pending. Confirm the new version or roll back before uninstalling.";
+            if (reason == "SETUP_UNINSTALL_DATA_CLEANUP_INCOMPLETE")
+                return russian ?
+                    "Программа удалена, но не все выбранные папки удалось удалить. Данные в этих папках могли сохраниться. Проверьте их вручную." :
+                    "The application was removed, but not all selected folders could be deleted. Some data may remain; review those locations manually.";
+            if (reason == "SETUP_UNINSTALL_SHARED_STORAGE_PROTECTED" ||
+                reason == "SETUP_UNINSTALL_OTHER_PRODUCT_STORAGE")
+                return russian ?
+                    "Выбранная папка используется другими программами IWXA. Удаление общей папки недоступно." :
+                    "The selected folder is shared with other IWXA applications and cannot be deleted.";
             return russian ?
                 "Не удалось завершить удаление. Проверьте файлы программы и повторите попытку через настройки Windows." :
                 "Uninstallation could not be completed. Check the application files and try again from Windows Settings.";
