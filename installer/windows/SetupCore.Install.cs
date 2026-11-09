@@ -197,7 +197,10 @@ namespace IwxaSetup
             {
                 string previous = DefaultLocations(info).DataRoot;
                 string chosen = ValidateInstallRoot(selectedDataRoot);
-                if (SamePath(previous, chosen) || !Directory.Exists(previous))
+                // A destination inside its own source cannot be copied
+                // safely; do not offer an impossible transfer choice.
+                if (PathOverlap(previous, chosen) ||
+                    !Directory.Exists(previous))
                     return false;
                 using (var found = Directory.EnumerateFileSystemEntries(
                     previous).GetEnumerator())
@@ -331,9 +334,31 @@ namespace IwxaSetup
                 FileAttributes.ReparsePoint) != 0)
                 throw new InvalidDataException(
                     "SETUP_STORAGE_TARGET_LINK_FORBIDDEN");
-            if (Directory.GetFileSystemEntries(destination).Length != 0)
-                throw new InvalidOperationException(
-                    "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS");
+            // Avoid enumerating potentially millions of files merely to
+            // decide whether a folder chosen by the person is empty.
+            using (var entries = Directory.EnumerateFileSystemEntries(
+                destination).GetEnumerator())
+                if (entries.MoveNext())
+                    throw new InvalidOperationException(
+                        "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS");
+        }
+
+        // Read-only option availability for the native UI. The actual
+        // relocation always repeats this check at the commit boundary.
+        internal static bool IsUnusedStorageTarget(string destination)
+        {
+            try
+            {
+                RequireUnusedStorageTarget(
+                    ValidateInstallRoot(destination));
+                return true;
+            }
+            catch (ArgumentException) { return false; }
+            catch (InvalidOperationException) { return false; }
+            catch (NotSupportedException) { return false; }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+            catch (System.Security.SecurityException) { return false; }
         }
 
         // Storage relocation is explicit and non-destructive. Copy and
