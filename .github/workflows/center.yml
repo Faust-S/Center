@@ -46,6 +46,17 @@ jobs:
           $sha=(Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash
           "IWXA-Setup-Core-UX-review.exe SHA256=$sha" | Set-Content (Join-Path $output 'ux-preview-sha256.txt')
           Write-Host "UX_REVIEW_BUILD_ONLY_NO_TESTS sha256=$sha bytes=$((Get-Item $bundle).Length)"
+      - name: Current Setup Core Python source contracts
+        shell: pwsh
+        run: python -m unittest discover -s installer/tests -p 'test_*.py' -v
+      - name: Native unified WinForms states and empty-folder preflight
+        shell: powershell
+        timeout-minutes: 3
+        run: ./installer/windows/qualify-gui-layout-fast.ps1 -Stub artifacts/ux-preview-stub.exe
+      - name: Two real first-install data choices and readback
+        shell: powershell
+        timeout-minutes: 7
+        run: ./installer/windows/qualify-first-install-data-transfer.ps1 -Bundle artifacts/IWXA-Setup-Core-UX-review.exe
       - name: Capture the actual native Setup window for visual review
         shell: pwsh
         continue-on-error: true

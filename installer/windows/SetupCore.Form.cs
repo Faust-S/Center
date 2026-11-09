@@ -410,6 +410,9 @@ namespace IwxaSetup
                 case "VERSION_UNSUPPORTED":
                     return T("Не удалось сравнить версии. Проверьте выпуск программы и повторите попытку.",
                         "The installed version could not be compared. Check the release and try again.");
+                case "INSTALL_ROOT_NOT_EMPTY":
+                    return T("В выбранной папке программы уже есть файлы. Выберите новую пустую папку. Чужие файлы не будут перезаписаны.",
+                        "The selected application folder contains files. Choose a new empty folder. Existing files will not be overwritten.");
                 case "OWNERSHIP_MISMATCH":
                 case "UNOWNED_INSTALL_ROOT":
                     return T("В папке обнаружена установка, принадлежность которой не подтверждена. Выберите другую папку или восстановите исходную программу.",
@@ -1441,7 +1444,10 @@ namespace IwxaSetup
                     }
                     else
                     {
-                        SetState(T("Требуется подготовка Windows", "Windows preparation needed"),
+                        bool folderOccupied = check.Status == "INSTALL_ROOT_NOT_EMPTY";
+                        SetState(folderOccupied ?
+                            T("Выберите пустую папку программы", "Choose an empty application folder") :
+                            T("Требуется подготовка Windows", "Windows preparation needed"),
                             ExplainBlockedState(check.Status), versionLine, true);
                         SetTechnicalReport(info, plan.Status, "Preflight: " + check.Status);
                     }

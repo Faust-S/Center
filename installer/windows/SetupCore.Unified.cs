@@ -436,10 +436,17 @@ namespace IwxaSetup
             };
             commonRow.Controls.Add(commonPick, 2, 0);
             unifiedLeft.Controls.Add(commonRow, 0, 2);
-            unifiedLeft.Controls.Add(UiLabel(T(
-                "Для каждой папки можно указать другое расположение",
-                "Individual folders may use different locations"),
-                8.75F, false, Secondary), 0, 3);
+            // Explain that the common root fills the four storage paths.
+            // It does not move existing data until the user explicitly asks.
+            var sharedHelpText = T(
+                "Общая папка → Data, Software, Models и Cache. Можно изменить отдельно.",
+                "Shared folder → Data, Software, Models and Cache. Each path remains editable.");
+            var sharedHelp = UiLabel(sharedHelpText, 8.75F, false, Secondary);
+            unifiedLeft.Controls.Add(sharedHelp, 0, 3);
+            detailsHint.SetToolTip(commonStorageInput, T(
+                "При выборе общей папки автоматически задаются подпапки Data, Software, Models и Cache. Файлы не перемещаются до подтверждения.",
+                "Selecting this root fills Data, Software, Models and Cache. Files are not moved until confirmed."));
+            detailsHint.SetToolTip(sharedHelp, sharedHelpText);
 
             var storageGrid = UiTable(2, 50, 50);
             storageGrid.RowCount = 2;
@@ -580,6 +587,8 @@ namespace IwxaSetup
             packageDetails.TextChanged += (sender, args) =>
                 RefreshUnifiedExplanation();
             busyProgress.Name = "iwxaSetupActivity";
+            busyProgress.AccessibleName = T("Ход установки и переноса данных",
+                "Installation and data transfer progress");
             busyProgress.Dock = DockStyle.Fill;
             busyProgress.Style = ProgressBarStyle.Marquee;
             busyProgress.Visible = false;
@@ -692,8 +701,11 @@ namespace IwxaSetup
             switch (reason)
             {
                 case "NO_OWNED_INSTALLATION":
-                    message = T("Программа ещё не установлена. Проверьте папки и начните установку.",
-                        "The application is not installed. Review folders and install.");
+                    message = primaryAction == SetupOperation.None &&
+                        !String.IsNullOrWhiteSpace(packageDetails.Text) ?
+                        packageDetails.Text :
+                        T("Программа ещё не установлена. Проверьте папки и начните установку.",
+                          "The application is not installed. Review folders and install.");
                     break;
                 case "SAME_VERSION_DIFFERENT_PACKAGE":
                     message = T("Установлена другая сборка. Её можно открыть, обслужить или удалить. Этот пакет не заменяет её автоматически.",
@@ -758,10 +770,16 @@ namespace IwxaSetup
             if (performingOperation || verifyingState || inspectedBundle == null)
                 return;
             bool first = inspectedStatus == "NO_OWNED_INSTALLATION";
-            if (locationDraftChanged)
+            bool hadChanges = locationDraftChanged;
+            if (hadChanges)
             {
+                // First validate the edited location and re-run the actual
+                // Windows preflight. Never start the previously selected
+                // operation against stale paths.
                 await SaveExperienceLocationsAsync();
                 if (locationDraftChanged) return;
+                if (first && primaryAction != SetupOperation.Install)
+                    return;
             }
             if (primaryAction != SetupOperation.None)
                 await ExecuteAsync(primaryAction);
@@ -827,9 +845,15 @@ namespace IwxaSetup
                 }
             }
 
-            install.Visible = primaryAction != SetupOperation.None && 
-                (!changes || first);
-            install.Enabled = ready && primaryAction != SetupOperation.None;
+            // Even if the OLD path was blocked, an edited first-install
+            // directory must offer a clear way to recheck and install.
+            bool editedFirstInstall = first && inspectedBundle != null && changes;
+            install.Visible = editedFirstInstall ||
+                (primaryAction != SetupOperation.None && (!changes || first));
+            install.Enabled = ready &&
+                (primaryAction != SetupOperation.None || editedFirstInstall);
+            if (editedFirstInstall)
+                install.Text = T("Проверить и установить", "Check and install");
             applyLocations.Visible = changes && !first;
             applyLocations.Enabled = ready && inspectedBundle != null;
             discardLocations.Visible = changes;

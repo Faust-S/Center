@@ -849,7 +849,9 @@ namespace IwxaSetup
             RequireStageSpace(info, root);
             string parent = Path.GetDirectoryName(root);
             Directory.CreateDirectory(parent);
-            if (Directory.Exists(root) || File.Exists(root))
+            bool initialEmptyRoot = Directory.Exists(root);
+            if (File.Exists(root) || (initialEmptyRoot &&
+                !IsUnusedStorageTarget(root)))
                 throw new InvalidOperationException("SETUP_INSTALL_ALREADY_EXISTS");
 
             // Same-volume, isolated stage. No existing application, data or
@@ -868,6 +870,14 @@ namespace IwxaSetup
                             unavailable);
                 }
 
+                // Windows FolderBrowserDialog returns an already-created
+                // directory. It can be used only if still empty at activation.
+                // Directory.Delete(empty) fails if another process adds a file.
+                if (initialEmptyRoot)
+                {
+                    RequireUnusedStorageTarget(root);
+                    Directory.Delete(root);
+                }
                 Directory.Move(staged, root);
                 activated = true;
 
@@ -902,6 +912,15 @@ namespace IwxaSetup
             }
             catch
             {
+                // Return a pre-existing EMPTY folder if staging failed before
+                // activation. Never restore or delete unrelated contents.
+                if (initialEmptyRoot && !activated &&
+                    !Directory.Exists(root) && !File.Exists(root))
+                {
+                    try { Directory.CreateDirectory(root); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
                 // Roll back only the new directory created by this operation.
                 // Never touch a legacy NSIS directory or user-owned data.
                 if (activated)

@@ -134,465 +134,213 @@ foreach ($case in @(
     }
 }
 Write-Host 'IWXA_SETUP_VERIFIED_UNINSTALL_STATES_PASS'
-function One([System.Windows.Forms.Control]$form, [string]$name) {
-    $items = @($form.Controls.Find($name,$true))
-    if ($items.Count -ne 1) { throw ('SETUP_LAYOUT_WIDGET_MISSING_' + $name) }
-    return [System.Windows.Forms.Control]$items[0]
+# Current unified native form: no sidebar, tabs, or scrollbars.
+function One([System.Windows.Forms.Control]$form,[string]$name){
+    $found=@($form.Controls.Find($name,$true))
+    if($found.Count -ne 1){throw ('SETUP_UNIFIED_WIDGET_MISSING_'+$name)}
+    return [System.Windows.Forms.Control]$found[0]
 }
-function Assert-Layout([System.Windows.Forms.Form]$form,[string]$case) {
+function AllControls([System.Windows.Forms.Control]$parent){
+    foreach($item in $parent.Controls){
+        Write-Output $item
+        AllControls $item
+    }
+}
+# Check local Visible bit: the parent test Form is intentionally not shown.
+function WantsVisible([System.Windows.Forms.Control]$control){
+    $method=[System.Windows.Forms.Control].GetMethod('GetState',
+        [Reflection.BindingFlags]'Instance,NonPublic')
+    if($null -eq $method){throw 'SETUP_LOCAL_VISIBILITY_INSPECTOR_MISSING'}
+    return [bool]$method.Invoke($control,[object[]]@([int]2))
+}
+function AssertUnified([System.Windows.Forms.Form]$form,[string]$label){
     $form.PerformLayout()
-    $shell = $form.Controls[0]
-    $shell.PerformLayout()
-    $area = One $form 'iwxaSetupContent'
-    $area.PerformLayout()
-    $card = One $form 'iwxaSetupPackageCard'
-    $card.PerformLayout()
-    $heading = One $form 'iwxaSetupPackageHeading'
-    $diagnostics = One $form 'iwxaSetupTechnicalDetails'
-    if ($heading.Right -gt $diagnostics.Left -or
-        $diagnostics.Right -gt $card.ClientSize.Width -or
-        $diagnostics.Top -ne $heading.Top) {
-        throw ('SETUP_LAYOUT_DIAGNOSTICS_OVERLAP_' + $case +
-            ' heading=' + $heading.Bounds +
-            ' diagnostics=' + $diagnostics.Bounds)
-    }
-    $note = One $form 'iwxaSetupPreservationNote'
-    $related = One $form 'iwxaSetupRelatedAction'
-    $remove = One $form 'iwxaSetupRemoveApplication'
-    if ($remove.Left -lt $related.Right -or
-        $remove.Right -gt $area.ClientSize.Width -or
-        $remove.Top -ne $related.Top) {
-        throw ('SETUP_LAYOUT_UNINSTALL_LINK_OVERLAP_' + $case +
-            ' related=' + $related.Bounds + ' remove=' + $remove.Bounds)
-    }
-    $actions = One $form 'iwxaSetupActions'
-    $progress = One $form 'iwxaSetupActivity'
-    $preferences = One $form 'iwxaSetupPreferences'
-    if ($preferences.Left -lt 0 -or
-        $preferences.Right -gt $area.ClientSize.Width -or
-        $preferences.Bottom -gt (One $form 'iwxaSetupPackageCard').Top) {
-        throw ('SETUP_LAYOUT_PREFERENCES_OUT_OF_BOUNDS_' + $case)
-    }
-    if ($card.Left -lt 0 -or $card.Right -gt $area.ClientSize.Width -or
-        $card.Bottom -gt $actions.Top -or $note.Top -lt $card.Bottom -or
-        $note.Bottom -gt $related.Top -or
-        $related.Bottom -gt $actions.Top -or
-        $actions.Bottom -gt $area.ClientSize.Height) {
-        throw ('SETUP_LAYOUT_CONTENT_OVERLAP_' + $case +
-            ' area=' + $area.ClientSize + ' card=' + $card.Bounds +
-            ' note=' + $note.Bounds + ' link=' + $related.Bounds +
-            ' actions=' + $actions.Bounds)
-    }
-    foreach ($name in @('iwxaSetupStatus', 'iwxaSetupVersion',
-            'iwxaSetupDetails', 'iwxaSetupActivity')) {
-        $element = One $form $name
-        if ($element.Right -gt $card.ClientSize.Width -or $element.Left -lt 0) {
-            throw ('SETUP_LAYOUT_CARD_CONTENT_CLIPPED_' + $case + '_' + $name)
+    foreach($control in @(AllControls $form)){
+        $control.PerformLayout()
+        if($control -is [System.Windows.Forms.ScrollableControl] -and
+            $control.AutoScroll){
+            throw ('SETUP_UNIFIED_UNEXPECTED_SCROLL_'+$label+'_'+$control.Name)
         }
     }
-    if ($note.Height -lt $note.Font.Height * 2) {
-        throw ('SETUP_LAYOUT_PRESERVATION_TEXT_CLIPPED_' + $case +
-            ' height=' + $note.Height + ' font=' + $note.Font.Height)
+    foreach($name in @(
+      'iwxaSetupProductTitle', 'iwxaSetupInstallRoot',
+      'iwxaSetupCommonRoot', 'iwxaSetupDataRoot',
+      'iwxaSetupSoftwareRoot','iwxaSetupModelsRoot',
+      'iwxaSetupCacheRoot','iwxaSetupPrimaryAction',
+      'iwxaSetupRecheck','iwxaSetupCopyPriorData',
+      'iwxaSetupRemoveApplication','iwxaSetupCompactSettings',
+      'iwxaSetupInlineAutostart','iwxaSetupWebView2Status'
+    )){
+        $null=One $form $name
     }
-    # Normal install/upgrade actions and the storage cancellation action
-    # are mutually exclusive. Qualify BOTH layouts against the same panel.
-    $needed = $actions.Padding.Horizontal
-    foreach ($button in @($actions.Controls | Where-Object {
-            $_ -is [System.Windows.Forms.Button] -and
-            $_.Name -ne 'iwxaSetupCancelStorageMove' })) {
-        $needed += $button.Width + $button.Margin.Horizontal
+    if(@($form.Controls.Find('iwxaSetupNavigation0',$true)).Count -ne 0){
+        throw 'SETUP_UNIFIED_OBSOLETE_SIDEBAR_REMAINS'
     }
-    if ($needed -gt $actions.ClientSize.Width) {
-        throw ('SETUP_LAYOUT_ACTIONS_CLIPPED_' + $case +
-            ' needed=' + $needed + ' available=' + $actions.ClientSize.Width)
+    $header=One $form 'iwxaSetupProductTitle'
+    $details=One $form 'iwxaSetupTechnicalDetails'
+    if($header.Left -ge $details.Right -or
+        $header.Top -lt 0 -or $header.Right -gt $header.Parent.ClientSize.Width){
+        throw ('SETUP_UNIFIED_HEADING_CLIPPED_'+$label)
     }
-    $cancel = One $form 'iwxaSetupCancelStorageMove'
-    $cancelNeeded = $actions.Padding.Horizontal +
-        $cancel.Width + $cancel.Margin.Horizontal
-    if ($cancelNeeded -gt $actions.ClientSize.Width) {
-        throw ('SETUP_LAYOUT_STORAGE_CANCEL_CLIPPED_' + $case +
-            ' needed=' + $cancelNeeded +
-            ' available=' + $actions.ClientSize.Width)
+    $install=One $form 'iwxaSetupPrimaryAction'
+    $recheck=One $form 'iwxaSetupRecheck'
+    foreach($control in @($install,$recheck)){
+        if(!(WantsVisible $control)){continue}
+        if($control.Width -lt 88 -or $control.Right -gt $control.Parent.ClientSize.Width){
+            throw ('SETUP_UNIFIED_ACTIONS_CLIPPED_'+$label+'_'+$control.Name)
+        }
     }
-    Write-Host ('IWXA_SETUP_LAYOUT_PASS case=' + $case +
-        ' area=' + $area.ClientSize + ' noteHeight=' + $note.Height +
-        ' actionsWidth=' + $actions.ClientSize.Width)
+    $left=One $form 'iwxaSetupInstallRoot'
+    $compact=One $form 'iwxaSetupCompactSettings'
+    $small=$form.ClientSize.Width -lt 910 -or $form.ClientSize.Height -lt 570
+    if($small -and !(WantsVisible $compact)){
+        throw ('SETUP_UNIFIED_COMPACT_DIALOG_INACCESSIBLE_'+$label)
+    }
+    if(!$small -and !(WantsVisible $left)){
+        throw ('SETUP_UNIFIED_LOCATIONS_HIDDEN_'+$label)
+    }
+    Write-Host ('IWXA_SETUP_UNIFIED_LAYOUT_PASS '+$label+' '+
+        $form.ClientSize.ToString())
 }
-# Qualify the same WinForms recovery controls for both a fresh install
-# and an already installed product whose WebView2 Runtime has disappeared.
-# This does not mutate the host's shared WebView2 installation.
-$offer = $formType.GetMethod('OfferWebView2Recovery',
-    [Reflection.BindingFlags]'Instance, NonPublic')
-$flags = [Reflection.BindingFlags]'Instance, NonPublic'
-$primary = $formType.GetField('primaryAction', $flags)
-$alternate = $formType.GetField('secondaryAction', $flags)
-if ($null -eq $offer -or $null -eq $primary -or $null -eq $alternate) {
-    throw 'SETUP_WEBVIEW2_RECOVERY_NATIVE_ROUTE_MISSING'
+$formType=$assembly.GetType('IwxaSetup.SetupForm',$true)
+foreach($viewport in @(
+    @{Width=1090;Height=672;Label='standard'},
+    @{Width=1380;Height=880;Label='desktop'},
+    @{Width=850;Height=540;Label='laptop-compact'}
+)){
+    $form=[Activator]::CreateInstance($formType,$true)
+    try{
+        $form.ClientSize=[Drawing.Size]::new($viewport.Width,$viewport.Height)
+        $null=$form.Handle
+        [System.Windows.Forms.Application]::DoEvents()
+        AssertUnified $form $viewport.Label
+    }finally{$form.Dispose()}
 }
-foreach ($installedProduct in @($false, $true)) {
-    $recoveryForm = [System.Activator]::CreateInstance($formType, $true)
-    try {
-        $invokeArgs = New-Object 'System.Object[]' 2
-        $invokeArgs[0] = 'Version 0.3.0'
-        $invokeArgs[1] = [bool]$installedProduct
-        $null = $offer.Invoke($recoveryForm, $invokeArgs)
-        $related = One $recoveryForm 'iwxaSetupRelatedAction'
-        $heading = One $recoveryForm 'iwxaSetupStatus'
-        $details = One $recoveryForm 'iwxaSetupDetails'
-        if ([string]$primary.GetValue($recoveryForm) -ne 'InstallWebView2' -or
-            [string]$alternate.GetValue($recoveryForm) -ne 'InstallWebView2Offline' -or
-            [string]$related.Tag -ne 'WEBVIEW2' -or
-            $related.Text -notmatch 'Microsoft' -or
-            $heading.Text -notmatch 'WebView2') {
-            throw ('SETUP_WEBVIEW2_RECOVERY_ACTIONS_MISSING_installed=' +
-                $installedProduct)
-        }
-        if ($installedProduct -and
-            $details.Text -notmatch '(?:данные|user data)') {
-            throw 'SETUP_WEBVIEW2_OWNED_INSTALL_DATA_PRESERVATION_TEXT_MISSING'
-        }
-    } finally {
-        $recoveryForm.Dispose()
+# Source-bound fixture: a real native assessment on empty, occupied and
+# linked program folders. No application files are installed by this test.
+$bundleType=$assembly.GetType('IwxaSetup.BundleInfo',$true)
+$readiness=$assembly.GetType('IwxaSetup.SetupReadiness',$true)
+$info=[Activator]::CreateInstance($bundleType,$true)
+$binding=[Reflection.BindingFlags]'Instance,NonPublic,Public'
+$values=@{
+    Id='iwxa.setup-ui-probe-'+[Guid]::NewGuid().ToString('N')
+    Name='IWXA Setup UI Probe'
+    InstallDir=('IWXA Setup UI Probe '+[Guid]::NewGuid().ToString('N'))
+    DataNamespace=('iwxa.ui-probe.'+[Guid]::NewGuid().ToString('N'))
+    Architecture='windows-x64'
+    Entrypoint='iwxa-admin-center.exe'
+    NeedsWebView2=$false
+}
+foreach($field in $values.Keys){
+    $match=$bundleType.GetField($field,$binding)
+    if($null -eq $match){throw ('SETUP_PROBE_INFO_FIELD_MISSING_'+$field)}
+    $match.SetValue($info,$values[$field])
+}
+$check=$readiness.GetMethod('Check',
+    [Reflection.BindingFlags]'Static,NonPublic,Public')
+$fixture=Join-Path $env:TEMP ('iwxa-setup-layout-'+[Guid]::NewGuid().ToString('N'))
+try{
+    New-Item -ItemType Directory -Force -Path $fixture | Out-Null
+    $args=New-Object 'System.Object[]' 2
+    $args[0]=$info
+    $args[1]=$fixture
+    $plan=$check.Invoke($null,$args)
+    $actual=[string]$plan.GetType().GetField('Status',$binding).GetValue($plan)
+    if($actual -ne 'READY_FOR_FIRST_INSTALL'){
+        throw ('SETUP_EMPTY_PROGRAM_ROOT_BLOCKED_'+$actual)
+    }
+    $foreign=Join-Path $fixture 'somebody-elses-file.txt'
+    Set-Content -LiteralPath $foreign -Value 'keep'
+    $plan=$check.Invoke($null,$args)
+    $actual=[string]$plan.GetType().GetField('Status',$binding).GetValue($plan)
+    if($actual -ne 'INSTALL_ROOT_NOT_EMPTY' -or
+        (Get-Content -LiteralPath $foreign -Raw).Trim() -ne 'keep'){
+        throw ('SETUP_UNOWNED_PROGRAM_FILES_NOT_PROTECTED_'+$actual)
+    }
+    Write-Host 'IWXA_SETUP_FIRST_INSTALL_DESTINATION_PREFLIGHT_PASS'
+}finally{
+    if(Test-Path -LiteralPath $fixture){
+        Remove-Item -LiteralPath $fixture -Recurse -Force
     }
 }
-Write-Host 'IWXA_SETUP_WEBVIEW2_RECOVERY_NATIVE_CONTROLS_PASS'
-
-foreach ($factor in @(1.0, 1.5, 2.0, 2.5)) {
-    $form = [System.Activator]::CreateInstance($formType,$true)
-    try {
-        $null = $form.Handle
-        if ($factor -ne 1.0) {
-            $form.Scale([Drawing.SizeF]::new([single]$factor,[single]$factor))
+# Check the native first-install button state. No HTML mock, no extra UI.
+$form=[Activator]::CreateInstance($formType,$true)
+try{
+    $field=$formType.GetField('inspectedStatus',$binding)
+    $field.SetValue($form,'NO_OWNED_INSTALLATION')
+    $formType.GetField('inspectedBundle',$binding).SetValue($form,$info)
+    $enum=$formType.GetField('primaryAction',$binding).FieldType
+    $formType.GetField('primaryAction',$binding).SetValue($form,
+        [Enum]::Parse($enum,'Install'))
+    $refresh=$formType.GetMethod('RefreshUnifiedButtons',
+        [Reflection.BindingFlags]'Instance,NonPublic')
+    $null=$refresh.Invoke($form,[object[]]@())
+    $install=One $form 'iwxaSetupPrimaryAction'
+    if(!(WantsVisible $install) -or !$install.Enabled -or
+        $install.Text -notmatch 'Install|Установить'){
+        # ConfigureActions gives the localized caption after VerifyAsync.
+        # This fixture sets the enum directly, so require the actual action
+        # to be present/enabled rather than a manufactured caption.
+        if(!(WantsVisible $install) -or !$install.Enabled){
+            throw 'SETUP_FIRST_INSTALL_ACTION_NOT_AVAILABLE'
         }
-        $form.ClientSize = [Drawing.Size]::new(
-            [int][Math]::Round(900 * $factor),
-            [int][Math]::Round(560 * $factor))
-        Assert-Layout $form ('nominal-' + $factor)
-        # Form.Scale on a non-visible host does not reliably dock its child
-        # back into a smaller parent. Force the *content viewport* to the
-        # physical equivalent of the supported 820x610 window and check its
-        # real child bounds. This is simulated DPI, not a Windows DPI witness.
-        $compactViewport = [Drawing.Size]::new(
-            [int][Math]::Round(804 * $factor),
-            [int][Math]::Round(571 * $factor))
-        $shell = $form.Controls[0]
-        $shell.Dock = [System.Windows.Forms.DockStyle]::None
-        $shell.Size = $compactViewport
-        $shell.PerformLayout()
-        $area = One $form 'iwxaSetupContent'
-        $maxCompactWidth = [int][Math]::Round(590 * $factor)
-        if ($area.ClientSize.Width -gt $maxCompactWidth) {
-            throw ('SETUP_LAYOUT_COMPACT_VIEWPORT_NOT_EXERCISED_' + $factor +
-                ' actual=' + $area.ClientSize + ' shell=' + $shell.Size)
-        }
-        Assert-Layout $form ('compact-' + $factor)
-        # At 200% this is a 1468x968 physical content viewport, suitable
-        # for a 1920x1080 laptop once its taskbar and titlebar are reserved.
-        # Test the real WinForms geometry, not an invented percentage.
-        $laptopViewport = [Drawing.Size]::new(
-            [int][Math]::Round(734 * $factor),
-            [int][Math]::Round(484 * $factor))
-        $shell.Size = $laptopViewport
-        $shell.PerformLayout()
-        Assert-Layout $form ('compact-laptop-' + $factor)
-    } finally {
-        $form.Dispose()
     }
+    Write-Host 'IWXA_SETUP_FIRST_INSTALL_BUTTON_STATE_PASS'
+    # User's real failure: a previously blocked destination must recover
+    # as soon as its path is edited. No inaccessible Install action.
+    $formType.GetField('primaryAction',$binding).SetValue($form,
+        [Enum]::Parse($enum,'None'))
+    $formType.GetField('locationDraftChanged',$binding).SetValue($form,$true)
+    $null=$refresh.Invoke($form,[object[]]@())
+    if(!(WantsVisible $install) -or !$install.Enabled -or
+        $install.Text -notmatch 'Check and install|Проверить и установить'){
+        throw 'SETUP_EDITED_FIRST_INSTALL_RECOVERY_ACTION_MISSING'
+    }
+    Write-Host 'IWXA_SETUP_EDITED_BLOCKED_LOCATION_RECOVERY_PASS'
+}finally{$form.Dispose()}
+# DPI model: same form and real controls, layout at 100-250% scales.
+foreach($factor in @(1.0,1.5,2.0,2.5)){
+    $form=[Activator]::CreateInstance($formType,$true)
+    try{
+        $null=$form.Handle
+        if($factor -ne 1.0){
+            $form.Scale([Drawing.SizeF]::new(
+                [single]$factor,[single]$factor))
+        }
+        $form.ClientSize=[Drawing.Size]::new(
+            [int][Math]::Round(1090*$factor),
+            [int][Math]::Round(672*$factor))
+        [System.Windows.Forms.Application]::DoEvents()
+        AssertUnified $form ('dpi-'+$factor)
+    }finally{$form.Dispose()}
 }
-# 1920x1080 Windows desktop with a 40px taskbar and 200% scaling:
-# native requested window is 1800x1200, minimum 1500x1040, work 1920x1040.
-$fit = $formType.GetMethod('FitToWorkingAreaSize',
-    [Reflection.BindingFlags]'Static, Public, NonPublic')
-if ($null -eq $fit) { throw 'SETUP_1080P_WORKAREA_FIT_MISSING' }
-$fitArgs = New-Object 'System.Object[]' 3
-$fitArgs[0] = [Drawing.Size]::new(1800,1200)
-$fitArgs[1] = [Drawing.Size]::new(1500,1040)
-$fitArgs[2] = [Drawing.Size]::new(1920,1040)
-$fitted = [Drawing.Size]$fit.Invoke($null,$fitArgs)
-if ($fitted.Width -ne 1800 -or $fitted.Height -ne 1040) {
-    throw ('SETUP_1080P_200PCT_WINDOW_OUTSIDE_WORKAREA_' + $fitted)
+$fit=$formType.GetMethod('FitToWorkingAreaSize',
+    [Reflection.BindingFlags]'Static,NonPublic,Public')
+if($null -eq $fit){throw 'SETUP_WORKAREA_FIT_HELPER_MISSING'}
+$fitArgs=New-Object 'System.Object[]' 3
+$fitArgs[0]=[Drawing.Size]::new(1800,1200)
+$fitArgs[1]=[Drawing.Size]::new(1500,1040)
+$fitArgs[2]=[Drawing.Size]::new(1920,1040)
+$fitted=[Drawing.Size]$fit.Invoke($null,$fitArgs)
+if($fitted.Width -ne 1800 -or $fitted.Height -ne 1040){
+    throw 'SETUP_WORKAREA_FIT_200PCT_INVALID'
 }
-Write-Host 'IWXA_SETUP_1080P_200PCT_WORKAREA_FIT_PASS'
-
-# Verify that the actual native options dialog provides an editable program
-# root before installation, a locked location after install, and login choice.
-$settingsMethod = $formType.GetMethod('CreateOptionsDialog',
-    [Reflection.BindingFlags]'Instance, NonPublic')
-if ($null -eq $settingsMethod) {
-    throw 'SETUP_OPTIONS_NATIVE_DIALOG_MISSING'
-}
-$hostForm = [System.Activator]::CreateInstance($formType,$true)
-try {
-    $cancelButton = One $hostForm 'iwxaSetupCancelStorageMove'
-    if ($cancelButton.Enabled -or $cancelButton.Visible) {
-        throw 'SETUP_STORAGE_CANCEL_SHOWN_WITHOUT_ACTIVE_TRANSFER'
-    }
-    $reasonMethod = $formType.GetMethod('ExplainStorageSettingsError',
-        [Reflection.BindingFlags]'Instance, NonPublic')
-    if ($null -eq $reasonMethod) {
-        throw 'SETUP_STORAGE_HUMAN_READABLE_ERROR_MISSING'
-    }
-    $testException = [System.Exception]::new(
-        'SETUP_STORAGE_DISK_SPACE_INSUFFICIENT_required=200000000_available=100000000_volume=C:')
-    $invokeArgs = New-Object 'System.Object[]' 1
-    $invokeArgs[0] = $testException
-    $spaceMessage = [string]$reasonMethod.Invoke($hostForm, $invokeArgs)
-    if ($spaceMessage -notmatch '[0-9].*[0-9]' -or
-        $spaceMessage -match 'SETUP_STORAGE_DISK_SPACE_INSUFFICIENT') {
-        throw 'SETUP_STORAGE_HUMAN_READABLE_DISK_SPACE_ERROR_INVALID'
-    }
-    Write-Host 'IWXA_SETUP_STORAGE_LOCALIZED_DISK_ERROR_PASS'
-    $technicalSet = $formType.GetMethod('SetTechnicalReport',
-        [Reflection.BindingFlags]'Instance, NonPublic')
-    $technicalDialog = $formType.GetMethod('CreateTechnicalDetailsDialog',
-        [Reflection.BindingFlags]'Instance, NonPublic')
-    if ($null -eq $technicalSet -or $null -eq $technicalDialog) {
-        throw 'SETUP_TECHNICAL_REPORT_DIALOG_MISSING'
-    }
-    $reportArgs = New-Object 'System.Object[]' 3
-    $reportArgs[0] = $null
-    $reportArgs[1] = 'INSTALLATION_BLOCKED'
-    $reportArgs[2] = 'TEST_DIAGNOSTIC_DETAIL'
-    $null = $technicalSet.Invoke($hostForm, $reportArgs)
-    $detailsForm = [System.Windows.Forms.Form]$technicalDialog.Invoke(
-        $hostForm, [object[]]@())
-    try {
-        $null = $detailsForm.Handle
-        $detailsText = One $detailsForm 'iwxaSetupTechnicalReport'
-        $copyTechnical = One $detailsForm 'iwxaSetupCopyTechnicalReport'
-        if ($detailsText -isnot [System.Windows.Forms.TextBox] -or
-            !$detailsText.ReadOnly -or !$detailsText.Multiline -or
-            $detailsText.Text -notmatch 'TEST_DIAGNOSTIC_DETAIL' -or
-            $detailsText.Text -notmatch 'INSTALLATION_BLOCKED' -or
-            $copyTechnical -isnot [System.Windows.Forms.Button] -or
-            !$copyTechnical.Enabled -or
-            $detailsForm.CancelButton -eq $null) {
-            throw 'SETUP_TECHNICAL_DIAGNOSTICS_NOT_USABLE'
-        }
-        Write-Host 'IWXA_SETUP_NATIVE_SELECTABLE_DIAGNOSTICS_PASS'
-        # Exercise the real Copy button and read back Windows Clipboard.
-        # Hosted desktop clipboard can be unavailable; do not claim that
-        # unavailable infrastructure proves the user action works.
-        $priorClipboard = ''
-        $clipboardReady = $false
-        try {
-            $priorClipboard = [System.Windows.Forms.Clipboard]::GetText()
-            [System.Windows.Forms.Clipboard]::SetText('IWXA_SETUP_CLIPBOARD_PROBE')
-            $clipboardReady = ([System.Windows.Forms.Clipboard]::GetText() -eq
-                'IWXA_SETUP_CLIPBOARD_PROBE')
-        } catch [System.Runtime.InteropServices.ExternalException] {
-            $clipboardReady = $false
-        }
-        if ($clipboardReady) {
-            try {
-                $detailsForm.Show()
-                [System.Windows.Forms.Application]::DoEvents()
-                $copyTechnical.PerformClick()
-                $clipboardResult = [System.Windows.Forms.Clipboard]::GetText()
-                if ($clipboardResult -ne $detailsText.Text -or
-                    $copyTechnical.Text -eq 'Copy details') {
-                    throw 'SETUP_DIAGNOSTICS_COPY_CLIPBOARD_READBACK_FAILED'
-                }
-                Write-Host 'IWXA_SETUP_NATIVE_DIAGNOSTICS_CLIPBOARD_COPY_PASS'
-            } finally {
-                try {
-                    if ([string]::IsNullOrEmpty($priorClipboard)) {
-                        [System.Windows.Forms.Clipboard]::Clear()
-                    } else {
-                        [System.Windows.Forms.Clipboard]::SetText($priorClipboard)
-                    }
-                } catch [System.Runtime.InteropServices.ExternalException] { }
-                $detailsForm.Hide()
-            }
-        } else {
-            Write-Host 'IWXA_SETUP_NATIVE_DIAGNOSTICS_CLIPBOARD_BLOCKED_ENV'
-        }
-    } finally { $detailsForm.Dispose() }
-    # Model the actual Center package's declared WebView2 requirement when
-    # rendering options; an uninitialized form would wrongly say "not needed".
-    $bundleType = $assembly.GetType('IwxaSetup.BundleInfo', $true)
-    $binding = [Reflection.BindingFlags]'Instance, Public, NonPublic'
-    $bundle = [System.Activator]::CreateInstance($bundleType, $true)
-    $bundleType.GetField('NeedsWebView2',$binding).SetValue($bundle,$true)
-    $formType.GetField('inspectedBundle',$binding).SetValue($hostForm,$bundle)
-    $readiness = $assembly.GetType('IwxaSetup.SetupReadiness', $true)
-    $detect = $readiness.GetMethod('DetectWebView2Version',
-        [Reflection.BindingFlags]'Static, NonPublic')
-    if ($null -eq $detect) { throw 'SETUP_COMPONENT_RUNTIME_PROBE_MISSING' }
-    $runtimeVersion = [string]$detect.Invoke($null,[object[]]@())
-    $needsInstall = [string]::IsNullOrWhiteSpace($runtimeVersion)
-    $locationsType = $assembly.GetType('IwxaSetup.SetupLocations', $true)
-    foreach($editable in @($true,$false)) {
-        $locations = [System.Activator]::CreateInstance($locationsType, $true)
-        $flags = [Reflection.BindingFlags]'Instance, Public, NonPublic'
-        foreach($entry in @{
-            ProgramRoot='C:\IWXA Test\Center'
-            DataRoot='C:\IWXA Test\Data'
-            SoftwareRoot='C:\IWXA Test\Software'
-            ModelsRoot='C:\IWXA Test\Models'
-            CacheRoot='C:\IWXA Test\Cache'
-        }.GetEnumerator()) {
-            $locationsType.GetField($entry.Key, $flags).SetValue(
-                $locations, [string]$entry.Value)
-        }
-        $locationsType.GetField('StartWithWindows', $flags).SetValue(
-            $locations,[bool](!$editable))
-        $values = New-Object 'System.Object[]' 3
-        $values[0] = 'IWXA Admin Center'
-        $values[1] = $locations
-        $values[2] = [bool]$editable
-        $dialog = [System.Windows.Forms.Form]$settingsMethod.Invoke($hostForm,$values)
-        try {
-            $null = $dialog.Handle
-            $start = One $dialog 'iwxaSetupLogin'
-            $tabs = One $dialog 'iwxaSetupPreferencesTabs'
-            if ($tabs -isnot [System.Windows.Forms.TabControl] -or
-                $tabs.TabPages.Count -ne 3 -or
-                $start.Checked -ne (!$editable)) {
-                throw ('SETUP_OPTIONS_NAVIGATION_OR_LOGIN_MISSING_' + $editable)
-            }
-            $componentTab = One $dialog 'iwxaSetupComponentsTab'
-            $componentStatus = One $dialog 'iwxaSetupWebView2Status'
-            $onlineWeb = One $dialog 'iwxaSetupInstallWebView2Online'
-            $offlineWeb = One $dialog 'iwxaSetupInstallWebView2Offline'
-            $checkWeb = One $dialog 'iwxaSetupCheckWebView2'
-            if ($componentTab -isnot [System.Windows.Forms.TabPage] -or
-                $componentStatus -isnot [System.Windows.Forms.Label] -or
-                [string]::IsNullOrWhiteSpace($componentStatus.Text) -or
-                $onlineWeb -isnot [System.Windows.Forms.Button] -or
-                $offlineWeb -isnot [System.Windows.Forms.Button] -or
-                $checkWeb -isnot [System.Windows.Forms.Button] -or
-                !$checkWeb.Enabled -or
-                $onlineWeb.Enabled -ne $needsInstall -or
-                $offlineWeb.Enabled -ne $needsInstall) {
-                throw ('SETUP_COMPONENTS_NATIVE_STATUS_INVALID_' + $editable)
-            }
-            # With no product loaded into the test-only form, the component
-            # installer must not offer an unrelated optional download.
-            $launchAction = $formType.GetMethod('OpenRelatedAction',
-                [Reflection.BindingFlags]'Instance, NonPublic')
-            $busyField = $formType.GetField('performingOperation',
-                [Reflection.BindingFlags]'Instance, NonPublic')
-            if ($null -eq $launchAction -or $null -eq $busyField) {
-                throw 'SETUP_RELATED_ACTION_BUSY_GUARD_MISSING'
-            }
-            $heading = One $hostForm 'iwxaSetupStatus'
-            $heading.Text = 'IWXA_SETUP_BUSY_LAUNCH_TEST'
-            $busyField.SetValue($hostForm, $true)
-            try {
-                $null = $launchAction.Invoke($hostForm, [object[]]@())
-                if ($heading.Text -ne 'IWXA_SETUP_BUSY_LAUNCH_TEST') {
-                    throw 'SETUP_BUSY_APPLICATION_LAUNCH_NOT_BLOCKED'
-                }
-            } finally {
-                $busyField.SetValue($hostForm, $false)
-            }
-            foreach($name in @(
-                'iwxaSetupInstallRoot','iwxaSetupDataRoot',
-                'iwxaSetupSoftwareRoot','iwxaSetupModelsRoot',
-                'iwxaSetupCacheRoot')) {
-                $input = One $dialog $name
-                $readonlyExpected = ($name -eq 'iwxaSetupInstallRoot' -and
-                    !$editable)
-                if ($input -isnot [System.Windows.Forms.TextBox] -or
-                    $input.ReadOnly -ne $readonlyExpected -or
-                    [string]::IsNullOrWhiteSpace($input.Text)) {
-                    throw ('SETUP_OPTIONS_STORAGE_FIELD_INVALID_' + $name +
-                        '_' + $editable)
-                }
-            }
-            Write-Host ('IWXA_SETUP_OPTIONS_STORAGE_TABS_PASS editable=' + $editable)
-            # Capture the actual native dialog for visual release review.
-            # All tabs use the same WinForms layout that customers receive;
-            # store unmodified screen pixels, not a substitute HTML mockup.
-            if ($editable) {
-                $dialog.StartPosition = 'CenterScreen'
-                $dialog.Show()
-                [System.Windows.Forms.Application]::DoEvents()
-                Start-Sleep -Milliseconds 250
-                $output = Join-Path (Get-Location) 'artifacts'
-                [void][System.IO.Directory]::CreateDirectory($output)
-                foreach($capture in @(
-                    @{Index=0;Name='program'},
-                    @{Index=1;Name='storage'},
-                    @{Index=2;Name='components'})) {
-                    $tabs.SelectedIndex = [int]$capture.Index
-                    $dialog.PerformLayout()
-                    $tabs.PerformLayout()
-                    [System.Windows.Forms.Application]::DoEvents()
-                    Start-Sleep -Milliseconds 250
-                    $bounds = $dialog.Bounds
-                    $screen = [System.Windows.Forms.Screen]::FromControl($dialog)
-                    if ($bounds.Width -lt 490 -or $bounds.Height -lt 305 -or
-                        !$screen.WorkingArea.Contains($bounds)) {
-                        throw ('SETUP_NATIVE_OPTIONS_WINDOW_OUTSIDE_WORKAREA_' +
-                            $capture.Name + '_' + $bounds.ToString())
-                    }
-                    $bitmap = [System.Drawing.Bitmap]::new(
-                        $bounds.Width, $bounds.Height)
-                    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-                    try {
-                        $graphics.CopyFromScreen(
-                            [System.Drawing.Point]::new($bounds.Left,$bounds.Top),
-                            [System.Drawing.Point]::Empty,$bitmap.Size)
-                        $snapshot=Join-Path $output (
-                            'setup-core-visual-options-' + $capture.Name + '.png')
-                        $bitmap.Save($snapshot,
-                            [System.Drawing.Imaging.ImageFormat]::Png)
-                        Write-Host ('IWXA_SETUP_NATIVE_OPTIONS_VISUAL_CAPTURED ' +
-                            $capture.Name + ' ' + $snapshot)
-                    } finally {
-                        $graphics.Dispose()
-                        $bitmap.Dispose()
-                    }
-                }
-                $dialog.Hide()
-            }
-        } finally { $dialog.Dispose() }
-    }
-} finally { $hostForm.Dispose() }
-
-Write-Host 'IWXA_SETUP_NATIVE_DPI_LAYOUT_MATRIX_PASS'
-# The manifest must affect the native *process*, not just exist in source.
-# System-aware DPI is the supported .NET Framework WinForms policy.
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class IwxaDpiProcessProbe {
-    [DllImport("shcore.dll")]
-    public static extern int GetProcessDpiAwareness(IntPtr handle, out int awareness);
-}
-'@
-$native = Start-Process -FilePath $stubFull -PassThru
-try {
-    # Wait for the real native form: Windows can report the CLR startup
-    # awareness before WinForms has initialized its first top-level window.
-    # A broken manifest must still fail once that window actually exists.
-    $deadline = [DateTime]::UtcNow.AddSeconds(15)
-    do {
-        $native.Refresh()
-        if ($native.HasExited) { throw 'SETUP_DPI_NATIVE_PROCESS_EARLY_EXIT' }
-        if ($native.MainWindowHandle -ne [IntPtr]::Zero) { break }
-        Start-Sleep -Milliseconds 100
-    } while ([DateTime]::UtcNow -lt $deadline)
-    if ($native.MainWindowHandle -eq [IntPtr]::Zero) {
-        throw 'SETUP_DPI_NATIVE_WINDOW_NOT_READY'
-    }
-    $awareness = -1
-    $hr = [IwxaDpiProcessProbe]::GetProcessDpiAwareness(
-        $native.Handle, [ref]$awareness)
-    if ($hr -ne 0 -or $awareness -ne 1) {
-        throw ('SETUP_DPI_PROCESS_NOT_SYSTEM_AWARE hr=' + $hr +
-            ' awareness=' + $awareness)
-    }
-    Write-Host 'IWXA_SETUP_SYSTEM_DPI_PROCESS_PASS'
-} finally {
-    if (-not $native.HasExited) {
-        $null = $native.CloseMainWindow()
-        if (-not $native.WaitForExit(3000)) {
-            Stop-Process -Id $native.Id -Force -ErrorAction SilentlyContinue
-        }
-    }
-    $native.Dispose()
-}
-
+# Save the actual WinForms hierarchy for independent visual review. The
+# full packaged application is captured separately in test-native-package.ps1.
+$review=[Activator]::CreateInstance($formType,$true)
+try{
+    $review.ClientSize=[Drawing.Size]::new(1090,672)
+    $null=$review.Handle
+    $review.PerformLayout()
+    [System.Windows.Forms.Application]::DoEvents()
+    $out=[IO.Path]::GetFullPath('artifacts/setup-core-visual-options-main.png')
+    [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($out))
+    $bmp=[Drawing.Bitmap]::new($review.Width,$review.Height)
+    try{
+        $review.DrawToBitmap($bmp,
+            [Drawing.Rectangle]::new(0,0,$review.Width,$review.Height))
+        $bmp.Save($out,[Drawing.Imaging.ImageFormat]::Png)
+    }finally{$bmp.Dispose()}
+    Write-Host ('IWXA_SETUP_UNIFIED_NATIVE_VISUAL_CAPTURED '+$out)
+}finally{$review.Dispose()}
+Write-Host 'IWXA_SETUP_NATIVE_UNIFIED_UX_ACCEPTANCE_PASS'

@@ -44,10 +44,19 @@ namespace IwxaSetup
             string legacy = Path.Combine(local, info.InstallDir);
             // Do not replace any directory not registered as ours, including
             // the user's existing Tauri NSIS 0.2 install. S3 owns migration.
-            if (Directory.Exists(root) || File.Exists(root) ||
-                RegistryProductExists(info))
+            // A person may choose an EXISTING EMPTY directory using the
+            // Windows folder picker. That is not an installed application.
+            // Keep all nonempty, linked and already-owned roots protected.
+            if (RegistryProductExists(info))
             {
                 result.Status = "EXISTING_INSTALLATION";
+                return result;
+            }
+            if (File.Exists(root) || (Directory.Exists(root) &&
+                !SetupInstallation.IsUnusedStorageTarget(root)))
+            {
+                result.Status = selectedRoot == null ?
+                    "EXISTING_INSTALLATION" : "INSTALL_ROOT_NOT_EMPTY";
                 return result;
             }
             if (Directory.Exists(legacy) || File.Exists(legacy) ||
