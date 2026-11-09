@@ -1,5 +1,5 @@
 export const PUBLISHER_DRAFT_FORMAT = 'iwxa.publisher.preparation';
-export const PUBLISHER_DRAFT_VERSION = 1;
+export const PUBLISHER_DRAFT_VERSION = 2;
 export class PublisherDraftError extends Error {
   constructor(code) { super(code); this.name = 'PublisherDraftError'; this.code = code; }
 }
@@ -24,8 +24,34 @@ function validateHolder(h) {
   shape(h, ['id', 'name', 'type'], 'HOLDER_FIELDS_INVALID'); id(h.id); clean(h.name, 130, 'HOLDER_NAME_INVALID');
   if (h.type !== 'PERSON' && h.type !== 'ORGANIZATION') reject('HOLDER_TYPE_INVALID');
 }
+function validateTariff(t){
+  shape(t,['id','productId','name','holderType','revision','features','termDays','productSeats','employeeLimit','deviceLimit','quotas'],'TARIFF_FIELDS_INVALID');
+  id(t.id);id(t.productId);clean(t.name,130,'TARIFF_NAME_INVALID');
+  if(!['ORGANIZATION','PERSON'].includes(t.holderType))reject('TARIFF_HOLDER_INVALID');
+  if(!Number.isSafeInteger(t.revision)||t.revision<1||t.revision>1000)reject('TARIFF_REVISION_INVALID');
+  if(!Array.isArray(t.features)||t.features.length>30)reject('TARIFF_FEATURES_INVALID');
+  t.features.forEach(id);unique(t.features,'TARIFF_FEATURES_DUPLICATE');
+  if(!Number.isSafeInteger(t.termDays)||t.termDays<1||t.termDays>3650)reject('TARIFF_TERM_INVALID');
+  if(!Number.isSafeInteger(t.productSeats)||t.productSeats<1||t.productSeats>10000)reject('TARIFF_SEATS_INVALID');
+  if(!Number.isSafeInteger(t.employeeLimit)||t.employeeLimit<0||t.employeeLimit>100000)reject('TARIFF_EMPLOYEES_INVALID');
+  if(!Number.isSafeInteger(t.deviceLimit)||t.deviceLimit<0||t.deviceLimit>100)reject('TARIFF_DEVICES_INVALID');
+  if(t.holderType==='ORGANIZATION'&&(t.employeeLimit<1||t.deviceLimit!==0))reject('TARIFF_ORGANIZATION_LIMITS_INVALID');
+  if(t.holderType==='PERSON'&&(t.productSeats!==1||t.employeeLimit!==0||t.deviceLimit<1))reject('TARIFF_PERSON_LIMITS_INVALID');
+  if(!Array.isArray(t.quotas)||t.quotas.length>32)reject('TARIFF_QUOTAS_INVALID');
+  for(const q of t.quotas){
+    shape(q,['metric','service','unit','period','max'],'TARIFF_QUOTA_FIELDS_INVALID');
+    id(q.metric);
+    if(!['LOCAL','CLOUD'].includes(q.service)||!['COUNT','TOKENS','MINUTES','GIB','CREDITS'].includes(q.unit)||!['TOTAL','DAY','MONTH'].includes(q.period)||!Number.isSafeInteger(q.max)||q.max<1||q.max>1000000000)reject('TARIFF_QUOTA_INVALID');
+  }
+  unique(t.quotas.map(q=>q.metric+':'+q.period),'TARIFF_QUOTA_DUPLICATE');
+}
 function validateProposal(p) {
-  shape(p, ['id','holderId','productId','features','termDays','createdAt','status'], 'PROPOSAL_FIELDS_INVALID');
+  const hasTariff=p&&Object.hasOwn(p,'tariffSnapshot');
+  shape(p,hasTariff?['id','holderId','productId','features','termDays','createdAt','status','productVersion','tariffSnapshot']:['id','holderId','productId','features','termDays','createdAt','status'],'PROPOSAL_FIELDS_INVALID');
+  if(hasTariff){
+    validateTariff(p.tariffSnapshot);
+    if(p.tariffSnapshot.productId!==p.productId||p.tariffSnapshot.termDays!==p.termDays||JSON.stringify(p.tariffSnapshot.features)!==JSON.stringify(p.features)||typeof p.productVersion!=='string'||!/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(p.productVersion))reject('PROPOSAL_TARIFF_SNAPSHOT_INVALID');
+  }
   id(p.id); id(p.holderId); id(p.productId);
   if (!Array.isArray(p.features) || p.features.length > 30) reject('FEATURES_INVALID');
   p.features.forEach(feature => id(feature));
@@ -49,24 +75,34 @@ function validateArtifact(a) {
   if (a.status !== 'BYTES_INSPECTED_NOT_APPROVED') reject('UNAUTHORIZED_RELEASE_STATUS');
 }
 export function emptyPublisherDraft() {
-  return {format:PUBLISHER_DRAFT_FORMAT,version:PUBLISHER_DRAFT_VERSION,products:[],holders:[],proposals:[],artifacts:[],updatedAt:new Date().toISOString()};
+  return {format:PUBLISHER_DRAFT_FORMAT,version:PUBLISHER_DRAFT_VERSION,products:[],holders:[],tariffs:[],proposals:[],artifacts:[],updatedAt:new Date().toISOString()};
 }
-export function validatePublisherDraft(draft) {
-  shape(draft, ['format','version','products','holders','proposals','artifacts','updatedAt'], 'DRAFT_FIELDS_INVALID');
+export function validatePublisherDraft(input) {
+  if(input?.version===1)shape(input,['format','version','products','holders','proposals','artifacts','updatedAt'],'DRAFT_FIELDS_INVALID');
+  const draft=input?.version===1?{...input,version:2,tariffs:[]}:input;
+  shape(draft, ['format','version','products','holders','tariffs','proposals','artifacts','updatedAt'], 'DRAFT_FIELDS_INVALID');
   if (draft.format !== PUBLISHER_DRAFT_FORMAT || draft.version !== PUBLISHER_DRAFT_VERSION) reject('DRAFT_VERSION_INVALID');
   utc(draft.updatedAt);
-  for (const key of ['products','holders','proposals','artifacts'])
+  for (const key of ['products','holders','tariffs','proposals','artifacts'])
     if (!Array.isArray(draft[key]) || draft[key].length > 250) reject('DRAFT_COLLECTION_INVALID');
   draft.products.forEach(validateProduct);
   draft.holders.forEach(validateHolder);
+  draft.tariffs.forEach(validateTariff);
   draft.proposals.forEach(validateProposal);
   draft.artifacts.forEach(validateArtifact);
   unique(draft.products.map(v=>v.id), 'DUPLICATE_PRODUCT');
   unique(draft.holders.map(v=>v.id), 'DUPLICATE_HOLDER');
+  unique(draft.tariffs.map(v=>v.id+':'+v.revision),'DUPLICATE_TARIFF_REVISION');
+  for(const t of draft.tariffs)if(!draft.products.some(p=>p.id===t.productId))reject('TARIFF_PRODUCT_MISSING');
   unique(draft.proposals.map(v=>v.id), 'DUPLICATE_PROPOSAL');
   unique(draft.artifacts.map(v=>v.id), 'DUPLICATE_ARTIFACT');
   for (const p of draft.proposals) {
     if (!draft.products.some(v=>v.id===p.productId) || !draft.holders.some(v=>v.id===p.holderId)) reject('PROPOSAL_REFERENCE_MISSING');
+  }
+  for(const proposal of draft.proposals)if(proposal.tariffSnapshot){
+    const t=draft.tariffs.find(t=>t.id===proposal.tariffSnapshot.id&&t.revision===proposal.tariffSnapshot.revision);
+    const h=draft.holders.find(h=>h.id===proposal.holderId);
+    if(!t||!h||h.type!==t.holderType||JSON.stringify(t)!==JSON.stringify(proposal.tariffSnapshot))reject('PROPOSAL_TARIFF_MISMATCH');
   }
   for (const a of draft.artifacts) if (!draft.products.some(v=>v.id===a.productId)) reject('ARTIFACT_PRODUCT_MISSING');
   return structuredClone(draft);
@@ -89,6 +125,21 @@ export function applyPublisherDraftCommand(draft, command) {
     next.products.push({id:command.id, name:command.name, version:command.version});
   } else if (command.kind === 'addHolder') {
     next.holders.push({id:command.id, name:command.name, type:command.type});
+  } else if(command.kind==='addTariff') {
+    next.tariffs.push({id:command.id,productId:command.productId,name:command.name,
+      holderType:command.holderType,revision:command.revision,features:command.features,
+      termDays:command.termDays,productSeats:command.productSeats,
+      employeeLimit:command.employeeLimit,deviceLimit:command.deviceLimit,quotas:command.quotas});
+  } else if(command.kind==='addTariffProposal') {
+    const t=next.tariffs.find(t=>t.id===command.tariffId&&t.revision===command.revision);
+    const holder=next.holders.find(h=>h.id===command.holderId);
+    const product=next.products.find(p=>p.id===t?.productId);
+    if(!t||!holder||!product)reject('TARIFF_PROPOSAL_REFERENCE_MISSING');
+    if(holder.type!==t.holderType)reject('TARIFF_PROPOSAL_HOLDER_MISMATCH');
+    next.proposals.push({id:'proposal:'+crypto.randomUUID(),holderId:holder.id,
+      productId:product.id,features:[...t.features],termDays:t.termDays,
+      createdAt:new Date().toISOString(),status:'DRAFT_NOT_ISSUED',
+      productVersion:product.version,tariffSnapshot:structuredClone(t)});
   } else if (command.kind === 'addProposal') {
     next.proposals.push({id:'proposal:'+crypto.randomUUID(), holderId:command.holderId, productId:command.productId,features:command.features,termDays:command.termDays,createdAt:new Date().toISOString(),status:'DRAFT_NOT_ISSUED'});
   } else if (command.kind === 'addArtifact') {

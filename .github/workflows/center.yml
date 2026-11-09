@@ -64,7 +64,7 @@ jobs:
           persist-credentials: false
       - run: npm run publisher:build
       - run: node --test publisher/tests/setup-contract.test.mjs
-      - run: node --test publisher/tests/preparation.test.mjs publisher/tests/offline-license-plan.test.mjs publisher/tests/test-license-request.test.mjs publisher/tests/issuer-simulation.test.mjs publisher/tests/center-publisher-preview.test.mjs publisher/tests/two-process-handoff.test.mjs publisher/tests/release-origin.test.mjs
+      - run: node --test publisher/tests/preparation.test.mjs publisher/tests/offline-license-plan.test.mjs publisher/tests/tariff-drafts.test.mjs publisher/tests/test-license-request.test.mjs publisher/tests/issuer-simulation.test.mjs publisher/tests/center-publisher-preview.test.mjs publisher/tests/two-process-handoff.test.mjs publisher/tests/release-origin.test.mjs
       - name: Verify Publisher product against original IWXA Setup Core
         if: ${{ (startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') || startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3')) }}
         shell: bash

@@ -19,7 +19,8 @@ fn validate_preparation(content: &str) -> Result<(), String> {
     let record: Value = serde_json::from_str(content)
         .map_err(|_| "PUBLISHER_DRAFT_JSON_INVALID".to_string())?;
     if record.get("format").and_then(Value::as_str) != Some("iwxa.publisher.preparation")
-        || record.get("version").and_then(Value::as_u64) != Some(1)
+        || !matches!(record.get("version").and_then(Value::as_u64), Some(1 | 2))
+        || (record.get("version").and_then(Value::as_u64)==Some(2) && !record.get("tariffs").is_some_and(Value::is_array))
         || !["products", "holders", "proposals", "artifacts"].iter()
             .all(|key| record.get(key).is_some_and(Value::is_array))
     {

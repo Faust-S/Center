@@ -51,6 +51,7 @@ export function prepareTestLicenseRequest(draft, { proposalId, seats }) {
   if (subject.type !== 'ORGANIZATION' || product.id !== 'IWXA_ADMIN_CENTER')
     reject('TEST_REQUEST_SCOPE_NOT_SUPPORTED');
   if (subject.id.startsWith('holder:')) reject('TEST_REQUEST_SOURCE_ORGANIZATION_ID_REQUIRED');
+  if(proposal.tariffSnapshot&&seats>proposal.tariffSnapshot.productSeats)reject('TEST_REQUEST_SEATS_EXCEED_TARIFF');
   return validateTestLicenseRequest({
     schema: TEST_LICENSE_REQUEST_SCHEMA,
     kind: 'TEST_LICENSE_REQUEST',
@@ -58,7 +59,7 @@ export function prepareTestLicenseRequest(draft, { proposalId, seats }) {
     requestedAt: proposal.createdAt,
     environment: 'TEST',
     subject: { type: 'ORGANIZATION', id: subject.id, name: subject.name },
-    product: { id: product.id, version: product.version },
+    product: { id: product.id, version: proposal.productVersion||product.version },
     featureIds: [...proposal.features],
     termDays: proposal.termDays,
     seats,
