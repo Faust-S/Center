@@ -324,32 +324,37 @@ namespace IwxaSetup
             {
                 try
                 {
-                    var parsed = new JavaScriptSerializer().DeserializeObject(
-                        File.ReadAllText(args[1], Encoding.UTF8)) as IDictionary<string, object>;
-                    if (parsed == null ||
-                        !parsed.ContainsKey("schema") ||
-                        Convert.ToString(parsed["schema"]) != "IWXA_SETUP_LOCATIONS/1")
-                        throw new InvalidDataException("SETUP_LOCATIONS_SCHEMA_INVALID");
-                    Func<string, string> setting = key => {
-                        if (!parsed.ContainsKey(key) || !(parsed[key] is string))
-                            throw new InvalidDataException("SETUP_LOCATIONS_FIELD_" + key);
-                        return (string)parsed[key];
-                    };
-                    var chosen = new SetupLocations {
-                        ProgramRoot = setting("programRoot"),
-                        DataRoot = setting("dataRoot"),
-                        SoftwareRoot = setting("softwareRoot"),
-                        ModelsRoot = setting("modelsRoot"),
-                        CacheRoot = setting("cacheRoot"),
-                        StartWithWindows = parsed.ContainsKey("startWithWindows") &&
-                            parsed["startWithWindows"] is bool &&
-                            (bool)parsed["startWithWindows"]
-                    };
+                    SetupLocations chosen = ReadLocationsRequest(args[1]);
                     InstallOutcome installed = SetupInstallation.InstallFresh(
                         Application.ExecutablePath, chosen);
                     WriteResult(args[2], new Dictionary<string, object> {
                         {"status", installed.Status}, {"product", installed.Product},
                         {"version", installed.Version}, {"installRoot", installed.Root}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
+            if (args.Length == 3 && args[0] == "--migrate-locations-file")
+            {
+                try
+                {
+                    BundleInfo info = BundleReader.Inspect(Application.ExecutablePath);
+                    SetupLocations request = ReadLocationsRequest(args[1]);
+                    SetupLocations applied = SetupInstallation.RelocateStorage(info, request);
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", "STORAGE_COPIED_AND_SWITCHED_ORIGINAL_PRESERVED"},
+                        {"programRoot", applied.ProgramRoot},
+                        {"dataRoot", applied.DataRoot},
+                        {"softwareRoot", applied.SoftwareRoot},
+                        {"modelsRoot", applied.ModelsRoot},
+                        {"cacheRoot", applied.CacheRoot}
                     });
                     return 0;
                 }
@@ -520,6 +525,31 @@ namespace IwxaSetup
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new SetupForm());
             return 0;
+        }
+
+        private static SetupLocations ReadLocationsRequest(string requestFile)
+        {
+            var parsed = new JavaScriptSerializer().DeserializeObject(
+                File.ReadAllText(requestFile, Encoding.UTF8)) as IDictionary<string, object>;
+            if (parsed == null || !parsed.ContainsKey("schema") ||
+                Convert.ToString(parsed["schema"]) != "IWXA_SETUP_LOCATIONS/1")
+                throw new InvalidDataException("SETUP_LOCATIONS_SCHEMA_INVALID");
+            Func<string, string> setting = key => {
+                if (!parsed.ContainsKey(key) || !(parsed[key] is string))
+                    throw new InvalidDataException("SETUP_LOCATIONS_FIELD_" + key);
+                return (string)parsed[key];
+            };
+            if (!parsed.ContainsKey("startWithWindows") ||
+                !(parsed["startWithWindows"] is bool))
+                throw new InvalidDataException("SETUP_LOCATIONS_STARTUP_MODE_INVALID");
+            return new SetupLocations {
+                ProgramRoot = setting("programRoot"),
+                DataRoot = setting("dataRoot"),
+                SoftwareRoot = setting("softwareRoot"),
+                ModelsRoot = setting("modelsRoot"),
+                CacheRoot = setting("cacheRoot"),
+                StartWithWindows = (bool)parsed["startWithWindows"]
+            };
         }
 
         private static void WriteResult(string path, IDictionary<string, object> result)
