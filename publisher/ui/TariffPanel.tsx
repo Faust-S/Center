@@ -1,5 +1,6 @@
 import React,{useState} from 'react';
-type Tariff={id:string;productId:string;name:string;holderType:'ORGANIZATION'|'PERSON';revision:number;features:string[];termDays:number;productSeats:number;employeeLimit:number;deviceLimit:number;quotas:{metric:string;service:'LOCAL'|'CLOUD';unit:string;period:string;max:number}[]};
+type Quota={metric:string;service:'LOCAL'|'CLOUD';unit:string;period:string;max:number};
+type Tariff={id:string;productId:string;name:string;holderType:'ORGANIZATION'|'PERSON';revision:number;features:string[];termDays:number;productSeats:number;employeeLimit:number;deviceLimit:number;quotas:Quota[]};
 type Holder={id:string;name:string;type:'ORGANIZATION'|'PERSON'};
 type Product={id:string;name:string;version:string};
 type Draft={products:Product[];holders:Holder[];tariffs:Tariff[]};
@@ -10,21 +11,18 @@ export default function TariffPanel({draft,busy,change}:{draft:Draft;busy:boolea
  const [revision,setRevision]=useState('1');const [features,setFeatures]=useState('');
  const [termDays,setTermDays]=useState('365');const [productSeats,setProductSeats]=useState('5');
  const [employeeLimit,setEmployeeLimit]=useState('10');const [deviceLimit,setDeviceLimit]=useState('0');
- const [quotaLines,setQuotaLines]=useState('');const [choice,setChoice]=useState('');
+ const [quotas,setQuotas]=useState<Quota[]>([]);const [choice,setChoice]=useState('');
  const [holderId,setHolderId]=useState('');
  const selected=draft.tariffs.find(t=>t.id+':'+t.revision===choice)||draft.tariffs[0];
  const holders=draft.holders.filter(h=>h.type===selected?.holderType);
  const selectedHolder=holders.find(h=>h.id===holderId)?.id||holders[0]?.id||'';
  function saveTariff(e:React.FormEvent){
   e.preventDefault();
-  const quotas=quotaLines.trim()?quotaLines.split('\n').map(line=>{
-   const [metric,service,unit,period,max]=line.split(',').map(v=>v.trim());
-   return {metric,service,unit,period,max:Number(max)};
-  }):[];
+  const preparedQuotas=quotas.map(q=>({...q,metric:q.metric.trim()}));
   void change({kind:'addTariff',id:id.trim(),name:name.trim(),productId:productId||draft.products[0]?.id,
    holderType,revision:Number(revision),features:features.split(',').map(v=>v.trim()).filter(Boolean),
    termDays:Number(termDays),productSeats:Number(productSeats),employeeLimit:Number(employeeLimit),
-   deviceLimit:Number(deviceLimit),quotas},'Редакция тарифа сохранена. Лицензия не выдана.');
+   deviceLimit:Number(deviceLimit),quotas:preparedQuotas},'Редакция тарифа сохранена. Лицензия не выдана.');
  }
  return <div data-testid="publisher-tariffs">
   <section className="card form-panel">
@@ -39,13 +37,24 @@ export default function TariffPanel({draft,busy,change}:{draft:Draft;busy:boolea
      <label>Редакция<input type="number" required min={1} max={1000} value={revision} onChange={e=>setRevision(e.target.value)}/></label>
      <label>Срок действия (дней)<input type="number" required min={1} max={3650} value={termDays} onChange={e=>setTermDays(e.target.value)}/></label>
      <label>Места продукта<input type="number" required min={1} max={10000} value={productSeats} onChange={e=>setProductSeats(e.target.value)}/></label>
-     <label>Сотрудники организации<input type="number" required min={0} max={100000} value={employeeLimit} onChange={e=>setEmployeeLimit(e.target.value)}/></label>
-     <label>Устройства владельца<input type="number" required min={0} max={100} value={deviceLimit} onChange={e=>setDeviceLimit(e.target.value)}/></label>
+     {holderType==='ORGANIZATION'&&<label>Сотрудники организации<input type="number" required min={1} max={100000} value={employeeLimit} onChange={e=>setEmployeeLimit(e.target.value)}/></label>}
+     {holderType==='PERSON'&&<label>Устройства владельца<input type="number" required min={1} max={100} value={deviceLimit} onChange={e=>setDeviceLimit(e.target.value)}/></label>}
      <label>Функции и модули<input value={features} onChange={e=>setFeatures(e.target.value)} placeholder="LOCAL_MODELS, WORKSPACES"/></label>
     </div>
-    <label className="publisher-quota-editor">Квоты (по строке: код, LOCAL/CLOUD, единица, период, максимум)
-     <textarea rows={3} value={quotaLines} onChange={e=>setQuotaLines(e.target.value)} placeholder={'LOCAL_PROJECTS, LOCAL, COUNT, TOTAL, 100\nCLOUD_TOKENS, CLOUD, TOKENS, MONTH, 100000'}/>
-    </label>
+    <div className="publisher-quota-editor" data-testid="publisher-quota-editor">
+     <div className="publisher-quota-head"><strong>Ограничения ресурсов</strong><button type="button" className="secondary" disabled={busy||quotas.length>=32} onClick={()=>setQuotas(previous=>[...previous,{metric:'',service:'LOCAL',unit:'COUNT',period:'TOTAL',max:1}])}>Добавить квоту</button></div>
+     {quotas.length===0?<p className="muted">Дополнительные ограничения не заданы.</p>:quotas.map((q,index)=>{
+       const update=(patch:Partial<Quota>)=>setQuotas(previous=>previous.map((item,n)=>n===index?{...item,...patch}:item));
+       return <div className="publisher-quota-row" key={index}>
+         <label>Ресурс<input required value={q.metric} onChange={e=>update({metric:e.target.value})} placeholder="LOCAL_PROJECTS"/></label>
+         <label>Где используется<select value={q.service} onChange={e=>update({service:e.target.value as Quota['service']})}><option value="LOCAL">В программе</option><option value="CLOUD">В облаке</option></select></label>
+         <label>Единица<select value={q.unit} onChange={e=>update({unit:e.target.value})}><option value="COUNT">Количество</option><option value="TOKENS">Токены</option><option value="MINUTES">Минуты</option><option value="GIB">ГиБ</option><option value="CREDITS">Кредиты</option></select></label>
+         <label>Период<select value={q.period} onChange={e=>update({period:e.target.value})}><option value="TOTAL">Всего</option><option value="DAY">В день</option><option value="MONTH">В месяц</option></select></label>
+         <label>Предел<input required type="number" min={1} max={1000000000} value={q.max} onChange={e=>update({max:Number(e.target.value)})}/></label>
+         <button type="button" className="quiet" disabled={busy} onClick={()=>setQuotas(previous=>previous.filter((_,n)=>n!==index))}>Убрать</button>
+       </div>;
+     })}
+    </div>
     <p className="muted">Облачные квоты учитывает подключённый сервис. Локальная работа не требует интернета.</p>
     <button type="submit" disabled={busy} className="primary">Сохранить редакцию тарифа</button>
    </form>}
