@@ -80,6 +80,20 @@ try{
     name:'atlas-updated.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(revisedArchive)});
   await page.getByText('Состав копии не изменился с предыдущего открытия.').waitFor({state:'visible'});
   assert.match(await page.getByTestId('atlas-copy-difference').innerText(),/не изменился/);
+  // An older manually selected archive must be called out, not silently
+  // treated as the current source merely because a previous link still fits.
+  await page.getByTestId('atlas-import-file').setInputFiles({
+    name:'atlas-older.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(iwxa)});
+  await page.getByTestId('atlas-file-older').waitFor({state:'visible'});
+  assert.equal(await page.getByTestId('atlas-revision').textContent(),String(work.state.revision));
+  await page.getByTestId('atlas-import-file').setInputFiles({
+    name:'atlas-updated.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(revisedArchive)});
+  await page.waitForFunction(expected=>
+    document.querySelector('[data-testid="atlas-revision"]')?.textContent?.trim()===expected,
+    String(later.state.revision));
+  assert.match(await page.getByTestId('atlas-copy-difference').innerText(),/работ добавлено 1/);
+  await page.screenshot({path:'artifacts/atlas-file-comparison.png',fullPage:true});
+  checks.push('older-file-warning-and-new-copy-restored-without-rebinding');
   const tamperedAgain=Uint8Array.from(revisedArchive);
   tamperedAgain[tamperedAgain.length-30]^=1;
   await page.getByTestId('atlas-import-file').setInputFiles({
