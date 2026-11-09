@@ -318,6 +318,74 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            // A single product-neutral locations object, validated by the
+            // same native engine used by the interactive settings dialog.
+            if (args.Length == 3 && args[0] == "--install-locations-file")
+            {
+                try
+                {
+                    var parsed = new JavaScriptSerializer().DeserializeObject(
+                        File.ReadAllText(args[1], Encoding.UTF8)) as IDictionary<string, object>;
+                    if (parsed == null ||
+                        !parsed.ContainsKey("schema") ||
+                        Convert.ToString(parsed["schema"]) != "IWXA_SETUP_LOCATIONS/1")
+                        throw new InvalidDataException("SETUP_LOCATIONS_SCHEMA_INVALID");
+                    Func<string, string> setting = key => {
+                        if (!parsed.ContainsKey(key) || !(parsed[key] is string))
+                            throw new InvalidDataException("SETUP_LOCATIONS_FIELD_" + key);
+                        return (string)parsed[key];
+                    };
+                    var chosen = new SetupLocations {
+                        ProgramRoot = setting("programRoot"),
+                        DataRoot = setting("dataRoot"),
+                        SoftwareRoot = setting("softwareRoot"),
+                        ModelsRoot = setting("modelsRoot"),
+                        CacheRoot = setting("cacheRoot"),
+                        StartWithWindows = parsed.ContainsKey("startWithWindows") &&
+                            parsed["startWithWindows"] is bool &&
+                            (bool)parsed["startWithWindows"]
+                    };
+                    InstallOutcome installed = SetupInstallation.InstallFresh(
+                        Application.ExecutablePath, chosen);
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", installed.Status}, {"product", installed.Product},
+                        {"version", installed.Version}, {"installRoot", installed.Root}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
+            if (args.Length == 2 && args[0] == "--locations-file")
+            {
+                try
+                {
+                    BundleInfo info = BundleReader.Inspect(Application.ExecutablePath);
+                    SetupLocations current = SetupInstallation.InstalledLocations(info);
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "LOCATIONS_VERIFIED"},
+                        {"programRoot", current.ProgramRoot},
+                        {"dataRoot", current.DataRoot},
+                        {"softwareRoot", current.SoftwareRoot},
+                        {"modelsRoot", current.ModelsRoot},
+                        {"cacheRoot", current.CacheRoot},
+                        {"startWithWindows", current.StartWithWindows}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[1], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             // Noninteractive acceptance of explicitly selected locations and
             // login behavior. The GUI invokes the exact same engine method.
             if (args.Length == 4 && args[0] == "--install-at-file" &&
