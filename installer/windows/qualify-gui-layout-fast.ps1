@@ -337,6 +337,35 @@ try {
         throw 'SETUP_STORAGE_HUMAN_READABLE_DISK_SPACE_ERROR_INVALID'
     }
     Write-Host 'IWXA_SETUP_STORAGE_LOCALIZED_DISK_ERROR_PASS'
+    $technicalSet = $formType.GetMethod('SetTechnicalReport',
+        [Reflection.BindingFlags]'Instance, NonPublic')
+    $technicalDialog = $formType.GetMethod('CreateTechnicalDetailsDialog',
+        [Reflection.BindingFlags]'Instance, NonPublic')
+    if ($null -eq $technicalSet -or $null -eq $technicalDialog) {
+        throw 'SETUP_TECHNICAL_REPORT_DIALOG_MISSING'
+    }
+    $reportArgs = New-Object 'System.Object[]' 3
+    $reportArgs[0] = $null
+    $reportArgs[1] = 'INSTALLATION_BLOCKED'
+    $reportArgs[2] = 'TEST_DIAGNOSTIC_DETAIL'
+    $null = $technicalSet.Invoke($hostForm, $reportArgs)
+    $detailsForm = [System.Windows.Forms.Form]$technicalDialog.Invoke(
+        $hostForm, [object[]]@())
+    try {
+        $null = $detailsForm.Handle
+        $detailsText = One $detailsForm 'iwxaSetupTechnicalReport'
+        $copyTechnical = One $detailsForm 'iwxaSetupCopyTechnicalReport'
+        if ($detailsText -isnot [System.Windows.Forms.TextBox] -or
+            !$detailsText.ReadOnly -or !$detailsText.Multiline -or
+            $detailsText.Text -notmatch 'TEST_DIAGNOSTIC_DETAIL' -or
+            $detailsText.Text -notmatch 'INSTALLATION_BLOCKED' -or
+            $copyTechnical -isnot [System.Windows.Forms.Button] -or
+            !$copyTechnical.Enabled -or
+            $detailsForm.CancelButton -eq $null) {
+            throw 'SETUP_TECHNICAL_DIAGNOSTICS_NOT_USABLE'
+        }
+        Write-Host 'IWXA_SETUP_NATIVE_SELECTABLE_DIAGNOSTICS_PASS'
+    } finally { $detailsForm.Dispose() }
     $locationsType = $assembly.GetType('IwxaSetup.SetupLocations', $true)
     foreach($editable in @($true,$false)) {
         $locations = [System.Activator]::CreateInstance($locationsType, $true)

@@ -163,6 +163,10 @@ class BundleTests(unittest.TestCase):
         self.assertNotIn('check.Status, versionLine', form)
         self.assertNotIn('version.Text = T("Код диагностики: "', form)
         self.assertIn('SetTechnicalReport(info, plan.Status, "Preflight: " + check.Status)', form)
+        self.assertIn('Name = "iwxaSetupTechnicalReport"', form)
+        self.assertIn('Name = "iwxaSetupCopyTechnicalReport"', form)
+        self.assertIn('Clipboard.SetText(report.Text)', form)
+        self.assertNotIn('MessageBox.Show(this, technicalReport,', form)
 
     def test_clean_vm_webview2_witness_cannot_report_offline_without_proof(self):
         source = (Path(__file__).resolve().parents[1] / "windows" /

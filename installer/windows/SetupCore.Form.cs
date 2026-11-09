@@ -267,10 +267,9 @@ namespace IwxaSetup
             technicalDetails.Visible = false;
             technicalDetails.LinkClicked += (sender, args) =>
             {
-                if (!String.IsNullOrWhiteSpace(technicalReport))
-                    MessageBox.Show(this, technicalReport,
-                        T("Технические сведения", "Technical details"),
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (String.IsNullOrWhiteSpace(technicalReport)) return;
+                using (Form dialog = CreateTechnicalDetailsDialog())
+                    dialog.ShowDialog(this);
             };
             card.Controls.Add(technicalDetails);
             status.Name = "iwxaSetupStatus";
@@ -625,6 +624,100 @@ namespace IwxaSetup
                 report.AppendLine("Detail: " + failure);
             technicalReport = report.ToString();
             technicalDetails.Visible = true;
+        }
+
+        private Form CreateTechnicalDetailsDialog()
+        {
+            var dialog = new Form {
+                Text = T("Технические сведения", "Technical details"),
+                StartPosition = FormStartPosition.CenterParent,
+                ClientSize = new Size(700, 420),
+                MinimumSize = new Size(490, 305),
+                Font = new Font("Segoe UI", 10F),
+                AutoScaleMode = AutoScaleMode.Dpi,
+                BackColor = Color.White,
+                ShowInTaskbar = false
+            };
+            var shell = new TableLayoutPanel {
+                Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3,
+                BackColor = Color.White, Padding = new Padding(18)
+            };
+            shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 58F));
+            shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 53F));
+            dialog.Controls.Add(shell);
+            var explanation = new Label {
+                Dock = DockStyle.Fill,
+                Text = T(
+                    "Эти сведения помогут разобраться, если установка не завершилась. При обращении за помощью скопируйте их.",
+                    "These details can help diagnose an incomplete installation. Copy them when requesting support."),
+                ForeColor = Secondary, AutoEllipsis = true
+            };
+            shell.Controls.Add(explanation, 0, 0);
+            var report = new TextBox {
+                Name = "iwxaSetupTechnicalReport",
+                Dock = DockStyle.Fill, Text = technicalReport,
+                Font = new Font("Consolas", 9F),
+                Multiline = true, ReadOnly = true,
+                ScrollBars = ScrollBars.Both, WordWrap = false,
+                AccessibleName = T("Сведения об установке",
+                    "Installation diagnostics")
+            };
+            shell.Controls.Add(report, 0, 1);
+            var footer = new FlowLayoutPanel {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.RightToLeft,
+                WrapContents = false
+            };
+            var close = new Button {
+                Name = "iwxaSetupTechnicalClose",
+                Text = T("Закрыть", "Close"),
+                Size = new Size(112, 37),
+                DialogResult = DialogResult.OK
+            };
+            var copy = new Button {
+                Name = "iwxaSetupCopyTechnicalReport",
+                Text = T("Скопировать сведения", "Copy details"),
+                AccessibleName = T("Скопировать сведения для поддержки",
+                    "Copy diagnostics for support"),
+                Size = new Size(205, 37),
+                BackColor = Accent, ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            copy.Click += (sender, args) =>
+            {
+                try
+                {
+                    Clipboard.SetText(report.Text);
+                    copy.Text = T("Скопировано", "Copied");
+                }
+                catch (System.Runtime.InteropServices.ExternalException)
+                {
+                    MessageBox.Show(dialog,
+                        T("Не удалось скопировать автоматически. Выделите сведения и нажмите Ctrl+C.",
+                            "Copying is unavailable. Select the details and press Ctrl+C."),
+                        T("Технические сведения", "Technical details"),
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            };
+            footer.Controls.Add(close);
+            footer.Controls.Add(copy);
+            shell.Controls.Add(footer, 0, 2);
+            dialog.AcceptButton = close;
+            dialog.CancelButton = close;
+            dialog.Shown += (sender, args) =>
+            {
+                Rectangle work = Screen.FromControl(dialog).WorkingArea;
+                if (dialog.MinimumSize.Width > work.Width ||
+                    dialog.MinimumSize.Height > work.Height)
+                    dialog.MinimumSize = new Size(
+                        Math.Min(dialog.MinimumSize.Width, work.Width),
+                        Math.Min(dialog.MinimumSize.Height, work.Height));
+                dialog.Size = FitToWorkingAreaSize(dialog.Size,
+                    dialog.MinimumSize, work.Size);
+            };
+            return dialog;
         }
 
         internal static bool AllowsOwnedUninstall(string state)
@@ -1297,8 +1390,9 @@ namespace IwxaSetup
                 }
                 started = true;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                SetTechnicalReport(expected, inspectedStatus, ex.Message);
                 status.Text = T("Не удалось начать удаление",
                     "Could not start uninstallation");
                 packageDetails.Text = T(
@@ -1758,19 +1852,45 @@ namespace IwxaSetup
                         }
                         else
                         {
-                            SetupDiskPlan disk = SetupInstallation.CheckStageSpace(info,
-                                selectedLocations.ProgramRoot);
-                            if (disk.Status == "DISK_SPACE_READY")
+                            bool startupConflict = false;
+                            try
                             {
-                                SetState(T("Готово к установке", "Ready to install"),
-                                    T("Программа: ", "Application: ") +
-                                    selectedLocations.ProgramRoot + Environment.NewLine +
-                                    T("Данные: ", "Data: ") + selectedLocations.DataRoot,
-                                    versionLine, false);
-                                ConfigureActions(SetupOperation.Install, SetupOperation.None,
-                                    T("Установить", "Install"));
+                                SetupInstallation.EnsureStartupAvailable(info,
+                                    selectedLocations.ProgramRoot,
+                                    selectedLocations.StartWithWindows);
                             }
-                            else ShowDiskSpaceRequired(disk, versionLine);
+                            catch (InvalidOperationException ex)
+                            {
+                                if (ex.Message != "SETUP_STARTUP_SHORTCUT_CONFLICT")
+                                    throw;
+                                startupConflict = true;
+                            }
+                            if (startupConflict)
+                            {
+                                SetState(T("Проверьте автозапуск Windows",
+                                        "Review Windows startup"),
+                                    T("В папке автозагрузки уже есть другой ярлык с таким именем. Выключите автозапуск в параметрах или сохраните и переименуйте существующий ярлык.",
+                                      "Another shortcut with this name exists in Windows Startup. Disable automatic startup in settings or save and rename the existing shortcut."),
+                                    versionLine, true);
+                                SetTechnicalReport(info, plan.Status,
+                                    "SETUP_STARTUP_SHORTCUT_CONFLICT");
+                            }
+                            else
+                            {
+                                SetupDiskPlan disk = SetupInstallation.CheckStageSpace(info,
+                                    selectedLocations.ProgramRoot);
+                                if (disk.Status == "DISK_SPACE_READY")
+                                {
+                                    SetState(T("Готово к установке", "Ready to install"),
+                                        T("Программа: ", "Application: ") +
+                                        selectedLocations.ProgramRoot + Environment.NewLine +
+                                        T("Данные: ", "Data: ") + selectedLocations.DataRoot,
+                                        versionLine, false);
+                                    ConfigureActions(SetupOperation.Install, SetupOperation.None,
+                                        T("Установить", "Install"));
+                                }
+                                else ShowDiskSpaceRequired(disk, versionLine);
+                            }
                         }
                     }
                     else if (check.Status == "WEBVIEW2_MISSING")

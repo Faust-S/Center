@@ -649,6 +649,11 @@ namespace IwxaSetup
             string unavailable = UnavailableStorageVolume(choices);
             if (!String.IsNullOrWhiteSpace(unavailable))
                 throw new IOException("SETUP_STORAGE_VOLUME_UNAVAILABLE_" + unavailable);
+            // Refuse a colliding Windows Startup shortcut before touching the
+            // installation directory or product registry. The same request
+            // can proceed by choosing manual startup instead.
+            EnsureStartupAvailable(info, choices.ProgramRoot,
+                choices.StartWithWindows);
             using (var mutex = new System.Threading.Mutex(false, "Local\\IWXA.SetupCore." + info.Id))
             {
                 if (!mutex.WaitOne(0))
@@ -1296,11 +1301,19 @@ namespace IwxaSetup
         // shortcut is reported BEFORE copying any user data to new storage.
         internal static void EnsureStartupAvailable(BundleInfo info, bool enable)
         {
+            EnsureStartupAvailable(info, RootFor(info), enable);
+        }
+
+        // Use the selected target before first installation, not the default
+        // path (which may be on an entirely different drive).
+        internal static void EnsureStartupAvailable(BundleInfo info,
+            string targetRoot, bool enable)
+        {
             if (!enable) return;
             string shortcut = StartupShortcutPath(info);
             if (!File.Exists(shortcut) && !Directory.Exists(shortcut))
                 return;
-            string root = RootFor(info);
+            string root = ValidateInstallRoot(targetRoot);
             string app = Path.Combine(root,
                 info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
             try

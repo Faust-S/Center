@@ -707,6 +707,30 @@ try {
             throw 'SETUP_DISCONNECTED_DRIVE_ALLOWED_FIRST_INSTALL'
         }
         Write-Host 'IWXA_SETUP_FIRST_INSTALL_DISCONNECTED_STORAGE_BLOCKED_PASS'
+        # An unrelated Startup shortcut must block the FIRST install too,
+        # with no files or registry ownership created as a side effect.
+        $foreignStartupTarget = Join-Path $env:WINDIR 'System32/notepad.exe'
+        $foreignStartup = $shellObject.CreateShortcut($startupLink)
+        $foreignStartup.TargetPath = $foreignStartupTarget
+        $foreignStartup.Save()
+        try {
+            $startupBlocked = Invoke-Custom $bundle '--install-locations-file' (
+                $customChoices) (
+                Join-Path $artifact 'setup-core-first-install-startup-conflict.json') '' 2
+            if ($startupBlocked.status -ne 'ERROR' -or
+                $startupBlocked.reason -ne 'SETUP_STARTUP_SHORTCUT_CONFLICT' -or
+                (Test-Path -LiteralPath $customRoot) -or
+                (Test-Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center') -or
+                $shellObject.CreateShortcut($startupLink).TargetPath -ne $foreignStartupTarget) {
+                throw 'SETUP_FIRST_INSTALL_STARTUP_CONFLICT_MODIFIED_WINDOWS'
+            }
+        } finally {
+            if ((Test-Path -LiteralPath $startupLink) -and
+                $shellObject.CreateShortcut($startupLink).TargetPath -eq $foreignStartupTarget) {
+                Remove-Item -LiteralPath $startupLink -Force
+            }
+        }
+        Write-Host 'IWXA_SETUP_FIRST_INSTALL_STARTUP_CONFLICT_PREFLIGHT_PASS'
         $nativeCustom = Invoke-Custom $bundle '--install-locations-file' $customChoices $customReceipt ''
         if ($nativeCustom.status -ne 'INSTALLED_NOT_LAUNCHED' -or
             $nativeCustom.installRoot -ne $customRoot -or
