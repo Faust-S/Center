@@ -152,8 +152,9 @@ test('Publisher compact-height sidebar retains navigation and local-data footer 
  const css=read('publisher/ui/style.css');
  const browser=read('publisher/tests/browser-smoke.mjs');
  assert.match(css,/@media \(min-width:701px\) and \(max-height:740px\)/);
- assert.match(css,/\.publisher-app \.sidebar-bottom\{padding:9px 13px 12px\}/);
+ assert.match(css,/\.publisher-app \.sidebar-bottom\{padding:9px 13px 36px\}/);
  assert.match(browser,/compact-height-native-sidebar-all-sections-and-footer-visible/);
+ assert.match(browser,/compact-height-native-footer-clears-windows-taskbar-safe-inset/);
 });
 
 

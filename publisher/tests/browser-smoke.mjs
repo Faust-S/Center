@@ -132,10 +132,11 @@ try {
     const last=nav[nav.length-1].getBoundingClientRect();
     const foot=bottom.getBoundingClientRect();
     return last.top>=viewport.top&&last.bottom<=viewport.bottom&&
-      foot.top>=viewport.top&&foot.bottom<=viewport.bottom&&el.scrollTop===0;
+      foot.top>=viewport.top&&foot.bottom<=viewport.bottom-18&&el.scrollTop===0;
   });
   assert.ok(compactSidebar,'At 520px height both the final navigation section and footer must be visible without sidebar scrolling');
   checks.push('compact-height-native-sidebar-all-sections-and-footer-visible');
+  checks.push('compact-height-native-footer-clears-windows-taskbar-safe-inset');
   await page.setViewportSize({width:1366,height:900});
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
   const select=page.getByTestId('publisher-select-test-iwxa');
