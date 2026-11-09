@@ -28,8 +28,7 @@ namespace IwxaSetup
         private readonly ToolTip detailsHint = new ToolTip();
         private BundleInfo inspectedBundle;
         private string inspectedStatus = "";
-        private string selectedProgramRoot;
-        private bool startWithWindows = false;
+        private SetupLocations selectedLocations;
         private readonly ProgressBar busyProgress = new ProgressBar();
         private readonly Panel[] progressPanels = new Panel[3];
         private readonly Label[] progressLabels = new Label[3];
@@ -508,23 +507,35 @@ namespace IwxaSetup
             if (performingOperation || verifyingState || inspectedBundle == null)
                 return;
             BundleInfo info = inspectedBundle;
-            bool newInstall = inspectedStatus == "NO_OWNED_INSTALLATION";
-            string location = newInstall ?
-                selectedProgramRoot : SetupInstallation.RootFor(info);
-            bool login = newInstall ? startWithWindows :
-                SetupInstallation.StartupEnabled(info);
-            using (var dialog = CreateOptionsDialog(info.Name, location,
-                newInstall, login))
+            bool first = inspectedStatus == "NO_OWNED_INSTALLATION";
+            SetupLocations current;
+            try
             {
-                TextBox locationInput = (TextBox)dialog.Controls.Find(
-                    "iwxaSetupInstallRoot", true)[0];
-                CheckBox loginInput = (CheckBox)dialog.Controls.Find(
-                    "iwxaSetupLogin", true)[0];
+                current = first ? selectedLocations :
+                    SetupInstallation.InstalledLocations(info);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message,
+                    T("Параметры установки", "Installation settings"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            using (Form dialog = CreateOptionsDialog(info.Name, current, first))
+            {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                if (newInstall)
+                var updated = new SetupLocations {
+                    ProgramRoot = ReadOption(dialog, "iwxaSetupInstallRoot"),
+                    DataRoot = ReadOption(dialog, "iwxaSetupDataRoot"),
+                    SoftwareRoot = ReadOption(dialog, "iwxaSetupSoftwareRoot"),
+                    ModelsRoot = ReadOption(dialog, "iwxaSetupModelsRoot"),
+                    CacheRoot = ReadOption(dialog, "iwxaSetupCacheRoot"),
+                    StartWithWindows = ((CheckBox)dialog.Controls.Find(
+                        "iwxaSetupLogin", true)[0]).Checked
+                };
+                if (first)
                 {
-                    selectedProgramRoot = locationInput.Text;
-                    startWithWindows = loginInput.Checked;
+                    selectedLocations = updated;
                     await VerifyAsync();
                     return;
                 }
@@ -533,128 +544,236 @@ namespace IwxaSetup
                 secondary.Enabled = false;
                 retry.Enabled = false;
                 configureInstallation.Enabled = false;
-                Exception failure = null;
+                Exception error = null;
                 try
                 {
                     await Task.Run(() =>
-                        SetupInstallation.UpdateStartup(info, loginInput.Checked));
+                        SetupInstallation.UpdateStartup(info, updated.StartWithWindows));
                 }
-                catch (Exception ex) { failure = ex; }
-                finally
-                {
-                    performingOperation = false;
-                    configureInstallation.Enabled = true;
-                }
+                catch (Exception ex) { error = ex; }
+                finally { performingOperation = false; }
                 await VerifyAsync();
-                if (failure != null)
+                if (error != null)
                     MessageBox.Show(this,
                         T("Не удалось изменить запуск: ", "Could not change startup: ") +
-                        failure.Message,
+                        error.Message,
                         T("Параметры запуска", "Startup preferences"),
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
-        // One native settings surface. The install destination is editable
-        // before first install. After ownership is established it becomes
-        // read-only; moving an existing application requires an explicit
-        // verified migration, never a registry-only path edit.
-        private Form CreateOptionsDialog(string product, string currentRoot,
-            bool editableRoot, bool login)
+        private static string ReadOption(Form form, string name)
+        {
+            Control[] controls = form.Controls.Find(name, true);
+            if (controls.Length != 1)
+                throw new InvalidOperationException("SETUP_SETTINGS_FIELD_MISSING_" + name);
+            return controls[0].Text;
+        }
+
+        private TextBox AddLocationRow(TableLayoutPanel layout, int labelRow,
+            string label, string name, string path, bool editable)
+        {
+            var heading = new Label {
+                Text = label, Dock = DockStyle.Fill, ForeColor = Dark,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+            };
+            layout.Controls.Add(heading, 0, labelRow);
+            layout.SetColumnSpan(heading, 2);
+            var input = new TextBox {
+                Name = name, Dock = DockStyle.Fill, Text = path,
+                ReadOnly = !editable, AccessibleName = label,
+                Margin = new Padding(0, 0, 8, 2)
+            };
+            layout.Controls.Add(input, 0, labelRow + 1);
+            var browse = new Button {
+                Text = T("Выбрать…", "Browse…"),
+                Dock = DockStyle.Fill, Enabled = editable,
+                Margin = new Padding(4, 0, 0, 4)
+            };
+            browse.Click += (sender, args) =>
+            {
+                using (var choose = new FolderBrowserDialog {
+                    Description = label
+                })
+                {
+                    string candidate = input.Text;
+                    string parent = "";
+                    try { parent = Path.GetDirectoryName(candidate); }
+                    catch (ArgumentException) { }
+                    choose.SelectedPath = Directory.Exists(parent) ? parent :
+                        Environment.GetFolderPath(
+                            Environment.SpecialFolder.LocalApplicationData);
+                    if (choose.ShowDialog(layout.FindForm()) == DialogResult.OK)
+                    {
+                        string leaf = Path.GetFileName(candidate.TrimEnd('\\', '/'));
+                        input.Text = Path.Combine(choose.SelectedPath,
+                            String.IsNullOrWhiteSpace(leaf) ? "IWXA" : leaf);
+                    }
+                }
+            };
+            layout.Controls.Add(browse, 1, labelRow + 1);
+            return input;
+        }
+
+        private Form CreateOptionsDialog(string product, SetupLocations choices,
+            bool firstInstallation)
         {
             var dialog = new Form {
                 Text = T("Параметры установки", "Installation settings"),
                 StartPosition = FormStartPosition.CenterParent,
-                ClientSize = new Size(650, 420),
-                MinimumSize = new Size(510, 355),
+                ClientSize = new Size(760, 600),
+                MinimumSize = new Size(560, 440),
                 Font = new Font("Segoe UI", 10F),
                 AutoScaleMode = AutoScaleMode.Dpi,
-                AutoScroll = true,
-                MaximizeBox = false,
+                BackColor = Color.White,
+                MaximizeBox = false
+            };
+            var shell = new TableLayoutPanel {
+                Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3,
+                Padding = new Padding(19), BackColor = Color.White
+            };
+            shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 60F));
+            shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
+            dialog.Controls.Add(shell);
+            var title = new Label {
+                Text = product + T(" - параметры установки", " - installation settings"),
+                Dock = DockStyle.Fill, ForeColor = Dark, AutoEllipsis = true,
+                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            shell.Controls.Add(title, 0, 0);
+            var tabs = new TabControl {
+                Name = "iwxaSetupPreferencesTabs",
+                Dock = DockStyle.Fill, Multiline = false,
+                AccessibleName = T("Параметры установки", "Installation settings")
+            };
+            shell.Controls.Add(tabs, 0, 1);
+            var appTab = new TabPage(T("Программа", "Application")) {
                 BackColor = Color.White
             };
-            var layout = new TableLayoutPanel {
-                Dock = DockStyle.Fill, Padding = new Padding(22),
-                ColumnCount = 2, RowCount = 8,
-                AutoScroll = true, BackColor = Color.White
+            tabs.TabPages.Add(appTab);
+            var appScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            appTab.Controls.Add(appScroll);
+            var appLayout = new TableLayoutPanel {
+                Dock = DockStyle.Top, AutoSize = true,
+                ColumnCount = 2, RowCount = 6, Padding = new Padding(14)
             };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 152F));
-            foreach (int height in new [] {42, 48, 27, 39, 60, 41, 59, 52})
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
-            dialog.Controls.Add(layout);
-            var header = new Label {
-                Text = product, Dock = DockStyle.Fill, AutoEllipsis = true,
-                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
-                ForeColor = Dark, TextAlign = ContentAlignment.MiddleLeft
+            appLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            appLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145F));
+            foreach (int h in new [] {48, 28, 42, 70, 42, 62})
+                appLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
+            appScroll.Controls.Add(appLayout);
+            var subtitle = new Label {
+                Text = T("Программа и запуск Windows",
+                    "Application and Windows startup"),
+                Dock = DockStyle.Fill, ForeColor = Dark,
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold)
             };
-            layout.Controls.Add(header, 0, 0);
-            layout.SetColumnSpan(header, 2);
-            var intro = new Label {
-                Text = T("Выберите место установки и способ запуска.",
-                    "Choose the installation location and startup behavior."),
+            appLayout.Controls.Add(subtitle, 0, 0);
+            appLayout.SetColumnSpan(subtitle, 2);
+            var appRoot = AddLocationRow(appLayout, 1,
+                T("Папка программы", "Application folder"),
+                "iwxaSetupInstallRoot", choices.ProgramRoot, firstInstallation);
+            var appHelp = new Label {
+                Text = firstInstallation ?
+                    T("Приложение будет установлено в выбранную папку. Данные хранятся отдельно.",
+                      "The application is installed in the selected folder. User data is separate.") :
+                    T("Каталог действующей установки нельзя изменять без проверки переноса.",
+                      "The installed location cannot change without a verified migration."),
                 Dock = DockStyle.Fill, ForeColor = Secondary
             };
-            layout.Controls.Add(intro, 0, 1);
-            layout.SetColumnSpan(intro, 2);
-            var locationTitle = new Label {
-                Text = T("Папка программы", "Application folder"),
+            appLayout.Controls.Add(appHelp, 0, 3);
+            appLayout.SetColumnSpan(appHelp, 2);
+            var login = new CheckBox {
+                Name = "iwxaSetupLogin",
+                Text = T("Запускать при входе в Windows",
+                    "Launch when signing in to Windows"),
+                Checked = choices.StartWithWindows,
+                Dock = DockStyle.Fill, ForeColor = Dark
+            };
+            appLayout.Controls.Add(login, 0, 4);
+            appLayout.SetColumnSpan(login, 2);
+            var startupHelp = new Label {
+                Text = T("Отключено: запуск вручную. Включено: запуск при входе в учётную запись.",
+                    "Off: start manually. On: start when you sign in."),
+                ForeColor = Secondary, Dock = DockStyle.Fill
+            };
+            appLayout.Controls.Add(startupHelp, 0, 5);
+            appLayout.SetColumnSpan(startupHelp, 2);
+            var storageTab = new TabPage(T("Хранилища", "Storage")) {
+                BackColor = Color.White
+            };
+            tabs.TabPages.Add(storageTab);
+            var storageScroll = new Panel {
+                Dock = DockStyle.Fill, AutoScroll = true
+            };
+            storageTab.Controls.Add(storageScroll);
+            var storageLayout = new TableLayoutPanel {
+                Dock = DockStyle.Top, AutoSize = true,
+                ColumnCount = 2, RowCount = 13, Padding = new Padding(14)
+            };
+            storageLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            storageLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145F));
+            foreach (int h in new [] {
+                37, 43, 49, 28, 42, 28, 42, 28, 42, 28, 42, 65, 6
+            }) storageLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
+            storageScroll.Controls.Add(storageLayout);
+            var storageHeading = new Label {
+                Text = T("Раздельные папки IWXA", "Separate IWXA folders"),
                 Dock = DockStyle.Fill, ForeColor = Dark,
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold)
             };
-            layout.Controls.Add(locationTitle, 0, 2);
-            layout.SetColumnSpan(locationTitle, 2);
-            var input = new TextBox {
-                Name = "iwxaSetupInstallRoot", Text = currentRoot,
-                Dock = DockStyle.Fill, ReadOnly = !editableRoot
+            storageLayout.Controls.Add(storageHeading, 0, 0);
+            storageLayout.SetColumnSpan(storageHeading, 2);
+            var common = new Button {
+                Text = T("Выбрать общую папку…", "Choose shared folder…"),
+                Dock = DockStyle.Fill, Enabled = firstInstallation
             };
-            layout.Controls.Add(input, 0, 3);
-            var browse = new Button {
-                Text = T("Выбрать…", "Browse…"), Dock = DockStyle.Fill,
-                Enabled = editableRoot, Margin = new Padding(8, 0, 0, 4)
+            storageLayout.Controls.Add(common, 0, 1);
+            storageLayout.SetColumnSpan(common, 2);
+            var commonHelp = new Label {
+                Text = T("Подпапки Data, Software, Models и Cache создаются отдельно. Можно задать каждую папку вручную.",
+                    "Data, Software, Models and Cache are separate subfolders. You may edit each path."),
+                ForeColor = Secondary, Dock = DockStyle.Fill
             };
-            browse.Click += (sender, args) =>
+            storageLayout.Controls.Add(commonHelp, 0, 2);
+            storageLayout.SetColumnSpan(commonHelp, 2);
+            TextBox data = AddLocationRow(storageLayout, 3,
+                T("Личные данные", "Personal data"),
+                "iwxaSetupDataRoot", choices.DataRoot, firstInstallation);
+            TextBox software = AddLocationRow(storageLayout, 5,
+                T("Сторонние программы", "Third-party software"),
+                "iwxaSetupSoftwareRoot", choices.SoftwareRoot, firstInstallation);
+            TextBox models = AddLocationRow(storageLayout, 7,
+                T("Локальные модели", "Local models"),
+                "iwxaSetupModelsRoot", choices.ModelsRoot, firstInstallation);
+            TextBox cache = AddLocationRow(storageLayout, 9,
+                T("Кэш", "Cache"),
+                "iwxaSetupCacheRoot", choices.CacheRoot, firstInstallation);
+            common.Click += (sender, args) =>
             {
-                using (var select = new FolderBrowserDialog {
-                    Description = T("Выберите папку, где создать каталог программы",
-                        "Select a folder in which to create the application directory"),
-                    SelectedPath = Directory.Exists(Path.GetDirectoryName(input.Text)) ?
-                        Path.GetDirectoryName(input.Text) :
-                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+                using (var browse = new FolderBrowserDialog {
+                    Description = T("Выберите общую папку IWXA",
+                        "Select the common IWXA storage folder")
                 })
                 {
-                    if (select.ShowDialog(dialog) == DialogResult.OK)
-                        input.Text = Path.Combine(select.SelectedPath,
-                            Path.GetFileName(currentRoot));
+                    if (browse.ShowDialog(dialog) != DialogResult.OK) return;
+                    data.Text = Path.Combine(browse.SelectedPath, "Data");
+                    software.Text = Path.Combine(browse.SelectedPath, "Software");
+                    models.Text = Path.Combine(browse.SelectedPath, "Models");
+                    cache.Text = Path.Combine(browse.SelectedPath, "Cache");
                 }
             };
-            layout.Controls.Add(browse, 1, 3);
-            var explanation = new Label {
-                Text = editableRoot ?
-                    T("Программа будет установлена в указанную папку. Данные других программ не перемещаются.",
-                      "The application will be installed in this folder. Other apps and their data are not moved.") :
-                    T("Путь действующей установки сохраняется при обновлении и восстановлении. Для переноса нужен отдельный проверенный процесс.",
-                      "The installed location stays unchanged during updates and repair. Moving it requires a separate verified operation."),
-                Dock = DockStyle.Fill, ForeColor = Secondary
+            var storageHelp = new Label {
+                Text = T("Данные Admin Center записываются в выбранное хранилище. Каталоги для программ, моделей и кэша сохраняются как предпочтения; дополнительные компоненты сейчас не загружаются.",
+                    "Admin Center data uses the selected location. Software, models and cache paths are saved as preferences; no extra components are downloaded now."),
+                ForeColor = Secondary, Dock = DockStyle.Fill
             };
-            layout.Controls.Add(explanation, 0, 4);
-            layout.SetColumnSpan(explanation, 2);
-            var startup = new CheckBox {
-                Name = "iwxaSetupLogin",
-                Text = T("Запускать программу при входе в Windows",
-                    "Launch application when signing in to Windows"),
-                Checked = login, Dock = DockStyle.Fill, ForeColor = Dark
-            };
-            layout.Controls.Add(startup, 0, 5);
-            layout.SetColumnSpan(startup, 2);
-            var warning = new Label {
-                Text = T("Программа устанавливается отдельно от личных данных. Настройки хранения данных зависят от возможностей выбранного продукта.",
-                    "The application is separate from user data. Data location settings depend on the selected product."),
-                Dock = DockStyle.Fill, ForeColor = Secondary
-            };
-            layout.Controls.Add(warning, 0, 6);
-            layout.SetColumnSpan(warning, 2);
-            var buttons = new FlowLayoutPanel {
+            storageLayout.Controls.Add(storageHelp, 0, 11);
+            storageLayout.SetColumnSpan(storageHelp, 2);
+            var footer = new FlowLayoutPanel {
                 Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false
             };
@@ -668,14 +787,32 @@ namespace IwxaSetup
             {
                 try
                 {
-                    if (editableRoot)
-                        input.Text = SetupInstallation.ValidateInstallRoot(input.Text);
+                    if (firstInstallation)
+                    {
+                        var proposed = new SetupLocations {
+                            ProgramRoot = appRoot.Text,
+                            DataRoot = data.Text,
+                            SoftwareRoot = software.Text,
+                            ModelsRoot = models.Text,
+                            CacheRoot = cache.Text,
+                            StartWithWindows = login.Checked
+                        };
+                        BundleInfo info = inspectedBundle;
+                        SetupLocations normalized =
+                            SetupInstallation.ValidateLocations(info, proposed);
+                        appRoot.Text = normalized.ProgramRoot;
+                        data.Text = normalized.DataRoot;
+                        software.Text = normalized.SoftwareRoot;
+                        models.Text = normalized.ModelsRoot;
+                        cache.Text = normalized.CacheRoot;
+                    }
                     dialog.DialogResult = DialogResult.OK;
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(dialog,
-                        T("Проверьте папку установки. ", "Check the install folder. ") +
+                    MessageBox.Show(dialog, T(
+                        "Проверьте расположение папок. Изменения не применены.\n",
+                        "Check the storage folders. No changes applied.\n") +
                         ex.Message,
                         T("Параметры установки", "Installation settings"),
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -685,10 +822,9 @@ namespace IwxaSetup
                 Text = T("Отмена", "Cancel"), Size = new Size(100, 38),
                 DialogResult = DialogResult.Cancel
             };
-            buttons.Controls.Add(save);
-            buttons.Controls.Add(cancel);
-            layout.Controls.Add(buttons, 0, 7);
-            layout.SetColumnSpan(buttons, 2);
+            footer.Controls.Add(save);
+            footer.Controls.Add(cancel);
+            shell.Controls.Add(footer, 0, 2);
             dialog.AcceptButton = save;
             dialog.CancelButton = cancel;
             dialog.Shown += (sender, args) =>
@@ -889,12 +1025,11 @@ namespace IwxaSetup
                 InstallOutcome result = await Task.Run(() =>
                 {
                     string executable = Application.ExecutablePath;
-                    string root = selectedProgramRoot;
-                    bool startAtLogin = startWithWindows;
+                    SetupLocations selected = selectedLocations;
                     switch (operation)
                     {
                         case SetupOperation.Install: return SetupInstallation.InstallFresh(
-                            executable, root, startAtLogin);
+                            executable, selected);
                         case SetupOperation.Upgrade: return SetupInstallation.UpgradeOwned(executable);
                         case SetupOperation.Repair: return SetupInstallation.RepairOwned(executable);
                         case SetupOperation.Recover: return SetupInstallation.RecoverOwned(executable);
@@ -1082,8 +1217,8 @@ namespace IwxaSetup
                     () => SetupInstallation.PlanUpgrade(info));
                 inspectedBundle = info;
                 inspectedStatus = plan.Status;
-                if (String.IsNullOrWhiteSpace(selectedProgramRoot))
-                    selectedProgramRoot = SetupInstallation.RootFor(info);
+                if (selectedLocations == null)
+                    selectedLocations = SetupInstallation.InstalledLocations(info);
                 if (IsDisposed || Disposing) return null;
                 bool readyForReview =
                     plan.Status == "UPGRADE_PENDING_CONFIRMATION" ||
@@ -1109,15 +1244,17 @@ namespace IwxaSetup
                 if (plan.Status == "NO_OWNED_INSTALLATION")
                 {
                     InstallPreflight check = SetupReadiness.Check(info,
-                        selectedProgramRoot);
+                        selectedLocations.ProgramRoot);
                     if (check.Status == "READY_FOR_FIRST_INSTALL")
                     {
                         SetupDiskPlan disk = SetupInstallation.CheckStageSpace(info,
-                            selectedProgramRoot);
+                            selectedLocations.ProgramRoot);
                         if (disk.Status == "DISK_SPACE_READY")
                         {
                             SetState(T("Готово к установке", "Ready to install"),
-                                T("Папка: ", "Folder: ") + selectedProgramRoot,
+                                T("Программа: ", "Application: ") +
+                                selectedLocations.ProgramRoot + Environment.NewLine +
+                                T("Данные: ", "Data: ") + selectedLocations.DataRoot,
                                 versionLine, false);
                             ConfigureActions(SetupOperation.Install, SetupOperation.None,
                                 T("Установить", "Install"));
