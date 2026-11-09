@@ -146,13 +146,19 @@ namespace IwxaSetup
 
         internal static InstallOutcome InstallFresh(string bundle, string selectedRoot)
         {
+            return InstallFresh(bundle, selectedRoot, false);
+        }
+
+        internal static InstallOutcome InstallFresh(string bundle,
+            string selectedRoot, bool startWithWindows)
+        {
             BundleInfo info = BundleReader.Inspect(bundle);
             string root = ValidateInstallRoot(selectedRoot);
             using (var mutex = new System.Threading.Mutex(false, "Local\\IWXA.SetupCore." + info.Id))
             {
                 if (!mutex.WaitOne(0))
                     throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
-                try { return InstallLocked(bundle, info, null, root); }
+                try { return InstallLocked(bundle, info, null, root, startWithWindows); }
                 finally { mutex.ReleaseMutex(); }
             }
         }
@@ -194,7 +200,8 @@ namespace IwxaSetup
         }
 
         private static InstallOutcome InstallLocked(string bundle, BundleInfo info,
-            LegacyAssessment legacy = null, string selectedRoot = null)
+            LegacyAssessment legacy = null, string selectedRoot = null,
+            bool startWithWindows = false)
         {
             string root = selectedRoot == null ? RootFor(info) : ValidateInstallRoot(selectedRoot);
             InstallPreflight readiness = SetupReadiness.Check(info, root);
@@ -223,7 +230,11 @@ namespace IwxaSetup
                 Register(info, root);
                 // The original NSIS shortcut must remain usable while the
                 // preview is being qualified.
-                if (legacy == null) CreateShortcut(info, root);
+                if (legacy == null)
+                {
+                    CreateShortcut(info, root);
+                    if (startWithWindows) SetStartupShortcut(info, root, true);
+                }
                 return new InstallOutcome {
                     Status = legacy == null ?
                         "INSTALLED_NOT_LAUNCHED" :
@@ -235,7 +246,12 @@ namespace IwxaSetup
             {
                 // Roll back only the new directory created by this operation.
                 // Never touch a legacy NSIS directory or user-owned data.
-                if (activated) Deregister(info, root);
+                if (activated)
+                {
+                    DeleteShortcut(info);
+                    DeleteStartupShortcut(info, root);
+                    Deregister(info, root);
+                }
                 if (activated && Directory.Exists(root))
                 {
                     try { Directory.Delete(root, true); }
@@ -422,6 +438,7 @@ namespace IwxaSetup
                 File.Delete(ownedUninstaller);
             // A staged NSIS migration never owns the old Start Menu entry.
             if (!receipt.ContainsKey("legacyHandoff")) DeleteShortcut(info);
+            DeleteStartupShortcut(info, root);
             // Delete Windows uninstall registration first, not the private
             // ownership key. Its absence is harmless when retrying.
             Registry.CurrentUser.DeleteSubKeyTree(WindowsUninstall + info.Id, false);
@@ -494,6 +511,7 @@ namespace IwxaSetup
                 throw new InvalidOperationException(
                     "SETUP_UNINSTALL_RESUME_MANAGED_FILES_REMAIN");
             DeleteShortcut(info);
+            DeleteStartupShortcut(info, root);
             DeleteEmptyUninstallDirectories(root);
             if (Directory.Exists(root) &&
                 Directory.GetFileSystemEntries(root).Length == 0)
@@ -734,6 +752,93 @@ namespace IwxaSetup
         {
             return Path.Combine(Environment.GetFolderPath(
                 Environment.SpecialFolder.Programs), info.InstallDir + ".lnk");
+        }
+
+        private static string StartupShortcutPath(BundleInfo info)
+        {
+            return Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.Startup), info.InstallDir + ".lnk");
+        }
+
+        internal static bool StartupEnabled(BundleInfo info)
+        {
+            string shortcut = StartupShortcutPath(info);
+            if (!File.Exists(shortcut) ||
+                (File.GetAttributes(shortcut) & FileAttributes.ReparsePoint) != 0)
+                return false;
+            string root = RootFor(info);
+            string app = Path.Combine(root,
+                info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+            return SamePath(GetLegacyShortcutTarget(shortcut), app);
+        }
+
+        internal static void UpdateStartup(BundleInfo info, bool enable)
+        {
+            using (var mutex = new System.Threading.Mutex(false,
+                "Local\\IWXA.SetupCore." + info.Id))
+            {
+                if (!mutex.WaitOne(0))
+                    throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
+                try
+                {
+                    string root = RootFor(info);
+                    BundleInfo current = ReadOwnedRelease(root, root, info.Id);
+                    RequireRegistryOwnership(info.Id, root, current);
+                    SetStartupShortcut(info, root, enable);
+                }
+                finally { mutex.ReleaseMutex(); }
+            }
+        }
+
+        private static void SetStartupShortcut(BundleInfo info, string root,
+            bool enable)
+        {
+            string target = StartupShortcutPath(info);
+            if (!enable) { DeleteStartupShortcut(info, root); return; }
+            string app = Path.Combine(root,
+                info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+            if (File.Exists(target))
+            {
+                if ((File.GetAttributes(target) & FileAttributes.ReparsePoint) == 0 &&
+                    SamePath(GetLegacyShortcutTarget(target), app))
+                    return;
+                throw new InvalidOperationException(
+                    "SETUP_STARTUP_SHORTCUT_CONFLICT");
+            }
+            if (Directory.Exists(target))
+                throw new InvalidOperationException(
+                    "SETUP_STARTUP_SHORTCUT_CONFLICT");
+            string folder = Path.GetDirectoryName(target);
+            Directory.CreateDirectory(folder);
+            string staged = Path.Combine(folder,
+                ".iwxa-setup-" + Guid.NewGuid().ToString("N") + ".lnk");
+            try
+            {
+                CreateShortcutAt(info, root, staged);
+                if (!SamePath(GetLegacyShortcutTarget(staged), app))
+                    throw new InvalidDataException(
+                        "SETUP_STARTUP_SHORTCUT_STAGE_INVALID");
+                File.Move(staged, target);
+            }
+            finally { if (File.Exists(staged)) File.Delete(staged); }
+        }
+
+        private static void DeleteStartupShortcut(BundleInfo info, string root)
+        {
+            string shortcut = StartupShortcutPath(info);
+            if (!File.Exists(shortcut) ||
+                (File.GetAttributes(shortcut) & FileAttributes.ReparsePoint) != 0)
+                return;
+            string app = Path.Combine(root,
+                info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+            try
+            {
+                if (SamePath(GetLegacyShortcutTarget(shortcut), app))
+                    File.Delete(shortcut);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (System.Runtime.InteropServices.COMException) { }
         }
 
         private static void CreateShortcut(BundleInfo info, string root)
