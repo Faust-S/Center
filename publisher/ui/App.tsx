@@ -83,6 +83,7 @@ export default function App(){
  const [loaded,setLoaded]=useState(false);
  const [page,setPage]=useState<Page>('overview');
  const [mobileNav,setMobileNav]=useState(false);
+ const [legacyOpen,setLegacyOpen]=useState(false);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
  const [message,setMessage]=useState('');
@@ -110,6 +111,7 @@ export default function App(){
  const [pendingRestore,setPendingRestore]=useState<Draft|null>(null);
  const restoreConfirmationRef=React.useRef<HTMLDivElement>(null);
  const legacyTestRef=React.useRef<HTMLElement>(null);
+ useEffect(()=>{if(legacyOpen&&page==='proposals')legacyTestRef.current?.scrollIntoView({block:'start',behavior:'auto'});},[legacyOpen,page]);
  const mainScrollRef=React.useRef<HTMLElement>(null);
  useEffect(()=>{
    if(pendingRestore)restoreConfirmationRef.current?.scrollIntoView({block:'center'});
@@ -298,6 +300,7 @@ export default function App(){
    // Compact layouts scroll the document instead of the work area.
    if(mainScrollRef.current)mainScrollRef.current.scrollTop=0;
    window.scrollTo(0,0);
+   if(p!=='proposals')setLegacyOpen(false);
    setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);setOfflineCopies(null);
  }
  if(!nativeHost){
@@ -410,11 +413,11 @@ export default function App(){
        </>}
        {page==='proposals'&&<>
           <div className="publisher-license-shortcut">
-            <p className="muted">Подготовьте лицензию по сохранённому тарифу. Ранее созданные TEST-запросы по-прежнему доступны.</p>
-            <button type="button" className="secondary" onClick={()=>legacyTestRef.current?.scrollIntoView({block:'start',behavior:'auto'})}>Открыть TEST-запрос</button>
+            <p className="muted">Для обычной подготовки выберите тариф и клиента. Простой TEST-запрос оставлен только для совместимости.</p>
+            <button type="button" className="secondary" aria-expanded={legacyOpen} onClick={()=>setLegacyOpen(value=>!value)}>{legacyOpen?'Скрыть TEST-запрос':'Открыть TEST-запрос'}</button>
           </div>
           <TariffPanel draft={state} busy={busy} change={change} mode="offer"/>
-         <section ref={legacyTestRef} className="card form-panel"><h2>Простой TEST-запрос (совместимость)</h2><p className="muted">Создание запроса не создаёт подписанной лицензии и не меняет права получателя.</p>
+         {legacyOpen&&<section ref={legacyTestRef} className="card form-panel"><h2>Простой TEST-запрос (совместимость)</h2><p className="muted">Создание запроса не создаёт подписанной лицензии и не меняет права получателя.</p>
          {state.products.length===0||state.holders.length===0?<div className="notice">Для запроса необходимо сначала создать продукт и клиента.</div>:<form onSubmit={e=>void saveLegacyRequest(e)} onChangeCapture={()=>setLegacyFeedback(null)}>
            <div className="form-grid"><label>Продукт<select value={activeProduct} onChange={e=>setProposalProduct(e.target.value)}><option value="">Выберите продукт</option>{state.products.map(p=><option key={p.id} value={p.id}>{p.name} ({p.version})</option>)}</select></label>
            <label>Получатель<select value={activeHolder} onChange={e=>setProposalHolder(e.target.value)}><option value="">Выберите клиента</option>{state.holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
@@ -424,7 +427,7 @@ export default function App(){
              <button type="submit" className="primary" disabled={busy||!activeProduct||!activeHolder}>Сохранить запрос</button>
              {legacyFeedback&&<p ref={legacyFeedbackRef} className={'publisher-inline-feedback '+(legacyFeedback.ok?'success':'error')}
                role={legacyFeedback.ok?'status':'alert'} data-testid="publisher-legacy-save-feedback">{legacyFeedback.message}</p>}
-           </div></form>}</section>
+           </div></form>}</section>}
          <section className="card padded"><h2>Подготовленные запросы ({state.proposals.length})</h2>
           {state.proposals.length>0&&<div className="publisher-test-request">
             <p className="muted">Экспорт TEST-запроса для будущего оригинального издателя T3. Файл не подписан и не предоставляет права Admin Center.</p>

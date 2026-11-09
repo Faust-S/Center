@@ -276,7 +276,10 @@ try {
   assert.equal(await page.evaluate(()=>document.querySelector('.publisher-app .main').scrollTop),0,
     'License section must begin at its title on return');
   checks.push('native-desktop-section-navigation-resets-main-scroll');
+  assert.equal(await page.getByText('Простой TEST-запрос (совместимость)').count(),0,
+    'Compatibility-only editor must not clutter normal license preparation');
   await page.getByRole('button',{name:'Открыть TEST-запрос'}).click();
+  await page.getByText('Простой TEST-запрос (совместимость)').waitFor();
   const legacyVisible=await page.getByLabel('Функции (коды через запятую)').evaluate(el=>{
     const b=el.getBoundingClientRect();return b.top>=0&&b.bottom<=window.innerHeight;
   });
