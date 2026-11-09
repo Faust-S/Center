@@ -110,14 +110,25 @@ class BundleTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, source)
 
-    def test_native_setup_displays_honest_busy_state_without_fake_percent(self):
+    def test_native_setup_shows_real_storage_copy_progress_only(self):
         source = (Path(__file__).resolve().parents[1] / "windows" /
                   "SetupCore.Form.cs").read_text(encoding="utf-8")
+        native = (Path(__file__).resolve().parents[1] / "windows" /
+                  "SetupCore.Install.cs").read_text(encoding="utf-8")
         self.assertIn("ProgressBarStyle.Marquee", source)
         self.assertIn("busyProgress.Visible = true", source)
         self.assertIn("busyProgress.Visible = false", source)
         self.assertIn("busyProgress.AccessibleName", source)
-        self.assertNotIn("busyProgress.Value =", source)
+        # General install/upgrade/repair is indeterminate: only a real file
+        # copy reports bytes completed and its measured source total.
+        self.assertIn("busyProgress.Style = moving ?", source)
+        self.assertIn("ProgressBarStyle.Continuous : ProgressBarStyle.Marquee", source)
+        self.assertIn("Math.Floor(copied * 100.0 / total)", source)
+        self.assertIn("busyProgress.Value = percent;", source)
+        self.assertIn("busyProgress.Style = ProgressBarStyle.Marquee;", source)
+        self.assertIn("Action<long, long> progress", native)
+        self.assertIn("if (bytesCopied != null) bytesCopied(length);", native)
+        self.assertNotIn("busyProgress.Value = 100", source)
 
     def test_clean_vm_webview2_witness_cannot_report_offline_without_proof(self):
         source = (Path(__file__).resolve().parents[1] / "windows" /
