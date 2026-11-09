@@ -217,6 +217,16 @@ try {
     Assert-Completion 'Repair' 'REPAIRED_BACKUP_RETAINED' 'REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK' $true
     Assert-Completion 'CancelLegacyPreview' 'UNINSTALLED_USER_DATA_PRESERVED' 'LEGACY_MIGRATION_HOLD' $true
     Assert-Completion 'InstallWebView2' 'WEBVIEW2_INSTALLED_VERIFIED' 'WEBVIEW2_MISSING' $false
+    Assert-Completion 'InstallWebView2' 'WEBVIEW2_INSTALLED_VERIFIED' 'NO_OWNED_INSTALLATION' $true
+    Assert-Completion 'InstallWebView2' 'WEBVIEW2_INSTALLED_VERIFIED' 'REPAIR_CANDIDATE_NOT_ACTIVATED' $true
+    Assert-Completion 'InstallWebView2' 'WEBVIEW2_INSTALLED_VERIFIED' 'LEGACY_MIGRATION_HOLD' $true
+    Assert-Completion 'InstallWebView2Offline' 'WEBVIEW2_ALREADY_INSTALLED' 'UPGRADE_PENDING_CONFIRMATION' $true
+    Assert-Completion 'InstallWebView2' 'WEBVIEW2_INSTALLED_VERIFIED' 'OWNERSHIP_MISMATCH' $false
+    Assert-Completion 'InstallWebView2Offline' 'WEBVIEW2_INSTALLED_VERIFIED' 'UNOWNED_INSTALL_ROOT' $false
+    Assert-Completion 'InstallWebView2Offline' 'WEBVIEW2_INSTALLED_VERIFIED' 'START_MENU_SHORTCUT_CONFLICT' $false
+    Assert-Completion 'InstallWebView2' 'WEBVIEW2_INSTALLED_VERIFIED' 'UPGRADE_RECOVERY_REQUIRED' $false
+    Assert-Completion 'InstallWebView2' 'WEBVIEW2_INSTALLED_VERIFIED' 'SAME_VERSION_DIFFERENT_PACKAGE' $false
+    Assert-Completion 'InstallWebView2' 'WEBVIEW2_INSTALLED_VERIFIED' 'UNDETERMINED' $false
     $ownedStateTag=0
     function Assert-OwnedState([bool]$expected){
         $script:ownedStateTag++

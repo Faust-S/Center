@@ -548,10 +548,26 @@ namespace IwxaSetup
                         observedPlan == "LEGACY_MIGRATION_PENDING_GUI_READBACK";
                 case "InstallWebView2":
                 case "InstallWebView2Offline":
-                    return (nativeOutcome == "WEBVIEW2_ALREADY_INSTALLED" ||
-                            nativeOutcome == "WEBVIEW2_INSTALLED_VERIFIED") &&
-                        observedPlan != "WEBVIEW2_MISSING" &&
-                        observedPlan != "UNDETERMINED";
+                    // A valid Runtime does not prove that an installed product
+                    // or its ownership is healthy. Refuse a false success if
+                    // the fresh disk plan is blocked, damaged or unknown.
+                    if (nativeOutcome != "WEBVIEW2_ALREADY_INSTALLED" &&
+                        nativeOutcome != "WEBVIEW2_INSTALLED_VERIFIED")
+                        return false;
+                    switch (observedPlan)
+                    {
+                        case "NO_OWNED_INSTALLATION":
+                        case "REPAIR_CANDIDATE_NOT_ACTIVATED":
+                        case "UPGRADE_CANDIDATE_NOT_ACTIVATED":
+                        case "UPGRADE_PENDING_CONFIRMATION":
+                        case "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK":
+                        case "LEGACY_MIGRATION_HOLD":
+                        case "LEGACY_MIGRATION_PENDING_GUI_READBACK":
+                        case "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED":
+                        case "APPLICATION_RUNNING":
+                            return true;
+                        default: return false;
+                    }
                 default: return false;
             }
         }
