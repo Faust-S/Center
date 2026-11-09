@@ -62,3 +62,20 @@ test('native desktop startup has visible loading fallback and React recovery rat
  assert.match(entry,/Повторить запуск/);
  assert.doesNotMatch(entry,/localStorage|sessionStorage|new Store|issuerKey|signRecord/);
 });
+
+test('native Publisher initializes WebView2 user data before the window and respects explicit override',()=>{
+ const rust=read('publisher/src-tauri/src/main.rs');
+ const declaration=rust.indexOf('fn configure_webview2_folder()');
+ const call=rust.indexOf('configure_webview2_folder().expect(');
+ const builder=rust.indexOf('tauri::Builder::default()');
+ assert.ok(declaration>=0 && call>declaration && builder>call);
+ assert.match(rust,/var_os\("LOCALAPPDATA"\)/);
+ assert.match(rust,/var_os\("WEBVIEW2_USER_DATA_FOLDER"\)/);
+ assert.match(rust,/set_var\("WEBVIEW2_USER_DATA_FOLDER", &folder\)/);
+ assert.match(rust,/join\("ru\.iwxa\.publisher"\)\.join\("webview"\)/);
+ assert.doesNotMatch(rust,/remove_dir_all\(&folder\)/);
+ const windows=read('publisher/tests/installed-windows-publisher.ps1');
+ assert.match(windows,/PUBLISHER_WEBVIEW_APP_LOCAL_FIRST_LAUNCH_PASS/);
+ assert.match(windows,/PUBLISHER_WEBVIEW_APP_LOCAL_NORMAL_RESTART_PASS/);
+ assert.match(windows,/PUBLISHER_NATIVE_WEBVIEW_INSTALL_ROOT_PROFILE_AFTER_NORMAL_RESTART/);
+});

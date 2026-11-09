@@ -79,3 +79,12 @@ test('Publisher WebView2 cache is app-local and the installed Windows test rejec
  assert.match(native,/PUBLISHER_WEBVIEW_APP_LOCAL_PROFILE_NOT_OBSERVED_UNDER_OVERRIDE/);
  assert.match(native,/ru\.iwxa\.publisher\\webview/);
 });
+
+test('native WebView2 profile is verified after initial launch and ordinary restart before uninstall',()=>{
+ const rust=readFileSync('publisher/src-tauri/src/main.rs','utf8');
+ const windows=readFileSync('publisher/tests/installed-windows-publisher.ps1','utf8');
+ assert.match(rust,/configure_webview2_folder\(\)\.expect\(/);
+ assert.match(windows,/PUBLISHER_NATIVE_WEBVIEW_APPLOCAL_FIRST_LAUNCH_MISSING/);
+ assert.match(windows,/PUBLISHER_NATIVE_WEBVIEW_APPLOCAL_AFTER_RESTART_MISSING/);
+ assert.match(windows,/PUBLISHER_SETUP_UNINSTALL/);
+});

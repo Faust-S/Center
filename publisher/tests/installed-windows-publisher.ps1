@@ -218,6 +218,17 @@ try {
   if(!$nativeTitle -or !$nativeTitle.Contains('IWXA Publisher')){throw "PUBLISHER_INSTALLED_NATIVE_WINDOW_TITLE_INVALID title=$nativeTitle"}
   Write-Host "PUBLISHER_INSTALLED_NATIVE_WINDOW_PASS title=$nativeTitle"
   Capture-Installed-Desktop 'publisher-desktop-first-launch.png'
+  # The first ordinary installed launch must write its renderer cache to
+  # Publisher app-local data rather than beside the managed EXE.
+  $ordinaryProfile=Join-Path $env:LOCALAPPDATA 'ru.iwxa.publisher\webview'
+  if(!(Test-Path -LiteralPath $ordinaryProfile -PathType Container)){
+    throw 'PUBLISHER_NATIVE_WEBVIEW_APPLOCAL_FIRST_LAUNCH_MISSING'
+  }
+  $installAdjacent=Join-Path (Split-Path $exe) 'iwxa-publisher.exe.WebView2'
+  if(Test-Path -LiteralPath $installAdjacent -PathType Container){
+    throw 'PUBLISHER_NATIVE_WEBVIEW_INSTALL_ROOT_PROFILE_CREATED'
+  }
+  Write-Host 'PUBLISHER_WEBVIEW_APP_LOCAL_FIRST_LAUNCH_PASS'
   # Three independent installed-process starts with optional fresh WebView2
   # profiles. Always check visible native controls and unchanged user drafts.
   $previousWebviewFolder=[Environment]::GetEnvironmentVariable('WEBVIEW2_USER_DATA_FOLDER','Process')
@@ -360,6 +371,13 @@ try {
     throw 'Publisher preparation and unsigned proposal readback mismatch after relaunch'
   }
   Write-Host 'PUBLISHER_INSTALLED_GUI_RESTART_READBACK_PASS'
+  if(Test-Path -LiteralPath $installAdjacent -PathType Container){
+    throw 'PUBLISHER_NATIVE_WEBVIEW_INSTALL_ROOT_PROFILE_AFTER_NORMAL_RESTART'
+  }
+  if(!(Test-Path -LiteralPath $ordinaryProfile -PathType Container)){
+    throw 'PUBLISHER_NATIVE_WEBVIEW_APPLOCAL_AFTER_RESTART_MISSING'
+  }
+  Write-Host 'PUBLISHER_WEBVIEW_APP_LOCAL_NORMAL_RESTART_PASS'
   $backup=Join-Path ([IO.Path]::GetFullPath('artifacts/publisher-setupcore')) 'installed-preparation-backup.json'
   Click-Publisher 'Обзор'
   Use-Json-Through-Publisher-Dialog 'Сохранить копию черновиков' $backup $false

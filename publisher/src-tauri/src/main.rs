@@ -461,7 +461,29 @@ fn publisher_pick_preparation_backup() -> Result<Option<String>, String> {
 mod t3_product_component;
 mod t3_owner;
 
+// WEBVIEW2_USER_DATA_FOLDER takes precedence over WebView2's executable-adjacent
+// default. Tauri's dataDirectory alone is insufficient on some installed
+// Windows restarts: the renderer left iwxa-publisher.exe.WebView2 inside the
+// installation, preventing Setup Core from removing its empty root.
+// Use the Publisher's existing app-local data namespace, not a second store.
+// Respect an explicit override from the caller for native qualification.
+#[cfg(target_os = "windows")]
+fn configure_webview2_folder() -> Result<(), String> {
+    if std::env::var_os("WEBVIEW2_USER_DATA_FOLDER").is_some_and(|v| !v.is_empty()) {
+        return Ok(());
+    }
+    let base = std::env::var_os("LOCALAPPDATA").ok_or("PUBLISHER_LOCALAPPDATA_UNAVAILABLE")?;
+    let folder = PathBuf::from(base).join("ru.iwxa.publisher").join("webview");
+    fs::create_dir_all(&folder).map_err(|_| "PUBLISHER_WEBVIEW_DATA_DIRECTORY_UNAVAILABLE")?;
+    std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &folder);
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn configure_webview2_folder() -> Result<(), String> { Ok(()) }
+
 fn main() {
+    configure_webview2_folder().expect("IWXA Publisher WebView2 folder unavailable");
     tauri::Builder::default()
         .manage(DraftLock(Mutex::new(())))
         .manage(DeliveryLock(Mutex::new(None)))
