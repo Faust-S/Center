@@ -392,12 +392,12 @@ try {
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
   await personal.getByText('Подготовленные запросы (1)').waitFor();
   assert.match(await personal.locator('main').innerText(),/Напрямую в продукт/);
-  await personal.close();
   await personal.getByRole('button',{name:'Доверие и ключи'}).click();
   await personal.getByTestId('publisher-person-issuer-unavailable').waitFor();
   assert.equal(await personal.getByTestId('publisher-t3-issue').isDisabled(),true);
   assert.equal(await personal.getByRole('combobox',{name:'Подготовленный запрос'}).locator('option').count(),0);
   checks.push('personal-test-issuer-unavailable-even-with-active-original-owner');
+  await personal.close();
   checks.push('personal-offline-draft-persists-restart-without-admin-center-or-false-signing');
   assert.deepEqual(errors,[]);
   checks.push('no-browser-page-errors');
