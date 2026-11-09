@@ -332,17 +332,37 @@ if($fitted.Width -ne 1800 -or $fitted.Height -ne 1040){
 $review=[Activator]::CreateInstance($formType,$true)
 try{
     $review.ClientSize=[Drawing.Size]::new(1090,672)
-    $null=$review.Handle
-    $review.PerformLayout()
+    $review.StartPosition=[System.Windows.Forms.FormStartPosition]::Manual
+    $review.Location=[Drawing.Point]::new(20,20)
+    # DrawToBitmap on an unshown WinForms window can capture a blank surface.
+    # Use actual on-screen pixels, as with the packaged Setup GUI acceptance.
+    $review.Show()
     [System.Windows.Forms.Application]::DoEvents()
+    Start-Sleep -Milliseconds 350
+    $bounds=$review.Bounds
     $out=[IO.Path]::GetFullPath('artifacts/setup-core-visual-options-main.png')
     [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($out))
-    $bmp=[Drawing.Bitmap]::new($review.Width,$review.Height)
+    $bmp=[Drawing.Bitmap]::new($bounds.Width,$bounds.Height)
+    $graphics=[Drawing.Graphics]::FromImage($bmp)
     try{
-        $review.DrawToBitmap($bmp,
-            [Drawing.Rectangle]::new(0,0,$review.Width,$review.Height))
+        $graphics.CopyFromScreen($bounds.Left,$bounds.Top,0,0,$bmp.Size)
+        $red=0
+        for($y=35;$y -lt [Math]::Min(170,$bmp.Height);$y+=4){
+            for($x=15;$x -lt [Math]::Min(130,$bmp.Width);$x+=4){
+                $pixel=$bmp.GetPixel($x,$y)
+                if($pixel.R -gt 180 -and $pixel.G -lt 160 -and
+                    $pixel.B -lt 160){$red++}
+            }
+        }
+        if($red -lt 16){
+            throw 'SETUP_UNIFIED_LIVE_VISUAL_BRAND_NOT_RENDERED'
+        }
         $bmp.Save($out,[Drawing.Imaging.ImageFormat]::Png)
-    }finally{$bmp.Dispose()}
-    Write-Host ('IWXA_SETUP_UNIFIED_NATIVE_VISUAL_CAPTURED '+$out)
+    }finally{
+        $graphics.Dispose()
+        $bmp.Dispose()
+    }
+    Write-Host ('IWXA_SETUP_UNIFIED_LIVE_CAPTURE_PASS redPixels='+$red+
+        ' path='+$out)
 }finally{$review.Dispose()}
 Write-Host 'IWXA_SETUP_NATIVE_UNIFIED_UX_ACCEPTANCE_PASS'
