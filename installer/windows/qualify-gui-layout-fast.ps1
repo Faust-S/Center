@@ -241,17 +241,19 @@ $check=$readiness.GetMethod('Check',
 $fixture=Join-Path $env:TEMP ('iwxa-setup-layout-'+[Guid]::NewGuid().ToString('N'))
 try{
     New-Item -ItemType Directory -Force -Path $fixture | Out-Null
-    $args=New-Object 'System.Object[]' 2
-    $args[0]=$info
-    $args[1]=$fixture
-    $plan=$check.Invoke($null,$args)
+    # The PowerShell automatic $args variable can be rebound by its
+    # invocation binder. Keep reflection operands explicitly typed.
+    [object[]]$probeArguments = [object[]]::new(2)
+    $probeArguments[0] = $info
+    $probeArguments[1] = [string]$fixture
+    $plan=$check.Invoke($null,[object[]]$probeArguments)
     $actual=[string]$plan.GetType().GetField('Status',$binding).GetValue($plan)
     if($actual -ne 'READY_FOR_FIRST_INSTALL'){
         throw ('SETUP_EMPTY_PROGRAM_ROOT_BLOCKED_'+$actual)
     }
     $foreign=Join-Path $fixture 'somebody-elses-file.txt'
     Set-Content -LiteralPath $foreign -Value 'keep'
-    $plan=$check.Invoke($null,$args)
+    $plan=$check.Invoke($null,[object[]]$probeArguments)
     $actual=[string]$plan.GetType().GetField('Status',$binding).GetValue($plan)
     if($actual -ne 'INSTALL_ROOT_NOT_EMPTY' -or
         (Get-Content -LiteralPath $foreign -Raw).Trim() -ne 'keep'){
