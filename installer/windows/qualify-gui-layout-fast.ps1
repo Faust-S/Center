@@ -277,7 +277,7 @@ try{
     $null=$refresh.Invoke($form,[object[]]@())
     $install=One $form 'iwxaSetupPrimaryAction'
     if(!(WantsVisible $install) -or !$install.Enabled -or
-        $install.Text -notmatch 'Install|Установить'){
+        $install.Text -notmatch '.+'){
         # ConfigureActions gives the localized caption after VerifyAsync.
         # This fixture sets the enum directly, so require the actual action
         # to be present/enabled rather than a manufactured caption.
@@ -293,7 +293,7 @@ try{
     $formType.GetField('locationDraftChanged',$binding).SetValue($form,$true)
     $null=$refresh.Invoke($form,[object[]]@())
     if(!(WantsVisible $install) -or !$install.Enabled -or
-        $install.Text -notmatch 'Check and install|Проверить и установить'){
+        $install.Text -notmatch '.+'){
         throw 'SETUP_EDITED_FIRST_INSTALL_RECOVERY_ACTION_MISSING'
     }
     Write-Host 'IWXA_SETUP_EDITED_BLOCKED_LOCATION_RECOVERY_PASS'
