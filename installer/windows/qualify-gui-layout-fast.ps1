@@ -365,6 +365,43 @@ try {
             throw 'SETUP_TECHNICAL_DIAGNOSTICS_NOT_USABLE'
         }
         Write-Host 'IWXA_SETUP_NATIVE_SELECTABLE_DIAGNOSTICS_PASS'
+        # Exercise the real Copy button and read back Windows Clipboard.
+        # Hosted desktop clipboard can be unavailable; do not claim that
+        # unavailable infrastructure proves the user action works.
+        $priorClipboard = ''
+        $clipboardReady = $false
+        try {
+            $priorClipboard = [System.Windows.Forms.Clipboard]::GetText()
+            [System.Windows.Forms.Clipboard]::SetText('IWXA_SETUP_CLIPBOARD_PROBE')
+            $clipboardReady = ([System.Windows.Forms.Clipboard]::GetText() -eq
+                'IWXA_SETUP_CLIPBOARD_PROBE')
+        } catch [System.Runtime.InteropServices.ExternalException] {
+            $clipboardReady = $false
+        }
+        if ($clipboardReady) {
+            try {
+                $detailsForm.Show()
+                [System.Windows.Forms.Application]::DoEvents()
+                $copyTechnical.PerformClick()
+                $clipboardResult = [System.Windows.Forms.Clipboard]::GetText()
+                if ($clipboardResult -ne $detailsText.Text -or
+                    $copyTechnical.Text -eq 'Copy details') {
+                    throw 'SETUP_DIAGNOSTICS_COPY_CLIPBOARD_READBACK_FAILED'
+                }
+                Write-Host 'IWXA_SETUP_NATIVE_DIAGNOSTICS_CLIPBOARD_COPY_PASS'
+            } finally {
+                try {
+                    if ([string]::IsNullOrEmpty($priorClipboard)) {
+                        [System.Windows.Forms.Clipboard]::Clear()
+                    } else {
+                        [System.Windows.Forms.Clipboard]::SetText($priorClipboard)
+                    }
+                } catch [System.Runtime.InteropServices.ExternalException] { }
+                $detailsForm.Hide()
+            }
+        } else {
+            Write-Host 'IWXA_SETUP_NATIVE_DIAGNOSTICS_CLIPBOARD_BLOCKED_ENV'
+        }
     } finally { $detailsForm.Dispose() }
     $locationsType = $assembly.GetType('IwxaSetup.SetupLocations', $true)
     foreach($editable in @($true,$false)) {
