@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
-import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback} from './atlas-integration.mjs';
+import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback, compareAtlasSourceCopies} from './atlas-integration.mjs';
 import {readAtlasSourceFile} from './atlas-file-import.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
@@ -14,6 +14,7 @@ type Assignment = {sourceResultRef?:SourceResultRef|null;id: string; title: stri
 type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string; atlasRef?: AtlasRef|null}[]; participants: Participant[]; assignments: Assignment[]};
 type Draft = {format: string; version: number; organizations: Organization[]; activeOrganizationId: string | null; updatedAt: string};
 type AtlasPortfolioView = {source:string;revision:string;authorization:string;mode:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
+type AtlasCopyDelta={previousRevision:string;revision:string;sharedProjects:number;addedProjects:number;removedProjects:number;changedProjects:number;addedWorks:number;removedWorks:number;changedWorks:number;changedDependencies:number;revisionRelation:string;contentChanged:boolean};
 type Editor = {sourceResultRef:SourceResultRef|null;assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
 type Page = 'overview'|'work'|'results'|'resources'|'people'|'programs'|'data';
 const pages: [Page, string, string][] = [['overview','Обзор','◫'],['resources','Планы Atlas','◇'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['programs','Personal Agent и лицензии','▦'],['data','Данные и настройки','⚙']];
@@ -70,7 +71,9 @@ export default function App() {
   const closeConfirmedRef = useRef(false);
   // A file preview belongs only to the organization where it was opened.
   // It must never become a cross-organization project/authorization source.
-  const [atlasFile,setAtlasFile] = useState<{organizationId:string;view:AtlasPortfolioView}|null>(null);
+  const [atlasFile,setAtlasFile] = useState<{organizationId:string;view:AtlasPortfolioView;filename:string;delta:AtlasCopyDelta|null}|null>(null);
+  const atlasFileRequest=useRef(0);
+  const [atlasObservationMode,setAtlasObservationMode]=useState<'file'|'native'>('file');
   const activeOrganizationRef=useRef<string|null>(null);
   const [nativeAtlas,setNativeAtlas] = useState<{organizationId:string;view:AtlasPortfolioView}|null>(null);
   const [atlasSelected,setAtlasSelected] = useState('');
@@ -143,7 +146,11 @@ export default function App() {
   const org = state.organizations.find(row => row.id === state.activeOrganizationId);
   activeOrganizationRef.current=state.activeOrganizationId;
   const atlasView = atlasFile?.organizationId===org?.id ? atlasFile?.view ?? null : null;
-  const observedAtlas = nativeAtlas?.organizationId===org?.id ? nativeAtlas?.view ?? null : atlasView;
+  const matchingNativeAtlas=nativeAtlas?.organizationId===org?.id ? nativeAtlas.view : null;
+  const observedAtlas=atlasObservationMode==='file'&&atlasView?atlasView:matchingNativeAtlas??atlasView;
+  const currentFile=atlasFile?.organizationId===org?.id?atlasFile:null;
+  const fileLinksToReview=atlasView?(org?.assignments??[]).filter(a=>
+    a.atlasRef?.workId&&atlasWorkReadback(atlasView,a.atlasRef)!=='SOURCE_REVISION_MATCHES').length:0;
   const stats = overview(state);
   const title = pages.find(row => row[0] === page)![1];
 
@@ -216,21 +223,32 @@ export default function App() {
     setError('');go('work');
   };
   const importAtlas = async (file: File) => {
-    const sourceOrganizationId=org?.id;
-    if(!sourceOrganizationId){setError('Сначала выберите организацию.');return;}
-    try {
+    const organizationId=org?.id;
+    if(!organizationId){setError('Сначала выберите организацию.');return;}
+    const request=++atlasFileRequest.current;
+    const previous=atlasFile?.organizationId===organizationId?atlasFile.view:null;
+    try{
       const {view:preview,format}=await readAtlasSourceFile(file) as {view:AtlasPortfolioView;format:'iwxa'|'json'};
-      // File reading may finish after the manager selected another organization.
-      if(activeOrganizationRef.current!==sourceOrganizationId)return;
-      setAtlasFile({organizationId:sourceOrganizationId,view:preview});
-      setAtlasSelected(preview.projects[0]?.id??'');
+      if(activeOrganizationRef.current!==organizationId||atlasFileRequest.current!==request)return;
+      const delta=previous?(compareAtlasSourceCopies(previous,preview) as AtlasCopyDelta):null;
+      setAtlasFile({organizationId,view:preview,filename:file.name.slice(0,160),delta});
+      setAtlasSelected(selected=>preview.projects.some(p=>p.id===selected)?selected:preview.projects[0]?.id??'');
+      setNativeAtlas(null);setAtlasObservationMode('file');
       setError('');setMessage('Портфель Atlas прочитан: '+preview.projects.length+' проектов. '+(format==='iwxa'?'Архив .iwxa открыт для просмотра. Данные не скопированы в Center, синхронизация не включена.':'Это просмотр выбранного файла, не живая синхронизация.'));
-    } catch(e){if(activeOrganizationRef.current===sourceOrganizationId)problem(e);}
+    }catch(e){
+      if(activeOrganizationRef.current!==organizationId||atlasFileRequest.current!==request)return;
+      const code=e instanceof Error?e.message:String(e);
+      setError((previous?'Новый файл не открыт. Предыдущая копия осталась на экране. ':'')+
+        (errors[code]??'Не удалось прочитать выбранный файл Atlas.'));
+      setMessage('');
+    }
   };
   const selectOrg = (organizationId: string) => {
     if (editor) {setError('Сохраните или закройте открытый редактор поручения перед сменой организации.'); return;}
     if(command({type:'SELECT_ORGANIZATION',organizationId})){
+      atlasFileRequest.current++;
       setAtlasFile(null);setAtlasSelected('');setAtlasWorkspace('');setNativeAtlas(null);
+      setAtlasObservationMode('file');
     }
   };
   async function exportFile() {
@@ -279,7 +297,7 @@ export default function App() {
       if(pendingCloseRef.current&&!window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.'))return;
       revisionRef.current++;
       editorBaselineRef.current=null;
-      setState(next);setDirty(nativeHost);setAtlasFile(null);setNativeAtlas(null);setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
+      setState(next);setDirty(nativeHost);atlasFileRequest.current++;setAtlasFile(null);setNativeAtlas(null);setAtlasObservationMode('file');setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
     } catch(e) {problem(e);}
   }
   async function openFile() {
@@ -338,11 +356,29 @@ export default function App() {
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает общую картину проектов и зависимостей. Здесь руководитель связывает рабочую область с конкретной редакцией плана. Пока это только черновая ссылка - подключение Atlas ещё не проверено.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span></div>)}
-        <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>setNativeAtlas(view?{organizationId:id,view}:null)}/>
+        <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
         <div className="card nested-form" data-testid="atlas-link-panel">
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
-          <p className="muted">Откройте архив проектов .iwxa из Atlas. Старые копии JSON также поддерживаются. Можно просмотреть проекты, работы и связи и подготовить поручение. Данные проекта не переносятся в Center, права организации не меняются.</p>
+          <p className="muted">Откройте архив проектов .iwxa из Atlas. Для проверки изменений повторно выберите файл через ту же кнопку. Старые копии JSON также поддерживаются. Ссылки на поручения автоматически не меняются.</p>
           <input type="file" hidden ref={atlasInput} accept=".iwxa,.json,application/json,application/octet-stream" data-testid="atlas-import-file" onChange={async e=>{const file=e.target.files?.[0];if(file)await importAtlas(file);e.target.value='';}} />
+          {currentFile&&atlasView&&<div className="atlas-file-review" data-testid="atlas-file-review" role="status">
+            <strong>Открыта копия: {currentFile.filename}</strong>
+            {currentFile.delta ? <>
+              <p>Предыдущая редакция {currentFile.delta.previousRevision}, выбранная сейчас — {currentFile.delta.revision}.</p>
+              <p data-testid="atlas-copy-difference">{currentFile.delta.contentChanged
+                ? 'Изменения в копии: проектов добавлено '+currentFile.delta.addedProjects+', убрано '+currentFile.delta.removedProjects+
+                  '; работ добавлено '+currentFile.delta.addedWorks+', убрано '+currentFile.delta.removedWorks+
+                  ', изменено '+currentFile.delta.changedWorks+'.'
+                : 'Состав копии не изменился с предыдущего открытия.'}</p>
+              {currentFile.delta.revisionRelation==='lower'&&<p className="muted" data-testid="atlas-file-older">У выбранного файла меньшая редакция. Проверьте, какую копию нужно использовать.</p>}
+              {currentFile.delta.revisionRelation==='same'&&currentFile.delta.contentChanged&&<p className="muted" data-testid="atlas-file-same-revision">Состав изменился без изменения номера редакции. Проверьте источник.</p>}
+              {currentFile.delta.revisionRelation==='unrelated'&&<p className="muted">У нового файла нет общих проектов с предыдущим. Редакции не сопоставляются.</p>}
+            </> : <p>Для повторной проверки выберите копию файла ещё раз.</p>}
+            <p data-testid="atlas-file-links-review">{fileLinksToReview>0
+              ? 'Поручений со ссылками, требующими проверки: '+fileLinksToReview+'. Старые ссылки сохранены.'
+              : 'Ссылки на работы в этой копии не требуют обновления по редакции.'}</p>
+            <p className="muted">Файл не обновляется автоматически. Совпадение редакции не подтверждает выполнение работ или права доступа.</p>
+          </div>}
           {atlasView ? <>
             <div className="metrics atlas-summary">
               <div className="card metric"><span>Проекты Atlas</span><strong data-testid="atlas-project-count">{atlasView.projects.length}</strong></div>

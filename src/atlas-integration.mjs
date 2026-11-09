@@ -78,3 +78,49 @@ export function atlasWorkReadback(view,ref) {
   if(!project.workItems.some(w=>w.id===ref.workId))return 'WORK_MISSING_IN_SOURCE';
   return String(view.revision)===String(ref.revision) ? 'SOURCE_REVISION_MATCHES' : 'SOURCE_REVISION_CHANGED';
 }
+
+/** Compare two explicitly selected Atlas source copies. Informational only:
+ * neither the revision count nor a matching WorkRef proves source freshness. */
+export function compareAtlasSourceCopies(previous,current){
+ if(!previous||!current||previous.source!=="atlas.project/1"||
+    current.source!=="atlas.project/1"||
+    !Array.isArray(previous.projects)||!Array.isArray(current.projects))
+  fail("ATLAS_PREVIEW_REQUIRED");
+ const oldById=new Map(previous.projects.map(p=>[p.id,p]));
+ const newIds=new Set(current.projects.map(p=>p.id));
+ const out={previousRevision:previous.revision,revision:current.revision,
+   sharedProjects:0,addedProjects:0,removedProjects:0,changedProjects:0,
+   addedWorks:0,removedWorks:0,changedWorks:0,changedDependencies:0,
+   revisionRelation:"unrelated",contentChanged:false};
+ for(const p of current.projects){
+  const old=oldById.get(p.id);
+  if(!old){out.addedProjects++;out.addedWorks+=p.workItems.length;continue}
+  out.sharedProjects++;
+  if(["name","status","owner","dueDate","stages","total","done","blocked","progress"]
+   .some(k=>old[k]!==p[k]))out.changedProjects++;
+  const oldWorks=new Map(old.workItems.map(w=>[w.id,w]));
+  const currentWorkIds=new Set(p.workItems.map(w=>w.id));
+  for(const w of p.workItems){
+   const prior=oldWorks.get(w.id);
+   if(!prior){out.addedWorks++;continue}
+   if(["title","state","dueDate","priority"].some(k=>prior[k]!==w[k]))out.changedWorks++;
+  }
+  for(const w of old.workItems)if(!currentWorkIds.has(w.id))out.removedWorks++;
+ }
+ for(const p of previous.projects)if(!newIds.has(p.id)){
+  out.removedProjects++;out.removedWorks+=p.workItems.length;
+ }
+ const id=d=>JSON.stringify([d.from,d.to,d.kind]);
+ const beforeLinks=new Set(previous.dependencies.map(id));
+ const afterLinks=new Set(current.dependencies.map(id));
+ out.changedDependencies=[...beforeLinks].filter(k=>!afterLinks.has(k)).length+
+   [...afterLinks].filter(k=>!beforeLinks.has(k)).length;
+ out.contentChanged=Boolean(out.addedProjects+out.removedProjects+out.changedProjects+
+   out.addedWorks+out.removedWorks+out.changedWorks+out.changedDependencies);
+ if(out.sharedProjects||(!previous.projects.length&&!current.projects.length)){
+  const a=Number(previous.revision),b=Number(current.revision);
+  out.revisionRelation=Number.isSafeInteger(a)&&a>=0&&Number.isSafeInteger(b)&&b>=0
+   ?b>a?"higher":b<a?"lower":"same":"unknown";
+ }
+ return out;
+}

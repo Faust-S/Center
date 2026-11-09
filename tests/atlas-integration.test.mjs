@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {empty,createProject,createItem,editItem,serialize} from '../vendor/atlas/src/core.mjs';
 import {addPortfolioLink} from '../vendor/atlas/src/portfolio.mjs';
-import {readAtlasPortfolio,linkableAtlasProject,linkableAtlasWork,atlasLinkReadback,atlasWorkReadback,ATLAS_SOURCE_REVISION} from '../src/atlas-integration.mjs';
+import {readAtlasPortfolio,linkableAtlasProject,linkableAtlasWork,atlasLinkReadback,atlasWorkReadback,compareAtlasSourceCopies,ATLAS_SOURCE_REVISION} from '../src/atlas-integration.mjs';
 import {emptyDraft,applyDraftCommand} from '../src/organization.mjs';
 
 function sample() {
@@ -94,4 +94,35 @@ test('canonical desktop owner projection permits exact work links but never conf
  assert.equal(atlasWorkReadback(view,reference),'SOURCE_REVISION_MATCHES');
  assert.equal(view.authorization,'NOT_CHECKED');
  assert.equal(view.projects.length,2);
+});
+
+test('reopening an Atlas file compares source contents, never rewrites historical WorkRef',()=>{
+ const {snapshot,a,item}=sample();
+ const original=readAtlasPortfolio(serialize(snapshot));
+ const ref=linkableAtlasWork(original,a,item);
+ const same=compareAtlasSourceCopies(original,original);
+ assert.equal(same.contentChanged,false);
+ assert.equal(same.revisionRelation,'same');
+ const edited=editItem(snapshot,a,item,{title:'Updated delivery'});
+ const newer=readAtlasPortfolio(serialize(edited));
+ const delta=compareAtlasSourceCopies(original,newer);
+ assert.equal(delta.revisionRelation,'higher');
+ assert.equal(delta.changedWorks,1);
+ assert.equal(delta.contentChanged,true);
+ assert.equal(atlasWorkReadback(newer,ref),'SOURCE_REVISION_CHANGED');
+ assert.equal(ref.revision,String(snapshot.revision));
+ assert.equal(compareAtlasSourceCopies(newer,original).revisionRelation,'lower');
+});
+test('copy with same revision and changed work is not silently considered identical',()=>{
+ const {snapshot}=sample(),original=readAtlasPortfolio(serialize(snapshot));
+ const modified=structuredClone(original);
+ modified.projects[0].workItems[0].title='Changed without revision';
+ const delta=compareAtlasSourceCopies(original,modified);
+ assert.equal(delta.revisionRelation,'same');
+ assert.equal(delta.contentChanged,true);
+ assert.equal(delta.changedWorks,1);
+ const unrelated=structuredClone(original);
+ unrelated.projects.forEach(p=>{p.id='other-'+p.id});
+ assert.equal(compareAtlasSourceCopies(original,unrelated).revisionRelation,'unrelated');
+ assert.throws(()=>compareAtlasSourceCopies(null,original),/ATLAS_PREVIEW_REQUIRED/);
 });

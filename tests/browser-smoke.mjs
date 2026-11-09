@@ -65,7 +65,22 @@ try{
   await page.getByTestId('assignment-row').click();await page.getByTestId('task-title').fill('Compare four suppliers');await page.getByTestId('save-assignment').click();checks.push('edit-draft');
   const later=createItem(work.state,first.id,{title:'Verify new supplier'});
   await page.getByTestId('nav-resources').click();
-  await page.getByTestId('atlas-import-file').setInputFiles({name:'atlas-updated.json',mimeType:'application/json',buffer:Buffer.from(serialize(later.state))});
+  const revisedArchive=await buildIwxaPortfolio(later.state,{now:'2026-11-09T11:00:00.000Z'});
+  await page.getByTestId('atlas-import-file').setInputFiles({
+    name:'atlas-updated.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(revisedArchive)});
+  assert.match(await page.getByTestId('atlas-copy-difference').innerText(),/работ добавлено 1/);
+  assert.match(await page.getByTestId('atlas-file-links-review').innerText(),/требующими проверки: 1/);
+  assert.equal(await page.getByTestId('atlas-revision').textContent(),String(later.state.revision));
+  await page.getByTestId('atlas-import-file').setInputFiles({
+    name:'atlas-updated.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(revisedArchive)});
+  assert.match(await page.getByTestId('atlas-copy-difference').innerText(),/не изменился/);
+  const tamperedAgain=Uint8Array.from(revisedArchive);
+  tamperedAgain[tamperedAgain.length-30]^=1;
+  await page.getByTestId('atlas-import-file').setInputFiles({
+    name:'broken-update.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(tamperedAgain)});
+  assert.match(await page.getByRole('alert').innerText(),/Предыдущая копия осталась на экране/);
+  assert.equal(await page.getByTestId('atlas-revision').textContent(),String(later.state.revision));
+  checks.push('atlas-reopened-iwxa-compared-and-damaged-copy-retained-old-preview');
   await page.getByTestId('nav-work').click();
   assert.ok((await page.getByTestId('assignment-atlas-status').textContent()).includes('изменился'));
   await page.getByTestId('assignment-row').click();
