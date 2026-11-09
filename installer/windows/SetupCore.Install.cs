@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Web.Script.Serialization;
 using Microsoft.Win32;
 
@@ -208,12 +209,15 @@ namespace IwxaSetup
             internal long Files;
         }
 
-        private static void RequireStorageMoveSpace(List<StorageCopy> moves)
+        private static StorageSpaceBudget RequireStorageMoveSpace(
+            List<StorageCopy> moves, CancellationToken cancellation)
         {
             var volumes = new Dictionary<string, StorageSpaceBudget>(
                 StringComparer.OrdinalIgnoreCase);
+            var total = new StorageSpaceBudget();
             foreach (StorageCopy copy in moves)
             {
+                cancellation.ThrowIfCancellationRequested();
                 if (!Directory.Exists(copy.Original))
                     continue;
                 string volume = Path.GetPathRoot(copy.Destination);
@@ -227,6 +231,7 @@ namespace IwxaSetup
                 pending.Push(copy.Original);
                 while (pending.Count > 0)
                 {
+                    cancellation.ThrowIfCancellationRequested();
                     string current = pending.Pop();
                     if ((File.GetAttributes(current) &
                         FileAttributes.ReparsePoint) != 0)
@@ -236,13 +241,16 @@ namespace IwxaSetup
                         pending.Push(directory);
                     foreach (string file in Directory.GetFiles(current))
                     {
+                        cancellation.ThrowIfCancellationRequested();
                         if ((File.GetAttributes(file) &
                             FileAttributes.ReparsePoint) != 0)
                             throw new InvalidDataException(
                                 "SETUP_STORAGE_FILE_LINK_FORBIDDEN");
-                        budget.Bytes = checked(budget.Bytes +
-                            new FileInfo(file).Length);
+                        long size = new FileInfo(file).Length;
+                        budget.Bytes = checked(budget.Bytes + size);
                         budget.Files = checked(budget.Files + 1);
+                        total.Bytes = checked(total.Bytes + size);
+                        total.Files = checked(total.Files + 1);
                     }
                 }
             }
@@ -260,6 +268,8 @@ namespace IwxaSetup
                         required + "_available=" + available +
                         "_volume=" + volume.Key);
             }
+            cancellation.ThrowIfCancellationRequested();
+            return total;
         }
 
         // Storage relocation is explicit and non-destructive. Copy and
@@ -268,6 +278,17 @@ namespace IwxaSetup
         internal static SetupLocations RelocateStorage(BundleInfo info,
             SetupLocations requested)
         {
+            return RelocateStorage(info, requested,
+                default(CancellationToken), null);
+        }
+
+        // Cancellation applies only until publication begins. The originals
+        // are never deleted; a cancelled staged copy is cleaned up.
+        internal static SetupLocations RelocateStorage(BundleInfo info,
+            SetupLocations requested, CancellationToken cancellation,
+            Action<long, long> progress)
+        {
+            cancellation.ThrowIfCancellationRequested();
             SetupLocations chosen = ValidateLocations(info, requested, false);
             using (var mutex = new System.Threading.Mutex(false,
                 "Local\\IWXA.SetupCore." + info.Id))
@@ -306,11 +327,15 @@ namespace IwxaSetup
                     }
                     // Abort before creating staging directories or changing any
                     // registry preferences when the selected drives are too full.
-                    RequireStorageMoveSpace(moved);
+                    StorageSpaceBudget budget =
+                        RequireStorageMoveSpace(moved, cancellation);
+                    long bytesCopied = 0;
+                    if (progress != null) progress(0, budget.Bytes);
                     try
                     {
                         foreach (StorageCopy copy in moved)
                         {
+                            cancellation.ThrowIfCancellationRequested();
                             if (!Directory.Exists(copy.Original))
                                 continue; // Empty optional storage: no data to copy.
                             copy.Staged = copy.Destination + ".iwxa-copy-" +
@@ -321,8 +346,14 @@ namespace IwxaSetup
                                 File.Exists(copy.Staged))
                                 throw new InvalidOperationException(
                                     "SETUP_STORAGE_STAGE_CONFLICT");
-                            CopyVerifiedStorage(copy.Original, copy.Staged);
+                            CopyVerifiedStorage(copy.Original, copy.Staged,
+                                cancellation, delta => {
+                                    bytesCopied = checked(bytesCopied + delta);
+                                    if (progress != null)
+                                        progress(bytesCopied, budget.Bytes);
+                                });
                         }
+                        cancellation.ThrowIfCancellationRequested();
                         // All source trees have been read back before changing
                         // even one product location or pointing at any new data.
                         foreach (StorageCopy copy in moved)
@@ -382,8 +413,10 @@ namespace IwxaSetup
             internal bool Published;
         }
 
-        private static void CopyVerifiedStorage(string original, string staged)
+        private static void CopyVerifiedStorage(string original, string staged,
+            CancellationToken cancellation, Action<long> bytesCopied)
         {
+            cancellation.ThrowIfCancellationRequested();
             if ((File.GetAttributes(original) & FileAttributes.ReparsePoint) != 0)
                 throw new InvalidDataException("SETUP_STORAGE_SOURCE_LINK_FORBIDDEN");
             Directory.CreateDirectory(staged);
@@ -391,6 +424,7 @@ namespace IwxaSetup
             pending.Push(original);
             while (pending.Count > 0)
             {
+                cancellation.ThrowIfCancellationRequested();
                 string current = pending.Pop();
                 string relative = current.Substring(original.Length).TrimStart('\\');
                 string targetDir = relative.Length == 0 ? staged :
@@ -405,16 +439,54 @@ namespace IwxaSetup
                 }
                 foreach (string originalFile in Directory.GetFiles(current))
                 {
+                    cancellation.ThrowIfCancellationRequested();
                     if ((File.GetAttributes(originalFile) &
                         FileAttributes.ReparsePoint) != 0)
                         throw new InvalidDataException(
                             "SETUP_STORAGE_FILE_LINK_FORBIDDEN");
                     string newFile = Path.Combine(targetDir,
                         Path.GetFileName(originalFile));
-                    File.Copy(originalFile, newFile, false);
-                    string sourceHash = FingerprintLegacyFile(originalFile);
-                    string copiedHash = FingerprintLegacyFile(newFile);
-                    if (sourceHash != copiedHash ||
+                    byte[] sourceHash;
+                    const int blockSize = 1024 * 1024;
+                    byte[] buffer = new byte[blockSize];
+                    using (var digest = SHA256.Create())
+                    using (var input = new FileStream(originalFile, FileMode.Open,
+                        FileAccess.Read, FileShare.Read, blockSize,
+                        FileOptions.SequentialScan))
+                    using (var output = new FileStream(newFile, FileMode.CreateNew,
+                        FileAccess.Write, FileShare.None, blockSize,
+                        FileOptions.SequentialScan))
+                    {
+                        int length;
+                        while ((length = input.Read(buffer, 0, buffer.Length)) > 0)
+                        {
+                            cancellation.ThrowIfCancellationRequested();
+                            digest.TransformBlock(buffer, 0, length, buffer, 0);
+                            output.Write(buffer, 0, length);
+                            if (bytesCopied != null) bytesCopied(length);
+                        }
+                        digest.TransformFinalBlock(new byte[0], 0, 0);
+                        sourceHash = digest.Hash;
+                        output.Flush();
+                    }
+                    cancellation.ThrowIfCancellationRequested();
+                    byte[] copiedHash;
+                    using (var digest = SHA256.Create())
+                    using (var verification = new FileStream(newFile,
+                        FileMode.Open, FileAccess.Read, FileShare.Read,
+                        blockSize, FileOptions.SequentialScan))
+                    {
+                        int length;
+                        while ((length = verification.Read(buffer, 0, buffer.Length)) > 0)
+                        {
+                            cancellation.ThrowIfCancellationRequested();
+                            digest.TransformBlock(buffer, 0, length, buffer, 0);
+                        }
+                        digest.TransformFinalBlock(new byte[0], 0, 0);
+                        copiedHash = digest.Hash;
+                    }
+                    if (!StructuralComparisons.StructuralEqualityComparer.Equals(
+                            sourceHash, copiedHash) ||
                         new FileInfo(originalFile).Length !=
                             new FileInfo(newFile).Length)
                         throw new InvalidDataException(

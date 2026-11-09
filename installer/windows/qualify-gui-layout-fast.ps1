@@ -47,6 +47,57 @@ if ($zero -ne [long]67108864) {
     throw ('SETUP_STORAGE_CAPACITY_RESERVE_WRONG_' + $zero)
 }
 Write-Host 'IWXA_SETUP_STORAGE_DESTINATION_CAPACITY_PREFLIGHT_PASS'
+# Exercise the real cancellable copy helper on a local directory. Cancellation
+# must not create a destination, and a normal copy must pass hash readback.
+$copyMethod = $engine.GetMethod('CopyVerifiedStorage',
+    [Reflection.BindingFlags]'Static, NonPublic')
+if ($null -eq $copyMethod) {
+    throw 'SETUP_STORAGE_CANCELLABLE_COPY_MISSING'
+}
+$testRoot = Join-Path ([IO.Path]::GetTempPath()) (
+    'iwxa-setup-cancel-' + [Guid]::NewGuid().ToString('N'))
+$sourceRoot = Join-Path $testRoot 'original'
+$cancelledRoot = Join-Path $testRoot 'cancelled'
+$copiedRoot = Join-Path $testRoot 'copied'
+$cancelSource = New-Object 'System.Threading.CancellationTokenSource'
+try {
+    New-Item -ItemType Directory -Force -Path $sourceRoot | Out-Null
+    $fixture = Join-Path $sourceRoot 'model.fixture'
+    [IO.File]::WriteAllBytes($fixture, (New-Object byte[] 2097152))
+    $cancelSource.Cancel()
+    $copyArgs = New-Object 'System.Object[]' 4
+    $copyArgs[0] = $sourceRoot
+    $copyArgs[1] = $cancelledRoot
+    $copyArgs[2] = $cancelSource.Token
+    $copyArgs[3] = $null
+    $cancelled = $false
+    try {
+        $null = $copyMethod.Invoke($null, $copyArgs)
+    } catch [Reflection.TargetInvocationException] {
+        if ($_.Exception.InnerException -isnot [OperationCanceledException]) {
+            throw
+        }
+        $cancelled = $true
+    }
+    if (!$cancelled -or (Test-Path -LiteralPath $cancelledRoot)) {
+        throw 'SETUP_STORAGE_CANCEL_CREATED_TARGET'
+    }
+    $copyArgs[1] = $copiedRoot
+    $copyArgs[2] = [Threading.CancellationToken]::None
+    $null = $copyMethod.Invoke($null, $copyArgs)
+    $after = Join-Path $copiedRoot 'model.fixture'
+    if (!(Test-Path -LiteralPath $after) -or
+        (Get-FileHash -LiteralPath $fixture -Algorithm SHA256).Hash -ne
+        (Get-FileHash -LiteralPath $after -Algorithm SHA256).Hash) {
+        throw 'SETUP_STORAGE_CHUNKED_HASH_READBACK_FAILED'
+    }
+    Write-Host 'IWXA_SETUP_STORAGE_COPY_CANCEL_AND_READBACK_PASS'
+} finally {
+    $cancelSource.Dispose()
+    if (Test-Path -LiteralPath $testRoot) {
+        Remove-Item -LiteralPath $testRoot -Recurse -Force
+    }
+}
 $formType = $assembly.GetType('IwxaSetup.SetupForm', $true)
 function One([System.Windows.Forms.Control]$form, [string]$name) {
     $items = @($form.Controls.Find($name,$true))
@@ -211,6 +262,10 @@ if ($null -eq $settingsMethod) {
 }
 $hostForm = [System.Activator]::CreateInstance($formType,$true)
 try {
+    $cancelButton = One $hostForm 'iwxaSetupCancelStorageMove'
+    if ($cancelButton.Enabled -or $cancelButton.Visible) {
+        throw 'SETUP_STORAGE_CANCEL_SHOWN_WITHOUT_ACTIVE_TRANSFER'
+    }
     $reasonMethod = $formType.GetMethod('ExplainStorageSettingsError',
         [Reflection.BindingFlags]'Instance, NonPublic')
     if ($null -eq $reasonMethod) {

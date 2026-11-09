@@ -26,7 +26,9 @@ namespace IwxaSetup
         private readonly Button secondary = new Button();
         private readonly LinkLabel openApplication = new LinkLabel();
         private readonly Button configureInstallation = new Button();
+        private readonly Button cancelStorageMove = new Button();
         private readonly ToolTip detailsHint = new ToolTip();
+        private System.Threading.CancellationTokenSource storageCancellation;
         private BundleInfo inspectedBundle;
         private string inspectedStatus = "";
         private SetupLocations selectedLocations;
@@ -325,6 +327,29 @@ namespace IwxaSetup
             retry.ForeColor = Color.FromArgb(39, 78, 133);
             retry.Click += async (sender, args) => await VerifyAsync();
             actions.Controls.Add(retry);
+
+            cancelStorageMove.Name = "iwxaSetupCancelStorageMove";
+            cancelStorageMove.Text = T("Отменить перенос", "Cancel relocation");
+            cancelStorageMove.AccessibleName = cancelStorageMove.Text;
+            cancelStorageMove.Visible = false;
+            cancelStorageMove.Enabled = false;
+            cancelStorageMove.Size = new Size(162, 40);
+            cancelStorageMove.Margin = new Padding(5, 0, 5, 0);
+            cancelStorageMove.BackColor = Color.White;
+            cancelStorageMove.ForeColor = Color.FromArgb(147, 52, 63);
+            cancelStorageMove.FlatStyle = FlatStyle.Flat;
+            cancelStorageMove.FlatAppearance.BorderColor =
+                Color.FromArgb(219, 172, 176);
+            cancelStorageMove.Click += (sender, args) =>
+            {
+                if (storageCancellation == null ||
+                    storageCancellation.IsCancellationRequested) return;
+                storageCancellation.Cancel();
+                cancelStorageMove.Enabled = false;
+                status.Text = T("Останавливаем перенос…",
+                    "Cancelling relocation…");
+            };
+            actions.Controls.Add(cancelStorageMove);
             // Reflow the supporting text when the window or DPI changes.
             // The package card and action bar remain fixed in their visual hierarchy.
             area.SizeChanged += (sender, args) =>
@@ -558,8 +583,22 @@ namespace IwxaSetup
                         MessageBoxDefaultButton.Button2);
                     if (approve != DialogResult.Yes) return;
                 }
+                var activeCancellation = moving ?
+                    new System.Threading.CancellationTokenSource() : null;
+                storageCancellation = activeCancellation;
                 performingOperation = true;
                 busyProgress.Visible = true;
+                busyProgress.Style = moving ?
+                    ProgressBarStyle.Continuous : ProgressBarStyle.Marquee;
+                if (moving) busyProgress.Value = 0;
+                cancelStorageMove.Visible = moving;
+                cancelStorageMove.Enabled = moving;
+                if (moving)
+                {
+                    install.Visible = false;
+                    secondary.Visible = false;
+                    retry.Visible = false;
+                }
                 status.Text = moving ?
                     T("Копируем и проверяем данные…", "Copying and verifying data…") :
                     T("Применяем параметры запуска…", "Applying startup settings…");
@@ -568,22 +607,69 @@ namespace IwxaSetup
                 retry.Enabled = false;
                 configureInstallation.Enabled = false;
                 Exception error = null;
+                Action<long, long> progress = null;
+                if (moving)
+                {
+                    int lastPercent = -1;
+                    progress = (copied, total) =>
+                    {
+                        int percent = total <= 0 ? 0 :
+                            (int)Math.Min(99, Math.Floor(copied * 100.0 / total));
+                        if (percent <= lastPercent) return;
+                        lastPercent = percent;
+                        try
+                        {
+                            if (!IsHandleCreated || IsDisposed) return;
+                            BeginInvoke((MethodInvoker)(() =>
+                            {
+                                if (IsDisposed || storageCancellation != activeCancellation)
+                                    return;
+                                busyProgress.Value = percent;
+                                status.Text = T("Перенос данных: ", "Moving storage: ") +
+                                    percent + "%";
+                                packageDetails.Text =
+                                    T("Скопировано: ", "Copied: ") +
+                                    StorageAmount(copied) + " / " +
+                                    StorageAmount(total) + Environment.NewLine +
+                                    T("Проверяем копии перед переключением папок.",
+                                      "Verifying copies before changing storage locations.");
+                            }));
+                        }
+                        catch (ObjectDisposedException) { }
+                        catch (InvalidOperationException) { }
+                    };
+                }
                 try
                 {
                     await Task.Run(() => {
                         if (moving)
-                            SetupInstallation.RelocateStorage(info, updated);
+                            SetupInstallation.RelocateStorage(info, updated,
+                                activeCancellation.Token, progress);
                         SetupInstallation.UpdateStartup(info, updated.StartWithWindows);
                     });
                 }
                 catch (Exception ex) { error = ex; }
                 finally
                 {
+                    storageCancellation = null;
+                    if (activeCancellation != null) activeCancellation.Dispose();
                     performingOperation = false;
                     busyProgress.Visible = false;
+                    busyProgress.Style = ProgressBarStyle.Marquee;
+                    cancelStorageMove.Visible = false;
+                    cancelStorageMove.Enabled = false;
+                    install.Visible = true;
+                    retry.Visible = true;
                 }
                 await VerifyAsync();
-                if (error != null)
+                if (error is OperationCanceledException)
+                {
+                    status.Text = T("Перенос отменён", "Storage relocation cancelled");
+                    packageDetails.Text = T(
+                        "Исходные данные и действующие папки сохранены.",
+                        "Original data and active storage locations were preserved.");
+                }
+                else if (error != null)
                     MessageBox.Show(this,
                         ExplainStorageSettingsError(error),
                         T("Параметры установки", "Installation settings"),
@@ -591,9 +677,21 @@ namespace IwxaSetup
             }
         }
 
+        private string StorageAmount(long bytes)
+        {
+            if (bytes >= 1073741824L)
+                return (bytes / 1073741824.0).ToString("N1", CultureInfo.CurrentCulture) +
+                    T(" ГБ", " GB");
+            return (bytes / 1048576.0).ToString("N1", CultureInfo.CurrentCulture) +
+                T(" МБ", " MB");
+        }
+
         private string ExplainStorageSettingsError(Exception error)
         {
             string raw = error.Message ?? "";
+            if (error is OperationCanceledException)
+                return T("Перенос отменён. Исходные данные и настройки сохранены.",
+                    "Relocation cancelled. Original data and settings were preserved.");
             if (raw.StartsWith("SETUP_STORAGE_DISK_SPACE_INSUFFICIENT_",
                 StringComparison.Ordinal))
             {
@@ -663,19 +761,19 @@ namespace IwxaSetup
                     Description = label
                 })
                 {
-                    string candidate = input.Text;
-                    string parent = "";
-                    try { parent = Path.GetDirectoryName(candidate); }
-                    catch (ArgumentException) { }
-                    choose.SelectedPath = Directory.Exists(parent) ? parent :
+                    string initial = input.Text;
+                    try
+                    {
+                        while (!String.IsNullOrWhiteSpace(initial) &&
+                               !Directory.Exists(initial))
+                            initial = Path.GetDirectoryName(initial);
+                    }
+                    catch (ArgumentException) { initial = ""; }
+                    choose.SelectedPath = Directory.Exists(initial) ? initial :
                         Environment.GetFolderPath(
                             Environment.SpecialFolder.LocalApplicationData);
                     if (choose.ShowDialog(layout.FindForm()) == DialogResult.OK)
-                    {
-                        string leaf = Path.GetFileName(candidate.TrimEnd('\\', '/'));
-                        input.Text = Path.Combine(choose.SelectedPath,
-                            String.IsNullOrWhiteSpace(leaf) ? "IWXA" : leaf);
-                    }
+                        input.Text = choose.SelectedPath;
                 }
             };
             layout.Controls.Add(browse, 1, labelRow + 1);
