@@ -16,6 +16,28 @@ try {
     $badReport = Join-Path $artifact 'setup-core-tampered-report.json'
     $exe = Join-Path $root 'src-tauri/target/release/iwxa-admin-center.exe'
     if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'SETUP_CENTER_EXE_MISSING' }
+    # Verify the actual embedded Windows EXE icon, not just the source SVG.
+    # This catches a stale native Iw logo even when the HTML UI is current.
+    Add-Type -AssemblyName System.Drawing
+    $nativeBrand = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+    if ($null -eq $nativeBrand) { throw 'SETUP_CENTER_NATIVE_ICON_MISSING' }
+    try {
+        $brandBitmap = $nativeBrand.ToBitmap()
+        try {
+            $sampleY = [int][Math]::Floor($brandBitmap.Height * 0.50)
+            $field = $brandBitmap.GetPixel(
+                [int][Math]::Floor($brandBitmap.Width * 0.17), $sampleY)
+            $ink = $brandBitmap.GetPixel(
+                [int][Math]::Floor($brandBitmap.Width * 0.25), $sampleY)
+            if ($field.R -lt 165 -or $field.G -gt 150 -or
+                $field.B -gt 150 -or $ink.R -gt 75 -or
+                $ink.G -gt 75 -or $ink.B -gt 75) {
+                throw ('SETUP_CENTER_NATIVE_ICON_STALE field=' +
+                    $field.ToString() + ' ink=' + $ink.ToString())
+            }
+            Write-Host 'IWXA_CENTER_NATIVE_WINDOWS_RED_BRAND_PASS'
+        } finally { $brandBitmap.Dispose() }
+    } finally { $nativeBrand.Dispose() }
 
     & (Join-Path $PSScriptRoot 'build-stub.ps1') -Output $stub
     $profile = Join-Path $root 'installer/products/center.json'
