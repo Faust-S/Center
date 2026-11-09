@@ -14,6 +14,17 @@ function clean(value, limit, code) {
 const id = value => { clean(value, 90, 'ID_INVALID'); if (!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$/.test(value)) reject('ID_INVALID'); };
 const utc = value => { if (typeof value !== 'string' || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) reject('DATE_INVALID'); };
 const unique = (values, code) => { if (new Set(values).size !== values.length) reject(code); };
+// Tariff codes are scoped to a product and recipient type: one product must
+// never borrow another product's terms merely because both call a plan BASIC.
+const tariffKey = t => [t.productId,t.holderType,t.id,t.revision].join('\u001f');
+function sameData(a,b) {
+  if (Array.isArray(a) || Array.isArray(b))
+    return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((v,i)=>sameData(v,b[i]));
+  if(plain(a)||plain(b))
+    return plain(a)&&plain(b)&&Object.keys(a).length===Object.keys(b).length&&
+      Object.keys(a).every(k=>Object.hasOwn(b,k)&&sameData(a[k],b[k]));
+  return Object.is(a,b);
+}
 function validateProduct(p) {
   shape(p, ['id', 'name', 'version'], 'PRODUCT_FIELDS_INVALID');
   if (!/^[A-Z][A-Z0-9_]{2,63}$/.test(p.id)) reject('PRODUCT_ID_INVALID');
@@ -46,8 +57,12 @@ function validateTariff(t){
   unique(t.quotas.map(q=>q.metric+':'+q.period),'TARIFF_QUOTA_DUPLICATE');
 }
 function validateProposal(p) {
-  const hasTariff=p&&Object.hasOwn(p,'tariffSnapshot');
-  shape(p,hasTariff?['id','holderId','productId','features','termDays','createdAt','status','productVersion','tariffSnapshot']:['id','holderId','productId','features','termDays','createdAt','status'],'PROPOSAL_FIELDS_INVALID');
+  const hasTariff=plain(p)&&Object.hasOwn(p,'tariffSnapshot');
+  const hasPrevious=plain(p)&&Object.hasOwn(p,'previousProposalId');
+  if(hasPrevious&&!hasTariff)reject('FOLLOWUP_TARIFF_REQUIRED');
+  const common=['id','holderId','productId','features','termDays','createdAt','status'];
+  shape(p,hasTariff?[...common,'productVersion','tariffSnapshot',...(hasPrevious?['previousProposalId']:[])]:common,'PROPOSAL_FIELDS_INVALID');
+  if(hasPrevious)id(p.previousProposalId);
   if(hasTariff){
     validateTariff(p.tariffSnapshot);
     if(p.tariffSnapshot.productId!==p.productId||p.tariffSnapshot.termDays!==p.termDays||JSON.stringify(p.tariffSnapshot.features)!==JSON.stringify(p.features)||typeof p.productVersion!=='string'||!/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(p.productVersion))reject('PROPOSAL_TARIFF_SNAPSHOT_INVALID');
@@ -92,17 +107,34 @@ export function validatePublisherDraft(input) {
   draft.artifacts.forEach(validateArtifact);
   unique(draft.products.map(v=>v.id), 'DUPLICATE_PRODUCT');
   unique(draft.holders.map(v=>v.id), 'DUPLICATE_HOLDER');
-  unique(draft.tariffs.map(v=>v.id+':'+v.revision),'DUPLICATE_TARIFF_REVISION');
+  unique(draft.tariffs.map(t=>tariffKey(t)),'DUPLICATE_TARIFF_REVISION');
   for(const t of draft.tariffs)if(!draft.products.some(p=>p.id===t.productId))reject('TARIFF_PRODUCT_MISSING');
   unique(draft.proposals.map(v=>v.id), 'DUPLICATE_PROPOSAL');
   unique(draft.artifacts.map(v=>v.id), 'DUPLICATE_ARTIFACT');
   for (const p of draft.proposals) {
     if (!draft.products.some(v=>v.id===p.productId) || !draft.holders.some(v=>v.id===p.holderId)) reject('PROPOSAL_REFERENCE_MISSING');
   }
-  for(const proposal of draft.proposals)if(proposal.tariffSnapshot){
-    const t=draft.tariffs.find(t=>t.id===proposal.tariffSnapshot.id&&t.revision===proposal.tariffSnapshot.revision);
-    const h=draft.holders.find(h=>h.id===proposal.holderId);
-    if(!t||!h||h.type!==t.holderType||JSON.stringify(t)!==JSON.stringify(proposal.tariffSnapshot))reject('PROPOSAL_TARIFF_MISMATCH');
+  for(const proposal of draft.proposals){
+    if(proposal.tariffSnapshot){
+      const t=draft.tariffs.find(t=>tariffKey(t)===tariffKey(proposal.tariffSnapshot));
+      const h=draft.holders.find(h=>h.id===proposal.holderId);
+      if(!t||!h||h.type!==t.holderType||!sameData(t,proposal.tariffSnapshot))
+        reject('PROPOSAL_TARIFF_MISMATCH');
+    }
+    if(proposal.previousProposalId){
+      let at=proposal;
+      const seen=new Set();
+      while(at.previousProposalId){
+        if(seen.has(at.id))reject('PROPOSAL_FOLLOWUP_CYCLE');
+        seen.add(at.id);
+        const previous=draft.proposals.find(p=>p.id===at.previousProposalId);
+        if(!previous||!previous.tariffSnapshot||
+           previous.holderId!==at.holderId||previous.productId!==at.productId||
+           Date.parse(previous.createdAt)>Date.parse(at.createdAt))
+          reject('PROPOSAL_FOLLOWUP_SOURCE_INVALID');
+        at=previous;
+      }
+    }
   }
   for (const a of draft.artifacts) if (!draft.products.some(v=>v.id===a.productId)) reject('ARTIFACT_PRODUCT_MISSING');
   return structuredClone(draft);
@@ -132,23 +164,37 @@ export function applyPublisherDraftCommand(draft, command) {
       holderType:command.holderType,revision:command.revision,features:command.features,
       termDays:command.termDays,productSeats:command.productSeats,
       employeeLimit:command.employeeLimit,deviceLimit:command.deviceLimit,quotas:command.quotas});
-  } else if(command.kind==='addTariffProposal') {
-    shape(command,['kind','tariffId','revision','holderId'],'TARIFF_PROPOSAL_FIELDS_INVALID');
-    const t=next.tariffs.find(t=>t.id===command.tariffId&&t.revision===command.revision);
-    const holder=next.holders.find(h=>h.id===command.holderId);
+  } else if(command.kind==='addTariffProposal'||command.kind==='prepareFollowupProposal') {
+    const repeat=command.kind==='prepareFollowupProposal';
+    const expected=repeat?['kind','previousProposalId','productId','tariffId','revision']:
+      ['kind','tariffId','revision','holderId',...(Object.hasOwn(command,'productId')?['productId']:[])];
+    shape(command,expected,'TARIFF_PROPOSAL_FIELDS_INVALID');
+    const previous=repeat?next.proposals.find(p=>p.id===command.previousProposalId):null;
+    if(repeat&&(!previous||!previous.tariffSnapshot))
+      reject('PROPOSAL_FOLLOWUP_SOURCE_INVALID');
+    const holder=next.holders.find(h=>h.id===(repeat?previous.holderId:command.holderId));
+    if(!holder)reject('TARIFF_PROPOSAL_REFERENCE_MISSING');
+    const candidates=next.tariffs.filter(t=>t.id===command.tariffId&&
+      t.revision===command.revision&&(!command.productId||t.productId===command.productId));
+    if(candidates.length>1)reject('TARIFF_PROPOSAL_AMBIGUOUS');
+    const t=candidates[0];
     const product=next.products.find(p=>p.id===t?.productId);
-    if(!t||!holder||!product)reject('TARIFF_PROPOSAL_REFERENCE_MISSING');
+    if(!t||!product)reject('TARIFF_PROPOSAL_REFERENCE_MISSING');
     if(holder.type!==t.holderType)reject('TARIFF_PROPOSAL_HOLDER_MISMATCH');
+    if(repeat&&previous.productId!==product.id)reject('PROPOSAL_FOLLOWUP_PRODUCT_MISMATCH');
     next.proposals.push({id:'proposal:'+crypto.randomUUID(),holderId:holder.id,
       productId:product.id,features:[...t.features],termDays:t.termDays,
       createdAt:new Date().toISOString(),status:'DRAFT_NOT_ISSUED',
-      productVersion:product.version,tariffSnapshot:structuredClone(t)});
+      productVersion:product.version,tariffSnapshot:structuredClone(t),
+      ...(repeat?{previousProposalId:previous.id}:{})});
   } else if (command.kind === 'addProposal') {
     next.proposals.push({id:'proposal:'+crypto.randomUUID(), holderId:command.holderId, productId:command.productId,features:command.features,termDays:command.termDays,createdAt:new Date().toISOString(),status:'DRAFT_NOT_ISSUED'});
   } else if (command.kind === 'addArtifact') {
     next.artifacts.push({id:'artifact:'+crypto.randomUUID(), productId:command.productId,version:command.version,platform:command.platform,sourceRepository:command.sourceRepository,sourceCommit:command.sourceCommit,sourceTree:command.sourceTree,name:command.name,size:command.size,sha256:command.sha256,createdAt:new Date().toISOString(),status:'BYTES_INSPECTED_NOT_APPROVED'});
   } else if (command.kind === 'removeProposal') {
     if (!next.proposals.some(v=>v.id===command.id)) reject('PROPOSAL_NOT_FOUND');
+    if(next.proposals.some(v=>v.previousProposalId===command.id))
+      reject('PROPOSAL_HAS_FOLLOWUPS');
     next.proposals = next.proposals.filter(v=>v.id!==command.id);
   } else reject('COMMAND_INVALID');
   next.updatedAt = new Date().toISOString();

@@ -8,3 +8,69 @@ const tariff=(type='ORGANIZATION')=>({kind:'addTariff',id:'PLAN',name:'Plan',pro
 test('legacy v1 archives remain readable and are upgraded without losing proposals',()=>{let s=source();s=apply(s,{kind:'addProposal',holderId:'org:one',productId:'IWXA_ADMIN_CENTER',features:[],termDays:30});const legacy={...s,version:1};delete legacy.tariffs;const v=decodePublisherDraft(JSON.stringify(legacy));assert.equal(v.version,2);assert.deepEqual(v.proposals,s.proposals);assert.deepEqual(v.tariffs,[]);assert.deepEqual(decodePublisherDraft(encodePublisherDraft(v)),v);});
 test('tariff versions create immutable recipient-bound draft snapshots',()=>{let s=apply(source(),tariff());s=apply(s,{kind:'addTariffProposal',tariffId:'PLAN',revision:1,holderId:'org:one'});assert.equal(s.proposals[0].tariffSnapshot.employeeLimit,20);assert.equal(s.proposals[0].status,'DRAFT_NOT_ISSUED');s=apply(s,{...tariff(),revision:2,productSeats:15});s=apply(s,{kind:'addTariffProposal',tariffId:'PLAN',revision:2,holderId:'org:one'});assert.deepEqual(s.proposals.map(p=>p.tariffSnapshot.productSeats),[10,15]);assert.throws(()=>apply(s,tariff()),{code:'DUPLICATE_TARIFF_REVISION'});let person=apply(source(),tariff('PERSON'));person=apply(person,{kind:'addTariffProposal',tariffId:'PLAN',revision:1,holderId:'person:one'});assert.equal(person.proposals[0].tariffSnapshot.deviceLimit,2);assert.throws(()=>apply(person,{kind:'addTariffProposal',tariffId:'PLAN',revision:1,holderId:'org:one'}),{code:'TARIFF_PROPOSAL_HOLDER_MISMATCH'});assert.deepEqual(decodePublisherDraft(encodePublisherDraft(person)),person);});
 test('invalid tariff limits, spoofed fields and modified terms fail closed',()=>{let s=source();assert.throws(()=>apply(s,{...tariff(),deviceLimit:1}),{code:'TARIFF_ORGANIZATION_LIMITS_INVALID'});assert.throws(()=>apply(s,{...tariff('PERSON'),productSeats:2}),{code:'TARIFF_PERSON_LIMITS_INVALID'});assert.throws(()=>apply(s,{...tariff(),secret:'key'}),{code:'TARIFF_FIELDS_INVALID'});s=apply(s,tariff());s=apply(s,{kind:'addTariffProposal',tariffId:'PLAN',revision:1,holderId:'org:one'});assert.throws(()=>prepareTestLicenseRequest(s,{proposalId:s.proposals[0].id,seats:11}),{code:'TEST_REQUEST_SEATS_EXCEED_TARIFF'});const bad=structuredClone(s);bad.proposals[0].tariffSnapshot.productSeats=100;assert.throws(()=>decodePublisherDraft(JSON.stringify(bad)),{code:'PROPOSAL_TARIFF_MISMATCH'});});
+
+test('identical tariff codes are independent across products and client types',()=>{
+ let s=source();
+ s=apply(s,{kind:'addProduct',id:'IWXA_ATLAS',name:'Atlas',version:'0.4.0'});
+ s=apply(s,tariff());
+ s=apply(s,{...tariff('PERSON'),productId:'IWXA_ATLAS'});
+ const restored=decodePublisherDraft(encodePublisherDraft(s));
+ assert.equal(restored.tariffs.length,2);
+ assert.throws(()=>apply(s,{kind:'addTariffProposal',tariffId:'PLAN',revision:1,holderId:'org:one'}),
+   {code:'TARIFF_PROPOSAL_AMBIGUOUS'});
+ const org=apply(s,{kind:'addTariffProposal',productId:'IWXA_ADMIN_CENTER',
+   tariffId:'PLAN',revision:1,holderId:'org:one'});
+ assert.equal(org.proposals[0].tariffSnapshot.productId,'IWXA_ADMIN_CENTER');
+ const person=apply(s,{kind:'addTariffProposal',productId:'IWXA_ATLAS',
+   tariffId:'PLAN',revision:1,holderId:'person:one'});
+ assert.equal(person.proposals[0].tariffSnapshot.productId,'IWXA_ATLAS');
+ assert.equal(person.proposals[0].tariffSnapshot.deviceLimit,2);
+});
+test('tariff-based followup can prepare a new edition without altering original terms',()=>{
+ let s=apply(source(),tariff());
+ s=apply(s,{kind:'addTariffProposal',productId:'IWXA_ADMIN_CENTER',
+   tariffId:'PLAN',revision:1,holderId:'org:one'});
+ const original=structuredClone(s.proposals[0]);
+ s=apply(s,{...tariff(),revision:2,productSeats:20,termDays:730});
+ s=apply(s,{kind:'prepareFollowupProposal',previousProposalId:original.id,
+   productId:'IWXA_ADMIN_CENTER',tariffId:'PLAN',revision:2});
+ assert.equal(s.proposals.length,2);
+ assert.deepEqual(s.proposals[0],original);
+ const replacement=s.proposals[1];
+ assert.equal(replacement.previousProposalId,original.id);
+ assert.equal(replacement.tariffSnapshot.productSeats,20);
+ assert.equal(replacement.tariffSnapshot.termDays,730);
+ assert.equal(replacement.status,'DRAFT_NOT_ISSUED');
+ assert.equal('signature' in replacement,false);
+ assert.deepEqual(decodePublisherDraft(encodePublisherDraft(s)),s);
+ assert.throws(()=>apply(s,{kind:'removeProposal',id:original.id}),
+   {code:'PROPOSAL_HAS_FOLLOWUPS'});
+ const deleted=apply(s,{kind:'removeProposal',id:replacement.id});
+ assert.equal(deleted.proposals.length,1);
+ assert.throws(()=>apply(deleted,{kind:'prepareFollowupProposal',previousProposalId:'missing',
+  productId:'IWXA_ADMIN_CENTER',tariffId:'PLAN',revision:2}),
+  {code:'PROPOSAL_FOLLOWUP_SOURCE_INVALID'});
+});
+test('followup rejects cross-product and cross-recipient forgery and cyclic chains',()=>{
+ let s=source();
+ s=apply(s,{kind:'addProduct',id:'IWXA_ATLAS',name:'Atlas',version:'0.4.0'});
+ s=apply(s,tariff());
+ s=apply(s,{...tariff('PERSON'),id:'PERSONAL',productId:'IWXA_ATLAS'});
+ s=apply(s,{kind:'addTariffProposal',productId:'IWXA_ADMIN_CENTER',
+   tariffId:'PLAN',revision:1,holderId:'org:one'});
+ assert.throws(()=>apply(s,{kind:'prepareFollowupProposal',previousProposalId:s.proposals[0].id,
+   productId:'IWXA_ATLAS',tariffId:'PERSONAL',revision:1}),
+   {code:'TARIFF_PROPOSAL_HOLDER_MISMATCH'});
+ const repeated=apply(s,{kind:'prepareFollowupProposal',previousProposalId:s.proposals[0].id,
+   productId:'IWXA_ADMIN_CENTER',tariffId:'PLAN',revision:1});
+ const forged=structuredClone(repeated);
+ forged.proposals[1].holderId='person:one';
+ assert.throws(()=>decodePublisherDraft(JSON.stringify(forged)),{code:'PROPOSAL_TARIFF_MISMATCH'});
+ const cycle=structuredClone(repeated);
+ cycle.proposals[0].previousProposalId=cycle.proposals[1].id;
+ assert.throws(()=>decodePublisherDraft(JSON.stringify(cycle)),{code:'PROPOSAL_FOLLOWUP_CYCLE'});
+ const reordered=structuredClone(repeated);
+ reordered.tariffs[0]={revision:reordered.tariffs[0].revision,
+   ...Object.fromEntries(Object.entries(reordered.tariffs[0]).filter(([k])=>k!=='revision'))};
+ assert.deepEqual(decodePublisherDraft(JSON.stringify(reordered)).proposals,repeated.proposals);
+});
