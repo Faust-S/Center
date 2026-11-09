@@ -62,9 +62,22 @@ namespace IwxaSetup
                 Dock = DockStyle.Fill, Margin = new Padding(0),
                 Padding = new Padding(16, 12, 16, 10),
                 BackColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle,
+                BorderStyle = BorderStyle.None,
                 AutoScroll = false
             };
+        }
+
+        private static void LightOutline(Panel panel)
+        {
+            panel.BorderStyle = BorderStyle.None;
+            panel.Paint += (sender, args) =>
+            {
+                using (var pen = new Pen(Line, 1F))
+                    args.Graphics.DrawRectangle(pen, 0, 0,
+                        Math.Max(0, panel.ClientSize.Width - 1),
+                        Math.Max(0, panel.ClientSize.Height - 1));
+            };
+            panel.Resize += (sender, args) => panel.Invalidate();
         }
 
         private static void UiRow(TableLayoutPanel table, int index,
@@ -129,17 +142,17 @@ namespace IwxaSetup
 
             var shell = UiTable(1, 100);
             shell.RowCount = 3;
-            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 102));
+            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
             shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 73));
+            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
             shell.BackColor = Surface;
             Controls.Add(shell);
 
             var header = UiTable(3, 8, 72, 20);
-            header.Padding = new Padding(24, 17, 24, 8);
+            header.Padding = new Padding(24, 11, 24, 6);
             header.BackColor = Color.White;
             unifiedBrand.Dock = DockStyle.Left;
-            unifiedBrand.Size = new Size(58, 58);
+            unifiedBrand.Size = new Size(54, 54);
             unifiedBrand.SizeMode = PictureBoxSizeMode.Zoom;
             unifiedBrand.Image = BrandMark(BrandRed);
             unifiedBrand.AccessibleName = T(
@@ -147,11 +160,11 @@ namespace IwxaSetup
             header.Controls.Add(unifiedBrand, 0, 0);
             var names = UiTable(1, 100);
             names.RowCount = 2;
-            names.RowStyles.Add(new RowStyle(SizeType.Percent, 63));
-            names.RowStyles.Add(new RowStyle(SizeType.Percent, 37));
+            names.RowStyles.Add(new RowStyle(SizeType.Percent, 56));
+            names.RowStyles.Add(new RowStyle(SizeType.Percent, 44));
             productName.Name = "iwxaSetupProductTitle";
             productName.Text = T("Программа IWXA", "IWXA application");
-            productName.Font = new Font("Segoe UI", 21, FontStyle.Bold);
+            productName.Font = new Font("Segoe UI", 18.5F, FontStyle.Bold);
             productName.ForeColor = Navy;
             productName.TextAlign = ContentAlignment.MiddleLeft;
             productName.Dock = DockStyle.Fill;
@@ -160,6 +173,7 @@ namespace IwxaSetup
             description.Text = T("Установка и обслуживание",
                 "Installation and maintenance");
             description.Dock = DockStyle.Fill;
+            description.Font = new Font("Segoe UI", 9.5F);
             description.ForeColor = Secondary;
             description.TextAlign = ContentAlignment.MiddleLeft;
             names.Controls.Add(description, 0, 1);
@@ -193,11 +207,13 @@ namespace IwxaSetup
             unifiedPathPanel.Padding = Padding.Empty;
             unifiedPathPanel.Margin = new Padding(0, 0, 12, 0);
             unifiedPathPanel.BackColor = Color.White;
-            unifiedPathPanel.BorderStyle = BorderStyle.FixedSingle;
+            unifiedPathPanel.BorderStyle = BorderStyle.None;
             unifiedPathPanel.AutoScroll = false;
+            LightOutline(unifiedPathPanel);
             unifiedMain.Controls.Add(unifiedPathPanel, 0, 0);
             BuildUnifiedSettings();
             var rightCard = UiCard();
+            LightOutline(rightCard);
             unifiedMain.Controls.Add(rightCard, 1, 0);
             BuildUnifiedStatus(rightCard);
 
@@ -634,6 +650,19 @@ namespace IwxaSetup
                     message = T("Нужен Microsoft WebView2. Установите его ниже и повторите проверку.",
                         "Microsoft WebView2 is required. Install it below, then recheck.");
                     break;
+                case "START_MENU_SHORTCUT_CONFLICT":
+                    message = T("Другая программа использует это имя ярлыка. Сохраните или переименуйте существующий ярлык, затем повторите проверку.",
+                        "Another application uses this shortcut name. Keep or rename the existing shortcut, then check again.");
+                    break;
+                case "LEGACY_MIGRATION_HOLD":
+                case "LEGACY_MIGRATION_REVIEW_REQUIRED":
+                    message = T("Обнаружена старая установка. Она сохранена; проверьте предложенное действие перед переходом.",
+                        "An earlier installation was found. It is preserved; review the proposed action before migration.");
+                    break;
+                case "LEGACY_SWITCH_RECOVERY_REQUIRED":
+                    message = T("Переключение запуска прервалось. Восстановите прежний ярлык и повторите проверку.",
+                        "The launch switch was interrupted. Restore the previous shortcut and check again.");
+                    break;
                 case "UPGRADE_PENDING_CONFIRMATION":
                 case "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK":
                     message = T("Проверьте установленную версию и завершите обновление. Личные данные сохранены.",
@@ -644,10 +673,18 @@ namespace IwxaSetup
                         "The interrupted operation requires recovery. Your data is not removed.");
                     break;
                 default:
-                    message = T("Выберите действие ниже. Личные данные сохраняются при обычном обслуживании.",
-                        "Choose an action below. Normal maintenance preserves personal data.");
+                    message = !String.IsNullOrWhiteSpace(packageDetails.Text) &&
+                        packageDetails.Text.Length <= 175 ?
+                        packageDetails.Text :
+                        T("Выберите доступное действие. При обслуживании личные данные сохраняются.",
+                          "Choose an available action. Your data is preserved during maintenance.");
                     break;
             }
+            if (status.Text.StartsWith(
+                    T("Недостаточно места", "Not enough free disk"),
+                    StringComparison.OrdinalIgnoreCase) &&
+                !String.IsNullOrWhiteSpace(packageDetails.Text))
+                message = packageDetails.Text;
             unifiedExplanation.Text = message;
             detailsHint.SetToolTip(unifiedExplanation,
                 String.IsNullOrWhiteSpace(packageDetails.Text) ?
@@ -687,7 +724,7 @@ namespace IwxaSetup
             discardLocations.Enabled = ready;
             secondary.Visible = secondaryAction != SetupOperation.None && !changes;
             secondary.Enabled = ready && secondaryAction != SetupOperation.None;
-            retry.Visible = true;
+            retry.Visible = ready && inspectedBundle != null;
             retry.Enabled = ready;
             cancelStorageMove.Enabled = ready || storageCancellation != null;
             serviceOwnedSetup.Visible = installed &&
@@ -700,7 +737,10 @@ namespace IwxaSetup
             unifiedSectionTitle.Text = first ?
                 T("Параметры установки", "Installation settings") :
                 T("Папки и запуск", "Folders and startup");
-            if (!changes)
+            if (inspectedBundle == null)
+                draftNotice.Text = T("Проверяем выбранные параметры…",
+                    "Checking selected settings…");
+            else if (!changes)
                 draftNotice.Text = first ?
                     T("Папки можно изменить перед установкой.",
                       "You can change folders before installing.") :
