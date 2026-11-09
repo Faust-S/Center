@@ -28,7 +28,7 @@ test('Atlas actual owner model is imported, validated and summarized without rew
  assert.equal(view.authorization,'NOT_CHECKED');
  assert.equal(view.mode,'READ_ONLY_USER_SELECTED_FILE');
  assert.equal(serialize(snapshot),before);
- assert.equal(ATLAS_SOURCE_REVISION,'d56b8703325b7e94648e003066c807cf330384d6');
+ assert.equal(ATLAS_SOURCE_REVISION,'0de3b6058526021aeecee6f445acf89b956d10c9');
 });
 test('only a project from current Atlas preview can be linked with exact portfolio revision',()=>{
  const {snapshot,a}=sample(),view=readAtlasPortfolio(serialize(snapshot));

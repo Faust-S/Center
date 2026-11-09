@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: d56b8703325b7e94648e003066c807cf330384d6
+          ref: 0de3b6058526021aeecee6f445acf89b956d10c9
           path: vendor/atlas
           persist-credentials: false
       # Test CEN05 against the original, pinned public U04 bridge; never
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: d56b8703325b7e94648e003066c807cf330384d6
+          ref: 0de3b6058526021aeecee6f445acf89b956d10c9
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -89,7 +89,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: d56b8703325b7e94648e003066c807cf330384d6
+          ref: 0de3b6058526021aeecee6f445acf89b956d10c9
           path: vendor/atlas
           persist-credentials: false
       # Original U01/U04 native modules are required by Center's build.rs.
