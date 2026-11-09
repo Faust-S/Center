@@ -15,6 +15,19 @@ if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne
     throw 'SETUP_LAYOUT_STA_REQUIRED'
 }
 $assembly = [Reflection.Assembly]::LoadFrom($stubFull)
+# Windows Details and CLR identity must show Setup Core 1.0, not the
+# generic "stub" filename or an unspecified version.
+$details = [Diagnostics.FileVersionInfo]::GetVersionInfo($stubFull)
+if ($assembly.GetName().Version.ToString() -ne '1.0.0.0' -or
+    $details.FileVersion -ne '1.0.0.0' -or
+    $details.ProductName -ne 'IWXA Setup Core' -or
+    $details.CompanyName -ne 'IWXA' -or
+    $details.ProductVersion -ne '1.0.0') {
+    throw ('SETUP_RELEASE_FILE_IDENTITY_INVALID version=' +
+        $details.FileVersion + ' product=' + $details.ProductName +
+        ' productVersion=' + $details.ProductVersion)
+}
+Write-Host 'IWXA_SETUP_1_0_WINDOWS_FILE_IDENTITY_PASS'
 $formType = $assembly.GetType('IwxaSetup.SetupForm', $true)
 function One([System.Windows.Forms.Control]$form, [string]$name) {
     $items = @($form.Controls.Find($name,$true))

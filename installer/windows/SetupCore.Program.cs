@@ -2,9 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+
+// Windows Explorer and support tools must identify the installer engine,
+// independently of the installed product's own version. The manifest uses
+// the same 1.0 version; signing/provenance is validated in a separate gate.
+[assembly: AssemblyTitle("IWXA Setup Core")]
+[assembly: AssemblyProduct("IWXA Setup Core")]
+[assembly: AssemblyDescription("Native universal IWXA Windows installer")]
+[assembly: AssemblyCompany("IWXA")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyInformationalVersion("1.0.0")]
 
 namespace IwxaSetup
 {
