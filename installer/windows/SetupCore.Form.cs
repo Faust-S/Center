@@ -1122,7 +1122,7 @@ namespace IwxaSetup
                 }
                 catch (Exception ex)
                 {
-                    SetTechnicalReport(info, inspectedStatus, ex.Message);
+                    SetTechnicalReport(inspectedBundle, inspectedStatus, ex.Message);
                     MessageBox.Show(dialog, ExplainStorageSettingsError(ex),
                         T("Параметры установки", "Installation settings"),
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -1542,7 +1542,9 @@ namespace IwxaSetup
                     if (!code.StartsWith("SETUP_WEBVIEW2_",
                             StringComparison.Ordinal) || code.Length > 90)
                         code = "SETUP_WEBVIEW2_INSTALL_UNAVAILABLE";
-                    version.Text = T("Код диагностики: ", "Diagnostic code: ") + code;
+                    version.Text = T("Установка компонента не завершена",
+                        "Component installation incomplete");
+                    SetTechnicalReport(inspectedBundle, inspectedStatus, code);
                     if (failure is WebException)
                         packageDetails.Text = T(
                             "Проверьте интернет и повторите попытку либо выберите официальный автономный установщик Microsoft.",
@@ -1668,7 +1670,8 @@ namespace IwxaSetup
                     else
                     {
                         SetState(T("Требуется подготовка Windows", "Windows preparation needed"),
-                            check.Status, versionLine, true);
+                            ExplainBlockedState(check.Status), versionLine, true);
+                        SetTechnicalReport(info, plan.Status, "Preflight: " + check.Status);
                     }
                 }
                 else if (plan.Status == "WEBVIEW2_MISSING")
