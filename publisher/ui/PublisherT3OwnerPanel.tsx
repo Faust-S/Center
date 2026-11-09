@@ -203,12 +203,13 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
          disabled={busy||needsRefresh||!selectedLicense||!status||
            status===selectedLicense.status||selectedLicense.status==='REVOKED'}
          data-testid="publisher-t3-change-status" onClick={()=>operation(async()=>{
-           const target=licenseId,requested=status;
+           const target=licenseId,requested=status,previous=selectedLicense;
+           if(!previous||!requested)throw Error('PUBLISHER_T3_LICENSE_SELECTION_REQUIRED');
            const receipt=await invoke('publisher_t3_change_status',{licenseId:target,nextStatus:requested});
            if(receipt?.operation!=='TEST_STATUS'||receipt.productionActivation!==false||
               receipt.activeSeats!==0||receipt.licenseId!==target||
               receipt.state!==requested||!Number.isSafeInteger(receipt.sequence)||
-              receipt.sequence<=selectedLicense.sequence)
+              receipt.sequence<=previous.sequence)
              throw Error('PUBLISHER_T3_STATUS_RECEIPT_INVALID');
            return {
              message:'Новый подписанный TEST-статус сохранён в T3: '+requested,
