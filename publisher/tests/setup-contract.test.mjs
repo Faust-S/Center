@@ -86,5 +86,6 @@ test('native WebView2 profile is verified after initial launch and ordinary rest
  assert.match(rust,/configure_webview2_folder\(\)\.expect\(/);
  assert.match(windows,/PUBLISHER_NATIVE_WEBVIEW_APPLOCAL_FIRST_LAUNCH_MISSING/);
  assert.match(windows,/PUBLISHER_NATIVE_WEBVIEW_APPLOCAL_AFTER_RESTART_MISSING/);
- assert.match(windows,/PUBLISHER_SETUP_UNINSTALL/);
+ const setup=readFileSync('publisher/tests/installed-setupcore-publisher.ps1','utf8');
+ assert.match(setup,/PUBLISHER_SETUP_UNINSTALL_WITNESS/);
 });
