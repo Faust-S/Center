@@ -218,6 +218,31 @@ try {
   if(!$nativeTitle -or !$nativeTitle.Contains('IWXA Publisher')){throw "PUBLISHER_INSTALLED_NATIVE_WINDOW_TITLE_INVALID title=$nativeTitle"}
   Write-Host "PUBLISHER_INSTALLED_NATIVE_WINDOW_PASS title=$nativeTitle"
   Capture-Installed-Desktop 'publisher-desktop-first-launch.png'
+  # Three independent installed-process starts with optional fresh WebView2
+  # profiles. Always check visible native controls and unchanged user drafts.
+  $previousWebviewFolder=[Environment]::GetEnvironmentVariable('WEBVIEW2_USER_DATA_FOLDER','Process')
+  $draftHashBefore=if(Test-Path -LiteralPath $data -PathType Leaf){(Get-FileHash -LiteralPath $data -Algorithm SHA256).Hash}else{''}
+  try {
+    for($cycle=1;$cycle -le 3;$cycle++){
+      Close-Publisher
+      $freshProfile=Join-Path $env:TEMP ("iwxa-publisher-cold-"+[guid]::NewGuid().ToString('N'))
+      [Environment]::SetEnvironmentVariable('WEBVIEW2_USER_DATA_FOLDER',$freshProfile,'Process')
+      Start-Publisher
+      [void](Find-Control 'Продукты' 'Button')
+      [void](Find-Control 'Лицензии' 'Button')
+      $draftHashAfter=if(Test-Path -LiteralPath $data -PathType Leaf){(Get-FileHash -LiteralPath $data -Algorithm SHA256).Hash}else{''}
+      if($draftHashBefore -ne $draftHashAfter){throw 'PUBLISHER_COLD_LAUNCH_CHANGED_DRAFT_DATA'}
+      if(Test-Path -LiteralPath $freshProfile -PathType Container){
+        Write-Host "PUBLISHER_COLD_WEBVIEW_PROFILE_CREATED cycle=$cycle"
+      }else{
+        Write-Host "PUBLISHER_COLD_WEBVIEW_OVERRIDE_NOT_OBSERVED cycle=$cycle"
+      }
+      Write-Host "PUBLISHER_INSTALLED_COLD_PROCESS_LAUNCH_PASS cycle=$cycle"
+      Capture-Installed-Desktop "publisher-cold-launch-$cycle.png"
+    }
+  } finally {
+    [Environment]::SetEnvironmentVariable('WEBVIEW2_USER_DATA_FOLDER',$previousWebviewFolder,'Process')
+  }
   Click-Publisher 'Продукты'
   Enter-Value 'Идентификатор продукта' 'IWXA_ADMIN_CENTER'
   Enter-Value 'Название' 'PublisherInstalledTest'

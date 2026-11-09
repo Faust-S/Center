@@ -51,6 +51,9 @@ test('native desktop startup has visible loading fallback and React recovery rat
  const entry=read('publisher/ui/main.tsx');
  assert.match(html,/id="publisher-startup"/);
  assert.match(html,/Загрузка интерфейса/);
+ assert.match(html,/id="publisher-startup-retry"/);
+ assert.match(html,/<a href="\.\/" id="publisher-startup-retry">Повторить загрузку<\/a>/);
+ assert.doesNotMatch(html,/<script>(?!<\/script>)/);
  assert.match(html,/type="module" src="\/ui\/main\.tsx"/);
  assert.match(entry,/class PublisherRenderBoundary/);
  assert.match(entry,/PUBLISHER_DESKTOP_RENDER_FAILURE/);

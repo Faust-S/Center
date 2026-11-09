@@ -59,3 +59,13 @@ test('Publisher development 0.3.0-dev.1 identity matches Rust, Tauri, Setup Core
  assert.equal(app.identifier,'ru.iwxa.publisher');
  assert.equal(m.data_namespace,'ru.iwxa.publisher');
 });
+
+test('installed Windows qualification repeats cold process launches and preserves draft storage',()=>{
+ const installed=readFileSync('publisher/tests/installed-windows-publisher.ps1','utf8');
+ assert.match(installed,/PUBLISHER_INSTALLED_COLD_PROCESS_LAUNCH_PASS cycle=\$cycle/);
+ assert.match(installed,/PUBLISHER_COLD_LAUNCH_CHANGED_DRAFT_DATA/);
+ assert.match(installed,/WEBVIEW2_USER_DATA_FOLDER/);
+ assert.match(installed,/Find-Control 'Продукты' 'Button'/);
+ assert.match(installed,/Find-Control 'Лицензии' 'Button'/);
+ assert.match(installed,/publisher-cold-launch-\$cycle\.png/);
+});

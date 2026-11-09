@@ -27,6 +27,16 @@ try {
   await noNative.screenshot({path:'artifacts/publisher/desktop-required-no-tauri.png',fullPage:true});
   await noNative.close();
   checks.push('browser-without-tauri-cannot-run-desktop-publisher');
+  // If the application bundle does not load, the native document still has
+  // a visible reload path without JS, storage or a second browser product.
+  const missingBundle=await browser.newPage({viewport:{width:900,height:680}});
+  await missingBundle.route('**/*.js',route=>route.abort('failed'));
+  await missingBundle.goto('http://127.0.0.1:4175',{waitUntil:'domcontentloaded'});
+  await missingBundle.locator('#publisher-startup').waitFor({state:'visible'});
+  assert.equal(await missingBundle.getByRole('link',{name:'Повторить загрузку'}).getAttribute('href'),'./');
+  assert.equal(await missingBundle.getByRole('button',{name:'Сохранить продукт'}).count(),0);
+  await missingBundle.close();
+  checks.push('native-static-startup-retry-visible-when-js-bundle-missing');
 
   // Firefox is a rendering/test harness only. Fake Tauri IPC is provided
   // exclusively by this test script; the production Publisher has no fallback.
