@@ -46,6 +46,12 @@ function Assert-Layout([System.Windows.Forms.Form]$form,[string]$case) {
     $related = One $form 'iwxaSetupRelatedAction'
     $actions = One $form 'iwxaSetupActions'
     $progress = One $form 'iwxaSetupActivity'
+    $preferences = One $form 'iwxaSetupPreferences'
+    if ($preferences.Left -lt 0 -or
+        $preferences.Right -gt $area.ClientSize.Width -or
+        $preferences.Bottom -gt (One $form 'iwxaSetupPackageCard').Top) {
+        throw ('SETUP_LAYOUT_PREFERENCES_OUT_OF_BOUNDS_' + $case)
+    }
     if ($card.Left -lt 0 -or $card.Right -gt $area.ClientSize.Width -or
         $card.Bottom -gt $actions.Top -or $note.Top -lt $card.Bottom -or
         $note.Bottom -gt $related.Top -or
@@ -176,6 +182,36 @@ if ($fitted.Width -ne 1800 -or $fitted.Height -ne 1040) {
     throw ('SETUP_1080P_200PCT_WINDOW_OUTSIDE_WORKAREA_' + $fitted)
 }
 Write-Host 'IWXA_SETUP_1080P_200PCT_WORKAREA_FIT_PASS'
+
+# Verify that the actual native options dialog provides an editable program
+# root before installation, a locked location after install, and login choice.
+$settingsMethod = $formType.GetMethod('CreateOptionsDialog',
+    [Reflection.BindingFlags]'Instance, NonPublic')
+if ($null -eq $settingsMethod) {
+    throw 'SETUP_OPTIONS_NATIVE_DIALOG_MISSING'
+}
+$hostForm = [System.Activator]::CreateInstance($formType,$true)
+try {
+    foreach($editable in @($true,$false)) {
+        $values = New-Object 'System.Object[]' 4
+        $values[0] = 'IWXA Admin Center'
+        $values[1] = 'C:\IWXA Test\Center'
+        $values[2] = [bool]$editable
+        $values[3] = [bool](!$editable)
+        $dialog = [System.Windows.Forms.Form]$settingsMethod.Invoke($hostForm,$values)
+        try {
+            $null = $dialog.Handle
+            $rootField = One $dialog 'iwxaSetupInstallRoot'
+            $start = One $dialog 'iwxaSetupLogin'
+            if ($rootField.ReadOnly -eq $editable -or
+                [string]$rootField.Text -ne [string]$values[1] -or
+                $start.Checked -ne (!$editable)) {
+                throw ('SETUP_OPTIONS_CONTROLS_NOT_BOUND_' + $editable)
+            }
+            Write-Host ('IWXA_SETUP_OPTIONS_NATIVE_DIALOG_PASS editable=' + $editable)
+        } finally { $dialog.Dispose() }
+    }
+} finally { $hostForm.Dispose() }
 
 Write-Host 'IWXA_SETUP_NATIVE_DPI_LAYOUT_MATRIX_PASS'
 # The manifest must affect the native *process*, not just exist in source.

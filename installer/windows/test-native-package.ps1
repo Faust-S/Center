@@ -629,6 +629,104 @@ try {
     }
     Write-Host 'IWXA_SETUP_NATIVE_UNINSTALL_PRESERVES_DATA_PASS'
 
+    # Full custom-location roundtrip with the real Center binary.
+    # All operations must keep the same custom root instead of falling back
+    # to %LOCALAPPDATA%\Programs after the first registry publication.
+    $customRoot = Join-Path $env:LOCALAPPDATA 'IWXA Setup Native Fixture/Custom Admin Center'
+    $startupLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'IWXA Admin Center.lnk'
+    $customReceipt = Join-Path $artifact 'setup-core-custom-install.json'
+    if ((Test-Path -LiteralPath $customRoot) -or
+        (Test-Path -LiteralPath $startupLink)) {
+        throw 'SETUP_CUSTOM_ROOT_TEST_PREEXISTING_PATH'
+    }
+    $nativeCustom = $null
+    function Invoke-Custom([string]$binary,[string]$action,[string]$value,
+        [string]$path,[string]$mode,[int]$exitExpected=0) {
+        $argsText = if ($action -eq '--install-at-file') {
+            '--install-at-file "{0}" "{1}" {2}' -f $value,$path,$mode
+        } else { '--startup-mode-file {0} "{1}"' -f $mode,$path }
+        $process = Start-Process -FilePath $binary -ArgumentList $argsText -PassThru
+        try {
+            if (!$process.WaitForExit(90000)) {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                throw 'SETUP_CUSTOM_LOCATION_COMMAND_TIMEOUT'
+            }
+            if ($process.ExitCode -ne $exitExpected) {
+                throw ('SETUP_CUSTOM_LOCATION_COMMAND_EXIT_' + $process.ExitCode)
+            }
+        } finally { $process.Dispose() }
+        return (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
+    }
+    $preservedData = Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center/setup-custom-data.txt'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $preservedData) -Force | Out-Null
+    Set-Content -LiteralPath $preservedData -Value 'custom-root-preserved' -NoNewline
+    try {
+        $nativeCustom = Invoke-Custom $bundle '--install-at-file' $customRoot $customReceipt 'login'
+        if ($nativeCustom.status -ne 'INSTALLED_NOT_LAUNCHED' -or
+            $nativeCustom.installRoot -ne $customRoot -or
+            !(Test-Path -LiteralPath (Join-Path $customRoot 'iwxa-admin-center.exe'))) {
+            throw 'SETUP_CUSTOM_LOCATION_NOT_USED_BY_INSTALL'
+        }
+        $stored = Get-ItemProperty 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center'
+        if ($stored.InstallLocation -ne $customRoot) {
+            throw 'SETUP_CUSTOM_LOCATION_NOT_STORED'
+        }
+        if (!(Test-Path -LiteralPath $startupLink -PathType Leaf) -or
+            $shellObject.CreateShortcut($startupLink).TargetPath -ne
+                (Join-Path $customRoot 'iwxa-admin-center.exe')) {
+            throw 'SETUP_STARTUP_SHORTCUT_NOT_TARGETING_CUSTOM_ROOT'
+        }
+        $newPlan = Invoke-NativeInspection $upgradeCandidate (
+            Join-Path $artifact 'setup-core-custom-upgrade-plan.json') 0 '--upgrade-plan-file'
+        if ($newPlan.installRoot -ne $customRoot -or
+            $newPlan.status -ne 'UPGRADE_CANDIDATE_NOT_ACTIVATED') {
+            throw 'SETUP_CUSTOM_LOCATION_UPGRADE_PLAN_WRONG_ROOT'
+        }
+        $upgraded = Invoke-NativeInspection $upgradeCandidate (
+            Join-Path $artifact 'setup-core-custom-upgraded.json') 0 '--upgrade-file'
+        if ($upgraded.status -ne 'UPGRADED_BACKUP_RETAINED' -or
+            $upgraded.installRoot -ne $customRoot -or
+            !(Test-Path -LiteralPath $startupLink)) {
+            throw 'SETUP_CUSTOM_LOCATION_UPGRADE_FAILED'
+        }
+        $rolledBack = Invoke-NativeInspection $upgradeCandidate (
+            Join-Path $artifact 'setup-core-custom-rollback.json') 0 '--rollback-upgrade-file'
+        if ($rolledBack.status -ne 'ROLLBACK_RESTORED_PREVIOUS' -or
+            $rolledBack.installRoot -ne $customRoot) {
+            throw 'SETUP_CUSTOM_LOCATION_ROLLBACK_FAILED'
+        }
+        $manual = Invoke-Custom $bundle '--startup-mode-file' '' (
+            Join-Path $artifact 'setup-core-custom-manual.json') 'manual'
+        if ($manual.status -ne 'STARTUP_PREFERENCE_APPLIED' -or
+            $manual.startupAtLogin -or (Test-Path -LiteralPath $startupLink)) {
+            throw 'SETUP_STARTUP_DISABLE_FAILED'
+        }
+        $loginAgain = Invoke-Custom $bundle '--startup-mode-file' '' (
+            Join-Path $artifact 'setup-core-custom-login.json') 'login'
+        if ($loginAgain.status -ne 'STARTUP_PREFERENCE_APPLIED' -or
+            !$loginAgain.startupAtLogin -or
+            !(Test-Path -LiteralPath $startupLink)) {
+            throw 'SETUP_STARTUP_REENABLE_FAILED'
+        }
+        Write-Host 'IWXA_SETUP_CUSTOM_ROOT_INSTALL_UPGRADE_ROLLBACK_STARTUP_PASS'
+    } finally {
+        if ($nativeCustom -ne $null -and $nativeCustom.status -eq 'INSTALLED_NOT_LAUNCHED') {
+            $removedCustom = Invoke-NativeInspection $bundle (
+                Join-Path $artifact 'setup-core-custom-removed.json') 0 '--uninstall-file'
+            if ($removedCustom.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
+                (Test-Path -LiteralPath $customRoot) -or
+                (Test-Path -LiteralPath $startupLink) -or
+                (Test-Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center')) {
+                throw 'SETUP_CUSTOM_LOCATION_UNINSTALL_OR_STARTUP_CLEANUP_FAILED'
+            }
+        }
+        if ((Get-Content -LiteralPath $preservedData -Raw) -ne 'custom-root-preserved') {
+            throw 'SETUP_CUSTOM_LOCATION_CHANGED_USER_DATA'
+        }
+        Remove-Item -LiteralPath $preservedData -Force
+    }
+    Write-Host 'IWXA_SETUP_CUSTOM_LOCATION_UNINSTALL_PRESERVES_DATA_PASS'
+
     # An existing Tauri/NSIS installation is an explicit migration blocker.
     # Never install the new package alongside a legacy Center directory.
     $legacy = Join-Path $env:LOCALAPPDATA 'IWXA Admin Center'

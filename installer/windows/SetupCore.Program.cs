@@ -318,6 +318,50 @@ namespace IwxaSetup
                     return 2;
                 }
             }
+            // Noninteractive acceptance of explicitly selected locations and
+            // login behavior. The GUI invokes the exact same engine method.
+            if (args.Length == 4 && args[0] == "--install-at-file" &&
+                (args[3] == "login" || args[3] == "manual"))
+            {
+                try
+                {
+                    InstallOutcome installed = SetupInstallation.InstallFresh(
+                        Application.ExecutablePath, args[1], args[3] == "login");
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", installed.Status}, {"product", installed.Product},
+                        {"version", installed.Version}, {"installRoot", installed.Root}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
+            if (args.Length == 3 && args[0] == "--startup-mode-file" &&
+                (args[1] == "login" || args[1] == "manual"))
+            {
+                try
+                {
+                    BundleInfo info = BundleReader.Inspect(Application.ExecutablePath);
+                    SetupInstallation.UpdateStartup(info, args[1] == "login");
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", "STARTUP_PREFERENCE_APPLIED"},
+                        {"startupAtLogin", SetupInstallation.StartupEnabled(info)}
+                    });
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteResult(args[2], new Dictionary<string, object> {
+                        {"status", "ERROR"}, {"reason", ex.Message}
+                    });
+                    return 2;
+                }
+            }
             if (args.Length == 2 &&
                 (args[0] == "--install-file" ||
                  args[0] == "--stage-legacy-file" ||
