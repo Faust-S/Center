@@ -69,3 +69,12 @@ test('installed Windows qualification repeats cold process launches and preserve
  assert.match(installed,/Find-Control 'Лицензии' 'Button'/);
  assert.match(installed,/publisher-cold-launch-\$cycle\.png/);
 });
+
+test('Publisher WebView2 cache is app-local and the installed Windows test rejects cache in install root',()=>{
+ const cfg=read('publisher/src-tauri/tauri.conf.json');
+ const native=readFileSync('publisher/tests/installed-windows-publisher.ps1','utf8');
+ assert.equal(cfg.app.windows[0].dataDirectory,'webview');
+ assert.match(native,/PUBLISHER_WEBVIEW_PROFILE_IN_INSTALL_ROOT/);
+ assert.match(native,/PUBLISHER_WEBVIEW_APP_LOCAL_PROFILE_PASS/);
+ assert.match(native,/ru\.iwxa\.publisher\\webview/);
+});

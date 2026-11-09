@@ -18,6 +18,7 @@ test('Publisher has a native-only user route; no browser draft or browser file d
  assert.equal(tauri.identifier,'ru.iwxa.publisher');
  assert.ok(tauri.bundle.icon.includes('icons/icon.ico'));
  assert.equal(tauri.app.windows[0].minWidth,700);
+ assert.equal(tauri.app.windows[0].dataDirectory,'webview','WebView2 cache belongs to Publisher app-local data, not install root');
  assert.ok(tauri.app.windows[0].height<=700,'Default desktop window must fit a 768px monitor with taskbar');
  const packageScripts=JSON.parse(read('package.json')).scripts;
  assert.equal(packageScripts['publisher:desktop:exe'],'cd publisher && npx tauri build --no-bundle');

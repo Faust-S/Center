@@ -243,6 +243,17 @@ try {
   } finally {
     [Environment]::SetEnvironmentVariable('WEBVIEW2_USER_DATA_FOLDER',$previousWebviewFolder,'Process')
   }
+  # The original Setup Core cannot remove arbitrary WebView cache beside the
+  # installed EXE. Publisher must keep WebView2 runtime data app-local.
+  $wrongProfile=Join-Path (Split-Path $exe) 'iwxa-publisher.exe.WebView2'
+  if(Test-Path -LiteralPath $wrongProfile -PathType Container){
+    throw 'PUBLISHER_WEBVIEW_PROFILE_IN_INSTALL_ROOT'
+  }
+  $nativeProfile=Join-Path $env:LOCALAPPDATA 'ru.iwxa.publisher\webview'
+  if(!(Test-Path -LiteralPath $nativeProfile -PathType Container)){
+    throw 'PUBLISHER_WEBVIEW_APP_LOCAL_PROFILE_MISSING'
+  }
+  Write-Host 'PUBLISHER_WEBVIEW_APP_LOCAL_PROFILE_PASS'
   Click-Publisher 'Продукты'
   Enter-Value 'Идентификатор продукта' 'IWXA_ADMIN_CENTER'
   Enter-Value 'Название' 'PublisherInstalledTest'
