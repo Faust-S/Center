@@ -40,7 +40,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
  };
  useEffect(()=>{
   if(!eligible.some((p:any)=>p.id===proposalId))
-    setProposalId(String(eligible[0]?.id??''));
+    setProposalId('');
  },[draft,proposalId]);
  async function inventory(){
    const value=await invoke('publisher_t3_inventory');
@@ -53,7 +53,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
      value.total:entries.length);
    setInventoryTruncated(value.truncated===true);
    setLicenseId(previous=>entries.some(x=>x.licenseId===previous)?previous:
-       entries.at(-1)?.licenseId??'');
+       '');
  }
  useEffect(()=>{
    let alive=true;
@@ -65,7 +65,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
          throw Error('PUBLISHER_T3_CAPABILITIES_INVALID');
        if(!alive)return;
        setIssuerIds(value.issuers);
-       setIssuer(value.issuers[0]??'');
+       setIssuer('');
        setAvailable(value.issuers.length>0);
        await inventory();
      }catch(e){
@@ -96,12 +96,12 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
      <div className="form-grid">
        <label>Полномочие издателя
          <select value={issuer} onChange={e=>setIssuer(e.target.value)} disabled={busy}>
-           {issuerIds.map(id=><option value={id} key={id}>{id}</option>)}
+           <option value="">Выберите полномочие</option>{issuerIds.map(id=><option value={id} key={id}>{id}</option>)}
          </select>
        </label>
        <label>Подготовленный запрос
          <select value={proposalId} onChange={e=>setProposalId(e.target.value)} disabled={busy}>
-           {eligible.map((p:any)=><option value={p.id} key={p.id}>{proposalLabel(p)}</option>)}
+           <option value="">Выберите запрос</option>{eligible.map((p:any)=><option value={p.id} key={p.id}>{proposalLabel(p)}</option>)}
          </select>
        </label>
        <label>Мест в TEST-запросе
@@ -111,14 +111,14 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
      <div className="actions">
        <button className="secondary" type="button" disabled={busy||!issuer||!proposalId||!supportedIds.has(proposalId)}
          data-testid="publisher-t3-issue" onClick={()=>operation(async()=>{
-           if(!inspectTestIssuerRequestScope(draft,proposalId).supported)throw Error('PUBLISHER_T3_REQUEST_SCOPE_UNAVAILABLE');
+           if(!issuer||!proposalId||!inspectTestIssuerRequestScope(draft,proposalId).supported)throw Error('PUBLISHER_T3_REQUEST_SCOPE_UNAVAILABLE');
            const request=prepareTestLicenseRequest(draft,{proposalId,seats:Number(seats)});
            const result=await invoke('publisher_t3_issue',{
              requestJson:encodeTestLicenseRequest(request),issuerAuthorityId:issuer});
            if(result?.operation!=='TEST_ISSUE'||result.activeSeats!==0||
               result.productionActivation!==false||typeof result.licenseId!=='string')
               throw Error('PUBLISHER_T3_ISSUE_RECEIPT_INVALID');
-           setLicenseId(result.licenseId);
+           // Issuing does not silently choose a license for later status changes or export.
            return result.outcome==='ALREADY_ISSUED'?
              'Ранее выпущенная TEST-лицензия найдена в журнале T3.':
              'TEST-лицензия подписана T3 и сохранена в журнале издателя.';
@@ -133,7 +133,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
      {licenses.length===0?<p className="muted">Пока нет выпущенных лицензий.</p>:
        <label>Лицензия
          <select value={licenseId} onChange={e=>setLicenseId(e.target.value)} disabled={busy}>
-           {licenses.map(x=><option value={x.licenseId} key={x.licenseId}>
+           <option value="">Выберите лицензию</option>{licenses.map(x=><option value={x.licenseId} key={x.licenseId}>
              {x.licenseId} — {x.organizationId} — {x.status}
            </option>)}
          </select>

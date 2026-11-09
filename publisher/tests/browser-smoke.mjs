@@ -341,15 +341,26 @@ try {
   assert.match(await page.locator('main').innerText(),/Лицензия не выдана/);
   checks.push('export-exact-unsigned-product-holder-test-request');
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
-  const proposalChoice=page.getByTestId('publisher-t3-owner-panel')
-    .getByRole('combobox',{name:'Подготовленный запрос'});
-  assert.match(await proposalChoice.locator('option').first().innerText(),
+  const ownerPanel=page.getByTestId('publisher-t3-owner-panel');
+  const proposalChoice=ownerPanel.getByRole('combobox',{name:'Подготовленный запрос'});
+  const issuerChoice=ownerPanel.getByRole('combobox',{name:'Полномочие издателя'});
+  assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
+  await issuerChoice.selectOption('publisher:owner:test');
+  assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
+  await proposalChoice.selectOption(testRequest.requestId);
+  assert.match(await proposalChoice.locator('option:checked').innerText(),
     /IWXA Admin Center · Test Corporation/);
+  assert.equal(await page.getByTestId('publisher-t3-issue').isEnabled(),true);
   const banner=await page.locator('main > .notice').first().innerText();
   assert.match(banner,/Подписанные лицензии доступны только в режиме TEST/);
   assert.doesNotMatch(banner,/подпись издателя не подключена/);
   await page.getByTestId('publisher-t3-issue').click();
   await page.getByText('TEST-лицензия подписана T3 и сохранена в журнале издателя.').waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-export').isDisabled(),true,
+    'The issued TEST license must not be silently selected for further operations');
+  assert.equal(await page.getByTestId('publisher-t3-change-status').isDisabled(),true);
+  await ownerPanel.getByRole('combobox',{name:'Лицензия',exact:true})
+    .selectOption('license:test:native-ui:one');
   assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
   await page.getByTestId('publisher-t3-change-status').click();
   await page.getByText('Новый подписанный TEST-статус сохранён в T3: ACTIVE').waitFor();
@@ -357,6 +368,7 @@ try {
   await page.getByText('Пакет .iwxa выпущен T3 и подтверждён повторным чтением.').waitFor();
   assert.match(await page.getByTestId('publisher-t3-owner-panel').innerText(),/Активных мест: 0/);
   checks.push('publisher-owner-operations-through-native-IPC-model-only-no-commercial-seats');
+  checks.push('original-t3-test-issue-status-and-export-require-explicit-selections');
   await page.getByRole('button',{name:'Лицензии'}).click();
 
   await page.reload();
@@ -540,7 +552,7 @@ try {
   await personal.getByRole('button',{name:'Доверие и ключи'}).click();
   await personal.getByTestId('publisher-person-issuer-unavailable').waitFor();
   assert.equal(await personal.getByTestId('publisher-t3-issue').isDisabled(),true);
-  assert.equal(await personal.getByRole('combobox',{name:'Подготовленный запрос'}).locator('option').count(),0);
+  assert.equal(await personal.getByRole('combobox',{name:'Подготовленный запрос'}).locator('option:not([value=""])').count(),0);
   checks.push('personal-test-issuer-unavailable-even-with-active-original-owner');
   // A second client type can use the same tariff code, product and revision.
   // This is one shared catalog, not a separate personal issuer or format.
