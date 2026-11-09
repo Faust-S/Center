@@ -22,7 +22,7 @@ PRODUCT = {
     "id": "iwxa.admin-center",
     "display_name": "IWXA Admin Center",
     "publisher": "IWXA",
-    "version": "0.3.0-dev.1",
+    "version": "0.3.0-dev.2",
     "architecture": "windows-x64",
     "install_dir": "IWXA Admin Center",
     "entrypoint": "iwxa-admin-center.exe",

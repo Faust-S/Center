@@ -42,7 +42,7 @@ try {
     & (Join-Path $PSScriptRoot 'build-stub.ps1') -Output $stub
     $profile = Join-Path $root 'installer/products/center.json'
     $product = Get-Content -LiteralPath $profile -Raw | ConvertFrom-Json
-    if ($product.version -ne '0.3.0-dev.1') { throw 'SETUP_PRODUCT_VERSION_MISMATCH' }
+    if ($product.version -ne '0.3.0-dev.2') { throw 'SETUP_PRODUCT_VERSION_MISMATCH' }
 
     New-Item -ItemType Directory -Path $payload -Force | Out-Null
     Copy-Item -LiteralPath $exe -Destination (Join-Path $payload 'iwxa-admin-center.exe') -Force
@@ -97,7 +97,7 @@ try {
     if ($native.status -ne 'VERIFIED' -or $native.product -ne $manifest.product -or
         $native.entrypoint -ne $product.entrypoint -or
         !$native.requiresWebView2 -or
-        $native.version -ne '0.3.0-dev.1' -or $native.sourceCommit -ne $sourceHead -or
+        $native.version -ne '0.3.0-dev.2' -or $native.sourceCommit -ne $sourceHead -or
         $native.packageSha256 -ne $manifest.payload_sha256 -or
         $native.packageFormat -ne 'PE_RESOURCE_V2' -or
         $native.files -ne $manifest.file_count) {
@@ -305,7 +305,7 @@ try {
     $upgradeProfile = Join-Path $artifact 'setup-core-upgrade-product.json'
     $upgradeCandidate = Join-Path $artifact 'setup-core-center-upgrade.exe'
     $upgradeProduct = Get-Content -LiteralPath $profile -Raw | ConvertFrom-Json
-    $upgradeProduct.version = '0.3.0-dev.2'
+    $upgradeProduct.version = '0.3.0-dev.3'
     $upgradeProduct | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $upgradeProfile -Encoding UTF8
     $nextArgs = @('-m', 'installer.build_bundle', 'build-resource', '--product', $upgradeProfile,
         '--payload', $payload, '--stub', $stub, '--output', $upgradeCandidate,
@@ -313,7 +313,7 @@ try {
     $null = & python @nextArgs
     if ($LASTEXITCODE -ne 0) { throw 'SETUP_S3_NEW_VERSION_BUILD_FAILED' }
     $nextIdentity = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-next-identity.json') 0
-    if ($nextIdentity.version -ne '0.3.0-dev.2' -or
+    if ($nextIdentity.version -ne '0.3.0-dev.3' -or
         $nextIdentity.packageFormat -ne 'PE_RESOURCE_V2') {
         throw 'SETUP_S3_NEW_VERSION_INVALID'
     }
@@ -360,7 +360,7 @@ try {
         $installed = Invoke-NativeInspection $bundle $installedReport 0 '--install-file'
         if ($installed.status -ne 'INSTALLED_NOT_LAUNCHED' -or
             $installed.product -ne $manifest.product -or
-            $installed.version -ne '0.3.0-dev.1' -or
+            $installed.version -ne '0.3.0-dev.2' -or
             !(Test-Path -LiteralPath (Join-Path $installed.installRoot 'iwxa-admin-center.exe'))) {
             throw 'SETUP_NATIVE_FIRST_INSTALL_INVALID'
         }
@@ -398,7 +398,7 @@ try {
         $customizedLinkHash = (Get-FileHash -LiteralPath $startMenuLink -Algorithm SHA256).Hash
         $ownedPlan = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
         if ($ownedPlan.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED' -or
-            $ownedPlan.installedVersion -ne '0.3.0-dev.1' -or
+            $ownedPlan.installedVersion -ne '0.3.0-dev.2' -or
             $ownedPlan.installRoot -ne $installed.installRoot) {
             throw 'SETUP_S3_OWNED_PLAN_INVALID'
         }
@@ -445,7 +445,7 @@ try {
         $repaired = Invoke-NativeInspection $bundle (
             Join-Path $artifact 'setup-core-repaired.json') 0 '--repair-file'
         if ($repaired.status -ne 'REPAIRED_BACKUP_RETAINED' -or
-            $repaired.version -ne '0.3.0-dev.1' -or
+            $repaired.version -ne '0.3.0-dev.2' -or
             (Get-FileHash -LiteralPath $installedExe -Algorithm SHA256).Hash -ne $cleanHash) {
             throw 'SETUP_NATIVE_REPAIR_DID_NOT_RESTORE_BINARY'
         }
@@ -518,7 +518,7 @@ try {
         }
         $recovered = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-recovered-missing.json') 0 '--recover-upgrade-file'
         if ($recovered.status -ne 'RECOVERED_PREVIOUS_RELEASE' -or
-            $recovered.version -ne '0.3.0-dev.1' -or
+            $recovered.version -ne '0.3.0-dev.2' -or
             !(Test-Path -LiteralPath (Join-Path $installed.installRoot 'iwxa-admin-center.exe')) -or
             (Test-Path -LiteralPath $previousRoot)) {
             throw 'SETUP_S3_MISSING_ROOT_RECOVERY_FAILED'
@@ -531,7 +531,7 @@ try {
         }
         $changed = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-upgrade-applied.json') 0 '--upgrade-file'
         if ($changed.status -ne 'UPGRADED_BACKUP_RETAINED' -or
-            $changed.version -ne '0.3.0-dev.2') {
+            $changed.version -ne '0.3.0-dev.3') {
             throw 'SETUP_S3_UPGRADE_NOT_APPLIED'
         }
         if (!(Test-Path -LiteralPath ($installed.installRoot + '.iwxa-previous'))) {
@@ -548,14 +548,14 @@ try {
 
         # Model a terminated process between activation and HKCU commit.
         Set-ItemProperty -Path $ownerKey -Name PackageSha256 -Value $originalHash
-        Set-ItemProperty -Path $ownerKey -Name Version -Value '0.3.0-dev.1'
+        Set-ItemProperty -Path $ownerKey -Name Version -Value '0.3.0-dev.2'
         $interrupted = Invoke-NativeInspection $upgradeCandidate $upgradePlanFile 0 '--upgrade-plan-file'
         if ($interrupted.status -ne 'UPGRADE_RECOVERY_REQUIRED') {
             throw 'SETUP_S3_PRE_REGISTRATION_CRASH_NOT_DETECTED'
         }
         $recoveredRegistration = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-recovered-registration.json') 0 '--recover-upgrade-file'
         if ($recoveredRegistration.status -ne 'RECOVERED_PREVIOUS_RELEASE' -or
-            $recoveredRegistration.version -ne '0.3.0-dev.1' -or
+            $recoveredRegistration.version -ne '0.3.0-dev.2' -or
             (Test-Path -LiteralPath $previousRoot)) {
             throw 'SETUP_S3_PRE_REGISTRATION_RECOVERY_FAILED'
         }
@@ -566,7 +566,7 @@ try {
         }
         $rolled = Invoke-NativeInspection $upgradeCandidate (Join-Path $artifact 'setup-core-rollback.json') 0 '--rollback-upgrade-file'
         if ($rolled.status -ne 'ROLLBACK_RESTORED_PREVIOUS' -or
-            $rolled.version -ne '0.3.0-dev.1') {
+            $rolled.version -ne '0.3.0-dev.2') {
             throw 'SETUP_S3_ROLLBACK_FAILED'
         }
         $restored = Invoke-NativeInspection $bundle $upgradePlanFile 0 '--upgrade-plan-file'
@@ -1079,7 +1079,7 @@ try {
             $oldRegistry = (Get-ItemProperty -LiteralPath $legacyKey).DisplayVersion
             $stagedLegacy = Invoke-NativeInspection $bundle (Join-Path $artifact 'setup-core-legacy-staged.json') 0 '--stage-legacy-file'
             if ($stagedLegacy.status -ne 'LEGACY_MIGRATION_STAGED_NSIS_PRESERVED' -or
-                $stagedLegacy.version -ne '0.3.0-dev.1' -or
+                $stagedLegacy.version -ne '0.3.0-dev.2' -or
                 !(Test-Path -LiteralPath (Join-Path $stagedLegacy.installRoot 'iwxa-admin-center.exe'))) {
                 throw 'SETUP_S3_LEGACY_PREVIEW_NOT_STAGED'
             }

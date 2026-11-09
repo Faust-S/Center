@@ -158,7 +158,7 @@ try {
     for ($i=0; $i -lt 90; $i++) {
         Start-Sleep -Milliseconds 350
         $installed = Get-ItemProperty -Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center' -ErrorAction SilentlyContinue
-        if ($installed.Version -eq '0.3.0-dev.2' -and
+        if ($installed.Version -eq '0.3.0-dev.3' -and
             (Test-Path -LiteralPath ($root + '.iwxa-previous'))) {
             $switched = $true
             break

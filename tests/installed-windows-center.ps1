@@ -370,7 +370,7 @@ try {
   $expectedRoot=Join-Path $env:LOCALAPPDATA 'Programs\IWXA Admin Center'
   if($setupResult.status -ne 'INSTALLED_NOT_LAUNCHED' -or
       $setupResult.product -ne 'iwxa.admin-center' -or
-      $setupResult.version -ne '0.3.0-dev.1' -or
+      $setupResult.version -ne '0.3.0-dev.2' -or
       [IO.Path]::GetFullPath([string]$setupResult.installRoot) -ne [IO.Path]::GetFullPath($expectedRoot)){
     throw 'IWXA Setup Core installed receipt mismatch'
   }
