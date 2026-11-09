@@ -120,7 +120,7 @@ try {
   checks.push('agent-exact-ix-glyph-white-logo-and-seven-vector-navigation-icons');
   assert.equal(await page.getByRole('button',{name:'Сохранить копию черновиков'}).isEnabled(),true);
   assert.equal(await page.getByRole('button',{name:'Восстановить черновики'}).isEnabled(),true);
-  assert.match(await page.getByTestId('publisher-preparation-backup').innerText(),/ключей издателя в этой копии нет/);
+  assert.match(await page.getByTestId('publisher-preparation-backup').innerText(),/ключей издателя в копии нет/);
   checks.push('backup-bound-to-test-only-native-ipc-without-issuer-keys');
 
   await page.getByRole('button',{name:'Продукты',exact:true}).click();
