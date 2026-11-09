@@ -82,7 +82,7 @@ jobs:
             package-lock.json
             dist/
   windows-shell:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !((startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') || startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3')) || startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3')) }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !(startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') || startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3')) }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
