@@ -166,7 +166,7 @@ try {
   assert.match(await page.locator('main').innerText(),/Не выдано/);
   checks.push('proposal-not-issued');
   await page.getByLabel('Места для TEST-запроса').fill('3');
-  await page.getByRole('button',{name:'Моделировать TEST-ответ'}).click();
+  await page.getByRole('button',{name:'Моделировать TEST-ответ'}).last().click();
   const simulatedText=await page.getByTestId('publisher-test-simulation-result').innerText();
   assert.match(simulatedText,/СИМУЛЯЦИЯ · НЕ ЛИЦЕНЗИЯ/);
   assert.match(simulatedText,/Смоделировано мест: 3/);
@@ -182,7 +182,7 @@ try {
   assert.ok(simInViewport,'Simulation result remains below the visible viewport');
   checks.push('simulation-shows-no-signed-license-or-active-seats');
   checks.push('simulation-result-auto-scrolls-into-view');
-  await page.getByRole('button',{name:'Подготовить TEST-запрос'}).click();
+  await page.getByRole('button',{name:'Подготовить TEST-запрос'}).last().click();
   await page.getByText('Неподписанный TEST-запрос экспортирован. Лицензия не выдана.').waitFor();
   const testRequest=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-request')));
   assert.equal(testRequest.schema,'IWXA_PUBLISHER_TEST_LICENSE_REQUEST/1');
