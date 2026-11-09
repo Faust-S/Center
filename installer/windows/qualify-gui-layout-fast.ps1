@@ -146,6 +146,13 @@ function AllControls([System.Windows.Forms.Control]$parent){
         AllControls $item
     }
 }
+# Check local Visible bit: the parent test Form is intentionally not shown.
+function WantsVisible([System.Windows.Forms.Control]$control){
+    $method=[System.Windows.Forms.Control].GetMethod('GetState',
+        [Reflection.BindingFlags]'Instance,NonPublic')
+    if($null -eq $method){throw 'SETUP_LOCAL_VISIBILITY_INSPECTOR_MISSING'}
+    return [bool]$method.Invoke($control,[object[]]@([int]2))
+}
 function AssertUnified([System.Windows.Forms.Form]$form,[string]$label){
     $form.PerformLayout()
     foreach($control in @(AllControls $form)){
@@ -177,8 +184,8 @@ function AssertUnified([System.Windows.Forms.Form]$form,[string]$label){
     }
     $install=One $form 'iwxaSetupPrimaryAction'
     $recheck=One $form 'iwxaSetupRecheck'
-    $visible=@($install,$recheck | Where-Object {$_.Visible})
-    foreach($control in $visible){
+    foreach($control in @($install,$recheck)){
+        if(!(WantsVisible $control)){continue}
         if($control.Width -lt 88 -or $control.Right -gt $control.Parent.ClientSize.Width){
             throw ('SETUP_UNIFIED_ACTIONS_CLIPPED_'+$label+'_'+$control.Name)
         }
@@ -186,10 +193,10 @@ function AssertUnified([System.Windows.Forms.Form]$form,[string]$label){
     $left=One $form 'iwxaSetupInstallRoot'
     $compact=One $form 'iwxaSetupCompactSettings'
     $small=$form.ClientSize.Width -lt 910 -or $form.ClientSize.Height -lt 570
-    if($small -and !$compact.Visible){
+    if($small -and !(WantsVisible $compact)){
         throw ('SETUP_UNIFIED_COMPACT_DIALOG_INACCESSIBLE_'+$label)
     }
-    if(!$small -and !$left.Visible){
+    if(!$small -and !(WantsVisible $left)){
         throw ('SETUP_UNIFIED_LOCATIONS_HIDDEN_'+$label)
     }
     Write-Host ('IWXA_SETUP_UNIFIED_LAYOUT_PASS '+$label+' '+
@@ -269,16 +276,27 @@ try{
         [Reflection.BindingFlags]'Instance,NonPublic')
     $null=$refresh.Invoke($form,[object[]]@())
     $install=One $form 'iwxaSetupPrimaryAction'
-    if(!$install.Visible -or !$install.Enabled -or
+    if(!(WantsVisible $install) -or !$install.Enabled -or
         $install.Text -notmatch 'Install|Установить'){
         # ConfigureActions gives the localized caption after VerifyAsync.
         # This fixture sets the enum directly, so require the actual action
         # to be present/enabled rather than a manufactured caption.
-        if(!$install.Visible -or !$install.Enabled){
+        if(!(WantsVisible $install) -or !$install.Enabled){
             throw 'SETUP_FIRST_INSTALL_ACTION_NOT_AVAILABLE'
         }
     }
     Write-Host 'IWXA_SETUP_FIRST_INSTALL_BUTTON_STATE_PASS'
+    # User's real failure: a previously blocked destination must recover
+    # as soon as its path is edited. No inaccessible Install action.
+    $formType.GetField('primaryAction',$binding).SetValue($form,
+        [Enum]::Parse($enum,'None'))
+    $formType.GetField('locationDraftChanged',$binding).SetValue($form,$true)
+    $null=$refresh.Invoke($form,[object[]]@())
+    if(!(WantsVisible $install) -or !$install.Enabled -or
+        $install.Text -notmatch 'Check and install|Проверить и установить'){
+        throw 'SETUP_EDITED_FIRST_INSTALL_RECOVERY_ACTION_MISSING'
+    }
+    Write-Host 'IWXA_SETUP_EDITED_BLOCKED_LOCATION_RECOVERY_PASS'
 }finally{$form.Dispose()}
 # DPI model: same form and real controls, layout at 100-250% scales.
 foreach($factor in @(1.0,1.5,2.0,2.5)){
