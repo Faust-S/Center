@@ -318,6 +318,24 @@ namespace IwxaSetup
             return total;
         }
 
+        // A folder selected through Windows' folder picker usually already
+        // exists. Accept it when genuinely empty; never merge into or erase
+        // an occupied folder, file or reparse-point target.
+        private static void RequireUnusedStorageTarget(string destination)
+        {
+            if (File.Exists(destination))
+                throw new InvalidOperationException(
+                    "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS");
+            if (!Directory.Exists(destination)) return;
+            if ((File.GetAttributes(destination) &
+                FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException(
+                    "SETUP_STORAGE_TARGET_LINK_FORBIDDEN");
+            if (Directory.GetFileSystemEntries(destination).Length != 0)
+                throw new InvalidOperationException(
+                    "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS");
+        }
+
         // Storage relocation is explicit and non-destructive. Copy and
         // hash-check every existing tree BEFORE switching the product-owned
         // registry paths. The originals remain as a recovery copy.
@@ -363,10 +381,7 @@ namespace IwxaSetup
                             if (PathOverlap(newRoots[i], old))
                                 throw new InvalidOperationException(
                                     "SETUP_STORAGE_MOVE_OVERLAPS_OLD_LOCATION");
-                        if (Directory.Exists(newRoots[i]) ||
-                            File.Exists(newRoots[i]))
-                            throw new InvalidOperationException(
-                                "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS");
+                        RequireUnusedStorageTarget(newRoots[i]);
                         moved.Add(new StorageCopy {
                             Original = oldRoots[i], Destination = newRoots[i]
                         });
@@ -420,6 +435,13 @@ namespace IwxaSetup
                         foreach (StorageCopy copy in moved)
                             if (copy.Staged != null)
                             {
+                                // Replace only an EMPTY directory selected
+                                // through FolderBrowserDialog. Directory.Delete
+                                // fails rather than removing somebody else's
+                                // files if another process populated it.
+                                RequireUnusedStorageTarget(copy.Destination);
+                                if (Directory.Exists(copy.Destination))
+                                    Directory.Delete(copy.Destination);
                                 Directory.Move(copy.Staged, copy.Destination);
                                 copy.Published = true;
                             }
@@ -681,9 +703,7 @@ namespace IwxaSetup
             if (PathOverlap(source, target))
                 throw new InvalidOperationException(
                     "SETUP_FIRST_INSTALL_DATA_PATH_OVERLAP");
-            if (Directory.Exists(target) || File.Exists(target))
-                throw new InvalidOperationException(
-                    "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS");
+            RequireUnusedStorageTarget(target);
             string volume = Path.GetPathRoot(source);
             if (!IsStorageVolumeReady(volume))
                 throw new IOException(
