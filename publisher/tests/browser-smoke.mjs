@@ -102,7 +102,7 @@ try {
   assert.match(await page.getByTestId('publisher-iwxa-unverified').innerText(),/Подтверждённых мест: 0/);
   assert.match(await page.getByTestId('publisher-iwxa-unverified').innerText(),/Подлинность и статус не проверены/);
   await exportButton.click();
-  assert.match(await page.locator('main').innerText(),/Пакет .iwxa передан без изменения байтов/);
+  assert.match(await page.locator('main').innerText(),/Файл .iwxa скопирован без изменения байтов/);
   checks.push('publisher-canonical-iwxa-native-transport-unverified-zero-seats');
   await page.getByRole('button',{name:'Обзор'}).click();
 
@@ -344,7 +344,7 @@ try {
   await personal.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
   await personal.getByLabel('Код тарифа').fill('ATLAS_PERSONAL');
   await personal.getByLabel('Название тарифа').fill('Личный');
-  await personal.getByLabel('Клиент',{exact:true}).selectOption('PERSON');
+  await personal.getByRole('combobox',{name:'Тип клиента для тарифа'}).selectOption('PERSON');
   await personal.getByLabel('Устройства владельца').fill('3');
   await personal.getByLabel('Функции и модули').fill('LOCAL_PROJECTS');
   assert.equal(await personal.getByLabel('Сотрудники организации').count(),0);

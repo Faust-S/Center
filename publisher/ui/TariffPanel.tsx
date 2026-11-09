@@ -33,7 +33,7 @@ export default function TariffPanel({draft,busy,change}:{draft:Draft;busy:boolea
      <label>Продукт<select value={productId||draft.products[0].id} onChange={e=>setProductId(e.target.value)}>{draft.products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
      <label>Код тарифа<input value={id} onChange={e=>setId(e.target.value)} required placeholder="TEAM"/></label>
      <label>Название тарифа<input value={name} onChange={e=>setName(e.target.value)} required placeholder="Команда"/></label>
-     <label>Клиент<select value={holderType} onChange={e=>{const t=e.target.value as 'PERSON'|'ORGANIZATION';setHolderType(t);setProductSeats(t==='PERSON'?'1':'5');setEmployeeLimit(t==='PERSON'?'0':'10');setDeviceLimit(t==='PERSON'?'2':'0');}}><option value="ORGANIZATION">Организация</option><option value="PERSON">Физическое лицо</option></select></label>
+     <label>Тип клиента<select aria-label="Тип клиента для тарифа" value={holderType} onChange={e=>{const t=e.target.value as 'PERSON'|'ORGANIZATION';setHolderType(t);setProductSeats(t==='PERSON'?'1':'5');setEmployeeLimit(t==='PERSON'?'0':'10');setDeviceLimit(t==='PERSON'?'2':'0');}}><option value="ORGANIZATION">Организация</option><option value="PERSON">Физическое лицо</option></select></label>
      <label>Редакция<input type="number" required min={1} max={1000} value={revision} onChange={e=>setRevision(e.target.value)}/></label>
      <label>Срок действия (дней)<input type="number" required min={1} max={3650} value={termDays} onChange={e=>setTermDays(e.target.value)}/></label>
      <label>Места продукта<input type="number" required min={1} max={10000} value={productSeats} onChange={e=>setProductSeats(e.target.value)}/></label>

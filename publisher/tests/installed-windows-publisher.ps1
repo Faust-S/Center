@@ -394,7 +394,7 @@ try {
   [void](Find-Text 'Подтверждённых мест: 0')
   [void](Find-Text 'Подлинность и статус не проверены')
   Write-Host 'PUBLISHER_INSTALLED_UNVERIFIED_IWXA_PREVIEW_ZERO_SEATS_PASS'
-  Use-Json-Through-Publisher-Dialog 'Передать .iwxa в Center' $outputIwxa $false
+  Use-Json-Through-Publisher-Dialog 'Экспортировать .iwxa' $outputIwxa $false
   $hashBefore=(Get-FileHash -LiteralPath $inputIwxa -Algorithm SHA256).Hash
   $hashAfter=(Get-FileHash -LiteralPath $outputIwxa -Algorithm SHA256).Hash
   if($hashBefore -ne $hashAfter){throw 'PUBLISHER_INSTALLED_IWXA_TRANSPORT_CHANGED_BYTES'}

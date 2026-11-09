@@ -248,7 +248,7 @@ fn publisher_read_test_iwxa(path: &Path) -> Result<(Vec<u8>, UnverifiedIwxaCarri
 #[tauri::command]
 fn publisher_select_test_iwxa(state:State<DeliveryLock>)->Result<Option<UnverifiedIwxaCarrier>,String>{
     *state.0.lock().map_err(|_|"PUBLISHER_IWXA_LOCK_FAILED")?=None;
-    let selection=rfd::FileDialog::new().set_title("Publisher: пакет .iwxa из T3")
+    let selection=rfd::FileDialog::new().set_title("Publisher: выбрать пакет .iwxa")
         .add_filter("IWXA",&["iwxa"]).pick_file();
     match selection {
         Some(path)=>{
@@ -267,8 +267,8 @@ fn publisher_export_test_iwxa(state:State<DeliveryLock>,expected_sha256:String)-
        expected_sha256!=format!("{:x}",Sha256::digest(bytes)) {
         return Err("PUBLISHER_IWXA_SELECTION_CHANGED".into());
     }
-    let path=rfd::FileDialog::new().set_title("Publisher: передать TEST .iwxa в Admin Center")
-        .add_filter("IWXA",&["iwxa"]).set_file_name("iwxa-product-test-delivery.iwxa").save_file();
+    let path=rfd::FileDialog::new().set_title("Publisher: экспортировать пакет .iwxa")
+        .add_filter("IWXA",&["iwxa"]).set_file_name("iwxa-product-transfer.iwxa").save_file();
     match path {
         Some(path)=>{
             if path.extension().and_then(|x|x.to_str())!=Some("iwxa"){

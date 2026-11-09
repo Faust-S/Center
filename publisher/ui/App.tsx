@@ -219,7 +219,7 @@ export default function App(){
        v.statusVerified!==false||v.productionActivation!==false||v.activeSeats!==0)
        throw Error('PUBLISHER_IWXA_NATIVE_UNVERIFIED_REPORT_REQUIRED');
      setSelectedIwxa(v as IwxaTransfer);
-     setMessage('Пакет .iwxa выбран. Проверка T3 и выдача доступа ещё не выполнялись.');
+     setMessage('Пакет .iwxa выбран. Подлинность, получатель и статус не проверялись.');
    }catch(e){setError('Не удалось выбрать .iwxa: '+getError(e));}
    finally{setBusy(false);}
  }
@@ -228,8 +228,8 @@ export default function App(){
    setBusy(true);setError('');setMessage('');
    try{
      const saved=await invoke('publisher_export_test_iwxa',{expectedSha256:selectedIwxa.sha256});
-     setMessage(saved?'Пакет .iwxa передан без изменения байтов. Подпись и текущий статус проверит Admin Center через T3.':'Передача пакета отменена.');
-   }catch(e){setError('Не удалось передать .iwxa: '+getError(e));}
+     setMessage(saved?'Файл .iwxa скопирован без изменения байтов. Подлинность, статус и права должен проверить получающий продукт или Admin Center.':'Экспорт отменён.');
+   }catch(e){setError('Не удалось экспортировать .iwxa: '+getError(e));}
    finally{setBusy(false);}
  }
  function go(p:Page){setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);setOfflineCopies(null);}
@@ -392,11 +392,11 @@ export default function App(){
            <p className="muted">TEST-подпись доступна только через ранее зарегистрированного владельца и оригинальный нативный компонент T3. Ни браузер, ни Publisher не получают закрытых ключей. Коммерческие права и выпуск производственных лицензий отключены.</p>
            <PublisherT3OwnerPanel draft={state} invoke={invoke}/>
            <div className="divider"></div>
-           <h3>Передача продуктовой TEST-лицензии через .iwxa</h3>
-           <p className="muted">Пакет выдаётся доверенным Owner Host уровня T3. Publisher передаёт его в Admin Center без изменения байтов. Приватные ключи и права не экспортируются.</p>
+           <h3>Офлайн-передача пакета .iwxa</h3>
+           <p className="muted">Publisher сохраняет выбранный пакет без изменения байтов. Для организации проверку и распределение выполняет Admin Center, для частного лица — установленный продукт. Здесь подпись, статус, получатель и права не проверяются.</p>
            <div className="actions">
              <button className="secondary" data-testid="publisher-select-test-iwxa" disabled={busy} onClick={selectTestIwxa}>Открыть пакет .iwxa</button>
-             <button className="secondary" data-testid="publisher-export-test-iwxa" disabled={busy||!selectedIwxa} onClick={exportTestIwxa}>Передать .iwxa в Center</button>
+             <button className="secondary" data-testid="publisher-export-test-iwxa" disabled={busy||!selectedIwxa} onClick={exportTestIwxa}>Экспортировать .iwxa</button>
            </div>
            {selectedIwxa&&<div data-testid="publisher-iwxa-unverified" role="status">
              <p><strong>Пакет выбран. Подлинность и статус не проверены.</strong></p>
