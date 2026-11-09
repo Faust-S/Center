@@ -190,6 +190,164 @@ namespace IwxaSetup
             return result;
         }
 
+        // Storage relocation is explicit and non-destructive. Copy and
+        // hash-check every existing tree BEFORE switching the product-owned
+        // registry paths. The originals remain as a recovery copy.
+        internal static SetupLocations RelocateStorage(BundleInfo info,
+            SetupLocations requested)
+        {
+            SetupLocations chosen = ValidateLocations(info, requested, false);
+            using (var mutex = new System.Threading.Mutex(false,
+                "Local\IWXA.SetupCore." + info.Id))
+            {
+                if (!mutex.WaitOne(0))
+                    throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
+                try
+                {
+                    string root = RootFor(info);
+                    BundleInfo owned = ReadOwnedRelease(root, root, info.Id);
+                    RequireRegistryOwnership(info.Id, root, owned);
+                    AssertNotRunning(owned, root);
+                    SetupLocations before = InstalledLocations(info);
+                    if (!SamePath(before.ProgramRoot, chosen.ProgramRoot))
+                        throw new InvalidOperationException(
+                            "SETUP_PROGRAM_RELOCATION_REQUIRES_REINSTALL");
+                    var oldRoots = new [] { before.DataRoot, before.SoftwareRoot,
+                        before.ModelsRoot, before.CacheRoot };
+                    var newRoots = new [] { chosen.DataRoot, chosen.SoftwareRoot,
+                        chosen.ModelsRoot, chosen.CacheRoot };
+                    var moved = new List<StorageCopy>();
+                    for (int i = 0; i < oldRoots.Length; i++)
+                    {
+                        if (SamePath(oldRoots[i], newRoots[i])) continue;
+                        foreach (string old in oldRoots)
+                            if (PathOverlap(newRoots[i], old))
+                                throw new InvalidOperationException(
+                                    "SETUP_STORAGE_MOVE_OVERLAPS_OLD_LOCATION");
+                        if (Directory.Exists(newRoots[i]) ||
+                            File.Exists(newRoots[i]))
+                            throw new InvalidOperationException(
+                                "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS");
+                        moved.Add(new StorageCopy {
+                            Original = oldRoots[i], Destination = newRoots[i]
+                        });
+                    }
+                    try
+                    {
+                        foreach (StorageCopy copy in moved)
+                        {
+                            if (!Directory.Exists(copy.Original))
+                                continue; // Empty optional storage: no data to copy.
+                            copy.Staged = copy.Destination + ".iwxa-copy-" +
+                                Guid.NewGuid().ToString("N");
+                            Directory.CreateDirectory(Path.GetDirectoryName(
+                                copy.Destination));
+                            if (Directory.Exists(copy.Staged) ||
+                                File.Exists(copy.Staged))
+                                throw new InvalidOperationException(
+                                    "SETUP_STORAGE_STAGE_CONFLICT");
+                            CopyVerifiedStorage(copy.Original, copy.Staged);
+                        }
+                        // All source trees have been read back before changing
+                        // even one product location or pointing at any new data.
+                        foreach (StorageCopy copy in moved)
+                            if (copy.Staged != null)
+                            {
+                                Directory.Move(copy.Staged, copy.Destination);
+                                copy.Published = true;
+                            }
+                        using (var reg = Registry.CurrentUser.OpenSubKey(
+                            RegistryProducts + info.Id, true))
+                        {
+                            if (reg == null ||
+                                !SamePath(Convert.ToString(reg.GetValue(
+                                    "InstallLocation")), root))
+                                throw new InvalidOperationException(
+                                    "SETUP_STORAGE_OWNER_CHANGED");
+                            try
+                            {
+                                reg.SetValue("DataLocation", chosen.DataRoot);
+                                reg.SetValue("SoftwareLocation", chosen.SoftwareRoot);
+                                reg.SetValue("ModelsLocation", chosen.ModelsRoot);
+                                reg.SetValue("CacheLocation", chosen.CacheRoot);
+                            }
+                            catch
+                            {
+                                // The old data is still intact; restore the
+                                // four preferences if a registry write fails.
+                                reg.SetValue("DataLocation", before.DataRoot);
+                                reg.SetValue("SoftwareLocation", before.SoftwareRoot);
+                                reg.SetValue("ModelsLocation", before.ModelsRoot);
+                                reg.SetValue("CacheLocation", before.CacheRoot);
+                                throw;
+                            }
+                        }
+                        return InstalledLocations(info);
+                    }
+                    finally
+                    {
+                        foreach (StorageCopy copy in moved)
+                            if (copy.Staged != null &&
+                                Directory.Exists(copy.Staged))
+                                Directory.Delete(copy.Staged, true);
+                        // Published copies are deliberately retained if a
+                        // later registry operation fails. They belong to the
+                        // user, and no original tree was removed.
+                    }
+                }
+                finally { mutex.ReleaseMutex(); }
+            }
+        }
+
+        private sealed class StorageCopy
+        {
+            internal string Original;
+            internal string Destination;
+            internal string Staged;
+            internal bool Published;
+        }
+
+        private static void CopyVerifiedStorage(string original, string staged)
+        {
+            if ((File.GetAttributes(original) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("SETUP_STORAGE_SOURCE_LINK_FORBIDDEN");
+            Directory.CreateDirectory(staged);
+            var pending = new Stack<string>();
+            pending.Push(original);
+            while (pending.Count > 0)
+            {
+                string current = pending.Pop();
+                string relative = current.Substring(original.Length).TrimStart('\\');
+                string targetDir = relative.Length == 0 ? staged :
+                    Path.Combine(staged, relative);
+                Directory.CreateDirectory(targetDir);
+                foreach (string dir in Directory.GetDirectories(current))
+                {
+                    if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0)
+                        throw new InvalidDataException(
+                            "SETUP_STORAGE_SOURCE_LINK_FORBIDDEN");
+                    pending.Push(dir);
+                }
+                foreach (string originalFile in Directory.GetFiles(current))
+                {
+                    if ((File.GetAttributes(originalFile) &
+                        FileAttributes.ReparsePoint) != 0)
+                        throw new InvalidDataException(
+                            "SETUP_STORAGE_FILE_LINK_FORBIDDEN");
+                    string newFile = Path.Combine(targetDir,
+                        Path.GetFileName(originalFile));
+                    File.Copy(originalFile, newFile, false);
+                    string sourceHash = FingerprintLegacyFile(originalFile);
+                    string copiedHash = FingerprintLegacyFile(newFile);
+                    if (sourceHash != copiedHash ||
+                        new FileInfo(originalFile).Length !=
+                            new FileInfo(newFile).Length)
+                        throw new InvalidDataException(
+                            "SETUP_STORAGE_COPY_READBACK_FAILED");
+                }
+            }
+        }
+
         internal static SetupDiskPlan CheckStageSpace(BundleInfo info, string selectedRoot = null)
         {
             // Verified unpacked bytes + a complete same-volume installer copy.
