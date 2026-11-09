@@ -853,7 +853,7 @@ namespace IwxaSetup
             install.Enabled = ready &&
                 (primaryAction != SetupOperation.None || editedFirstInstall);
             if (editedFirstInstall)
-                install.Text = T("Проверить и установить", "Check and install");
+                install.Text = T("Установить", "Install");
             applyLocations.Visible = changes && !first;
             applyLocations.Enabled = ready && inspectedBundle != null;
             discardLocations.Visible = changes;

@@ -19,6 +19,14 @@ try{
     return dialog.accept();
   });
   await page.goto('http://127.0.0.1:4173');
+  await page.locator('.brand-mark').waitFor();
+  assert.equal(await page.locator('.brand-mark').count(),1);
+  assert.equal(await page.locator('.brand .version').count(),0);
+  assert.equal(await page.getByText('0.2',{exact:true}).count(),0);
+  const brandImage=await page.request.get('http://127.0.0.1:4173/iwxa-admin-center.svg');
+  assert.equal(brandImage.status(),200);
+  assert.match(await brandImage.text(),/fill="#EF5350"/);
+  checks.push('canonical-red-brand-and-no-outdated-version');
   await page.getByTestId('org-name').fill('North workshop');await page.getByTestId('create-org').click();
   await page.getByTestId('nav-resources').click();await page.getByTestId('workspace-name').fill('Procurement');await page.getByTestId('add-workspace').click();
   // Build a real Atlas snapshot through its pinned domain module, never a fake project record.
