@@ -28,6 +28,25 @@ if ($assembly.GetName().Version.ToString() -ne '1.0.0.0' -or
         ' productVersion=' + $details.ProductVersion)
 }
 Write-Host 'IWXA_SETUP_1_0_WINDOWS_FILE_IDENTITY_PASS'
+# Destination disk preflight uses a deterministic, overflow-checked
+# budget. Test the actual compiled native routine, not a test duplicate.
+$engine = $assembly.GetType('IwxaSetup.SetupInstallation', $true)
+$storageBudget = $engine.GetMethod('RequiredStorageMoveBytes',
+    [Reflection.BindingFlags]'Static, NonPublic')
+if ($null -eq $storageBudget) {
+    throw 'SETUP_STORAGE_CAPACITY_PREFLIGHT_MISSING'
+}
+$measured = [long]$storageBudget.Invoke($null,
+    [object[]]@([long]100000000, [long]100))
+if ($measured -ne [long]169518464) {
+    throw ('SETUP_STORAGE_CAPACITY_MULTIFILE_BUDGET_WRONG_' + $measured)
+}
+$zero = [long]$storageBudget.Invoke($null,
+    [object[]]@([long]0, [long]0))
+if ($zero -ne [long]67108864) {
+    throw ('SETUP_STORAGE_CAPACITY_RESERVE_WRONG_' + $zero)
+}
+Write-Host 'IWXA_SETUP_STORAGE_DESTINATION_CAPACITY_PREFLIGHT_PASS'
 $formType = $assembly.GetType('IwxaSetup.SetupForm', $true)
 function One([System.Windows.Forms.Control]$form, [string]$name) {
     $items = @($form.Controls.Find($name,$true))
@@ -192,6 +211,19 @@ if ($null -eq $settingsMethod) {
 }
 $hostForm = [System.Activator]::CreateInstance($formType,$true)
 try {
+    $reasonMethod = $formType.GetMethod('ExplainStorageSettingsError',
+        [Reflection.BindingFlags]'Instance, NonPublic')
+    if ($null -eq $reasonMethod) {
+        throw 'SETUP_STORAGE_HUMAN_READABLE_ERROR_MISSING'
+    }
+    $spaceMessage = [string]$reasonMethod.Invoke($hostForm,
+        [object[]]@([Exception]::new(
+            'SETUP_STORAGE_DISK_SPACE_INSUFFICIENT_required=200000000_available=100000000_volume=C:')))
+    if ($spaceMessage -notmatch 'MB|МБ' -or
+        $spaceMessage -match 'SETUP_STORAGE_DISK_SPACE_INSUFFICIENT') {
+        throw 'SETUP_STORAGE_HUMAN_READABLE_DISK_SPACE_ERROR_INVALID'
+    }
+    Write-Host 'IWXA_SETUP_STORAGE_LOCALIZED_DISK_ERROR_PASS'
     $locationsType = $assembly.GetType('IwxaSetup.SetupLocations', $true)
     foreach($editable in @($true,$false)) {
         $locations = [System.Activator]::CreateInstance($locationsType, $true)

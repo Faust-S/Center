@@ -190,6 +190,78 @@ namespace IwxaSetup
             return result;
         }
 
+        // Estimate destination space on each drive BEFORE any copy starts.
+        // Include file allocation overhead and a fixed reserve for metadata.
+        internal static long RequiredStorageMoveBytes(long sourceBytes,
+            long fileCount)
+        {
+            if (sourceBytes < 0 || fileCount < 0)
+                throw new ArgumentOutOfRangeException(
+                    "sourceBytes", "SETUP_STORAGE_INVALID_SIZE");
+            return checked(sourceBytes + sourceBytes / 50 +
+                fileCount * 4096L + 64L * 1024 * 1024);
+        }
+
+        private sealed class StorageSpaceBudget
+        {
+            internal long Bytes;
+            internal long Files;
+        }
+
+        private static void RequireStorageMoveSpace(List<StorageCopy> moves)
+        {
+            var volumes = new Dictionary<string, StorageSpaceBudget>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (StorageCopy copy in moves)
+            {
+                if (!Directory.Exists(copy.Original))
+                    continue;
+                string volume = Path.GetPathRoot(copy.Destination);
+                StorageSpaceBudget budget;
+                if (!volumes.TryGetValue(volume, out budget))
+                {
+                    budget = new StorageSpaceBudget();
+                    volumes.Add(volume, budget);
+                }
+                var pending = new Stack<string>();
+                pending.Push(copy.Original);
+                while (pending.Count > 0)
+                {
+                    string current = pending.Pop();
+                    if ((File.GetAttributes(current) &
+                        FileAttributes.ReparsePoint) != 0)
+                        throw new InvalidDataException(
+                            "SETUP_STORAGE_SOURCE_LINK_FORBIDDEN");
+                    foreach (string directory in Directory.GetDirectories(current))
+                        pending.Push(directory);
+                    foreach (string file in Directory.GetFiles(current))
+                    {
+                        if ((File.GetAttributes(file) &
+                            FileAttributes.ReparsePoint) != 0)
+                            throw new InvalidDataException(
+                                "SETUP_STORAGE_FILE_LINK_FORBIDDEN");
+                        budget.Bytes = checked(budget.Bytes +
+                            new FileInfo(file).Length);
+                        budget.Files = checked(budget.Files + 1);
+                    }
+                }
+            }
+            foreach (var volume in volumes)
+            {
+                var drive = new DriveInfo(volume.Key);
+                if (!drive.IsReady)
+                    throw new IOException("SETUP_STORAGE_VOLUME_UNAVAILABLE");
+                long required = RequiredStorageMoveBytes(volume.Value.Bytes,
+                    volume.Value.Files);
+                long available = drive.AvailableFreeSpace;
+                if (available < required)
+                    throw new InvalidOperationException(
+                        "SETUP_STORAGE_DISK_SPACE_INSUFFICIENT_required=" +
+                        required + "_available=" + available +
+                        "_volume=" + volume.Key);
+            }
+        }
+
         // Storage relocation is explicit and non-destructive. Copy and
         // hash-check every existing tree BEFORE switching the product-owned
         // registry paths. The originals remain as a recovery copy.
@@ -232,6 +304,9 @@ namespace IwxaSetup
                             Original = oldRoots[i], Destination = newRoots[i]
                         });
                     }
+                    // Abort before creating staging directories or changing any
+                    // registry preferences when the selected drives are too full.
+                    RequireStorageMoveSpace(moved);
                     try
                     {
                         foreach (StorageCopy copy in moved)

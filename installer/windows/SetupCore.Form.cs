@@ -5,6 +5,7 @@ using System.IO;
 using System.Globalization;
 using System.Net;
 using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 namespace IwxaSetup
@@ -584,12 +585,48 @@ namespace IwxaSetup
                 await VerifyAsync();
                 if (error != null)
                     MessageBox.Show(this,
-                        T("Не удалось применить все параметры. Проверьте установку. ",
-                          "Could not apply all settings. Verify the installation. ") +
-                        error.Message,
+                        ExplainStorageSettingsError(error),
                         T("Параметры установки", "Installation settings"),
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
+        }
+
+        private string ExplainStorageSettingsError(Exception error)
+        {
+            string raw = error.Message ?? "";
+            if (raw.StartsWith("SETUP_STORAGE_DISK_SPACE_INSUFFICIENT_",
+                StringComparison.Ordinal))
+            {
+                Match match = Regex.Match(raw,
+                    @"required=(\d+)_available=(\d+)_volume=(.+)$");
+                long required, available;
+                if (match.Success &&
+                    Int64.TryParse(match.Groups[1].Value, out required) &&
+                    Int64.TryParse(match.Groups[2].Value, out available))
+                    return T("На диске ", "Not enough space on ") +
+                        match.Groups[3].Value +
+                        T(" не хватает места. Для переноса нужно ",
+                          ". Moving your storage requires ") +
+                        Math.Ceiling(required / 1048576.0).ToString("N0") +
+                        T(" МБ, доступно ", " MB, with ") +
+                        Math.Floor(available / 1048576.0).ToString("N0") +
+                        T(" МБ. Выберите другой диск или освободите место. Исходные данные сохранены.",
+                          " MB available. Choose another drive or free up space. The original data was preserved.");
+                return T("На выбранном диске недостаточно места для переноса. Исходные данные сохранены.",
+                    "The selected drive does not have enough space. The original data was preserved.");
+            }
+            if (raw == "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS")
+                return T("В папке назначения уже есть данные. Выберите новую папку: существующие файлы не будут заменены.",
+                    "The destination folder already exists. Choose a new folder; existing files will not be replaced.");
+            if (raw == "SETUP_INSTALL_ALREADY_RUNNING")
+                return T("Установщик уже выполняет другую операцию. Завершите её и попробуйте снова.",
+                    "Another setup operation is running. Finish it before trying again.");
+            if (raw == "SETUP_STORAGE_SOURCE_LINK_FORBIDDEN" ||
+                raw == "SETUP_STORAGE_FILE_LINK_FORBIDDEN")
+                return T("В исходном хранилище есть ссылка на другую папку или файл. Автоматический перенос остановлен; исходные данные сохранены.",
+                    "The source contains a linked folder or file. Automatic relocation stopped; the original data was preserved.");
+            return T("Не удалось применить параметры. Данные не удалены. Подробности: ",
+                "Could not apply settings. No data was deleted. Details: ") + raw;
         }
 
         private static string ReadOption(Form form, string name)
