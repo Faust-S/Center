@@ -576,7 +576,7 @@ namespace IwxaSetup
             var layout = new TableLayoutPanel {
                 Dock = DockStyle.Fill, Padding = new Padding(22),
                 ColumnCount = 2, RowCount = 8,
-                BackColor = Color.White
+                AutoScroll = true, BackColor = Color.White
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 152F));
@@ -694,6 +694,11 @@ namespace IwxaSetup
             dialog.Shown += (sender, args) =>
             {
                 Rectangle work = Screen.FromControl(dialog).WorkingArea;
+                if (dialog.MinimumSize.Width > work.Width ||
+                    dialog.MinimumSize.Height > work.Height)
+                    dialog.MinimumSize = new Size(
+                        Math.Min(dialog.MinimumSize.Width, work.Width),
+                        Math.Min(dialog.MinimumSize.Height, work.Height));
                 dialog.Size = FitToWorkingAreaSize(
                     dialog.Size, dialog.MinimumSize, work.Size);
             };

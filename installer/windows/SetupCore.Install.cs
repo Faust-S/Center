@@ -59,7 +59,9 @@ namespace IwxaSetup
         {
             if (String.IsNullOrWhiteSpace(value) || value.Length > 230 ||
                 !Path.IsPathRooted(value) ||
-                value.StartsWith(@"\\", StringComparison.Ordinal))
+                value.StartsWith(@"\\", StringComparison.Ordinal) ||
+                value.Length < 4 || !Char.IsLetter(value[0]) ||
+                value[1] != ':' || (value[2] != '\\' && value[2] != '/'))
                 throw new InvalidOperationException("SETUP_INSTALL_ROOT_INVALID");
             string root;
             try { root = Path.GetFullPath(value.Trim()).TrimEnd('\\', '/'); }
@@ -769,7 +771,10 @@ namespace IwxaSetup
             string root = RootFor(info);
             string app = Path.Combine(root,
                 info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
-            return SamePath(GetLegacyShortcutTarget(shortcut), app);
+            try { return SamePath(GetLegacyShortcutTarget(shortcut), app); }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+            catch (System.Runtime.InteropServices.COMException) { return false; }
         }
 
         internal static void UpdateStartup(BundleInfo info, bool enable)
