@@ -633,8 +633,22 @@ try {
     # All operations must keep the same custom root instead of falling back
     # to %LOCALAPPDATA%\Programs after the first registry publication.
     $customRoot = Join-Path $env:LOCALAPPDATA 'IWXA Setup Native Fixture/Custom Admin Center'
+    $customDataRoot = Join-Path $env:LOCALAPPDATA 'IWXA Setup Native Fixture/Data'
+    $customSoftwareRoot = Join-Path $env:LOCALAPPDATA 'IWXA Setup Native Fixture/Software'
+    $customModelsRoot = Join-Path $env:LOCALAPPDATA 'IWXA Setup Native Fixture/Models'
+    $customCacheRoot = Join-Path $env:LOCALAPPDATA 'IWXA Setup Native Fixture/Cache'
     $startupLink = Join-Path ([Environment]::GetFolderPath('Startup')) 'IWXA Admin Center.lnk'
     $customReceipt = Join-Path $artifact 'setup-core-custom-install.json'
+    $customChoices = Join-Path $artifact 'setup-core-custom-locations-request.json'
+    [pscustomobject]@{
+        schema='IWXA_SETUP_LOCATIONS/1'
+        programRoot=$customRoot
+        dataRoot=$customDataRoot
+        softwareRoot=$customSoftwareRoot
+        modelsRoot=$customModelsRoot
+        cacheRoot=$customCacheRoot
+        startWithWindows=$true
+    } | ConvertTo-Json | Set-Content -LiteralPath $customChoices -Encoding UTF8
     if ((Test-Path -LiteralPath $customRoot) -or
         (Test-Path -LiteralPath $startupLink)) {
         throw 'SETUP_CUSTOM_ROOT_TEST_PREEXISTING_PATH'
@@ -642,7 +656,9 @@ try {
     $nativeCustom = $null
     function Invoke-Custom([string]$binary,[string]$action,[string]$value,
         [string]$path,[string]$mode,[int]$exitExpected=0) {
-        $argsText = if ($action -eq '--install-at-file') {
+        $argsText = if ($action -eq '--install-locations-file') {
+            '--install-locations-file "{0}" "{1}"' -f $value,$path
+        } elseif ($action -eq '--install-at-file') {
             '--install-at-file "{0}" "{1}" {2}' -f $value,$path,$mode
         } else { '--startup-mode-file {0} "{1}"' -f $mode,$path }
         $process = Start-Process -FilePath $binary -ArgumentList $argsText -PassThru
@@ -657,20 +673,35 @@ try {
         } finally { $process.Dispose() }
         return (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json)
     }
-    $preservedData = Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center/setup-custom-data.txt'
-    New-Item -ItemType Directory -Path (Split-Path -Parent $preservedData) -Force | Out-Null
-    Set-Content -LiteralPath $preservedData -Value 'custom-root-preserved' -NoNewline
+    $preservedData = Join-Path $customDataRoot 'atlas-store-v1/setup-custom-data.txt'
     try {
-        $nativeCustom = Invoke-Custom $bundle '--install-at-file' $customRoot $customReceipt 'login'
+        $nativeCustom = Invoke-Custom $bundle '--install-locations-file' $customChoices $customReceipt ''
         if ($nativeCustom.status -ne 'INSTALLED_NOT_LAUNCHED' -or
             $nativeCustom.installRoot -ne $customRoot -or
             !(Test-Path -LiteralPath (Join-Path $customRoot 'iwxa-admin-center.exe'))) {
             throw 'SETUP_CUSTOM_LOCATION_NOT_USED_BY_INSTALL'
         }
         $stored = Get-ItemProperty 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center'
-        if ($stored.InstallLocation -ne $customRoot) {
+        if ($stored.InstallLocation -ne $customRoot -or
+            $stored.DataLocation -ne $customDataRoot -or
+            $stored.SoftwareLocation -ne $customSoftwareRoot -or
+            $stored.ModelsLocation -ne $customModelsRoot -or
+            $stored.CacheLocation -ne $customCacheRoot) {
             throw 'SETUP_CUSTOM_LOCATION_NOT_STORED'
         }
+        $locations = Invoke-NativeInspection $bundle (
+            Join-Path $artifact 'setup-core-custom-locations-readback.json') 0 '--locations-file'
+        if ($locations.status -ne 'LOCATIONS_VERIFIED' -or
+            $locations.programRoot -ne $customRoot -or
+            $locations.dataRoot -ne $customDataRoot -or
+            $locations.softwareRoot -ne $customSoftwareRoot -or
+            $locations.modelsRoot -ne $customModelsRoot -or
+            $locations.cacheRoot -ne $customCacheRoot -or
+            !$locations.startWithWindows) {
+            throw 'SETUP_CUSTOM_LOCATION_NATIVE_READBACK_INCONSISTENT'
+        }
+        New-Item -ItemType Directory -Path (Split-Path -Parent $preservedData) -Force | Out-Null
+        Set-Content -LiteralPath $preservedData -Value 'custom-root-preserved' -NoNewline
         if (!(Test-Path -LiteralPath $startupLink -PathType Leaf) -or
             $shellObject.CreateShortcut($startupLink).TargetPath -ne
                 (Join-Path $customRoot 'iwxa-admin-center.exe')) {
@@ -689,11 +720,27 @@ try {
             !(Test-Path -LiteralPath $startupLink)) {
             throw 'SETUP_CUSTOM_LOCATION_UPGRADE_FAILED'
         }
+        $upgradedLocations = Invoke-NativeInspection $upgradeCandidate (
+            Join-Path $artifact 'setup-core-custom-locations-after-upgrade.json') 0 '--locations-file'
+        if ($upgradedLocations.dataRoot -ne $customDataRoot -or
+            $upgradedLocations.softwareRoot -ne $customSoftwareRoot -or
+            $upgradedLocations.modelsRoot -ne $customModelsRoot -or
+            $upgradedLocations.cacheRoot -ne $customCacheRoot) {
+            throw 'SETUP_CUSTOM_STORAGE_CHANGED_AFTER_UPGRADE'
+        }
         $rolledBack = Invoke-NativeInspection $upgradeCandidate (
             Join-Path $artifact 'setup-core-custom-rollback.json') 0 '--rollback-upgrade-file'
         if ($rolledBack.status -ne 'ROLLBACK_RESTORED_PREVIOUS' -or
             $rolledBack.installRoot -ne $customRoot) {
             throw 'SETUP_CUSTOM_LOCATION_ROLLBACK_FAILED'
+        }
+        $restoredLocations = Invoke-NativeInspection $bundle (
+            Join-Path $artifact 'setup-core-custom-locations-rollback.json') 0 '--locations-file'
+        if ($restoredLocations.dataRoot -ne $customDataRoot -or
+            $restoredLocations.softwareRoot -ne $customSoftwareRoot -or
+            $restoredLocations.modelsRoot -ne $customModelsRoot -or
+            $restoredLocations.cacheRoot -ne $customCacheRoot) {
+            throw 'SETUP_CUSTOM_STORAGE_CHANGED_AFTER_ROLLBACK'
         }
         $manual = Invoke-Custom $bundle '--startup-mode-file' '' (
             Join-Path $artifact 'setup-core-custom-manual.json') 'manual'
@@ -720,7 +767,8 @@ try {
                 throw 'SETUP_CUSTOM_LOCATION_UNINSTALL_OR_STARTUP_CLEANUP_FAILED'
             }
         }
-        if ((Get-Content -LiteralPath $preservedData -Raw) -ne 'custom-root-preserved') {
+        if (!(Test-Path -LiteralPath $preservedData -PathType Leaf) -or
+            (Get-Content -LiteralPath $preservedData -Raw) -ne 'custom-root-preserved') {
             throw 'SETUP_CUSTOM_LOCATION_CHANGED_USER_DATA'
         }
         Remove-Item -LiteralPath $preservedData -Force
