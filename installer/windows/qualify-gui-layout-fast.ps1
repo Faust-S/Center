@@ -271,7 +271,7 @@ try {
     if ($null -eq $reasonMethod) {
         throw 'SETUP_STORAGE_HUMAN_READABLE_ERROR_MISSING'
     }
-    $testException = New-Object System.Exception -ArgumentList @(
+    $testException = [System.Exception]::new(
         'SETUP_STORAGE_DISK_SPACE_INSUFFICIENT_required=200000000_available=100000000_volume=C:')
     $invokeArgs = New-Object 'System.Object[]' 1
     $invokeArgs[0] = $testException
