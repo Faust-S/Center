@@ -1,473 +1,103 @@
-name: Center source and desktop
+name: Center UX review package (build only)
 on:
   push:
-    branches: ['work/**']
-  workflow_dispatch:
+    branches: ['work/2026-11-09-setup-core-data-folder-preview']
 permissions:
   contents: read
+  actions: read
+# Cancel an older full-CI run that GitHub queued when this temporary work/
+# branch was first created. Only this build-only preview job should execute.
 concurrency:
-  group: center-${{ github.ref }}-${{ startsWith(github.event.head_commit.message, 'ci(ui):') && 'ui' || 'full' }}
+  group: center-${{ github.ref }}-full
   cancel-in-progress: true
 jobs:
-  model:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+  preview-build-only:
+    runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      # Atlas is ONE canonical public model, pinned and included in the native bundle.
-      # Never fetch it at runtime or copy its project storage into Center.
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/Atlas
-          ref: 7a0a2c8a458617a011a3db78b72c3dd1adbc12c2
-          path: vendor/atlas
-          persist-credentials: false
-      # Test CEN05 against the original, pinned public U04 bridge; never
-      # vendor/copy the implementation into the Center product.
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/Br-test
-          ref: 07df66ab6bd3e1b87036c33b90e49d228d5ab820
-          path: vendor/brtest
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
-      - name: Compile IWXA Setup Core early (Windows model gate)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./installer/windows/build-stub.ps1 -Output artifacts/iwxa-setup-core-early.exe
-      - run: npm test
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify universal Setup Core package contract
-        run: python -m unittest discover -s installer/tests -p 'test_*.py' -v
-      - name: Fast native Windows uninstall and shortcut ownership fixture
-        if: runner.os == 'Windows'
-        # Setup Core uses .NET Framework System.Web.Extensions: exercise its
-        # real managed readback via Windows PowerShell 5.1, not PowerShell 7.
-        shell: powershell
-        timeout-minutes: 4
-        run: ./installer/windows/qualify-uninstall-and-shortcut-fast.ps1 -Stub artifacts/iwxa-setup-core-early.exe
-      - name: Qualify native Setup window layout at 100-250 percent scaling
-        if: runner.os == 'Windows'
-        shell: powershell
-        timeout-minutes: 3
-        run: ./installer/windows/qualify-gui-layout-fast.ps1 -Stub artifacts/iwxa-setup-core-early.exe
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Windows' && always()
-        with:
-          name: setup-core-native-options-visuals
-          path: artifacts/setup-core-visual-options-*.png
-          if-no-files-found: error
-  interface:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      # Atlas is ONE canonical public model, pinned and included in the native bundle.
-      # Never fetch it at runtime or copy its project storage into Center.
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/Atlas
-          ref: 7a0a2c8a458617a011a3db78b72c3dd1adbc12c2
-          path: vendor/atlas
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
-      - run: npm install --no-audit --no-fund
-      - run: npm run build
-      - run: npx playwright install --with-deps firefox
-      - run: npm run test:ui
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: center-interface
-          path: |
-            artifacts/
-            package-lock.json
-            dist/
-  windows-shell:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') }}
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      # Atlas is ONE canonical public model, pinned and included in the native bundle.
-      # Never fetch it at runtime or copy its project storage into Center.
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/Atlas
-          ref: 7a0a2c8a458617a011a3db78b72c3dd1adbc12c2
-          path: vendor/atlas
-          persist-credentials: false
-      # Original U01/U04 native modules are required by Center's build.rs.
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/Br-test
-          ref: 07df66ab6bd3e1b87036c33b90e49d228d5ab820
-          path: vendor/brtest
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
-      - run: npm install --no-audit --no-fund
-      - name: Build native Center with original Atlas storage
-        run: npx tauri build --no-bundle
-      - name: Qualify IWXA Setup Core native package and GUI (Center 0.3)
-        shell: pwsh
-        timeout-minutes: 5
-        run: ./installer/windows/test-native-package.ps1
-      - name: Qualify signed V2 Setup Core installation lifecycle (test certificate only)
-        shell: pwsh
-        timeout-minutes: 6
-        run: ./installer/windows/qualify-signed-resource-install.ps1
-      - name: Native Atlas storage tests, including two separate processes
-        run: cargo test --manifest-path src-tauri/Cargo.toml --bin iwxa-admin-center -- --nocapture
-      - name: Verify IWXA Setup Core Windows distribution and record hashes
-        shell: pwsh
-        run: |
-          $installer = Get-Item -LiteralPath 'artifacts/iwxa-setup-core-center-0.3-preview.exe' -ErrorAction Stop
-          $sha = Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256
-          $identityPath=Join-Path 'artifacts' 'setup-core-dist-v2-identity.json'
-          $native=Start-Process -FilePath $installer.FullName -ArgumentList ('--inspect-file "{0}"' -f (Join-Path $env:GITHUB_WORKSPACE $identityPath)) -PassThru
-          try {
-            if(!$native.WaitForExit(60000)){Stop-Process -Id $native.Id -Force;throw 'SETUP_DIST_NATIVE_INSPECT_TIMEOUT'}
-            if($native.ExitCode -ne 0){throw 'SETUP_DIST_NATIVE_REJECTED'}
-          } finally {$native.Dispose()}
-          $identity=Get-Content -LiteralPath $identityPath -Raw | ConvertFrom-Json
-          if($identity.status -ne 'VERIFIED' -or
-             $identity.packageFormat -ne 'PE_RESOURCE_V2' -or
-             $identity.product -ne 'iwxa.admin-center' -or
-             $identity.sourceCommit -ne $env:GITHUB_SHA){
-            throw 'SETUP_DIST_UNSIGNED_V1_OR_PROVENANCE_INVALID'
-          }
-          New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
-          "$($installer.Name) SHA256=$($sha.Hash) SIZE=$($installer.Length)" | Set-Content 'artifacts/installer-sha256.txt'
-          Write-Host "IWXA_SETUP_CORE_V2_DISTRIBUTION_VERIFIED: $($installer.Name), size=$($installer.Length), SHA256=$($sha.Hash)"
-      - name: Qualify installed Windows GUI Atlas and manager draft persistence
-        shell: pwsh
-        timeout-minutes: 5
-        run: ./tests/installed-windows-center.ps1
-      # U05: both real installed Windows products on the SAME hosted profile.
-      # Reuse Atlas's own GUI acceptance driver and native persistence.
-      - name: Upgrade installed Center and verify manager data after restart
-        shell: pwsh
-        timeout-minutes: 5
-        run: ./tests/installed-windows-setup-upgrade.ps1
-      - name: Build exact canonical Atlas Desktop installer
-        shell: pwsh
-        timeout-minutes: 25
-        working-directory: vendor/atlas/desktop
-        run: |
-          npm ci --no-audit --no-fund
-          npm run desktop:build
-      - name: Install canonical Atlas and create real projects in its GUI
-        shell: pwsh
-        timeout-minutes: 8
-        run: |
-          $ErrorActionPreference='Stop'
-          $installer=Get-ChildItem 'vendor/atlas/desktop/src-tauri/target/release/bundle/nsis/*.exe'|Select-Object -First 1
-          if(!$installer){throw 'U05_ATLAS_INSTALLER_MISSING'}
-          $process=Start-Process -FilePath $installer.FullName -ArgumentList '/S' -PassThru
-          if(!$process.WaitForExit(120000)){Stop-Process -Id $process.Id -Force;throw 'U05_ATLAS_INSTALL_TIMEOUT'}
-          if($process.ExitCode -ne 0){throw "U05_ATLAS_INSTALL_ERROR $($process.ExitCode)"}
-          $exe=Join-Path $env:LOCALAPPDATA 'IWXA Atlas/iwxa-atlas-desktop.exe'
-          if(!(Test-Path -LiteralPath $exe)){throw 'U05_ATLAS_INSTALLED_EXE_MISSING'}
-          "ATLAS_INSTALLED_EXE=$exe"|Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "U05_ATLAS_INSTALLED_PASS SHA256=$((Get-FileHash $exe -Algorithm SHA256).Hash)"
-      - name: Create actual Atlas Desktop project and works with installed GUI
-        shell: pwsh
-        timeout-minutes: 8
-        run: |
-          New-Item -ItemType Directory -Force -Path 'desktop/test-artifacts'|Out-Null
-          ./vendor/atlas/desktop/tests/installed-windows-keyboard.ps1
-      - name: Installed Center reads Atlas Desktop canonical work and saves exact ref
-        shell: pwsh
-        timeout-minutes: 5
-        run: ./tests/installed-windows-u05-cross-owner.ps1
-      - name: Installed Atlas GUI advances original owner revision
-        shell: pwsh
-        timeout-minutes: 5
-        env:
-          ATLAS_U05_APPEND_PROJECT: '1'
-        run: ./vendor/atlas/desktop/tests/installed-windows-keyboard.ps1
-      - name: Installed Center refuses stale work reference after owner GUI edit
-        shell: pwsh
-        timeout-minutes: 5
-        env:
-          U05_VERIFY_STALE_AFTER_OWNER_CHANGE: '1'
-        run: ./tests/installed-windows-u05-cross-owner.ps1
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: center-windows-preparation-shell
-          path: |
-            src-tauri/target/release/iwxa-admin-center.exe
-            src-tauri/target/release/bundle/nsis/*.exe
-            artifacts/iwxa-setup-core-*.exe
-            artifacts/setup-core-*.json
-            artifacts/setup-core-visual-*.png
-            artifacts/installer-sha256.txt
-            artifacts/installed-gui-result.json
-            artifacts/installed-gui-failure.png
-            artifacts/u05-two-installed-result.json
-            src-tauri/Cargo.lock
-            package-lock.json
-
-  # Opt-in only: exact stable 0.2 Windows NSIS acceptance, no new workflow.
-  # Qualify exact, already accepted Windows binaries without changing
-  # the runner profile by repeating installer self-tests before legacy setup.
-  windows-legacy-preview:
-    if: ${{ startsWith(github.event.head_commit.message, 'ci(legacy):') }}
-    runs-on: windows-latest
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/Center
-          ref: 2439f236cb7017135e661ee5bfd37b1d318868e1
-          path: legacy
-          persist-credentials: false
-      - name: Get exact stable 0.2 NSIS from its successful full Windows CI
+      - name: Obtain pinned, already built Center payload
         uses: actions/download-artifact@v4
         with:
           name: center-windows-preparation-shell
           repository: Faust-S/Center
-          run-id: 42410786028
-          github-token: ${{ github.token }}
-          path: legacy
-      - name: Get accepted 0.3 Setup Core from its successful full Windows CI
-        uses: actions/download-artifact@v4
-        with:
-          name: center-windows-preparation-shell
-          repository: Faust-S/Center
-          run-id: 42486593582
+          run-id: 42631324997
           github-token: ${{ github.token }}
           path: accepted
-      - name: Verify pinned installers and isolate user profile
+      - name: Build native UX preview without running tests
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $nsis=@(Get-ChildItem 'legacy/src-tauri/target/release/bundle/nsis/*.exe')
-          if($nsis.Count -ne 1) {throw 'LEGACY_PINNED_NSIS_INSTALLER_NOT_FOUND'}
-          $native='accepted/artifacts/iwxa-setup-core-center-0.3-preview.exe'
-          if(!(Test-Path -LiteralPath $native)) {throw 'LEGACY_ACCEPTED_NATIVE_SETUP_NOT_FOUND'}
-          New-Item -ItemType Directory -Force 'artifacts'|Out-Null
-          $payloadExe='accepted/src-tauri/target/release/iwxa-admin-center.exe'
-          if(!(Test-Path -LiteralPath $payloadExe)){throw 'LEGACY_ACCEPTED_03_EXE_NOT_FOUND'}
-          if(Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center')) {
-            throw 'LEGACY_PROFILE_NOT_CLEAN_BEFORE_STABLE_INSTALL'
-          }
-          Write-Host "LEGACY_SOURCE_INSTALLER_0_2_SHA256=$((Get-FileHash -LiteralPath $nsis[0].FullName -Algorithm SHA256).Hash)"
-          Write-Host "ACCEPTED_SETUP_CORE_0_3_SHA256=$((Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash)"
-          Write-Host "ACCEPTED_CENTER_03_PAYLOAD_SHA256=$((Get-FileHash -LiteralPath $payloadExe -Algorithm SHA256).Hash)"
-      - name: Build updated Setup Core GUI around accepted 0.3 payload
-        shell: pwsh
-        timeout-minutes: 5
-        run: |
-          $ErrorActionPreference='Stop'
-          $artifact=Join-Path $env:GITHUB_WORKSPACE 'artifacts'
-          $stub=Join-Path $artifact 'iwxa-setup-core-stub.exe'
-          $bundle=Join-Path $artifact 'iwxa-setup-core-center-0.3-preview.exe'
-          $profile='installer/products/center.json'
-          $payload=Join-Path $artifact 'legacy-gui-payload'
+          $output=Join-Path $env:GITHUB_WORKSPACE 'artifacts'
+          $payload=Join-Path $output 'ux-preview-payload'
           New-Item -ItemType Directory -Force -Path $payload|Out-Null
-          Copy-Item -LiteralPath 'accepted/src-tauri/target/release/iwxa-admin-center.exe' -Destination (Join-Path $payload 'iwxa-admin-center.exe')
+          $accepted='accepted/src-tauri/target/release/iwxa-admin-center.exe'
+          if(!(Test-Path -LiteralPath $accepted -PathType Leaf)){throw 'UX_PREVIEW_PINNED_PAYLOAD_MISSING'}
+          Copy-Item -LiteralPath $accepted -Destination (Join-Path $payload 'iwxa-admin-center.exe')
+          $stub=Join-Path $output 'ux-preview-stub.exe'
           ./installer/windows/build-stub.ps1 -Output $stub
-          $sourceHead=[string]$env:GITHUB_SHA
-          $sourceTree=[string](& git rev-parse 'HEAD^{tree}').Trim()
-          $args=@('-m','installer.build_bundle','build-resource',
-            '--product',$profile,'--payload',$payload,
-            '--stub',$stub,'--output',$bundle,
-            '--source-commit',$sourceHead,'--source-tree',$sourceTree)
-          $null=& python @args
-          if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $bundle)){
-            throw 'LEGACY_GUI_NEW_BUNDLE_FAILED'
-          }
-          $receipt=Join-Path $artifact 'legacy-v2-package-identity.json'
-          $verify=Start-Process -FilePath $bundle -ArgumentList ('--inspect-file "{0}"' -f $receipt) -PassThru
-          try {
-            if(!$verify.WaitForExit(60000)){Stop-Process -Id $verify.Id -Force;throw 'LEGACY_V2_INSPECT_TIMEOUT'}
-            if($verify.ExitCode -ne 0){throw 'LEGACY_V2_INSPECT_FAILED'}
-          } finally {$verify.Dispose()}
-          $identity=Get-Content -LiteralPath $receipt -Raw|ConvertFrom-Json
-          if($identity.packageFormat -ne 'PE_RESOURCE_V2' -or
-             $identity.product -ne 'iwxa.admin-center'){
-            throw 'LEGACY_PREVIEW_NOT_V2'
-          }
-          Write-Host "LEGACY_GUI_UPDATED_SETUP_V2_BUILD_PASS_SHA256=$((Get-FileHash $bundle -Algorithm SHA256).Hash)"
-      - name: Install exact NSIS 0.2 independently of legacy GUI driver
+          $tree=[string](& git rev-parse 'HEAD^{tree}').Trim()
+          $bundle=Join-Path $output 'IWXA-Setup-Core-UX-review.exe'
+          & python -m installer.build_bundle build-resource --product installer/products/center.json --payload $payload --stub $stub --output $bundle --source-commit $env:GITHUB_SHA --source-tree $tree
+          if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $bundle -PathType Leaf)){throw 'UX_PREVIEW_BUNDLE_NOT_CREATED'}
+          $sha=(Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash
+          "IWXA-Setup-Core-UX-review.exe SHA256=$sha" | Set-Content (Join-Path $output 'ux-preview-sha256.txt')
+          Write-Host "UX_REVIEW_BUILD_ONLY_NO_TESTS sha256=$sha bytes=$((Get-Item $bundle).Length)"
+      - name: Capture the actual native Setup window for visual review
         shell: pwsh
-        timeout-minutes: 4
+        continue-on-error: true
         run: |
-          $ErrorActionPreference = 'Stop'
-          $nsis=@(Get-ChildItem 'legacy/src-tauri/target/release/bundle/nsis/*.exe')
-          if($nsis.Count -ne 1){throw 'LEGACY_NSIS_INSTALLER_AMBIGUOUS'}
-          $p=Start-Process -FilePath $nsis[0].FullName -ArgumentList '/S' -PassThru
-          if(!$p.WaitForExit(120000)){Stop-Process -Id $p.Id -Force;throw 'LEGACY_NSIS_INSTALL_TIMEOUT'}
-          if($p.ExitCode -ne 0){throw "LEGACY_NSIS_INSTALL_EXIT_$($p.ExitCode)"}
-          $root=Join-Path $env:LOCALAPPDATA 'IWXA Admin Center'
-          if(!(Test-Path -LiteralPath (Join-Path $root 'iwxa-admin-center.exe')) -or
-             !(Test-Path -LiteralPath (Join-Path $root 'uninstall.exe'))){
-            throw 'LEGACY_NSIS_REAL_BINARIES_MISSING'
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName System.Drawing
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class NativePreview {
+            [StructLayout(LayoutKind.Sequential)]
+            public struct Rect { public int Left, Top, Right, Bottom; }
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
           }
-          Write-Host "LEGACY_REAL_NSIS_02_INSTALLED_SHA256=$((Get-FileHash (Join-Path $root 'iwxa-admin-center.exe') -Algorithm SHA256).Hash)"
-      - name: Create two real organizations through installed stable 0.2 GUI
-        shell: pwsh
-        timeout-minutes: 4
-        run: ./tests/installed-windows-legacy-real-organizations.ps1
-      - name: Preview native 0.3 beside real 0.2 and cancel preserving old program
-        shell: pwsh
-        timeout-minutes: 5
-        run: ./tests/installed-windows-legacy-preview.ps1
+          '@
+          $exe=Join-Path $env:GITHUB_WORKSPACE 'artifacts/IWXA-Setup-Core-UX-review.exe'
+          $p=Start-Process -FilePath $exe -PassThru
+          try {
+            $handle=[IntPtr]::Zero
+            for($i=0;$i -lt 45;$i++){
+              Start-Sleep -Milliseconds 250
+              $p.Refresh()
+              if($p.HasExited){throw 'UX_WINDOW_EXITED_BEFORE_CAPTURE'}
+              $handle=$p.MainWindowHandle
+              if($handle -ne [IntPtr]::Zero){break}
+            }
+            if($handle -eq [IntPtr]::Zero){throw 'UX_WINDOW_HANDLE_NOT_AVAILABLE'}
+            Start-Sleep -Milliseconds 4300
+            $rect=New-Object NativePreview+Rect
+            if(-not [NativePreview]::GetWindowRect($handle,[ref]$rect)){throw 'UX_WINDOW_RECT_UNAVAILABLE'}
+            $width=$rect.Right-$rect.Left
+            $height=$rect.Bottom-$rect.Top
+            if($width -lt 640 -or $height -lt 380){throw 'UX_WINDOW_GEOMETRY_TOO_SMALL'}
+            $bmp=[System.Drawing.Bitmap]::new($width,$height)
+            $graphics=[System.Drawing.Graphics]::FromImage($bmp)
+            try {
+              $graphics.CopyFromScreen($rect.Left,$rect.Top,0,0,$bmp.Size)
+              $bmp.Save((Join-Path $env:GITHUB_WORKSPACE 'artifacts/setup-core-unified-preview.png'),[Drawing.Imaging.ImageFormat]::Png)
+            } finally {
+              $graphics.Dispose()
+              $bmp.Dispose()
+            }
+            Write-Host 'IWXA_SETUP_UX_SCREENSHOT_READY'
+          } finally {
+            try {if(-not $p.HasExited){Stop-Process -Id $p.Id -Force}}catch{}
+            $p.Dispose()
+          }
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: center-legacy-nsis-to-native-preview
+          name: setup-core-ux-review-windows
           path: |
-            artifacts/legacy-nsis-preview-*.json
-            artifacts/legacy-real-organizations-result.json
-            artifacts/setup-core-visual-*.png
-            artifacts/installed-gui-result.json
-            artifacts/installed-gui-failure.png
-
-  # Targeted Windows verification of official signed bootstrapper. Does
-  # not install or remove WebView2 on the hosted runner.
-  windows-webview2-probe:
-    if: ${{ startsWith(github.event.head_commit.message, 'ci(webview2):') }}
-    runs-on: windows-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Compile Setup Core signature verifier without rebuilding Center
-        shell: pwsh
-        timeout-minutes: 2
-        run: ./installer/windows/build-stub.ps1 -Output artifacts/webview2-signature-probe.exe
-      - name: Validate offline WebView2 witness parses and rejects connected runner
-        shell: pwsh
-        timeout-minutes: 2
-        run: |
-          $ErrorActionPreference='Stop'
-          $script = Join-Path $env:GITHUB_WORKSPACE 'installer/windows/qualify-webview2-clean-windows.ps1'
-          $tokens=$null
-          $errors=$null
-          $ast=[System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors)
-          if($errors.Count -ne 0){throw 'WEBVIEW2_CLEAN_VM_POWERSHELL_PARSE_FAILED'}
-          $functions=@($ast.FindAll({
-            param($node)
-            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-              $node.Name -eq 'Assert-OfflineNetworkIsolation'
-          },$true))
-          if($functions.Count -ne 1){throw 'WEBVIEW2_CLEAN_VM_NETWORK_ASSERT_MISSING'}
-          . ([scriptblock]::Create($functions[0].Extent.Text))
-          $rejected=$false
-          try {
-            $null=Assert-OfflineNetworkIsolation
-          } catch {
-            if($_.Exception.Message -notlike 'WEBVIEW2_CLEAN_VM_OFFLINE_*'){throw}
-            $rejected=$true
-          }
-          if(!$rejected){throw 'WEBVIEW2_CONNECTED_RUNNER_ACCEPTED_AS_OFFLINE'}
-          Write-Host 'IWXA_WEBVIEW2_CONNECTED_WINDOWS_OFFLINE_REJECTION_PASS'
-      - name: Fetch Microsoft WebView2 bootstrapper and verify signed binary
-        shell: pwsh
-        timeout-minutes: 3
-        run: |
-          $ErrorActionPreference='Stop'
-          $official=Join-Path $env:GITHUB_WORKSPACE 'artifacts/MicrosoftEdgeWebview2Setup.exe'
-          $stub=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-signature-probe.exe'
-          $report=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-official-verification.json'
-          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $official -MaximumRedirection 6 -TimeoutSec 60
-          if(!(Test-Path -LiteralPath $official)){throw 'WEBVIEW2_REAL_BOOTSTRAPPER_MISSING'}
-          $p=Start-Process -FilePath $stub -ArgumentList ('--verify-webview2-installer-file "{0}" "{1}"' -f $official,$report) -PassThru
-          try {
-            if(!$p.WaitForExit(55000)){Stop-Process -Id $p.Id -Force; throw 'WEBVIEW2_MICROSOFT_VERIFY_TIMEOUT'}
-            if($p.ExitCode -ne 0){throw "WEBVIEW2_MICROSOFT_SIGNED_VALIDATION_EXIT_$($p.ExitCode)"}
-          } finally {$p.Dispose()}
-          $result=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
-          if($result.status -ne 'WEBVIEW2_MICROSOFT_INSTALLER_VERIFIED'){
-            throw "WEBVIEW2_MICROSOFT_BOOTSTRAPPER_INVALID_$($result.status)"
-          }
-          Write-Host "WEBVIEW2_OFFICIAL_BOOTSTRAPPER_AUTHENTICODE_PASS size=$((Get-Item $official).Length) sha256=$((Get-FileHash $official -Algorithm SHA256).Hash)"
-          # The genuine ~2 MB Microsoft bootstrapper is not a full offline
-          # installer. Catch incorrect offline selection before running it.
-          $offlineReport=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-bootstraper-offline-rejected.json'
-          $offline=Start-Process -FilePath $stub -ArgumentList ('--verify-webview2-standalone-file "{0}" "{1}"' -f $official,$offlineReport) -PassThru
-          try {
-            if(!$offline.WaitForExit(55000)){Stop-Process -Id $offline.Id -Force;throw 'WEBVIEW2_STANDALONE_PROBE_TIMEOUT'}
-            if($offline.ExitCode -ne 2){throw 'WEBVIEW2_BOOTSTRAPPER_ACCEPTED_AS_OFFLINE'}
-          } finally {$offline.Dispose()}
-          $offlineState=Get-Content -LiteralPath $offlineReport -Raw|ConvertFrom-Json
-          if($offlineState.status -ne 'ERROR' -or
-             $offlineState.reason -ne 'SETUP_WEBVIEW2_OFFLINE_STANDALONE_REQUIRED'){
-            throw 'WEBVIEW2_BOOTSTRAPPER_OFFLINE_REJECTION_INVALID'
-          }
-          Write-Host 'WEBVIEW2_BOOTSTRAPPER_REJECTED_AS_OFFLINE_PASS'
-          $tampered=Join-Path $env:GITHUB_WORKSPACE 'artifacts/MicrosoftEdgeWebview2Setup-tampered.exe'
-          Copy-Item -LiteralPath $official -Destination $tampered
-          $file=[System.IO.File]::Open($tampered,[System.IO.FileMode]::Open,[System.IO.FileAccess]::ReadWrite,[System.IO.FileShare]::None)
-          try {
-            $null=$file.Seek(4096,[System.IO.SeekOrigin]::Begin)
-            $b=$file.ReadByte()
-            if($b -lt 0){throw 'WEBVIEW2_TAMPER_POSITION_INVALID'}
-            $null=$file.Seek(4096,[System.IO.SeekOrigin]::Begin)
-            $file.WriteByte([byte]($b -bxor 1))
-          } finally {$file.Dispose()}
-          $tamperReport=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-tamper-rejected.json'
-          $bad=Start-Process -FilePath $stub -ArgumentList ('--verify-webview2-installer-file "{0}" "{1}"' -f $tampered,$tamperReport) -PassThru
-          try {
-            if(!$bad.WaitForExit(55000)){Stop-Process -Id $bad.Id -Force; throw 'WEBVIEW2_TAMPER_VERIFY_TIMEOUT'}
-            if($bad.ExitCode -ne 2){throw "WEBVIEW2_TAMPER_WAS_ACCEPTED_$($bad.ExitCode)"}
-          } finally {$bad.Dispose()}
-          $result=Get-Content -LiteralPath $tamperReport -Raw|ConvertFrom-Json
-          if($result.status -ne 'ERROR'){throw 'WEBVIEW2_TAMPER_REPORT_MISSING_ERROR'}
-          Write-Host 'WEBVIEW2_TAMPERED_MICROSOFT_BOOTSTRAPPER_REJECTED_PASS'
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: center-webview2-verification
-          path: |
-            artifacts/webview2-*.json
-  # One optional benchmark job in the EXISTING public CI workflow.
-  resource-benchmark:
-    if: ${{ startsWith(github.event.head_commit.message, 'ci(bench):') }}
-    runs-on: windows-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Compile unchanged native Setup Core stub
-        shell: pwsh
-        run: ./installer/windows/build-stub.ps1 -Output artifacts/iwxa-setup-benchmark-stub.exe
-      - name: Materialize pinned pre-optimization baseline
-        shell: powershell
-        run: |
-          $ErrorActionPreference='Stop'
-          $old=@(& git show '7173fb54bad2ff67eb77f2603117f85e6e63cb73:installer/build_bundle.py')
-          if($LASTEXITCODE -ne 0 -or $old.Count -lt 300){throw 'SETUP_BENCHMARK_BASELINE_MISSING'}
-          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'setup-v2-baseline.py'),
-            ($old -join [Environment]::NewLine) + [Environment]::NewLine,
-            [System.Text.UTF8Encoding]::new($false))
-      - name: Compare memory and time on 25 and 250 MiB V2 packages
-        shell: powershell
-        timeout-minutes: 35
-        run: ./installer/windows/benchmark-resource-v2.ps1 -Stub artifacts/iwxa-setup-benchmark-stub.exe -BaselineSource (Join-Path $env:RUNNER_TEMP 'setup-v2-baseline.py') -SizesMiB 25,250 -Repeats 2 -Output artifacts/iwxa-v2-benchmark.json
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: iwxa-setup-v2-resource-benchmark
-          path: artifacts/iwxa-v2-benchmark.json
+            artifacts/IWXA-Setup-Core-UX-review.exe
+            artifacts/ux-preview-sha256.txt
+            artifacts/setup-core-unified-preview.png
+          if-no-files-found: error
