@@ -20,6 +20,7 @@ namespace IwxaSetup
         internal string Architecture;
         internal string Entrypoint;
         internal string InstallDir;
+        internal string DataNamespace;
         internal bool NeedsWebView2;
         internal long PayloadBytes;
         internal long PackageBytes;
@@ -129,6 +130,7 @@ namespace IwxaSetup
                     Architecture = StringValue(product, "architecture"),
                     Entrypoint = SafePath(StringValue(product, "entrypoint")),
                     InstallDir = SafePath(StringValue(product, "install_dir")),
+                    DataNamespace = StringValue(product, "data_namespace"),
                     PackageSha256 = Hex(zipHash),
                     PackageBytes = new FileInfo(executable).Length,
                     PackageFormat = resourcePackage ? "PE_RESOURCE_V2" : "ZIP_OVERLAY_V1",
@@ -136,7 +138,9 @@ namespace IwxaSetup
                 if (!Regex.IsMatch(info.Id, @"\A[a-z][a-z0-9.-]{2,63}\z") ||
                     !Regex.IsMatch(info.Version, @"\A\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?\z") ||
                     (info.Architecture != "windows-x64" && info.Architecture != "windows-arm64") ||
-                    info.Name.Length > 80 || info.Publisher.Length > 80)
+                    info.Name.Length > 80 || info.Publisher.Length > 80 ||
+                    !Regex.IsMatch(info.DataNamespace,
+                        @"\A[a-z][a-z0-9.-]{2,63}\z"))
                     throw new InvalidDataException("SETUP_PRODUCT_IDENTITY_INVALID");
                 if (info.InstallDir.IndexOf('/') >= 0)
                     throw new InvalidDataException("SETUP_INSTALL_DIR_MUST_BE_SIMPLE");

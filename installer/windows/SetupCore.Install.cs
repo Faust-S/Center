@@ -27,6 +27,16 @@ namespace IwxaSetup
         internal long AvailableBytes;
     }
 
+    internal sealed class SetupLocations
+    {
+        internal string ProgramRoot;
+        internal string DataRoot;
+        internal string SoftwareRoot;
+        internal string ModelsRoot;
+        internal string CacheRoot;
+        internal bool StartWithWindows;
+    }
+
     internal static partial class SetupInstallation
     {
         private const string ReceiptFile = ".iwxa-setup-ownership.json";
@@ -102,6 +112,84 @@ namespace IwxaSetup
             return root;
         }
 
+        internal static SetupLocations DefaultLocations(BundleInfo info)
+        {
+            string shared = Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData), "IWXA");
+            return new SetupLocations {
+                ProgramRoot = RootFor(info),
+                DataRoot = Path.Combine(Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                    info.DataNamespace),
+                SoftwareRoot = Path.Combine(shared, "Software"),
+                ModelsRoot = Path.Combine(shared, "Models"),
+                CacheRoot = Path.Combine(shared, "Cache"),
+                StartWithWindows = false
+            };
+        }
+
+        internal static SetupLocations InstalledLocations(BundleInfo info)
+        {
+            SetupLocations defaults = DefaultLocations(info);
+            using (var owner = Registry.CurrentUser.OpenSubKey(
+                RegistryProducts + info.Id))
+            {
+                if (owner == null) return defaults;
+                string data = Convert.ToString(owner.GetValue("DataLocation"));
+                string software = Convert.ToString(owner.GetValue("SoftwareLocation"));
+                string models = Convert.ToString(owner.GetValue("ModelsLocation"));
+                string cache = Convert.ToString(owner.GetValue("CacheLocation"));
+                if (!String.IsNullOrWhiteSpace(data)) defaults.DataRoot = data;
+                if (!String.IsNullOrWhiteSpace(software)) defaults.SoftwareRoot = software;
+                if (!String.IsNullOrWhiteSpace(models)) defaults.ModelsRoot = models;
+                if (!String.IsNullOrWhiteSpace(cache)) defaults.CacheRoot = cache;
+            }
+            defaults.StartWithWindows = StartupEnabled(info);
+            return ValidateLocations(info, defaults, false);
+        }
+
+        private static bool PathOverlap(string a, string b)
+        {
+            return SamePath(a, b) ||
+                a.StartsWith(b + "\\", StringComparison.OrdinalIgnoreCase) ||
+                b.StartsWith(a + "\\", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static SetupLocations ValidateLocations(BundleInfo info,
+            SetupLocations requested, bool beforeFirstInstall = true)
+        {
+            if (requested == null)
+                throw new InvalidOperationException("SETUP_LOCATIONS_NOT_SPECIFIED");
+            var result = new SetupLocations {
+                ProgramRoot = ValidateInstallRoot(requested.ProgramRoot),
+                DataRoot = ValidateInstallRoot(requested.DataRoot),
+                SoftwareRoot = ValidateInstallRoot(requested.SoftwareRoot),
+                ModelsRoot = ValidateInstallRoot(requested.ModelsRoot),
+                CacheRoot = ValidateInstallRoot(requested.CacheRoot),
+                StartWithWindows = requested.StartWithWindows
+            };
+            string[] roots = { result.ProgramRoot, result.DataRoot,
+                result.SoftwareRoot, result.ModelsRoot, result.CacheRoot };
+            for (int i = 0; i < roots.Length; i++)
+                for (int j = i + 1; j < roots.Length; j++)
+                    if (PathOverlap(roots[i], roots[j]))
+                        throw new InvalidOperationException(
+                            "SETUP_STORAGE_LOCATIONS_OVERLAP");
+            if (beforeFirstInstall)
+            {
+                // Never silently redirect an existing Tauri data store into
+                // an empty alternative. That needs a separate data-migration
+                // operation with readback and rollback.
+                string existingData = DefaultLocations(info).DataRoot;
+                if (!SamePath(result.DataRoot, existingData) &&
+                    Directory.Exists(existingData) &&
+                    Directory.GetFileSystemEntries(existingData).Length != 0)
+                    throw new InvalidOperationException(
+                        "SETUP_EXISTING_DATA_MIGRATION_REQUIRED");
+            }
+            return result;
+        }
+
         internal static SetupDiskPlan CheckStageSpace(BundleInfo info, string selectedRoot = null)
         {
             // Verified unpacked bytes + a complete same-volume installer copy.
@@ -137,13 +225,7 @@ namespace IwxaSetup
 
         internal static InstallOutcome InstallFresh(string bundle)
         {
-            BundleInfo info = BundleReader.Inspect(bundle);
-            using (var mutex = new System.Threading.Mutex(false, "Local\\IWXA.SetupCore." + info.Id))
-            {
-                if (!mutex.WaitOne(0)) throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
-                try { return InstallLocked(bundle, info); }
-                finally { mutex.ReleaseMutex(); }
-            }
+            return InstallFresh(bundle, DefaultLocations(BundleReader.Inspect(bundle)));
         }
 
         internal static InstallOutcome InstallFresh(string bundle, string selectedRoot)
@@ -155,12 +237,23 @@ namespace IwxaSetup
             string selectedRoot, bool startWithWindows)
         {
             BundleInfo info = BundleReader.Inspect(bundle);
-            string root = ValidateInstallRoot(selectedRoot);
+            SetupLocations locations = DefaultLocations(info);
+            locations.ProgramRoot = selectedRoot;
+            locations.StartWithWindows = startWithWindows;
+            return InstallFresh(bundle, locations);
+        }
+
+        internal static InstallOutcome InstallFresh(string bundle,
+            SetupLocations selected)
+        {
+            BundleInfo info = BundleReader.Inspect(bundle);
+            SetupLocations choices = ValidateLocations(info, selected);
             using (var mutex = new System.Threading.Mutex(false, "Local\\IWXA.SetupCore." + info.Id))
             {
                 if (!mutex.WaitOne(0))
                     throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
-                try { return InstallLocked(bundle, info, null, root, startWithWindows); }
+                try { return InstallLocked(bundle, info, null, choices.ProgramRoot,
+                    choices.StartWithWindows, choices); }
                 finally { mutex.ReleaseMutex(); }
             }
         }
@@ -203,7 +296,7 @@ namespace IwxaSetup
 
         private static InstallOutcome InstallLocked(string bundle, BundleInfo info,
             LegacyAssessment legacy = null, string selectedRoot = null,
-            bool startWithWindows = false)
+            bool startWithWindows = false, SetupLocations locations = null)
         {
             string root = selectedRoot == null ? RootFor(info) : ValidateInstallRoot(selectedRoot);
             InstallPreflight readiness = SetupReadiness.Check(info, root);
@@ -230,6 +323,20 @@ namespace IwxaSetup
                 activated = true;
 
                 Register(info, root);
+                if (locations != null)
+                {
+                    using (var authority = Registry.CurrentUser.OpenSubKey(
+                        RegistryProducts + info.Id, true))
+                    {
+                        if (authority == null)
+                            throw new InvalidOperationException(
+                                "SETUP_LOCATIONS_AUTHORITY_MISSING");
+                        authority.SetValue("DataLocation", locations.DataRoot);
+                        authority.SetValue("SoftwareLocation", locations.SoftwareRoot);
+                        authority.SetValue("ModelsLocation", locations.ModelsRoot);
+                        authority.SetValue("CacheLocation", locations.CacheRoot);
+                    }
+                }
                 // The original NSIS shortcut must remain usable while the
                 // preview is being qualified.
                 if (legacy == null)
