@@ -193,7 +193,27 @@ try {
 } finally {
   if($installed) {
     $removed=Invoke-Setup '--uninstall-file' $uninstallFile 0
-    if($removed.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or (Test-Path -LiteralPath $root) -or (Test-Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher')){throw 'PUBLISHER_SETUP_UNINSTALL_INVALID'}
+    # The Setup Core receipt can succeed before post-uninstall resources
+    # disappear. Preserve the exact Windows witness instead of conflating
+    # an existing folder, registry entry and a still-running app process.
+    $rootPresent=[bool](Test-Path -LiteralPath $root)
+    $registryPresent=[bool](Test-Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher')
+    $leftoverNames=if($rootPresent){@(Get-ChildItem -LiteralPath $root -Force -Recurse -ErrorAction SilentlyContinue|Select-Object -First 24 -ExpandProperty Name)}else{@()}
+    $publisherProcesses=@(Get-Process -Name 'iwxa-publisher' -ErrorAction SilentlyContinue).Count
+    $webViewProcesses=@(Get-Process -Name 'msedgewebview2' -ErrorAction SilentlyContinue).Count
+    $uninstallWitness=[ordered]@{
+      status=$removed.status
+      rootPresent=$rootPresent
+      registryPresent=$registryPresent
+      leftoverNames=@($leftoverNames)
+      publisherProcesses=$publisherProcesses
+      webViewProcesses=$webViewProcesses
+    }
+    $uninstallWitness|ConvertTo-Json -Depth 10|Set-Content -LiteralPath (Join-Path $artifact 'uninstall-witness.json') -Encoding utf8
+    Write-Host ("PUBLISHER_SETUP_UNINSTALL_WITNESS status={0} root={1} registry={2} publisherProcesses={3} webViewProcesses={4}" -f $removed.status,$rootPresent,$registryPresent,$publisherProcesses,$webViewProcesses)
+    if($removed.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or $rootPresent -or $registryPresent){
+      throw ("PUBLISHER_SETUP_UNINSTALL_INVALID root={0} registry={1} remaining={2}" -f $rootPresent,$registryPresent,($leftoverNames -join ','))
+    }
     if(!(Test-Path -LiteralPath $dataSentinel) -or (Get-Content -LiteralPath $dataSentinel -Raw) -ne 'publisher-user-data-untouched'){throw 'PUBLISHER_SETUP_USER_DATA_WAS_CHANGED'}
     if(!$TransportOnly -and !(Test-Path -LiteralPath (Join-Path $dataRoot 'publisher-preparation-v1.json'))){
       if($null -eq $guiFailure){throw 'PUBLISHER_SETUP_USER_DRAFT_LOST'}
