@@ -656,8 +656,8 @@ try {
     $nativeCustom = $null
     function Invoke-Custom([string]$binary,[string]$action,[string]$value,
         [string]$path,[string]$mode,[int]$exitExpected=0) {
-        $argsText = if ($action -eq '--install-locations-file') {
-            '--install-locations-file "{0}" "{1}"' -f $value,$path
+        $argsText = if ($action -in @('--install-locations-file','--migrate-locations-file')) {
+            ('{0} "{1}" "{2}"' -f $action,$value,$path)
         } elseif ($action -eq '--install-at-file') {
             '--install-at-file "{0}" "{1}" {2}' -f $value,$path,$mode
         } else { '--startup-mode-file {0} "{1}"' -f $mode,$path }
@@ -742,6 +742,87 @@ try {
             $restoredLocations.cacheRoot -ne $customCacheRoot) {
             throw 'SETUP_CUSTOM_STORAGE_CHANGED_AFTER_ROLLBACK'
         }
+        # Explicit storage migration on an ALREADY INSTALLED Center.
+        # All 4 source categories are exercised, including real user files.
+        $sourceSamples = @(
+            (Join-Path $customSoftwareRoot 'tool.fixture'),
+            (Join-Path $customModelsRoot 'model.fixture'),
+            (Join-Path $customCacheRoot 'cache.fixture')
+        )
+        foreach($source in $sourceSamples) {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $source) | Out-Null
+            Set-Content -LiteralPath $source -Value ('fixture:' + (Split-Path -Leaf $source)) -NoNewline
+        }
+        $moveBase = Join-Path $env:LOCALAPPDATA 'IWXA Setup Native Fixture/Relocated'
+        $moveData = Join-Path $moveBase 'Data'
+        $moveSoftware = Join-Path $moveBase 'Software'
+        $moveModels = Join-Path $moveBase 'Models'
+        $moveCache = Join-Path $moveBase 'Cache'
+        $moveRequest = Join-Path $artifact 'setup-core-migrate-locations-request.json'
+        [pscustomobject]@{
+            schema='IWXA_SETUP_LOCATIONS/1'
+            programRoot=$customRoot
+            dataRoot=$moveData
+            softwareRoot=$moveSoftware
+            modelsRoot=$moveModels
+            cacheRoot=$moveCache
+            startWithWindows=$true
+        } | ConvertTo-Json | Set-Content -LiteralPath $moveRequest -Encoding UTF8
+        $conflict = Join-Path $moveData 'foreign-file.txt'
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $conflict) | Out-Null
+        Set-Content -LiteralPath $conflict -Value 'not-owned-by-setup' -NoNewline
+        $deniedMove = Invoke-Custom $bundle '--migrate-locations-file' $moveRequest (
+            Join-Path $artifact 'setup-core-migration-conflict.json') '' 2
+        if ($deniedMove.status -ne 'ERROR' -or
+            $deniedMove.reason -ne 'SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS' -or
+            (Get-ItemProperty 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center').DataLocation -ne $customDataRoot -or
+            (Get-Content -LiteralPath $conflict -Raw) -ne 'not-owned-by-setup') {
+            throw 'SETUP_MIGRATION_FOREIGN_TARGET_NOT_PRESERVED'
+        }
+        Remove-Item -LiteralPath $conflict -Force
+        Remove-Item -LiteralPath $moveData -Force
+        $migrated = Invoke-Custom $bundle '--migrate-locations-file' $moveRequest (
+            Join-Path $artifact 'setup-core-migrated-locations.json') ''
+        if ($migrated.status -ne 'STORAGE_COPIED_AND_SWITCHED_ORIGINAL_PRESERVED' -or
+            $migrated.dataRoot -ne $moveData -or
+            $migrated.softwareRoot -ne $moveSoftware -or
+            $migrated.modelsRoot -ne $moveModels -or
+            $migrated.cacheRoot -ne $moveCache) {
+            throw 'SETUP_STORAGE_MIGRATION_NOT_SWITCHED'
+        }
+        $moveProof = Join-Path $moveData 'atlas-store-v1/setup-custom-data.txt'
+        if (!(Test-Path -LiteralPath $preservedData) -or
+            !(Test-Path -LiteralPath $moveProof) -or
+            (Get-FileHash -LiteralPath $moveProof -Algorithm SHA256).Hash -ne
+                (Get-FileHash -LiteralPath $preservedData -Algorithm SHA256).Hash) {
+            throw 'SETUP_STORAGE_MIGRATION_USER_DATA_COPY_NOT_VERIFIED'
+        }
+        foreach($name in @('Software','Models','Cache')) {
+            $fromPath=Join-Path $customRoot '..'
+            $sourceRoot= switch($name) {
+                Software { $customSoftwareRoot }
+                Models { $customModelsRoot }
+                Cache { $customCacheRoot }
+            }
+            $fileName=$name.ToLowerInvariant() + '.fixture'
+            $sourceFile=Join-Path $sourceRoot $fileName
+            $targetFile=Join-Path (Join-Path $moveBase $name) $fileName
+            if (!(Test-Path -LiteralPath $sourceFile) -or
+                !(Test-Path -LiteralPath $targetFile) -or
+                (Get-FileHash -LiteralPath $sourceFile -Algorithm SHA256).Hash -ne
+                    (Get-FileHash -LiteralPath $targetFile -Algorithm SHA256).Hash) {
+                throw ('SETUP_STORAGE_MIGRATION_NOT_COPIED_' + $name)
+            }
+        }
+        $movedReadback = Invoke-NativeInspection $bundle (
+            Join-Path $artifact 'setup-core-migration-readback.json') 0 '--locations-file'
+        if ($movedReadback.dataRoot -ne $moveData -or
+            $movedReadback.softwareRoot -ne $moveSoftware -or
+            $movedReadback.modelsRoot -ne $moveModels -or
+            $movedReadback.cacheRoot -ne $moveCache) {
+            throw 'SETUP_STORAGE_MIGRATION_REGISTRY_READBACK_INVALID'
+        }
+        Write-Host 'IWXA_SETUP_EXISTING_DATA_STORAGE_MIGRATION_READBACK_PASS'
         $manual = Invoke-Custom $bundle '--startup-mode-file' '' (
             Join-Path $artifact 'setup-core-custom-manual.json') 'manual'
         if ($manual.status -ne 'STARTUP_PREFERENCE_APPLIED' -or
@@ -771,7 +852,20 @@ try {
             (Get-Content -LiteralPath $preservedData -Raw) -ne 'custom-root-preserved') {
             throw 'SETUP_CUSTOM_LOCATION_CHANGED_USER_DATA'
         }
+        $movedData = Join-Path $env:LOCALAPPDATA 'IWXA Setup Native Fixture/Relocated/Data/atlas-store-v1/setup-custom-data.txt'
+        if (!(Test-Path -LiteralPath $movedData -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $preservedData -Algorithm SHA256).Hash -ne
+              (Get-FileHash -LiteralPath $movedData -Algorithm SHA256).Hash) {
+            throw 'SETUP_STORAGE_MIGRATED_FILES_MISSING_AFTER_APP_UNINSTALL'
+        }
         Remove-Item -LiteralPath $preservedData -Force
+        Remove-Item -LiteralPath $movedData -Force
+        foreach ($sample in $sourceSamples) {
+            if (Test-Path -LiteralPath $sample) {
+                Remove-Item -LiteralPath $sample -Force
+            }
+        }
+        Write-Host 'IWXA_SETUP_MIGRATED_SOURCE_AND_TARGET_PRESERVED_ON_UNINSTALL_PASS'
     }
     Write-Host 'IWXA_SETUP_CUSTOM_LOCATION_UNINSTALL_PRESERVES_DATA_PASS'
 
