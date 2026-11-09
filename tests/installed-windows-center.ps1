@@ -215,8 +215,15 @@ function Read-NativeProject([string]$organizationId='') {
   if($organizationId) {
     if($organizationId -notmatch '^[a-zA-Z0-9_-]{1,100}$'){throw 'Invalid organization ID in Windows acceptance'}
     $headPath=Join-Path (Join-Path $organizationsRoot $organizationId) 'head.json'
-    if(!(Test-Path $headPath)){return $null}
-    $heads=@(Get-Item -LiteralPath $headPath)
+    if(!(Test-Path -LiteralPath $headPath -PathType Leaf)){return $null}
+    # The app publishes Atlas state with an atomic file replacement.
+    # Get-Item can lose a race after Test-Path; treat that observation as
+    # not-yet-published and let Wait-SavedProject retry. Never invent data.
+    try {
+      $heads=@(Get-Item -LiteralPath $headPath -ErrorAction Stop)
+    } catch [System.Management.Automation.ItemNotFoundException] {
+      return $null
+    }
   } else {
     $heads=@(Get-ChildItem -LiteralPath $organizationsRoot -Filter 'head.json' -Recurse -File -ErrorAction SilentlyContinue)
   }
