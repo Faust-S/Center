@@ -40,8 +40,7 @@ export function validateTestLicenseRequest(value) {
   return structuredClone(value);
 }
 
-export function prepareTestLicenseRequest(draft, { proposalId, seats }) {
-  const state = validatePublisherDraft(draft);
+function prepareTestLicenseRequestValidated(state, { proposalId, seats }) {
   if (!validId(proposalId)) reject('TEST_REQUEST_PROPOSAL_ID_INVALID');
   const proposal = state.proposals.find(p=>p.id===proposalId);
   if (!proposal || proposal.status !== 'DRAFT_NOT_ISSUED') reject('TEST_REQUEST_PROPOSAL_NOT_FOUND');
@@ -67,6 +66,9 @@ export function prepareTestLicenseRequest(draft, { proposalId, seats }) {
   });
 }
 
+export function prepareTestLicenseRequest(draft,options) {
+ return prepareTestLicenseRequestValidated(validatePublisherDraft(draft),options);
+}
 export function encodeTestLicenseRequest(request) {
   const encoded=JSON.stringify(validateTestLicenseRequest(request));
   if (new TextEncoder().encode(encoded).length > TEST_LICENSE_REQUEST_LIMIT) reject('TEST_REQUEST_SIZE_INVALID');
@@ -84,22 +86,30 @@ export function suggestedTestRequestFileName(request) {
   return 'iwxa-test-license-request-'+safe+'.json';
 }
 
-// Read-only capability classification of the ORIGINAL T3 TEST issuer scope.
-// This is neither a license/verifier nor proof of a PERSON signing contract.
-export function inspectTestIssuerRequestScope(draft,proposalId) {
- const state=validatePublisherDraft(draft);
- const proposal=state.proposals.find(p=>p.id===proposalId);
- if(!proposal)return {supported:false,code:'PROPOSAL_NOT_FOUND',route:'NONE'};
- const holder=state.holders.find(h=>h.id===proposal.holderId);
- const product=state.products.find(p=>p.id===proposal.productId);
- if(!holder||!product)return {supported:false,code:'REFERENCE_MISSING',route:'NONE'};
- const route=holder.type==='PERSON'?'PERSON_DIRECT_IN_PRODUCT':'ORGANIZATION_ADMIN_CENTER';
- if(holder.type==='PERSON')return {supported:false,code:'PERSON_SIGNED_CONTRACT_UNAVAILABLE',route};
- if(product.id!=='IWXA_ADMIN_CENTER')return {supported:false,code:'PRODUCT_SIGNED_CONTRACT_UNAVAILABLE',route};
- try {
-  prepareTestLicenseRequest(state,{proposalId,seats:1});
+// Original TEST issuer only: read-only, never signed consumer authority.
+function inspectValidatedTestIssuerScope(state,proposalId) {
+ const p=state.proposals.find(v=>v.id===proposalId);
+ if(!p)return {supported:false,code:'PROPOSAL_NOT_FOUND',route:'NONE'};
+ const h=state.holders.find(v=>v.id===p.holderId);
+ const product=state.products.find(v=>v.id===p.productId);
+ if(!h||!product)return {supported:false,code:'REFERENCE_MISSING',route:'NONE'};
+ const route=h.type==='PERSON'?'PERSON_DIRECT_IN_PRODUCT':'ORGANIZATION_ADMIN_CENTER';
+ if(h.type==='PERSON')return {supported:false,code:'PERSON_SIGNED_CONTRACT_UNAVAILABLE',route};
+ if(product.id!=='IWXA_ADMIN_CENTER')
+   return {supported:false,code:'PRODUCT_SIGNED_CONTRACT_UNAVAILABLE',route};
+ try{
+  prepareTestLicenseRequestValidated(state,{proposalId,seats:1});
   return {supported:true,code:'ORG_CENTER_TEST_REQUEST_ONLY',route};
- } catch {
+ }catch{
   return {supported:false,code:'TEST_REQUEST_INCOMPLETE',route};
  }
+}
+export function inspectTestIssuerRequestScope(draft,proposalId) {
+ return inspectValidatedTestIssuerScope(validatePublisherDraft(draft),proposalId);
+}
+// Check a whole draft once, rather than revalidating a 512 KiB store for
+// every row while React renders an extensive customer/license catalog.
+export function inspectTestIssuerRequestScopes(draft) {
+ const state=validatePublisherDraft(draft);
+ return state.proposals.map(p=>({proposalId:p.id,...inspectValidatedTestIssuerScope(state,p.id)}));
 }

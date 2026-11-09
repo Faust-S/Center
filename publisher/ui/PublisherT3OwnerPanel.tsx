@@ -1,5 +1,5 @@
-import React,{useEffect,useState} from 'react';
-import {prepareTestLicenseRequest,encodeTestLicenseRequest,inspectTestIssuerRequestScope} from '../src/test-license-request.mjs';
+import React,{useEffect,useMemo,useState} from 'react';
+import {prepareTestLicenseRequest,encodeTestLicenseRequest,inspectTestIssuerRequestScope,inspectTestIssuerRequestScopes} from '../src/test-license-request.mjs';
 
 // This panel is intentionally only the front-end of the installed Tauri Host.
 // The private, original T3 executable remains the sole signing authority. A
@@ -28,8 +28,10 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
  const proposals=Array.isArray(draft?.proposals)?draft.proposals:[];
  const products=Array.isArray(draft?.products)?draft.products:[];
  const holders=Array.isArray(draft?.holders)?draft.holders:[];
- const eligible=proposals.filter((p:any)=>inspectTestIssuerRequestScope(draft,p.id).supported);
- const unsupported=proposals.filter((p:any)=>!inspectTestIssuerRequestScope(draft,p.id).supported);
+ const readiness=useMemo(()=>inspectTestIssuerRequestScopes(draft),[draft]);
+ const supportedIds=useMemo(()=>new Set(readiness.filter(p=>p.supported).map(p=>p.proposalId)),[readiness]);
+ const eligible=proposals.filter((p:any)=>supportedIds.has(p.id));
+ const unsupported=proposals.filter((p:any)=>!supportedIds.has(p.id));
  const personal=unsupported.filter((p:any)=>holders.some((h:any)=>h.id===p.holderId&&h.type==='PERSON'));
  const proposalLabel=(p:any)=>{
    const product=products.find((v:any)=>v.id===p.productId);
@@ -107,7 +109,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
        </label>
      </div>
      <div className="actions">
-       <button className="secondary" type="button" disabled={busy||!issuer||!proposalId||!eligible.some((p:any)=>p.id===proposalId)}
+       <button className="secondary" type="button" disabled={busy||!issuer||!proposalId||!supportedIds.has(proposalId)}
          data-testid="publisher-t3-issue" onClick={()=>operation(async()=>{
            if(!inspectTestIssuerRequestScope(draft,proposalId).supported)throw Error('PUBLISHER_T3_REQUEST_SCOPE_UNAVAILABLE');
            const request=prepareTestLicenseRequest(draft,{proposalId,seats:Number(seats)});

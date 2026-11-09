@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {emptyPublisherDraft, applyPublisherDraftCommand} from '../src/preparation.mjs';
 import {emptyDraft as emptyAdminDraft, applyDraftCommand as applyAdminCommand} from '../../src/organization.mjs';
-import {prepareTestLicenseRequest, validateTestLicenseRequest, encodeTestLicenseRequest, decodeTestLicenseRequest, suggestedTestRequestFileName,inspectTestIssuerRequestScope} from '../src/test-license-request.mjs';
+import {prepareTestLicenseRequest, validateTestLicenseRequest, encodeTestLicenseRequest, decodeTestLicenseRequest, suggestedTestRequestFileName,inspectTestIssuerRequestScope,inspectTestIssuerRequestScopes} from '../src/test-license-request.mjs';
 
 function fixture(kind='ORGANIZATION',productId='IWXA_ADMIN_CENTER',features=['WORKSPACE']){
   let s=emptyPublisherDraft();
@@ -98,4 +98,18 @@ test('incomplete original TEST request is not offered to owner signer',()=>{
  const result=inspectTestIssuerRequestScope(incomplete,incomplete.proposals[0].id);
  assert.equal(result.supported,false);
  assert.equal(result.code,'TEST_REQUEST_INCOMPLETE');
+});
+
+test('bulk TEST issuer readiness lists supported organization and unsupported PERSON with no authority',()=>{
+ let draft=fixture();
+ draft=applyPublisherDraftCommand(draft,{kind:'addHolder',id:'person:local',name:'One person',type:'PERSON'});
+ draft=applyPublisherDraftCommand(draft,{kind:'addProposal',holderId:'person:local',
+   productId:'IWXA_ADMIN_CENTER',features:['WORKSPACE'],termDays:30});
+ const previous=JSON.stringify(draft);
+ const result=inspectTestIssuerRequestScopes(draft);
+ assert.deepEqual(result.map(v=>v.supported),[true,false]);
+ assert.equal(result[1].code,'PERSON_SIGNED_CONTRACT_UNAVAILABLE');
+ assert.equal(result[1].route,'PERSON_DIRECT_IN_PRODUCT');
+ assert.equal(JSON.stringify(draft),previous);
+ assert.ok(result.every(v=>!('license' in v)&&!('signature' in v)));
 });
