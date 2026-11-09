@@ -127,9 +127,16 @@ try{
     $occupied=Join-Path $dataRoot 'existing.fixture'
     [IO.File]::WriteAllText($occupied,'keep me')
     $blocked=$false
-    try{$null=InvokeInstallWithImport $locations [Threading.CancellationToken]::None}
-    catch [InvalidOperationException]{
-        $blocked=$_.Exception.Message -eq 'SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS'
+    try{$null=InvokeInstallWithImport $locations ([Threading.CancellationToken]::None)}
+    catch{
+        $reason=$_.Exception.Message
+        $inner=$_.Exception.InnerException
+        while($null -ne $inner){
+            $reason += ' ' + $inner.Message
+            $inner=$inner.InnerException
+        }
+        if($reason -notmatch 'SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS'){throw}
+        $blocked=$true
     }
     if(!$blocked -or (Test-Path $ownerKey) -or
         [IO.File]::ReadAllText($occupied) -ne 'keep me'){
@@ -138,7 +145,7 @@ try{
     Remove-Item -LiteralPath $occupied -Force
     Write-Host 'IWXA_SETUP_FIRST_INSTALL_OCCUPIED_DATA_DENIED_PASS'
 
-    $result=InvokeInstallWithImport $locations [Threading.CancellationToken]::None
+    $result=InvokeInstallWithImport $locations ([Threading.CancellationToken]::None)
     if((GetField $result 'Status') -ne 'INSTALLED_WITH_VERIFIED_DATA'){
         throw 'FIRST_INSTALL_IMPORT_UNEXPECTED_RESULT'
     }
