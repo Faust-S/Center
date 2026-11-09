@@ -63,10 +63,44 @@ namespace IwxaSetup
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
             catch { Icon = SystemIcons.Application; }
             BuildLayout();
+            // Enter activates the current primary action. Escape closes the
+            // idle form; FormClosing prevents interruption of live writes.
+            AcceptButton = install;
+            KeyPreview = true;
+            KeyDown += (sender, args) =>
+            {
+                if (args.KeyCode != Keys.Escape) return;
+                args.Handled = true;
+                args.SuppressKeyPress = true;
+                Close();
+            };
+            FormClosing += (sender, args) =>
+            {
+                if (!performingOperation) return;
+                args.Cancel = true;
+                if (storageCancellation != null)
+                {
+                    if (!storageCancellation.IsCancellationRequested)
+                        storageCancellation.Cancel();
+                    cancelStorageMove.Enabled = false;
+                    status.Text = T("Останавливаем перенос…",
+                        "Cancelling storage move…");
+                }
+                else
+                {
+                    status.Text = T("Завершаем операцию…",
+                        "Finishing operation…");
+                    packageDetails.Text = T(
+                        "Дождитесь завершения. Закрыть установщик можно после проверки результата.",
+                        "Wait until this operation finishes. You can close setup after its result is checked.");
+                }
+            };
             Shown += async (sender, args) =>
             {
                 FitInitialWindowToWorkingArea();
                 await VerifyAsync();
+                if (!IsDisposed && !Disposing && install.Enabled)
+                    install.Focus();
             };
         }
 
@@ -919,6 +953,9 @@ namespace IwxaSetup
             if (raw == "SETUP_SETTINGS_READBACK_MISMATCH")
                 return T("Windows не подтвердила все выбранные параметры. Откройте настройки, проверьте действующие папки и запуск, затем повторите попытку.",
                     "Windows did not confirm all selected settings. Review active storage locations and startup, then retry.");
+            if (raw.StartsWith("SETUP_STORAGE_VOLUME_UNAVAILABLE", StringComparison.Ordinal))
+                return T("Один из выбранных дисков недоступен. Подключите его или выберите другую папку. Данные не изменены.",
+                    "One of the selected drives is unavailable. Reconnect it or choose another folder. Your data was not changed.");
             if (raw == "SETUP_STORAGE_SOURCE_LINK_FORBIDDEN" ||
                 raw == "SETUP_STORAGE_FILE_LINK_FORBIDDEN")
                 return T("В исходном хранилище есть ссылка на другую папку или файл. Автоматический перенос остановлен; исходные данные сохранены.",
@@ -1702,19 +1739,36 @@ namespace IwxaSetup
                         selectedLocations.ProgramRoot);
                     if (check.Status == "READY_FOR_FIRST_INSTALL")
                     {
-                        SetupDiskPlan disk = SetupInstallation.CheckStageSpace(info,
-                            selectedLocations.ProgramRoot);
-                        if (disk.Status == "DISK_SPACE_READY")
+                        string unavailable =
+                            SetupInstallation.UnavailableStorageVolume(selectedLocations);
+                        if (!String.IsNullOrWhiteSpace(unavailable))
                         {
-                            SetState(T("Готово к установке", "Ready to install"),
-                                T("Программа: ", "Application: ") +
-                                selectedLocations.ProgramRoot + Environment.NewLine +
-                                T("Данные: ", "Data: ") + selectedLocations.DataRoot,
-                                versionLine, false);
-                            ConfigureActions(SetupOperation.Install, SetupOperation.None,
-                                T("Установить", "Install"));
+                            SetState(T("Диск недоступен", "Drive unavailable"),
+                                T("Папка данных или компонентов находится на отключённом диске ",
+                                    "A data or component folder is on an unavailable drive ") +
+                                unavailable +
+                                T(". Подключите диск или измените папку.",
+                                    ". Reconnect it or choose another folder."),
+                                versionLine, true);
+                            SetTechnicalReport(info, plan.Status,
+                                "Storage volume unavailable: " + unavailable);
                         }
-                        else ShowDiskSpaceRequired(disk, versionLine);
+                        else
+                        {
+                            SetupDiskPlan disk = SetupInstallation.CheckStageSpace(info,
+                                selectedLocations.ProgramRoot);
+                            if (disk.Status == "DISK_SPACE_READY")
+                            {
+                                SetState(T("Готово к установке", "Ready to install"),
+                                    T("Программа: ", "Application: ") +
+                                    selectedLocations.ProgramRoot + Environment.NewLine +
+                                    T("Данные: ", "Data: ") + selectedLocations.DataRoot,
+                                    versionLine, false);
+                                ConfigureActions(SetupOperation.Install, SetupOperation.None,
+                                    T("Установить", "Install"));
+                            }
+                            else ShowDiskSpaceRequired(disk, versionLine);
+                        }
                     }
                     else if (check.Status == "WEBVIEW2_MISSING")
                     {
@@ -1812,7 +1866,7 @@ namespace IwxaSetup
                         openApplication.Tag = "APPLICATION";
                         openApplication.Text = T("Открыть установленную программу",
                             "Open installed application");
-                        openApplication.Visible = true;
+                        openApplication.Visible = !entrypointMissing;
                     }
                     else
                     {
@@ -1828,7 +1882,7 @@ namespace IwxaSetup
                     openApplication.Tag = "APPLICATION";
                     openApplication.Text = T("Открыть установленную программу",
                         "Open installed application");
-                    openApplication.Visible = true;
+                    openApplication.Visible = !entrypointMissing;
                     }
                 }
                 else if (plan.Status == "LEGACY_MIGRATION_HOLD")

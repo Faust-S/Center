@@ -675,6 +675,38 @@ try {
     }
     $preservedData = Join-Path $customDataRoot 'atlas-store-v1/setup-custom-data.txt'
     try {
+        # Refuse a disconnected storage drive before writing an installed
+        # release. This is a real Setup Core command and registry readback.
+        $unusedVolume = $null
+        foreach ($letter in @('Z','Y','X','W','V','U','T','S','R','Q','P','O',
+            'N','M','L','K','J','I','H','G','F','E','D')) {
+            $candidate = $letter + ':\'
+            if (!(Test-Path -LiteralPath $candidate)) {
+                $unusedVolume = $candidate
+                break
+            }
+        }
+        if (!$unusedVolume) { throw 'SETUP_STORAGE_UNAVAILABLE_FIXTURE_DRIVE_MISSING' }
+        $invalidChoices = Join-Path $artifact 'setup-core-disconnected-drive.json'
+        [pscustomobject]@{
+            schema='IWXA_SETUP_LOCATIONS/1'
+            programRoot=$customRoot
+            dataRoot=($unusedVolume + 'IWXA Setup Native Fixture\Data')
+            softwareRoot=$customSoftwareRoot
+            modelsRoot=$customModelsRoot
+            cacheRoot=$customCacheRoot
+            startWithWindows=$true
+        } | ConvertTo-Json | Set-Content -LiteralPath $invalidChoices -Encoding UTF8
+        $blockedInstall = Invoke-Custom $bundle '--install-locations-file' (
+            $invalidChoices) (
+            Join-Path $artifact 'setup-core-disconnected-drive-result.json') '' 2
+        if ($blockedInstall.status -ne 'ERROR' -or
+            $blockedInstall.reason -notlike 'SETUP_STORAGE_VOLUME_UNAVAILABLE_*' -or
+            (Test-Path -LiteralPath $customRoot) -or
+            (Test-Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center')) {
+            throw 'SETUP_DISCONNECTED_DRIVE_ALLOWED_FIRST_INSTALL'
+        }
+        Write-Host 'IWXA_SETUP_FIRST_INSTALL_DISCONNECTED_STORAGE_BLOCKED_PASS'
         $nativeCustom = Invoke-Custom $bundle '--install-locations-file' $customChoices $customReceipt ''
         if ($nativeCustom.status -ne 'INSTALLED_NOT_LAUNCHED' -or
             $nativeCustom.installRoot -ne $customRoot -or

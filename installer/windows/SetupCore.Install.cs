@@ -191,6 +191,30 @@ namespace IwxaSetup
             return result;
         }
 
+        // A first-time installation must not register model, cache or data
+        // folders on disconnected drives. This is read-only and does not
+        // create any directories or reserve space for optional downloads.
+        internal static string UnavailableStorageVolume(SetupLocations choices)
+        {
+            if (choices == null)
+                throw new InvalidOperationException("SETUP_LOCATIONS_NOT_SPECIFIED");
+            foreach (string path in new [] { choices.DataRoot,
+                choices.SoftwareRoot, choices.ModelsRoot, choices.CacheRoot })
+            {
+                string volume = Path.GetPathRoot(ValidateInstallRoot(path));
+                try
+                {
+                    if (String.IsNullOrWhiteSpace(volume) ||
+                        !(new DriveInfo(volume)).IsReady)
+                        return volume;
+                }
+                catch (ArgumentException) { return volume; }
+                catch (IOException) { return volume; }
+                catch (UnauthorizedAccessException) { return volume; }
+            }
+            return null;
+        }
+
         // Estimate destination space on each drive BEFORE any copy starts.
         // Include file allocation overhead and a fixed reserve for metadata.
         internal static long RequiredStorageMoveBytes(long sourceBytes,
@@ -605,6 +629,9 @@ namespace IwxaSetup
             string bundle, BundleInfo info, SetupLocations selected)
         {
             SetupLocations choices = ValidateLocations(info, selected);
+            string unavailable = UnavailableStorageVolume(choices);
+            if (!String.IsNullOrWhiteSpace(unavailable))
+                throw new IOException("SETUP_STORAGE_VOLUME_UNAVAILABLE_" + unavailable);
             using (var mutex = new System.Threading.Mutex(false, "Local\\IWXA.SetupCore." + info.Id))
             {
                 if (!mutex.WaitOne(0))
@@ -675,6 +702,13 @@ namespace IwxaSetup
             try
             {
                 PrepareVerifiedStage(bundle, info, staged, root, legacy);
+                if (locations != null)
+                {
+                    string unavailable = UnavailableStorageVolume(locations);
+                    if (!String.IsNullOrWhiteSpace(unavailable))
+                        throw new IOException("SETUP_STORAGE_VOLUME_UNAVAILABLE_" +
+                            unavailable);
+                }
 
                 Directory.Move(staged, root);
                 activated = true;
@@ -1261,6 +1295,7 @@ namespace IwxaSetup
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
+            catch (ArgumentException) { }
             catch (System.Runtime.InteropServices.COMException) { }
             throw new InvalidOperationException("SETUP_STARTUP_SHORTCUT_CONFLICT");
         }

@@ -399,8 +399,19 @@ public static class IwxaDpiProcessProbe {
 '@
 $native = Start-Process -FilePath $stubFull -PassThru
 try {
-    $native.Refresh()
-    if ($native.HasExited) { throw 'SETUP_DPI_NATIVE_PROCESS_EARLY_EXIT' }
+    # Wait for the real native form: Windows can report the CLR startup
+    # awareness before WinForms has initialized its first top-level window.
+    # A broken manifest must still fail once that window actually exists.
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $native.Refresh()
+        if ($native.HasExited) { throw 'SETUP_DPI_NATIVE_PROCESS_EARLY_EXIT' }
+        if ($native.MainWindowHandle -ne [IntPtr]::Zero) { break }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $deadline)
+    if ($native.MainWindowHandle -eq [IntPtr]::Zero) {
+        throw 'SETUP_DPI_NATIVE_WINDOW_NOT_READY'
+    }
     $awareness = -1
     $hr = [IwxaDpiProcessProbe]::GetProcessDpiAwareness(
         $native.Handle, [ref]$awareness)
