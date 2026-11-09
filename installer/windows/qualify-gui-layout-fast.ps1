@@ -73,8 +73,12 @@ try {
     $cancelled = $false
     try {
         $null = $copyMethod.Invoke($null, $copyArgs)
-    } catch [Reflection.TargetInvocationException] {
-        if ($_.Exception.InnerException -isnot [OperationCanceledException]) {
+    } catch {
+        $cause = $_.Exception
+        while ($null -ne $cause.InnerException) {
+            $cause = $cause.InnerException
+        }
+        if ($cause -isnot [OperationCanceledException]) {
             throw
         }
         $cancelled = $true
