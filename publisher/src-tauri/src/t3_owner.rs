@@ -2,6 +2,7 @@
 // executable. The public Center repo does not contain a signer or private T3
 // source, and never falls back to an installed Node executable.
 use serde_json::Value;
+use sha2::{Digest,Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -39,6 +40,10 @@ impl Drop for TransientRequest {
 pub async fn publisher_t3_issue(app:AppHandle,request_json:String,issuer_authority_id:String)
  ->Result<Value,String>{
     super::validate_test_request(&request_json)?;
+    let request:Value=serde_json::from_str(&request_json)
+        .map_err(|_|"PUBLISHER_T3_REQUEST_JSON_INVALID")?;
+    let request_id=request.get("requestId").and_then(Value::as_str)
+        .ok_or("PUBLISHER_T3_REQUEST_ID_REQUIRED")?;
     if !t3::valid_identifier(&issuer_authority_id) {
         return Err("PUBLISHER_T3_ISSUER_INVALID".into());
     }
@@ -62,6 +67,11 @@ pub async fn publisher_t3_issue(app:AppHandle,request_json:String,issuer_authori
     if !v.get("licenseId").and_then(Value::as_str).is_some_and(t3::valid_identifier) {
         return Err("PUBLISHER_T3_LICENSE_ID_REQUIRED".into());
     }
+    if v.get("requestId").and_then(Value::as_str)!=Some(request_id) ||
+       !matches!(v.get("outcome").and_then(Value::as_str),
+                 Some("ISSUED_NEW"|"ALREADY_ISSUED")) {
+        return Err("PUBLISHER_T3_ISSUE_RECEIPT_MISMATCH".into());
+    }
     Ok(v)
 }
 #[tauri::command]
@@ -71,8 +81,13 @@ pub async fn publisher_t3_change_status(app:AppHandle,license_id:String,next_sta
        !["ACTIVE","SUSPENDED","REVOKED"].contains(&next_status.as_str()){
         return Err("PUBLISHER_T3_STATUS_INPUT_INVALID".into());
     }
-    let v=call(app,"status",vec![license_id,next_status]).await?;
+    let v=call(app,"status",vec![license_id.clone(),next_status.clone()]).await?;
     t3::validate_test_result(&v,"TEST_STATUS")?;
+    if v.get("licenseId").and_then(Value::as_str)!=Some(license_id.as_str()) ||
+       v.get("state").and_then(Value::as_str)!=Some(next_status.as_str()) ||
+       !v.get("sequence").and_then(Value::as_u64).is_some_and(|n|n>0) {
+        return Err("PUBLISHER_T3_STATUS_RECEIPT_MISMATCH".into());
+    }
     Ok(v)
 }
 #[tauri::command]
@@ -93,8 +108,28 @@ pub async fn publisher_t3_export(app:AppHandle,license_id:String)
         return Err("PUBLISHER_T3_EXPORT_IWXA_EXTENSION_REQUIRED".into());
     }
     if path.exists(){return Err("PUBLISHER_T3_EXPORT_OVERWRITE_DENIED".into());}
-    let v=call(app,"export",vec![license_id,path.to_string_lossy().into_owned()]).await?;
+    let output_path=path.to_string_lossy().into_owned();
+    let v=call(app,"export",vec![license_id.clone(),output_path.clone()]).await?;
     t3::validate_test_result(&v,"TEST_IWXA_EXPORTED")?;
-    if !path.is_file() {return Err("PUBLISHER_T3_EXPORT_READBACK_MISSING".into());}
+    let declared=v.get("bytes").and_then(Value::as_u64)
+        .ok_or("PUBLISHER_T3_EXPORT_SIZE_REQUIRED")?;
+    let reported_hash=v.get("packageSha256").and_then(Value::as_str)
+        .ok_or("PUBLISHER_T3_EXPORT_DIGEST_REQUIRED")?;
+    if v.get("licenseId").and_then(Value::as_str)!=Some(license_id.as_str()) ||
+       v.get("path").and_then(Value::as_str)!=Some(output_path.as_str()) ||
+       declared==0 || declared>4*1024*1024 ||
+       reported_hash.len()!=64 ||
+       !reported_hash.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)) {
+        return Err("PUBLISHER_T3_EXPORT_RECEIPT_MISMATCH".into());
+    }
+    let metadata=fs::metadata(&path).map_err(|_|"PUBLISHER_T3_EXPORT_READBACK_MISSING")?;
+    if !metadata.is_file() || metadata.len()!=declared {
+        return Err("PUBLISHER_T3_EXPORT_SIZE_READBACK_MISMATCH".into());
+    }
+    let bytes=fs::read(&path).map_err(|_|"PUBLISHER_T3_EXPORT_READBACK_UNAVAILABLE")?;
+    if bytes.len() as u64!=declared ||
+       format!("{:x}",Sha256::digest(&bytes))!=reported_hash {
+        return Err("PUBLISHER_T3_EXPORT_DIGEST_READBACK_MISMATCH".into());
+    }
     Ok(Some(v))
 }

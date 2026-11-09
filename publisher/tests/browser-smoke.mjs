@@ -58,10 +58,16 @@ try {
       if(command==='publisher_t3_capabilities')return {
         operation:'TEST_CAPABILITIES',issuers:['publisher:owner:test'],
         activeSeats:0,productionActivation:false,commercialAuthorityProven:false};
-      if(command==='publisher_t3_inventory')return {
-        operation:'TEST_INVENTORY',
-        licenses:JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]'),
-        activeSeats:0,productionActivation:false};
+      if(command==='publisher_t3_inventory'){
+        if(window.__publisherMockFailNextInventory){
+          window.__publisherMockFailNextInventory=false;
+          throw Error('PUBLISHER_T3_TEMPORARY_INVENTORY_UNAVAILABLE');
+        }
+        return {
+          operation:'TEST_INVENTORY',
+          licenses:JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]'),
+          activeSeats:0,productionActivation:false};
+      }
       if(command==='publisher_t3_issue'){
         const req=JSON.parse(args.requestJson),ledger=JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]');
         if(req.environment!=='TEST'||args.issuerAuthorityId!=='publisher:owner:test')
@@ -72,7 +78,7 @@ try {
         if(!ledger.some(x=>x.requestId===req.requestId))ledger.push(entry);
         sessionStorage.setItem('publisher-t3-mock-licenses',JSON.stringify(ledger));
         return {operation:'TEST_ISSUE',outcome:'ISSUED_NEW',licenseId:entry.licenseId,
-          activeSeats:0,productionActivation:false};
+          requestId:req.requestId,activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_change_status'){
         const ledger=JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]');
@@ -81,10 +87,11 @@ try {
         entry.status=args.nextStatus;entry.sequence+=1;
         sessionStorage.setItem('publisher-t3-mock-licenses',JSON.stringify(ledger));
         return {operation:'TEST_STATUS',licenseId:entry.licenseId,state:entry.status,
-          activeSeats:0,productionActivation:false};
+          sequence:entry.sequence,activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_export')return {
         operation:'TEST_IWXA_EXPORTED',licenseId:args.licenseId,
+        bytes:1024,packageSha256:'a'.repeat(64),
         activeSeats:0,productionActivation:false};
       if(command==='publisher_select_test_iwxa')return {
         size:348,sha256:'b'.repeat(64),integrityVerified:false,signatureVerified:false,
@@ -362,6 +369,9 @@ try {
   await ownerPanel.getByRole('combobox',{name:'Лицензия',exact:true})
     .selectOption('license:test:native-ui:one');
   assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
+  assert.equal(await page.getByTestId('publisher-t3-change-status').isDisabled(),true,
+    'Status change must require a new explicit status choice');
+  await ownerPanel.getByRole('combobox',{name:'Новый TEST-статус'}).selectOption('ACTIVE');
   await page.getByTestId('publisher-t3-change-status').click();
   await page.getByText('Новый подписанный TEST-статус сохранён в T3: ACTIVE').waitFor();
   await page.getByTestId('publisher-t3-export').click();
@@ -369,6 +379,25 @@ try {
   assert.match(await page.getByTestId('publisher-t3-owner-panel').innerText(),/Активных мест: 0/);
   checks.push('publisher-owner-operations-through-native-IPC-model-only-no-commercial-seats');
   checks.push('original-t3-test-issue-status-and-export-require-explicit-selections');
+  // A committed TEST status with a failed inventory read must not claim
+  // success. Owner operations stay blocked until the user refreshes.
+  await ownerPanel.getByRole('combobox',{name:'Новый TEST-статус'}).selectOption('SUSPENDED');
+  await page.evaluate(()=>{window.__publisherMockFailNextInventory=true;});
+  await page.getByTestId('publisher-t3-change-status').click();
+  const readbackError=await ownerPanel.getByRole('alert').innerText();
+  assert.match(readbackError,/Операция могла выполниться/);
+  assert.equal(await page.getByTestId('publisher-t3-change-status').isDisabled(),true);
+  assert.equal(await page.getByTestId('publisher-t3-export').isDisabled(),true);
+  assert.doesNotMatch(await ownerPanel.innerText(),/Новый подписанный TEST-статус сохранён в T3: SUSPENDED/);
+  await page.getByTestId('publisher-t3-refresh').click();
+  await page.getByText('Журнал T3 обновлён. Подписи и права не изменены.').waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
+  await ownerPanel.getByRole('combobox',{name:'Новый TEST-статус'}).selectOption('REVOKED');
+  await page.getByTestId('publisher-t3-change-status').click();
+  await page.getByText('Новый подписанный TEST-статус сохранён в T3: REVOKED').waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-change-status').isDisabled(),true);
+  assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
+  checks.push('t3-native-readback-failure-cannot-claim-success-and-revocation-is-terminal');
   await page.getByRole('button',{name:'Лицензии'}).click();
 
   await page.reload();

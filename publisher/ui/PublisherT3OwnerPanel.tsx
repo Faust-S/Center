@@ -19,7 +19,8 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
  const [licenseId,setLicenseId]=useState('');
  const [proposalId,setProposalId]=useState('');
  const [seats,setSeats]=useState('1');
- const [status,setStatus]=useState<'ACTIVE'|'SUSPENDED'|'REVOKED'>('ACTIVE');
+ const [status,setStatus]=useState<''|'ACTIVE'|'SUSPENDED'|'REVOKED'>('');
+ const [needsRefresh,setNeedsRefresh]=useState(false);
  const [available,setAvailable]=useState(false);
  const [loading,setLoading]=useState(true);
  const [busy,setBusy]=useState(false);
@@ -33,6 +34,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
  const eligible=proposals.filter((p:any)=>supportedIds.has(p.id));
  const unsupported=proposals.filter((p:any)=>!supportedIds.has(p.id));
  const personal=unsupported.filter((p:any)=>holders.some((h:any)=>h.id===p.holderId&&h.type==='PERSON'));
+ const selectedLicense=licenses.find(x=>x.licenseId===licenseId);
  const proposalLabel=(p:any)=>{
    const product=products.find((v:any)=>v.id===p.productId);
    const holder=holders.find((v:any)=>v.id===p.holderId);
@@ -42,18 +44,29 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
   if(!eligible.some((p:any)=>p.id===proposalId))
     setProposalId('');
  },[draft,proposalId]);
- async function inventory(){
+ type InventoryReadback={entries:License[];truncated:boolean};
+ async function inventory():Promise<InventoryReadback>{
    const value=await invoke('publisher_t3_inventory');
    if(value?.operation!=='TEST_INVENTORY'||value.activeSeats!==0||
       value.productionActivation!==false||!Array.isArray(value.licenses))
       throw Error('PUBLISHER_T3_INVENTORY_INVALID');
    const entries=value.licenses as License[];
+   const validId=(s:unknown)=>typeof s==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/.test(s);
+   if(entries.some(e=>!e||!validId(e.licenseId)||!validId(e.requestId)||
+      !validId(e.issuerAuthorityId)||!validId(e.organizationId)||
+      !['NOT_ACTIVATED','ACTIVE','SUSPENDED','REVOKED'].includes(e.status)||
+      !Number.isSafeInteger(e.sequence)||e.sequence<0||
+      !Number.isSafeInteger(e.claimedSeats)||e.claimedSeats<1||
+      e.activeSeats!==0)||
+      new Set(entries.map(e=>e.licenseId)).size!==entries.length)
+      throw Error('PUBLISHER_T3_INVENTORY_ENTRY_INVALID');
+   const truncated=value.truncated===true;
    setLicenses(entries);
    setInventoryTotal(Number.isSafeInteger(value.total)&&value.total>=entries.length?
      value.total:entries.length);
-   setInventoryTruncated(value.truncated===true);
-   setLicenseId(previous=>entries.some(x=>x.licenseId===previous)?previous:
-       '');
+   setInventoryTruncated(truncated);
+   setLicenseId(previous=>entries.some(x=>x.licenseId===previous)?previous:'');
+   return {entries,truncated};
  }
  useEffect(()=>{
    let alive=true;
@@ -74,11 +87,37 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
    })();
    return ()=>{alive=false;};
  },[]);
- async function operation(action:()=>Promise<string>){
+ async function refreshInventory(){
    if(busy||!available)return;
    setBusy(true);setFailure('');setMessage('');
-   try{setMessage(await action());await inventory();}
-   catch(e){setFailure(error(e));}
+   try{
+     await inventory();setNeedsRefresh(false);
+     setMessage('Журнал T3 обновлён. Подписи и права не изменены.');
+   }catch(e){setFailure('Не удалось обновить журнал T3: '+error(e));}
+   finally{setBusy(false);}
+ }
+ type ActionOutcome={message:string;confirm?:(readback:InventoryReadback)=>boolean};
+ async function operation(action:()=>Promise<ActionOutcome>){
+   if(busy||!available||needsRefresh)return;
+   setBusy(true);setFailure('');setMessage('');
+   try{
+     const outcome=await action();
+     // A committed owner action can outlive an interrupted inventory read.
+     // Never show success before verifying the original T3 ledger.
+     let readback:InventoryReadback;
+     try{readback=await inventory();}
+     catch(e){
+       setNeedsRefresh(true);
+       setFailure('Не удалось перечитать журнал T3. Операция могла выполниться: обновите журнал перед повтором. '+error(e));
+       return;
+     }
+     if(outcome.confirm&&!outcome.confirm(readback)){
+       setNeedsRefresh(true);
+       setFailure('Запись T3 не совпала с результатом операции. Обновите журнал перед повтором.');
+       return;
+     }
+     setMessage(outcome.message);
+   }catch(e){setFailure(error(e));}
    finally{setBusy(false);}
  }
  return <section className="publisher-test-owner" data-testid="publisher-t3-owner-panel">
@@ -109,19 +148,30 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
        </label>
      </div>
      <div className="actions">
-       <button className="secondary" type="button" disabled={busy||!issuer||!proposalId||!supportedIds.has(proposalId)}
+       <button className="secondary" type="button" disabled={busy||needsRefresh||!issuer||!proposalId||!supportedIds.has(proposalId)}
          data-testid="publisher-t3-issue" onClick={()=>operation(async()=>{
            if(!issuer||!proposalId||!inspectTestIssuerRequestScope(draft,proposalId).supported)throw Error('PUBLISHER_T3_REQUEST_SCOPE_UNAVAILABLE');
            const request=prepareTestLicenseRequest(draft,{proposalId,seats:Number(seats)});
            const result=await invoke('publisher_t3_issue',{
              requestJson:encodeTestLicenseRequest(request),issuerAuthorityId:issuer});
            if(result?.operation!=='TEST_ISSUE'||result.activeSeats!==0||
-              result.productionActivation!==false||typeof result.licenseId!=='string')
+              result.productionActivation!==false||
+              !['ISSUED_NEW','ALREADY_ISSUED'].includes(result.outcome)||
+              typeof result.licenseId!=='string'||!result.licenseId||
+              result.requestId!==request.requestId)
               throw Error('PUBLISHER_T3_ISSUE_RECEIPT_INVALID');
-           // Issuing does not silently choose a license for later status changes or export.
-           return result.outcome==='ALREADY_ISSUED'?
-             'Ранее выпущенная TEST-лицензия найдена в журнале T3.':
-             'TEST-лицензия подписана T3 и сохранена в журнале издателя.';
+           // New issues are included in the original T3 inventory's last 48.
+           // An older idempotent issue can be outside a truncated window.
+           return {
+             message:result.outcome==='ALREADY_ISSUED'?
+               'Ранее выпущенная TEST-лицензия найдена в журнале T3.':
+               'TEST-лицензия подписана T3 и сохранена в журнале издателя.',
+             confirm:({entries,truncated}:InventoryReadback)=>entries.some(x=>
+               x.licenseId===result.licenseId&&x.requestId===request.requestId&&
+               x.issuerAuthorityId===issuer&&x.organizationId===request.subject.id&&
+               x.claimedSeats===request.seats)||
+               (result.outcome==='ALREADY_ISSUED'&&truncated)
+           };
          })}>Выпустить TEST-лицензию</button>
      </div>
      {eligible.length===0&&<p className="muted" data-testid="publisher-no-supported-test-requests">Подходящих организационных TEST-запросов нет. Личные запросы нельзя подписывать этим компонентом.</p>}
@@ -130,9 +180,11 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
        В реестре: {inventoryTotal} TEST-записей.
        {inventoryTruncated&&` Показаны последние ${licenses.length}.`}
      </p>
+     <button type="button" className="secondary" data-testid="publisher-t3-refresh"
+       disabled={busy} onClick={()=>void refreshInventory()}>Обновить журнал</button>
      {licenses.length===0?<p className="muted">Пока нет выпущенных лицензий.</p>:
        <label>Лицензия
-         <select value={licenseId} onChange={e=>setLicenseId(e.target.value)} disabled={busy}>
+         <select value={licenseId} onChange={e=>{setLicenseId(e.target.value);setStatus('');}} disabled={busy}>
            <option value="">Выберите лицензию</option>{licenses.map(x=><option value={x.licenseId} key={x.licenseId}>
              {x.licenseId} — {x.organizationId} — {x.status}
            </option>)}
@@ -140,28 +192,45 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
        </label>}
      <div className="actions">
        <select aria-label="Новый TEST-статус" value={status}
-         onChange={e=>setStatus(e.target.value as typeof status)} disabled={busy||!licenseId}>
+         onChange={e=>setStatus(e.target.value as typeof status)}
+         disabled={busy||needsRefresh||!selectedLicense||selectedLicense.status==='REVOKED'}>
+         <option value="">Выберите новый статус</option>
          <option value="ACTIVE">ACTIVE</option>
          <option value="SUSPENDED">SUSPENDED</option>
          <option value="REVOKED">REVOKED</option>
        </select>
-       <button className="secondary" type="button" disabled={busy||!licenseId}
+       <button className="secondary" type="button"
+         disabled={busy||needsRefresh||!selectedLicense||!status||
+           status===selectedLicense.status||selectedLicense.status==='REVOKED'}
          data-testid="publisher-t3-change-status" onClick={()=>operation(async()=>{
-           const receipt=await invoke('publisher_t3_change_status',{licenseId,nextStatus:status});
-           if(receipt?.operation!=='TEST_STATUS'||receipt.productionActivation!==false)
+           const target=licenseId,requested=status;
+           const receipt=await invoke('publisher_t3_change_status',{licenseId:target,nextStatus:requested});
+           if(receipt?.operation!=='TEST_STATUS'||receipt.productionActivation!==false||
+              receipt.activeSeats!==0||receipt.licenseId!==target||
+              receipt.state!==requested||!Number.isSafeInteger(receipt.sequence)||
+              receipt.sequence<=selectedLicense.sequence)
              throw Error('PUBLISHER_T3_STATUS_RECEIPT_INVALID');
-           return 'Новый подписанный TEST-статус сохранён в T3: '+status;
+           return {
+             message:'Новый подписанный TEST-статус сохранён в T3: '+requested,
+             confirm:({entries}:InventoryReadback)=>entries.some(x=>x.licenseId===target&&
+               x.status===requested&&x.sequence===receipt.sequence)
+           };
          })}>Изменить статус</button>
-       <button className="secondary" type="button" disabled={busy||!licenseId}
+       <button className="secondary" type="button" disabled={busy||needsRefresh||!licenseId}
          data-testid="publisher-t3-export" onClick={()=>operation(async()=>{
            const receipt=await invoke('publisher_t3_export',{licenseId});
-           if(receipt===null)return 'Экспорт отменён.';
-           if(receipt?.operation!=='TEST_IWXA_EXPORTED'||receipt.productionActivation!==false)
+           if(receipt===null)return {message:'Экспорт отменён.'};
+           if(receipt?.operation!=='TEST_IWXA_EXPORTED'||receipt.productionActivation!==false||
+              receipt.activeSeats!==0||receipt.licenseId!==licenseId||
+              !Number.isSafeInteger(receipt.bytes)||receipt.bytes<1||
+              typeof receipt.packageSha256!=='string'||
+              !/^[a-f0-9]{64}$/.test(receipt.packageSha256))
              throw Error('PUBLISHER_T3_EXPORT_RECEIPT_INVALID');
-           return 'Пакет .iwxa выпущен T3 и подтверждён повторным чтением.';
+           return {message:'Пакет .iwxa выпущен T3 и подтверждён повторным чтением.'};
          })}>Экспортировать подписанный .iwxa</button>
      </div>
    </>}
+   {selectedLicense?.status==='REVOKED'&&<p className="muted" role="status">Эта TEST-лицензия отозвана. Повторная активация запрещена. Подписанный отзыв можно экспортировать.</p>}
    {failure&&<p role="alert">{failure}</p>}
    {available&&message&&<p role="status">{message}</p>}
    <p className="muted">TEST-подпись не является коммерческим полномочием. Активных мест: 0.</p>
