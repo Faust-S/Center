@@ -38,6 +38,9 @@ try{
   await page.getByTestId('atlas-import-file').setInputFiles({
     name:'atlas.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(iwxa)});
   await page.getByText(/Архив .iwxa открыт для просмотра/).waitFor({state:'visible'});
+  const previewNote=await page.locator('[data-testid="atlas-link-panel"] .fine-print').innerText();
+  assert.match(previewNote,/Это снимок, а не синхронизация/);
+  assert.doesNotMatch(previewNote,/project\/1/);
   assert.equal(await page.getByTestId('atlas-project-count').textContent(),'1');
   assert.equal(await page.getByTestId('atlas-revision').textContent(),String(work.state.revision));
   checks.push('atlas-iwxa-real-file-picker-valid-and-tampered-archive-rejected');

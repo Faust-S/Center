@@ -359,7 +359,7 @@ export default function App() {
             {!!atlasSelected && atlasView.projects.find(p=>p.id===atlasSelected)?.workItems.map(item=>
               <button type="button" key={item.id} className="secondary" data-testid="atlas-file-work-to-assignment"
                 onClick={()=>prepareAtlasWork(linkableAtlasWork(atlasView,atlasSelected,item.id))}>Подготовить поручение: {item.title}</button>)}
-            <p className="muted fine-print">Источник: Atlas project/1 · редакция {atlasView.revision}. Права на проект и актуальность файла не проверены. Связь сохраняет только ID и редакцию.</p>
+            <p className="muted fine-print">Открыта копия портфеля Atlas, редакция {atlasView.revision}. Это снимок, а не синхронизация. Перед выдачей поручения проверьте актуальность проекта в Atlas и права на него.</p>
           </> : <Empty title="Откройте портфель Atlas" text="Когда вы выберете файл экспорта Atlas, здесь появятся проекты, прогресс и зависимости."/>}
           {org.workspaces.some(w=>w.atlasRef)&&<div className="atlas-link-readback">{org.workspaces.filter(w=>w.atlasRef).map(w=><p key={w.id}><strong>{w.name}:</strong> {w.atlasRef?.projectId} · {atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_MATCHES'?'Редакция совпадает':atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_CHANGED'?'Редакция плана изменилась':atlasView?'Проект отсутствует в открытом файле':'Файл Atlas не открыт'}</p>)}</div>}
         </div>

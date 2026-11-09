@@ -38,6 +38,7 @@ if(!$projectBlock){throw 'U05_ATLAS_GUI_WORK_NOT_PERSISTED'}
 $projectId=[string]$projectBlock.id
 $projectTitle=[string]$projectBlock.name
 $workId=[string]$projectBlock.items[0].id
+$workTitle=[string]$projectBlock.items[0].title
 if(@($projectBlock.items).Count -lt 2){throw 'U04_WORK_REF_SWITCH_NEEDS_TWO_CANONICAL_WORKS'}
 $revision=[string]$head.revision
 $generation=[string]$head.generation
@@ -208,6 +209,77 @@ try {
     return
   }
   Start-Center
+  Click 'Планы Atlas'
+  # Import a real IWXA carrier from the installed Atlas owner through the
+  # installed Center's ordinary Windows file-picker. Not an IPC shortcut.
+  $archive=Join-Path $env:RUNNER_TEMP 'atlas05-center-installed.iwxa'
+  if(!(Test-Path -LiteralPath $archive -PathType Leaf)){
+    throw 'U05_INSTALLED_ATLAS_IWXA_ARCHIVE_NOT_FOUND'
+  }
+  $archiveHash=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+  Click 'Открыть портфель Atlas'
+  $dialogFound=$false
+  for($attempt=0;$attempt -lt 75;$attempt++){
+    $hwnd=[U05Window]::GetForegroundWindow()
+    if($hwnd -ne [IntPtr]::Zero -and $hwnd -ne $proc.MainWindowHandle){
+      $element=[System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+      if($element.Current.ClassName -eq '#32770'){
+        $dialogFound=$true
+        break
+      }
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  if(!$dialogFound){throw 'U05_IWXA_NATIVE_FILE_DIALOG_NOT_OBSERVED'}
+  if($archive -match '[+^%~{}()]'){throw 'U05_IWXA_TEST_PATH_UNSUPPORTED_BY_SENDKEYS'}
+  [System.Windows.Forms.SendKeys]::SendWait('%n')
+  Start-Sleep -Milliseconds 150
+  [System.Windows.Forms.SendKeys]::SendWait('^a')
+  [System.Windows.Forms.SendKeys]::SendWait($archive)
+  Start-Sleep -Milliseconds 200
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  [void](Find-UI-Text 'Архив .iwxa открыт для просмотра')
+  [void](Find-UI $projectTitle 'Button' $true)
+  Click $projectTitle $true
+  Click 'Связать с планом'
+  Click "Подготовить поручение: $workTitle" $true
+  Text 'Что нужно сделать' 'U05FileIwxaBinding'
+  Text 'Критерии приёмки' 'Exact installed Atlas archive work reference'
+  Click 'Сохранить черновик'
+  Click 'Сохранить на компьютере'
+  $fileAssignment=$null
+  for($attempt=0;$attempt -lt 75;$attempt++){
+    try{
+      $savedFileDraft=Get-Content -LiteralPath $centerDraft -Raw | ConvertFrom-Json -Depth 100
+      $found=@($savedFileDraft.organizations | ForEach-Object {$_.assignments} |
+        Where-Object {$_.title -eq 'U05FileIwxaBinding'})
+      if($found.Count -eq 1){$fileAssignment=$found[0];break}
+    }catch{}
+    Start-Sleep -Milliseconds 250
+  }
+  if($null -eq $fileAssignment){throw 'U05_CENTER_IWXA_WORK_REF_NOT_SAVED'}
+  $fileRef=$fileAssignment.atlasRef
+  if([string]$fileRef.projectId -ne $projectId -or
+     [string]$fileRef.workId -ne $workId -or
+     [string]$fileRef.revision -ne $revision){
+    throw 'U05_CENTER_IWXA_WORK_REF_MISMATCH'
+  }
+  if((Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash -ne $beforeHash){
+    throw 'U05_CENTER_IWXA_IMPORT_MODIFIED_ATLAS_OWNER'
+  }
+  Shutdown
+  Start-Center
+  Click 'Поручения' $true
+  Click 'U05FileIwxaBinding' $true
+  [void](Find-UI-Text 'Источник Atlas не открыт')
+  Click 'Закрыть редактор'
+  $receipt=[ordered]@{status='U05_CENTER_INSTALLED_IWXA_PICKER_PASS';
+    archiveSha256=$archiveHash;sourceRevision=$revision;
+    projectId=$projectId;workId=$workId;centerDraftReadback=$true;
+    previewNotPromotedToAuthority=$true;ownerStoreUnmodified=$true}
+  $receipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (
+    Join-Path $env:GITHUB_WORKSPACE 'artifacts/atlas05-center-iwxa-result.json')
+  Write-Host "U05_CENTER_INSTALLED_IWXA_PICKER_PASS project=$projectId work=$workId revision=$revision"
   Click 'Планы Atlas'
   Click 'Открыть Atlas Desktop'
   # The Windows WebView2 UIA tree can split a <p> across anonymous nodes.

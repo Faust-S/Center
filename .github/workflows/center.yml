@@ -169,7 +169,18 @@ jobs:
         timeout-minutes: 8
         run: |
           New-Item -ItemType Directory -Force -Path 'desktop/test-artifacts'|Out-Null
-          ./vendor/atlas/desktop/tests/installed-windows-keyboard.ps1
+          ./tests/installed-atlas-u05-seed.ps1
+      - name: Make Atlas .iwxa from exact installed native owner project blocks
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:LOCALAPPDATA 'ru.iwxa.atlas/atlas-store-v1'
+          $destination=Join-Path $env:RUNNER_TEMP 'atlas05-center-installed.iwxa'
+          node tests/installed-u05-atlas-iwxa.mjs $root $destination
+          if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $destination)){
+            throw 'U05_INSTALLED_ATLAS_IWXA_CREATION_FAILED'
+          }
       - name: Installed Center reads Atlas Desktop canonical work and saves exact ref
         shell: pwsh
         timeout-minutes: 5
@@ -179,7 +190,7 @@ jobs:
         timeout-minutes: 5
         env:
           ATLAS_U05_APPEND_PROJECT: '1'
-        run: ./vendor/atlas/desktop/tests/installed-windows-keyboard.ps1
+        run: ./tests/installed-atlas-u05-seed.ps1
       - name: Installed Center refuses stale work reference after owner GUI edit
         shell: pwsh
         timeout-minutes: 5
@@ -200,6 +211,7 @@ jobs:
             artifacts/installed-gui-result.json
             artifacts/installed-gui-failure.png
             artifacts/u05-two-installed-result.json
+            artifacts/atlas05-center-iwxa-result.json
             src-tauri/Cargo.lock
             package-lock.json
 
