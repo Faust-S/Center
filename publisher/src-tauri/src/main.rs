@@ -512,6 +512,25 @@ mod tests {
     }
 
     #[test]
+    fn native_legacy_preparation_migrates_in_place_to_version_two() {
+        let root=scratch();
+        let legacy=valid_preparation();
+        write_preparation(&root,&legacy).unwrap();
+        assert_eq!(read_preparation(&root).unwrap().unwrap(),legacy);
+        let current=legacy.replace("\"version\":1", "\"version\":2")
+            .replace("\"proposals\":[]", "\"tariffs\":[],\"proposals\":[]");
+        write_preparation(&root,&current).unwrap();
+        assert_eq!(read_preparation(&root).unwrap().unwrap(),current);
+        assert!(draft_file(&root).exists());
+        let malformed=current.replace("\"tariffs\":[],", "");
+        assert!(write_preparation(&root,&malformed).is_err());
+        assert_eq!(read_preparation(&root).unwrap().unwrap(),current);
+        let backup=root.join("migration-backup.json");
+        write_preparation_backup(&backup,&legacy).unwrap();
+        assert_eq!(read_preparation_backup(&backup).unwrap(),legacy);
+        let _=fs::remove_dir_all(root);
+    }
+    #[test]
     fn first_run_is_empty_and_preparation_survives_new_open() {
         let root = scratch();
         assert!(read_preparation(&root).unwrap().is_none());
