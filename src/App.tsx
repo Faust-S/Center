@@ -44,6 +44,7 @@ const errors: Record<string,string> = {
   ATLAS_SOURCE_FILE_INVALID:'Выберите архив проектов .iwxa или ранее сохранённую копию JSON.',
   ATLAS_SOURCE_FILE_SIZE_INVALID:'Файл проекта пуст или превышает допустимый размер.',
   ATLAS_SOURCE_IWXA_INVALID:'Не удалось открыть архив .iwxa. Файл повреждён или содержит неподдерживаемые данные.',
+  ATLAS_SOURCE_DIGEST_UNAVAILABLE:'Не удалось сравнить содержимое архива на этом компьютере.',
   ATLAS_PROJECT_NOT_IN_PREVIEW:'Выбранный проект отсутствует в открытом портфеле Atlas.',
   ATLAS_WORK_NOT_IN_PREVIEW:'Выбранная работа отсутствует в открытом проекте Atlas.'
 };
@@ -71,7 +72,7 @@ export default function App() {
   const closeConfirmedRef = useRef(false);
   // A file preview belongs only to the organization where it was opened.
   // It must never become a cross-organization project/authorization source.
-  const [atlasFile,setAtlasFile] = useState<{organizationId:string;view:AtlasPortfolioView;filename:string;delta:AtlasCopyDelta|null}|null>(null);
+  const [atlasFile,setAtlasFile] = useState<{organizationId:string;view:AtlasPortfolioView;filename:string;delta:AtlasCopyDelta|null;contentSha256:string;contentSame:boolean|null}|null>(null);
   const atlasFileRequest=useRef(0);
   const [atlasObservationMode,setAtlasObservationMode]=useState<'file'|'native'>('file');
   const activeOrganizationRef=useRef<string|null>(null);
@@ -249,12 +250,14 @@ export default function App() {
     const organizationId=org?.id;
     if(!organizationId){setError('Сначала выберите организацию.');return;}
     const request=++atlasFileRequest.current;
-    const previous=atlasFile?.organizationId===organizationId?atlasFile.view:null;
+    const previous=atlasFile?.organizationId===organizationId?atlasFile:null;
     try{
-      const {view:preview,format}=await readAtlasSourceFile(file) as {view:AtlasPortfolioView;format:'iwxa'|'json'};
+      const {view:preview,format,contentSha256}=await readAtlasSourceFile(file) as {view:AtlasPortfolioView;format:'iwxa'|'json';contentSha256:string};
       if(activeOrganizationRef.current!==organizationId||atlasFileRequest.current!==request)return;
-      const delta=previous?(compareAtlasSourceCopies(previous,preview) as AtlasCopyDelta):null;
-      setAtlasFile({organizationId,view:preview,filename:file.name.slice(0,160),delta});
+      const delta=previous?(compareAtlasSourceCopies(previous.view,preview) as AtlasCopyDelta):null;
+      const contentSame=previous?previous.contentSha256===contentSha256:null;
+      setAtlasFile({organizationId,view:preview,filename:file.name.slice(0,160),delta,
+        contentSha256,contentSame});
       setAtlasSelected(selected=>preview.projects.some(p=>p.id===selected)?selected:preview.projects[0]?.id??'');
       setNativeAtlas(null);setAtlasObservationMode('file');
       setError('');setMessage('Портфель Atlas прочитан: '+preview.projects.length+' проектов. '+(format==='iwxa'?'Архив .iwxa открыт для просмотра. Данные не скопированы в Center, синхронизация не включена.':'Это просмотр выбранного файла, не живая синхронизация.'));
@@ -393,9 +396,11 @@ export default function App() {
                   '; работ добавлено '+currentFile.delta.addedWorks+', убрано '+currentFile.delta.removedWorks+
                   ', изменено '+currentFile.delta.changedWorks+'; изменено свойств проектов '+currentFile.delta.changedProjects+
                   ', связей '+currentFile.delta.changedDependencies+'.'
-                : 'Состав копии не изменился с предыдущего открытия.'}</p>
+                : currentFile.contentSame
+                  ? 'Содержимое портфеля совпадает с предыдущей копией.'
+                  : 'Содержимое копии отличается, но краткие показатели совпадают. Проверьте изменения и редакцию в Atlas.'}</p>
               {currentFile.delta.revisionRelation==='lower'&&<p className="muted" data-testid="atlas-file-older">У выбранного файла меньшая редакция. Проверьте, какую копию нужно использовать.</p>}
-              {currentFile.delta.revisionRelation==='same'&&currentFile.delta.contentChanged&&<p className="muted" data-testid="atlas-file-same-revision">Состав изменился без изменения номера редакции. Проверьте источник.</p>}
+              {currentFile.delta.revisionRelation==='same'&&currentFile.contentSame===false&&<p className="muted" data-testid="atlas-file-same-revision">Состав изменился без изменения номера редакции. Проверьте источник.</p>}
               {currentFile.delta.revisionRelation==='unrelated'&&<p className="muted">У нового файла нет общих проектов с предыдущим. Редакции не сопоставляются.</p>}
             </> : <p>Для повторной проверки выберите копию файла ещё раз.</p>}
             <p data-testid="atlas-file-links-review">{fileLinksToReview>0

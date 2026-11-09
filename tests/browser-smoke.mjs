@@ -22,7 +22,7 @@ try{
   await page.getByTestId('org-name').fill('North workshop');await page.getByTestId('create-org').click();
   await page.getByTestId('nav-resources').click();await page.getByTestId('workspace-name').fill('Procurement');await page.getByTestId('add-workspace').click();
   // Build a real Atlas snapshot through its pinned domain module, never a fake project record.
-  const {empty,createProject,createItem,serialize}=await import('../vendor/atlas/src/core.mjs');
+  const {empty,createProject,createItem,editProject,serialize}=await import('../vendor/atlas/src/core.mjs');
   const first=createProject(empty(),{name:'Supply programme',type:'business'});
   const work=createItem(first.state,first.id,{title:'Compare suppliers'});
   const atlas=serialize(work.state);
@@ -78,7 +78,7 @@ try{
   assert.equal(await page.getByTestId('atlas-revision').textContent(),String(later.state.revision));
   await page.getByTestId('atlas-import-file').setInputFiles({
     name:'atlas-updated.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(revisedArchive)});
-  await page.getByText('Состав копии не изменился с предыдущего открытия.').waitFor({state:'visible'});
+  await page.getByText('Содержимое портфеля совпадает с предыдущей копией.').waitFor({state:'visible'});
   assert.match(await page.getByTestId('atlas-copy-difference').innerText(),/не изменился/);
   // An older manually selected archive must be called out, not silently
   // treated as the current source merely because a previous link still fits.
@@ -94,6 +94,22 @@ try{
   assert.match(await page.getByTestId('atlas-copy-difference').innerText(),/работ добавлено 1/);
   await page.screenshot({path:'artifacts/atlas-file-comparison.png',fullPage:true});
   checks.push('older-file-warning-and-new-copy-restored-without-rebinding');
+  // Change a project goal only. The small preview lacks this field, but
+  // the complete owner snapshot fingerprint must flag the changed archive.
+  const goalChanged=editProject(later.state,first.id,{goal:'Updated handoff expectations'});
+  const goalArchive=await buildIwxaPortfolio(goalChanged,{now:'2026-11-09T12:00:00.000Z'});
+  await page.getByTestId('atlas-import-file').setInputFiles({
+    name:'atlas-goal-updated.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(goalArchive)});
+  await page.waitForFunction(expected=>
+    document.querySelector('[data-testid="atlas-revision"]')?.textContent?.trim()===expected,
+    String(goalChanged.revision));
+  assert.match(await page.getByTestId('atlas-copy-difference').innerText(),/Содержимое копии отличается, но краткие показатели совпадают/);
+  await page.getByTestId('atlas-import-file').setInputFiles({
+    name:'atlas-updated.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(revisedArchive)});
+  await page.waitForFunction(expected=>
+    document.querySelector('[data-testid="atlas-revision"]')?.textContent?.trim()===expected,
+    String(later.state.revision));
+  checks.push('full-owner-content-comparison-detects-hidden-goal-changes');
   const tamperedAgain=Uint8Array.from(revisedArchive);
   tamperedAgain[tamperedAgain.length-30]^=1;
   await page.getByTestId('atlas-import-file').setInputFiles({

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {empty,createProject,createItem,serialize} from "../vendor/atlas/src/core.mjs";
+import {empty,createProject,createItem,editProject,serialize} from "../vendor/atlas/src/core.mjs";
 import {buildIwxaPortfolio} from "../vendor/atlas/desktop/src/iwxa-portfolio.mjs";
 import {readAtlasSourceFile} from "../src/atlas-file-import.mjs";
 import {linkableAtlasWork,atlasWorkReadback} from "../src/atlas-integration.mjs";
@@ -52,4 +52,22 @@ test("Center rejects tampered .iwxa, spoofed extensions, oversize and fake file 
  await assert.rejects(readAtlasSourceFile({...fromBytes(valid),size:0}),/ATLAS_SOURCE_FILE_SIZE_INVALID/);
  await assert.rejects(readAtlasSourceFile({...fromBytes(valid),size:33*1024*1024}),/ATLAS_SOURCE_FILE_SIZE_INVALID/);
  await assert.rejects(readAtlasSourceFile({...fromBytes(valid),size:valid.length+1}),/ATLAS_SOURCE_FILE_SIZE_INVALID/);
+});
+
+test("full Atlas source digest ignores archive packaging time but detects hidden project goals",async()=>{
+ const {state,projectId}=source();
+ const json=await readAtlasSourceFile(fromText(serialize(state)));
+ const first=await buildIwxaPortfolio(state,{now:"2026-11-09T10:00:00.000Z"});
+ const second=await buildIwxaPortfolio(state,{now:"2026-11-09T12:00:00.000Z"});
+ const a=await readAtlasSourceFile(fromBytes(first));
+ const b=await readAtlasSourceFile(fromBytes(second));
+ assert.match(a.contentSha256,/^[a-f0-9]{64}$/);
+ assert.equal(a.contentSha256,b.contentSha256);
+ assert.equal(a.contentSha256,json.contentSha256);
+ const changed=editProject(state,projectId,{goal:"Согласовать результат с заказчиком"});
+ const updated=await readAtlasSourceFile(fromBytes(await buildIwxaPortfolio(changed,{now:"2026-11-09T13:00:00.000Z"})));
+ assert.notEqual(updated.contentSha256,a.contentSha256);
+ assert.equal(updated.view.projects[0].name,a.view.projects[0].name);
+ assert.equal(updated.view.projects[0].workItems.length,a.view.projects[0].workItems.length);
+ assert.equal(updated.view.projects[0].total,a.view.projects[0].total);
 });
