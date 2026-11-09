@@ -127,8 +127,8 @@ export default function App(){
      .catch(e=>{if(alive){setError('Не удалось открыть сохранённые черновики: '+getError(e));setLoaded(false);}});
    return ()=>{alive=false;};
  },[]);
- async function change(command:Record<string,unknown>,success:string){
-   if(busy||!loaded)return;
+ async function change(command:Record<string,unknown>,success:string):Promise<{ok:boolean;message:string}>{
+   if(busy||!loaded)return {ok:false,message:'Сохранение сейчас недоступно. Дождитесь завершения текущего действия.'};
    setBusy(true);setError('');setMessage('');setSimulated(null);
    try{
      const next=applyPublisherDraftCommand(state,command) as Draft;
@@ -136,7 +136,12 @@ export default function App(){
      setState(next);
      setPendingRestore(null);
      setMessage(success);
-   }catch(e){setError(getError(e));}
+     return {ok:true,message:success};
+   }catch(e){
+     const reason=getError(e);
+     setError(reason);
+     return {ok:false,message:'Не удалось сохранить: '+reason};
+   }
    finally{setBusy(false);}
  }
  async function inspect(){

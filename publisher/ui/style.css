@@ -143,3 +143,10 @@
 .publisher-app .publisher-license-unavailable{color:#8b5a37;line-height:1.5}.publisher-app .publisher-test-owner .notice.subdued{margin:14px 0;max-width:760px}
 
 .publisher-app .publisher-license-shortcut{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px}.publisher-app .publisher-license-shortcut p{margin:0;flex:1;min-width:230px}.publisher-app .publisher-license-shortcut button{white-space:nowrap}.publisher-app .publisher-license-shortcut+div{margin-top:0}
+
+/* Keep native save feedback within sight of its originating action. */
+.publisher-app .publisher-save-action{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:10px}
+.publisher-app .publisher-save-action>.primary{flex:none}
+.publisher-app .publisher-inline-feedback{flex:1;min-width:195px;margin:0;padding:9px 12px;border-radius:9px;border:1px solid #c8dfd8;background:#f0faf6;color:#285d4b;font-size:12px;line-height:1.45}
+.publisher-app .publisher-inline-feedback.error{border-color:#e8b4bb;background:#fff1f2;color:#923744}
+@media(max-width:700px){.publisher-app .publisher-save-action{align-items:stretch}.publisher-app .publisher-inline-feedback{flex-basis:100%}}

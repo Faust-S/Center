@@ -89,3 +89,18 @@ test('Publisher resets the native scrolling work area before switching sections'
  assert.match(app,/<main className="main" ref=\{mainScrollRef\}>/);
  assert.match(ui,/native-desktop-section-navigation-resets-main-scroll/);
 });
+
+test('Publisher tariff and license preparation show true persistence outcomes next to their actions',()=>{
+ const ui=read('publisher/ui/TariffPanel.tsx');
+ const app=read('publisher/ui/App.tsx');
+ const smoke=read('publisher/tests/browser-smoke.mjs');
+ assert.match(app,/Promise<\{ok:boolean;message:string\}>/);
+ assert.match(app,/await persistDraft\(next\)/);
+ assert.match(app,/return \{ok:true,message:success\}/);
+ assert.match(ui,/publisher-tariff-save-feedback/);
+ assert.match(ui,/publisher-proposal-save-feedback/);
+ assert.match(ui,/role=\{tariffFeedback\.ok\?'status':'alert'\}/);
+ assert.match(ui,/role=\{proposalFeedback\.ok\?'status':'alert'\}/);
+ assert.match(smoke,/tariff-native-save-failure-and-success-visible-beside-action/);
+ assert.match(smoke,/proposal-native-save-failure-and-success-visible-beside-action/);
+});

@@ -47,7 +47,10 @@ try {
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       window.__publisherMockNativeCommands.push(command);
       if(command==='publisher_draft_read')return sessionStorage.getItem('iwxa-publisher-test-native-draft');
-      if(command==='publisher_draft_save'){sessionStorage.setItem('iwxa-publisher-test-native-draft',args.content);return true;}
+      if(command==='publisher_draft_save'){
+        if(window.__publisherMockFailNextSave){window.__publisherMockFailNextSave=false;throw Error('PUBLISHER_TEST_NATIVE_SAVE_UNAVAILABLE');}
+        sessionStorage.setItem('iwxa-publisher-test-native-draft',args.content);return true;
+      }
       if(command==='publisher_save_test_request'){sessionStorage.setItem('iwxa-publisher-test-native-request',args.content);return true;}
       if(command==='publisher_export_preparation_backup')return false;
       if(command==='publisher_pick_preparation_backup')return null;
@@ -151,8 +154,24 @@ try {
   await page.getByLabel('Единица').selectOption('TOKENS');
   await page.getByLabel('Период').selectOption('MONTH');
   await page.getByLabel('Предел').fill('150000');
+  await page.evaluate(()=>{window.__publisherMockFailNextSave=true;});
+  await page.getByRole('button',{name:'Сохранить редакцию тарифа'}).click();
+  const tariffFeedback=page.getByTestId('publisher-tariff-save-feedback');
+  await tariffFeedback.waitFor();
+  assert.equal(await tariffFeedback.getAttribute('role'),'alert');
+  assert.match(await tariffFeedback.innerText(),/Не удалось сохранить/);
+  assert.equal(await page.getByText('Сохранённые тарифы (0)').count(),1);
   await page.getByRole('button',{name:'Сохранить редакцию тарифа'}).click();
   await page.getByText('Сохранённые тарифы (1)').waitFor();
+  await tariffFeedback.waitFor();
+  assert.equal(await tariffFeedback.getAttribute('role'),'status');
+  assert.match(await tariffFeedback.innerText(),/Редакция тарифа сохранена/);
+  const tariffOnScreen=await tariffFeedback.evaluate(el=>{
+    const r=el.getBoundingClientRect(),pane=document.querySelector('.publisher-app .main').getBoundingClientRect();
+    return r.top>=pane.top&&r.bottom<=pane.bottom;
+  });
+  assert.ok(tariffOnScreen,'Tariff result must be visible beside its save action');
+  checks.push('tariff-native-save-failure-and-success-visible-beside-action');
   const persistedTariff=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')));
   assert.equal(persistedTariff.tariffs[0].quotas[0].service,'CLOUD');
   assert.equal(persistedTariff.tariffs[0].quotas[0].max,150000);
@@ -166,7 +185,22 @@ try {
 
   await page.getByRole('button',{name:'Лицензии'}).click();
   await page.getByTestId('publisher-tariff-proposal').waitFor();
+  await page.evaluate(()=>{window.__publisherMockFailNextSave=true;});
   await page.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
+  const proposalFeedback=page.getByTestId('publisher-proposal-save-feedback');
+  await proposalFeedback.waitFor();
+  assert.equal(await proposalFeedback.getAttribute('role'),'alert');
+  assert.equal(await page.getByText('Подготовленные запросы (0)').count(),1);
+  await page.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
+  await proposalFeedback.waitFor();
+  assert.equal(await proposalFeedback.getAttribute('role'),'status');
+  assert.match(await proposalFeedback.innerText(),/Подготовка сохранена/);
+  const proposalOnScreen=await proposalFeedback.evaluate(el=>{
+    const r=el.getBoundingClientRect(),pane=document.querySelector('.publisher-app .main').getBoundingClientRect();
+    return r.top>=pane.top&&r.bottom<=pane.bottom;
+  });
+  assert.ok(proposalOnScreen,'License preparation result must stay beside its action');
+  checks.push('proposal-native-save-failure-and-success-visible-beside-action');
   await page.getByRole('button',{name:'Лицензии'}).click();
   await page.getByText('Подготовленные запросы (1)').waitFor();
   checks.push('tariff-proposal-unsigned-snapshot');
