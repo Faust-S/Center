@@ -148,7 +148,7 @@ export default function App() {
   activeOrganizationRef.current=state.activeOrganizationId;
   const atlasView = atlasFile?.organizationId===org?.id ? atlasFile?.view ?? null : null;
   const matchingNativeAtlas=nativeAtlas&&nativeAtlas.organizationId===org?.id ? nativeAtlas.view : null;
-  const observedAtlas=selectAtlasReferenceSource(atlasView,matchingNativeAtlas,atlasObservationMode);
+  const observedAtlas=selectAtlasReferenceSource(atlasView,matchingNativeAtlas,atlasObservationMode) as AtlasPortfolioView|null;
   const currentFile=atlasFile?.organizationId===org?.id?atlasFile:null;
   const fileLinksToReview=atlasView?(org?.assignments??[]).filter(a=>
     a.atlasRef?.workId&&atlasWorkReadback(atlasView,a.atlasRef)!=='SOURCE_REVISION_MATCHES').length:0;
