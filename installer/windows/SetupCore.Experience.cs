@@ -125,7 +125,10 @@ namespace IwxaSetup
 
             var sidebar = new Panel {
                 Dock = DockStyle.Fill, BackColor = Color.White,
-                Margin = Padding.Empty, Padding = new Padding(14, 24, 14, 14)
+                Margin = Padding.Empty,
+                Padding = new Padding(14, 24, 14, 14),
+                AutoScroll = true,
+                AccessibleName = T("Разделы установщика", "Setup navigation")
             };
             frame.Controls.Add(sidebar, 0, 0);
             var sideStack = new TableLayoutPanel {
@@ -164,9 +167,7 @@ namespace IwxaSetup
             }
             var sideFooter = ExperienceLabel("IWXA  /  WINDOWS", 9,
                 Secondary, false);
-            sideFooter.Dock = DockStyle.Bottom;
-            sideFooter.Height = 35;
-            sidebar.Controls.Add(sideFooter);
+            Stack(sideStack, sideFooter, 48);
 
             var body = new TableLayoutPanel {
                 Name = "iwxaSetupMainSurface", Dock = DockStyle.Fill,
@@ -242,7 +243,8 @@ namespace IwxaSetup
             var footer = new FlowLayoutPanel {
                 Name = "iwxaSetupActions",
                 Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft,
-                WrapContents = false, Padding = new Padding(20, 13, 20, 6),
+                WrapContents = false, AutoScroll = true,
+                Padding = new Padding(20, 13, 20, 6),
                 BackColor = Color.White
             };
             body.Controls.Add(footer, 0, 2);
@@ -308,24 +310,20 @@ namespace IwxaSetup
             ShowExperiencePage(0);
         }
 
+        // Read actual native text metrics after DPI scaling so supporting
+        // actions are not squeezed into arbitrary 110-pixel buttons.
         private void ResizeExperienceFooter()
         {
             if (experienceFooter == null || experienceFooter.ClientSize.Width <= 0)
                 return;
             Control[] controls = {install, secondary, retry, cancelStorageMove,
                 applyLocations, discardLocations};
-            int count = 0;
-            foreach (Control control in controls)
-                if (control.Visible) count++;
-            if (count == 0) return;
-            int available = experienceFooter.ClientSize.Width -
-                experienceFooter.Padding.Left -
-                experienceFooter.Padding.Right - count * 12 - 8;
-            if (available <= 0) return;
-            int width = Math.Max(110, Math.Min(205, available / count));
             foreach (Control control in controls)
             {
-                if (control.Visible) control.Width = width;
+                if (!control.Visible) continue;
+                int preferred = TextRenderer.MeasureText(control.Text,
+                    control.Font).Width + 38;
+                control.Width = Math.Max(135, Math.Min(360, preferred));
             }
         }
 
