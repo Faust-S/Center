@@ -106,6 +106,15 @@ try {
   assert.match(await page.locator('main').innerText(),/Подтверждённых релизов: 0/);
   assert.match(await page.locator('main').innerText(),/Подписанных лицензий: 0/);
   checks.push('empty-owner-first-run-no-synthetic-license');
+  await page.setViewportSize({width:1024,height:640});
+  const footerVisible=await page.locator('.publisher-app .sidebar-bottom p').last().evaluate(el=>{
+    const r=el.getBoundingClientRect(),area=el.closest('.sidebar').getBoundingClientRect();
+    return r.top>=area.top&&r.bottom<=area.bottom;
+  });
+  assert.ok(footerVisible,'Publisher bottom navigation description must fit a compact desktop window');
+  assert.match(await page.locator('.publisher-app .sidebar-bottom p').last().innerText(),/Черновики — не лицензии/);
+  checks.push('compact-desktop-sidebar-caption-fully-visible');
+  await page.setViewportSize({width:1366,height:900});
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
   const select=page.getByTestId('publisher-select-test-iwxa');
   const exportButton=page.getByTestId('publisher-export-test-iwxa');

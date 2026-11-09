@@ -311,7 +311,7 @@ export default function App(){
      <nav aria-label="Разделы Publisher">
        {navigation.map(([key,label])=><button key={key} type="button" className={'nav-link'+(page===key?' active':'')} onClick={()=>go(key)} aria-current={page===key?'page':undefined}><span className="nav-icon"><PublisherNavIcon section={key}/></span><span>{label}</span></button>)}
      </nav>
-     <div className="sidebar-bottom"><p className="local-label"><span className="dot"></span>Локальная программа</p><p>Черновики не являются лицензиями, релизами или правами пользователей.</p></div>
+     <div className="sidebar-bottom"><p className="local-label"><span className="dot"></span>Локальная программа</p><p>Черновики — не лицензии и не права.</p></div>
    </aside>
    <main className="main" ref={mainScrollRef}>
      <header className="top">
