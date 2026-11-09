@@ -225,7 +225,8 @@ namespace IwxaSetup
 
         internal static InstallOutcome InstallFresh(string bundle)
         {
-            return InstallFresh(bundle, DefaultLocations(BundleReader.Inspect(bundle)));
+            BundleInfo info = BundleReader.Inspect(bundle);
+            return InstallFreshVerified(bundle, info, DefaultLocations(info));
         }
 
         internal static InstallOutcome InstallFresh(string bundle, string selectedRoot)
@@ -240,13 +241,19 @@ namespace IwxaSetup
             SetupLocations locations = DefaultLocations(info);
             locations.ProgramRoot = selectedRoot;
             locations.StartWithWindows = startWithWindows;
-            return InstallFresh(bundle, locations);
+            return InstallFreshVerified(bundle, info, locations);
         }
 
         internal static InstallOutcome InstallFresh(string bundle,
             SetupLocations selected)
         {
             BundleInfo info = BundleReader.Inspect(bundle);
+            return InstallFreshVerified(bundle, info, selected);
+        }
+
+        private static InstallOutcome InstallFreshVerified(
+            string bundle, BundleInfo info, SetupLocations selected)
+        {
             SetupLocations choices = ValidateLocations(info, selected);
             using (var mutex = new System.Threading.Mutex(false, "Local\\IWXA.SetupCore." + info.Id))
             {
