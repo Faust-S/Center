@@ -970,8 +970,18 @@ namespace IwxaSetup
             removalExplanation.Text = removeApplication.Visible ?
                 T("Программа установлена и может быть удалена. Перед удалением появится подтверждение с перечнем сохраняемых папок.",
                     "An installed application can be removed. You will review the preserved locations before uninstalling.") :
-                T("Проверенной установки для удаления пока нет. Сначала выполните проверку в разделе «Обзор».",
-                    "No verified application is available to uninstall. Check the installation under Overview.");
+                inspectedStatus == "UPGRADE_PENDING_CONFIRMATION" ||
+                inspectedStatus == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK" ?
+                T("Сначала завершите текущее обновление или восстановление в разделе «Обслуживание». После этого удаление будет доступно. Личные данные остаются на месте.",
+                    "First finish the pending update or repair under Maintenance. Uninstall becomes available afterwards. Your data stays in place.") :
+                inspectedStatus == "UPGRADE_RECOVERY_REQUIRED" ?
+                T("Предыдущее обновление было прервано. Сначала выполните восстановление в разделе «Обслуживание», затем вернитесь к удалению.",
+                    "A previous update was interrupted. Recover the installation under Maintenance before uninstalling.") :
+                inspectedStatus == "NO_OWNED_INSTALLATION" ?
+                T("Программа ещё не установлена. Удалять нечего.",
+                    "The application is not installed. There is nothing to uninstall.") :
+                T("Удаление пока недоступно: принадлежность установленной программы не подтверждена или требуется завершить предыдущую операцию. Проверьте состояние на обзоре.",
+                    "Uninstall is unavailable until the installed application is verified or an earlier operation is completed. Check its status on Overview.");
             openApplication.Enabled = ready && openApplication.Visible;
             removeApplication.Enabled = ready && removeApplication.Visible;
             for (int i = 0; i < experienceNavigation.Length; i++)
