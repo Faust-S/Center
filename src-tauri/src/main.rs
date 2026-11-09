@@ -72,7 +72,10 @@ fn center_owned_data_root(app: &AppHandle) -> Result<PathBuf, String> {
             if !selected.is_absolute() || selected.parent().is_none() {
                 return Err("CENTER_SETUP_DATA_ROOT_INVALID".into());
             }
-            return Ok(selected);
+            // The canonical Center native store has always lived below
+            // <app_local_data_dir>/atlas-store-v1. Preserve that structure
+            // when the user chooses a different app-data base folder.
+            return Ok(selected.join("atlas-store-v1"));
         }
     }
     Ok(default)
