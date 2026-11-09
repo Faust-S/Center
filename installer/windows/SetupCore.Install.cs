@@ -662,6 +662,77 @@ namespace IwxaSetup
             return InstallFreshVerified(bundle, info, selected);
         }
 
+        // Optional first-install import. Reuse the same verified storage
+        // relocation that maintains installed programs; do not introduce a
+        // separate file copier or silently merge unknown data.
+        internal static InstallOutcome InstallFreshWithExistingData(
+            string bundle, SetupLocations requested,
+            CancellationToken cancellation, Action<long, long> progress)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            BundleInfo info = BundleReader.Inspect(bundle);
+            SetupLocations desired = ValidateLocations(info, requested);
+            SetupLocations defaults = DefaultLocations(info);
+            string source = defaults.DataRoot;
+            string target = desired.DataRoot;
+            if (!HasPreservedDefaultData(info, target))
+                throw new InvalidOperationException(
+                    "SETUP_FIRST_INSTALL_DATA_SOURCE_NOT_FOUND");
+            if (PathOverlap(source, target))
+                throw new InvalidOperationException(
+                    "SETUP_FIRST_INSTALL_DATA_PATH_OVERLAP");
+            if (Directory.Exists(target) || File.Exists(target))
+                throw new InvalidOperationException(
+                    "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS");
+            string volume = Path.GetPathRoot(source);
+            if (!IsStorageVolumeReady(volume))
+                throw new IOException(
+                    "SETUP_STORAGE_SOURCE_VOLUME_UNAVAILABLE_" + volume);
+            // The source becomes the temporary registered location until
+            // verification has completed. The application is never launched
+            // before the final location is confirmed.
+            var initial = new SetupLocations {
+                ProgramRoot = desired.ProgramRoot,
+                DataRoot = source,
+                SoftwareRoot = desired.SoftwareRoot,
+                ModelsRoot = desired.ModelsRoot,
+                CacheRoot = desired.CacheRoot,
+                StartWithWindows = desired.StartWithWindows
+            };
+            ValidateLocations(info, initial);
+            var pending = new List<StorageCopy> {
+                new StorageCopy { Original = source, Destination = target }
+            };
+            // The same space budget and reparse-point safeguards as a normal
+            // relocation run BEFORE creating any installed application files.
+            RequireStorageMoveSpace(pending, cancellation);
+            cancellation.ThrowIfCancellationRequested();
+            InstallOutcome installed = InstallFreshVerified(bundle, info, initial);
+            try
+            {
+                SetupLocations actual = RelocateStorage(
+                    info, desired, cancellation, progress);
+                if (!SamePath(actual.DataRoot, target) ||
+                    !SamePath(actual.ProgramRoot, desired.ProgramRoot))
+                    throw new InvalidDataException(
+                        "SETUP_FIRST_INSTALL_DATA_READBACK_MISMATCH");
+            }
+            catch (OperationCanceledException ex)
+            {
+                // The installed program remains usable with the OLD data
+                // location; the user can retry through normal preferences.
+                throw new InvalidOperationException(
+                    "SETUP_FIRST_INSTALL_DATA_COPY_CANCELLED", ex);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "SETUP_FIRST_INSTALL_DATA_COPY_INCOMPLETE", ex);
+            }
+            installed.Status = "INSTALLED_WITH_VERIFIED_DATA";
+            return installed;
+        }
+
         private static InstallOutcome InstallFreshVerified(
             string bundle, BundleInfo info, SetupLocations selected)
         {

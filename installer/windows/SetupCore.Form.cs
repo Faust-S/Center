@@ -825,7 +825,8 @@ namespace IwxaSetup
             switch (operation)
             {
                 case "Install":
-                    return nativeOutcome == "INSTALLED_NOT_LAUNCHED" &&
+                    return (nativeOutcome == "INSTALLED_NOT_LAUNCHED" ||
+                            nativeOutcome == "INSTALLED_WITH_VERIFIED_DATA") &&
                         observedPlan == "REPAIR_CANDIDATE_NOT_ACTIVATED";
                 case "Upgrade":
                     return nativeOutcome == "UPGRADED_BACKUP_RETAINED" &&
@@ -919,6 +920,31 @@ namespace IwxaSetup
                     offlineInstaller = select.FileName;
                 }
             }
+            bool importExisting = operation == SetupOperation.Install &&
+                inspectedBundle != null &&
+                copyPriorData.Visible && copyPriorData.Checked &&
+                selectedLocations != null &&
+                SetupInstallation.HasPreservedDefaultData(
+                    inspectedBundle, selectedLocations.DataRoot);
+            if (importExisting)
+            {
+                string originalData = SetupInstallation.DefaultLocations(
+                    inspectedBundle).DataRoot;
+                DialogResult approved = MessageBox.Show(this,
+                    T("Перенести прежние данные в выбранную папку?",
+                      "Transfer existing data into the selected folder?") +
+                    Environment.NewLine + Environment.NewLine +
+                    T("Откуда: ", "From: ") + originalData +
+                    Environment.NewLine +
+                    T("Куда: ", "To: ") + selectedLocations.DataRoot +
+                    Environment.NewLine + Environment.NewLine +
+                    T("Сначала проверим место, затем скопируем и проверим файлы. Прежние данные останутся на месте. Не запускайте старую программу до завершения.",
+                      "Space will be checked, then files copied and verified. Originals are kept. Do not start the older application until this finishes."),
+                    T("Перенос существующих данных", "Transfer existing data"),
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                    MessageBoxDefaultButton.Button2);
+                if (approved != DialogResult.Yes) return;
+            }
             if (operation == SetupOperation.ActivateLegacyDefault)
             {
                 DialogResult approve = MessageBox.Show(
@@ -939,6 +965,14 @@ namespace IwxaSetup
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
                     MessageBoxDefaultButton.Button2);
                 if (answer != DialogResult.Yes) return;
+            }
+            var importCancellation = importExisting ?
+                new System.Threading.CancellationTokenSource() : null;
+            if (importCancellation != null)
+            {
+                storageCancellation = importCancellation;
+                cancelStorageMove.Visible = true;
+                cancelStorageMove.Enabled = true;
             }
             FocusOperationProgress();
             performingOperation = true;
@@ -985,8 +1019,34 @@ namespace IwxaSetup
                     SetupLocations selected = selectedLocations;
                     switch (operation)
                     {
-                        case SetupOperation.Install: return SetupInstallation.InstallFresh(
-                            executable, selected);
+                        case SetupOperation.Install:
+                            if (!importExisting)
+                                return SetupInstallation.InstallFresh(
+                                    executable, selected);
+                            return SetupInstallation.InstallFreshWithExistingData(
+                                executable, selected, importCancellation.Token,
+                                (copied, total) => {
+                                    if (IsDisposed || Disposing || !IsHandleCreated)
+                                        return;
+                                    try
+                                    {
+                                        BeginInvoke((Action)(() => {
+                                            if (IsDisposed || Disposing) return;
+                                            int percent = total <= 0 ? 100 :
+                                                (int)Math.Max(0, Math.Min(100,
+                                                    copied * 100.0 / total));
+                                            busyProgress.Style =
+                                                ProgressBarStyle.Continuous;
+                                            busyProgress.Value = percent;
+                                            status.Text = T(
+                                                "Переносим данные: ",
+                                                "Transferring data: ") +
+                                                percent + "%";
+                                        }));
+                                    }
+                                    catch (InvalidOperationException) { }
+                                    catch (ObjectDisposedException) { }
+                                });
                         case SetupOperation.Upgrade: return SetupInstallation.UpgradeOwned(executable);
                         case SetupOperation.Repair: return SetupInstallation.RepairOwned(executable);
                         case SetupOperation.Recover: return SetupInstallation.RecoverOwned(executable);
@@ -1049,7 +1109,10 @@ namespace IwxaSetup
                     status.Text = T("Файлы восстановлены — проверьте запуск",
                         "Files restored — verify the application");
                 else if (operation == SetupOperation.Install)
-                    status.Text = T("Приложение установлено", "Application installed");
+                    status.Text = result.Status == "INSTALLED_WITH_VERIFIED_DATA" ?
+                        T("Программа и прежние данные готовы",
+                          "Application and existing data are ready") :
+                        T("Приложение установлено", "Application installed");
                 else if (operation == SetupOperation.Rollback ||
                          result.Status == "RECOVERED_PREVIOUS_RELEASE")
                     status.Text = T("Предыдущая версия восстановлена", "Previous version restored");
@@ -1083,6 +1146,15 @@ namespace IwxaSetup
             {
                 performingOperation = false;
                 busyProgress.Visible = false;
+                busyProgress.Style = ProgressBarStyle.Marquee;
+                cancelStorageMove.Visible = false;
+                cancelStorageMove.Enabled = false;
+                if (importCancellation != null)
+                {
+                    if (storageCancellation == importCancellation)
+                        storageCancellation = null;
+                    importCancellation.Dispose();
+                }
                 retry.Enabled = true;
                 openApplication.Enabled = true;
                 configureInstallation.Enabled = true;
@@ -1129,6 +1201,42 @@ namespace IwxaSetup
                         packageDetails.Text = T(
                             "Повторите установку или выберите автономный файл Microsoft. Приложение не изменено.",
                             "Retry or select Microsoft's offline installer. Application files were not changed.");
+                }
+                else if (failure.Message == "SETUP_FIRST_INSTALL_DATA_COPY_INCOMPLETE" ||
+                         failure.Message == "SETUP_FIRST_INSTALL_DATA_COPY_CANCELLED")
+                {
+                    status.Text = T("Программа установлена, перенос не завершён",
+                        "Application installed, transfer incomplete");
+                    version.Text = T("Прежние данные сохранены",
+                        "Original data is preserved");
+                    packageDetails.Text = T(
+                        "Установка завершилась, но перенос остановился. Программа пока использует прежнюю папку данных. Укажите выбранную новую папку и нажмите «Применить», чтобы повторить проверяемый перенос.",
+                        "Installation completed, but transfer stopped. The application still uses the original data folder. Select your new folder and press Apply to retry the verified transfer.");
+                    if (selectedLocations != null &&
+                        locationInputs[1] != null)
+                    {
+                        // The normal installed-product relocation route now
+                        // doubles as the recovery action. Keep the person's
+                        // chosen destination rather than losing their edits.
+                        locationInputs[1].Text = selectedLocations.DataRoot;
+                    }
+                }
+                else if (failure.Message == "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS")
+                {
+                    status.Text = T("Папка для переноса занята",
+                        "Data transfer folder is already in use");
+                    packageDetails.Text = T(
+                        "В выбранной папке уже есть файлы. Укажите новую пустую папку для переноса, чтобы не перезаписать существующие данные.",
+                        "The chosen destination already contains files. Select a new empty folder for transfer to avoid overwriting existing data.");
+                }
+                else if (failure.Message.StartsWith(
+                    "SETUP_STORAGE_DISK_SPACE_INSUFFICIENT", StringComparison.Ordinal))
+                {
+                    status.Text = T("Для переноса недостаточно места",
+                        "Not enough space to transfer data");
+                    packageDetails.Text = T(
+                        "Нужно больше места для проверенной копии прежних данных. Выберите другой диск или продолжите установку без переноса.",
+                        "The verified copy requires more free space. Choose another drive or install without importing old data.");
                 }
                 else if (failure.Message.StartsWith(
                     "SETUP_DISK_SPACE_INSUFFICIENT", StringComparison.Ordinal))

@@ -17,6 +17,9 @@ namespace IwxaSetup
         private readonly Label unifiedManageTitle = new Label();
         private readonly Label unifiedReadyNotes = new Label();
         private readonly Panel unifiedActionBox = new Panel();
+        private readonly TableLayoutPanel priorDataChoices = new TableLayoutPanel();
+        private readonly CheckBox copyPriorData = new CheckBox();
+        private readonly Label copyPriorDataDetails = new Label();
         private readonly TableLayoutPanel unifiedActionGrid =
             new TableLayoutPanel();
         private readonly PictureBox unifiedBrand = new PictureBox();
@@ -606,6 +609,36 @@ namespace IwxaSetup
             unifiedReadyNotes.TextAlign = ContentAlignment.TopLeft;
             unifiedReadyNotes.Visible = false;
             unifiedActionBox.Controls.Add(unifiedReadyNotes);
+            // First installation: show an optional, unchecked, explicit data
+            // import when the earlier Admin Center data directory has files.
+            priorDataChoices.Dock = DockStyle.Fill;
+            priorDataChoices.ColumnCount = 1;
+            priorDataChoices.RowCount = 2;
+            priorDataChoices.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, 100));
+            priorDataChoices.RowStyles.Add(new RowStyle(SizeType.Percent, 39));
+            priorDataChoices.RowStyles.Add(new RowStyle(SizeType.Percent, 61));
+            priorDataChoices.Visible = false;
+            priorDataChoices.BackColor = Color.White;
+            copyPriorData.Name = "iwxaSetupCopyPriorData";
+            copyPriorData.Text = T("Перенести прежние данные",
+                "Transfer existing data");
+            copyPriorData.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            copyPriorData.ForeColor = Navy;
+            copyPriorData.Dock = DockStyle.Fill;
+            copyPriorData.Checked = false;
+            copyPriorData.CheckedChanged += (sender, args) =>
+                RefreshUnifiedButtons();
+            priorDataChoices.Controls.Add(copyPriorData, 0, 0);
+            copyPriorDataDetails.Text = T(
+                "Копирование с проверкой. Прежняя папка сохранится.",
+                "Verified copy. The original folder will be retained.");
+            copyPriorDataDetails.Dock = DockStyle.Fill;
+            copyPriorDataDetails.Font = new Font("Segoe UI", 8.75F);
+            copyPriorDataDetails.ForeColor = Secondary;
+            copyPriorDataDetails.AutoEllipsis = false;
+            priorDataChoices.Controls.Add(copyPriorDataDetails, 0, 1);
+            unifiedActionBox.Controls.Add(priorDataChoices);
             openApplication.Visible = false;
             openApplication.Name = "iwxaSetupRelatedAction";
             openApplication.Text = T("Открыть программу",
@@ -743,20 +776,48 @@ namespace IwxaSetup
             bool first = inspectedStatus == "NO_OWNED_INSTALLATION";
             bool installed = inspectedBundle != null && !first;
             bool changes = locationDraftChanged;
-            unifiedManageTitle.Text = first ?
-                T("Перед установкой", "Before installation") :
+            bool canCopyPriorData = first && inspectedBundle != null &&
+                locationInputs[1] != null &&
+                SetupInstallation.HasPreservedDefaultData(
+                    inspectedBundle, locationInputs[1].Text);
+            if (!canCopyPriorData && copyPriorData.Checked)
+                copyPriorData.Checked = false;
+            copyPriorData.Enabled = ready && canCopyPriorData;
+            priorDataChoices.Visible = canCopyPriorData;
+            unifiedManageTitle.Text = canCopyPriorData ?
+                T("Найдены прежние данные", "Existing data found") :
+                first ? T("Перед установкой", "Before installation") :
                 T("Управление программой", "Manage application");
-            unifiedReadyNotes.Visible = first;
+            unifiedReadyNotes.Visible = first && !canCopyPriorData;
             unifiedActionGrid.Visible = !first;
             if (first)
             {
-                unifiedReadyNotes.Text =
-                    primaryAction == SetupOperation.Install ?
-                    T("Пакет программы проверен. Места на диске достаточно. Папки и настройки запуска можно изменить перед установкой.",
-                      "The package is verified and disk space is sufficient. You may change folders and startup before installing.") :
-                    T("Проверьте состояние выше. Когда причина будет устранена, установка станет доступна.",
-                      "Review the status above. Installation becomes available once the blocker is resolved.");
-                unifiedReadyNotes.BringToFront();
+                if (canCopyPriorData)
+                {
+                    string source = SetupInstallation.DefaultLocations(
+                        inspectedBundle).DataRoot;
+                    string destination = locationInputs[1].Text;
+                    copyPriorDataDetails.Text = copyPriorData.Checked ?
+                        T("Данные скопируются в новую папку с проверкой. Исходные файлы останутся.",
+                          "Data will be copied and verified. Original files stay in place.") :
+                        T("Оставить прежние данные на месте и начать с новой папки.",
+                          "Keep old data where it is and start in the new folder.");
+                    detailsHint.SetToolTip(copyPriorDataDetails,
+                        T("Откуда: ", "From: ") + source +
+                        Environment.NewLine +
+                        T("Куда: ", "To: ") + destination);
+                    priorDataChoices.BringToFront();
+                }
+                else
+                {
+                    unifiedReadyNotes.Text =
+                        primaryAction == SetupOperation.Install ?
+                        T("Пакет проверен. Вы можете изменить папки и параметры запуска перед установкой.",
+                          "Package verified. You can change folders and startup before installing.") :
+                        T("Проверьте состояние выше. Установка станет доступна после устранения препятствия.",
+                          "Review the status above. Resolve the blocker to install.");
+                    unifiedReadyNotes.BringToFront();
+                }
             }
 
             install.Visible = primaryAction != SetupOperation.None && 
@@ -805,9 +866,11 @@ namespace IwxaSetup
                 SetupInstallation.HasPreservedDefaultData(
                     inspectedBundle, locationInputs[1].Text))
             {
-                draftNotice.Text = T(
-                    "Данные в прежней папке сохранятся.",
-                    "Data in the original folder will be preserved.");
+                draftNotice.Text = copyPriorData.Checked ?
+                    T("Перенос выбран: исходные файлы сохранятся.",
+                      "Transfer selected: original files will be kept.") :
+                    T("Прежние данные останутся на месте.",
+                      "Existing data will remain in place.");
                 detailsHint.SetToolTip(draftNotice, T(
                     "Данные из стандартной папки не переносятся автоматически: ",
                     "Existing files are not automatically moved from: ") +
