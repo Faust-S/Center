@@ -276,10 +276,10 @@ try {
   Click-Publisher 'Клиенты'
   Enter-Value 'Идентификатор клиента' '11111111-1111-4111-8111-111111111111'
   Enter-Value 'Название / имя' 'PublisherInstalledTestOrg'
-  Click-Publisher 'Сохранить получателя'
+  Click-Publisher 'Сохранить клиента'
   # The holder's list row is below the viewport at 900px; assert the real
   # persisted native JSON below rather than requiring an onscreen row here.
-  [void](Find-Control 'Сохранить получателя' 'Button')
+  [void](Find-Control 'Сохранить клиента' 'Button')
   Click-Publisher 'Лицензии'
   Click-Publisher 'Открыть TEST-запрос'
   Enter-Value 'Функции (коды через запятую)' 'WORKSPACE,REVIEW'
@@ -332,7 +332,7 @@ try {
   Click-Publisher 'Продукты'
   [void](Find-Text 'PublisherInstalledTest')
   Click-Publisher 'Клиенты'
-  [void](Find-Control 'Сохранить получателя' 'Button')
+  [void](Find-Control 'Сохранить клиента' 'Button')
   Click-Publisher 'Лицензии'
   [void](Find-Control 'Моделировать TEST-ответ' 'Button')
   if(!(Test-Path -LiteralPath $data)){throw 'Publisher preparation disappeared after native restart'}

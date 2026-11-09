@@ -253,7 +253,7 @@ try{
   Press $pub 'Клиенты'
   Enter $pub 'Идентификатор клиента' $organizationId
   Enter $pub 'Название / имя' 'CenterLicenseTestOrganization'
-  Press $pub 'Сохранить получателя'
+  Press $pub 'Сохранить клиента'
   Press $pub 'Лицензии'
   Press $pub 'Открыть TEST-запрос'
   Enter $pub 'Функции (коды через запятую)' 'WORKSPACE'

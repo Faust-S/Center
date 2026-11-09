@@ -295,7 +295,7 @@ export default function App(){
        {page==='overview'&&<>
          <div className="metrics">
            <div className="card metric publisher-metric"><span>Продукты</span><strong>{state.products.length}</strong><small>Каталог в подготовке</small></div>
-           <div className="card metric publisher-metric"><span>Получатели</span><strong>{state.holders.length}</strong><small>Привязанные идентификаторы</small></div>
+           <div className="card metric publisher-metric"><span>Клиенты</span><strong>{state.holders.length}</strong><small>Привязанные идентификаторы</small></div>
            <div className="card metric publisher-metric"><span>Черновики запросов</span><strong>{state.proposals.length}</strong><small>Без выданных лицензий</small></div>
          </div>
          <section className="card padded"><strong>Тарифы и лимиты ({state.tariffs.length})</strong><p className="muted">Организации и физические лица получают разные маршруты выдачи. Сохранённые тарифы пока не являются лицензиями.</p><button className="secondary" type="button" onClick={()=>go('tariffs')}>Открыть тарифы</button></section>
@@ -304,7 +304,7 @@ export default function App(){
              <div className="publisher-hero-copy">
                <div className="eyebrow">РАБОТА ИЗДАТЕЛЯ</div>
                <h2>Подготовка лицензий и выпусков IWXA</h2>
-               <p>Продукт, получатель и условия выдачи — в одном рабочем месте. Действительные права появятся только после подписи и независимой проверки T3.</p>
+               <p>Продукт, клиент и условия выдачи — в одном рабочем месте. Действительные права появятся только после подписи и независимой проверки T3.</p>
              </div>
              <div className="publisher-hero-symbol" aria-hidden="true"><img className="publisher-hero-symbol-inner" src="/favicon.svg" alt="" width="79" height="79"/></div>
            </div>
@@ -352,8 +352,8 @@ export default function App(){
            <p className="muted">{holderType==='PERSON'?'Для личной лицензии укажите постоянный идентификатор владельца. Admin Center не нужен.':'Для лицензии организации укажите её идентификатор, используемый в Admin Center.'} Эта запись пока не предоставляет прав.</p>
            <div className="form-grid"><label>Идентификатор клиента<input required maxLength={90} placeholder={holderType==='PERSON'?'person:example':'org:example'} value={holderSourceId} onChange={e=>setHolderSourceId(e.target.value)}/></label><label>Название / имя<input required maxLength={130} value={holderName} onChange={e=>setHolderName(e.target.value)}/></label>
            <label>Тип субъекта<select value={holderType} onChange={e=>setHolderType(e.target.value as Holder['type'])}><option value="ORGANIZATION">Организация</option><option value="PERSON">Физическое лицо</option></select></label></div>
-           <button className="primary" disabled={busy} type="submit">Сохранить получателя</button></form></section>
-         <section className="card padded"><h2>Получатели ({state.holders.length})</h2>{state.holders.length===0?<p className="muted">Получателей пока нет.</p>:state.holders.map(h=><div key={h.id} className="simple-row"><div><strong>{h.name}</strong><small>{typeLabel(h.type)} · {h.id}</small></div><span className="status neutral">Подготовка</span></div>)}</section>
+           <button className="primary" disabled={busy} type="submit">Сохранить клиента</button></form></section>
+         <section className="card padded"><h2>Клиенты ({state.holders.length})</h2>{state.holders.length===0?<p className="muted">Клиентов пока нет.</p>:state.holders.map(h=><div key={h.id} className="simple-row"><div><strong>{h.name}</strong><small>{typeLabel(h.type)} · {h.id}</small></div><span className="status neutral">Подготовка</span></div>)}</section>
        </>}
        {page==='proposals'&&<>
           <div className="publisher-license-shortcut">
@@ -362,7 +362,7 @@ export default function App(){
           </div>
           <TariffPanel draft={state} busy={busy} change={change} mode="offer"/>
          <section ref={legacyTestRef} className="card form-panel"><h2>Простой TEST-запрос (совместимость)</h2><p className="muted">Создание запроса не создаёт подписанной лицензии и не меняет права получателя.</p>
-         {state.products.length===0||state.holders.length===0?<div className="notice">Для запроса необходимо сначала создать продукт и получателя.</div>:<form onSubmit={e=>{e.preventDefault();void change({kind:'addProposal',productId:activeProduct,holderId:activeHolder,features:features.split(',').map(x=>x.trim()).filter(Boolean),termDays:Number(termDays)},'Черновик запроса сохранён. Лицензия не выдана.');}}>
+         {state.products.length===0||state.holders.length===0?<div className="notice">Для запроса необходимо сначала создать продукт и клиента.</div>:<form onSubmit={e=>{e.preventDefault();void change({kind:'addProposal',productId:activeProduct,holderId:activeHolder,features:features.split(',').map(x=>x.trim()).filter(Boolean),termDays:Number(termDays)},'Черновик запроса сохранён. Лицензия не выдана.');}}>
            <div className="form-grid"><label>Продукт<select value={activeProduct} onChange={e=>setProposalProduct(e.target.value)}>{state.products.map(p=><option key={p.id} value={p.id}>{p.name} ({p.version})</option>)}</select></label>
            <label>Получатель<select value={activeHolder} onChange={e=>setProposalHolder(e.target.value)}>{state.holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
            <label>Функции (коды через запятую)<input value={features} onChange={e=>setFeatures(e.target.value)} placeholder="Не определены"/></label>

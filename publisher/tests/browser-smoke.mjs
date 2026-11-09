@@ -160,7 +160,7 @@ try {
   await page.getByRole('button',{name:'Клиенты'}).click();
   await page.getByLabel('Идентификатор клиента').fill('11111111-1111-4111-8111-111111111111');
   await page.getByLabel('Название / имя').fill('Test Corporation');
-  await page.getByRole('button',{name:'Сохранить получателя'}).click();
+  await page.getByRole('button',{name:'Сохранить клиента'}).click();
   await page.getByText('Получатели (1)').waitFor();
   checks.push('create-organization-holder');
 
@@ -382,7 +382,7 @@ try {
   await personal.getByLabel('Тип субъекта').selectOption('PERSON');
   await personal.getByLabel('Идентификатор клиента').fill('person:local-example');
   await personal.getByLabel('Название / имя').fill('Example Person');
-  await personal.getByRole('button',{name:'Сохранить получателя'}).click();
+  await personal.getByRole('button',{name:'Сохранить клиента'}).click();
   await personal.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
   await personal.getByLabel('Код тарифа').fill('ATLAS_PERSONAL');
   await personal.getByLabel('Название тарифа').fill('Личный');
