@@ -170,7 +170,7 @@ namespace IwxaSetup
                 32, 32, 220, 25, 9, Accent, true);
             area.Controls.Add(eyebrow);
             configureInstallation.Name = "iwxaSetupPreferences";
-            configureInstallation.Text = T("Папка и запуск", "Location and startup");
+            configureInstallation.Text = T("Папки и запуск", "Folders and startup");
             configureInstallation.AccessibleName = configureInstallation.Text;
             configureInstallation.Size = new Size(190, 34);
             configureInstallation.Location = new Point(390, 28);
@@ -539,7 +539,29 @@ namespace IwxaSetup
                     await VerifyAsync();
                     return;
                 }
+                bool moving = !String.Equals(current.DataRoot,
+                        updated.DataRoot, StringComparison.OrdinalIgnoreCase) ||
+                    !String.Equals(current.SoftwareRoot, updated.SoftwareRoot,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    !String.Equals(current.ModelsRoot, updated.ModelsRoot,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    !String.Equals(current.CacheRoot, updated.CacheRoot,
+                        StringComparison.OrdinalIgnoreCase);
+                if (moving)
+                {
+                    DialogResult approve = MessageBox.Show(this,
+                        T("Скопировать данные в выбранные папки, проверить каждую копию и переключить хранилища? Исходные папки останутся на месте. Перед переносом закройте программу.",
+                          "Copy data to the new folders, verify each copy, then switch storage? The original folders will be kept. Close the application first."),
+                        T("Подтвердить перенос", "Confirm storage relocation"),
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                        MessageBoxDefaultButton.Button2);
+                    if (approve != DialogResult.Yes) return;
+                }
                 performingOperation = true;
+                busyProgress.Visible = true;
+                status.Text = moving ?
+                    T("Копируем и проверяем данные…", "Copying and verifying data…") :
+                    T("Применяем параметры запуска…", "Applying startup settings…");
                 install.Enabled = false;
                 secondary.Enabled = false;
                 retry.Enabled = false;
@@ -547,17 +569,25 @@ namespace IwxaSetup
                 Exception error = null;
                 try
                 {
-                    await Task.Run(() =>
-                        SetupInstallation.UpdateStartup(info, updated.StartWithWindows));
+                    await Task.Run(() => {
+                        if (moving)
+                            SetupInstallation.RelocateStorage(info, updated);
+                        SetupInstallation.UpdateStartup(info, updated.StartWithWindows);
+                    });
                 }
                 catch (Exception ex) { error = ex; }
-                finally { performingOperation = false; }
+                finally
+                {
+                    performingOperation = false;
+                    busyProgress.Visible = false;
+                }
                 await VerifyAsync();
                 if (error != null)
                     MessageBox.Show(this,
-                        T("Не удалось изменить запуск: ", "Could not change startup: ") +
+                        T("Не удалось применить все параметры. Проверьте установку. ",
+                          "Could not apply all settings. Verify the installation. ") +
                         error.Message,
-                        T("Параметры запуска", "Startup preferences"),
+                        T("Параметры установки", "Installation settings"),
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
@@ -729,29 +759,29 @@ namespace IwxaSetup
             storageLayout.SetColumnSpan(storageHeading, 2);
             var common = new Button {
                 Text = T("Выбрать общую папку…", "Choose shared folder…"),
-                Dock = DockStyle.Fill, Enabled = firstInstallation
+                Dock = DockStyle.Fill, Enabled = true
             };
             storageLayout.Controls.Add(common, 0, 1);
             storageLayout.SetColumnSpan(common, 2);
             var commonHelp = new Label {
-                Text = T("Подпапки Data, Software, Models и Cache создаются отдельно. Можно задать каждую папку вручную.",
-                    "Data, Software, Models and Cache are separate subfolders. You may edit each path."),
+                Text = T("Выберите папки отдельно или укажите общую. При переносе сохраняются исходные данные.",
+                    "Choose separate folders or one shared location. Relocation preserves the originals."),
                 ForeColor = Secondary, Dock = DockStyle.Fill
             };
             storageLayout.Controls.Add(commonHelp, 0, 2);
             storageLayout.SetColumnSpan(commonHelp, 2);
             TextBox data = AddLocationRow(storageLayout, 3,
                 T("Личные данные", "Personal data"),
-                "iwxaSetupDataRoot", choices.DataRoot, firstInstallation);
+                "iwxaSetupDataRoot", choices.DataRoot, true);
             TextBox software = AddLocationRow(storageLayout, 5,
                 T("Сторонние программы", "Third-party software"),
-                "iwxaSetupSoftwareRoot", choices.SoftwareRoot, firstInstallation);
+                "iwxaSetupSoftwareRoot", choices.SoftwareRoot, true);
             TextBox models = AddLocationRow(storageLayout, 7,
                 T("Локальные модели", "Local models"),
-                "iwxaSetupModelsRoot", choices.ModelsRoot, firstInstallation);
+                "iwxaSetupModelsRoot", choices.ModelsRoot, true);
             TextBox cache = AddLocationRow(storageLayout, 9,
                 T("Кэш", "Cache"),
-                "iwxaSetupCacheRoot", choices.CacheRoot, firstInstallation);
+                "iwxaSetupCacheRoot", choices.CacheRoot, true);
             common.Click += (sender, args) =>
             {
                 using (var browse = new FolderBrowserDialog {
@@ -767,8 +797,8 @@ namespace IwxaSetup
                 }
             };
             var storageHelp = new Label {
-                Text = T("Данные Admin Center записываются в выбранное хранилище. Каталоги для программ, моделей и кэша сохраняются как предпочтения; дополнительные компоненты сейчас не загружаются.",
-                    "Admin Center data uses the selected location. Software, models and cache paths are saved as preferences; no extra components are downloaded now."),
+                Text = T("Изменение папок существующей установки копирует и проверяет данные до переключения. Старые папки остаются. Стороннее ПО и модели не загружаются автоматически.",
+                    "Changing existing locations copies and verifies data before switching. Original folders remain. External software and models are not downloaded automatically."),
                 ForeColor = Secondary, Dock = DockStyle.Fill
             };
             storageLayout.Controls.Add(storageHelp, 0, 11);
@@ -787,25 +817,23 @@ namespace IwxaSetup
             {
                 try
                 {
-                    if (firstInstallation)
-                    {
-                        var proposed = new SetupLocations {
-                            ProgramRoot = appRoot.Text,
-                            DataRoot = data.Text,
-                            SoftwareRoot = software.Text,
-                            ModelsRoot = models.Text,
-                            CacheRoot = cache.Text,
-                            StartWithWindows = login.Checked
-                        };
-                        BundleInfo info = inspectedBundle;
-                        SetupLocations normalized =
-                            SetupInstallation.ValidateLocations(info, proposed);
-                        appRoot.Text = normalized.ProgramRoot;
-                        data.Text = normalized.DataRoot;
-                        software.Text = normalized.SoftwareRoot;
-                        models.Text = normalized.ModelsRoot;
-                        cache.Text = normalized.CacheRoot;
-                    }
+                    var proposed = new SetupLocations {
+                        ProgramRoot = appRoot.Text,
+                        DataRoot = data.Text,
+                        SoftwareRoot = software.Text,
+                        ModelsRoot = models.Text,
+                        CacheRoot = cache.Text,
+                        StartWithWindows = login.Checked
+                    };
+                    BundleInfo info = inspectedBundle;
+                    SetupLocations normalized =
+                        SetupInstallation.ValidateLocations(info, proposed,
+                            firstInstallation);
+                    appRoot.Text = normalized.ProgramRoot;
+                    data.Text = normalized.DataRoot;
+                    software.Text = normalized.SoftwareRoot;
+                    models.Text = normalized.ModelsRoot;
+                    cache.Text = normalized.CacheRoot;
                     dialog.DialogResult = DialogResult.OK;
                 }
                 catch (Exception ex)
