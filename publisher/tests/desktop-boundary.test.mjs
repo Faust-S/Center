@@ -135,3 +135,14 @@ test('tariff creation and original T3 TEST issue require explicit product and se
  assert.match(browser,/t3-owner-seats-explicit-and-scoped-to-saved-tariff/);
  assert.match(installed,/PUBLISHER_NATIVE_EXPLICIT_TARIFF_PRODUCT_PASS/);
 });
+
+
+test('T3 TEST revocation is explicitly confirmed in the same native owner panel',()=>{
+ const ui=read('publisher/ui/PublisherT3OwnerPanel.tsx');
+ const smoke=read('publisher/tests/browser-smoke.mjs');
+ assert.match(ui,/publisher-t3-revoke-confirmation/);
+ assert.match(ui,/Подтвердить отзыв/);
+ assert.match(ui,/setRevokePending\(null\);setStatus\(''\)/);
+ assert.match(ui,/if\(requested==='REVOKED'&&!revokeReady\)return/);
+ assert.match(smoke,/t3-test-revocation-requires-explicit-inline-confirmation-and-cancel/);
+});

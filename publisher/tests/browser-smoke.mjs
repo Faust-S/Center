@@ -420,10 +420,23 @@ try {
   assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
   await ownerPanel.getByRole('combobox',{name:'Новый TEST-статус'}).selectOption('REVOKED');
   await page.getByTestId('publisher-t3-change-status').click();
+  const revokePrompt=page.getByTestId('publisher-t3-revoke-confirmation');
+  await revokePrompt.waitFor();
+  assert.match(await revokePrompt.innerText(),/повторная активация будет недоступна/);
+  assert.equal(JSON.parse(await page.evaluate(()=>sessionStorage.getItem('publisher-t3-mock-licenses')))[0].status,
+    'SUSPENDED','Opening the revocation confirmation must not change the original ledger');
+  await revokePrompt.getByRole('button',{name:'Отмена'}).click();
+  assert.equal(await revokePrompt.count(),0);
+  assert.equal(await page.getByTestId('publisher-t3-change-status').isDisabled(),true);
+  await ownerPanel.getByRole('combobox',{name:'Новый TEST-статус'}).selectOption('REVOKED');
+  await page.getByTestId('publisher-t3-change-status').click();
+  await revokePrompt.getByRole('button',{name:'Подтвердить отзыв'}).click();
   await page.getByText('Новый подписанный TEST-статус сохранён в T3: REVOKED').waitFor();
+  assert.equal(await revokePrompt.count(),0);
   assert.equal(await page.getByTestId('publisher-t3-change-status').isDisabled(),true);
   assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
   checks.push('t3-native-readback-failure-cannot-claim-success-and-revocation-is-terminal');
+  checks.push('t3-test-revocation-requires-explicit-inline-confirmation-and-cancel');
   await page.getByRole('button',{name:'Лицензии'}).click();
 
   await page.reload();
