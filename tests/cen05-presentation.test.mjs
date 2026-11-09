@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createPresentationBridge} from '../vendor/brtest/u04-presentation/bridge.mjs';
 import {empty,createProject,createItem,editItem} from '../vendor/atlas/src/core.mjs';
-import {observeWorkReference} from '../vendor/atlas/src/project-reference.mjs';
+import {createAtlasProjectReadPort} from '../vendor/atlas/src/project-host-port.mjs';
 import {createCen05PresentationConsumer} from '../runtime/cen05-presentation.mjs';
 
 const make=()=>{
@@ -22,10 +22,16 @@ const make=()=>{
    async verifyProcessIdentity(){return {verified:true}}
  };
  const u04=createPresentationBridge(adapter);
- const observeWork=async({organizationId,workRef})=>({
-    status:observeWorkReference(snapshot,workRef),projectId:workRef.projectId,
-    workId:workRef.workId,revision:String(snapshot.revision),organizationId
+ const reader=createAtlasProjectReadPort({
+   openSnapshot:async()=>snapshot,
+   // Test fixture authorization: CEN05 must still use the real Atlas port.
+   authorize:async()=>true
  });
+ const observeWork=async({organizationId,workRef})=>{
+   const result=await reader.observeRevision(workRef,{organizationId});
+   return {status:result.status,projectId:workRef.projectId,
+     workId:workRef.workId,revision:String(snapshot.revision),organizationId};
+ };
  let approvals=0;
  const resolveLaunch=async({appRef,hostRef})=>{
    approvals++;
