@@ -659,9 +659,6 @@ namespace IwxaSetup
             if (raw.StartsWith("SETUP_INSTALL_ROOT_", StringComparison.Ordinal))
                 return T("Выберите обычную папку на локальном диске, вне системных каталогов Windows.",
                     "Choose a regular folder on a local drive outside the Windows system directories.");
-            if (raw == "SETUP_EXISTING_DATA_MIGRATION_REQUIRED")
-                return T("В стандартной папке уже есть данные. Для первой установки оставьте её расположение, а перенос выполните после установки.",
-                    "The default folder already contains data. Keep its current location for the first installation, then move it afterwards.");
             if (raw == "SETUP_PROGRAM_RELOCATION_REQUIRES_REINSTALL")
                 return T("Папку установленной программы нельзя изменить здесь. Папки данных можно перенести отдельно.",
                     "The installed application folder cannot be changed here. Data storage can be relocated separately.");

@@ -228,10 +228,12 @@ namespace IwxaSetup
             footer.Margin = Padding.Empty;
             footer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             shell.Controls.Add(footer, 0, 2);
+            // Keep the complete message on one line even on laptop screens.
+            // The longer explanation is already visible in the status area.
             var footerHelp = UiLabel(T(
-                "Личные данные сохраняются при обновлении и восстановлении.",
-                "Your data is preserved during updates and repair."),
+                "Личные данные сохраняются", "Personal data is preserved"),
                 9F, false, Secondary);
+            footerHelp.AutoEllipsis = false;
             footer.Controls.Add(footerHelp, 0, 0);
 
             var actions = new FlowLayoutPanel {
@@ -794,6 +796,25 @@ namespace IwxaSetup
                       "Changes will be applied during installation.") :
                     T("Параметры изменены. Нажмите «Применить».",
                       "Settings changed. Select Apply.");
+
+            // Do not demand an artificial initial install to the default
+            // directory. Explain the retained files inline and keep Install
+            // available for the chosen location.
+            if (first && inspectedBundle != null &&
+                locationInputs[1] != null &&
+                SetupInstallation.HasPreservedDefaultData(
+                    inspectedBundle, locationInputs[1].Text))
+            {
+                draftNotice.Text = T(
+                    "Данные в прежней папке сохранятся.",
+                    "Data in the original folder will be preserved.");
+                detailsHint.SetToolTip(draftNotice, T(
+                    "Данные из стандартной папки не переносятся автоматически: ",
+                    "Existing files are not automatically moved from: ") +
+                    SetupInstallation.DefaultLocations(inspectedBundle).DataRoot);
+            }
+            else
+                detailsHint.SetToolTip(draftNotice, draftNotice.Text);
 
             if (inspectedBundle != null)
                 Text = inspectedBundle.Name + " - " +

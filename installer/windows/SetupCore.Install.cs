@@ -176,19 +176,39 @@ namespace IwxaSetup
                     if (PathOverlap(roots[i], roots[j]))
                         throw new InvalidOperationException(
                             "SETUP_STORAGE_LOCATIONS_OVERLAP");
-            if (beforeFirstInstall)
-            {
-                // Never silently redirect an existing Tauri data store into
-                // an empty alternative. That needs a separate data-migration
-                // operation with readback and rollback.
-                string existingData = DefaultLocations(info).DataRoot;
-                if (!SamePath(result.DataRoot, existingData) &&
-                    Directory.Exists(existingData) &&
-                    Directory.GetFileSystemEntries(existingData).Length != 0)
-                    throw new InvalidOperationException(
-                        "SETUP_EXISTING_DATA_MIGRATION_REQUIRED");
-            }
+            // First installation uses the locations chosen by the person.
+            // An older Tauri data directory is NOT a reason to reject a
+            // different destination: this code never copies, clears or
+            // redirects it. Previous files remain where they were.
+            // Deliberate migration, if required, uses the existing verified
+            // storage relocation after the product is installed.
             return result;
+        }
+
+        // Read-only UI hint. Existing data is preserved when a first
+        // installation selects a different data directory; it does not
+        // turn the user's choice into a blocking modal dialog.
+        internal static bool HasPreservedDefaultData(
+            BundleInfo info, string selectedDataRoot)
+        {
+            if (info == null || String.IsNullOrWhiteSpace(selectedDataRoot))
+                return false;
+            try
+            {
+                string previous = DefaultLocations(info).DataRoot;
+                string chosen = ValidateInstallRoot(selectedDataRoot);
+                if (SamePath(previous, chosen) || !Directory.Exists(previous))
+                    return false;
+                using (var found = Directory.EnumerateFileSystemEntries(
+                    previous).GetEnumerator())
+                    return found.MoveNext();
+            }
+            catch (ArgumentException) { return false; }
+            catch (InvalidOperationException) { return false; }
+            catch (NotSupportedException) { return false; }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+            catch (System.Security.SecurityException) { return false; }
         }
 
         // A first-time installation must not register model, cache or data
