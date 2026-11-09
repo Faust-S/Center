@@ -11,7 +11,7 @@ using System.Windows.Forms;
 
 namespace IwxaSetup
 {
-    internal sealed class SetupForm : Form
+    internal sealed partial class SetupForm : Form
     {
         private static readonly Color Dark = Color.FromArgb(31, 45, 67);
         private static readonly Color Accent = Color.FromArgb(39, 109, 243);
@@ -37,8 +37,6 @@ namespace IwxaSetup
         private string inspectedStatus = "";
         private SetupLocations selectedLocations;
         private readonly ProgressBar busyProgress = new ProgressBar();
-        private readonly Panel[] progressPanels = new Panel[3];
-        private readonly Label[] progressLabels = new Label[3];
         private enum SetupOperation { None, Install, Upgrade, Recover, Confirm, Rollback,
             StageLegacyPreview, CancelLegacyPreview, ActivateLegacyDefault,
             RestoreLegacyDefault, InstallWebView2, InstallWebView2Offline, Repair }
@@ -76,7 +74,20 @@ namespace IwxaSetup
             };
             FormClosing += (sender, args) =>
             {
-                if (!performingOperation) return;
+                if (!performingOperation)
+                {
+                    if (locationDraftChanged)
+                    {
+                        DialogResult answer = MessageBox.Show(this,
+                            T("Несохранённые настройки будут отменены. Закрыть установщик?",
+                              "Unsaved settings will be discarded. Close setup?"),
+                            T("Папки и запуск", "Folders and startup"),
+                            MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                            MessageBoxDefaultButton.Button2);
+                        if (answer != DialogResult.Yes) args.Cancel = true;
+                    }
+                    return;
+                }
                 args.Cancel = true;
                 if (storageCancellation != null)
                 {
@@ -158,16 +169,6 @@ namespace IwxaSetup
             return ru ? russian : english;
         }
 
-        private Label Label(string value, int x, int y, int width, int height,
-                            int size, Color color, bool strong)
-        {
-            return new Label {
-                Text = value, AutoSize = false, Location = new Point(x, y),
-                Size = new Size(width, height), ForeColor = color,
-                Font = new Font("Segoe UI", size, strong ? FontStyle.Bold : FontStyle.Regular)
-            };
-        }
-
         // The settings panels use the same quiet secondary-action style
         // throughout. Native Windows focus and accessibility are retained.
         private static void StyleSecondaryButton(Button button)
@@ -182,389 +183,17 @@ namespace IwxaSetup
 
         private void BuildLayout()
         {
-            // A two-column container prevents DockStyle.Fill from painting
-            // underneath the left navigation panel (confirmed in real CI PNG).
-            var shell = new TableLayoutPanel {
-                Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1,
-                Margin = Padding.Empty, Padding = Padding.Empty,
-                BackColor = Color.FromArgb(246, 249, 253)
-            };
-            shell.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 235F));
-            shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            Controls.Add(shell);
-            var sidebar = new Panel {
-                Dock = DockStyle.Fill, Margin = Padding.Empty,
-                BackColor = Dark, AccessibleName = "IWXA setup navigation"
-            };
-            shell.Controls.Add(sidebar, 0, 0);
-            sidebar.Controls.Add(Label("IWXA", 27, 35, 180, 45, 27, Color.White, true));
-            sidebar.Controls.Add(Label("SETUP CORE", 29, 82, 175, 22, 10,
-                Color.FromArgb(170, 189, 215), false));
-            sidebar.Controls.Add(Label(T("УСТАНОВКА IWXA", "IWXA INSTALLER"),
-                29, 144, 195, 36, 9, Color.FromArgb(213, 227, 242), true));
-            string[] steps = new [] {
-                T("01  Проверка", "01  Verify"),
-                T("02  Установка", "02  Install"),
-                T("03  Готово", "03  Ready")
-            };
-            for (int i = 0; i < steps.Length; i++)
-            {
-                Panel item = new Panel {
-                    Location = new Point(12, 218 + i * 62),
-                    Size = new Size(213, 56), BackColor = Dark,
-                    AccessibleName = "IWXA setup stage " + (i + 1)
-                };
-                Label stage = Label(steps[i], 12, 12, 193, 33, 10,
-                    Color.FromArgb(186, 202, 223), false);
-                stage.AccessibleName = steps[i];
-                stage.AutoEllipsis = true;
-                item.Controls.Add(stage);
-                sidebar.Controls.Add(item);
-                progressPanels[i] = item;
-                progressLabels[i] = stage;
-            }
-            SetWizardStep(1);
-            var bottom = Label("IWXA  •  WINDOWS", 26, 516, 186, 28,
-                9, Color.FromArgb(186, 202, 223), false);
-            bottom.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
-            sidebar.Controls.Add(bottom);
-
-            var area = new Panel {
-                Name = "iwxaSetupContent",
-                Dock = DockStyle.Fill, Margin = Padding.Empty,
-                BackColor = Color.FromArgb(246, 249, 253),
-                AccessibleName = "IWXA setup content"
-            };
-            shell.Controls.Add(area, 1, 0);
-
-            var eyebrow = Label(T("ПРОГРАММА IWXA", "IWXA APPLICATION"),
-                32, 32, 220, 25, 9, Accent, true);
-            area.Controls.Add(eyebrow);
-            configureInstallation.Name = "iwxaSetupPreferences";
-            configureInstallation.Text = T("Папки и запуск", "Folders and startup");
-            configureInstallation.AccessibleName = configureInstallation.Text;
-            configureInstallation.Size = new Size(190, 34);
-            configureInstallation.Location = new Point(390, 28);
-            configureInstallation.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            configureInstallation.FlatStyle = FlatStyle.Flat;
-            configureInstallation.FlatAppearance.BorderColor = Color.FromArgb(187, 205, 227);
-            configureInstallation.ForeColor = Color.FromArgb(39, 78, 133);
-            configureInstallation.BackColor = Color.White;
-            configureInstallation.Visible = false;
-            configureInstallation.Click += async (sender, args) =>
-                await ConfigureInstallationAsync();
-            area.Controls.Add(configureInstallation);
-            productName.Text = T("Проверка установщика", "Checking installer");
-            productName.AccessibleName = productName.Text;
-            productName.Font = new Font("Segoe UI", 21, FontStyle.Bold);
-            productName.ForeColor = Dark;
-            productName.Location = new Point(31, 68);
-            productName.Size = new Size(570, 52);
-            productName.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
-            area.Controls.Add(productName);
-            description.Text = T(
-                "Проверьте параметры и выберите действие.",
-                "Review the settings and choose an action.");
-            description.ForeColor = Secondary;
-            description.Location = new Point(33, 127);
-            description.Size = new Size(560, 54);
-            description.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
-            area.Controls.Add(description);
-
-            var card = new Panel {
-                Name = "iwxaSetupPackageCard",
-                BackColor = Color.White, Location = new Point(30, 199),
-                Size = new Size(580, 197), Anchor = AnchorStyles.Top |
-                    AnchorStyles.Left | AnchorStyles.Right
-            };
-            area.Controls.Add(card);
-            Label cardHeading = Label(T("ПАКЕТ ПРОГРАММЫ",
-                "APPLICATION PACKAGE"), 20, 16, 500, 25, 9, Secondary, true);
-            cardHeading.Name = "iwxaSetupPackageHeading";
-            cardHeading.AutoEllipsis = true;
-            cardHeading.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
-            card.Controls.Add(cardHeading);
-
-            technicalDetails.Name = "iwxaSetupTechnicalDetails";
-            technicalDetails.Text = T("Технические сведения", "Technical details");
-            technicalDetails.AccessibleName = technicalDetails.Text;
-            technicalDetails.Font = new Font("Segoe UI", 9F);
-            technicalDetails.Location = new Point(392, 16);
-            technicalDetails.Size = new Size(166, 25);
-            technicalDetails.LinkColor = Color.FromArgb(39, 78, 133);
-            technicalDetails.TextAlign = ContentAlignment.MiddleRight;
-            technicalDetails.AutoEllipsis = true;
-            technicalDetails.Visible = false;
-            technicalDetails.LinkClicked += (sender, args) =>
-            {
-                if (String.IsNullOrWhiteSpace(technicalReport)) return;
-                using (Form dialog = CreateTechnicalDetailsDialog())
-                    dialog.ShowDialog(this);
-            };
-            card.Controls.Add(technicalDetails);
-            status.Name = "iwxaSetupStatus";
-            status.Text = T("Проверка выполняется…", "Verification in progress…");
-            status.Font = new Font("Segoe UI", 13, FontStyle.Bold);
-            status.ForeColor = Dark;
-            status.AutoEllipsis = true;
-            status.Location = new Point(20, 50);
-            status.Size = new Size(525, 37);
-            status.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
-            card.Controls.Add(status);
-            version.Name = "iwxaSetupVersion";
-            version.Text = "—";
-            version.ForeColor = Color.FromArgb(48, 83, 131);
-            version.Location = new Point(21, 93);
-            version.Size = new Size(525, 29);
-            version.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
-            card.Controls.Add(version);
-            packageDetails.Name = "iwxaSetupDetails";
-            packageDetails.Text = T("Ожидание проверки содержимого…", "Waiting for content verification…");
-            packageDetails.ForeColor = Secondary;
-            packageDetails.BackColor = Color.White;
-            packageDetails.BorderStyle = BorderStyle.None;
-            packageDetails.ReadOnly = true;
-            packageDetails.Multiline = true;
-            packageDetails.WordWrap = true;
-            packageDetails.ScrollBars = ScrollBars.Vertical;
-            packageDetails.TabStop = false;
-            packageDetails.Location = new Point(21, 133);
-            packageDetails.Size = new Size(530, 43);
-            packageDetails.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
-            card.Controls.Add(packageDetails);
-            // Native indeterminate activity, never a fabricated completion percent.
-            // Keep this inside the package card to avoid added wizard screens.
-            busyProgress.Name = "iwxaSetupActivity";
-            busyProgress.AccessibleName = T("Выполняется операция установки",
-                "Setup operation in progress");
-            busyProgress.AccessibleDescription = T(
-                "Операция выполняется, точное время завершения неизвестно",
-                "Working, no estimated completion time");
-            busyProgress.Location = new Point(21, 181);
-            busyProgress.Size = new Size(530, 10);
-            busyProgress.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
-            busyProgress.Style = ProgressBarStyle.Marquee;
-            busyProgress.MarqueeAnimationSpeed = 24;
-            busyProgress.Visible = false;
-            card.Controls.Add(busyProgress);
-
-            var note = Label(
-                T("Личные данные и другие программы сохраняются.\nПроверка не изменяет установленное приложение.",
-                  "User data and other apps stay unchanged.\nPackage verification does not modify the installed app."),
-                33, 404, 559, 46, 9, Secondary, false);
-            note.Name = "iwxaSetupPreservationNote";
-            note.AccessibleDescription = note.Text;
-            note.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            area.Controls.Add(note);
-
-            openApplication.Text = T("Открыть установленную программу", "Open installed application");
-            openApplication.Name = "iwxaSetupRelatedAction";
-            openApplication.Location = new Point(32, 458);
-            openApplication.Size = new Size(560, 25);
-            openApplication.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            openApplication.LinkColor = Accent;
-            openApplication.Visible = false;
-            openApplication.TabStop = true;
-            openApplication.LinkClicked += (sender, args) => OpenRelatedAction();
-            area.Controls.Add(openApplication);
-
-            removeApplication.Name = "iwxaSetupRemoveApplication";
-            removeApplication.Text = T("Удалить программу", "Uninstall application");
-            removeApplication.AccessibleName = removeApplication.Text;
-            removeApplication.AccessibleDescription = T(
-                "Удалить файлы установленной программы, сохранив личные данные",
-                "Remove installed application files while preserving personal data");
-            removeApplication.Location = new Point(430, 458);
-            removeApplication.Size = new Size(155, 25);
-            removeApplication.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            removeApplication.LinkColor = Color.FromArgb(147, 52, 63);
-            removeApplication.AutoEllipsis = true;
-            removeApplication.Visible = false;
-            removeApplication.LinkClicked += async (sender, args) =>
-                await BeginUninstallAsync();
-            area.Controls.Add(removeApplication);
-
-            var actions = new FlowLayoutPanel {
-                Name = "iwxaSetupActions",
-                Dock = DockStyle.Bottom,
-                Height = 67,
-                FlowDirection = FlowDirection.RightToLeft,
-                WrapContents = false,
-                Padding = new Padding(16, 10, 16, 5),
-                BackColor = Color.FromArgb(246, 249, 253)
-            };
-            area.Controls.Add(actions);
-
-            install.Text = T("Установить", "Install");
-            install.AccessibleName = install.Text;
-            install.AccessibleDescription = T("Основное действие установщика",
-                "Primary installer action");
-            install.TabStop = true;
-            install.Enabled = false;
-            install.Size = new Size(192, 40);
-            install.Margin = new Padding(5, 0, 5, 0);
-            install.BackColor = Accent;
-            install.ForeColor = Color.White;
-            install.FlatStyle = FlatStyle.Flat;
-            install.FlatAppearance.BorderSize = 0;
-            install.Click += async (sender, args) => await ExecuteAsync(primaryAction);
-            actions.Controls.Add(install);
-
-            secondary.Visible = false;
-            secondary.AccessibleDescription = T("Отменить обновление и вернуть предыдущую версию",
-                "Cancel update and restore previous release");
-            secondary.Size = new Size(160, 40);
-            secondary.Margin = new Padding(5, 0, 5, 0);
-            secondary.BackColor = Color.White;
-            secondary.ForeColor = Color.FromArgb(39, 78, 133);
-            secondary.FlatStyle = FlatStyle.Flat;
-            secondary.FlatAppearance.BorderColor = Color.FromArgb(187, 205, 227);
-            secondary.Click += async (sender, args) => await ExecuteAsync(secondaryAction);
-            actions.Controls.Add(secondary);
-
-            retry.Text = T("Проверить снова", "Verify again");
-            retry.Size = new Size(145, 40);
-            retry.Margin = new Padding(5, 0, 5, 0);
-            retry.BackColor = Color.White;
-            retry.FlatStyle = FlatStyle.Flat;
-            retry.FlatAppearance.BorderColor = Color.FromArgb(187, 205, 227);
-            retry.ForeColor = Color.FromArgb(39, 78, 133);
-            retry.Click += async (sender, args) => await VerifyAsync();
-            actions.Controls.Add(retry);
-
-            cancelStorageMove.Name = "iwxaSetupCancelStorageMove";
-            cancelStorageMove.Text = T("Отменить перенос", "Cancel relocation");
-            cancelStorageMove.AccessibleName = cancelStorageMove.Text;
-            cancelStorageMove.Visible = false;
-            cancelStorageMove.Enabled = false;
-            cancelStorageMove.Size = new Size(162, 40);
-            cancelStorageMove.Margin = new Padding(5, 0, 5, 0);
-            cancelStorageMove.BackColor = Color.White;
-            cancelStorageMove.ForeColor = Color.FromArgb(147, 52, 63);
-            cancelStorageMove.FlatStyle = FlatStyle.Flat;
-            cancelStorageMove.FlatAppearance.BorderColor =
-                Color.FromArgb(219, 172, 176);
-            cancelStorageMove.Click += (sender, args) =>
-            {
-                if (storageCancellation == null ||
-                    storageCancellation.IsCancellationRequested) return;
-                storageCancellation.Cancel();
-                cancelStorageMove.Enabled = false;
-                status.Text = T("Останавливаем перенос…",
-                    "Cancelling relocation…");
-            };
-            actions.Controls.Add(cancelStorageMove);
-            // Reflow the supporting text when the window or DPI changes.
-            // The package card and action bar remain fixed in their visual hierarchy.
-            area.SizeChanged += (sender, args) =>
-                ArrangeSupportingContent(area, card, note, actions, eyebrow);
-            card.SizeChanged += (sender, args) =>
-                ArrangeSupportingContent(area, card, note, actions, eyebrow);
-            ArrangeSupportingContent(area, card, note, actions, eyebrow);
+            BuildExperienceLayout();
         }
 
-        private void ArrangeSupportingContent(
-            Panel area, Panel card, Label note, FlowLayoutPanel actions,
-            Label eyebrow)
-        {
-            if (area.ClientSize.Height <= 0 || card.Height <= 0) return;
-            // A scaled native sidebar control provides the same geometric
-            // units as the WinForms layout; no extra DPI manager is needed.
-            double scale = Math.Max(0.75, progressPanels[0].Height / 56.0);
-            bool shortView = area.ClientSize.Height < 540.0 * scale;
-            bool narrowView = area.ClientSize.Width < 600.0 * scale;
-            Func<double, int> px = value =>
-                Math.Max(1, (int)Math.Round(value * scale));
 
-            // WinForms anchors can retain the pre-scale width when a hidden
-            // native form is resized. Set the intended content bounds from
-            // the actual client rectangle on each layout pass.
-            card.Left = px(30);
-            card.Width = Math.Max(px(320), area.ClientSize.Width - px(60));
-            // DPI auto-scaling can reapply the original anchored child width
-            // after the parent changes. Reconcile every package-card child
-            // against the actual current card width, not the old 580px box.
-            foreach (Control child in card.Controls)
-            {
-                if (child == technicalDetails ||
-                    child.Name == "iwxaSetupPackageHeading") continue;
-                int width = Math.Max(px(150),
-                    card.ClientSize.Width - child.Left - px(20));
-                if (child.Width != width) child.Width = width;
-            }
-            technicalDetails.Width = Math.Min(px(166),
-                Math.Max(px(120), card.ClientSize.Width - px(155)));
-            technicalDetails.Left = card.ClientSize.Width -
-                technicalDetails.Width - px(20);
-            Control heading = card.Controls["iwxaSetupPackageHeading"];
-            heading.Width = Math.Max(px(100),
-                technicalDetails.Left - heading.Left - px(6));
-            eyebrow.Width = px(225);
-            configureInstallation.Left = Math.Max(px(275),
-                area.ClientSize.Width - px(215));
-            configureInstallation.Width = Math.Max(px(120),
-                area.ClientSize.Width - configureInstallation.Left - px(25));
-            productName.Width = Math.Max(px(220), area.ClientSize.Width - px(64));
-            description.Width = Math.Max(px(220), area.ClientSize.Width - px(66));
-            note.Width = Math.Max(px(220), area.ClientSize.Width - px(66));
-            removeApplication.Left = Math.Max(px(245),
-                area.ClientSize.Width - px(195));
-            removeApplication.Width = Math.Max(px(110),
-                area.ClientSize.Width - removeApplication.Left - px(30));
-            openApplication.Width = Math.Max(px(160),
-                removeApplication.Left - openApplication.Left - px(12));
-
-            eyebrow.Top = px(shortView ? 16 : 32);
-            productName.Top = px(shortView ? 45 : 68);
-            productName.Height = px(shortView ? 40 : 52);
-            description.Top = px(shortView ? 91 : 127);
-            description.Height = px(shortView ? 43 : 54);
-            card.Top = px(shortView ? 139 : 199);
-            card.Height = px(shortView ? 181 : 197);
-            packageDetails.Top = px(shortView ? 125 : 133);
-            packageDetails.Height = px(shortView ? 35 : 43);
-            busyProgress.Top = px(shortView ? 168 : 181);
-
-            // All three actions must fit in a narrow supported viewport,
-            // including when the secondary Rollback button becomes visible.
-            install.Width = px(narrowView ? 158 : 192);
-            secondary.Width = px(narrowView ? 145 : 160);
-            retry.Width = px(narrowView ? 130 : 145);
-
-            int gap = px(shortView ? 6 : 8);
-            int noteTop = card.Bottom + gap;
-            int lastLinkTop = area.ClientSize.Height - actions.Height -
-                openApplication.Height - gap;
-            int availableNote = Math.Max(0, lastLinkTop - noteTop - gap);
-            int preferredNote = Math.Max(note.Font.Height * 2 + px(4),
-                px(shortView ? 42 : 46));
-            note.Top = noteTop;
-            note.Height = Math.Min(preferredNote, availableNote);
-            openApplication.Top = note.Bottom + gap;
-            removeApplication.Top = openApplication.Top;
-        }
 
         private void SetWizardStep(int current)
         {
-            for (int i = 0; i < progressPanels.Length; i++)
-            {
-                bool active = i + 1 == current;
-                progressPanels[i].BackColor = active ?
-                    Color.FromArgb(53, 87, 130) : Dark;
-                progressLabels[i].ForeColor = active ?
-                    Color.White : Color.FromArgb(186, 202, 223);
-                if (progressLabels[i].Font.Bold != active)
-                {
-                    Font previousFont = progressLabels[i].Font;
-                    progressLabels[i].Font = new Font(previousFont,
-                        active ? FontStyle.Bold : FontStyle.Regular);
-                    previousFont.Dispose();
-                }
-                progressLabels[i].AccessibleDescription = active ?
-                    T("Текущий этап установки", "Current installation stage") :
-                    T("Другой этап установки", "Other installation stage");
-            }
+            journeyStage.Text = current == 1 ?
+                T("ПРОВЕРКА ПРОГРАММЫ", "CHECKING APPLICATION") :
+                current == 3 ? T("ПРОВЕРЬТЕ РЕЗУЛЬТАТ", "REVIEW THE RESULT") :
+                T("УСТАНОВКА И ОБСЛУЖИВАНИЕ", "INSTALL AND MAINTAIN");
         }
 
         private void ConfigureActions(
@@ -808,55 +437,15 @@ namespace IwxaSetup
             detailsHint.SetToolTip(packageDetails, details);
         }
 
-        private async Task ConfigureInstallationAsync()
+        private async Task<bool> ApplyOptionsAsync(
+            BundleInfo info, SetupLocations current,
+            SetupLocations updated, bool first)
         {
-            if (performingOperation || verifyingState || inspectedBundle == null)
-                return;
-            BundleInfo info = inspectedBundle;
-            bool first = inspectedStatus == "NO_OWNED_INSTALLATION";
-            SetupLocations current;
-            try
-            {
-                current = first ? selectedLocations :
-                    SetupInstallation.InstalledLocations(info);
-            }
-            catch (Exception ex)
-            {
-                SetTechnicalReport(info, inspectedStatus, ex.Message);
-                MessageBox.Show(this,
-                    T("Не удалось открыть параметры. Проверьте состояние установленной программы и повторите попытку.",
-                      "Installation settings could not be opened. Check the installed application and try again."),
-                    T("Параметры установки", "Installation settings"),
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-            using (Form dialog = CreateOptionsDialog(info.Name, current, first))
-            {
-                DialogResult choice = dialog.ShowDialog(this);
-                if (choice == DialogResult.Abort &&
-                    dialog.Tag is SetupOperation)
-                {
-                    // The existing WebView2 recovery path remains the ONLY
-                    // component installer. Unsaved folder edits are discarded
-                    // after an explicit choice in the Components tab.
-                    await ExecuteAsync((SetupOperation)dialog.Tag);
-                    return;
-                }
-                if (choice != DialogResult.OK) return;
-                var updated = new SetupLocations {
-                    ProgramRoot = ReadOption(dialog, "iwxaSetupInstallRoot"),
-                    DataRoot = ReadOption(dialog, "iwxaSetupDataRoot"),
-                    SoftwareRoot = ReadOption(dialog, "iwxaSetupSoftwareRoot"),
-                    ModelsRoot = ReadOption(dialog, "iwxaSetupModelsRoot"),
-                    CacheRoot = ReadOption(dialog, "iwxaSetupCacheRoot"),
-                    StartWithWindows = ((CheckBox)dialog.Controls.Find(
-                        "iwxaSetupLogin", true)[0]).Checked
-                };
                 if (first)
                 {
                     selectedLocations = updated;
                     await VerifyAsync();
-                    return;
+                    return true;
                 }
                 bool moving = !String.Equals(current.DataRoot,
                         updated.DataRoot, StringComparison.OrdinalIgnoreCase) ||
@@ -874,13 +463,15 @@ namespace IwxaSetup
                         T("Подтвердить перенос", "Confirm storage relocation"),
                         MessageBoxButtons.YesNo, MessageBoxIcon.Question,
                         MessageBoxDefaultButton.Button2);
-                    if (approve != DialogResult.Yes) return;
+                    if (approve != DialogResult.Yes) return false;
                 }
                 var activeCancellation = moving ?
                     new System.Threading.CancellationTokenSource() : null;
                 storageCancellation = activeCancellation;
+                FocusOperationProgress();
                 performingOperation = true;
                 busyProgress.Visible = true;
+                RefreshExperienceButtons();
                 busyProgress.Style = moving ?
                     ProgressBarStyle.Continuous : ProgressBarStyle.Marquee;
                 if (moving) busyProgress.Value = 0;
@@ -1018,7 +609,8 @@ namespace IwxaSetup
                         T("Настройка запуска Windows применена и проверена.",
                           "Windows startup preference was applied and verified.");
                 }
-            }
+                RefreshExperienceButtons();
+                return error == null;
         }
 
         private string StorageAmount(long bytes)
@@ -1096,470 +688,29 @@ namespace IwxaSetup
                 "Could not apply settings. Existing data was preserved. Try again or review Technical details.");
         }
 
-        private static string ReadOption(Form form, string name)
-        {
-            Control[] controls = form.Controls.Find(name, true);
-            if (controls.Length != 1)
-                throw new InvalidOperationException("SETUP_SETTINGS_FIELD_MISSING_" + name);
-            return controls[0].Text;
-        }
-
-        private TextBox AddLocationRow(TableLayoutPanel layout, int labelRow,
-            string label, string name, string path, bool editable)
-        {
-            var heading = new Label {
-                Text = label, Dock = DockStyle.Fill, ForeColor = Dark,
-                Font = new Font("Segoe UI", 10F, FontStyle.Bold)
-            };
-            layout.Controls.Add(heading, 0, labelRow);
-            layout.SetColumnSpan(heading, 2);
-            var input = new TextBox {
-                Name = name, Dock = DockStyle.Fill, Text = path,
-                ReadOnly = !editable, AccessibleName = label,
-                Margin = new Padding(0, 0, 8, 2)
-            };
-            layout.Controls.Add(input, 0, labelRow + 1);
-            var browse = new Button {
-                Text = T("Выбрать…", "Browse…"),
-                Dock = DockStyle.Fill, Enabled = editable,
-                Margin = new Padding(4, 0, 0, 4)
-            };
-            StyleSecondaryButton(browse);
-            browse.Click += (sender, args) =>
-            {
-                using (var choose = new FolderBrowserDialog {
-                    Description = label
-                })
-                {
-                    string initial = input.Text;
-                    try
-                    {
-                        while (!String.IsNullOrWhiteSpace(initial) &&
-                               !Directory.Exists(initial))
-                            initial = Path.GetDirectoryName(initial);
-                    }
-                    catch (ArgumentException) { initial = ""; }
-                    catch (NotSupportedException) { initial = ""; }
-                    catch (PathTooLongException) { initial = ""; }
-                    choose.SelectedPath = Directory.Exists(initial) ? initial :
-                        Environment.GetFolderPath(
-                            Environment.SpecialFolder.LocalApplicationData);
-                    if (choose.ShowDialog(layout.FindForm()) == DialogResult.OK)
-                        input.Text = choose.SelectedPath;
-                }
-            };
-            layout.Controls.Add(browse, 1, labelRow + 1);
-            return input;
-        }
-
-        private Form CreateOptionsDialog(string product, SetupLocations choices,
-            bool firstInstallation)
-        {
-            var dialog = new Form {
-                Text = T("Параметры установки", "Installation settings"),
-                StartPosition = FormStartPosition.CenterParent,
-                ClientSize = new Size(760, 600),
-                MinimumSize = new Size(560, 440),
-                Font = new Font("Segoe UI", 10F),
-                AutoScaleMode = AutoScaleMode.Dpi,
-                BackColor = Color.White,
-                MaximizeBox = false
-            };
-            var shell = new TableLayoutPanel {
-                Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3,
-                Padding = new Padding(19), BackColor = Color.White
-            };
-            shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 60F));
-            shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
-            dialog.Controls.Add(shell);
-            var title = new Label {
-                Text = product + T(" - параметры установки", " - installation settings"),
-                Dock = DockStyle.Fill, ForeColor = Dark, AutoEllipsis = true,
-                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
-                TextAlign = ContentAlignment.MiddleLeft
-            };
-            shell.Controls.Add(title, 0, 0);
-            var tabs = new TabControl {
-                Name = "iwxaSetupPreferencesTabs",
-                Dock = DockStyle.Fill, Multiline = false,
-                AccessibleName = T("Параметры установки", "Installation settings")
-            };
-            shell.Controls.Add(tabs, 0, 1);
-            var appTab = new TabPage(T("Программа", "Application")) {
-                BackColor = Color.White
-            };
-            tabs.TabPages.Add(appTab);
-            var appScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-            appTab.Controls.Add(appScroll);
-            var appLayout = new TableLayoutPanel {
-                Dock = DockStyle.Top, AutoSize = true,
-                ColumnCount = 2, RowCount = 6, Padding = new Padding(14)
-            };
-            appLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            appLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145F));
-            foreach (int h in new [] {48, 28, 42, 70, 42, 62})
-                appLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
-            appScroll.Controls.Add(appLayout);
-            var subtitle = new Label {
-                Text = T("Программа и запуск Windows",
-                    "Application and Windows startup"),
-                Dock = DockStyle.Fill, ForeColor = Dark,
-                Font = new Font("Segoe UI", 12F, FontStyle.Bold)
-            };
-            appLayout.Controls.Add(subtitle, 0, 0);
-            appLayout.SetColumnSpan(subtitle, 2);
-            var appRoot = AddLocationRow(appLayout, 1,
-                T("Папка программы", "Application folder"),
-                "iwxaSetupInstallRoot", choices.ProgramRoot, firstInstallation);
-            var appHelp = new Label {
-                Text = firstInstallation ?
-                    T("Приложение будет установлено в выбранную папку. Данные хранятся отдельно.",
-                      "The application is installed in the selected folder. User data is separate.") :
-                    T("Каталог действующей установки нельзя изменять без проверки переноса.",
-                      "The installed location cannot change without a verified migration."),
-                Dock = DockStyle.Fill, ForeColor = Secondary
-            };
-            appLayout.Controls.Add(appHelp, 0, 3);
-            appLayout.SetColumnSpan(appHelp, 2);
-            var login = new CheckBox {
-                Name = "iwxaSetupLogin",
-                Text = T("Запускать при входе в Windows",
-                    "Launch when signing in to Windows"),
-                Checked = choices.StartWithWindows,
-                Dock = DockStyle.Fill, ForeColor = Dark
-            };
-            appLayout.Controls.Add(login, 0, 4);
-            appLayout.SetColumnSpan(login, 2);
-            var startupHelp = new Label {
-                Text = T("Отключено: запуск вручную. Включено: запуск при входе в учётную запись.",
-                    "Off: start manually. On: start when you sign in."),
-                ForeColor = Secondary, Dock = DockStyle.Fill
-            };
-            appLayout.Controls.Add(startupHelp, 0, 5);
-            appLayout.SetColumnSpan(startupHelp, 2);
-            var storageTab = new TabPage(T("Хранилища", "Storage")) {
-                BackColor = Color.White
-            };
-            tabs.TabPages.Add(storageTab);
-            var storageScroll = new Panel {
-                Dock = DockStyle.Fill, AutoScroll = true
-            };
-            storageTab.Controls.Add(storageScroll);
-            var storageLayout = new TableLayoutPanel {
-                Dock = DockStyle.Top, AutoSize = true,
-                ColumnCount = 2, RowCount = 13, Padding = new Padding(14)
-            };
-            storageLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            storageLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145F));
-            // Keep all four roots visible at the default laptop dialog
-            // height; AutoScroll remains available at high DPI and on
-            // smaller desktops.
-            foreach (int h in new [] {
-                32, 34, 32, 22, 33, 22, 33, 22, 33, 22, 33, 44, 4
-            }) storageLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
-            storageScroll.Controls.Add(storageLayout);
-            var storageHeading = new Label {
-                Text = T("Раздельные папки IWXA", "Separate IWXA folders"),
-                Dock = DockStyle.Fill, ForeColor = Dark,
-                Font = new Font("Segoe UI", 12F, FontStyle.Bold)
-            };
-            storageLayout.Controls.Add(storageHeading, 0, 0);
-            storageLayout.SetColumnSpan(storageHeading, 2);
-            var common = new Button {
-                Text = T("Выбрать общую папку…", "Choose shared folder…"),
-                Dock = DockStyle.Fill, Enabled = true
-            };
-            StyleSecondaryButton(common);
-            storageLayout.Controls.Add(common, 0, 1);
-            storageLayout.SetColumnSpan(common, 2);
-            var commonHelp = new Label {
-                Text = T("Выберите папки отдельно или укажите общую. При переносе сохраняются исходные данные.",
-                    "Choose separate folders or one shared location. Relocation preserves the originals."),
-                ForeColor = Secondary, Dock = DockStyle.Fill
-            };
-            storageLayout.Controls.Add(commonHelp, 0, 2);
-            storageLayout.SetColumnSpan(commonHelp, 2);
-            TextBox data = AddLocationRow(storageLayout, 3,
-                T("Личные данные", "Personal data"),
-                "iwxaSetupDataRoot", choices.DataRoot, true);
-            TextBox software = AddLocationRow(storageLayout, 5,
-                T("Сторонние программы", "Third-party software"),
-                "iwxaSetupSoftwareRoot", choices.SoftwareRoot, true);
-            TextBox models = AddLocationRow(storageLayout, 7,
-                T("Локальные модели", "Local models"),
-                "iwxaSetupModelsRoot", choices.ModelsRoot, true);
-            TextBox cache = AddLocationRow(storageLayout, 9,
-                T("Кэш", "Cache"),
-                "iwxaSetupCacheRoot", choices.CacheRoot, true);
-            common.Click += (sender, args) =>
-            {
-                using (var browse = new FolderBrowserDialog {
-                    Description = T("Выберите общую папку IWXA",
-                        "Select the common IWXA storage folder")
-                })
-                {
-                    if (browse.ShowDialog(dialog) != DialogResult.OK) return;
-                    data.Text = Path.Combine(browse.SelectedPath, "Data");
-                    software.Text = Path.Combine(browse.SelectedPath, "Software");
-                    models.Text = Path.Combine(browse.SelectedPath, "Models");
-                    cache.Text = Path.Combine(browse.SelectedPath, "Cache");
-                }
-            };
-            var storageHelp = new Label {
-                Text = T("Изменение папок существующей установки копирует и проверяет данные до переключения. Старые папки остаются. Стороннее ПО и модели не загружаются автоматически.",
-                    "Changing existing locations copies and verifies data before switching. Original folders remain. External software and models are not downloaded automatically."),
-                ForeColor = Secondary, Dock = DockStyle.Fill
-            };
-            storageLayout.Controls.Add(storageHelp, 0, 11);
-            storageLayout.SetColumnSpan(storageHelp, 2);
-            AddComponentsTab(tabs, dialog);
-            var footer = new FlowLayoutPanel {
-                Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft,
-                WrapContents = false
-            };
-            var save = new Button {
-                Text = T("Применить", "Apply"),
-                Size = new Size(130, 38),
-                BackColor = Accent, ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat
-            };
-            save.Click += (sender, args) =>
-            {
-                try
-                {
-                    var proposed = new SetupLocations {
-                        ProgramRoot = appRoot.Text,
-                        DataRoot = data.Text,
-                        SoftwareRoot = software.Text,
-                        ModelsRoot = models.Text,
-                        CacheRoot = cache.Text,
-                        StartWithWindows = login.Checked
-                    };
-                    BundleInfo info = inspectedBundle;
-                    SetupLocations normalized =
-                        SetupInstallation.ValidateLocations(info, proposed,
-                            firstInstallation);
-                    appRoot.Text = normalized.ProgramRoot;
-                    data.Text = normalized.DataRoot;
-                    software.Text = normalized.SoftwareRoot;
-                    models.Text = normalized.ModelsRoot;
-                    cache.Text = normalized.CacheRoot;
-                    dialog.DialogResult = DialogResult.OK;
-                }
-                catch (Exception ex)
-                {
-                    SetTechnicalReport(inspectedBundle, inspectedStatus, ex.Message);
-                    MessageBox.Show(dialog, ExplainStorageSettingsError(ex),
-                        T("Параметры установки", "Installation settings"),
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
-            };
-            var cancel = new Button {
-                Text = T("Отмена", "Cancel"), Size = new Size(100, 38),
-                DialogResult = DialogResult.Cancel
-            };
-            StyleSecondaryButton(cancel);
-            footer.Controls.Add(save);
-            footer.Controls.Add(cancel);
-            shell.Controls.Add(footer, 0, 2);
-            dialog.AcceptButton = save;
-            dialog.CancelButton = cancel;
-            dialog.Shown += (sender, args) =>
-                FitDialogToWorkingArea(dialog);
-            return dialog;
-        }
-
-        // Display the actual requirements of this signed package, not a
-        // generic third-party download list. The only supported external
-        // installer is Microsoft's verified WebView2 recovery operation.
-        private void AddComponentsTab(TabControl tabs, Form settings)
-        {
-            var page = new TabPage(T("Компоненты", "Components")) {
-                Name = "iwxaSetupComponentsTab",
-                BackColor = Color.White
-            };
-            tabs.TabPages.Add(page);
-            var scroll = new Panel {
-                Dock = DockStyle.Fill, AutoScroll = true
-            };
-            page.Controls.Add(scroll);
-            var grid = new TableLayoutPanel {
-                Dock = DockStyle.Top, ColumnCount = 2, RowCount = 7,
-                AutoSize = true, Padding = new Padding(16)
-            };
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            // All component choices and their explanations fit at the
-            // standard dialog size, with scrolling only on smaller displays.
-            foreach (int height in new [] {40, 34, 62, 47, 43, 37, 70})
-                grid.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
-            scroll.Controls.Add(grid);
-            var heading = new Label {
-                Text = "Microsoft WebView2",
-                Dock = DockStyle.Fill, ForeColor = Dark,
-                Font = new Font("Segoe UI", 12F, FontStyle.Bold)
-            };
-            grid.Controls.Add(heading, 0, 0);
-            grid.SetColumnSpan(heading, 2);
-            var state = new Label {
-                Name = "iwxaSetupWebView2Status",
-                Dock = DockStyle.Fill, ForeColor = Dark,
-                AccessibleName = T("Состояние Microsoft WebView2",
-                    "Microsoft WebView2 status")
-            };
-            grid.Controls.Add(state, 0, 1);
-            grid.SetColumnSpan(state, 2);
-            var detail = new Label {
-                Text = T(
-                    "WebView2 требуется только программам, которые используют этот компонент. Если он отсутствует, установите официальный выпуск Microsoft. Встроенная программа и личные данные не меняются.",
-                    "WebView2 is required only by applications that use it. If missing, install Microsoft's official release. The installed application and personal data are not changed."),
-                Dock = DockStyle.Fill, ForeColor = Secondary
-            };
-            grid.Controls.Add(detail, 0, 2);
-            grid.SetColumnSpan(detail, 2);
-            var online = new Button {
-                Name = "iwxaSetupInstallWebView2Online",
-                Text = T("Установить через интернет",
-                    "Install using internet"),
-                Dock = DockStyle.Fill,
-                Margin = new Padding(0, 4, 5, 4),
-                AccessibleName = T("Установить официальный Microsoft WebView2",
-                    "Install official Microsoft WebView2")
-            };
-            var offline = new Button {
-                Name = "iwxaSetupInstallWebView2Offline",
-                Text = T("Установить из файла…", "Install from file…"),
-                Dock = DockStyle.Fill,
-                Margin = new Padding(5, 4, 0, 4),
-                AccessibleName = T("Выбрать автономный WebView2 от Microsoft",
-                    "Select Microsoft's offline WebView2 installer")
-            };
-            StyleSecondaryButton(online);
-            StyleSecondaryButton(offline);
-            grid.Controls.Add(online, 0, 3);
-            grid.Controls.Add(offline, 1, 3);
-            var check = new Button {
-                Name = "iwxaSetupCheckWebView2",
-                Text = T("Проверить состояние", "Check status"),
-                Dock = DockStyle.Fill,
-                Margin = new Padding(0, 4, 5, 4)
-            };
-            StyleSecondaryButton(check);
-            grid.Controls.Add(check, 0, 4);
-            var official = new LinkLabel {
-                Text = T("Официальная страница Microsoft",
-                    "Microsoft's official page"),
-                Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft,
-                LinkColor = Accent
-            };
-            official.LinkClicked += (sender, args) =>
-            {
-                try
-                {
-                    Process.Start(new ProcessStartInfo(
-                        "https://developer.microsoft.com/microsoft-edge/webview2/") {
-                        UseShellExecute = true
-                    });
-                }
-                catch (Exception ex)
-                {
-                    SetTechnicalReport(inspectedBundle, inspectedStatus,
-                        ex.Message);
-                    MessageBox.Show(settings,
-                        T("Не удалось открыть страницу Microsoft. Проверьте подключение к интернету.",
-                            "Could not open Microsoft's page. Check the internet connection."),
-                        T("Компоненты", "Components"),
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
-            };
-            grid.Controls.Add(official, 1, 4);
-            var extrasTitle = new Label {
-                Text = T("Другие программы и модели",
-                    "Other programs and models"),
-                Dock = DockStyle.Fill, ForeColor = Dark,
-                Font = new Font("Segoe UI", 11F, FontStyle.Bold)
-            };
-            grid.Controls.Add(extrasTitle, 0, 5);
-            grid.SetColumnSpan(extrasTitle, 2);
-            var extras = new Label {
-                Text = T(
-                    "В этот пакет не входят дополнительные установщики. Сторонние программы и модели не скачиваются автоматически. Папки для них выбираются в разделе «Хранилища».",
-                    "This package includes no additional installers. Third-party programs and models are not downloaded automatically. Choose their folders under Storage."),
-                Dock = DockStyle.Fill, ForeColor = Secondary
-            };
-            grid.Controls.Add(extras, 0, 6);
-            grid.SetColumnSpan(extras, 2);
-
-            bool required = inspectedBundle != null &&
-                inspectedBundle.NeedsWebView2;
-            Action refresh = () =>
-            {
-                try
-                {
-                    string version = SetupReadiness.DetectWebView2Version();
-                    state.Text = !required ?
-                        T("Этой программе WebView2 не требуется.",
-                            "This application does not require WebView2.") :
-                        String.IsNullOrWhiteSpace(version) ?
-                        T("Не установлен. Требуется для работы программы.",
-                            "Not installed. Required to run this application.") :
-                        T("Установлен. Версия ", "Installed. Version ") + version;
-                    online.Enabled = required &&
-                        String.IsNullOrWhiteSpace(version);
-                    offline.Enabled = online.Enabled;
-                }
-                catch (Exception ex)
-                {
-                    state.Text = T("Не удалось проверить WebView2.",
-                        "Could not check WebView2.");
-                    online.Enabled = false;
-                    offline.Enabled = false;
-                    SetTechnicalReport(inspectedBundle, inspectedStatus,
-                        ex.Message);
-                }
-            };
-            check.Click += (sender, args) => refresh();
-            online.Click += (sender, args) =>
-                SelectExistingComponentOperation(settings,
-                    SetupOperation.InstallWebView2);
-            offline.Click += (sender, args) =>
-                SelectExistingComponentOperation(settings,
-                    SetupOperation.InstallWebView2Offline);
-            refresh();
-        }
-
-        private void SelectExistingComponentOperation(Form settings,
-            SetupOperation operation)
-        {
-            DialogResult confirmed = MessageBox.Show(settings,
-                T("Установить Microsoft WebView2? Несохранённые изменения параметров будут отменены. Установщик проверит результат.",
-                    "Install Microsoft WebView2? Unsaved settings will be discarded. Setup will verify the result."),
-                T("Установка компонента", "Install component"),
-                MessageBoxButtons.YesNo, MessageBoxIcon.Question,
-                MessageBoxDefaultButton.Button2);
-            if (confirmed != DialogResult.Yes) return;
-            settings.Tag = operation;
-            settings.DialogResult = DialogResult.Abort;
-        }
-
         private async Task BeginUninstallAsync()
         {
             if (performingOperation || verifyingState || inspectedBundle == null ||
                 !removeApplication.Visible) return;
             BundleInfo expected = inspectedBundle;
-            DialogResult answer = MessageBox.Show(this,
-                T("Удалить ", "Uninstall ") + expected.Name +
-                T("?\nФайлы программы будут удалены. Личные данные, модели и сторонние программы останутся в своих папках.",
-                  "?\nApplication files will be removed. Your data, models and third-party software will remain in their folders."),
-                T("Удаление программы", "Uninstall application"),
-                MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
-                MessageBoxDefaultButton.Button2);
+            DialogResult answer;
+            try { answer = ConfirmExperienceUninstall(expected); }
+            catch (Exception ex)
+            {
+                SetTechnicalReport(expected, inspectedStatus, ex.Message);
+                MessageBox.Show(this,
+                    T("Не удалось открыть подтверждение удаления. Проверьте действующую установку.",
+                        "Could not open the uninstall review. Check the installed application."),
+                    T("Удаление программы", "Uninstall application"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             if (answer != DialogResult.Yes) return;
 
+            FocusOperationProgress();
             performingOperation = true;
             busyProgress.Visible = true;
+            RefreshExperienceButtons();
             status.Text = T("Подготавливаем удаление…",
                 "Preparing uninstallation…");
             install.Enabled = false;
@@ -1738,6 +889,19 @@ namespace IwxaSetup
         {
             if (performingOperation || verifyingState ||
                 operation == SetupOperation.None) return;
+            if (locationDraftChanged &&
+                (operation == SetupOperation.Install ||
+                 operation == SetupOperation.Upgrade ||
+                 operation == SetupOperation.Repair))
+            {
+                ShowExperiencePage(1);
+                MessageBox.Show(this,
+                    T("Сначала примените выбранные папки и параметры запуска.",
+                        "Apply your folder and startup settings first."),
+                    T("Параметры установки", "Installation settings"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
             string offlineInstaller = null;
             if (operation == SetupOperation.InstallWebView2Offline)
             {
@@ -1775,8 +939,10 @@ namespace IwxaSetup
                     MessageBoxDefaultButton.Button2);
                 if (answer != DialogResult.Yes) return;
             }
+            FocusOperationProgress();
             performingOperation = true;
             busyProgress.Visible = true;
+            RefreshExperienceButtons();
             install.Enabled = false;
             secondary.Enabled = false;
             retry.Enabled = false;
@@ -1809,6 +975,7 @@ namespace IwxaSetup
                   "Installing Microsoft WebView2…") :
                 T("Установка проверенных файлов…", "Installing verified files…");
             Exception failure = null;
+            bool completedSuccessfully = false;
             try
             {
                 InstallOutcome result = await Task.Run(() =>
@@ -1904,6 +1071,7 @@ namespace IwxaSetup
                     status.Text = T("WebView2 готов — можно установить программу",
                         "WebView2 ready — application can now be installed");
                 status.ForeColor = Color.FromArgb(24, 119, 91);
+                completedSuccessfully = true;
             }
             catch (Exception ex)
             {
@@ -1985,6 +1153,12 @@ namespace IwxaSetup
                     failure.Message);
                 status.ForeColor = Color.FromArgb(170, 52, 59);
             }
+            RefreshExperienceButtons();
+            if (completedSuccessfully && launchAfterSetup.Checked &&
+                (operation == SetupOperation.Install ||
+                 operation == SetupOperation.Upgrade ||
+                 operation == SetupOperation.Repair))
+                OpenRelatedAction();
         }
 
         private async Task<UpgradeAssessment> VerifyAsync(
@@ -2026,7 +1200,7 @@ namespace IwxaSetup
                 SetWizardStep(readyForReview ? 3 : 2);
                 configureInstallation.Visible =
                     plan.Status == "NO_OWNED_INSTALLATION" ||
-                    plan.Status == "REPAIR_CANDIDATE_NOT_ACTIVATED" ||
+                    AllowsOwnedUninstall(plan.Status) ||
                     plan.Status == "UPGRADE_CANDIDATE_NOT_ACTIVATED" ||
                     readyForReview;
                 configureInstallation.Enabled = !performingOperation;
@@ -2219,6 +1393,29 @@ namespace IwxaSetup
                     openApplication.Visible = !entrypointMissing;
                     }
                 }
+                else if (plan.Status == "SAME_VERSION_DIFFERENT_PACKAGE" ||
+                         plan.Status == "DOWNGRADE_BLOCKED" ||
+                         plan.Status == "VERSION_UNSUPPORTED")
+                {
+                    bool differentBuild =
+                        plan.Status == "SAME_VERSION_DIFFERENT_PACKAGE";
+                    SetState(differentBuild ?
+                        T("Установлена другая сборка", "A different build is installed") :
+                        T("На компьютере уже есть программа",
+                            "An application is already installed"),
+                        differentBuild ?
+                            T("Это установщик другого выпуска с тем же номером версии. Установленная программа остаётся доступной: измените папки и запуск, откройте её собственное восстановление или удалите программу в разделе «Обслуживание».",
+                              "This installer belongs to another build of the same version. You can still change folders and startup, open the installed build's own repair, or uninstall under Maintenance.") :
+                            T("Этот пакет не заменит установленную программу. Управление папками, восстановление из её собственного пакета и удаление доступны в разделе «Обслуживание».",
+                              "This package cannot replace the installed application. Manage folders, open the installed package for repair, or uninstall under Maintenance."),
+                        versionLine, true);
+                    ConfigureActions(SetupOperation.None, SetupOperation.None,
+                        T("Нужен другой пакет", "Another package needed"));
+                    openApplication.Tag = "APPLICATION";
+                    openApplication.Text = T("Открыть установленную программу",
+                        "Open installed application");
+                    openApplication.Visible = true;
+                }
                 else if (plan.Status == "LEGACY_MIGRATION_HOLD")
                 {
                     LegacyAssessment old = SetupLegacy.Inspect(info);
@@ -2317,6 +1514,7 @@ namespace IwxaSetup
                     SetState(T("Необходимо устранить препятствие", "Action needed"),
                         ExplainBlockedState(plan.Status), versionLine, true);
                 }
+                RefreshExperience(info, plan);
                 return plan;
             }
             catch (Exception ex)
@@ -2351,6 +1549,7 @@ namespace IwxaSetup
                         configureInstallation.Visible;
                     removeApplication.Enabled = !performingOperation &&
                         removeApplication.Visible;
+                    RefreshExperienceButtons();
                 }
             }
         }
