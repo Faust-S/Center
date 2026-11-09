@@ -167,6 +167,10 @@ class BundleTests(unittest.TestCase):
         self.assertIn('Name = "iwxaSetupCopyTechnicalReport"', form)
         self.assertIn('Clipboard.SetText(report.Text)', form)
         self.assertNotIn('MessageBox.Show(this, technicalReport,', form)
+        self.assertIn('AddComponentsTab(tabs, dialog);', form)
+        self.assertIn('SetupReadiness.DetectWebView2Version()', form)
+        self.assertIn('SelectExistingComponentOperation(settings,', form)
+        self.assertIn('if (performingOperation || verifyingState) return;', form)
 
     def test_clean_vm_webview2_witness_cannot_report_offline_without_proof(self):
         source = (Path(__file__).resolve().parents[1] / "windows" /

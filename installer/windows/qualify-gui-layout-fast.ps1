@@ -429,9 +429,44 @@ try {
             $start = One $dialog 'iwxaSetupLogin'
             $tabs = One $dialog 'iwxaSetupPreferencesTabs'
             if ($tabs -isnot [System.Windows.Forms.TabControl] -or
-                $tabs.TabPages.Count -ne 2 -or
+                $tabs.TabPages.Count -ne 3 -or
                 $start.Checked -ne (!$editable)) {
                 throw ('SETUP_OPTIONS_NAVIGATION_OR_LOGIN_MISSING_' + $editable)
+            }
+            $componentTab = One $dialog 'iwxaSetupComponentsTab'
+            $componentStatus = One $dialog 'iwxaSetupWebView2Status'
+            $onlineWeb = One $dialog 'iwxaSetupInstallWebView2Online'
+            $offlineWeb = One $dialog 'iwxaSetupInstallWebView2Offline'
+            $checkWeb = One $dialog 'iwxaSetupCheckWebView2'
+            if ($componentTab -isnot [System.Windows.Forms.TabPage] -or
+                $componentStatus -isnot [System.Windows.Forms.Label] -or
+                [string]::IsNullOrWhiteSpace($componentStatus.Text) -or
+                $onlineWeb -isnot [System.Windows.Forms.Button] -or
+                $offlineWeb -isnot [System.Windows.Forms.Button] -or
+                $checkWeb -isnot [System.Windows.Forms.Button] -or
+                !$checkWeb.Enabled -or $onlineWeb.Enabled -or
+                $offlineWeb.Enabled) {
+                throw ('SETUP_COMPONENTS_NATIVE_STATUS_INVALID_' + $editable)
+            }
+            # With no product loaded into the test-only form, the component
+            # installer must not offer an unrelated optional download.
+            $launchAction = $formType.GetMethod('OpenRelatedAction',
+                [Reflection.BindingFlags]'Instance, NonPublic')
+            $busyField = $formType.GetField('performingOperation',
+                [Reflection.BindingFlags]'Instance, NonPublic')
+            if ($null -eq $launchAction -or $null -eq $busyField) {
+                throw 'SETUP_RELATED_ACTION_BUSY_GUARD_MISSING'
+            }
+            $heading = One $hostForm 'iwxaSetupStatus'
+            $heading.Text = 'IWXA_SETUP_BUSY_LAUNCH_TEST'
+            $busyField.SetValue($hostForm, $true)
+            try {
+                $null = $launchAction.Invoke($hostForm, [object[]]@())
+                if ($heading.Text -ne 'IWXA_SETUP_BUSY_LAUNCH_TEST') {
+                    throw 'SETUP_BUSY_APPLICATION_LAUNCH_NOT_BLOCKED'
+                }
+            } finally {
+                $busyField.SetValue($hostForm, $false)
             }
             foreach($name in @(
                 'iwxaSetupInstallRoot','iwxaSetupDataRoot',

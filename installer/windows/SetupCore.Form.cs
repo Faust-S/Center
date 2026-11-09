@@ -809,7 +809,17 @@ namespace IwxaSetup
             }
             using (Form dialog = CreateOptionsDialog(info.Name, current, first))
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                DialogResult choice = dialog.ShowDialog(this);
+                if (choice == DialogResult.Abort &&
+                    dialog.Tag is SetupOperation)
+                {
+                    // The existing WebView2 recovery path remains the ONLY
+                    // component installer. Unsaved folder edits are discarded
+                    // after an explicit choice in the Components tab.
+                    await ExecuteAsync((SetupOperation)dialog.Tag);
+                    return;
+                }
+                if (choice != DialogResult.OK) return;
                 var updated = new SetupLocations {
                     ProgramRoot = ReadOption(dialog, "iwxaSetupInstallRoot"),
                     DataRoot = ReadOption(dialog, "iwxaSetupDataRoot"),
@@ -867,6 +877,9 @@ namespace IwxaSetup
                 retry.Enabled = false;
                 configureInstallation.Enabled = false;
                 removeApplication.Enabled = false;
+                // Do not let the user start an application that could write
+                // to the source while data is being copied and verified.
+                openApplication.Enabled = false;
                 Exception error = null;
                 Action<long, long> progress = null;
                 if (moving)
@@ -1273,6 +1286,7 @@ namespace IwxaSetup
             };
             storageLayout.Controls.Add(storageHelp, 0, 11);
             storageLayout.SetColumnSpan(storageHelp, 2);
+            AddComponentsTab(tabs, dialog);
             var footer = new FlowLayoutPanel {
                 Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft,
                 WrapContents = false
@@ -1335,6 +1349,174 @@ namespace IwxaSetup
                     dialog.Size, dialog.MinimumSize, work.Size);
             };
             return dialog;
+        }
+
+        // Display the actual requirements of this signed package, not a
+        // generic third-party download list. The only supported external
+        // installer is Microsoft's verified WebView2 recovery operation.
+        private void AddComponentsTab(TabControl tabs, Form settings)
+        {
+            var page = new TabPage(T("Компоненты", "Components")) {
+                Name = "iwxaSetupComponentsTab",
+                BackColor = Color.White
+            };
+            tabs.TabPages.Add(page);
+            var scroll = new Panel {
+                Dock = DockStyle.Fill, AutoScroll = true
+            };
+            page.Controls.Add(scroll);
+            var grid = new TableLayoutPanel {
+                Dock = DockStyle.Top, ColumnCount = 2, RowCount = 7,
+                AutoSize = true, Padding = new Padding(16)
+            };
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            foreach (int height in new [] {45, 42, 72, 55, 54, 44, 82})
+                grid.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+            scroll.Controls.Add(grid);
+            var heading = new Label {
+                Text = "Microsoft WebView2",
+                Dock = DockStyle.Fill, ForeColor = Dark,
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold)
+            };
+            grid.Controls.Add(heading, 0, 0);
+            grid.SetColumnSpan(heading, 2);
+            var state = new Label {
+                Name = "iwxaSetupWebView2Status",
+                Dock = DockStyle.Fill, ForeColor = Dark,
+                AccessibleName = T("Состояние Microsoft WebView2",
+                    "Microsoft WebView2 status")
+            };
+            grid.Controls.Add(state, 0, 1);
+            grid.SetColumnSpan(state, 2);
+            var detail = new Label {
+                Text = T(
+                    "WebView2 требуется только программам, которые используют этот компонент. Если он отсутствует, установите официальный выпуск Microsoft. Встроенная программа и личные данные не меняются.",
+                    "WebView2 is required only by applications that use it. If missing, install Microsoft's official release. The installed application and personal data are not changed."),
+                Dock = DockStyle.Fill, ForeColor = Secondary
+            };
+            grid.Controls.Add(detail, 0, 2);
+            grid.SetColumnSpan(detail, 2);
+            var online = new Button {
+                Name = "iwxaSetupInstallWebView2Online",
+                Text = T("Установить через интернет",
+                    "Install using internet"),
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 4, 5, 4),
+                AccessibleName = T("Установить официальный Microsoft WebView2",
+                    "Install official Microsoft WebView2")
+            };
+            var offline = new Button {
+                Name = "iwxaSetupInstallWebView2Offline",
+                Text = T("Установить из файла…", "Install from file…"),
+                Dock = DockStyle.Fill,
+                Margin = new Padding(5, 4, 0, 4),
+                AccessibleName = T("Выбрать автономный WebView2 от Microsoft",
+                    "Select Microsoft's offline WebView2 installer")
+            };
+            grid.Controls.Add(online, 0, 3);
+            grid.Controls.Add(offline, 1, 3);
+            var check = new Button {
+                Name = "iwxaSetupCheckWebView2",
+                Text = T("Проверить состояние", "Check status"),
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 4, 5, 4)
+            };
+            grid.Controls.Add(check, 0, 4);
+            var official = new LinkLabel {
+                Text = T("Официальная страница Microsoft",
+                    "Microsoft's official page"),
+                Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft,
+                LinkColor = Accent
+            };
+            official.LinkClicked += (sender, args) =>
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo(
+                        "https://developer.microsoft.com/microsoft-edge/webview2/") {
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    SetTechnicalReport(inspectedBundle, inspectedStatus,
+                        ex.Message);
+                    MessageBox.Show(settings,
+                        T("Не удалось открыть страницу Microsoft. Проверьте подключение к интернету.",
+                            "Could not open Microsoft's page. Check the internet connection."),
+                        T("Компоненты", "Components"),
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            };
+            grid.Controls.Add(official, 1, 4);
+            var extrasTitle = new Label {
+                Text = T("Другие программы и модели",
+                    "Other programs and models"),
+                Dock = DockStyle.Fill, ForeColor = Dark,
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold)
+            };
+            grid.Controls.Add(extrasTitle, 0, 5);
+            grid.SetColumnSpan(extrasTitle, 2);
+            var extras = new Label {
+                Text = T(
+                    "В этот пакет не входят дополнительные установщики. Сторонние программы и модели не скачиваются автоматически. Папки для них выбираются в разделе «Хранилища».",
+                    "This package includes no additional installers. Third-party programs and models are not downloaded automatically. Choose their folders under Storage."),
+                Dock = DockStyle.Fill, ForeColor = Secondary
+            };
+            grid.Controls.Add(extras, 0, 6);
+            grid.SetColumnSpan(extras, 2);
+
+            bool required = inspectedBundle != null &&
+                inspectedBundle.NeedsWebView2;
+            Action refresh = () =>
+            {
+                try
+                {
+                    string version = SetupReadiness.DetectWebView2Version();
+                    state.Text = !required ?
+                        T("Этой программе WebView2 не требуется.",
+                            "This application does not require WebView2.") :
+                        String.IsNullOrWhiteSpace(version) ?
+                        T("Не установлен. Требуется для работы программы.",
+                            "Not installed. Required to run this application.") :
+                        T("Установлен. Версия ", "Installed. Version ") + version;
+                    online.Enabled = required &&
+                        String.IsNullOrWhiteSpace(version);
+                    offline.Enabled = online.Enabled;
+                }
+                catch (Exception ex)
+                {
+                    state.Text = T("Не удалось проверить WebView2.",
+                        "Could not check WebView2.");
+                    online.Enabled = false;
+                    offline.Enabled = false;
+                    SetTechnicalReport(inspectedBundle, inspectedStatus,
+                        ex.Message);
+                }
+            };
+            check.Click += (sender, args) => refresh();
+            online.Click += (sender, args) =>
+                SelectExistingComponentOperation(settings,
+                    SetupOperation.InstallWebView2);
+            offline.Click += (sender, args) =>
+                SelectExistingComponentOperation(settings,
+                    SetupOperation.InstallWebView2Offline);
+            refresh();
+        }
+
+        private void SelectExistingComponentOperation(Form settings,
+            SetupOperation operation)
+        {
+            DialogResult confirmed = MessageBox.Show(settings,
+                T("Установить Microsoft WebView2? Несохранённые изменения параметров будут отменены. Установщик проверит результат.",
+                    "Install Microsoft WebView2? Unsaved settings will be discarded. Setup will verify the result."),
+                T("Установка компонента", "Install component"),
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
+            if (confirmed != DialogResult.Yes) return;
+            settings.Tag = operation;
+            settings.DialogResult = DialogResult.Abort;
         }
 
         private async Task BeginUninstallAsync()
@@ -1418,6 +1600,9 @@ namespace IwxaSetup
 
         private void OpenRelatedAction()
         {
+            // The application must not be launched by the setup surface while
+            // files are being moved, updated, restored or inspected.
+            if (performingOperation || verifyingState) return;
             try
             {
                 if (openApplication.Tag as string == "WEBVIEW2")
@@ -1785,6 +1970,7 @@ namespace IwxaSetup
             verifyingState = true;
             busyProgress.Visible = true;
             retry.Enabled = false;
+            openApplication.Enabled = false;
             SetWizardStep(1);
             ConfigureActions(SetupOperation.None, SetupOperation.None,
                 T("Недоступно", "Unavailable"));
@@ -2130,6 +2316,8 @@ namespace IwxaSetup
                     // ownership readback finishes, even after VerifyAsync.
                     if (!performingOperation) busyProgress.Visible = false;
                     retry.Enabled = !performingOperation;
+                    openApplication.Enabled = !performingOperation &&
+                        openApplication.Visible;
                     install.Enabled = !performingOperation &&
                         primaryAction != SetupOperation.None;
                     secondary.Enabled = !performingOperation &&
