@@ -11,7 +11,7 @@ if($TransportOnly -and !$OwnerComponentPath) {
 }
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
-$pin='806fd34d74ec4101a442f8550950e8c8047ba68b'
+$pin='2e35c1cfc1770ed85f619a4a22ccdbf4d5b708e8'
 $vendor=(Resolve-Path -LiteralPath 'vendor/setupcore').Path
 $actualPin=(& git -C $vendor rev-parse HEAD).Trim()
 if($LASTEXITCODE -ne 0 -or $actualPin -ne $pin) {throw "PUBLISHER_SETUP_CORE_PIN_MISMATCH expected=$pin actual=$actualPin"}
@@ -60,6 +60,46 @@ $bundle=Join-Path $artifact $bundleName
 $icon=[IO.Path]::GetFullPath('publisher/src-tauri/icons/icon.ico')
 & ./vendor/setupcore/installer/windows/build-stub.ps1 -Output $stub -Icon $icon
 if(!(Test-Path -LiteralPath $stub -PathType Leaf)){throw 'PUBLISHER_SETUP_STUB_BUILD_FAILED'}
+
+# Reuse the original Setup Core DPI/native-layout qualification. Publisher
+# previously pinned a WinForms build where DockStyle.Left and DockStyle.Fill
+# were siblings: under DPI scaling the sidebar painted over the main card.
+# Never accept a Publisher installer without the original two-column layout.
+& ./vendor/setupcore/installer/windows/qualify-gui-layout-fast.ps1 -Stub $stub
+if($LASTEXITCODE -ne 0){throw 'PUBLISHER_SETUP_ORIGINAL_DPI_LAYOUT_FAILED'}
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$stubAssembly=[Reflection.Assembly]::LoadFrom([IO.Path]::GetFullPath($stub))
+$formType=$stubAssembly.GetType('IwxaSetup.SetupForm',$true)
+foreach($scale in @(1.0,1.25,1.5,2.0,2.5)){
+  $form=[Activator]::CreateInstance($formType,$true)
+  try{
+    $null=$form.Handle
+    if($scale -ne 1.0){
+      $form.Scale([Drawing.SizeF]::new([single]$scale,[single]$scale))
+    }
+    $form.ClientSize=[Drawing.Size]::new(
+      [int][Math]::Round(900*$scale),
+      [int][Math]::Round(560*$scale))
+    $form.PerformLayout()
+    $shell=$form.Controls[0]
+    if($shell -isnot [System.Windows.Forms.TableLayoutPanel] -or $shell.ColumnCount -ne 2){
+      throw "PUBLISHER_SETUP_SIDEBAR_OVERLAY_LAYOUT_REJECTED scale=$scale"
+    }
+    $shell.PerformLayout()
+    $navigation=$shell.GetControlFromPosition(0,0)
+    $content=$shell.GetControlFromPosition(1,0)
+    if(!$navigation -or !$content){
+      throw "PUBLISHER_SETUP_TWO_COLUMN_CONTROLS_MISSING scale=$scale"
+    }
+    if($navigation.Left -ne 0 -or $content.Left -lt $navigation.Right -or
+       $content.Right -gt $shell.ClientSize.Width -or $content.Width -le 0){
+      throw "PUBLISHER_SETUP_NAV_OVERLAPS_CONTENT scale=$scale nav=$($navigation.Bounds) area=$($content.Bounds)"
+    }
+    Write-Host "PUBLISHER_SETUP_SIDEBAR_CONTENT_SEPARATED_PASS scale=$scale"
+  } finally { $form.Dispose() }
+}
+
 $head=(& git rev-parse HEAD).Trim()
 $tree=(& git rev-parse 'HEAD^{tree}').Trim()
 if($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$' -or $tree -notmatch '^[0-9a-f]{40}$'){throw 'PUBLISHER_SOURCE_PIN_MISSING'}
