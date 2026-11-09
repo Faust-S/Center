@@ -499,6 +499,36 @@ try {
   assert.equal(await personal.getByTestId('publisher-t3-issue').isDisabled(),true);
   assert.equal(await personal.getByRole('combobox',{name:'Подготовленный запрос'}).locator('option').count(),0);
   checks.push('personal-test-issuer-unavailable-even-with-active-original-owner');
+  // A second client type can use the same tariff code, product and revision.
+  // This is one shared catalog, not a separate personal issuer or format.
+  await personal.getByRole('button',{name:'Клиенты',exact:true}).click();
+  await personal.getByLabel('Тип субъекта').selectOption('ORGANIZATION');
+  await personal.getByLabel('Идентификатор клиента').fill('org:atlas-test');
+  await personal.getByLabel('Название / имя').fill('Atlas Organization');
+  await personal.getByRole('button',{name:'Сохранить клиента'}).click();
+  await personal.getByText('Клиенты (2)').waitFor();
+  await personal.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
+  await personal.getByLabel('Код тарифа').fill('ATLAS_PERSONAL');
+  await personal.getByLabel('Название тарифа').fill('Команда Atlas');
+  await personal.getByLabel('Функции и модули').fill('WORKSPACES');
+  await personal.getByRole('button',{name:'Сохранить редакцию тарифа'}).click();
+  await personal.getByText('Сохранённые тарифы (2)').waitFor();
+  await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
+  const orgSelector=personal.getByTestId('publisher-tariff-proposal')
+    .getByRole('combobox',{name:'Тариф'});
+  await orgSelector.selectOption('IWXA_ATLAS:ORGANIZATION:ATLAS_PERSONAL:1');
+  assert.match(await personal.getByTestId('publisher-offline-offer-preview').innerText(),/Сотрудники: 10/);
+  await personal.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
+  await personal.getByText('Подготовленные запросы (2)').waitFor();
+  const sharedCatalog=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture')));
+  assert.deepEqual(sharedCatalog.proposals.map(p=>p.tariffSnapshot.holderType),
+    ['PERSON','ORGANIZATION']);
+  assert.ok(sharedCatalog.proposals.every(p=>p.status==='DRAFT_NOT_ISSUED'));
+  await personal.reload();
+  await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
+  await personal.getByText('Подготовленные запросы (2)').waitFor();
+  checks.push('same-code-person-and-organization-tariffs-remain-independent-after-restart');
   await personal.close();
   checks.push('personal-offline-draft-persists-restart-without-admin-center-or-false-signing');
   assert.deepEqual(errors,[]);

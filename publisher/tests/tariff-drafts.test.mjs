@@ -90,3 +90,52 @@ test('same metric can have different local/cloud quotas without joining balances
  assert.throws(()=>apply(source(),{...tariff(),quotas:[limits[0],{...limits[0],max:30}]}),
   {code:'TARIFF_QUOTA_DUPLICATE'});
 });
+
+test('same product, code and edition are independently selectable for organizations and people',()=>{
+ let s=source();
+ s=apply(s,tariff('ORGANIZATION'));
+ s=apply(s,{...tariff('PERSON'),name:'Personal plan'});
+ assert.equal(s.tariffs.length,2);
+ const org=apply(s,{kind:'addTariffProposal',productId:'IWXA_ADMIN_CENTER',
+   tariffId:'PLAN',revision:1,holderId:'org:one'});
+ assert.equal(org.proposals[0].tariffSnapshot.holderType,'ORGANIZATION');
+ assert.equal(org.proposals[0].tariffSnapshot.productSeats,10);
+ assert.equal(org.proposals[0].tariffSnapshot.employeeLimit,20);
+ assert.equal(org.proposals[0].tariffSnapshot.deviceLimit,0);
+ const person=apply(org,{kind:'addTariffProposal',productId:'IWXA_ADMIN_CENTER',
+   tariffId:'PLAN',revision:1,holderId:'person:one'});
+ assert.equal(person.proposals[1].tariffSnapshot.holderType,'PERSON');
+ assert.equal(person.proposals[1].tariffSnapshot.productSeats,1);
+ assert.equal(person.proposals[1].tariffSnapshot.employeeLimit,0);
+ assert.equal(person.proposals[1].tariffSnapshot.deviceLimit,2);
+ assert.deepEqual(person.proposals.map(p=>p.status),['DRAFT_NOT_ISSUED','DRAFT_NOT_ISSUED']);
+ assert.deepEqual(decodePublisherDraft(encodePublisherDraft(person)),person);
+ // An unscoped request must still be rejected: never silently pick a product.
+ assert.throws(()=>apply(person,{kind:'addTariffProposal',tariffId:'PLAN',
+   revision:1,holderId:'org:one'}),{code:'TARIFF_PROPOSAL_AMBIGUOUS'});
+});
+test('same-code followup chooses the preceding owner type, preserving the old snapshot',()=>{
+ let s=apply(source(),tariff());
+ s=apply(s,tariff('PERSON'));
+ s=apply(s,{kind:'addTariffProposal',productId:'IWXA_ADMIN_CENTER',
+   tariffId:'PLAN',revision:1,holderId:'org:one'});
+ s=apply(s,{kind:'addTariffProposal',productId:'IWXA_ADMIN_CENTER',
+   tariffId:'PLAN',revision:1,holderId:'person:one'});
+ const [oldOrg,oldPerson]=structuredClone(s.proposals);
+ s=apply(s,{...tariff(),revision:2,productSeats:12});
+ s=apply(s,{...tariff('PERSON'),revision:2,deviceLimit:4});
+ s=apply(s,{kind:'prepareFollowupProposal',previousProposalId:oldOrg.id,
+   productId:'IWXA_ADMIN_CENTER',tariffId:'PLAN',revision:2});
+ s=apply(s,{kind:'prepareFollowupProposal',previousProposalId:oldPerson.id,
+   productId:'IWXA_ADMIN_CENTER',tariffId:'PLAN',revision:2});
+ assert.deepEqual(s.proposals[0],oldOrg);
+ assert.deepEqual(s.proposals[1],oldPerson);
+ assert.equal(s.proposals[2].tariffSnapshot.productSeats,12);
+ assert.equal(s.proposals[2].tariffSnapshot.holderType,'ORGANIZATION');
+ assert.equal(s.proposals[3].tariffSnapshot.deviceLimit,4);
+ assert.equal(s.proposals[3].tariffSnapshot.holderType,'PERSON');
+ assert.equal(s.proposals[2].previousProposalId,oldOrg.id);
+ assert.equal(s.proposals[3].previousProposalId,oldPerson.id);
+ assert.ok(s.proposals.every(p=>p.status==='DRAFT_NOT_ISSUED'&&!('signature' in p)));
+ assert.deepEqual(decodePublisherDraft(encodePublisherDraft(s)),s);
+});

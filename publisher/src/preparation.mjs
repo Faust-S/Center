@@ -180,11 +180,16 @@ export function applyPublisherDraftCommand(draft, command) {
     if(!holder)reject('TARIFF_PROPOSAL_REFERENCE_MISSING');
     const candidates=next.tariffs.filter(t=>t.id===command.tariffId&&
       t.revision===command.revision&&(!command.productId||t.productId===command.productId));
-    if(candidates.length>1)reject('TARIFF_PROPOSAL_AMBIGUOUS');
-    const t=candidates[0];
+    if(candidates.length>1&&!command.productId)reject('TARIFF_PROPOSAL_AMBIGUOUS');
+    // A code and revision are shared by organization and person offerings.
+    // Resolve by the actual recipient type before choosing the edition,
+    // while keeping unscoped cross-product requests explicitly ambiguous.
+    const scoped=candidates.filter(t=>t.holderType===holder.type);
+    if(scoped.length>1)reject('TARIFF_PROPOSAL_AMBIGUOUS');
+    const t=scoped[0];
+    if(!t&&candidates.length)reject('TARIFF_PROPOSAL_HOLDER_MISMATCH');
     const product=next.products.find(p=>p.id===t?.productId);
     if(!t||!product)reject('TARIFF_PROPOSAL_REFERENCE_MISSING');
-    if(holder.type!==t.holderType)reject('TARIFF_PROPOSAL_HOLDER_MISMATCH');
     if(repeat&&previous.productId!==product.id)reject('PROPOSAL_FOLLOWUP_PRODUCT_MISMATCH');
     next.proposals.push({id:'proposal:'+crypto.randomUUID(),holderId:holder.id,
       productId:product.id,features:[...t.features],termDays:t.termDays,
