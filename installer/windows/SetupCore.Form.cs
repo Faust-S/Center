@@ -1045,7 +1045,6 @@ namespace IwxaSetup
                                         }));
                                     }
                                     catch (InvalidOperationException) { }
-                                    catch (ObjectDisposedException) { }
                                 });
                         case SetupOperation.Upgrade: return SetupInstallation.UpgradeOwned(executable);
                         case SetupOperation.Repair: return SetupInstallation.RepairOwned(executable);
