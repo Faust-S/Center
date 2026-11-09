@@ -141,3 +141,5 @@
 .publisher-app .publisher-followup-choice{display:grid;gap:7px;margin:13px 0;font-size:12px;color:#385478}.publisher-app .publisher-followup-choice select{width:100%;max-width:600px}
 
 .publisher-app .publisher-license-unavailable{color:#8b5a37;line-height:1.5}.publisher-app .publisher-test-owner .notice.subdued{margin:14px 0;max-width:760px}
+
+.publisher-app .publisher-license-shortcut{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px}.publisher-app .publisher-license-shortcut p{margin:0;flex:1;min-width:230px}.publisher-app .publisher-license-shortcut button{white-space:nowrap}.publisher-app .publisher-license-shortcut+div{margin-top:0}

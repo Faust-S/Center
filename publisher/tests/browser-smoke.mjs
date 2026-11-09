@@ -168,6 +168,12 @@ try {
   assert.match(await offerReview.innerText(),/Неподписанная подготовка/);
   await page.getByRole('button',{name:'Лицензии'}).click();
   checks.push('tariff-review-shows-quotas-and-no-effective-license');
+  await page.getByRole('button',{name:'Открыть TEST-запрос'}).click();
+  const legacyVisible=await page.getByLabel('Функции (коды через запятую)').evaluate(el=>{
+    const b=el.getBoundingClientRect();return b.top>=0&&b.bottom<=window.innerHeight;
+  });
+  assert.ok(legacyVisible,'Legacy TEST editor must be visible after explicit shortcut');
+  checks.push('legacy-test-form-explicit-native-scroll-navigation');
   await page.getByLabel('Функции (коды через запятую)').fill('FEATURE_A,FEATURE_B');
   await page.getByRole('button',{name:'Сохранить запрос'}).click();
   await page.getByText('Подготовленные запросы (2)').waitFor();

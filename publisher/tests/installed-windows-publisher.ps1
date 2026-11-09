@@ -236,6 +236,7 @@ try {
   # persisted native JSON below rather than requiring an onscreen row here.
   [void](Find-Control 'Сохранить получателя' 'Button')
   Click-Publisher 'Лицензии'
+  Click-Publisher 'Открыть TEST-запрос'
   Enter-Value 'Функции (коды через запятую)' 'WORKSPACE,REVIEW'
   Click-Publisher 'Сохранить запрос'
   $readback=$null

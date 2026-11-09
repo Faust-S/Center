@@ -255,6 +255,7 @@ try{
   Enter $pub 'Название / имя' 'CenterLicenseTestOrganization'
   Press $pub 'Сохранить получателя'
   Press $pub 'Лицензии'
+  Press $pub 'Открыть TEST-запрос'
   Enter $pub 'Функции (коды через запятую)' 'WORKSPACE'
   Press $pub 'Сохранить запрос'
   Wait-Text $pub 'Подготовленные запросы (1)'

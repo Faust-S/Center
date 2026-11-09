@@ -96,6 +96,7 @@ export default function App(){
  const [simulated,setSimulated]=useState<{requestId:string;organizationId:string;modeledSeats:number;actualSeats:number;state:string}|null>(null);
  const [pendingRestore,setPendingRestore]=useState<Draft|null>(null);
  const restoreConfirmationRef=React.useRef<HTMLDivElement>(null);
+ const legacyTestRef=React.useRef<HTMLElement>(null);
  useEffect(()=>{
    if(pendingRestore)restoreConfirmationRef.current?.scrollIntoView({block:'center'});
  },[pendingRestore]);
@@ -351,8 +352,12 @@ export default function App(){
          <section className="card padded"><h2>Получатели ({state.holders.length})</h2>{state.holders.length===0?<p className="muted">Получателей пока нет.</p>:state.holders.map(h=><div key={h.id} className="simple-row"><div><strong>{h.name}</strong><small>{typeLabel(h.type)} · {h.id}</small></div><span className="status neutral">Подготовка</span></div>)}</section>
        </>}
        {page==='proposals'&&<>
+          <div className="publisher-license-shortcut">
+            <p className="muted">Подготовьте лицензию по сохранённому тарифу. Ранее созданные TEST-запросы по-прежнему доступны.</p>
+            <button type="button" className="secondary" onClick={()=>legacyTestRef.current?.scrollIntoView({block:'start',behavior:'auto'})}>Открыть TEST-запрос</button>
+          </div>
           <TariffPanel draft={state} busy={busy} change={change} mode="offer"/>
-         <section className="card form-panel"><h2>Простой TEST-запрос (совместимость)</h2><p className="muted">Создание запроса не создаёт подписанной лицензии и не меняет права получателя.</p>
+         <section ref={legacyTestRef} className="card form-panel"><h2>Простой TEST-запрос (совместимость)</h2><p className="muted">Создание запроса не создаёт подписанной лицензии и не меняет права получателя.</p>
          {state.products.length===0||state.holders.length===0?<div className="notice">Для запроса необходимо сначала создать продукт и получателя.</div>:<form onSubmit={e=>{e.preventDefault();void change({kind:'addProposal',productId:activeProduct,holderId:activeHolder,features:features.split(',').map(x=>x.trim()).filter(Boolean),termDays:Number(termDays)},'Черновик запроса сохранён. Лицензия не выдана.');}}>
            <div className="form-grid"><label>Продукт<select value={activeProduct} onChange={e=>setProposalProduct(e.target.value)}>{state.products.map(p=><option key={p.id} value={p.id}>{p.name} ({p.version})</option>)}</select></label>
            <label>Получатель<select value={activeHolder} onChange={e=>setProposalHolder(e.target.value)}>{state.holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
