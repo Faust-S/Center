@@ -113,10 +113,25 @@ try{
   await page.getByTestId('nav-work').click();
   assert.equal(await page.getByTestId('task-title').inputValue(),'Unsaved editor text');
   await page.getByTestId('task-title').fill('Compare four suppliers');
+  const previousAtlasRef=await page.getByTestId('assignment-atlas-binding').innerText();
+  dismissNextConfirmation=true;
   await page.getByTestId('refresh-assignment-atlas').click();
+  assert.equal(await page.getByTestId('assignment-atlas-binding').innerText(),previousAtlasRef,
+    'dismissing a revision change must preserve the old WorkRef');
+  assert.ok((await page.getByTestId('assignment-atlas-currentness').textContent()).includes('изменился'));
+  assert.equal(await page.getByTestId('task-title').inputValue(),'Compare four suppliers');
+  const confirmed=page.waitForEvent('dialog');
+  await page.getByTestId('refresh-assignment-atlas').click();
+  // The existing browser dialog handler accepts the deliberate second request.
+  const dialog=await confirmed;
+  assert.match(dialog.message(),/Проект: Supply programme/);
+  assert.match(dialog.message(),/Работа: Compare suppliers/);
+  assert.match(dialog.message(),/Была редакция:/);
+  assert.match(dialog.message(),/Открыта редакция:/);
   assert.ok((await page.getByTestId('assignment-atlas-currentness').textContent()).includes('совпадают'));
+  assert.equal(await page.getByTestId('task-title').inputValue(),'Compare four suppliers');
   await page.getByTestId('save-assignment').click();
-  checks.push('explicit-plan-relink-keeps-unsaved-editor-and-original-work-id');
+  checks.push('confirmed-revision-refresh-keeps-work-id-and-unsaved-editor');
   await page.getByTestId('assignment-row').first().click();
   await page.getByTestId('task-title').fill('This unsaved next task must be retained');
   await page.getByTestId('nav-results').click();

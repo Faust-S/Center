@@ -207,6 +207,29 @@ export default function App() {
       sourceResultRef:old.sourceResultRef?.workspaceId===value?old.sourceResultRef:null};
     return {...old,[name]:value};
   });
+  // Revising an existing link is a deliberate manager action. Reopening a
+  // source file, or viewing a different revision, never rewrites the draft.
+  const confirmAtlasWorkRevision = () => {
+    const previous=editor?.atlasRef;
+    if(!previous?.workId||!observedAtlas||
+       atlasWorkReadback(observedAtlas,previous)!=='SOURCE_REVISION_CHANGED')return;
+    let candidate: AtlasRef;
+    try{candidate=linkableAtlasWork(observedAtlas,previous.projectId,previous.workId);}
+    catch(e){problem(e);return;}
+    const project=observedAtlas.projects.find(p=>p.id===previous.projectId);
+    const work=project?.workItems.find(w=>w.id===previous.workId);
+    if(!project||!work)return;
+    const accepted=window.confirm('Обновить ссылку на работу Atlas?\\n\\n'+
+      'Проект: '+project.name+'\\nРабота: '+work.title+'\\n'+
+      'Была редакция: '+previous.revision+'\\nОткрыта редакция: '+candidate.revision+'\\n\\n'+
+      'Проверьте изменения в Atlas перед подтверждением. Изменится только ссылка в черновике. Поручение не будет выдано.');
+    if(!accepted)return;
+    setEditor(old=>old?.atlasRef?.projectId===previous.projectId&&
+      old.atlasRef.workId===previous.workId&&old.atlasRef.revision===previous.revision
+      ?{...old,atlasRef:candidate}:old);
+    setError('');
+    setMessage('Ссылка на открытую редакцию обновлена в редакторе. Чтобы сохранить её, сохраните черновик поручения.');
+  };
   const prepareAtlasWork = (ref: AtlasRef) => {
     if (!org) return;
     if (editor) {
@@ -434,9 +457,8 @@ export default function App() {
           {editor.atlasRef?.workId && observedAtlas &&
             atlasWorkReadback(observedAtlas,editor.atlasRef)==='SOURCE_REVISION_CHANGED' &&
             <button type="button" className="secondary" data-testid="refresh-assignment-atlas"
-              onClick={()=>setEditor(old=>old?.atlasRef?.workId ? {...old,
-                atlasRef:linkableAtlasWork(observedAtlas,old.atlasRef.projectId,old.atlasRef.workId)} : old)}>
-              Привязать к открытой редакции плана
+              onClick={confirmAtlasWorkRevision}>
+              Проверить и обновить редакцию ссылки
             </button>}
           <div className="form-footer"><span className="muted">Выдача через T3 пока не выполняется.</span><button className="primary" data-testid="save-assignment">Сохранить черновик</button></div>
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
