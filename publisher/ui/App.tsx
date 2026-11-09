@@ -75,7 +75,11 @@ async function persistDraft(state:Draft):Promise<void> {
 function typeLabel(type:Holder['type']):string {return type==='ORGANIZATION'?'Организация':'Физическое лицо';}
 export default function App(){
  const [state,setState]=useState<Draft>(initialDraft);
- const testScope=useMemo(()=>new Map(inspectTestIssuerRequestScopes(state).map(v=>[v.proposalId,v])),[state]);
+ const testScope=useMemo(()=>{
+   type Scope={proposalId:string;code:string;route:string;supported:boolean};
+   const reports=inspectTestIssuerRequestScopes(state) as Scope[];
+   return new Map<string,Scope>(reports.map(v=>[v.proposalId,v] as const));
+ },[state]);
  const [loaded,setLoaded]=useState(false);
  const [page,setPage]=useState<Page>('overview');
  const [mobileNav,setMobileNav]=useState(false);

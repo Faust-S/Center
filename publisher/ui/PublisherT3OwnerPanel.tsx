@@ -28,7 +28,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
  const proposals=Array.isArray(draft?.proposals)?draft.proposals:[];
  const products=Array.isArray(draft?.products)?draft.products:[];
  const holders=Array.isArray(draft?.holders)?draft.holders:[];
- const readiness=useMemo(()=>inspectTestIssuerRequestScopes(draft),[draft]);
+ const readiness=useMemo(()=>inspectTestIssuerRequestScopes(draft) as {proposalId:string;supported:boolean}[],[draft]);
  const supportedIds=useMemo(()=>new Set(readiness.filter(p=>p.supported).map(p=>p.proposalId)),[readiness]);
  const eligible=proposals.filter((p:any)=>supportedIds.has(p.id));
  const unsupported=proposals.filter((p:any)=>!supportedIds.has(p.id));
