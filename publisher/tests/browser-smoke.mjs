@@ -160,6 +160,14 @@ try {
   await page.getByRole('button',{name:'Лицензии'}).click();
   await page.getByText('Подготовленные запросы (1)').waitFor();
   checks.push('tariff-proposal-unsigned-snapshot');
+  await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
+  const offerReview=page.getByTestId('publisher-offline-offer-preview');
+  assert.match(await offerReview.innerText(),/Места продукта: 5/);
+  assert.match(await offerReview.innerText(),/Сотрудники: 10/);
+  assert.match(await offerReview.innerText(),/CLOUD_TOKENS/);
+  assert.match(await offerReview.innerText(),/Неподписанная подготовка/);
+  await page.getByRole('button',{name:'Лицензии'}).click();
+  checks.push('tariff-review-shows-quotas-and-no-effective-license');
   await page.getByLabel('Функции (коды через запятую)').fill('FEATURE_A,FEATURE_B');
   await page.getByRole('button',{name:'Сохранить запрос'}).click();
   await page.getByText('Подготовленные запросы (2)').waitFor();
@@ -311,6 +319,53 @@ try {
   assert.equal(await confirmation.count(),0);
   checks.push('restore-confirm-atomically-writes-only-strict-draft');
   await nativeMockPage.close();
+  // Independent direct-to-product personal flow, using a bounded IPC test double.
+  // It cannot claim that a PERSON license was signed by T3.
+  const personal=await browser.newPage({viewport:{width:1050,height:820}});
+  personal.on('pageerror',e=>errors.push('personal fixture: '+e.message));
+  await personal.addInitScript(()=>{
+    window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
+      if(command==='publisher_draft_read')return sessionStorage.getItem('iwxa-publisher-person-fixture');
+      if(command==='publisher_draft_save'){sessionStorage.setItem('iwxa-publisher-person-fixture',args.content);return true;}
+      throw new Error('Unexpected personal fixture IPC '+command);
+    }};
+  });
+  await personal.goto('http://127.0.0.1:4175');
+  await personal.getByRole('button',{name:'Продукты',exact:true}).click();
+  await personal.getByLabel('Идентификатор продукта').fill('IWXA_ATLAS');
+  await personal.getByLabel('Название').fill('IWXA Atlas');
+  await personal.getByLabel('Версия',{exact:true}).fill('0.4.0');
+  await personal.getByRole('button',{name:'Сохранить продукт'}).click();
+  await personal.getByRole('button',{name:'Клиенты',exact:true}).click();
+  await personal.getByLabel('Тип субъекта').selectOption('PERSON');
+  await personal.getByLabel('Идентификатор клиента').fill('person:local-example');
+  await personal.getByLabel('Название / имя').fill('Example Person');
+  await personal.getByRole('button',{name:'Сохранить получателя'}).click();
+  await personal.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
+  await personal.getByLabel('Код тарифа').fill('ATLAS_PERSONAL');
+  await personal.getByLabel('Название тарифа').fill('Личный');
+  await personal.getByLabel('Клиент',{exact:true}).selectOption('PERSON');
+  await personal.getByLabel('Устройства владельца').fill('3');
+  await personal.getByLabel('Функции и модули').fill('LOCAL_PROJECTS');
+  assert.equal(await personal.getByLabel('Сотрудники организации').count(),0);
+  await personal.getByRole('button',{name:'Сохранить редакцию тарифа'}).click();
+  const personPreview=await personal.getByTestId('publisher-offline-offer-preview').innerText();
+  assert.match(personPreview,/Устройства: 3/);
+  assert.doesNotMatch(personPreview,/Сотрудники:/);
+  assert.match(personPreview,/Неподписанная подготовка/);
+  await personal.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
+  const directDraft=JSON.parse(await personal.evaluate(()=>sessionStorage.getItem('iwxa-publisher-person-fixture')));
+  assert.equal(directDraft.proposals[0].tariffSnapshot.holderType,'PERSON');
+  assert.equal(directDraft.proposals[0].tariffSnapshot.deviceLimit,3);
+  assert.equal(directDraft.proposals[0].status,'DRAFT_NOT_ISSUED');
+  await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
+  assert.equal(await personal.getByRole('button',{name:'Подготовить TEST-запрос'}).isDisabled(),true);
+  await personal.reload();
+  await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
+  await personal.getByText('Подготовленные запросы (1)').waitFor();
+  assert.match(await personal.locator('main').innerText(),/Напрямую в продукт/);
+  await personal.close();
+  checks.push('personal-offline-draft-persists-restart-without-admin-center-or-false-signing');
   assert.deepEqual(errors,[]);
   checks.push('no-browser-page-errors');
   const report={status:'PASS',checks,errors,environment:'Firefox rendering with explicit test-only mock Tauri IPC; NOT an installed application',issuer:'NOT_CONNECTED',signature:'NOT_TESTED'};

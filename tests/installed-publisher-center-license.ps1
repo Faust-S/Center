@@ -250,11 +250,11 @@ try{
   Enter $pub 'Название' 'CenterLicenseTestProduct'
   Enter $pub 'Версия' '0.3.0'
   Press $pub 'Сохранить продукт'
-  Press $pub 'Получатели'
-  Enter $pub 'Идентификатор субъекта' $organizationId
+  Press $pub 'Клиенты'
+  Enter $pub 'Идентификатор клиента' $organizationId
   Enter $pub 'Название / имя' 'CenterLicenseTestOrganization'
   Press $pub 'Сохранить получателя'
-  Press $pub 'Запросы на лицензии'
+  Press $pub 'Лицензии'
   Enter $pub 'Функции (коды через запятую)' 'WORKSPACE'
   Press $pub 'Сохранить запрос'
   Wait-Text $pub 'Подготовленные запросы (1)'

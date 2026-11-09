@@ -204,14 +204,38 @@ try {
   Enter-Value 'Версия' '0.2.0'
   Click-Publisher 'Сохранить продукт'
   [void](Find-Text 'PublisherInstalledTest')
-  Click-Publisher 'Получатели'
-  Enter-Value 'Идентификатор субъекта' '11111111-1111-4111-8111-111111111111'
+  Click-Publisher 'Тарифы и лимиты'
+  Enter-Value 'Код тарифа' 'TEAM_START'
+  Enter-Value 'Название тарифа' 'Команда'
+  Enter-Value 'Функции и модули' 'WORKSPACE,REVIEW'
+  Click-Publisher 'Сохранить редакцию тарифа'
+  $tariffSaved=$false
+  for($i=0;$i -lt 60;$i++){
+    if(Test-Path -LiteralPath $data){
+      try{
+        $record=Get-Content -LiteralPath $data -Raw|ConvertFrom-Json -Depth 50
+        if($record.version -eq 2 -and @($record.tariffs).Count -eq 1 -and
+           $record.tariffs[0].id -eq 'TEAM_START' -and
+           $record.tariffs[0].revision -eq 1 -and
+           $record.tariffs[0].productSeats -eq 5 -and
+           $record.tariffs[0].employeeLimit -eq 10 -and
+           $record.tariffs[0].deviceLimit -eq 0){
+          $tariffSaved=$true;break
+        }
+      }catch{}
+    }
+    Start-Sleep -Milliseconds 300
+  }
+  if(!$tariffSaved){throw 'PUBLISHER_NATIVE_TARIFF_REVISION_NOT_PERSISTED'}
+  Write-Host 'PUBLISHER_INSTALLED_NATIVE_TARIFF_REVISION_PASS'
+  Click-Publisher 'Клиенты'
+  Enter-Value 'Идентификатор клиента' '11111111-1111-4111-8111-111111111111'
   Enter-Value 'Название / имя' 'PublisherInstalledTestOrg'
   Click-Publisher 'Сохранить получателя'
   # The holder's list row is below the viewport at 900px; assert the real
   # persisted native JSON below rather than requiring an onscreen row here.
   [void](Find-Control 'Сохранить получателя' 'Button')
-  Click-Publisher 'Запросы на лицензии'
+  Click-Publisher 'Лицензии'
   Enter-Value 'Функции (коды через запятую)' 'WORKSPACE,REVIEW'
   Click-Publisher 'Сохранить запрос'
   $readback=$null
@@ -261,9 +285,9 @@ try {
   Start-Publisher
   Click-Publisher 'Продукты'
   [void](Find-Text 'PublisherInstalledTest')
-  Click-Publisher 'Получатели'
+  Click-Publisher 'Клиенты'
   [void](Find-Control 'Сохранить получателя' 'Button')
-  Click-Publisher 'Запросы на лицензии'
+  Click-Publisher 'Лицензии'
   [void](Find-Control 'Моделировать TEST-ответ' 'Button')
   if(!(Test-Path -LiteralPath $data)){throw 'Publisher preparation disappeared after native restart'}
   $again=Get-Content -LiteralPath $data -Raw|ConvertFrom-Json -Depth 50
@@ -287,7 +311,7 @@ try {
     throw 'PUBLISHER_NATIVE_BACKUP_REQUEST_BINDING_INVALID'
   }
   Write-Host 'PUBLISHER_INSTALLED_GUI_NATIVE_BACKUP_EXPORT_PASS'
-  Click-Publisher 'Запросы на лицензии'
+  Click-Publisher 'Лицензии'
   Click-Publisher 'Удалить'
   $removed=$false
   for($i=0;$i -lt 60;$i++){
@@ -376,6 +400,29 @@ try {
   if($hashBefore -ne $hashAfter){throw 'PUBLISHER_INSTALLED_IWXA_TRANSPORT_CHANGED_BYTES'}
   Write-Host "PUBLISHER_INSTALLED_IWXA_BYTE_EXACT_TRANSFER_PASS sha256=$hashAfter"
   Capture-Installed-Desktop 'publisher-desktop-iwxa-transfer.png'
+   # Exercise new tariff proposal only after the legacy request, backup, and
+   # exact .iwxa transport have been independently verified.
+   Click-Publisher 'Тарифы и лимиты'
+   Click-Publisher 'Сохранить подготовку по тарифу'
+   $offer=$null
+   for($i=0;$i -lt 60;$i++){
+     try{
+       $record=Get-Content -LiteralPath $data -Raw|ConvertFrom-Json -Depth 50
+       if(@($record.proposals).Count -eq 2 -and $record.proposals[1].tariffSnapshot.id -eq 'TEAM_START'){
+         $offer=$record.proposals[1];break
+       }
+     }catch{}
+     Start-Sleep -Milliseconds 300
+   }
+   if(!$offer){throw 'PUBLISHER_NATIVE_TARIFF_SNAPSHOT_NOT_WRITTEN'}
+   if($offer.tariffSnapshot.productSeats -ne 5 -or
+      $offer.tariffSnapshot.employeeLimit -ne 10 -or
+      $offer.tariffSnapshot.deviceLimit -ne 0 -or
+      $offer.productVersion -ne '0.2.0' -or $offer.status -ne 'DRAFT_NOT_ISSUED'){
+     throw 'PUBLISHER_NATIVE_TARIFF_SNAPSHOT_CHANGED_OR_GRANTED'
+   }
+   Write-Host 'PUBLISHER_INSTALLED_NATIVE_TARIFF_PROPOSAL_NO_LICENSE_PASS'
+   Capture-Installed-Desktop 'publisher-desktop-tariff-draft.png'
 } catch {
   Write-Host "PUBLISHER_INSTALLED_GUI_PRIMARY_FAILURE $($_.Exception.Message)"
   try {

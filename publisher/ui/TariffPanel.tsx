@@ -70,6 +70,21 @@ export default function TariffPanel({draft,busy,change}:{draft:Draft;busy:boolea
      <label>Клиент<select value={selectedHolder} onChange={e=>setHolderId(e.target.value)}>{holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
     </div>
     <p className="muted">{selected?.holderType==='PERSON'?'Личный подписанный .iwxa принимается непосредственно продуктом, без Admin Center.':'Организационный подписанный .iwxa передаётся в Admin Center для распределения.'}</p>
+    {selected&&selectedHolder&&<div className="publisher-offer-review" data-testid="publisher-offline-offer-preview" role="status">
+      <strong>Условия для проверки</strong>
+      <p>{draft.holders.find(h=>h.id===selectedHolder)?.name} · {draft.products.find(p=>p.id===selected.productId)?.name||selected.productId}</p>
+      <div className="publisher-offer-limits">
+        <span>Места продукта: <b>{selected.productSeats}</b></span>
+        {selected.holderType==='ORGANIZATION'?<span>Сотрудники: <b>{selected.employeeLimit}</b></span>:<span>Устройства: <b>{selected.deviceLimit}</b></span>}
+        <span>Срок: <b>{selected.termDays} дней</b></span>
+      </div>
+      <p><b>Функции:</b> {selected.features.length?selected.features.join(', '):'Дополнительные функции не выбраны'}</p>
+      {selected.quotas.length>0&&<div className="publisher-offer-quotas">
+        <b>Ограничения ресурсов</b>
+        {selected.quotas.map(q=><span key={q.metric+q.period}>{q.metric} · {q.service==='CLOUD'?'Облако':'Локально'} · {q.max} {q.unit} · {q.period}</span>)}
+      </div>}
+      <p className="muted">Неподписанная подготовка. Права появятся только после выпуска и проверки доверенной лицензии .iwxa.</p>
+    </div>
     <button className="primary" type="button" disabled={busy||!selectedHolder} onClick={()=>void change({kind:'addTariffProposal',tariffId:selected.id,revision:selected.revision,holderId:selectedHolder},'Черновик условий сохранён. Лицензия не выдана.')}>Сохранить подготовку по тарифу</button>
    </>}
   </section>
