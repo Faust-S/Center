@@ -798,13 +798,16 @@ try {
             throw 'SETUP_STORAGE_MIGRATION_USER_DATA_COPY_NOT_VERIFIED'
         }
         foreach($name in @('Software','Models','Cache')) {
-            $fromPath=Join-Path $customRoot '..'
             $sourceRoot= switch($name) {
                 Software { $customSoftwareRoot }
                 Models { $customModelsRoot }
                 Cache { $customCacheRoot }
             }
-            $fileName=$name.ToLowerInvariant() + '.fixture'
+            $fileName= switch($name) {
+                Software { 'tool.fixture' }
+                Models { 'model.fixture' }
+                Cache { 'cache.fixture' }
+            }
             $sourceFile=Join-Path $sourceRoot $fileName
             $targetFile=Join-Path (Join-Path $moveBase $name) $fileName
             if (!(Test-Path -LiteralPath $sourceFile) -or
