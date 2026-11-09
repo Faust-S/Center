@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Globalization;
 using System.Net;
+using System.Text;
 using System.Threading.Tasks;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
@@ -26,6 +27,8 @@ namespace IwxaSetup
         private readonly Button secondary = new Button();
         private readonly LinkLabel openApplication = new LinkLabel();
         private readonly LinkLabel removeApplication = new LinkLabel();
+        private readonly LinkLabel technicalDetails = new LinkLabel();
+        private string technicalReport = "";
         private readonly Button configureInstallation = new Button();
         private readonly Button cancelStorageMove = new Button();
         private readonly ToolTip detailsHint = new ToolTip();
@@ -213,8 +216,29 @@ namespace IwxaSetup
             area.Controls.Add(card);
             Label cardHeading = Label(T("ПАКЕТ ПРОГРАММЫ",
                 "APPLICATION PACKAGE"), 20, 16, 500, 25, 9, Secondary, true);
+            cardHeading.Name = "iwxaSetupPackageHeading";
+            cardHeading.AutoEllipsis = true;
             cardHeading.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
             card.Controls.Add(cardHeading);
+
+            technicalDetails.Name = "iwxaSetupTechnicalDetails";
+            technicalDetails.Text = T("Технические сведения", "Technical details");
+            technicalDetails.AccessibleName = technicalDetails.Text;
+            technicalDetails.Font = new Font("Segoe UI", 9F);
+            technicalDetails.Location = new Point(392, 16);
+            technicalDetails.Size = new Size(166, 25);
+            technicalDetails.LinkColor = Color.FromArgb(39, 78, 133);
+            technicalDetails.TextAlign = ContentAlignment.MiddleRight;
+            technicalDetails.AutoEllipsis = true;
+            technicalDetails.Visible = false;
+            technicalDetails.LinkClicked += (sender, args) =>
+            {
+                if (!String.IsNullOrWhiteSpace(technicalReport))
+                    MessageBox.Show(this, technicalReport,
+                        T("Технические сведения", "Technical details"),
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+            };
+            card.Controls.Add(technicalDetails);
             status.Name = "iwxaSetupStatus";
             status.Text = T("Проверка выполняется…", "Verification in progress…");
             status.Font = new Font("Segoe UI", 13, FontStyle.Bold);
@@ -399,10 +423,19 @@ namespace IwxaSetup
             // against the actual current card width, not the old 580px box.
             foreach (Control child in card.Controls)
             {
+                if (child == technicalDetails ||
+                    child.Name == "iwxaSetupPackageHeading") continue;
                 int width = Math.Max(px(150),
                     card.ClientSize.Width - child.Left - px(20));
                 if (child.Width != width) child.Width = width;
             }
+            technicalDetails.Width = Math.Min(px(166),
+                Math.Max(px(120), card.ClientSize.Width - px(155)));
+            technicalDetails.Left = card.ClientSize.Width -
+                technicalDetails.Width - px(20);
+            Control heading = card.Controls["iwxaSetupPackageHeading"];
+            heading.Width = Math.Max(px(100),
+                technicalDetails.Left - heading.Left - px(6));
             eyebrow.Width = px(225);
             configureInstallation.Left = Math.Max(px(275),
                 area.ClientSize.Width - px(215));
@@ -536,6 +569,81 @@ namespace IwxaSetup
             openApplication.Visible = true;
         }
 
+        // The ordinary screen explains the next step. Package identity and
+        // failure codes remain available only through an explicit user action.
+        private void SetTechnicalReport(BundleInfo info, string state, string failure)
+        {
+            var report = new StringBuilder();
+            report.AppendLine("IWXA Setup Core 1.0");
+            if (info != null)
+            {
+                report.AppendLine("Product: " + info.Id);
+                report.AppendLine("Version: " + info.Version);
+                report.AppendLine("Architecture: " + info.Architecture);
+                report.AppendLine("Package: " + info.PackageFormat);
+                report.AppendLine("Files: " + info.FileCount);
+                report.AppendLine("Package SHA-256: " + info.PackageSha256);
+                report.AppendLine("Source: " + info.SourceCommit);
+            }
+            if (!String.IsNullOrWhiteSpace(state))
+                report.AppendLine("State: " + state);
+            if (!String.IsNullOrWhiteSpace(failure))
+                report.AppendLine("Detail: " + failure);
+            technicalReport = report.ToString();
+            technicalDetails.Visible = true;
+        }
+
+        internal static bool AllowsOwnedUninstall(string state)
+        {
+            switch (state)
+            {
+                case "REPAIR_CANDIDATE_NOT_ACTIVATED":
+                case "UPGRADE_CANDIDATE_NOT_ACTIVATED":
+                case "WEBVIEW2_MISSING":
+                case "APPLICATION_RUNNING":
+                case "DOWNGRADE_BLOCKED":
+                case "SAME_VERSION_DIFFERENT_PACKAGE":
+                case "VERSION_UNSUPPORTED":
+                    return true;
+                default:
+                    // No removal while an upgrade, legacy handoff or ownership
+                    // recovery is pending, or before ownership is established.
+                    return false;
+            }
+        }
+
+        private string ExplainBlockedState(string state)
+        {
+            switch (state)
+            {
+                case "INSTALL_OPERATION_BUSY":
+                    return T("Другая операция установки ещё выполняется. Дождитесь её завершения и проверьте снова.",
+                        "Another installation operation is running. Let it finish, then verify again.");
+                case "APPLICATION_RUNNING":
+                    return T("Программа сейчас открыта. Закройте её перед обновлением, восстановлением или удалением.",
+                        "The application is open. Close it before updating, repairing or uninstalling.");
+                case "DOWNGRADE_BLOCKED":
+                    return T("На компьютере установлена более новая версия. Используйте её или загрузите подходящее обновление.",
+                        "A newer version is installed. Use it or obtain a suitable update.");
+                case "SAME_VERSION_DIFFERENT_PACKAGE":
+                    return T("Найден другой выпуск с таким же номером версии. Для замены нужен согласованный пакет обновления.",
+                        "A different build of this version is installed. Use the matching update package.");
+                case "VERSION_UNSUPPORTED":
+                    return T("Не удалось сравнить версии. Проверьте выпуск программы и повторите попытку.",
+                        "The installed version could not be compared. Check the release and try again.");
+                case "OWNERSHIP_MISMATCH":
+                case "UNOWNED_INSTALL_ROOT":
+                    return T("В папке обнаружена установка, принадлежность которой не подтверждена. Выберите другую папку или восстановите исходную программу.",
+                        "An existing installation could not be verified. Choose another folder or repair the original app.");
+                case "ARCHITECTURE_UNSUPPORTED":
+                    return T("Этот выпуск предназначен для Windows x64. Проверьте версию Windows и выберите подходящий установщик.",
+                        "This release requires Windows x64. Check your Windows version and choose a compatible installer.");
+                default:
+                    return T("Установка пока недоступна. Проверьте состояние программы и повторите попытку. Личные данные не изменены.",
+                        "Installation is not available yet. Check the application and verify again. Your data was not changed.");
+            }
+        }
+
         private void SetState(
             string heading, string details, string versionLine, bool warning)
         {
@@ -564,7 +672,10 @@ namespace IwxaSetup
             }
             catch (Exception ex)
             {
-                MessageBox.Show(this, ex.Message,
+                SetTechnicalReport(info, inspectedStatus, ex.Message);
+                MessageBox.Show(this,
+                    T("Не удалось открыть параметры. Проверьте состояние установленной программы и повторите попытку.",
+                      "Installation settings could not be opened. Check the installed application and try again."),
                     T("Параметры установки", "Installation settings"),
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -685,6 +796,8 @@ namespace IwxaSetup
                     retry.Visible = true;
                 }
                 await VerifyAsync();
+                if (error != null)
+                    SetTechnicalReport(info, inspectedStatus, error.Message);
                 if (error is OperationCanceledException)
                 {
                     status.Text = T("Перенос отменён", "Storage relocation cancelled");
@@ -739,6 +852,19 @@ namespace IwxaSetup
             if (raw == "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS")
                 return T("В папке назначения уже есть данные. Выберите новую папку: существующие файлы не будут заменены.",
                     "The destination folder already exists. Choose a new folder; existing files will not be replaced.");
+            if (raw == "SETUP_STORAGE_LOCATIONS_OVERLAP" ||
+                raw == "SETUP_STORAGE_MOVE_OVERLAPS_OLD_LOCATION")
+                return T("Папки программы и хранилищ не должны находиться одна внутри другой. Выберите отдельные папки.",
+                    "Application and storage folders must not overlap. Choose separate folders.");
+            if (raw.StartsWith("SETUP_INSTALL_ROOT_", StringComparison.Ordinal))
+                return T("Выберите обычную папку на локальном диске, вне системных каталогов Windows.",
+                    "Choose a regular folder on a local drive outside the Windows system directories.");
+            if (raw == "SETUP_EXISTING_DATA_MIGRATION_REQUIRED")
+                return T("В стандартной папке уже есть данные. Для первой установки оставьте её расположение, а перенос выполните после установки.",
+                    "The default folder already contains data. Keep its current location for the first installation, then move it afterwards.");
+            if (raw == "SETUP_PROGRAM_RELOCATION_REQUIRES_REINSTALL")
+                return T("Папку установленной программы нельзя изменить здесь. Папки данных можно перенести отдельно.",
+                    "The installed application folder cannot be changed here. Data storage can be relocated separately.");
             if (raw == "SETUP_INSTALL_ALREADY_RUNNING")
                 return T("Установщик уже выполняет другую операцию. Завершите её и попробуйте снова.",
                     "Another setup operation is running. Finish it before trying again.");
@@ -746,8 +872,8 @@ namespace IwxaSetup
                 raw == "SETUP_STORAGE_FILE_LINK_FORBIDDEN")
                 return T("В исходном хранилище есть ссылка на другую папку или файл. Автоматический перенос остановлен; исходные данные сохранены.",
                     "The source contains a linked folder or file. Automatic relocation stopped; the original data was preserved.");
-            return T("Не удалось применить параметры. Данные не удалены. Подробности: ",
-                "Could not apply settings. No data was deleted. Details: ") + raw;
+            return T("Не удалось применить параметры. Действующие данные сохранены. Попробуйте снова или проверьте технические сведения.",
+                "Could not apply settings. Existing data was preserved. Try again or review Technical details.");
         }
 
         private static string ReadOption(Form form, string name)
@@ -996,10 +1122,8 @@ namespace IwxaSetup
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(dialog, T(
-                        "Проверьте расположение папок. Изменения не применены.\n",
-                        "Check the storage folders. No changes applied.\n") +
-                        ex.Message,
+                    SetTechnicalReport(info, inspectedStatus, ex.Message);
+                    MessageBox.Show(dialog, ExplainStorageSettingsError(ex),
                         T("Параметры установки", "Installation settings"),
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
@@ -1133,7 +1257,10 @@ namespace IwxaSetup
             {
                 status.Text = T("Не удалось открыть", "Could not open");
                 status.ForeColor = Color.FromArgb(170, 52, 59);
-                packageDetails.Text = ex.Message;
+                packageDetails.Text = T(
+                    "Проверьте установленную программу и повторите попытку.",
+                    "Check the installed application and try again.");
+                SetTechnicalReport(inspectedBundle, inspectedStatus, ex.Message);
             }
         }
 
@@ -1449,11 +1576,14 @@ namespace IwxaSetup
                 else
                 {
                     status.Text = T("Операция не завершена", "Operation incomplete");
-                    version.Text = failure.Message;
+                    version.Text = T("Проверьте установленную программу",
+                        "Check the installed application");
                     packageDetails.Text = T(
                         "Проверьте состояние установки и используйте доступное действие восстановления.",
                         "Review the installation state and use the available recovery action.");
                 }
+                SetTechnicalReport(inspectedBundle, inspectedStatus,
+                    failure.Message);
                 status.ForeColor = Color.FromArgb(170, 52, 59);
             }
         }
@@ -1471,6 +1601,7 @@ namespace IwxaSetup
                 T("Недоступно", "Unavailable"));
             openApplication.Visible = false;
             removeApplication.Visible = false;
+            technicalDetails.Visible = false;
             configureInstallation.Visible = false;
             status.Text = T("Проверка целостности…", "Verifying integrity…");
             status.ForeColor = Dark;
@@ -1499,21 +1630,16 @@ namespace IwxaSetup
                     plan.Status == "UPGRADE_CANDIDATE_NOT_ACTIVATED" ||
                     readyForReview;
                 configureInstallation.Enabled = !performingOperation;
-                // A pending upgrade or incomplete recovery must be resolved
-                // before uninstalling; the worker enforces that same rule.
-                removeApplication.Visible =
-                    plan.Status == "REPAIR_CANDIDATE_NOT_ACTIVATED" ||
-                    plan.Status == "UPGRADE_CANDIDATE_NOT_ACTIVATED" ||
-                    plan.Status == "WEBVIEW2_MISSING";
+                // Only verified installed-product states can offer removal.
+                // Pending upgrade/legacy handoff is resolved first.
+                removeApplication.Visible = AllowsOwnedUninstall(plan.Status);
                 removeApplication.Enabled = !performingOperation;
 
                 productName.Text = info.Name;
                 productName.AccessibleName = info.Name;
                 Text = info.Name + " — IWXA Setup";
-                string versionLine = T("Версия ", "Version ") +
-                    info.Version + "   •   " + info.Architecture;
-                string packageLine = T("Файлов: ", "Files: ") + info.FileCount +
-                    "   •   SHA-256 " + info.PackageSha256.Substring(0, 16) + "…";
+                string versionLine = T("Версия ", "Version ") + info.Version;
+                SetTechnicalReport(info, plan.Status, null);
 
                 if (plan.Status == "NO_OWNED_INSTALLATION")
                 {
@@ -1689,7 +1815,10 @@ namespace IwxaSetup
                     else
                     {
                         SetState(T("Переход пока недоступен", "Legacy migration blocked"),
-                            old.Status, versionLine, true);
+                            T("Прежнюю установку не удалось подтвердить. Сначала восстановите её или обратитесь к владельцу программы.",
+                              "The existing installation could not be verified. Repair it first or contact the software publisher."),
+                            versionLine, true);
+                        SetTechnicalReport(info, plan.Status, old.Status);
                     }
                 }
                 else if (plan.Status == "LEGACY_MIGRATION_PENDING_GUI_READBACK")
@@ -1742,8 +1871,7 @@ namespace IwxaSetup
                 else
                 {
                     SetState(T("Необходимо устранить препятствие", "Action needed"),
-                        plan.Status + "   •   " + packageLine,
-                        versionLine, true);
+                        ExplainBlockedState(plan.Status), versionLine, true);
                 }
                 return plan;
             }
@@ -1752,10 +1880,12 @@ namespace IwxaSetup
                 if (IsDisposed || Disposing) return null;
                 status.Text = T("Пакет не подтверждён", "Package not verified");
                 status.ForeColor = Color.FromArgb(170, 52, 59);
-                version.Text = ex.Message;
+                version.Text = T("Не удалось проверить пакет",
+                    "Package verification could not finish");
                 packageDetails.Text = T(
-                    "Установка заблокирована. Загрузите исправный дистрибутив.",
-                    "Installation is blocked. Obtain a valid distribution.");
+                    "Установка пока недоступна. Проверьте дистрибутив и повторите попытку.",
+                    "Installation is unavailable. Check the installer and try again.");
+                SetTechnicalReport(inspectedBundle, inspectedStatus, ex.Message);
                 return null;
             }
             finally

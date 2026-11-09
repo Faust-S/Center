@@ -103,6 +103,32 @@ try {
     }
 }
 $formType = $assembly.GetType('IwxaSetup.SetupForm', $true)
+$canUninstall = $formType.GetMethod('AllowsOwnedUninstall',
+    [Reflection.BindingFlags]'Static, NonPublic')
+if ($null -eq $canUninstall) {
+    throw 'SETUP_INSTALLED_UNINSTALL_ELIGIBILITY_MISSING'
+}
+foreach ($case in @(
+    @{State='REPAIR_CANDIDATE_NOT_ACTIVATED'; Eligible=$true},
+    @{State='UPGRADE_CANDIDATE_NOT_ACTIVATED'; Eligible=$true},
+    @{State='APPLICATION_RUNNING'; Eligible=$true},
+    @{State='DOWNGRADE_BLOCKED'; Eligible=$true},
+    @{State='SAME_VERSION_DIFFERENT_PACKAGE'; Eligible=$true},
+    @{State='WEBVIEW2_MISSING'; Eligible=$true},
+    @{State='NO_OWNED_INSTALLATION'; Eligible=$false},
+    @{State='OWNERSHIP_MISMATCH'; Eligible=$false},
+    @{State='UPGRADE_PENDING_CONFIRMATION'; Eligible=$false},
+    @{State='LEGACY_MIGRATION_PENDING_GUI_READBACK'; Eligible=$false},
+    @{State='UPGRADE_RECOVERY_REQUIRED'; Eligible=$false},
+    @{State='INSTALL_OPERATION_BUSY'; Eligible=$false}
+)) {
+    $arg = New-Object 'System.Object[]' 1
+    $arg[0] = [string]$case.State
+    if ([bool]$canUninstall.Invoke($null, $arg) -ne [bool]$case.Eligible) {
+        throw ('SETUP_UNINSTALL_ELIGIBILITY_WRONG_' + $case.State)
+    }
+}
+Write-Host 'IWXA_SETUP_VERIFIED_UNINSTALL_STATES_PASS'
 function One([System.Windows.Forms.Control]$form, [string]$name) {
     $items = @($form.Controls.Find($name,$true))
     if ($items.Count -ne 1) { throw ('SETUP_LAYOUT_WIDGET_MISSING_' + $name) }
@@ -116,6 +142,15 @@ function Assert-Layout([System.Windows.Forms.Form]$form,[string]$case) {
     $area.PerformLayout()
     $card = One $form 'iwxaSetupPackageCard'
     $card.PerformLayout()
+    $heading = One $form 'iwxaSetupPackageHeading'
+    $diagnostics = One $form 'iwxaSetupTechnicalDetails'
+    if ($heading.Right -gt $diagnostics.Left -or
+        $diagnostics.Right -gt $card.ClientSize.Width -or
+        $diagnostics.Top -ne $heading.Top) {
+        throw ('SETUP_LAYOUT_DIAGNOSTICS_OVERLAP_' + $case +
+            ' heading=' + $heading.Bounds +
+            ' diagnostics=' + $diagnostics.Bounds)
+    }
     $note = One $form 'iwxaSetupPreservationNote'
     $related = One $form 'iwxaSetupRelatedAction'
     $remove = One $form 'iwxaSetupRemoveApplication'

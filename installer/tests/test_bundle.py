@@ -144,6 +144,22 @@ class BundleTests(unittest.TestCase):
         self.assertIn('UserUninstallFailure(ex)', program)
         self.assertIn('UNINSTALLED_USER_DATA_PRESERVED', program)
         self.assertNotIn('MessageBox.Show(result.Status, "IWXA Setup"', program)
+        self.assertIn('AllowsOwnedUninstall(plan.Status)', form)
+        self.assertIn('case "APPLICATION_RUNNING":', form)
+        self.assertIn('case "DOWNGRADE_BLOCKED":', form)
+
+    def test_setup_hides_machine_codes_until_technical_details_requested(self):
+        form = (Path(__file__).resolve().parents[1] / "windows" /
+                "SetupCore.Form.cs").read_text(encoding="utf-8")
+        self.assertIn('technicalDetails.Name = "iwxaSetupTechnicalDetails"', form)
+        self.assertIn('SetTechnicalReport(info, plan.Status, null)', form)
+        self.assertIn('report.AppendLine("Package SHA-256: "', form)
+        self.assertIn('ExplainBlockedState(plan.Status)', form)
+        self.assertIn('ExplainStorageSettingsError(ex)', form)
+        self.assertNotIn('version.Text = ex.Message', form)
+        self.assertNotIn('version.Text = failure.Message', form)
+        self.assertNotIn('packageDetails.Text = ex.Message', form)
+        self.assertNotIn('plan.Status + "   ', form)
 
     def test_clean_vm_webview2_witness_cannot_report_offline_without_proof(self):
         source = (Path(__file__).resolve().parents[1] / "windows" /
