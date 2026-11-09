@@ -282,7 +282,7 @@ try {
   // Same tariff code, new edition, preserved older offer, linked unsigned followup.
   await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
   await page.getByRole('button',{name:'Новая редакция'}).first().click();
-  assert.equal(await page.getByLabel('Редакция').inputValue(),'2');
+  assert.equal(await page.getByRole('spinbutton',{name:'Редакция',exact:true}).inputValue(),'2');
   assert.equal(await page.getByLabel('Название тарифа').inputValue(),'Команда');
   await page.getByLabel('Места продукта').fill('7');
   await page.getByRole('button',{name:'Сохранить редакцию тарифа'}).click();
