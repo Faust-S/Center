@@ -328,6 +328,20 @@ try {
   [void](Find-Control 'Сохранить клиента' 'Button')
   Click-Publisher 'Лицензии'
   Click-Publisher 'Открыть TEST-запрос'
+  $testButton=Find-Control 'Сохранить запрос' 'Button'
+  if($testButton.Current.IsEnabled){
+    throw 'PUBLISHER_NATIVE_LEGACY_REQUEST_MUST_REQUIRE_EXPLICIT_CHOICES'
+  }
+  Choose-Publisher-Option 'Продукт'
+  $testButton=Find-Control 'Сохранить запрос' 'Button'
+  if($testButton.Current.IsEnabled){
+    throw 'PUBLISHER_NATIVE_LEGACY_REQUEST_MUST_REQUIRE_EXPLICIT_RECIPIENT'
+  }
+  Choose-Publisher-Option 'Получатель'
+  $testButton=Find-Control 'Сохранить запрос' 'Button'
+  if(!$testButton.Current.IsEnabled){
+    throw 'PUBLISHER_NATIVE_LEGACY_REQUEST_NOT_ENABLED_AFTER_CHOICES'
+  }
   Enter-Value 'Функции (коды через запятую)' 'WORKSPACE,REVIEW'
   Click-Publisher 'Сохранить запрос'
   $readback=$null

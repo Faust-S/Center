@@ -88,10 +88,13 @@ export default function App(){
  const [message,setMessage]=useState('');
  const [productFeedback,setProductFeedback]=useState<{ok:boolean;message:string}|null>(null);
  const [clientFeedback,setClientFeedback]=useState<{ok:boolean;message:string}|null>(null);
+ const [legacyFeedback,setLegacyFeedback]=useState<{ok:boolean;message:string}|null>(null);
  const productFeedbackRef=React.useRef<HTMLParagraphElement>(null);
  const clientFeedbackRef=React.useRef<HTMLParagraphElement>(null);
+ const legacyFeedbackRef=React.useRef<HTMLParagraphElement>(null);
  useEffect(()=>{if(productFeedback)productFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});},[productFeedback]);
  useEffect(()=>{if(clientFeedback)clientFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});},[clientFeedback]);
+ useEffect(()=>{if(legacyFeedback)legacyFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});},[legacyFeedback]);
  const [productId,setProductId]=useState('');
  const [productName,setProductName]=useState('');
  const [productVersion,setProductVersion]=useState('0.2.0');
@@ -156,6 +159,16 @@ export default function App(){
      'Продукт добавлен в черновик каталога.');
    setProductFeedback(result);
    if(result.ok){setProductId('');setProductName('');}
+ }
+ async function saveLegacyRequest(e:React.FormEvent){
+   e.preventDefault();
+   if(!activeProduct||!activeHolder)return;
+   setLegacyFeedback(null);
+   const result=await change({kind:'addProposal',productId:activeProduct,holderId:activeHolder,
+     features:features.split(',').map(x=>x.trim()).filter(Boolean),termDays:Number(termDays)},
+     'Черновик запроса сохранён. Лицензия не выдана.');
+   setLegacyFeedback(result);
+   if(result.ok){setProposalProduct('');setProposalHolder('');setFeatures('');setTermDays('30');}
  }
  async function saveClient(e:React.FormEvent){
    e.preventDefault();setClientFeedback(null);
@@ -252,8 +265,8 @@ export default function App(){
  }
  const productTitle=(id:string)=>state.products.find(p=>p.id===id)?.name||id;
  const holderTitle=(id:string)=>state.holders.find(h=>h.id===id)?.name||id;
- const activeProduct=proposalProduct||state.products[0]?.id||'';
- const activeHolder=proposalHolder||state.holders[0]?.id||'';
+ const activeProduct=state.products.some(p=>p.id===proposalProduct)?proposalProduct:'';
+ const activeHolder=state.holders.some(h=>h.id===proposalHolder)?proposalHolder:'';
  const selectedReleaseProduct=releaseProduct||state.products[0]?.id||'';
  async function selectTestIwxa(){
    if(busy||!loaded||!nativeHost)return;
@@ -402,12 +415,16 @@ export default function App(){
           </div>
           <TariffPanel draft={state} busy={busy} change={change} mode="offer"/>
          <section ref={legacyTestRef} className="card form-panel"><h2>Простой TEST-запрос (совместимость)</h2><p className="muted">Создание запроса не создаёт подписанной лицензии и не меняет права получателя.</p>
-         {state.products.length===0||state.holders.length===0?<div className="notice">Для запроса необходимо сначала создать продукт и клиента.</div>:<form onSubmit={e=>{e.preventDefault();void change({kind:'addProposal',productId:activeProduct,holderId:activeHolder,features:features.split(',').map(x=>x.trim()).filter(Boolean),termDays:Number(termDays)},'Черновик запроса сохранён. Лицензия не выдана.');}}>
-           <div className="form-grid"><label>Продукт<select value={activeProduct} onChange={e=>setProposalProduct(e.target.value)}>{state.products.map(p=><option key={p.id} value={p.id}>{p.name} ({p.version})</option>)}</select></label>
-           <label>Получатель<select value={activeHolder} onChange={e=>setProposalHolder(e.target.value)}>{state.holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
+         {state.products.length===0||state.holders.length===0?<div className="notice">Для запроса необходимо сначала создать продукт и клиента.</div>:<form onSubmit={e=>void saveLegacyRequest(e)} onChangeCapture={()=>setLegacyFeedback(null)}>
+           <div className="form-grid"><label>Продукт<select value={activeProduct} onChange={e=>setProposalProduct(e.target.value)}><option value="">Выберите продукт</option>{state.products.map(p=><option key={p.id} value={p.id}>{p.name} ({p.version})</option>)}</select></label>
+           <label>Получатель<select value={activeHolder} onChange={e=>setProposalHolder(e.target.value)}><option value="">Выберите клиента</option>{state.holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
            <label>Функции (коды через запятую)<input value={features} onChange={e=>setFeatures(e.target.value)} placeholder="Не определены"/></label>
            <label>Срок в днях<input type="number" min={1} max={3650} required value={termDays} onChange={e=>setTermDays(e.target.value)}/></label></div>
-           <button type="submit" className="primary" disabled={busy}>Сохранить запрос</button></form>}</section>
+           <div className="publisher-save-action" data-testid="publisher-legacy-save-action">
+             <button type="submit" className="primary" disabled={busy||!activeProduct||!activeHolder}>Сохранить запрос</button>
+             {legacyFeedback&&<p ref={legacyFeedbackRef} className={'publisher-inline-feedback '+(legacyFeedback.ok?'success':'error')}
+               role={legacyFeedback.ok?'status':'alert'} data-testid="publisher-legacy-save-feedback">{legacyFeedback.message}</p>}
+           </div></form>}</section>
          <section className="card padded"><h2>Подготовленные запросы ({state.proposals.length})</h2>
           {state.proposals.length>0&&<div className="publisher-test-request">
             <p className="muted">Экспорт TEST-запроса для будущего оригинального издателя T3. Файл не подписан и не предоставляет права Admin Center.</p>
