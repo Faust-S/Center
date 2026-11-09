@@ -56,7 +56,7 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run build
       - uses: actions/checkout@v4
-        if: ${{ startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') }}
+        if: ${{ (startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') || startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3')) }}
         with:
           repository: Faust-S/Center
           ref: 2e35c1cfc1770ed85f619a4a22ccdbf4d5b708e8
@@ -66,7 +66,7 @@ jobs:
       - run: node --test publisher/tests/setup-contract.test.mjs
       - run: node --test publisher/tests/preparation.test.mjs publisher/tests/test-license-request.test.mjs publisher/tests/issuer-simulation.test.mjs publisher/tests/center-publisher-preview.test.mjs publisher/tests/two-process-handoff.test.mjs publisher/tests/release-origin.test.mjs
       - name: Verify Publisher product against original IWXA Setup Core
-        if: ${{ startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') }}
+        if: ${{ (startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') || startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3')) }}
         shell: bash
         run: |
           python -c "import json,runpy; validator=runpy.run_path('vendor/setupcore/installer/build_bundle.py')['validate_product']; validator(json.load(open('publisher/setup/product.json',encoding='utf-8'))); print('PUBLISHER_SETUP_CORE_ORIGINAL_MANIFEST_PASS')"
@@ -82,7 +82,7 @@ jobs:
             package-lock.json
             dist/
   windows-shell:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !((startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') || startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3')) || startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3')) }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -184,7 +184,7 @@ jobs:
             package-lock.json
 
   publisher-windows:
-    if: ${{ startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') && !startsWith(github.event.head_commit.message, 'ci(ui):') }}
+    if: ${{ (startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') || startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3')) && !startsWith(github.event.head_commit.message, 'ci(ui):') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
