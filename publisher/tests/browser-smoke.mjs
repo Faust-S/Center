@@ -121,6 +121,21 @@ try {
   assert.ok(footerVisible,'Publisher bottom navigation description must fit a compact desktop window');
   assert.match(await page.locator('.publisher-app .sidebar-bottom p').last().innerText(),/Черновики — не лицензии/);
   checks.push('compact-desktop-sidebar-caption-fully-visible');
+  // The native 680px window can be constrained further by Windows taskbars
+  // and display scaling. Its whole navigation and footer must fit together.
+  await page.setViewportSize({width:1024,height:520});
+  const compactSidebar=await page.locator('.publisher-app .sidebar').evaluate(el=>{
+    const viewport=el.getBoundingClientRect();
+    const nav=el.querySelectorAll('.nav-link');
+    const bottom=el.querySelector('.sidebar-bottom p:last-child');
+    if(!bottom||nav.length!==7)return false;
+    const last=nav[nav.length-1].getBoundingClientRect();
+    const foot=bottom.getBoundingClientRect();
+    return last.top>=viewport.top&&last.bottom<=viewport.bottom&&
+      foot.top>=viewport.top&&foot.bottom<=viewport.bottom&&el.scrollTop===0;
+  });
+  assert.ok(compactSidebar,'At 520px height both the final navigation section and footer must be visible without sidebar scrolling');
+  checks.push('compact-height-native-sidebar-all-sections-and-footer-visible');
   await page.setViewportSize({width:1366,height:900});
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
   const select=page.getByTestId('publisher-select-test-iwxa');

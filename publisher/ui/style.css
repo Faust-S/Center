@@ -150,3 +150,14 @@
 .publisher-app .publisher-inline-feedback{flex:1;min-width:195px;margin:0;padding:9px 12px;border-radius:9px;border:1px solid #c8dfd8;background:#f0faf6;color:#285d4b;font-size:12px;line-height:1.45}
 .publisher-app .publisher-inline-feedback.error{border-color:#e8b4bb;background:#fff1f2;color:#923744}
 @media(max-width:700px){.publisher-app .publisher-save-action{align-items:stretch}.publisher-app .publisher-inline-feedback{flex-basis:100%}}
+
+/* Compact-height native Windows: all seven sections and the local-data
+   explanation must remain visible without clipping the sidebar footer. */
+@media (min-width:701px) and (max-height:740px){
+ .publisher-app .publisher-brand{padding:13px 14px 9px}
+ .publisher-app .publisher-nav-caption{margin:5px 18px 2px}
+ .publisher-app .sidebar nav{padding:4px 11px 5px}
+ .publisher-app .nav-link{min-height:34px;padding:6px 9px;margin:1px 0}
+ .publisher-app .sidebar-bottom{padding:9px 13px 12px}
+ .publisher-app .sidebar-bottom p{margin-top:5px;font-size:10px;line-height:1.35}
+}

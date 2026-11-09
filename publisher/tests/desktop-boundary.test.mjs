@@ -146,3 +146,12 @@ test('T3 TEST revocation is explicitly confirmed in the same native owner panel'
  assert.match(ui,/if\(requested==='REVOKED'&&!revokeReady\)return/);
  assert.match(smoke,/t3-test-revocation-requires-explicit-inline-confirmation-and-cancel/);
 });
+
+
+test('Publisher compact-height sidebar retains navigation and local-data footer at native window sizes',()=>{
+ const css=read('publisher/ui/style.css');
+ const browser=read('publisher/tests/browser-smoke.mjs');
+ assert.match(css,/@media \(min-width:701px\) and \(max-height:740px\)/);
+ assert.match(css,/\.publisher-app \.sidebar-bottom\{padding:9px 13px 12px\}/);
+ assert.match(browser,/compact-height-native-sidebar-all-sections-and-footer-visible/);
+});
