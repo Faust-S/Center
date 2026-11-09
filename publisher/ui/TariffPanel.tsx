@@ -84,7 +84,7 @@ export default function TariffPanel({draft,busy,change}:{draft:Draft;busy:boolea
         {selected.quotas.map(q=><span key={q.metric+q.period}>{q.metric} · {q.service==='CLOUD'?'Облако':'Локально'} · {q.max} {q.unit} · {q.period}</span>)}
       </div>}
       <p className="muted">Неподписанная подготовка. Права появятся только после выпуска и проверки доверенной лицензии .iwxa.</p>
-    </div>
+    </div>}
     <button className="primary" type="button" disabled={busy||!selectedHolder} onClick={()=>void change({kind:'addTariffProposal',tariffId:selected.id,revision:selected.revision,holderId:selectedHolder},'Черновик условий сохранён. Лицензия не выдана.')}>Сохранить подготовку по тарифу</button>
    </>}
   </section>
