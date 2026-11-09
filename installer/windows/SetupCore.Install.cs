@@ -198,7 +198,7 @@ namespace IwxaSetup
         {
             SetupLocations chosen = ValidateLocations(info, requested, false);
             using (var mutex = new System.Threading.Mutex(false,
-                "Local\IWXA.SetupCore." + info.Id))
+                "Local\\IWXA.SetupCore." + info.Id))
             {
                 if (!mutex.WaitOne(0))
                     throw new InvalidOperationException("SETUP_INSTALL_ALREADY_RUNNING");
