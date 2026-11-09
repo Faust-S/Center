@@ -6,3 +6,10 @@
 .nested-form .form-grid input,.nested-form .form-grid select{margin-top:7px}
 .nested-form .fine-print{font-size:11px;margin-bottom:0}
 @media(max-width:700px){.nested-form{padding:12px}}
+
+/* Atlas file comparison is a quiet, read-only preview inside the manager view. */
+.atlas-file-review{margin:12px 0;padding:12px 14px;border:1px solid #d9e5f3;
+ border-radius:10px;background:#fff;color:#304767;line-height:1.55}
+.atlas-file-review strong{display:block;font-size:12px;overflow-wrap:anywhere}
+.atlas-file-review p{margin:6px 0;font-size:12px}
+.atlas-file-review .muted{font-size:11px}

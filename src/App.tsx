@@ -146,7 +146,7 @@ export default function App() {
   const org = state.organizations.find(row => row.id === state.activeOrganizationId);
   activeOrganizationRef.current=state.activeOrganizationId;
   const atlasView = atlasFile?.organizationId===org?.id ? atlasFile?.view ?? null : null;
-  const matchingNativeAtlas=nativeAtlas?.organizationId===org?.id ? nativeAtlas.view : null;
+  const matchingNativeAtlas=nativeAtlas&&nativeAtlas.organizationId===org?.id ? nativeAtlas.view : null;
   const observedAtlas=atlasObservationMode==='file'&&atlasView?atlasView:matchingNativeAtlas??atlasView;
   const currentFile=atlasFile?.organizationId===org?.id?atlasFile:null;
   const fileLinksToReview=atlasView?(org?.assignments??[]).filter(a=>
@@ -368,7 +368,8 @@ export default function App() {
               <p data-testid="atlas-copy-difference">{currentFile.delta.contentChanged
                 ? 'Изменения в копии: проектов добавлено '+currentFile.delta.addedProjects+', убрано '+currentFile.delta.removedProjects+
                   '; работ добавлено '+currentFile.delta.addedWorks+', убрано '+currentFile.delta.removedWorks+
-                  ', изменено '+currentFile.delta.changedWorks+'.'
+                  ', изменено '+currentFile.delta.changedWorks+'; изменено свойств проектов '+currentFile.delta.changedProjects+
+                  ', связей '+currentFile.delta.changedDependencies+'.'
                 : 'Состав копии не изменился с предыдущего открытия.'}</p>
               {currentFile.delta.revisionRelation==='lower'&&<p className="muted" data-testid="atlas-file-older">У выбранного файла меньшая редакция. Проверьте, какую копию нужно использовать.</p>}
               {currentFile.delta.revisionRelation==='same'&&currentFile.delta.contentChanged&&<p className="muted" data-testid="atlas-file-same-revision">Состав изменился без изменения номера редакции. Проверьте источник.</p>}
@@ -376,7 +377,7 @@ export default function App() {
             </> : <p>Для повторной проверки выберите копию файла ещё раз.</p>}
             <p data-testid="atlas-file-links-review">{fileLinksToReview>0
               ? 'Поручений со ссылками, требующими проверки: '+fileLinksToReview+'. Старые ссылки сохранены.'
-              : 'Ссылки на работы в этой копии не требуют обновления по редакции.'}</p>
+              : 'Ссылки на работы совпадают с редакцией открытого файла. Актуальность проекта в Atlas не проверена.'}</p>
             <p className="muted">Файл не обновляется автоматически. Совпадение редакции не подтверждает выполнение работ или права доступа.</p>
           </div>}
           {atlasView ? <>
