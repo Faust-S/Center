@@ -126,11 +126,14 @@ export function applyPublisherDraftCommand(draft, command) {
   } else if (command.kind === 'addHolder') {
     next.holders.push({id:command.id, name:command.name, type:command.type});
   } else if(command.kind==='addTariff') {
+    shape(command,['kind','id','productId','name','holderType','revision','features',
+      'termDays','productSeats','employeeLimit','deviceLimit','quotas'],'TARIFF_FIELDS_INVALID');
     next.tariffs.push({id:command.id,productId:command.productId,name:command.name,
       holderType:command.holderType,revision:command.revision,features:command.features,
       termDays:command.termDays,productSeats:command.productSeats,
       employeeLimit:command.employeeLimit,deviceLimit:command.deviceLimit,quotas:command.quotas});
   } else if(command.kind==='addTariffProposal') {
+    shape(command,['kind','tariffId','revision','holderId'],'TARIFF_PROPOSAL_FIELDS_INVALID');
     const t=next.tariffs.find(t=>t.id===command.tariffId&&t.revision===command.revision);
     const holder=next.holders.find(h=>h.id===command.holderId);
     const product=next.products.find(p=>p.id===t?.productId);
