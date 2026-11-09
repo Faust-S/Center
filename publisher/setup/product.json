@@ -3,7 +3,7 @@
   "id": "iwxa.publisher",
   "display_name": "IWXA Publisher",
   "publisher": "IWXA",
-  "version": "0.2.0-dev.2",
+  "version": "0.2.0",
   "architecture": "windows-x64",
   "install_dir": "IWXA Publisher",
   "entrypoint": "iwxa-publisher.exe",
