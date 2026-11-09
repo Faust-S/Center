@@ -168,7 +168,7 @@ class BundleTests(unittest.TestCase):
         self.assertIn('SetTechnicalReport(info, plan.Status, null)', form)
         self.assertIn('report.AppendLine("Package SHA-256: "', form)
         self.assertIn('ExplainBlockedState(plan.Status)', form)
-        self.assertIn('ExplainStorageSettingsError(ex)', experience)
+        self.assertIn('ExplainStorageSettingsError(error)', experience)
         self.assertNotIn('version.Text = ex.Message', form)
         self.assertNotIn('version.Text = failure.Message', form)
         self.assertNotIn('packageDetails.Text = ex.Message', form)
