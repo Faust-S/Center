@@ -124,16 +124,20 @@ export function validatePublisherDraft(input) {
     if(proposal.previousProposalId){
       let at=proposal;
       const seen=new Set();
+      const links=[];
       while(at.previousProposalId){
         if(seen.has(at.id))reject('PROPOSAL_FOLLOWUP_CYCLE');
         seen.add(at.id);
         const previous=draft.proposals.find(p=>p.id===at.previousProposalId);
         if(!previous||!previous.tariffSnapshot||
-           previous.holderId!==at.holderId||previous.productId!==at.productId||
-           Date.parse(previous.createdAt)>Date.parse(at.createdAt))
+           previous.holderId!==at.holderId||previous.productId!==at.productId)
           reject('PROPOSAL_FOLLOWUP_SOURCE_INVALID');
+        links.push([at,previous]);
         at=previous;
       }
+      for(const [current,previous] of links)
+        if(Date.parse(previous.createdAt)>Date.parse(current.createdAt))
+          reject('PROPOSAL_FOLLOWUP_SOURCE_INVALID');
     }
   }
   for (const a of draft.artifacts) if (!draft.products.some(v=>v.id===a.productId)) reject('ARTIFACT_PRODUCT_MISSING');
