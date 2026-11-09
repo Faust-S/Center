@@ -768,6 +768,37 @@ try {
             cacheRoot=$moveCache
             startWithWindows=$true
         } | ConvertTo-Json | Set-Content -LiteralPath $moveRequest -Encoding UTF8
+        # Real Windows conflict: a foreign Startup shortcut must block
+        # storage relocation BEFORE new data paths are published. Once the
+        # conflict is removed, this same request must also enable startup.
+        $manualBeforeMove = Invoke-Custom $bundle '--startup-mode-file' '' (
+            Join-Path $artifact 'setup-core-before-collision-manual.json') 'manual'
+        if ($manualBeforeMove.startupAtLogin -or
+            (Test-Path -LiteralPath $startupLink)) {
+            throw 'SETUP_STARTUP_PRECOLLISION_MANUAL_FAILED'
+        }
+        $foreignTarget = Join-Path $env:WINDIR 'System32/notepad.exe'
+        $foreignShortcut = $shellObject.CreateShortcut($startupLink)
+        $foreignShortcut.TargetPath = $foreignTarget
+        $foreignShortcut.Save()
+        try {
+            $deniedPreferences = Invoke-Custom $bundle '--migrate-locations-file' (
+                $moveRequest) (
+                Join-Path $artifact 'setup-core-preferences-startup-conflict.json') '' 2
+            if ($deniedPreferences.status -ne 'ERROR' -or
+                $deniedPreferences.reason -ne 'SETUP_STARTUP_SHORTCUT_CONFLICT' -or
+                (Get-ItemProperty 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center').DataLocation -ne $customDataRoot -or
+                (Test-Path -LiteralPath $moveData) -or
+                $shellObject.CreateShortcut($startupLink).TargetPath -ne $foreignTarget) {
+                throw 'SETUP_STARTUP_COLLISION_ALLOWED_STORAGE_PUBLICATION'
+            }
+        } finally {
+            if ((Test-Path -LiteralPath $startupLink) -and
+                $shellObject.CreateShortcut($startupLink).TargetPath -eq $foreignTarget) {
+                Remove-Item -LiteralPath $startupLink -Force
+            }
+        }
+        Write-Host 'IWXA_SETUP_STARTUP_COLLISION_BLOCKS_STORAGE_MOVE_PASS'
         $conflict = Join-Path $moveData 'foreign-file.txt'
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $conflict) | Out-Null
         Set-Content -LiteralPath $conflict -Value 'not-owned-by-setup' -NoNewline
@@ -787,8 +818,10 @@ try {
             $migrated.dataRoot -ne $moveData -or
             $migrated.softwareRoot -ne $moveSoftware -or
             $migrated.modelsRoot -ne $moveModels -or
-            $migrated.cacheRoot -ne $moveCache) {
-            throw 'SETUP_STORAGE_MIGRATION_NOT_SWITCHED'
+            $migrated.cacheRoot -ne $moveCache -or
+            !$migrated.startWithWindows -or
+            !(Test-Path -LiteralPath $startupLink)) {
+            throw 'SETUP_STORAGE_MIGRATION_OR_STARTUP_NOT_APPLIED'
         }
         $moveProof = Join-Path $moveData 'atlas-store-v1/setup-custom-data.txt'
         if (!(Test-Path -LiteralPath $preservedData) -or
@@ -822,7 +855,8 @@ try {
         if ($movedReadback.dataRoot -ne $moveData -or
             $movedReadback.softwareRoot -ne $moveSoftware -or
             $movedReadback.modelsRoot -ne $moveModels -or
-            $movedReadback.cacheRoot -ne $moveCache) {
+            $movedReadback.cacheRoot -ne $moveCache -or
+            !$movedReadback.startWithWindows) {
             throw 'SETUP_STORAGE_MIGRATION_REGISTRY_READBACK_INVALID'
         }
         Write-Host 'IWXA_SETUP_EXISTING_DATA_STORAGE_MIGRATION_READBACK_PASS'

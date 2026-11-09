@@ -776,10 +776,9 @@ namespace IwxaSetup
                 try
                 {
                     await Task.Run(() => {
-                        if (moving)
-                            SetupInstallation.RelocateStorage(info, updated,
-                                activeCancellation.Token, progress);
-                        SetupInstallation.UpdateStartup(info, updated.StartWithWindows);
+                        SetupInstallation.ApplyPreferences(info, updated,
+                            moving ? activeCancellation.Token :
+                                System.Threading.CancellationToken.None, progress);
                     });
                 }
                 catch (Exception ex) { error = ex; }
@@ -806,10 +805,56 @@ namespace IwxaSetup
                         "Original data and active storage locations were preserved.");
                 }
                 else if (error != null)
+                {
+                    // A startup shortcut can change after preflight. When a
+                    // copy has already been published, do not falsely claim
+                    // that all settings remained unchanged.
+                    bool storageAlreadySwitched = false;
+                    if (moving)
+                    {
+                        try
+                        {
+                            SetupLocations actual =
+                                SetupInstallation.InstalledLocations(info);
+                            storageAlreadySwitched =
+                                String.Equals(actual.DataRoot, updated.DataRoot,
+                                    StringComparison.OrdinalIgnoreCase) &&
+                                String.Equals(actual.SoftwareRoot, updated.SoftwareRoot,
+                                    StringComparison.OrdinalIgnoreCase) &&
+                                String.Equals(actual.ModelsRoot, updated.ModelsRoot,
+                                    StringComparison.OrdinalIgnoreCase) &&
+                                String.Equals(actual.CacheRoot, updated.CacheRoot,
+                                    StringComparison.OrdinalIgnoreCase);
+                        }
+                        catch (Exception) { }
+                    }
+                    if (storageAlreadySwitched)
+                    {
+                        status.Text = T("Папки перенесены; настройте запуск",
+                            "Storage moved; review startup setting");
+                        packageDetails.Text = T(
+                            "Новые папки действуют. Настройка запуска Windows не подтверждена. Исходные данные сохранены.",
+                            "New storage locations are active. Windows startup could not be confirmed. Original data was preserved.");
+                    }
                     MessageBox.Show(this,
-                        ExplainStorageSettingsError(error),
+                        storageAlreadySwitched ?
+                            T("Хранилища перенесены и проверены, но параметр запуска Windows не удалось завершить. Исходные папки сохранены. Проверьте настройки запуска и повторите попытку.",
+                              "Storage was moved and verified, but Windows startup could not be updated. Original folders are intact. Review startup settings and retry.") :
+                            ExplainStorageSettingsError(error),
                         T("Параметры установки", "Installation settings"),
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                else
+                {
+                    status.Text = moving ?
+                        T("Хранилища перенесены", "Storage locations updated") :
+                        T("Параметры сохранены", "Settings saved");
+                    packageDetails.Text = moving ?
+                        T("Новые папки проверены и действуют. Исходные данные сохранены.",
+                          "New locations were verified and applied. Original data was kept.") :
+                        T("Настройка запуска Windows применена и проверена.",
+                          "Windows startup preference was applied and verified.");
+                }
             }
         }
 
@@ -868,6 +913,12 @@ namespace IwxaSetup
             if (raw == "SETUP_INSTALL_ALREADY_RUNNING")
                 return T("Установщик уже выполняет другую операцию. Завершите её и попробуйте снова.",
                     "Another setup operation is running. Finish it before trying again.");
+            if (raw == "SETUP_STARTUP_SHORTCUT_CONFLICT")
+                return T("Автозапуск не изменён: в Windows уже существует ярлык с таким именем, принадлежащий другой программе. Проверьте папку автозагрузки и повторите попытку. Чужой ярлык не изменён.",
+                    "Startup was not changed: a shortcut with this name already belongs to another application. Check the Windows Startup folder and retry. The other shortcut was not modified.");
+            if (raw == "SETUP_SETTINGS_READBACK_MISMATCH")
+                return T("Windows не подтвердила все выбранные параметры. Откройте настройки, проверьте действующие папки и запуск, затем повторите попытку.",
+                    "Windows did not confirm all selected settings. Review active storage locations and startup, then retry.");
             if (raw == "SETUP_STORAGE_SOURCE_LINK_FORBIDDEN" ||
                 raw == "SETUP_STORAGE_FILE_LINK_FORBIDDEN")
                 return T("В исходном хранилище есть ссылка на другую папку или файл. Автоматический перенос остановлен; исходные данные сохранены.",
@@ -918,6 +969,8 @@ namespace IwxaSetup
                             initial = Path.GetDirectoryName(initial);
                     }
                     catch (ArgumentException) { initial = ""; }
+                    catch (NotSupportedException) { initial = ""; }
+                    catch (PathTooLongException) { initial = ""; }
                     choose.SelectedPath = Directory.Exists(initial) ? initial :
                         Environment.GetFolderPath(
                             Environment.SpecialFolder.LocalApplicationData);

@@ -405,6 +405,51 @@ namespace IwxaSetup
             }
         }
 
+        // Settings share the existing storage and shortcut mechanisms. Check
+        // the startup target before a costly storage copy; publish locations
+        // only through RelocateStorage, then verify both settings from Windows.
+        internal static SetupLocations ApplyPreferences(BundleInfo info,
+            SetupLocations requested)
+        {
+            return ApplyPreferences(info, requested,
+                default(CancellationToken), null);
+        }
+
+        internal static SetupLocations ApplyPreferences(BundleInfo info,
+            SetupLocations requested, CancellationToken cancellation,
+            Action<long, long> progress)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            SetupLocations desired = ValidateLocations(info, requested, false);
+            SetupLocations before = InstalledLocations(info);
+            if (!SamePath(before.ProgramRoot, desired.ProgramRoot))
+                throw new InvalidOperationException(
+                    "SETUP_PROGRAM_RELOCATION_REQUIRES_REINSTALL");
+
+            // A foreign Windows Startup shortcut must block the change before
+            // any storage copy. Never silently overwrite another application.
+            EnsureStartupAvailable(info, desired.StartWithWindows);
+            bool moving = !SamePath(before.DataRoot, desired.DataRoot) ||
+                !SamePath(before.SoftwareRoot, desired.SoftwareRoot) ||
+                !SamePath(before.ModelsRoot, desired.ModelsRoot) ||
+                !SamePath(before.CacheRoot, desired.CacheRoot);
+            if (moving)
+                RelocateStorage(info, desired, cancellation, progress);
+
+            // RelocateStorage has already published the new locations at this
+            // point. Cancellation is deliberately no longer consulted.
+            UpdateStartup(info, desired.StartWithWindows);
+            SetupLocations actual = InstalledLocations(info);
+            if (!SamePath(actual.ProgramRoot, desired.ProgramRoot) ||
+                !SamePath(actual.DataRoot, desired.DataRoot) ||
+                !SamePath(actual.SoftwareRoot, desired.SoftwareRoot) ||
+                !SamePath(actual.ModelsRoot, desired.ModelsRoot) ||
+                !SamePath(actual.CacheRoot, desired.CacheRoot) ||
+                actual.StartWithWindows != desired.StartWithWindows)
+                throw new InvalidDataException("SETUP_SETTINGS_READBACK_MISMATCH");
+            return actual;
+        }
+
         private sealed class StorageCopy
         {
             internal string Original;
@@ -1194,6 +1239,30 @@ namespace IwxaSetup
             catch (IOException) { return false; }
             catch (UnauthorizedAccessException) { return false; }
             catch (System.Runtime.InteropServices.COMException) { return false; }
+        }
+
+        // Preflight is intentionally non-mutating, so an unrelated Startup
+        // shortcut is reported BEFORE copying any user data to new storage.
+        internal static void EnsureStartupAvailable(BundleInfo info, bool enable)
+        {
+            if (!enable) return;
+            string shortcut = StartupShortcutPath(info);
+            if (!File.Exists(shortcut) && !Directory.Exists(shortcut))
+                return;
+            string root = RootFor(info);
+            string app = Path.Combine(root,
+                info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+            try
+            {
+                if (File.Exists(shortcut) &&
+                    (File.GetAttributes(shortcut) & FileAttributes.ReparsePoint) == 0 &&
+                    SamePath(GetLegacyShortcutTarget(shortcut), app))
+                    return;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            catch (System.Runtime.InteropServices.COMException) { }
+            throw new InvalidOperationException("SETUP_STARTUP_SHORTCUT_CONFLICT");
         }
 
         internal static void UpdateStartup(BundleInfo info, bool enable)

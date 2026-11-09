@@ -347,14 +347,15 @@ namespace IwxaSetup
                 {
                     BundleInfo info = BundleReader.Inspect(Application.ExecutablePath);
                     SetupLocations request = ReadLocationsRequest(args[1]);
-                    SetupLocations applied = SetupInstallation.RelocateStorage(info, request);
+                    SetupLocations applied = SetupInstallation.ApplyPreferences(info, request);
                     WriteResult(args[2], new Dictionary<string, object> {
                         {"status", "STORAGE_COPIED_AND_SWITCHED_ORIGINAL_PRESERVED"},
                         {"programRoot", applied.ProgramRoot},
                         {"dataRoot", applied.DataRoot},
                         {"softwareRoot", applied.SoftwareRoot},
                         {"modelsRoot", applied.ModelsRoot},
-                        {"cacheRoot", applied.CacheRoot}
+                        {"cacheRoot", applied.CacheRoot},
+                        {"startWithWindows", applied.StartWithWindows}
                     });
                     return 0;
                 }
