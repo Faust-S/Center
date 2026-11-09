@@ -220,9 +220,9 @@ export default function App() {
     const project=observedAtlas.projects.find(p=>p.id===previous.projectId);
     const work=project?.workItems.find(w=>w.id===previous.workId);
     if(!project||!work)return;
-    const accepted=window.confirm('Обновить ссылку на работу Atlas?\\n\\n'+
-      'Проект: '+project.name+'\\nРабота: '+work.title+'\\n'+
-      'Была редакция: '+previous.revision+'\\nОткрыта редакция: '+candidate.revision+'\\n\\n'+
+    const accepted=window.confirm('Обновить ссылку на работу Atlas?\n\n'+
+      'Проект: '+project.name+'\nРабота: '+work.title+'\n'+
+      'Была редакция: '+previous.revision+'\nОткрыта редакция: '+candidate.revision+'\n\n'+
       'Проверьте изменения в Atlas перед подтверждением. Изменится только ссылка в черновике. Поручение не будет выдано.');
     if(!accepted)return;
     setEditor(old=>old?.atlasRef?.projectId===previous.projectId&&

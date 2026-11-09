@@ -79,7 +79,7 @@ try{
   await page.getByTestId('atlas-import-file').setInputFiles({
     name:'atlas-updated.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(revisedArchive)});
   await page.getByText('Содержимое портфеля совпадает с предыдущей копией.').waitFor({state:'visible'});
-  assert.match(await page.getByTestId('atlas-copy-difference').innerText(),/не изменился/);
+  assert.match(await page.getByTestId('atlas-copy-difference').innerText(),/портфеля совпадает/);
   // An older manually selected archive must be called out, not silently
   // treated as the current source merely because a previous link still fits.
   await page.getByTestId('atlas-import-file').setInputFiles({
@@ -142,6 +142,7 @@ try{
   const dialog=await confirmed;
   assert.match(dialog.message(),/Проект: Supply programme/);
   assert.match(dialog.message(),/Работа: Compare suppliers/);
+  assert.match(dialog.message(),/\nРабота:/,'confirmation displays readable separate fields');
   assert.match(dialog.message(),/Была редакция:/);
   assert.match(dialog.message(),/Открыта редакция:/);
   assert.ok((await page.getByTestId('assignment-atlas-currentness').textContent()).includes('совпадают'));
