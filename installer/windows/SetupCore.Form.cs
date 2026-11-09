@@ -134,6 +134,25 @@ namespace IwxaSetup
                 work.Top + (work.Height - Height) / 2);
         }
 
+        // WinForms CenterParent can position a DPI-scaled form below the
+        // visible taskbar even after its size was clamped. Adjust BOTH size
+        // and origin, using the monitor that contains the actual dialog.
+        private static void FitDialogToWorkingArea(Form dialog)
+        {
+            Rectangle work = Screen.FromControl(dialog).WorkingArea;
+            if (work.Width <= 0 || work.Height <= 0) return;
+            if (dialog.MinimumSize.Width > work.Width ||
+                dialog.MinimumSize.Height > work.Height)
+                dialog.MinimumSize = new Size(
+                    Math.Min(dialog.MinimumSize.Width, work.Width),
+                    Math.Min(dialog.MinimumSize.Height, work.Height));
+            dialog.Size = FitToWorkingAreaSize(dialog.Size,
+                dialog.MinimumSize, work.Size);
+            dialog.Location = new Point(
+                work.Left + Math.Max(0, (work.Width - dialog.Width) / 2),
+                work.Top + Math.Max(0, (work.Height - dialog.Height) / 2));
+        }
+
         private string T(string russian, string english)
         {
             return ru ? russian : english;
@@ -707,16 +726,7 @@ namespace IwxaSetup
             dialog.AcceptButton = close;
             dialog.CancelButton = close;
             dialog.Shown += (sender, args) =>
-            {
-                Rectangle work = Screen.FromControl(dialog).WorkingArea;
-                if (dialog.MinimumSize.Width > work.Width ||
-                    dialog.MinimumSize.Height > work.Height)
-                    dialog.MinimumSize = new Size(
-                        Math.Min(dialog.MinimumSize.Width, work.Width),
-                        Math.Min(dialog.MinimumSize.Height, work.Height));
-                dialog.Size = FitToWorkingAreaSize(dialog.Size,
-                    dialog.MinimumSize, work.Size);
-            };
+                FitDialogToWorkingArea(dialog);
             return dialog;
         }
 
@@ -1338,16 +1348,7 @@ namespace IwxaSetup
             dialog.AcceptButton = save;
             dialog.CancelButton = cancel;
             dialog.Shown += (sender, args) =>
-            {
-                Rectangle work = Screen.FromControl(dialog).WorkingArea;
-                if (dialog.MinimumSize.Width > work.Width ||
-                    dialog.MinimumSize.Height > work.Height)
-                    dialog.MinimumSize = new Size(
-                        Math.Min(dialog.MinimumSize.Width, work.Width),
-                        Math.Min(dialog.MinimumSize.Height, work.Height));
-                dialog.Size = FitToWorkingAreaSize(
-                    dialog.Size, dialog.MinimumSize, work.Size);
-            };
+                FitDialogToWorkingArea(dialog);
             return dialog;
         }
 
