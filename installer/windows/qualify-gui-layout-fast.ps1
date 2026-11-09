@@ -192,23 +192,49 @@ if ($null -eq $settingsMethod) {
 }
 $hostForm = [System.Activator]::CreateInstance($formType,$true)
 try {
+    $locationsType = $assembly.GetType('IwxaSetup.SetupLocations', $true)
     foreach($editable in @($true,$false)) {
-        $values = New-Object 'System.Object[]' 4
+        $locations = [System.Activator]::CreateInstance($locationsType, $true)
+        $flags = [Reflection.BindingFlags]'Instance, Public, NonPublic'
+        foreach($entry in @{
+            ProgramRoot='C:\IWXA Test\Center'
+            DataRoot='C:\IWXA Test\Data'
+            SoftwareRoot='C:\IWXA Test\Software'
+            ModelsRoot='C:\IWXA Test\Models'
+            CacheRoot='C:\IWXA Test\Cache'
+        }.GetEnumerator()) {
+            $locationsType.GetField($entry.Key, $flags).SetValue(
+                $locations, [string]$entry.Value)
+        }
+        $locationsType.GetField('StartWithWindows', $flags).SetValue(
+            $locations,[bool](!$editable))
+        $values = New-Object 'System.Object[]' 3
         $values[0] = 'IWXA Admin Center'
-        $values[1] = 'C:\IWXA Test\Center'
+        $values[1] = $locations
         $values[2] = [bool]$editable
-        $values[3] = [bool](!$editable)
         $dialog = [System.Windows.Forms.Form]$settingsMethod.Invoke($hostForm,$values)
         try {
             $null = $dialog.Handle
-            $rootField = One $dialog 'iwxaSetupInstallRoot'
             $start = One $dialog 'iwxaSetupLogin'
-            if ($rootField.ReadOnly -eq $editable -or
-                [string]$rootField.Text -ne [string]$values[1] -or
+            $tabs = One $dialog 'iwxaSetupPreferencesTabs'
+            if ($tabs -isnot [System.Windows.Forms.TabControl] -or
+                $tabs.TabPages.Count -ne 2 -or
                 $start.Checked -ne (!$editable)) {
-                throw ('SETUP_OPTIONS_CONTROLS_NOT_BOUND_' + $editable)
+                throw ('SETUP_OPTIONS_NAVIGATION_OR_LOGIN_MISSING_' + $editable)
             }
-            Write-Host ('IWXA_SETUP_OPTIONS_NATIVE_DIALOG_PASS editable=' + $editable)
+            foreach($name in @(
+                'iwxaSetupInstallRoot','iwxaSetupDataRoot',
+                'iwxaSetupSoftwareRoot','iwxaSetupModelsRoot',
+                'iwxaSetupCacheRoot')) {
+                $input = One $dialog $name
+                if ($input -isnot [System.Windows.Forms.TextBox] -or
+                    $input.ReadOnly -eq $editable -or
+                    [string]::IsNullOrWhiteSpace($input.Text)) {
+                    throw ('SETUP_OPTIONS_STORAGE_FIELD_INVALID_' + $name +
+                        '_' + $editable)
+                }
+            }
+            Write-Host ('IWXA_SETUP_OPTIONS_STORAGE_TABS_PASS editable=' + $editable)
         } finally { $dialog.Dispose() }
     }
 } finally { $hostForm.Dispose() }
