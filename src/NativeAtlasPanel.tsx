@@ -34,7 +34,8 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
      if(current!==epoch.current)return;
      if(s.organizationId!==organizationId)throw Error('Контекст организации изменился.');
      const next=p.view(s) as View;
-     setSession(s);setView(next);observedCallback.current?.(organizationId,next);
+     setSession(s);setView(next);
+     observedCallback.current?.(organizationId,s.sourceKind==='PUBLIC_ATLAS_READ_ONLY'?next:null);
      const nextSelected=result.projectId??(next.projects.find(x=>x.id===selected)?.id||next.projects[0]?.id||'');
      setSelected(nextSelected);
      const works=next.projects.find(x=>x.id===nextSelected)?.workItems??[];
@@ -90,7 +91,7 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
  });
  return <div className="card nested-form" data-testid="native-atlas-panel">
    <div className="section-head"><h3>Планы Atlas</h3><div className="inline-form"><button className="primary" disabled={busy} onClick={()=>void act(p=>p.openPublicAtlas(organizationId))} data-testid="native-atlas-public-open">Открыть Atlas Desktop</button><button className="secondary" disabled={busy} onClick={()=>void act(p=>p.open(organizationId))} data-testid="native-atlas-open" aria-label="Открыть локальный Atlas">Локальный план Center</button></div></div>
-   <p className="muted">Atlas Desktop читается из исходного нативного каталога этой учётной записи, без копирования проектов. Локальные планы Center — отдельная подготовительная область. Оба просмотра не подтверждают корпоративные полномочия T3.</p>
+   <p className="muted">Atlas Desktop читается из исходного нативного каталога этой учётной записи, без копирования проектов. Локальные планы Center — отдельная подготовительная область и не используются для проверки ссылок на установленный Atlas. Просмотр не подтверждает корпоративные полномочия T3.</p>
    {error&&<div className="notice error" role="alert">{error}</div>}
    {session&&view&&<div>
      <p className="muted" data-testid="native-atlas-revision">{session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'?'Atlas Desktop · только чтение':'Локальная подготовка Center'} · редакция портфеля: {view.revision}. Проектов: {view.projects.length}.</p>

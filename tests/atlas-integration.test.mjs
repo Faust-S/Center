@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {empty,createProject,createItem,editItem,serialize} from '../vendor/atlas/src/core.mjs';
 import {addPortfolioLink} from '../vendor/atlas/src/portfolio.mjs';
-import {readAtlasPortfolio,linkableAtlasProject,linkableAtlasWork,atlasLinkReadback,atlasWorkReadback,compareAtlasSourceCopies,ATLAS_SOURCE_REVISION} from '../src/atlas-integration.mjs';
+import {readAtlasPortfolio,linkableAtlasProject,linkableAtlasWork,atlasLinkReadback,atlasWorkReadback,compareAtlasSourceCopies,selectAtlasReferenceSource,ATLAS_SOURCE_REVISION} from '../src/atlas-integration.mjs';
 import {emptyDraft,applyDraftCommand} from '../src/organization.mjs';
 
 function sample() {
@@ -125,4 +125,18 @@ test('copy with same revision and changed work is not silently considered identi
  unrelated.projects.forEach(p=>{p.id='other-'+p.id});
  assert.equal(compareAtlasSourceCopies(original,unrelated).revisionRelation,'unrelated');
  assert.throws(()=>compareAtlasSourceCopies(null,original),/ATLAS_PREVIEW_REQUIRED/);
+});
+
+test("reference checks reject local Center plans as proof of original installed Atlas",()=>{
+ const {snapshot}=sample();
+ const preview=readAtlasPortfolio(serialize(snapshot));
+ const file={...preview,mode:'READ_ONLY_USER_SELECTED_FILE'};
+ const installed={...preview,mode:'NATIVE_ATLAS_PUBLIC_READ_ONLY'};
+ const local={...preview,mode:'NATIVE_ATLAS_LOCAL_ORGANIZATION'};
+ assert.equal(selectAtlasReferenceSource(null,local,'native'),null);
+ assert.equal(selectAtlasReferenceSource(file,local,'native'),file);
+ assert.equal(selectAtlasReferenceSource(file,installed,'file'),file);
+ assert.equal(selectAtlasReferenceSource(file,installed,'native'),installed);
+ assert.equal(selectAtlasReferenceSource(null,installed,'file'),installed);
+ assert.equal(selectAtlasReferenceSource(null,null,'file'),null);
 });

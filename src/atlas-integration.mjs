@@ -124,3 +124,15 @@ export function compareAtlasSourceCopies(previous,current){
  }
  return out;
 }
+
+
+// Only a user-selected file or the original installed Atlas owner may
+// validate an Atlas project/work reference. Center's own preparatory Atlas
+// store has separate ownership, even though it shares the domain model.
+export function selectAtlasReferenceSource(file,native,preferred='file'){
+ const openedFile=file?.mode==='READ_ONLY_USER_SELECTED_FILE'&&
+   file?.source==='atlas.project/1'?file:null;
+ const installed=native?.mode==='NATIVE_ATLAS_PUBLIC_READ_ONLY'&&
+   native?.source==='atlas.project/1'?native:null;
+ return preferred==='native'?(installed??openedFile):(openedFile??installed);
+}

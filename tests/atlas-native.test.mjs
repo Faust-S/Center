@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createNativeAtlasPort} from '../src/atlas-native.mjs';
 import {empty,createProject,createItem} from '../vendor/atlas/src/core.mjs';
+import {readFileSync} from 'node:fs';
 
 // Fake IPC transport only; domain mutations/readback use actual Atlas core.
 // Native filesystem itself is tested by Rust and Windows Actions.
@@ -142,4 +143,10 @@ test('public owner absent, damaged or requesting recovery never falls back to lo
  const recovery=createNativeAtlasPort(async()=>({generation:'g1',needsConfirmation:true,snapshot:empty()}));
  await assert.rejects(()=>recovery.openPublicAtlas('org-one'),/ATLAS_PUBLIC_RECOVERY_REQUIRED/);
  await assert.rejects(()=>recovery.openPublicAtlas('../escape'),/ATLAS_ORGANIZATION_INVALID/);
+});
+
+test("installed Atlas observation callback cannot present a local Center plan as the owner",()=>{
+ const panel=readFileSync(new URL("../src/NativeAtlasPanel.tsx",import.meta.url),"utf8");
+ assert.match(panel,/s\.sourceKind==='PUBLIC_ATLAS_READ_ONLY'\?next:null/);
+ assert.match(panel,/Локальные планы Center — отдельная подготовительная область/);
 });

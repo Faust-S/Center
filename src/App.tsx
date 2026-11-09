@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
-import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback, compareAtlasSourceCopies} from './atlas-integration.mjs';
+import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback, compareAtlasSourceCopies, selectAtlasReferenceSource} from './atlas-integration.mjs';
 import {readAtlasSourceFile} from './atlas-file-import.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
@@ -148,7 +148,7 @@ export default function App() {
   activeOrganizationRef.current=state.activeOrganizationId;
   const atlasView = atlasFile?.organizationId===org?.id ? atlasFile?.view ?? null : null;
   const matchingNativeAtlas=nativeAtlas&&nativeAtlas.organizationId===org?.id ? nativeAtlas.view : null;
-  const observedAtlas=atlasObservationMode==='file'&&atlasView?atlasView:matchingNativeAtlas??atlasView;
+  const observedAtlas=selectAtlasReferenceSource(atlasView,matchingNativeAtlas,atlasObservationMode);
   const currentFile=atlasFile?.organizationId===org?.id?atlasFile:null;
   const fileLinksToReview=atlasView?(org?.assignments??[]).filter(a=>
     a.atlasRef?.workId&&atlasWorkReadback(atlasView,a.atlasRef)!=='SOURCE_REVISION_MATCHES').length:0;
@@ -407,6 +407,8 @@ export default function App() {
               ? 'Поручений со ссылками, требующими проверки: '+fileLinksToReview+'. Старые ссылки сохранены.'
               : 'Ссылки на работы совпадают с редакцией открытого файла. Актуальность проекта в Atlas не проверена.'}</p>
             <p className="muted">Файл не обновляется автоматически. Совпадение редакции не подтверждает выполнение работ или права доступа.</p>
+            {observedAtlas?.mode==='NATIVE_ATLAS_PUBLIC_READ_ONLY'&&
+              <p className="muted" data-testid="atlas-file-vs-installed">Для проверки ссылок поручений используется отдельно открытый установленный Atlas. Здесь показана копия файла.</p>}
           </div>}
           {atlasView ? <>
             <div className="metrics atlas-summary">
@@ -455,6 +457,11 @@ export default function App() {
           <p className="muted" data-testid="assignment-atlas-binding">{editor.atlasRef
             ? `Черновая связь: проект ${editor.atlasRef.projectId}, редакция ${editor.atlasRef.revision}${editor.atlasRef.workId?', работа '+editor.atlasRef.workId:''}. При редактировании редакция не меняется автоматически.`
             : 'Для полного маршрута свяжите рабочую область с проектом Atlas.'}</p>
+          <p className="muted" data-testid="assignment-atlas-source">{observedAtlas?.mode==='NATIVE_ATLAS_PUBLIC_READ_ONLY'
+            ? 'Проверка по последнему чтению установленного Atlas. Это не подтверждение прав или выполнения работы.'
+            : observedAtlas?.mode==='READ_ONLY_USER_SELECTED_FILE'
+              ? 'Проверка по выбранной копии проекта. Файл не обновляется автоматически.'
+              : 'Источник Atlas для проверки не открыт. Локальный план Center не заменяет установленный Atlas.'}</p>
           <p className="muted" data-testid="assignment-atlas-currentness">{workStatusLabels[atlasWorkReadback(observedAtlas,editor.atlasRef)]}</p>
           {editor.sourceResultRef&&<p className="muted" data-testid="assignment-source-result">Источник: Task {editor.sourceResultRef.taskId}, Result revision {editor.sourceResultRef.resultRevisionId}. Ссылка будет проверена перед выпуском новой подписанной Task.
             <button type="button" className="quiet" onClick={()=>setEditor(old=>old?{...old,sourceResultRef:null}:old)}>Убрать связь</button>
