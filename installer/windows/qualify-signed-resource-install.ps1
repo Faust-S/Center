@@ -82,7 +82,7 @@ try {
             throw 'SETUP_V2_SIGNED_STAGE_HASH_CHANGED'
         }
         $next = Get-Content -LiteralPath $profile -Raw | ConvertFrom-Json
-        $next.version = '0.3.0-dev.2'
+        $next.version = '0.3.0-dev.3'
         $next | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $profileNext -Encoding utf8
         $argsNext = @('-m','installer.build_bundle','build-resource','--product',$profileNext,
             '--payload',$payload,'--stub',$stub,'--output',$upgrade,
@@ -97,7 +97,7 @@ try {
         $newIdentity = Invoke-Setup $upgrade '--inspect-file' 'upgrade-inspect'
         Expect $newIdentity 'VERIFIED' 'UPGRADE_INSPECT'
         if ($newIdentity.packageFormat -ne 'PE_RESOURCE_V2' -or
-            $newIdentity.version -ne '0.3.0-dev.2' -or
+            $newIdentity.version -ne '0.3.0-dev.3' -or
             $newIdentity.packageSha256 -ne $identity.packageSha256) {
             throw 'SETUP_V2_UPGRADE_IDENTITY_CHANGED'
         }
