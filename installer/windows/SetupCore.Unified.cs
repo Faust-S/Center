@@ -780,9 +780,13 @@ namespace IwxaSetup
                 locationInputs[1] != null &&
                 SetupInstallation.HasPreservedDefaultData(
                     inspectedBundle, locationInputs[1].Text);
-            if (!canCopyPriorData && copyPriorData.Checked)
+            bool transferDestinationReady = canCopyPriorData &&
+                SetupInstallation.IsUnusedStorageTarget(
+                    locationInputs[1].Text);
+            if ((!canCopyPriorData || !transferDestinationReady) &&
+                copyPriorData.Checked)
                 copyPriorData.Checked = false;
-            copyPriorData.Enabled = ready && canCopyPriorData;
+            copyPriorData.Enabled = ready && transferDestinationReady;
             priorDataChoices.Visible = canCopyPriorData;
             unifiedManageTitle.Text = canCopyPriorData ?
                 T("Найдены прежние данные", "Existing data found") :
@@ -797,11 +801,14 @@ namespace IwxaSetup
                     string source = SetupInstallation.DefaultLocations(
                         inspectedBundle).DataRoot;
                     string destination = locationInputs[1].Text;
-                    copyPriorDataDetails.Text = copyPriorData.Checked ?
-                        T("Данные скопируются в новую папку с проверкой. Исходные файлы останутся.",
-                          "Data will be copied and verified. Original files stay in place.") :
-                        T("Оставить прежние данные на месте и начать с новой папки.",
-                          "Keep old data where it is and start in the new folder.");
+                    copyPriorDataDetails.Text = !transferDestinationReady ?
+                        T("Для переноса выберите новую пустую папку данных.",
+                          "Choose a new empty data folder to enable transfer.") :
+                        copyPriorData.Checked ?
+                        T("Скопируем с проверкой. Прежние файлы сохранятся.",
+                          "Copy and verify. Original files will be preserved.") :
+                        T("Без переноса: прежние файлы останутся на месте.",
+                          "Without transfer: original files stay in place.");
                     detailsHint.SetToolTip(copyPriorDataDetails,
                         T("Откуда: ", "From: ") + source +
                         Environment.NewLine +
@@ -867,8 +874,8 @@ namespace IwxaSetup
                     inspectedBundle, locationInputs[1].Text))
             {
                 draftNotice.Text = copyPriorData.Checked ?
-                    T("Перенос выбран: исходные файлы сохранятся.",
-                      "Transfer selected: original files will be kept.") :
+                    T("Перенос выбран — прежние файлы сохранятся.",
+                      "Transfer selected — original files will stay.") :
                     T("Прежние данные останутся на месте.",
                       "Existing data will remain in place.");
                 detailsHint.SetToolTip(draftNotice, T(

@@ -921,11 +921,21 @@ namespace IwxaSetup
                 }
             }
             bool importExisting = operation == SetupOperation.Install &&
-                inspectedBundle != null &&
-                copyPriorData.Visible && copyPriorData.Checked &&
-                selectedLocations != null &&
-                SetupInstallation.HasPreservedDefaultData(
-                    inspectedBundle, selectedLocations.DataRoot);
+                copyPriorData.Visible && copyPriorData.Checked;
+            // Never quietly fall back to an empty installation after the
+            // person explicitly requested to import old files.
+            if (importExisting &&
+                (inspectedBundle == null || selectedLocations == null ||
+                 !SetupInstallation.HasPreservedDefaultData(
+                    inspectedBundle, selectedLocations.DataRoot)))
+            {
+                MessageBox.Show(this,
+                    T("Прежняя папка данных больше недоступна или совпадает с новой. Проверьте оба расположения. Установка без переноса возможна только после снятия флажка.",
+                      "The previous data folder is unavailable or overlaps the destination. Check both locations. Uncheck transfer if you want to install without importing."),
+                    T("Перенос прежних данных", "Transfer existing data"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             if (importExisting)
             {
                 string originalData = SetupInstallation.DefaultLocations(
@@ -1201,6 +1211,24 @@ namespace IwxaSetup
                             "Повторите установку или выберите автономный файл Microsoft. Приложение не изменено.",
                             "Retry or select Microsoft's offline installer. Application files were not changed.");
                 }
+                else if (failure is OperationCanceledException)
+                {
+                    status.Text = T("Операция отменена", "Operation cancelled");
+                    version.Text = T("Прежние данные сохранены",
+                        "Original data preserved");
+                    packageDetails.Text = T(
+                        "Перенос остановлен до установки. Ни приложение, ни прежние данные не изменены. Повторите попытку или снимите флажок переноса.",
+                        "Transfer stopped before installation. The application and previous data were not changed. Retry or uncheck transfer.");
+                }
+                else if (failure.Message == "SETUP_FIRST_INSTALL_DATA_SOURCE_NOT_FOUND" ||
+                         failure.Message == "SETUP_FIRST_INSTALL_DATA_PATH_OVERLAP")
+                {
+                    status.Text = T("Невозможно использовать прежнюю папку",
+                        "Previous data folder cannot be used");
+                    packageDetails.Text = T(
+                        "Прежние данные недоступны либо новая папка находится внутри старой. Выберите отдельное расположение и повторите попытку.",
+                        "Existing data is unavailable or the new folder overlaps the old one. Choose a separate destination and retry.");
+                }
                 else if (failure.Message == "SETUP_FIRST_INSTALL_DATA_COPY_INCOMPLETE" ||
                          failure.Message == "SETUP_FIRST_INSTALL_DATA_COPY_CANCELLED")
                 {
@@ -1219,6 +1247,23 @@ namespace IwxaSetup
                         // chosen destination rather than losing their edits.
                         locationInputs[1].Text = selectedLocations.DataRoot;
                     }
+                }
+                else if (failure.Message == "SETUP_STORAGE_TARGET_LINK_FORBIDDEN")
+                {
+                    status.Text = T("Папка переноса недоступна",
+                        "Transfer destination unavailable");
+                    packageDetails.Text = T(
+                        "Выбранная папка является перенаправлением на другую папку. Выберите обычный пустой каталог для переноса.",
+                        "The selected folder is a link to another location. Choose a regular empty folder for transfer.");
+                }
+                else if (failure.Message.StartsWith(
+                    "SETUP_STORAGE_SOURCE_VOLUME_UNAVAILABLE", StringComparison.Ordinal))
+                {
+                    status.Text = T("Диск с прежними данными недоступен",
+                        "Previous data drive unavailable");
+                    packageDetails.Text = T(
+                        "Подключите диск с прежними данными и повторите перенос либо установите программу без переноса.",
+                        "Reconnect the drive containing previous data and retry, or install without importing.");
                 }
                 else if (failure.Message == "SETUP_STORAGE_TARGET_NOT_EMPTY_OR_EXISTS")
                 {
