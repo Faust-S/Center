@@ -59,6 +59,12 @@ jobs:
         shell: powershell
         timeout-minutes: 3
         run: ./installer/windows/qualify-gui-layout-fast.ps1 -Stub artifacts/iwxa-setup-core-early.exe
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows' && always()
+        with:
+          name: setup-core-native-options-visuals
+          path: artifacts/setup-core-visual-options-*.png
+          if-no-files-found: error
   interface:
     if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') }}
     runs-on: ubuntu-24.04
