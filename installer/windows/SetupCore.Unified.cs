@@ -587,6 +587,8 @@ namespace IwxaSetup
             packageDetails.TextChanged += (sender, args) =>
                 RefreshUnifiedExplanation();
             busyProgress.Name = "iwxaSetupActivity";
+            busyProgress.AccessibleName = T("Ход установки и переноса данных",
+                "Installation and data transfer progress");
             busyProgress.Dock = DockStyle.Fill;
             busyProgress.Style = ProgressBarStyle.Marquee;
             busyProgress.Visible = false;

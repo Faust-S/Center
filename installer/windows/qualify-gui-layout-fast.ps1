@@ -307,4 +307,22 @@ $fitted=[Drawing.Size]$fit.Invoke($null,$fitArgs)
 if($fitted.Width -ne 1800 -or $fitted.Height -ne 1040){
     throw 'SETUP_WORKAREA_FIT_200PCT_INVALID'
 }
+# Save the actual WinForms hierarchy for independent visual review. The
+# full packaged application is captured separately in test-native-package.ps1.
+$review=[Activator]::CreateInstance($formType,$true)
+try{
+    $review.ClientSize=[Drawing.Size]::new(1090,672)
+    $null=$review.Handle
+    $review.PerformLayout()
+    [System.Windows.Forms.Application]::DoEvents()
+    $out=[IO.Path]::GetFullPath('artifacts/setup-core-visual-options-main.png')
+    [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($out))
+    $bmp=[Drawing.Bitmap]::new($review.Width,$review.Height)
+    try{
+        $review.DrawToBitmap($bmp,
+            [Drawing.Rectangle]::new(0,0,$review.Width,$review.Height))
+        $bmp.Save($out,[Drawing.Imaging.ImageFormat]::Png)
+    }finally{$bmp.Dispose()}
+    Write-Host ('IWXA_SETUP_UNIFIED_NATIVE_VISUAL_CAPTURED '+$out)
+}finally{$review.Dispose()}
 Write-Host 'IWXA_SETUP_NATIVE_UNIFIED_UX_ACCEPTANCE_PASS'

@@ -92,35 +92,44 @@ class BundleTests(unittest.TestCase):
         self.assertIn("IWXA_SETUP_NATIVE_MANIFEST_MISSING", script)
 
     def test_native_setup_preserves_action_geometry_at_small_sizes(self):
-        source = (Path(__file__).resolve().parents[1] / "windows" /
-                  "SetupCore.Form.cs").read_text(encoding="utf-8")
+        root = Path(__file__).resolve().parents[1] / "windows"
+        form = (root / "SetupCore.Form.cs").read_text(encoding="utf-8")
+        ux = (root / "SetupCore.Unified.cs").read_text(encoding="utf-8")
         for marker in (
             'MinimumSize = new Size(750, 520)',
-            'ArrangeSupportingContent(area, card, note, actions, eyebrow)',
-            'Name = "iwxaSetupPackageCard"',
-            'Name = "iwxaSetupPreservationNote"',
-            'Name = "iwxaSetupActions"',
-            'bool shortView = area.ClientSize.Height < 540.0 * scale',
             'FitInitialWindowToWorkingArea()',
             'internal static Size FitToWorkingAreaSize(',
-            'bool narrowView = area.ClientSize.Width < 600.0 * scale',
-            'packageDetails.Anchor = AnchorStyles.Left | AnchorStyles.Right',
-            'status.Anchor = AnchorStyles.Left | AnchorStyles.Right',
         ):
             with self.subTest(marker=marker):
-                self.assertIn(marker, source)
+                self.assertIn(marker, form)
+        for marker in (
+            'MinimumSize = new Size(830, 520)',
+            'BuildUnifiedLayout()',
+            'unifiedMain.ColumnCount = 2',
+            'unifiedPathPanel.AutoScroll = false',
+            'private void AdjustUnifiedForScreen()',
+            'unifiedCompact = small',
+            'compactSettings.Visible = small',
+            'OpenCompactSettings()',
+            'iwxaSetupPrimaryAction',
+            'iwxaSetupInstallRoot',
+            'iwxaSetupDataRoot',
+            'iwxaSetupCommonRoot',
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, ux)
+        self.assertNotIn('iwxaSetupNavigation0', ux)
+        self.assertNotIn('AutoScroll = true', ux)
 
     def test_native_setup_shows_real_storage_copy_progress_only(self):
-        source = (Path(__file__).resolve().parents[1] / "windows" /
-                  "SetupCore.Form.cs").read_text(encoding="utf-8")
-        native = (Path(__file__).resolve().parents[1] / "windows" /
-                  "SetupCore.Install.cs").read_text(encoding="utf-8")
+        root = Path(__file__).resolve().parents[1] / "windows"
+        source = (root / "SetupCore.Form.cs").read_text(encoding="utf-8")
+        unified = (root / "SetupCore.Unified.cs").read_text(encoding="utf-8")
+        native = (root / "SetupCore.Install.cs").read_text(encoding="utf-8")
         self.assertIn("ProgressBarStyle.Marquee", source)
         self.assertIn("busyProgress.Visible = true", source)
         self.assertIn("busyProgress.Visible = false", source)
-        self.assertIn("busyProgress.AccessibleName", source)
-        # General install/upgrade/repair is indeterminate: only a real file
-        # copy reports bytes completed and its measured source total.
+        self.assertIn("busyProgress.AccessibleName", unified)
         self.assertIn("busyProgress.Style = moving ?", source)
         self.assertIn("ProgressBarStyle.Continuous : ProgressBarStyle.Marquee", source)
         self.assertIn("Math.Floor(copied * 100.0 / total)", source)
@@ -131,27 +140,31 @@ class BundleTests(unittest.TestCase):
         self.assertNotIn("busyProgress.Value = 100", source)
 
     def test_native_installed_app_uninstall_is_visible_and_data_preserving(self):
-        form = (Path(__file__).resolve().parents[1] / "windows" /
-                "SetupCore.Form.cs").read_text(encoding="utf-8")
-        program = (Path(__file__).resolve().parents[1] / "windows" /
-                   "SetupCore.Program.cs").read_text(encoding="utf-8")
-        self.assertIn('iwxaSetupRemoveApplication', form)
-        self.assertIn('BeginUninstallAsync()', form)
-        self.assertIn('uninstaller, "--uninstall"', form)
-        self.assertIn('MessageBoxButtons.YesNo, MessageBoxIcon.Warning', form)
-        self.assertIn('plan.Status == "REPAIR_CANDIDATE_NOT_ACTIVATED"', form)
-        self.assertIn('plan.Status == "UPGRADE_CANDIDATE_NOT_ACTIVATED"', form)
-        self.assertIn('UserUninstallFailure(ex)', program)
-        self.assertIn('UNINSTALLED_USER_DATA_PRESERVED', program)
-        self.assertNotIn('MessageBox.Show(result.Status, "IWXA Setup"', program)
+        root = Path(__file__).resolve().parents[1] / "windows"
+        form = (root / "SetupCore.Form.cs").read_text(encoding="utf-8")
+        ux = (root / "SetupCore.Unified.cs").read_text(encoding="utf-8")
+        experience = (root / "SetupCore.Experience.cs").read_text(encoding="utf-8")
+        program = (root / "SetupCore.Program.cs").read_text(encoding="utf-8")
+        self.assertIn('removeApplication.Name = "iwxaSetupRemoveApplication"', ux)
+        self.assertIn('await BeginUninstallAsync()', ux)
+        self.assertIn('uninstaller, arguments', form)
+        self.assertIn('optionalRemoval == 0 ?', form)
+        self.assertIn('ConfirmExperienceUninstall(BundleInfo info)', experience)
+        self.assertIn('selectedRemovalMask = 0;', experience)
+        self.assertIn('CleanupBlockReason(info, flags[i])', experience)
         self.assertIn('AllowsOwnedUninstall(plan.Status)', form)
         self.assertIn('case "APPLICATION_RUNNING":', form)
         self.assertIn('case "DOWNGRADE_BLOCKED":', form)
+        self.assertIn('UserUninstallFailure(ex)', program)
+        self.assertIn('UNINSTALLED_USER_DATA_PRESERVED', program)
+        self.assertNotIn('MessageBox.Show(result.Status, "IWXA Setup"', program)
 
     def test_setup_hides_machine_codes_until_technical_details_requested(self):
-        form = (Path(__file__).resolve().parents[1] / "windows" /
-                "SetupCore.Form.cs").read_text(encoding="utf-8")
-        self.assertIn('technicalDetails.Name = "iwxaSetupTechnicalDetails"', form)
+        root = Path(__file__).resolve().parents[1] / "windows"
+        form = (root / "SetupCore.Form.cs").read_text(encoding="utf-8")
+        ux = (root / "SetupCore.Unified.cs").read_text(encoding="utf-8")
+        experience = (root / "SetupCore.Experience.cs").read_text(encoding="utf-8")
+        self.assertIn('technicalDetails.Name = "iwxaSetupTechnicalDetails"', ux)
         self.assertIn('SetTechnicalReport(info, plan.Status, null)', form)
         self.assertIn('report.AppendLine("Package SHA-256: "', form)
         self.assertIn('ExplainBlockedState(plan.Status)', form)
@@ -167,10 +180,9 @@ class BundleTests(unittest.TestCase):
         self.assertIn('Name = "iwxaSetupCopyTechnicalReport"', form)
         self.assertIn('Clipboard.SetText(report.Text)', form)
         self.assertNotIn('MessageBox.Show(this, technicalReport,', form)
-        self.assertIn('AddComponentsTab(tabs, dialog);', form)
-        self.assertIn('SetupReadiness.DetectWebView2Version()', form)
-        self.assertIn('SelectExistingComponentOperation(settings,', form)
-        self.assertIn('if (performingOperation || verifyingState) return;', form)
+        self.assertIn('SetupReadiness.DetectWebView2Version()', experience)
+        self.assertIn('await ExecuteAsync(SetupOperation.InstallWebView2)', ux)
+        self.assertIn('await ExecuteAsync(SetupOperation.InstallWebView2Offline)', ux)
 
     def test_clean_vm_webview2_witness_cannot_report_offline_without_proof(self):
         source = (Path(__file__).resolve().parents[1] / "windows" /
