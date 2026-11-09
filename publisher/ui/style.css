@@ -137,3 +137,5 @@
 .publisher-app .publisher-offer-limits>span{padding:7px 10px;border:1px solid #d5e2f3;border-radius:8px;background:#fff;font-size:12px}
 .publisher-app .publisher-offer-quotas{display:grid;gap:5px;margin:12px 0;font-size:12px}
 .publisher-app .publisher-offer-quotas span{overflow-wrap:anywhere}
+
+.publisher-app .publisher-followup-choice{display:grid;gap:7px;margin:13px 0;font-size:12px;color:#385478}.publisher-app .publisher-followup-choice select{width:100%;max-width:600px}

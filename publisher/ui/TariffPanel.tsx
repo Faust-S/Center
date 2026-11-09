@@ -1,9 +1,11 @@
-import React,{useState} from 'react';
+import React,{useRef,useState} from 'react';
 type Quota={metric:string;service:'LOCAL'|'CLOUD';unit:string;period:string;max:number};
 type Tariff={id:string;productId:string;name:string;holderType:'ORGANIZATION'|'PERSON';revision:number;features:string[];termDays:number;productSeats:number;employeeLimit:number;deviceLimit:number;quotas:Quota[]};
 type Holder={id:string;name:string;type:'ORGANIZATION'|'PERSON'};
 type Product={id:string;name:string;version:string};
-type Draft={products:Product[];holders:Holder[];tariffs:Tariff[]};
+type Proposal={id:string;holderId:string;productId:string;tariffSnapshot?:Tariff;previousProposalId?:string;status:string};
+type Draft={products:Product[];holders:Holder[];tariffs:Tariff[];proposals:Proposal[]};
+const tariffKey=(t:Tariff)=>[t.productId,t.holderType,t.id,t.revision].join(':');
 export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft;busy:boolean;change:(cmd:Record<string,unknown>,message:string)=>Promise<void>;mode?:'full'|'offer'}){
  const [productId,setProductId]=useState('');
  const [id,setId]=useState('');const [name,setName]=useState('');
@@ -13,9 +15,26 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  const [employeeLimit,setEmployeeLimit]=useState('10');const [deviceLimit,setDeviceLimit]=useState('0');
  const [quotas,setQuotas]=useState<Quota[]>([]);const [choice,setChoice]=useState('');
  const [holderId,setHolderId]=useState('');
- const selected=draft.tariffs.find(t=>t.id+':'+t.revision===choice)||draft.tariffs[0];
+ const [previousProposalId,setPreviousProposalId]=useState('');
+ const [editionNotice,setEditionNotice]=useState('');
+ const editorRef=useRef<HTMLFormElement>(null);
+ function nextEdition(t:Tariff){
+   const latest=draft.tariffs.filter(item=>item.id===t.id&&item.productId===t.productId&&
+     item.holderType===t.holderType).reduce((value,item)=>Math.max(value,item.revision),0);
+   setProductId(t.productId);setId(t.id);setName(t.name);setHolderType(t.holderType);
+   setRevision(String(latest+1));setFeatures(t.features.join(', '));
+   setTermDays(String(t.termDays));setProductSeats(String(t.productSeats));
+   setEmployeeLimit(String(t.employeeLimit));setDeviceLimit(String(t.deviceLimit));
+   setQuotas(t.quotas.map(q=>({...q})));
+   setEditionNotice('Условия предыдущей редакции скопированы. Новая редакция будет сохранена отдельно.');
+   editorRef.current?.scrollIntoView({block:'start',behavior:'auto'});
+ }
+ const selected=draft.tariffs.find(t=>tariffKey(t)===choice)||draft.tariffs[0];
  const holders=draft.holders.filter(h=>h.type===selected?.holderType);
  const selectedHolder=holders.find(h=>h.id===holderId)?.id||holders[0]?.id||'';
+ const eligibleSources=draft.proposals.filter(p=>p.tariffSnapshot&&
+   p.productId===selected?.productId&&p.holderId===selectedHolder);
+ const selectedSource=eligibleSources.find(p=>p.id===previousProposalId);
  function saveTariff(e:React.FormEvent){
   e.preventDefault();
   const preparedQuotas=quotas.map(q=>({...q,metric:q.metric.trim()}));
@@ -29,7 +48,8 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
   <section className="card form-panel">
    <h2>Тарифы и лимиты</h2>
    <p className="muted">Один каталог для организаций и физических лиц. Сохранённая редакция не изменяет уже подготовленные условия.</p>
-   {draft.products.length===0?<p className="muted">Сначала добавьте продукт.</p>:<form onSubmit={saveTariff}>
+   {editionNotice&&<p className="muted" role="status">{editionNotice}</p>}
+   {draft.products.length===0?<p className="muted">Сначала добавьте продукт.</p>:<form ref={editorRef} onSubmit={saveTariff}>
     <div className="form-grid">
      <label>Продукт<select value={productId||draft.products[0].id} onChange={e=>setProductId(e.target.value)}>{draft.products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
      <label>Код тарифа<input value={id} onChange={e=>setId(e.target.value)} required placeholder="TEAM"/></label>
@@ -61,17 +81,24 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
    </form>}
   </section>
   <section className="card padded"><h2>Сохранённые тарифы ({draft.tariffs.length})</h2>
-   {draft.tariffs.length===0?<p className="muted">Тарифов пока нет.</p>:draft.tariffs.map(t=><div className="simple-row" key={t.id+':'+t.revision}><div><strong>{t.name} · редакция {t.revision}</strong><small>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.holderType==='PERSON'?'Физическое лицо':'Организация'} · {t.termDays} дней</small><small>Мест: {t.productSeats} · сотрудников: {t.employeeLimit} · устройств: {t.deviceLimit} · функций: {t.features.length} · квот: {t.quotas.length}</small></div><span className="status neutral">Черновик</span></div>)}
+   {draft.tariffs.length===0?<p className="muted">Тарифов пока нет.</p>:draft.tariffs.map(t=><div className="simple-row" key={tariffKey(t)}><div><strong>{t.name} · редакция {t.revision}</strong><small>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.holderType==='PERSON'?'Физическое лицо':'Организация'} · {t.termDays} дней</small><small>Мест: {t.productSeats} · сотрудников: {t.employeeLimit} · устройств: {t.deviceLimit} · функций: {t.features.length} · квот: {t.quotas.length}</small></div><span className="status neutral">Черновик</span><button className="secondary" type="button" disabled={busy} onClick={()=>nextEdition(t)}>Новая редакция</button></div>)}
   </section>
   </>}
   <section className="card form-panel" data-testid="publisher-tariff-proposal"><h2>Подготовить лицензию</h2>
    <p className="muted">Условия выбранной редакции сохраняются в запросе. Лицензия без подписи не действует.</p>
    {draft.tariffs.length===0?<p className="muted">Сначала создайте тариф.</p>:<>
     <div className="form-grid">
-     <label>Тариф<select value={selected?selected.id+':'+selected.revision:''} onChange={e=>{setChoice(e.target.value);setHolderId('');}}>{draft.tariffs.map(t=><option key={t.id+':'+t.revision} value={t.id+':'+t.revision}>{t.name} · редакция {t.revision} · {t.holderType==='PERSON'?'Личный':'Для организации'}</option>)}</select></label>
-     <label>Клиент<select value={selectedHolder} onChange={e=>setHolderId(e.target.value)}>{holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
+     <label>Тариф<select value={selected?tariffKey(selected):''} onChange={e=>{setChoice(e.target.value);setHolderId('');setPreviousProposalId('');}}>{draft.tariffs.map(t=><option key={tariffKey(t)} value={tariffKey(t)}>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.name} · редакция {t.revision} · {t.holderType==='PERSON'?'Личный':'Для организации'}</option>)}</select></label>
+     <label>Клиент<select value={selectedHolder} onChange={e=>{setHolderId(e.target.value);setPreviousProposalId('');}}>{holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
     </div>
+    {selected&&selectedHolder&&<label className="publisher-followup-choice">Основание подготовки
+      <select aria-label="Основание подготовки" value={selectedSource?.id||''} onChange={e=>setPreviousProposalId(e.target.value)}>
+        <option value="">Новая подготовка</option>
+        {eligibleSources.map(p=><option key={p.id} value={p.id}>{p.tariffSnapshot?.name} · редакция {p.tariffSnapshot?.revision} · прежняя подготовка</option>)}
+      </select>
+    </label>}
     <p className="muted">{selected?.holderType==='PERSON'?'Личный подписанный .iwxa принимается непосредственно продуктом, без Admin Center.':'Организационный подписанный .iwxa передаётся в Admin Center для распределения.'}</p>
+    {selectedSource&&<p className="muted">Новая подготовка будет связана с прежним запросом. Это не продлевает и не изменяет действующие права без отдельной подписи издателя.</p>}
     {selected&&selectedHolder&&<div className="publisher-offer-review" data-testid="publisher-offline-offer-preview" role="status">
       <strong>Условия для проверки</strong>
       <p>{draft.holders.find(h=>h.id===selectedHolder)?.name} · {draft.products.find(p=>p.id===selected.productId)?.name||selected.productId}</p>
@@ -83,11 +110,16 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
       <p><b>Функции:</b> {selected.features.length?selected.features.join(', '):'Дополнительные функции не выбраны'}</p>
       {selected.quotas.length>0&&<div className="publisher-offer-quotas">
         <b>Ограничения ресурсов</b>
-        {selected.quotas.map(q=><span key={q.metric+q.period}>{q.metric} · {q.service==='CLOUD'?'Облако':'Локально'} · {q.max} {q.unit} · {q.period}</span>)}
+        {selected.quotas.map(q=><span key={[q.service,q.metric,q.unit,q.period].join(':')}>{q.metric} · {q.service==='CLOUD'?'Облако':'Локально'} · {q.max} {q.unit} · {q.period}</span>)}
       </div>}
       <p className="muted">Неподписанная подготовка. Права появятся только после выпуска и проверки доверенной лицензии .iwxa.</p>
     </div>}
-    <button className="primary" type="button" disabled={busy||!selectedHolder} onClick={()=>void change({kind:'addTariffProposal',tariffId:selected.id,revision:selected.revision,holderId:selectedHolder},'Черновик условий сохранён. Лицензия не выдана.')}>Сохранить подготовку по тарифу</button>
+    <button className="primary" type="button" disabled={busy||!selectedHolder} onClick={()=>void change(selectedSource?{
+      kind:'prepareFollowupProposal',previousProposalId:selectedSource.id,
+      productId:selected.productId,tariffId:selected.id,revision:selected.revision
+     }:{kind:'addTariffProposal',productId:selected.productId,
+      tariffId:selected.id,revision:selected.revision,holderId:selectedHolder},
+     'Подготовка сохранена. Действующие права не изменены.')}>{selectedSource?'Создать следующую подготовку':'Сохранить подготовку по тарифу'}</button>
    </>}
   </section>
  </div>;

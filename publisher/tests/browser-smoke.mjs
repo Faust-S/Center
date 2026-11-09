@@ -279,6 +279,30 @@ try {
   }
   await page.getByRole('button',{name:'Обзор',exact:true}).click();
   checks.push('agent-shell-consistent-on-all-seven-publisher-pages');
+  // Same tariff code, new edition, preserved older offer, linked unsigned followup.
+  await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
+  await page.getByRole('button',{name:'Новая редакция'}).first().click();
+  assert.equal(await page.getByLabel('Редакция').inputValue(),'2');
+  assert.equal(await page.getByLabel('Название тарифа').inputValue(),'Команда');
+  await page.getByLabel('Места продукта').fill('7');
+  await page.getByRole('button',{name:'Сохранить редакцию тарифа'}).click();
+  await page.getByText('Сохранённые тарифы (2)').waitFor();
+  await page.getByRole('button',{name:'Лицензии',exact:true}).click();
+  const firstSaved=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')));
+  const firstOffer=firstSaved.proposals.find(p=>p.tariffSnapshot);
+  assert.equal(firstOffer.tariffSnapshot.productSeats,5);
+  const newer=firstSaved.tariffs.find(t=>t.revision===2);
+  await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
+    .selectOption([newer.productId,newer.holderType,newer.id,newer.revision].join(':'));
+  await page.getByRole('combobox',{name:'Основание подготовки'}).selectOption(firstOffer.id);
+  assert.match(await page.getByTestId('publisher-offline-offer-preview').innerText(),/Места продукта: 7/);
+  await page.getByRole('button',{name:'Создать следующую подготовку'}).click();
+  const linked=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')));
+  assert.equal(linked.proposals.length,3);
+  assert.equal(linked.proposals[2].previousProposalId,firstOffer.id);
+  assert.equal(linked.proposals[2].tariffSnapshot.productSeats,7);
+  assert.equal(linked.proposals[2].status,'DRAFT_NOT_ISSUED');
+  checks.push('native-ui-tariff-edition-and-followup-preserve-previous-terms');
   // A bounded native-command double tests the confirmation UI without
   // pretending this is installed Windows, a T3 issuer or a real signed license.
   let backupDraft=emptyPublisherDraft();

@@ -294,7 +294,7 @@ export default function App(){
          <section className="card padded"><h2>Текущее состояние</h2><p className="muted">Заявок на публикацию: {state.artifacts.length}. Подтверждённых релизов: 0. Подписанных лицензий: 0.</p><p className="muted">Реальные источники подписей, trust catalog и приём лицензии в Admin Center пока не включены в этот исполняемый продукт.</p></section>
          <section className="card padded" data-testid="publisher-preparation-backup">
            <h2>Резервная копия черновиков</h2>
-           <p className="muted">Включает только каталог продуктов, получателей, неподписанные запросы и записи проверок файлов. Подписанных лицензий, решений о публикации и ключей издателя в этой копии нет.</p>
+           <p className="muted">Включает каталог продуктов, клиентов, редакции тарифов, неподписанные запросы и записи проверок файлов. Действительных лицензий и ключей издателя в копии нет.</p>
            <p className="muted">Восстановление заменит текущие черновики после отдельного подтверждения. Выберите файл резервной копии.</p>
            <div className="actions">
              <button type="button" className="secondary" disabled={!nativeHost||busy} onClick={()=>void exportPreparationBackup()}>Сохранить копию черновиков</button>
@@ -303,7 +303,7 @@ export default function App(){
 
            {pendingRestore&&<div ref={restoreConfirmationRef} className="publisher-test-request" role="group" aria-label="Подтверждение восстановления черновиков" data-testid="publisher-restore-confirmation">
              <strong>Подтвердите замену черновиков</strong>
-             <p>В выбранной копии: продуктов — {pendingRestore.products.length}, получателей — {pendingRestore.holders.length}, неподписанных запросов — {pendingRestore.proposals.length}.</p>
+             <p>В выбранной копии: продуктов — {pendingRestore.products.length}, клиентов — {pendingRestore.holders.length}, тарифов — {pendingRestore.tariffs.length}, неподписанных запросов — {pendingRestore.proposals.length}.</p>
              <p>После подтверждения текущие локальные черновики будут заменены. Лицензии, ключи и издательские полномочия этим действием не создаются.</p>
              <div className="actions">
                <button type="button" className="primary" disabled={busy} onClick={()=>void confirmPreparationRestore()}>Заменить текущие черновики</button>
@@ -347,7 +347,7 @@ export default function App(){
             <p className="muted">Экспорт TEST-запроса для будущего оригинального издателя T3. Файл не подписан и не предоставляет права Admin Center.</p>
             <label>Места для TEST-запроса<input aria-label="Места для TEST-запроса" type="number" min={1} max={10000} value={testSeats} onChange={e=>setTestSeats(e.target.value)}/></label>
           </div>}
-         {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small>{p.tariffSnapshot&&<small>{p.tariffSnapshot.name} · редакция {p.tariffSnapshot.revision} · места {p.tariffSnapshot.productSeats} · сотрудники {p.tariffSnapshot.employeeLimit} · устройства {p.tariffSnapshot.deviceLimit} · {p.tariffSnapshot.holderType==='PERSON'?'Напрямую в продукт':'Через Admin Center'}</small>}</div><span className="status neutral">Не выдано</span>
+         {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small>{p.tariffSnapshot&&<small>{p.tariffSnapshot.name} · редакция {p.tariffSnapshot.revision} · места {p.tariffSnapshot.productSeats} · сотрудники {p.tariffSnapshot.employeeLimit} · устройства {p.tariffSnapshot.deviceLimit} · {p.tariffSnapshot.holderType==='PERSON'?'Напрямую в продукт':'Через Admin Center'}</small>}{p.previousProposalId&&<small>Повторная подготовка по прежнему запросу; действующая лицензия не изменена</small>}</div><span className="status neutral">Не выдано</span>
             <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>void exportTestRequest(p.id)}>Подготовить TEST-запрос</button>
             <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>simulateTestDecision(p.id)}>Моделировать TEST-ответ</button>
             <button className="quiet" disabled={busy} type="button" onClick={()=>void change({kind:'removeProposal',id:p.id},'Черновик удалён.')}>Удалить</button></div>)}
