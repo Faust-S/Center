@@ -1,23 +1,25 @@
-name: Setup Core full native journeys (fast qualification)
+name: Setup Core verified native Windows routes
 on:
   push:
     branches: ['work/2026-11-09-setup-core-fast-qualification']
 permissions:
   contents: read
   actions: read
+# Cancel an older full-CI run that GitHub queued when this temporary work/
+# branch was first created. Only this build-only preview job should execute.
 concurrency:
-  group: setup-core-fast-${{ github.ref }}
+  group: center-${{ github.ref }}-full
   cancel-in-progress: true
 jobs:
-  windows-native:
+  preview-build-only:
     runs-on: windows-latest
-    timeout-minutes: 18
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Reuse accepted native Center executable (no recompilation)
+      - name: Obtain pinned, already built Center payload
         uses: actions/download-artifact@v4
         with:
           name: center-windows-preparation-shell
@@ -25,39 +27,99 @@ jobs:
           run-id: 42631324997
           github-token: ${{ github.token }}
           path: accepted
-      - name: Compile current native Setup and prepare real Center payload
+      - name: Compile current native Setup and package accepted Center payload
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $target=Join-Path $env:GITHUB_WORKSPACE 'src-tauri/target/release'
-          New-Item -ItemType Directory -Force -Path $target|Out-Null
-          $source=Join-Path $env:GITHUB_WORKSPACE 'accepted/src-tauri/target/release/iwxa-admin-center.exe'
-          if(!(Test-Path -LiteralPath $source -PathType Leaf)){throw 'SETUP_PINNED_CENTER_PAYLOAD_MISSING'}
-          Copy-Item -LiteralPath $source -Destination (Join-Path $target 'iwxa-admin-center.exe')
-          ./installer/windows/build-stub.ps1 -Output artifacts/iwxa-setup-core-early.exe
-      - name: Source model package contracts
+          $output=Join-Path $env:GITHUB_WORKSPACE 'artifacts'
+          $payload=Join-Path $output 'ux-preview-payload'
+          New-Item -ItemType Directory -Force -Path $payload|Out-Null
+          $accepted='accepted/src-tauri/target/release/iwxa-admin-center.exe'
+          if(!(Test-Path -LiteralPath $accepted -PathType Leaf)){throw 'UX_PREVIEW_PINNED_PAYLOAD_MISSING'}
+          Copy-Item -LiteralPath $accepted -Destination (Join-Path $payload 'iwxa-admin-center.exe')
+          $stub=Join-Path $output 'ux-preview-stub.exe'
+          ./installer/windows/build-stub.ps1 -Output $stub
+          $tree=[string](& git rev-parse 'HEAD^{tree}').Trim()
+          $bundle=Join-Path $output 'IWXA-Setup-Core-UX-review.exe'
+          & python -m installer.build_bundle build-resource --product installer/products/center.json --payload $payload --stub $stub --output $bundle --source-commit $env:GITHUB_SHA --source-tree $tree
+          if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $bundle -PathType Leaf)){throw 'UX_PREVIEW_BUNDLE_NOT_CREATED'}
+          $sha=(Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash
+          "IWXA-Setup-Core-UX-review.exe SHA256=$sha" | Set-Content (Join-Path $output 'ux-preview-sha256.txt')
+          Write-Host "IWXA_SETUP_FAST_NATIVE_PACKAGE_READY sha256=$sha bytes=$((Get-Item $bundle).Length)"
+          $native=Join-Path $env:GITHUB_WORKSPACE 'src-tauri/target/release'
+          New-Item -ItemType Directory -Force -Path $native|Out-Null
+          Copy-Item -LiteralPath $accepted -Destination (Join-Path $native 'iwxa-admin-center.exe')
+      - name: Validate current Setup source model
         shell: pwsh
         run: python -m unittest discover -s installer/tests -p 'test_*.py' -v
-      - name: Unified WinForms model and first-install preflight
+      - name: Real WinForms layout and empty-folder preflight
         shell: powershell
-        run: ./installer/windows/qualify-gui-layout-fast.ps1 -Stub artifacts/iwxa-setup-core-early.exe
-      - name: Real first-install, upgrade, rollback and storage migration
+        timeout-minutes: 3
+        run: ./installer/windows/qualify-gui-layout-fast.ps1 -Stub artifacts/ux-preview-stub.exe
+      - name: Native install, repair, update, rollback, uninstall and storage relocation
         shell: pwsh
-        timeout-minutes: 7
+        timeout-minutes: 8
         run: ./installer/windows/test-native-package.ps1
-      - name: Real two-choice first-install existing-data transfer
+      - name: Existing data transfer and no-transfer first installation
         shell: powershell
-        timeout-minutes: 7
-        run: ./installer/windows/qualify-first-install-data-transfer.ps1 -Bundle artifacts/iwxa-setup-core-center-0.3-preview.exe
-      - name: Signed native V2 lifecycle, test certificate
+        timeout-minutes: 6
+        run: ./installer/windows/qualify-first-install-data-transfer.ps1 -Bundle artifacts/IWXA-Setup-Core-UX-review.exe
+      - name: Native signed installation lifecycle (development certificate)
         shell: pwsh
         timeout-minutes: 6
         run: ./installer/windows/qualify-signed-resource-install.ps1
+      - name: Capture the actual native Setup window for visual review
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName System.Drawing
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class NativePreview {
+            [StructLayout(LayoutKind.Sequential)]
+            public struct Rect { public int Left, Top, Right, Bottom; }
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+          }
+          '@
+          $exe=Join-Path $env:GITHUB_WORKSPACE 'artifacts/IWXA-Setup-Core-UX-review.exe'
+          $p=Start-Process -FilePath $exe -PassThru
+          try {
+            $handle=[IntPtr]::Zero
+            for($i=0;$i -lt 45;$i++){
+              Start-Sleep -Milliseconds 250
+              $p.Refresh()
+              if($p.HasExited){throw 'UX_WINDOW_EXITED_BEFORE_CAPTURE'}
+              $handle=$p.MainWindowHandle
+              if($handle -ne [IntPtr]::Zero){break}
+            }
+            if($handle -eq [IntPtr]::Zero){throw 'UX_WINDOW_HANDLE_NOT_AVAILABLE'}
+            Start-Sleep -Milliseconds 4300
+            $rect=New-Object NativePreview+Rect
+            if(-not [NativePreview]::GetWindowRect($handle,[ref]$rect)){throw 'UX_WINDOW_RECT_UNAVAILABLE'}
+            $width=$rect.Right-$rect.Left
+            $height=$rect.Bottom-$rect.Top
+            if($width -lt 640 -or $height -lt 380){throw 'UX_WINDOW_GEOMETRY_TOO_SMALL'}
+            $bmp=[System.Drawing.Bitmap]::new($width,$height)
+            $graphics=[System.Drawing.Graphics]::FromImage($bmp)
+            try {
+              $graphics.CopyFromScreen($rect.Left,$rect.Top,0,0,$bmp.Size)
+              $bmp.Save((Join-Path $env:GITHUB_WORKSPACE 'artifacts/setup-core-unified-preview.png'),[Drawing.Imaging.ImageFormat]::Png)
+            } finally {
+              $graphics.Dispose()
+              $bmp.Dispose()
+            }
+            Write-Host 'IWXA_SETUP_UX_SCREENSHOT_READY'
+          } finally {
+            try {if(-not $p.HasExited){Stop-Process -Id $p.Id -Force}}catch{}
+            $p.Dispose()
+          }
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: iwxa-setup-core-qualification-evidence
+          name: setup-core-ux-review-windows
           path: |
-            artifacts/
-            src-tauri/target/release/iwxa-admin-center.exe
-          if-no-files-found: warn
+            artifacts/IWXA-Setup-Core-UX-review.exe
+            artifacts/ux-preview-sha256.txt
+            artifacts/setup-core-unified-preview.png
+          if-no-files-found: error
