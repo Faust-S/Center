@@ -25,6 +25,7 @@ namespace IwxaSetup
         private readonly Button install = new Button();
         private readonly Button secondary = new Button();
         private readonly LinkLabel openApplication = new LinkLabel();
+        private readonly LinkLabel removeApplication = new LinkLabel();
         private readonly Button configureInstallation = new Button();
         private readonly Button cancelStorageMove = new Button();
         private readonly ToolTip detailsHint = new ToolTip();
@@ -280,6 +281,22 @@ namespace IwxaSetup
             openApplication.LinkClicked += (sender, args) => OpenRelatedAction();
             area.Controls.Add(openApplication);
 
+            removeApplication.Name = "iwxaSetupRemoveApplication";
+            removeApplication.Text = T("Удалить программу", "Uninstall application");
+            removeApplication.AccessibleName = removeApplication.Text;
+            removeApplication.AccessibleDescription = T(
+                "Удалить файлы установленной программы, сохранив личные данные",
+                "Remove installed application files while preserving personal data");
+            removeApplication.Location = new Point(430, 458);
+            removeApplication.Size = new Size(155, 25);
+            removeApplication.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            removeApplication.LinkColor = Color.FromArgb(147, 52, 63);
+            removeApplication.AutoEllipsis = true;
+            removeApplication.Visible = false;
+            removeApplication.LinkClicked += async (sender, args) =>
+                await BeginUninstallAsync();
+            area.Controls.Add(removeApplication);
+
             var actions = new FlowLayoutPanel {
                 Name = "iwxaSetupActions",
                 Dock = DockStyle.Bottom,
@@ -394,8 +411,12 @@ namespace IwxaSetup
             productName.Width = Math.Max(px(220), area.ClientSize.Width - px(64));
             description.Width = Math.Max(px(220), area.ClientSize.Width - px(66));
             note.Width = Math.Max(px(220), area.ClientSize.Width - px(66));
-            openApplication.Width = Math.Max(px(220),
-                area.ClientSize.Width - px(64));
+            removeApplication.Left = Math.Max(px(245),
+                area.ClientSize.Width - px(195));
+            removeApplication.Width = Math.Max(px(110),
+                area.ClientSize.Width - removeApplication.Left - px(30));
+            openApplication.Width = Math.Max(px(160),
+                removeApplication.Left - openApplication.Left - px(12));
 
             eyebrow.Top = px(shortView ? 16 : 32);
             productName.Top = px(shortView ? 45 : 68);
@@ -424,6 +445,7 @@ namespace IwxaSetup
             note.Top = noteTop;
             note.Height = Math.Min(preferredNote, availableNote);
             openApplication.Top = note.Bottom + gap;
+            removeApplication.Top = openApplication.Top;
         }
 
         private void SetWizardStep(int current)
@@ -606,6 +628,7 @@ namespace IwxaSetup
                 secondary.Enabled = false;
                 retry.Enabled = false;
                 configureInstallation.Enabled = false;
+                removeApplication.Enabled = false;
                 Exception error = null;
                 Action<long, long> progress = null;
                 if (moving)
@@ -1004,6 +1027,84 @@ namespace IwxaSetup
             return dialog;
         }
 
+        private async Task BeginUninstallAsync()
+        {
+            if (performingOperation || verifyingState || inspectedBundle == null ||
+                !removeApplication.Visible) return;
+            BundleInfo expected = inspectedBundle;
+            DialogResult answer = MessageBox.Show(this,
+                T("Удалить ", "Uninstall ") + expected.Name +
+                T("?\nФайлы программы будут удалены. Личные данные, модели и сторонние программы останутся в своих папках.",
+                  "?\nApplication files will be removed. Your data, models and third-party software will remain in their folders."),
+                T("Удаление программы", "Uninstall application"),
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2);
+            if (answer != DialogResult.Yes) return;
+
+            performingOperation = true;
+            busyProgress.Visible = true;
+            status.Text = T("Подготавливаем удаление…",
+                "Preparing uninstallation…");
+            install.Enabled = false;
+            secondary.Enabled = false;
+            retry.Enabled = false;
+            configureInstallation.Enabled = false;
+            openApplication.Enabled = false;
+            removeApplication.Enabled = false;
+            bool started = false;
+            try
+            {
+                string uninstaller = await Task.Run(() =>
+                {
+                    string root = SetupInstallation.RootFor(expected);
+                    string path = Path.Combine(root, "IWXA.SetupCore.Uninstall.exe");
+                    if (!File.Exists(path))
+                        throw new InvalidOperationException(
+                            "SETUP_OWNED_UNINSTALLER_MISSING");
+                    BundleInfo owned = BundleReader.Inspect(path);
+                    if (owned.Id != expected.Id ||
+                        owned.Entrypoint != expected.Entrypoint)
+                        throw new InvalidOperationException(
+                            "SETUP_OWNED_UNINSTALLER_WRONG_PRODUCT");
+                    return path;
+                });
+                using (Process worker = Process.Start(new ProcessStartInfo(
+                    uninstaller, "--uninstall") {
+                    UseShellExecute = true,
+                    WorkingDirectory = Path.GetDirectoryName(uninstaller)
+                }))
+                {
+                    if (worker == null)
+                        throw new InvalidOperationException(
+                            "SETUP_UNINSTALL_PROCESS_NOT_STARTED");
+                }
+                started = true;
+            }
+            catch (Exception)
+            {
+                status.Text = T("Не удалось начать удаление",
+                    "Could not start uninstallation");
+                packageDetails.Text = T(
+                    "Проверьте файлы программы. При необходимости восстановите установку и повторите удаление.",
+                    "Check the application files. Repair the installation if needed, then try uninstalling again.");
+                status.ForeColor = Color.FromArgb(170, 52, 59);
+            }
+            finally
+            {
+                performingOperation = false;
+                busyProgress.Visible = false;
+                removeApplication.Enabled = removeApplication.Visible;
+                openApplication.Enabled = true;
+                configureInstallation.Enabled = configureInstallation.Visible;
+                retry.Enabled = true;
+                install.Enabled = primaryAction != SetupOperation.None;
+                secondary.Enabled = secondaryAction != SetupOperation.None;
+            }
+            // The installed uninstaller owns the operation and shows its
+            // result. Do not claim successful removal before its own readback.
+            if (started) Close();
+        }
+
         private void OpenRelatedAction()
         {
             try
@@ -1157,6 +1258,7 @@ namespace IwxaSetup
             retry.Enabled = false;
             openApplication.Enabled = false;
             configureInstallation.Enabled = false;
+            removeApplication.Enabled = false;
             status.ForeColor = Dark;
             status.Text = operation == SetupOperation.Upgrade ?
                 T("Обновление программы…", "Updating application…") :
@@ -1291,6 +1393,7 @@ namespace IwxaSetup
                 retry.Enabled = true;
                 openApplication.Enabled = true;
                 configureInstallation.Enabled = true;
+                removeApplication.Enabled = removeApplication.Visible;
                 // Actions remain locked throughout operation + post-readback.
                 install.Enabled = primaryAction != SetupOperation.None;
                 secondary.Enabled = secondaryAction != SetupOperation.None;
@@ -1367,6 +1470,7 @@ namespace IwxaSetup
             ConfigureActions(SetupOperation.None, SetupOperation.None,
                 T("Недоступно", "Unavailable"));
             openApplication.Visible = false;
+            removeApplication.Visible = false;
             configureInstallation.Visible = false;
             status.Text = T("Проверка целостности…", "Verifying integrity…");
             status.ForeColor = Dark;
@@ -1395,6 +1499,13 @@ namespace IwxaSetup
                     plan.Status == "UPGRADE_CANDIDATE_NOT_ACTIVATED" ||
                     readyForReview;
                 configureInstallation.Enabled = !performingOperation;
+                // A pending upgrade or incomplete recovery must be resolved
+                // before uninstalling; the worker enforces that same rule.
+                removeApplication.Visible =
+                    plan.Status == "REPAIR_CANDIDATE_NOT_ACTIVATED" ||
+                    plan.Status == "UPGRADE_CANDIDATE_NOT_ACTIVATED" ||
+                    plan.Status == "WEBVIEW2_MISSING";
+                removeApplication.Enabled = !performingOperation;
 
                 productName.Text = info.Name;
                 productName.AccessibleName = info.Name;
@@ -1662,6 +1773,8 @@ namespace IwxaSetup
                         secondaryAction != SetupOperation.None;
                     configureInstallation.Enabled = !performingOperation &&
                         configureInstallation.Visible;
+                    removeApplication.Enabled = !performingOperation &&
+                        removeApplication.Visible;
                 }
             }
         }

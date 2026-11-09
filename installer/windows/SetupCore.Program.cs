@@ -477,7 +477,7 @@ namespace IwxaSetup
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(ex.Message, "IWXA Setup",
+                    MessageBox.Show(UserUninstallFailure(ex), "IWXA Setup",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return 2;
                 }
@@ -491,13 +491,21 @@ namespace IwxaSetup
                         return 3;
                     InstallOutcome result = SetupInstallation.UninstallFromWorker(
                         Application.ExecutablePath, pid);
-                    MessageBox.Show(result.Status, "IWXA Setup",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (result.Status != "UNINSTALLED_USER_DATA_PRESERVED")
+                        throw new InvalidOperationException(
+                            "SETUP_UNINSTALL_COMPLETION_UNEXPECTED");
+                    bool russian = System.Globalization.CultureInfo.CurrentUICulture.
+                        TwoLetterISOLanguageName == "ru";
+                    MessageBox.Show(russian ?
+                        "Программа удалена. Личные данные, модели и сторонние программы сохранены." :
+                        "Application removed. Personal data, models and third-party software were preserved.",
+                        "IWXA Setup", MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
                     return 0;
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show(ex.Message, "IWXA Setup",
+                    MessageBox.Show(UserUninstallFailure(ex), "IWXA Setup",
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return 2;
                 }
@@ -525,6 +533,24 @@ namespace IwxaSetup
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new SetupForm());
             return 0;
+        }
+
+        private static string UserUninstallFailure(Exception error)
+        {
+            string reason = error.Message ?? "";
+            bool russian = System.Globalization.CultureInfo.CurrentUICulture.
+                TwoLetterISOLanguageName == "ru";
+            if (reason == "SETUP_APP_STILL_RUNNING")
+                return russian ?
+                    "Программа сейчас открыта. Закройте её и повторите удаление." :
+                    "The application is still running. Close it and try again.";
+            if (reason == "SETUP_UPGRADE_PENDING_RESOLUTION")
+                return russian ?
+                    "Обновление ещё не завершено. Сначала подтвердите новую версию или верните прежнюю." :
+                    "An update is still pending. Confirm the new version or roll back before uninstalling.";
+            return russian ?
+                "Не удалось завершить удаление. Проверьте файлы программы и повторите попытку через настройки Windows." :
+                "Uninstallation could not be completed. Check the application files and try again from Windows Settings.";
         }
 
         private static SetupLocations ReadLocationsRequest(string requestFile)

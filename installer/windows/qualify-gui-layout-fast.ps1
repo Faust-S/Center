@@ -114,6 +114,13 @@ function Assert-Layout([System.Windows.Forms.Form]$form,[string]$case) {
     $card.PerformLayout()
     $note = One $form 'iwxaSetupPreservationNote'
     $related = One $form 'iwxaSetupRelatedAction'
+    $remove = One $form 'iwxaSetupRemoveApplication'
+    if ($remove.Left -lt $related.Right -or
+        $remove.Right -gt $area.ClientSize.Width -or
+        $remove.Top -ne $related.Top) {
+        throw ('SETUP_LAYOUT_UNINSTALL_LINK_OVERLAP_' + $case +
+            ' related=' + $related.Bounds + ' remove=' + $remove.Bounds)
+    }
     $actions = One $form 'iwxaSetupActions'
     $progress = One $form 'iwxaSetupActivity'
     $preferences = One $form 'iwxaSetupPreferences'

@@ -130,6 +130,21 @@ class BundleTests(unittest.TestCase):
         self.assertIn("if (bytesCopied != null) bytesCopied(length);", native)
         self.assertNotIn("busyProgress.Value = 100", source)
 
+    def test_native_installed_app_uninstall_is_visible_and_data_preserving(self):
+        form = (Path(__file__).resolve().parents[1] / "windows" /
+                "SetupCore.Form.cs").read_text(encoding="utf-8")
+        program = (Path(__file__).resolve().parents[1] / "windows" /
+                   "SetupCore.Program.cs").read_text(encoding="utf-8")
+        self.assertIn('iwxaSetupRemoveApplication', form)
+        self.assertIn('BeginUninstallAsync()', form)
+        self.assertIn('uninstaller, "--uninstall"', form)
+        self.assertIn('MessageBoxButtons.YesNo, MessageBoxIcon.Warning', form)
+        self.assertIn('plan.Status == "REPAIR_CANDIDATE_NOT_ACTIVATED"', form)
+        self.assertIn('plan.Status == "UPGRADE_CANDIDATE_NOT_ACTIVATED"', form)
+        self.assertIn('UserUninstallFailure(ex)', program)
+        self.assertIn('UNINSTALLED_USER_DATA_PRESERVED', program)
+        self.assertNotIn('MessageBox.Show(result.Status, "IWXA Setup"', program)
+
     def test_clean_vm_webview2_witness_cannot_report_offline_without_proof(self):
         source = (Path(__file__).resolve().parents[1] / "windows" /
                   "qualify-webview2-clean-windows.ps1").read_text(encoding="utf-8")
