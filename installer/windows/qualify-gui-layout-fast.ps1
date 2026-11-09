@@ -483,6 +483,52 @@ try {
                 }
             }
             Write-Host ('IWXA_SETUP_OPTIONS_STORAGE_TABS_PASS editable=' + $editable)
+            # Capture the actual native dialog for visual release review.
+            # All tabs use the same WinForms layout that customers receive;
+            # store unmodified screen pixels, not a substitute HTML mockup.
+            if ($editable) {
+                $dialog.StartPosition = 'CenterScreen'
+                $dialog.Show()
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 250
+                $output = Join-Path (Get-Location) 'artifacts'
+                [void][System.IO.Directory]::CreateDirectory($output)
+                foreach($capture in @(
+                    @{Index=0;Name='program'},
+                    @{Index=1;Name='storage'},
+                    @{Index=2;Name='components'})) {
+                    $tabs.SelectedIndex = [int]$capture.Index
+                    $dialog.PerformLayout()
+                    $tabs.PerformLayout()
+                    [System.Windows.Forms.Application]::DoEvents()
+                    Start-Sleep -Milliseconds 250
+                    $bounds = $dialog.Bounds
+                    $screen = [System.Windows.Forms.Screen]::FromControl($dialog)
+                    if ($bounds.Width -lt 490 -or $bounds.Height -lt 305 -or
+                        !$screen.WorkingArea.Contains($bounds)) {
+                        throw ('SETUP_NATIVE_OPTIONS_WINDOW_OUTSIDE_WORKAREA_' +
+                            $capture.Name + '_' + $bounds.ToString())
+                    }
+                    $bitmap = [System.Drawing.Bitmap]::new(
+                        $bounds.Width, $bounds.Height)
+                    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+                    try {
+                        $graphics.CopyFromScreen(
+                            [System.Drawing.Point]::new($bounds.Left,$bounds.Top),
+                            [System.Drawing.Point]::Empty,$bitmap.Size)
+                        $snapshot=Join-Path $output (
+                            'setup-core-visual-options-' + $capture.Name + '.png')
+                        $bitmap.Save($snapshot,
+                            [System.Drawing.Imaging.ImageFormat]::Png)
+                        Write-Host ('IWXA_SETUP_NATIVE_OPTIONS_VISUAL_CAPTURED ' +
+                            $capture.Name + ' ' + $snapshot)
+                    } finally {
+                        $graphics.Dispose()
+                        $bitmap.Dispose()
+                    }
+                }
+                $dialog.Hide()
+            }
         } finally { $dialog.Dispose() }
     }
 } finally { $hostForm.Dispose() }
