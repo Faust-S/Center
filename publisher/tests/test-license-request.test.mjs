@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {emptyPublisherDraft, applyPublisherDraftCommand} from '../src/preparation.mjs';
 import {emptyDraft as emptyAdminDraft, applyDraftCommand as applyAdminCommand} from '../../src/organization.mjs';
-import {prepareTestLicenseRequest, validateTestLicenseRequest, encodeTestLicenseRequest, decodeTestLicenseRequest, suggestedTestRequestFileName} from '../src/test-license-request.mjs';
+import {prepareTestLicenseRequest, validateTestLicenseRequest, encodeTestLicenseRequest, decodeTestLicenseRequest, suggestedTestRequestFileName,inspectTestIssuerRequestScope} from '../src/test-license-request.mjs';
 
 function fixture(kind='ORGANIZATION',productId='IWXA_ADMIN_CENTER',features=['WORKSPACE']){
   let s=emptyPublisherDraft();
@@ -79,4 +79,23 @@ test('issuer request cannot bypass original product-scoped entitlement semantics
   assert.ok(!('domainRegistryVersion' in r));
   assert.ok(!('kind' in r.product));
   assert.notEqual(r.schema,'IWXA_T3_LICENSE/1');
+});
+
+test('issuer TEST readiness reports PERSON and other product as unsupported without signing',()=>{
+ const org=fixture(),person=fixture('PERSON','IWXA_ADMIN_CENTER'),other=fixture('ORGANIZATION','IWXA_ATLAS');
+ assert.deepEqual(inspectTestIssuerRequestScope(org,org.proposals[0].id),
+  {supported:true,code:'ORG_CENTER_TEST_REQUEST_ONLY',route:'ORGANIZATION_ADMIN_CENTER'});
+ assert.deepEqual(inspectTestIssuerRequestScope(person,person.proposals[0].id),
+  {supported:false,code:'PERSON_SIGNED_CONTRACT_UNAVAILABLE',route:'PERSON_DIRECT_IN_PRODUCT'});
+ assert.deepEqual(inspectTestIssuerRequestScope(other,other.proposals[0].id),
+  {supported:false,code:'PRODUCT_SIGNED_CONTRACT_UNAVAILABLE',route:'ORGANIZATION_ADMIN_CENTER'});
+ assert.deepEqual(inspectTestIssuerRequestScope(org,'missing'),
+  {supported:false,code:'PROPOSAL_NOT_FOUND',route:'NONE'});
+ assert.ok(!('signed' in inspectTestIssuerRequestScope(org,org.proposals[0].id)));
+});
+test('incomplete original TEST request is not offered to owner signer',()=>{
+ const incomplete=fixture('ORGANIZATION','IWXA_ADMIN_CENTER',[]);
+ const result=inspectTestIssuerRequestScope(incomplete,incomplete.proposals[0].id);
+ assert.equal(result.supported,false);
+ assert.equal(result.code,'TEST_REQUEST_INCOMPLETE');
 });

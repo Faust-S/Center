@@ -1,5 +1,5 @@
 import React,{useEffect,useState} from 'react';
-import {prepareTestLicenseRequest,encodeTestLicenseRequest} from '../src/test-license-request.mjs';
+import {prepareTestLicenseRequest,encodeTestLicenseRequest,inspectTestIssuerRequestScope} from '../src/test-license-request.mjs';
 
 // This panel is intentionally only the front-end of the installed Tauri Host.
 // The private, original T3 executable remains the sole signing authority. A
@@ -28,14 +28,17 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
  const proposals=Array.isArray(draft?.proposals)?draft.proposals:[];
  const products=Array.isArray(draft?.products)?draft.products:[];
  const holders=Array.isArray(draft?.holders)?draft.holders:[];
+ const eligible=proposals.filter((p:any)=>inspectTestIssuerRequestScope(draft,p.id).supported);
+ const unsupported=proposals.filter((p:any)=>!inspectTestIssuerRequestScope(draft,p.id).supported);
+ const personal=unsupported.filter((p:any)=>holders.some((h:any)=>h.id===p.holderId&&h.type==='PERSON'));
  const proposalLabel=(p:any)=>{
    const product=products.find((v:any)=>v.id===p.productId);
    const holder=holders.find((v:any)=>v.id===p.holderId);
    return (product?.name??p.productId)+' · '+(holder?.name??p.holderId)+' · '+p.termDays+' дн.';
  };
  useEffect(()=>{
-  if(!proposals.some((p:any)=>p.id===proposalId))
-    setProposalId(String(proposals[0]?.id??''));
+  if(!eligible.some((p:any)=>p.id===proposalId))
+    setProposalId(String(eligible[0]?.id??''));
  },[draft,proposalId]);
  async function inventory(){
    const value=await invoke('publisher_t3_inventory');
@@ -85,6 +88,8 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
       {message||'Подтверждённый нативный издатель T3 недоступен.'}
       Выпуск и отзыв лицензий отключены.
    </p>}
+   {personal.length>0&&<p className="notice subdued" data-testid="publisher-person-issuer-unavailable">Личные лицензии: подготовлено {personal.length}. Действующий T3 TEST-контракт не поддерживает персональные лицензии. Условия сохранены, выпуск и отзыв недоступны до подключения подписанного контракта.</p>}
+   {unsupported.length>personal.length&&<p className="muted" data-testid="publisher-other-issuer-unsupported">Неподдерживаемые или неполные TEST-запросы: {unsupported.length-personal.length}. Они не отправляются на подпись.</p>}
    {available&&<>
      <div className="form-grid">
        <label>Полномочие издателя
@@ -94,7 +99,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
        </label>
        <label>Подготовленный запрос
          <select value={proposalId} onChange={e=>setProposalId(e.target.value)} disabled={busy}>
-           {proposals.map((p:any)=><option value={p.id} key={p.id}>{proposalLabel(p)}</option>)}
+           {eligible.map((p:any)=><option value={p.id} key={p.id}>{proposalLabel(p)}</option>)}
          </select>
        </label>
        <label>Мест в TEST-запросе
@@ -102,8 +107,9 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
        </label>
      </div>
      <div className="actions">
-       <button className="secondary" type="button" disabled={busy||!issuer||!proposalId}
+       <button className="secondary" type="button" disabled={busy||!issuer||!proposalId||!eligible.some((p:any)=>p.id===proposalId)}
          data-testid="publisher-t3-issue" onClick={()=>operation(async()=>{
+           if(!inspectTestIssuerRequestScope(draft,proposalId).supported)throw Error('PUBLISHER_T3_REQUEST_SCOPE_UNAVAILABLE');
            const request=prepareTestLicenseRequest(draft,{proposalId,seats:Number(seats)});
            const result=await invoke('publisher_t3_issue',{
              requestJson:encodeTestLicenseRequest(request),issuerAuthorityId:issuer});
@@ -116,6 +122,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
              'TEST-лицензия подписана T3 и сохранена в журнале издателя.';
          })}>Выпустить TEST-лицензию</button>
      </div>
+     {eligible.length===0&&<p className="muted" data-testid="publisher-no-supported-test-requests">Подходящих организационных TEST-запросов нет. Личные запросы нельзя подписывать этим компонентом.</p>}
      <h4>Подписанные TEST-лицензии T3</h4>
      <p className="muted" data-testid="publisher-t3-inventory-count">
        В реестре: {inventoryTotal} TEST-записей.

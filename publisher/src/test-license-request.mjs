@@ -83,3 +83,23 @@ export function suggestedTestRequestFileName(request) {
   const safe=request.requestId.replace(/[^A-Za-z0-9-]/g,'-').slice(-56);
   return 'iwxa-test-license-request-'+safe+'.json';
 }
+
+// Read-only capability classification of the ORIGINAL T3 TEST issuer scope.
+// This is neither a license/verifier nor proof of a PERSON signing contract.
+export function inspectTestIssuerRequestScope(draft,proposalId) {
+ const state=validatePublisherDraft(draft);
+ const proposal=state.proposals.find(p=>p.id===proposalId);
+ if(!proposal)return {supported:false,code:'PROPOSAL_NOT_FOUND',route:'NONE'};
+ const holder=state.holders.find(h=>h.id===proposal.holderId);
+ const product=state.products.find(p=>p.id===proposal.productId);
+ if(!holder||!product)return {supported:false,code:'REFERENCE_MISSING',route:'NONE'};
+ const route=holder.type==='PERSON'?'PERSON_DIRECT_IN_PRODUCT':'ORGANIZATION_ADMIN_CENTER';
+ if(holder.type==='PERSON')return {supported:false,code:'PERSON_SIGNED_CONTRACT_UNAVAILABLE',route};
+ if(product.id!=='IWXA_ADMIN_CENTER')return {supported:false,code:'PRODUCT_SIGNED_CONTRACT_UNAVAILABLE',route};
+ try {
+  prepareTestLicenseRequest(state,{proposalId,seats:1});
+  return {supported:true,code:'ORG_CENTER_TEST_REQUEST_ONLY',route};
+ } catch {
+  return {supported:false,code:'TEST_REQUEST_INCOMPLETE',route};
+ }
+}

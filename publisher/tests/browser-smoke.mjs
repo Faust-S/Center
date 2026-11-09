@@ -351,6 +351,8 @@ try {
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(command==='publisher_draft_read')return sessionStorage.getItem('iwxa-publisher-person-fixture');
       if(command==='publisher_draft_save'){sessionStorage.setItem('iwxa-publisher-person-fixture',args.content);return true;}
+      if(command==='publisher_t3_capabilities')return {operation:'TEST_CAPABILITIES',issuers:['test:owner'],activeSeats:0,productionActivation:false,commercialAuthorityProven:false};
+      if(command==='publisher_t3_inventory')return {operation:'TEST_INVENTORY',licenses:[],activeSeats:0,productionActivation:false};
       throw new Error('Unexpected personal fixture IPC '+command);
     }};
   });
@@ -391,6 +393,11 @@ try {
   await personal.getByText('Подготовленные запросы (1)').waitFor();
   assert.match(await personal.locator('main').innerText(),/Напрямую в продукт/);
   await personal.close();
+  await personal.getByRole('button',{name:'Доверие и ключи'}).click();
+  await personal.getByTestId('publisher-person-issuer-unavailable').waitFor();
+  assert.equal(await personal.getByTestId('publisher-t3-issue').isDisabled(),true);
+  assert.equal(await personal.getByRole('combobox',{name:'Подготовленный запрос'}).locator('option').count(),0);
+  checks.push('personal-test-issuer-unavailable-even-with-active-original-owner');
   checks.push('personal-offline-draft-persists-restart-without-admin-center-or-false-signing');
   assert.deepEqual(errors,[]);
   checks.push('no-browser-page-errors');
