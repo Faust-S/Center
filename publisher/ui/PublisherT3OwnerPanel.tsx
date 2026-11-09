@@ -184,7 +184,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
        <p>Продукт: {selectedProposal.productId} · организация: {selectedProposal.holderId}</p>
        <p>Срок: {selectedProposal.termDays} дн. · функции: {selectedProposal.features.join(', ')||'не выбраны'}</p>
        <p>Укажите количество мест от 1 до {seatLimit}{selectedProposal.tariffSnapshot?' — предел сохранённой редакции тарифа':''}.
-         {seatsValid?` Выбрано: ${seatCount}.`:' Пока число мест не выбрано, выпуск недоступен.'}</p>
+         {seatsValid?` Выбрано: ${seatCount}.`:seats?` Число мест (${seats}) вне допустимого диапазона 1–${seatLimit}.`:' Пока число мест не выбрано, выпуск недоступен.'}</p>
        {selectedProposal.tariffSnapshot&&<p className="muted">TEST-контракт T3 передаёт продукт, функции, срок и места. Лимиты сотрудников, устройств и ресурсов остаются в подготовке, но не подписываются этим контрактом.</p>}
      </div>}
      <div className="actions">

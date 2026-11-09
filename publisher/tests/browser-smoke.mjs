@@ -369,6 +369,7 @@ try {
   assert.match(await tariffIssuePreview.innerText(),/не подписываются этим контрактом/);
   assert.equal(await issueSeats.inputValue(),'');
   await issueSeats.fill('6');
+  assert.match(await tariffIssuePreview.innerText(),/вне допустимого диапазона 1–5/);
   assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true,
     'The original T3 owner may not issue more seats than the saved tariff snapshot');
   await issueSeats.fill('5');
