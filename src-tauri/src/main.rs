@@ -3,6 +3,81 @@
 // the pinned Faust-S/Atlas checkout. This is ONE store implementation, not a fork.
 include!(concat!(env!("OUT_DIR"), "/atlas_native.rs"));
 
+// Setup Core owns the per-product location choice. Center reads this only
+// from its own registered, installed executable; development builds and
+// unrelated Windows accounts continue to use the canonical Tauri path.
+// The public Atlas Desktop location is always resolved independently.
+#[cfg(target_os = "windows")]
+fn center_hkcu_location(name: &str) -> Result<Option<String>, String> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows_sys::Win32::System::Registry::{
+        RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ,
+    };
+    let wide = |text: &str| {
+        std::ffi::OsStr::new(text).encode_wide()
+            .chain(std::iter::once(0_u16)).collect::<Vec<_>>()
+    };
+    let subkey = wide(r"Software\IWXA\SetupCore\Products\iwxa.admin-center");
+    let field = wide(name);
+    let mut len = 0_u32;
+    let status = unsafe {
+        RegGetValueW(HKEY_CURRENT_USER, subkey.as_ptr(), field.as_ptr(),
+            RRF_RT_REG_SZ, std::ptr::null_mut(), std::ptr::null_mut(), &mut len)
+    };
+    if status == 2 { return Ok(None); } // ERROR_FILE_NOT_FOUND
+    if status != 0 && status != 234 { // ERROR_MORE_DATA
+        return Err(format!("CENTER_SETUP_LOCATION_REGISTRY_{}", status));
+    }
+    if len < 2 || len > 8192 || len % 2 != 0 {
+        return Err("CENTER_SETUP_LOCATION_LENGTH_INVALID".into());
+    }
+    let mut units = vec![0_u16; len as usize / 2];
+    let status = unsafe {
+        RegGetValueW(HKEY_CURRENT_USER, subkey.as_ptr(), field.as_ptr(),
+            RRF_RT_REG_SZ, std::ptr::null_mut(),
+            units.as_mut_ptr().cast(), &mut len)
+    };
+    if status != 0 {
+        return Err(format!("CENTER_SETUP_LOCATION_READ_{}", status));
+    }
+    let end = units.iter().position(|unit| *unit == 0)
+        .unwrap_or(units.len());
+    let name = std::ffi::OsString::from_wide(&units[..end]);
+    Ok(Some(name.to_string_lossy().into_owned()))
+}
+
+fn center_owned_data_root(app: &AppHandle) -> Result<PathBuf, String> {
+    let default = path_for(app)?;
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(location) = center_hkcu_location("DataLocation")? {
+            let owned = center_hkcu_location("InstallLocation")?
+                .ok_or("CENTER_SETUP_OWNER_LOCATION_MISSING")?;
+            let current = std::env::current_exe()
+                .map_err(|_| "CENTER_SETUP_CURRENT_EXE_UNAVAILABLE")?;
+            let installed = PathBuf::from(owned);
+            let running_parent = current.parent()
+                .ok_or("CENTER_SETUP_CURRENT_ROOT_MISSING")?;
+            // A checkout, preview or renamed EXE must not take over the
+            // installed product's selected data store.
+            let registered = installed.canonicalize()
+                .map_err(|_| "CENTER_SETUP_OWNER_ROOT_UNAVAILABLE")?;
+            let running = running_parent.canonicalize()
+                .map_err(|_| "CENTER_SETUP_CURRENT_ROOT_UNAVAILABLE")?;
+            if !registered.to_string_lossy().eq_ignore_ascii_case(
+                &running.to_string_lossy()) {
+                return Ok(default);
+            }
+            let selected = PathBuf::from(location);
+            if !selected.is_absolute() || selected.parent().is_none() {
+                return Err("CENTER_SETUP_DATA_ROOT_INVALID".into());
+            }
+            return Ok(selected);
+        }
+    }
+    Ok(default)
+}
+
 // The current Center organisation ID is a local scope selector, not proof of
 // organisational access. T3 host admission must gate production activation.
 fn center_atlas_root_under(base: &Path, organization_id: &str) -> Result<PathBuf, String> {
@@ -13,7 +88,7 @@ fn center_atlas_root_under(base: &Path, organization_id: &str) -> Result<PathBuf
     Ok(base.join("organizations").join(organization_id))
 }
 fn center_atlas_root(app: &AppHandle, organization_id: &str) -> Result<PathBuf, String> {
-    center_atlas_root_under(&path_for(app)?, organization_id)
+    center_atlas_root_under(&center_owned_data_root(app)?, organization_id)
 }
 
 // Resolve only the fixed, same-user Atlas Desktop data root. The caller never
@@ -73,7 +148,7 @@ const CENTER_DRAFT_LIMIT: usize = 8 * 1024 * 1024;
 // File carriers stay opaque here; signatures are checked only by T3 receive().
 const CENTER_IWXA_CARRIER_LIMIT: usize = 32 * 1024 * 1024;
 fn center_draft_root(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(path_for(app)?.join("preparation"))
+    Ok(center_owned_data_root(app)?.join("preparation"))
 }
 fn center_draft_validate(content: &str) -> Result<(), String> {
     if content.len() > CENTER_DRAFT_LIMIT {
