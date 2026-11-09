@@ -161,7 +161,7 @@ try {
   await page.getByLabel('Идентификатор клиента').fill('11111111-1111-4111-8111-111111111111');
   await page.getByLabel('Название / имя').fill('Test Corporation');
   await page.getByRole('button',{name:'Сохранить клиента'}).click();
-  await page.getByText('Получатели (1)').waitFor();
+  await page.getByText('Клиенты (1)').waitFor();
   checks.push('create-organization-holder');
 
   await page.getByRole('button',{name:'Лицензии'}).click();
