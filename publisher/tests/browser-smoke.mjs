@@ -620,6 +620,9 @@ try {
   await personal.getByRole('button',{name:'Сохранить клиента'}).click();
   await personal.getByText('Клиенты (2)').waitFor();
   await personal.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
+  assert.equal(await personal.getByRole('button',{name:'Сохранить редакцию тарифа'}).isDisabled(),true,
+    'Newly reopened tariff editor must not reuse the previous product selection');
+  await personal.getByRole('combobox',{name:'Продукт',exact:true}).selectOption('IWXA_ATLAS');
   await personal.getByLabel('Код тарифа').fill('ATLAS_PERSONAL');
   await personal.getByLabel('Название тарифа').fill('Команда Atlas');
   await personal.getByLabel('Функции и модули').fill('WORKSPACES');
