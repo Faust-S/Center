@@ -1212,7 +1212,11 @@ namespace IwxaSetup
                 productName.Text = info.Name;
                 productName.AccessibleName = info.Name;
                 Text = info.Name + " — IWXA Setup";
-                string versionLine = T("Версия ", "Version ") + info.Version;
+                string versionLine =
+                    String.IsNullOrWhiteSpace(plan.InstalledVersion) ?
+                    T("Версия в пакете: ", "Package version: ") + info.Version :
+                    T("Установлено: ", "Installed: ") + plan.InstalledVersion +
+                    T("    ·    В пакете: ", "    ·    Package: ") + info.Version;
                 SetTechnicalReport(info, plan.Status, null);
 
                 if (plan.Status == "NO_OWNED_INSTALLATION")

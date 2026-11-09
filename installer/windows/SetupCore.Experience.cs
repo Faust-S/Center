@@ -36,6 +36,7 @@ namespace IwxaSetup
         private readonly Label journeyStage = new Label();
         private readonly Label draftNotice = new Label();
         private bool updatingLocationInputs;
+        private bool commonEditedByUser;
         private bool locationDraftChanged;
         private int currentExperiencePage;
 
@@ -498,6 +499,21 @@ namespace IwxaSetup
             commonStorageInput.Name = "iwxaSetupCommonRoot";
             commonStorageInput.Dock = DockStyle.Fill;
             commonStorageInput.Margin = new Padding(0, 3, 8, 4);
+            commonStorageInput.AccessibleName = T(
+                "Общая папка хранения", "Shared storage folder");
+            commonStorageInput.TextChanged += (sender, args) =>
+            {
+                if (updatingLocationInputs) return;
+                commonEditedByUser = true;
+                MarkLocationsChanged();
+            };
+            commonStorageInput.Leave += (sender, args) =>
+            {
+                if (!commonEditedByUser ||
+                    String.IsNullOrWhiteSpace(commonStorageInput.Text)) return;
+                try { ApplyCommonStorage(commonStorageInput.Text); }
+                catch (Exception ex) { ShowLocationError(ex); }
+            };
             common.Controls.Add(commonStorageInput, 0, 0);
             var chooseCommon = ExperienceButton("iwxaSetupBrowseCommon",
                 T("Выбрать…", "Browse…"), false);
@@ -743,7 +759,10 @@ namespace IwxaSetup
         {
             if (String.IsNullOrWhiteSpace(root)) return;
             string normalized = Path.GetFullPath(root.Trim());
-            commonStorageInput.Text = normalized;
+            updatingLocationInputs = true;
+            try { commonStorageInput.Text = normalized; }
+            finally { updatingLocationInputs = false; }
+            commonEditedByUser = false;
             string[] parts = {"Data", "Software", "Models", "Cache"};
             for (int i = 1; i <= 4; i++)
                 locationInputs[i].Text = Path.Combine(normalized, parts[i - 1]);
@@ -805,6 +824,7 @@ namespace IwxaSetup
                         paths.SoftwareRoot, paths.ModelsRoot,
                         paths.CacheRoot}[i - 1];
                 commonStorageInput.Text = CommonLocation(paths);
+                commonEditedByUser = false;
                 launchAtLogin.Checked = paths.StartWithWindows;
                 launchAfterSetup.Enabled =
                     inspectedStatus == "NO_OWNED_INSTALLATION" ||
@@ -848,6 +868,16 @@ namespace IwxaSetup
         private void RefreshExperience(BundleInfo info, UpgradeAssessment plan)
         {
             if (info == null || plan == null) return;
+            bool firstInstallation = plan.Status == "NO_OWNED_INSTALLATION";
+            journeyStage.Text = firstInstallation ?
+                T("ПЕРВАЯ УСТАНОВКА", "FIRST INSTALLATION") :
+                T("УПРАВЛЕНИЕ УСТАНОВЛЕННОЙ ПРОГРАММОЙ",
+                    "MANAGE INSTALLED APPLICATION");
+            description.Text = firstInstallation ?
+                T("Выберите расположения, проверьте компоненты и установите программу.",
+                    "Choose locations, review components and install.") :
+                T("Настройки, обновление, восстановление и удаление — в одном окне.",
+                    "Settings, updates, recovery and uninstall in one place.");
             SetupLocations paths = null;
             try
             {
@@ -884,10 +914,23 @@ namespace IwxaSetup
                 T("Уже установлена более новая версия. Этот пакет не заменит её. Используйте обслуживание установленной версии или выберите новое обновление.",
                   "A newer release is installed. This package cannot replace it. Use the installed release's maintenance or a newer update.") :
                 plan.Status == "NO_OWNED_INSTALLATION" ?
-                T("Программа ещё не установлена. Сначала выберите папки, затем выполните установку.",
-                  "The application is not installed. Choose folders, then install.") :
-                T("Здесь доступны действия, разрешённые состоянием установленной программы. Недоступные операции не запускаются.",
-                  "Only operations supported by the verified installed state are available.");
+                T("Программа ещё не установлена. Выберите расположения и параметры запуска, затем нажмите «Установить» на обзоре.",
+                  "The application is not installed. Choose folders and startup settings, then select Install on Overview.") :
+                plan.Status == "APPLICATION_RUNNING" ?
+                T("Программа сейчас открыта. Закройте её, затем нажмите «Проверить снова», чтобы продолжить обновление, восстановление или удаление.",
+                  "The application is running. Close it, then choose Check again to continue updating, repairing or uninstalling.") :
+                plan.Status == "UPGRADE_PENDING_CONFIRMATION" ||
+                plan.Status == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK" ?
+                T("Новая установка ожидает подтверждения. Откройте программу и проверьте свои данные. После проверки завершите обновление или верните прежнюю версию, если она доступна.",
+                  "The new installation awaits confirmation. Open the application and check your data. Then complete the update or restore the prior release if available.") :
+                plan.Status == "UPGRADE_RECOVERY_REQUIRED" ?
+                T("Предыдущая операция прервалась. Сначала восстановите предыдущую версию. Личные данные сохраняются.",
+                  "An earlier operation was interrupted. Restore the previous release before continuing. Personal data is preserved.") :
+                plan.Status == "WEBVIEW2_MISSING" ?
+                T("Для работы нужен Microsoft WebView2. Перейдите в «Компоненты» и установите его через интернет или из официального файла.",
+                  "Microsoft WebView2 is required. Open Components to install it online or from Microsoft's official file.") :
+                T("На этом экране показаны действия, доступные для установленной версии. Личные данные при обслуживании сохраняются.",
+                  "This page shows actions available for the installed release. Maintenance preserves your personal data.");
             RefreshExperienceButtons();
         }
 
