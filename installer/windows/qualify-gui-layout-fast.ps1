@@ -66,9 +66,9 @@ try {
     [IO.File]::WriteAllBytes($fixture, (New-Object byte[] 2097152))
     $cancelSource.Cancel()
     $copyArgs = New-Object 'System.Object[]' 4
-    $copyArgs[0] = $sourceRoot
-    $copyArgs[1] = $cancelledRoot
-    $copyArgs[2] = $cancelSource.Token
+    $copyArgs[0] = [string]$sourceRoot
+    $copyArgs[1] = [string]$cancelledRoot
+    $copyArgs[2] = [Threading.CancellationToken]$cancelSource.Token
     $copyArgs[3] = $null
     $cancelled = $false
     try {
@@ -82,7 +82,7 @@ try {
     if (!$cancelled -or (Test-Path -LiteralPath $cancelledRoot)) {
         throw 'SETUP_STORAGE_CANCEL_CREATED_TARGET'
     }
-    $copyArgs[1] = $copiedRoot
+    $copyArgs[1] = [string]$copiedRoot
     $copyArgs[2] = [Threading.CancellationToken]::None
     $null = $copyMethod.Invoke($null, $copyArgs)
     $after = Join-Path $copiedRoot 'model.fixture'
