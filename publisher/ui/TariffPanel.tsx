@@ -4,7 +4,7 @@ type Tariff={id:string;productId:string;name:string;holderType:'ORGANIZATION'|'P
 type Holder={id:string;name:string;type:'ORGANIZATION'|'PERSON'};
 type Product={id:string;name:string;version:string};
 type Draft={products:Product[];holders:Holder[];tariffs:Tariff[]};
-export default function TariffPanel({draft,busy,change}:{draft:Draft;busy:boolean;change:(cmd:Record<string,unknown>,message:string)=>Promise<void>}){
+export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft;busy:boolean;change:(cmd:Record<string,unknown>,message:string)=>Promise<void>;mode?:'full'|'offer'}){
  const [productId,setProductId]=useState('');
  const [id,setId]=useState('');const [name,setName]=useState('');
  const [holderType,setHolderType]=useState<'ORGANIZATION'|'PERSON'>('ORGANIZATION');
@@ -25,6 +25,7 @@ export default function TariffPanel({draft,busy,change}:{draft:Draft;busy:boolea
    deviceLimit:Number(deviceLimit),quotas:preparedQuotas},'Редакция тарифа сохранена. Лицензия не выдана.');
  }
  return <div data-testid="publisher-tariffs">
+  {mode==='full'&&<>
   <section className="card form-panel">
    <h2>Тарифы и лимиты</h2>
    <p className="muted">Один каталог для организаций и физических лиц. Сохранённая редакция не изменяет уже подготовленные условия.</p>
@@ -62,6 +63,7 @@ export default function TariffPanel({draft,busy,change}:{draft:Draft;busy:boolea
   <section className="card padded"><h2>Сохранённые тарифы ({draft.tariffs.length})</h2>
    {draft.tariffs.length===0?<p className="muted">Тарифов пока нет.</p>:draft.tariffs.map(t=><div className="simple-row" key={t.id+':'+t.revision}><div><strong>{t.name} · редакция {t.revision}</strong><small>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.holderType==='PERSON'?'Физическое лицо':'Организация'} · {t.termDays} дней</small><small>Мест: {t.productSeats} · сотрудников: {t.employeeLimit} · устройств: {t.deviceLimit} · функций: {t.features.length} · квот: {t.quotas.length}</small></div><span className="status neutral">Черновик</span></div>)}
   </section>
+  </>}
   <section className="card form-panel" data-testid="publisher-tariff-proposal"><h2>Подготовить лицензию</h2>
    <p className="muted">Условия выбранной редакции сохраняются в запросе. Лицензия без подписи не действует.</p>
    {draft.tariffs.length===0?<p className="muted">Сначала создайте тариф.</p>:<>

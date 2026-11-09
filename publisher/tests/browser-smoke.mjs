@@ -155,7 +155,7 @@ try {
   checks.push('create-organization-holder');
 
   await page.getByRole('button',{name:'Лицензии'}).click();
-  await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
+  await page.getByTestId('publisher-tariff-proposal').waitFor();
   await page.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
   await page.getByRole('button',{name:'Лицензии'}).click();
   await page.getByText('Подготовленные запросы (1)').waitFor();
@@ -353,6 +353,8 @@ try {
   assert.match(personPreview,/Устройства: 3/);
   assert.doesNotMatch(personPreview,/Сотрудники:/);
   assert.match(personPreview,/Неподписанная подготовка/);
+  await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
+  await personal.getByTestId('publisher-tariff-proposal').waitFor();
   await personal.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
   const directDraft=JSON.parse(await personal.evaluate(()=>sessionStorage.getItem('iwxa-publisher-person-fixture')));
   assert.equal(directDraft.proposals[0].tariffSnapshot.holderType,'PERSON');

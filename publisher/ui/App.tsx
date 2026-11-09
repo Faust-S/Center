@@ -295,7 +295,7 @@ export default function App(){
          <section className="card padded" data-testid="publisher-preparation-backup">
            <h2>Резервная копия черновиков</h2>
            <p className="muted">Включает только каталог продуктов, получателей, неподписанные запросы и записи проверок файлов. Подписанных лицензий, решений о публикации и ключей издателя в этой копии нет.</p>
-           <p className="muted">Восстановление заменит текущие черновики после отдельного подтверждения. Выберите сохранённый JSON-файл.</p>
+           <p className="muted">Восстановление заменит текущие черновики после отдельного подтверждения. Выберите файл резервной копии.</p>
            <div className="actions">
              <button type="button" className="secondary" disabled={!nativeHost||busy} onClick={()=>void exportPreparationBackup()}>Сохранить копию черновиков</button>
              <button type="button" className="secondary" disabled={!nativeHost||busy} onClick={()=>void restorePreparationBackup()}>Восстановить черновики</button>
@@ -334,7 +334,7 @@ export default function App(){
          <section className="card padded"><h2>Получатели ({state.holders.length})</h2>{state.holders.length===0?<p className="muted">Получателей пока нет.</p>:state.holders.map(h=><div key={h.id} className="simple-row"><div><strong>{h.name}</strong><small>{typeLabel(h.type)} · {h.id}</small></div><span className="status neutral">Подготовка</span></div>)}</section>
        </>}
        {page==='proposals'&&<>
-          <section className="card padded"><h2>Подготовка по тарифу</h2><p className="muted">Для новых лицензий укажите тариф и его редакцию. Условия сохраняются вместе с черновиком.</p><button className="secondary" type="button" onClick={()=>go('tariffs')}>Открыть тарифы и лимиты</button></section>
+          <TariffPanel draft={state} busy={busy} change={change} mode="offer"/>
          <section className="card form-panel"><h2>Простой TEST-запрос (совместимость)</h2><p className="muted">Создание запроса не создаёт подписанной лицензии и не меняет права получателя.</p>
          {state.products.length===0||state.holders.length===0?<div className="notice">Для запроса необходимо сначала создать продукт и получателя.</div>:<form onSubmit={e=>{e.preventDefault();void change({kind:'addProposal',productId:activeProduct,holderId:activeHolder,features:features.split(',').map(x=>x.trim()).filter(Boolean),termDays:Number(termDays)},'Черновик запроса сохранён. Лицензия не выдана.');}}>
            <div className="form-grid"><label>Продукт<select value={activeProduct} onChange={e=>setProposalProduct(e.target.value)}>{state.products.map(p=><option key={p.id} value={p.id}>{p.name} ({p.version})</option>)}</select></label>

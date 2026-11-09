@@ -402,7 +402,7 @@ try {
   Capture-Installed-Desktop 'publisher-desktop-iwxa-transfer.png'
    # Exercise new tariff proposal only after the legacy request, backup, and
    # exact .iwxa transport have been independently verified.
-   Click-Publisher 'Тарифы и лимиты'
+   Click-Publisher 'Лицензии'
    Click-Publisher 'Сохранить подготовку по тарифу'
    $offer=$null
    for($i=0;$i -lt 60;$i++){
