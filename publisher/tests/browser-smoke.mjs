@@ -116,8 +116,8 @@ try {
   assert.ok(!brandSvg.includes('#B6F24B'),'Publisher still uses Agent green background');
   const logoStyle=await mark.evaluate(el=>({w:el.getBoundingClientRect().width,loaded:el.complete&&el.naturalWidth>0}));
   assert.ok(logoStyle.loaded&&logoStyle.w>=36,'Publisher mark not rendered in agent shell');
-  assert.equal(await page.locator('nav[aria-label="Разделы Publisher"] .nav-link svg').count(),6);
-  checks.push('agent-exact-ix-glyph-white-logo-and-six-vector-navigation-icons');
+  assert.equal(await page.locator('nav[aria-label="Разделы Publisher"] .nav-link svg').count(),7);
+  checks.push('agent-exact-ix-glyph-white-logo-and-seven-vector-navigation-icons');
   assert.equal(await page.getByRole('button',{name:'Сохранить копию черновиков'}).isEnabled(),true);
   assert.equal(await page.getByRole('button',{name:'Восстановить черновики'}).isEnabled(),true);
   assert.match(await page.getByTestId('publisher-preparation-backup').innerText(),/ключей издателя в этой копии нет/);
@@ -131,17 +131,29 @@ try {
   await page.getByText('Продукты (1)').waitFor();
   checks.push('create-product-draft');
 
-  await page.getByRole('button',{name:'Получатели'}).click();
+  await page.getByRole('button',{name:'Тарифы и лимиты'}).click();
+  await page.getByLabel('Код тарифа').fill('TEAM');
+  await page.getByLabel('Название тарифа').fill('Команда');
+  await page.getByLabel('Функции и модули').fill('FEATURE_A,FEATURE_B');
+  await page.getByRole('button',{name:'Сохранить редакцию тарифа'}).click();
+  await page.getByText('Сохранённые тарифы (1)').waitFor();
+  checks.push('versioned-offline-tariff-draft');
+  await page.getByRole('button',{name:'Клиенты'}).click();
   await page.getByLabel('Идентификатор субъекта').fill('11111111-1111-4111-8111-111111111111');
   await page.getByLabel('Название / имя').fill('Test Corporation');
   await page.getByRole('button',{name:'Сохранить получателя'}).click();
   await page.getByText('Получатели (1)').waitFor();
   checks.push('create-organization-holder');
 
-  await page.getByRole('button',{name:'Запросы на лицензии'}).click();
+  await page.getByRole('button',{name:'Лицензии'}).click();
+  await page.getByRole('button',{name:'Тарифы и лимиты'}).click();
+  await page.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
+  await page.getByRole('button',{name:'Лицензии'}).click();
+  await page.getByText('Подготовленные запросы (1)').waitFor();
+  checks.push('tariff-proposal-unsigned-snapshot');
   await page.getByLabel('Функции (коды через запятую)').fill('FEATURE_A,FEATURE_B');
   await page.getByRole('button',{name:'Сохранить запрос'}).click();
-  await page.getByText('Подготовленные запросы (1)').waitFor();
+  await page.getByText('Подготовленные запросы (2)').waitFor();
   assert.match(await page.locator('main').innerText(),/Не выдано/);
   checks.push('proposal-not-issued');
   await page.getByLabel('Места для TEST-запроса').fill('3');
@@ -193,12 +205,12 @@ try {
   await page.getByText('Пакет .iwxa выпущен T3 и подтверждён повторным чтением.').waitFor();
   assert.match(await page.getByTestId('publisher-t3-owner-panel').innerText(),/Активных мест: 0/);
   checks.push('publisher-owner-operations-through-native-IPC-model-only-no-commercial-seats');
-  await page.getByRole('button',{name:'Запросы на лицензии'}).click();
+  await page.getByRole('button',{name:'Лицензии'}).click();
 
   await page.reload();
-  await page.getByRole('button',{name:'Запросы на лицензии'}).click();
+  await page.getByRole('button',{name:'Лицензии'}).click();
   assert.equal(await page.getByTestId('publisher-test-simulation-result').count(),0,'simulation was incorrectly persisted');
-  await page.getByText('Подготовленные запросы (1)').waitFor();
+  await page.getByText('Подготовленные запросы (2)').waitFor();
   assert.match(await page.locator('main').innerText(),/Test Corporation/);
   checks.push('same-origin-restart-persistence');
 
@@ -226,7 +238,7 @@ try {
   assert.ok(dimensions.body<=dimensions.viewport && dimensions.doc<=dimensions.viewport,JSON.stringify(dimensions));
   checks.push('compact-desktop-navigation-no-horizontal-overflow');
   await page.getByRole('button',{name:'Открыть навигацию'}).click();
-  await page.getByRole('button',{name:'Запросы на лицензии'}).click();
+  await page.getByRole('button',{name:'Лицензии'}).click();
   const requestWidth=await page.evaluate(()=>Math.max(document.body.scrollWidth,document.documentElement.scrollWidth));
   assert.ok(requestWidth<=700,'TEST request interface overflows desktop minimum 700px: '+requestWidth);
   checks.push('compact-desktop-test-license-request-no-horizontal-overflow');

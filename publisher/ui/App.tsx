@@ -3,14 +3,16 @@ import { emptyPublisherDraft, decodePublisherDraft, encodePublisherDraft, applyP
 import { prepareTestLicenseRequest, encodeTestLicenseRequest, suggestedTestRequestFileName } from '../src/test-license-request.mjs';
 import {simulateIssuerEvent} from '../src/issuer-simulation.mjs';
 import PublisherT3OwnerPanel from './PublisherT3OwnerPanel';
+import TariffPanel from './TariffPanel';
 import '../../src/style.css';
 import './style.css';
 
 type Product = {id:string;name:string;version:string};
 type Holder = {id:string;name:string;type:'PERSON'|'ORGANIZATION'};
-type Proposal = {id:string;productId:string;holderId:string;features:string[];termDays:number;createdAt:string;status:'DRAFT_NOT_ISSUED'};
+type Tariff={id:string;productId:string;name:string;holderType:'ORGANIZATION'|'PERSON';revision:number;features:string[];termDays:number;productSeats:number;employeeLimit:number;deviceLimit:number;quotas:{metric:string;service:'LOCAL'|'CLOUD';unit:string;period:string;max:number}[]};
+type Proposal = {id:string;productId:string;holderId:string;features:string[];termDays:number;createdAt:string;status:'DRAFT_NOT_ISSUED';productVersion?:string;tariffSnapshot?:Tariff};
 type Artifact = {id:string;productId:string;version:string;platform:string;sourceRepository:string;sourceCommit:string;sourceTree:string;name:string;size:number;sha256:string;createdAt:string;status:'BYTES_INSPECTED_NOT_APPROVED'};
-type Draft = {format:string;version:number;products:Product[];holders:Holder[];proposals:Proposal[];artifacts:Artifact[];updatedAt:string};
+type Draft = {format:string;version:number;products:Product[];holders:Holder[];tariffs:Tariff[];proposals:Proposal[];artifacts:Artifact[];updatedAt:string};
 type Inspection = {name:string;size:number;sha256:string};
 type OfflineCopiesCheck = {
  name:string;size:number;sha256:string;copiesChecked:number;
@@ -19,16 +21,17 @@ type OfflineCopiesCheck = {
  signedReleaseMetadataVerified:boolean;
 };
 type IwxaTransfer={size:number;sha256:string;integrityVerified:false;signatureVerified:false;statusVerified:false;activeSeats:0;productionActivation:false;};
-type Page = 'overview'|'products'|'holders'|'proposals'|'releases'|'trust';
+type Page = 'overview'|'products'|'tariffs'|'holders'|'proposals'|'releases'|'trust';
 const navigation: [Page,string][] = [
- ['overview','Обзор'],['products','Продукты'],['holders','Получатели'],
- ['proposals','Запросы на лицензии'],['releases','Релизы'],['trust','Доверие и ключи']
+ ['overview','Обзор'],['products','Продукты'],['tariffs','Тарифы и лимиты'],['holders','Клиенты'],
+ ['proposals','Лицензии'],['releases','Релизы'],['trust','Доверие и ключи']
 ];
 function PublisherNavIcon({section}:{section:Page}){
  return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
    {section==='overview'&&<><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/></>}
    {section==='products'&&<><path d="m3 7 9-4 9 4v10l-9 4-9-4Z"/><path d="m3 7 9 4 9-4M12 11v10"/></>}
-   {section==='holders'&&<><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20v-2a6.5 6.5 0 0 1 13 0v2M17 5a3 3 0 0 1 0 6M17 14a5.5 5.5 0 0 1 4.5 5.5V20"/></>}
+   {section==='tariffs'&&<><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></>}
+    {section==='holders'&&<><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20v-2a6.5 6.5 0 0 1 13 0v2M17 5a3 3 0 0 1 0 6M17 14a5.5 5.5 0 0 1 4.5 5.5V20"/></>}
    {section==='proposals'&&<><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></>}
    {section==='releases'&&<><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 15v5h16v-5"/></>}
    {section==='trust'&&<><path d="M12 2 20 6v6c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6Z"/><path d="m9 12 2 2 4-4"/></>}
@@ -273,7 +276,8 @@ export default function App(){
            <div className="card metric publisher-metric"><span>Получатели</span><strong>{state.holders.length}</strong><small>Привязанные идентификаторы</small></div>
            <div className="card metric publisher-metric"><span>Черновики запросов</span><strong>{state.proposals.length}</strong><small>Без выданных лицензий</small></div>
          </div>
-         <section className="hero publisher-hero">
+         <section className="card padded"><strong>Тарифы и лимиты ({state.tariffs.length})</strong><p className="muted">Организации и физические лица получают разные маршруты выдачи. Сохранённые тарифы пока не являются лицензиями.</p><button className="secondary" type="button" onClick={()=>go('tariffs')}>Открыть тарифы</button></section>
+          <section className="hero publisher-hero">
            <div className="publisher-hero-body">
              <div className="publisher-hero-copy">
                <div className="eyebrow">РАБОТА ИЗДАТЕЛЯ</div>
@@ -320,8 +324,9 @@ export default function App(){
          </section>
          <section className="card padded"><h2>Продукты ({state.products.length})</h2>{state.products.length===0?<p className="muted">Каталог пуст. Ни один продукт не допущен к распространению.</p>:state.products.map(p=><div className="simple-row" key={p.id}><div><strong>{p.name}</strong><small>{p.id} · {p.version}</small></div><span className="status neutral">Черновик</span></div>)}</section>
        </>}
-       {page==='holders'&&<>
-         <section className="card form-panel"><h2>Новый получатель</h2><form onSubmit={e=>{e.preventDefault();void change({kind:'addHolder',id:holderSourceId.trim(),name:holderName.trim(),type:holderType},'Получатель добавлен в локальный черновик.');setHolderName('');setHolderSourceId('');}}>
+       {page==='tariffs'&&<TariffPanel draft={state} busy={busy} change={change}/>}
+        {page==='holders'&&<>
+         <section className="card form-panel"><h2>Новый клиент</h2><form onSubmit={e=>{e.preventDefault();void change({kind:'addHolder',id:holderSourceId.trim(),name:holderName.trim(),type:holderType},'Получатель добавлен в локальный черновик.');setHolderName('');setHolderSourceId('');}}>
            <p className="muted">Укажите точный идентификатор субъекта из Admin Center или исходной системы. Запись здесь не создаёт организационных полномочий.</p>
            <div className="form-grid"><label>Идентификатор субъекта<input required maxLength={90} placeholder="UUID организации из Admin Center" value={holderSourceId} onChange={e=>setHolderSourceId(e.target.value)}/></label><label>Название / имя<input required maxLength={130} value={holderName} onChange={e=>setHolderName(e.target.value)}/></label>
            <label>Тип субъекта<select value={holderType} onChange={e=>setHolderType(e.target.value as Holder['type'])}><option value="ORGANIZATION">Организация</option><option value="PERSON">Физическое лицо</option></select></label></div>
@@ -329,6 +334,7 @@ export default function App(){
          <section className="card padded"><h2>Получатели ({state.holders.length})</h2>{state.holders.length===0?<p className="muted">Получателей пока нет.</p>:state.holders.map(h=><div key={h.id} className="simple-row"><div><strong>{h.name}</strong><small>{typeLabel(h.type)} · {h.id}</small></div><span className="status neutral">Подготовка</span></div>)}</section>
        </>}
        {page==='proposals'&&<>
+          <section className="card padded"><h2>Подготовка по тарифу</h2><p className="muted">Для новых лицензий укажите тариф и его редакцию. Условия сохраняются вместе с черновиком.</p><button className="secondary" type="button" onClick={()=>go('tariffs')}>Открыть тарифы и лимиты</button></section>
          <section className="card form-panel"><h2>Подготовить запрос на лицензию</h2><p className="muted">Создание запроса не создаёт подписанной лицензии и не меняет права получателя.</p>
          {state.products.length===0||state.holders.length===0?<div className="notice">Для запроса необходимо сначала создать продукт и получателя.</div>:<form onSubmit={e=>{e.preventDefault();void change({kind:'addProposal',productId:activeProduct,holderId:activeHolder,features:features.split(',').map(x=>x.trim()).filter(Boolean),termDays:Number(termDays)},'Черновик запроса сохранён. Лицензия не выдана.');}}>
            <div className="form-grid"><label>Продукт<select value={activeProduct} onChange={e=>setProposalProduct(e.target.value)}>{state.products.map(p=><option key={p.id} value={p.id}>{p.name} ({p.version})</option>)}</select></label>
@@ -341,7 +347,7 @@ export default function App(){
             <p className="muted">Экспорт TEST-запроса для будущего оригинального издателя T3. Файл не подписан и не предоставляет права Admin Center.</p>
             <label>Места для TEST-запроса<input aria-label="Места для TEST-запроса" type="number" min={1} max={10000} value={testSeats} onChange={e=>setTestSeats(e.target.value)}/></label>
           </div>}
-         {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small></div><span className="status neutral">Не выдано</span>
+         {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small>{p.tariffSnapshot&&<small>{p.tariffSnapshot.name} · редакция {p.tariffSnapshot.revision} · места {p.tariffSnapshot.productSeats} · сотрудники {p.tariffSnapshot.employeeLimit} · устройства {p.tariffSnapshot.deviceLimit} · {p.tariffSnapshot.holderType==='PERSON'?'Напрямую в продукт':'Через Admin Center'}</small>}</div><span className="status neutral">Не выдано</span>
             <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>void exportTestRequest(p.id)}>Подготовить TEST-запрос</button>
             <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>simulateTestDecision(p.id)}>Моделировать TEST-ответ</button>
             <button className="quiet" disabled={busy} type="button" onClick={()=>void change({kind:'removeProposal',id:p.id},'Черновик удалён.')}>Удалить</button></div>)}
