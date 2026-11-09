@@ -5,6 +5,11 @@ on:
 permissions:
   contents: read
   actions: read
+# Cancel an older full-CI run that GitHub queued when this temporary work/
+# branch was first created. Only this build-only preview job should execute.
+concurrency:
+  group: center-${{ github.ref }}-full
+  cancel-in-progress: true
 jobs:
   preview-build-only:
     runs-on: windows-latest
