@@ -20,7 +20,8 @@
     "@tauri-apps/api": "2.12.3",
     "@tauri-apps/plugin-dialog": "2.7.2",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "fflate": "0.8.3"
   },
   "devDependencies": {
     "@types/react": "19.2.2",

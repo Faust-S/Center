@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
-import {readAtlasPortfolio, linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback} from './atlas-integration.mjs';
+import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback} from './atlas-integration.mjs';
+import {readAtlasSourceFile} from './atlas-file-import.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
 import Cen04LicensePanel from './Cen04LicensePanel';
@@ -39,6 +40,9 @@ const errors: Record<string,string> = {
   AGENT_SEAT_PLAN_INVALID:'Не удалось изменить план доступа к Personal Agent.',
   ATLAS_SNAPSHOT_INVALID:'Не удалось прочитать портфель Atlas. Выберите корректный файл экспорта.',
   ATLAS_SNAPSHOT_SIZE_INVALID:'Файл Atlas слишком велик для предварительного просмотра.',
+  ATLAS_SOURCE_FILE_INVALID:'Выберите архив проектов .iwxa или ранее сохранённую копию JSON.',
+  ATLAS_SOURCE_FILE_SIZE_INVALID:'Файл проекта пуст или превышает допустимый размер.',
+  ATLAS_SOURCE_IWXA_INVALID:'Не удалось открыть архив .iwxa. Файл повреждён или содержит неподдерживаемые данные.',
   ATLAS_PROJECT_NOT_IN_PREVIEW:'Выбранный проект отсутствует в открытом портфеле Atlas.',
   ATLAS_WORK_NOT_IN_PREVIEW:'Выбранная работа отсутствует в открытом проекте Atlas.'
 };
@@ -215,12 +219,12 @@ export default function App() {
     const sourceOrganizationId=org?.id;
     if(!sourceOrganizationId){setError('Сначала выберите организацию.');return;}
     try {
-      const preview=readAtlasPortfolio(await file.text()) as AtlasPortfolioView;
+      const {view:preview,format}=await readAtlasSourceFile(file) as {view:AtlasPortfolioView;format:'iwxa'|'json'};
       // File reading may finish after the manager selected another organization.
       if(activeOrganizationRef.current!==sourceOrganizationId)return;
       setAtlasFile({organizationId:sourceOrganizationId,view:preview});
       setAtlasSelected(preview.projects[0]?.id??'');
-      setError('');setMessage(`Портфель Atlas прочитан: ${preview.projects.length} проектов. Это просмотр выбранного файла, не живая синхронизация.`);
+      setError('');setMessage('Портфель Atlas прочитан: '+preview.projects.length+' проектов. '+(format==='iwxa'?'Архив .iwxa открыт для просмотра. Данные не скопированы в Center, синхронизация не включена.':'Это просмотр выбранного файла, не живая синхронизация.'));
     } catch(e){if(activeOrganizationRef.current===sourceOrganizationId)problem(e);}
   };
   const selectOrg = (organizationId: string) => {
@@ -337,8 +341,8 @@ export default function App() {
         <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>setNativeAtlas(view?{organizationId:id,view}:null)}/>
         <div className="card nested-form" data-testid="atlas-link-panel">
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
-          <p className="muted">Откройте файл портфеля из Atlas. Admin Center читает настоящую модель Atlas и показывает проекты, работы и зависимости. Данные проекта не копируются в корпоративные черновики.</p>
-          <input type="file" hidden ref={atlasInput} accept=".json,application/json" data-testid="atlas-import-file" onChange={async e=>{const file=e.target.files?.[0];if(file)await importAtlas(file);e.target.value='';}} />
+          <p className="muted">Откройте архив проектов .iwxa из Atlas. Старые копии JSON также поддерживаются. Можно просмотреть проекты, работы и связи и подготовить поручение. Данные проекта не переносятся в Center, права организации не меняются.</p>
+          <input type="file" hidden ref={atlasInput} accept=".iwxa,.json,application/json,application/octet-stream" data-testid="atlas-import-file" onChange={async e=>{const file=e.target.files?.[0];if(file)await importAtlas(file);e.target.value='';}} />
           {atlasView ? <>
             <div className="metrics atlas-summary">
               <div className="card metric"><span>Проекты Atlas</span><strong data-testid="atlas-project-count">{atlasView.projects.length}</strong></div>

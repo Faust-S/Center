@@ -28,6 +28,19 @@ try{
   const atlas=serialize(work.state);
   await page.getByTestId('atlas-import-file').setInputFiles({name:'atlas.json',mimeType:'application/json',buffer:Buffer.from(atlas)});
   assert.equal(await page.getByTestId('atlas-project-count').textContent(),'1');
+  const {buildIwxaPortfolio}=await import('../vendor/atlas/desktop/src/iwxa-portfolio.mjs');
+  const iwxa=await buildIwxaPortfolio(work.state,{now:'2026-11-09T10:00:00.000Z'});
+  const corrupt=Uint8Array.from(iwxa);corrupt[corrupt.length-30]^=1;
+  await page.getByTestId('atlas-import-file').setInputFiles({
+    name:'tampered.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(corrupt)});
+  await page.getByRole('alert').waitFor({state:'visible'});
+  assert.equal(await page.getByTestId('atlas-project-count').textContent(),'1');
+  await page.getByTestId('atlas-import-file').setInputFiles({
+    name:'atlas.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(iwxa)});
+  await page.getByText(/Архив .iwxa открыт для просмотра/).waitFor({state:'visible'});
+  assert.equal(await page.getByTestId('atlas-project-count').textContent(),'1');
+  assert.equal(await page.getByTestId('atlas-revision').textContent(),String(work.state.revision));
+  checks.push('atlas-iwxa-real-file-picker-valid-and-tampered-archive-rejected');
   await page.getByTestId('link-atlas').click();
   checks.push('atlas-real-portfolio-project-selection-and-link');
   await page.getByTestId('nav-people').click();
