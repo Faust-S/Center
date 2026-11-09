@@ -123,6 +123,10 @@ jobs:
         shell: pwsh
         timeout-minutes: 5
         run: ./installer/windows/test-native-package.ps1
+      - name: Model both first-install data choices on real native Windows
+        shell: powershell
+        timeout-minutes: 7
+        run: ./installer/windows/qualify-first-install-data-transfer.ps1 -Bundle artifacts/iwxa-setup-core-center-0.3-preview.exe
       - name: Qualify signed V2 Setup Core installation lifecycle (test certificate only)
         shell: pwsh
         timeout-minutes: 6

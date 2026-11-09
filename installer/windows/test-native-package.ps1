@@ -1210,12 +1210,16 @@ try {
             throw 'SETUP_VISUAL_PRODUCT_TITLE_UIA_MISSING'
         }
         $titleBounds = $titleElement.Current.BoundingRectangle
-        $minLeft = $windowBounds.Left + $windowBounds.Width * 0.265
-        if ($titleBounds.Left -lt $minLeft) {
-            throw ('SETUP_VISUAL_SIDEBAR_OVERLAP titleLeft={0} requiredLeft={1}' -f
-                $titleBounds.Left, $minLeft)
+        # Unified UX has no sidebar; the product title belongs at the upper
+        # left of the native window and must not be shifted off-screen.
+        $minLeft = $windowBounds.Left + 40
+        $maxLeft = $windowBounds.Left + $windowBounds.Width * 0.40
+        if ($titleBounds.Left -lt $minLeft -or
+            $titleBounds.Left -gt $maxLeft) {
+            throw ('SETUP_VISUAL_UNIFIED_TITLE_POSITION_INVALID titleLeft={0} expected={1}-{2}' -f
+                $titleBounds.Left, $minLeft, $maxLeft)
         }
-        Write-Host ('IWXA_SETUP_VISUAL_NO_SIDEBAR_OVERLAP_PASS titleLeft={0}' -f
+        Write-Host ('IWXA_SETUP_VISUAL_UNIFIED_TITLE_PASS titleLeft={0}' -f
             $titleBounds.Left)
 
     } finally {
