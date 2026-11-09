@@ -800,6 +800,47 @@ try {
             cacheRoot=$moveCache
             startWithWindows=$true
         } | ConvertTo-Json | Set-Content -LiteralPath $moveRequest -Encoding UTF8
+        # Reject disconnected TARGET storage even when no source files exist
+        # in that category. Preserve original registry locations.
+        $badMoveRequest = Join-Path $artifact 'setup-core-migrate-unavailable-target.json'
+        [pscustomobject]@{
+            schema='IWXA_SETUP_LOCATIONS/1'
+            programRoot=$customRoot
+            dataRoot=$moveData
+            softwareRoot=$moveSoftware
+            modelsRoot=$moveModels
+            cacheRoot=($unusedVolume + 'IWXA Setup Native Fixture\Offline Cache')
+            startWithWindows=$true
+        } | ConvertTo-Json | Set-Content -LiteralPath $badMoveRequest -Encoding UTF8
+        $deniedTarget = Invoke-Custom $bundle '--migrate-locations-file' (
+            $badMoveRequest) (
+            Join-Path $artifact 'setup-core-storage-unavailable-target.json') '' 2
+        if ($deniedTarget.status -ne 'ERROR' -or
+            $deniedTarget.reason -notlike 'SETUP_STORAGE_VOLUME_UNAVAILABLE_*' -or
+            (Get-ItemProperty 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center').DataLocation -ne $customDataRoot -or
+            (Test-Path -LiteralPath $moveData)) {
+            throw 'SETUP_DISCONNECTED_TARGET_PUBLISHED_LOCATIONS'
+        }
+        Write-Host 'IWXA_SETUP_DISCONNECTED_TARGET_NO_PUBLICATION_PASS'
+        # Simulate a previously registered source on an unplugged drive.
+        # Never infer it is empty or discard its existing location.
+        $ownerKey = 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center'
+        $offlineOriginal = $unusedVolume + 'IWXA Setup Native Fixture\Old Cache'
+        Set-ItemProperty -Path $ownerKey -Name CacheLocation -Value $offlineOriginal
+        try {
+            $deniedSource = Invoke-Custom $bundle '--migrate-locations-file' (
+                $moveRequest) (
+                Join-Path $artifact 'setup-core-storage-unavailable-source.json') '' 2
+            if ($deniedSource.status -ne 'ERROR' -or
+                $deniedSource.reason -notlike 'SETUP_STORAGE_SOURCE_VOLUME_UNAVAILABLE_*' -or
+                (Get-ItemProperty -Path $ownerKey).CacheLocation -ne $offlineOriginal -or
+                (Test-Path -LiteralPath $moveData)) {
+                throw 'SETUP_DISCONNECTED_SOURCE_SILENTLY_ABANDONED'
+            }
+        } finally {
+            Set-ItemProperty -Path $ownerKey -Name CacheLocation -Value $customCacheRoot
+        }
+        Write-Host 'IWXA_SETUP_DISCONNECTED_SOURCE_PRESERVED_PASS'
         # Real Windows conflict: a foreign Startup shortcut must block
         # storage relocation BEFORE new data paths are published. Once the
         # conflict is removed, this same request must also enable startup.

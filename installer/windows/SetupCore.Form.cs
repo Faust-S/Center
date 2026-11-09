@@ -953,6 +953,9 @@ namespace IwxaSetup
             if (raw == "SETUP_SETTINGS_READBACK_MISMATCH")
                 return T("Windows не подтвердила все выбранные параметры. Откройте настройки, проверьте действующие папки и запуск, затем повторите попытку.",
                     "Windows did not confirm all selected settings. Review active storage locations and startup, then retry.");
+            if (raw.StartsWith("SETUP_STORAGE_SOURCE_VOLUME_UNAVAILABLE", StringComparison.Ordinal))
+                return T("Исходное хранилище находится на отключённом диске. Подключите диск перед переносом: иначе не получится сохранить все файлы.",
+                    "The original storage is on a disconnected drive. Reconnect it before moving files so nothing is left behind.");
             if (raw.StartsWith("SETUP_STORAGE_VOLUME_UNAVAILABLE", StringComparison.Ordinal))
                 return T("Один из выбранных дисков недоступен. Подключите его или выберите другую папку. Данные не изменены.",
                     "One of the selected drives is unavailable. Reconnect it or choose another folder. Your data was not changed.");

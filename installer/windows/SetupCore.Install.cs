@@ -202,17 +202,19 @@ namespace IwxaSetup
                 choices.SoftwareRoot, choices.ModelsRoot, choices.CacheRoot })
             {
                 string volume = Path.GetPathRoot(ValidateInstallRoot(path));
-                try
-                {
-                    if (String.IsNullOrWhiteSpace(volume) ||
-                        !(new DriveInfo(volume)).IsReady)
-                        return volume;
-                }
-                catch (ArgumentException) { return volume; }
-                catch (IOException) { return volume; }
-                catch (UnauthorizedAccessException) { return volume; }
+                if (!IsStorageVolumeReady(volume))
+                    return volume;
             }
             return null;
+        }
+
+        private static bool IsStorageVolumeReady(string volume)
+        {
+            if (String.IsNullOrWhiteSpace(volume)) return false;
+            try { return (new DriveInfo(volume)).IsReady; }
+            catch (ArgumentException) { return false; }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
         }
 
         // Estimate destination space on each drive BEFORE any copy starts.
@@ -348,6 +350,21 @@ namespace IwxaSetup
                         moved.Add(new StorageCopy {
                             Original = oldRoots[i], Destination = newRoots[i]
                         });
+                    }
+                    string unavailable = UnavailableStorageVolume(chosen);
+                    if (!String.IsNullOrWhiteSpace(unavailable))
+                        throw new IOException("SETUP_STORAGE_VOLUME_UNAVAILABLE_" +
+                            unavailable);
+                    // A disconnected source looks like an empty folder to
+                    // Directory.Exists. Do not abandon a user's old data by
+                    // treating an offline drive as an empty storage category.
+                    foreach (StorageCopy copy in moved)
+                    {
+                        string sourceVolume = Path.GetPathRoot(copy.Original);
+                        if (!IsStorageVolumeReady(sourceVolume))
+                            throw new IOException(
+                                "SETUP_STORAGE_SOURCE_VOLUME_UNAVAILABLE_" +
+                                sourceVolume);
                     }
                     // Abort before creating staging directories or changing any
                     // registry preferences when the selected drives are too full.
