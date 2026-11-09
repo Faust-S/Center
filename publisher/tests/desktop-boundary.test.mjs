@@ -116,3 +116,22 @@ test('product and client drafts keep their form values when native persistence f
  assert.match(smoke,/product-native-save-failure-retains-form-and-success-is-inline/);
  assert.match(smoke,/client-native-save-failure-retains-form-and-success-is-inline/);
 });
+
+
+test('tariff creation and original T3 TEST issue require explicit product and seat count',()=>{
+ const tariff=read('publisher/ui/TariffPanel.tsx');
+ const t3=read('publisher/ui/PublisherT3OwnerPanel.tsx');
+ const browser=read('publisher/tests/browser-smoke.mjs');
+ const installed=read('publisher/tests/installed-windows-publisher.ps1');
+ assert.match(tariff,/const selectedProduct=draft\.products\.find/);
+ assert.match(tariff,/productId:selectedProduct/);
+ assert.match(tariff,/<option value="">Выберите продукт<\/option>/);
+ assert.doesNotMatch(tariff,/productId:productId\|\|draft\.products\[0\]/);
+ assert.match(t3,/const \[seats,setSeats\]=useState\(''\)/);
+ assert.match(t3,/const seatsValid=/);
+ assert.match(t3,/seatLimit=selectedProposal\?\.tariffSnapshot\?\.productSeats\?\?10000/);
+ assert.match(t3,/setProposalId\(e\.target\.value\);setSeats\(''\)/);
+ assert.match(t3,/publisher-t3-issue-preview/);
+ assert.match(browser,/t3-owner-seats-explicit-and-scoped-to-saved-tariff/);
+ assert.match(installed,/PUBLISHER_NATIVE_EXPLICIT_TARIFF_PRODUCT_PASS/);
+});

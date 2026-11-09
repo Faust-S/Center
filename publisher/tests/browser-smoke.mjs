@@ -175,6 +175,11 @@ try {
   checks.push('create-product-draft');
 
   await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
+  const createTariff=page.getByRole('button',{name:'Сохранить редакцию тарифа'});
+  assert.equal(await createTariff.isDisabled(),true,'Tariff editor must not select the first product implicitly');
+  await page.getByRole('combobox',{name:'Продукт',exact:true}).selectOption('IWXA_ADMIN_CENTER');
+  assert.equal(await createTariff.isEnabled(),true);
+  checks.push('tariff-editor-requires-explicit-product');
   await page.getByLabel('Код тарифа').fill('TEAM');
   await page.getByLabel('Название тарифа').fill('Команда');
   await page.getByLabel('Функции и модули').fill('FEATURE_A,FEATURE_B');
@@ -354,15 +359,36 @@ try {
   assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
   await issuerChoice.selectOption('publisher:owner:test');
   assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
+  const issueSeats=ownerPanel.getByRole('spinbutton',{name:'Мест в TEST-запросе'});
+  assert.equal(await issueSeats.isDisabled(),true,'No request must leave a seat value editable');
+  const tariffProposalId=JSON.parse(await page.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-test-native-draft'))).proposals[0].id;
+  await proposalChoice.selectOption(tariffProposalId);
+  const tariffIssuePreview=page.getByTestId('publisher-t3-issue-preview');
+  assert.match(await tariffIssuePreview.innerText(),/от 1 до 5/);
+  assert.match(await tariffIssuePreview.innerText(),/не подписываются этим контрактом/);
+  assert.equal(await issueSeats.inputValue(),'');
+  await issueSeats.fill('6');
+  assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true,
+    'The original T3 owner may not issue more seats than the saved tariff snapshot');
+  await issueSeats.fill('5');
+  assert.equal(await page.getByTestId('publisher-t3-issue').isEnabled(),true);
   await proposalChoice.selectOption(testRequest.requestId);
   assert.match(await proposalChoice.locator('option:checked').innerText(),
     /IWXA Admin Center · Test Corporation/);
+  assert.equal(await issueSeats.inputValue(),'',
+    'Switching requests must clear the seat count instead of carrying it over');
+  assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
+  await issueSeats.fill('3');
   assert.equal(await page.getByTestId('publisher-t3-issue').isEnabled(),true);
+  checks.push('t3-owner-seats-explicit-and-scoped-to-saved-tariff');
   const banner=await page.locator('main > .notice').first().innerText();
   assert.match(banner,/Подписанные лицензии доступны только в режиме TEST/);
   assert.doesNotMatch(banner,/подпись издателя не подключена/);
   await page.getByTestId('publisher-t3-issue').click();
   await page.getByText('TEST-лицензия подписана T3 и сохранена в журнале издателя.').waitFor();
+  const signedTestMock=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('publisher-t3-mock-licenses')));
+  assert.equal(signedTestMock[0].claimedSeats,3,'Original T3 TEST issue must match explicit user seat count');
   assert.equal(await page.getByTestId('publisher-t3-export').isDisabled(),true,
     'The issued TEST license must not be silently selected for further operations');
   assert.equal(await page.getByTestId('publisher-t3-change-status').isDisabled(),true);
@@ -546,6 +572,8 @@ try {
   await personal.getByLabel('Название / имя').fill('Example Person');
   await personal.getByRole('button',{name:'Сохранить клиента'}).click();
   await personal.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
+  assert.equal(await personal.getByRole('button',{name:'Сохранить редакцию тарифа'}).isDisabled(),true);
+  await personal.getByRole('combobox',{name:'Продукт',exact:true}).selectOption('IWXA_ATLAS');
   await personal.getByLabel('Код тарифа').fill('ATLAS_PERSONAL');
   await personal.getByLabel('Название тарифа').fill('Личный');
   await personal.getByRole('combobox',{name:'Тип клиента для тарифа'}).selectOption('PERSON');

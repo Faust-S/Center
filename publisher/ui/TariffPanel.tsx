@@ -42,6 +42,8 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
    editorRef.current?.scrollIntoView({block:'start',behavior:'auto'});
  }
  // Never silently prepare a license for the first tariff in the catalog.
+ // Do not associate a newly created tariff with the first catalog product.
+ const selectedProduct=draft.products.find(p=>p.id===productId)?.id||'';
  const selected=draft.tariffs.find(t=>tariffKey(t)===choice);
  const holders=draft.holders.filter(h=>h.type===selected?.holderType);
  // The recipient must be selected explicitly for each preparation.
@@ -51,9 +53,10 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  const selectedSource=eligibleSources.find(p=>p.id===previousProposalId);
  async function saveTariff(e:React.FormEvent){
   e.preventDefault();
+  if(!selectedProduct)return;
   setTariffFeedback(null);
   const preparedQuotas=quotas.map(q=>({...q,metric:q.metric.trim()}));
-  const result=await change({kind:'addTariff',id:id.trim(),name:name.trim(),productId:productId||draft.products[0]?.id,
+  const result=await change({kind:'addTariff',id:id.trim(),name:name.trim(),productId:selectedProduct,
    holderType,revision:Number(revision),features:features.split(',').map(v=>v.trim()).filter(Boolean),
    termDays:Number(termDays),productSeats:Number(productSeats),employeeLimit:Number(employeeLimit),
    deviceLimit:Number(deviceLimit),quotas:preparedQuotas},'Редакция тарифа сохранена. Лицензия не выдана.');
@@ -78,7 +81,7 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
    {editionNotice&&<p className="muted" role="status">{editionNotice}</p>}
    {draft.products.length===0?<p className="muted">Сначала добавьте продукт.</p>:<form ref={editorRef} onSubmit={e=>void saveTariff(e)} onChangeCapture={()=>setTariffFeedback(null)}>
     <div className="form-grid">
-     <label>Продукт<select value={productId||draft.products[0].id} onChange={e=>setProductId(e.target.value)}>{draft.products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+     <label>Продукт<select value={selectedProduct} onChange={e=>setProductId(e.target.value)} required><option value="">Выберите продукт</option>{draft.products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
      <label>Код тарифа<input value={id} onChange={e=>setId(e.target.value)} required placeholder="TEAM"/></label>
      <label>Название тарифа<input value={name} onChange={e=>setName(e.target.value)} required placeholder="Команда"/></label>
      <label>Тип клиента<select aria-label="Тип клиента для тарифа" value={holderType} onChange={e=>{const t=e.target.value as 'PERSON'|'ORGANIZATION';setHolderType(t);setProductSeats(t==='PERSON'?'1':'5');setEmployeeLimit(t==='PERSON'?'0':'10');setDeviceLimit(t==='PERSON'?'2':'0');}}><option value="ORGANIZATION">Организация</option><option value="PERSON">Физическое лицо</option></select></label>
@@ -105,7 +108,7 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
     </div>
     <p className="muted">Облачные квоты учитывает подключённый сервис. Локальная работа не требует интернета.</p>
     <div className="publisher-save-action" data-testid="publisher-tariff-save-action">
-      <button type="submit" disabled={busy} className="primary">{busy?'Сохраняем…':'Сохранить редакцию тарифа'}</button>
+      <button type="submit" disabled={busy||!selectedProduct} className="primary">{busy?'Сохраняем…':'Сохранить редакцию тарифа'}</button>
       {tariffFeedback&&<p ref={tariffFeedbackRef} className={'publisher-inline-feedback '+(tariffFeedback.ok?'success':'error')}
         role={tariffFeedback.ok?'status':'alert'} data-testid="publisher-tariff-save-feedback">{tariffFeedback.message}</p>}
     </div>

@@ -18,7 +18,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
  const [inventoryTruncated,setInventoryTruncated]=useState(false);
  const [licenseId,setLicenseId]=useState('');
  const [proposalId,setProposalId]=useState('');
- const [seats,setSeats]=useState('1');
+ const [seats,setSeats]=useState('');
  const [status,setStatus]=useState<''|'ACTIVE'|'SUSPENDED'|'REVOKED'>('');
  const [needsRefresh,setNeedsRefresh]=useState(false);
  const [available,setAvailable]=useState(false);
@@ -35,6 +35,11 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
  const unsupported=proposals.filter((p:any)=>!supportedIds.has(p.id));
  const personal=unsupported.filter((p:any)=>holders.some((h:any)=>h.id===p.holderId&&h.type==='PERSON'));
  const selectedLicense=licenses.find(x=>x.licenseId===licenseId);
+ const selectedProposal=eligible.find((p:any)=>p.id===proposalId);
+ const seatLimit=selectedProposal?.tariffSnapshot?.productSeats??10000;
+ const seatCount=Number(seats);
+ const seatsValid=Boolean(selectedProposal)&&/^[0-9]+$/.test(seats)&&
+   Number.isSafeInteger(seatCount)&&seatCount>=1&&seatCount<=seatLimit;
  const proposalLabel=(p:any)=>{
    const product=products.find((v:any)=>v.id===p.productId);
    const holder=holders.find((v:any)=>v.id===p.holderId);
@@ -139,19 +144,31 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
          </select>
        </label>
        <label>Подготовленный запрос
-         <select value={proposalId} onChange={e=>setProposalId(e.target.value)} disabled={busy}>
+         <select value={proposalId} onChange={e=>{setProposalId(e.target.value);setSeats('');}} disabled={busy}>
            <option value="">Выберите запрос</option>{eligible.map((p:any)=><option value={p.id} key={p.id}>{proposalLabel(p)}</option>)}
          </select>
        </label>
        <label>Мест в TEST-запросе
-         <input type="number" value={seats} min={1} max={10000} onChange={e=>setSeats(e.target.value)} disabled={busy}/>
+         <input type="number" value={seats} min={1} max={seatLimit} step={1}
+           placeholder="Укажите количество" onChange={e=>setSeats(e.target.value)}
+           disabled={busy||!selectedProposal}/>
        </label>
      </div>
+     {selectedProposal&&<div className="publisher-offer-review" data-testid="publisher-t3-issue-preview" role="status">
+       <strong>Условия TEST-выпуска</strong>
+       <p>Продукт: {selectedProposal.productId} · организация: {selectedProposal.holderId}</p>
+       <p>Срок: {selectedProposal.termDays} дн. · функции: {selectedProposal.features.join(', ')||'не выбраны'}</p>
+       <p>Укажите количество мест от 1 до {seatLimit}{selectedProposal.tariffSnapshot?' — предел сохранённой редакции тарифа':''}.
+         {seatsValid?` Выбрано: ${seatCount}.`:' Пока число мест не выбрано, выпуск недоступен.'}</p>
+       {selectedProposal.tariffSnapshot&&<p className="muted">TEST-контракт T3 передаёт продукт, функции, срок и места. Лимиты сотрудников, устройств и ресурсов остаются в подготовке, но не подписываются этим контрактом.</p>}
+     </div>}
      <div className="actions">
-       <button className="secondary" type="button" disabled={busy||needsRefresh||!issuer||!proposalId||!supportedIds.has(proposalId)}
+       <button className="secondary" type="button" disabled={busy||needsRefresh||!issuer||!proposalId||!supportedIds.has(proposalId)||!seatsValid}
          data-testid="publisher-t3-issue" onClick={()=>operation(async()=>{
-           if(!issuer||!proposalId||!inspectTestIssuerRequestScope(draft,proposalId).supported)throw Error('PUBLISHER_T3_REQUEST_SCOPE_UNAVAILABLE');
-           const request=prepareTestLicenseRequest(draft,{proposalId,seats:Number(seats)});
+           if(!issuer||!proposalId||!inspectTestIssuerRequestScope(draft,proposalId).supported)
+             throw Error('PUBLISHER_T3_REQUEST_SCOPE_UNAVAILABLE');
+           if(!seatsValid)throw Error('PUBLISHER_T3_EXPLICIT_SEATS_REQUIRED');
+           const request=prepareTestLicenseRequest(draft,{proposalId,seats:seatCount});
            const result=await invoke('publisher_t3_issue',{
              requestJson:encodeTestLicenseRequest(request),issuerAuthorityId:issuer});
            if(result?.operation!=='TEST_ISSUE'||result.activeSeats!==0||

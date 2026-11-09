@@ -296,6 +296,16 @@ try {
   Click-Publisher 'Сохранить продукт'
   [void](Find-Text 'PublisherInstalledTest')
   Click-Publisher 'Тарифы и лимиты'
+  $createTariffButton=Find-Control 'Сохранить редакцию тарифа' 'Button'
+  if($createTariffButton.Current.IsEnabled){
+    throw 'PUBLISHER_NATIVE_TARIFF_PRODUCT_MUST_BE_SELECTED_EXPLICITLY'
+  }
+  Choose-Publisher-Option 'Продукт'
+  $createTariffButton=Find-Control 'Сохранить редакцию тарифа' 'Button'
+  if(!$createTariffButton.Current.IsEnabled){
+    throw 'PUBLISHER_NATIVE_TARIFF_PRODUCT_SELECTION_NOT_APPLIED'
+  }
+  Write-Host 'PUBLISHER_NATIVE_EXPLICIT_TARIFF_PRODUCT_PASS'
   Enter-Value 'Код тарифа' 'TEAM_START'
   Enter-Value 'Название тарифа' 'Команда'
   Enter-Value 'Функции и модули' 'WORKSPACE,REVIEW'
