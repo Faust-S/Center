@@ -168,6 +168,18 @@ namespace IwxaSetup
             };
         }
 
+        // The settings panels use the same quiet secondary-action style
+        // throughout. Native Windows focus and accessibility are retained.
+        private static void StyleSecondaryButton(Button button)
+        {
+            button.FlatStyle = FlatStyle.Flat;
+            button.BackColor = Color.FromArgb(245, 248, 253);
+            button.ForeColor = Dark;
+            button.FlatAppearance.BorderSize = 1;
+            button.FlatAppearance.BorderColor = Color.FromArgb(188, 204, 225);
+            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(230, 239, 252);
+        }
+
         private void BuildLayout()
         {
             // A two-column container prevents DockStyle.Fill from painting
@@ -695,6 +707,7 @@ namespace IwxaSetup
                 Size = new Size(112, 37),
                 DialogResult = DialogResult.OK
             };
+            StyleSecondaryButton(close);
             var copy = new Button {
                 Name = "iwxaSetupCopyTechnicalReport",
                 Text = T("Скопировать сведения", "Copy details"),
@@ -1111,6 +1124,7 @@ namespace IwxaSetup
                 Dock = DockStyle.Fill, Enabled = editable,
                 Margin = new Padding(4, 0, 0, 4)
             };
+            StyleSecondaryButton(browse);
             browse.Click += (sender, args) =>
             {
                 using (var choose = new FolderBrowserDialog {
@@ -1239,8 +1253,11 @@ namespace IwxaSetup
             };
             storageLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             storageLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145F));
+            // Keep all four roots visible at the default laptop dialog
+            // height; AutoScroll remains available at high DPI and on
+            // smaller desktops.
             foreach (int h in new [] {
-                37, 43, 49, 28, 42, 28, 42, 28, 42, 28, 42, 65, 6
+                32, 34, 32, 22, 33, 22, 33, 22, 33, 22, 33, 44, 4
             }) storageLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, h));
             storageScroll.Controls.Add(storageLayout);
             var storageHeading = new Label {
@@ -1254,6 +1271,7 @@ namespace IwxaSetup
                 Text = T("Выбрать общую папку…", "Choose shared folder…"),
                 Dock = DockStyle.Fill, Enabled = true
             };
+            StyleSecondaryButton(common);
             storageLayout.Controls.Add(common, 0, 1);
             storageLayout.SetColumnSpan(common, 2);
             var commonHelp = new Label {
@@ -1342,6 +1360,7 @@ namespace IwxaSetup
                 Text = T("Отмена", "Cancel"), Size = new Size(100, 38),
                 DialogResult = DialogResult.Cancel
             };
+            StyleSecondaryButton(cancel);
             footer.Controls.Add(save);
             footer.Controls.Add(cancel);
             shell.Controls.Add(footer, 0, 2);
@@ -1372,7 +1391,9 @@ namespace IwxaSetup
             };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            foreach (int height in new [] {45, 42, 72, 55, 54, 44, 82})
+            // All component choices and their explanations fit at the
+            // standard dialog size, with scrolling only on smaller displays.
+            foreach (int height in new [] {40, 34, 62, 47, 43, 37, 70})
                 grid.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
             scroll.Controls.Add(grid);
             var heading = new Label {
@@ -1415,6 +1436,8 @@ namespace IwxaSetup
                 AccessibleName = T("Выбрать автономный WebView2 от Microsoft",
                     "Select Microsoft's offline WebView2 installer")
             };
+            StyleSecondaryButton(online);
+            StyleSecondaryButton(offline);
             grid.Controls.Add(online, 0, 3);
             grid.Controls.Add(offline, 1, 3);
             var check = new Button {
@@ -1423,6 +1446,7 @@ namespace IwxaSetup
                 Dock = DockStyle.Fill,
                 Margin = new Padding(0, 4, 5, 4)
             };
+            StyleSecondaryButton(check);
             grid.Controls.Add(check, 0, 4);
             var official = new LinkLabel {
                 Text = T("Официальная страница Microsoft",

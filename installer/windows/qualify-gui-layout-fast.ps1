@@ -14,6 +14,11 @@ if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne
     [Threading.ApartmentState]::STA) {
     throw 'SETUP_LAYOUT_STA_REQUIRED'
 }
+# Match the real SetupCore.Program.Main before constructing any Form.
+# Otherwise PowerShell renders unthemed WinForms buttons with black edges
+# that do not exist in the real customer installer.
+[System.Windows.Forms.Application]::EnableVisualStyles()
+[System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
 $assembly = [Reflection.Assembly]::LoadFrom($stubFull)
 # Windows Details and CLR identity must show Setup Core 1.0, not the
 # generic "stub" filename or an unspecified version.
@@ -403,6 +408,19 @@ try {
             Write-Host 'IWXA_SETUP_NATIVE_DIAGNOSTICS_CLIPBOARD_BLOCKED_ENV'
         }
     } finally { $detailsForm.Dispose() }
+    # Model the actual Center package's declared WebView2 requirement when
+    # rendering options; an uninitialized form would wrongly say "not needed".
+    $bundleType = $assembly.GetType('IwxaSetup.BundleInfo', $true)
+    $binding = [Reflection.BindingFlags]'Instance, Public, NonPublic'
+    $bundle = [System.Activator]::CreateInstance($bundleType, $true)
+    $bundleType.GetField('NeedsWebView2',$binding).SetValue($bundle,$true)
+    $formType.GetField('inspectedBundle',$binding).SetValue($hostForm,$bundle)
+    $readiness = $assembly.GetType('IwxaSetup.SetupReadiness', $true)
+    $detect = $readiness.GetMethod('DetectWebView2Version',
+        [Reflection.BindingFlags]'Static, NonPublic')
+    if ($null -eq $detect) { throw 'SETUP_COMPONENT_RUNTIME_PROBE_MISSING' }
+    $runtimeVersion = [string]$detect.Invoke($null,[object[]]@())
+    $needsInstall = [string]::IsNullOrWhiteSpace($runtimeVersion)
     $locationsType = $assembly.GetType('IwxaSetup.SetupLocations', $true)
     foreach($editable in @($true,$false)) {
         $locations = [System.Activator]::CreateInstance($locationsType, $true)
@@ -444,8 +462,9 @@ try {
                 $onlineWeb -isnot [System.Windows.Forms.Button] -or
                 $offlineWeb -isnot [System.Windows.Forms.Button] -or
                 $checkWeb -isnot [System.Windows.Forms.Button] -or
-                !$checkWeb.Enabled -or $onlineWeb.Enabled -or
-                $offlineWeb.Enabled) {
+                !$checkWeb.Enabled -or
+                $onlineWeb.Enabled -ne $needsInstall -or
+                $offlineWeb.Enabled -ne $needsInstall) {
                 throw ('SETUP_COMPONENTS_NATIVE_STATUS_INVALID_' + $editable)
             }
             # With no product loaded into the test-only form, the component
