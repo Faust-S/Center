@@ -178,6 +178,22 @@ try {
   assert.match(await offerReview.innerText(),/Неподписанная подготовка/);
   await page.getByRole('button',{name:'Лицензии'}).click();
   checks.push('tariff-review-shows-quotas-and-no-effective-license');
+  // The long license section must not carry its scroll offset to the next
+  // section. This was observed in a real Windows Publisher screenshot.
+  const formerScroll=await page.evaluate(()=>{
+    const content=document.querySelector('.publisher-app .main');
+    if(!content)throw Error('Publisher work area unavailable');
+    content.scrollTop=500;
+    return content.scrollTop;
+  });
+  assert.ok(formerScroll>=100,'License content must scroll for this witness');
+  await page.getByRole('button',{name:'Клиенты',exact:true}).click();
+  assert.equal(await page.evaluate(()=>document.querySelector('.publisher-app .main').scrollTop),0,
+    'Client section must begin at its title');
+  await page.getByRole('button',{name:'Лицензии',exact:true}).click();
+  assert.equal(await page.evaluate(()=>document.querySelector('.publisher-app .main').scrollTop),0,
+    'License section must begin at its title on return');
+  checks.push('native-desktop-section-navigation-resets-main-scroll');
   await page.getByRole('button',{name:'Открыть TEST-запрос'}).click();
   const legacyVisible=await page.getByLabel('Функции (коды через запятую)').evaluate(el=>{
     const b=el.getBoundingClientRect();return b.top>=0&&b.bottom<=window.innerHeight;

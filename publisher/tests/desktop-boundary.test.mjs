@@ -79,3 +79,13 @@ test('native Publisher initializes WebView2 user data before the window and resp
  assert.match(windows,/PUBLISHER_WEBVIEW_APP_LOCAL_NORMAL_RESTART_PASS/);
  assert.match(windows,/PUBLISHER_NATIVE_WEBVIEW_INSTALL_ROOT_PROFILE_AFTER_NORMAL_RESTART/);
 });
+
+test('Publisher resets the native scrolling work area before switching sections',()=>{
+ const app=read('publisher/ui/App.tsx');
+ const ui=read('publisher/tests/browser-smoke.mjs');
+ assert.match(app,/mainScrollRef=React\.useRef<HTMLElement>\(null\)/);
+ assert.match(app,/mainScrollRef\.current\.scrollTop=0/);
+ assert.match(app,/window\.scrollTo\(0,0\)/);
+ assert.match(app,/<main className="main" ref=\{mainScrollRef\}>/);
+ assert.match(ui,/native-desktop-section-navigation-resets-main-scroll/);
+});

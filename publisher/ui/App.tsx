@@ -101,6 +101,7 @@ export default function App(){
  const [pendingRestore,setPendingRestore]=useState<Draft|null>(null);
  const restoreConfirmationRef=React.useRef<HTMLDivElement>(null);
  const legacyTestRef=React.useRef<HTMLElement>(null);
+ const mainScrollRef=React.useRef<HTMLElement>(null);
  useEffect(()=>{
    if(pendingRestore)restoreConfirmationRef.current?.scrollIntoView({block:'center'});
  },[pendingRestore]);
@@ -254,7 +255,13 @@ export default function App(){
    }catch(e){setError('Не удалось экспортировать .iwxa: '+getError(e));}
    finally{setBusy(false);}
  }
- function go(p:Page){setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);setOfflineCopies(null);}
+ function go(p:Page){
+   // Reset the native desktop work area's scroll when changing sections.
+   // Compact layouts scroll the document instead of the work area.
+   if(mainScrollRef.current)mainScrollRef.current.scrollTop=0;
+   window.scrollTo(0,0);
+   setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);setOfflineCopies(null);
+ }
  if(!nativeHost){
    return <main className="publisher-desktop-required" data-testid="publisher-desktop-required">
      <section className="publisher-desktop-required-card" role="status">
@@ -281,7 +288,7 @@ export default function App(){
      </nav>
      <div className="sidebar-bottom"><p className="local-label"><span className="dot"></span>Локальная программа</p><p>Черновики не являются лицензиями, релизами или правами пользователей.</p></div>
    </aside>
-   <main className="main">
+   <main className="main" ref={mainScrollRef}>
      <header className="top">
        <button className="menu-button secondary" type="button" onClick={()=>setMobileNav(!mobileNav)} aria-label="Открыть навигацию">☰</button>
        <div className="breadcrumb"><span>IWXA</span> / Publisher / {navigation.find(v=>v[0]===page)?.[1]}</div>
