@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Output = "artifacts/iwxa-setup-core-stub.exe",
-    [string]$Icon = "src-tauri/icons/icon.ico"
+    [string]$Icon = ""
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -20,7 +20,7 @@ if (-not $compiler) { throw "IWXA_SETUP_CSC_MISSING" }
 
 $sources = @(Get-ChildItem -Path (Join-Path $PSScriptRoot 'SetupCore.*.cs') -File |
     Sort-Object Name | ForEach-Object { $_.FullName })
-if ($sources.Count -ne 10) { throw "IWXA_SETUP_NATIVE_SOURCES_INCOMPLETE" }
+if ($sources.Count -ne 11) { throw "IWXA_SETUP_NATIVE_SOURCES_INCOMPLETE" }
 $compilerArgs = @(
     '/nologo', '/target:winexe', '/platform:anycpu', '/optimize+',
     "/out:$target",
@@ -38,7 +38,17 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 }
 # System-aware DPI in one signed EXE; do not depend on a sibling .config.
 $compilerArgs += "/win32manifest:$manifestPath"
-$iconPath = if ([IO.Path]::IsPathRooted($Icon)) {
+# The default desktop installer uses the exact Personal Agent logo shape
+# with Admin Center's red field. A product can pass its own native ICO via
+# -Icon when the universal Setup Core is adopted beyond Center.
+$iconPath = if ([string]::IsNullOrWhiteSpace($Icon)) {
+    $generated = Join-Path $root 'artifacts/iwxa-setup-center-brand.ico'
+    & (Join-Path $PSScriptRoot 'create-brand-icon.ps1') -Output $generated
+    if (-not (Test-Path -LiteralPath $generated -PathType Leaf)) {
+        throw 'IWXA_SETUP_BRAND_ICON_FAILED'
+    }
+    $generated
+} elseif ([IO.Path]::IsPathRooted($Icon)) {
     [IO.Path]::GetFullPath($Icon)
 } else {
     [IO.Path]::GetFullPath((Join-Path $root $Icon))

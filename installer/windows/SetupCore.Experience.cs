@@ -7,12 +7,10 @@ using System.Windows.Forms;
 
 namespace IwxaSetup
 {
-    // One native Windows surface for first installation and installed-product
-    // maintenance. All changes are carried out by the existing SetupInstallation.
+    // User-facing state and commands for the single native Setup surface.
+    // Actions reuse SetupInstallation; no duplicate installer or storage engine.
     internal sealed partial class SetupForm
     {
-        private readonly Panel[] experiencePages = new Panel[5];
-        private readonly Button[] experienceNavigation = new Button[5];
         private readonly TextBox[] locationInputs = new TextBox[5];
         private readonly TextBox locationSummary = new TextBox();
         private readonly TextBox commonStorageInput = new TextBox();
@@ -20,732 +18,56 @@ namespace IwxaSetup
         private readonly CheckBox launchAfterSetup = new CheckBox();
         private readonly Button applyLocations = new Button();
         private readonly Button discardLocations = new Button();
-        private readonly Button servicePrimary = new Button();
-        private readonly Button serviceSecondary = new Button();
         private readonly Button serviceOwnedSetup = new Button();
-        private readonly Button openRemoval = new Button();
         private int selectedRemovalMask;
-        private readonly Button overviewManage = new Button();
         private Button programBrowse;
-        private FlowLayoutPanel experienceFooter;
         private readonly Button webOnline = new Button();
         private readonly Button webOffline = new Button();
-        private readonly Button webRefresh = new Button();
         private readonly Label componentStatus = new Label();
-        private readonly Label serviceExplanation = new Label();
-        private readonly Label removalExplanation = new Label();
         private readonly Label journeyStage = new Label();
         private readonly Label draftNotice = new Label();
         private bool updatingLocationInputs;
         private bool commonEditedByUser;
         private bool locationDraftChanged;
-        private int currentExperiencePage;
-
-        private Label ExperienceLabel(string text, float size, Color color, bool bold)
-        {
-            return new Label {
-                Text = text, AutoSize = false, Dock = DockStyle.Fill,
-                ForeColor = color,
-                Font = new Font("Segoe UI", size,
-                    bold ? FontStyle.Bold : FontStyle.Regular),
-                TextAlign = ContentAlignment.MiddleLeft
-            };
-        }
-
-        private Button ExperienceButton(string name, string text, bool filled)
-        {
-            var button = new Button {
-                Name = name, Text = text, AutoEllipsis = false,
-                Font = new Font("Segoe UI", 10F,
-                    filled ? FontStyle.Bold : FontStyle.Regular),
-                Height = 40, FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand, UseVisualStyleBackColor = false,
-                BackColor = filled ? Accent : Color.White,
-                ForeColor = filled ? Color.White : Dark,
-                AccessibleName = text
-            };
-            button.FlatAppearance.BorderSize = filled ? 0 : 1;
-            button.FlatAppearance.BorderColor = Color.FromArgb(191, 203, 220);
-            return button;
-        }
-
-        private static TableLayoutPanel ExperienceStack()
-        {
-            var layout = new TableLayoutPanel {
-                Dock = DockStyle.Top, AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = 1, RowCount = 0,
-                Padding = new Padding(18, 14, 18, 18),
-                BackColor = Color.White
-            };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            return layout;
-        }
-
-        private static void Stack(TableLayoutPanel stack, Control control, int height)
-        {
-            int index = stack.RowCount++;
-            stack.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
-            control.Margin = new Padding(0, 0, 0, 8);
-            control.Dock = DockStyle.Fill;
-            stack.Controls.Add(control, 0, index);
-        }
-
-        private Panel ExperiencePage()
-        {
-            var page = new Panel {
-                Dock = DockStyle.Fill, AutoScroll = true,
-                BackColor = Color.FromArgb(246, 249, 253),
-                Margin = Padding.Empty, Visible = false
-            };
-            return page;
-        }
-
-        private Panel ExperienceCard()
-        {
-            return new Panel {
-                BackColor = Color.White, Dock = DockStyle.Fill,
-                Margin = new Padding(0, 0, 0, 12),
-                Padding = new Padding(18)
-            };
-        }
 
         private void BuildExperienceLayout()
         {
-            MinimumSize = new Size(820, 520);
-            ClientSize = new Size(1120, 720);
-            BackColor = Color.FromArgb(246, 249, 253);
-            var frame = new TableLayoutPanel {
-                Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1,
-                Padding = Padding.Empty, Margin = Padding.Empty
-            };
-            frame.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 212F));
-            frame.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            frame.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            Controls.Add(frame);
-
-            var sidebar = new Panel {
-                Dock = DockStyle.Fill, BackColor = Color.White,
-                Margin = Padding.Empty,
-                Padding = new Padding(14, 24, 14, 14),
-                AutoScroll = true,
-                AccessibleName = T("Разделы установщика", "Setup navigation")
-            };
-            frame.Controls.Add(sidebar, 0, 0);
-            var sideStack = new TableLayoutPanel {
-                Dock = DockStyle.Top, ColumnCount = 1, RowCount = 0,
-                AutoSize = true, BackColor = Color.White
-            };
-            sideStack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            sidebar.Controls.Add(sideStack);
-            Stack(sideStack, ExperienceLabel("IWXA", 24, Dark, true), 52);
-            Stack(sideStack, ExperienceLabel("SETUP CORE", 9,
-                Secondary, false), 30);
-            Stack(sideStack, ExperienceLabel(T("УПРАВЛЕНИЕ ПРОГРАММОЙ",
-                "APPLICATION MANAGEMENT"), 8,
-                Secondary, true), 45);
-            string[] sections = {
-                T("Обзор", "Overview"),
-                T("Папки и запуск", "Folders and startup"),
-                T("Обслуживание", "Maintenance"),
-                T("Компоненты", "Components"),
-                T("Удаление", "Uninstall")
-            };
-            for (int i = 0; i < sections.Length; i++)
-            {
-                int page = i;
-                var nav = ExperienceButton("iwxaSetupNavigation" + i,
-                    sections[i], false);
-                nav.TextAlign = ContentAlignment.MiddleLeft;
-                nav.Padding = new Padding(12, 0, 0, 0);
-                nav.Height = 44;
-                nav.BackColor = Color.White;
-                nav.ForeColor = Dark;
-                nav.FlatAppearance.BorderSize = 0;
-                nav.Click += (sender, args) => ShowExperiencePage(page);
-                Stack(sideStack, nav, 52);
-                experienceNavigation[i] = nav;
-            }
-            var sideFooter = ExperienceLabel("IWXA  /  WINDOWS", 9,
-                Secondary, false);
-            Stack(sideStack, sideFooter, 48);
-
-            var body = new TableLayoutPanel {
-                Name = "iwxaSetupMainSurface", Dock = DockStyle.Fill,
-                ColumnCount = 1, RowCount = 3,
-                BackColor = Color.FromArgb(246, 249, 253),
-                Margin = Padding.Empty, Padding = Padding.Empty
-            };
-            body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            body.RowStyles.Add(new RowStyle(SizeType.Absolute, 125F));
-            body.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            body.RowStyles.Add(new RowStyle(SizeType.Absolute, 72F));
-            frame.Controls.Add(body, 1, 0);
-
-            var header = new TableLayoutPanel {
-                Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3,
-                Padding = new Padding(28, 14, 26, 4)
-            };
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 184F));
-            header.RowStyles.Add(new RowStyle(SizeType.Absolute, 25F));
-            header.RowStyles.Add(new RowStyle(SizeType.Absolute, 52F));
-            header.RowStyles.Add(new RowStyle(SizeType.Absolute, 30F));
-            body.Controls.Add(header, 0, 0);
-            journeyStage.Text = T("ПРОГРАММА IWXA", "IWXA APPLICATION");
-            journeyStage.ForeColor = Accent;
-            journeyStage.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-            journeyStage.Dock = DockStyle.Fill;
-            header.Controls.Add(journeyStage, 0, 0);
-            technicalDetails.Name = "iwxaSetupTechnicalDetails";
-            technicalDetails.Text = T("Технические сведения", "Technical details");
-            technicalDetails.LinkColor = Color.FromArgb(53, 90, 144);
-            technicalDetails.TextAlign = ContentAlignment.MiddleRight;
-            technicalDetails.Dock = DockStyle.Fill;
-            technicalDetails.Visible = false;
-            technicalDetails.LinkClicked += (sender, args) =>
-            {
-                if (String.IsNullOrWhiteSpace(technicalReport)) return;
-                using (Form dialog = CreateTechnicalDetailsDialog())
-                    dialog.ShowDialog(this);
-            };
-            header.Controls.Add(technicalDetails, 1, 0);
-            productName.Name = "iwxaSetupProductTitle";
-            productName.Text = T("Проверяем пакет", "Checking package");
-            productName.Font = new Font("Segoe UI", 23F, FontStyle.Bold);
-            productName.ForeColor = Dark;
-            productName.Dock = DockStyle.Fill;
-            productName.AutoEllipsis = true;
-            header.Controls.Add(productName, 0, 1);
-            header.SetColumnSpan(productName, 2);
-            description.Text = T("Установка и управление программой в одном окне.",
-                "Install and manage the application from one window.");
-            description.ForeColor = Secondary;
-            description.Dock = DockStyle.Fill;
-            header.Controls.Add(description, 0, 2);
-            header.SetColumnSpan(description, 2);
-
-            var pages = new Panel {
-                Dock = DockStyle.Fill, Margin = new Padding(28, 0, 26, 0),
-                BackColor = Color.FromArgb(246, 249, 253)
-            };
-            body.Controls.Add(pages, 0, 1);
-            for (int i = 0; i < experiencePages.Length; i++)
-            {
-                experiencePages[i] = ExperiencePage();
-                pages.Controls.Add(experiencePages[i]);
-            }
-            BuildOverview();
-            BuildInlineSettings();
-            BuildMaintenance();
-            BuildComponents();
-            BuildRemoval();
-
-            var footer = new FlowLayoutPanel {
-                Name = "iwxaSetupActions",
-                Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft,
-                WrapContents = false, AutoScroll = true,
-                Padding = new Padding(20, 13, 20, 6),
-                BackColor = Color.White
-            };
-            body.Controls.Add(footer, 0, 2);
-            experienceFooter = footer;
-            footer.SizeChanged += (sender, args) => ResizeExperienceFooter();
-            install.Name = "iwxaSetupPrimaryAction";
-            install.Size = new Size(185, 43);
-            install.Margin = new Padding(5, 0, 5, 0);
-            install.BackColor = Accent;
-            install.ForeColor = Color.White;
-            install.FlatStyle = FlatStyle.Flat;
-            install.FlatAppearance.BorderSize = 0;
-            install.Text = T("Установить", "Install");
-            install.Enabled = false;
-            install.Click += async (sender, args) => await ExecuteAsync(primaryAction);
-            footer.Controls.Add(install);
-            secondary.Name = "iwxaSetupAlternateAction";
-            secondary.Size = new Size(160, 43);
-            secondary.Margin = new Padding(5, 0, 5, 0);
-            StyleSecondaryButton(secondary);
-            secondary.Click += async (sender, args) => await ExecuteAsync(secondaryAction);
-            footer.Controls.Add(secondary);
-            retry.Name = "iwxaSetupRecheck";
-            retry.Text = T("Проверить снова", "Check again");
-            retry.Size = new Size(155, 43);
-            retry.Margin = new Padding(5, 0, 5, 0);
-            StyleSecondaryButton(retry);
-            retry.Click += async (sender, args) => await VerifyAsync();
-            footer.Controls.Add(retry);
-            cancelStorageMove.Name = "iwxaSetupCancelStorageMove";
-            cancelStorageMove.Text = T("Отменить перенос", "Cancel move");
-            cancelStorageMove.Size = new Size(160, 43);
-            cancelStorageMove.Margin = new Padding(5, 0, 5, 0);
-            StyleSecondaryButton(cancelStorageMove);
-            cancelStorageMove.Visible = false;
-            cancelStorageMove.Click += (sender, args) =>
-            {
-                if (storageCancellation == null ||
-                    storageCancellation.IsCancellationRequested) return;
-                storageCancellation.Cancel();
-                cancelStorageMove.Enabled = false;
-                status.Text = T("Отменяем перенос", "Cancelling move");
-            };
-            footer.Controls.Add(cancelStorageMove);
-            applyLocations.Name = "iwxaSetupApplyLocations";
-            applyLocations.Text = T("Применить параметры", "Apply settings");
-            applyLocations.Size = new Size(205, 43);
-            applyLocations.Margin = new Padding(5, 0, 5, 0);
-            applyLocations.BackColor = Accent;
-            applyLocations.ForeColor = Color.White;
-            applyLocations.FlatStyle = FlatStyle.Flat;
-            applyLocations.FlatAppearance.BorderSize = 0;
-            applyLocations.Click += async (sender, args) =>
-                await SaveExperienceLocationsAsync();
-            footer.Controls.Add(applyLocations);
-            discardLocations.Name = "iwxaSetupDiscardLocations";
-            discardLocations.Text = T("Вернуть значения", "Discard changes");
-            discardLocations.Size = new Size(176, 43);
-            discardLocations.Margin = new Padding(5, 0, 5, 0);
-            StyleSecondaryButton(discardLocations);
-            discardLocations.Click += (sender, args) => RefreshExperienceLocations(true);
-            footer.Controls.Add(discardLocations);
-            ShowExperiencePage(0);
-        }
-
-        // Read actual native text metrics after DPI scaling so supporting
-        // actions are not squeezed into arbitrary 110-pixel buttons.
-        private void ResizeExperienceFooter()
-        {
-            if (experienceFooter == null || experienceFooter.ClientSize.Width <= 0)
-                return;
-            Control[] controls = {install, secondary, retry, cancelStorageMove,
-                applyLocations, discardLocations};
-            foreach (Control control in controls)
-            {
-                if (!control.Visible) continue;
-                int preferred = TextRenderer.MeasureText(control.Text,
-                    control.Font).Width + 38;
-                control.Width = Math.Max(135, Math.Min(360, preferred));
-            }
-        }
-
-        private void BuildOverview()
-        {
-            var content = ExperienceStack();
-            experiencePages[0].Controls.Add(content);
-            Stack(content, ExperienceLabel(T("Состояние установки",
-                "Installation status"), 14, Dark, true), 44);
-            var card = ExperienceCard();
-            Stack(content, card, 202);
-            var inside = new TableLayoutPanel {
-                Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5
-            };
-            inside.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            inside.RowStyles.Add(new RowStyle(SizeType.Absolute, 42F));
-            inside.RowStyles.Add(new RowStyle(SizeType.Absolute, 27F));
-            inside.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            inside.RowStyles.Add(new RowStyle(SizeType.Absolute, 10F));
-            inside.RowStyles.Add(new RowStyle(SizeType.Absolute, 0F));
-            card.Controls.Add(inside);
-            status.Name = "iwxaSetupStatus";
-            status.Text = T("Проверяем содержимое…", "Checking contents…");
-            status.Font = new Font("Segoe UI", 14F, FontStyle.Bold);
-            status.ForeColor = Dark;
-            status.Dock = DockStyle.Fill;
-            status.AutoEllipsis = true;
-            inside.Controls.Add(status, 0, 0);
-            version.Name = "iwxaSetupVersion";
-            version.ForeColor = Color.FromArgb(62, 91, 133);
-            version.Dock = DockStyle.Fill;
-            inside.Controls.Add(version, 0, 1);
-            packageDetails.Name = "iwxaSetupDetails";
-            packageDetails.Multiline = true;
-            packageDetails.ReadOnly = true;
-            packageDetails.BorderStyle = BorderStyle.None;
-            packageDetails.ScrollBars = ScrollBars.Vertical;
-            packageDetails.BackColor = Color.White;
-            packageDetails.ForeColor = Secondary;
-            packageDetails.WordWrap = true;
-            packageDetails.Dock = DockStyle.Fill;
-            packageDetails.TabStop = false;
-            inside.Controls.Add(packageDetails, 0, 2);
-            busyProgress.Name = "iwxaSetupActivity";
-            busyProgress.Dock = DockStyle.Fill;
-            busyProgress.Style = ProgressBarStyle.Marquee;
-            busyProgress.Visible = false;
-            inside.Controls.Add(busyProgress, 0, 3);
-            Stack(content, ExperienceLabel(T("Выбранные расположения",
-                "Current locations"), 14, Dark, true), 44);
-            var locationCard = ExperienceCard();
-            Stack(content, locationCard, 204);
-            var locationLayout = new TableLayoutPanel {
-                Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2
-            };
-            locationLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            locationLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44F));
-            locationLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            locationLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            locationCard.Controls.Add(locationLayout);
-            locationSummary.Name = "iwxaSetupLocationSummary";
-            locationSummary.Dock = DockStyle.Fill;
-            locationSummary.ReadOnly = true;
-            locationSummary.Multiline = true;
-            locationSummary.WordWrap = true;
-            locationSummary.ScrollBars = ScrollBars.Vertical;
-            locationSummary.BorderStyle = BorderStyle.None;
-            locationSummary.Font = new Font("Segoe UI", 9.5F);
-            locationSummary.ForeColor = Secondary;
-            locationLayout.Controls.Add(locationSummary, 0, 0);
-            locationLayout.SetColumnSpan(locationSummary, 2);
-            configureInstallation.Name = "iwxaSetupPreferences";
-            configureInstallation.Text = T("Изменить папки и запуск",
-                "Change folders and startup");
-            configureInstallation.Dock = DockStyle.Fill;
-            configureInstallation.Margin = new Padding(0, 0, 6, 0);
-            configureInstallation.Visible = false;
-            StyleSecondaryButton(configureInstallation);
-            configureInstallation.Click += (sender, args) =>
-                ShowExperiencePage(1);
-            locationLayout.Controls.Add(configureInstallation, 0, 1);
-            overviewManage.Name = "iwxaSetupOverviewMaintenance";
-            overviewManage.Text = T("Обслуживание и удаление",
-                "Maintenance and uninstall");
-            overviewManage.Dock = DockStyle.Fill;
-            overviewManage.Margin = new Padding(6, 0, 0, 0);
-            StyleSecondaryButton(overviewManage);
-            overviewManage.Click += (sender, args) => ShowExperiencePage(2);
-            locationLayout.Controls.Add(overviewManage, 1, 1);
-            Stack(content, ExperienceLabel(
-                T("Личные данные, модели и сторонние программы сохраняются при удалении самой программы.",
-                  "Personal data, models and external software remain when the application is uninstalled."),
-                9, Secondary, false), 60);
-        }
-
-        private TextBox AddExperiencePath(TableLayoutPanel layout,
-            string label, int index, string help)
-        {
-            Stack(layout, ExperienceLabel(label, 10, Dark, true), 30);
-            var row = new TableLayoutPanel {
-                Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1
-            };
-            row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130F));
-            row.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            var input = new TextBox {
-                Name = new [] {
-                    "iwxaSetupInlineInstallRoot", "iwxaSetupInlineDataRoot",
-                    "iwxaSetupInlineSoftwareRoot", "iwxaSetupInlineModelsRoot",
-                    "iwxaSetupInlineCacheRoot"
-                }[index],
-                Dock = DockStyle.Fill, AccessibleName = label,
-                Font = new Font("Segoe UI", 10F),
-                Margin = new Padding(0, 3, 8, 4)
-            };
-            input.TextChanged += (sender, args) => MarkLocationsChanged();
-            row.Controls.Add(input, 0, 0);
-            var browse = ExperienceButton("iwxaSetupBrowse" + index,
-                T("Выбрать…", "Browse…"), false);
-            browse.Dock = DockStyle.Fill;
-            browse.Margin = new Padding(0, 0, 0, 3);
-            browse.Click += (sender, args) =>
-            {
-                using (var pick = new FolderBrowserDialog { Description = label })
-                {
-                    string initial = input.Text;
-                    try
-                    {
-                        while (!String.IsNullOrWhiteSpace(initial) &&
-                            !Directory.Exists(initial))
-                            initial = Path.GetDirectoryName(initial);
-                    }
-                    catch (ArgumentException) { initial = ""; }
-                    catch (NotSupportedException) { initial = ""; }
-                    catch (PathTooLongException) { initial = ""; }
-                    if (Directory.Exists(initial)) pick.SelectedPath = initial;
-                    if (pick.ShowDialog(this) == DialogResult.OK)
-                        input.Text = pick.SelectedPath;
-                }
-            };
-            row.Controls.Add(browse, 1, 0);
-            if (index == 0) programBrowse = browse;
-            Stack(layout, row, 47);
-            Stack(layout, ExperienceLabel(help, 9, Secondary, false), 33);
-            locationInputs[index] = input;
-            return input;
-        }
-
-        private void BuildInlineSettings()
-        {
-            var stack = ExperienceStack();
-            experiencePages[1].Controls.Add(stack);
-            Stack(stack, ExperienceLabel(T("Расположение программы и данных",
-                "Application and data locations"), 15, Dark, true), 48);
-            Stack(stack, ExperienceLabel(T(
-                "Выберите папку программы отдельно от личных данных. Для уже установленной программы папка приложения не меняется.",
-                "Choose the application folder separately from personal data. An installed application retains its location."),
-                9, Secondary, false), 50);
-            AddExperiencePath(stack, T("Программа", "Application"), 0,
-                T("Папка самой программы. При обновлении остаётся прежней.",
-                  "The application folder is preserved during updates."));
-            Stack(stack, ExperienceLabel(T("Общее расположение хранилищ",
-                "Shared storage location"), 10, Dark, true), 30);
-            var common = new TableLayoutPanel {
-                Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1
-            };
-            common.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            common.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130F));
-            common.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145F));
-            common.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            commonStorageInput.Name = "iwxaSetupCommonRoot";
-            commonStorageInput.Dock = DockStyle.Fill;
-            commonStorageInput.Margin = new Padding(0, 3, 8, 4);
-            commonStorageInput.AccessibleName = T(
-                "Общая папка хранения", "Shared storage folder");
-            commonStorageInput.TextChanged += (sender, args) =>
-            {
-                if (updatingLocationInputs) return;
-                commonEditedByUser = true;
-                MarkLocationsChanged();
-            };
-            commonStorageInput.Leave += (sender, args) =>
-            {
-                if (!commonEditedByUser ||
-                    String.IsNullOrWhiteSpace(commonStorageInput.Text)) return;
-                try { ApplyCommonStorage(commonStorageInput.Text); }
-                catch (Exception ex) { ShowLocationError(ex); }
-            };
-            common.Controls.Add(commonStorageInput, 0, 0);
-            var chooseCommon = ExperienceButton("iwxaSetupBrowseCommon",
-                T("Выбрать…", "Browse…"), false);
-            chooseCommon.Dock = DockStyle.Fill;
-            chooseCommon.Margin = new Padding(0, 0, 6, 3);
-            chooseCommon.Click += (sender, args) =>
-            {
-                using (var picker = new FolderBrowserDialog {
-                    Description = T("Выберите общую папку IWXA",
-                        "Choose a shared IWXA storage location")
-                })
-                {
-                    if (Directory.Exists(commonStorageInput.Text))
-                        picker.SelectedPath = commonStorageInput.Text;
-                    if (picker.ShowDialog(this) == DialogResult.OK)
-                        ApplyCommonStorage(picker.SelectedPath);
-                }
-            };
-            common.Controls.Add(chooseCommon, 1, 0);
-            var distribute = ExperienceButton("iwxaSetupApplyCommon",
-                T("Для всех папок", "Use for all"), false);
-            distribute.Dock = DockStyle.Fill;
-            distribute.Margin = new Padding(0, 0, 0, 3);
-            distribute.Click += (sender, args) =>
-            {
-                try { ApplyCommonStorage(commonStorageInput.Text); }
-                catch (Exception ex) { ShowLocationError(ex); }
-            };
-            common.Controls.Add(distribute, 2, 0);
-            Stack(stack, common, 47);
-            Stack(stack, ExperienceLabel(T(
-                "Из общей папки создаются Data, Software, Models и Cache. Каждую папку можно затем изменить отдельно.",
-                "The common location provides Data, Software, Models and Cache. You can change individual folders afterwards."),
-                9, Secondary, false), 43);
-            AddExperiencePath(stack, T("Личные данные", "Personal data"), 1,
-                T("Настройки, рабочие файлы и результаты.", "Settings, work and results."));
-            AddExperiencePath(stack, T("Сторонние программы", "Third-party software"), 2,
-                T("Расположение для подключаемого программного обеспечения.",
-                  "Location for optional applications."));
-            AddExperiencePath(stack, T("Локальные модели", "Local models"), 3,
-                T("Расположение скачиваемых позднее моделей.",
-                  "Location for models added later."));
-            AddExperiencePath(stack, T("Кэш", "Cache"), 4,
-                T("Временные файлы, отдельно от личных данных.",
-                  "Temporary files, separate from personal data."));
-            launchAtLogin.Name = "iwxaSetupInlineAutostart";
-            launchAtLogin.Text = T("Запускать программу при входе в Windows",
-                "Start the application when signing in to Windows");
-            launchAtLogin.ForeColor = Dark;
-            launchAtLogin.CheckedChanged += (sender, args) =>
-                MarkLocationsChanged();
-            Stack(stack, launchAtLogin, 42);
-            launchAfterSetup.Text = T("Открыть программу после установки или обновления",
-                "Open the application after installation or update");
-            launchAfterSetup.ForeColor = Dark;
-            Stack(stack, launchAfterSetup, 42);
-            draftNotice.Name = "iwxaSetupUnsavedNote";
-            draftNotice.ForeColor = Color.FromArgb(151, 91, 28);
-            Stack(stack, draftNotice, 44);
-            Stack(stack, ExperienceLabel(
-                T("При переносе IWXA сначала копирует и проверяет данные. Старые папки остаются без изменений.",
-                  "When moving storage, IWXA copies and verifies files first. Original folders are preserved."),
-                9, Secondary, false), 55);
-        }
-
-        private void BuildMaintenance()
-        {
-            var stack = ExperienceStack();
-            experiencePages[2].Controls.Add(stack);
-            Stack(stack, ExperienceLabel(T("Управление установленной программой",
-                "Manage the installed application"), 15, Dark, true), 50);
-            Stack(stack, ExperienceLabel(T(
-                "Действия зависят от проверенного состояния программы. Ваши личные данные при обновлении и восстановлении сохраняются.",
-                "Available actions depend on the verified installed state. Updates and repair keep your personal data."),
-                9, Secondary, false), 58);
-            serviceExplanation.Name = "iwxaSetupMaintenanceExplanation";
-            serviceExplanation.ForeColor = Secondary;
-            Stack(stack, serviceExplanation, 100);
-            servicePrimary.Name = "iwxaSetupMaintenancePrimary";
-            servicePrimary.Text = T("Продолжить обслуживание", "Continue maintenance");
-            servicePrimary.BackColor = Accent;
-            servicePrimary.ForeColor = Color.White;
-            servicePrimary.FlatStyle = FlatStyle.Flat;
-            servicePrimary.FlatAppearance.BorderSize = 0;
-            servicePrimary.Click += async (sender, args) =>
-                await ExecuteAsync(primaryAction);
-            Stack(stack, servicePrimary, 51);
-            serviceSecondary.Name = "iwxaSetupMaintenanceAlternate";
-            StyleSecondaryButton(serviceSecondary);
-            serviceSecondary.Click += async (sender, args) =>
-                await ExecuteAsync(secondaryAction);
-            Stack(stack, serviceSecondary, 51);
-            serviceOwnedSetup.Name = "iwxaSetupOpenInstalledMaintenance";
-            serviceOwnedSetup.Text = T("Восстановить через установленный пакет",
-                "Repair using installed package");
-            StyleSecondaryButton(serviceOwnedSetup);
-            serviceOwnedSetup.Click += (sender, args) =>
-                OpenInstalledMaintenance();
-            Stack(stack, serviceOwnedSetup, 51);
-            openApplication.Name = "iwxaSetupRelatedAction";
-            openApplication.Text = T("Открыть установленную программу",
-                "Open installed application");
-            openApplication.Font = new Font("Segoe UI", 11F);
-            openApplication.LinkColor = Accent;
-            openApplication.LinkClicked += (sender, args) => OpenRelatedAction();
-            Stack(stack, openApplication, 45);
-            openRemoval.Name = "iwxaSetupOpenUninstall";
-            openRemoval.Text = T("Перейти к удалению программы",
-                "Open uninstall");
-            StyleSecondaryButton(openRemoval);
-            openRemoval.Click += (sender, args) => ShowExperiencePage(4);
-            Stack(stack, openRemoval, 56);
-        }
-
-        private void BuildRemoval()
-        {
-            var stack = ExperienceStack();
-            experiencePages[4].Controls.Add(stack);
-            Stack(stack, ExperienceLabel(T("Удаление программы",
-                "Uninstall application"), 16, Dark, true), 58);
-            Stack(stack, ExperienceLabel(T(
-                "По умолчанию удаляется только программа. Личные данные, модели, другие программы и кэш остаются на компьютере. В подтверждении можно отдельно выбрать удаление доступных папок.",
-                "By default, only the application is removed. Personal data, models, other programs and cache remain. In the confirmation you can separately choose eligible folders to delete."),
-                10, Secondary, false), 100);
-            removalExplanation.Name = "iwxaSetupUninstallExplanation";
-            removalExplanation.ForeColor = Dark;
-            removalExplanation.Font = new Font("Segoe UI", 11F);
-            Stack(stack, removalExplanation, 102);
-            Stack(stack, ExperienceLabel(T(
-                "Удаление не затрагивает другие программы IWXA. При необходимости после него можно самостоятельно проверить сохранённые папки.",
-                "Uninstalling does not modify other IWXA applications. You can review the preserved folders afterwards."),
-                9, Secondary, false), 80);
-            removeApplication.Name = "iwxaSetupRemoveApplication";
-            removeApplication.Text = T("Удалить установленную программу…",
-                "Uninstall the installed application…");
-            removeApplication.AccessibleDescription = T(
-                "Открыть подтверждение удаления; по умолчанию личные данные сохраняются",
-                "Review removal; personal data is preserved by default");
-            removeApplication.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
-            StyleSecondaryButton(removeApplication);
-            removeApplication.ForeColor = Color.FromArgb(160, 42, 54);
-            removeApplication.FlatAppearance.BorderColor =
-                Color.FromArgb(226, 173, 177);
-            removeApplication.Click += async (sender, args) =>
-                await BeginUninstallAsync();
-            Stack(stack, removeApplication, 61);
-        }
-
-        private void BuildComponents()
-        {
-            var stack = ExperienceStack();
-            experiencePages[3].Controls.Add(stack);
-            Stack(stack, ExperienceLabel(T("Компоненты для работы",
-                "Application components"), 15, Dark, true), 54);
-            Stack(stack, ExperienceLabel("Microsoft WebView2", 13, Dark, true), 43);
-            componentStatus.Name = "iwxaSetupWebView2Status";
-            componentStatus.ForeColor = Dark;
-            Stack(stack, componentStatus, 45);
-            Stack(stack, ExperienceLabel(T(
-                "Если компонент требуется этой программе и отсутствует, используйте официальный выпуск Microsoft. Данные и установленная программа не изменяются.",
-                "If the application needs this component and it is missing, use Microsoft's official installer. Application files and data are not modified."),
-                9, Secondary, false), 83);
-            webOnline.Name = "iwxaSetupInstallWebView2Online";
-            webOnline.Text = T("Установить WebView2 через интернет",
-                "Install WebView2 online");
-            StyleSecondaryButton(webOnline);
-            webOnline.Click += async (sender, args) =>
-                await ExecuteAsync(SetupOperation.InstallWebView2);
-            Stack(stack, webOnline, 51);
-            webOffline.Name = "iwxaSetupInstallWebView2Offline";
-            webOffline.Text = T("Установить WebView2 из файла Microsoft…",
-                "Install WebView2 from Microsoft file…");
-            StyleSecondaryButton(webOffline);
-            webOffline.Click += async (sender, args) =>
-                await ExecuteAsync(SetupOperation.InstallWebView2Offline);
-            Stack(stack, webOffline, 51);
-            webRefresh.Name = "iwxaSetupCheckWebView2";
-            webRefresh.Text = T("Проверить состояние компонента",
-                "Check component status");
-            StyleSecondaryButton(webRefresh);
-            webRefresh.Click += (sender, args) => RefreshComponents();
-            Stack(stack, webRefresh, 51);
-            Stack(stack, ExperienceLabel(T("Другие программы и модели",
-                "Other applications and models"), 13, Dark, true), 52);
-            Stack(stack, ExperienceLabel(T(
-                "Этот установщик не скачивает стороннее ПО и модели. Для них можно заранее выбрать папки в разделе «Папки и запуск». Подключение выполняется в соответствующей программе IWXA.",
-                "Setup does not download third-party applications or models. You can choose their folders under Folders and startup. Connect them from the relevant IWXA application."),
-                9, Secondary, false), 104);
-        }
-
-        private void FocusOperationProgress()
-        {
-            currentExperiencePage = 0;
-            locationDraftChanged = false;
-            for (int i = 0; i < experiencePages.Length; i++)
-            {
-                experiencePages[i].Visible = i == 0;
-                experienceNavigation[i].BackColor = i == 0 ?
-                    Color.FromArgb(231, 241, 255) : Color.White;
-                experienceNavigation[i].ForeColor = i == 0 ? Accent : Dark;
-            }
-            experiencePages[0].BringToFront();
+            BuildUnifiedLayout();
         }
 
         private void ShowExperiencePage(int page)
         {
-            if (page < 0 || page >= experiencePages.Length ||
-                performingOperation || verifyingState) return;
-            if (currentExperiencePage == 1 && page != 1 &&
-                locationDraftChanged)
-            {
-                DialogResult leave = MessageBox.Show(this,
-                    T("Есть несохранённые изменения. Сбросить их?",
-                        "You have unsaved settings. Discard them?"),
-                    T("Папки и запуск", "Folders and startup"),
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Question,
-                    MessageBoxDefaultButton.Button2);
-                if (leave != DialogResult.Yes) return;
-                RefreshExperienceLocations(true);
-            }
-            currentExperiencePage = page;
-            for (int i = 0; i < experiencePages.Length; i++)
-            {
-                experiencePages[i].Visible = i == page;
-                experienceNavigation[i].BackColor = i == page ?
-                    Color.FromArgb(231, 241, 255) : Color.White;
-                experienceNavigation[i].ForeColor = i == page ?
-                    Accent : Dark;
-            }
-            experiencePages[page].BringToFront();
-            AcceptButton = page == 0 ? install :
-                page == 1 ? applyLocations : null;
-            RefreshExperienceButtons();
+            if (page != 1 || performingOperation || verifyingState) return;
+            if (unifiedCompact) OpenCompactSettings();
+            else if (locationInputs[0] != null)
+                locationInputs[0].Focus();
+        }
+
+        private void FocusOperationProgress()
+        {
+            FocusUnifiedProgress();
+        }
+
+        private void RefreshExperienceButtons()
+        {
+            RefreshUnifiedButtons();
+        }
+
+        private void RefreshExperience(BundleInfo info, UpgradeAssessment plan)
+        {
+            if (info == null || plan == null) return;
+            bool initial = plan.Status == "NO_OWNED_INSTALLATION";
+            journeyStage.Text = initial ?
+                T("ПЕРВАЯ УСТАНОВКА", "FIRST INSTALL") :
+                T("ОБСЛУЖИВАНИЕ ПРОГРАММЫ", "APPLICATION MAINTENANCE");
+            description.Text = initial ?
+                T("Настройте папки, выберите запуск и установите программу.",
+                  "Choose folders and startup, then install.") :
+                T("Обновление, восстановление и управление настройками.",
+                  "Update, repair and change installation settings.");
+            RefreshExperienceLocations(false);
+            RefreshComponents();
+            RefreshUnifiedButtons();
         }
 
         private void MarkLocationsChanged()
@@ -854,6 +176,8 @@ namespace IwxaSetup
                         "WebView2 is missing and required for this application.") :
                     T("Установлен WebView2, версия ", "WebView2 installed, version ") +
                         version;
+                webOnline.Visible = required && missing;
+                webOffline.Visible = required && missing;
                 webOnline.Enabled = required && missing &&
                     !performingOperation && !verifyingState;
                 webOffline.Enabled = webOnline.Enabled;
@@ -863,131 +187,9 @@ namespace IwxaSetup
                 componentStatus.Text = T("Не удалось проверить WebView2.",
                     "Could not check WebView2.");
                 webOnline.Enabled = webOffline.Enabled = false;
+                webOnline.Visible = webOffline.Visible = false;
                 SetTechnicalReport(inspectedBundle, inspectedStatus, ex.Message);
             }
-        }
-
-        private void RefreshExperience(BundleInfo info, UpgradeAssessment plan)
-        {
-            if (info == null || plan == null) return;
-            bool firstInstallation = plan.Status == "NO_OWNED_INSTALLATION";
-            journeyStage.Text = firstInstallation ?
-                T("ПЕРВАЯ УСТАНОВКА", "FIRST INSTALLATION") :
-                T("УПРАВЛЕНИЕ УСТАНОВЛЕННОЙ ПРОГРАММОЙ",
-                    "MANAGE INSTALLED APPLICATION");
-            description.Text = firstInstallation ?
-                T("Выберите расположения, проверьте компоненты и установите программу.",
-                    "Choose locations, review components and install.") :
-                T("Настройки, обновление, восстановление и удаление — в одном окне.",
-                    "Settings, updates, recovery and uninstall in one place.");
-            SetupLocations paths = null;
-            try
-            {
-                paths = plan.Status == "NO_OWNED_INSTALLATION" ?
-                    selectedLocations : SetupInstallation.InstalledLocations(info);
-                if (paths != null)
-                {
-                    locationSummary.Text =
-                        T("Программа: ", "Application: ") + paths.ProgramRoot +
-                        Environment.NewLine +
-                        T("Личные данные: ", "Personal data: ") + paths.DataRoot +
-                        Environment.NewLine +
-                        T("Автозапуск Windows: ", "Windows startup: ") +
-                            (paths.StartWithWindows ? T("включён", "on") :
-                                T("выключен", "off")) +
-                        Environment.NewLine +
-                        T("Остальные папки — в разделе «Папки и запуск».",
-                          "Other locations are under Folders and startup.");
-                }
-            }
-            catch (Exception ex)
-            {
-                SetTechnicalReport(info, plan.Status, ex.Message);
-            }
-            RefreshExperienceLocations(false);
-            RefreshComponents();
-            serviceExplanation.Text = plan.Status == "SAME_VERSION_DIFFERENT_PACKAGE" ?
-                T("Установлена другая сборка с тем же номером версии. Применять этот пакет поверх неё нельзя. Вы можете открыть её собственный установщик для восстановления, изменить настройки или удалить программу.",
-                  "Another build of the same version is installed. This package cannot replace it. You can repair using its own package, change settings or uninstall.") :
-                plan.Status == "DOWNGRADE_BLOCKED" ?
-                T("Уже установлена более новая версия. Этот пакет не заменит её. Используйте обслуживание установленной версии или выберите новое обновление.",
-                  "A newer release is installed. This package cannot replace it. Use the installed release's maintenance or a newer update.") :
-                plan.Status == "NO_OWNED_INSTALLATION" ?
-                T("Программа ещё не установлена. Выберите расположения и параметры запуска, затем нажмите «Установить» на обзоре.",
-                  "The application is not installed. Choose folders and startup settings, then select Install on Overview.") :
-                plan.Status == "APPLICATION_RUNNING" ?
-                T("Программа сейчас открыта. Закройте её, затем нажмите «Проверить снова», чтобы продолжить обновление, восстановление или удаление.",
-                  "The application is running. Close it, then choose Check again to continue updating, repairing or uninstalling.") :
-                plan.Status == "UPGRADE_PENDING_CONFIRMATION" ||
-                plan.Status == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK" ?
-                T("Новая установка ожидает подтверждения. Откройте программу и проверьте свои данные. После проверки завершите обновление или верните прежнюю версию, если она доступна.",
-                  "The new installation awaits confirmation. Open the application and check your data. Then complete the update or restore the prior release if available.") :
-                plan.Status == "UPGRADE_RECOVERY_REQUIRED" ?
-                T("Предыдущая операция прервалась. Сначала восстановите предыдущую версию. Личные данные сохраняются.",
-                  "An earlier operation was interrupted. Restore the previous release before continuing. Personal data is preserved.") :
-                plan.Status == "WEBVIEW2_MISSING" ?
-                T("Для работы нужен Microsoft WebView2. Перейдите в «Компоненты» и установите его через интернет или из официального файла.",
-                  "Microsoft WebView2 is required. Open Components to install it online or from Microsoft's official file.") :
-                T("На этом экране показаны действия, доступные для установленной версии. Личные данные при обслуживании сохраняются.",
-                  "This page shows actions available for the installed release. Maintenance preserves your personal data.");
-            RefreshExperienceButtons();
-        }
-
-        private void RefreshExperienceButtons()
-        {
-            if (experiencePages[0] == null) return;
-            bool ready = !performingOperation && !verifyingState;
-            bool settings = currentExperiencePage == 1;
-            bool maintenance = currentExperiencePage == 2;
-            install.Visible = currentExperiencePage == 0 &&
-                primaryAction != SetupOperation.None;
-            install.Enabled = ready && primaryAction != SetupOperation.None &&
-                !locationDraftChanged;
-            secondary.Visible = currentExperiencePage == 0 &&
-                secondaryAction != SetupOperation.None;
-            secondary.Enabled = ready && secondaryAction != SetupOperation.None;
-            retry.Visible = currentExperiencePage == 0 || maintenance;
-            retry.Enabled = ready;
-            applyLocations.Visible = settings;
-            applyLocations.Enabled = ready && locationDraftChanged &&
-                inspectedBundle != null;
-            discardLocations.Visible = settings;
-            discardLocations.Enabled = ready && locationDraftChanged;
-            configureInstallation.Enabled = ready && inspectedBundle != null;
-            servicePrimary.Text = install.Text;
-            servicePrimary.Visible = primaryAction != SetupOperation.None;
-            servicePrimary.Enabled = ready && primaryAction != SetupOperation.None;
-            serviceSecondary.Text = secondary.Text;
-            serviceSecondary.Visible = secondaryAction != SetupOperation.None;
-            serviceSecondary.Enabled = ready && secondaryAction != SetupOperation.None;
-            serviceOwnedSetup.Visible = inspectedStatus == "SAME_VERSION_DIFFERENT_PACKAGE" ||
-                inspectedStatus == "DOWNGRADE_BLOCKED" ||
-                inspectedStatus == "VERSION_UNSUPPORTED";
-            serviceOwnedSetup.Enabled = ready && serviceOwnedSetup.Visible;
-            overviewManage.Visible = inspectedBundle != null &&
-                inspectedStatus != "NO_OWNED_INSTALLATION";
-            overviewManage.Enabled = ready && overviewManage.Visible;
-            openRemoval.Enabled = ready && removeApplication.Visible;
-            removalExplanation.Text = removeApplication.Visible ?
-                T("Программа установлена и может быть удалена. Перед удалением появится подтверждение: все данные сохраняются, пока вы не выберете обратное.",
-                    "The application can be removed. The confirmation keeps all your data unless you explicitly choose otherwise.") :
-                inspectedStatus == "UPGRADE_PENDING_CONFIRMATION" ||
-                inspectedStatus == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK" ?
-                T("Сначала завершите текущее обновление или восстановление в разделе «Обслуживание». После этого удаление будет доступно. Личные данные остаются на месте.",
-                    "First finish the pending update or repair under Maintenance. Uninstall becomes available afterwards. Your data stays in place.") :
-                inspectedStatus == "UPGRADE_RECOVERY_REQUIRED" ?
-                T("Предыдущее обновление было прервано. Сначала выполните восстановление в разделе «Обслуживание», затем вернитесь к удалению.",
-                    "A previous update was interrupted. Recover the installation under Maintenance before uninstalling.") :
-                inspectedStatus == "NO_OWNED_INSTALLATION" ?
-                T("Программа ещё не установлена. Удалять нечего.",
-                    "The application is not installed. There is nothing to uninstall.") :
-                T("Удаление пока недоступно: принадлежность установленной программы не подтверждена или требуется завершить предыдущую операцию. Проверьте состояние на обзоре.",
-                    "Uninstall is unavailable until the installed application is verified or an earlier operation is completed. Check its status on Overview.");
-            openApplication.Enabled = ready && openApplication.Visible;
-            removeApplication.Enabled = ready && removeApplication.Visible;
-            for (int i = 0; i < experienceNavigation.Length; i++)
-                experienceNavigation[i].Enabled = ready;
-            ResizeExperienceFooter();
         }
 
         private async Task SaveExperienceLocationsAsync()
@@ -1084,6 +286,8 @@ namespace IwxaSetup
             }
         }
 
+        // One confirmation dialog. No secondary pages or scrolling.
+        // The previous installed release may only support app-only removal.
         private DialogResult ConfirmExperienceUninstall(BundleInfo info)
         {
             selectedRemovalMask = 0;
@@ -1091,149 +295,144 @@ namespace IwxaSetup
             using (var dialog = new Form {
                 Text = T("Удаление программы", "Uninstall application"),
                 StartPosition = FormStartPosition.CenterParent,
-                ClientSize = new Size(730, 640),
-                MinimumSize = new Size(560, 430),
+                ClientSize = new Size(780, 460),
+                MinimumSize = new Size(590, 365),
                 AutoScaleMode = AutoScaleMode.Dpi,
-                Font = new Font("Segoe UI", 10F),
+                Font = new Font("Segoe UI", 9.5F),
                 BackColor = Color.White,
                 MaximizeBox = false
             })
             {
-                var scroll = new Panel {
-                    Dock = DockStyle.Fill, AutoScroll = true,
+                var layout = new TableLayoutPanel {
+                    Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5,
+                    Padding = new Padding(22, 18, 22, 14),
                     BackColor = Color.White
                 };
-                dialog.Controls.Add(scroll);
-                var stack = ExperienceStack();
-                scroll.Controls.Add(stack);
-                Stack(stack, ExperienceLabel(T("Удалить ", "Uninstall ") +
-                    info.Name + "?", 17, Dark, true), 59);
-                Stack(stack, ExperienceLabel(T(
-                    "Программа будет удалена. По умолчанию ваши файлы, модели и другие программы сохраняются.",
-                    "The application will be removed. By default, your files, models and other applications are preserved."),
-                    10, Secondary, false), 63);
-                Stack(stack, ExperienceLabel(T("Что сделать с сохранёнными папками?",
-                    "What should happen to stored files?"), 13, Dark, true), 47);
-                Stack(stack, ExperienceLabel(T(
-                    "Ничего не выбирайте, чтобы сохранить всё. Общие папки других продуктов IWXA удалять нельзя.",
-                    "Leave everything unchecked to preserve it all. Shared IWXA folders cannot be deleted."),
-                    9, Secondary, false), 63);
+                layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                foreach(float portion in new [] {14F, 14F, 10F, 47F, 15F})
+                    layout.RowStyles.Add(new RowStyle(SizeType.Percent, portion));
+                dialog.Controls.Add(layout);
+                layout.Controls.Add(UiLabel(
+                    T("Удалить ", "Uninstall ") + info.Name + "?",
+                    16F, true), 0, 0);
+                layout.Controls.Add(UiLabel(T(
+                    "По умолчанию программа удаляется без личных данных. Отметьте только те папки, которые нужно удалить окончательно.",
+                    "By default the application is removed without your data. Select only folders you want permanently deleted."),
+                    9.5F, false, Secondary), 0, 1);
+                layout.Controls.Add(UiLabel(T(
+                    "Что делать с сохранёнными папками", "Stored files"),
+                    11F, true), 0, 2);
 
-                // Installed uninstaller owns all deletion. Older installed
-                // releases do not understand selective-cleanup parameters;
-                // they must still support the legacy application-only route.
-                bool selectiveRemovalAvailable = false;
-                try
-                {
-                    string ownExecutable = Path.Combine(
+                bool selective = false;
+                try {
+                    string installed = Path.Combine(
                         SetupInstallation.RootFor(info),
                         "IWXA.SetupCore.Uninstall.exe");
-                    BundleInfo ownBundle = BundleReader.Inspect(ownExecutable);
-                    selectiveRemovalAvailable =
-                        String.Equals(ownBundle.PackageSha256,
-                            info.PackageSha256,
-                            StringComparison.OrdinalIgnoreCase);
-                }
-                catch (Exception) { }
-                if (!selectiveRemovalAvailable)
-                    Stack(stack, ExperienceLabel(T(
-                        "Установленный выпуск поддерживает удаление только программы. Остальные папки останутся; их можно удалить отдельно после удаления.",
-                        "This installed release supports application-only uninstall. Other folders will remain and can be reviewed afterwards."),
-                        9, Color.FromArgb(151, 91, 28), false), 72);
-
-                int[] flags = {1, 8, 4, 2};
+                    BundleInfo stored = BundleReader.Inspect(installed);
+                    // A different installed release may not understand
+                    // selection flags; it remains uninstallable with mask 0.
+                    selective = String.Equals(info.PackageSha256,
+                        stored.PackageSha256,
+                        StringComparison.OrdinalIgnoreCase);
+                } catch (Exception) { }
+                var options = UiTable(2, 50, 50);
+                options.RowCount = 2;
+                options.RowStyles.Clear();
+                options.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+                options.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+                layout.Controls.Add(options, 0, 3);
+                int[] flags = {1, 2, 4, 8};
                 string[] titles = {
-                    T("Удалить личные данные", "Delete personal data"),
-                    T("Удалить кэш", "Delete cache"),
-                    T("Удалить локальные модели", "Delete local models"),
-                    T("Удалить сторонние программы", "Delete third-party software")
+                    T("Личные данные", "Personal data"),
+                    T("Сторонние программы", "External software"),
+                    T("Локальные модели", "Local models"),
+                    T("Кэш", "Cache")
                 };
-                string[] locationsByFlag = {
-                    locations.DataRoot, locations.CacheRoot,
-                    locations.ModelsRoot, locations.SoftwareRoot
-                };
-                var choices = new CheckBox[flags.Length];
-                for (int i = 0; i < flags.Length; i++)
+                string[] paths = {locations.DataRoot,
+                    locations.SoftwareRoot, locations.ModelsRoot,
+                    locations.CacheRoot};
+                var choices = new CheckBox[4];
+                for (int i = 0; i < 4; i++)
                 {
-                    int category = flags[i];
-                    string storagePath = locationsByFlag[i];
-                    string block = SetupInstallation.CleanupBlockReason(
-                        info, category);
-                    bool allowed = selectiveRemovalAvailable &&
+                    var group = new TableLayoutPanel {
+                        Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2,
+                        Padding = new Padding(4), Margin = new Padding(3),
+                        BackColor = Color.FromArgb(247, 250, 254)
+                    };
+                    group.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                    group.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
+                    group.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
+                    string block = SetupInstallation.CleanupBlockReason(info, flags[i]);
+                    bool allowed = selective &&
                         String.IsNullOrWhiteSpace(block);
                     var checkbox = new CheckBox {
-                        Name = "iwxaSetupRemoveStorage" + category,
+                        Name = "iwxaSetupRemoveStorage" + flags[i],
                         Text = titles[i], Checked = false,
-                        Dock = DockStyle.Fill, ForeColor = Dark,
-                        Font = new Font("Segoe UI", 10F, FontStyle.Bold),
-                        Enabled = allowed,
-                        AccessibleName = titles[i]
+                        Enabled = allowed, Dock = DockStyle.Fill,
+                        Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
                     };
                     choices[i] = checkbox;
-                    Stack(stack, checkbox, 37);
-                    var location = new Label {
-                        Text = allowed ? storagePath :
-                            !selectiveRemovalAvailable ?
-                            T("Сохранится — в этом выпуске выбор удаления данных недоступен.",
-                                "Preserved — this installed release cannot selectively delete data.") :
-                            T("Недоступно: папка общая, системная или принадлежит другой программе.",
-                                "Unavailable: this folder is shared, protected or belongs to another application."),
-                        ForeColor = allowed ? Secondary :
-                            Color.FromArgb(154, 93, 41),
-                        AutoEllipsis = true,
-                        Dock = DockStyle.Fill,
-                        AccessibleDescription = storagePath
-                    };
-                    var hint = new ToolTip();
-                    hint.SetToolTip(location, storagePath);
-                    Stack(stack, location, 39);
+                    group.Controls.Add(checkbox, 0, 0);
+                    string status = !selective ?
+                        T("Сохранится: установленный выпуск без выбора данных.",
+                          "Preserved by installed release.") :
+                        allowed ? paths[i] :
+                        T("Недоступно: общая или защищённая папка.",
+                          "Unavailable: shared or protected location.");
+                    var hint = UiLabel(status, 8.25F, false, Secondary);
+                    hint.AutoEllipsis = true;
+                    var tip = new ToolTip();
+                    tip.SetToolTip(hint, paths[i]);
+                    group.Controls.Add(hint, 0, 1);
+                    options.Controls.Add(group, i % 2, i / 2);
                 }
-                Stack(stack, ExperienceLabel(T(
-                    "Выбранные папки удаляются без возможности восстановления. Файлы других программ IWXA не затрагиваются.",
-                    "Selected folders are permanently deleted. Files of other IWXA applications are not touched."),
-                    9, Color.FromArgb(157, 66, 52), false), 71);
-                var footer = new FlowLayoutPanel {
-                    Dock = DockStyle.Fill,
-                    FlowDirection = FlowDirection.RightToLeft,
-                    WrapContents = false
+
+                var footer = UiTable(3, 34, 33, 33);
+                layout.Controls.Add(footer, 0, 4);
+                footer.Controls.Add(UiLabel(T(
+                    "Общие папки других программ защищены.",
+                    "Shared application folders are protected."),
+                    8.5F, false, Secondary), 0, 0);
+                var keep = new Button {
+                    Text = T("Отмена", "Cancel"),
+                    DialogResult = DialogResult.Cancel,
+                    Dock = DockStyle.Fill, Margin = new Padding(5)
                 };
-                var confirm = ExperienceButton("iwxaSetupConfirmRemoval",
-                    T("Удалить программу", "Uninstall application"), false);
-                confirm.ForeColor = Color.FromArgb(158, 45, 57);
-                confirm.Size = new Size(226, 42);
-                var keep = ExperienceButton("iwxaSetupKeepInstallation",
-                    T("Отмена", "Cancel"), false);
-                keep.Size = new Size(170, 42);
-                keep.DialogResult = DialogResult.Cancel;
-                confirm.Click += (sender, args) =>
-                {
+                StyleSecondaryButton(keep);
+                footer.Controls.Add(keep, 1, 0);
+                var confirm = new Button {
+                    Text = T("Удалить программу", "Uninstall application"),
+                    Dock = DockStyle.Fill, Margin = new Padding(5),
+                    ForeColor = Color.FromArgb(158, 45, 57)
+                };
+                StyleSecondaryButton(confirm);
+                confirm.Click += (sender, args) => {
                     int mask = 0;
-                    var chosen = new System.Text.StringBuilder();
-                    for (int i = 0; i < choices.Length; i++)
-                    {
-                        if (!choices[i].Checked || !choices[i].Enabled) continue;
-                        mask |= flags[i];
-                        chosen.AppendLine(titles[i] + ": " + locationsByFlag[i]);
-                    }
-                    if (mask != 0)
-                    {
-                        DialogResult approved = MessageBox.Show(dialog,
-                            T("Вы действительно хотите безвозвратно удалить выбранные папки после удаления программы?",
-                                "Permanently delete these folders after uninstalling the application?") +
-                            Environment.NewLine + chosen,
-                            T("Подтвердите удаление данных", "Confirm data removal"),
-                            MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
-                            MessageBoxDefaultButton.Button2);
-                        if (approved != DialogResult.Yes) return;
-                    }
+                    string summary = "";
+                    for(int i=0;i<choices.Length;i++)
+                        if (choices[i].Checked && choices[i].Enabled) {
+                            mask |= flags[i];
+                            summary += Environment.NewLine +
+                                titles[i] + ": " + paths[i];
+                        }
+                    if (mask != 0 &&
+                        MessageBox.Show(dialog,
+                            T("Безвозвратно удалить выбранные папки?",
+                              "Permanently delete the selected folders?") +
+                            summary,
+                            T("Подтверждение удаления данных",
+                              "Confirm deletion"),
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Warning,
+                            MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                        return;
                     selectedRemovalMask = mask;
                     dialog.DialogResult = DialogResult.Yes;
                 };
-                footer.Controls.Add(confirm);
-                footer.Controls.Add(keep);
-                Stack(stack, footer, 67);
+                footer.Controls.Add(confirm, 2, 0);
                 dialog.CancelButton = keep;
-                dialog.Shown += (sender, args) => FitDialogToWorkingArea(dialog);
+                dialog.Shown += (sender, args) =>
+                    FitDialogToWorkingArea(dialog);
                 return dialog.ShowDialog(this);
             }
         }
