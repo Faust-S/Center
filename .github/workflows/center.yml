@@ -334,13 +334,18 @@ jobs:
             artifacts/installed-gui-result.json
             artifacts/installed-gui-failure.png
 
-  # Targeted Windows verification of official signed bootstrapper. Does
-  # not install or remove WebView2 on the hosted runner.
+  # Targeted public Windows probe: never uninstall or forge Runtime absence.
+  # Windows Server proof cannot substitute for pristine Windows 10/11 client.
   windows-webview2-probe:
     if: ${{ startsWith(github.event.head_commit.message, 'ci(webview2):') }}
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - name: Compile Setup Core signature verifier without rebuilding Center
@@ -426,12 +431,98 @@ jobs:
           $result=Get-Content -LiteralPath $tamperReport -Raw|ConvertFrom-Json
           if($result.status -ne 'ERROR'){throw 'WEBVIEW2_TAMPER_REPORT_MISSING_ERROR'}
           Write-Host 'WEBVIEW2_TAMPERED_MICROSOFT_BOOTSTRAPPER_REJECTED_PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          name: center-windows-preparation-shell
+          repository: Faust-S/Center
+          run-id: 42589868604
+          github-token: ${{ github.token }}
+          path: accepted-setup
+      - name: Verify real absent-runtime precondition and attempt first install if eligible
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          $ErrorActionPreference='Stop'
+          $setup=Join-Path $env:GITHUB_WORKSPACE 'accepted-setup/artifacts/iwxa-setup-core-center-0.3-preview.exe'
+          $proof=Join-Path $env:GITHUB_WORKSPACE 'artifacts/webview2-ci-first-use'
+          New-Item -ItemType Directory -Force -Path $proof|Out-Null
+          $expected='CC13D4C6A9EC00D193C5C17EA77B0141136B012B279186E42840473E0E9E219E'
+          $os=Get-CimInstance Win32_OperatingSystem
+          $receipt=[ordered]@{
+            schema='IWXA_WEBVIEW2_HOSTED_ABSENCE/1'
+            status='NOT_QUALIFIED'
+            reason='STARTED'
+            runnerImage='${{ matrix.os }}'
+            osCaption=[string]$os.Caption
+            osVersion=[string]$os.Version
+            osProductType=[int]$os.ProductType
+            processorArchitecture=[string]$env:PROCESSOR_ARCHITECTURE
+            setupSha256=''
+            runtimeVersionBefore=''
+            preflightStatus=''
+            runtimeAbsentBefore=$false
+            attemptedRealInstallation=$false
+            runtimeVerifiedAfter=$false
+            realGuiVerified=$false
+            realProductUninstallVerified=$false
+            windowsClientAcceptance=$false
+            forgedAbsence=$false
+          }
+          try {
+            if(!(Test-Path -LiteralPath $setup -PathType Leaf)){throw 'WEBVIEW2_ACCEPTED_SETUP_MISSING'}
+            $receipt.setupSha256=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash
+            if($receipt.setupSha256 -ne $expected){throw 'WEBVIEW2_ACCEPTED_SETUP_HASH_MISMATCH'}
+            $beforeFile=Join-Path $proof 'preflight.json'
+            $p=Start-Process -FilePath $setup -ArgumentList ('--preflight-file "{0}"' -f $beforeFile) -PassThru
+            try {
+              if(!$p.WaitForExit(60000)){
+                Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+                throw 'WEBVIEW2_RUNNER_NATIVE_PREFLIGHT_TIMEOUT'
+              }
+              if($p.ExitCode -ne 0){throw ('WEBVIEW2_RUNNER_PREFLIGHT_EXIT_'+$p.ExitCode)}
+            } finally {$p.Dispose()}
+            $before=Get-Content -LiteralPath $beforeFile -Raw|ConvertFrom-Json
+            $receipt.preflightStatus=[string]$before.status
+            $receipt.runtimeVersionBefore=[string]$before.webview2Version
+            if($before.status -eq 'WEBVIEW2_MISSING' -and
+               -not $before.webview2Version -and $env:PROCESSOR_ARCHITECTURE -eq 'AMD64'){
+              $receipt.runtimeAbsentBefore=$true
+              $receipt.attemptedRealInstallation=$true
+              $test=Join-Path $env:GITHUB_WORKSPACE 'installer/windows/qualify-webview2-clean-windows.ps1'
+              & $test -SetupExe $setup -Mode Online -ExpectedGuiAccessibleName 'Организация' -ReportDirectory (Join-Path $proof 'actual-first-use')
+              $result=Get-Content -LiteralPath (Join-Path $proof 'actual-first-use/qualification.json') -Raw|ConvertFrom-Json
+              if($result.status -ne 'PASS' -or !$result.runtimeAbsentBefore -or
+                 !$result.installedBySetup -or !$result.installedProductGuiOpened -or
+                 !$result.productUninstallQualified){
+                throw 'WEBVIEW2_GENUINE_FIRST_INSTALL_NOT_VERIFIED'
+              }
+              $receipt.runtimeVerifiedAfter=$true
+              $receipt.realGuiVerified=$true
+              $receipt.realProductUninstallVerified=$true
+              $receipt.windowsClientAcceptance=($os.ProductType -eq 1)
+              $receipt.status='PASS'
+              $receipt.reason=if($os.ProductType -eq 1){'REAL_WINDOWS_CLIENT_FIRST_INSTALL'}
+                else {'REAL_WINDOWS_SERVER_FIRST_INSTALL_NOT_CLIENT_RELEASE_WITNESS'}
+              Write-Host ('IWXA_WEBVIEW2_REAL_RUNTIME_ABSENCE_FIRST_INSTALL_PASS client='+$receipt.windowsClientAcceptance)
+            } else {
+              $receipt.reason=if($before.webview2Version){'RUNTIME_ALREADY_PRESENT_ON_RUNNER'}
+                else {'NO_ELIGIBLE_MISSING_RUNTIME_WINDOWS_X64_IMAGE'}
+              Write-Host ('IWXA_WEBVIEW2_FIRST_INSTALL_NOT_QUALIFIED '+$receipt.reason)
+            }
+          } catch {
+            $receipt.status='FAIL'
+            $receipt.reason=$_.Exception.Message
+            throw
+          } finally {
+            $receipt|ConvertTo-Json -Depth 6|Set-Content -LiteralPath (Join-Path $proof 'readiness.json') -Encoding UTF8
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: center-webview2-verification
+          name: center-webview2-verification-${{ matrix.os }}
           path: |
             artifacts/webview2-*.json
+            artifacts/webview2-ci-first-use/**
   # One optional benchmark job in the EXISTING public CI workflow.
   resource-benchmark:
     if: ${{ startsWith(github.event.head_commit.message, 'ci(bench):') }}
