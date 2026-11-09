@@ -155,3 +155,12 @@ test('Publisher compact-height sidebar retains navigation and local-data footer 
  assert.match(css,/\.publisher-app \.sidebar-bottom\{padding:9px 13px 12px\}/);
  assert.match(browser,/compact-height-native-sidebar-all-sections-and-footer-visible/);
 });
+
+
+test('native Windows witness verifies exact controlled input values before save',()=>{
+ const windows=read('publisher/tests/installed-windows-publisher.ps1');
+ assert.match(windows,/PUBLISHER_GUI_ENTER_EXACT_READBACK_PASS/);
+ assert.match(windows,/\[System\.Windows\.Automation\.ValuePattern\]::Pattern/);
+ assert.match(windows,/PUBLISHER_GUI_INPUT_READBACK_MISMATCH/);
+ assert.match(windows,/SendWait\(\[string\]\$character\)/);
+});

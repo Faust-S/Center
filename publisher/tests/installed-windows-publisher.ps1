@@ -150,12 +150,40 @@ function Choose-Publisher-Option([string]$name){
 }
 function Enter-Value([string]$name,[string]$value){
   Write-Host "PUBLISHER_GUI_ENTER $name"
-  $node=Find-Control $name 'Edit'
-  $node.SetFocus()
-  Start-Sleep -Milliseconds 150
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  [System.Windows.Forms.SendKeys]::SendWait($value)
-  Start-Sleep -Milliseconds 150
+  # Chromium WebView2 may drop the end of a rapid SendKeys sequence while
+  # React re-renders a controlled input. Verify the actual accessible value
+  # before submitting, and retry with paced real keystrokes if necessary.
+  for($attempt=1;$attempt -le 3;$attempt++){
+    $node=Find-Control $name 'Edit'
+    $node.SetFocus()
+    Start-Sleep -Milliseconds 180
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    Start-Sleep -Milliseconds 100
+    if($attempt -eq 1){
+      [System.Windows.Forms.SendKeys]::SendWait($value)
+    }else{
+      foreach($character in $value.ToCharArray()){
+        [System.Windows.Forms.SendKeys]::SendWait([string]$character)
+        Start-Sleep -Milliseconds 25
+      }
+    }
+    Start-Sleep -Milliseconds 220
+    $actual=$null
+    try{
+      $readback=Find-Control $name 'Edit'
+      $pattern=$readback.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+      $actual=$pattern.Current.Value
+    }catch{
+      Write-Host "PUBLISHER_GUI_ENTER_READBACK_RETRY $name attempt=$attempt"
+    }
+    if($null -ne $actual -and $actual -ceq $value){
+      Write-Host "PUBLISHER_GUI_ENTER_EXACT_READBACK_PASS $name"
+      return
+    }
+    $length=if($null -eq $actual){-1}else{$actual.Length}
+    Write-Host "PUBLISHER_GUI_ENTER_MISMATCH $name attempt=$attempt actualLength=$length expectedLength=$($value.Length)"
+  }
+  throw "PUBLISHER_GUI_INPUT_READBACK_MISMATCH $name"
 }
 function Find-Text([string]$piece) {
   for($i=0;$i -lt 60;$i++) {
