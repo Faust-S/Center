@@ -82,7 +82,11 @@ function Root-Element {
   throw 'PUBLISHER_NATIVE_WINDOW_HANDLE_NOT_AVAILABLE_AFTER_FILE_DIALOG'
 }
 function Find-Control([string]$name,[string]$kind){
-  $expected=if($kind -eq 'Edit'){[System.Windows.Automation.ControlType]::Edit}else{[System.Windows.Automation.ControlType]::Button}
+  $expected=switch($kind){
+    'Edit' {[System.Windows.Automation.ControlType]::Edit}
+    'ComboBox' {[System.Windows.Automation.ControlType]::ComboBox}
+    default {[System.Windows.Automation.ControlType]::Button}
+  }
   $condition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty,$name)
   for($i=0;$i -lt 60;$i++){
     $nodes=(Root-Element).FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)
@@ -128,6 +132,21 @@ function Click-Publisher([string]$name){
     [PublisherWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
   }
   Start-Sleep -Milliseconds 300
+}
+function Choose-Publisher-Option([string]$name){
+  # WebView2 exposes native HTML <select> as an accessible ComboBox.
+  # The first entry is the explicit blank placeholder; choose the next
+  # entry by keyboard instead of writing to or skipping the React form.
+  Write-Host "PUBLISHER_GUI_SELECT $name"
+  $node=Find-Control $name 'ComboBox'
+  $node.SetFocus()
+  Start-Sleep -Milliseconds 200
+  [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+  Start-Sleep -Milliseconds 100
+  [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+  Start-Sleep -Milliseconds 100
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  Start-Sleep -Milliseconds 400
 }
 function Enter-Value([string]$name,[string]$value){
   Write-Host "PUBLISHER_GUI_ENTER $name"
@@ -483,6 +502,21 @@ try {
    # Exercise new tariff proposal only after the legacy request, backup, and
    # exact .iwxa transport have been independently verified.
    Click-Publisher 'Лицензии'
+   $offerButton=Find-Control 'Сохранить подготовку по тарифу' 'Button'
+   if($offerButton.Current.IsEnabled){
+     throw 'PUBLISHER_NATIVE_LICENSE_PREPARATION_MUST_REQUIRE_EXPLICIT_CHOICES'
+   }
+   Choose-Publisher-Option 'Тариф'
+   $offerButton=Find-Control 'Сохранить подготовку по тарифу' 'Button'
+   if($offerButton.Current.IsEnabled){
+     throw 'PUBLISHER_NATIVE_LICENSE_PREPARATION_MUST_REQUIRE_EXPLICIT_RECIPIENT'
+   }
+   Choose-Publisher-Option 'Клиент'
+   $offerButton=Find-Control 'Сохранить подготовку по тарифу' 'Button'
+   if(!$offerButton.Current.IsEnabled){
+     throw 'PUBLISHER_NATIVE_LICENSE_PREPARATION_REMAINS_DISABLED_AFTER_SELECTION'
+   }
+   Write-Host 'PUBLISHER_INSTALLED_EXPLICIT_TARIFF_AND_RECIPIENT_PASS'
    Click-Publisher 'Сохранить подготовку по тарифу'
    $offer=$null
    for($i=0;$i -lt 60;$i++){
