@@ -41,9 +41,11 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
    setEditionNotice('Условия предыдущей редакции скопированы. Новая редакция будет сохранена отдельно.');
    editorRef.current?.scrollIntoView({block:'start',behavior:'auto'});
  }
- const selected=draft.tariffs.find(t=>tariffKey(t)===choice)||draft.tariffs[0];
+ // Never silently prepare a license for the first tariff in the catalog.
+ const selected=draft.tariffs.find(t=>tariffKey(t)===choice);
  const holders=draft.holders.filter(h=>h.type===selected?.holderType);
- const selectedHolder=holders.find(h=>h.id===holderId)?.id||holders[0]?.id||'';
+ // The recipient must be selected explicitly for each preparation.
+ const selectedHolder=holders.find(h=>h.id===holderId)?.id||'';
  const eligibleSources=draft.proposals.filter(p=>p.tariffSnapshot&&
    p.productId===selected?.productId&&p.holderId===selectedHolder);
  const selectedSource=eligibleSources.find(p=>p.id===previousProposalId);
@@ -117,16 +119,18 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
    <p className="muted">Условия выбранной редакции сохраняются в запросе. Лицензия без подписи не действует.</p>
    {draft.tariffs.length===0?<p className="muted">Сначала создайте тариф.</p>:<>
     <div className="form-grid">
-     <label>Тариф<select value={selected?tariffKey(selected):''} onChange={e=>{setChoice(e.target.value);setHolderId('');setPreviousProposalId('');}}>{draft.tariffs.map(t=><option key={tariffKey(t)} value={tariffKey(t)}>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.name} · редакция {t.revision} · {t.holderType==='PERSON'?'Личный':'Для организации'}</option>)}</select></label>
-     <label>Клиент<select value={selectedHolder} onChange={e=>{setHolderId(e.target.value);setPreviousProposalId('');}}>{holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
+     <label>Тариф<select value={selected?tariffKey(selected):''} onChange={e=>{setChoice(e.target.value);setHolderId('');setPreviousProposalId('');}}><option value="">Выберите тариф</option>{draft.tariffs.map(t=><option key={tariffKey(t)} value={tariffKey(t)}>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.name} · редакция {t.revision} · {t.holderType==='PERSON'?'Личный':'Для организации'}</option>)}</select></label>
+     <label>Клиент<select value={selectedHolder} disabled={!selected||holders.length===0} onChange={e=>{setHolderId(e.target.value);setPreviousProposalId('');}}><option value="">Выберите клиента</option>{holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
     </div>
+    {!selected&&<p className="muted" role="status">Выберите тариф и клиента, чтобы проверить условия до сохранения.</p>}
+    {selected&&holders.length===0&&<p className="muted" role="status">Нет клиентов нужного типа. Добавьте получателя в разделе «Клиенты».</p>}
     {selected&&selectedHolder&&<label className="publisher-followup-choice">Основание подготовки
       <select aria-label="Основание подготовки" value={selectedSource?.id||''} onChange={e=>setPreviousProposalId(e.target.value)}>
         <option value="">Новая подготовка</option>
         {eligibleSources.map(p=><option key={p.id} value={p.id}>{p.tariffSnapshot?.name} · редакция {p.tariffSnapshot?.revision} · прежняя подготовка</option>)}
       </select>
     </label>}
-    <p className="muted">{selected?.holderType==='PERSON'?'Личный подписанный .iwxa принимается непосредственно продуктом, без Admin Center.':'Организационный подписанный .iwxa передаётся в Admin Center для распределения.'}</p>
+    {selected&&<p className="muted">{selected.holderType==='PERSON'?'Личный подписанный .iwxa принимается непосредственно продуктом, без Admin Center.':'Организационный подписанный .iwxa передаётся в Admin Center для распределения.'}</p>}
     {selectedSource&&<p className="muted">Новая подготовка будет связана с прежним запросом. Это не продлевает и не изменяет действующие права без отдельной подписи издателя.</p>}
     {selected&&selectedHolder&&<div className="publisher-offer-review" data-testid="publisher-offline-offer-preview" role="status">
       <strong>Условия для проверки</strong>
@@ -144,7 +148,7 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
       <p className="muted">Неподписанная подготовка. Права появятся только после выпуска и проверки доверенной лицензии .iwxa.</p>
     </div>}
     <div className="publisher-save-action" data-testid="publisher-proposal-save-action">
-      <button className="primary" type="button" disabled={busy||!selectedHolder} onClick={()=>void saveOffer()}>{busy?'Сохраняем…':selectedSource?'Создать следующую подготовку':'Сохранить подготовку по тарифу'}</button>
+      <button className="primary" type="button" disabled={busy||!selected||!selectedHolder} onClick={()=>void saveOffer()}>{busy?'Сохраняем…':selectedSource?'Создать следующую подготовку':'Сохранить подготовку по тарифу'}</button>
       {proposalFeedback&&<p ref={proposalFeedbackRef} className={'publisher-inline-feedback '+(proposalFeedback.ok?'success':'error')}
         role={proposalFeedback.ok?'status':'alert'} data-testid="publisher-proposal-save-feedback">{proposalFeedback.message}</p>}
     </div>

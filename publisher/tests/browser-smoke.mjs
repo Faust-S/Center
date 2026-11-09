@@ -220,7 +220,15 @@ try {
   checks.push('create-organization-holder');
 
   await page.getByRole('button',{name:'Лицензии'}).click();
-  await page.getByTestId('publisher-tariff-proposal').waitFor();
+  const licenseChoice=page.getByTestId('publisher-tariff-proposal');
+  await licenseChoice.waitFor();
+  const prepareLicense=page.getByRole('button',{name:'Сохранить подготовку по тарифу'});
+  assert.equal(await prepareLicense.isDisabled(),true,'An implicit first tariff/recipient must never be submitted');
+  await licenseChoice.getByRole('combobox',{name:'Тариф'}).selectOption('IWXA_ADMIN_CENTER:ORGANIZATION:TEAM:1');
+  assert.equal(await prepareLicense.isDisabled(),true,'Selecting a tariff must not implicitly select its first recipient');
+  await licenseChoice.getByRole('combobox',{name:'Клиент'}).selectOption('11111111-1111-4111-8111-111111111111');
+  assert.equal(await prepareLicense.isEnabled(),true);
+  checks.push('license-preparation-requires-explicit-tariff-and-recipient');
   await page.evaluate(()=>{window.__publisherMockFailNextSave=true;});
   await page.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
   const proposalFeedback=page.getByTestId('publisher-proposal-save-feedback');
@@ -241,6 +249,10 @@ try {
   await page.getByText('Подготовленные запросы (1)').waitFor();
   checks.push('tariff-proposal-unsigned-snapshot');
   await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
+  await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
+    .selectOption('IWXA_ADMIN_CENTER:ORGANIZATION:TEAM:1');
+  await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Клиент'})
+    .selectOption('11111111-1111-4111-8111-111111111111');
   const offerReview=page.getByTestId('publisher-offline-offer-preview');
   assert.match(await offerReview.innerText(),/Места продукта: 5/);
   assert.match(await offerReview.innerText(),/Сотрудники: 10/);
@@ -396,6 +408,8 @@ try {
   const newer=firstSaved.tariffs.find(t=>t.revision===2);
   await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
     .selectOption([newer.productId,newer.holderType,newer.id,newer.revision].join(':'));
+  await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Клиент'})
+    .selectOption('11111111-1111-4111-8111-111111111111');
   await page.getByRole('combobox',{name:'Основание подготовки'}).selectOption(firstOffer.id);
   assert.match(await page.getByTestId('publisher-offline-offer-preview').innerText(),/Места продукта: 7/);
   await page.getByRole('button',{name:'Создать следующую подготовку'}).click();
@@ -477,12 +491,20 @@ try {
   await personal.getByLabel('Функции и модули').fill('LOCAL_PROJECTS');
   assert.equal(await personal.getByLabel('Сотрудники организации').count(),0);
   await personal.getByRole('button',{name:'Сохранить редакцию тарифа'}).click();
+  await personal.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
+    .selectOption('IWXA_ATLAS:PERSON:ATLAS_PERSONAL:1');
+  await personal.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Клиент'})
+    .selectOption('person:local-example');
   const personPreview=await personal.getByTestId('publisher-offline-offer-preview').innerText();
   assert.match(personPreview,/Устройства: 3/);
   assert.doesNotMatch(personPreview,/Сотрудники:/);
   assert.match(personPreview,/Неподписанная подготовка/);
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
-  await personal.getByTestId('publisher-tariff-proposal').waitFor();
+  const personalLicenseChoice=personal.getByTestId('publisher-tariff-proposal');
+  await personalLicenseChoice.waitFor();
+  assert.equal(await personal.getByRole('button',{name:'Сохранить подготовку по тарифу'}).isDisabled(),true);
+  await personalLicenseChoice.getByRole('combobox',{name:'Тариф'}).selectOption('IWXA_ATLAS:PERSON:ATLAS_PERSONAL:1');
+  await personalLicenseChoice.getByRole('combobox',{name:'Клиент'}).selectOption('person:local-example');
   await personal.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
   const directDraft=JSON.parse(await personal.evaluate(()=>sessionStorage.getItem('iwxa-publisher-person-fixture')));
   assert.equal(directDraft.proposals[0].tariffSnapshot.holderType,'PERSON');
@@ -517,6 +539,9 @@ try {
   const orgSelector=personal.getByTestId('publisher-tariff-proposal')
     .getByRole('combobox',{name:'Тариф'});
   await orgSelector.selectOption('IWXA_ATLAS:ORGANIZATION:ATLAS_PERSONAL:1');
+  assert.equal(await personal.getByRole('button',{name:'Сохранить подготовку по тарифу'}).isDisabled(),true);
+  await personal.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Клиент'})
+    .selectOption('org:atlas-test');
   assert.match(await personal.getByTestId('publisher-offline-offer-preview').innerText(),/Сотрудники: 10/);
   await personal.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
   await personal.getByText('Подготовленные запросы (2)').waitFor();
