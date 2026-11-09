@@ -68,16 +68,23 @@ try{
   const revisedArchive=await buildIwxaPortfolio(later.state,{now:'2026-11-09T11:00:00.000Z'});
   await page.getByTestId('atlas-import-file').setInputFiles({
     name:'atlas-updated.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(revisedArchive)});
+  // Parsing a ZIP is async. Wait for the NEW file's revision, not stale
+  // comparison text left from the previous successful file.
+  await page.waitForFunction(expected=>
+    document.querySelector('[data-testid="atlas-revision"]')?.textContent?.trim()===expected,
+    String(later.state.revision));
   assert.match(await page.getByTestId('atlas-copy-difference').innerText(),/работ добавлено 1/);
   assert.match(await page.getByTestId('atlas-file-links-review').innerText(),/требующими проверки: 1/);
   assert.equal(await page.getByTestId('atlas-revision').textContent(),String(later.state.revision));
   await page.getByTestId('atlas-import-file').setInputFiles({
     name:'atlas-updated.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(revisedArchive)});
+  await page.getByText('Состав копии не изменился с предыдущего открытия.').waitFor({state:'visible'});
   assert.match(await page.getByTestId('atlas-copy-difference').innerText(),/не изменился/);
   const tamperedAgain=Uint8Array.from(revisedArchive);
   tamperedAgain[tamperedAgain.length-30]^=1;
   await page.getByTestId('atlas-import-file').setInputFiles({
     name:'broken-update.iwxa',mimeType:'application/octet-stream',buffer:Buffer.from(tamperedAgain)});
+  await page.getByText(/Предыдущая копия осталась на экране/).waitFor({state:'visible'});
   assert.match(await page.getByRole('alert').innerText(),/Предыдущая копия осталась на экране/);
   assert.equal(await page.getByTestId('atlas-revision').textContent(),String(later.state.revision));
   checks.push('atlas-reopened-iwxa-compared-and-damaged-copy-retained-old-preview');
