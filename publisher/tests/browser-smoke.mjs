@@ -140,8 +140,22 @@ try {
   await page.getByLabel('Идентификатор продукта').fill('IWXA_ADMIN_CENTER');
   await page.getByLabel('Название').fill('IWXA Admin Center');
   await page.getByLabel('Версия',{exact:true}).fill('0.3.0');
+  await page.evaluate(()=>{window.__publisherMockFailNextSave=true;});
+  await page.getByRole('button',{name:'Сохранить продукт'}).click();
+  const productFeedback=page.getByTestId('publisher-product-save-feedback');
+  await productFeedback.waitFor();
+  assert.equal(await productFeedback.getAttribute('role'),'alert');
+  assert.match(await productFeedback.innerText(),/Не удалось сохранить/);
+  assert.equal(await page.getByLabel('Идентификатор продукта').inputValue(),'IWXA_ADMIN_CENTER');
+  assert.equal(await page.getByLabel('Название').inputValue(),'IWXA Admin Center');
+  assert.equal(await page.getByText('Продукты (0)').count(),1);
   await page.getByRole('button',{name:'Сохранить продукт'}).click();
   await page.getByText('Продукты (1)').waitFor();
+  await productFeedback.waitFor();
+  assert.equal(await productFeedback.getAttribute('role'),'status');
+  assert.match(await productFeedback.innerText(),/Продукт добавлен/);
+  assert.equal(await page.getByLabel('Идентификатор продукта').inputValue(),'');
+  checks.push('product-native-save-failure-retains-form-and-success-is-inline');
   checks.push('create-product-draft');
 
   await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
@@ -179,8 +193,21 @@ try {
   await page.getByRole('button',{name:'Клиенты'}).click();
   await page.getByLabel('Идентификатор клиента').fill('11111111-1111-4111-8111-111111111111');
   await page.getByLabel('Название / имя').fill('Test Corporation');
+  await page.evaluate(()=>{window.__publisherMockFailNextSave=true;});
+  await page.getByRole('button',{name:'Сохранить клиента'}).click();
+  const clientFeedback=page.getByTestId('publisher-client-save-feedback');
+  await clientFeedback.waitFor();
+  assert.equal(await clientFeedback.getAttribute('role'),'alert');
+  assert.equal(await page.getByLabel('Идентификатор клиента').inputValue(),'11111111-1111-4111-8111-111111111111');
+  assert.equal(await page.getByLabel('Название / имя').inputValue(),'Test Corporation');
+  assert.equal(await page.getByText('Клиенты (0)').count(),1);
   await page.getByRole('button',{name:'Сохранить клиента'}).click();
   await page.getByText('Клиенты (1)').waitFor();
+  await clientFeedback.waitFor();
+  assert.equal(await clientFeedback.getAttribute('role'),'status');
+  assert.match(await clientFeedback.innerText(),/Клиент добавлен/);
+  assert.equal(await page.getByLabel('Идентификатор клиента').inputValue(),'');
+  checks.push('client-native-save-failure-retains-form-and-success-is-inline');
   checks.push('create-organization-holder');
 
   await page.getByRole('button',{name:'Лицензии'}).click();

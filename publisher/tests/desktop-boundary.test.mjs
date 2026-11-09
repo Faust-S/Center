@@ -104,3 +104,15 @@ test('Publisher tariff and license preparation show true persistence outcomes ne
  assert.match(smoke,/tariff-native-save-failure-and-success-visible-beside-action/);
  assert.match(smoke,/proposal-native-save-failure-and-success-visible-beside-action/);
 });
+
+test('product and client drafts keep their form values when native persistence fails',()=>{
+ const app=read('publisher/ui/App.tsx');
+ const smoke=read('publisher/tests/browser-smoke.mjs');
+ assert.match(app,/async function saveProduct\(e:React\.FormEvent\)/);
+ assert.match(app,/async function saveClient\(e:React\.FormEvent\)/);
+ assert.match(app,/if\(result\.ok\)\{setHolderName\(''\);setHolderSourceId\(''\);\}/);
+ assert.match(app,/publisher-product-save-feedback/);
+ assert.match(app,/publisher-client-save-feedback/);
+ assert.match(smoke,/product-native-save-failure-retains-form-and-success-is-inline/);
+ assert.match(smoke,/client-native-save-failure-retains-form-and-success-is-inline/);
+});

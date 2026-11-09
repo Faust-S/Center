@@ -86,6 +86,12 @@ export default function App(){
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
  const [message,setMessage]=useState('');
+ const [productFeedback,setProductFeedback]=useState<{ok:boolean;message:string}|null>(null);
+ const [clientFeedback,setClientFeedback]=useState<{ok:boolean;message:string}|null>(null);
+ const productFeedbackRef=React.useRef<HTMLParagraphElement>(null);
+ const clientFeedbackRef=React.useRef<HTMLParagraphElement>(null);
+ useEffect(()=>{if(productFeedback)productFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});},[productFeedback]);
+ useEffect(()=>{if(clientFeedback)clientFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});},[clientFeedback]);
  const [productId,setProductId]=useState('');
  const [productName,setProductName]=useState('');
  const [productVersion,setProductVersion]=useState('0.2.0');
@@ -143,6 +149,20 @@ export default function App(){
      return {ok:false,message:'Не удалось сохранить: '+reason};
    }
    finally{setBusy(false);}
+ }
+ async function saveProduct(e:React.FormEvent){
+   e.preventDefault();setProductFeedback(null);
+   const result=await change({kind:'addProduct',id:productId.trim(),name:productName.trim(),version:productVersion.trim()},
+     'Продукт добавлен в черновик каталога.');
+   setProductFeedback(result);
+   if(result.ok){setProductId('');setProductName('');}
+ }
+ async function saveClient(e:React.FormEvent){
+   e.preventDefault();setClientFeedback(null);
+   const result=await change({kind:'addHolder',id:holderSourceId.trim(),name:holderName.trim(),type:holderType},
+     'Клиент добавлен в локальный черновик.');
+   setClientFeedback(result);
+   if(result.ok){setHolderName('');setHolderSourceId('');}
  }
  async function inspect(){
    if(!nativeHost){setError('Выбор и проверка настоящего файла доступны в установленной программе Publisher.');return;}
@@ -348,23 +368,31 @@ export default function App(){
        </>}
        {page==='products'&&<>
          <section className="card form-panel"><h2>Новый продукт в локальном черновике каталога</h2>
-           <form onSubmit={e=>{e.preventDefault();void change({kind:'addProduct',id:productId.trim(),name:productName.trim(),version:productVersion.trim()},'Продукт добавлен в черновик каталога.');}}>
+           <form onSubmit={e=>void saveProduct(e)} onChangeCapture={()=>setProductFeedback(null)}>
              <div className="form-grid">
                <label>Идентификатор продукта<input required maxLength={64} placeholder="IWXA_ADMIN_CENTER" value={productId} onChange={e=>setProductId(e.target.value)}/></label>
                <label>Название<input required maxLength={130} placeholder="IWXA Admin Center" value={productName} onChange={e=>setProductName(e.target.value)}/></label>
                <label>Версия<input required value={productVersion} onChange={e=>setProductVersion(e.target.value)} placeholder="0.2.0"/></label>
-             </div><button className="primary" disabled={busy} type="submit">Сохранить продукт</button>
+             </div><div className="publisher-save-action" data-testid="publisher-product-save-action">
+               <button className="primary" disabled={busy} type="submit">{busy?'Сохраняем…':'Сохранить продукт'}</button>
+               {productFeedback&&<p ref={productFeedbackRef} className={'publisher-inline-feedback '+(productFeedback.ok?'success':'error')}
+                 role={productFeedback.ok?'status':'alert'} data-testid="publisher-product-save-feedback">{productFeedback.message}</p>}
+             </div>
            </form>
          </section>
          <section className="card padded"><h2>Продукты ({state.products.length})</h2>{state.products.length===0?<p className="muted">Каталог пуст. Ни один продукт не допущен к распространению.</p>:state.products.map(p=><div className="simple-row" key={p.id}><div><strong>{p.name}</strong><small>{p.id} · {p.version}</small></div><span className="status neutral">Черновик</span></div>)}</section>
        </>}
        {page==='tariffs'&&<TariffPanel draft={state} busy={busy} change={change}/>}
         {page==='holders'&&<>
-         <section className="card form-panel"><h2>Новый клиент</h2><form onSubmit={e=>{e.preventDefault();void change({kind:'addHolder',id:holderSourceId.trim(),name:holderName.trim(),type:holderType},'Получатель добавлен в локальный черновик.');setHolderName('');setHolderSourceId('');}}>
+         <section className="card form-panel"><h2>Новый клиент</h2><form onSubmit={e=>void saveClient(e)} onChangeCapture={()=>setClientFeedback(null)}>
            <p className="muted">{holderType==='PERSON'?'Для личной лицензии укажите постоянный идентификатор владельца. Admin Center не нужен.':'Для лицензии организации укажите её идентификатор, используемый в Admin Center.'} Эта запись пока не предоставляет прав.</p>
            <div className="form-grid"><label>Идентификатор клиента<input required maxLength={90} placeholder={holderType==='PERSON'?'person:example':'org:example'} value={holderSourceId} onChange={e=>setHolderSourceId(e.target.value)}/></label><label>Название / имя<input required maxLength={130} value={holderName} onChange={e=>setHolderName(e.target.value)}/></label>
            <label>Тип субъекта<select value={holderType} onChange={e=>setHolderType(e.target.value as Holder['type'])}><option value="ORGANIZATION">Организация</option><option value="PERSON">Физическое лицо</option></select></label></div>
-           <button className="primary" disabled={busy} type="submit">Сохранить клиента</button></form></section>
+           <div className="publisher-save-action" data-testid="publisher-client-save-action">
+             <button className="primary" disabled={busy} type="submit">{busy?'Сохраняем…':'Сохранить клиента'}</button>
+             {clientFeedback&&<p ref={clientFeedbackRef} className={'publisher-inline-feedback '+(clientFeedback.ok?'success':'error')}
+               role={clientFeedback.ok?'status':'alert'} data-testid="publisher-client-save-feedback">{clientFeedback.message}</p>}
+           </div></form></section>
          <section className="card padded"><h2>Клиенты ({state.holders.length})</h2>{state.holders.length===0?<p className="muted">Клиентов пока нет.</p>:state.holders.map(h=><div key={h.id} className="simple-row"><div><strong>{h.name}</strong><small>{typeLabel(h.type)} · {h.id}</small></div><span className="status neutral">Подготовка</span></div>)}</section>
        </>}
        {page==='proposals'&&<>
