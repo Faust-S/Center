@@ -154,15 +154,25 @@ function Assert-Layout([System.Windows.Forms.Form]$form,[string]$case) {
         throw ('SETUP_LAYOUT_PRESERVATION_TEXT_CLIPPED_' + $case +
             ' height=' + $note.Height + ' font=' + $note.Font.Height)
     }
-    # Check the widest native state: primary + Rollback + Verify again.
+    # Normal install/upgrade actions and the storage cancellation action
+    # are mutually exclusive. Qualify BOTH layouts against the same panel.
     $needed = $actions.Padding.Horizontal
     foreach ($button in @($actions.Controls | Where-Object {
-            $_ -is [System.Windows.Forms.Button] })) {
+            $_ -is [System.Windows.Forms.Button] -and
+            $_.Name -ne 'iwxaSetupCancelStorageMove' })) {
         $needed += $button.Width + $button.Margin.Horizontal
     }
     if ($needed -gt $actions.ClientSize.Width) {
         throw ('SETUP_LAYOUT_ACTIONS_CLIPPED_' + $case +
             ' needed=' + $needed + ' available=' + $actions.ClientSize.Width)
+    }
+    $cancel = One $form 'iwxaSetupCancelStorageMove'
+    $cancelNeeded = $actions.Padding.Horizontal +
+        $cancel.Width + $cancel.Margin.Horizontal
+    if ($cancelNeeded -gt $actions.ClientSize.Width) {
+        throw ('SETUP_LAYOUT_STORAGE_CANCEL_CLIPPED_' + $case +
+            ' needed=' + $cancelNeeded +
+            ' available=' + $actions.ClientSize.Width)
     }
     Write-Host ('IWXA_SETUP_LAYOUT_PASS case=' + $case +
         ' area=' + $area.ClientSize + ' noteHeight=' + $note.Height +
