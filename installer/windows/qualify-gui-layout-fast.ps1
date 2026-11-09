@@ -216,9 +216,11 @@ try {
     if ($null -eq $reasonMethod) {
         throw 'SETUP_STORAGE_HUMAN_READABLE_ERROR_MISSING'
     }
-    $spaceMessage = [string]$reasonMethod.Invoke($hostForm,
-        [object[]]@([Exception]::new(
-            'SETUP_STORAGE_DISK_SPACE_INSUFFICIENT_required=200000000_available=100000000_volume=C:')))
+    $testException = New-Object System.Exception -ArgumentList @(
+        'SETUP_STORAGE_DISK_SPACE_INSUFFICIENT_required=200000000_available=100000000_volume=C:')
+    $invokeArgs = New-Object 'System.Object[]' 1
+    $invokeArgs[0] = $testException
+    $spaceMessage = [string]$reasonMethod.Invoke($hostForm, $invokeArgs)
     if ($spaceMessage -notmatch 'MB|МБ' -or
         $spaceMessage -match 'SETUP_STORAGE_DISK_SPACE_INSUFFICIENT') {
         throw 'SETUP_STORAGE_HUMAN_READABLE_DISK_SPACE_ERROR_INVALID'
