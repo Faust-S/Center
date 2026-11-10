@@ -41,16 +41,16 @@ test('Publisher full release EXE is assembled with Tauri resources before Setup 
  assert.match(publisherJob,/run:\s*\.\/publisher\/tests\/installed-setupcore-publisher\.ps1/);
 });
 
-// Publisher 0.4 must have one product identity across the native app,
+// Publisher 0.5 must have one product identity across the native app,
 // original Setup Core package and installed acceptance tests. Admin Center's
 // independent version is deliberately excluded.
-test('Publisher development 0.4.0-dev.2 identity matches Rust, Tauri, Setup Core, UI and Windows acceptance',()=>{
+test('Publisher development 0.5.0-dev.1 identity matches Rust, Tauri, Setup Core, UI and Windows acceptance',()=>{
  const m=read('publisher/setup/product.json');
  const app=read('publisher/src-tauri/tauri.conf.json');
  const cargo=readFileSync('publisher/src-tauri/Cargo.toml','utf8');
  const ui=readFileSync('publisher/ui/App.tsx','utf8');
  const installed=readFileSync('publisher/tests/installed-setupcore-publisher.ps1','utf8');
- assert.equal(m.version,'0.4.0-dev.2');
+ assert.equal(m.version,'0.5.0-dev.1');
  assert.equal(m.version,app.version);
  const install=readFileSync('publisher/tests/installed-setupcore-publisher.ps1','utf8');
  const workflow=readFileSync('.github/workflows/center.yml','utf8');
