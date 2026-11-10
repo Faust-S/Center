@@ -526,6 +526,7 @@ jobs:
         with:
           node-version: '22.16.0'
       - uses: actions/setup-python@v5
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
         with:
           python-version: '3.13.15'
       - name: Verify both exact source identities
@@ -548,7 +549,27 @@ jobs:
             }
           }
           Write-Host 'ISOLATED_SOURCE_IDENTITIES_PASS'
-      - name: Install private source qualification dependencies
+      - name: Isolated private desktop Node regression (no source output)
+        if: ${{ contains(github.event.head_commit.message, ' node-only') }}
+        timeout-minutes: 30
+        shell: pwsh
+        working-directory: private-product/desktop
+        run: |
+          $ErrorActionPreference='Stop'
+          $npm=(Get-Command npm.cmd -ErrorAction Stop).Source
+          $stdout=Join-Path $env:RUNNER_TEMP 'isolated-node-tests.stdout.log'
+          $stderr=Join-Path $env:RUNNER_TEMP 'isolated-node-tests.stderr.log'
+          $deps=Join-Path $env:RUNNER_TEMP 'isolated-node-deps.log'
+          & $npm ci --no-audit --no-fund *> $deps
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_NODE_DEPENDENCIES_FAILED'}
+          & $npm test -- --test-reporter=tap 1>$stdout 2>$stderr
+          $exit=$LASTEXITCODE
+          if(!(Test-Path -LiteralPath $stdout -PathType Leaf)){
+            throw 'PRIVATE_NODE_RESULT_MISSING'
+          }
+          $pass=-1; $fail=-1; $ids=0
+          foreach($line in [IO.File]::ReadLines($stdout)){
+            if($line -match '^# pass (\d{1,7})\s*
         timeout-minutes: 22
         shell: pwsh
         working-directory: private-product
@@ -559,6 +580,379 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'PRIVATE_SOURCE_REQUIREMENTS_CONFLICT'}
           Write-Host 'PRIVATE_SOURCE_REQUIREMENTS_PASS'
       - name: Qualify private source and native installed Windows lifecycle
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
+        timeout-minutes: 150
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_SHA: ${{ steps.private-pin.outputs.sha }}
+        working-directory: private-product
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'private-product'
+          $center=Join-Path $env:GITHUB_WORKSPACE 'public-owner'
+          $out=Join-Path $env:RUNNER_TEMP 'private-product-qualification'
+          $cache=Join-Path $env:RUNNER_TEMP 'private-product-cache'
+          $log=Join-Path $env:RUNNER_TEMP 'private-qualifier.stdout.log'
+          $err=Join-Path $env:RUNNER_TEMP 'private-qualifier.stderr.log'
+          $script=Join-Path $root 'tools/qualify_setup_core_full_product.ps1'
+          $args=@('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$script,'-CenterRoot',$center,'-CenterCommit','c7b84cfbbc1d41d24239bfd90fca76d517a6cb69','-OutputRoot',$out,'-ReleaseCacheRoot',$cache)
+          $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $p=Start-Process -FilePath $powershell -ArgumentList $args -WorkingDirectory $root -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -Wait
+          $exit=$p.ExitCode
+          $p.Dispose()
+          if($exit -ne 0){
+            $raw=if(Test-Path -LiteralPath $err){Get-Content -LiteralPath $err -Raw}else{''}
+            $code=[regex]::Match($raw,'(full_qualification_[a-z0-9_-]+|PRIVATE_SETUP_CORE_BUILD_FAIL|private_setup_[a-z0-9_-]+)')
+            if($code.Success){Write-Host ('PRIVATE_QUALIFICATION_STAGE='+$code.Value)}
+            else{Write-Host 'PRIVATE_QUALIFICATION_STAGE=UNCLASSIFIED'}
+            if($raw -match 'full_qualification_step_failed_python-(targeted|full)_exit_([0-9]{1,3})'){
+              Write-Host ('PRIVATE_PYTHON_EXIT_CODE='+$Matches[2])
+            }
+            # The pytest log remains private on the ephemeral worker. Public
+            # output contains only bounded test identifiers, never captured
+            # tracebacks, assertion values, task content, or provider data.
+            $testStage=if($raw -match 'full_qualification_step_(?:failed|exit_unknown)_python-targeted'){'python-targeted'}else{'python-full'}
+            $pytestLog=Join-Path $out ('evidence/'+$testStage+'.stdout.log')
+            $pytestErr=Join-Path $out ('evidence/'+$testStage+'.stderr.log')
+            if($raw -match 'full_qualification_step_exit_unknown_python-(targeted|full)'){
+              Write-Host 'PRIVATE_PYTHON_EXIT_OBSERVATION=UNAVAILABLE'
+            }
+            if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
+              $outputText=Get-Content -LiteralPath $pytestLog -Raw -Encoding UTF8
+              if($outputText -match '(\d{1,6})\s+passed'){Write-Host ('PRIVATE_PYTHON_PASSED_COUNT='+$Matches[1])}
+              if($outputText -match '(\d{1,6})\s+failed'){Write-Host ('PRIVATE_PYTHON_FAILED_COUNT='+$Matches[1])}
+              if($outputText -match 'INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=INTERNAL'}
+              if($outputText -match 'ERROR collecting '){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=COLLECTION'}
+              if($outputText -match 'unrecognized arguments|pytest: error:'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=ARGUMENTS'}
+              if($outputText -match 'no tests ran'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=NO_TESTS'}
+              if($outputText -match 'Traceback \(most recent call last\)'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=TRACEBACK_REDACTED'}
+              Write-Host ('PRIVATE_PYTHON_STDOUT_BYTES='+([Text.Encoding]::UTF8.GetByteCount($outputText)))
+            }else{Write-Host 'PRIVATE_PYTHON_STDOUT=NOT_FOUND'}
+            if(Test-Path -LiteralPath $pytestErr -PathType Leaf){
+              $errText=Get-Content -LiteralPath $pytestErr -Raw -Encoding UTF8
+              if($errText -match 'unrecognized arguments|pytest: error:'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=ARGUMENTS'}
+              if($errText -match 'Fatal Python error|INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=INTERNAL'}
+              if($errText -match 'No module named pytest'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=PYTEST_MISSING'}
+              Write-Host ('PRIVATE_PYTHON_STDERR_BYTES='+([Text.Encoding]::UTF8.GetByteCount($errText)))
+            }else{Write-Host 'PRIVATE_PYTHON_STDERR=NOT_FOUND'}
+            if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
+              $count=0
+              $collections=0
+              $locations=0
+              $errors=0
+              foreach($line in [IO.File]::ReadLines($pytestLog)){
+                if($line -match '^(FAILED|ERROR)\s+(tests[/\\][A-Za-z0-9_/.\\:-]{1,220})\b'){
+                  Write-Host ('PRIVATE_PYTHON_FAILED_TEST='+$Matches[2])
+                  $count++
+                }elseif($line -match '^ERROR collecting (tests[/\\][A-Za-z0-9_./\\-]{1,180}\.py)' -and $collections -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_COLLECTION_ERROR='+$Matches[1])
+                  $collections++
+                }elseif($line -match '^tests[/\\]([A-Za-z0-9_./\\-]{1,180}\.py):(\d{1,5}):' -and $locations -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_FAILURE_LOCATION='+$Matches[1]+':'+$Matches[2])
+                  $locations++
+                }elseif($line -match '^E\s+([A-Za-z][A-Za-z0-9_]*Error)\b' -and $errors -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_EXCEPTION_CLASS='+$Matches[1])
+                  if($line -match '\[WinError (\d{1,4})\]'){
+                    Write-Host ('PRIVATE_PYTHON_WINERROR='+$Matches[1])
+                  }
+                  if($line -match '^E\s+[A-Za-z][A-Za-z0-9_]*Error:\s+([a-z][a-z0-9_]{2,80})\s*$'){
+                    Write-Host ('PRIVATE_PYTHON_ERROR_CODE='+$Matches[1])
+                  }
+                  $errors++
+                }
+                if($count -ge 20 -and $locations -ge 12 -and $errors -ge 12){break}
+              }
+              Write-Host ('PRIVATE_PYTHON_FAILURE_IDENTIFIERS_SHOWN='+$count)
+              Write-Host ('PRIVATE_PYTHON_COLLECTION_IDENTIFIERS_SHOWN='+$collections)
+            }
+            throw 'PRIVATE_QUALIFICATION_NOT_ACCEPTED'
+          }
+          $resultPath=Join-Path $out 'result.json'
+          if(!(Test-Path -LiteralPath $resultPath -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_RESULT_MISSING'
+          }
+          $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $result.source_commit -cne $env:PRIVATE_SOURCE_SHA){
+            throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
+          }
+          $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_INSTALLER_MISSING'
+          }
+          $hash=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host 'PRIVATE_WINDOWS_SOURCE_AND_INSTALLED_SMOKE_PASS'
+          Write-Host ('PRIVATE_SETUP_SHA256='+$hash)
+          Write-Host ('PRIVATE_SOURCE_SHA='+$result.source_commit)
+          Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=NOT_RUN'
+          # Never upload private files, archives, windows screenshots, or logs.
+
+){$pass=[int]$Matches[1]}
+            if($line -match '^# fail (\d{1,7})\s*
+        timeout-minutes: 22
+        shell: pwsh
+        working-directory: private-product
+        run: |
+          python -m pip install --disable-pip-version-check --no-input -r requirements.txt -r requirements-ci.txt 1>$null
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_SOURCE_REQUIREMENTS_INSTALL_FAILED'}
+          python -m pip check 1>$null
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_SOURCE_REQUIREMENTS_CONFLICT'}
+          Write-Host 'PRIVATE_SOURCE_REQUIREMENTS_PASS'
+      - name: Qualify private source and native installed Windows lifecycle
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
+        timeout-minutes: 150
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_SHA: ${{ steps.private-pin.outputs.sha }}
+        working-directory: private-product
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'private-product'
+          $center=Join-Path $env:GITHUB_WORKSPACE 'public-owner'
+          $out=Join-Path $env:RUNNER_TEMP 'private-product-qualification'
+          $cache=Join-Path $env:RUNNER_TEMP 'private-product-cache'
+          $log=Join-Path $env:RUNNER_TEMP 'private-qualifier.stdout.log'
+          $err=Join-Path $env:RUNNER_TEMP 'private-qualifier.stderr.log'
+          $script=Join-Path $root 'tools/qualify_setup_core_full_product.ps1'
+          $args=@('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$script,'-CenterRoot',$center,'-CenterCommit','c7b84cfbbc1d41d24239bfd90fca76d517a6cb69','-OutputRoot',$out,'-ReleaseCacheRoot',$cache)
+          $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $p=Start-Process -FilePath $powershell -ArgumentList $args -WorkingDirectory $root -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -Wait
+          $exit=$p.ExitCode
+          $p.Dispose()
+          if($exit -ne 0){
+            $raw=if(Test-Path -LiteralPath $err){Get-Content -LiteralPath $err -Raw}else{''}
+            $code=[regex]::Match($raw,'(full_qualification_[a-z0-9_-]+|PRIVATE_SETUP_CORE_BUILD_FAIL|private_setup_[a-z0-9_-]+)')
+            if($code.Success){Write-Host ('PRIVATE_QUALIFICATION_STAGE='+$code.Value)}
+            else{Write-Host 'PRIVATE_QUALIFICATION_STAGE=UNCLASSIFIED'}
+            if($raw -match 'full_qualification_step_failed_python-(targeted|full)_exit_([0-9]{1,3})'){
+              Write-Host ('PRIVATE_PYTHON_EXIT_CODE='+$Matches[2])
+            }
+            # The pytest log remains private on the ephemeral worker. Public
+            # output contains only bounded test identifiers, never captured
+            # tracebacks, assertion values, task content, or provider data.
+            $testStage=if($raw -match 'full_qualification_step_(?:failed|exit_unknown)_python-targeted'){'python-targeted'}else{'python-full'}
+            $pytestLog=Join-Path $out ('evidence/'+$testStage+'.stdout.log')
+            $pytestErr=Join-Path $out ('evidence/'+$testStage+'.stderr.log')
+            if($raw -match 'full_qualification_step_exit_unknown_python-(targeted|full)'){
+              Write-Host 'PRIVATE_PYTHON_EXIT_OBSERVATION=UNAVAILABLE'
+            }
+            if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
+              $outputText=Get-Content -LiteralPath $pytestLog -Raw -Encoding UTF8
+              if($outputText -match '(\d{1,6})\s+passed'){Write-Host ('PRIVATE_PYTHON_PASSED_COUNT='+$Matches[1])}
+              if($outputText -match '(\d{1,6})\s+failed'){Write-Host ('PRIVATE_PYTHON_FAILED_COUNT='+$Matches[1])}
+              if($outputText -match 'INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=INTERNAL'}
+              if($outputText -match 'ERROR collecting '){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=COLLECTION'}
+              if($outputText -match 'unrecognized arguments|pytest: error:'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=ARGUMENTS'}
+              if($outputText -match 'no tests ran'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=NO_TESTS'}
+              if($outputText -match 'Traceback \(most recent call last\)'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=TRACEBACK_REDACTED'}
+              Write-Host ('PRIVATE_PYTHON_STDOUT_BYTES='+([Text.Encoding]::UTF8.GetByteCount($outputText)))
+            }else{Write-Host 'PRIVATE_PYTHON_STDOUT=NOT_FOUND'}
+            if(Test-Path -LiteralPath $pytestErr -PathType Leaf){
+              $errText=Get-Content -LiteralPath $pytestErr -Raw -Encoding UTF8
+              if($errText -match 'unrecognized arguments|pytest: error:'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=ARGUMENTS'}
+              if($errText -match 'Fatal Python error|INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=INTERNAL'}
+              if($errText -match 'No module named pytest'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=PYTEST_MISSING'}
+              Write-Host ('PRIVATE_PYTHON_STDERR_BYTES='+([Text.Encoding]::UTF8.GetByteCount($errText)))
+            }else{Write-Host 'PRIVATE_PYTHON_STDERR=NOT_FOUND'}
+            if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
+              $count=0
+              $collections=0
+              $locations=0
+              $errors=0
+              foreach($line in [IO.File]::ReadLines($pytestLog)){
+                if($line -match '^(FAILED|ERROR)\s+(tests[/\\][A-Za-z0-9_/.\\:-]{1,220})\b'){
+                  Write-Host ('PRIVATE_PYTHON_FAILED_TEST='+$Matches[2])
+                  $count++
+                }elseif($line -match '^ERROR collecting (tests[/\\][A-Za-z0-9_./\\-]{1,180}\.py)' -and $collections -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_COLLECTION_ERROR='+$Matches[1])
+                  $collections++
+                }elseif($line -match '^tests[/\\]([A-Za-z0-9_./\\-]{1,180}\.py):(\d{1,5}):' -and $locations -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_FAILURE_LOCATION='+$Matches[1]+':'+$Matches[2])
+                  $locations++
+                }elseif($line -match '^E\s+([A-Za-z][A-Za-z0-9_]*Error)\b' -and $errors -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_EXCEPTION_CLASS='+$Matches[1])
+                  if($line -match '\[WinError (\d{1,4})\]'){
+                    Write-Host ('PRIVATE_PYTHON_WINERROR='+$Matches[1])
+                  }
+                  if($line -match '^E\s+[A-Za-z][A-Za-z0-9_]*Error:\s+([a-z][a-z0-9_]{2,80})\s*$'){
+                    Write-Host ('PRIVATE_PYTHON_ERROR_CODE='+$Matches[1])
+                  }
+                  $errors++
+                }
+                if($count -ge 20 -and $locations -ge 12 -and $errors -ge 12){break}
+              }
+              Write-Host ('PRIVATE_PYTHON_FAILURE_IDENTIFIERS_SHOWN='+$count)
+              Write-Host ('PRIVATE_PYTHON_COLLECTION_IDENTIFIERS_SHOWN='+$collections)
+            }
+            throw 'PRIVATE_QUALIFICATION_NOT_ACCEPTED'
+          }
+          $resultPath=Join-Path $out 'result.json'
+          if(!(Test-Path -LiteralPath $resultPath -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_RESULT_MISSING'
+          }
+          $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $result.source_commit -cne $env:PRIVATE_SOURCE_SHA){
+            throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
+          }
+          $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_INSTALLER_MISSING'
+          }
+          $hash=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host 'PRIVATE_WINDOWS_SOURCE_AND_INSTALLED_SMOKE_PASS'
+          Write-Host ('PRIVATE_SETUP_SHA256='+$hash)
+          Write-Host ('PRIVATE_SOURCE_SHA='+$result.source_commit)
+          Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=NOT_RUN'
+          # Never upload private files, archives, windows screenshots, or logs.
+
+){$fail=[int]$Matches[1]}
+            if($line -match '^not ok \d+ - (.{1,350})
+        timeout-minutes: 22
+        shell: pwsh
+        working-directory: private-product
+        run: |
+          python -m pip install --disable-pip-version-check --no-input -r requirements.txt -r requirements-ci.txt 1>$null
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_SOURCE_REQUIREMENTS_INSTALL_FAILED'}
+          python -m pip check 1>$null
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_SOURCE_REQUIREMENTS_CONFLICT'}
+          Write-Host 'PRIVATE_SOURCE_REQUIREMENTS_PASS'
+      - name: Qualify private source and native installed Windows lifecycle
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
+        timeout-minutes: 150
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_SHA: ${{ steps.private-pin.outputs.sha }}
+        working-directory: private-product
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'private-product'
+          $center=Join-Path $env:GITHUB_WORKSPACE 'public-owner'
+          $out=Join-Path $env:RUNNER_TEMP 'private-product-qualification'
+          $cache=Join-Path $env:RUNNER_TEMP 'private-product-cache'
+          $log=Join-Path $env:RUNNER_TEMP 'private-qualifier.stdout.log'
+          $err=Join-Path $env:RUNNER_TEMP 'private-qualifier.stderr.log'
+          $script=Join-Path $root 'tools/qualify_setup_core_full_product.ps1'
+          $args=@('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$script,'-CenterRoot',$center,'-CenterCommit','c7b84cfbbc1d41d24239bfd90fca76d517a6cb69','-OutputRoot',$out,'-ReleaseCacheRoot',$cache)
+          $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $p=Start-Process -FilePath $powershell -ArgumentList $args -WorkingDirectory $root -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -Wait
+          $exit=$p.ExitCode
+          $p.Dispose()
+          if($exit -ne 0){
+            $raw=if(Test-Path -LiteralPath $err){Get-Content -LiteralPath $err -Raw}else{''}
+            $code=[regex]::Match($raw,'(full_qualification_[a-z0-9_-]+|PRIVATE_SETUP_CORE_BUILD_FAIL|private_setup_[a-z0-9_-]+)')
+            if($code.Success){Write-Host ('PRIVATE_QUALIFICATION_STAGE='+$code.Value)}
+            else{Write-Host 'PRIVATE_QUALIFICATION_STAGE=UNCLASSIFIED'}
+            if($raw -match 'full_qualification_step_failed_python-(targeted|full)_exit_([0-9]{1,3})'){
+              Write-Host ('PRIVATE_PYTHON_EXIT_CODE='+$Matches[2])
+            }
+            # The pytest log remains private on the ephemeral worker. Public
+            # output contains only bounded test identifiers, never captured
+            # tracebacks, assertion values, task content, or provider data.
+            $testStage=if($raw -match 'full_qualification_step_(?:failed|exit_unknown)_python-targeted'){'python-targeted'}else{'python-full'}
+            $pytestLog=Join-Path $out ('evidence/'+$testStage+'.stdout.log')
+            $pytestErr=Join-Path $out ('evidence/'+$testStage+'.stderr.log')
+            if($raw -match 'full_qualification_step_exit_unknown_python-(targeted|full)'){
+              Write-Host 'PRIVATE_PYTHON_EXIT_OBSERVATION=UNAVAILABLE'
+            }
+            if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
+              $outputText=Get-Content -LiteralPath $pytestLog -Raw -Encoding UTF8
+              if($outputText -match '(\d{1,6})\s+passed'){Write-Host ('PRIVATE_PYTHON_PASSED_COUNT='+$Matches[1])}
+              if($outputText -match '(\d{1,6})\s+failed'){Write-Host ('PRIVATE_PYTHON_FAILED_COUNT='+$Matches[1])}
+              if($outputText -match 'INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=INTERNAL'}
+              if($outputText -match 'ERROR collecting '){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=COLLECTION'}
+              if($outputText -match 'unrecognized arguments|pytest: error:'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=ARGUMENTS'}
+              if($outputText -match 'no tests ran'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=NO_TESTS'}
+              if($outputText -match 'Traceback \(most recent call last\)'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=TRACEBACK_REDACTED'}
+              Write-Host ('PRIVATE_PYTHON_STDOUT_BYTES='+([Text.Encoding]::UTF8.GetByteCount($outputText)))
+            }else{Write-Host 'PRIVATE_PYTHON_STDOUT=NOT_FOUND'}
+            if(Test-Path -LiteralPath $pytestErr -PathType Leaf){
+              $errText=Get-Content -LiteralPath $pytestErr -Raw -Encoding UTF8
+              if($errText -match 'unrecognized arguments|pytest: error:'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=ARGUMENTS'}
+              if($errText -match 'Fatal Python error|INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=INTERNAL'}
+              if($errText -match 'No module named pytest'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=PYTEST_MISSING'}
+              Write-Host ('PRIVATE_PYTHON_STDERR_BYTES='+([Text.Encoding]::UTF8.GetByteCount($errText)))
+            }else{Write-Host 'PRIVATE_PYTHON_STDERR=NOT_FOUND'}
+            if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
+              $count=0
+              $collections=0
+              $locations=0
+              $errors=0
+              foreach($line in [IO.File]::ReadLines($pytestLog)){
+                if($line -match '^(FAILED|ERROR)\s+(tests[/\\][A-Za-z0-9_/.\\:-]{1,220})\b'){
+                  Write-Host ('PRIVATE_PYTHON_FAILED_TEST='+$Matches[2])
+                  $count++
+                }elseif($line -match '^ERROR collecting (tests[/\\][A-Za-z0-9_./\\-]{1,180}\.py)' -and $collections -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_COLLECTION_ERROR='+$Matches[1])
+                  $collections++
+                }elseif($line -match '^tests[/\\]([A-Za-z0-9_./\\-]{1,180}\.py):(\d{1,5}):' -and $locations -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_FAILURE_LOCATION='+$Matches[1]+':'+$Matches[2])
+                  $locations++
+                }elseif($line -match '^E\s+([A-Za-z][A-Za-z0-9_]*Error)\b' -and $errors -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_EXCEPTION_CLASS='+$Matches[1])
+                  if($line -match '\[WinError (\d{1,4})\]'){
+                    Write-Host ('PRIVATE_PYTHON_WINERROR='+$Matches[1])
+                  }
+                  if($line -match '^E\s+[A-Za-z][A-Za-z0-9_]*Error:\s+([a-z][a-z0-9_]{2,80})\s*$'){
+                    Write-Host ('PRIVATE_PYTHON_ERROR_CODE='+$Matches[1])
+                  }
+                  $errors++
+                }
+                if($count -ge 20 -and $locations -ge 12 -and $errors -ge 12){break}
+              }
+              Write-Host ('PRIVATE_PYTHON_FAILURE_IDENTIFIERS_SHOWN='+$count)
+              Write-Host ('PRIVATE_PYTHON_COLLECTION_IDENTIFIERS_SHOWN='+$collections)
+            }
+            throw 'PRIVATE_QUALIFICATION_NOT_ACCEPTED'
+          }
+          $resultPath=Join-Path $out 'result.json'
+          if(!(Test-Path -LiteralPath $resultPath -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_RESULT_MISSING'
+          }
+          $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $result.source_commit -cne $env:PRIVATE_SOURCE_SHA){
+            throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
+          }
+          $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_INSTALLER_MISSING'
+          }
+          $hash=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host 'PRIVATE_WINDOWS_SOURCE_AND_INSTALLED_SMOKE_PASS'
+          Write-Host ('PRIVATE_SETUP_SHA256='+$hash)
+          Write-Host ('PRIVATE_SOURCE_SHA='+$result.source_commit)
+          Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=NOT_RUN'
+          # Never upload private files, archives, windows screenshots, or logs.
+
+ -and $ids -lt 16){
+              # Never expose a private test title: only an irreversible digest
+              # that can be mapped to a test in the closed checkout.
+              $bytes=[Text.Encoding]::UTF8.GetBytes($Matches[1].Trim())
+              $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+              Write-Host ('PRIVATE_NODE_FAILED_ID_SHA256='+$digest)
+              $ids++
+            }
+          }
+          Write-Host ('PRIVATE_NODE_PASSED_COUNT='+$pass)
+          Write-Host ('PRIVATE_NODE_FAILED_COUNT='+$fail)
+          Write-Host ('PRIVATE_NODE_FAILED_ID_COUNT='+$ids)
+          if($null -eq $exit -or $exit -ne 0){
+            Write-Host 'PRIVATE_NODE_REGRESSION_NOT_ACCEPTED'
+            throw 'PRIVATE_NODE_TESTS_FAILED'
+          }
+          if($pass -lt 1 -or $fail -ne 0){throw 'PRIVATE_NODE_RESULT_INCOMPLETE'}
+          Write-Host 'PRIVATE_NODE_REGRESSION_PASS'
+      - name: Install private source qualification dependencies
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
+        timeout-minutes: 22
+        shell: pwsh
+        working-directory: private-product
+        run: |
+          python -m pip install --disable-pip-version-check --no-input -r requirements.txt -r requirements-ci.txt 1>$null
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_SOURCE_REQUIREMENTS_INSTALL_FAILED'}
+          python -m pip check 1>$null
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_SOURCE_REQUIREMENTS_CONFLICT'}
+          Write-Host 'PRIVATE_SOURCE_REQUIREMENTS_PASS'
+      - name: Qualify private source and native installed Windows lifecycle
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
         timeout-minutes: 150
         shell: pwsh
         env:
