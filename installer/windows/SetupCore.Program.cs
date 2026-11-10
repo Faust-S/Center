@@ -25,6 +25,11 @@ namespace IwxaSetup
         [STAThread]
         private static int Main(string[] args)
         {
+            // The native .NET Framework setup stages deep Python dependencies.
+            // Opt in before any System.IO work; the executable manifest also
+            // declares long-path awareness on supported Windows hosts.
+            AppContext.SetSwitch("Switch.System.IO.UseLegacyPathHandling", false);
+            AppContext.SetSwitch("Switch.System.IO.BlockLongPaths", false);
             // A deterministic non-interactive acceptance surface. Never install
             // or modify user state during package inspection.
             if (args.Length == 2 && args[0] == "--inspect-file")

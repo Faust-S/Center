@@ -90,6 +90,20 @@ class BundleTests(unittest.TestCase):
         script = (windows / "build-stub.ps1").read_text(encoding="utf-8")
         self.assertIn("/win32manifest:$manifestPath", script)
         self.assertIn("IWXA_SETUP_NATIVE_MANIFEST_MISSING", script)
+        long_path = manifest.find(
+            ".//{http://schemas.microsoft.com/SMI/2016/WindowsSettings}longPathAware"
+        )
+        self.assertIsNotNone(long_path)
+        self.assertEqual(long_path.text.strip(), "true")
+        program = (windows / "SetupCore.Program.cs").read_text(encoding="utf-8")
+        self.assertIn(
+            'AppContext.SetSwitch("Switch.System.IO.UseLegacyPathHandling", false);',
+            program,
+        )
+        self.assertIn(
+            'AppContext.SetSwitch("Switch.System.IO.BlockLongPaths", false);',
+            program,
+        )
 
     def test_native_setup_preserves_action_geometry_at_small_sizes(self):
         root = Path(__file__).resolve().parents[1] / "windows"
