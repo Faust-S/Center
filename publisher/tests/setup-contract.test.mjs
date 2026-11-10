@@ -61,7 +61,7 @@ test('Publisher development 0.5.0-dev.1 identity matches Rust, Tauri, Setup Core
  assert.doesNotMatch(install,/PUBLISHER_SETUP_SIDEBAR_OVERLAY_LAYOUT_REJECTED/);
  assert.match(workflow,/6603a11764ff86853e5abf4d209d55f79fddd8b1/);
  assert.equal(app.version,m.version);
- assert.match(cargo,/^version\s*=\s*"0\.4\.0-dev\.2"$/m);
+ assert.match(cargo,/^version\s*=\s*"0\.5\.0-dev\.1"$/m);
  assert.ok(ui.includes('Publisher '+m.version+' ·'));
  assert.ok(installed.includes("version='"+m.version+"'"));
  assert.doesNotMatch([ui,cargo,installed].join('\n'),/0\.2\.0-dev\.2/);
