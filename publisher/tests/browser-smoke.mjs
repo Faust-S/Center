@@ -715,6 +715,10 @@ try {
          r.subject.type!=='PERSON'||r.product.id!=='IWXA_ATLAS'||
          r.deviceLimit!==3||r.seats!==1||r.status!=='UNSIGNED_REQUEST'||
          issuer!=='publisher:person:mock')throw Error('PERSON_TEST_REQUEST_SCOPE_MISMATCH');
+      if(Object.hasOwn(r,'renewalOfRequestId')&&
+         (typeof r.renewalOfRequestId!=='string'||
+          r.renewalOfRequestId===r.requestId))
+        throw Error('PERSON_TEST_RENEWAL_LINK_INVALID');
     };
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(command==='publisher_draft_read')return sessionStorage.getItem('iwxa-publisher-person-fixture');
@@ -735,11 +739,23 @@ try {
         const r=JSON.parse(args.requestJson);
         window.assertPersonRequest(r,args.issuerAuthorityId);
         const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
-        const one={licenseId:'license:person:mock:one',requestId:r.requestId,
-          issuerAuthorityId:args.issuerAuthorityId,personId:r.subject.id,
-          productId:r.product.id,deviceLimit:r.deviceLimit,quotaCount:r.quotas.length,
+        const issued=ledger.find(e=>e.requestId===r.requestId);
+        if(issued)return {operation:'PERSON_ISSUE',outcome:'ALREADY_ISSUED',
+          licenseId:issued.licenseId,requestId:r.requestId,
+          activeSeats:0,productionActivation:false};
+        const prior=r.renewalOfRequestId?
+          ledger.find(e=>e.requestId===r.renewalOfRequestId):null;
+        if(Object.hasOwn(r,'renewalOfRequestId')&&
+          (!prior||!['ACTIVE','SUSPENDED'].includes(prior.status)||
+           ledger.some(e=>e.renewalOfLicenseId===prior.licenseId)))
+          throw Error('PERSON_TEST_RENEWAL_LEDGER_DENIED');
+        const one={licenseId:prior?'license:person:mock:two':'license:person:mock:one',
+          requestId:r.requestId,issuerAuthorityId:args.issuerAuthorityId,
+          personId:r.subject.id,productId:r.product.id,
+          ...(prior?{renewalOfLicenseId:prior.licenseId}:{}),
+          deviceLimit:r.deviceLimit,quotaCount:r.quotas.length,
           status:'NOT_ACTIVATED',sequence:0,activeSeats:0};
-        if(!ledger.some(e=>e.requestId===r.requestId))ledger.push(one);
+        ledger.push(one);
         sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
         return {operation:'PERSON_ISSUE',outcome:'ISSUED_NEW',
           licenseId:one.licenseId,requestId:r.requestId,
@@ -780,7 +796,7 @@ try {
   await personal.getByLabel('Название тарифа').fill('Личный');
   await personal.getByRole('combobox',{name:'Тип клиента для тарифа'}).selectOption('PERSON');
   await personal.getByLabel('Устройства владельца').fill('3');
-  await personal.getByLabel('Функции и модули').fill('LOCAL_PROJECTS');
+  await personal.getByLabel('Функции и модули').fill('WORKSPACE');
   assert.equal(await personal.getByLabel('Сотрудники организации').count(),0);
   await personal.getByRole('button',{name:'Сохранить редакцию тарифа'}).click();
   await personal.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
@@ -851,6 +867,29 @@ try {
   assert.equal(JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger'))).length,1);
   checks.push('person-renewal-prepared-from-signed-native-record');
+  // Validate the complete public GUI -> native IPC request for the newly
+  // prepared follow-up. The mock only echoes it; original T3 signs in the
+  // private Windows qualification, never in this browser test.
+  await personOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
+    .selectOption(renewedDraft.proposals[1].id);
+  const renewalPreview=await personOwner.getByTestId('publisher-person-issue-preview').innerText();
+  assert.match(renewalPreview,/устройств: 3/);
+  await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
+  await personOwner.getByTestId('publisher-person-issue').click();
+  await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя.',{exact:false}).waitFor();
+  const updatedLedger=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')));
+  assert.equal(updatedLedger.length,2);
+  assert.equal(updatedLedger[1].requestId,renewedDraft.proposals[1].id);
+  assert.equal(updatedLedger[1].renewalOfLicenseId,'license:person:mock:one');
+  await personOwner.getByRole('combobox',{name:'Лицензия',exact:true})
+    .selectOption('license:person:mock:two');
+  await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('ACTIVE');
+  await personOwner.getByTestId('publisher-person-status').click();
+  await personOwner.getByText('Подписанный статус сохранён.',{exact:false}).waitFor();
+  checks.push('person-renewal-issued-over-native-ipc-with-source-request-identity');
+  await personOwner.getByRole('combobox',{name:'Лицензия',exact:true})
+    .selectOption('license:person:mock:one');
   await personOwner.getByTestId('publisher-person-export').click();
   await personOwner.getByText('Подписанный пакет .iwxa сохранён',{exact:false}).waitFor();
   await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('REVOKED');
@@ -860,10 +899,13 @@ try {
   await personOwner.getByText('Подписанный отзыв сохранён.',{exact:false}).waitFor();
   const received=JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger')));
-  assert.equal(received.length,1);
+  assert.equal(received.length,2);
   assert.equal(received[0].status,'REVOKED');
   assert.equal(received[0].sequence,2);
   assert.equal(received[0].activeSeats,0);
+  assert.equal(received[1].status,'ACTIVE');
+  assert.equal(received[1].sequence,1);
+  assert.equal(received[1].renewalOfLicenseId,'license:person:mock:one');
   assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true);
   checks.push('publisher-person-owner-mocked-signed-native-route');
 
