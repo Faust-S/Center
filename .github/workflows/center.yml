@@ -841,6 +841,37 @@ jobs:
               }
               Write-Host ('PRIVATE_NATIVE_SETUP_OPERATIONS_OBSERVED='+$setupNativeActions.Count)
               Write-Host ('PRIVATE_NATIVE_ERROR_CODES_OBSERVED='+$codes.Count)
+              # The native candidate is private, but the explicitly allowed
+              # SHA-256/size and verified pinned source revision can be
+              # published even when the subsequent installation fails.
+              $builtSetup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
+              $releaseReceipt=Join-Path $nativeLogs 'private-setup-core-build.json'
+              if((Test-Path -LiteralPath $builtSetup -PathType Leaf) -and
+                 (Test-Path -LiteralPath $releaseReceipt -PathType Leaf)){
+                try{
+                  $built=Get-Content -LiteralPath $releaseReceipt -Raw -Encoding UTF8 | ConvertFrom-Json
+                  if($built.status -ceq 'BUILT_UNQUALIFIED' -and
+                     $built.private_source_commit -ceq $env:PRIVATE_SOURCE_SHA -and
+                     $built.setup_sha256 -cmatch '^[0-9a-f]{64}$'){
+                    $nativeStream=[IO.File]::OpenRead([IO.Path]::GetFullPath($builtSetup))
+                    $sha=[Security.Cryptography.SHA256]::Create()
+                    try{
+                      $actual=([BitConverter]::ToString($sha.ComputeHash($nativeStream))).Replace('-','').ToLowerInvariant()
+                    }finally{
+                      $sha.Dispose()
+                      $nativeStream.Dispose()
+                    }
+                    if($actual -ceq $built.setup_sha256){
+                      Write-Host ('PRIVATE_NATIVE_SETUP_SHA256='+$actual)
+                      Write-Host ('PRIVATE_NATIVE_SETUP_BYTES='+([IO.FileInfo]$builtSetup).Length)
+                    }else{
+                      Write-Host 'PRIVATE_NATIVE_SETUP_DIGEST_MISMATCH'
+                    }
+                  }
+                }catch{
+                  Write-Host 'PRIVATE_NATIVE_SETUP_DIGEST_OBSERVATION_UNAVAILABLE'
+                }
+              }
             }
             if($raw -match 'full_qualification_step_failed_python-(targeted|full)_exit_([0-9]{1,3})'){
               Write-Host ('PRIVATE_PYTHON_EXIT_CODE='+$Matches[2])
