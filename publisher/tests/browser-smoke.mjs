@@ -820,7 +820,8 @@ try {
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
   await personal.getByRole('button',{name:'Доверие и ключи'}).click();
   const personOwner=personal.getByTestId('publisher-person-owner');
-  await personOwner.getByRole('option',{name:'publisher:person:mock'}).waitFor();
+  // Native select options are intentionally hidden in Firefox.
+  // selectOption waits for the exact option to be attached.
   await personOwner.getByRole('combobox',{name:'Издатель'}).selectOption('publisher:person:mock');
   await personOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
     .selectOption(directDraft.proposals[0].id);
