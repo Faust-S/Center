@@ -415,7 +415,7 @@ export default function App(){
        <span className="status neutral publisher-top-status"><span className="publisher-top-status-dot" aria-hidden="true"></span>{loaded?'Локально сохранено':'Состояние не загружено'}</span>
      </header>
      <div className="page-heading"><div><div className="eyebrow publisher-section-eyebrow">IWXA / РАБОЧЕЕ МЕСТО ИЗДАТЕЛЯ</div><h1>{navigation.find(v=>v[0]===page)?.[1]}</h1></div></div>
-     <div className="notice">Publisher 0.5.0-dev.1 · Черновики хранятся отдельно от Admin Center. Подписанные лицензии доступны только в режиме TEST через предварительно настроенный T3 Host. Коммерческая активация мест и выпуск релизов отключены.</div>
+     <div className="notice">Publisher 0.5.0-dev.1 · Черновики хранятся отдельно от Admin Center. Лицензии TEST и PERSON подписывает исходный T3 при заранее зарегистрированном издателе. Подписанный пакет сам по себе не открывает функции получателя. Коммерческая активация мест и выпуск релизов отключены.</div>
      {error&&<div className="notice error" role="alert">{error}</div>}
      {message&&<div className="notice" role="status">{message}</div>}
      {!loaded?<><section className="card padded" role="status">Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.</section>{page==='overview'&&diagnosticPanel}</>:<>
@@ -440,7 +440,7 @@ export default function App(){
              <button type="button" className="secondary" onClick={()=>go('releases')}>Проверить сборку</button>
            </div>
          </section>
-         <section className="card padded"><h2>Текущее состояние</h2><p className="muted">Заявок на публикацию: {state.artifacts.length}. Подтверждённых релизов: 0. Подписанных лицензий: 0.</p><p className="muted">Реальные источники подписей, trust catalog и приём лицензии в Admin Center пока не включены в этот исполняемый продукт.</p></section>
+         <section className="card padded"><h2>Текущее состояние</h2><p className="muted">Заявок на публикацию: {state.artifacts.length}. Подтверждённых релизов: 0. Подписанные лицензии PERSON учитывает отдельный журнал T3, а не черновики.</p><p className="muted">Подпись доступна только через отдельно зарегистрированный нативный T3 Owner. Состав доверенных издателей и фактические права проверяются установленной программой-получателем; коммерческая приёмка ещё не завершена.</p></section>
          {diagnosticPanel}
           <section className="card padded" data-testid="publisher-preparation-backup">
            <h2>Резервная копия черновиков</h2>
