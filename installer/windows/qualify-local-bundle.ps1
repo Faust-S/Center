@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory=$true)][string]$Setup,
     [Parameter(Mandatory=$true)][string]$ProductId,
     [Parameter(Mandatory=$true)][string]$SandboxRoot,
-    [string]$SourceCommit=''
+    [string]$SourceCommit='',
+    [string]$WitnessScript=''
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -112,6 +113,34 @@ try{
        $locations.modelsRoot -cne $models -or
        $locations.cacheRoot -cne $cache){
         throw 'SETUP_LOCAL_LOCATION_READBACK_INVALID'
+    }
+    if($WitnessScript){
+        $scriptPath=[IO.Path]::GetFullPath($WitnessScript)
+        if(!(Test-Path -LiteralPath $scriptPath -PathType Leaf)){
+            throw 'SETUP_LOCAL_WITNESS_FILE_MISSING'
+        }
+        $powershell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $witnessReceipt=Join-Path $work 'installed-witness.json'
+        $arguments=('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ProgramRoot "{1}" -DataRoot "{2}" -SandboxRoot "{3}" -ResultPath "{4}"' -f
+            $scriptPath,$application,$data,$work,$witnessReceipt)
+        $witness=Start-Process -FilePath $powershell -ArgumentList $arguments -PassThru -WindowStyle Hidden
+        try{
+            if(!$witness.WaitForExit(180000)){
+                Stop-Process -Id $witness.Id -Force -ErrorAction SilentlyContinue
+                throw 'SETUP_LOCAL_WITNESS_TIMEOUT'
+            }
+            if($witness.ExitCode -ne 0){
+                throw 'SETUP_LOCAL_WITNESS_EXIT_FAILED'
+            }
+        }finally{$witness.Dispose()}
+        if(!(Test-Path -LiteralPath $witnessReceipt -PathType Leaf)){
+            throw 'SETUP_LOCAL_WITNESS_RECEIPT_MISSING'
+        }
+        $witnessResult=Get-Content -LiteralPath $witnessReceipt -Raw|ConvertFrom-Json
+        if($witnessResult.status -ne 'PASS'){
+            throw 'SETUP_LOCAL_WITNESS_READBACK_INVALID'
+        }
+        Write-Host 'IWXA_SETUP_LOCAL_RUNTIME_WITNESS_PASS'
     }
     New-Item -ItemType Directory -Path $data -Force | Out-Null
     $marker='fixture-'+[Guid]::NewGuid().ToString('N')
