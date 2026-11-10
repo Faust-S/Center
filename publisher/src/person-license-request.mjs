@@ -20,9 +20,13 @@ const exact=(v,keys,code)=>{
 const validIso=s=>typeof s==='string'&&Number.isFinite(Date.parse(s))&&
   new Date(s).toISOString()===s;
 export function validateUnsignedPersonLicenseRequest(input){
+  const renewing=plain(input)&&Object.hasOwn(input,'renewalOfRequestId');
   exact(input,['schema','kind','requestId','requestedAt','environment','subject',
-    'product','featureIds','termDays','seats','deviceLimit','quotas','status'],
-    'PERSON_REQUEST_FIELDS_INVALID');
+    'product','featureIds','termDays','seats','deviceLimit','quotas','status',
+    ...(renewing?['renewalOfRequestId']:[])],'PERSON_REQUEST_FIELDS_INVALID');
+  if(renewing&&(!ID.test(input.renewalOfRequestId)||
+     input.renewalOfRequestId===input.requestId))
+    reject('PERSON_RENEWAL_SOURCE_REQUEST_INVALID');
   if(input.schema!==PERSON_REQUEST_SCHEMA||input.kind!=='PERSON_LICENSE_REQUEST'||
      input.environment!=='PRODUCTION'||input.status!=='UNSIGNED_REQUEST')
     reject('PERSON_REQUEST_NOT_UNSIGNED');
@@ -86,6 +90,7 @@ export function prepareUnsignedPersonLicenseRequest(draft,{proposalId}){
   return validateUnsignedPersonLicenseRequest({
     schema:PERSON_REQUEST_SCHEMA,kind:'PERSON_LICENSE_REQUEST',
     requestId:proposal.id,requestedAt:proposal.createdAt,
+    ...(proposal.previousProposalId?{renewalOfRequestId:proposal.previousProposalId}:{}),
     environment:'PRODUCTION',
     subject:{type:'PERSON',id:holder.id,name:holder.name},
     product:{id:product.id,version:proposal.productVersion},
