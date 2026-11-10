@@ -749,7 +749,12 @@ jobs:
                   if($line -match 'error\[E(\d{4})\]'){
                     Write-Host ('PRIVATE_NATIVE_RUST_CODE=E'+$Matches[1])
                   }
-                  if($line -match '(?:error:|Error:)\s*(.+)
+                  if($line -match 'module not found|Cannot find module'){$null=$classes.Add('MODULE_NOT_FOUND')}
+                  if($line -match 'linker|link\.exe'){$null=$classes.Add('LINKER')}
+                  if($line -match 'failed to load|failed to resolve'){$null=$classes.Add('RESOURCE_RESOLUTION')}
+                  if($line -match 'not recognized as the name|command not found'){$null=$classes.Add('MISSING_TOOL')}
+                  if($line -match 'failed to parse|invalid config'){$null=$classes.Add('CONFIG_PARSE')}
+                  if($line -match 'unresolved import'){$null=$classes.Add('UNRESOLVED_IMPORT')}
                   if($line -match 'npm ERR!|npm error'){$null=$classes.Add('NPM')}
                   if($line -match 'failed to compile|could not compile'){$null=$classes.Add('RUST_BUILD')}
                   if($line -match 'ECONNRESET|ETIMEDOUT|Could not resolve host'){$null=$classes.Add('NETWORK')}
