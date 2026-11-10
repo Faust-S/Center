@@ -710,11 +710,55 @@ try {
   const personal=await browser.newPage({viewport:{width:1050,height:820}});
   personal.on('pageerror',e=>errors.push('personal fixture: '+e.message));
   await personal.addInitScript(()=>{
+    window.assertPersonRequest=(r,issuer)=>{
+      if(r.environment!=='PRODUCTION'||r.kind!=='PERSON_LICENSE_REQUEST'||
+         r.subject.type!=='PERSON'||r.product.id!=='IWXA_ATLAS'||
+         r.deviceLimit!==3||r.seats!==1||r.status!=='UNSIGNED_REQUEST'||
+         issuer!=='publisher:person:mock')throw Error('PERSON_TEST_REQUEST_SCOPE_MISMATCH');
+    };
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(command==='publisher_draft_read')return sessionStorage.getItem('iwxa-publisher-person-fixture');
       if(command==='publisher_draft_save'){sessionStorage.setItem('iwxa-publisher-person-fixture',args.content);return true;}
       if(command==='publisher_t3_capabilities')return {operation:'TEST_CAPABILITIES',issuers:['test:owner'],activeSeats:0,productionActivation:false,commercialAuthorityProven:false};
       if(command==='publisher_t3_inventory')return {operation:'TEST_INVENTORY',licenses:[],activeSeats:0,productionActivation:false};
+      if(command==='publisher_t3_person_capabilities'){
+        if(!window.__personNativeEnabled)throw Error('PERSON_OWNER_NOT_ENROLLED');
+        return {operation:'PERSON_CAPABILITIES',environment:'PRODUCTION',
+          issuers:['publisher:person:mock'],activeSeats:0,productionActivation:false};
+      }
+      if(command==='publisher_t3_person_inventory'){
+        return {operation:'PERSON_INVENTORY',
+          licenses:JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]'),
+          activeSeats:0,productionActivation:false};
+      }
+      if(command==='publisher_t3_person_issue'){
+        const r=JSON.parse(args.requestJson);
+        assertPersonRequest(r,args.issuerAuthorityId);
+        const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
+        const one={licenseId:'license:person:mock:one',requestId:r.requestId,
+          issuerAuthorityId:args.issuerAuthorityId,personId:r.subject.id,
+          productId:r.product.id,deviceLimit:r.deviceLimit,quotaCount:r.quotas.length,
+          status:'NOT_ACTIVATED',sequence:0,activeSeats:0};
+        if(!ledger.some(e=>e.requestId===r.requestId))ledger.push(one);
+        sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+        return {operation:'PERSON_ISSUE',outcome:'ISSUED_NEW',
+          licenseId:one.licenseId,requestId:r.requestId,
+          activeSeats:0,productionActivation:false};
+      }
+      if(command==='publisher_t3_person_change_status'){
+        const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
+        const one=ledger.find(e=>e.licenseId===args.licenseId);
+        if(!one||one.status==='REVOKED')throw Error('PERSON_OWNER_REVOKED_TERMINAL');
+        one.status=args.nextStatus;one.sequence+=1;
+        sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+        return {operation:'PERSON_STATUS',licenseId:one.licenseId,
+          state:one.status,sequence:one.sequence,
+          activeSeats:0,productionActivation:false};
+      }
+      if(command==='publisher_t3_person_export')return {
+        operation:'PERSON_IWXA_EXPORTED',licenseId:args.licenseId,
+        bytes:1024,packageSha256:'c'.repeat(64),
+        activeSeats:0,productionActivation:false};
       throw new Error('Unexpected personal fixture IPC '+command);
     }};
   });
@@ -769,6 +813,43 @@ try {
   assert.equal(await personal.getByTestId('publisher-t3-issue').isDisabled(),true);
   assert.equal(await personal.getByRole('combobox',{name:'Подготовленный запрос'}).locator('option:not([value=""])').count(),0);
   checks.push('personal-test-issuer-unavailable-even-with-active-original-owner');
+
+  // A synthetic native PERSON issuer may be enabled only after separate
+  // explicit pre-enrollment. This is a UI double, not a signer or entitlement.
+  await personal.evaluate(()=>{window.__personNativeEnabled=true;});
+  await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
+  await personal.getByRole('button',{name:'Доверие и ключи'}).click();
+  const personOwner=personal.getByTestId('publisher-person-owner');
+  await personOwner.getByRole('option',{name:'publisher:person:mock'}).waitFor();
+  await personOwner.getByRole('combobox',{name:'Издатель'}).selectOption('publisher:person:mock');
+  await personOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
+    .selectOption(directDraft.proposals[0].id);
+  assert.match(await personOwner.getByTestId('publisher-person-issue-preview').innerText(),
+    /Устройства|устройств: 3/);
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
+  await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
+  await personOwner.getByTestId('publisher-person-issue').click();
+  await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя.',{exact:false}).waitFor();
+  await personOwner.getByRole('combobox',{name:'Лицензия'}).selectOption('license:person:mock:one');
+  await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('ACTIVE');
+  await personOwner.getByTestId('publisher-person-status').click();
+  await personOwner.getByText('Подписанный статус сохранён.',{exact:false}).waitFor();
+  await personOwner.getByTestId('publisher-person-export').click();
+  await personOwner.getByText('Подписанный пакет .iwxa сохранён',{exact:false}).waitFor();
+  await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('REVOKED');
+  await personOwner.getByTestId('publisher-person-status').click();
+  await personOwner.getByTestId('publisher-person-revoke-confirmation').waitFor();
+  await personOwner.getByRole('button',{name:'Подтвердить отзыв'}).click();
+  await personOwner.getByText('Подписанный отзыв сохранён.',{exact:false}).waitFor();
+  const received=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')));
+  assert.equal(received.length,1);
+  assert.equal(received[0].status,'REVOKED');
+  assert.equal(received[0].sequence,2);
+  assert.equal(received[0].activeSeats,0);
+  assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true);
+  checks.push('publisher-person-owner-mocked-signed-native-route');
+
   // A second client type can use the same tariff code, product and revision.
   // This is one shared catalog, not a separate personal issuer or format.
   await personal.getByRole('button',{name:'Клиенты',exact:true}).click();
