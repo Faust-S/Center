@@ -21,10 +21,15 @@ $created=New-Object 'System.Collections.Generic.List[object]'
 $source=@'
 using System;
 using System.IO;
+using System.Threading;
 internal static class FixtureProgram {
     [STAThread]
     private static int Main(string[] args) {
         if (args.Length == 1 && args[0] == "--probe") return 0;
+        if (args.Length == 1 && args[0] == "--hold") {
+            Thread.Sleep(45000);
+            return 0;
+        }
         return 1;
     }
 }
@@ -57,6 +62,8 @@ function Make-Product([string]$tag) {
         throw 'SETUP_NEUTRAL_FIXTURE_COMPILE_FAILED'
     }
     New-Item -ItemType Directory -Path (Join-Path $payload 'assets') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $payload 'tools') -Force | Out-Null
+    Copy-Item -LiteralPath $exe -Destination (Join-Path $payload 'tools\worker.exe') -Force
     [IO.File]::WriteAllText((Join-Path $payload 'assets\fixture.txt'),('fixture-'+$tag))
     $manifest=Join-Path $folder 'product.json'
     $product=[ordered]@{
@@ -126,6 +133,31 @@ try{
         [IO.File]::WriteAllText((Join-Path $item.data 'userdata.txt'),$item.id)
     }
     Write-Host 'IWXA_SETUP_TWO_ISOLATED_NATIVE_PRODUCTS_INSTALLED_PASS'
+    # A background executable is product-owned even when it is not the
+    # primary entrypoint. Repair must refuse rather than rename the tree.
+    $worker=Start-Process -FilePath (Join-Path $a.program 'tools\worker.exe') `
+        -ArgumentList '--hold' -PassThru -WindowStyle Hidden
+    try {
+        Start-Sleep -Milliseconds 350
+        $worker.Refresh()
+        if($worker.HasExited){throw 'SETUP_NEUTRAL_CHILD_PROCESS_NOT_RUNNING'}
+        $blocked=Invoke-Setup $a.bundle @('--repair-file') 2
+        if($blocked.status -ne 'ERROR' -or
+           $blocked.reason -notmatch 'SETUP_APP_STILL_RUNNING'){
+            throw 'SETUP_NEUTRAL_ACTIVE_HELPER_REPAIR_NOT_BLOCKED'
+        }
+        $still=Invoke-Setup $a.bundle @('--verify-installed-file')
+        if($still.status -ne 'OWNED_FILES_VERIFIED'){
+            throw 'SETUP_NEUTRAL_REPAIR_REFUSAL_CHANGED_INSTALLATION'
+        }
+    }finally{
+        $worker.Refresh()
+        if(!$worker.HasExited){
+            Stop-Process -Id $worker.Id -Force -ErrorAction SilentlyContinue
+        }
+        $worker.Dispose()
+    }
+    Write-Host 'IWXA_SETUP_OWNED_CHILD_PROCESS_REPAIR_BLOCKED_PASS'
     $removed=Invoke-Setup $a.bundle @('--uninstall-file')
     if($removed.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
         (Test-Path -LiteralPath (Join-Path $a.program 'bin\fixture.exe')) -or
