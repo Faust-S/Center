@@ -224,6 +224,25 @@ try{
     New-Item -ItemType Directory -Path $long.data -Force | Out-Null
     $longMarker=Join-Path $long.data 'preserved.txt'
     [IO.File]::WriteAllText($longMarker,'synthetic-user-owned')
+    # Upgrade/Repair stages must handle the same deep paths as first install.
+    $deepRepaired=Invoke-Setup $long.bundle @('--repair-file')
+    if($deepRepaired.status -ne 'REPAIRED_BACKUP_RETAINED'){
+        throw 'SETUP_NEUTRAL_LONG_PATH_REPAIR_FAILED'
+    }
+    $deepVerifyRepair=Invoke-Setup $long.bundle @('--verify-installed-file')
+    if($deepVerifyRepair.status -ne 'OWNED_FILES_VERIFIED'){
+        throw 'SETUP_NEUTRAL_LONG_PATH_REPAIRED_IDENTITY_FAILED'
+    }
+    $deepRolledBack=Invoke-Setup $long.bundle @('--rollback-upgrade-file')
+    if($deepRolledBack.status -ne 'ROLLBACK_RESTORED_PREVIOUS' -or
+       (Test-Path -LiteralPath ($long.program+'.iwxa-previous'))){
+        throw 'SETUP_NEUTRAL_LONG_PATH_ROLLBACK_FAILED'
+    }
+    $deepVerifyRollback=Invoke-Setup $long.bundle @('--verify-installed-file')
+    if($deepVerifyRollback.status -ne 'OWNED_FILES_VERIFIED' -or
+       [IO.File]::ReadAllText($longMarker) -ne 'synthetic-user-owned'){
+        throw 'SETUP_NEUTRAL_LONG_PATH_ROLLBACK_DATA_OR_IDENTITY_CHANGED'
+    }
     $longRemoved=Invoke-Setup $long.bundle @('--uninstall-file')
     if($longRemoved.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
        (Test-Path -LiteralPath $long.program) -or
