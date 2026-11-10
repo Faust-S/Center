@@ -54,7 +54,7 @@ try {
       if(command==='publisher_save_test_request'){sessionStorage.setItem('iwxa-publisher-test-native-request',args.content);return true;}
       if(command==='publisher_export_preparation_backup')return false;
       if(command==='publisher_pick_preparation_backup')return null;
-      if(command==='publisher_inspect_artifact')return null;
+      if(command==='publisher_inspect_artifact')return window.__publisherMockInspectedArtifact??null;
       if(command==='publisher_t3_capabilities')return {
         operation:'TEST_CAPABILITIES',issuers:['publisher:owner:test'],
         activeSeats:0,productionActivation:false,commercialAuthorityProven:false};
@@ -497,6 +497,41 @@ try {
   assert.match(await page.locator('main').innerText(),/TEST-подпись доступна только через ранее зарегистрированного владельца/);
   await page.getByRole('button',{name:'Релизы'}).click();
   assert.equal(await page.getByRole('button',{name:'Выбрать и проверить файл'}).isEnabled(),true);
+  // Inspecting an EXE is not publication. Its product must be explicitly
+  // chosen and the evidence must survive a failed native save.
+  await page.evaluate(()=>{window.__publisherMockInspectedArtifact={
+    name:'iwxa-publisher.exe',size:4096,sha256:'d'.repeat(64)};});
+  await page.getByRole('button',{name:'Выбрать и проверить файл'}).click();
+  const inspectedRelease=page.getByTestId('publisher-artifact-save-action');
+  await inspectedRelease.waitFor();
+  const saveInspected=page.getByRole('button',{name:'Сохранить проверенный файл'});
+  assert.equal(await saveInspected.isDisabled(),true,
+    'Release evidence must not silently borrow the first catalog product');
+  await page.getByRole('combobox',{name:'Продукт',exact:true}).selectOption('IWXA_ADMIN_CENTER');
+  await page.getByLabel('Source commit (40 hex)').fill('a'.repeat(40));
+  await page.getByLabel('Source tree (40 hex)').fill('b'.repeat(40));
+  assert.equal(await saveInspected.isEnabled(),true);
+  await page.evaluate(()=>{window.__publisherMockFailNextSave=true;});
+  await saveInspected.click();
+  const releaseFeedback=page.getByTestId('publisher-artifact-save-feedback');
+  await releaseFeedback.waitFor();
+  assert.equal(await releaseFeedback.getAttribute('role'),'alert');
+  assert.match(await releaseFeedback.innerText(),/Не удалось сохранить/);
+  assert.equal(await page.getByText('Проверенные файлы (0)').count(),1);
+  assert.match(await page.locator('.inspected').innerText(),/iwxa-publisher.exe/);
+  assert.equal(await page.getByLabel('Source commit (40 hex)').inputValue(),'a'.repeat(40));
+  await saveInspected.click();
+  await page.getByText('Проверенные файлы (1)').waitFor();
+  assert.equal(await releaseFeedback.getAttribute('role'),'status');
+  assert.match(await releaseFeedback.innerText(),/Источник и решение о публикации не подтверждены/);
+  assert.equal(await saveInspected.isDisabled(),true,
+    'A successful save must not create an accidental duplicate on repeated click');
+  assert.match(await page.locator('.inspected').innerText(),/iwxa-publisher.exe/);
+  const persistedArtifact=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')));
+  assert.equal(persistedArtifact.artifacts[0].productId,'IWXA_ADMIN_CENTER');
+  assert.equal(persistedArtifact.artifacts[0].status,'BYTES_INSPECTED_NOT_APPROVED');
+  checks.push('release-native-save-failure-retains-inspected-file-and-success-inline');
+  checks.push('release-evidence-requires-explicit-product-and-is-not-authorized');
   await page.getByRole('button',{name:'Сверить две копии файла'}).click();
   const copies=page.getByTestId('publisher-offline-copies-result');
   await copies.waitFor();

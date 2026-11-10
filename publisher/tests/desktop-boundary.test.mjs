@@ -176,3 +176,17 @@ test('T3 TEST issue readback requires exact original ledger record even if inven
  assert.match(browser,/t3-truncated-inventory-cannot-verify-unseen-idempotent-issue/);
  assert.match(browser,/t3-idempotent-issue-confirms-original-ledger-subject-product-and-seats/);
 });
+
+
+test('inspected release artifact requires explicit product, preserves evidence on save failure',()=>{
+ const app=read('publisher/ui/App.tsx');
+ const browser=read('publisher/tests/browser-smoke.mjs');
+ assert.match(app,/selectedReleaseProduct=state\.products\.some/);
+ assert.doesNotMatch(app,/releaseProduct\|\|state\.products\[0\]/);
+ assert.match(app,/publisher-artifact-save-feedback/);
+ assert.match(app,/artifactSaved/);
+ assert.match(app,/setArtifactFeedback\(result\)/);
+ assert.doesNotMatch(app,/setInspected\(null\);\}\}>/);
+ assert.match(browser,/release-native-save-failure-retains-inspected-file-and-success-inline/);
+ assert.match(browser,/release-evidence-requires-explicit-product-and-is-not-authorized/);
+});

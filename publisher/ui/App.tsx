@@ -90,12 +90,16 @@ export default function App(){
  const [productFeedback,setProductFeedback]=useState<{ok:boolean;message:string}|null>(null);
  const [clientFeedback,setClientFeedback]=useState<{ok:boolean;message:string}|null>(null);
  const [legacyFeedback,setLegacyFeedback]=useState<{ok:boolean;message:string}|null>(null);
+ const [artifactFeedback,setArtifactFeedback]=useState<{ok:boolean;message:string}|null>(null);
+ const [artifactSaved,setArtifactSaved]=useState(false);
  const productFeedbackRef=React.useRef<HTMLParagraphElement>(null);
  const clientFeedbackRef=React.useRef<HTMLParagraphElement>(null);
  const legacyFeedbackRef=React.useRef<HTMLParagraphElement>(null);
+ const artifactFeedbackRef=React.useRef<HTMLParagraphElement>(null);
  useEffect(()=>{if(productFeedback)productFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});},[productFeedback]);
  useEffect(()=>{if(clientFeedback)clientFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});},[clientFeedback]);
  useEffect(()=>{if(legacyFeedback)legacyFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});},[legacyFeedback]);
+ useEffect(()=>{if(artifactFeedback)artifactFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});},[artifactFeedback]);
  const [productId,setProductId]=useState('');
  const [productName,setProductName]=useState('');
  const [productVersion,setProductVersion]=useState('0.2.0');
@@ -184,7 +188,11 @@ export default function App(){
    setError('');setMessage('');setBusy(true);
    try{
      const result=await invoke('publisher_inspect_artifact');
-     if(result){setInspected(result as Inspection);setMessage('Байты файла проверены. Источник и разрешение на выпуск ещё не подтверждены.');}
+     if(result){
+      setInspected(result as Inspection);
+      setArtifactFeedback(null);setArtifactSaved(false);
+      setMessage('Байты файла проверены. Источник и разрешение на выпуск ещё не подтверждены.');
+     }
    }catch(e){setError(getError(e));}
    finally{setBusy(false);}
  }
@@ -269,7 +277,23 @@ export default function App(){
  const holderTitle=(id:string)=>state.holders.find(h=>h.id===id)?.name||id;
  const activeProduct=state.products.some(p=>p.id===proposalProduct)?proposalProduct:'';
  const activeHolder=state.holders.some(h=>h.id===proposalHolder)?proposalHolder:'';
- const selectedReleaseProduct=releaseProduct||state.products[0]?.id||'';
+ // Never silently associate a release artifact with the first catalog product.
+ const selectedReleaseProduct=state.products.some(p=>p.id===releaseProduct)?releaseProduct:'';
+ async function saveInspectedArtifact(e:React.FormEvent){
+   e.preventDefault();
+   if(!inspected||!selectedReleaseProduct||busy||!loaded||artifactSaved)return;
+   setArtifactFeedback(null);
+   const result=await change({kind:'addArtifact',productId:selectedReleaseProduct,
+     version:releaseVersion.trim(),platform:releasePlatform,
+     sourceRepository:releaseRepo.trim(),sourceCommit:releaseCommit.trim(),
+     sourceTree:releaseTree.trim(),...inspected},
+     'Проверенные байты сохранены. Источник и решение о публикации не подтверждены.');
+   // Keep the inspected file and all form fields if native persistence fails.
+   // After success, retain the evidence and disallow accidental duplicate save
+   // until a field is edited or another file is inspected.
+   setArtifactFeedback(result);
+   setArtifactSaved(result.ok);
+ }
  async function selectTestIwxa(){
    if(busy||!loaded||!nativeHost)return;
    setBusy(true);setError('');setMessage('');setSelectedIwxa(null);
@@ -462,14 +486,22 @@ export default function App(){
            {inspected&&<div className="inspected"><strong>{inspected.name}</strong><small>{inspected.size.toLocaleString('ru-RU')} байт</small><code>{inspected.sha256}</code></div>}
          </section>
          {inspected&&state.products.length>0&&<section className="card form-panel"><h2>Зафиксировать проверку файла</h2>
-           <form onSubmit={e=>{e.preventDefault();void change({kind:'addArtifact',productId:selectedReleaseProduct,version:releaseVersion.trim(),platform:releasePlatform,sourceRepository:releaseRepo.trim(),sourceCommit:releaseCommit.trim(),sourceTree:releaseTree.trim(),...inspected},'Проверенные байты сохранены. Источник и решение о публикации не подтверждены.');setInspected(null);}}>
-             <div className="form-grid"><label>Продукт<select value={selectedReleaseProduct} onChange={e=>setReleaseProduct(e.target.value)}>{state.products.map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select></label>
+           <form onSubmit={e=>void saveInspectedArtifact(e)} onChangeCapture={()=>{
+                setArtifactFeedback(null);setArtifactSaved(false);
+              }}>
+             <div className="form-grid"><label>Продукт<select value={selectedReleaseProduct} required onChange={e=>setReleaseProduct(e.target.value)}><option value="">Выберите продукт</option>{state.products.map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select></label>
              <label>Версия файла<input required value={releaseVersion} onChange={e=>setReleaseVersion(e.target.value)}/></label>
              <label>Платформа<select value={releasePlatform} onChange={e=>setReleasePlatform(e.target.value)}>{['windows-x64','windows-arm64','linux-x64','linux-arm64','macos-x64','macos-arm64'].map(p=><option key={p} value={p}>{p}</option>)}</select></label>
              <label>Репозиторий источника<input required value={releaseRepo} onChange={e=>setReleaseRepo(e.target.value)}/></label>
              <label>Source commit (40 hex)<input required value={releaseCommit} onChange={e=>setReleaseCommit(e.target.value)}/></label>
              <label>Source tree (40 hex)<input required value={releaseTree} onChange={e=>setReleaseTree(e.target.value)}/></label></div>
-             <button type="submit" className="primary" disabled={busy}>Сохранить проверенный файл</button>
+             <div className="publisher-save-action" data-testid="publisher-artifact-save-action">
+                <button type="submit" className="primary"
+                  disabled={busy||!selectedReleaseProduct||artifactSaved}>Сохранить проверенный файл</button>
+                {artifactFeedback&&<p ref={artifactFeedbackRef}
+                  className={'publisher-inline-feedback '+(artifactFeedback.ok?'success':'error')}
+                  role={artifactFeedback.ok?'status':'alert'} data-testid="publisher-artifact-save-feedback">{artifactFeedback.message}</p>}
+              </div>
            </form></section>}
          <section className="card padded"><h2>Проверенные файлы ({state.artifacts.length})</h2>
          {state.artifacts.length===0?<p className="muted">Файлы ещё не проверены. Подтверждённых релизов нет.</p>:state.artifacts.map(a=><div key={a.id} className="simple-row"><div><strong>{a.name}</strong><small>{productTitle(a.productId)} · {a.version} · {a.platform} · SHA-256 {a.sha256}</small><small>Заявленный источник: {a.sourceRepository} @ {a.sourceCommit.slice(0,12)} (не проверен независимо)</small></div><span className="status neutral">Не опубликовано</span></div>)}</section>
