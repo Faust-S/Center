@@ -1,13 +1,26 @@
 [CmdletBinding()]
 param(
   [string]$OwnerComponentPath = '',
-  [switch]$TransportOnly
+  [switch]$TransportOnly,
+  [string]$InstalledPersonWitnessScript = ''
 )
 # All product assembly and test orchestration belong to PUBLIC Center.
 # A prebuilt component is passed as opaque bytes; NEVER check out private
 # T3 source or provision TEST signing keys in GitHub Actions.
 if($TransportOnly -and !$OwnerComponentPath) {
   throw 'PUBLISHER_TRANSPORT_ONLY_REQUIRES_EXTERNAL_COMPONENT'
+}
+if($InstalledPersonWitnessScript){
+  # A private LOCAL acceptance runner may observe an installed Publisher while
+  # Setup Core still owns it. Never run a private witness in public Actions.
+  if($env:GITHUB_ACTIONS -eq 'true' -or $TransportOnly -or !$OwnerComponentPath){
+    throw 'PUBLISHER_PRIVATE_INSTALLED_WITNESS_NOT_ALLOWED_IN_PUBLIC_CI'
+  }
+  $witnessInfo=Get-Item -LiteralPath $InstalledPersonWitnessScript -ErrorAction Stop
+  if($witnessInfo.PSIsContainer -or $witnessInfo.Extension -ne '.ps1'){
+    throw 'PUBLISHER_PRIVATE_INSTALLED_WITNESS_SCRIPT_REQUIRED'
+  }
+  $InstalledPersonWitnessScript=$witnessInfo.FullName
 }
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -157,6 +170,15 @@ try {
     Remove-Item Env:IWXA_PUBLISHER_INSTALLED_EXE -ErrorAction SilentlyContinue
   }
   Write-Host 'PUBLISHER_SETUP_REAL_GUI_AND_RESTART_PASS'
+    if($InstalledPersonWitnessScript){
+      # Executed AFTER the ordinary installed regression and BEFORE uninstall.
+      # All signer setup, native T3 operations and evidence stay outside Center.
+      & $InstalledPersonWitnessScript -InstalledPublisherExe $app
+      if($LASTEXITCODE -ne 0){
+        throw 'PUBLISHER_PRIVATE_INSTALLED_PERSON_WITNESS_FAILED'
+      }
+      Write-Host 'PUBLISHER_PRIVATE_PERSON_WITNESS_RETURNED_PASS'
+    }
   }else{
     Write-Host 'PUBLISHER_NATIVE_EXTERNAL_COMPONENT_TRANSPORT_ONLY_PASS'
   }
