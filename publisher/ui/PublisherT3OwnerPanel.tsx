@@ -164,7 +164,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
       {message||'Подтверждённый нативный издатель T3 недоступен.'}
       Выпуск и отзыв лицензий отключены.
    </p>}
-   {personal.length>0&&<p className="notice subdued" data-testid="publisher-person-issuer-unavailable">Личные лицензии: подготовлено {personal.length}. Действующий T3 TEST-контракт не поддерживает персональные лицензии. Условия сохранены, выпуск и отзыв недоступны до подключения подписанного контракта.</p>}
+   {personal.length>0&&<p className="notice subdued" data-testid="publisher-person-issuer-unavailable">Личные лицензии: подготовлено {personal.length}. TEST-контракт организаций не подписывает PERSON — это другой разрешённый маршрут того же T3. Выпуск и отзыв выполняются в разделе «Лицензии физических лиц» выше, только после регистрации издателя.</p>}
    {unsupported.length>personal.length&&<p className="muted" data-testid="publisher-other-issuer-unsupported">Неподдерживаемые или неполные TEST-запросы: {unsupported.length-personal.length}. Они не отправляются на подпись.</p>}
    {available&&<>
      <div className="form-grid">
