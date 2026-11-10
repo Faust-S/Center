@@ -586,16 +586,52 @@ jobs:
             # The pytest log remains private on the ephemeral worker. Public
             # output contains only bounded test identifiers, never captured
             # tracebacks, assertion values, task content, or provider data.
-            $pytestLog=Join-Path $out 'evidence/python-full.stdout.log'
+            $testStage=if($raw -match 'full_qualification_step_failed_python-targeted'){'python-targeted'}else{'python-full'}
+            $pytestLog=Join-Path $out ('evidence/'+$testStage+'.stdout.log')
             if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
               $count=0
+              $locations=0
+              $errors=0
               foreach($line in [IO.File]::ReadLines($pytestLog)){
                 if($line -match '^(FAILED|ERROR)\s+(tests[/\\][A-Za-z0-9_/.\\:-]{1,220})\b'){
-                  $testId=$Matches[2]
-                  Write-Host ('PRIVATE_PYTHON_FAILED_TEST='+$testId)
+                  Write-Host ('PRIVATE_PYTHON_FAILED_TEST='+$Matches[2])
                   $count++
-                  if($count -ge 20){break}
+                }elseif($line -match '^tests[/\\]([A-Za-z0-9_./\\-]{1,180}\.py):(\d{1,5}):' -and $locations -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_FAILURE_LOCATION='+$Matches[1]+':'+$Matches[2])
+                  $locations++
+                }elseif($line -match '^E\s+([A-Za-z][A-Za-z0-9_]*Error)\b' -and $errors -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_EXCEPTION_CLASS='+$Matches[1])
+                  if($line -match '\[WinError (\d{1,4})\]'){
+                    Write-Host ('PRIVATE_PYTHON_WINERROR='+$Matches[1])
+                  }
+                  if($line -match '^E\s+[A-Za-z][A-Za-z0-9_]*Error:\s+([a-z][a-z0-9_]{2,80})\s*
+            throw 'PRIVATE_QUALIFICATION_NOT_ACCEPTED'
+          }
+          $resultPath=Join-Path $out 'result.json'
+          if(!(Test-Path -LiteralPath $resultPath -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_RESULT_MISSING'
+          }
+          $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $result.source_commit -cne $env:PRIVATE_SOURCE_SHA){
+            throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
+          }
+          $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_INSTALLER_MISSING'
+          }
+          $hash=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host 'PRIVATE_WINDOWS_SOURCE_AND_INSTALLED_SMOKE_PASS'
+          Write-Host ('PRIVATE_SETUP_SHA256='+$hash)
+          Write-Host ('PRIVATE_SOURCE_SHA='+$result.source_commit)
+          Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=NOT_RUN'
+          # Never upload private files, archives, windows screenshots, or logs.
+
+){
+                    Write-Host ('PRIVATE_PYTHON_ERROR_CODE='+$Matches[1])
+                  }
+                  $errors++
                 }
+                if($count -ge 20 -and $locations -ge 12 -and $errors -ge 12){break}
               }
               Write-Host ('PRIVATE_PYTHON_FAILURE_IDENTIFIERS_SHOWN='+$count)
             }
