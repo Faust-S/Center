@@ -603,6 +603,7 @@ jobs:
         shell: pwsh
         env:
           PRIVATE_SOURCE_SHA: ${{ steps.private-pin.outputs.sha }}
+          PRIVATE_QA_TRIGGER: ${{ github.event.head_commit.message }}
         working-directory: private-product
         run: |
           $ErrorActionPreference='Stop'
@@ -614,6 +615,15 @@ jobs:
           $err=Join-Path $env:RUNNER_TEMP 'private-qualifier.stderr.log'
           $script=Join-Path $root 'tools/qualify_setup_core_full_product.ps1'
           $args=@('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$script,'-CenterRoot',$center,'-CenterCommit','c7b84cfbbc1d41d24239bfd90fca76d517a6cb69','-OutputRoot',$out,'-ReleaseCacheRoot',$cache)
+          # Only this immutable source revision previously passed 4,575
+          # Python tests and 757 Node tests in the same Windows run.
+          if($env:PRIVATE_QA_TRIGGER -match ' native-only(?:\s|$)'){
+            if($env:PRIVATE_SOURCE_SHA -cne '955af2fc11d6e78e36833497b003440c45ee084b'){
+              throw 'PRIVATE_NATIVE_ONLY_UNQUALIFIED_SOURCE'
+            }
+            $args+=('-SkipSourceSuites')
+            Write-Host 'PRIVATE_NATIVE_DIAGNOSTIC_ONLY_SOURCE_SUITES_PREVIOUSLY_VERIFIED'
+          }
           $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
           # Preserve the native process handle before redirected execution completes.
           $p=Start-Process -FilePath $powershell -ArgumentList $args -WorkingDirectory $root -RedirectStandardOutput $log -RedirectStandardError $err -PassThru
@@ -639,6 +649,60 @@ jobs:
             $code=[regex]::Match($raw,'(full_qualification_[a-z0-9_-]+|PRIVATE_SETUP_CORE_BUILD_FAIL|private_setup_[a-z0-9_-]+)')
             if($code.Success){Write-Host ('PRIVATE_QUALIFICATION_STAGE='+$code.Value)}
             else{Write-Host 'PRIVATE_QUALIFICATION_STAGE=UNCLASSIFIED'}
+            if($raw -match 'full_qualification_step_failed_native-install-and-function'){
+              $nativeLogs=Join-Path $out 'native-candidate/logs'
+              $stages=[ordered]@{
+                native_stub='native-setup-build.json'
+                managed_python='test-python-bootstrap.log'
+                desktop_icon='native-desktop-icon.json'
+                u04_fetch='u04-source-preparation.json'
+                u04_stage='u04-stage.json'
+                node_dependencies='native-desktop-dependencies.log'
+                tauri_build='native-desktop-build.log'
+                payload='package-build-only.json'
+                setup_resource='private-setup-core-build.json'
+                installed_acceptance='public-test-local-result.txt'
+              }
+              foreach($stage in $stages.Keys){
+                if(Test-Path -LiteralPath (Join-Path $nativeLogs $stages[$stage]) -PathType Leaf){
+                  Write-Host ('PRIVATE_NATIVE_ATTEMPTED_STAGE='+$stage)
+                }
+              }
+              $logPaths=@(
+                (Join-Path $out 'evidence/native-install-and-function.stderr.log'),
+                (Join-Path $out 'evidence/native-install-and-function.stdout.log'),
+                (Join-Path $nativeLogs 'native-desktop-build.log'),
+                (Join-Path $nativeLogs 'native-desktop-build.log.stderr'),
+                (Join-Path $nativeLogs 'native-desktop-dependencies.log.stderr'),
+                (Join-Path $nativeLogs 'package-build-only.json'),
+                (Join-Path $nativeLogs 'private-setup-core-build.json'),
+                (Join-Path $nativeLogs 'public-test-local-result.txt')
+              )
+              $codes=New-Object 'System.Collections.Generic.HashSet[string]'
+              $classes=New-Object 'System.Collections.Generic.HashSet[string]'
+              foreach($lp in $logPaths){
+                if(!(Test-Path -LiteralPath $lp -PathType Leaf)){continue}
+                $scanned=0
+                foreach($line in [IO.File]::ReadLines($lp)){
+                  if(++$scanned -gt 30000){break}
+                  if($line -match '\b((?:native_candidate|private_setup|agent_setup|full_qualification)_[a-z0-9_]{3,90}|SETUP_LOCAL_[A-Z0-9_]{3,90})\b'){
+                    $null=$codes.Add($Matches[1])
+                  }
+                  if($line -match 'error\[E\d{4}\]'){$null=$classes.Add('RUST_COMPILER')}
+                  if($line -match 'error TS\d{4}'){$null=$classes.Add('TYPESCRIPT')}
+                  if($line -match 'npm ERR!|npm error'){$null=$classes.Add('NPM')}
+                  if($line -match 'failed to compile|could not compile'){$null=$classes.Add('RUST_BUILD')}
+                  if($line -match 'ECONNRESET|ETIMEDOUT|Could not resolve host'){$null=$classes.Add('NETWORK')}
+                }
+              }
+              foreach($item in @($codes) | Sort-Object | Select-Object -First 16){
+                Write-Host ('PRIVATE_NATIVE_ERROR_CODE='+$item)
+              }
+              foreach($item in @($classes) | Sort-Object){
+                Write-Host ('PRIVATE_NATIVE_ERROR_CLASS='+$item)
+              }
+              Write-Host ('PRIVATE_NATIVE_ERROR_CODES_OBSERVED='+$codes.Count)
+            }
             if($raw -match 'full_qualification_step_failed_python-(targeted|full)_exit_([0-9]{1,3})'){
               Write-Host ('PRIVATE_PYTHON_EXIT_CODE='+$Matches[2])
             }
@@ -671,6 +735,7 @@ jobs:
             }
             if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
               $outputText=Get-Content -LiteralPath $pytestLog -Raw -Encoding UTF8
+              if($null -eq $outputText){$outputText=''}
               if($outputText -match '(\d{1,6})\s+passed'){Write-Host ('PRIVATE_PYTHON_PASSED_COUNT='+$Matches[1])}
               if($outputText -match '(\d{1,6})\s+failed'){Write-Host ('PRIVATE_PYTHON_FAILED_COUNT='+$Matches[1])}
               if($outputText -match 'INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=INTERNAL'}
@@ -682,6 +747,7 @@ jobs:
             }else{Write-Host 'PRIVATE_PYTHON_STDOUT=NOT_FOUND'}
             if(Test-Path -LiteralPath $pytestErr -PathType Leaf){
               $errText=Get-Content -LiteralPath $pytestErr -Raw -Encoding UTF8
+              if($null -eq $errText){$errText=''}
               if($errText -match 'unrecognized arguments|pytest: error:'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=ARGUMENTS'}
               if($errText -match 'Fatal Python error|INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=INTERNAL'}
               if($errText -match 'No module named pytest'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=PYTEST_MISSING'}
