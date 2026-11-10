@@ -57,7 +57,7 @@ test('Publisher stable 0.3.0 identity matches Rust, Tauri, Setup Core, UI and Wi
  assert.match(install,/6603a11764ff86853e5abf4d209d55f79fddd8b1/);
  assert.match(workflow,/6603a11764ff86853e5abf4d209d55f79fddd8b1/);
  assert.equal(app.version,m.version);
- assert.match(cargo,/^version\s*=\s*"0\.3\.0-dev\.1"$/m);
+ assert.match(cargo,/^version\s*=\s*"0\.3\.0"$/m);
  assert.ok(ui.includes('Publisher '+m.version+' ·'));
  assert.ok(installed.includes("version='"+m.version+"'"));
  assert.doesNotMatch([ui,cargo,installed].join('\n'),/0\.2\.0-dev\.2/);

@@ -451,6 +451,29 @@ try {
   Write-Host 'PUBLISHER_WEBVIEW_APP_LOCAL_NORMAL_RESTART_PASS'
   $backup=Join-Path ([IO.Path]::GetFullPath('artifacts/publisher-setupcore')) 'installed-preparation-backup.json'
   Click-Publisher 'Обзор'
+  $beforeDiagnosticHash=(Get-FileHash -LiteralPath $data -Algorithm SHA256).Hash
+  Click-Publisher 'Проверить программу'
+  $diagnosticField=Find-Control 'Сведения диагностики' 'Edit'
+  $diagnosticText=$diagnosticField.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value
+  $diagnosticReport=$diagnosticText|ConvertFrom-Json -Depth 20
+  if($diagnosticReport.schema -ne 'IWXA_DIAGNOSTICS/1' -or
+     $diagnosticReport.productId -ne 'iwxa.publisher' -or
+     $diagnosticReport.version -ne '0.3.0' -or
+     $diagnosticReport.application -ne 'NATIVE_RUNNING' -or
+     $diagnosticReport.localPreparation -ne 'READABLE' -or
+     $diagnosticReport.setupCore -ne 'CHECK_IN_SETUP_CORE' -or
+     $diagnosticReport.licensing -ne 'TEST_ONLY' -or
+     $diagnosticReport.productionActivation -ne $false -or
+     $diagnosticReport.activeSeats -ne 0 -or
+     $diagnosticText.Contains('PublisherInstalledTestOrg') -or
+     $diagnosticText.Contains('publisher-preparation-v1.json')){
+    throw 'PUBLISHER_INSTALLED_COMMON_DIAGNOSTICS_INVALID'
+  }
+  if((Get-FileHash -LiteralPath $data -Algorithm SHA256).Hash -ne $beforeDiagnosticHash){
+    throw 'PUBLISHER_INSTALLED_DIAGNOSTICS_CHANGED_USER_DRAFT'
+  }
+  Write-Host 'PUBLISHER_INSTALLED_COMMON_DIAGNOSTICS_READONLY_PASS'
+  Capture-Installed-Desktop 'publisher-desktop-diagnostics.png'
   Use-Json-Through-Publisher-Dialog 'Сохранить копию черновиков' $backup $false
   $copy=Get-Content -LiteralPath $backup -Raw -Encoding utf8
   $live=Get-Content -LiteralPath $data -Raw -Encoding utf8
