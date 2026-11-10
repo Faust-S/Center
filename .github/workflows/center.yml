@@ -59,6 +59,11 @@ jobs:
         shell: powershell
         timeout-minutes: 3
         run: ./installer/windows/qualify-gui-layout-fast.ps1 -Stub artifacts/iwxa-setup-core-early.exe
+      - name: Qualify two independent native packages without external assets
+        if: runner.os == 'Windows'
+        shell: powershell
+        timeout-minutes: 7
+        run: ./installer/windows/qualify-product-neutral.ps1 -Stub artifacts/iwxa-setup-core-early.exe
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Windows' && always()
         with:
