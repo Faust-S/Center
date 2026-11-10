@@ -863,7 +863,7 @@ jobs:
                     }
                     if($actual -ceq $built.setup_sha256){
                       Write-Host ('PRIVATE_NATIVE_SETUP_SHA256='+$actual)
-                      Write-Host ('PRIVATE_NATIVE_SETUP_BYTES='+([IO.FileInfo]$builtSetup).Length)
+                      Write-Host ('PRIVATE_NATIVE_SETUP_BYTES='+((Get-Item -LiteralPath $builtSetup -ErrorAction Stop).Length))
                     }else{
                       Write-Host 'PRIVATE_NATIVE_SETUP_DIGEST_MISMATCH'
                     }
