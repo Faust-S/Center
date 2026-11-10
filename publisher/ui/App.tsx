@@ -400,7 +400,7 @@ export default function App(){
          <img className="publisher-brand-logo" src="/favicon.svg" alt="IWXA" width="43" height="43"/>
          <div className="publisher-brand-copy"><strong>IWXA</strong><small>Publisher</small></div>
        </div>
-       <span className="version publisher-version">0.3</span>
+       <span className="version publisher-version">0.4</span>
      </header>
      <div className="publisher-nav-caption">ИЗДАТЕЛЬ И ЛИЦЕНЗИИ</div>
      <nav aria-label="Разделы Publisher">
@@ -415,7 +415,7 @@ export default function App(){
        <span className="status neutral publisher-top-status"><span className="publisher-top-status-dot" aria-hidden="true"></span>{loaded?'Локально сохранено':'Состояние не загружено'}</span>
      </header>
      <div className="page-heading"><div><div className="eyebrow publisher-section-eyebrow">IWXA / РАБОЧЕЕ МЕСТО ИЗДАТЕЛЯ</div><h1>{navigation.find(v=>v[0]===page)?.[1]}</h1></div></div>
-     <div className="notice">Publisher 0.3.0 · Черновики хранятся отдельно от Admin Center. Подписанные лицензии доступны только в режиме TEST через предварительно настроенный T3 Host. Коммерческая активация мест и выпуск релизов отключены.</div>
+     <div className="notice">Publisher 0.4.0-dev.1 · Черновики хранятся отдельно от Admin Center. Подписанные лицензии доступны только в режиме TEST через предварительно настроенный T3 Host. Коммерческая активация мест и выпуск релизов отключены.</div>
      {error&&<div className="notice error" role="alert">{error}</div>}
      {message&&<div className="notice" role="status">{message}</div>}
      {!loaded?<><section className="card padded" role="status">Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.</section>{page==='overview'&&diagnosticPanel}</>:<>
