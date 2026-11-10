@@ -221,6 +221,29 @@ jobs:
             throw 'CENTER_PUBLIC_NATIVE_LICENSE_GUI_TEST_PARSE_FAILED'
           }
           Write-Host 'CENTER_PUBLIC_NATIVE_LICENSE_GUI_TEST_SYNTAX_PASS'
+      - name: Verify Publisher private-person witness entrypoint is CI-denied
+        shell: pwsh
+        run: |
+          # Parse the full PUBLIC Setup Core driver before asserting that no
+          # private signer can be invoked from a public GitHub Actions runner.
+          $path=(Resolve-Path 'publisher/tests/installed-setupcore-publisher.ps1').Path
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $path,[ref]$tokens,[ref]$errors)|Out-Null
+          if($errors.Count -ne 0){throw 'PUBLISHER_INSTALLED_SETUP_DRIVER_SYNTAX_INVALID'}
+          $rejected=$false
+          try {
+            ./publisher/tests/installed-setupcore-publisher.ps1 `
+              -OwnerComponentPath 'publisher/src-tauri/target/release/iwxa-publisher.exe' `
+              -InstalledPersonWitnessScript 'publisher/tests/installed-windows-publisher.ps1'
+          }catch{
+            if($_.Exception.Message -eq 'PUBLISHER_PRIVATE_INSTALLED_WITNESS_NOT_ALLOWED_IN_PUBLIC_CI'){
+              $rejected=$true
+            }else{throw}
+          }
+          if(-not $rejected){throw 'PUBLISHER_PRIVATE_WITNESS_CI_ACCESS_NOT_DENIED'}
+          Write-Host 'PUBLISHER_PRIVATE_INSTALLED_WITNESS_CI_DENY_PASS'
       - name: Validate Publisher two-file Setup Core payload in PUBLIC CI only
         shell: pwsh
         run: |
