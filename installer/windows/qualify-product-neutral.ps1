@@ -146,7 +146,11 @@ try{
     # disposable synthetic program, never with a confidential payload.
     $c=Make-Product ('c'+[Guid]::NewGuid().ToString('N').Substring(0,10))
     & (Join-Path $PSScriptRoot 'qualify-local-bundle.ps1') -Setup $c.bundle `
-        -ProductId $c.id -SandboxRoot (Join-Path $root 'independent-acceptance')
+        -ProductId $c.id -SandboxRoot (Join-Path $root 'independent-acceptance') `
+        -WitnessScript (Join-Path $PSScriptRoot 'qualify-fixture-runtime.ps1')
+    if(!(Test-Path -LiteralPath (Join-Path $root 'independent-acceptance\installed-witness.json'))){
+        throw 'SETUP_NEUTRAL_WITNESS_READBACK_NOT_WRITTEN'
+    }
     Write-Host 'IWXA_SETUP_LOCAL_BUNDLE_HARNESS_PASS'
 } finally {
     foreach($item in $created){
