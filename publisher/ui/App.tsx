@@ -363,6 +363,25 @@ export default function App(){
    if(p!=='proposals')setLegacyOpen(false);
    setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);setOfflineCopies(null);
  }
+ const diagnosticPanel=(
+<section className="card padded" data-testid="publisher-diagnostics">
+            <h2>Диагностика IWXA</h2>
+            <p className="muted">Проверяет работу нативной программы, доступность черновиков и наличие локального профиля WebView2. Проверка установки, восстановление и удаление выполняются исходным IWXA Setup Core.</p>
+            <div className="actions">
+              <button type="button" className="secondary" disabled={!nativeHost||diagnosticsBusy} onClick={()=>void checkDiagnostics()}>{diagnosticsBusy?'Проверяем…':'Проверить программу'}</button>
+              {diagnostics&&<button type="button" className="secondary" onClick={()=>void copyDiagnostics()}>Скопировать сведения</button>}
+            </div>
+            {diagnostics&&<div data-testid="publisher-diagnostics-result" role="status">
+              <p>Программа: IWXA Publisher {diagnostics.version} · нативный запуск подтверждён.</p>
+              <p>Черновики: {diagnostics.localPreparation==='READABLE'?'читаются':diagnostics.localPreparation==='EMPTY'?'ещё не созданы':'требуют внимания'}.
+              Профиль WebView2: {diagnostics.webviewProfile==='FOLDER_PRESENT'?'каталог доступен':'каталог не обнаружен'}.</p>
+              <p className="muted">Установка: откройте IWXA Setup Core для проверки, восстановления или удаления. Лицензирование: только TEST, коммерческих мест — 0.</p>
+              <textarea aria-label="Сведения диагностики" readOnly rows={8}
+                value={JSON.stringify(diagnostics,null,2)} style={{width:'100%',fontFamily:'monospace'}}/>
+            </div>}
+            {diagnosticsMessage&&<p role={diagnostics?'status':'alert'} data-testid="publisher-diagnostics-feedback">{diagnosticsMessage}</p>}
+          </section>
+ );
  if(!nativeHost){
    return <main className="publisher-desktop-required" data-testid="publisher-desktop-required">
      <section className="publisher-desktop-required-card" role="status">
@@ -399,7 +418,7 @@ export default function App(){
      <div className="notice">Publisher 0.3.0 · Черновики хранятся отдельно от Admin Center. Подписанные лицензии доступны только в режиме TEST через предварительно настроенный T3 Host. Коммерческая активация мест и выпуск релизов отключены.</div>
      {error&&<div className="notice error" role="alert">{error}</div>}
      {message&&<div className="notice" role="status">{message}</div>}
-     {!loaded?<section className="card padded" role="status">Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.</section>:<>
+     {!loaded?<><section className="card padded" role="status">Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.</section>{page==='overview'&&diagnosticPanel}</>:<>
        {page==='overview'&&<>
          <div className="metrics">
            <div className="card metric publisher-metric"><span>Продукты</span><strong>{state.products.length}</strong><small>Каталог в подготовке</small></div>
@@ -422,23 +441,7 @@ export default function App(){
            </div>
          </section>
          <section className="card padded"><h2>Текущее состояние</h2><p className="muted">Заявок на публикацию: {state.artifacts.length}. Подтверждённых релизов: 0. Подписанных лицензий: 0.</p><p className="muted">Реальные источники подписей, trust catalog и приём лицензии в Admin Center пока не включены в этот исполняемый продукт.</p></section>
-         <section className="card padded" data-testid="publisher-diagnostics">
-            <h2>Диагностика IWXA</h2>
-            <p className="muted">Проверяет работу нативной программы, доступность черновиков и наличие локального профиля WebView2. Проверка установки, восстановление и удаление выполняются исходным IWXA Setup Core.</p>
-            <div className="actions">
-              <button type="button" className="secondary" disabled={!nativeHost||diagnosticsBusy} onClick={()=>void checkDiagnostics()}>{diagnosticsBusy?'Проверяем…':'Проверить программу'}</button>
-              {diagnostics&&<button type="button" className="secondary" onClick={()=>void copyDiagnostics()}>Скопировать сведения</button>}
-            </div>
-            {diagnostics&&<div data-testid="publisher-diagnostics-result" role="status">
-              <p>Программа: IWXA Publisher {diagnostics.version} · нативный запуск подтверждён.</p>
-              <p>Черновики: {diagnostics.localPreparation==='READABLE'?'читаются':diagnostics.localPreparation==='EMPTY'?'ещё не созданы':'требуют внимания'}.
-              Профиль WebView2: {diagnostics.webviewProfile==='FOLDER_PRESENT'?'каталог доступен':'каталог не обнаружен'}.</p>
-              <p className="muted">Установка: откройте IWXA Setup Core для проверки, восстановления или удаления. Лицензирование: только TEST, коммерческих мест — 0.</p>
-              <textarea aria-label="Сведения диагностики" readOnly rows={8}
-                value={JSON.stringify(diagnostics,null,2)} style={{width:'100%',fontFamily:'monospace'}}/>
-            </div>}
-            {diagnosticsMessage&&<p role={diagnostics?'status':'alert'} data-testid="publisher-diagnostics-feedback">{diagnosticsMessage}</p>}
-          </section>
+         {diagnosticPanel}
           <section className="card padded" data-testid="publisher-preparation-backup">
            <h2>Резервная копия черновиков</h2>
            <p className="muted">Включает каталог продуктов, клиентов, редакции тарифов, неподписанные запросы и записи проверок файлов. Действительных лицензий и ключей издателя в копии нет.</p>

@@ -194,6 +194,34 @@ try {
   assert.equal(diag.activeSeats,0);
   assert.ok(!JSON.stringify(diag).includes('Test Corporation'));
   checks.push('native-read-only-common-iwxa-diagnostics-no-license-or-private-draft-data');
+  // Diagnostics must remain usable when a damaged local draft prevents
+  // the Publisher workbench from loading. Otherwise the diagnostic action
+  // disappears precisely when support is most needed.
+  const damaged=await browser.newPage({viewport:{width:1000,height:680}});
+  damaged.on('pageerror',e=>errors.push(e.message));
+  await damaged.addInitScript(()=>{
+    window.__TAURI_INTERNALS__={invoke:async(command)=>{
+      if(command==='publisher_draft_read')throw Error('PUBLISHER_DRAFT_FORMAT_INVALID');
+      if(command==='publisher_diagnostics')return {
+        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.3.0',
+        application:'NATIVE_RUNNING',localPreparation:'NEEDS_ATTENTION',
+        webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
+        licensing:'TEST_ONLY',activeSeats:0,productionActivation:false,
+        attentionRequired:true};
+      throw Error('UNEXPECTED_DIAGNOSTIC_ONLY_COMMAND:'+command);
+    }};
+  });
+  await damaged.goto('http://127.0.0.1:4175');
+  await damaged.getByText(/Не удалось открыть сохранённые черновики/).waitFor();
+  const diagnoseWhenFailed=damaged.getByRole('button',{name:'Проверить программу'});
+  assert.equal(await diagnoseWhenFailed.isEnabled(),true);
+  await diagnoseWhenFailed.click();
+  const degradedReport=damaged.getByTestId('publisher-diagnostics-result');
+  await degradedReport.waitFor();
+  assert.match(await degradedReport.innerText(),/Черновики: требуют внимания/);
+  assert.equal(JSON.parse(await damaged.getByRole('textbox',{name:'Сведения диагностики'}).inputValue()).attentionRequired,true);
+  await damaged.close();
+  checks.push('common-diagnostics-available-after-corrupt-draft-load-failure');
 
   await page.getByRole('button',{name:'Продукты',exact:true}).click();
   assert.equal(await page.getByLabel('Версия',{exact:true}).inputValue(),'',
