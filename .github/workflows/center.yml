@@ -587,7 +587,7 @@ jobs:
           if($pass -lt 1 -or $fail -ne 0){throw 'PRIVATE_NODE_RESULT_INCOMPLETE'}
           Write-Host 'PRIVATE_NODE_REGRESSION_PASS'
       - name: Prepare Windows Rust toolchain for native build
-        if: ${{ contains(github.event.head_commit.message, ' native-only') }}
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
         timeout-minutes: 12
         shell: pwsh
         run: |
