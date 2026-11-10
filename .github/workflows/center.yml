@@ -770,7 +770,7 @@ jobs:
                   if($line -cmatch 'SETUP_LOCAL_NATIVE_FAILED_--(inspect|preflight|install-locations|verify-installed|locations|repair|confirm-upgrade|uninstall)-file_'){
                     $null=$setupNativeActions.Add($Matches[1].Replace('-','_').ToUpperInvariant())
                   }
-                  if($line -cmatch 'SETUP_LOCAL_NATIVE_FAILED_--(?:inspect|preflight|install-locations|verify-installed|locations|repair|confirm-upgrade|uninstall)-file_(SETUP_[A-Z0-9_]{3,80})(?:\\b|$)'){
+                  if($line -cmatch 'SETUP_LOCAL_NATIVE_FAILED_--(?:inspect|preflight|install-locations|verify-installed|locations|repair|confirm-upgrade|uninstall)-file_(SETUP_[A-Z0-9_]{3,80})(?:\b|$)'){
                     $null=$setupNativeReasons.Add($Matches[1])
                   }
                   if($line -match 'error\[E\d{4}\]'){$null=$classes.Add('RUST_COMPILER')}
