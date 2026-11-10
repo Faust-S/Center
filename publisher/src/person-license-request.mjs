@@ -94,3 +94,55 @@ export function prepareUnsignedPersonLicenseRequest(draft,{proposalId}){
     quotas:tariff.quotas.map(q=>({...q})),status:'UNSIGNED_REQUEST'
   });
 }
+
+
+// Renewal prepares a fresh issuer request through the existing tariff
+// followup route. Public Publisher does not change signed documents or rights.
+export function validatePersonRenewalSource(draft,{sourceLicense,issuerAuthorityId}={}){
+  const state=validatePublisherDraft(draft);
+  if(!plain(sourceLicense)||
+     typeof sourceLicense.licenseId!=='string'||!ID.test(sourceLicense.licenseId)||
+     typeof sourceLicense.requestId!=='string'||!ID.test(sourceLicense.requestId)||
+     typeof sourceLicense.issuerAuthorityId!=='string'||
+     !ID.test(sourceLicense.issuerAuthorityId)||
+     typeof issuerAuthorityId!=='string'||!ID.test(issuerAuthorityId)||
+     sourceLicense.issuerAuthorityId!==issuerAuthorityId||
+     !['ACTIVE','SUSPENDED'].includes(sourceLicense.status)||
+     !Number.isSafeInteger(sourceLicense.sequence)||sourceLicense.sequence<1||
+     sourceLicense.activeSeats!==0)
+    reject('PERSON_RENEWAL_SIGNED_SOURCE_REQUIRED');
+  const original=state.proposals.find(p=>p.id===sourceLicense.requestId);
+  if(!original||!original.tariffSnapshot)
+    reject('PERSON_RENEWAL_PROPOSAL_SOURCE_UNKNOWN');
+  const request=prepareUnsignedPersonLicenseRequest(state,{proposalId:original.id});
+  if(request.subject.id!==sourceLicense.personId||
+     request.product.id!==sourceLicense.productId||
+     request.deviceLimit!==sourceLicense.deviceLimit||
+     request.quotas.length!==sourceLicense.quotaCount)
+    reject('PERSON_RENEWAL_SOURCE_BINDING_MISMATCH');
+  return {proposalId:original.id,personId:request.subject.id,
+    productId:request.product.id,issuerAuthorityId};
+}
+export function preparePersonRenewalDraftCommand(draft,{
+  sourceLicense,issuerAuthorityId,tariffId,revision,issuedRecords
+}={}){
+  const state=validatePublisherDraft(draft);
+  const source=validatePersonRenewalSource(state,{sourceLicense,issuerAuthorityId});
+  if(!Array.isArray(issuedRecords)||!issuedRecords.some(record=>
+    record.licenseId===sourceLicense.licenseId&&
+    record.requestId===source.proposalId&&
+    record.issuerAuthorityId===issuerAuthorityId&&
+    record.personId===source.personId&&record.productId===source.productId))
+    reject('PERSON_RENEWAL_NATIVE_INVENTORY_REQUIRED');
+  if(state.proposals.some(p=>p.previousProposalId===source.proposalId))
+    reject('PERSON_RENEWAL_FOLLOWUP_ALREADY_EXISTS');
+  if(typeof tariffId!=='string'||!ID.test(tariffId)||
+     !Number.isSafeInteger(revision)||revision<1)
+    reject('PERSON_RENEWAL_TARIFF_NOT_SELECTED');
+  if(!state.tariffs.some(t=>t.id===tariffId&&t.revision===revision&&
+     t.productId===source.productId&&t.holderType==='PERSON'))
+    reject('PERSON_RENEWAL_TARIFF_SCOPE_MISMATCH');
+  return Object.freeze({kind:'prepareFollowupProposal',
+    previousProposalId:source.proposalId,productId:source.productId,
+    tariffId,revision});
+}
