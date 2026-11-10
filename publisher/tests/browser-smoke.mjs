@@ -771,6 +771,10 @@ try {
           state:one.status,sequence:one.sequence,
           activeSeats:0,productionActivation:false};
       }
+      if(command==='publisher_t3_person_export_public_trust')return {
+        operation:'PERSON_TRUST_EXPORTED',publicOnly:true,bytes:850,
+        sha256:'d'.repeat(64),keyCount:2,issuerCount:1,
+        activeSeats:0,productionActivation:false};
       if(command==='publisher_t3_person_export')return {
         operation:'PERSON_IWXA_EXPORTED',licenseId:args.licenseId,
         bytes:1024,packageSha256:'c'.repeat(64),
@@ -838,6 +842,9 @@ try {
   const personOwner=personal.getByTestId('publisher-person-owner');
   // Native select options are intentionally hidden in Firefox.
   // selectOption waits for the exact option to be attached.
+  await personOwner.getByTestId('publisher-person-public-trust-export').click();
+  await personOwner.getByText('Публичное доверие издателя экспортировано',{exact:false}).waitFor();
+  checks.push('person-owner-public-trust-export-original-t3-ipc');
   await personOwner.getByRole('combobox',{name:'Издатель'}).selectOption('publisher:person:mock');
   await personOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
     .selectOption(directDraft.proposals[0].id);

@@ -309,6 +309,50 @@ pub async fn publisher_t3_person_export(
     }
     Ok(Some(v))
 }
+#[tauri::command]
+pub async fn publisher_t3_person_export_public_trust(
+    app:AppHandle
+)->Result<Option<Value>,String>{
+    if !t3::availability(&app,"owner-person"){
+        return Err("T3_PERSON_NATIVE_OWNER_NOT_ENROLLED".into());
+    }
+    // Never install trust from incoming .iwxa: export only the original T3
+    // public verifier policy for explicit packaging in IWXA Setup Core.
+    let selected=rfd::FileDialog::new()
+        .set_title("Publisher: публичное доверие издателя PERSON")
+        .add_filter("JSON",&["json"])
+        .set_file_name("publisher-person-trust.json").save_file();
+    let Some(path)=selected else{return Ok(None)};
+    if path.file_name().and_then(|s|s.to_str())!=Some("publisher-person-trust.json"){
+        return Err("PUBLISHER_PERSON_TRUST_FILE_NAME_REQUIRED".into());
+    }
+    if path.exists(){return Err("PUBLISHER_PERSON_TRUST_OVERWRITE_DENIED".into());}
+    let exported=call_person(app,"person-trust-export",
+        vec![path.to_string_lossy().into_owned()]).await?;
+    t3::validate_test_result(&exported,"PERSON_TRUST_EXPORTED")?;
+    if exported.get("publicOnly")!=Some(&Value::Bool(true))||
+       exported.get("bytes").and_then(Value::as_u64).is_none_or(|n|n<10||n>1024*1024)||
+       exported.get("keyCount").and_then(Value::as_u64).is_none_or(|n|n==0)||
+       exported.get("issuerCount").and_then(Value::as_u64).is_none_or(|n|n==0){
+        return Err("PUBLISHER_PERSON_PUBLIC_TRUST_RECEIPT_INVALID".into());
+    }
+    let expected=exported.get("sha256").and_then(Value::as_str)
+        .ok_or("PUBLISHER_PERSON_TRUST_DIGEST_REQUIRED")?;
+    let contents=fs::read(&path)
+        .map_err(|_|"PUBLISHER_PERSON_TRUST_READBACK_UNAVAILABLE".to_string())?;
+    let value:Value=serde_json::from_slice(&contents)
+        .map_err(|_|"PUBLISHER_PERSON_TRUST_READBACK_INVALID".to_string())?;
+    if contents.len() as u64 != exported["bytes"].as_u64().unwrap_or(0)||
+       format!("{:x}",Sha256::digest(&contents))!=expected||
+       contents.windows(11).any(|w|w==b"PRIVATE KEY")||
+       value["policy"]["environment"]!="PRODUCTION"||
+       !value["policy"]["keys"].is_object()||
+       !value["policy"]["authorities"].is_object()||
+       !value["productLicenseIssuers"].is_object(){
+        return Err("PUBLISHER_PERSON_TRUST_READBACK_MISMATCH".into());
+    }
+    Ok(Some(exported))
+}
 #[cfg(test)]
 mod person_native_bridge_tests {
     use super::*;

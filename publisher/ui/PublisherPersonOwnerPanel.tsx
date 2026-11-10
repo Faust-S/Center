@@ -210,6 +210,23 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       };
     });
   }
+  async function exportPublicTrust(){
+    if(!available||busy||needsRefresh)return;
+    await operate(async()=>{
+      const receipt=await invoke('publisher_t3_person_export_public_trust');
+      if(receipt===null)return {message:'Экспорт доверия отменён.'};
+      if(receipt?.operation!=='PERSON_TRUST_EXPORTED'||
+         receipt.publicOnly!==true||receipt.activeSeats!==0||
+         receipt.productionActivation!==false||
+         !Number.isSafeInteger(receipt.bytes)||receipt.bytes<10||
+         !digest(receipt.sha256)||!Number.isSafeInteger(receipt.keyCount)||
+         receipt.keyCount<1||!Number.isSafeInteger(receipt.issuerCount)||
+         receipt.issuerCount<1)
+        throw Error('PERSON_PUBLIC_TRUST_NATIVE_RECEIPT_INVALID');
+      return {message:'Публичное доверие издателя экспортировано и проверено по SHA-256. '+
+        'Его устанавливают отдельно через официальный IWXA Setup Core, не из лицензии .iwxa.'};
+    });
+  }
   async function exportIwxa(){
     const current=selectedLicense;
     if(!current||current.status==='NOT_ACTIVATED'||busy||needsRefresh)return;
@@ -275,7 +292,14 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
         <button type="button" className="secondary"
           data-testid="publisher-person-refresh" disabled={busy}
           onClick={()=>void refresh()}>Обновить журнал</button>
+        <button type="button" className="secondary"
+          data-testid="publisher-person-public-trust-export" disabled={busy||needsRefresh}
+          onClick={()=>void exportPublicTrust()}>
+          Экспортировать публичное доверие издателя
+        </button>
       </div>
+      <p className="muted">Доверие для установщика — отдельный публичный JSON,
+        выпускаемый исходным T3. Подписанная .iwxa не назначает себе издателя.</p>
       {options.length===0&&<p className="muted">Создайте персональный тариф и
         подготовьте лицензию для Atlas или Personal Agent.</p>}
       <h4>Журнал персональных лицензий</h4>

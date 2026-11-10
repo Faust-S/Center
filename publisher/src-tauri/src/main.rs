@@ -588,7 +588,8 @@ fn main() {
             t3_owner::publisher_t3_person_inventory,
             t3_owner::publisher_t3_person_issue,
             t3_owner::publisher_t3_person_change_status,
-            t3_owner::publisher_t3_person_export
+            t3_owner::publisher_t3_person_export,
+            t3_owner::publisher_t3_person_export_public_trust
         ])
         .run(tauri::generate_context!())
         .expect("IWXA Publisher could not start");
