@@ -7,7 +7,7 @@ import {prepareTestLicenseRequest,encodeTestLicenseRequest,inspectTestIssuerRequ
 type IssuerCapabilities={operation:'TEST_CAPABILITIES';issuers:string[];
  activeSeats:0;productionActivation:false;commercialAuthorityProven:false};
 type License={licenseId:string;requestId:string;issuerAuthorityId:string;
- organizationId:string;claimedSeats:number;status:string;sequence:number;activeSeats:0};
+ organizationId:string;productId:string;claimedSeats:number;status:string;sequence:number;activeSeats:0};
 type Props={draft:any;invoke:(name:string,args?:Record<string,unknown>)=>Promise<any>};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
 export default function PublisherT3OwnerPanel({draft,invoke}:Props){
@@ -63,7 +63,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
    const entries=value.licenses as License[];
    const validId=(s:unknown)=>typeof s==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/.test(s);
    if(entries.some(e=>!e||!validId(e.licenseId)||!validId(e.requestId)||
-      !validId(e.issuerAuthorityId)||!validId(e.organizationId)||
+      !validId(e.issuerAuthorityId)||!validId(e.organizationId)||!validId(e.productId)||
       !['NOT_ACTIVATED','ACTIVE','SUSPENDED','REVOKED'].includes(e.status)||
       !Number.isSafeInteger(e.sequence)||e.sequence<0||
       !Number.isSafeInteger(e.claimedSeats)||e.claimedSeats<1||
@@ -106,7 +106,8 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
    }catch(e){setFailure('Не удалось обновить журнал T3: '+error(e));}
    finally{setBusy(false);}
  }
- type ActionOutcome={message:string;confirm?:(readback:InventoryReadback)=>boolean};
+ type ActionOutcome={message:string;confirm?:(readback:InventoryReadback)=>boolean;
+  readbackMismatchMessage?:string};
  async function operation(action:()=>Promise<ActionOutcome>){
    if(busy||!available||needsRefresh)return;
    setBusy(true);setFailure('');setMessage('');
@@ -123,7 +124,8 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
      }
      if(outcome.confirm&&!outcome.confirm(readback)){
        setNeedsRefresh(true);
-       setFailure('Запись T3 не совпала с результатом операции. Обновите журнал перед повтором.');
+       setFailure(outcome.readbackMismatchMessage||
+         'Запись T3 не совпала с результатом операции. Обновите журнал перед повтором.');
        return;
      }
      setMessage(outcome.message);
@@ -202,17 +204,22 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
               typeof result.licenseId!=='string'||!result.licenseId||
               result.requestId!==request.requestId)
               throw Error('PUBLISHER_T3_ISSUE_RECEIPT_INVALID');
-           // New issues are included in the original T3 inventory's last 48.
-           // An older idempotent issue can be outside a truncated window.
+           // The original T3 CLI returns the most recent 48 records.
+           // Truncation is not evidence that the receipt's exact record exists.
            return {
              message:result.outcome==='ALREADY_ISSUED'?
                'Ранее выпущенная TEST-лицензия найдена в журнале T3.':
                'TEST-лицензия подписана T3 и сохранена в журнале издателя.',
-             confirm:({entries,truncated}:InventoryReadback)=>entries.some(x=>
+             readbackMismatchMessage:result.outcome==='ALREADY_ISSUED'?
+               'T3 сообщил о ранее выпущенной TEST-лицензии, но её запись не видна в текущем журнале. '+
+               'Показаны только последние записи: результат не подтверждён. '+
+               'Проверьте полный журнал оригинального T3 перед повтором.':
+               'T3 сообщил о новом TEST-выпуске, но запись не найдена при повторном чтении. '+
+               'Результат не подтверждён. Проверьте оригинальный T3 перед повтором.',
+             confirm:({entries}:InventoryReadback)=>entries.some(x=>
                x.licenseId===result.licenseId&&x.requestId===request.requestId&&
                x.issuerAuthorityId===issuer&&x.organizationId===request.subject.id&&
-               x.claimedSeats===request.seats)||
-               (result.outcome==='ALREADY_ISSUED'&&truncated)
+               x.productId===request.product.id&&x.claimedSeats===request.seats)
            };
          })}>Выпустить TEST-лицензию</button>
      </div>

@@ -165,3 +165,14 @@ test('native Windows witness verifies exact controlled input values before save'
  assert.match(windows,/PUBLISHER_GUI_INPUT_READBACK_MISMATCH/);
  assert.match(windows,/SendWait\(\[string\]\$character\)/);
 });
+
+
+test('T3 TEST issue readback requires exact original ledger record even if inventory is truncated',()=>{
+ const t3=read('publisher/ui/PublisherT3OwnerPanel.tsx');
+ const browser=read('publisher/tests/browser-smoke.mjs');
+ assert.match(t3,/x\.productId===request\.product\.id/);
+ assert.match(t3,/readbackMismatchMessage/);
+ assert.doesNotMatch(t3,/result\.outcome==='ALREADY_ISSUED'&&truncated/);
+ assert.match(browser,/t3-truncated-inventory-cannot-verify-unseen-idempotent-issue/);
+ assert.match(browser,/t3-idempotent-issue-confirms-original-ledger-subject-product-and-seats/);
+});

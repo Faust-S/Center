@@ -59,6 +59,11 @@ try {
         operation:'TEST_CAPABILITIES',issuers:['publisher:owner:test'],
         activeSeats:0,productionActivation:false,commercialAuthorityProven:false};
       if(command==='publisher_t3_inventory'){
+        if(window.__publisherMockTruncatedInventoryOnce){
+          window.__publisherMockTruncatedInventoryOnce=false;
+          return {operation:'TEST_INVENTORY',licenses:[],total:49,truncated:true,
+            activeSeats:0,productionActivation:false};
+        }
         if(window.__publisherMockFailNextInventory){
           window.__publisherMockFailNextInventory=false;
           throw Error('PUBLISHER_T3_TEMPORARY_INVENTORY_UNAVAILABLE');
@@ -74,10 +79,13 @@ try {
            throw Error('TEST_ISSUER_DENIED');
         const entry={licenseId:'license:test:native-ui:one',requestId:req.requestId,
           issuerAuthorityId:'publisher:owner:test',organizationId:req.subject.id,
-          claimedSeats:req.seats,status:'NOT_ACTIVATED',sequence:0,activeSeats:0};
-        if(!ledger.some(x=>x.requestId===req.requestId))ledger.push(entry);
+          productId:req.product.id,claimedSeats:req.seats,
+          status:'NOT_ACTIVATED',sequence:0,activeSeats:0};
+        const alreadyIssued=window.__publisherMockNextAlreadyIssued===true;
+        window.__publisherMockNextAlreadyIssued=false;
+        if(!alreadyIssued&&!ledger.some(x=>x.requestId===req.requestId))ledger.push(entry);
         sessionStorage.setItem('publisher-t3-mock-licenses',JSON.stringify(ledger));
-        return {operation:'TEST_ISSUE',outcome:'ISSUED_NEW',licenseId:entry.licenseId,
+        return {operation:'TEST_ISSUE',outcome:alreadyIssued?'ALREADY_ISSUED':'ISSUED_NEW',licenseId:entry.licenseId,
           requestId:req.requestId,activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_change_status'){
@@ -402,8 +410,30 @@ try {
   const banner=await page.locator('main > .notice').first().innerText();
   assert.match(banner,/Подписанные лицензии доступны только в режиме TEST/);
   assert.doesNotMatch(banner,/подпись издателя не подключена/);
+  // The original T3 inventory is limited to 48 entries. A truncated list
+  // must not prove an unseen ALREADY_ISSUED receipt.
+  await page.evaluate(()=>{
+    window.__publisherMockNextAlreadyIssued=true;
+    window.__publisherMockTruncatedInventoryOnce=true;
+  });
+  await page.getByTestId('publisher-t3-issue').click();
+  const unverifiedOlderIssue=await ownerPanel.getByRole('alert').innerText();
+  assert.match(unverifiedOlderIssue,/результат не подтверждён/);
+  assert.match(unverifiedOlderIssue,/полный журнал оригинального T3/);
+  assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
+  assert.equal(await page.getByText('Ранее выпущенная TEST-лицензия найдена в журнале T3.').count(),0);
+  await page.getByTestId('publisher-t3-refresh').click();
+  await page.getByText('Журнал T3 обновлён. Подписи и права не изменены.').waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-issue').isEnabled(),true);
+  checks.push('t3-truncated-inventory-cannot-verify-unseen-idempotent-issue');
   await page.getByTestId('publisher-t3-issue').click();
   await page.getByText('TEST-лицензия подписана T3 и сохранена в журнале издателя.').waitFor();
+  // The same ALREADY_ISSUED outcome is valid if the exact T3 ledger record
+  // and original product, owner and seat count are independently present.
+  await page.evaluate(()=>{window.__publisherMockNextAlreadyIssued=true;});
+  await page.getByTestId('publisher-t3-issue').click();
+  await page.getByText('Ранее выпущенная TEST-лицензия найдена в журнале T3.').waitFor();
+  checks.push('t3-idempotent-issue-confirms-original-ledger-subject-product-and-seats');
   const signedTestMock=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('publisher-t3-mock-licenses')));
   assert.equal(signedTestMock[0].claimedSeats,3,'Original T3 TEST issue must match explicit user seat count');
   assert.equal(await page.getByTestId('publisher-t3-export').isDisabled(),true,
