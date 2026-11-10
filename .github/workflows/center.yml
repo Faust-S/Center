@@ -742,6 +742,17 @@ jobs:
                   if($line -match 'windows_runtime_wheel_fetch_failed:([A-Za-z0-9._-]{1,48})'){
                     Write-Host ('PRIVATE_NATIVE_WHEEL_NAME='+$Matches[1])
                   }
+                  # This exception concerns a public pinned PyPI wheel, not
+                  # user data. Redact locations, links and digests before
+                  # emitting one bounded diagnostic to the public CI log.
+                  if($line -match 'windows_runtime_wheel_fetch_failed:attrs:([^\r\n]{1,320})'){
+                    $cause=$Matches[1]
+                    $cause=[regex]::Replace($cause,'(?i)(?:https?://|[a-z]:\\|\\\\)[^\s,;]+','[location]')
+                    $cause=[regex]::Replace($cause,'(?i)\b[0-9a-f]{40,64}\b','[digest]')
+                    $cause=[regex]::Replace($cause,'[^\x20-\x7e]','?')
+                    if($cause.Length -gt 160){$cause=$cause.Substring(0,160)}
+                    Write-Host ('PRIVATE_PUBLIC_WHEEL_ERROR_SUMMARY='+$cause)
+                  }
                   if($line -match 'HTTP (403|404|429|500|502|503|504)|returned error: (403|404|429|500|502|503|504)'){
                     $null=$classes.Add('HTTP_STATUS')
                   }
