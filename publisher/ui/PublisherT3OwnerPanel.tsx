@@ -1,4 +1,5 @@
 import React,{useEffect,useMemo,useState} from 'react';
+import PublisherPersonOwnerPanel from './PublisherPersonOwnerPanel';
 import {prepareTestLicenseRequest,encodeTestLicenseRequest,inspectTestIssuerRequestScope,inspectTestIssuerRequestScopes} from '../src/test-license-request.mjs';
 
 // This panel is intentionally only the front-end of the installed Tauri Host.
@@ -152,7 +153,8 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
      };
    });
  }
- return <section className="publisher-test-owner" data-testid="publisher-t3-owner-panel">
+ return <><PublisherPersonOwnerPanel draft={draft} invoke={invoke}/>
+ <section className="publisher-test-owner" data-testid="publisher-t3-owner-panel">
    <h3>Выпуск лицензии через T3 Host</h3>
    <p className="muted">Только TEST. Команды выполняются в защищённом нативном компоненте T3,
      без передачи закрытых ключей в Publisher. Действительных коммерческих мест: 0.</p>
@@ -284,5 +286,5 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
    {failure&&<p role="alert">{failure}</p>}
    {available&&message&&<p role="status">{message}</p>}
    <p className="muted">TEST-подпись не является коммерческим полномочием. Активных мест: 0.</p>
- </section>;
+ </section></>;
 }
