@@ -40,8 +40,24 @@ function Invoke-Setup([string]$file,[string[]]$arguments,[int]$expected=0){
     $process=Start-Process -FilePath $file -ArgumentList $values -PassThru -Wait -WindowStyle Hidden
     try{
         if($process.ExitCode -ne $expected){
-            throw ('SETUP_NEUTRAL_EXIT actual='+$process.ExitCode+
-                ' expected='+$expected+' args='+($arguments -join ','))
+            # Generated, synthetic products only. Print a bounded failure
+            # class rather than the native receipt, full path or command line.
+            $class='NATIVE_ERROR'
+            if(Test-Path -LiteralPath $output -PathType Leaf){
+                try{
+                    $receipt=Get-Content -LiteralPath $output -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $reason=[string]$receipt.reason
+                    if($reason -match '(?i)too long|PathTooLong|MAX_PATH'){
+                        $class='PATH_TOO_LONG'
+                    }elseif($reason -cmatch '^SETUP_[A-Z0-9_]{3,90}$'){
+                        $class=$reason
+                    }elseif($reason -match '(?i)access is denied|UnauthorizedAccess'){
+                        $class='ACCESS_DENIED'
+                    }
+                }catch{}
+            }
+            $action=([string]$arguments[0]) -replace '[^a-z-]',''
+            throw ('SETUP_NEUTRAL_NATIVE_EXIT_'+$class+'_ACTION_'+$action)
         }
     }finally{$process.Dispose()}
     if(!(Test-Path -LiteralPath $output -PathType Leaf)){
