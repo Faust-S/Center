@@ -142,6 +142,12 @@ try{
         throw 'SETUP_NEUTRAL_SECOND_UNINSTALL_INVALID'
     }
     Write-Host 'IWXA_SETUP_CROSS_PRODUCT_UNINSTALL_AND_DATA_PRESERVATION_PASS'
+    # The external-bundle acceptance is exercised here with the same
+    # disposable synthetic program, never with a confidential payload.
+    $c=Make-Product ('c'+[Guid]::NewGuid().ToString('N').Substring(0,10))
+    & (Join-Path $PSScriptRoot 'qualify-local-bundle.ps1') -Setup $c.bundle `
+        -ProductId $c.id -SandboxRoot (Join-Path $root 'independent-acceptance')
+    Write-Host 'IWXA_SETUP_LOCAL_BUNDLE_HARNESS_PASS'
 } finally {
     foreach($item in $created){
         if(Test-Path -LiteralPath $item.key){
