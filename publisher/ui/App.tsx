@@ -564,7 +564,7 @@ export default function App(){
        </>}
        {page==='trust'&&<section className="card padded"><h2>Издательские полномочия</h2>
            <p className="muted">TEST-подпись доступна только через ранее зарегистрированного владельца и оригинальный нативный компонент T3. Подписанный выпуск PERSON требует отдельно зарегистрированного издателя. Закрытые ключи не передаются в интерфейс. Действие лицензии подтверждается установленным продуктом, а не фактом её выдачи.</p>
-           <PublisherT3OwnerPanel draft={state} invoke={invoke}/>
+           <PublisherT3OwnerPanel draft={state} invoke={invoke} change={change}/>
            <div className="divider"></div>
            <h3>Офлайн-передача пакета .iwxa</h3>
            <p className="muted">Publisher сохраняет выбранный пакет без изменения байтов. Для организации проверку и распределение выполняет Admin Center, для частного лица — установленный продукт. Здесь подпись, статус, получатель и права не проверяются.</p>

@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react';
-import {prepareUnsignedPersonLicenseRequest} from '../src/person-license-request.mjs';
+import {prepareUnsignedPersonLicenseRequest,preparePersonRenewalDraftCommand,
+  validatePersonRenewalSource} from '../src/person-license-request.mjs';
 
 type NativeInvoke=(name:string,args?:Record<string,unknown>)=>Promise<any>;
 type PersonRecord={
@@ -9,12 +10,13 @@ type PersonRecord={
   sequence:number;activeSeats:0
 };
 type Inventory={entries:PersonRecord[];truncated:boolean;total:number};
-type Props={draft:any;invoke:NativeInvoke};
+type Props={draft:any;invoke:NativeInvoke;
+ change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>};
 const err=(e:unknown)=>e instanceof Error?e.message:String(e);
 const id=(v:unknown)=>typeof v==='string'&&
   /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(v);
 const digest=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
-export default function PublisherPersonOwnerPanel({draft,invoke}:Props){
+export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
   const [issuers,setIssuers]=useState<string[]>([]);
   const [issuer,setIssuer]=useState('');
   const [available,setAvailable]=useState(false);
@@ -29,6 +31,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke}:Props){
   const [status,setStatus]=useState<''|'ACTIVE'|'SUSPENDED'|'REVOKED'>('');
   const [termsConfirmed,setTermsConfirmed]=useState(false);
   const [revokePending,setRevokePending]=useState('');
+  const [renewalTariff,setRenewalTariff]=useState('');
   const [message,setMessage]=useState('');
   const [failure,setFailure]=useState('');
   const options=useMemo(()=>{
@@ -46,6 +49,10 @@ export default function PublisherPersonOwnerPanel({draft,invoke}:Props){
   },[draft]);
   const selected=options.find(o=>o.proposalId===proposalId);
   const selectedLicense=licenses.find(l=>l.licenseId===licenseId);
+  const renewalOptions=(Array.isArray(draft?.tariffs)?draft.tariffs:[])
+    .filter((t:any)=>t.productId===selectedLicense?.productId&&t.holderType==='PERSON');
+  const selectedRenewal=renewalOptions.find((t:any)=>
+    t.id+'#'+t.revision===renewalTariff);
   const canRevoke=Boolean(revokePending&&revokePending===licenseId&&
     status==='REVOKED'&&selectedLicense?.status!=='REVOKED');
   useEffect(()=>{
@@ -127,6 +134,20 @@ export default function PublisherPersonOwnerPanel({draft,invoke}:Props){
     if(!issuer||!selected||!termsConfirmed||busy||needsRefresh)return;
     const request=prepareUnsignedPersonLicenseRequest(draft,{proposalId:selected.proposalId});
     const authority=issuer;
+    const source=draft.proposals?.find((p:any)=>p.id===selected.proposalId);
+    if(source?.previousProposalId){
+      try{
+        const prior=licenses.find(l=>l.requestId===source.previousProposalId);
+        const verified=validatePersonRenewalSource(draft,{
+          sourceLicense:prior,issuerAuthorityId:authority});
+        if(verified.personId!==request.subject.id||
+           verified.productId!==request.product.id)
+          throw Error('PERSON_RENEWAL_REQUEST_SCOPE_MISMATCH');
+      }catch(e){
+        setFailure('Продление не подтверждено журналом T3: '+err(e));
+        return;
+      }
+    }
     await operate(async()=>{
       const result=await invoke('publisher_t3_person_issue',{
         requestJson:JSON.stringify(request),issuerAuthorityId:authority});
@@ -143,6 +164,28 @@ export default function PublisherPersonOwnerPanel({draft,invoke}:Props){
           x.deviceLimit===request.deviceLimit&&x.quotaCount===request.quotas.length)
       };
     });
+  }
+  async function prepareRenewal(){
+    if(!selectedLicense||!selectedRenewal||busy||needsRefresh)return;
+    let command;
+    try{
+      command=preparePersonRenewalDraftCommand(draft,{
+        sourceLicense:selectedLicense,
+        issuerAuthorityId:selectedLicense.issuerAuthorityId,
+        tariffId:selectedRenewal.id,revision:selectedRenewal.revision,
+        issuedRecords:licenses
+      });
+    }catch(e){setFailure('Подготовка продления отклонена: '+err(e));return;}
+    setBusy(true);setFailure('');setMessage('');
+    try{
+      const result=await change(command,
+        'Подготовка продления сохранена. Прежняя лицензия не изменена.');
+      if(!result.ok)throw Error(result.message);
+      setRenewalTariff('');
+      setMessage('Подготовка продления сохранена. Выберите её в списке выше, '+
+        'проверьте условия и отдельно подпишите через T3.');
+    }catch(e){setFailure('Продление не подготовлено: '+err(e));}
+    finally{setBusy(false);}
   }
   async function changeStatus(){
     const current=selectedLicense,requested=status;
@@ -241,7 +284,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke}:Props){
       {licenses.length>0&&<label>Лицензия
         <select value={licenseId} disabled={busy}
           onChange={e=>{setLicenseId(e.target.value);setStatus('');
-            setRevokePending('');}}>
+            setRevokePending('');setRenewalTariff('');}}>
           <option value="">Выберите лицензию</option>
           {licenses.map(x=><option key={x.licenseId} value={x.licenseId}>
             {x.personId} / {x.productId} / {x.status}</option>)}
@@ -271,6 +314,28 @@ export default function PublisherPersonOwnerPanel({draft,invoke}:Props){
             selectedLicense.status==='NOT_ACTIVATED'}
           onClick={()=>void exportIwxa()}>Экспортировать .iwxa</button>
       </div>
+      {selectedLicense&&<section className="publisher-offer-review"
+        data-testid="publisher-person-renewal">
+        <strong>Подготовить продление</strong>
+        <p>Новая подготовка сохраняет получателя и программу. Прежняя подписанная
+          лицензия и её статус не изменяются.</p>
+        <label>Тариф продления
+          <select aria-label="Тариф продления PERSON" value={renewalTariff}
+            disabled={busy||needsRefresh||
+              !['ACTIVE','SUSPENDED'].includes(selectedLicense.status)}
+            onChange={e=>setRenewalTariff(e.target.value)}>
+            <option value="">Выберите тариф</option>
+            {renewalOptions.map((t:any)=><option key={t.id+'#'+t.revision}
+              value={t.id+'#'+t.revision}>{t.name} · редакция {t.revision} · {t.termDays} дн.</option>)}
+          </select>
+        </label>
+        <button className="secondary" type="button"
+          data-testid="publisher-person-prepare-renewal"
+          disabled={busy||needsRefresh||!selectedRenewal||
+            !['ACTIVE','SUSPENDED'].includes(selectedLicense.status)}
+          onClick={()=>void prepareRenewal()}>Создать подготовку продления</button>
+        <p className="muted">Подпись, новый срок и передача .iwxa выполняются отдельно.</p>
+      </section>}
       {canRevoke&&<div className="notice"
         data-testid="publisher-person-revoke-confirmation" role="alert">
         <p>Окончательно отозвать лицензию {licenseId}?

@@ -9,9 +9,10 @@ type IssuerCapabilities={operation:'TEST_CAPABILITIES';issuers:string[];
  activeSeats:0;productionActivation:false;commercialAuthorityProven:false};
 type License={licenseId:string;requestId:string;issuerAuthorityId:string;
  organizationId:string;productId:string;claimedSeats:number;status:string;sequence:number;activeSeats:0};
-type Props={draft:any;invoke:(name:string,args?:Record<string,unknown>)=>Promise<any>};
+type Props={draft:any;invoke:(name:string,args?:Record<string,unknown>)=>Promise<any>;
+ change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function PublisherT3OwnerPanel({draft,invoke}:Props){
+export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
  const [issuerIds,setIssuerIds]=useState<string[]>([]);
  const [issuer,setIssuer]=useState('');
  const [licenses,setLicenses]=useState<License[]>([]);
@@ -153,7 +154,7 @@ export default function PublisherT3OwnerPanel({draft,invoke}:Props){
      };
    });
  }
- return <><PublisherPersonOwnerPanel draft={draft} invoke={invoke}/>
+ return <><PublisherPersonOwnerPanel draft={draft} invoke={invoke} change={change}/>
  <section className="publisher-test-owner" data-testid="publisher-t3-owner-panel">
    <h3>Выпуск лицензии через T3 Host</h3>
    <p className="muted">Только TEST. Команды выполняются в защищённом нативном компоненте T3,
