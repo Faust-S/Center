@@ -563,7 +563,7 @@ export default function App(){
          {state.artifacts.length===0?<p className="muted">Файлы ещё не проверены. Подтверждённых релизов нет.</p>:state.artifacts.map(a=><div key={a.id} className="simple-row"><div><strong>{a.name}</strong><small>{productTitle(a.productId)} · {a.version} · {a.platform} · SHA-256 {a.sha256}</small><small>Заявленный источник: {a.sourceRepository} @ {a.sourceCommit.slice(0,12)} (не проверен независимо)</small></div><span className="status neutral">Не опубликовано</span></div>)}</section>
        </>}
        {page==='trust'&&<section className="card padded"><h2>Издательские полномочия</h2>
-           <p className="muted">TEST-подпись доступна только через ранее зарегистрированного владельца и оригинальный нативный компонент T3. Ни браузер, ни Publisher не получают закрытых ключей. Коммерческие права и выпуск производственных лицензий отключены.</p>
+           <p className="muted">TEST-подпись доступна только через ранее зарегистрированного владельца и оригинальный нативный компонент T3. Подписанный выпуск PERSON требует отдельно зарегистрированного издателя. Закрытые ключи не передаются в интерфейс. Действие лицензии подтверждается установленным продуктом, а не фактом её выдачи.</p>
            <PublisherT3OwnerPanel draft={state} invoke={invoke}/>
            <div className="divider"></div>
            <h3>Офлайн-передача пакета .iwxa</h3>
