@@ -893,15 +893,15 @@ try {
     .selectOption('org:atlas-test');
   assert.match(await personal.getByTestId('publisher-offline-offer-preview').innerText(),/Сотрудники: 10/);
   await personal.getByRole('button',{name:'Сохранить подготовку по тарифу'}).click();
-  await personal.getByText('Подготовленные запросы (2)').waitFor();
+  await personal.getByText('Подготовленные запросы (3)').waitFor();
   const sharedCatalog=JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('iwxa-publisher-person-fixture')));
   assert.deepEqual(sharedCatalog.proposals.map(p=>p.tariffSnapshot.holderType),
-    ['PERSON','ORGANIZATION']);
+    ['PERSON','PERSON','ORGANIZATION']);
   assert.ok(sharedCatalog.proposals.every(p=>p.status==='DRAFT_NOT_ISSUED'));
   await personal.reload();
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
-  await personal.getByText('Подготовленные запросы (2)').waitFor();
+  await personal.getByText('Подготовленные запросы (3)').waitFor();
   checks.push('same-code-person-and-organization-tariffs-remain-independent-after-restart');
   await personal.close();
   checks.push('personal-offline-draft-persists-restart-without-admin-center-or-false-signing');
