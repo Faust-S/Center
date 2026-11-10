@@ -145,6 +145,22 @@ try{
     New-Item -ItemType Directory -Path $data -Force | Out-Null
     $marker='fixture-'+[Guid]::NewGuid().ToString('N')
     [IO.File]::WriteAllText($guard,$marker)
+    $repair=InvokeNative '--repair-file' (Join-Path $work 'repair.json')
+    if($repair.status -ne 'REPAIRED_BACKUP_RETAINED' -or
+       $repair.product -cne $ProductId){
+        throw 'SETUP_LOCAL_REPAIR_NOT_ACTIVATED'
+    }
+    $verifiedRepair=InvokeNative '--verify-installed-file' (Join-Path $work 'verified-after-repair.json')
+    if($verifiedRepair.status -ne 'OWNED_FILES_VERIFIED'){
+        throw 'SETUP_LOCAL_REPAIR_READBACK_INVALID'
+    }
+    $confirmed=InvokeNative '--confirm-upgrade-file' (Join-Path $work 'confirmed.json')
+    if($confirmed.status -ne 'UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED' -or
+       !(Test-Path -LiteralPath $guard -PathType Leaf) -or
+       [IO.File]::ReadAllText($guard) -ne $marker){
+        throw 'SETUP_LOCAL_REPAIR_CONFIRM_OR_USER_DATA_LOST'
+    }
+    Write-Host 'IWXA_SETUP_LOCAL_REPAIR_AND_CONFIRM_PASS'
     $removed=InvokeNative '--uninstall-file' (Join-Path $work 'removed.json')
     if($removed.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
        (Test-Path -LiteralPath $owner) -or
