@@ -733,7 +733,7 @@ try {
       }
       if(command==='publisher_t3_person_issue'){
         const r=JSON.parse(args.requestJson);
-        assertPersonRequest(r,args.issuerAuthorityId);
+        window.assertPersonRequest(r,args.issuerAuthorityId);
         const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
         const one={licenseId:'license:person:mock:one',requestId:r.requestId,
           issuerAuthorityId:args.issuerAuthorityId,personId:r.subject.id,
