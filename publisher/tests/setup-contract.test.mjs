@@ -55,7 +55,9 @@ test('Publisher stable 0.3.0 identity matches Rust, Tauri, Setup Core, UI and Wi
  const install=readFileSync('publisher/tests/installed-setupcore-publisher.ps1','utf8');
  const workflow=readFileSync('.github/workflows/center.yml','utf8');
  assert.match(install,/6603a11764ff86853e5abf4d209d55f79fddd8b1/);
- assert.match(install,/PUBLISHER_SETUP_UNIFIED_CARDS_SEPARATED_PASS/);
+ assert.match(install,/qualify-gui-layout-fast\.ps1 -Stub \$stub/);
+ assert.match(install,/PUBLISHER_SETUP_ORIGINAL_UNIFIED_LAYOUT_QUALIFIED_PASS/);
+ assert.doesNotMatch(install,/\$formType=\$stubAssembly\.GetType/);
  assert.doesNotMatch(install,/PUBLISHER_SETUP_SIDEBAR_OVERLAY_LAYOUT_REJECTED/);
  assert.match(workflow,/6603a11764ff86853e5abf4d209d55f79fddd8b1/);
  assert.equal(app.version,m.version);
