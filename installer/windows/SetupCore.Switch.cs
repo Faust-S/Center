@@ -428,6 +428,36 @@ namespace IwxaSetup
                 }
                 finally { proc.Dispose(); }
             }
+            // A product may also have a child executable that remains alive
+            // after its primary GUI window closes. Never switch or relocate
+            // the owned tree while such an executable is still running.
+            string prefix = root.TrimEnd(Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            int self = Process.GetCurrentProcess().Id;
+            foreach (Process proc in Process.GetProcesses())
+            {
+                try
+                {
+                    if (proc.Id == self || proc.HasExited) continue;
+                    string image = proc.MainModule.FileName;
+                    if (!String.IsNullOrWhiteSpace(image) &&
+                        image.StartsWith(prefix,
+                            StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException(
+                            "SETUP_APP_STILL_RUNNING");
+                }
+                catch (Win32Exception)
+                {
+                    // Unrelated protected processes may deny image inspection;
+                    // the existing exact entrypoint check above still fails
+                    // closed when its identity cannot be confirmed.
+                }
+                catch (InvalidOperationException ex)
+                {
+                    if (ex.Message == "SETUP_APP_STILL_RUNNING") throw;
+                }
+                finally { proc.Dispose(); }
+            }
         }
     }
 }
