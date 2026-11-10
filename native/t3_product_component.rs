@@ -13,6 +13,7 @@ pub const MAX_EXECUTION: Duration = Duration::from_secs(90);
 fn kind_spec(role: &str) -> Result<(&'static str, &'static str), String> {
     match role {
         "owner" => Ok(("iwxa-t3-product-owner.exe", "t3-owner-test")),
+        "owner-person" => Ok(("iwxa-t3-product-owner.exe", "t3-owner-person")),
         "consumer" => Ok(("iwxa-t3-product-consumer.exe", "t3-consumer-test")),
         _ => Err("T3_PRODUCT_COMPONENT_ROLE_INVALID".into())
     }
@@ -36,7 +37,7 @@ pub fn availability(app:&AppHandle,role:&str) -> bool {
     let exe = match binary(app,role) { Ok(v)=>v, Err(_)=>return false };
     let root = match data_root(app,role) { Ok(v)=>v, Err(_)=>return false };
     let required: &[&str] = match role {
-        "owner" => &["registry.iwxa","anchor.json","keys.vault.json",
+        "owner" | "owner-person" => &["registry.iwxa","anchor.json","keys.vault.json",
             "master-secret.dpapi.json","administrator.dpapi.json"],
         "consumer" => &["publisher-test-trust.json","master-secret.dpapi.json"],
         _ => return false
@@ -151,6 +152,9 @@ mod tests {
     assert_eq!(drain_pipe(std::io::Cursor::new(payload),MAX_OUTPUT+1)
       .unwrap().len(),MAX_OUTPUT+1);
     assert!(valid_identifier("publisher:issuer:1"));
+    assert_eq!(kind_spec("owner-person").unwrap(),
+      ("iwxa-t3-product-owner.exe", "t3-owner-person"));
+    assert_eq!(kind_spec("owner").unwrap().1,"t3-owner-test");
     assert!(!valid_identifier("../relative"));
     assert!(!valid_identifier("bad name"));
     assert!(simple_code("T3_PRODUCT_NOT_ENROLLED"));
