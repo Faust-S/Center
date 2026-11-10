@@ -822,28 +822,6 @@ jobs:
                 Write-Host ('PRIVATE_NATIVE_ERROR_CLASS='+$item)
               }
               Write-Host ('PRIVATE_NATIVE_ERROR_CODES_OBSERVED='+$codes.Count)
-              # Build logs may contain private source paths. Only emit a
-              # bounded, redacted error excerpt from compiler diagnostics.
-              foreach($logName in @('native-desktop-build.log','native-desktop-build.log.stderr')){
-                $lp=Join-Path $nativeLogs $logName
-                if(!(Test-Path -LiteralPath $lp -PathType Leaf)){continue}
-                $lines=@([IO.File]::ReadAllLines($lp))
-                Write-Host ('PRIVATE_NATIVE_TAURI_LOG_LINES='+$lines.Count)
-                $shown=0
-                foreach($line in @($lines | Select-Object -Last 90)){
-                  if($shown -ge 6){break}
-                  if($line -notmatch '(?i)error|failed|missing|not found|invalid|E[A-Z_]{4,}|TS[0-9]{4}|panic|exception'){continue}
-                  $summary=[string]$line
-                  $summary=[regex]::Replace($summary,'https?://[^\s]+','[url]')
-                  $summary=[regex]::Replace($summary,'[A-Za-z]:\\[^\s]+','[path]')
-                  $summary=[regex]::Replace($summary,'(?i)[a-z0-9._/-]+\.(?:ts|tsx|rs|json|toml|js|mjs)(?::[0-9]+)?','[source]')
-                  $summary=[regex]::Replace($summary,'(?i)\b[0-9a-f]{24,}\b','[digest]')
-                  $summary=[regex]::Replace($summary,'[^\x20-\x7e]','?')
-                  if($summary.Length -gt 115){$summary=$summary.Substring(0,115)}
-                  Write-Host ('PRIVATE_NATIVE_ERROR_EXCERPT='+$summary)
-                  $shown++
-                }
-              }
             }
             if($raw -match 'full_qualification_step_failed_python-(targeted|full)_exit_([0-9]{1,3})'){
               Write-Host ('PRIVATE_PYTHON_EXIT_CODE='+$Matches[2])
