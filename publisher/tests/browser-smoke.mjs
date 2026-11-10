@@ -125,7 +125,7 @@ try {
   });
   await page.goto('http://127.0.0.1:4175');
   assert.match(await page.locator('main').innerText(),/Подтверждённых релизов: 0/);
-  assert.match(await page.locator('main').innerText(),/Подписанных лицензий: 0/);
+  assert.match(await page.locator('main').innerText(),/Подписанные лицензии PERSON учитывает отдельный журнал T3/);
   checks.push('empty-owner-first-run-no-synthetic-license');
   await page.setViewportSize({width:1024,height:640});
   const footerVisible=await page.locator('.publisher-app .sidebar-bottom p').last().evaluate(el=>{
