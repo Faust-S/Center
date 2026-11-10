@@ -699,6 +699,24 @@ jobs:
                   if($line -match 'windows_python_release_digest_mismatch'){$null=$classes.Add('PYTHON_ARCHIVE_SHA')}
                   if($line -match 'windows_python_release_post_provision_verification_failed'){$null=$classes.Add('PYTHON_EXECUTABLE')}
                   if($line -match 'Invoke-WebRequest|curl: \('){$null=$classes.Add('HTTP_DOWNLOAD')}
+                  if($line -match 'windows_runtime_wheel_fetch_failed:([A-Za-z0-9._-]{1,48})'){
+                    Write-Host ('PRIVATE_NATIVE_WHEEL_NAME='+$Matches[1])
+                  }
+                  if($line -match 'HTTP (403|404|429|500|502|503|504)|returned error: (403|404|429|500|502|503|504)'){
+                    $null=$classes.Add('HTTP_STATUS')
+                  }
+                  if($line -match 'No such host|Could not resolve|Name or service not known'){
+                    $null=$classes.Add('DNS')
+                  }
+                  if($line -match 'timed out|timeout|ETIMEDOUT'){
+                    $null=$classes.Add('TIMEOUT')
+                  }
+                  if($line -match 'certificate|SSL|TLS'){
+                    $null=$classes.Add('CERTIFICATE_OR_TLS')
+                  }
+                  if($line -match 'digest_mismatch'){
+                    $null=$classes.Add('DIGEST_MISMATCH')
+                  }
                 }
               }
               foreach($item in @($codes) | Sort-Object | Select-Object -First 16){
