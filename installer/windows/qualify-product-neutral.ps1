@@ -59,13 +59,15 @@ function Make-Product([string]$tag) {
     New-Item -ItemType Directory -Path (Join-Path $payload 'assets') -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $payload 'assets\fixture.txt'),('fixture-'+$tag))
     $manifest=Join-Path $folder 'product.json'
-    [ordered]@{
+    $product=[ordered]@{
         schema='IWXA_SETUP_PRODUCT/1';id=$id;display_name=('IWXA Test '+$tag)
         publisher='IWXA';version=$version;architecture='windows-x64'
         install_dir=('IWXA Test '+$tag)
         entrypoint='bin/fixture.exe';data_namespace=('iwxa.fixture.'+$tag)
         requirements=@()
-    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifest -Encoding UTF8
+    }
+    [IO.File]::WriteAllText($manifest,($product|ConvertTo-Json -Depth 5),
+        [Text.UTF8Encoding]::new($false))
     $bundle=Join-Path $folder 'setup.exe'
     $args=@((Join-Path $repo 'installer\build_bundle.py'),'build-resource',
         '--product',$manifest,'--payload',$payload,'--stub',$stubPath,
