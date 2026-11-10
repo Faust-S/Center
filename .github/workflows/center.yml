@@ -583,6 +583,22 @@ jobs:
             $code=[regex]::Match($raw,'(full_qualification_[a-z0-9_-]+|PRIVATE_SETUP_CORE_BUILD_FAIL|private_setup_[a-z0-9_-]+)')
             if($code.Success){Write-Host ('PRIVATE_QUALIFICATION_STAGE='+$code.Value)}
             else{Write-Host 'PRIVATE_QUALIFICATION_STAGE=UNCLASSIFIED'}
+            # The pytest log remains private on the ephemeral worker. Public
+            # output contains only bounded test identifiers, never captured
+            # tracebacks, assertion values, task content, or provider data.
+            $pytestLog=Join-Path $out 'evidence/python-full.stdout.log'
+            if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
+              $count=0
+              foreach($line in [IO.File]::ReadLines($pytestLog)){
+                if($line -match '^(FAILED|ERROR)\s+(tests[/\\][A-Za-z0-9_/.\\:-]{1,220})\b'){
+                  $testId=$Matches[2]
+                  Write-Host ('PRIVATE_PYTHON_FAILED_TEST='+$testId)
+                  $count++
+                  if($count -ge 20){break}
+                }
+              }
+              Write-Host ('PRIVATE_PYTHON_FAILURE_IDENTIFIERS_SHOWN='+$count)
+            }
             throw 'PRIVATE_QUALIFICATION_NOT_ACCEPTED'
           }
           $resultPath=Join-Path $out 'result.json'
