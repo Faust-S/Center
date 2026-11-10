@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   model:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') && !startsWith(github.event.head_commit.message, 'ci(private):') }}
     strategy:
       fail-fast: false
       matrix:
@@ -71,7 +71,7 @@ jobs:
           path: artifacts/setup-core-visual-options-*.png
           if-no-files-found: error
   interface:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') && !startsWith(github.event.head_commit.message, 'ci(private):') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -99,7 +99,7 @@ jobs:
             package-lock.json
             dist/
   windows-shell:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') }}
+    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(bench):') && !startsWith(github.event.head_commit.message, 'ci(private):') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -480,3 +480,113 @@ jobs:
         with:
           name: iwxa-setup-v2-resource-benchmark
           path: artifacts/iwxa-v2-benchmark.json
+# Explicit opt-in. Private checkout and outputs stay on this ephemeral runner.
+  # No private executable, source, dump, or report is uploaded as a public artifact.
+  private-windows-qualification:
+    if: ${{ github.ref == 'refs/heads/work/2026-11-10-setup-core-product-neutral-qualification' && startsWith(github.event.head_commit.message, 'ci(private):') }}
+    runs-on: windows-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - name: Require separately provisioned private repository read permission
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) {
+            throw 'PRIVATE_QUALIFICATION_READ_TOKEN_NOT_CONFIGURED'
+          }
+      - name: Checkout exact unchanged Setup Core source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: c7b84cfbbc1d41d24239bfd90fca76d517a6cb69
+          path: public-owner
+          persist-credentials: false
+      - name: Checkout exact private source into ephemeral worker
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: d6648bf5d3a3f3a87624f7a436862603a6309745
+          path: private-product
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.15'
+      - name: Verify both exact source identities
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $center=Join-Path $env:GITHUB_WORKSPACE 'public-owner'
+          $private=Join-Path $env:GITHUB_WORKSPACE 'private-product'
+          if ((& git -C $center rev-parse HEAD).Trim() -cne 'c7b84cfbbc1d41d24239bfd90fca76d517a6cb69') {
+            throw 'PUBLIC_OWNER_IDENTITY_MISMATCH'
+          }
+          if ((& git -C $private rev-parse HEAD).Trim() -cne 'd6648bf5d3a3f3a87624f7a436862603a6309745') {
+            throw 'PRIVATE_PRODUCT_IDENTITY_MISMATCH'
+          }
+          foreach($checkout in @($center,$private)){
+            if (& git -C $checkout status --porcelain --untracked-files=all) {
+              throw 'SOURCE_CHECKOUT_NOT_CLEAN'
+            }
+          }
+          Write-Host 'ISOLATED_SOURCE_IDENTITIES_PASS'
+      - name: Install private source qualification dependencies
+        timeout-minutes: 22
+        shell: pwsh
+        working-directory: private-product
+        run: |
+          python -m pip install --disable-pip-version-check --no-input -r requirements.txt -r requirements-ci.txt 1>$null
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_SOURCE_REQUIREMENTS_INSTALL_FAILED'}
+          python -m pip check 1>$null
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_SOURCE_REQUIREMENTS_CONFLICT'}
+          Write-Host 'PRIVATE_SOURCE_REQUIREMENTS_PASS'
+      - name: Qualify private source and native installed Windows lifecycle
+        timeout-minutes: 150
+        shell: pwsh
+        working-directory: private-product
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'private-product'
+          $center=Join-Path $env:GITHUB_WORKSPACE 'public-owner'
+          $out=Join-Path $env:RUNNER_TEMP 'private-product-qualification'
+          $cache=Join-Path $env:RUNNER_TEMP 'private-product-cache'
+          $log=Join-Path $env:RUNNER_TEMP 'private-qualifier.stdout.log'
+          $err=Join-Path $env:RUNNER_TEMP 'private-qualifier.stderr.log'
+          $script=Join-Path $root 'tools/qualify_setup_core_full_product.ps1'
+          $args=@('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$script,'-CenterRoot',$center,'-CenterCommit','c7b84cfbbc1d41d24239bfd90fca76d517a6cb69','-OutputRoot',$out,'-ReleaseCacheRoot',$cache)
+          $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $p=Start-Process -FilePath $powershell -ArgumentList $args -WorkingDirectory $root -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -Wait
+          $exit=$p.ExitCode
+          $p.Dispose()
+          if($exit -ne 0){
+            $raw=if(Test-Path -LiteralPath $err){Get-Content -LiteralPath $err -Raw}else{''}
+            $code=[regex]::Match($raw,'(full_qualification_[a-z0-9_-]+|PRIVATE_SETUP_CORE_BUILD_FAIL|private_setup_[a-z0-9_-]+)')
+            if($code.Success){Write-Host ('PRIVATE_QUALIFICATION_STAGE='+$code.Value)}
+            else{Write-Host 'PRIVATE_QUALIFICATION_STAGE=UNCLASSIFIED'}
+            throw 'PRIVATE_QUALIFICATION_NOT_ACCEPTED'
+          }
+          $resultPath=Join-Path $out 'result.json'
+          if(!(Test-Path -LiteralPath $resultPath -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_RESULT_MISSING'
+          }
+          $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $result.source_commit -cne 'd6648bf5d3a3f3a87624f7a436862603a6309745'){
+            throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
+          }
+          $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_INSTALLER_MISSING'
+          }
+          $hash=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host 'PRIVATE_WINDOWS_SOURCE_AND_INSTALLED_SMOKE_PASS'
+          Write-Host ('PRIVATE_SETUP_SHA256='+$hash)
+          Write-Host ('PRIVATE_SOURCE_SHA='+$result.source_commit)
+          Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=NOT_RUN'
+          # Never upload private files, archives, windows screenshots, or logs.
+
