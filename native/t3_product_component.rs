@@ -29,7 +29,7 @@ fn binary(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
 }
 pub fn data_root(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
     let (_, subdirectory) = kind_spec(role)?;
-    let base = app.path().app_local_data_dir()
+    let base = crate::publisher_root(app)
         .map_err(|_|"T3_PRODUCT_DATA_ROOT_UNAVAILABLE")?;
     Ok(base.join(subdirectory))
 }
