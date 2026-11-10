@@ -148,7 +148,12 @@ fn validate_person_request(raw:&str)->Result<Value,String>{
     let keys=["schema","kind","requestId","requestedAt","environment",
         "subject","product","featureIds","termDays","seats",
         "deviceLimit","quotas","status"];
-    if obj.len()!=keys.len()||keys.iter().any(|k|!obj.contains_key(*k)) ||
+    // The original T3 schema supports one optional, strictly validated
+    // renewal link. The public bridge does not decide whether that previous
+    // request was issued: only the original T3 Owner ledger can do that.
+    let renewal=obj.get("renewalOfRequestId");
+    if obj.len()!=keys.len()+usize::from(renewal.is_some())||
+       keys.iter().any(|k|!obj.contains_key(*k)) ||
         value["schema"]!="IWXA_PUBLISHER_PERSON_LICENSE_REQUEST/1" ||
         value["kind"]!="PERSON_LICENSE_REQUEST" ||
         value["environment"]!="PRODUCTION" ||
@@ -163,6 +168,12 @@ fn validate_person_request(raw:&str)->Result<Value,String>{
         .ok_or("PUBLISHER_PERSON_SUBJECT_INVALID")?;
     let product=value["product"]["id"].as_str()
         .ok_or("PUBLISHER_PERSON_PRODUCT_INVALID")?;
+    if let Some(prior)=renewal {
+        let previous=prior.as_str().ok_or("PUBLISHER_PERSON_RENEWAL_ID_INVALID")?;
+        if !t3::valid_identifier(previous)||previous==request{
+            return Err("PUBLISHER_PERSON_RENEWAL_ID_INVALID".into());
+        }
+    }
     if !t3::valid_identifier(request) || !t3::valid_identifier(holder) ||
         holder.starts_with("holder:") ||
         !["IWXA_ATLAS","IWXA_PERSONAL_AGENT"].contains(&product) ||
@@ -322,5 +333,35 @@ mod person_native_bridge_tests {
         assert!(validate_person_request(&forged.to_string()).is_err());
         forged=good.clone();forged["deviceLimit"]=Value::from(0);
         assert!(validate_person_request(&forged.to_string()).is_err());
+    }
+    #[test]
+    fn person_renewal_request_passes_public_bridge_only_with_valid_original_request_link(){
+        let original=serde_json::json!({
+            "schema":"IWXA_PUBLISHER_PERSON_LICENSE_REQUEST/1",
+            "kind":"PERSON_LICENSE_REQUEST","requestId":"proposal:second",
+            "renewalOfRequestId":"proposal:first",
+            "requestedAt":"2026-11-10T10:00:00.000Z",
+            "environment":"PRODUCTION",
+            "subject":{"type":"PERSON","id":"person:one","name":"Synthetic"},
+            "product":{"id":"IWXA_ATLAS","version":"0.6.0"},
+            "featureIds":["WORKSPACE"],"termDays":30,"seats":1,
+            "deviceLimit":2,"quotas":[],"status":"UNSIGNED_REQUEST"
+        });
+        let accepted=validate_person_request(&original.to_string()).unwrap();
+        assert_eq!(accepted["renewalOfRequestId"],"proposal:first");
+        let mut invalid=original.clone();
+        invalid["renewalOfRequestId"]=Value::from("proposal:second");
+        assert!(validate_person_request(&invalid.to_string()).is_err());
+        invalid=original.clone();
+        invalid["renewalOfRequestId"]=Value::from("holder:other");
+        // Only original issuer ledger determines whether a structurally
+        // valid identifier actually represents an eligible signed issue.
+        assert!(validate_person_request(&invalid.to_string()).is_ok());
+        invalid=original.clone();
+        invalid["renewalOfRequestId"]=Value::from(33);
+        assert!(validate_person_request(&invalid.to_string()).is_err());
+        invalid=original.clone();
+        invalid["signature"]=Value::from("forged");
+        assert!(validate_person_request(&invalid.to_string()).is_err());
     }
 }
