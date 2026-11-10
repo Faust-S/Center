@@ -604,29 +604,7 @@ jobs:
                   if($line -match '\[WinError (\d{1,4})\]'){
                     Write-Host ('PRIVATE_PYTHON_WINERROR='+$Matches[1])
                   }
-                  if($line -match '^E\s+[A-Za-z][A-Za-z0-9_]*Error:\s+([a-z][a-z0-9_]{2,80})\s*
-            throw 'PRIVATE_QUALIFICATION_NOT_ACCEPTED'
-          }
-          $resultPath=Join-Path $out 'result.json'
-          if(!(Test-Path -LiteralPath $resultPath -PathType Leaf)){
-            throw 'PRIVATE_QUALIFICATION_RESULT_MISSING'
-          }
-          $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
-          if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $result.source_commit -cne $env:PRIVATE_SOURCE_SHA){
-            throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
-          }
-          $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
-          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
-            throw 'PRIVATE_QUALIFICATION_INSTALLER_MISSING'
-          }
-          $hash=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Host 'PRIVATE_WINDOWS_SOURCE_AND_INSTALLED_SMOKE_PASS'
-          Write-Host ('PRIVATE_SETUP_SHA256='+$hash)
-          Write-Host ('PRIVATE_SOURCE_SHA='+$result.source_commit)
-          Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=NOT_RUN'
-          # Never upload private files, archives, windows screenshots, or logs.
-
-){
+                  if($line -match '^E\s+[A-Za-z][A-Za-z0-9_]*Error:\s+([a-z][a-z0-9_]{2,80})\s*$'){
                     Write-Host ('PRIVATE_PYTHON_ERROR_CODE='+$Matches[1])
                   }
                   $errors++
