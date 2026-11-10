@@ -497,6 +497,16 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) {
             throw 'PRIVATE_QUALIFICATION_READ_TOKEN_NOT_CONFIGURED'
           }
+      - name: Bind explicit private source revision to this CI trigger
+        id: private-pin
+        shell: pwsh
+        env:
+          SOURCE_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if ([string]$env:SOURCE_COMMIT_MESSAGE -cnotmatch '^ci\(private\):([0-9a-f]{40})(\s|$)') {
+            throw 'PRIVATE_QUALIFICATION_PIN_MISSING_OR_INVALID'
+          }
+          "sha=$($Matches[1])" >> $env:GITHUB_OUTPUT
       - name: Checkout exact unchanged Setup Core source
         uses: actions/checkout@v4
         with:
@@ -508,7 +518,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: d6648bf5d3a3f3a87624f7a436862603a6309745
+          ref: ${{ steps.private-pin.outputs.sha }}
           path: private-product
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
@@ -520,6 +530,8 @@ jobs:
           python-version: '3.13.15'
       - name: Verify both exact source identities
         shell: pwsh
+        env:
+          PRIVATE_SOURCE_SHA: ${{ steps.private-pin.outputs.sha }}
         run: |
           $ErrorActionPreference='Stop'
           $center=Join-Path $env:GITHUB_WORKSPACE 'public-owner'
@@ -527,7 +539,7 @@ jobs:
           if ((& git -C $center rev-parse HEAD).Trim() -cne 'c7b84cfbbc1d41d24239bfd90fca76d517a6cb69') {
             throw 'PUBLIC_OWNER_IDENTITY_MISMATCH'
           }
-          if ((& git -C $private rev-parse HEAD).Trim() -cne 'd6648bf5d3a3f3a87624f7a436862603a6309745') {
+          if ((& git -C $private rev-parse HEAD).Trim() -cne $env:PRIVATE_SOURCE_SHA) {
             throw 'PRIVATE_PRODUCT_IDENTITY_MISMATCH'
           }
           foreach($checkout in @($center,$private)){
@@ -549,6 +561,8 @@ jobs:
       - name: Qualify private source and native installed Windows lifecycle
         timeout-minutes: 150
         shell: pwsh
+        env:
+          PRIVATE_SOURCE_SHA: ${{ steps.private-pin.outputs.sha }}
         working-directory: private-product
         run: |
           $ErrorActionPreference='Stop'
@@ -576,7 +590,7 @@ jobs:
             throw 'PRIVATE_QUALIFICATION_RESULT_MISSING'
           }
           $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
-          if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $result.source_commit -cne 'd6648bf5d3a3f3a87624f7a436862603a6309745'){
+          if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $result.source_commit -cne $env:PRIVATE_SOURCE_SHA){
             throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
           }
           $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
