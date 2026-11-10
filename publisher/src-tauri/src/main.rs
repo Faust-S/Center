@@ -554,15 +554,21 @@ mod t3_owner;
 // default. Tauri's dataDirectory alone is insufficient on some installed
 // Windows restarts: the renderer left iwxa-publisher.exe.WebView2 inside the
 // installation, preventing Setup Core from removing its empty root.
-// Use the Publisher's existing app-local data namespace, not a second store.
-// Respect an explicit override from the caller for native qualification.
+// Respect the SAME Setup Core user-selected DataLocation as publisher_root;
+// before installation retain the original LOCALAPPDATA fallback. An explicit
+// user/testing override still takes precedence.
+#[cfg(target_os = "windows")]
+fn publisher_webview_folder(selected: Option<PathBuf>, fallback: &Path) -> PathBuf {
+    selected.unwrap_or_else(|| fallback.join("ru.iwxa.publisher")).join("webview")
+}
 #[cfg(target_os = "windows")]
 fn configure_webview2_folder() -> Result<(), String> {
     if std::env::var_os("WEBVIEW2_USER_DATA_FOLDER").is_some_and(|v| !v.is_empty()) {
         return Ok(());
     }
-    let base = std::env::var_os("LOCALAPPDATA").ok_or("PUBLISHER_LOCALAPPDATA_UNAVAILABLE")?;
-    let folder = PathBuf::from(base).join("ru.iwxa.publisher").join("webview");
+    let local = std::env::var_os("LOCALAPPDATA").ok_or("PUBLISHER_LOCALAPPDATA_UNAVAILABLE")?;
+    let selected = setup_core_publisher_data_root()?;
+    let folder = publisher_webview_folder(selected, &PathBuf::from(local));
     fs::create_dir_all(&folder).map_err(|_| "PUBLISHER_WEBVIEW_DATA_DIRECTORY_UNAVAILABLE")?;
     std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &folder);
     Ok(())
@@ -757,6 +763,17 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
     #[test]
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn webview_profile_follows_setup_core_selected_data_root() {
+        let local=PathBuf::from(r"C:\Users\test\AppData\Local");
+        let selected=PathBuf::from(r"D:\IWXA\PublisherData");
+        assert_eq!(publisher_webview_folder(Some(selected.clone()),&local),
+            selected.join("webview"));
+        assert_eq!(publisher_webview_folder(None,&local),
+            local.join("ru.iwxa.publisher").join("webview"));
+    }
+
     fn native_diagnostics_are_read_only_and_do_not_expose_preparation_content() {
         let root = scratch();
         fs::create_dir_all(&root).unwrap();
