@@ -671,6 +671,7 @@ jobs:
               $logPaths=@(
                 (Join-Path $out 'evidence/native-install-and-function.stderr.log'),
                 (Join-Path $out 'evidence/native-install-and-function.stdout.log'),
+                (Join-Path $nativeLogs 'test-python-bootstrap.log'),
                 (Join-Path $nativeLogs 'native-desktop-build.log'),
                 (Join-Path $nativeLogs 'native-desktop-build.log.stderr'),
                 (Join-Path $nativeLogs 'native-desktop-dependencies.log.stderr'),
@@ -685,7 +686,7 @@ jobs:
                 $scanned=0
                 foreach($line in [IO.File]::ReadLines($lp)){
                   if(++$scanned -gt 30000){break}
-                  if($line -match '\b((?:native_candidate|private_setup|agent_setup|full_qualification)_[a-z0-9_]{3,90}|SETUP_LOCAL_[A-Z0-9_]{3,90})\b'){
+                  if($line -match '\b((?:native_candidate|private_setup|agent_setup|full_qualification|windows_python|windows_runtime|windows_release)_[a-z0-9_]{3,90}|SETUP_LOCAL_[A-Z0-9_]{3,90})\b'){
                     $null=$codes.Add($Matches[1])
                   }
                   if($line -match 'error\[E\d{4}\]'){$null=$classes.Add('RUST_COMPILER')}
@@ -693,6 +694,11 @@ jobs:
                   if($line -match 'npm ERR!|npm error'){$null=$classes.Add('NPM')}
                   if($line -match 'failed to compile|could not compile'){$null=$classes.Add('RUST_BUILD')}
                   if($line -match 'ECONNRESET|ETIMEDOUT|Could not resolve host'){$null=$classes.Add('NETWORK')}
+                  if($line -match 'windows_runtime_wheel_fetch_failed'){$null=$classes.Add('WHEEL_FETCH')}
+                  if($line -match 'windows_runtime_wheel_(?:requirements_mismatch|identity_invalid|platform_or_python_mismatch)'){$null=$classes.Add('WHEEL_CONTRACT')}
+                  if($line -match 'windows_python_release_digest_mismatch'){$null=$classes.Add('PYTHON_ARCHIVE_SHA')}
+                  if($line -match 'windows_python_release_post_provision_verification_failed'){$null=$classes.Add('PYTHON_EXECUTABLE')}
+                  if($line -match 'Invoke-WebRequest|curl: \('){$null=$classes.Add('HTTP_DOWNLOAD')}
                 }
               }
               foreach($item in @($codes) | Sort-Object | Select-Object -First 16){
