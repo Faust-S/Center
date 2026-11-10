@@ -835,6 +835,22 @@ try {
   await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('ACTIVE');
   await personOwner.getByTestId('publisher-person-status').click();
   await personOwner.getByText('Подписанный статус сохранён.',{exact:false}).waitFor();
+  // A new PERSON subscription is a distinct unsigned follow-up tied to
+  // the exact signed original entry. It must not silently reissue rights.
+  await personOwner.getByRole('combobox',{name:'Тариф продления PERSON'})
+    .selectOption('ATLAS_PERSONAL#1');
+  await personOwner.getByTestId('publisher-person-prepare-renewal').click();
+  await personOwner.getByText('Подготовка продления сохранена.',{exact:false}).waitFor();
+  const renewedDraft=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture')));
+  assert.equal(renewedDraft.proposals.length,2);
+  assert.equal(renewedDraft.proposals[1].previousProposalId,directDraft.proposals[0].id);
+  assert.equal(renewedDraft.proposals[1].holderId,directDraft.proposals[0].holderId);
+  assert.equal(renewedDraft.proposals[1].productId,directDraft.proposals[0].productId);
+  assert.notEqual(renewedDraft.proposals[1].id,directDraft.proposals[0].id);
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger'))).length,1);
+  checks.push('person-renewal-prepared-from-signed-native-record');
   await personOwner.getByTestId('publisher-person-export').click();
   await personOwner.getByText('Подписанный пакет .iwxa сохранён',{exact:false}).waitFor();
   await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('REVOKED');
