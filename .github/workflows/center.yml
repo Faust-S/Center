@@ -615,9 +615,26 @@ jobs:
           $script=Join-Path $root 'tools/qualify_setup_core_full_product.ps1'
           $args=@('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$script,'-CenterRoot',$center,'-CenterCommit','c7b84cfbbc1d41d24239bfd90fca76d517a6cb69','-OutputRoot',$out,'-ReleaseCacheRoot',$cache)
           $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
-          $p=Start-Process -FilePath $powershell -ArgumentList $args -WorkingDirectory $root -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -Wait
-          $exit=$p.ExitCode
-          $p.Dispose()
+          # Hold the native process handle before redirected execution completes.
+          # Start-Process -Wait can otherwise lose ExitCode on Windows.
+          $p=Start-Process -FilePath $powershell -ArgumentList $args -WorkingDirectory $root -RedirectStandardOutput $log -RedirectStandardError $err -PassThru
+          try {
+            $handle=$p.Handle
+            if($null -eq $handle -or $handle -eq [IntPtr]::Zero){
+              throw 'PRIVATE_QUALIFICATION_PROCESS_HANDLE_MISSING'
+            }
+            if(!$p.WaitForExit(8700000)){
+              Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+              throw 'PRIVATE_QUALIFICATION_TIMEOUT'
+            }
+            $p.Refresh()
+            $exit=$p.ExitCode
+            if($null -eq $exit -or $exit -isnot [int]){
+              throw 'PRIVATE_QUALIFICATION_PROCESS_EXIT_UNKNOWN'
+            }
+          } finally {
+            $p.Dispose()
+          }
           if($exit -ne 0){
             $raw=if(Test-Path -LiteralPath $err){Get-Content -LiteralPath $err -Raw}else{''}
             $code=[regex]::Match($raw,'(full_qualification_[a-z0-9_-]+|PRIVATE_SETUP_CORE_BUILD_FAIL|private_setup_[a-z0-9_-]+)')
