@@ -152,6 +152,24 @@ try{
         throw 'SETUP_NEUTRAL_WITNESS_READBACK_NOT_WRITTEN'
     }
     Write-Host 'IWXA_SETUP_LOCAL_BUNDLE_HARNESS_PASS'
+    $negative=Make-Product ('d'+[Guid]::NewGuid().ToString('N').Substring(0,10))
+    $denied=$false
+    try {
+        & (Join-Path $PSScriptRoot 'qualify-local-bundle.ps1') `
+            -Setup $negative.bundle `
+            -ProductId 'iwxa.fixture.unrelated' `
+            -SandboxRoot (Join-Path $root 'rejected-identity')
+    } catch {
+        $denied=$true
+        if($_.Exception.Message -notmatch 'SETUP_LOCAL_PRODUCT_IDENTITY_INVALID'){
+            throw
+        }
+    }
+    if(!$denied -or (Test-Path -LiteralPath $negative.key) -or
+        (Test-Path -LiteralPath $negative.program)){
+        throw 'SETUP_NEUTRAL_REJECTED_IDENTITY_HAD_EFFECTS'
+    }
+    Write-Host 'IWXA_SETUP_LOCAL_PRODUCT_IDENTITY_FAIL_CLOSED_PASS'
 } finally {
     foreach($item in $created){
         if(Test-Path -LiteralPath $item.key){
