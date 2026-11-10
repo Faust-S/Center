@@ -92,12 +92,25 @@ test('PERSON renewal produces a fresh unsigned followup without changing issued 
  assert.equal(fresh.subject.id,signed.personId);
  assert.equal(fresh.product.id,signed.productId);
  assert.equal(fresh.requestId,after.proposals[1].id);
+ assert.equal(fresh.renewalOfRequestId,previous.id);
  assert.equal(fresh.status,'UNSIGNED_REQUEST');
  assert.equal(fresh.seats,1);
  assert.throws(()=>preparePersonRenewalDraftCommand(after,{sourceLicense:signed,
    issuerAuthorityId:signed.issuerAuthorityId,tariffId:'PERSONAL',
    revision:1,issuedRecords:[signed]}),{code:'PERSON_RENEWAL_FOLLOWUP_ALREADY_EXISTS'});
 });
+test('forged PERSON renewal linkage cannot be mixed into an independent request',()=>{
+ const draft=fixture(),original=prepareUnsignedPersonLicenseRequest(draft,{
+   proposalId:draft.proposals[0].id});
+ assert.equal(Object.hasOwn(original,'renewalOfRequestId'),false);
+ assert.throws(()=>validateUnsignedPersonLicenseRequest({
+   ...original,renewalOfRequestId:original.requestId
+ }),{code:'PERSON_RENEWAL_SOURCE_REQUEST_INVALID'});
+ assert.throws(()=>validateUnsignedPersonLicenseRequest({
+   ...original,renewalOfRequestId:'holder:bad',signature:'forged'
+ }));
+});
+
 test('PERSON renewal requires signed native source, exact identity, approved tariff and issuer',()=>{
  const state=fixture(),p=state.proposals[0];
  const signed={licenseId:'license:one',requestId:p.id,
