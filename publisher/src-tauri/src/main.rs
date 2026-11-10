@@ -56,6 +56,58 @@ fn read_preparation(root: &Path) -> Result<Option<String>, String> {
 fn publisher_root(app: &AppHandle) -> Result<PathBuf, String> {
     app.path().app_local_data_dir().map_err(|e| e.to_string())
 }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublisherDiagnostics {
+    schema: &'static str,
+    product_id: &'static str,
+    version: &'static str,
+    application: &'static str,
+    local_preparation: &'static str,
+    webview_profile: &'static str,
+    setup_core: &'static str,
+    licensing: &'static str,
+    active_seats: u8,
+    production_activation: bool,
+    attention_required: bool,
+}
+
+// Read-only, product-neutral support-report shape. No user objects,
+// personal paths, keys, environment values, or signed material are exported.
+// IWXA Setup Core owns installation/repair diagnostics separately.
+fn inspect_publisher_diagnostics(root: &Path, webview_profile: &Path) -> PublisherDiagnostics {
+    let local_preparation = match read_preparation(root) {
+        Ok(Some(_)) => "READABLE",
+        Ok(None) => "EMPTY",
+        Err(_) => "NEEDS_ATTENTION",
+    };
+    PublisherDiagnostics {
+        schema: "IWXA_DIAGNOSTICS/1",
+        product_id: "iwxa.publisher",
+        version: env!("CARGO_PKG_VERSION"),
+        application: "NATIVE_RUNNING",
+        local_preparation,
+        webview_profile: if webview_profile.is_dir() { "FOLDER_PRESENT" }
+                         else { "FOLDER_NOT_OBSERVED" },
+        setup_core: "CHECK_IN_SETUP_CORE",
+        licensing: "TEST_ONLY",
+        active_seats: 0,
+        production_activation: false,
+        attention_required: local_preparation == "NEEDS_ATTENTION",
+    }
+}
+
+#[tauri::command]
+fn publisher_diagnostics(app: AppHandle, state: State<DraftLock>)
+    -> Result<PublisherDiagnostics, String> {
+    let _guard = state.0.lock().map_err(|_| "PUBLISHER_DRAFT_LOCK_INVALID")?;
+    let root = publisher_root(&app)?;
+    let profile = std::env::var_os("WEBVIEW2_USER_DATA_FOLDER")
+        .filter(|v| !v.is_empty()).map(PathBuf::from)
+        .unwrap_or_else(|| root.join("webview"));
+    Ok(inspect_publisher_diagnostics(&root, &profile))
+}
 #[tauri::command]
 fn publisher_draft_save(app: AppHandle, state: State<DraftLock>, content: String) -> Result<bool, String> {
     let _guard = state.0.lock().map_err(|_| "PUBLISHER_DRAFT_LOCK_INVALID")?;
@@ -488,7 +540,7 @@ fn main() {
         .manage(DraftLock(Mutex::new(())))
         .manage(DeliveryLock(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
-            publisher_draft_read, publisher_draft_save, publisher_inspect_artifact, publisher_save_test_request,
+            publisher_draft_read, publisher_draft_save, publisher_diagnostics, publisher_inspect_artifact, publisher_save_test_request,
             publisher_export_preparation_backup, publisher_pick_preparation_backup,
             publisher_compare_offline_copies,
             publisher_select_test_iwxa, publisher_export_test_iwxa,
@@ -661,6 +713,36 @@ mod tests {
         assert!(!large.publisher_authorized);
         let _ = fs::remove_dir_all(root);
     }
+    #[test]
+    fn native_diagnostics_are_read_only_and_do_not_expose_preparation_content() {
+        let root = scratch();
+        fs::create_dir_all(&root).unwrap();
+        let profile = root.join("webview");
+        let empty = inspect_publisher_diagnostics(&root, &profile);
+        assert_eq!(empty.schema, "IWXA_DIAGNOSTICS/1");
+        assert_eq!(empty.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(empty.local_preparation, "EMPTY");
+        assert_eq!(empty.setup_core, "CHECK_IN_SETUP_CORE");
+        assert_eq!(empty.active_seats, 0);
+        assert!(!empty.production_activation);
+        fs::create_dir_all(&profile).unwrap();
+        let original = valid_preparation();
+        write_preparation(&root, &original).unwrap();
+        let valid = inspect_publisher_diagnostics(&root, &profile);
+        assert_eq!(valid.local_preparation, "READABLE");
+        assert_eq!(valid.webview_profile, "FOLDER_PRESENT");
+        let encoded = serde_json::to_string(&valid).unwrap();
+        assert!(!encoded.contains("products"));
+        assert!(!encoded.contains("publisher-preparation-v1.json"));
+        assert_eq!(read_preparation(&root).unwrap().unwrap(), original);
+        fs::write(draft_file(&root), "invalid").unwrap();
+        let damaged = inspect_publisher_diagnostics(&root, &profile);
+        assert_eq!(damaged.local_preparation, "NEEDS_ATTENTION");
+        assert!(damaged.attention_required);
+        assert_eq!(fs::read_to_string(draft_file(&root)).unwrap(), "invalid");
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn native_preparation_does_not_create_any_license_authority() {
         let root = scratch();

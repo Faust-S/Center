@@ -21,6 +21,10 @@ type OfflineCopiesCheck = {
  signedReleaseMetadataVerified:boolean;
 };
 type IwxaTransfer={size:number;sha256:string;integrityVerified:false;signatureVerified:false;statusVerified:false;activeSeats:0;productionActivation:false;};
+type PublisherDiagnosticsReport={schema:'IWXA_DIAGNOSTICS/1';productId:'iwxa.publisher';version:string;
+ application:'NATIVE_RUNNING';localPreparation:'READABLE'|'EMPTY'|'NEEDS_ATTENTION';
+ webviewProfile:'FOLDER_PRESENT'|'FOLDER_NOT_OBSERVED';setupCore:'CHECK_IN_SETUP_CORE';
+ licensing:'TEST_ONLY';activeSeats:0;productionActivation:false;attentionRequired:boolean};
 type Page = 'overview'|'products'|'tariffs'|'holders'|'proposals'|'releases'|'trust';
 const navigation: [Page,string][] = [
  ['overview','Обзор'],['products','Продукты'],['tariffs','Тарифы и лимиты'],['holders','Клиенты'],
@@ -92,6 +96,9 @@ export default function App(){
  const [legacyFeedback,setLegacyFeedback]=useState<{ok:boolean;message:string}|null>(null);
  const [artifactFeedback,setArtifactFeedback]=useState<{ok:boolean;message:string}|null>(null);
  const [artifactSaved,setArtifactSaved]=useState(false);
+ const [diagnostics,setDiagnostics]=useState<PublisherDiagnosticsReport|null>(null);
+ const [diagnosticsBusy,setDiagnosticsBusy]=useState(false);
+ const [diagnosticsMessage,setDiagnosticsMessage]=useState('');
  const productFeedbackRef=React.useRef<HTMLParagraphElement>(null);
  const clientFeedbackRef=React.useRef<HTMLParagraphElement>(null);
  const legacyFeedbackRef=React.useRef<HTMLParagraphElement>(null);
@@ -323,6 +330,31 @@ export default function App(){
    }catch(e){setError('Не удалось экспортировать .iwxa: '+getError(e));}
    finally{setBusy(false);}
  }
+ async function checkDiagnostics(){
+   if(!nativeHost||diagnosticsBusy)return;
+   setDiagnosticsBusy(true);setDiagnosticsMessage('');setDiagnostics(null);
+   try{
+     const report=await invoke('publisher_diagnostics') as PublisherDiagnosticsReport;
+     if(report?.schema!=='IWXA_DIAGNOSTICS/1'||report.productId!=='iwxa.publisher'||
+        report.application!=='NATIVE_RUNNING'||!['READABLE','EMPTY','NEEDS_ATTENTION'].includes(report.localPreparation)||
+        !['FOLDER_PRESENT','FOLDER_NOT_OBSERVED'].includes(report.webviewProfile)||
+        report.setupCore!=='CHECK_IN_SETUP_CORE'||report.licensing!=='TEST_ONLY'||
+        report.activeSeats!==0||report.productionActivation!==false||
+        typeof report.version!=='string'||typeof report.attentionRequired!=='boolean')
+       throw Error('PUBLISHER_DIAGNOSTICS_INVALID_REPORT');
+     setDiagnostics(report);
+   }catch(e){setDiagnosticsMessage('Диагностику получить не удалось: '+getError(e));}
+   finally{setDiagnosticsBusy(false);}
+ }
+ async function copyDiagnostics(){
+   if(!diagnostics)return;
+   try{
+     await navigator.clipboard.writeText(JSON.stringify(diagnostics,null,2));
+     setDiagnosticsMessage('Сведения скопированы. Персональные данные и ключи не включены.');
+   }catch{
+     setDiagnosticsMessage('Автоматическое копирование недоступно. Выделите сведения ниже и нажмите Ctrl+C.');
+   }
+ }
  function go(p:Page){
    // Reset the native desktop work area's scroll when changing sections.
    // Compact layouts scroll the document instead of the work area.
@@ -364,7 +396,7 @@ export default function App(){
        <span className="status neutral publisher-top-status"><span className="publisher-top-status-dot" aria-hidden="true"></span>{loaded?'Локально сохранено':'Состояние не загружено'}</span>
      </header>
      <div className="page-heading"><div><div className="eyebrow publisher-section-eyebrow">IWXA / РАБОЧЕЕ МЕСТО ИЗДАТЕЛЯ</div><h1>{navigation.find(v=>v[0]===page)?.[1]}</h1></div></div>
-     <div className="notice">Publisher 0.3.0-dev.1 · Черновики хранятся отдельно от Admin Center. Подписанные лицензии доступны только в режиме TEST через предварительно настроенный T3 Host. Коммерческая активация мест и выпуск релизов отключены.</div>
+     <div className="notice">Publisher 0.3.0 · Черновики хранятся отдельно от Admin Center. Подписанные лицензии доступны только в режиме TEST через предварительно настроенный T3 Host. Коммерческая активация мест и выпуск релизов отключены.</div>
      {error&&<div className="notice error" role="alert">{error}</div>}
      {message&&<div className="notice" role="status">{message}</div>}
      {!loaded?<section className="card padded" role="status">Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.</section>:<>
@@ -390,7 +422,24 @@ export default function App(){
            </div>
          </section>
          <section className="card padded"><h2>Текущее состояние</h2><p className="muted">Заявок на публикацию: {state.artifacts.length}. Подтверждённых релизов: 0. Подписанных лицензий: 0.</p><p className="muted">Реальные источники подписей, trust catalog и приём лицензии в Admin Center пока не включены в этот исполняемый продукт.</p></section>
-         <section className="card padded" data-testid="publisher-preparation-backup">
+         <section className="card padded" data-testid="publisher-diagnostics">
+            <h2>Диагностика IWXA</h2>
+            <p className="muted">Проверяет работу нативной программы, доступность черновиков и наличие локального профиля WebView2. Проверка установки, восстановление и удаление выполняются исходным IWXA Setup Core.</p>
+            <div className="actions">
+              <button type="button" className="secondary" disabled={!nativeHost||diagnosticsBusy} onClick={()=>void checkDiagnostics()}>{diagnosticsBusy?'Проверяем…':'Проверить программу'}</button>
+              {diagnostics&&<button type="button" className="secondary" onClick={()=>void copyDiagnostics()}>Скопировать сведения</button>}
+            </div>
+            {diagnostics&&<div data-testid="publisher-diagnostics-result" role="status">
+              <p>Программа: IWXA Publisher {diagnostics.version} · нативный запуск подтверждён.</p>
+              <p>Черновики: {diagnostics.localPreparation==='READABLE'?'читаются':diagnostics.localPreparation==='EMPTY'?'ещё не созданы':'требуют внимания'}.
+              Профиль WebView2: {diagnostics.webviewProfile==='FOLDER_PRESENT'?'каталог доступен':'каталог не обнаружен'}.</p>
+              <p className="muted">Установка: откройте IWXA Setup Core для проверки, восстановления или удаления. Лицензирование: только TEST, коммерческих мест — 0.</p>
+              <textarea aria-label="Сведения диагностики" readOnly rows={8}
+                value={JSON.stringify(diagnostics,null,2)} style={{width:'100%',fontFamily:'monospace'}}/>
+            </div>}
+            {diagnosticsMessage&&<p role={diagnostics?'status':'alert'} data-testid="publisher-diagnostics-feedback">{diagnosticsMessage}</p>}
+          </section>
+          <section className="card padded" data-testid="publisher-preparation-backup">
            <h2>Резервная копия черновиков</h2>
            <p className="muted">Включает каталог продуктов, клиентов, редакции тарифов, неподписанные запросы и записи проверок файлов. Действительных лицензий и ключей издателя в копии нет.</p>
            <p className="muted">Восстановление заменит текущие черновики после отдельного подтверждения. Выберите файл резервной копии.</p>

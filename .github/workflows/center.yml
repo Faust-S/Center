@@ -59,7 +59,7 @@ jobs:
         if: ${{ (startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') || startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3')) }}
         with:
           repository: Faust-S/Center
-          ref: 2e35c1cfc1770ed85f619a4a22ccdbf4d5b708e8
+          ref: 6603a11764ff86853e5abf4d209d55f79fddd8b1
           path: vendor/setupcore
           persist-credentials: false
       - run: npm run publisher:build
@@ -191,7 +191,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
-          ref: 2e35c1cfc1770ed85f619a4a22ccdbf4d5b708e8
+          ref: 6603a11764ff86853e5abf4d209d55f79fddd8b1
           path: vendor/setupcore
           persist-credentials: false
       - uses: actions/setup-node@v4

@@ -55,6 +55,12 @@ try {
       if(command==='publisher_export_preparation_backup')return false;
       if(command==='publisher_pick_preparation_backup')return null;
       if(command==='publisher_inspect_artifact')return window.__publisherMockInspectedArtifact??null;
+      if(command==='publisher_diagnostics')return {
+        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.3.0',
+        application:'NATIVE_RUNNING',localPreparation:'READABLE',
+        webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
+        licensing:'TEST_ONLY',activeSeats:0,productionActivation:false,
+        attentionRequired:false};
       if(command==='publisher_t3_capabilities')return {
         operation:'TEST_CAPABILITIES',issuers:['publisher:owner:test'],
         activeSeats:0,productionActivation:false,commercialAuthorityProven:false};
@@ -175,6 +181,19 @@ try {
   assert.equal(await page.getByRole('button',{name:'Восстановить черновики'}).isEnabled(),true);
   assert.match(await page.getByTestId('publisher-preparation-backup').innerText(),/ключей издателя в копии нет/);
   checks.push('backup-bound-to-test-only-native-ipc-without-issuer-keys');
+  await page.getByRole('button',{name:'Проверить программу'}).click();
+  const diagnostics=page.getByTestId('publisher-diagnostics-result');
+  await diagnostics.waitFor();
+  assert.match(await diagnostics.innerText(),/IWXA Publisher 0.3.0/);
+  assert.match(await diagnostics.innerText(),/Черновики: читаются/);
+  assert.match(await diagnostics.innerText(),/проверки, восстановления или удаления/);
+  const diag=JSON.parse(await page.getByRole('textbox',{name:'Сведения диагностики'}).inputValue());
+  assert.equal(diag.schema,'IWXA_DIAGNOSTICS/1');
+  assert.equal(diag.setupCore,'CHECK_IN_SETUP_CORE');
+  assert.equal(diag.productionActivation,false);
+  assert.equal(diag.activeSeats,0);
+  assert.ok(!JSON.stringify(diag).includes('Test Corporation'));
+  checks.push('native-read-only-common-iwxa-diagnostics-no-license-or-private-draft-data');
 
   await page.getByRole('button',{name:'Продукты',exact:true}).click();
   assert.equal(await page.getByLabel('Версия',{exact:true}).inputValue(),'',

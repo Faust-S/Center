@@ -202,3 +202,20 @@ test('new products and release files never inherit unrelated version or source d
  assert.match(app,/<option value="">Выберите платформу<\/option>/);
  assert.match(browser,/release-new-file-clears-previous-product-version-and-source/);
 });
+
+
+test('Publisher 0.3 diagnostics reuses native storage and Setup Core, without a parallel log/store',()=>{
+ const native=read('publisher/src-tauri/src/main.rs');
+ const app=read('publisher/ui/App.tsx');
+ const browser=read('publisher/tests/browser-smoke.mjs');
+ assert.match(native,/fn publisher_diagnostics\(app: AppHandle, state: State<DraftLock>\)/);
+ assert.match(native,/schema: "IWXA_DIAGNOSTICS\/1"/);
+ assert.match(native,/read_preparation\(root\)/);
+ assert.match(native,/setup_core: "CHECK_IN_SETUP_CORE"/);
+ assert.match(native,/fn native_diagnostics_are_read_only_and_do_not_expose_preparation_content/);
+ assert.match(app,/data-testid="publisher-diagnostics"/);
+ assert.match(app,/invoke\('publisher_diagnostics'\)/);
+ assert.match(app,/Проверить программу/);
+ assert.match(browser,/native-read-only-common-iwxa-diagnostics-no-license-or-private-draft-data/);
+ assert.doesNotMatch(native,/privateKey|\.signTestProductLicense\(/);
+});
