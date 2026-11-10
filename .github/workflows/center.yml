@@ -665,6 +665,22 @@ jobs:
             Write-Host 'PRIVATE_NATIVE_DIAGNOSTIC_ONLY_SOURCE_SUITES_PREVIOUSLY_VERIFIED'
           }
           $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          # GitHub's PowerShell 7 runner can pass its own PSModulePath to
+          # Windows PowerShell 5.1. Restore the built-in Windows module root
+          # before invoking any nested release builder or Get-FileHash.
+          $nativeModules=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/Modules'
+          if(!(Test-Path -LiteralPath $nativeModules -PathType Container)){
+            throw 'PUBLIC_WINDOWS_POWERSHELL_MODULE_ROOT_MISSING'
+          }
+          $moduleEntries=@($env:PSModulePath -split ';')
+          if($nativeModules -notin $moduleEntries){
+            $env:PSModulePath=$nativeModules+';'+$env:PSModulePath
+          }
+          & $powershell -NoLogo -NoProfile -NonInteractive -Command "if (Get-Command Get-FileHash -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" 1>$null 2>$null
+          if($LASTEXITCODE -ne 0){
+            throw 'PUBLIC_WINDOWS_POWERSHELL_FILE_HASH_UNAVAILABLE'
+          }
+          Write-Host 'PUBLIC_WINDOWS_POWERSHELL_FILE_HASH_READY'
           # Preserve the native process handle before redirected execution completes.
           $p=Start-Process -FilePath $powershell -ArgumentList $args -WorkingDirectory $root -RedirectStandardOutput $log -RedirectStandardError $err -PassThru
           try {
