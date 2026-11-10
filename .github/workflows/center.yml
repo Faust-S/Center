@@ -753,6 +753,8 @@ jobs:
               )
               $codes=New-Object 'System.Collections.Generic.HashSet[string]'
               $classes=New-Object 'System.Collections.Generic.HashSet[string]'
+              $setupNativeActions=New-Object 'System.Collections.Generic.HashSet[string]'
+              $setupNativeReasons=New-Object 'System.Collections.Generic.HashSet[string]'
               foreach($lp in $logPaths){
                 if(!(Test-Path -LiteralPath $lp -PathType Leaf)){continue}
                 $scanned=0
@@ -760,6 +762,16 @@ jobs:
                   if(++$scanned -gt 30000){break}
                   if($line -match '\b((?:native_candidate|private_setup|agent_setup|full_qualification|windows_python|windows_runtime|windows_release)_[a-z0-9_]{3,90}|SETUP_LOCAL_[A-Z0-9_]{3,90})\b'){
                     $null=$codes.Add($Matches[1])
+                  }
+                  # A Setup Core native action may fail after creating its
+                  # private JSON receipt. Emit only the explicit public CLI
+                  # operation and an allowlisted Setup Core error identifier.
+                  # Never print the native receipt, paths or exception text.
+                  if($line -cmatch 'SETUP_LOCAL_NATIVE_FAILED_--(inspect|preflight|install-locations|verify-installed|locations|repair|confirm-upgrade|uninstall)-file_'){
+                    $null=$setupNativeActions.Add($Matches[1].Replace('-','_').ToUpperInvariant())
+                  }
+                  if($line -cmatch 'SETUP_LOCAL_NATIVE_FAILED_--(?:inspect|preflight|install-locations|verify-installed|locations|repair|confirm-upgrade|uninstall)-file_(SETUP_[A-Z0-9_]{3,80})(?:\\b|$)'){
+                    $null=$setupNativeReasons.Add($Matches[1])
                   }
                   if($line -match 'error\[E\d{4}\]'){$null=$classes.Add('RUST_COMPILER')}
                   if($line -match 'error TS(\d{4})'){
@@ -821,6 +833,13 @@ jobs:
               foreach($item in @($classes) | Sort-Object){
                 Write-Host ('PRIVATE_NATIVE_ERROR_CLASS='+$item)
               }
+              foreach($item in @($setupNativeActions) | Sort-Object | Select-Object -First 8){
+                Write-Host ('PRIVATE_NATIVE_SETUP_OPERATION='+$item)
+              }
+              foreach($item in @($setupNativeReasons) | Sort-Object | Select-Object -First 8){
+                Write-Host ('PRIVATE_NATIVE_SETUP_REASON_CODE='+$item)
+              }
+              Write-Host ('PRIVATE_NATIVE_SETUP_OPERATIONS_OBSERVED='+$setupNativeActions.Count)
               Write-Host ('PRIVATE_NATIVE_ERROR_CODES_OBSERVED='+$codes.Count)
             }
             if($raw -match 'full_qualification_step_failed_python-(targeted|full)_exit_([0-9]{1,3})'){
