@@ -190,3 +190,15 @@ test('inspected release artifact requires explicit product, preserves evidence o
  assert.match(browser,/release-native-save-failure-retains-inspected-file-and-success-inline/);
  assert.match(browser,/release-evidence-requires-explicit-product-and-is-not-authorized/);
 });
+
+
+test('new products and release files never inherit unrelated version or source defaults',()=>{
+ const app=read('publisher/ui/App.tsx');
+ const browser=read('publisher/tests/browser-smoke.mjs');
+ for(const name of ['productVersion','releaseVersion','releasePlatform','releaseRepo'])
+   assert.match(app,new RegExp('\\['+name+',set[A-Za-z]+\\]=useState\\(\\x27\\x27\\)'));
+ assert.match(app,/setReleaseProduct\(''\);setReleaseVersion\(''\);setReleasePlatform\(''\)/);
+ assert.match(app,/setReleaseRepo\(''\);setReleaseCommit\(''\);setReleaseTree\(''\)/);
+ assert.match(app,/<option value="">Выберите платформу<\/option>/);
+ assert.match(browser,/release-new-file-clears-previous-product-version-and-source/);
+});

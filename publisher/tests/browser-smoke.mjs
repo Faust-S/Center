@@ -177,6 +177,8 @@ try {
   checks.push('backup-bound-to-test-only-native-ipc-without-issuer-keys');
 
   await page.getByRole('button',{name:'Продукты',exact:true}).click();
+  assert.equal(await page.getByLabel('Версия',{exact:true}).inputValue(),'',
+    'New product version must be entered rather than inferred from Admin Center');
   await page.getByLabel('Идентификатор продукта').fill('IWXA_ADMIN_CENTER');
   await page.getByLabel('Название').fill('IWXA Admin Center');
   await page.getByLabel('Версия',{exact:true}).fill('0.3.0');
@@ -195,6 +197,7 @@ try {
   assert.equal(await productFeedback.getAttribute('role'),'status');
   assert.match(await productFeedback.innerText(),/Продукт добавлен/);
   assert.equal(await page.getByLabel('Идентификатор продукта').inputValue(),'');
+  assert.equal(await page.getByLabel('Версия',{exact:true}).inputValue(),'');
   checks.push('product-native-save-failure-retains-form-and-success-is-inline');
   checks.push('create-product-draft');
 
@@ -507,7 +510,13 @@ try {
   const saveInspected=page.getByRole('button',{name:'Сохранить проверенный файл'});
   assert.equal(await saveInspected.isDisabled(),true,
     'Release evidence must not silently borrow the first catalog product');
+  assert.equal(await page.getByLabel('Версия файла').inputValue(),'');
+  assert.equal(await page.getByRole('combobox',{name:'Платформа'}).inputValue(),'');
+  assert.equal(await page.getByLabel('Репозиторий источника').inputValue(),'');
   await page.getByRole('combobox',{name:'Продукт',exact:true}).selectOption('IWXA_ADMIN_CENTER');
+  await page.getByLabel('Версия файла').fill('0.3.0');
+  await page.getByRole('combobox',{name:'Платформа'}).selectOption('windows-x64');
+  await page.getByLabel('Репозиторий источника').fill('Faust-S/Center');
   await page.getByLabel('Source commit (40 hex)').fill('a'.repeat(40));
   await page.getByLabel('Source tree (40 hex)').fill('b'.repeat(40));
   assert.equal(await saveInspected.isEnabled(),true);
@@ -532,6 +541,13 @@ try {
   assert.equal(persistedArtifact.artifacts[0].status,'BYTES_INSPECTED_NOT_APPROVED');
   checks.push('release-native-save-failure-retains-inspected-file-and-success-inline');
   checks.push('release-evidence-requires-explicit-product-and-is-not-authorized');
+  await page.getByRole('button',{name:'Выбрать и проверить файл'}).click();
+  assert.equal(await page.getByRole('combobox',{name:'Продукт',exact:true}).inputValue(),'');
+  assert.equal(await page.getByLabel('Версия файла').inputValue(),'');
+  assert.equal(await page.getByLabel('Репозиторий источника').inputValue(),'');
+  assert.equal(await saveInspected.isDisabled(),true,
+    'Newly inspected EXE must not reuse the preceding release source metadata');
+  checks.push('release-new-file-clears-previous-product-version-and-source');
   await page.getByRole('button',{name:'Сверить две копии файла'}).click();
   const copies=page.getByTestId('publisher-offline-copies-result');
   await copies.waitFor();

@@ -102,7 +102,7 @@ export default function App(){
  useEffect(()=>{if(artifactFeedback)artifactFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});},[artifactFeedback]);
  const [productId,setProductId]=useState('');
  const [productName,setProductName]=useState('');
- const [productVersion,setProductVersion]=useState('0.2.0');
+ const [productVersion,setProductVersion]=useState('');
  const [holderName,setHolderName]=useState('');
  const [holderSourceId,setHolderSourceId]=useState('');
  const [holderType,setHolderType]=useState<Holder['type']>('ORGANIZATION');
@@ -130,11 +130,11 @@ export default function App(){
  const [offlineCopies,setOfflineCopies]=useState<OfflineCopiesCheck|null>(null);
  const [selectedIwxa,setSelectedIwxa]=useState<IwxaTransfer|null>(null);
  const [releaseProduct,setReleaseProduct]=useState('');
- const [releasePlatform,setReleasePlatform]=useState('windows-x64');
- const [releaseRepo,setReleaseRepo]=useState('Faust-S/Center');
+ const [releasePlatform,setReleasePlatform]=useState('');
+ const [releaseRepo,setReleaseRepo]=useState('');
  const [releaseCommit,setReleaseCommit]=useState('');
  const [releaseTree,setReleaseTree]=useState('');
- const [releaseVersion,setReleaseVersion]=useState('0.2.0');
+ const [releaseVersion,setReleaseVersion]=useState('');
  useEffect(()=>{
    if(!nativeHost)return;
    let alive=true;
@@ -164,7 +164,7 @@ export default function App(){
    const result=await change({kind:'addProduct',id:productId.trim(),name:productName.trim(),version:productVersion.trim()},
      'Продукт добавлен в черновик каталога.');
    setProductFeedback(result);
-   if(result.ok){setProductId('');setProductName('');}
+   if(result.ok){setProductId('');setProductName('');setProductVersion('');}
  }
  async function saveLegacyRequest(e:React.FormEvent){
    e.preventDefault();
@@ -191,6 +191,10 @@ export default function App(){
      if(result){
       setInspected(result as Inspection);
       setArtifactFeedback(null);setArtifactSaved(false);
+      // A new EXE requires fresh, reviewed release identity metadata.
+      // Never carry a previous product/version/repository into another file.
+      setReleaseProduct('');setReleaseVersion('');setReleasePlatform('');
+      setReleaseRepo('');setReleaseCommit('');setReleaseTree('');
       setMessage('Байты файла проверены. Источник и разрешение на выпуск ещё не подтверждены.');
      }
    }catch(e){setError(getError(e));}
@@ -490,9 +494,9 @@ export default function App(){
                 setArtifactFeedback(null);setArtifactSaved(false);
               }}>
              <div className="form-grid"><label>Продукт<select value={selectedReleaseProduct} required onChange={e=>setReleaseProduct(e.target.value)}><option value="">Выберите продукт</option>{state.products.map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select></label>
-             <label>Версия файла<input required value={releaseVersion} onChange={e=>setReleaseVersion(e.target.value)}/></label>
-             <label>Платформа<select value={releasePlatform} onChange={e=>setReleasePlatform(e.target.value)}>{['windows-x64','windows-arm64','linux-x64','linux-arm64','macos-x64','macos-arm64'].map(p=><option key={p} value={p}>{p}</option>)}</select></label>
-             <label>Репозиторий источника<input required value={releaseRepo} onChange={e=>setReleaseRepo(e.target.value)}/></label>
+             <label>Версия файла<input required placeholder="Например, 0.3.0" value={releaseVersion} onChange={e=>setReleaseVersion(e.target.value)}/></label>
+             <label>Платформа<select required value={releasePlatform} onChange={e=>setReleasePlatform(e.target.value)}><option value="">Выберите платформу</option>{['windows-x64','windows-arm64','linux-x64','linux-arm64','macos-x64','macos-arm64'].map(p=><option key={p} value={p}>{p}</option>)}</select></label>
+             <label>Репозиторий источника<input required placeholder="Владелец/репозиторий" value={releaseRepo} onChange={e=>setReleaseRepo(e.target.value)}/></label>
              <label>Source commit (40 hex)<input required value={releaseCommit} onChange={e=>setReleaseCommit(e.target.value)}/></label>
              <label>Source tree (40 hex)<input required value={releaseTree} onChange={e=>setReleaseTree(e.target.value)}/></label></div>
              <div className="publisher-save-action" data-testid="publisher-artifact-save-action">
