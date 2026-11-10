@@ -458,7 +458,7 @@ try {
   $diagnosticReport=$diagnosticText|ConvertFrom-Json -Depth 20
   if($diagnosticReport.schema -ne 'IWXA_DIAGNOSTICS/1' -or
      $diagnosticReport.productId -ne 'iwxa.publisher' -or
-     $diagnosticReport.version -ne '0.4.0-dev.1' -or
+     $diagnosticReport.version -ne '0.4.0-dev.2' -or
      $diagnosticReport.application -ne 'NATIVE_RUNNING' -or
      $diagnosticReport.localPreparation -ne 'READABLE' -or
      $diagnosticReport.setupCore -ne 'CHECK_IN_SETUP_CORE' -or

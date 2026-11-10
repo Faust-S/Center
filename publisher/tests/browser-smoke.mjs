@@ -56,7 +56,7 @@ try {
       if(command==='publisher_pick_preparation_backup')return null;
       if(command==='publisher_inspect_artifact')return window.__publisherMockInspectedArtifact??null;
       if(command==='publisher_diagnostics')return {
-        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.4.0-dev.1',
+        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.4.0-dev.2',
         application:'NATIVE_RUNNING',localPreparation:'READABLE',
         webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
         licensing:'TEST_ONLY',activeSeats:0,productionActivation:false,
@@ -184,7 +184,7 @@ try {
   await page.getByRole('button',{name:'Проверить программу'}).click();
   const diagnostics=page.getByTestId('publisher-diagnostics-result');
   await diagnostics.waitFor();
-  assert.match(await diagnostics.innerText(),/IWXA Publisher 0.4.0-dev.1/);
+  assert.match(await diagnostics.innerText(),/IWXA Publisher 0.4.0-dev.2/);
   assert.match(await diagnostics.innerText(),/Черновики: читаются/);
   assert.match(await diagnostics.innerText(),/проверки, восстановления или удаления/);
   const diag=JSON.parse(await page.getByRole('textbox',{name:'Сведения диагностики'}).inputValue());
@@ -203,7 +203,7 @@ try {
     window.__TAURI_INTERNALS__={invoke:async(command)=>{
       if(command==='publisher_draft_read')throw Error('PUBLISHER_DRAFT_FORMAT_INVALID');
       if(command==='publisher_diagnostics')return {
-        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.4.0-dev.1',
+        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.4.0-dev.2',
         application:'NATIVE_RUNNING',localPreparation:'NEEDS_ATTENTION',
         webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
         licensing:'TEST_ONLY',activeSeats:0,productionActivation:false,
