@@ -831,7 +831,7 @@ try {
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
   await personOwner.getByTestId('publisher-person-issue').click();
   await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя.',{exact:false}).waitFor();
-  await personOwner.getByRole('combobox',{name:'Лицензия'}).selectOption('license:person:mock:one');
+  await personOwner.getByRole('combobox',{name:'Лицензия',exact:true}).selectOption('license:person:mock:one');
   await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('ACTIVE');
   await personOwner.getByTestId('publisher-person-status').click();
   await personOwner.getByText('Подписанный статус сохранён.',{exact:false}).waitFor();
