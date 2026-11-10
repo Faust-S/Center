@@ -49,7 +49,7 @@ function Invoke-Setup([string]$file,[string[]]$arguments,[int]$expected=0){
     }
     return (Get-Content -LiteralPath $output -Raw | ConvertFrom-Json)
 }
-function Make-Product([string]$tag) {
+function Make-Product([string]$tag,[switch]$LongPaths) {
     $id='iwxa.fixture.'+$tag
     $folder=Join-Path $root $tag
     $payload=Join-Path $folder 'payload'
@@ -65,6 +65,22 @@ function Make-Product([string]$tag) {
     New-Item -ItemType Directory -Path (Join-Path $payload 'tools') -Force | Out-Null
     Copy-Item -LiteralPath $exe -Destination (Join-Path $payload 'tools\worker.exe') -Force
     [IO.File]::WriteAllText((Join-Path $payload 'assets\fixture.txt'),('fixture-'+$tag))
+    if($LongPaths){
+        # Synthetic payload stays below legacy MAX_PATH before packaging,
+        # but the real same-volume .iwxa-new-<GUID> stage crosses 260.
+        $part='nested'+('x'*19)
+        $rel='assets'
+        for($n=0;$n -lt 4;$n++){$rel=Join-Path $rel $part}
+        $rel=Join-Path $rel 'long-path.txt'
+        $deepFile=Join-Path $payload $rel
+        $staged=Join-Path $folder 'installed'
+        $staged=$staged+'.iwxa-new-'+('a'*32)
+        if($deepFile.Length -ge 248 -or (Join-Path $staged $rel).Length -lt 270){
+            throw 'SETUP_NEUTRAL_DEEP_PATH_FIXTURE_NOT_DISCRIMINATING'
+        }
+        New-Item -ItemType Directory -Path (Split-Path -Parent $deepFile) -Force | Out-Null
+        [IO.File]::WriteAllText($deepFile,'generated-public-long-path-fixture')
+    }
     $manifest=Join-Path $folder 'product.json'
     $product=[ordered]@{
         schema='IWXA_SETUP_PRODUCT/1';id=$id;display_name=('IWXA Test '+$tag)
@@ -174,6 +190,31 @@ try{
         throw 'SETUP_NEUTRAL_SECOND_UNINSTALL_INVALID'
     }
     Write-Host 'IWXA_SETUP_CROSS_PRODUCT_UNINSTALL_AND_DATA_PRESERVATION_PASS'
+    # Large real products contain deep Python dependency paths. Test the
+    # original Setup Core installer with synthetic data at the same depth.
+    $long=Make-Product ('l'+[Guid]::NewGuid().ToString('N').Substring(0,10)) -LongPaths
+    $longInspect=Invoke-Setup $long.bundle @('--inspect-file')
+    if($longInspect.status -ne 'VERIFIED' -or $longInspect.product -ne $long.id){
+        throw 'SETUP_NEUTRAL_LONG_PATH_BUNDLE_INSPECTION_FAILED'
+    }
+    $longInstall=Invoke-Setup $long.bundle @('--install-locations-file',('"' + $long.request + '"'))
+    if($longInstall.status -ne 'INSTALLED_NOT_LAUNCHED'){
+        throw 'SETUP_NEUTRAL_LONG_PATH_INSTALL_FAILED'
+    }
+    $longVerify=Invoke-Setup $long.bundle @('--verify-installed-file')
+    if($longVerify.status -ne 'OWNED_FILES_VERIFIED'){
+        throw 'SETUP_NEUTRAL_LONG_PATH_VERIFY_FAILED'
+    }
+    New-Item -ItemType Directory -Path $long.data -Force | Out-Null
+    $longMarker=Join-Path $long.data 'preserved.txt'
+    [IO.File]::WriteAllText($longMarker,'synthetic-user-owned')
+    $longRemoved=Invoke-Setup $long.bundle @('--uninstall-file')
+    if($longRemoved.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
+       (Test-Path -LiteralPath $long.program) -or
+       [IO.File]::ReadAllText($longMarker) -ne 'synthetic-user-owned'){
+        throw 'SETUP_NEUTRAL_LONG_PATH_UNINSTALL_OR_DATA_LOSS'
+    }
+    Write-Host 'IWXA_SETUP_SYNTHETIC_LONG_PATH_LIFECYCLE_PASS'
     # The external-bundle acceptance is exercised here with the same
     # disposable synthetic program, never with a confidential payload.
     $c=Make-Product ('c'+[Guid]::NewGuid().ToString('N').Substring(0,10))
