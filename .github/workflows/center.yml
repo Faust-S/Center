@@ -583,6 +583,9 @@ jobs:
             $code=[regex]::Match($raw,'(full_qualification_[a-z0-9_-]+|PRIVATE_SETUP_CORE_BUILD_FAIL|private_setup_[a-z0-9_-]+)')
             if($code.Success){Write-Host ('PRIVATE_QUALIFICATION_STAGE='+$code.Value)}
             else{Write-Host 'PRIVATE_QUALIFICATION_STAGE=UNCLASSIFIED'}
+            if($raw -match 'full_qualification_step_failed_python-(targeted|full)_exit_([0-9]{1,3})'){
+              Write-Host ('PRIVATE_PYTHON_EXIT_CODE='+$Matches[2])
+            }
             # The pytest log remains private on the ephemeral worker. Public
             # output contains only bounded test identifiers, never captured
             # tracebacks, assertion values, task content, or provider data.
@@ -590,12 +593,16 @@ jobs:
             $pytestLog=Join-Path $out ('evidence/'+$testStage+'.stdout.log')
             if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
               $count=0
+              $collections=0
               $locations=0
               $errors=0
               foreach($line in [IO.File]::ReadLines($pytestLog)){
                 if($line -match '^(FAILED|ERROR)\s+(tests[/\\][A-Za-z0-9_/.\\:-]{1,220})\b'){
                   Write-Host ('PRIVATE_PYTHON_FAILED_TEST='+$Matches[2])
                   $count++
+                }elseif($line -match '^ERROR collecting (tests[/\\][A-Za-z0-9_./\\-]{1,180}\.py)' -and $collections -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_COLLECTION_ERROR='+$Matches[1])
+                  $collections++
                 }elseif($line -match '^tests[/\\]([A-Za-z0-9_./\\-]{1,180}\.py):(\d{1,5}):' -and $locations -lt 12){
                   Write-Host ('PRIVATE_PYTHON_FAILURE_LOCATION='+$Matches[1]+':'+$Matches[2])
                   $locations++
@@ -612,6 +619,7 @@ jobs:
                 if($count -ge 20 -and $locations -ge 12 -and $errors -ge 12){break}
               }
               Write-Host ('PRIVATE_PYTHON_FAILURE_IDENTIFIERS_SHOWN='+$count)
+              Write-Host ('PRIVATE_PYTHON_COLLECTION_IDENTIFIERS_SHOWN='+$collections)
             }
             throw 'PRIVATE_QUALIFICATION_NOT_ACCEPTED'
           }
