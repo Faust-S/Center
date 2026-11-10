@@ -589,8 +589,30 @@ jobs:
             # The pytest log remains private on the ephemeral worker. Public
             # output contains only bounded test identifiers, never captured
             # tracebacks, assertion values, task content, or provider data.
-            $testStage=if($raw -match 'full_qualification_step_failed_python-targeted'){'python-targeted'}else{'python-full'}
+            $testStage=if($raw -match 'full_qualification_step_(?:failed|exit_unknown)_python-targeted'){'python-targeted'}else{'python-full'}
             $pytestLog=Join-Path $out ('evidence/'+$testStage+'.stdout.log')
+            $pytestErr=Join-Path $out ('evidence/'+$testStage+'.stderr.log')
+            if($raw -match 'full_qualification_step_exit_unknown_python-(targeted|full)'){
+              Write-Host 'PRIVATE_PYTHON_EXIT_OBSERVATION=UNAVAILABLE'
+            }
+            if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
+              $outputText=Get-Content -LiteralPath $pytestLog -Raw -Encoding UTF8
+              if($outputText -match '(\d{1,6})\s+passed'){Write-Host ('PRIVATE_PYTHON_PASSED_COUNT='+$Matches[1])}
+              if($outputText -match '(\d{1,6})\s+failed'){Write-Host ('PRIVATE_PYTHON_FAILED_COUNT='+$Matches[1])}
+              if($outputText -match 'INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=INTERNAL'}
+              if($outputText -match 'ERROR collecting '){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=COLLECTION'}
+              if($outputText -match 'unrecognized arguments|pytest: error:'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=ARGUMENTS'}
+              if($outputText -match 'no tests ran'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=NO_TESTS'}
+              if($outputText -match 'Traceback \(most recent call last\)'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=TRACEBACK_REDACTED'}
+              Write-Host ('PRIVATE_PYTHON_STDOUT_BYTES='+([Text.Encoding]::UTF8.GetByteCount($outputText)))
+            }else{Write-Host 'PRIVATE_PYTHON_STDOUT=NOT_FOUND'}
+            if(Test-Path -LiteralPath $pytestErr -PathType Leaf){
+              $errText=Get-Content -LiteralPath $pytestErr -Raw -Encoding UTF8
+              if($errText -match 'unrecognized arguments|pytest: error:'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=ARGUMENTS'}
+              if($errText -match 'Fatal Python error|INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=INTERNAL'}
+              if($errText -match 'No module named pytest'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=PYTEST_MISSING'}
+              Write-Host ('PRIVATE_PYTHON_STDERR_BYTES='+([Text.Encoding]::UTF8.GetByteCount($errText)))
+            }else{Write-Host 'PRIVATE_PYTHON_STDERR=NOT_FOUND'}
             if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
               $count=0
               $collections=0
