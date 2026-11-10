@@ -458,7 +458,8 @@ try {
   assert.equal(await page.getByTestId('publisher-t3-issue').isEnabled(),true);
   checks.push('t3-owner-seats-explicit-and-scoped-to-saved-tariff');
   const banner=await page.locator('main > .notice').first().innerText();
-  assert.match(banner,/Подписанные лицензии доступны только в режиме TEST/);
+  assert.match(banner,/Лицензии TEST и PERSON подписывает исходный T3/);
+  assert.match(banner,/Коммерческая активация мест и выпуск релизов отключены/);
   assert.doesNotMatch(banner,/подпись издателя не подключена/);
   // The original T3 inventory is limited to 48 entries. A truncated list
   // must not prove an unseen ALREADY_ISSUED receipt.
