@@ -762,7 +762,6 @@ mod tests {
         assert!(!large.publisher_authorized);
         let _ = fs::remove_dir_all(root);
     }
-    #[test]
     #[cfg(target_os = "windows")]
     #[test]
     fn webview_profile_follows_setup_core_selected_data_root() {
@@ -774,6 +773,7 @@ mod tests {
             local.join("ru.iwxa.publisher").join("webview"));
     }
 
+    #[test]
     fn native_diagnostics_are_read_only_and_do_not_expose_preparation_content() {
         let root = scratch();
         fs::create_dir_all(&root).unwrap();
