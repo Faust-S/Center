@@ -586,8 +586,48 @@ jobs:
           }
           if($pass -lt 1 -or $fail -ne 0){throw 'PRIVATE_NODE_RESULT_INCOMPLETE'}
           Write-Host 'PRIVATE_NODE_REGRESSION_PASS'
+      - name: Verify synthetic pinned public wheel transport on Windows
+        if: ${{ contains(github.event.head_commit.message, ' native-only') }}
+        timeout-minutes: 4
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $url='https://files.pythonhosted.org/packages/64/b4/17d4b0b2a2dc85a6df63d1157e028ed19f90d4cd97c36717afef2bc2f395/attrs-26.1.0-py3-none-any.whl'
+          $sha='c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309'
+          $dest=Join-Path $env:RUNNER_TEMP 'iwxa-public-wheel-test.whl'
+          $script=Join-Path $env:RUNNER_TEMP 'public-wheel-transport.ps1'
+          @'
+          param([string]$Url,[string]$Target)
+          $ErrorActionPreference='Stop'
+          $ProgressPreference='SilentlyContinue'
+          try {
+            Invoke-WebRequest -UseBasicParsing $Url -OutFile $Target -TimeoutSec 30
+            Write-Host 'PUBLIC_WHEEL_IWR=SUCCESS'
+          } catch {
+            Write-Host ('PUBLIC_WHEEL_IWR_ERROR_TYPE='+$_.Exception.GetType().Name)
+            exit 1
+          }
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          & $ps -NoLogo -NoProfile -NonInteractive -File $script -Url $url -Target $dest
+          $iwrExit=$LASTEXITCODE
+          if($iwrExit -eq 0 -and (Test-Path -LiteralPath $dest -PathType Leaf)){
+            $digest=(Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host ('PUBLIC_WHEEL_IWR_SHA='+ $(if($digest -eq $sha){'PASS'}else{'MISMATCH'}))
+          }else{
+            Write-Host 'PUBLIC_WHEEL_IWR=FAIL'
+            & curl.exe -L --fail --retry 1 --connect-timeout 10 --max-time 40 --output $dest $url 1>$null 2>$null
+            $curlExit=$LASTEXITCODE
+            if($curlExit -eq 0 -and (Test-Path -LiteralPath $dest -PathType Leaf)){
+              $digest=(Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Host ('PUBLIC_WHEEL_CURL_SHA='+ $(if($digest -eq $sha){'PASS'}else{'MISMATCH'}))
+            }else{
+              Write-Host 'PUBLIC_WHEEL_CURL=FAIL'
+            }
+          }
+          Remove-Item -LiteralPath $dest,$script -Force -ErrorAction SilentlyContinue
       - name: Install private source qualification dependencies
-        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') && !contains(github.event.head_commit.message, ' native-only') }}
         timeout-minutes: 22
         shell: pwsh
         working-directory: private-product
