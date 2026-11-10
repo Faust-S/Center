@@ -82,21 +82,30 @@ foreach($scale in @(1.0,1.25,1.5,2.0,2.5)){
       [int][Math]::Round(900*$scale),
       [int][Math]::Round(560*$scale))
     $form.PerformLayout()
+    # Setup Core 1.0 uses one outer column with header, two-column
+    # work area and footer. Qualify the actual two content cards, not the
+    # obsolete pre-unified root layout.
     $shell=$form.Controls[0]
-    if($shell -isnot [System.Windows.Forms.TableLayoutPanel] -or $shell.ColumnCount -ne 2){
-      throw "PUBLISHER_SETUP_SIDEBAR_OVERLAY_LAYOUT_REJECTED scale=$scale"
+    if($shell -isnot [System.Windows.Forms.TableLayoutPanel] -or
+       $shell.ColumnCount -ne 1 -or $shell.RowCount -ne 3){
+      throw "PUBLISHER_SETUP_UNIFIED_SHELL_INVALID scale=$scale"
     }
     $shell.PerformLayout()
-    $navigation=$shell.GetControlFromPosition(0,0)
-    $content=$shell.GetControlFromPosition(1,0)
-    if(!$navigation -or !$content){
-      throw "PUBLISHER_SETUP_TWO_COLUMN_CONTROLS_MISSING scale=$scale"
+    $work=$shell.GetControlFromPosition(0,1)
+    if($work -isnot [System.Windows.Forms.TableLayoutPanel] -or $work.ColumnCount -ne 2){
+      throw "PUBLISHER_SETUP_UNIFIED_TWO_COLUMN_LAYOUT_MISSING scale=$scale"
     }
-    if($navigation.Left -ne 0 -or $content.Left -lt $navigation.Right -or
-       $content.Right -gt $shell.ClientSize.Width -or $content.Width -le 0){
-      throw "PUBLISHER_SETUP_NAV_OVERLAPS_CONTENT scale=$scale nav=$($navigation.Bounds) area=$($content.Bounds)"
+    $work.PerformLayout()
+    $left=$work.GetControlFromPosition(0,0)
+    $right=$work.GetControlFromPosition(1,0)
+    if(!$left -or !$right -or $left.Width -le 0 -or $right.Width -le 0){
+      throw "PUBLISHER_SETUP_UNIFIED_CARDS_MISSING scale=$scale"
     }
-    Write-Host "PUBLISHER_SETUP_SIDEBAR_CONTENT_SEPARATED_PASS scale=$scale"
+    if($left.Left -lt $work.Padding.Left -or $right.Left -lt $left.Right -or
+       $right.Right -gt ($work.ClientSize.Width - $work.Padding.Right)){
+      throw "PUBLISHER_SETUP_UNIFIED_CARDS_OVERLAP scale=$scale left=$($left.Bounds) right=$($right.Bounds)"
+    }
+    Write-Host "PUBLISHER_SETUP_UNIFIED_CARDS_SEPARATED_PASS scale=$scale"
   } finally { $form.Dispose() }
 }
 
