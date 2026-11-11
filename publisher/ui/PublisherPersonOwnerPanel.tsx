@@ -202,7 +202,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
     finally{setBusy(false);}
   }
   async function operate(action:()=>Promise<{
-    message:string;confirm?:(value:Inventory)=>boolean;readbackLookupId?:string
+    message:string;confirm?:(value:Inventory)=>boolean;readbackLookupId?:string;
+    selectLicenseId?:string
   }>,mutatesLedger=false){
     if(busy||!available||needsRefresh)return;
     setBusy(true);setFailure('');setMessage('');
@@ -224,6 +225,18 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
         setLookupTarget(result.readbackLookupId);
         setLookupText(result.readbackLookupId);
       }
+      if(result.selectLicenseId){
+        if(!readback.entries.some(x=>x.licenseId===result.selectLicenseId)){
+          setNeedsRefresh(true);
+          setFailure('Подписанная лицензия не найдена в перечитанном журнале T3. '+
+            'Обновите журнал перед дальнейшей работой.');
+          return;
+        }
+        // Select the exact signed record only after durable owner readback.
+        // A user must still explicitly choose the status and export action.
+        setLicenseId(result.selectLicenseId);
+        setStatus('');setRevokePending('');setRenewalTariff('');
+      }
       setMessage(result.message);
     }catch(e){
       // The native T3 process may have committed a signed mutation before
@@ -241,20 +254,20 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
     const request=prepareUnsignedPersonLicenseRequest(draft,{proposalId:selected.proposalId});
     const authority=issuer;
     const source=draft.proposals?.find((p:any)=>p.id===selected.proposalId);
-    if(source?.previousProposalId){
-      try{
-        const prior=licenses.find(l=>l.requestId===source.previousProposalId);
+    await operate(async()=>{
+      if(source?.previousProposalId){
+        // The signed original may be older than the last 48 records. Read
+        // original T3 by its exact requestId, not an incomplete GUI list.
+        const original=await invoke('publisher_t3_person_inventory',{
+          lookupId:source.previousProposalId});
+        const prior=checkedInventory(original,source.previousProposalId)
+          .find(x=>x.requestId===source.previousProposalId);
         const verified=validatePersonRenewalSource(draft,{
           sourceLicense:prior,issuerAuthorityId:authority});
         if(verified.personId!==request.subject.id||
            verified.productId!==request.product.id)
           throw Error('PERSON_RENEWAL_REQUEST_SCOPE_MISMATCH');
-      }catch(e){
-        setFailure('Продление не подтверждено журналом T3: '+err(e));
-        return;
       }
-    }
-    await operate(async()=>{
       // The 48-record recent view is not proof that an older request is new.
       // Query the original T3 ledger BEFORE inviting a second signature.
       const before=await invoke('publisher_t3_person_inventory',{
@@ -263,8 +276,9 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
         .find(x=>x.requestId===request.requestId);
       if(prior)return {
         message:'Эта подготовка уже подписана исходным T3. '+
-          'Выберите найденную лицензию для статуса, продления или экспорта.',
+          'Лицензия выбрана в журнале для дальнейших действий.',
         readbackLookupId:request.requestId,
+        selectLicenseId:prior.licenseId,
         confirm:({entries}:Inventory)=>entries.some(x=>
           x.licenseId===prior.licenseId&&x.requestId===request.requestId)
       };
@@ -275,9 +289,10 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
          !id(result.licenseId)||result.requestId!==request.requestId)
         throw Error('PERSON_NATIVE_ISSUE_RECEIPT_INVALID');
       return {
-        message:'Подписанная лицензия сохранена в журнале издателя. '+
-          'Для применения прав её необходимо импортировать в установленную программу.',
+        message:'Подписанная лицензия сохранена в журнале издателя и выбрана. '+
+          'Подпишите её статус, экспортируйте .iwxa и импортируйте файл в установленную программу.',
         readbackLookupId:request.requestId,
+        selectLicenseId:result.licenseId,
         confirm:({entries}:Inventory)=>entries.some(x=>x.licenseId===result.licenseId&&
           x.requestId===request.requestId&&x.issuerAuthorityId===authority&&
           x.personId===request.subject.id&&x.productId===request.product.id&&

@@ -797,7 +797,12 @@ try {
         const matches=args.lookupId?
           ledger.filter(x=>x.licenseId===args.lookupId||
             x.requestId===args.lookupId||x.personId===args.lookupId):ledger;
-        return {operation:'PERSON_INVENTORY',licenses:matches.slice(-48),
+        // Simulate a predecessor outside the recent 48 while the exact
+        // original-owner lookup still finds its durable signed record.
+        const visible=!args.lookupId&&window.__personMockHideOriginalRecent?
+          matches.filter(x=>x.requestId!==window.__personMockHideOriginalRecent):
+          matches;
+        return {operation:'PERSON_INVENTORY',licenses:visible.slice(-48),
           total:ledger.length,truncated:matches.length>48,
           ...(args.lookupId?{lookupId:args.lookupId,matches:matches.length}:{}),
           activeSeats:0,productionActivation:false};
@@ -938,10 +943,13 @@ try {
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
   await personOwner.getByTestId('publisher-person-issue').click();
-  await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя.',{exact:false}).waitFor();
+  await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя и выбрана.',{exact:false}).waitFor();
   await personOwner.getByTestId('publisher-person-already-issued').waitFor();
   assert.match(await personOwner.getByTestId('publisher-person-already-issued').innerText(),
     /license:person:mock:one/);
+  assert.match(await personOwner.getByTestId('publisher-person-selected-license').innerText(),
+    /license:person:mock:one/,
+    'Publisher must select the just-issued PERSON license after original T3 readback');
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true,
     'An already-signed original PERSON request must not offer repeated issue');
   await personOwner.getByRole('combobox',{name:'Издатель'})
@@ -989,6 +997,16 @@ try {
   assert.equal(JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger'))).length,1);
   checks.push('person-renewal-prepared-from-signed-native-record');
+  // Simulate the older signed predecessor missing from the recent inventory.
+  // The renewal must use original T3's exact request lookup instead of
+  // making the user recover the predecessor in the GUI first.
+  await personal.evaluate(id=>{window.__personMockHideOriginalRecent=id;},
+    directDraft.proposals[0].id);
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByRole('combobox',{name:'Персональная лицензия'})
+    .locator('option[value="license:person:mock:one"]').count(),0);
+  await personal.evaluate(()=>{window.__personMockHideOriginalRecent=null;});
   // Validate the complete public GUI -> native IPC request for the newly
   // prepared follow-up. The mock only echoes it; original T3 signs in the
   // private Windows qualification, never in this browser test.
@@ -998,10 +1016,14 @@ try {
   assert.match(renewalPreview,/устройств: 3/);
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
   await personOwner.getByTestId('publisher-person-issue').click();
-  await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя.',{exact:false}).waitFor();
+  await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя и выбрана.',{exact:false}).waitFor();
   await personOwner.getByTestId('publisher-person-already-issued').waitFor();
   assert.match(await personOwner.getByTestId('publisher-person-already-issued').innerText(),
     /license:person:mock:two/);
+  assert.match(await personOwner.getByTestId('publisher-person-selected-license').innerText(),
+    /license:person:mock:two/,
+    'Signed renewal must be selected after exact original T3 readback');
+  checks.push('person-renewal-references-original-T3-even-when-older-than-recent-view');
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true,
     'A signed renewal cannot silently be issued a second time');
   const updatedLedger=JSON.parse(await personal.evaluate(()=>
@@ -1144,6 +1166,8 @@ try {
   await personOwner.getByText('Эта подготовка уже подписана исходным T3.',{exact:false}).waitFor();
   assert.match(await personOwner.getByTestId('publisher-person-already-issued').innerText(),
     /license:person:mock:one/);
+  assert.match(await personOwner.getByTestId('publisher-person-selected-license').innerText(),
+    /license:person:mock:one/, 'Recovered signed license must be selected from exact original T3 readback');
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
   assert.equal(JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger'))).length,countBefore);
