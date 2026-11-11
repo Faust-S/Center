@@ -859,6 +859,11 @@ try {
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
   await personOwner.getByTestId('publisher-person-issue').click();
   await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя.',{exact:false}).waitFor();
+  await personOwner.getByTestId('publisher-person-already-issued').waitFor();
+  assert.match(await personOwner.getByTestId('publisher-person-already-issued').innerText(),
+    /license:person:mock:one/);
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true,
+    'An already-signed original PERSON request must not offer repeated issue');
   const personLicensePicker=personOwner.getByRole('combobox',{name:'Персональная лицензия',exact:true});
   assert.equal(await personOwner.getByRole('combobox',{name:'Лицензия',exact:true}).count(),0,
     'PERSON and TEST license selectors must have distinct accessible names');
@@ -897,6 +902,11 @@ try {
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
   await personOwner.getByTestId('publisher-person-issue').click();
   await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя.',{exact:false}).waitFor();
+  await personOwner.getByTestId('publisher-person-already-issued').waitFor();
+  assert.match(await personOwner.getByTestId('publisher-person-already-issued').innerText(),
+    /license:person:mock:two/);
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true,
+    'A signed renewal cannot silently be issued a second time');
   const updatedLedger=JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger')));
   assert.equal(updatedLedger.length,2);
@@ -922,6 +932,7 @@ try {
   await personOwner.getByTestId('publisher-person-status').click();
   await personOwner.getByText('Подписанный статус сохранён.',{exact:false}).waitFor();
   checks.push('person-renewal-issued-over-native-ipc-with-source-request-identity');
+  checks.push('person-original-and-renewal-requests-cannot-be-reissued-by-ui');
   await personOwner.getByRole('combobox',{name:'Персональная лицензия',exact:true})
     .selectOption('license:person:mock:one');
   await personOwner.getByTestId('publisher-person-export').click();
