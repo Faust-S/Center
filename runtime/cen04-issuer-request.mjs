@@ -4,10 +4,15 @@ import {
 
 // Admin Center prepares a request for the EXISTING Publisher TEST issuer.
 // This is not a license, not an organization grant and not a T3 Store.
+/** @param {{
+ * organization:{kind:'GROUP'|'ORGANIZATION',id:string,name:string},
+ * requestId:string, requestedAt:string, version?:string,
+ * featureIds?:string[], termDays?:number, seats?:number
+ * }} options */
 export function prepareAdminPublisherTestRequest({
   organization, requestId, requestedAt, version='0.3.0',
   featureIds=['WORKSPACE'], termDays=30, seats=1
-}={}){
+}){
   if(organization?.kind!=='ORGANIZATION')
     throw Error('CEN04_PUBLISHER_ORGANIZATION_KIND_REQUIRED');
   const request=validateTestLicenseRequest({
