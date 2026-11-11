@@ -201,14 +201,15 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       setFailure('Поиск в журнале T3 не выполнен: '+err(e));}
     finally{setBusy(false);}
   }
-  async function operate(action:()=>Promise<{
+  async function operate(action:(mutationSent:()=>void)=>Promise<{
     message:string;confirm?:(value:Inventory)=>boolean;readbackLookupId?:string;
     selectLicenseId?:string
   }>,mutatesLedger=false){
     if(busy||!available||needsRefresh)return;
     setBusy(true);setFailure('');setMessage('');
+    let nativeMutationStarted=false;
     try{
-      const result=await action();
+      const result=await action(()=>{nativeMutationStarted=true;});
       let readback:Inventory;
       const query=result.readbackLookupId??lookupTarget;
       try{readback=await inventory(query);}
@@ -242,11 +243,15 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       // The native T3 process may have committed a signed mutation before
       // losing its IPC response. Never allow a second issue/status change
       // until an independently read owner ledger settles the ambiguity.
-      if(mutatesLedger){
+      if(mutatesLedger&&nativeMutationStarted){
         setNeedsRefresh(true);
         setFailure('Операция могла сохраниться в T3, но результат не подтверждён. '+
           'Обновите журнал перед повтором. '+err(e));
-      }else setFailure(err(e));
+      }else{
+        // Preflight lookup and validation happen before the native signer is
+        // called. There cannot yet be a committed signing result to recover.
+        setFailure('Предварительная проверка T3 не выполнена: '+err(e));
+      }
     }finally{setBusy(false);}
   }
   async function issue(){
@@ -254,22 +259,10 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
     const request=prepareUnsignedPersonLicenseRequest(draft,{proposalId:selected.proposalId});
     const authority=issuer;
     const source=draft.proposals?.find((p:any)=>p.id===selected.proposalId);
-    await operate(async()=>{
-      if(source?.previousProposalId){
-        // The signed original may be older than the last 48 records. Read
-        // original T3 by its exact requestId, not an incomplete GUI list.
-        const original=await invoke('publisher_t3_person_inventory',{
-          lookupId:source.previousProposalId});
-        const prior=checkedInventory(original,source.previousProposalId)
-          .find(x=>x.requestId===source.previousProposalId);
-        const verified=validatePersonRenewalSource(draft,{
-          sourceLicense:prior,issuerAuthorityId:authority});
-        if(verified.personId!==request.subject.id||
-           verified.productId!==request.product.id)
-          throw Error('PERSON_RENEWAL_REQUEST_SCOPE_MISMATCH');
-      }
-      // The 48-record recent view is not proof that an older request is new.
-      // Query the original T3 ledger BEFORE inviting a second signature.
+    await operate(async mutationSent=>{
+      // A signed renewal remains a durable record even if its original
+      // license was later revoked or expired. Find it before checking the
+      // conditions for a NEW renewal or invoking the signer.
       const before=await invoke('publisher_t3_person_inventory',{
         lookupId:request.requestId});
       const prior=checkedInventory(before,request.requestId)
@@ -282,6 +275,20 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
         confirm:({entries}:Inventory)=>entries.some(x=>
           x.licenseId===prior.licenseId&&x.requestId===request.requestId)
       };
+      if(source?.previousProposalId){
+        // For a NEW renewal, consult the original T3 owner by requestId,
+        // even if the predecessor is no longer in the last 48 UI entries.
+        const original=await invoke('publisher_t3_person_inventory',{
+          lookupId:source.previousProposalId});
+        const previous=checkedInventory(original,source.previousProposalId)
+          .find(x=>x.requestId===source.previousProposalId);
+        const verified=validatePersonRenewalSource(draft,{
+          sourceLicense:previous,issuerAuthorityId:authority});
+        if(verified.personId!==request.subject.id||
+           verified.productId!==request.product.id)
+          throw Error('PERSON_RENEWAL_REQUEST_SCOPE_MISMATCH');
+      }
+      mutationSent();
       const result=await invoke('publisher_t3_person_issue',{
         requestJson:JSON.stringify(request),issuerAuthorityId:authority});
       if(result?.operation!=='PERSON_ISSUE'||result.productionActivation!==false||
@@ -327,7 +334,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
     if(!current||!personStatusAllowed(current,requested)||busy||needsRefresh||
        (requested==='REVOKED'&&!canRevoke))return;
     setRevokePending('');
-    await operate(async()=>{
+    await operate(async mutationSent=>{
+      mutationSent();
       const value=await invoke('publisher_t3_person_change_status',{
         licenseId:current.licenseId,nextStatus:requested});
       if(value?.operation!=='PERSON_STATUS'||value.productionActivation!==false||
