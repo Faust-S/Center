@@ -1,0 +1,114 @@
+import React,{useEffect,useState} from 'react';
+
+// The same public UI is embedded in both Windows products. Native transport
+// calls the separately bundled original T3 age/DPAPI owner. It never obtains
+// private identities or decrypts a file in WebView.
+type Invoke=(name:string,args?:Record<string,unknown>)=>Promise<any>;
+type Status={operation:'AGE_STATUS';available:boolean;recipient:string|null;
+  provider:string;toolchain:{ready:boolean;reason?:string};admitted:false};
+export default function AgeExchangePanel({invoke,prefix}:{
+  invoke:Invoke|null;prefix:'center'|'publisher'
+}){
+  const [state,setState]=useState<Status|null>(null);
+  const [recipients,setRecipients]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [message,setMessage]=useState('');
+  const [failure,setFailure]=useState('');
+  const [details,setDetails]=useState('');
+  const connected=Boolean(invoke);
+  async function refresh(){
+    if(!invoke)return;
+    const next=await invoke(prefix+'_age_status') as Status;
+    if(next?.operation!=='AGE_STATUS'||typeof next.available!=='boolean'||
+       typeof next.toolchain?.ready!=='boolean'||next.admitted!==false||
+       (next.available&&!/^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$/.test(next.recipient??'')))
+      throw Error('AGE_DESKTOP_STATUS_INVALID');
+    setState(next);
+  }
+  useEffect(()=>{
+    let live=true;
+    if(!invoke)return;
+    invoke(prefix+'_age_status').then((next:Status)=>{
+      if(!live)return;
+      if(next?.operation!=='AGE_STATUS'||next.admitted!==false||
+        typeof next.toolchain?.ready!=='boolean')
+        throw Error('AGE_DESKTOP_STATUS_INVALID');
+      setState(next);
+    }).catch(e=>{if(live)setFailure('Защищённый обмен недоступен: '+String(e));});
+    return()=>{live=false;};
+  },[invoke,prefix]);
+  async function perform(action:'create_recipient'|'inspect'|'encrypt'|'decrypt'){
+    if(!invoke||busy)return;
+    setBusy(true);setMessage('');setFailure('');setDetails('');
+    try{
+      const data=await invoke(prefix+'_age_'+action,
+        action==='encrypt'?{recipients}:undefined);
+      if(data===null){setMessage('Выбор файла отменён. Данные не изменены.');return;}
+      const expected={
+        create_recipient:'AGE_RECIPIENT_CREATED',
+        inspect:'AGE_INSPECTED',encrypt:'AGE_ENCRYPTED',
+        decrypt:'AGE_DECRYPTED'
+      }[action];
+      if(data?.operation!==expected||data.admitted!==false)
+        throw Error('AGE_DESKTOP_RECEIPT_INVALID');
+      if(action==='encrypt'&&data.deliveryState!=='NOT_CONFIRMED')
+        throw Error('AGE_DESKTOP_EXPORT_RECEIPT_INVALID');
+      if(action==='decrypt'&&data.state!=='DECRYPTED_INTEGRITY_VERIFIED_NOT_ADMITTED')
+        throw Error('AGE_DESKTOP_DECRYPT_RECEIPT_INVALID');
+      if(action==='create_recipient'){
+        await refresh();
+        setMessage('Локальный X25519-ключ создан в T3 и защищён Windows DPAPI.');
+      }else if(action==='encrypt'){
+        setMessage('Файл .iwxa.age сохранён. Доставка получателю не подтверждена.');
+      }else if(action==='decrypt'){
+        setMessage('Исходный .iwxa восстановлен. Подпись, получатель и права должны быть отдельно проверены T3 при приёме.');
+      }else{
+        setMessage('Заголовок age проверен. Это не подтверждает владельца ключа или подлинность пакета.');
+      }
+      setDetails(JSON.stringify({
+        packageSha256:data.sourceSha256??null,
+        ciphertextSha256:data.ciphertextSha256??null,
+        recipientCount:data.recipientCount??data.recipientStanzas??null,
+        admitted:false
+      }));
+    }catch(e){setFailure(e instanceof Error?e.message:String(e));}
+    finally{setBusy(false);}
+  }
+  const canUse=connected&&state?.toolchain?.ready===true;
+  return <section className="card padded" data-testid={prefix+'-age-exchange'}>
+    <h3>Защищённый обмен .iwxa.age</h3>
+    <p className="muted">Используется исходный T3 age/X25519. Шифрование не заменяет подпись,
+      организационное разрешение и подтверждение получения файла.</p>
+    {!connected&&<p role="status">Обмен доступен только в установленном Windows-приложении.</p>}
+    {connected&&state&&!state.toolchain.ready&&
+      <p role="status">Криптографический компонент T3 не готов: {state.toolchain.reason??'проверенные age и age-keygen отсутствуют'}.</p>}
+    {state&&<div className="nested-form">
+      <strong>Локальный получатель</strong>
+      <p className="muted" data-testid={prefix+'-age-public-key'}>
+        {state.available?state.recipient:'Ключ получателя ещё не создан'}</p>
+      <button className="secondary" disabled={!canUse||busy||state.available}
+        onClick={()=>void perform('create_recipient')}>Создать ключ получателя</button>
+    </div>}
+    <label>Открытые ключи получателей age1 (по одному на строке, 1–16)
+      <textarea rows={3} spellCheck={false} value={recipients}
+        onChange={e=>setRecipients(e.target.value)}
+        placeholder="age1…" data-testid={prefix+'-age-recipients'}/>
+    </label>
+    <p className="muted">Ключи нужно получить из доверенного источника и отдельно
+      проверить принадлежность получателю. Ввод ключа сам по себе не устанавливает доверие.</p>
+    <div className="actions">
+      <button className="primary" disabled={!canUse||busy||!recipients.trim()}
+        data-testid={prefix+'-age-encrypt'} onClick={()=>void perform('encrypt')}>
+        Зашифровать .iwxa</button>
+      <button className="secondary" disabled={!canUse||busy}
+        data-testid={prefix+'-age-decrypt'} onClick={()=>void perform('decrypt')}>
+        Расшифровать .iwxa.age</button>
+      <button className="secondary" disabled={!connected||busy}
+        data-testid={prefix+'-age-inspect'} onClick={()=>void perform('inspect')}>
+        Проверить заголовок</button>
+    </div>
+    {message&&<p role="status" data-testid={prefix+'-age-success'}>{message}</p>}
+    {failure&&<p role="alert" data-testid={prefix+'-age-error'}>{failure}</p>}
+    {details&&<small className="muted">{details}</small>}
+  </section>;
+}
