@@ -390,7 +390,11 @@ namespace IwxaSetup
                     string relative = file.Substring(prefix.Length)
                         .Replace(Path.DirectorySeparatorChar, '/');
                     if (!known.Contains(relative) || !actual.Add(relative))
-                        throw new InvalidDataException("SETUP_UNOWNED_FILE_PRESENT");
+                    {
+                        var error = new InvalidDataException("SETUP_UNOWNED_FILE_PRESENT");
+                        error.Data["IWXA_SETUP_UNOWNED_CATEGORY"] = UnownedFileCategory(relative);
+                        throw error;
+                    }
                 }
                 foreach (string sub in Directory.GetDirectories(dir))
                 {
@@ -403,6 +407,29 @@ namespace IwxaSetup
                 (!allowMissingOwnedFiles && !known.SetEquals(actual)) ||
                 !actual.Contains(UninstallExe) || !actual.Contains(ReceiptFile))
                 throw new InvalidDataException("SETUP_OWNED_FILES_MISSING");
+        }
+
+        // Only a fixed public category is returned: never expose a package
+        // path, filename, profile name or user-owned bytes in a CI receipt.
+        private static string UnownedFileCategory(string relative)
+        {
+            string normalized = relative.Replace('\\', '/').ToLowerInvariant();
+            if (normalized.Contains(".webview2/") ||
+                normalized.Contains("/ebwebview/") ||
+                normalized.Contains("/webview2/"))
+                return "WEBVIEW2_PROFILE";
+            if (normalized.EndsWith(".pyc", StringComparison.Ordinal) ||
+                normalized.Contains("/__pycache__/"))
+                return "PYTHON_BYTECODE";
+            if (normalized.StartsWith("desktop/", StringComparison.Ordinal))
+                return "DESKTOP_RUNTIME";
+            if (normalized.StartsWith("runtime/", StringComparison.Ordinal) ||
+                normalized.StartsWith("managed-runtime/", StringComparison.Ordinal))
+                return "PYTHON_OR_MODEL_RUNTIME";
+            if (normalized.StartsWith("instance/", StringComparison.Ordinal) ||
+                normalized.StartsWith("logs/", StringComparison.Ordinal))
+                return "APPLICATION_STATE";
+            return "OTHER";
         }
 
         private static void AssertNotRunning(BundleInfo original, string root)

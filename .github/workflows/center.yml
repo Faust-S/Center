@@ -843,6 +843,22 @@ jobs:
               foreach($item in @($setupNativeReasons) | Sort-Object | Select-Object -First 8){
                 Write-Host ('PRIVATE_NATIVE_SETUP_REASON_CODE='+$item)
               }
+              # The private repair receipt is read ONLY inside the temporary
+              # runner. Print a finite product-neutral category, never a path.
+              $repairReceipt=Join-Path $out 'native-candidate/temporary-installed-fixture/repair.json'
+              if(Test-Path -LiteralPath $repairReceipt -PathType Leaf){
+                try {
+                  $repair=Get-Content -LiteralPath $repairReceipt -Raw -Encoding UTF8|ConvertFrom-Json
+                  $kind=[string]$repair.unownedCategory
+                  if($repair.status -eq 'ERROR' -and $kind -cin @(
+                     'WEBVIEW2_PROFILE','PYTHON_BYTECODE','DESKTOP_RUNTIME',
+                     'PYTHON_OR_MODEL_RUNTIME','APPLICATION_STATE','OTHER')){
+                    Write-Host ('PRIVATE_NATIVE_REPAIR_UNOWNED_CATEGORY='+$kind)
+                  }
+                } catch {
+                  Write-Host 'PRIVATE_NATIVE_REPAIR_CATEGORY_READBACK=UNAVAILABLE'
+                }
+              }
               Write-Host ('PRIVATE_NATIVE_SETUP_OPERATIONS_OBSERVED='+$setupNativeActions.Count)
               Write-Host ('PRIVATE_NATIVE_ERROR_CODES_OBSERVED='+$codes.Count)
               # Native Setup Core writes the detailed reason only to a

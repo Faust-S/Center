@@ -223,6 +223,22 @@ try{
     if($nestedVerified.status -ne 'OWNED_FILES_VERIFIED'){
         throw 'SETUP_NEUTRAL_SPACED_ENTRYPOINT_VERIFY_FAILED'
     }
+    # A real GUI can produce a WebView2 cache. The native repair engine
+    # must not modify or erase it, but must report its type safely.
+    $cacheRoot=Join-Path $nested.program 'desktop\bin\Sample Window.exe.WebView2\EBWebView\Cache'
+    New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
+    [IO.File]::WriteAllText((Join-Path $cacheRoot 'synthetic-cache.bin'),'public-fixture')
+    $unknown=Invoke-Setup $nested.bundle @('--repair-file') 2
+    if($unknown.status -ne 'ERROR' -or $unknown.reason -ne 'SETUP_UNOWNED_FILE_PRESENT' -or
+       $unknown.unownedCategory -ne 'WEBVIEW2_PROFILE'){
+        throw 'SETUP_NEUTRAL_WEBVIEW2_UNOWNED_CLASS_INVALID'
+    }
+    Remove-Item -LiteralPath (Join-Path $nested.program 'desktop\bin\Sample Window.exe.WebView2') -Recurse -Force
+    $nestedReverified=Invoke-Setup $nested.bundle @('--verify-installed-file')
+    if($nestedReverified.status -ne 'OWNED_FILES_VERIFIED'){
+        throw 'SETUP_NEUTRAL_WEBVIEW2_REFUSAL_MUTATED_INSTALL'
+    }
+    Write-Host 'IWXA_SETUP_UNOWNED_WEBVIEW2_FAIL_CLOSED_CLASS_PASS'
     $nestedRemoved=Invoke-Setup $nested.bundle @('--uninstall-file')
     if($nestedRemoved.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
        (Test-Path -LiteralPath $nested.program)){

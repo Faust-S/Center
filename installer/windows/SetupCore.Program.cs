@@ -336,8 +336,17 @@ namespace IwxaSetup
                 }
                 catch (Exception ex)
                 {
+                    string unownedCategory = Convert.ToString(
+                        ex.Data["IWXA_SETUP_UNOWNED_CATEGORY"]);
+                    if (unownedCategory != "WEBVIEW2_PROFILE" &&
+                        unownedCategory != "PYTHON_BYTECODE" &&
+                        unownedCategory != "DESKTOP_RUNTIME" &&
+                        unownedCategory != "PYTHON_OR_MODEL_RUNTIME" &&
+                        unownedCategory != "APPLICATION_STATE")
+                        unownedCategory = "OTHER";
                     WriteResult(args[1], new Dictionary<string, object> {
-                        {"status", "ERROR"}, {"reason", ex.Message}
+                        {"status", "ERROR"}, {"reason", ex.Message},
+                        {"unownedCategory", unownedCategory}
                     });
                     return 2;
                 }
