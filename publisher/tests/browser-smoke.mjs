@@ -836,6 +836,7 @@ try {
         const one=ledger.find(e=>e.licenseId===args.licenseId);
         if(!one||one.status==='REVOKED')throw Error('PERSON_OWNER_REVOKED_TERMINAL');
         one.status=args.nextStatus;one.sequence+=1;
+        one.statusIssuedAt=new Date().toISOString();
         one.statusValidUntil=new Date(Math.min(
           Date.now()+24*3600000,Date.parse(one.expiresAt))).toISOString();
         sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
@@ -967,7 +968,8 @@ try {
   const dates=await personOwner.getByTestId('publisher-person-license-dates').innerText();
   assert.match(dates,/Лицензия выдана:/);
   assert.match(dates,/Срок лицензии до:/);
-  assert.match(dates,/Подписанный статус ACTIVE действителен до:/);
+  assert.match(dates,/Подписанный статус ACTIVE выдан/);
+  assert.match(dates,/Действителен до:/);
   assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true,
     'Do not create redundant same-state signatures while current status has a full day left');
   checks.push('publisher-person-shows-separate-license-and-status-expiry');
@@ -1079,7 +1081,8 @@ try {
   // supports a new monotonic status sequence without issuing a new LICENSE.
   await personal.evaluate(()=>{
     const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
-    ledger[1].statusValidUntil=new Date(Date.now()+15*60*1000).toISOString();
+    ledger[1].statusIssuedAt=new Date(Date.now()-55*60*1000).toISOString();
+    ledger[1].statusValidUntil=new Date(Date.now()+5*60*1000).toISOString();
     sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
   });
   await personOwner.getByTestId('publisher-person-refresh').click();
@@ -1110,6 +1113,7 @@ try {
       productId:'IWXA_ATLAS',deviceLimit:1,quotaCount:0,
       issuedAt:new Date().toISOString(),notBefore:new Date().toISOString(),
       expiresAt:new Date(Date.now()+30*86400000).toISOString(),
+      statusIssuedAt:new Date().toISOString(),
       statusValidUntil:new Date(Date.now()+86400000).toISOString(),
       status:'ACTIVE',sequence:1,activeSeats:0
     });
