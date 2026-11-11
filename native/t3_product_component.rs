@@ -28,8 +28,7 @@ fn binary(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
 }
 pub fn data_root(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
     let (_, subdirectory) = kind_spec(role)?;
-    let base = app.path().app_local_data_dir()
-        .map_err(|_|"T3_PRODUCT_DATA_ROOT_UNAVAILABLE")?;
+    let base = crate::center_product_data_root(app)?;
     Ok(base.join(subdirectory))
 }
 pub fn availability(app:&AppHandle,role:&str) -> bool {

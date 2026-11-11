@@ -3,6 +3,50 @@
 // the pinned Faust-S/Atlas checkout. This is ONE store implementation, not a fork.
 include!(concat!(env!("OUT_DIR"), "/atlas_native.rs"));
 
+// Original IWXA Setup Core selects the user data directory at installation.
+// Keep all Center-owned Atlas, preparation and T3 identities under that root;
+// never store an X25519 DPAPI identity inside the Atlas block store.
+#[cfg(windows)]
+fn center_setup_core_data_root() -> Result<Option<PathBuf>, String> {
+    use std::{ffi::OsString, os::windows::ffi::OsStringExt};
+    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND};
+    use windows_sys::Win32::System::Registry::{RegGetValueW,HKEY_CURRENT_USER,RRF_RT_REG_SZ};
+    let key:Vec<u16>="Software\\IWXA\\SetupCore\\Products\\iwxa.admin-center\0"
+        .encode_utf16().collect();
+    let name:Vec<u16>="DataLocation\0".encode_utf16().collect();
+    let mut bytes=0_u32;
+    let status=unsafe{RegGetValueW(HKEY_CURRENT_USER,key.as_ptr(),name.as_ptr(),
+        RRF_RT_REG_SZ,std::ptr::null_mut(),std::ptr::null_mut(),&mut bytes)};
+    if status==ERROR_FILE_NOT_FOUND||status==ERROR_PATH_NOT_FOUND{return Ok(None);}
+    if status!=0||bytes<4||bytes>32768||bytes%2!=0{
+        return Err("CENTER_SETUP_CORE_DATA_LOCATION_INVALID".into());
+    }
+    let mut wide=vec![0_u16;bytes as usize/2];
+    let status=unsafe{RegGetValueW(HKEY_CURRENT_USER,key.as_ptr(),name.as_ptr(),
+        RRF_RT_REG_SZ,std::ptr::null_mut(),wide.as_mut_ptr().cast(),&mut bytes)};
+    if status!=0||bytes<4||bytes%2!=0{
+        return Err("CENTER_SETUP_CORE_DATA_LOCATION_READ_FAILED".into());
+    }
+    let len=bytes as usize/2;
+    if len>wide.len()||len<2||wide[len-1]!=0{
+        return Err("CENTER_SETUP_CORE_DATA_LOCATION_INVALID".into());
+    }
+    let selected=PathBuf::from(OsString::from_wide(&wide[..len-1]));
+    if !selected.is_absolute()||selected.as_os_str().is_empty(){
+        return Err("CENTER_SETUP_CORE_DATA_LOCATION_NOT_ABSOLUTE".into());
+    }
+    Ok(Some(selected))
+}
+fn center_product_data_root(app:&AppHandle)->Result<PathBuf,String>{
+    #[cfg(windows)]
+    if let Some(selected)=center_setup_core_data_root()?{return Ok(selected);}
+    app.path().app_local_data_dir()
+        .map_err(|_|"CENTER_PRODUCT_DATA_LOCATION_UNAVAILABLE".into())
+}
+fn center_owned_atlas_root(app:&AppHandle)->Result<PathBuf,String>{
+    Ok(center_product_data_root(app)?.join("atlas-store-v1"))
+}
+
 // The current Center organisation ID is a local scope selector, not proof of
 // organisational access. T3 host admission must gate production activation.
 fn center_atlas_root_under(base: &Path, organization_id: &str) -> Result<PathBuf, String> {
@@ -13,7 +57,7 @@ fn center_atlas_root_under(base: &Path, organization_id: &str) -> Result<PathBuf
     Ok(base.join("organizations").join(organization_id))
 }
 fn center_atlas_root(app: &AppHandle, organization_id: &str) -> Result<PathBuf, String> {
-    center_atlas_root_under(&path_for(app)?, organization_id)
+    center_atlas_root_under(&center_owned_atlas_root(app)?, organization_id)
 }
 
 // Resolve only the fixed, same-user Atlas Desktop data root. The caller never
@@ -73,7 +117,7 @@ const CENTER_DRAFT_LIMIT: usize = 8 * 1024 * 1024;
 // File carriers stay opaque here; signatures are checked only by T3 receive().
 const CENTER_IWXA_CARRIER_LIMIT: usize = 32 * 1024 * 1024;
 fn center_draft_root(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(path_for(app)?.join("preparation"))
+    Ok(center_owned_atlas_root(app)?.join("preparation"))
 }
 fn center_draft_validate(content: &str) -> Result<(), String> {
     if content.len() > CENTER_DRAFT_LIMIT {
@@ -236,8 +280,7 @@ fn center_age_root_under(app_data:&Path)->PathBuf{
     app_data.join("t3-age")
 }
 fn center_age_data_root(app:&AppHandle)->Result<PathBuf,String>{
-    let base=app.path().app_local_data_dir()
-        .map_err(|_|"CENTER_AGE_DATA_ROOT_UNAVAILABLE")?;
+    let base=center_product_data_root(app)?;
     Ok(center_age_root_under(&base))
 }
 // File choosers and the external T3 age process must not block WebView IPC.
@@ -297,6 +340,15 @@ fn main() {
 #[cfg(test)]
 mod center_atlas_integration_tests {
     use super::*;
+    #[test]
+    fn setup_core_selected_root_preserves_original_center_store_structure(){
+        let base=std::env::temp_dir().join("iwxa-admin-selected-data");
+        let own=base.join("atlas-store-v1");
+        assert_eq!(center_age_root_under(&base),base.join("t3-age"));
+        assert_eq!(center_atlas_root_under(&own,"org-a").unwrap(),
+                   base.join("atlas-store-v1/organizations/org-a"));
+        assert_eq!(own.join("preparation"),base.join("atlas-store-v1/preparation"));
+    }
     #[test]
     fn age_identity_does_not_land_inside_atlas_project_store(){
         let base=std::env::temp_dir().join("iwxa-admin-center");
