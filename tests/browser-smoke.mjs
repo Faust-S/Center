@@ -170,7 +170,9 @@ try{
   checks.push('admin-native-ui-prepares-original-publisher-t3-request-without-issuing-rights');
   await nativePage.getByRole('spinbutton',{name:'Места TEST-запроса'}).fill('0');
   await nativePage.getByTestId('cen04-export-publisher-request').click();
-  await nativePage.getByRole('alert').waitFor({state:'visible'});
+  const requestError=nativePage.getByTestId('cen04-test-license-panel').getByRole('alert');
+  await requestError.waitFor({state:'visible'});
+  assert.match(await requestError.innerText(),/TEST_REQUEST_SEATS_INVALID/);
   assert.equal(JSON.parse(await nativePage.evaluate(()=>
     sessionStorage.getItem('cen04-publisher-unsigned-content'))).seats,2,
     'Invalid request must not overwrite the last valid export');
