@@ -170,7 +170,8 @@ try {
   await page.getByTestId('publisher-age-success').waitFor();
   assert.match(await page.getByTestId('publisher-age-success').innerText(),/Доставка получателю не подтверждена/);
   await page.getByTestId('publisher-age-decrypt').click();
-  await page.getByTestId('publisher-age-success').waitFor();
+  await page.waitForFunction(()=>document.querySelector('[data-testid="publisher-age-success"]')
+    ?.textContent?.includes('отдельно проверены T3')===true);
   assert.match(await page.getByTestId('publisher-age-success').innerText(),/отдельно проверены T3/);
   checks.push('publisher-age-native-transport-ui-never-claims-admission-or-delivery');
     const select=page.getByTestId('publisher-select-test-iwxa');
