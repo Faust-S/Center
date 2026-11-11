@@ -856,7 +856,7 @@ try {
   await personOwner.getByTestId('publisher-person-issue').click();
   await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя.',{exact:false}).waitFor();
   const personLicensePicker=personOwner.getByRole('combobox',{name:'Лицензия',exact:true});
-  const firstIssuedLabel=await personLicensePicker.locator('option[value="license:person:mock:one"]').innerText();
+  const firstIssuedLabel=await personLicensePicker.locator('option[value="license:person:mock:one"]').textContent();
   assert.match(firstIssuedLabel,/Первоначальный выпуск/);
   assert.match(firstIssuedLabel,/license:person:mock:one/);
   await personLicensePicker.selectOption('license:person:mock:one');
@@ -896,8 +896,15 @@ try {
   assert.equal(updatedLedger.length,2);
   assert.equal(updatedLedger[1].requestId,renewedDraft.proposals[1].id);
   assert.equal(updatedLedger[1].renewalOfLicenseId,'license:person:mock:one');
+  // The original T3 journal readback is asynchronous. Do not inspect a
+  // newly signed renewal before the public owner UI has reconciled it.
+  // Native <option> elements are not visible in Firefox: read textContent.
+  await personOwner.getByText('В журнале: 2.',{exact:false}).waitFor({timeout:15000});
+  const visibleOptions=await personLicensePicker.locator('option').allTextContents();
+  assert.equal(visibleOptions.length,3,
+    'Renewal must appear as a second selectable record: '+JSON.stringify(visibleOptions));
   const renewedLicenseLabel=await personLicensePicker.locator(
-    'option[value="license:person:mock:two"]').innerText();
+    'option[value="license:person:mock:two"]').textContent();
   assert.match(renewedLicenseLabel,/Продление/);
   assert.match(renewedLicenseLabel,/license:person:mock:two/);
   assert.notEqual(renewedLicenseLabel,firstIssuedLabel,
