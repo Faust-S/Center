@@ -119,6 +119,59 @@ try{
   assert.equal(await page.getByTestId('corporate-issue').isEnabled(),false);
   assert.equal(await page.getByTestId('corporate-accept').count(),0);
   checks.push('corporate-workbench-fail-closed-without-private-owner');
+  // Native IPC harness verifies the ACTUAL Admin Center UI prepares the
+  // original T3/Publisher unsigned request, including group recipient scope.
+  // This is not a signer, consumer or installed-Windows witness.
+  const {emptyDraft,applyDraftCommand,encodeDraft}=await import('../src/organization.mjs');
+  const seeded=applyDraftCommand(emptyDraft('2026-11-11T12:00:00.000Z'),
+    {type:'CREATE_ORGANIZATION',name:'Workshop group',kind:'GROUP'},
+    {id:()=> 'org:groupnative001',now:()=> '2026-11-11T12:00:00.000Z'});
+  const nativePage=await browser.newPage({viewport:{width:1280,height:800}});
+  nativePage.on('pageerror',e=>errors.push(e.message));
+  await nativePage.addInitScript(draft=>{
+    window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
+      if(command==='center_draft_read_local')return draft;
+      if(command==='center_cen04_t3_capabilities')throw Error('T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED');
+      if(command==='center_export_publisher_test_request'){
+        sessionStorage.setItem('cen04-publisher-unsigned-content',args.content);
+        sessionStorage.setItem('cen04-publisher-unsigned-name',args.suggestedFileName);
+        return true;
+      }
+      if(command.startsWith('plugin:'))return null;
+      throw Error('UNEXPECTED_ADMIN_NATIVE_COMMAND '+command);
+    }};
+  },encodeDraft(seeded));
+  await nativePage.goto('http://127.0.0.1:4173');
+  await nativePage.getByTestId('nav-programs').click();
+  await nativePage.getByRole('spinbutton',{name:'Срок TEST-запроса'}).fill('45');
+  await nativePage.getByRole('spinbutton',{name:'Места TEST-запроса'}).fill('2');
+  await nativePage.getByTestId('cen04-export-publisher-request').click();
+  await nativePage.getByText('Неподписанный запрос сохранён.',{exact:false}).waitFor();
+  const exported=JSON.parse(await nativePage.evaluate(()=>
+    sessionStorage.getItem('cen04-publisher-unsigned-content')));
+  assert.equal(exported.schema,'IWXA_PUBLISHER_TEST_LICENSE_REQUEST/1');
+  assert.equal(exported.subject.type,'ORGANIZATION');
+  assert.equal(exported.subject.id,'org:groupnative001');
+  assert.equal(exported.subject.name,'Workshop group');
+  assert.equal(exported.product.id,'IWXA_ADMIN_CENTER');
+  assert.equal(exported.termDays,45);
+  assert.equal(exported.seats,2);
+  assert.deepEqual(exported.featureIds,['WORKSPACE']);
+  assert.equal(exported.status,'UNSIGNED_REQUEST');
+  assert.equal(Object.hasOwn(exported,'signature'),false);
+  assert.equal(Object.hasOwn(exported,'licenseId'),false);
+  assert.match(await nativePage.evaluate(()=>
+    sessionStorage.getItem('cen04-publisher-unsigned-name')),
+    /^iwxa-test-license-request-.*\\.json$/);
+  checks.push('admin-native-ui-prepares-original-publisher-t3-request-without-issuing-rights');
+  await nativePage.getByRole('spinbutton',{name:'Места TEST-запроса'}).fill('0');
+  await nativePage.getByTestId('cen04-export-publisher-request').click();
+  await nativePage.getByRole('alert').waitFor({state:'visible'});
+  assert.equal(JSON.parse(await nativePage.evaluate(()=>
+    sessionStorage.getItem('cen04-publisher-unsigned-content'))).seats,2,
+    'Invalid request must not overwrite the last valid export');
+  checks.push('admin-native-ui-rejects-invalid-test-seats-before-export');
+  await nativePage.close();
   await page.getByTestId('nav-overview').click();await page.screenshot({path:'artifacts/overview-1366.png',fullPage:true});
   await page.setViewportSize({width:320,height:800});assert.ok(await page.locator('.menu-button').isVisible());await page.locator('.menu-button').click();await page.getByTestId('nav-work').click();
   const sizes=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert.ok(sizes.scroll<=sizes.width+1,JSON.stringify(sizes));checks.push('navigation-and-no-overflow-320');
