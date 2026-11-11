@@ -1002,7 +1002,9 @@ try {
   // making the user recover the predecessor in the GUI first.
   await personal.evaluate(id=>{window.__personMockHideOriginalRecent=id;},
     directDraft.proposals[0].id);
-  await personOwner.getByTestId('publisher-person-refresh').click();
+  // Prior status readback can keep the old ID in an explicit search; reset
+  // that search to exercise the actual bounded recent-inventory case.
+  await personOwner.getByTestId('publisher-person-lookup-clear').click();
   await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
   assert.equal(await personOwner.getByRole('combobox',{name:'Персональная лицензия'})
     .locator('option[value="license:person:mock:one"]').count(),0);
