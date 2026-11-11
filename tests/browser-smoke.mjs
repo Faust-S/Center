@@ -166,7 +166,7 @@ try{
   assert.equal(Object.hasOwn(exported,'licenseId'),false);
   assert.match(await nativePage.evaluate(()=>
     sessionStorage.getItem('cen04-publisher-unsigned-name')),
-    /^iwxa-test-license-request-.*\\.json$/);
+    /^iwxa-test-license-request-.*\.json$/);
   checks.push('admin-native-ui-prepares-original-publisher-t3-request-without-issuing-rights');
   await nativePage.getByRole('spinbutton',{name:'Места TEST-запроса'}).fill('0');
   await nativePage.getByTestId('cen04-export-publisher-request').click();
