@@ -855,7 +855,13 @@ try {
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
   await personOwner.getByTestId('publisher-person-issue').click();
   await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя.',{exact:false}).waitFor();
-  await personOwner.getByRole('combobox',{name:'Лицензия',exact:true}).selectOption('license:person:mock:one');
+  const personLicensePicker=personOwner.getByRole('combobox',{name:'Лицензия',exact:true});
+  const firstIssuedLabel=await personLicensePicker.locator('option[value="license:person:mock:one"]').innerText();
+  assert.match(firstIssuedLabel,/Первоначальный выпуск/);
+  assert.match(firstIssuedLabel,/license:person:mock:one/);
+  await personLicensePicker.selectOption('license:person:mock:one');
+  assert.match(await personOwner.getByTestId('publisher-person-selected-license').innerText(),
+    /Выбрана запись T3: license:person:mock:one/);
   await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('ACTIVE');
   await personOwner.getByTestId('publisher-person-status').click();
   await personOwner.getByText('Подписанный статус сохранён.',{exact:false}).waitFor();
@@ -890,8 +896,15 @@ try {
   assert.equal(updatedLedger.length,2);
   assert.equal(updatedLedger[1].requestId,renewedDraft.proposals[1].id);
   assert.equal(updatedLedger[1].renewalOfLicenseId,'license:person:mock:one');
-  await personOwner.getByRole('combobox',{name:'Лицензия',exact:true})
-    .selectOption('license:person:mock:two');
+  const renewedLicenseLabel=await personLicensePicker.locator(
+    'option[value="license:person:mock:two"]').innerText();
+  assert.match(renewedLicenseLabel,/Продление/);
+  assert.match(renewedLicenseLabel,/license:person:mock:two/);
+  assert.notEqual(renewedLicenseLabel,firstIssuedLabel,
+    'Two signed records for the same PERSON/product must not be indistinguishable');
+  await personLicensePicker.selectOption('license:person:mock:two');
+  assert.match(await personOwner.getByTestId('publisher-person-selected-license').innerText(),
+    /Продление лицензии license:person:mock:one/);
   await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('ACTIVE');
   await personOwner.getByTestId('publisher-person-status').click();
   await personOwner.getByText('Подписанный статус сохранён.',{exact:false}).waitFor();
@@ -916,6 +929,7 @@ try {
   assert.equal(received[1].renewalOfLicenseId,'license:person:mock:one');
   assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true);
   checks.push('publisher-person-owner-mocked-signed-native-route');
+  checks.push('person-original-and-renewal-selectors-show-distinct-native-license-ids');
 
   // A second client type can use the same tariff code, product and revision.
   // This is one shared catalog, not a separate personal issuer or format.
