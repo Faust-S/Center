@@ -61,7 +61,18 @@ try {
         webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
         licensing:'TEST_ONLY',activeSeats:0,productionActivation:false,
         attentionRequired:false};
-      if(command==='publisher_t3_capabilities')return {
+      if(command==='publisher_age_status')return {
+        operation:'AGE_STATUS',available:false,recipient:null,
+        provider:'WINDOWS_DPAPI_CURRENT_USER',toolchain:{ready:true},admitted:false};
+      if(command==='publisher_age_encrypt')return {
+        operation:'AGE_ENCRYPTED',recipientCount:1,sourceSha256:'a'.repeat(64),
+        ciphertextSha256:'b'.repeat(64),deliveryState:'NOT_CONFIRMED',admitted:false};
+      if(command==='publisher_age_inspect')return {
+        operation:'AGE_INSPECTED',recipientStanzas:1,admitted:false};
+      if(command==='publisher_age_decrypt')return {
+        operation:'AGE_DECRYPTED',sourceSha256:'a'.repeat(64),
+        state:'DECRYPTED_INTEGRITY_VERIFIED_NOT_ADMITTED',admitted:false};
+            if(command==='publisher_t3_capabilities')return {
         operation:'TEST_CAPABILITIES',issuers:['publisher:owner:test'],
         activeSeats:0,productionActivation:false,commercialAuthorityProven:false};
       if(command==='publisher_t3_inventory'){
@@ -153,7 +164,16 @@ try {
   checks.push('compact-height-native-footer-clears-windows-taskbar-safe-inset');
   await page.setViewportSize({width:1366,height:900});
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
-  const select=page.getByTestId('publisher-select-test-iwxa');
+  await page.getByTestId('publisher-age-exchange').waitFor();
+  await page.getByTestId('publisher-age-recipients').fill('age1'+'q'.repeat(58));
+  await page.getByTestId('publisher-age-encrypt').click();
+  await page.getByTestId('publisher-age-success').waitFor();
+  assert.match(await page.getByTestId('publisher-age-success').innerText(),/Доставка получателю не подтверждена/);
+  await page.getByTestId('publisher-age-decrypt').click();
+  await page.getByTestId('publisher-age-success').waitFor();
+  assert.match(await page.getByTestId('publisher-age-success').innerText(),/отдельно проверены T3/);
+  checks.push('publisher-age-native-transport-ui-never-claims-admission-or-delivery');
+    const select=page.getByTestId('publisher-select-test-iwxa');
   const exportButton=page.getByTestId('publisher-export-test-iwxa');
   assert.equal(await exportButton.isEnabled(),false);
   await select.click();
