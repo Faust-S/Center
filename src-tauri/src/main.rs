@@ -225,6 +225,79 @@ fn center_save_iwxa_file(bytes: Vec<u8>, task_revision_id: String) -> Result<boo
     }
 }
 
+// A user-selected UNSIGNED request goes to the existing IWXA Publisher
+// TEST issuer. No license, key, org grant, entitlement or new file format is
+// created by Admin Center. Publisher and the original T3 validate it again.
+const CEN04_UNSIGNED_TEST_REQUEST_LIMIT:usize=32*1024;
+fn center_unsigned_publisher_request_validate(content:&str)->Result<(),String>{
+    if content.is_empty()||content.len()>CEN04_UNSIGNED_TEST_REQUEST_LIMIT{
+        return Err("CEN04_PUBLISHER_REQUEST_SIZE_INVALID".into());
+    }
+    let record:Value=serde_json::from_str(content)
+        .map_err(|_|"CEN04_PUBLISHER_REQUEST_JSON_INVALID")?;
+    let object=record.as_object().ok_or("CEN04_PUBLISHER_REQUEST_FIELDS_INVALID")?;
+    let required=["schema","kind","requestId","requestedAt","environment",
+        "subject","product","featureIds","termDays","seats","status"];
+    if object.len()!=required.len() ||
+       required.iter().any(|field|!object.contains_key(*field)) ||
+       record["schema"]!="IWXA_PUBLISHER_TEST_LICENSE_REQUEST/1" ||
+       record["kind"]!="TEST_LICENSE_REQUEST" ||
+       record["environment"]!="TEST" ||
+       record["status"]!="UNSIGNED_REQUEST" ||
+       record["subject"]["type"]!="ORGANIZATION" ||
+       record["product"]["id"]!="IWXA_ADMIN_CENTER" ||
+       record["requestId"].as_str().is_none_or(str::is_empty) ||
+       record["subject"]["id"].as_str().is_none_or(str::is_empty) ||
+       record["subject"]["name"].as_str().is_none_or(str::is_empty) ||
+       record["product"]["version"].as_str().is_none_or(str::is_empty) ||
+       record["requestedAt"].as_str().is_none_or(str::is_empty) ||
+       record["featureIds"].as_array().is_none_or(|xs|xs.is_empty()) ||
+       record["seats"].as_u64().is_none_or(|v|v<1||v>10000) ||
+       record["termDays"].as_u64().is_none_or(|v|v<1||v>3650){
+        return Err("CEN04_PUBLISHER_REQUEST_PROFILE_INVALID".into());
+    }
+    Ok(())
+}
+fn center_unsigned_publisher_request_write(path:&Path,content:&str)->Result<(),String>{
+    center_unsigned_publisher_request_validate(content)?;
+    if path.extension().and_then(|v|v.to_str())!=Some("json") {
+        return Err("CEN04_PUBLISHER_REQUEST_EXTENSION_INVALID".into());
+    }
+    let folder=path.parent().ok_or("CEN04_PUBLISHER_REQUEST_FOLDER_INVALID")?;
+    if !folder.is_dir(){return Err("CEN04_PUBLISHER_REQUEST_FOLDER_INVALID".into());}
+    let mut output=std::fs::OpenOptions::new().write(true).create_new(true)
+        .open(path).map_err(|_|"CEN04_PUBLISHER_REQUEST_DESTINATION_UNAVAILABLE".to_string())?;
+    let written=(||->Result<(),String>{
+        std::io::Write::write_all(&mut output,content.as_bytes())
+            .map_err(|_|"CEN04_PUBLISHER_REQUEST_WRITE_FAILED")?;
+        output.sync_all().map_err(|_|"CEN04_PUBLISHER_REQUEST_SYNC_FAILED")?;
+        let verified=std::fs::read_to_string(path)
+            .map_err(|_|"CEN04_PUBLISHER_REQUEST_READBACK_FAILED")?;
+        if verified!=content{return Err("CEN04_PUBLISHER_REQUEST_READBACK_MISMATCH".into());}
+        Ok(())
+    })();
+    if written.is_err(){let _=std::fs::remove_file(path);}
+    written
+}
+#[tauri::command]
+fn center_export_publisher_test_request(content:String,suggested_file_name:String)
+    ->Result<bool,String>{
+    if !suggested_file_name.starts_with("iwxa-test-license-request-") ||
+       !suggested_file_name.ends_with(".json") ||
+       suggested_file_name.len()>110 ||
+       suggested_file_name.bytes().any(|c|!c.is_ascii_alphanumeric()&&c!=b'-'&&c!=b'.'){
+        return Err("CEN04_PUBLISHER_REQUEST_FILENAME_INVALID".into());
+    }
+    center_unsigned_publisher_request_validate(&content)?;
+    let selected=rfd::FileDialog::new()
+        .set_title("Admin Center — передать неподписанный запрос Publisher")
+        .add_filter("JSON",&["json"]).set_file_name(&suggested_file_name).save_file();
+    match selected {
+        Some(file)=>center_unsigned_publisher_request_write(&file,&content).map(|_|true),
+        None=>Ok(false)
+    }
+}
+
 #[path="../../native/t3_product_component.rs"]
 mod t3_product_component;
 mod t3_consumer;
@@ -237,6 +310,7 @@ fn main() {
         .manage(std::sync::Mutex::new(cen05_host::Session::default()))
         .invoke_handler(tauri::generate_handler![
             save_draft_file, open_draft_file, center_save_iwxa_file, center_open_iwxa_file,
+            center_export_publisher_test_request,
             center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open,
             cen05_host::center_u04_open, cen05_host::center_u04_activate,
             cen05_host::center_u04_return, cen05_host::center_u04_detach,
@@ -254,6 +328,29 @@ mod center_atlas_integration_tests {
         let path = std::env::temp_dir().join(format!("center-atlas-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&path).expect("create test dir");
         path
+    }
+    #[test]
+    fn unsigned_publisher_request_export_does_not_look_like_a_license() {
+        let value=serde_json::json!({
+            "schema":"IWXA_PUBLISHER_TEST_LICENSE_REQUEST/1",
+            "kind":"TEST_LICENSE_REQUEST","requestId":"request:admin:001",
+            "requestedAt":"2026-11-11T12:00:00.000Z","environment":"TEST",
+            "subject":{"type":"ORGANIZATION","id":"org:example","name":"Test org"},
+            "product":{"id":"IWXA_ADMIN_CENTER","version":"0.3.0"},
+            "featureIds":["WORKSPACE"],"termDays":30,"seats":1,
+            "status":"UNSIGNED_REQUEST"
+        }).to_string();
+        let folder=scratch();
+        let path=folder.join("iwxa-test-license-request-test.json");
+        center_unsigned_publisher_request_write(&path,&value).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(),value);
+        assert!(center_unsigned_publisher_request_write(&path,&value).is_err());
+        assert!(center_unsigned_publisher_request_validate(
+            &value.replace("\"UNSIGNED_REQUEST\"","\"ISSUED\"")).is_err());
+        assert!(center_unsigned_publisher_request_validate(
+            &value.replace("\"status\":\"UNSIGNED_REQUEST\"",
+                "\"status\":\"UNSIGNED_REQUEST\",\"licenseId\":\"forged\"")).is_err());
+        let _=std::fs::remove_dir_all(folder);
     }
     #[test]
     fn center_reads_real_atlas_desktop_store_without_owning_a_second_copy() {
