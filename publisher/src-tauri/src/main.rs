@@ -550,25 +550,36 @@ fn publisher_pick_preparation_backup() -> Result<Option<String>, String> {
 mod t3_product_component;
 #[path="../../../native/t3_age_transport.rs"]
 mod t3_age_transport;
+// The original T3 CLI and native dialogs must never block the Publisher UI.
 #[tauri::command]
-fn publisher_age_status(app:AppHandle)->Result<Value,String>{
-    t3_age_transport::status(&app,&publisher_root(&app)?.join("t3-age"))
+async fn publisher_age_status(app:AppHandle)->Result<Value,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::status(&app,&publisher_root(&app)?.join("t3-age")))
+        .await.map_err(|_|"PUBLISHER_AGE_WORKER_FAILED".to_string())?
 }
 #[tauri::command]
-fn publisher_age_create_recipient(app:AppHandle)->Result<Value,String>{
-    t3_age_transport::create_recipient(&app,&publisher_root(&app)?.join("t3-age"))
+async fn publisher_age_create_recipient(app:AppHandle)->Result<Value,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::create_recipient(&app,&publisher_root(&app)?.join("t3-age")))
+        .await.map_err(|_|"PUBLISHER_AGE_WORKER_FAILED".to_string())?
 }
 #[tauri::command]
-fn publisher_age_inspect(app:AppHandle)->Result<Option<Value>,String>{
-    t3_age_transport::inspect(&app,&publisher_root(&app)?.join("t3-age"))
+async fn publisher_age_inspect(app:AppHandle)->Result<Option<Value>,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::inspect(&app,&publisher_root(&app)?.join("t3-age")))
+        .await.map_err(|_|"PUBLISHER_AGE_WORKER_FAILED".to_string())?
 }
 #[tauri::command]
-fn publisher_age_encrypt(app:AppHandle,recipients:String)->Result<Option<Value>,String>{
-    t3_age_transport::encrypt(&app,&publisher_root(&app)?.join("t3-age"),&recipients)
+async fn publisher_age_encrypt(app:AppHandle,recipients:String)->Result<Option<Value>,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::encrypt(&app,&publisher_root(&app)?.join("t3-age"),&recipients))
+        .await.map_err(|_|"PUBLISHER_AGE_WORKER_FAILED".to_string())?
 }
 #[tauri::command]
-fn publisher_age_decrypt(app:AppHandle)->Result<Option<Value>,String>{
-    t3_age_transport::decrypt(&app,&publisher_root(&app)?.join("t3-age"))
+async fn publisher_age_decrypt(app:AppHandle)->Result<Option<Value>,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::decrypt(&app,&publisher_root(&app)?.join("t3-age")))
+        .await.map_err(|_|"PUBLISHER_AGE_WORKER_FAILED".to_string())?
 }
 
 mod t3_owner;
