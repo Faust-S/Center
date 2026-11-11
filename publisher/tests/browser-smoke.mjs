@@ -100,6 +100,10 @@ try {
         if(!entry)throw Error('PRODUCT_OWNER_LICENSE_NOT_ISSUED');
         entry.status=args.nextStatus;entry.sequence+=1;
         sessionStorage.setItem('publisher-t3-mock-licenses',JSON.stringify(ledger));
+        if(window.__publisherMockLoseNextTestStatusResponse){
+          window.__publisherMockLoseNextTestStatusResponse=false;
+          throw Error('TEST_NATIVE_IPC_RESPONSE_LOST_AFTER_COMMIT');
+        }
         return {operation:'TEST_STATUS',licenseId:entry.licenseId,state:entry.status,
           sequence:entry.sequence,activeSeats:0,productionActivation:false};
       }
@@ -479,12 +483,13 @@ try {
   checks.push('t3-truncated-inventory-cannot-verify-unseen-idempotent-issue');
   await page.getByTestId('publisher-t3-issue').click();
   await page.getByText('TEST-лицензия подписана T3 и сохранена в журнале издателя.').waitFor();
-  // The same ALREADY_ISSUED outcome is valid if the exact T3 ledger record
-  // and original product, owner and seat count are independently present.
-  await page.evaluate(()=>{window.__publisherMockNextAlreadyIssued=true;});
-  await page.getByTestId('publisher-t3-issue').click();
-  await page.getByText('Ранее выпущенная TEST-лицензия найдена в журнале T3.').waitFor();
-  checks.push('t3-idempotent-issue-confirms-original-ledger-subject-product-and-seats');
+  // A signed request is not a second issuance opportunity: original T3
+  // remains authoritative, while Publisher explains the existing result.
+  await page.getByTestId('publisher-t3-already-issued').waitFor();
+  assert.match(await page.getByTestId('publisher-t3-already-issued').innerText(),
+    /license:test:native-ui:one/);
+  assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
+  checks.push('t3-original-ledger-disables-repeat-admin-center-test-issuance');
   const signedTestMock=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('publisher-t3-mock-licenses')));
   assert.equal(signedTestMock[0].claimedSeats,3,'Original T3 TEST issue must match explicit user seat count');
   assert.equal(await page.getByTestId('publisher-t3-export').isDisabled(),true,
@@ -503,19 +508,25 @@ try {
   assert.match(await page.getByTestId('publisher-t3-owner-panel').innerText(),/Активных мест: 0/);
   checks.push('publisher-owner-operations-through-native-IPC-model-only-no-commercial-seats');
   checks.push('original-t3-test-issue-status-and-export-require-explicit-selections');
-  // A committed TEST status with a failed inventory read must not claim
-  // success. Owner operations stay blocked until the user refreshes.
+  // T3 already signed SUSPENDED but its native IPC answer was lost. No
+  // second signature can be produced until the genuine ledger is read.
   await ownerPanel.getByRole('combobox',{name:'Новый TEST-статус'}).selectOption('SUSPENDED');
-  await page.evaluate(()=>{window.__publisherMockFailNextInventory=true;});
+  await page.evaluate(()=>{window.__publisherMockLoseNextTestStatusResponse=true;});
   await page.getByTestId('publisher-t3-change-status').click();
   const readbackError=await ownerPanel.getByRole('alert').innerText();
-  assert.match(readbackError,/Операция могла выполниться/);
+  assert.match(readbackError,/Операция могла сохраниться в T3 без ответа/);
   assert.equal(await page.getByTestId('publisher-t3-change-status').isDisabled(),true);
   assert.equal(await page.getByTestId('publisher-t3-export').isDisabled(),true);
   assert.doesNotMatch(await ownerPanel.innerText(),/Новый подписанный TEST-статус сохранён в T3: SUSPENDED/);
   await page.getByTestId('publisher-t3-refresh').click();
   await page.getByText('Журнал T3 обновлён. Подписи и права не изменены.').waitFor();
   assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
+  const afterLostTestReply=JSON.parse(await page.evaluate(()=>
+    sessionStorage.getItem('publisher-t3-mock-licenses')));
+  assert.equal(afterLostTestReply[0].status,'SUSPENDED');
+  assert.equal(afterLostTestReply[0].sequence,2,
+    'Lost native TEST reply must not produce a duplicate signed status');
+  checks.push('publisher-admin-test-lost-IPC-response-requires-owner-readback');
   await ownerPanel.getByRole('combobox',{name:'Новый TEST-статус'}).selectOption('REVOKED');
   await page.getByTestId('publisher-t3-change-status').click();
   const revokePrompt=page.getByTestId('publisher-t3-revoke-confirmation');
