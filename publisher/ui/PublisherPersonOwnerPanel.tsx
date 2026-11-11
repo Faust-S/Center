@@ -304,7 +304,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
           onClick={()=>void issue()}>Подписать и записать в T3</button>
         <button type="button" className="secondary"
           data-testid="publisher-person-refresh" disabled={busy}
-          onClick={()=>void refresh()}>Обновить журнал</button>
+          onClick={()=>void refresh()}>Обновить журнал PERSON</button>
         <button type="button" className="secondary"
           data-testid="publisher-person-public-trust-export" disabled={busy||needsRefresh}
           onClick={()=>void exportPublicTrust()}>
@@ -355,7 +355,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
             selectedLicense.status===status||selectedLicense.status==='REVOKED'}
           onClick={()=>status==='REVOKED'?setRevokePending(licenseId):
             void changeStatus()}>
-          {status==='REVOKED'?'Подготовить отзыв':'Подписать статус'}
+          {status==='REVOKED'?'Подготовить отзыв PERSON':'Подписать статус'}
         </button>
         <button type="button" className="secondary"
           data-testid="publisher-person-export"
@@ -391,7 +391,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
           Повторная активация этой лицензии будет запрещена.</p>
         <div className="actions">
           <button type="button" className="primary" disabled={busy}
-            onClick={()=>void changeStatus()}>Подтвердить отзыв</button>
+            onClick={()=>void changeStatus()}>Подтвердить отзыв PERSON</button>
           <button type="button" className="secondary" disabled={busy}
             onClick={()=>{setRevokePending('');setStatus('');}}>Отмена</button>
         </div>
