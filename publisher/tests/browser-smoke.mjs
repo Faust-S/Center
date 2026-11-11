@@ -793,8 +793,13 @@ try {
           window.__personMockFailNextInventory=false;
           throw Error('PERSON_T3_TEMPORARY_INVENTORY_UNAVAILABLE');
         }
-        return {operation:'PERSON_INVENTORY',
-          licenses:JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]'),
+        const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
+        const matches=args.lookupId?
+          ledger.filter(x=>x.licenseId===args.lookupId||
+            x.requestId===args.lookupId||x.personId===args.lookupId):ledger;
+        return {operation:'PERSON_INVENTORY',licenses:matches.slice(-48),
+          total:ledger.length,truncated:matches.length>48,
+          ...(args.lookupId?{lookupId:args.lookupId,matches:matches.length}:{}),
           activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_person_issue'){
@@ -1058,6 +1063,48 @@ try {
   assert.equal(afterLostResponse[1].sequence,2,
     'Reading ledger must not create another signed native status');
   checks.push('person-lost-native-status-response-blocks-retry-until-exact-ledger-refresh');
+
+  // Historical signed licenses must remain usable after the T3 inventory
+  // exceeds its bounded recent view. No second signature is allowed.
+  await personal.evaluate(()=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    for(let i=0;i<51;i++)ledger.push({
+      licenseId:'license:historical:'+i,requestId:'request:historical:'+i,
+      issuerAuthorityId:'publisher:person:mock',personId:'person:other:'+i,
+      productId:'IWXA_ATLAS',deviceLimit:1,quotaCount:0,
+      status:'ACTIVE',sequence:1,activeSeats:0
+    });
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+  });
+  await personOwner.getByTestId('publisher-person-lookup-clear').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  const oldLicense='license:person:mock:one';
+  assert.equal(await personOwner.getByRole('combobox',{name:'Персональная лицензия'})
+    .locator('option[value="'+oldLicense+'"]').count(),0);
+  await personOwner.getByTestId('publisher-person-lookup-input').fill(oldLicense);
+  await personOwner.getByTestId('publisher-person-lookup').click();
+  await personOwner.getByText('Поиск в исходном T3: найдено записей 1.',{exact:true}).waitFor();
+  assert.equal(await personOwner.getByRole('combobox',{name:'Персональная лицензия'}).inputValue(),oldLicense);
+  assert.equal(await personOwner.getByTestId('publisher-person-export').isEnabled(),true);
+  checks.push('person-historical-license-search-and-export-remain-available-after-48-records');
+  // The already-issued original request is absent from the recent 48.
+  // Issue must consult original T3 and recover the old signed record.
+  await personOwner.getByTestId('publisher-person-lookup-clear').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  await personOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
+    .selectOption(directDraft.proposals[0].id);
+  await personOwner.getByRole('checkbox',{name:'Подтверждаю выпуск на указанных условиях'}).check();
+  assert.equal(await personOwner.getByTestId('publisher-person-already-issued').count(),0);
+  const countBefore=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger'))).length;
+  await personOwner.getByTestId('publisher-person-issue').click();
+  await personOwner.getByText('Эта подготовка уже подписана исходным T3.',{exact:false}).waitFor();
+  assert.match(await personOwner.getByTestId('publisher-person-already-issued').innerText(),
+    /license:person:mock:one/);
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger'))).length,countBefore);
+  checks.push('person-original-owner-lookup-prevents-duplicate-issue-outside-recent-48');
 
   // A second client type can use the same tariff code, product and revision.
   // This is one shared catalog, not a separate personal issuer or format.

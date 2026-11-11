@@ -10,7 +10,7 @@ type PersonRecord={
   status:'NOT_ACTIVATED'|'ACTIVE'|'SUSPENDED'|'REVOKED';
   sequence:number;activeSeats:0
 };
-type Inventory={entries:PersonRecord[];truncated:boolean;total:number};
+type Inventory={entries:PersonRecord[];truncated:boolean;total:number;matches?:number};
 type Props={draft:any;invoke:NativeInvoke;
  change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>};
 const err=(e:unknown)=>e instanceof Error?e.message:String(e);
@@ -29,6 +29,9 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
   const [licenses,setLicenses]=useState<PersonRecord[]>([]);
   const [total,setTotal]=useState(0);
   const [truncated,setTruncated]=useState(false);
+  const [lookupText,setLookupText]=useState('');
+  const [lookupTarget,setLookupTarget]=useState('');
+  const [lookupMatches,setLookupMatches]=useState<number|null>(null);
   const [proposalId,setProposalId]=useState('');
   const [licenseId,setLicenseId]=useState('');
   const [status,setStatus]=useState<''|'ACTIVE'|'SUSPENDED'|'REVOKED'>('');
@@ -67,8 +70,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       setProposalId('');setTermsConfirmed(false);
     }
   },[options,proposalId]);
-  async function inventory():Promise<Inventory>{
-    const value=await invoke('publisher_t3_person_inventory');
+  function checkedInventory(value:any,lookupId?:string):PersonRecord[]{
     if(value?.operation!=='PERSON_INVENTORY'||value.activeSeats!==0||
        value.productionActivation!==false||!Array.isArray(value.licenses))
       throw Error('PERSON_NATIVE_INVENTORY_INVALID');
@@ -84,12 +86,34 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
          (!id(x.renewalOfLicenseId)||x.renewalOfLicenseId===x.licenseId)))||
        new Set(entries.map(e=>e.licenseId)).size!==entries.length)
       throw Error('PERSON_NATIVE_INVENTORY_ENTRY_INVALID');
-    const count=Number.isSafeInteger(value.total)&&value.total>=entries.length?
-      value.total:entries.length;
+    if(lookupId!==undefined&&
+       (value.lookupId!==lookupId||!Number.isSafeInteger(value.matches)||
+        value.matches<entries.length||entries.some(x=>x.licenseId!==lookupId&&
+          x.requestId!==lookupId&&x.personId!==lookupId)))
+      throw Error('PERSON_NATIVE_INVENTORY_LOOKUP_INVALID');
+    return entries;
+  }
+  async function inventory(search=lookupTarget):Promise<Inventory>{
+    const recent=await invoke('publisher_t3_person_inventory');
+    const latest=checkedInventory(recent);
+    let entries=latest, matches: number|undefined;
+    if(search){
+      const response=await invoke('publisher_t3_person_inventory',{lookupId:search});
+      const found=checkedInventory(response,search);
+      matches=response.matches;
+      // Preserve the recent ledger and expose older matching records in the
+      // same native selector. A search never manufactures license records.
+      const byId=new Map(latest.map(x=>[x.licenseId,x] as const));
+      for(const record of found)byId.set(record.licenseId,record);
+      entries=[...byId.values()];
+    }
+    const count=Number.isSafeInteger(recent.total)&&recent.total>=latest.length?
+      recent.total:latest.length;
     setLicenses(entries);setTotal(count);
-    setTruncated(value.truncated===true);
+    setTruncated(recent.truncated===true);
+    setLookupMatches(matches??null);
     setLicenseId(old=>entries.some(e=>e.licenseId===old)?old:'');
-    return {entries,truncated:value.truncated===true,total:count};
+    return {entries,truncated:recent.truncated===true,total:count,matches};
   }
   useEffect(()=>{
     let alive=true;
@@ -120,23 +144,45 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
     })();
     return()=>{alive=false;};
   },[]);
-  async function refresh(){
+  async function refresh(search=lookupTarget){
     if(!available||busy)return;
     setBusy(true);setFailure('');setMessage('');
-    try{await inventory();setNeedsRefresh(false);
+    try{await inventory(search);setNeedsRefresh(false);
       setMessage('Журнал персональных лицензий обновлён.');}
-    catch(e){setFailure('Не удалось прочитать журнал T3: '+err(e));}
+    catch(e){setNeedsRefresh(true);
+      setFailure('Не удалось прочитать журнал T3: '+err(e));}
+    finally{setBusy(false);}
+  }
+  async function findLicense(){
+    if(!available||busy)return;
+    const search=lookupText.trim();
+    if(!id(search)){setFailure('Введите корректный ID лицензии, запроса или получателя.');return;}
+    setBusy(true);setFailure('');setMessage('');
+    try{
+      const result=await inventory(search);
+      setLookupTarget(search);setNeedsRefresh(false);
+      const found=result.entries.filter(x=>x.licenseId===search||
+        x.requestId===search||x.personId===search);
+      if(found.length){
+        setLicenseId(found[0].licenseId);setStatus('');setRevokePending('');
+      }
+      setMessage(result.matches?
+        'Поиск в исходном T3: найдено записей '+result.matches+'.':
+        'В исходном T3 нет лицензии с таким идентификатором.');
+    }catch(e){setNeedsRefresh(true);
+      setFailure('Поиск в журнале T3 не выполнен: '+err(e));}
     finally{setBusy(false);}
   }
   async function operate(action:()=>Promise<{
-    message:string;confirm?:(value:Inventory)=>boolean
+    message:string;confirm?:(value:Inventory)=>boolean;readbackLookupId?:string
   }>,mutatesLedger=false){
     if(busy||!available||needsRefresh)return;
     setBusy(true);setFailure('');setMessage('');
     try{
       const result=await action();
       let readback:Inventory;
-      try{readback=await inventory();}
+      const query=result.readbackLookupId??lookupTarget;
+      try{readback=await inventory(query);}
       catch(e){setNeedsRefresh(true);
         setFailure('Операция могла сохраниться, но журнал T3 не перечитан. '+
           'Обновите журнал перед повтором. '+err(e));return;}
@@ -145,6 +191,10 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
         setFailure('Подписанная запись не подтверждена повторным чтением T3. '+
           'Обновите журнал перед повтором.');
         return;
+      }
+      if(result.readbackLookupId){
+        setLookupTarget(result.readbackLookupId);
+        setLookupText(result.readbackLookupId);
       }
       setMessage(result.message);
     }catch(e){
@@ -177,6 +227,19 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       }
     }
     await operate(async()=>{
+      // The 48-record recent view is not proof that an older request is new.
+      // Query the original T3 ledger BEFORE inviting a second signature.
+      const before=await invoke('publisher_t3_person_inventory',{
+        lookupId:request.requestId});
+      const prior=checkedInventory(before,request.requestId)
+        .find(x=>x.requestId===request.requestId);
+      if(prior)return {
+        message:'Эта подготовка уже подписана исходным T3. '+
+          'Выберите найденную лицензию для статуса, продления или экспорта.',
+        readbackLookupId:request.requestId,
+        confirm:({entries}:Inventory)=>entries.some(x=>
+          x.licenseId===prior.licenseId&&x.requestId===request.requestId)
+      };
       const result=await invoke('publisher_t3_person_issue',{
         requestJson:JSON.stringify(request),issuerAuthorityId:authority});
       if(result?.operation!=='PERSON_ISSUE'||result.productionActivation!==false||
@@ -186,6 +249,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       return {
         message:'Подписанная лицензия сохранена в журнале издателя. '+
           'Для применения прав её необходимо импортировать в установленную программу.',
+        readbackLookupId:request.requestId,
         confirm:({entries}:Inventory)=>entries.some(x=>x.licenseId===result.licenseId&&
           x.requestId===request.requestId&&x.issuerAuthorityId===authority&&
           x.personId===request.subject.id&&x.productId===request.product.id&&
@@ -232,6 +296,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
         message:requested==='REVOKED'?
           'Подписанный отзыв сохранён. Передайте новый .iwxa получателю.':
           'Подписанный статус сохранён. Передайте новый .iwxa получателю.',
+        readbackLookupId:current.licenseId,
         confirm:({entries}:Inventory)=>entries.some(x=>
           x.licenseId===current.licenseId&&x.status===requested&&
           x.sequence===value.sequence)
@@ -337,8 +402,24 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       {options.length===0&&<p className="muted">Создайте персональный тариф и
         подготовьте лицензию для Atlas или Personal Agent.</p>}
       <h4>Журнал персональных лицензий</h4>
+      <div className="actions">
+        <label>Поиск по ID лицензии, запроса или получателя
+          <input data-testid="publisher-person-lookup-input"
+            value={lookupText} onChange={e=>setLookupText(e.target.value)}
+            disabled={busy} placeholder="Введите идентификатор из T3"/>
+        </label>
+        <button type="button" className="secondary"
+          data-testid="publisher-person-lookup" disabled={busy||!lookupText.trim()}
+          onClick={()=>void findLicense()}>Найти в T3</button>
+        <button type="button" className="secondary"
+          data-testid="publisher-person-lookup-clear" disabled={busy||!lookupTarget}
+          onClick={()=>{setLookupTarget('');setLookupText('');void refresh('');}}>
+          Сбросить поиск
+        </button>
+      </div>
       <p className="muted">{needsRefresh?'Журнал пока не прочитан.':
-        <>В журнале: {total}.{truncated&&' Показаны последние 48 записей.'}</>}</p>
+        <>В журнале: {total}.{truncated&&' Показаны последние 48 записей.'}
+          {lookupMatches!==null&&' Результаты поиска: '+lookupMatches+'.'}</>}</p>
       {licenses.length>0&&<>
         <label>Персональная лицензия
         <select value={licenseId} disabled={busy}
