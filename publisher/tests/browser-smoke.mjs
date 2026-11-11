@@ -942,6 +942,14 @@ try {
     /Устройства|устройств: 3/);
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
+  // A preflight read failure is not an ambiguous signed mutation.
+  await personal.evaluate(()=>{window.__personMockFailNextInventory=true;});
+  await personOwner.getByTestId('publisher-person-issue').click();
+  await personOwner.getByText('Предварительная проверка T3 не выполнена:',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isEnabled(),true);
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')||'[]')).length,0);
+  checks.push('person-preflight-error-retry-does-not-create-ambiguous-signature');
   await personOwner.getByTestId('publisher-person-issue').click();
   await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя и выбрана.',{exact:false}).waitFor();
   await personOwner.getByTestId('publisher-person-already-issued').waitFor();
@@ -1174,6 +1182,20 @@ try {
   assert.equal(JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger'))).length,countBefore);
   checks.push('person-original-owner-lookup-prevents-duplicate-issue-outside-recent-48');
+  // A signed renewal remains recoverable even if the ORIGINAL has later
+  // been terminally revoked and both records left the recent 48.
+  await personOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
+    .selectOption(renewedDraft.proposals[1].id);
+  await personOwner.getByRole('checkbox',{name:'Подтверждаю выпуск на указанных условиях'}).check();
+  assert.equal(await personOwner.getByTestId('publisher-person-already-issued').count(),0);
+  await personOwner.getByTestId('publisher-person-issue').click();
+  await personOwner.getByText('Эта подготовка уже подписана исходным T3.',{exact:false}).waitFor();
+  assert.match(await personOwner.getByTestId('publisher-person-selected-license').innerText(),
+    /license:person:mock:two/);
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger'))).length,countBefore);
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
+  checks.push('person-signed-renewal-recoverable-after-original-revocation');
 
   // A second client type can use the same tariff code, product and revision.
   // This is one shared catalog, not a separate personal issuer or format.

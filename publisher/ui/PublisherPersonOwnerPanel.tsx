@@ -247,11 +247,11 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
         setNeedsRefresh(true);
         setFailure('Операция могла сохраниться в T3, но результат не подтверждён. '+
           'Обновите журнал перед повтором. '+err(e));
-      }else{
+      }else if(mutatesLedger){
         // Preflight lookup and validation happen before the native signer is
         // called. There cannot yet be a committed signing result to recover.
         setFailure('Предварительная проверка T3 не выполнена: '+err(e));
-      }
+      }else setFailure(err(e));
     }finally{setBusy(false);}
   }
   async function issue(){
