@@ -6,6 +6,7 @@ type NativeInvoke=(name:string,args?:Record<string,unknown>)=>Promise<any>;
 type PersonRecord={
   licenseId:string;requestId:string;issuerAuthorityId:string;
   personId:string;productId:string;deviceLimit:number;quotaCount:number;
+  issuedAt:string;notBefore:string;expiresAt:string;statusValidUntil?:string;
   renewalOfLicenseId?:string;
   status:'NOT_ACTIVATED'|'ACTIVE'|'SUSPENDED'|'REVOKED';
   sequence:number;activeSeats:0
@@ -17,6 +18,20 @@ const err=(e:unknown)=>e instanceof Error?e.message:String(e);
 const id=(v:unknown)=>typeof v==='string'&&
   /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(v);
 const digest=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
+const instant=(v:unknown)=>typeof v==='string'&&
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v)&&
+  Number.isFinite(Date.parse(v));
+const localTime=(v:string)=>new Date(v).toLocaleString('ru-RU',{hour12:false});
+const STATUS_REFRESH_LEAD_MS=6*60*60*1000;
+const personStatusAllowed=(license:PersonRecord|undefined,requested:string)=>{
+  if(!license||!requested||license.status==='REVOKED'||
+     Date.parse(license.expiresAt)<=Date.now())return false;
+  if(license.status!==requested)return true;
+  // Same-state signing is useful near signed status expiry. The original T3
+  // creates the next monotonic sequence; Publisher never fabricates status.
+  return requested!=='REVOKED'&&!!license.statusValidUntil&&
+    Date.parse(license.statusValidUntil)<=Date.now()+STATUS_REFRESH_LEAD_MS;
+};
 const shortLicenseId=(value:string)=>value.length>30?
   value.slice(0,12)+'…'+value.slice(-12):value;
 export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
@@ -82,6 +97,13 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
        !Number.isSafeInteger(x.deviceLimit)||x.deviceLimit<1||
        !Number.isSafeInteger(x.quotaCount)||x.quotaCount<0||
        !Number.isSafeInteger(x.sequence)||x.sequence<0||x.activeSeats!==0||
+       !instant(x.issuedAt)||!instant(x.notBefore)||!instant(x.expiresAt)||
+       Date.parse(x.issuedAt)>Date.parse(x.notBefore)||
+       Date.parse(x.notBefore)>=Date.parse(x.expiresAt)||
+       (x.status==='NOT_ACTIVATED'?
+         x.statusValidUntil!==undefined:!instant(x.statusValidUntil))||
+       (x.statusValidUntil!==undefined&&
+         Date.parse(x.statusValidUntil)>Date.parse(x.expiresAt))||
        (x.renewalOfLicenseId!==undefined&&
          (!id(x.renewalOfLicenseId)||x.renewalOfLicenseId===x.licenseId)))||
        new Set(entries.map(e=>e.licenseId)).size!==entries.length)
@@ -281,8 +303,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
   }
   async function changeStatus(){
     const current=selectedLicense,requested=status;
-    if(!current||!requested||current.status==='REVOKED'||busy||needsRefresh||
-       current.status===requested||(requested==='REVOKED'&&!canRevoke))return;
+    if(!personStatusAllowed(current,requested)||busy||needsRefresh||
+       (requested==='REVOKED'&&!canRevoke))return;
     setRevokePending('');
     await operate(async()=>{
       const value=await invoke('publisher_t3_person_change_status',{
@@ -432,18 +454,37 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
           </option>)}
         </select>
         </label>
-        {selectedLicense&&<small data-testid="publisher-person-selected-license"
-          style={{display:'block',overflowWrap:'anywhere'}}>
-          Выбрана запись T3: {selectedLicense.licenseId}.
-          {selectedLicense.renewalOfLicenseId?
-            ' Продление лицензии '+selectedLicense.renewalOfLicenseId+'.':
-            ' Первоначальный выпуск.'}
-        </small>}
+        {selectedLicense&&<>
+          <small data-testid="publisher-person-selected-license"
+            style={{display:'block',overflowWrap:'anywhere'}}>
+            Выбрана запись T3: {selectedLicense.licenseId}.
+            {selectedLicense.renewalOfLicenseId?
+              ' Продление лицензии '+selectedLicense.renewalOfLicenseId+'.':
+              ' Первоначальный выпуск.'}
+          </small>
+          <div data-testid="publisher-person-license-dates" className="publisher-offer-review">
+            <p>Лицензия выдана: {localTime(selectedLicense.issuedAt)}.
+              Срок лицензии до: <strong>{localTime(selectedLicense.expiresAt)}</strong> (местное время).</p>
+            <p>{selectedLicense.statusValidUntil?
+              <>Подписанный статус {selectedLicense.status} действителен до:
+                <strong> {localTime(selectedLicense.statusValidUntil)}</strong> (местное время).</>:
+              'Подписанный статус ещё не выпущен.'}</p>
+            {Date.parse(selectedLicense.expiresAt)<=Date.now()?
+              <p className="notice subdued" data-testid="publisher-person-license-expired">
+                Срок лицензии истёк. Для продолжения использования требуется новая подписанная лицензия.</p>:
+              selectedLicense.statusValidUntil&&
+                Date.parse(selectedLicense.statusValidUntil)<=Date.now()?
+                <p className="notice subdued" data-testid="publisher-person-status-expired">
+                  Подписанный статус устарел. Обновите подпись текущего статуса через T3
+                  перед новым экспортом .iwxa.</p>:null}
+          </div>
+        </>}
       </>}
       <div className="actions">
         <select aria-label="Новый статус PERSON" value={status}
           disabled={busy||needsRefresh||!selectedLicense||
-            selectedLicense.status==='REVOKED'}
+            selectedLicense.status==='REVOKED'||
+            Date.parse(selectedLicense.expiresAt)<=Date.now()}
           onChange={e=>{setStatus(e.target.value as typeof status);
             setRevokePending('');}}>
           <option value="">Выберите новый статус</option>
@@ -453,16 +494,19 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
         </select>
         <button type="button" className="secondary"
           data-testid="publisher-person-status"
-          disabled={busy||needsRefresh||!selectedLicense||!status||
-            selectedLicense.status===status||selectedLicense.status==='REVOKED'}
+          disabled={busy||needsRefresh||!personStatusAllowed(selectedLicense,status)}
           onClick={()=>status==='REVOKED'?setRevokePending(licenseId):
             void changeStatus()}>
-          {status==='REVOKED'?'Подготовить отзыв PERSON':'Подписать статус'}
+          {status==='REVOKED'?'Подготовить отзыв PERSON':
+            selectedLicense?.status===status?'Обновить подпись статуса':'Подписать статус'}
         </button>
         <button type="button" className="secondary"
           data-testid="publisher-person-export"
           disabled={busy||needsRefresh||!selectedLicense||
-            selectedLicense.status==='NOT_ACTIVATED'}
+            selectedLicense.status==='NOT_ACTIVATED'||
+            Date.parse(selectedLicense.expiresAt)<=Date.now()||
+            !selectedLicense.statusValidUntil||
+            Date.parse(selectedLicense.statusValidUntil)<=Date.now()}
           onClick={()=>void exportIwxa()}>Экспортировать .iwxa</button>
       </div>
       {selectedLicense&&<section className="publisher-offer-review"
