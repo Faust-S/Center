@@ -370,6 +370,12 @@ fn signed_age_export(app:&AppHandle,license_id:&str,raw_recipients:&str,person:b
     if !t3::availability(app,role){
         return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
     }
+    // Select the final file before writing an unencrypted signed package,
+    // so the user never waits at a dialog while plaintext is staged.
+    let suggested=if person{"iwxa-person-license.iwxa.age"}else{"iwxa-product-test-delivery.iwxa.age"};
+    let Some(destination)=crate::t3_age_transport::select_encrypted_destination(suggested)? else{
+        return Ok(None);
+    };
     let tmp=crate::t3_age_transport::TransientPackage::new()?;
     let signed=t3::run(app,role,action,&[
         license_id.to_string(),tmp.path.to_string_lossy().into_owned()
@@ -391,9 +397,8 @@ fn signed_age_export(app:&AppHandle,license_id:&str,raw_recipients:&str,person:b
         return Err("PUBLISHER_AGE_SIGNED_READBACK_MISMATCH".into());
     }
     let age_root=crate::publisher_root(app)?.join("t3-age");
-    let encrypted=crate::t3_age_transport::encrypt_source(
-       app,&age_root,&tmp.path,raw_recipients)?;
-    let Some(encrypted)=encrypted else{return Ok(None)};
+    let encrypted=crate::t3_age_transport::encrypt_to_path(
+       app,&age_root,&tmp.path,&destination,raw_recipients)?;
     if encrypted["sourceSha256"]!=source_hash||
        encrypted["admitted"]!=false||
        encrypted["deliveryState"]!="NOT_CONFIRMED"{

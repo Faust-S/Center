@@ -240,18 +240,33 @@ pub fn inspect(app:&AppHandle,root:&Path)->Result<Option<Value>,String>{
     ensure_file(&path,".iwxa.age",33*1024*1024)?;
     run(app,root,"inspect",&[path.to_string_lossy().into_owned()]).map(Some)
 }
-pub fn encrypt_source(app:&AppHandle,root:&Path,source:&Path,raw_recipients:&str)
- ->Result<Option<Value>,String>{
+pub fn select_encrypted_destination(suggested:&str)->Result<Option<PathBuf>,String>{
+    if !suggested.ends_with(".iwxa.age")||suggested.len()>128||
+       suggested.bytes().any(|b| !b.is_ascii_alphanumeric()&&b!=b'-'&&b!=b'_'&&b!=b'.'){
+        return Err("AGE_DESKTOP_FILENAME_INVALID".into());
+    }
+    let selected=save_picker("Сохранить защищённый пакет .iwxa.age","age",suggested);
+    if let Some(ref path)=selected {ensure_destination(path,".iwxa.age")?;}
+    Ok(selected)
+}
+pub fn encrypt_to_path(app:&AppHandle,root:&Path,source:&Path,target:&Path,
+ raw_recipients:&str)->Result<Value,String>{
     let recipients=recipients(raw_recipients)?;
     ensure_file(source,".iwxa",32*1024*1024)?;
-    let suggested=format!("{}.age",source.file_name().and_then(|s|s.to_str()).unwrap_or("package.iwxa"));
-    let Some(target)=save_picker("Сохранить защищённый пакет .iwxa.age","age",&suggested) else{return Ok(None)};
-    ensure_destination(&target,".iwxa.age")?;
+    ensure_destination(target,".iwxa.age")?;
     if source==target{return Err("AGE_DESKTOP_PATH_CONFLICT".into());}
     let args=[source.to_string_lossy().into_owned(),target.to_string_lossy().into_owned(),recipients];
     let receipt=run(app,root,"encrypt",&args)?;
-    verify_saved_file(&target,&receipt,"ciphertextSha256",33*1024*1024)?;
-    Ok(Some(receipt))
+    verify_saved_file(target,&receipt,"ciphertextSha256",33*1024*1024)?;
+    Ok(receipt)
+}
+pub fn encrypt_source(app:&AppHandle,root:&Path,source:&Path,raw_recipients:&str)
+ ->Result<Option<Value>,String>{
+    recipients(raw_recipients)?;
+    ensure_file(source,".iwxa",32*1024*1024)?;
+    let suggested=format!("{}.age",source.file_name().and_then(|s|s.to_str()).unwrap_or("package.iwxa"));
+    let Some(target)=select_encrypted_destination(&suggested)? else{return Ok(None)};
+    encrypt_to_path(app,root,source,&target,raw_recipients).map(Some)
 }
 pub fn encrypt(app:&AppHandle,root:&Path,raw_recipients:&str)->Result<Option<Value>,String>{
     recipients(raw_recipients)?;
