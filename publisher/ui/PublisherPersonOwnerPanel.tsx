@@ -29,7 +29,7 @@ const personStatusAllowed=(license:PersonRecord|undefined,requested:string)=>{
   if(license.status!==requested)return true;
   // Same-state signing is useful near signed status expiry. The original T3
   // creates the next monotonic sequence; Publisher never fabricates status.
-  return requested!=='REVOKED'&&!!license.statusValidUntil&&
+  return !!license.statusValidUntil&&
     Date.parse(license.statusValidUntil)<=Date.now()+STATUS_REFRESH_LEAD_MS;
 };
 const shortLicenseId=(value:string)=>value.length>30?
@@ -303,7 +303,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
   }
   async function changeStatus(){
     const current=selectedLicense,requested=status;
-    if(!personStatusAllowed(current,requested)||busy||needsRefresh||
+    if(!current||!personStatusAllowed(current,requested)||busy||needsRefresh||
        (requested==='REVOKED'&&!canRevoke))return;
     setRevokePending('');
     await operate(async()=>{
