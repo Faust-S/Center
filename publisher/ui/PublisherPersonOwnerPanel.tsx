@@ -115,7 +115,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
   }
   async function operate(action:()=>Promise<{
     message:string;confirm?:(value:Inventory)=>boolean
-  }>){
+  }>,mutatesLedger=false){
     if(busy||!available||needsRefresh)return;
     setBusy(true);setFailure('');setMessage('');
     try{
@@ -132,8 +132,16 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
         return;
       }
       setMessage(result.message);
-    }catch(e){setFailure(err(e));}
-    finally{setBusy(false);}
+    }catch(e){
+      // The native T3 process may have committed a signed mutation before
+      // losing its IPC response. Never allow a second issue/status change
+      // until an independently read owner ledger settles the ambiguity.
+      if(mutatesLedger){
+        setNeedsRefresh(true);
+        setFailure('Операция могла сохраниться в T3, но результат не подтверждён. '+
+          'Обновите журнал перед повтором. '+err(e));
+      }else setFailure(err(e));
+    }finally{setBusy(false);}
   }
   async function issue(){
     if(!issuer||!selected||!termsConfirmed||busy||needsRefresh)return;
@@ -168,7 +176,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
           x.personId===request.subject.id&&x.productId===request.product.id&&
           x.deviceLimit===request.deviceLimit&&x.quotaCount===request.quotas.length)
       };
-    });
+    },true);
   }
   async function prepareRenewal(){
     if(!selectedLicense||!selectedRenewal||busy||needsRefresh)return;
@@ -213,7 +221,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
           x.licenseId===current.licenseId&&x.status===requested&&
           x.sequence===value.sequence)
       };
-    });
+    },true);
   }
   async function exportPublicTrust(){
     if(!available||busy||needsRefresh)return;
