@@ -311,7 +311,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       <p className="muted">В журнале: {total}.
         {truncated&&' Показаны последние 48 записей.'}</p>
       {licenses.length>0&&<>
-        <label>Лицензия
+        <label>Персональная лицензия
         <select value={licenseId} disabled={busy}
           onChange={e=>{setLicenseId(e.target.value);setStatus('');
             setRevokePending('');setRenewalTariff('');}}>
