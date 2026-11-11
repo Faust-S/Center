@@ -233,25 +233,36 @@ mod t3_age_transport;
 fn center_age_data_root(app:&AppHandle)->Result<PathBuf,String>{
     Ok(path_for(app)?.join("t3-age"))
 }
+// File choosers and the external T3 age process must not block WebView IPC.
 #[tauri::command]
-fn center_age_status(app:AppHandle)->Result<Value,String>{
-    t3_age_transport::status(&app,&center_age_data_root(&app)?)
+async fn center_age_status(app:AppHandle)->Result<Value,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::status(&app,&center_age_data_root(&app)?))
+        .await.map_err(|_|"CENTER_AGE_WORKER_FAILED".to_string())?
 }
 #[tauri::command]
-fn center_age_create_recipient(app:AppHandle)->Result<Value,String>{
-    t3_age_transport::create_recipient(&app,&center_age_data_root(&app)?)
+async fn center_age_create_recipient(app:AppHandle)->Result<Value,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::create_recipient(&app,&center_age_data_root(&app)?))
+        .await.map_err(|_|"CENTER_AGE_WORKER_FAILED".to_string())?
 }
 #[tauri::command]
-fn center_age_inspect(app:AppHandle)->Result<Option<Value>,String>{
-    t3_age_transport::inspect(&app,&center_age_data_root(&app)?)
+async fn center_age_inspect(app:AppHandle)->Result<Option<Value>,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::inspect(&app,&center_age_data_root(&app)?))
+        .await.map_err(|_|"CENTER_AGE_WORKER_FAILED".to_string())?
 }
 #[tauri::command]
-fn center_age_encrypt(app:AppHandle,recipients:String)->Result<Option<Value>,String>{
-    t3_age_transport::encrypt(&app,&center_age_data_root(&app)?,&recipients)
+async fn center_age_encrypt(app:AppHandle,recipients:String)->Result<Option<Value>,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::encrypt(&app,&center_age_data_root(&app)?,&recipients))
+        .await.map_err(|_|"CENTER_AGE_WORKER_FAILED".to_string())?
 }
 #[tauri::command]
-fn center_age_decrypt(app:AppHandle)->Result<Option<Value>,String>{
-    t3_age_transport::decrypt(&app,&center_age_data_root(&app)?)
+async fn center_age_decrypt(app:AppHandle)->Result<Option<Value>,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::decrypt(&app,&center_age_data_root(&app)?))
+        .await.map_err(|_|"CENTER_AGE_WORKER_FAILED".to_string())?
 }
 
 
