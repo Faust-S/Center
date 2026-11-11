@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
 
 // Center does not receive a license merely by opening a .iwxa file. Verified
 // intake is available only when an original private T3 Consumer executable
@@ -16,6 +16,8 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
  const [verified,setVerified]=useState<View|null>(null);
  const [ready,setReady]=useState(false);
  const [busy,setBusy]=useState(false);
+ const actionRef=useRef(false);
+ const [latest,setLatest]=useState<{licenseId:string;status:string;outcome:string}|null>(null);
  const [message,setMessage]=useState('');
  const [failure,setFailure]=useState('');
  const readFailure=(e:unknown)=>{
@@ -40,7 +42,7 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    setVerified(value);
  }
  useEffect(()=>{
-   setReady(false);setVerified(null);setPreview(null);setMessage('');setFailure('');
+   setReady(false);setVerified(null);setPreview(null);setLatest(null);setMessage('');setFailure('');
    let live=true;
    if(invoke){
      (async()=>{
@@ -70,7 +72,8 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    return ()=>{live=false;};
  },[organizationId,invoke]);
  async function openPreview(){
-   if(!invoke||busy)return;
+   if(!invoke||busy||actionRef.current)return;
+   actionRef.current=true;
    setBusy(true);setPreview(null);setFailure('');setMessage('');
    try{
      const raw=await invoke('center_open_iwxa_file');
@@ -84,29 +87,47 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
      setPreview({size:raw.length,source:'IWXA_SELECTED_NOT_VERIFIED'});
      setMessage('Пакет открыт только для предварительного просмотра.');
    }catch(e){setFailure('Не удалось открыть .iwxa: '+error(e));}
-   finally{setBusy(false);}
+   finally{actionRef.current=false;setBusy(false);}
  }
  async function importVerified(encrypted=false){
-   if(!invoke||!ready||busy)return;
+   if(!invoke||!ready||busy||actionRef.current)return;
+   actionRef.current=true;
    setBusy(true);setFailure('');setMessage('');
    try{
      const receipt=await invoke(encrypted?'center_cen04_t3_import_age':'center_cen04_t3_import',{organizationId});
      if(receipt===null){setMessage('Импорт отменён.');return;}
      if(receipt?.operation!=='TEST_RECEIVE'||receipt.organizationId!==organizationId||
         receipt.signatureVerified!==true||receipt.statusVerified!==true||
-        receipt.activeSeats!==0||receipt.productionActivation!==false)
+        receipt.activeSeats!==0||receipt.productionActivation!==false||
+        typeof receipt.licenseId!=='string'||!receipt.licenseId||
+        !['ACTIVE','SUSPENDED','REVOKED'].includes(receipt.status)||
+        !['VERIFIED_TEST_SAVED','ALREADY_RECEIVED'].includes(receipt.outcome))
        throw Error('CEN04_NATIVE_T3_SIGNED_RECEIPT_REQUIRED');
      // The original T3 receive receipt proves signed verification and exact
      // encrypted-store readback for THIS license. Historical unrelated
      // expired statuses may still prevent rendering the full list.
      setPreview(null);
+     setLatest({licenseId:receipt.licenseId,status:receipt.status,outcome:receipt.outcome});
      let listFailure='';
      try{await readHost();}
      catch(e){setVerified(null);listFailure=readFailure(e);}
      if(listFailure)setFailure(listFailure);
-     setMessage((encrypted?'Защищённый .iwxa.age расшифрован T3. ':'')+'TEST-лицензия проверена T3, сохранена в зашифрованном Store и подтверждена повторным чтением T3.');
+     const label=encrypted?'Защищённый пакет .iwxa.age расшифрован T3. ':'';
+     const outcome=receipt.outcome==='ALREADY_RECEIVED'
+       ?'Повторный пакет уже был принят T3; новая запись не создавалась.'
+       :'Подписанная TEST-лицензия проверена и сохранена оригинальным T3 Consumer.';
+     setMessage(label+outcome+(listFailure?
+       ' Квитанция подтверждает сохранение; обновить общий список пока не удалось.':
+       ' Общий список повторно прочитан из T3.'));
    }catch(e){setFailure('T3 не принял лицензию: '+error(e));}
-   finally{setBusy(false);}
+   finally{actionRef.current=false;setBusy(false);}
+ }
+ async function refreshVerified(){
+   if(!invoke||!ready||busy||actionRef.current)return;
+   actionRef.current=true;setBusy(true);setFailure('');
+   try{await readHost();}
+   catch(e){setVerified(null);setFailure(readFailure(e));}
+   finally{actionRef.current=false;setBusy(false);}
  }
  return <section className="card padded" data-testid="cen04-test-license-panel">
    <h3>Лицензии Admin Center от Publisher</h3>
@@ -126,6 +147,10 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
        onClick={()=>void importVerified(false)} disabled={!ready||busy}>
        Проверить и сохранить через T3
      </button>
+     <button type="button" className="secondary" data-testid="cen04-refresh-t3"
+       onClick={()=>void refreshVerified()} disabled={!ready||busy}>
+       Обновить лицензии
+     </button>
    </div>
    {!invoke&&<p className="muted">Файловые операции доступны только в установленном Admin Center.</p>}
    {!ready&&<p className="muted" data-testid="cen04-native-consumer-unavailable">
@@ -136,6 +161,10 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
       T3 Consumer подключён. Импорт нового подписанного .iwxa доступен даже при истёкшем статусе ранее сохранённой лицензии.
    </p>}
    {message&&<p role="status">{message}</p>}
+   {latest&&<p data-testid="cen04-last-native-receipt" className="muted">
+      Лицензия: {latest.licenseId}. Подписанный статус: {latest.status}.
+      {latest.outcome==='ALREADY_RECEIVED'?' Повторная передача без новой записи.':''}
+   </p>
    {failure&&<p role="alert">{failure}</p>}
    {preview&&<div data-testid="cen04-iwxa-unverified">
       <p><strong>Пакет выбран. Проверка T3 ещё не выполнялась.</strong></p>
