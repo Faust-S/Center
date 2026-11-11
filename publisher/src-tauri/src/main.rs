@@ -548,6 +548,29 @@ fn publisher_pick_preparation_backup() -> Result<Option<String>, String> {
 
 #[path="../../../native/t3_product_component.rs"]
 mod t3_product_component;
+#[path="../../../native/t3_age_transport.rs"]
+mod t3_age_transport;
+#[tauri::command]
+fn publisher_age_status(app:AppHandle)->Result<Value,String>{
+    t3_age_transport::status(&app,&publisher_root(&app)?.join("t3-age"))
+}
+#[tauri::command]
+fn publisher_age_create_recipient(app:AppHandle)->Result<Value,String>{
+    t3_age_transport::create_recipient(&app,&publisher_root(&app)?.join("t3-age"))
+}
+#[tauri::command]
+fn publisher_age_inspect(app:AppHandle)->Result<Option<Value>,String>{
+    t3_age_transport::inspect(&app,&publisher_root(&app)?.join("t3-age"))
+}
+#[tauri::command]
+fn publisher_age_encrypt(app:AppHandle,recipients:String)->Result<Option<Value>,String>{
+    t3_age_transport::encrypt(&app,&publisher_root(&app)?.join("t3-age"),&recipients)
+}
+#[tauri::command]
+fn publisher_age_decrypt(app:AppHandle)->Result<Option<Value>,String>{
+    t3_age_transport::decrypt(&app,&publisher_root(&app)?.join("t3-age"))
+}
+
 mod t3_owner;
 
 // WEBVIEW2_USER_DATA_FOLDER takes precedence over WebView2's executable-adjacent
@@ -596,7 +619,9 @@ fn main() {
             t3_owner::publisher_t3_person_change_status,
             t3_owner::publisher_t3_person_export,
             t3_owner::publisher_t3_person_export_public_trust
-        ])
+        ,
+            publisher_age_status,publisher_age_create_recipient,publisher_age_inspect,
+            publisher_age_encrypt,publisher_age_decrypt])
         .run(tauri::generate_context!())
         .expect("IWXA Publisher could not start");
 }
