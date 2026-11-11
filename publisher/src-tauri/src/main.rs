@@ -580,6 +580,40 @@ fn publisher_pick_preparation_backup() -> Result<Option<String>, String> {
 
 #[path="../../../native/t3_product_component.rs"]
 mod t3_product_component;
+#[path="../../../native/t3_age_transport.rs"]
+mod t3_age_transport;
+// The original T3 CLI and native dialogs must never block the Publisher UI.
+#[tauri::command]
+async fn publisher_age_status(app:AppHandle)->Result<Value,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::status(&app,&publisher_root(&app)?.join("t3-age")))
+        .await.map_err(|_|"PUBLISHER_AGE_WORKER_FAILED".to_string())?
+}
+#[tauri::command]
+async fn publisher_age_create_recipient(app:AppHandle)->Result<Value,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::create_recipient(&app,&publisher_root(&app)?.join("t3-age")))
+        .await.map_err(|_|"PUBLISHER_AGE_WORKER_FAILED".to_string())?
+}
+#[tauri::command]
+async fn publisher_age_inspect(app:AppHandle)->Result<Option<Value>,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::inspect(&app,&publisher_root(&app)?.join("t3-age")))
+        .await.map_err(|_|"PUBLISHER_AGE_WORKER_FAILED".to_string())?
+}
+#[tauri::command]
+async fn publisher_age_encrypt(app:AppHandle,recipients:String)->Result<Option<Value>,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::encrypt(&app,&publisher_root(&app)?.join("t3-age"),&recipients))
+        .await.map_err(|_|"PUBLISHER_AGE_WORKER_FAILED".to_string())?
+}
+#[tauri::command]
+async fn publisher_age_decrypt(app:AppHandle)->Result<Option<Value>,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3_age_transport::decrypt(&app,&publisher_root(&app)?.join("t3-age")))
+        .await.map_err(|_|"PUBLISHER_AGE_WORKER_FAILED".to_string())?
+}
+
 mod t3_owner;
 
 // WEBVIEW2_USER_DATA_FOLDER takes precedence over WebView2's executable-adjacent
@@ -622,13 +656,16 @@ fn main() {
             publisher_select_test_iwxa, publisher_export_test_iwxa,
             t3_owner::publisher_t3_capabilities, t3_owner::publisher_t3_inventory,
             t3_owner::publisher_t3_issue, t3_owner::publisher_t3_change_status,
-            t3_owner::publisher_t3_export,
+            t3_owner::publisher_t3_export, t3_owner::publisher_t3_export_age,
             t3_owner::publisher_t3_person_capabilities,
             t3_owner::publisher_t3_person_inventory,
             t3_owner::publisher_t3_person_issue,
             t3_owner::publisher_t3_person_change_status,
             t3_owner::publisher_t3_person_export,
-            t3_owner::publisher_t3_person_export_public_trust
+            t3_owner::publisher_t3_person_export_age,
+            t3_owner::publisher_t3_person_export_public_trust,
+            publisher_age_status,publisher_age_create_recipient,publisher_age_inspect,
+            publisher_age_encrypt,publisher_age_decrypt
         ])
         .run(tauri::generate_context!())
         .expect("IWXA Publisher could not start");

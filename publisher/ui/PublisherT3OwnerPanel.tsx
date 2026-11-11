@@ -23,6 +23,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
  const [inventoryTotal,setInventoryTotal]=useState(0);
  const [inventoryTruncated,setInventoryTruncated]=useState(false);
  const [licenseId,setLicenseId]=useState('');
+ const [ageRecipients,setAgeRecipients]=useState('');
  const [adminRequest,setAdminRequest]=useState<AdminRequest|null>(null);
  const [proposalId,setProposalId]=useState('');
  const [seats,setSeats]=useState('');
@@ -334,6 +335,12 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
            </option>)}
          </select>
        </label>}
+     {selectedLicense&&<label>Публичный ключ получателя age1
+       <textarea rows={2} spellCheck={false} value={ageRecipients}
+         data-testid="publisher-t3-age-recipients"
+         onChange={e=>setAgeRecipients(e.target.value)} placeholder="age1…"/>
+       <small>Ключ получите из проверенного источника. Ввод не подтверждает личность владельца.</small>
+     </label>}
      <div className="actions">
        <select aria-label="Новый TEST-статус" value={status}
          onChange={e=>{setStatus(e.target.value as typeof status);setRevokePending(null);}}
@@ -363,6 +370,21 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
              throw Error('PUBLISHER_T3_EXPORT_RECEIPT_INVALID');
            return {message:'Пакет .iwxa выпущен T3 и подтверждён повторным чтением.'};
          })}>Экспортировать подписанный .iwxa</button>
+        <button className="secondary" type="button"
+          data-testid="publisher-t3-export-age"
+          disabled={busy||needsRefresh||!licenseId||!ageRecipients.trim()}
+          onClick={()=>operation(async()=>{
+            const receipt=await invoke('publisher_t3_export_age',{licenseId,recipients:ageRecipients});
+            if(receipt===null)return {message:'Экспорт защищённой лицензии отменён.'};
+            if(receipt?.operation!=='TEST_AGE_EXPORTED'||receipt.licenseId!==licenseId||
+               receipt.activeSeats!==0||receipt.productionActivation!==false||
+               receipt.admitted!==false||receipt.deliveryState!=='NOT_CONFIRMED'||
+               !Number.isSafeInteger(receipt.bytes)||receipt.bytes<1||
+               !/^[a-f0-9]{64}$/.test(receipt.packageSha256)||
+               !/^[a-f0-9]{64}$/.test(receipt.ciphertextSha256))
+              throw Error('PUBLISHER_T3_AGE_SIGNED_EXPORT_INVALID');
+            return {message:'Подписанная T3 TEST-лицензия зашифрована в .iwxa.age. Доставка и принятие получателем ещё не подтверждены.'};
+          })}>Экспортировать подписанную .iwxa.age</button>
      </div>
      {revokeReady&&<div className="notice" data-testid="publisher-t3-revoke-confirmation" role="alert">
        <p>Отозвать TEST-лицензию {selectedLicense?.licenseId} для организации {selectedLicense?.organizationId}?

@@ -3,6 +3,7 @@ import { emptyPublisherDraft, decodePublisherDraft, encodePublisherDraft, applyP
 import { prepareTestLicenseRequest, encodeTestLicenseRequest, suggestedTestRequestFileName, inspectTestIssuerRequestScopes } from '../src/test-license-request.mjs';
 import {simulateIssuerEvent} from '../src/issuer-simulation.mjs';
 import PublisherT3OwnerPanel from './PublisherT3OwnerPanel';
+import AgeExchangePanel from '../../src/AgeExchangePanel';
 import TariffPanel from './TariffPanel';
 import '../../src/style.css';
 import './style.css';
@@ -566,6 +567,7 @@ export default function App(){
            <p className="muted">TEST-подпись доступна только через ранее зарегистрированного владельца и оригинальный нативный компонент T3. Подписанный выпуск PERSON требует отдельно зарегистрированного издателя. Закрытые ключи не передаются в интерфейс. Действие лицензии подтверждается установленным продуктом, а не фактом её выдачи.</p>
            <PublisherT3OwnerPanel draft={state} invoke={invoke} change={change}/>
            <div className="divider"></div>
+           <AgeExchangePanel invoke={nativeHost?invoke:null} prefix="publisher"/>
            <h3>Офлайн-передача пакета .iwxa</h3>
            <p className="muted">Publisher сохраняет выбранный пакет без изменения байтов. Для организации проверку и распределение выполняет Admin Center, для частного лица — установленный продукт. Здесь подпись, статус, получатель и права не проверяются.</p>
            <div className="actions">
