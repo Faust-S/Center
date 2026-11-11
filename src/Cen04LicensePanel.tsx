@@ -76,7 +76,7 @@ export default function Cen04LicensePanel({organizationId,organizationName,organ
    return ()=>{live=false;};
  },[organizationId,invoke]);
  async function exportUnsignedRequest(){
-   if(!invoke||busy||organizationKind!=='ORGANIZATION')return;
+   if(!invoke||busy)return;
    setBusy(true);setFailure('');setMessage('');
    try{
      // This is the existing Publisher/T3 unsigned TEST profile. Admin Center
