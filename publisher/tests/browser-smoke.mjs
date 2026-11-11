@@ -855,7 +855,9 @@ try {
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
   await personOwner.getByTestId('publisher-person-issue').click();
   await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя.',{exact:false}).waitFor();
-  const personLicensePicker=personOwner.getByRole('combobox',{name:'Лицензия',exact:true});
+  const personLicensePicker=personOwner.getByRole('combobox',{name:'Персональная лицензия',exact:true});
+  assert.equal(await personOwner.getByRole('combobox',{name:'Лицензия',exact:true}).count(),0,
+    'PERSON and TEST license selectors must have distinct accessible names');
   const firstIssuedLabel=await personLicensePicker.locator('option[value="license:person:mock:one"]').textContent();
   assert.match(firstIssuedLabel,/Первоначальный выпуск/);
   assert.match(firstIssuedLabel,/license:person:mock:one/);
@@ -916,7 +918,7 @@ try {
   await personOwner.getByTestId('publisher-person-status').click();
   await personOwner.getByText('Подписанный статус сохранён.',{exact:false}).waitFor();
   checks.push('person-renewal-issued-over-native-ipc-with-source-request-identity');
-  await personOwner.getByRole('combobox',{name:'Лицензия',exact:true})
+  await personOwner.getByRole('combobox',{name:'Персональная лицензия',exact:true})
     .selectOption('license:person:mock:one');
   await personOwner.getByTestId('publisher-person-export').click();
   await personOwner.getByText('Подписанный пакет .iwxa сохранён',{exact:false}).waitFor();
@@ -937,6 +939,7 @@ try {
   assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true);
   checks.push('publisher-person-owner-mocked-signed-native-route');
   checks.push('person-original-and-renewal-selectors-show-distinct-native-license-ids');
+  checks.push('person-and-test-license-selectors-distinct-accessibility-names');
 
   // A second client type can use the same tariff code, product and revision.
   // This is one shared catalog, not a separate personal issuer or format.
