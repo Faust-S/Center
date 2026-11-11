@@ -65,8 +65,9 @@ function Invoke-Setup([string]$file,[string[]]$arguments,[int]$expected=0){
     }
     return (Get-Content -LiteralPath $output -Raw | ConvertFrom-Json)
 }
-function Make-Product([string]$tag,[switch]$LongPaths) {
-    $id='iwxa.fixture.'+$tag
+function Make-Product([string]$tag,[switch]$LongPaths,[string]$ProductId='',[string]$ProductVersion='') {
+    $id=if($ProductId){$ProductId}else{'iwxa.fixture.'+$tag}
+    $buildVersion=if($ProductVersion){$ProductVersion}else{$version}
     $folder=Join-Path $root $tag
     $payload=Join-Path $folder 'payload'
     $exe=Join-Path $payload 'bin\fixture.exe'
@@ -100,9 +101,9 @@ function Make-Product([string]$tag,[switch]$LongPaths) {
     $manifest=Join-Path $folder 'product.json'
     $product=[ordered]@{
         schema='IWXA_SETUP_PRODUCT/1';id=$id;display_name=('IWXA Test '+$tag)
-        publisher='IWXA';version=$version;architecture='windows-x64'
+        publisher='IWXA';version=$buildVersion;architecture='windows-x64'
         install_dir=('IWXA Test '+$tag)
-        entrypoint='bin/fixture.exe';data_namespace=('iwxa.fixture.'+$tag)
+        entrypoint='bin/fixture.exe';data_namespace=$id
         requirements=@()
     }
     [IO.File]::WriteAllText($manifest,($product|ConvertTo-Json -Depth 5),
@@ -243,6 +244,34 @@ try{
        [IO.File]::ReadAllText($longMarker) -ne 'synthetic-user-owned'){
         throw 'SETUP_NEUTRAL_LONG_PATH_ROLLBACK_DATA_OR_IDENTITY_CHANGED'
     }
+    # Different-version migration on the SAME native product identity.
+    # Only synthetic bytes: version 1.0.0 -> 1.0.1 -> rollback to 1.0.0.
+    $previousFixture=[IO.File]::ReadAllText((Join-Path $long.program 'assets\fixture.txt'))
+    $versionTwo=Make-Product ('u'+[Guid]::NewGuid().ToString('N').Substring(0,10)) -LongPaths -ProductId $long.id -ProductVersion '1.0.1'
+    if($versionTwo.id -cne $long.id){throw 'SETUP_NEUTRAL_VERSIONED_IDENTITY_INVALID'}
+    $upgraded=Invoke-Setup $versionTwo.bundle @('--upgrade-file')
+    if($upgraded.status -ne 'UPGRADED_BACKUP_RETAINED' -or
+       $upgraded.version -ne '1.0.1'){
+        throw 'SETUP_NEUTRAL_LONG_PATH_VERSION_UPGRADE_FAILED'
+    }
+    $v2Identity=Invoke-Setup $versionTwo.bundle @('--verify-installed-file')
+    $newFixture=[IO.File]::ReadAllText((Join-Path $long.program 'assets\fixture.txt'))
+    if($v2Identity.status -ne 'OWNED_FILES_VERIFIED' -or
+       $newFixture -ceq $previousFixture -or
+       [IO.File]::ReadAllText($longMarker) -ne 'synthetic-user-owned'){
+        throw 'SETUP_NEUTRAL_LONG_PATH_VERSION_UPGRADE_IDENTITY_INVALID'
+    }
+    $returned=Invoke-Setup $versionTwo.bundle @('--rollback-upgrade-file')
+    if($returned.status -ne 'ROLLBACK_RESTORED_PREVIOUS'){
+        throw 'SETUP_NEUTRAL_LONG_PATH_VERSION_ROLLBACK_FAILED'
+    }
+    $v1Identity=Invoke-Setup $long.bundle @('--verify-installed-file')
+    if($v1Identity.status -ne 'OWNED_FILES_VERIFIED' -or
+       [IO.File]::ReadAllText((Join-Path $long.program 'assets\fixture.txt')) -cne $previousFixture -or
+       [IO.File]::ReadAllText($longMarker) -ne 'synthetic-user-owned'){
+        throw 'SETUP_NEUTRAL_LONG_PATH_VERSION_ROLLBACK_IDENTITY_INVALID'
+    }
+    Write-Host 'IWXA_SETUP_SYNTHETIC_LONG_PATH_VERSION_UPGRADE_ROLLBACK_PASS'
     $longRemoved=Invoke-Setup $long.bundle @('--uninstall-file')
     if($longRemoved.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
        (Test-Path -LiteralPath $long.program) -or
