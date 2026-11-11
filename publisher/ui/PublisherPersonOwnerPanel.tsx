@@ -51,6 +51,10 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
     }) as {proposalId:string;request:any;label:string}[];
   },[draft]);
   const selected=options.find(o=>o.proposalId===proposalId);
+  // Original T3 idempotently owns the signed issuance. Once the journal
+  // confirms this request, the UI must not invite a redundant signature.
+  const issuedSelected=selected&&issuer?licenses.find(l=>
+    l.requestId===selected.request.requestId&&l.issuerAuthorityId===issuer):undefined;
   const selectedLicense=licenses.find(l=>l.licenseId===licenseId);
   const renewalOptions=(Array.isArray(draft?.tariffs)?draft.tariffs:[])
     .filter((t:any)=>t.productId===selectedLicense?.productId&&t.holderType==='PERSON');
@@ -144,7 +148,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
     }finally{setBusy(false);}
   }
   async function issue(){
-    if(!issuer||!selected||!termsConfirmed||busy||needsRefresh)return;
+    if(!issuer||!selected||!termsConfirmed||issuedSelected||busy||needsRefresh)return;
     const request=prepareUnsignedPersonLicenseRequest(draft,{proposalId:selected.proposalId});
     const authority=issuer;
     const source=draft.proposals?.find((p:any)=>p.id===selected.proposalId);
@@ -298,10 +302,15 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
           onChange={e=>setTermsConfirmed(e.target.checked)}
           disabled={busy}/> Подтверждаю выпуск на указанных условиях</label>
       </div>}
+      {issuedSelected&&<p className="notice subdued"
+        data-testid="publisher-person-already-issued">
+        Эта подготовка уже выпущена в T3: {issuedSelected.licenseId}.
+        Выберите запись в журнале ниже для подписания статуса или экспорта .iwxa.
+      </p>}
       <div className="actions">
         <button type="button" className="primary" data-testid="publisher-person-issue"
-          disabled={busy||needsRefresh||!issuer||!selected||!termsConfirmed}
-          onClick={()=>void issue()}>Подписать и записать в T3</button>
+          disabled={busy||needsRefresh||!issuer||!selected||!termsConfirmed||!!issuedSelected}
+          onClick={()=>void issue()}>{issuedSelected?'Уже выпущена':'Подписать и записать в T3'}</button>
         <button type="button" className="secondary"
           data-testid="publisher-person-refresh" disabled={busy}
           onClick={()=>void refresh()}>Обновить журнал PERSON</button>
