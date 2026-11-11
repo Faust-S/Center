@@ -22,6 +22,40 @@ namespace IwxaSetup
 {
     internal static class Program
     {
+        // Native CLI receipts expose finite diagnostics only. Never return
+        // exception text, paths, stack traces, HRESULT payloads or private data
+        // through these fields. The original reason stays local to the runner.
+        private static string SafeInstallFailureClass(Exception ex)
+        {
+            if (ex is PathTooLongException) return "PATH_TOO_LONG";
+            if (ex is UnauthorizedAccessException) return "ACCESS_DENIED";
+            if (ex is System.Runtime.InteropServices.COMException) return "COM";
+            if (ex is TargetInvocationException) return "REFLECTION";
+            if (ex is System.Security.SecurityException) return "SECURITY";
+            if (ex is InvalidDataException) return "INVALID_DATA";
+            if (ex is IOException) return "IO";
+            if (ex is InvalidOperationException) return "INVALID_OPERATION";
+            if (ex is ArgumentException) return "ARGUMENT";
+            if (ex is NotSupportedException) return "NOT_SUPPORTED";
+            return "OTHER";
+        }
+
+        private static string SafeInstallFailurePhase(Exception ex)
+        {
+            string phase = Convert.ToString(ex.Data["IWXA_SETUP_PHASE"]);
+            switch (phase)
+            {
+                case "STAGE_EXTRACTION":
+                case "STORAGE_VALIDATION":
+                case "ACTIVATION":
+                case "REGISTRATION":
+                case "SHORTCUT":
+                    return phase;
+                default:
+                    return "REQUEST_OR_PREFLIGHT";
+            }
+        }
+
         [STAThread]
         private static int Main(string[] args)
         {
@@ -341,7 +375,9 @@ namespace IwxaSetup
                 catch (Exception ex)
                 {
                     WriteResult(args[2], new Dictionary<string, object> {
-                        {"status", "ERROR"}, {"reason", ex.Message}
+                        {"status", "ERROR"}, {"reason", ex.Message},
+                        {"exceptionClass", SafeInstallFailureClass(ex)},
+                        {"installPhase", SafeInstallFailurePhase(ex)}
                     });
                     return 2;
                 }

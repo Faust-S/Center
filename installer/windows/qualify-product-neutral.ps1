@@ -207,6 +207,20 @@ try{
         throw 'SETUP_NEUTRAL_SECOND_UNINSTALL_INVALID'
     }
     Write-Host 'IWXA_SETUP_CROSS_PRODUCT_UNINSTALL_AND_DATA_PRESERVATION_PASS'
+    # A denied synthetic locations request must publish only bounded native
+    # failure metadata, without disclosing the requested path or exception.
+    $deniedLocations=Join-Path $root 'denied-locations.json'
+    $deniedRequest=Get-Content -LiteralPath $a.request -Raw -Encoding UTF8 | ConvertFrom-Json
+    $deniedRequest.programRoot=[IO.Path]::GetPathRoot($a.program)
+    $deniedRequest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $deniedLocations -Encoding UTF8
+    $failedInstall=Invoke-Setup $a.bundle @('--install-locations-file',('"' + $deniedLocations + '"')) 2
+    if($failedInstall.status -ne 'ERROR' -or
+       $failedInstall.exceptionClass -ne 'INVALID_OPERATION' -or
+       $failedInstall.installPhase -ne 'REQUEST_OR_PREFLIGHT' -or
+       (Test-Path -LiteralPath $a.key)){
+        throw 'SETUP_NEUTRAL_INSTALL_DIAGNOSTIC_OR_NO_EFFECT_INVALID'
+    }
+    Write-Host 'IWXA_SETUP_NATIVE_INSTALL_DIAGNOSTIC_ALLOWLIST_PASS'
     # Large real products contain deep Python dependency paths. Test the
     # original Setup Core installer with synthetic data at the same depth.
     $long=Make-Product ('l'+[Guid]::NewGuid().ToString('N').Substring(0,10)) -LongPaths

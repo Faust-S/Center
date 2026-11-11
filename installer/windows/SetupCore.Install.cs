@@ -858,10 +858,12 @@ namespace IwxaSetup
             // Atlas process is stopped or modified by S2 first-install.
             string staged = root + ".iwxa-new-" + Guid.NewGuid().ToString("N");
             bool activated = false;
+            string failurePhase = "STAGE_EXTRACTION";
             Directory.CreateDirectory(staged);
             try
             {
                 PrepareVerifiedStage(bundle, info, staged, root, legacy);
+                failurePhase = "STORAGE_VALIDATION";
                 if (locations != null)
                 {
                     string unavailable = UnavailableStorageVolume(locations);
@@ -878,9 +880,11 @@ namespace IwxaSetup
                     RequireUnusedStorageTarget(root);
                     Directory.Delete(root);
                 }
+                failurePhase = "ACTIVATION";
                 Directory.Move(staged, root);
                 activated = true;
 
+                failurePhase = "REGISTRATION";
                 Register(info, root);
                 if (locations != null)
                 {
@@ -900,6 +904,7 @@ namespace IwxaSetup
                 // preview is being qualified.
                 if (legacy == null)
                 {
+                    failurePhase = "SHORTCUT";
                     CreateShortcut(info, root);
                     if (startWithWindows) SetStartupShortcut(info, root, true);
                 }
@@ -910,8 +915,9 @@ namespace IwxaSetup
                     Version = info.Version, Root = root
                 };
             }
-            catch
+            catch (Exception ex)
             {
+                ex.Data["IWXA_SETUP_PHASE"] = failurePhase;
                 // Return a pre-existing EMPTY folder if staging failed before
                 // activation. Never restore or delete unrelated contents.
                 if (initialEmptyRoot && !activated &&
