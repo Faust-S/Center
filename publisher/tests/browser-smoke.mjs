@@ -433,8 +433,18 @@ try {
   assert.ok(!('licenseId' in testRequest) && !('signature' in testRequest));
   assert.match(await page.locator('main').innerText(),/Лицензия не выдана/);
   checks.push('export-exact-unsigned-product-holder-test-request');
+  // A temporary owner-ledger read error at first opening must not hide
+  // an already enrolled issuer or force a desktop restart.
+  await page.evaluate(()=>{window.__publisherMockFailNextInventory=true;});
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
   const ownerPanel=page.getByTestId('publisher-t3-owner-panel');
+  await ownerPanel.getByText('Журнал T3 недоступен при запуске.',{exact:false}).waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
+  assert.equal(await page.getByTestId('publisher-t3-refresh').isEnabled(),true);
+  assert.match(await ownerPanel.innerText(),/Журнал пока не прочитан/);
+  await page.getByTestId('publisher-t3-refresh').click();
+  await ownerPanel.getByText('Журнал T3 обновлён.',{exact:false}).waitFor();
+  checks.push('test-issuer-recovers-first-ledger-read-without-restart');
   const proposalChoice=ownerPanel.getByRole('combobox',{name:'Подготовленный запрос'});
   const issuerChoice=ownerPanel.getByRole('combobox',{name:'Полномочие издателя'});
   assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
@@ -779,6 +789,10 @@ try {
           issuers:['publisher:person:mock','publisher:person:alternate'],activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_person_inventory'){
+        if(window.__personMockFailNextInventory){
+          window.__personMockFailNextInventory=false;
+          throw Error('PERSON_T3_TEMPORARY_INVENTORY_UNAVAILABLE');
+        }
         return {operation:'PERSON_INVENTORY',
           licenses:JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]'),
           activeSeats:0,productionActivation:false};
@@ -888,10 +902,18 @@ try {
 
   // A synthetic native PERSON issuer may be enabled only after separate
   // explicit pre-enrollment. This is a UI double, not a signer or entitlement.
-  await personal.evaluate(()=>{window.__personNativeEnabled=true;});
+  await personal.evaluate(()=>{window.__personNativeEnabled=true;
+    window.__personMockFailNextInventory=true;});
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
   await personal.getByRole('button',{name:'Доверие и ключи'}).click();
   const personOwner=personal.getByTestId('publisher-person-owner');
+  await personOwner.getByText('Журнал персональных лицензий T3 недоступен при запуске.',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
+  assert.equal(await personOwner.getByTestId('publisher-person-refresh').isEnabled(),true);
+  assert.match(await personOwner.innerText(),/Журнал пока не прочитан/);
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  checks.push('person-issuer-recovers-first-ledger-read-without-restart');
   // Native select options are intentionally hidden in Firefox.
   // selectOption waits for the exact option to be attached.
   await personOwner.getByTestId('publisher-person-public-trust-export').click();

@@ -99,7 +99,18 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
        setIssuerIds(value.issuers);
        setIssuer('');
        setAvailable(value.issuers.length>0);
-       await inventory();
+       if(value.issuers.length>0){
+         try{await inventory();}
+         catch(e){
+           if(alive){
+             // An enrolled issuer must not become "unavailable" merely
+             // because its durable ledger could not be read at startup.
+             setNeedsRefresh(true);
+             setFailure('Журнал T3 недоступен при запуске. '+
+               'Обновите журнал перед выдачей или изменением статуса. '+error(e));
+           }
+         }
+       }
      }catch(e){
        if(alive){setAvailable(false);setMessage('Компонент T3 не включён в эту установку или издатель ещё не зарегистрирован.');}
      }finally{if(alive)setLoading(false);}
@@ -314,7 +325,8 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
      </p>
      <button type="button" className="secondary" data-testid="publisher-t3-refresh"
        disabled={busy} onClick={()=>void refreshInventory()}>Обновить журнал</button>
-     {licenses.length===0?<p className="muted">Пока нет выпущенных лицензий.</p>:
+     {licenses.length===0?<p className="muted">{needsRefresh?
+       'Журнал пока не прочитан.':'Пока нет выпущенных лицензий.'}</p>:
        <label>Лицензия
          <select value={licenseId} onChange={e=>{setLicenseId(e.target.value);setStatus('');setRevokePending(null);}} disabled={busy}>
            <option value="">Выберите лицензию</option>{licenses.map(x=><option value={x.licenseId} key={x.licenseId}>

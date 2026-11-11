@@ -102,7 +102,18 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
           throw Error('PERSON_NATIVE_ISSUER_NOT_ENROLLED');
         if(!alive)return;
         setIssuers(info.issuers);setAvailable(info.issuers.length>0);
-        await inventory();
+        if(info.issuers.length>0){
+          try{await inventory();}
+          catch(e){
+            if(alive){
+              // A readable issuer and an unreadable ledger are different states:
+              // keep Refresh available but do not allow any signed mutation.
+              setNeedsRefresh(true);
+              setFailure('Журнал персональных лицензий T3 недоступен при запуске. '+
+                'Обновите журнал перед выдачей или изменением статуса. '+err(e));
+            }
+          }
+        }
       }catch{
         if(alive)setAvailable(false);
       }finally{if(alive)setLoading(false);}
@@ -326,8 +337,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       {options.length===0&&<p className="muted">Создайте персональный тариф и
         подготовьте лицензию для Atlas или Personal Agent.</p>}
       <h4>Журнал персональных лицензий</h4>
-      <p className="muted">В журнале: {total}.
-        {truncated&&' Показаны последние 48 записей.'}</p>
+      <p className="muted">{needsRefresh?'Журнал пока не прочитан.':
+        <>В журнале: {total}.{truncated&&' Показаны последние 48 записей.'}</>}</p>
       {licenses.length>0&&<>
         <label>Персональная лицензия
         <select value={licenseId} disabled={busy}
