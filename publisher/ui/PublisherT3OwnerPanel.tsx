@@ -43,6 +43,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
    revokePending.licenseId===selectedLicense.licenseId&&
    revokePending.organizationId===selectedLicense.organizationId);
  const selectedProposal=eligible.find((p:any)=>p.id===proposalId);
+ const alreadyIssued=selectedProposal?licenses.find(x=>x.requestId===selectedProposal.id):undefined;
  const seatLimit=selectedProposal?.tariffSnapshot?.productSeats??10000;
  const seatCount=Number(seats);
  const seatsValid=Boolean(selectedProposal)&&/^[0-9]+$/.test(seats)&&
@@ -110,7 +111,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
  }
  type ActionOutcome={message:string;confirm?:(readback:InventoryReadback)=>boolean;
   readbackMismatchMessage?:string};
- async function operation(action:()=>Promise<ActionOutcome>){
+ async function operation(action:()=>Promise<ActionOutcome>,mutatesLedger=false){
    if(busy||!available||needsRefresh)return;
    setBusy(true);setFailure('');setMessage('');
    try{
@@ -131,8 +132,15 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
        return;
      }
      setMessage(outcome.message);
-   }catch(e){setFailure(error(e));}
-   finally{setBusy(false);}
+   }catch(e){
+     if(mutatesLedger){
+       // Original T3 can persist the signed change before the native IPC
+       // reply is lost. A second click must never be an implicit retry.
+       setNeedsRefresh(true);
+       setFailure('Операция могла сохраниться в T3 без ответа. '+
+         'Обновите журнал перед повтором. '+error(e));
+     }else setFailure(error(e));
+   }finally{setBusy(false);}
  }
  async function applyStatus(){
    const target=licenseId,requested=status,previous=selectedLicense;
@@ -152,7 +160,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
        confirm:({entries}:InventoryReadback)=>entries.some(x=>x.licenseId===target&&
          x.status===requested&&x.sequence===receipt.sequence)
      };
-   });
+   },true);
  }
  return <><PublisherPersonOwnerPanel draft={draft} invoke={invoke} change={change}/>
  <section className="publisher-test-owner" data-testid="publisher-t3-owner-panel">
@@ -192,10 +200,14 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
          {seatsValid?` Выбрано: ${seatCount}.`:seats?` Число мест (${seats}) вне допустимого диапазона 1–${seatLimit}.`:' Пока число мест не выбрано, выпуск недоступен.'}</p>
        {selectedProposal.tariffSnapshot&&<p className="muted">TEST-контракт T3 передаёт продукт, функции, срок и места. Лимиты сотрудников, устройств и ресурсов остаются в подготовке, но не подписываются этим контрактом.</p>}
      </div>}
+     {alreadyIssued&&<p className="notice subdued" data-testid="publisher-t3-already-issued">
+       Запрос уже подписан T3: {alreadyIssued.licenseId} (издатель {alreadyIssued.issuerAuthorityId}).
+       Выберите запись ниже для экспорта в Admin Center или изменения её статуса.
+     </p>}
      <div className="actions">
-       <button className="secondary" type="button" disabled={busy||needsRefresh||!issuer||!proposalId||!supportedIds.has(proposalId)||!seatsValid}
+       <button className="secondary" type="button" disabled={busy||needsRefresh||!issuer||!proposalId||!supportedIds.has(proposalId)||!seatsValid||!!alreadyIssued}
          data-testid="publisher-t3-issue" onClick={()=>operation(async()=>{
-           if(!issuer||!proposalId||!inspectTestIssuerRequestScope(draft,proposalId).supported)
+           if(!issuer||!proposalId||alreadyIssued||!inspectTestIssuerRequestScope(draft,proposalId).supported)
              throw Error('PUBLISHER_T3_REQUEST_SCOPE_UNAVAILABLE');
            if(!seatsValid)throw Error('PUBLISHER_T3_EXPLICIT_SEATS_REQUIRED');
            const request=prepareTestLicenseRequest(draft,{proposalId,seats:seatCount});
@@ -224,7 +236,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
                x.issuerAuthorityId===issuer&&x.organizationId===request.subject.id&&
                x.productId===request.product.id&&x.claimedSeats===request.seats)
            };
-         })}>Выпустить TEST-лицензию</button>
+         },true)}>{alreadyIssued?'Уже выпущена':'Выпустить TEST-лицензию'}</button>
      </div>
      {eligible.length===0&&<p className="muted" data-testid="publisher-no-supported-test-requests">Подходящих организационных TEST-запросов нет. Личные запросы нельзя подписывать этим компонентом.</p>}
      <h4>Подписанные TEST-лицензии T3</h4>
