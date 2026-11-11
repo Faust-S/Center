@@ -36,8 +36,20 @@ foreach($file in @($publisherPath,$centerPath,$ownerPath,$consumerPath)){
     throw "CENTER_LICENSE_ACCEPTANCE_INSTALLED_BINARY_MISSING $file"
   }
 }
-$ownerRoot=Join-Path $env:LOCALAPPDATA 'ru.iwxa.publisher/t3-owner-test'
-$consumerRoot=Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center/t3-consumer-test'
+# Use the SAME product-owned roots as the installed Tauri applications.
+# Publisher follows Setup Core's user-selected DataLocation if registered;
+# Admin uses the pinned Atlas native path_for(...)/atlas-store-v1 root.
+$publisherData=Join-Path $env:LOCALAPPDATA 'ru.iwxa.publisher'
+$publisherRegistry='HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher'
+if(Test-Path -LiteralPath $publisherRegistry){
+  $configured=(Get-ItemProperty -LiteralPath $publisherRegistry -Name DataLocation -ErrorAction Stop).DataLocation
+  if([string]::IsNullOrWhiteSpace($configured)){
+    throw 'CENTER_LICENSE_PUBLISHER_SETUP_CORE_DATA_ROOT_INVALID'
+  }
+  $publisherData=[IO.Path]::GetFullPath([string]$configured)
+}
+$ownerRoot=Join-Path $publisherData 't3-owner-test'
+$consumerRoot=Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center/atlas-store-v1/t3-consumer-test'
 foreach($root in @($ownerRoot,$consumerRoot)){
   if(!(Test-Path -LiteralPath $root -PathType Container)){
     throw 'CENTER_LICENSE_ACCEPTANCE_ORIGINAL_OWNER_NOT_PROVISIONED'
@@ -321,7 +333,9 @@ try{
   Wait-Text $cen 'ACTIVE'
   $checks.Add('CENTER_ACTIVE_SURVIVES_RESTART')
   Select-Last $pub 'Новый TEST-статус'
-  Press $pub 'Изменить статус' $true
+  Press $pub 'Подготовить отзыв' $true
+  Wait-Text $pub 'Отозвать TEST-лицензию'
+  Press $pub 'Подтвердить отзыв' $true
   Confirm-Status $id 'REVOKED'
   Wait-Text $pub 'Новый подписанный TEST-статус сохранён в T3: REVOKED'
   Native-FileDialog $pub 'Экспортировать подписанный .iwxa' $revoked $false
