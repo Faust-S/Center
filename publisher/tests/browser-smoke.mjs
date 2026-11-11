@@ -929,7 +929,10 @@ try {
   await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('REVOKED');
   await personOwner.getByTestId('publisher-person-status').click();
   await personOwner.getByTestId('publisher-person-revoke-confirmation').waitFor();
-  await personOwner.getByRole('button',{name:'Подтвердить отзыв'}).click();
+  assert.equal(await personOwner.getByRole('button',{name:'Подтвердить отзыв',exact:true}).count(),0,
+    'TEST and PERSON terminal revocations need distinct accessible names');
+  assert.equal(await personOwner.getByRole('button',{name:'Подтвердить отзыв PERSON'}).count(),1);
+  await personOwner.getByRole('button',{name:'Подтвердить отзыв PERSON'}).click();
   await personOwner.getByText('Подписанный отзыв сохранён.',{exact:false}).waitFor();
   const received=JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger')));
