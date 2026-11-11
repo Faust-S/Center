@@ -867,7 +867,42 @@ jobs:
                       'SETUP_INSTALL_ALREADY_RUNNING',
                       'SETUP_BLOCKED_',
                       'SETUP_RELATIVE_PATH_INVALID',
-                      'SETUP_POST_OWNED_PRODUCT_MISMATCH'
+                      'SETUP_POST_OWNED_PRODUCT_MISMATCH',
+                      'SETUP_INSTALL_ROOT_INVALID',
+                      'SETUP_INSTALL_ROOT_VOLUME_ROOT',
+                      'SETUP_INSTALL_ROOT_SYSTEM_FOLDER',
+                      'SETUP_INSTALL_ROOT_PARENT_FILE',
+                      'SETUP_INSTALL_ROOT_LINK',
+                      'SETUP_STORAGE_LOCATIONS_OVERLAP',
+                      'SETUP_LOCATIONS_SCHEMA_INVALID',
+                      'SETUP_LOCATIONS_FIELD_',
+                      'SETUP_LOCATIONS_STARTUP_MODE_INVALID',
+                      'SETUP_STARTUP_SHORTCUT_CONFLICT',
+                      'SETUP_START_MENU_SHORTCUT_CONFLICT',
+                      'SETUP_WINDOWS_SHORTCUT_SERVICE_MISSING',
+                      'SETUP_DISK_PACKAGE_SIZE_UNKNOWN',
+                      'SETUP_DISK_VOLUME_UNAVAILABLE',
+                      'SETUP_PACKAGE_CHANGED_DURING_STAGE',
+                      'SETUP_PACKAGE_MISSING',
+                      'SETUP_PACKAGE_HASH_INVALID',
+                      'SETUP_MANIFEST_HASH_INVALID',
+                      'SETUP_MANIFEST_SCHEMA_INVALID',
+                      'SETUP_LAYOUT_INVALID',
+                      'SETUP_RESOURCE_HEADER_INVALID',
+                      'SETUP_ZIP_FILE_COUNT_INVALID',
+                      'SETUP_ZIP_LINK_FORBIDDEN',
+                      'SETUP_ZIP_REGION_OUT_OF_BOUNDS',
+                      'SETUP_STAGING_ESCAPE',
+                      'SETUP_FILES_INVALID',
+                      'SETUP_FILE_IDENTITY_INVALID',
+                      'SETUP_FILE_LENGTH_INVALID',
+                      'SETUP_ENTRYPOINT_MISSING',
+                      'SETUP_PRODUCT_IDENTITY_INVALID',
+                      'SETUP_PRODUCT_SCHEMA_INVALID',
+                      'SETUP_SOURCE_IDENTITY_INVALID',
+                      'SETUP_REQUIREMENTS_INVALID',
+                      'SETUP_LOCATIONS_AUTHORITY_MISSING',
+                      'SETUP_STAGED_ENTRYPOINT_MISSING'
                     )
                     $found=$false
                     foreach($safeCode in $safeCodes){
@@ -893,6 +928,30 @@ jobs:
                         $failureClass='JSON_CAPACITY'
                       }elseif($reason -match '(?i)file.{0,12}already exists|already exists'){
                         $failureClass='FILE_ALREADY_EXISTS'
+                      }elseif($reason -match '(?i)the system cannot find the file specified|the system cannot find the path specified|the directory name is invalid'){
+                        $failureClass='WINDOWS_ENTRY_NOT_FOUND'
+                      }elseif($reason -match '(?i)illegal characters in path|path contains invalid characters|filename.{0,30}syntax is incorrect'){
+                        $failureClass='INVALID_PATH_SYNTAX'
+                      }elseif($reason -match '(?i)the directory is not empty|directory not empty'){
+                        $failureClass='DIRECTORY_NOT_EMPTY'
+                      }elseif($reason -match '(?i)requested registry access is not allowed|access to the registry key'){
+                        $failureClass='REGISTRY_ACCESS'
+                      }elseif($reason -match '(?i)class not registered|0x80040154|cannot create activex component'){
+                        $failureClass='SHELL_COM_UNAVAILABLE'
+                      }elseif($reason -match '(?i)out of memory|insufficient memory|too many open files'){
+                        $failureClass='RESOURCE_LIMIT'
+                      }elseif($reason -match '(?i)key was not present in the dictionary|an item with the same key|index was out of range'){
+                        $failureClass='COLLECTION_STATE'
+                      }elseif($reason -match '(?i)object reference not set to an instance'){
+                        $failureClass='NULL_REFERENCE'
+                      }elseif($reason -match '(?i)cannot access a disposed object'){
+                        $failureClass='DISPOSED_OBJECT'
+                      }elseif($reason -match '(?i)invalid argument|argument.{0,40}invalid|value cannot be null'){
+                        $failureClass='INVALID_ARGUMENT'
+                      }elseif($reason -match '(?i)end of central directory|invalid.*zip archive|zip archive.*invalid'){
+                        $failureClass='ZIP_STRUCTURE'
+                      }elseif($reason.StartsWith('SETUP_',[StringComparison]::Ordinal)){
+                        $failureClass='UNLISTED_ENGINE_CODE'
                       }elseif([string]::IsNullOrWhiteSpace($reason)){
                         $failureClass='MISSING_REASON'
                       }
