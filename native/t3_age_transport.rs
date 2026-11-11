@@ -235,23 +235,43 @@ pub fn status(app:&AppHandle,root:&Path)->Result<Value,String>{
 pub fn create_recipient(app:&AppHandle,root:&Path)->Result<Value,String>{
     run(app,root,"recipient-create",&[])
 }
-pub fn inspect(app:&AppHandle,root:&Path)->Result<Option<Value>,String>{
-    let Some(path)=file_picker("Проверить заголовок .iwxa.age","age") else{return Ok(None)};
-    ensure_file(&path,".iwxa.age",33*1024*1024)?;
-    run(app,root,"inspect",&[path.to_string_lossy().into_owned()]).map(Some)
+// Dialogs are selected by the native Tauri command before dispatching the
+// external age invocation to its worker. No file contents enter WebView.
+pub fn choose_inspect()->Option<PathBuf>{
+    file_picker("Проверить заголовок .iwxa.age","age")
 }
-pub fn encrypt(app:&AppHandle,root:&Path,raw_recipients:&str)->Result<Option<Value>,String>{
-    let recipients=recipients(raw_recipients)?;
+pub fn inspect_source(app:&AppHandle,root:&Path,source:&Path)->Result<Value,String>{
+    ensure_file(source,".iwxa.age",33*1024*1024)?;
+    run(app,root,"inspect",&[source.to_string_lossy().into_owned()])
+}
+pub fn inspect(app:&AppHandle,root:&Path)->Result<Option<Value>,String>{
+    let Some(source)=choose_inspect() else{return Ok(None)};
+    inspect_source(app,root,&source).map(Some)
+}
+pub fn choose_encrypt(raw_recipients:&str)->Result<Option<(PathBuf,PathBuf)>,String>{
+    recipients(raw_recipients)?;
     let Some(source)=file_picker("Выбрать исходный пакет .iwxa","iwxa") else{return Ok(None)};
     ensure_file(&source,".iwxa",32*1024*1024)?;
     let suggested=format!("{}.age",source.file_name().and_then(|s|s.to_str()).unwrap_or("package.iwxa"));
     let Some(target)=save_picker("Сохранить защищённый пакет .iwxa.age","age",&suggested) else{return Ok(None)};
     ensure_destination(&target,".iwxa.age")?;
     if source==target{return Err("AGE_DESKTOP_PATH_CONFLICT".into());}
-    let args=[source.to_string_lossy().into_owned(),target.to_string_lossy().into_owned(),recipients];
+    Ok(Some((source,target)))
+}
+pub fn encrypt_selected(app:&AppHandle,root:&Path,source:&Path,target:&Path,raw_recipients:&str)
+    ->Result<Value,String>{
+    let targets=recipients(raw_recipients)?;
+    ensure_file(source,".iwxa",32*1024*1024)?;
+    ensure_destination(target,".iwxa.age")?;
+    if source==target{return Err("AGE_DESKTOP_PATH_CONFLICT".into());}
+    let args=[source.to_string_lossy().into_owned(),target.to_string_lossy().into_owned(),targets];
     let receipt=run(app,root,"encrypt",&args)?;
-    verify_saved_file(&target,&receipt,"ciphertextSha256",33*1024*1024)?;
-    Ok(Some(receipt))
+    verify_saved_file(target,&receipt,"ciphertextSha256",33*1024*1024)?;
+    Ok(receipt)
+}
+pub fn encrypt(app:&AppHandle,root:&Path,raw_recipients:&str)->Result<Option<Value>,String>{
+    let Some((source,target))=choose_encrypt(raw_recipients)? else{return Ok(None)};
+    encrypt_selected(app,root,&source,&target,raw_recipients).map(Some)
 }
 // Keep decrypted data out of WebView and never leave a recovered license in
 // user-selected folders. The original T3 consumer reads this short-lived file
@@ -293,7 +313,7 @@ pub fn decrypt_source(app:&AppHandle,root:&Path,source:&Path,target:&Path)
     Ok(receipt)
 }
 
-pub fn decrypt(app:&AppHandle,root:&Path)->Result<Option<Value>,String>{
+pub fn choose_decrypt()->Result<Option<(PathBuf,PathBuf)>,String>{
     let Some(source)=file_picker("Открыть защищённый пакет .iwxa.age","age") else{return Ok(None)};
     ensure_file(&source,".iwxa.age",33*1024*1024)?;
     let suggested=source.file_name().and_then(|v|v.to_str())
@@ -301,10 +321,11 @@ pub fn decrypt(app:&AppHandle,root:&Path)->Result<Option<Value>,String>{
     let Some(target)=save_picker("Сохранить расшифрованный .iwxa","iwxa",suggested) else{return Ok(None)};
     ensure_destination(&target,".iwxa")?;
     if source==target{return Err("AGE_DESKTOP_PATH_CONFLICT".into());}
-    let args=[source.to_string_lossy().into_owned(),target.to_string_lossy().into_owned()];
-    let receipt=run(app,root,"decrypt-local",&args)?;
-    verify_saved_file(&target,&receipt,"sourceSha256",32*1024*1024)?;
-    Ok(Some(receipt))
+    Ok(Some((source,target)))
+}
+pub fn decrypt(app:&AppHandle,root:&Path)->Result<Option<Value>,String>{
+    let Some((source,target))=choose_decrypt()? else{return Ok(None)};
+    decrypt_source(app,root,&source,&target).map(Some)
 }
 #[cfg(test)]
 mod tests{

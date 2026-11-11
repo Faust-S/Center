@@ -298,21 +298,25 @@ async fn center_age_create_recipient(app:AppHandle)->Result<Value,String>{
 }
 #[tauri::command]
 async fn center_age_inspect(app:AppHandle)->Result<Option<Value>,String>{
+    let Some(source)=t3_age_transport::choose_inspect() else{return Ok(None)};
     tauri::async_runtime::spawn_blocking(move||
-        t3_age_transport::inspect(&app,&center_age_data_root(&app)?))
-        .await.map_err(|_|"CENTER_AGE_WORKER_FAILED".to_string())?
+        t3_age_transport::inspect_source(&app,&center_age_data_root(&app)?,&source))
+        .await.map_err(|_|"CENTER_AGE_WORKER_FAILED".to_string())?.map(Some)
 }
 #[tauri::command]
 async fn center_age_encrypt(app:AppHandle,recipients:String)->Result<Option<Value>,String>{
+    let Some((source,target))=t3_age_transport::choose_encrypt(&recipients)? else{return Ok(None)};
     tauri::async_runtime::spawn_blocking(move||
-        t3_age_transport::encrypt(&app,&center_age_data_root(&app)?,&recipients))
-        .await.map_err(|_|"CENTER_AGE_WORKER_FAILED".to_string())?
+        t3_age_transport::encrypt_selected(&app,&center_age_data_root(&app)?,
+            &source,&target,&recipients))
+        .await.map_err(|_|"CENTER_AGE_WORKER_FAILED".to_string())?.map(Some)
 }
 #[tauri::command]
 async fn center_age_decrypt(app:AppHandle)->Result<Option<Value>,String>{
+    let Some((source,target))=t3_age_transport::choose_decrypt()? else{return Ok(None)};
     tauri::async_runtime::spawn_blocking(move||
-        t3_age_transport::decrypt(&app,&center_age_data_root(&app)?))
-        .await.map_err(|_|"CENTER_AGE_WORKER_FAILED".to_string())?
+        t3_age_transport::decrypt_source(&app,&center_age_data_root(&app)?,&source,&target))
+        .await.map_err(|_|"CENTER_AGE_WORKER_FAILED".to_string())?.map(Some)
 }
 
 
