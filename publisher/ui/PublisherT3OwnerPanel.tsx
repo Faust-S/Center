@@ -19,6 +19,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
  const [inventoryTotal,setInventoryTotal]=useState(0);
  const [inventoryTruncated,setInventoryTruncated]=useState(false);
  const [licenseId,setLicenseId]=useState('');
+ const [ageRecipients,setAgeRecipients]=useState('');
  const [proposalId,setProposalId]=useState('');
  const [seats,setSeats]=useState('');
  const [status,setStatus]=useState<''|'ACTIVE'|'SUSPENDED'|'REVOKED'>('');
@@ -271,7 +272,26 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
              throw Error('PUBLISHER_T3_EXPORT_RECEIPT_INVALID');
            return {message:'Пакет .iwxa выпущен T3 и подтверждён повторным чтением.'};
          })}>Экспортировать подписанный .iwxa</button>
+       <button className="secondary" type="button" disabled={busy||needsRefresh||!licenseId||!ageRecipients.trim()}
+         data-testid="publisher-t3-export-age" onClick={()=>operation(async()=>{
+           const receipt=await invoke('publisher_t3_export_age',{licenseId,recipients:ageRecipients});
+           if(receipt===null)return {message:'Экспорт защищённой лицензии отменён.'};
+           if(receipt?.operation!=='TEST_AGE_EXPORTED'||receipt.licenseId!==licenseId||
+              receipt.activeSeats!==0||receipt.productionActivation!==false||
+              receipt.admitted!==false||receipt.deliveryState!=='NOT_CONFIRMED'||
+              !Number.isSafeInteger(receipt.bytes)||receipt.bytes<1||
+              !/^[a-f0-9]{64}$/.test(receipt.packageSha256)||
+              !/^[a-f0-9]{64}$/.test(receipt.ciphertextSha256))
+             throw Error('PUBLISHER_T3_AGE_SIGNED_EXPORT_INVALID');
+           return {message:'Подписанная T3 TEST-лицензия зашифрована в .iwxa.age. Передача и принятие получателем ещё не подтверждены.'};
+         })}>Экспортировать подписанную .iwxa.age</button>
      </div>
+     {selectedLicense&&<label>Публичный ключ получателя age1
+       <textarea rows={2} spellCheck={false} value={ageRecipients}
+         data-testid="publisher-t3-age-recipients"
+         onChange={e=>setAgeRecipients(e.target.value)} placeholder="age1…"/>
+       <small>Получите ключ из проверенного источника. Ввод ключа не подтверждает личность владельца.</small>
+     </label>}
      {revokeReady&&<div className="notice" data-testid="publisher-t3-revoke-confirmation" role="alert">
        <p>Отозвать TEST-лицензию {selectedLicense?.licenseId} для организации {selectedLicense?.organizationId}?
           Это действие окончательное: повторная активация будет недоступна.</p>

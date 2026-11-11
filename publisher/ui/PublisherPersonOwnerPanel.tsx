@@ -31,6 +31,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
   const [truncated,setTruncated]=useState(false);
   const [proposalId,setProposalId]=useState('');
   const [licenseId,setLicenseId]=useState('');
+  const [ageRecipients,setAgeRecipients]=useState('');
   const [status,setStatus]=useState<''|'ACTIVE'|'SUSPENDED'|'REVOKED'>('');
   const [termsConfirmed,setTermsConfirmed]=useState(false);
   const [revokePending,setRevokePending]=useState('');
@@ -258,6 +259,24 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       return {message:'Подписанный пакет .iwxa сохранён и повторно проверен по SHA-256.'};
     });
   }
+  async function exportProtectedIwxa(){
+    const current=selectedLicense;
+    if(!current||current.status==='NOT_ACTIVATED'||busy||needsRefresh||!ageRecipients.trim())return;
+    await operate(async()=>{
+      const receipt=await invoke('publisher_t3_person_export_age',{
+        licenseId:current.licenseId,recipients:ageRecipients});
+      if(receipt===null)return {message:'Экспорт защищённой лицензии отменён.'};
+      if(receipt?.operation!=='PERSON_AGE_EXPORTED'||
+         receipt.licenseId!==current.licenseId||
+         receipt.activeSeats!==0||receipt.productionActivation!==false||
+         receipt.admitted!==false||receipt.deliveryState!=='NOT_CONFIRMED'||
+         !Number.isSafeInteger(receipt.bytes)||receipt.bytes<1||
+         !digest(receipt.packageSha256)||!digest(receipt.ciphertextSha256)){
+        throw Error('PERSON_AGE_EXPORT_RECEIPT_INVALID');
+      }
+      return {message:'Подписанная PERSON-лицензия защищена age/X25519 и сохранена как .iwxa.age. Получение и применение прав в продукте ещё не подтверждены.'};
+    });
+  }
   return <section className="publisher-test-owner publisher-person-owner"
     data-testid="publisher-person-owner">
     <h3>Лицензии физических лиц</h3>
@@ -372,7 +391,18 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
           disabled={busy||needsRefresh||!selectedLicense||
             selectedLicense.status==='NOT_ACTIVATED'}
           onClick={()=>void exportIwxa()}>Экспортировать .iwxa</button>
+        <button type="button" className="secondary"
+          data-testid="publisher-person-export-age"
+          disabled={busy||needsRefresh||!selectedLicense||!ageRecipients.trim()||
+            selectedLicense.status==='NOT_ACTIVATED'}
+          onClick={()=>void exportProtectedIwxa()}>Защищённая .iwxa.age</button>
       </div>
+      {selectedLicense&&<label>Публичный ключ получателя age1
+        <textarea rows={2} spellCheck={false} value={ageRecipients}
+          data-testid="publisher-person-age-recipients"
+          onChange={e=>setAgeRecipients(e.target.value)} placeholder="age1…"/>
+        <small>Ключ должен быть отдельно проверен. Шифрование не заменяет проверку подписи лицензии у получателя.</small>
+      </label>}
       {selectedLicense&&<section className="publisher-offer-review"
         data-testid="publisher-person-renewal">
         <strong>Подготовить продление</strong>

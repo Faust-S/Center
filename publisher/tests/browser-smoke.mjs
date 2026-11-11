@@ -138,6 +138,10 @@ try {
   assert.match(await page.locator('main').innerText(),/Подтверждённых релизов: 0/);
   assert.match(await page.locator('main').innerText(),/Подписанные лицензии PERSON учитывает отдельный журнал T3/);
   checks.push('empty-owner-first-run-no-synthetic-license');
+  assert.equal(await page.getByTestId('publisher-person-export-age').count(),0);
+  assert.equal(await page.getByTestId('publisher-t3-export-age').count(),1);
+  assert.equal(await page.getByTestId('publisher-t3-export-age').isEnabled(),false);
+  checks.push('protected-signed-export-requires-original-issuer-and-selected-license');
   await page.setViewportSize({width:1024,height:640});
   const footerVisible=await page.locator('.publisher-app .sidebar-bottom p').last().evaluate(el=>{
     const r=el.getBoundingClientRect(),area=el.closest('.sidebar').getBoundingClientRect();

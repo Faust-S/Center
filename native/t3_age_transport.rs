@@ -28,7 +28,7 @@ fn valid_recipient(v:&str)->bool {
     v[4..].bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()) &&
     !v[4..].bytes().any(|b|b==b'1'||b==b'b'||b==b'i'||b==b'o')
 }
-fn recipients(input:&str)->Result<String,String> {
+pub fn recipients(input:&str)->Result<String,String> {
     let values:Vec<&str>=input.lines().map(str::trim).filter(|s|!s.is_empty()).collect();
     if values.is_empty() || values.len()>16 ||
         values.iter().any(|s|!valid_recipient(s)) {
@@ -240,10 +240,10 @@ pub fn inspect(app:&AppHandle,root:&Path)->Result<Option<Value>,String>{
     ensure_file(&path,".iwxa.age",33*1024*1024)?;
     run(app,root,"inspect",&[path.to_string_lossy().into_owned()]).map(Some)
 }
-pub fn encrypt(app:&AppHandle,root:&Path,raw_recipients:&str)->Result<Option<Value>,String>{
+pub fn encrypt_source(app:&AppHandle,root:&Path,source:&Path,raw_recipients:&str)
+ ->Result<Option<Value>,String>{
     let recipients=recipients(raw_recipients)?;
-    let Some(source)=file_picker("Выбрать исходный пакет .iwxa","iwxa") else{return Ok(None)};
-    ensure_file(&source,".iwxa",32*1024*1024)?;
+    ensure_file(source,".iwxa",32*1024*1024)?;
     let suggested=format!("{}.age",source.file_name().and_then(|s|s.to_str()).unwrap_or("package.iwxa"));
     let Some(target)=save_picker("Сохранить защищённый пакет .iwxa.age","age",&suggested) else{return Ok(None)};
     ensure_destination(&target,".iwxa.age")?;
@@ -253,6 +253,51 @@ pub fn encrypt(app:&AppHandle,root:&Path,raw_recipients:&str)->Result<Option<Val
     verify_saved_file(&target,&receipt,"ciphertextSha256",33*1024*1024)?;
     Ok(Some(receipt))
 }
+pub fn encrypt(app:&AppHandle,root:&Path,raw_recipients:&str)->Result<Option<Value>,String>{
+    recipients(raw_recipients)?;
+    let Some(source)=file_picker("Выбрать исходный пакет .iwxa","iwxa") else{return Ok(None)};
+    encrypt_source(app,root,&source,raw_recipients)
+}
+// Keep decrypted data out of WebView and never leave a recovered license in
+// user-selected folders. The original T3 consumer reads this short-lived file
+// while the native operation owns its lifetime.
+pub struct TransientPackage {
+    directory: PathBuf,
+    pub path: PathBuf,
+}
+impl TransientPackage {
+    pub fn new()->Result<Self,String>{
+        use std::time::{SystemTime,UNIX_EPOCH};
+        let folder=std::env::temp_dir();
+        for attempt in 0..8{
+            let stamp=SystemTime::now().duration_since(UNIX_EPOCH)
+                .map_err(|_|"AGE_DESKTOP_TEMP_UNAVAILABLE")?.as_nanos();
+            let directory=folder.join(format!("iwxa-age-verified-{}-{stamp}-{attempt}",std::process::id()));
+            match std::fs::create_dir(&directory) {
+                Ok(())=>{
+                    let path=directory.join("received.iwxa");
+                    return Ok(Self{directory,path});
+                }
+                Err(e) if e.kind()==std::io::ErrorKind::AlreadyExists=>continue,
+                Err(_)=>return Err("AGE_DESKTOP_TEMP_UNAVAILABLE".into()),
+            }
+        }
+        Err("AGE_DESKTOP_TEMP_UNAVAILABLE".into())
+    }
+}
+impl Drop for TransientPackage {
+    fn drop(&mut self){let _=std::fs::remove_dir_all(&self.directory);}
+}
+pub fn decrypt_source(app:&AppHandle,root:&Path,source:&Path,target:&Path)
+ ->Result<Value,String>{
+    ensure_file(source,".iwxa.age",33*1024*1024)?;
+    ensure_destination(target,".iwxa")?;
+    let args=[source.to_string_lossy().into_owned(),target.to_string_lossy().into_owned()];
+    let receipt=run(app,root,"decrypt-local",&args)?;
+    verify_saved_file(target,&receipt,"sourceSha256",32*1024*1024)?;
+    Ok(receipt)
+}
+
 pub fn decrypt(app:&AppHandle,root:&Path)->Result<Option<Value>,String>{
     let Some(source)=file_picker("Открыть защищённый пакет .iwxa.age","age") else{return Ok(None)};
     ensure_file(&source,".iwxa.age",33*1024*1024)?;
