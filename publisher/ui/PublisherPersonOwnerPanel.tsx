@@ -53,8 +53,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
   const selected=options.find(o=>o.proposalId===proposalId);
   // Original T3 idempotently owns the signed issuance. Once the journal
   // confirms this request, the UI must not invite a redundant signature.
-  const issuedSelected=selected&&issuer?licenses.find(l=>
-    l.requestId===selected.request.requestId&&l.issuerAuthorityId===issuer):undefined;
+  const issuedSelected=selected?licenses.find(l=>
+    l.requestId===selected.request.requestId):undefined;
   const selectedLicense=licenses.find(l=>l.licenseId===licenseId);
   const renewalOptions=(Array.isArray(draft?.tariffs)?draft.tariffs:[])
     .filter((t:any)=>t.productId===selectedLicense?.productId&&t.holderType==='PERSON');
@@ -304,7 +304,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       </div>}
       {issuedSelected&&<p className="notice subdued"
         data-testid="publisher-person-already-issued">
-        Эта подготовка уже выпущена в T3: {issuedSelected.licenseId}.
+        Эта подготовка уже выпущена в T3: {issuedSelected.licenseId}
+        (издатель {issuedSelected.issuerAuthorityId}).
         Выберите запись в журнале ниже для подписания статуса или экспорта .iwxa.
       </p>}
       <div className="actions">
