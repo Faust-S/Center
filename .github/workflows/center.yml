@@ -841,6 +841,72 @@ jobs:
               }
               Write-Host ('PRIVATE_NATIVE_SETUP_OPERATIONS_OBSERVED='+$setupNativeActions.Count)
               Write-Host ('PRIVATE_NATIVE_ERROR_CODES_OBSERVED='+$codes.Count)
+              # Native Setup Core writes the detailed reason only to a
+              # private local receipt. Project to a STRICT finite set of
+              # public-safe cause codes, never print the original string,
+              # any paths, its JSON, a stack trace or user-controlled text.
+              $installReceipt=Join-Path $out 'native-candidate/temporary-installed-fixture/installed.json'
+              if(Test-Path -LiteralPath $installReceipt -PathType Leaf){
+                try{
+                  $install=Get-Content -LiteralPath $installReceipt -Raw -Encoding UTF8 | ConvertFrom-Json
+                  if([string]$install.status -ceq 'ERROR'){
+                    Write-Host 'PRIVATE_NATIVE_INSTALL_RECEIPT=ERROR'
+                    $reason=[string]$install.reason
+                    $safeCodes=@(
+                      'SETUP_DISK_SPACE_INSUFFICIENT',
+                      'SETUP_EXTRACTED_SIZE_EXCEEDED',
+                      'SETUP_ZIP_ENTRY_HASH_INVALID',
+                      'SETUP_ZIP_ENTRY_LENGTH_INVALID',
+                      'SETUP_ZIP_ENTRY_EXPANSION',
+                      'SETUP_ZIP_ENTRY_UNKNOWN',
+                      'SETUP_STAGING_ROOT_NOT_EMPTY_OR_UNTRUSTED',
+                      'SETUP_ENTRYPOINT_NOT_STAGED',
+                      'SETUP_STORAGE_VOLUME_UNAVAILABLE',
+                      'SETUP_RESERVED_FILE_COLLISION',
+                      'SETUP_INSTALL_ALREADY_EXISTS',
+                      'SETUP_INSTALL_ALREADY_RUNNING',
+                      'SETUP_BLOCKED_',
+                      'SETUP_RELATIVE_PATH_INVALID',
+                      'SETUP_POST_OWNED_PRODUCT_MISMATCH'
+                    )
+                    $found=$false
+                    foreach($safeCode in $safeCodes){
+                      if($reason.StartsWith($safeCode,[StringComparison]::Ordinal)){
+                        Write-Host ('PRIVATE_NATIVE_INSTALL_CAUSE_CODE='+$safeCode.TrimEnd('_'))
+                        $found=$true
+                        break
+                      }
+                    }
+                    if(!$found){
+                      $failureClass='OTHER'
+                      if($reason -match '(?i)path.{0,32}too long|too long.{0,32}path|filename.{0,24}too long|longpath'){
+                        $failureClass='PATH_TOO_LONG'
+                      }elseif($reason -match '(?i)not enough space|disk is full|insufficient disk'){
+                        $failureClass='DISK_SPACE'
+                      }elseif($reason -match '(?i)access.{0,10}denied|unauthorizedaccess|permission denied'){
+                        $failureClass='ACCESS_DENIED'
+                      }elseif($reason -match '(?i)cannot find.{0,30}path|could not find.{0,30}path|part of the path'){
+                        $failureClass='PATH_NOT_FOUND'
+                      }elseif($reason -match '(?i)another process|sharing violation|being used by'){
+                        $failureClass='FILE_LOCKED'
+                      }elseif($reason -match '(?i)javascriptserializer|maxjsonlength|maximum.{0,20}json|json.{0,20}length'){
+                        $failureClass='JSON_CAPACITY'
+                      }elseif($reason -match '(?i)file.{0,12}already exists|already exists'){
+                        $failureClass='FILE_ALREADY_EXISTS'
+                      }elseif([string]::IsNullOrWhiteSpace($reason)){
+                        $failureClass='MISSING_REASON'
+                      }
+                      Write-Host ('PRIVATE_NATIVE_INSTALL_CAUSE_CLASS='+$failureClass)
+                    }
+                  }else{
+                    Write-Host 'PRIVATE_NATIVE_INSTALL_RECEIPT=NON_ERROR'
+                  }
+                }catch{
+                  Write-Host 'PRIVATE_NATIVE_INSTALL_RECEIPT=UNREADABLE'
+                }
+              }else{
+                Write-Host 'PRIVATE_NATIVE_INSTALL_RECEIPT=MISSING'
+              }
               # The native candidate is private, but the explicitly allowed
               # SHA-256/size and verified pinned source revision can be
               # published even when the subsequent installation fails.
