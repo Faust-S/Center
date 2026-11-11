@@ -816,11 +816,14 @@ try {
           (!prior||!['ACTIVE','SUSPENDED'].includes(prior.status)||
            ledger.some(e=>e.renewalOfLicenseId===prior.licenseId)))
           throw Error('PERSON_TEST_RENEWAL_LEDGER_DENIED');
+        const issuedAt=new Date().toISOString();
         const one={licenseId:prior?'license:person:mock:two':'license:person:mock:one',
           requestId:r.requestId,issuerAuthorityId:args.issuerAuthorityId,
           personId:r.subject.id,productId:r.product.id,
           ...(prior?{renewalOfLicenseId:prior.licenseId}:{}),
           deviceLimit:r.deviceLimit,quotaCount:r.quotas.length,
+          issuedAt,notBefore:issuedAt,
+          expiresAt:new Date(Date.now()+r.termDays*86400000).toISOString(),
           status:'NOT_ACTIVATED',sequence:0,activeSeats:0};
         ledger.push(one);
         sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
@@ -833,6 +836,8 @@ try {
         const one=ledger.find(e=>e.licenseId===args.licenseId);
         if(!one||one.status==='REVOKED')throw Error('PERSON_OWNER_REVOKED_TERMINAL');
         one.status=args.nextStatus;one.sequence+=1;
+        one.statusValidUntil=new Date(Math.min(
+          Date.now()+24*3600000,Date.parse(one.expiresAt))).toISOString();
         sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
         if(window.__personMockLoseNextStatusReceipt){
           window.__personMockLoseNextStatusReceipt=false;
@@ -959,6 +964,13 @@ try {
   await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('ACTIVE');
   await personOwner.getByTestId('publisher-person-status').click();
   await personOwner.getByText('Подписанный статус сохранён.',{exact:false}).waitFor();
+  const dates=await personOwner.getByTestId('publisher-person-license-dates').innerText();
+  assert.match(dates,/Лицензия выдана:/);
+  assert.match(dates,/Срок лицензии до:/);
+  assert.match(dates,/Подписанный статус ACTIVE действителен до:/);
+  assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true,
+    'Do not create redundant same-state signatures while current status has a full day left');
+  checks.push('publisher-person-shows-separate-license-and-status-expiry');
   // A new PERSON subscription is a distinct unsigned follow-up tied to
   // the exact signed original entry. It must not silently reissue rights.
   await personOwner.getByRole('combobox',{name:'Тариф продления PERSON'})
@@ -1063,6 +1075,30 @@ try {
   assert.equal(afterLostResponse[1].sequence,2,
     'Reading ledger must not create another signed native status');
   checks.push('person-lost-native-status-response-blocks-retry-until-exact-ledger-refresh');
+  // An unexpired license may have a nearly expired signed STATUS. T3 Owner
+  // supports a new monotonic status sequence without issuing a new LICENSE.
+  await personal.evaluate(()=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    ledger[1].statusValidUntil=new Date(Date.now()+15*60*1000).toISOString();
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+  });
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-status').isEnabled(),true,
+    'Owner should be able to refresh an expiring SUSPENDED status without issuing a new license');
+  assert.equal(await personOwner.getByTestId('publisher-person-status').innerText(),
+    'Обновить подпись статуса');
+  await personOwner.getByTestId('publisher-person-status').click();
+  await personOwner.getByText('Подписанный статус сохранён.',{exact:false}).waitFor();
+  const refreshedStatus=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')));
+  assert.equal(refreshedStatus.length,2);
+  assert.equal(refreshedStatus[1].status,'SUSPENDED');
+  assert.equal(refreshedStatus[1].sequence,3);
+  assert.ok(Date.parse(refreshedStatus[1].statusValidUntil)>Date.now()+6*60*60*1000);
+  assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true,
+    'Fresh signed status cannot be needlessly re-signed');
+  checks.push('person-same-state-status-refresh-uses-next-original-T3-sequence');
 
   // Historical signed licenses must remain usable after the T3 inventory
   // exceeds its bounded recent view. No second signature is allowed.
@@ -1072,6 +1108,9 @@ try {
       licenseId:'license:historical:'+i,requestId:'request:historical:'+i,
       issuerAuthorityId:'publisher:person:mock',personId:'person:other:'+i,
       productId:'IWXA_ATLAS',deviceLimit:1,quotaCount:0,
+      issuedAt:new Date().toISOString(),notBefore:new Date().toISOString(),
+      expiresAt:new Date(Date.now()+30*86400000).toISOString(),
+      statusValidUntil:new Date(Date.now()+86400000).toISOString(),
       status:'ACTIVE',sequence:1,activeSeats:0
     });
     sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
