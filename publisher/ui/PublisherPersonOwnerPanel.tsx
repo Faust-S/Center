@@ -6,6 +6,7 @@ type NativeInvoke=(name:string,args?:Record<string,unknown>)=>Promise<any>;
 type PersonRecord={
   licenseId:string;requestId:string;issuerAuthorityId:string;
   personId:string;productId:string;deviceLimit:number;quotaCount:number;
+  renewalOfLicenseId?:string;
   status:'NOT_ACTIVATED'|'ACTIVE'|'SUSPENDED'|'REVOKED';
   sequence:number;activeSeats:0
 };
@@ -16,6 +17,8 @@ const err=(e:unknown)=>e instanceof Error?e.message:String(e);
 const id=(v:unknown)=>typeof v==='string'&&
   /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(v);
 const digest=(v:unknown)=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
+const shortLicenseId=(value:string)=>value.length>30?
+  value.slice(0,12)+'…'+value.slice(-12):value;
 export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
   const [issuers,setIssuers]=useState<string[]>([]);
   const [issuer,setIssuer]=useState('');
@@ -72,7 +75,9 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
        !['NOT_ACTIVATED','ACTIVE','SUSPENDED','REVOKED'].includes(x.status)||
        !Number.isSafeInteger(x.deviceLimit)||x.deviceLimit<1||
        !Number.isSafeInteger(x.quotaCount)||x.quotaCount<0||
-       !Number.isSafeInteger(x.sequence)||x.sequence<0||x.activeSeats!==0)||
+       !Number.isSafeInteger(x.sequence)||x.sequence<0||x.activeSeats!==0||
+       (x.renewalOfLicenseId!==undefined&&
+         (!id(x.renewalOfLicenseId)||x.renewalOfLicenseId===x.licenseId)))||
        new Set(entries.map(e=>e.licenseId)).size!==entries.length)
       throw Error('PERSON_NATIVE_INVENTORY_ENTRY_INVALID');
     const count=Number.isSafeInteger(value.total)&&value.total>=entries.length?
@@ -311,8 +316,18 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
             setRevokePending('');setRenewalTariff('');}}>
           <option value="">Выберите лицензию</option>
           {licenses.map(x=><option key={x.licenseId} value={x.licenseId}>
-            {x.personId} / {x.productId} / {x.status}</option>)}
-        </select></label>}
+            {x.renewalOfLicenseId?'Продление':'Первоначальный выпуск'} ·
+            {x.personId} / {x.productId} / {x.status} · {shortLicenseId(x.licenseId)}
+          </option>)}
+        </select>
+        {selectedLicense&&<small data-testid="publisher-person-selected-license"
+          style={{display:'block',overflowWrap:'anywhere'}}>
+          Выбрана запись T3: {selectedLicense.licenseId}.
+          {selectedLicense.renewalOfLicenseId?
+            ' Продление лицензии '+selectedLicense.renewalOfLicenseId+'.':
+            ' Первоначальный выпуск.'}
+        </small>}
+        </label>}
       <div className="actions">
         <select aria-label="Новый статус PERSON" value={status}
           disabled={busy||needsRefresh||!selectedLicense||
