@@ -494,6 +494,33 @@ fn publisher_save_test_request(content: String, suggested_file_name: String) -> 
     }
 }
 
+// Open an UNSIGNED request prepared by the independent Admin Center app.
+// The original T3 Owner remains the ONLY signer, and will independently
+// validate the complete request/profile and issuer policy at issuance.
+fn read_unsigned_admin_test_request(path:&Path)->Result<String,String>{
+    if path.extension().and_then(|v|v.to_str())!=Some("json"){
+        return Err("PUBLISHER_ADMIN_REQUEST_EXTENSION_INVALID".into());
+    }
+    let meta=fs::metadata(path).map_err(|_|"PUBLISHER_ADMIN_REQUEST_UNREADABLE")?;
+    if !meta.is_file()||meta.len()==0||meta.len()>TEST_REQUEST_LIMIT as u64{
+        return Err("PUBLISHER_ADMIN_REQUEST_SIZE_INVALID".into());
+    }
+    let content=fs::read_to_string(path)
+        .map_err(|_|"PUBLISHER_ADMIN_REQUEST_UNREADABLE".to_string())?;
+    validate_test_request(&content)?;
+    Ok(content)
+}
+#[tauri::command]
+fn publisher_pick_unsigned_admin_request()->Result<Option<String>,String>{
+    let chosen=rfd::FileDialog::new()
+        .set_title("Publisher — открыть запрос лицензии из Admin Center")
+        .add_filter("JSON",&["json"]).pick_file();
+    match chosen{
+        Some(file)=>read_unsigned_admin_test_request(&file).map(Some),
+        None=>Ok(None)
+    }
+}
+
 // Backup contains preparation drafts only. No issuer credentials, signed
 // licenses, status receipts or release approvals are written by this API.
 const BACKUP_NAME: &str = "iwxa-publisher-preparation-backup.json";
@@ -589,6 +616,7 @@ fn main() {
         .manage(DeliveryLock(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             publisher_draft_read, publisher_draft_save, publisher_diagnostics, publisher_inspect_artifact, publisher_save_test_request,
+            publisher_pick_unsigned_admin_request,
             publisher_export_preparation_backup, publisher_pick_preparation_backup,
             publisher_compare_offline_copies,
             publisher_select_test_iwxa, publisher_export_test_iwxa,
@@ -709,6 +737,7 @@ mod tests {
         }).to_string();
         write_test_request_file(&path,&request).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(),request);
+        assert_eq!(read_unsigned_admin_test_request(&path).unwrap(),request);
         assert!(write_test_request_file(&path,&request).is_err());
         let forged=request.replace("\"UNSIGNED_REQUEST\"","\"ISSUED\"");
         assert!(validate_test_request(&forged).is_err());
