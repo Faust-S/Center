@@ -310,7 +310,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       <h4>Журнал персональных лицензий</h4>
       <p className="muted">В журнале: {total}.
         {truncated&&' Показаны последние 48 записей.'}</p>
-      {licenses.length>0&&<label>Лицензия
+      {licenses.length>0&&<>
+        <label>Лицензия
         <select value={licenseId} disabled={busy}
           onChange={e=>{setLicenseId(e.target.value);setStatus('');
             setRevokePending('');setRenewalTariff('');}}>
@@ -320,6 +321,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
             {x.personId} / {x.productId} / {x.status} · {shortLicenseId(x.licenseId)}
           </option>)}
         </select>
+        </label>
         {selectedLicense&&<small data-testid="publisher-person-selected-license"
           style={{display:'block',overflowWrap:'anywhere'}}>
           Выбрана запись T3: {selectedLicense.licenseId}.
@@ -327,7 +329,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
             ' Продление лицензии '+selectedLicense.renewalOfLicenseId+'.':
             ' Первоначальный выпуск.'}
         </small>}
-        </label>}
+      </>}
       <div className="actions">
         <select aria-label="Новый статус PERSON" value={status}
           disabled={busy||needsRefresh||!selectedLicense||
