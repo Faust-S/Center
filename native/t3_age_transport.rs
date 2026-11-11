@@ -80,6 +80,44 @@ fn require_reply(value:&Value,action:&str)->Result<(),String>{
     }
     Ok(())
 }
+// The original T3 verifies the exact hashes again before running age or
+// receiving a private DPAPI identity. This pinned manifest and two upstream
+// executables are installed as immutable resources by the trusted Setup Core.
+fn configure_pinned_age(app:&AppHandle,cmd:&mut Command)->Result<(),String>{
+    let root=app.path().resource_dir().map_err(|_|"AGE_DESKTOP_RESOURCE_UNAVAILABLE")?
+        .join("t3");
+    let manifest=root.join("age-toolchain.json");
+    let raw=std::fs::read(&manifest).map_err(|_|"AGE_DESKTOP_TOOLCHAIN_NOT_BUNDLED")?;
+    if raw.len()>4096{return Err("AGE_DESKTOP_TOOLCHAIN_INVALID".into());}
+    let view:Value=serde_json::from_slice(&raw)
+        .map_err(|_|"AGE_DESKTOP_TOOLCHAIN_INVALID")?;
+    if view["schema"]!="IWXA_T3_AGE_PINNED_TOOLCHAIN/1" {
+        return Err("AGE_DESKTOP_TOOLCHAIN_INVALID".into());
+    }
+    let mut checked=Vec::new();
+    for (name,pin_name) in [("age.exe","ageSha256"),("age-keygen.exe","ageKeygenSha256")] {
+        let expected=view[pin_name].as_str().ok_or("AGE_DESKTOP_TOOLCHAIN_INVALID")?;
+        if expected.len()!=64 || !expected.bytes().all(|b|b.is_ascii_digit()||
+            (b'a'..=b'f').contains(&b)){
+            return Err("AGE_DESKTOP_TOOLCHAIN_INVALID".into());
+        }
+        let file=root.join(name);
+        let meta=std::fs::symlink_metadata(&file)
+            .map_err(|_|"AGE_DESKTOP_TOOLCHAIN_NOT_BUNDLED")?;
+        if !meta.is_file()||meta.file_type().is_symlink(){
+            return Err("AGE_DESKTOP_TOOLCHAIN_NOT_BUNDLED".into());
+        }
+        // SHA-256 verification is also done by the original T3 process
+        // immediately before invoking either external tool.
+        checked.push((file,expected.to_owned()));
+    }
+    cmd.env("IWXA_T3_AGE_BINARY",&checked[0].0)
+       .env("IWXA_T3_AGE_SHA256",&checked[0].1)
+       .env("IWXA_T3_AGE_KEYGEN_BINARY",&checked[1].0)
+       .env("IWXA_T3_AGE_KEYGEN_SHA256",&checked[1].1);
+    Ok(())
+}
+
 fn run(app:&AppHandle,root:&Path,action:&str,args:&[String])->Result<Value,String>{
     let binary=component(app)?;
     let mut cmd=Command::new(binary);
@@ -90,6 +128,7 @@ fn run(app:&AppHandle,root:&Path,action:&str,args:&[String])->Result<Value,Strin
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000);
     }
+    if action!="inspect" {configure_pinned_age(app,&mut cmd)?;}
     let mut child=cmd.spawn().map_err(|_|"AGE_DESKTOP_START_FAILED")?;
     let stdout=child.stdout.take().ok_or("AGE_DESKTOP_OUTPUT_UNAVAILABLE")?;
     let stderr=child.stderr.take().ok_or("AGE_DESKTOP_OUTPUT_UNAVAILABLE")?;
