@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import PublisherPersonOwnerPanel from './PublisherPersonOwnerPanel';
-import {prepareTestLicenseRequest,encodeTestLicenseRequest,inspectTestIssuerRequestScope,inspectTestIssuerRequestScopes} from '../src/test-license-request.mjs';
+import {prepareTestLicenseRequest,encodeTestLicenseRequest,decodeTestLicenseRequest,inspectTestIssuerRequestScope,inspectTestIssuerRequestScopes} from '../src/test-license-request.mjs';
 
 // This panel is intentionally only the front-end of the installed Tauri Host.
 // The private, original T3 executable remains the sole signing authority. A
@@ -9,6 +9,10 @@ type IssuerCapabilities={operation:'TEST_CAPABILITIES';issuers:string[];
  activeSeats:0;productionActivation:false;commercialAuthorityProven:false};
 type License={licenseId:string;requestId:string;issuerAuthorityId:string;
  organizationId:string;productId:string;claimedSeats:number;status:string;sequence:number;activeSeats:0};
+type AdminRequest={requestId:string;requestedAt:string;environment:'TEST';
+ kind:'TEST_LICENSE_REQUEST';subject:{type:'ORGANIZATION';id:string;name:string};
+ product:{id:'IWXA_ADMIN_CENTER';version:string};featureIds:string[];
+ termDays:number;seats:number;status:'UNSIGNED_REQUEST'};
 type Props={draft:any;invoke:(name:string,args?:Record<string,unknown>)=>Promise<any>;
  change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
@@ -19,6 +23,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
  const [inventoryTotal,setInventoryTotal]=useState(0);
  const [inventoryTruncated,setInventoryTruncated]=useState(false);
  const [licenseId,setLicenseId]=useState('');
+ const [adminRequest,setAdminRequest]=useState<AdminRequest|null>(null);
  const [proposalId,setProposalId]=useState('');
  const [seats,setSeats]=useState('');
  const [status,setStatus]=useState<''|'ACTIVE'|'SUSPENDED'|'REVOKED'>('');
@@ -44,6 +49,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
    revokePending.organizationId===selectedLicense.organizationId);
  const selectedProposal=eligible.find((p:any)=>p.id===proposalId);
  const alreadyIssued=selectedProposal?licenses.find(x=>x.requestId===selectedProposal.id):undefined;
+ const adminAlreadyIssued=adminRequest?licenses.find(x=>x.requestId===adminRequest.requestId):undefined;
  const seatLimit=selectedProposal?.tariffSnapshot?.productSeats??10000;
  const seatCount=Number(seats);
  const seatsValid=Boolean(selectedProposal)&&/^[0-9]+$/.test(seats)&&
@@ -142,6 +148,44 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
      }else setFailure(error(e));
    }finally{setBusy(false);}
  }
+ async function openAdminRequest(){
+   if(busy||needsRefresh)return;
+   setBusy(true);setMessage('');setFailure('');
+   try{
+     const content=await invoke('publisher_pick_unsigned_admin_request');
+     if(content===null){setMessage('Выбор запроса отменён.');return;}
+     // The original Publisher schema is parsed again in this UI; only the
+     // separately enrolled T3 Owner can sign it after verifying issuer scope.
+     const parsed=decodeTestLicenseRequest(content) as AdminRequest;
+     setAdminRequest(parsed);
+     setMessage('Неподписанный запрос Admin Center прочитан. Проверьте условия и выберите издателя.');
+   }catch(e){
+     setAdminRequest(null);setFailure('Запрос Admin Center не принят: '+error(e));
+   }finally{setBusy(false);}
+ }
+ async function issueAdminRequest(){
+   if(!available||!issuer||!adminRequest||adminAlreadyIssued||busy||needsRefresh)return;
+   const request=adminRequest;
+   await operation(async()=>{
+     const result=await invoke('publisher_t3_issue',{
+       requestJson:encodeTestLicenseRequest(request),issuerAuthorityId:issuer
+     });
+     if(result?.operation!=='TEST_ISSUE'||result.activeSeats!==0||
+        result.productionActivation!==false||
+        !['ISSUED_NEW','ALREADY_ISSUED'].includes(result.outcome)||
+        typeof result.licenseId!=='string'||!result.licenseId||
+        result.requestId!==request.requestId)
+       throw Error('PUBLISHER_ADMIN_REQUEST_T3_ISSUE_INVALID');
+     return {
+       message:'Запрос Admin Center подписан исходным T3. Выберите запись ниже, установите статус и экспортируйте .iwxa.',
+       readbackMismatchMessage:'Результат подписи не найден в журнале T3. Проверьте исходный журнал перед повтором.',
+       confirm:({entries}:InventoryReadback)=>entries.some(x=>
+         x.licenseId===result.licenseId&&x.requestId===request.requestId&&
+         x.issuerAuthorityId===issuer&&x.organizationId===request.subject.id&&
+         x.productId===request.product.id&&x.claimedSeats===request.seats)
+     };
+   },true);
+ }
  async function applyStatus(){
    const target=licenseId,requested=status,previous=selectedLicense;
    if(!previous||!requested||busy||needsRefresh||
@@ -238,7 +282,31 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
            };
          },true)}>{alreadyIssued?'Уже выпущена':'Выпустить TEST-лицензию'}</button>
      </div>
-     {eligible.length===0&&<p className="muted" data-testid="publisher-no-supported-test-requests">Подходящих организационных TEST-запросов нет. Личные запросы нельзя подписывать этим компонентом.</p>}
+     {eligible.length===0&&<p className="muted" data-testid="publisher-no-supported-test-requests">Локальных подготовленных TEST-запросов нет. Вы можете открыть запрос из Admin Center выше.</p>}
+     <div className="publisher-offer-review" data-testid="publisher-admin-request-handoff">
+       <h4>Запрос из установленного Admin Center</h4>
+       <p>Откройте переданный организацией неподписанный JSON. Не нужно создавать
+         клиента, продукт и предложение повторно. Подписывает только исходный T3 Owner.</p>
+       <button className="secondary" type="button" data-testid="publisher-open-admin-request"
+         disabled={busy||needsRefresh} onClick={()=>void openAdminRequest()}>
+         Открыть запрос Admin Center
+       </button>
+       {adminRequest&&<div data-testid="publisher-admin-request-review">
+         <p>Организация: <strong>{adminRequest.subject.name}</strong> ({adminRequest.subject.id})</p>
+         <p>Запрос: {adminRequest.requestId} · продукт {adminRequest.product.id} ·
+           версия {adminRequest.product.version}</p>
+         <p>Функции: {adminRequest.featureIds.join(', ')} · срок: {adminRequest.termDays} дней ·
+           заявлено TEST-мест: {adminRequest.seats}</p>
+         {adminAlreadyIssued&&<p data-testid="publisher-admin-request-already-issued">
+           Запрос уже подписан T3: {adminAlreadyIssued.licenseId}.
+         </p>}
+         <button type="button" className="primary" data-testid="publisher-sign-admin-request"
+           disabled={busy||needsRefresh||!issuer||!!adminAlreadyIssued}
+           onClick={()=>void issueAdminRequest()}>
+           {adminAlreadyIssued?'Уже выпущена':'Подписать запрос Admin Center в T3'}
+         </button>
+       </div>}
+     </div>
      <h4>Подписанные TEST-лицензии T3</h4>
      <p className="muted" data-testid="publisher-t3-inventory-count">
        В реестре: {inventoryTotal} TEST-записей.
