@@ -164,7 +164,7 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    {latest&&<p data-testid="cen04-last-native-receipt" className="muted">
       Лицензия: {latest.licenseId}. Подписанный статус: {latest.status}.
       {latest.outcome==='ALREADY_RECEIVED'?' Повторная передача без новой записи.':''}
-   </p>
+   </p>}
    {failure&&<p role="alert">{failure}</p>}
    {preview&&<div data-testid="cen04-iwxa-unverified">
       <p><strong>Пакет выбран. Проверка T3 ещё не выполнялась.</strong></p>
