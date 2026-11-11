@@ -174,7 +174,9 @@ test('T3 TEST issue readback requires exact original ledger record even if inven
  assert.match(t3,/readbackMismatchMessage/);
  assert.doesNotMatch(t3,/result\.outcome==='ALREADY_ISSUED'&&truncated/);
  assert.match(browser,/t3-truncated-inventory-cannot-verify-unseen-idempotent-issue/);
- assert.match(browser,/t3-idempotent-issue-confirms-original-ledger-subject-product-and-seats/);
+  assert.match(browser,/t3-original-ledger-disables-repeat-admin-center-test-issuance/);
+  assert.match(t3,/alreadyIssued/);
+  assert.match(t3,/data-testid="publisher-t3-already-issued"/);
 });
 
 
