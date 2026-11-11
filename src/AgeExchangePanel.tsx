@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
 
 // The same public UI is embedded in both Windows products. Native transport
 // calls the separately bundled original T3 age/DPAPI owner. It never obtains
@@ -6,39 +6,42 @@ import React,{useEffect,useState} from 'react';
 type Invoke=(name:string,args?:Record<string,unknown>)=>Promise<any>;
 type Status={operation:'AGE_STATUS';available:boolean;recipient:string|null;
   provider:string;toolchain:{ready:boolean;reason?:string};admitted:false};
+const age1=/^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$/;
+function verifiedStatus(value:any):Status{
+  if(value?.operation!=='AGE_STATUS'||typeof value.available!=='boolean'||
+     typeof value.toolchain?.ready!=='boolean'||value.admitted!==false||
+     (value.available?typeof value.recipient!=='string'||!age1.test(value.recipient):
+       value.recipient!==null&&value.recipient!==undefined))
+    throw Error('AGE_DESKTOP_STATUS_INVALID');
+  return value;
+}
 export default function AgeExchangePanel({invoke,prefix}:{
   invoke:Invoke|null;prefix:'center'|'publisher'
 }){
   const [state,setState]=useState<Status|null>(null);
   const [recipients,setRecipients]=useState('');
   const [busy,setBusy]=useState(false);
+  const operationRef=useRef(false);
   const [message,setMessage]=useState('');
   const [failure,setFailure]=useState('');
   const [details,setDetails]=useState('');
   const connected=Boolean(invoke);
   async function refresh(){
     if(!invoke)return;
-    const next=await invoke(prefix+'_age_status') as Status;
-    if(next?.operation!=='AGE_STATUS'||typeof next.available!=='boolean'||
-       typeof next.toolchain?.ready!=='boolean'||next.admitted!==false||
-       (next.available&&!/^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$/.test(next.recipient??'')))
-      throw Error('AGE_DESKTOP_STATUS_INVALID');
+    const next=verifiedStatus(await invoke(prefix+'_age_status'));
     setState(next);
   }
   useEffect(()=>{
     let live=true;
     if(!invoke)return;
     invoke(prefix+'_age_status').then((next:Status)=>{
-      if(!live)return;
-      if(next?.operation!=='AGE_STATUS'||next.admitted!==false||
-        typeof next.toolchain?.ready!=='boolean')
-        throw Error('AGE_DESKTOP_STATUS_INVALID');
-      setState(next);
+      if(live)setState(verifiedStatus(next));
     }).catch(e=>{if(live)setFailure('Защищённый обмен недоступен: '+String(e));});
     return()=>{live=false;};
   },[invoke,prefix]);
   async function perform(action:'create_recipient'|'inspect'|'encrypt'|'decrypt'){
-    if(!invoke||busy)return;
+    if(!invoke||busy||operationRef.current)return;
+    operationRef.current=true;
     setBusy(true);setMessage('');setFailure('');setDetails('');
     try{
       const data=await invoke(prefix+'_age_'+action,
@@ -72,7 +75,19 @@ export default function AgeExchangePanel({invoke,prefix}:{
         admitted:false
       }));
     }catch(e){setFailure(e instanceof Error?e.message:String(e));}
-    finally{setBusy(false);}
+    finally{operationRef.current=false;setBusy(false);}
+  }
+  async function copyPublicRecipient(){
+    const recipient=state?.recipient;
+    if(!state?.available||!recipient||!age1.test(recipient))return;
+    setFailure('');setMessage('');
+    try{
+      if(!navigator.clipboard?.writeText)throw Error('AGE_CLIPBOARD_NOT_AVAILABLE');
+      await navigator.clipboard.writeText(recipient);
+      setMessage('Публичный ключ получателя скопирован. Перед передачей проверьте его принадлежность получателю.');
+    }catch{
+      setFailure('Автоматическое копирование недоступно. Выделите открытый ключ в поле выше и скопируйте вручную.');
+    }
   }
   const canUse=connected&&state?.toolchain?.ready===true;
   return <section className="card padded" data-testid={prefix+'-age-exchange'}>
@@ -84,9 +99,16 @@ export default function AgeExchangePanel({invoke,prefix}:{
       <p role="status">Криптографический компонент T3 не готов: {state.toolchain.reason??'проверенные age и age-keygen отсутствуют'}.</p>}
     {state&&<div className="nested-form">
       <strong>Локальный получатель</strong>
-      <p className="muted" data-testid={prefix+'-age-public-key'}>
-        {state.available?state.recipient:'Ключ получателя ещё не создан'}</p>
-      <button className="secondary" disabled={!canUse||busy||state.available}
+      {state.available?<div className="nested-form">
+        <input aria-label="Открытый ключ получателя age1" readOnly
+          data-testid={prefix+'-age-public-key'} value={state.recipient??''}
+          onFocus={e=>e.currentTarget.select()}/>
+        <button type="button" className="secondary" disabled={busy}
+          data-testid={prefix+'-age-copy-recipient'}
+          onClick={()=>void copyPublicRecipient()}>Скопировать публичный ключ</button>
+      </div>:<p className="muted" data-testid={prefix+'-age-public-key'}>
+        Ключ получателя ещё не создан</p>}
+      <button type="button" className="secondary" disabled={!canUse||busy||state.available}
         onClick={()=>void perform('create_recipient')}>Создать ключ получателя</button>
     </div>}
     <label>Открытые ключи получателей age1 (по одному на строке, 1–16)
