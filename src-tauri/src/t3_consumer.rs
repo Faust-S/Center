@@ -90,14 +90,17 @@ pub async fn center_cen04_t3_import(app:AppHandle,organization_id:String)
 pub async fn center_cen04_t3_import_age(app:AppHandle,organization_id:String)
  ->Result<Option<Value>,String>{
   let org=scope(&organization_id)?;
+  // Choose the file on the same native command path used for ordinary .iwxa.
+  // Only the subsequent bounded decrypt + original T3 verifier need a
+  // blocking worker. The modal picker never enters that worker.
+  if !t3::availability(&app,"consumer"){
+    return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
+  }
+  let selected=rfd::FileDialog::new()
+    .set_title("Admin Center — получить защищённую лицензию .iwxa.age")
+    .add_filter("IWXA age",&["age"]).pick_file();
+  let Some(source)=selected else{return Ok(None)};
   tauri::async_runtime::spawn_blocking(move||{
-    if !t3::availability(&app,"consumer"){
-      return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
-    }
-    let selected=rfd::FileDialog::new()
-      .set_title("Admin Center — получить защищённую лицензию .iwxa.age")
-      .add_filter("IWXA age",&["age"]).pick_file();
-    let Some(source)=selected else{return Ok(None)};
     let temporary=crate::t3_age_transport::TransientPackage::new()?;
     let age_root=crate::center_age_data_root(&app)?;
     let transport=crate::t3_age_transport::decrypt_source(
