@@ -1630,16 +1630,34 @@ namespace IwxaSetup
             Registry.CurrentUser.DeleteSubKeyTree(RegistryProducts + info.Id, false);
         }
 
-        private static string ShortcutPath(BundleInfo info)
+        // A disposable Windows worker can have APPDATA/USERPROFILE redirected
+        // to a newly created profile where SHGetFolderPath(Programs) is empty.
+        // Never pass a relative shortcut location into Directory.CreateDirectory.
+        // Production uses the genuine Windows shell folder when available.
+        private static string ShortcutFolder(bool startup)
         {
-            return Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.Programs), info.InstallDir + ".lnk");
+            string selected = Environment.GetFolderPath(startup ?
+                Environment.SpecialFolder.Startup : Environment.SpecialFolder.Programs);
+            if (!String.IsNullOrWhiteSpace(selected) && Path.IsPathRooted(selected))
+                return Path.GetFullPath(selected);
+            string roaming = Environment.GetEnvironmentVariable("APPDATA");
+            if (String.IsNullOrWhiteSpace(roaming) || !Path.IsPathRooted(roaming))
+                roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            if (String.IsNullOrWhiteSpace(roaming) || !Path.IsPathRooted(roaming))
+                throw new InvalidOperationException("SETUP_START_MENU_FOLDER_UNAVAILABLE");
+            string folder = Path.Combine(Path.GetFullPath(roaming), "Microsoft",
+                "Windows", "Start Menu", "Programs");
+            return startup ? Path.Combine(folder, "Startup") : folder;
+        }
+
+        internal static string ShortcutPath(BundleInfo info)
+        {
+            return Path.Combine(ShortcutFolder(false), info.InstallDir + ".lnk");
         }
 
         private static string StartupShortcutPath(BundleInfo info)
         {
-            return Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.Startup), info.InstallDir + ".lnk");
+            return Path.Combine(ShortcutFolder(true), info.InstallDir + ".lnk");
         }
 
         internal static bool StartupEnabled(BundleInfo info)
@@ -1764,14 +1782,18 @@ namespace IwxaSetup
             // Never let the COM Save() step overwrite an unrelated shortcut.
             // Prepare privately and claim the final filename with File.Move,
             // which fails if another process created the link concurrently.
-            string target = ShortcutPath(info);
-            string folder = Path.GetDirectoryName(target);
-            Directory.CreateDirectory(folder);
-            string staged = Path.Combine(folder,
-                ".iwxa-setup-" + Guid.NewGuid().ToString("N") + ".lnk");
-            string failurePhase = "SHORTCUT_STAGE_CREATE";
+            string staged = null;
+            string failurePhase = "SHORTCUT_FOLDER";
             try
             {
+                string target = ShortcutPath(info);
+                string folder = Path.GetDirectoryName(target);
+                if (String.IsNullOrWhiteSpace(folder))
+                    throw new InvalidOperationException("SETUP_START_MENU_FOLDER_UNAVAILABLE");
+                Directory.CreateDirectory(folder);
+                staged = Path.Combine(folder,
+                    ".iwxa-setup-" + Guid.NewGuid().ToString("N") + ".lnk");
+                failurePhase = "SHORTCUT_STAGE_CREATE";
                 CreateShortcutAt(info, root, staged);
                 failurePhase = "SHORTCUT_READBACK";
                 string app = Path.Combine(root,
@@ -1790,7 +1812,8 @@ namespace IwxaSetup
             }
             finally
             {
-                if (File.Exists(staged)) File.Delete(staged);
+                if (!String.IsNullOrEmpty(staged) && File.Exists(staged))
+                    File.Delete(staged);
             }
         }
 

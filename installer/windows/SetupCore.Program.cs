@@ -50,6 +50,7 @@ namespace IwxaSetup
                 case "ACTIVATION":
                 case "REGISTRATION":
                 case "SHORTCUT":
+                case "SHORTCUT_FOLDER":
                 case "SHORTCUT_STAGE_CREATE":
                 case "SHORTCUT_CREATE_COM":
                 case "SHORTCUT_TARGET":

@@ -68,9 +68,7 @@ namespace IwxaSetup
             // A conflicting Start Menu shortcut may belong to the user.
             // Never overwrite it during a first install; NSIS preview was
             // identified and returned earlier, so it remains unaffected.
-            string shortcut = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.Programs),
-                info.InstallDir + ".lnk");
+            string shortcut = SetupInstallation.ShortcutPath(info);
             if (File.Exists(shortcut) || Directory.Exists(shortcut))
             {
                 result.Status = "START_MENU_SHORTCUT_CONFLICT";

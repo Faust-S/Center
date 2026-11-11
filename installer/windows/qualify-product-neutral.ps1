@@ -229,6 +229,44 @@ try{
         throw 'SETUP_NEUTRAL_SPACED_ENTRYPOINT_UNINSTALL_FAILED'
     }
     Write-Host 'IWXA_SETUP_SYNTHETIC_NESTED_SPACED_ENTRYPOINT_PASS'
+    # Reproduce Agent qualification's redirected, not-yet-initialized user
+    # profile. The same owner installer must install and remove a nested GUI.
+    $isolated=Make-Product ('p'+[Guid]::NewGuid().ToString('N').Substring(0,10)) -NestedEntrypoint
+    $isolatedHome=Join-Path $root 'qa-isolated-profile'
+    $override=[ordered]@{
+        USERPROFILE=(Join-Path $isolatedHome 'Home')
+        APPDATA=(Join-Path $isolatedHome 'Home\AppData\Roaming')
+        LOCALAPPDATA=(Join-Path $isolatedHome 'Home\AppData\Local')
+        TEMP=(Join-Path $isolatedHome 'Temp')
+        TMP=(Join-Path $isolatedHome 'Temp')
+    }
+    $oldEnv=@{}
+    try {
+        foreach($envKey in $override.Keys){
+            $oldEnv[$envKey]=[Environment]::GetEnvironmentVariable($envKey,'Process')
+            New-Item -ItemType Directory -Path $override[$envKey] -Force | Out-Null
+            [Environment]::SetEnvironmentVariable($envKey,$override[$envKey],'Process')
+        }
+        $isolatedInstall=Invoke-Setup $isolated.bundle @('--install-locations-file',('"' + $isolated.request + '"'))
+        if($isolatedInstall.status -ne 'INSTALLED_NOT_LAUNCHED' -or
+           !(Test-Path -LiteralPath (Join-Path $isolated.program 'desktop\bin\Sample Window.exe') -PathType Leaf)){
+            throw 'SETUP_NEUTRAL_ISOLATED_PROFILE_INSTALL_FAILED'
+        }
+        $isolatedVerified=Invoke-Setup $isolated.bundle @('--verify-installed-file')
+        if($isolatedVerified.status -ne 'OWNED_FILES_VERIFIED'){
+            throw 'SETUP_NEUTRAL_ISOLATED_PROFILE_VERIFY_FAILED'
+        }
+        $isolatedRemoved=Invoke-Setup $isolated.bundle @('--uninstall-file')
+        if($isolatedRemoved.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
+           (Test-Path -LiteralPath $isolated.program)){
+            throw 'SETUP_NEUTRAL_ISOLATED_PROFILE_UNINSTALL_FAILED'
+        }
+    } finally {
+        foreach($envKey in $override.Keys){
+            [Environment]::SetEnvironmentVariable($envKey,$oldEnv[$envKey],'Process')
+        }
+    }
+    Write-Host 'IWXA_SETUP_SYNTHETIC_ISOLATED_PROFILE_SHORTCUT_PASS'
     # A denied synthetic locations request must publish only bounded native
     # failure metadata, without disclosing the requested path or exception.
     $deniedLocations=Join-Path $root 'denied-locations.json'
