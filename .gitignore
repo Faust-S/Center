@@ -7,3 +7,9 @@ artifacts/
 .env.*
 private-runtime/
 /vendor/atlas/
+/src-tauri/private-t3/
+/src-tauri/private-t3-bundle.json
+/src-tauri/private-t3-age-bundle.json
+/publisher/src-tauri/private-t3/
+/publisher/src-tauri/private-t3-bundle.json
+/publisher/src-tauri/private-t3-age-bundle.json
