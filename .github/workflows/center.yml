@@ -194,6 +194,21 @@ jobs:
           ref: 6603a11764ff86853e5abf4d209d55f79fddd8b1
           path: vendor/setupcore
           persist-credentials: false
+      # CEN04 Admin and Publisher use the SAME public native T3 adapter.
+      # Compile both installed products against their original pinned public
+      # owners; never fetch private T3 or signing keys in Actions.
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Atlas
+          ref: 7a0a2c8a458617a011a3db78b72c3dd1adbc12c2
+          path: vendor/atlas
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Br-test
+          ref: 07df66ab6bd3e1b87036c33b90e49d228d5ab820
+          path: vendor/brtest
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
@@ -206,6 +221,10 @@ jobs:
         run: cargo test --release --manifest-path publisher/src-tauri/Cargo.toml -- --nocapture
       - name: Build actual Publisher EXE with Tauri CLI (no duplicate installer)
         run: npm run publisher:desktop:exe
+      - name: Compile Admin Center original T3 Consumer + pinned Atlas/U01/U04 integration
+        run: cargo test --release --manifest-path src-tauri/Cargo.toml --bin iwxa-admin-center -- --nocapture
+      - name: Build native Admin Center EXE with original T3 Consumer commands
+        run: npm run desktop:build -- --no-bundle
       - name: Build/install/launch/uninstall Publisher with original IWXA Setup Core
         shell: pwsh
         run: ./publisher/tests/installed-setupcore-publisher.ps1
@@ -268,5 +287,6 @@ jobs:
             artifacts/publisher-setupcore-transport/result.json
             artifacts/publisher-setupcore/*.exe
             publisher/src-tauri/target/release/iwxa-publisher.exe
+            src-tauri/target/release/iwxa-admin-center.exe
             publisher/src-tauri/Cargo.lock
             package-lock.json
