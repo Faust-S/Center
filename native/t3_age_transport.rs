@@ -2,6 +2,8 @@
 // executable owns age/X25519, package checks and Windows DPAPI identity.
 // No key material or decrypted bytes cross Tauri IPC or WebView.
 use serde_json::Value;
+use sha2::{Digest,Sha256};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -128,7 +130,18 @@ fn run(app:&AppHandle,root:&Path,action:&str,args:&[String])->Result<Value,Strin
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000);
     }
-    if action!="inspect" {configure_pinned_age(app,&mut cmd)?;}
+    // Never trust age paths inherited from the environment of the GUI process.
+    for name in ["IWXA_T3_AGE_BINARY","IWXA_T3_AGE_SHA256",
+                 "IWXA_T3_AGE_KEYGEN_BINARY","IWXA_T3_AGE_KEYGEN_SHA256"]{
+        cmd.env_remove(name);
+    }
+    // Status remains readable if resources are not yet installed: the
+    // original T3 reports toolchain.ready=false instead of a dead panel.
+    match action{
+        "inspect"=>{},
+        "status"=>{let _=configure_pinned_age(app,&mut cmd);},
+        _=>configure_pinned_age(app,&mut cmd)?
+    }
     let mut child=cmd.spawn().map_err(|_|"AGE_DESKTOP_START_FAILED")?;
     let stdout=child.stdout.take().ok_or("AGE_DESKTOP_OUTPUT_UNAVAILABLE")?;
     let stderr=child.stderr.take().ok_or("AGE_DESKTOP_OUTPUT_UNAVAILABLE")?;
@@ -174,6 +187,39 @@ fn run(app:&AppHandle,root:&Path,action:&str,args:&[String])->Result<Value,Strin
     require_reply(&value,action)?;
     Ok(value)
 }
+fn verify_saved_file(path:&Path,reply:&Value,digest_field:&str,limit:u64)->Result<(),String>{
+    let declared=reply["bytes"].as_u64()
+        .ok_or("AGE_DESKTOP_FILE_READBACK_MISMATCH")?;
+    let expected=reply[digest_field].as_str()
+        .ok_or("AGE_DESKTOP_FILE_READBACK_MISMATCH")?;
+    if declared==0||declared>limit||expected.len()!=64||
+       !expected.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)){
+        return Err("AGE_DESKTOP_FILE_READBACK_MISMATCH".into());
+    }
+    let info=std::fs::symlink_metadata(path)
+        .map_err(|_|"AGE_DESKTOP_FILE_READBACK_MISSING")?;
+    if !info.is_file()||info.file_type().is_symlink()||info.len()!=declared{
+        return Err("AGE_DESKTOP_FILE_READBACK_MISMATCH".into());
+    }
+    let mut file=std::fs::File::open(path)
+        .map_err(|_|"AGE_DESKTOP_FILE_READBACK_MISSING")?;
+    let mut hash=Sha256::new();
+    let mut count=0_u64;
+    let mut buffer=[0u8;65536];
+    loop{
+        let n=file.read(&mut buffer)
+            .map_err(|_|"AGE_DESKTOP_FILE_READBACK_FAILED")?;
+        if n==0{break;}
+        count=count.saturating_add(n as u64);
+        if count>limit{return Err("AGE_DESKTOP_FILE_READBACK_MISMATCH".into());}
+        hash.update(&buffer[..n]);
+    }
+    if count!=declared||format!("{:x}",hash.finalize())!=expected{
+        return Err("AGE_DESKTOP_FILE_READBACK_MISMATCH".into());
+    }
+    Ok(())
+}
+
 fn file_picker(title:&str,extension:&str)->Option<PathBuf>{
     rfd::FileDialog::new().set_title(title)
         .add_filter("IWXA",&[extension]).pick_file()
@@ -203,7 +249,9 @@ pub fn encrypt(app:&AppHandle,root:&Path,raw_recipients:&str)->Result<Option<Val
     ensure_destination(&target,".iwxa.age")?;
     if source==target{return Err("AGE_DESKTOP_PATH_CONFLICT".into());}
     let args=[source.to_string_lossy().into_owned(),target.to_string_lossy().into_owned(),recipients];
-    run(app,root,"encrypt",&args).map(Some)
+    let receipt=run(app,root,"encrypt",&args)?;
+    verify_saved_file(&target,&receipt,"ciphertextSha256",33*1024*1024)?;
+    Ok(Some(receipt))
 }
 pub fn decrypt(app:&AppHandle,root:&Path)->Result<Option<Value>,String>{
     let Some(source)=file_picker("Открыть защищённый пакет .iwxa.age","age") else{return Ok(None)};
@@ -214,7 +262,9 @@ pub fn decrypt(app:&AppHandle,root:&Path)->Result<Option<Value>,String>{
     ensure_destination(&target,".iwxa")?;
     if source==target{return Err("AGE_DESKTOP_PATH_CONFLICT".into());}
     let args=[source.to_string_lossy().into_owned(),target.to_string_lossy().into_owned()];
-    run(app,root,"decrypt-local",&args).map(Some)
+    let receipt=run(app,root,"decrypt-local",&args)?;
+    verify_saved_file(&target,&receipt,"sourceSha256",32*1024*1024)?;
+    Ok(Some(receipt))
 }
 #[cfg(test)]
 mod tests{
@@ -226,6 +276,23 @@ mod tests{
         assert!(recipients(&format!("{}\n{}", "age1q".repeat(1),"age1q")).is_err());
         assert!(require_reply(&serde_json::json!({"operation":"AGE_DECRYPTED","admitted":true,
           "state":"DECRYPTED_INTEGRITY_VERIFIED_NOT_ADMITTED"}),"decrypt-local").is_err());
+    }
+    #[test]
+    fn verifies_real_file_bytes_before_claiming_desktop_export(){
+        use std::time::{SystemTime,UNIX_EPOCH};
+        let unique=SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let file=std::env::temp_dir().join(format!("iwxa-age-readback-{}-{unique}.iwxa",std::process::id()));
+        let content=b"synthetic-original-content";
+        std::fs::write(&file,content).unwrap();
+        let sha=format!("{:x}",Sha256::digest(content));
+        let good=serde_json::json!({"bytes":content.len(),"sourceSha256":sha});
+        assert!(verify_saved_file(&file,&good,"sourceSha256",4096).is_ok());
+        assert!(verify_saved_file(&file,&good,"sourceSha256",4).is_err());
+        let forged=serde_json::json!({"bytes":content.len(),"sourceSha256":"0".repeat(64)});
+        assert!(verify_saved_file(&file,&forged,"sourceSha256",4096).is_err());
+        std::fs::write(&file,b"changed").unwrap();
+        assert!(verify_saved_file(&file,&good,"sourceSha256",4096).is_err());
+        std::fs::remove_file(&file).unwrap();
     }
     #[test]
     fn enforces_explicit_transport_states(){
