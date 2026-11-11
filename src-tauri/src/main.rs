@@ -230,8 +230,15 @@ mod t3_product_component;
 mod t3_consumer;
 #[path="../../native/t3_age_transport.rs"]
 mod t3_age_transport;
+// T3 identities belong to the application's own data namespace, NOT to the
+// canonical Atlas project block store included by Center for draft work.
+fn center_age_root_under(app_data:&Path)->PathBuf{
+    app_data.join("t3-age")
+}
 fn center_age_data_root(app:&AppHandle)->Result<PathBuf,String>{
-    Ok(path_for(app)?.join("t3-age"))
+    let base=app.path().app_local_data_dir()
+        .map_err(|_|"CENTER_AGE_DATA_ROOT_UNAVAILABLE")?;
+    Ok(center_age_root_under(&base))
 }
 // File choosers and the external T3 age process must not block WebView IPC.
 #[tauri::command]
@@ -289,6 +296,13 @@ fn main() {
 #[cfg(test)]
 mod center_atlas_integration_tests {
     use super::*;
+    #[test]
+    fn age_identity_does_not_land_inside_atlas_project_store(){
+        let base=std::env::temp_dir().join("iwxa-admin-center");
+        let root=center_age_root_under(&base);
+        assert_eq!(root,base.join("t3-age"));
+        assert_ne!(root,base.join("atlas-store-v1").join("t3-age"));
+    }
     fn scratch() -> PathBuf {
         let path = std::env::temp_dir().join(format!("center-atlas-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&path).expect("create test dir");
