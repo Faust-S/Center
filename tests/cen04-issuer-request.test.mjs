@@ -20,8 +20,12 @@ test('Admin Center request is the existing unsigned Publisher TEST request, not 
     assert.equal(Object.hasOwn(parsed,field),false);
 });
 test('organization draft is not a signed issuer or implicit legal organization',()=>{
+  // Organizational TEST recipients may be teams, not only legal entities.
+  const group=prepareAdminPublisherTestRequest({...fixed,organization:{...org,kind:'GROUP'}});
+  assert.equal(group.request.subject.type,'ORGANIZATION');
+  assert.equal(group.request.subject.id,org.id);
   assert.throws(()=>prepareAdminPublisherTestRequest({
-    ...fixed,organization:{...org,kind:'GROUP'}}),/CEN04_PUBLISHER_ORGANIZATION_KIND_REQUIRED/);
+    ...fixed,organization:{...org,kind:'PERSON'}}),/CEN04_PUBLISHER_ORGANIZATIONAL_DRAFT_REQUIRED/);
   assert.throws(()=>prepareAdminPublisherTestRequest({
     ...fixed,organization:{...org,id:'holder:placeholder'}}),/TEST_REQUEST_SUBJECT_INVALID/);
   assert.throws(()=>prepareAdminPublisherTestRequest({...fixed,seats:0}),/TEST_REQUEST_SEATS_INVALID/);
