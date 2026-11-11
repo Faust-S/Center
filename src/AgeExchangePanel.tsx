@@ -15,8 +15,8 @@ function verifiedStatus(value:any):Status{
     throw Error('AGE_DESKTOP_STATUS_INVALID');
   return value;
 }
-export default function AgeExchangePanel({invoke,prefix}:{
-  invoke:Invoke|null;prefix:'center'|'publisher'
+export default function AgeExchangePanel({invoke,prefix,recipientOnly=false}:{
+  invoke:Invoke|null;prefix:'center'|'publisher';recipientOnly?:boolean
 }){
   const [state,setState]=useState<Status|null>(null);
   const [recipients,setRecipients]=useState('');
@@ -91,7 +91,7 @@ export default function AgeExchangePanel({invoke,prefix}:{
   }
   const canUse=connected&&state?.toolchain?.ready===true;
   return <section className="card padded" data-testid={prefix+'-age-exchange'}>
-    <h3>Защищённый обмен .iwxa.age</h3>
+    <h3>{recipientOnly?'Ключ получателя для защищённой лицензии':'Защищённый обмен .iwxa.age'}</h3>
     <p className="muted">Используется исходный T3 age/X25519. Шифрование не заменяет подпись,
       организационное разрешение и подтверждение получения файла.</p>
     {!connected&&<p role="status">Обмен доступен только в установленном Windows-приложении.</p>}
@@ -111,7 +111,7 @@ export default function AgeExchangePanel({invoke,prefix}:{
       <button type="button" className="secondary" disabled={!canUse||busy||state.available}
         onClick={()=>void perform('create_recipient')}>Создать ключ получателя</button>
     </div>}
-    <label>Открытые ключи получателей age1 (по одному на строке, 1–16)
+    {!recipientOnly&&<><label>Открытые ключи получателей age1 (по одному на строке, 1–16)
       <textarea rows={3} spellCheck={false} value={recipients}
         onChange={e=>setRecipients(e.target.value)}
         placeholder="age1…" data-testid={prefix+'-age-recipients'}/>
@@ -129,6 +129,7 @@ export default function AgeExchangePanel({invoke,prefix}:{
         data-testid={prefix+'-age-inspect'} onClick={()=>void perform('inspect')}>
         Проверить заголовок</button>
     </div>
+    </>}
     {message&&<p role="status" data-testid={prefix+'-age-success'}>{message}</p>}
     {failure&&<p role="alert" data-testid={prefix+'-age-error'}>{failure}</p>}
     {details&&<small className="muted">{details}</small>}
