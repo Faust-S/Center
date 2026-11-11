@@ -50,6 +50,7 @@ if(Test-Path -LiteralPath $draft){
 $stamp=Get-Date -Format 'yyyyMMdd-HHmmss'
 $artifact=[IO.Path]::GetFullPath((Join-Path (Get-Location) "artifacts/center-two-installed-test-license-$stamp"))
 [void][IO.Directory]::CreateDirectory($artifact)
+$requestFile=Join-Path $artifact 'admin-unsigned-request.json'
 $active=Join-Path $artifact 'signed-active.iwxa'
 $revoked=Join-Path $artifact 'signed-revoked.iwxa'
 $checks=[System.Collections.Generic.List[string]]::new()
@@ -132,6 +133,14 @@ function Select-Last($process,[string]$name){
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   Start-Sleep -Milliseconds 160
 }
+function Select-FirstReal($process,[string]$name){
+  $element=Control $process $name 'ComboBox'
+  $element.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+  [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  Start-Sleep -Milliseconds 160
+}
 function Wait-Text($process,[string]$contains,[int]$attempts=70){
   for($i=0;$i -lt $attempts;$i++){
     $all=(Window $process).FindAll(
@@ -169,10 +178,26 @@ function Native-FileDialog($process,[string]$button,[string]$file,[bool]$exists)
     Start-Sleep -Milliseconds 200
   }
   if(!$dialog){throw "CENTER_LICENSE_NATIVE_FILE_DIALOG_NOT_FOUND $button"}
-  [System.Windows.Forms.SendKeys]::SendWait('%n')
-  Start-Sleep -Milliseconds 130
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  [System.Windows.Forms.SendKeys]::SendWait($file)
+  # Native selected paths may include +, ^, % or braces. SendKeys treats
+  # those as commands; write the chosen filename literally with Windows UIA.
+  $field=$dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.PropertyCondition]::new(
+      [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'1148'))
+  if(!$field){throw 'CENTER_LICENSE_NATIVE_PICKER_FILENAME_FIELD_MISSING'}
+  if($field.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit){
+    $field=$field.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+      [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::Edit))
+  }
+  if(!$field){throw 'CENTER_LICENSE_NATIVE_PICKER_EDIT_MISSING'}
+  $pattern=$null
+  if(-not $field.TryGetCurrentPattern(
+      [System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)){
+    throw 'CENTER_LICENSE_NATIVE_PICKER_VALUE_PATTERN_REQUIRED'
+  }
+  ([System.Windows.Automation.ValuePattern]$pattern).SetValue($file)
+  $field.SetFocus()
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   if(!$exists){
     for($i=0;$i -lt 70;$i++){
@@ -224,6 +249,7 @@ try{
   }
   $cen=Start-App $centerPath
   Enter $cen 'Название' 'CenterLicenseTestOrganization'
+  Select-Last $cen 'Тип'
   Press $cen 'Создать черновик организации'
   Press $cen 'Сохранить на компьютере'
   $organizationId=''
@@ -244,31 +270,41 @@ try{
     throw 'CENTER_LICENSE_ORGANIZATION_NOT_DURABLY_CREATED'
   }
   $checks.Add('CENTER_ORGANIZATION_SAVED_VIA_NATIVE_GUI')
+  # The organization originated here. No duplicate product/client/proposal
+  # should be created in Publisher to request an original T3 TEST license.
+  Press $cen 'Personal Agent и лицензии'
+  Wait-Text $cen 'Запрос лицензии в Publisher'
+  Native-FileDialog $cen 'Сохранить запрос для Publisher' $requestFile $false
+  $request=(Get-Content -LiteralPath $requestFile -Raw|ConvertFrom-Json -Depth 12)
+  if($request.schema -ne 'IWXA_PUBLISHER_TEST_LICENSE_REQUEST/1' -or
+     $request.kind -ne 'TEST_LICENSE_REQUEST' -or
+     $request.environment -ne 'TEST' -or $request.status -ne 'UNSIGNED_REQUEST' -or
+     $request.subject.id -ne $organizationId -or
+     $request.subject.type -ne 'ORGANIZATION' -or
+     $request.product.id -ne 'IWXA_ADMIN_CENTER' -or
+     $request.seats -ne 1 -or $request.featureIds[0] -ne 'WORKSPACE'){
+    throw 'CENTER_LICENSE_ORIGINAL_ADMIN_UNSIGNED_REQUEST_INVALID'
+  }
+  $requestId=[string]$request.requestId
+  $checks.Add('ADMIN_CENTER_UNSIGNED_REQUEST_EXPORTED_VIA_NATIVE_GUI')
   $pub=Start-App $publisherPath
-  Press $pub 'Продукты'
-  Enter $pub 'Идентификатор продукта' 'IWXA_ADMIN_CENTER'
-  Enter $pub 'Название' 'CenterLicenseTestProduct'
-  Enter $pub 'Версия' '0.3.0'
-  Press $pub 'Сохранить продукт'
-  Press $pub 'Клиенты'
-  Enter $pub 'Идентификатор клиента' $organizationId
-  Enter $pub 'Название / имя' 'CenterLicenseTestOrganization'
-  Press $pub 'Сохранить клиента'
-  Press $pub 'Лицензии'
-  Press $pub 'Открыть TEST-запрос'
-  Enter $pub 'Функции (коды через запятую)' 'WORKSPACE'
-  Press $pub 'Сохранить запрос'
-  Wait-Text $pub 'Подготовленные запросы (1)'
-  $checks.Add('PUBLISHER_PRODUCT_HOLDER_AND_REQUEST_VIA_NATIVE_GUI')
   Press $pub 'Доверие и ключи'
-  Press $pub 'Выпустить TEST-лицензию'
-  Wait-Text $pub 'TEST-лицензия подписана T3'
+  Select-Last $pub 'Полномочие издателя'
+  Native-FileDialog $pub 'Открыть запрос Admin Center' $requestFile $true
+  Wait-Text $pub $requestId
+  Press $pub 'Подписать запрос Admin Center в T3'
+  Wait-Text $pub 'Запрос Admin Center подписан исходным T3'
   $inventory=Owner-Inventory
-  if(@($inventory.licenses).Count -ne 1){
-    throw 'CENTER_LICENSE_SIGNED_ISSUE_DURABLE_LEDGER_MISSING'
+  if(@($inventory.licenses).Count -ne 1 -or
+     $inventory.licenses[0].requestId -ne $requestId -or
+     $inventory.licenses[0].organizationId -ne $organizationId -or
+     $inventory.licenses[0].claimedSeats -ne 1){
+    throw 'CENTER_LICENSE_ORIGINAL_OWNER_ADMIN_REQUEST_READBACK_MISMATCH'
   }
   $id=[string]$inventory.licenses[0].licenseId
-  $checks.Add('PUBLISHER_TEST_ISSUE_ORIGINAL_OWNER_READBACK')
+  $checks.Add('PUBLISHER_ADMIN_REQUEST_SIGNED_BY_ORIGINAL_T3')
+  Select-Last $pub 'Лицензия'
+  Select-FirstReal $pub 'Новый TEST-статус'
   Press $pub 'Изменить статус' $true
   Confirm-Status $id 'ACTIVE'
   Wait-Text $pub 'Новый подписанный TEST-статус сохранён в T3: ACTIVE'
