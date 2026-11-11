@@ -135,6 +135,51 @@ pub async fn publisher_t3_export(app:AppHandle,license_id:String)
 }
 
 
+// Public-only issuer trust export from the original T3 OWNER. The exported
+// fingerprint is independently delivered to Admin Center before any signed
+// license can be accepted. This command never provisions the recipient.
+#[tauri::command]
+pub async fn publisher_t3_export_test_trust(app:AppHandle)->Result<Option<Value>,String>{
+    if !t3::availability(&app,"owner"){
+        return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
+    }
+    let selection=rfd::FileDialog::new()
+       .set_title("Publisher — публичное доверие TEST-издателя")
+       .add_filter("T3 public trust",&["json"])
+       .set_file_name("publisher-test-trust.json").save_file();
+    let Some(path)=selection else{return Ok(None)};
+    if path.file_name().and_then(|p|p.to_str())!=Some("publisher-test-trust.json") ||
+       path.exists() {
+        return Err("PUBLISHER_TEST_TRUST_DESTINATION_INVALID".into());
+    }
+    let expected_path=path.to_string_lossy().into_owned();
+    let result=call(app,"trust-export-test",vec![expected_path]).await?;
+    t3::validate_test_result(&result,"TEST_TRUST_EXPORTED")?;
+    if result["publicOnly"]!=true {
+        return Err("PUBLISHER_TEST_TRUST_PRIVATE_MATERIAL_DENIED".into());
+    }
+    let bytes=result["bytes"].as_u64()
+        .ok_or("PUBLISHER_TEST_TRUST_READBACK_REQUIRED")?;
+    let digest=result["sha256"].as_str()
+        .ok_or("PUBLISHER_TEST_TRUST_READBACK_REQUIRED")?;
+    if bytes<3||bytes>1024*1024||digest.len()!=64||
+       !digest.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)){
+        return Err("PUBLISHER_TEST_TRUST_RECEIPT_INVALID".into());
+    }
+    let stat=fs::symlink_metadata(&path)
+        .map_err(|_|"PUBLISHER_TEST_TRUST_FILE_MISSING")?;
+    if !stat.is_file()||stat.file_type().is_symlink()||stat.len()!=bytes {
+        return Err("PUBLISHER_TEST_TRUST_FILE_CHANGED".into());
+    }
+    let actual=fs::read(&path).map_err(|_|"PUBLISHER_TEST_TRUST_READBACK_FAILED")?;
+    if actual.len() as u64!=bytes ||
+       format!("{:x}",Sha256::digest(&actual))!=digest ||
+       actual.windows(11).any(|window|window==b"PRIVATE KEY"){
+        return Err("PUBLISHER_TEST_TRUST_FILE_READBACK_INVALID".into());
+    }
+    Ok(Some(result))
+}
+
 // PERSON uses the original private T3 owner binary, but only the separately
 // pre-enrolled production root. The public bridge never signs or imports trust.
 const PERSON_REQUEST_LIMIT: usize = 32 * 1024;

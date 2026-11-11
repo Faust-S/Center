@@ -657,6 +657,7 @@ fn main() {
             t3_owner::publisher_t3_capabilities, t3_owner::publisher_t3_inventory,
             t3_owner::publisher_t3_issue, t3_owner::publisher_t3_change_status,
             t3_owner::publisher_t3_export, t3_owner::publisher_t3_export_age,
+            t3_owner::publisher_t3_export_test_trust,
             t3_owner::publisher_t3_person_capabilities,
             t3_owner::publisher_t3_person_inventory,
             t3_owner::publisher_t3_person_issue,

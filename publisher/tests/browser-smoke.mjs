@@ -174,6 +174,7 @@ try {
   await page.getByTestId('publisher-age-exchange').waitFor();
   await page.getByTestId('publisher-t3-export-age').waitFor();
   assert.equal(await page.getByTestId('publisher-t3-export-age').isEnabled(),false);
+  assert.equal(await page.getByTestId('publisher-t3-export-test-trust').isEnabled(),false);
   assert.equal(await page.getByTestId('publisher-person-export-age').isEnabled(),false);
   await page.getByTestId('publisher-age-recipients').fill('age1'+'q'.repeat(58));
   await page.getByTestId('publisher-age-encrypt').click();
