@@ -1,4 +1,5 @@
 import React,{useEffect,useState} from 'react';
+import {prepareAdminPublisherTestRequest} from '../runtime/cen04-issuer-request.mjs';
 
 // Center does not receive a license merely by opening a .iwxa file. Verified
 // intake is available only when an original private T3 Consumer executable
@@ -9,9 +10,14 @@ type License={licenseId:string;status:'ACTIVE'|'SUSPENDED'|'REVOKED';
  sequence:number;claimedSeats:number;signatureVerified:true;statusVerified:true};
 type View={organizationId:string;productId:string;licenses:License[];
  revision:number;activeSeats:0;assignableSeats:0;productionActivation:false};
-type Props={organizationId:string;invoke:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null};
+type Props={organizationId:string;organizationName:string;
+ organizationKind:'GROUP'|'ORGANIZATION';
+ invoke:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function Cen04LicensePanel({organizationId,invoke}:Props){
+export default function Cen04LicensePanel({organizationId,organizationName,organizationKind,invoke}:Props){
+ const [testSeats,setTestSeats]=useState('1');
+ const [testTerm,setTestTerm]=useState('30');
+ const [testVersion,setTestVersion]=useState('0.3.0');
  const [preview,setPreview]=useState<Preview|null>(null);
  const [verified,setVerified]=useState<View|null>(null);
  const [ready,setReady]=useState(false);
@@ -69,6 +75,25 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    }
    return ()=>{live=false;};
  },[organizationId,invoke]);
+ async function exportUnsignedRequest(){
+   if(!invoke||busy||organizationKind!=='ORGANIZATION')return;
+   setBusy(true);setFailure('');setMessage('');
+   try{
+     // This is the existing Publisher/T3 unsigned TEST profile. Admin Center
+     // does not create a new license format, issuer or authority.
+     const prepared=prepareAdminPublisherTestRequest({
+       organization:{kind:organizationKind,id:organizationId,name:organizationName},
+       requestId:'request:admin:'+crypto.randomUUID(),
+       requestedAt:new Date().toISOString(),
+       version:testVersion,termDays:Number(testTerm),seats:Number(testSeats)
+     });
+     const saved=await invoke('center_export_publisher_test_request',{
+       content:prepared.content,suggestedFileName:prepared.suggestedFileName});
+     setMessage(saved?'Неподписанный запрос сохранён. Откройте этот JSON в Publisher и передайте в T3 для подписания.':
+       'Сохранение запроса отменено. Подпись и права не создавались.');
+   }catch(e){setFailure('Запрос Publisher не сохранён: '+error(e));}
+   finally{setBusy(false);}
+ }
  async function openPreview(){
    if(!invoke||busy)return;
    setBusy(true);setPreview(null);setFailure('');setMessage('');
@@ -113,6 +138,33 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    <p className="muted">Подписанные TEST-лицензии передаются в едином формате .iwxa.
       Подлинность и статус независимо проверяет T3 по ранее установленному доверию.
       Коммерческая активация не выполняется.</p>
+   <div className="notice subdued" data-testid="cen04-publisher-request">
+     <strong>Запрос лицензии в Publisher</strong>
+     <p>Admin Center передаёт только неподписанный TEST-запрос с точным идентификатором выбранной организации.
+       Publisher подписывает его через исходный T3; доступ к данным организации этим не предоставляется.</p>
+     {organizationKind==='ORGANIZATION'?<>
+       <div className="form-grid">
+         <label>Версия Admin Center
+           <input aria-label="Версия продукта для Publisher" value={testVersion} maxLength={64}
+             onChange={e=>setTestVersion(e.target.value)} disabled={busy}/>
+         </label>
+         <label>Срок в днях
+           <input aria-label="Срок TEST-запроса" type="number" min={1} max={3650} step={1}
+             value={testTerm} onChange={e=>setTestTerm(e.target.value)} disabled={busy}/>
+         </label>
+         <label>Заявленных TEST-мест
+           <input aria-label="Места TEST-запроса" type="number" min={1} max={10000} step={1}
+             value={testSeats} onChange={e=>setTestSeats(e.target.value)} disabled={busy}/>
+         </label>
+       </div>
+       <p className="muted">Функция запроса: WORKSPACE. Это TEST-условие, а не коммерческие места.</p>
+       <button type="button" className="secondary" data-testid="cen04-export-publisher-request"
+         onClick={exportUnsignedRequest} disabled={!invoke||busy}>
+         Сохранить запрос для Publisher
+       </button>
+     </>:<p>Выбрана группа. Чтобы запросить организационную TEST-лицензию,
+       выберите черновик с типом «Организация».</p>}
+   </div>
    <div className="actions">
      <button type="button" className="secondary" data-testid="cen04-select-test-iwxa"
        onClick={openPreview} disabled={!invoke||busy}>{busy?'Открываем…':'Предпросмотр .iwxa'}</button>
