@@ -917,7 +917,8 @@ namespace IwxaSetup
             }
             catch (Exception ex)
             {
-                ex.Data["IWXA_SETUP_PHASE"] = failurePhase;
+                if (!ex.Data.Contains("IWXA_SETUP_PHASE"))
+                    ex.Data["IWXA_SETUP_PHASE"] = failurePhase;
                 // Return a pre-existing EMPTY folder if staging failed before
                 // activation. Never restore or delete unrelated contents.
                 if (initialEmptyRoot && !activated &&
@@ -1768,15 +1769,24 @@ namespace IwxaSetup
             Directory.CreateDirectory(folder);
             string staged = Path.Combine(folder,
                 ".iwxa-setup-" + Guid.NewGuid().ToString("N") + ".lnk");
+            string failurePhase = "SHORTCUT_STAGE_CREATE";
             try
             {
                 CreateShortcutAt(info, root, staged);
+                failurePhase = "SHORTCUT_READBACK";
                 string app = Path.Combine(root,
                     info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
                 if (!SamePath(GetLegacyShortcutTarget(staged), app))
                     throw new InvalidDataException(
                         "SETUP_START_MENU_SHORTCUT_STAGE_INVALID");
+                failurePhase = "SHORTCUT_CLAIM";
                 File.Move(staged, target);
+            }
+            catch (Exception ex)
+            {
+                if (!ex.Data.Contains("IWXA_SETUP_PHASE"))
+                    ex.Data["IWXA_SETUP_PHASE"] = failurePhase;
+                throw;
             }
             finally
             {
@@ -1792,20 +1802,36 @@ namespace IwxaSetup
                 throw new InvalidOperationException(
                     "SETUP_START_MENU_SHORTCUT_CONFLICT");
             Directory.CreateDirectory(Path.GetDirectoryName(path));
-            Type shellType = Type.GetTypeFromProgID("WScript.Shell");
-            if (shellType == null)
-                throw new InvalidOperationException("SETUP_WINDOWS_SHORTCUT_SERVICE_MISSING");
-            object shell = Activator.CreateInstance(shellType);
-            object link = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod,
-                null, shell, new object[] { path });
-            Type linkType = link.GetType();
-            linkType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, link,
-                new object[] { Path.Combine(root, info.Entrypoint) });
-            linkType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, link,
-                new object[] { root });
-            linkType.InvokeMember("Description", BindingFlags.SetProperty, null, link,
-                new object[] { info.Name });
-            linkType.InvokeMember("Save", BindingFlags.InvokeMethod, null, link, new object[0]);
+            string failurePhase = "SHORTCUT_CREATE_COM";
+            try
+            {
+                Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+                if (shellType == null)
+                    throw new InvalidOperationException("SETUP_WINDOWS_SHORTCUT_SERVICE_MISSING");
+                object shell = Activator.CreateInstance(shellType);
+                object link = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod,
+                    null, shell, new object[] { path });
+                Type linkType = link.GetType();
+                failurePhase = "SHORTCUT_TARGET";
+                // Bundle paths use forward slashes; Shell expects native paths.
+                string app = Path.Combine(root,
+                    info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+                linkType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, link,
+                    new object[] { app });
+                failurePhase = "SHORTCUT_WORKING_DIR";
+                linkType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, link,
+                    new object[] { root });
+                failurePhase = "SHORTCUT_DESCRIPTION";
+                linkType.InvokeMember("Description", BindingFlags.SetProperty, null, link,
+                    new object[] { info.Name });
+                failurePhase = "SHORTCUT_SAVE";
+                linkType.InvokeMember("Save", BindingFlags.InvokeMethod, null, link, new object[0]);
+            }
+            catch (Exception ex)
+            {
+                ex.Data["IWXA_SETUP_PHASE"] = failurePhase;
+                throw;
+            }
         }
 
         private static void DeleteShortcut(BundleInfo info)

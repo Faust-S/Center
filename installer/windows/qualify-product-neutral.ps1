@@ -65,12 +65,13 @@ function Invoke-Setup([string]$file,[string[]]$arguments,[int]$expected=0){
     }
     return (Get-Content -LiteralPath $output -Raw | ConvertFrom-Json)
 }
-function Make-Product([string]$tag,[switch]$LongPaths,[string]$ProductId='',[string]$ProductVersion='') {
+function Make-Product([string]$tag,[switch]$LongPaths,[string]$ProductId='',[string]$ProductVersion='',[switch]$NestedEntrypoint) {
     $id=if($ProductId){$ProductId}else{'iwxa.fixture.'+$tag}
     $buildVersion=if($ProductVersion){$ProductVersion}else{$version}
     $folder=Join-Path $root $tag
     $payload=Join-Path $folder 'payload'
-    $exe=Join-Path $payload 'bin\fixture.exe'
+    $exeRelative=if($NestedEntrypoint){'desktop\bin\Sample Window.exe'}else{'bin\fixture.exe'}
+    $exe=Join-Path $payload $exeRelative
     New-Item -ItemType Directory -Path (Split-Path -Parent $exe) -Force | Out-Null
     $src=Join-Path $folder 'fixture.cs'
     [IO.File]::WriteAllText($src,$source,[Text.Encoding]::ASCII)
@@ -103,7 +104,7 @@ function Make-Product([string]$tag,[switch]$LongPaths,[string]$ProductId='',[str
         schema='IWXA_SETUP_PRODUCT/1';id=$id;display_name=('IWXA Test '+$tag)
         publisher='IWXA';version=$buildVersion;architecture='windows-x64'
         install_dir=('IWXA Test '+$tag)
-        entrypoint='bin/fixture.exe';data_namespace=$id
+        entrypoint=($exeRelative.Replace('\','/'));data_namespace=$id
         requirements=@()
     }
     [IO.File]::WriteAllText($manifest,($product|ConvertTo-Json -Depth 5),
@@ -207,6 +208,27 @@ try{
         throw 'SETUP_NEUTRAL_SECOND_UNINSTALL_INVALID'
     }
     Write-Host 'IWXA_SETUP_CROSS_PRODUCT_UNINSTALL_AND_DATA_PRESERVATION_PASS'
+    # Synthetic nested desktop executable with spaces in its file name.
+    $nested=Make-Product ('n'+[Guid]::NewGuid().ToString('N').Substring(0,10)) -NestedEntrypoint
+    $nestedIdentity=Invoke-Setup $nested.bundle @('--inspect-file')
+    if($nestedIdentity.entrypoint -ne 'desktop/bin/Sample Window.exe'){
+        throw 'SETUP_NEUTRAL_SPACED_ENTRYPOINT_IDENTITY_FAILED'
+    }
+    $nestedInstalled=Invoke-Setup $nested.bundle @('--install-locations-file',('"' + $nested.request + '"'))
+    if($nestedInstalled.status -ne 'INSTALLED_NOT_LAUNCHED' -or
+       !(Test-Path -LiteralPath (Join-Path $nested.program 'desktop\bin\Sample Window.exe') -PathType Leaf)){
+        throw 'SETUP_NEUTRAL_SPACED_ENTRYPOINT_INSTALL_FAILED'
+    }
+    $nestedVerified=Invoke-Setup $nested.bundle @('--verify-installed-file')
+    if($nestedVerified.status -ne 'OWNED_FILES_VERIFIED'){
+        throw 'SETUP_NEUTRAL_SPACED_ENTRYPOINT_VERIFY_FAILED'
+    }
+    $nestedRemoved=Invoke-Setup $nested.bundle @('--uninstall-file')
+    if($nestedRemoved.status -ne 'UNINSTALLED_USER_DATA_PRESERVED' -or
+       (Test-Path -LiteralPath $nested.program)){
+        throw 'SETUP_NEUTRAL_SPACED_ENTRYPOINT_UNINSTALL_FAILED'
+    }
+    Write-Host 'IWXA_SETUP_SYNTHETIC_NESTED_SPACED_ENTRYPOINT_PASS'
     # A denied synthetic locations request must publish only bounded native
     # failure metadata, without disclosing the requested path or exception.
     $deniedLocations=Join-Path $root 'denied-locations.json'

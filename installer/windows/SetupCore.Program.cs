@@ -50,6 +50,14 @@ namespace IwxaSetup
                 case "ACTIVATION":
                 case "REGISTRATION":
                 case "SHORTCUT":
+                case "SHORTCUT_STAGE_CREATE":
+                case "SHORTCUT_CREATE_COM":
+                case "SHORTCUT_TARGET":
+                case "SHORTCUT_WORKING_DIR":
+                case "SHORTCUT_DESCRIPTION":
+                case "SHORTCUT_SAVE":
+                case "SHORTCUT_READBACK":
+                case "SHORTCUT_CLAIM":
                     return phase;
                 default:
                     return "REQUEST_OR_PREFLIGHT";
