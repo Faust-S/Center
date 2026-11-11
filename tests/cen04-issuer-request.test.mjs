@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {prepareAdminPublisherTestRequest} from '../runtime/cen04-issuer-request.mjs';
-import {decodeTestLicenseRequest} from '../publisher/src/test-license-request.mjs';
+import {decodeTestLicenseRequest} from '../runtime/cen04-unsigned-test-request.mjs';
 const org={id:'org:demo-001',name:'North Workshop',kind:'ORGANIZATION'};
 const fixed={organization:org,requestId:'request:admin:demo-001',
   requestedAt:'2026-11-11T12:00:00.000Z',seats:3,termDays:45,version:'0.3.0'};
