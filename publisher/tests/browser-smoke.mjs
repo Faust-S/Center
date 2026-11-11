@@ -729,7 +729,7 @@ try {
       if(command==='publisher_t3_person_capabilities'){
         if(!window.__personNativeEnabled)throw Error('PERSON_OWNER_NOT_ENROLLED');
         return {operation:'PERSON_CAPABILITIES',environment:'PRODUCTION',
-          issuers:['publisher:person:mock'],activeSeats:0,productionActivation:false};
+          issuers:['publisher:person:mock','publisher:person:alternate'],activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_person_inventory'){
         return {operation:'PERSON_INVENTORY',
@@ -864,6 +864,15 @@ try {
     /license:person:mock:one/);
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true,
     'An already-signed original PERSON request must not offer repeated issue');
+  await personOwner.getByRole('combobox',{name:'Издатель'})
+    .selectOption('publisher:person:alternate');
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true,
+    'Changing issuer must not permit the same signed request to be reissued');
+  assert.match(await personOwner.getByTestId('publisher-person-already-issued').innerText(),
+    /издатель publisher:person:mock/);
+  await personOwner.getByRole('combobox',{name:'Издатель'})
+    .selectOption('publisher:person:mock');
+  checks.push('person-signed-request-id-remains-unique-across-authorities');
   const personLicensePicker=personOwner.getByRole('combobox',{name:'Персональная лицензия',exact:true});
   assert.equal(await personOwner.getByRole('combobox',{name:'Лицензия',exact:true}).count(),0,
     'PERSON and TEST license selectors must have distinct accessible names');
