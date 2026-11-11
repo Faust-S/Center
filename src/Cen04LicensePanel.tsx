@@ -142,7 +142,7 @@ export default function Cen04LicensePanel({organizationId,organizationName,organ
      <strong>Запрос лицензии в Publisher</strong>
      <p>Admin Center передаёт только неподписанный TEST-запрос с точным идентификатором выбранной организации.
        Publisher подписывает его через исходный T3; доступ к данным организации этим не предоставляется.</p>
-     {organizationKind==='ORGANIZATION'?<>
+     <>
        <div className="form-grid">
          <label>Версия Admin Center
            <input aria-label="Версия продукта для Publisher" value={testVersion} maxLength={64}
@@ -157,13 +157,12 @@ export default function Cen04LicensePanel({organizationId,organizationName,organ
              value={testSeats} onChange={e=>setTestSeats(e.target.value)} disabled={busy}/>
          </label>
        </div>
-       <p className="muted">Функция запроса: WORKSPACE. Это TEST-условие, а не коммерческие места.</p>
+       <p className="muted">Функция запроса: WORKSPACE. Группа тоже может быть техническим получателем; TEST-запрос не подтверждает юридический статус, организационные полномочия или коммерческие места.</p>
        <button type="button" className="secondary" data-testid="cen04-export-publisher-request"
          onClick={exportUnsignedRequest} disabled={!invoke||busy}>
          Сохранить запрос для Publisher
        </button>
-     </>:<p>Выбрана группа. Чтобы запросить организационную TEST-лицензию,
-       выберите черновик с типом «Организация».</p>}
+     </>
    </div>
    <div className="actions">
      <button type="button" className="secondary" data-testid="cen04-select-test-iwxa"
