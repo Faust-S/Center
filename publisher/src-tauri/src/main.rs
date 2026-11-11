@@ -93,6 +93,11 @@ fn publisher_root(app: &AppHandle) -> Result<PathBuf, String> {
     if let Some(selected)=setup_core_publisher_data_root()? { return Ok(selected); }
     app.path().app_local_data_dir().map_err(|e| e.to_string())
 }
+// Original shared native T3 component uses Publisher's own Setup Core
+// DataLocation, never a second app root or the Admin Center data folder.
+fn t3_product_app_root(app: &AppHandle) -> Result<PathBuf, String> {
+    publisher_root(app)
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
