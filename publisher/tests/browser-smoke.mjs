@@ -768,6 +768,10 @@ try {
         if(!one||one.status==='REVOKED')throw Error('PERSON_OWNER_REVOKED_TERMINAL');
         one.status=args.nextStatus;one.sequence+=1;
         sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+        if(window.__personMockLoseNextStatusReceipt){
+          window.__personMockLoseNextStatusReceipt=false;
+          throw Error('PERSON_TEST_NATIVE_RESPONSE_LOST_AFTER_COMMIT');
+        }
         return {operation:'PERSON_STATUS',licenseId:one.licenseId,
           state:one.status,sequence:one.sequence,
           activeSeats:0,productionActivation:false};
@@ -940,6 +944,28 @@ try {
   checks.push('publisher-person-owner-mocked-signed-native-route');
   checks.push('person-original-and-renewal-selectors-show-distinct-native-license-ids');
   checks.push('person-and-test-license-selectors-distinct-accessibility-names');
+  // The actual owner can commit a signed state and still lose the IPC answer.
+  // The next click must NOT issue another status sequence until the durable
+  // T3 inventory has been read back, regardless of the in-memory UI state.
+  await personLicensePicker.selectOption('license:person:mock:two');
+  await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('SUSPENDED');
+  await personal.evaluate(()=>{window.__personMockLoseNextStatusReceipt=true;});
+  await personOwner.getByTestId('publisher-person-status').click();
+  await personOwner.getByText('Операция могла сохраниться в T3',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true);
+  const committedWithoutReceipt=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')));
+  assert.equal(committedWithoutReceipt[1].status,'SUSPENDED');
+  assert.equal(committedWithoutReceipt[1].sequence,2);
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true,
+    'Selected new status already exists in original T3 after readback');
+  const afterLostResponse=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')));
+  assert.equal(afterLostResponse[1].sequence,2,
+    'Reading ledger must not create another signed native status');
+  checks.push('person-lost-native-status-response-blocks-retry-until-exact-ledger-refresh');
 
   // A second client type can use the same tariff code, product and revision.
   // This is one shared catalog, not a separate personal issuer or format.
