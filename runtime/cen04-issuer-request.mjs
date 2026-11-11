@@ -13,8 +13,8 @@ export function prepareAdminPublisherTestRequest({
   organization, requestId, requestedAt, version='0.3.0',
   featureIds=['WORKSPACE'], termDays=30, seats=1
 }){
-  if(organization?.kind!=='ORGANIZATION')
-    throw Error('CEN04_PUBLISHER_ORGANIZATION_KIND_REQUIRED');
+  if(!['ORGANIZATION','GROUP'].includes(organization?.kind))
+    throw Error('CEN04_PUBLISHER_ORGANIZATIONAL_DRAFT_REQUIRED');
   const request=validateTestLicenseRequest({
     schema:'IWXA_PUBLISHER_TEST_LICENSE_REQUEST/1',
     kind:'TEST_LICENSE_REQUEST',
