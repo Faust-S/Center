@@ -1,6 +1,6 @@
 import {
   validateTestLicenseRequest, encodeTestLicenseRequest, suggestedTestRequestFileName
-} from '../publisher/src/test-license-request.mjs';
+} from './cen04-unsigned-test-request.mjs';
 
 // Admin Center prepares a request for the EXISTING Publisher TEST issuer.
 // This is not a license, not an organization grant and not a T3 Store.
