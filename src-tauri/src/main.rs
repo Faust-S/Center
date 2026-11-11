@@ -228,6 +228,32 @@ fn center_save_iwxa_file(bytes: Vec<u8>, task_revision_id: String) -> Result<boo
 #[path="../../native/t3_product_component.rs"]
 mod t3_product_component;
 mod t3_consumer;
+#[path="../../native/t3_age_transport.rs"]
+mod t3_age_transport;
+fn center_age_data_root(app:&AppHandle)->Result<PathBuf,String>{
+    Ok(path_for(app)?.join("t3-age"))
+}
+#[tauri::command]
+fn center_age_status(app:AppHandle)->Result<Value,String>{
+    t3_age_transport::status(&app,&center_age_data_root(&app)?)
+}
+#[tauri::command]
+fn center_age_create_recipient(app:AppHandle)->Result<Value,String>{
+    t3_age_transport::create_recipient(&app,&center_age_data_root(&app)?)
+}
+#[tauri::command]
+fn center_age_inspect(app:AppHandle)->Result<Option<Value>,String>{
+    t3_age_transport::inspect(&app,&center_age_data_root(&app)?)
+}
+#[tauri::command]
+fn center_age_encrypt(app:AppHandle,recipients:String)->Result<Option<Value>,String>{
+    t3_age_transport::encrypt(&app,&center_age_data_root(&app)?,&recipients)
+}
+#[tauri::command]
+fn center_age_decrypt(app:AppHandle)->Result<Option<Value>,String>{
+    t3_age_transport::decrypt(&app,&center_age_data_root(&app)?)
+}
+
 
 mod cen05_host;
 
@@ -241,7 +267,9 @@ fn main() {
             cen05_host::center_u04_open, cen05_host::center_u04_activate,
             cen05_host::center_u04_return, cen05_host::center_u04_detach,
             t3_consumer::center_cen04_t3_capabilities,
-            t3_consumer::center_cen04_t3_read, t3_consumer::center_cen04_t3_import
+            t3_consumer::center_cen04_t3_read, t3_consumer::center_cen04_t3_import,
+            center_age_status,center_age_create_recipient,center_age_inspect,
+            center_age_encrypt,center_age_decrypt
         ])
         .run(tauri::generate_context!())
         .expect("Admin Center could not start");
