@@ -6,7 +6,8 @@ type NativeInvoke=(name:string,args?:Record<string,unknown>)=>Promise<any>;
 type PersonRecord={
   licenseId:string;requestId:string;issuerAuthorityId:string;
   personId:string;productId:string;deviceLimit:number;quotaCount:number;
-  issuedAt:string;notBefore:string;expiresAt:string;statusValidUntil?:string;
+  issuedAt:string;notBefore:string;expiresAt:string;
+  statusIssuedAt?:string;statusValidUntil?:string;
   renewalOfLicenseId?:string;
   status:'NOT_ACTIVATED'|'ACTIVE'|'SUSPENDED'|'REVOKED';
   sequence:number;activeSeats:0
@@ -22,15 +23,18 @@ const instant=(v:unknown)=>typeof v==='string'&&
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v)&&
   Number.isFinite(Date.parse(v));
 const localTime=(v:string)=>new Date(v).toLocaleString('ru-RU',{hour12:false});
-const STATUS_REFRESH_LEAD_MS=6*60*60*1000;
+const MAX_STATUS_REFRESH_LEAD_MS=6*60*60*1000;
 const personStatusAllowed=(license:PersonRecord|undefined,requested:string)=>{
   if(!license||!requested||license.status==='REVOKED'||
      Date.parse(license.expiresAt)<=Date.now())return false;
   if(license.status!==requested)return true;
   // Same-state signing is useful near signed status expiry. The original T3
   // creates the next monotonic sequence; Publisher never fabricates status.
-  return !!license.statusValidUntil&&
-    Date.parse(license.statusValidUntil)<=Date.now()+STATUS_REFRESH_LEAD_MS;
+  if(!license.statusIssuedAt||!license.statusValidUntil)return false;
+  const duration=Date.parse(license.statusValidUntil)-
+    Date.parse(license.statusIssuedAt);
+  const lead=Math.min(MAX_STATUS_REFRESH_LEAD_MS,Math.floor(duration/4));
+  return duration>0&&Date.parse(license.statusValidUntil)<=Date.now()+lead;
 };
 const shortLicenseId=(value:string)=>value.length>30?
   value.slice(0,12)+'…'+value.slice(-12):value;
@@ -101,9 +105,11 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
        Date.parse(x.issuedAt)>Date.parse(x.notBefore)||
        Date.parse(x.notBefore)>=Date.parse(x.expiresAt)||
        (x.status==='NOT_ACTIVATED'?
-         x.statusValidUntil!==undefined:!instant(x.statusValidUntil))||
+         x.statusValidUntil!==undefined||x.statusIssuedAt!==undefined:
+         !instant(x.statusValidUntil)||!instant(x.statusIssuedAt))||
        (x.statusValidUntil!==undefined&&
-         Date.parse(x.statusValidUntil)>Date.parse(x.expiresAt))||
+         (Date.parse(x.statusValidUntil)>Date.parse(x.expiresAt)||
+          Date.parse(x.statusIssuedAt!)>=Date.parse(x.statusValidUntil)))||
        (x.renewalOfLicenseId!==undefined&&
          (!id(x.renewalOfLicenseId)||x.renewalOfLicenseId===x.licenseId)))||
        new Set(entries.map(e=>e.licenseId)).size!==entries.length)
@@ -466,7 +472,9 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
             <p>Лицензия выдана: {localTime(selectedLicense.issuedAt)}.
               Срок лицензии до: <strong>{localTime(selectedLicense.expiresAt)}</strong> (местное время).</p>
             <p>{selectedLicense.statusValidUntil?
-              <>Подписанный статус {selectedLicense.status} действителен до:
+              <>Подписанный статус {selectedLicense.status} выдан
+                {selectedLicense.statusIssuedAt&&' '+localTime(selectedLicense.statusIssuedAt)}.
+                Действителен до:
                 <strong> {localTime(selectedLicense.statusValidUntil)}</strong> (местное время).</>:
               'Подписанный статус ещё не выпущен.'}</p>
             {Date.parse(selectedLicense.expiresAt)<=Date.now()?
