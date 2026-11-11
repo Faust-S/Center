@@ -81,7 +81,14 @@ fn drain_pipe<R: std::io::Read>(mut stream:R,cap:usize)->Result<Vec<u8>,String>{
 }
 
 pub fn run(app:&AppHandle,role:&str,action:&str,details:&[String]) -> Result<Value,String> {
-    if !availability(app,role){return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());}
+    // Explicit first-use trust enrollment only needs the ORIGINAL installed
+    // consumer binary. All license operations still require preinstalled
+    // public trust and a Windows CurrentUser DPAPI vault.
+    if role=="consumer" && action=="test-enroll" {
+        binary(app,role)?;
+    } else if !availability(app,role) {
+        return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
+    }
     if !action.bytes().all(|b|b.is_ascii_lowercase()||b==b'-') ||
        action.len()>24 || details.len()>4 ||
        details.iter().any(|s|s.is_empty() || s.len()>4096 ||

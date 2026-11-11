@@ -20,6 +20,43 @@ async fn invoke_t3(app:AppHandle,action:&'static str,org:String,more:Vec<String>
     t3::run(&app,"consumer",action,&args))
     .await.map_err(|_|"CEN04_T3_NATIVE_WORKER_FAILED".to_string())?
 }
+// First use is an independent user action, never an effect of importing a
+// license. The original T3 checks an out-of-band SHA-256 public trust pin and
+// provisions a Windows CurrentUser DPAPI key with no private material in IPC.
+#[tauri::command]
+pub async fn center_cen04_t3_enroll(app:AppHandle,organization_id:String,
+ expected_sha256:String)->Result<Option<Value>,String>{
+  let org=scope(&organization_id)?;
+  if expected_sha256.len()!=64 ||
+     !expected_sha256.bytes().all(|b| b.is_ascii_digit() ||
+        (b'a'..=b'f').contains(&b)) {
+    return Err("CEN04_T3_TRUST_FINGERPRINT_REQUIRED".into());
+  }
+  let selected=rfd::FileDialog::new()
+    .set_title("Admin Center — выбрать публичное доверие издателя T3")
+    .add_filter("T3 public trust",&["json"]).pick_file();
+  let Some(path)=selected else{return Ok(None)};
+  if path.file_name().and_then(|f|f.to_str())!=Some("publisher-test-trust.json"){
+    return Err("CEN04_T3_TRUST_FILE_NAME_INVALID".into());
+  }
+  let info=std::fs::symlink_metadata(&path)
+    .map_err(|_|"CEN04_T3_TRUST_FILE_UNREADABLE")?;
+  if !info.is_file() || info.file_type().is_symlink() ||
+     info.len()<3 || info.len()>1024*1024 {
+    return Err("CEN04_T3_TRUST_FILE_SIZE_INVALID".into());
+  }
+  let receipt=invoke_t3(app,"test-enroll",org.clone(),
+    vec![path.to_string_lossy().into_owned(),expected_sha256.clone()]).await?;
+  t3::validate_test_result(&receipt,"TEST_ENROLLED")?;
+  if receipt["organizationId"]!=Value::String(org) ||
+     receipt["fingerprint"]!=Value::String(expected_sha256) ||
+     receipt["intakeConfigured"]!=true || receipt["publicOnly"]!=true ||
+     receipt["assignableSeats"]!=0 {
+    return Err("CEN04_T3_FIRST_USE_RECEIPT_INVALID".into());
+  }
+  Ok(Some(receipt))
+}
+
 #[tauri::command]
 pub async fn center_cen04_t3_capabilities(app:AppHandle,organization_id:String)
  ->Result<Value,String>{

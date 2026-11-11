@@ -59,6 +59,7 @@ try{
   assert.equal(await page.getByTestId('cen04-select-test-iwxa').isEnabled(),false);
   assert.equal(await page.getByTestId('cen04-import-verified-age').isEnabled(),false);
   assert.equal(await page.getByTestId('cen04-import-verified-iwxa').isEnabled(),false);
+  assert.equal(await page.getByTestId('cen04-enroll-trust').count(),0);
   assert.equal(await page.getByTestId('cen04-iwxa-unverified').count(),0);
   assert.match(await page.getByTestId('cen04-test-license-panel').innerText(),/установленном Admin Center/);
   checks.push('cen04-desktop-file-picker-disabled-without-native-host-and-zero-seats');
