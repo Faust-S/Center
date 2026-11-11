@@ -3,6 +3,7 @@ import {spawn} from 'node:child_process';
 import {mkdirSync, writeFileSync, readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {emptyPublisherDraft,applyPublisherDraftCommand,encodePublisherDraft} from '../src/preparation.mjs';
+import {prepareAdminPublisherTestRequest} from '../../runtime/cen04-issuer-request.mjs';
 
 mkdirSync('artifacts/publisher',{recursive:true});
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview','--config','publisher/vite.config.ts','--host','127.0.0.1','--port','4175','--strictPort'],{stdio:'pipe'});
@@ -52,6 +53,8 @@ try {
         sessionStorage.setItem('iwxa-publisher-test-native-draft',args.content);return true;
       }
       if(command==='publisher_save_test_request'){sessionStorage.setItem('iwxa-publisher-test-native-request',args.content);return true;}
+      if(command==='publisher_pick_unsigned_admin_request')
+        return window.__publisherMockAdminUnsignedRequest??null;
       if(command==='publisher_export_preparation_backup')return false;
       if(command==='publisher_pick_preparation_backup')return null;
       if(command==='publisher_inspect_artifact')return window.__publisherMockInspectedArtifact??null;
@@ -83,7 +86,7 @@ try {
         const req=JSON.parse(args.requestJson),ledger=JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]');
         if(req.environment!=='TEST'||args.issuerAuthorityId!=='publisher:owner:test')
            throw Error('TEST_ISSUER_DENIED');
-        const entry={licenseId:'license:test:native-ui:one',requestId:req.requestId,
+        const entry={licenseId:ledger.length===0?'license:test:native-ui:one':'license:test:native-ui:two',requestId:req.requestId,
           issuerAuthorityId:'publisher:owner:test',organizationId:req.subject.id,
           productId:req.product.id,claimedSeats:req.seats,
           status:'NOT_ACTIVATED',sequence:0,activeSeats:0};
@@ -546,6 +549,39 @@ try {
   assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
   checks.push('t3-native-readback-failure-cannot-claim-success-and-revocation-is-terminal');
   checks.push('t3-test-revocation-requires-explicit-inline-confirmation-and-cancel');
+  // The independent Admin Center's exact unsigned request can be signed
+  // without creating a second customer/product/proposal in Publisher.
+  const fromAdmin=prepareAdminPublisherTestRequest({
+    organization:{id:'org:cross-app-demo',name:'Workshop from Admin',kind:'ORGANIZATION'},
+    requestId:'request:admin:cross-app-001',requestedAt:'2026-11-11T12:00:00.000Z',
+    seats:2,termDays:45,version:'0.3.0'
+  });
+  await page.evaluate(content=>{window.__publisherMockAdminUnsignedRequest=content;},fromAdmin.content);
+  const draftsBefore=await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft'));
+  await page.getByTestId('publisher-open-admin-request').click();
+  const review=page.getByTestId('publisher-admin-request-review');
+  await review.waitFor();
+  assert.match(await review.innerText(),/Workshop from Admin/);
+  assert.match(await review.innerText(),/org:cross-app-demo/);
+  assert.match(await review.innerText(),/request:admin:cross-app-001/);
+  assert.match(await review.innerText(),/45 дней/);
+  assert.match(await review.innerText(),/TEST-мест: 2/);
+  assert.equal(await page.getByTestId('publisher-sign-admin-request').isEnabled(),true);
+  await page.getByTestId('publisher-sign-admin-request').click();
+  await page.getByText('Запрос Admin Center подписан исходным T3.',{exact:false}).waitFor();
+  await page.getByTestId('publisher-admin-request-already-issued').waitFor();
+  assert.equal(await page.getByTestId('publisher-sign-admin-request').isDisabled(),true);
+  assert.match(await page.getByTestId('publisher-admin-request-already-issued').innerText(),
+    /license:test:native-ui:two/);
+  const externalLedger=JSON.parse(await page.evaluate(()=>
+    sessionStorage.getItem('publisher-t3-mock-licenses')));
+  assert.equal(externalLedger.length,2);
+  assert.equal(externalLedger[1].requestId,fromAdmin.request.requestId);
+  assert.equal(externalLedger[1].organizationId,fromAdmin.request.subject.id);
+  assert.equal(externalLedger[1].claimedSeats,2);
+  assert.equal(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')),
+    draftsBefore,'Admin request must not mutate local Publisher drafts');
+  checks.push('admin-unsigned-request-signing-through-original-T3-owner');
   await page.getByRole('button',{name:'Лицензии'}).click();
 
   await page.reload();
