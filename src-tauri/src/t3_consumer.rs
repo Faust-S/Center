@@ -82,3 +82,44 @@ pub async fn center_cen04_t3_import(app:AppHandle,organization_id:String)
   }
   Ok(Some(receipt))
 }
+
+// One product action: select encrypted delivery -> original T3 X25519/DPAPI
+// decrypt -> original signed license Consumer.receiveIwxa -> durable readback.
+// The plaintext never crosses IPC and its temporary file is removed on exit.
+#[tauri::command]
+pub async fn center_cen04_t3_import_age(app:AppHandle,organization_id:String)
+ ->Result<Option<Value>,String>{
+  let org=scope(&organization_id)?;
+  tauri::async_runtime::spawn_blocking(move||{
+    if !t3::availability(&app,"consumer"){
+      return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
+    }
+    let selected=rfd::FileDialog::new()
+      .set_title("Admin Center — получить защищённую лицензию .iwxa.age")
+      .add_filter("IWXA age",&["age"]).pick_file();
+    let Some(source)=selected else{return Ok(None)};
+    let temporary=crate::t3_age_transport::TransientPackage::new()?;
+    let age_root=crate::center_age_data_root(&app)?;
+    let transport=crate::t3_age_transport::decrypt_source(
+      &app,&age_root,&source,&temporary.path)?;
+    if transport["admitted"]!=false ||
+       transport["state"]!="DECRYPTED_INTEGRITY_VERIFIED_NOT_ADMITTED" ||
+       !transport["bytes"].as_u64().is_some_and(|n|n>0 && n<=4*1024*1024) {
+      return Err("CEN04_T3_AGE_TRANSPORT_UNVERIFIED".into());
+    }
+    // Original T3 has its own preinstalled trust, signed status, anti-rollback
+    // and encrypted SubjectScopedStore; age transport alone grants nothing.
+    let result=t3::run(&app,"consumer","receive", &[
+      org.clone(),temporary.path.to_string_lossy().into_owned()
+    ])?;
+    t3::validate_test_result(&result,"TEST_RECEIVE")?;
+    if result["organizationId"]!=Value::String(org) ||
+       result["signatureVerified"]!=true ||
+       result["statusVerified"]!=true ||
+       result["activeSeats"]!=0 ||
+       !result["licenseId"].as_str().is_some_and(t3::valid_identifier) {
+      return Err("CEN04_T3_AGE_SIGNED_RECEIPT_REQUIRED".into());
+    }
+    Ok(Some(result))
+  }).await.map_err(|_|"CEN04_T3_AGE_WORKER_FAILED".to_string())?
+}

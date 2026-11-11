@@ -86,11 +86,11 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    }catch(e){setFailure('Не удалось открыть .iwxa: '+error(e));}
    finally{setBusy(false);}
  }
- async function importVerified(){
+ async function importVerified(encrypted=false){
    if(!invoke||!ready||busy)return;
    setBusy(true);setFailure('');setMessage('');
    try{
-     const receipt=await invoke('center_cen04_t3_import',{organizationId});
+     const receipt=await invoke(encrypted?'center_cen04_t3_import_age':'center_cen04_t3_import',{organizationId});
      if(receipt===null){setMessage('Импорт отменён.');return;}
      if(receipt?.operation!=='TEST_RECEIVE'||receipt.organizationId!==organizationId||
         receipt.signatureVerified!==true||receipt.statusVerified!==true||
@@ -104,7 +104,7 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
      try{await readHost();}
      catch(e){setVerified(null);listFailure=readFailure(e);}
      if(listFailure)setFailure(listFailure);
-     setMessage('TEST-лицензия проверена T3, сохранена в зашифрованном Store и подтверждена повторным чтением T3.');
+     setMessage((encrypted?'Защищённый .iwxa.age расшифрован T3. ':'')+'TEST-лицензия проверена T3, сохранена в зашифрованном Store и подтверждена повторным чтением T3.');
    }catch(e){setFailure('T3 не принял лицензию: '+error(e));}
    finally{setBusy(false);}
  }
@@ -112,12 +112,18 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    <h3>Лицензии Admin Center от Publisher</h3>
    <p className="muted">Подписанные TEST-лицензии передаются в едином формате .iwxa.
       Подлинность и статус независимо проверяет T3 по ранее установленному доверию.
+      Для защищённой доставки используется .iwxa.age: T3 расшифровывает пакет,
+      проверяет подпись и статус и сохраняет лицензию без промежуточного файла в интерфейсе.
       Коммерческая активация не выполняется.</p>
    <div className="actions">
      <button type="button" className="secondary" data-testid="cen04-select-test-iwxa"
        onClick={openPreview} disabled={!invoke||busy}>{busy?'Открываем…':'Предпросмотр .iwxa'}</button>
+     <button type="button" className="secondary" data-testid="cen04-import-verified-age"
+       onClick={()=>void importVerified(true)} disabled={!ready||busy}>
+       Получить защищённую .iwxa.age через T3
+     </button>
      <button type="button" className="secondary" data-testid="cen04-import-verified-iwxa"
-       onClick={importVerified} disabled={!ready||busy}>
+       onClick={()=>void importVerified(false)} disabled={!ready||busy}>
        Проверить и сохранить через T3
      </button>
    </div>

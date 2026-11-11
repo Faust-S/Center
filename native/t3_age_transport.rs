@@ -253,6 +253,46 @@ pub fn encrypt(app:&AppHandle,root:&Path,raw_recipients:&str)->Result<Option<Val
     verify_saved_file(&target,&receipt,"ciphertextSha256",33*1024*1024)?;
     Ok(Some(receipt))
 }
+// Keep decrypted data out of WebView and never leave a recovered license in
+// user-selected folders. The original T3 consumer reads this short-lived file
+// while the native operation owns its lifetime.
+pub struct TransientPackage {
+    directory: PathBuf,
+    pub path: PathBuf,
+}
+impl TransientPackage {
+    pub fn new()->Result<Self,String>{
+        use std::time::{SystemTime,UNIX_EPOCH};
+        let folder=std::env::temp_dir();
+        for attempt in 0..8{
+            let stamp=SystemTime::now().duration_since(UNIX_EPOCH)
+                .map_err(|_|"AGE_DESKTOP_TEMP_UNAVAILABLE")?.as_nanos();
+            let directory=folder.join(format!("iwxa-age-verified-{}-{stamp}-{attempt}",std::process::id()));
+            match std::fs::create_dir(&directory) {
+                Ok(())=>{
+                    let path=directory.join("received.iwxa");
+                    return Ok(Self{directory,path});
+                }
+                Err(e) if e.kind()==std::io::ErrorKind::AlreadyExists=>continue,
+                Err(_)=>return Err("AGE_DESKTOP_TEMP_UNAVAILABLE".into()),
+            }
+        }
+        Err("AGE_DESKTOP_TEMP_UNAVAILABLE".into())
+    }
+}
+impl Drop for TransientPackage {
+    fn drop(&mut self){let _=std::fs::remove_dir_all(&self.directory);}
+}
+pub fn decrypt_source(app:&AppHandle,root:&Path,source:&Path,target:&Path)
+ ->Result<Value,String>{
+    ensure_file(source,".iwxa.age",33*1024*1024)?;
+    ensure_destination(target,".iwxa")?;
+    let args=[source.to_string_lossy().into_owned(),target.to_string_lossy().into_owned()];
+    let receipt=run(app,root,"decrypt-local",&args)?;
+    verify_saved_file(target,&receipt,"sourceSha256",32*1024*1024)?;
+    Ok(receipt)
+}
+
 pub fn decrypt(app:&AppHandle,root:&Path)->Result<Option<Value>,String>{
     let Some(source)=file_picker("Открыть защищённый пакет .iwxa.age","age") else{return Ok(None)};
     ensure_file(&source,".iwxa.age",33*1024*1024)?;

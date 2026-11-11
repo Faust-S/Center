@@ -286,6 +286,7 @@ fn main() {
             cen05_host::center_u04_return, cen05_host::center_u04_detach,
             t3_consumer::center_cen04_t3_capabilities,
             t3_consumer::center_cen04_t3_read, t3_consumer::center_cen04_t3_import,
+            t3_consumer::center_cen04_t3_import_age,
             center_age_status,center_age_create_recipient,center_age_inspect,
             center_age_encrypt,center_age_decrypt
         ])
