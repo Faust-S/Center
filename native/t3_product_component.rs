@@ -29,7 +29,11 @@ fn binary(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
 }
 pub fn data_root(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
     let (_, subdirectory) = kind_spec(role)?;
-    let base = crate::publisher_root(app)
+    // The SAME original T3 component is hosted by two separate native apps:
+    // Admin Center owns its organization-local root, Publisher its Setup Core
+    // selected Publisher root. Each binary supplies its already-established
+    // product data location; no new T3 Store or cross-product root is created.
+    let base = crate::t3_product_app_root(app)
         .map_err(|_|"T3_PRODUCT_DATA_ROOT_UNAVAILABLE")?;
     Ok(base.join(subdirectory))
 }
