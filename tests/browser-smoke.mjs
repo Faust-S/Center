@@ -20,6 +20,12 @@ try{
   });
   await page.goto('http://127.0.0.1:4173');
   await page.getByTestId('org-name').fill('North workshop');await page.getByTestId('create-org').click();
+  await page.getByTestId('nav-data').click();
+  await page.getByTestId('center-age-exchange').waitFor();
+  assert.equal(await page.getByTestId('center-age-encrypt').isEnabled(),false);
+  assert.equal(await page.getByTestId('center-age-decrypt').isEnabled(),false);
+  assert.match(await page.getByTestId('center-age-exchange').innerText(),/установленном Windows-приложении/);
+  checks.push('encrypted-iwxa-file-transport-not-executed-in-browser');
   await page.getByTestId('nav-resources').click();await page.getByTestId('workspace-name').fill('Procurement');await page.getByTestId('add-workspace').click();
   // Build a real Atlas snapshot through its pinned domain module, never a fake project record.
   const {empty,createProject,createItem,editProject,serialize}=await import('../vendor/atlas/src/core.mjs');
