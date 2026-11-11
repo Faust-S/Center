@@ -497,7 +497,7 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) {
             throw 'PRIVATE_QUALIFICATION_READ_TOKEN_NOT_CONFIGURED'
           }
-      # Full installed Windows qualification for private Agent Tauri WebView2 profile relocation.
+      # Full installed Windows Agent check after adopting verified WebView2 process folder pattern.
       - name: Bind explicit private source revision to this CI trigger
         id: private-pin
         shell: pwsh
