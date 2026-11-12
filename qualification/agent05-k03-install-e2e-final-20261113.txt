@@ -1,0 +1,3 @@
+Product 0.5 K03 native Windows installed owner source, public issue trace, need-only clarification, explicit source recheck, P01 normal Task regression.
+Private pinned source SHA: 87513c4c89ec9fd02cb61dcfb6ecf4674319d937
+Public Windows runner uses read-only checkout, no private code/artifacts uploaded.
