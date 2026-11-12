@@ -1,0 +1,3 @@
+Agent 0.5 U01/U02/U03 exact receipt readback and Programs UI behavioral tests.
+Private source SHA: f5ef552b55755d81fecff3e9b4f19646b56cfa64
+No public artifacts or model/user content.
