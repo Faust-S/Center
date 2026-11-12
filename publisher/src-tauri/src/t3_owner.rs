@@ -413,12 +413,31 @@ pub async fn publisher_t3_person_export_public_trust(
     }
     Ok(Some(exported))
 }
+// Select the final destination on the native Tauri command path BEFORE
+// dispatching a blocking T3 worker. Windows modal file pickers must not
+// depend on the cryptographic subprocess worker or its thread apartment.
+fn select_signed_age_destination(
+    app:&AppHandle,license_id:&str,raw_recipients:&str,person:bool
+)->Result<Option<PathBuf>,String>{
+    if !t3::valid_identifier(license_id){
+        return Err("PUBLISHER_AGE_LICENSE_ID_INVALID".into());
+    }
+    crate::t3_age_transport::recipients(raw_recipients)?;
+    let role=if person{"owner-person"}else{"owner"};
+    if !t3::availability(app,role){
+        return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
+    }
+    let suggested=if person{"iwxa-person-license.iwxa.age"}else{"iwxa-product-test-delivery.iwxa.age"};
+    crate::t3_age_transport::select_encrypted_destination(suggested)
+}
+
 // One-step signed delivery: the original T3 issuer exports an existing signed
 // license, then the original T3 age operator encrypts it. Neither the signed
 // plaintext nor private issuer keys cross WebView IPC; plaintext is removed
-// with the short-lived native staging directory, even on cancellation/error.
-fn signed_age_export(app:&AppHandle,license_id:&str,raw_recipients:&str,person:bool)
- ->Result<Option<Value>,String>{
+// with the short-lived native staging directory, including on an error.
+fn signed_age_export(
+    app:&AppHandle,license_id:&str,raw_recipients:&str,person:bool,destination:&std::path::Path
+)->Result<Option<Value>,String>{
     if !t3::valid_identifier(license_id){
         return Err("PUBLISHER_AGE_LICENSE_ID_INVALID".into());
     }
@@ -429,12 +448,8 @@ fn signed_age_export(app:&AppHandle,license_id:&str,raw_recipients:&str,person:b
     if !t3::availability(app,role){
         return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
     }
-    // Select the final file before writing an unencrypted signed package,
-    // so the user never waits at a dialog while plaintext is staged.
-    let suggested=if person{"iwxa-person-license.iwxa.age"}else{"iwxa-product-test-delivery.iwxa.age"};
-    let Some(destination)=crate::t3_age_transport::select_encrypted_destination(suggested)? else{
-        return Ok(None);
-    };
+    // The modal dialog completed before this worker began. The original
+    // T3 signed plaintext exists only during the bounded native operation.
     let tmp=crate::t3_age_transport::TransientPackage::new()?;
     let signed=t3::run(app,role,action,&[
         license_id.to_string(),tmp.path.to_string_lossy().into_owned()
@@ -457,7 +472,7 @@ fn signed_age_export(app:&AppHandle,license_id:&str,raw_recipients:&str,person:b
     }
     let age_root=crate::publisher_root(app)?.join("t3-age");
     let encrypted=crate::t3_age_transport::encrypt_to_path(
-       app,&age_root,&tmp.path,&destination,raw_recipients)?;
+       app,&age_root,&tmp.path,destination,raw_recipients)?;
     if encrypted["sourceSha256"]!=source_hash||
        encrypted["admitted"]!=false||
        encrypted["deliveryState"]!="NOT_CONFIRMED"{
@@ -480,16 +495,22 @@ fn signed_age_export(app:&AppHandle,license_id:&str,raw_recipients:&str,person:b
 pub async fn publisher_t3_export_age(
     app:AppHandle,license_id:String,recipients:String
 )->Result<Option<Value>,String>{
+    let Some(destination)=select_signed_age_destination(&app,&license_id,&recipients,false)? else{
+        return Ok(None);
+    };
     tauri::async_runtime::spawn_blocking(move||
-       signed_age_export(&app,&license_id,&recipients,false))
+       signed_age_export(&app,&license_id,&recipients,false,&destination))
        .await.map_err(|_|"PUBLISHER_AGE_EXPORT_WORKER_FAILED".to_string())?
 }
 #[tauri::command]
 pub async fn publisher_t3_person_export_age(
     app:AppHandle,license_id:String,recipients:String
 )->Result<Option<Value>,String>{
+    let Some(destination)=select_signed_age_destination(&app,&license_id,&recipients,true)? else{
+        return Ok(None);
+    };
     tauri::async_runtime::spawn_blocking(move||
-       signed_age_export(&app,&license_id,&recipients,true))
+       signed_age_export(&app,&license_id,&recipients,true,&destination))
        .await.map_err(|_|"PUBLISHER_AGE_EXPORT_WORKER_FAILED".to_string())?
 }
 
