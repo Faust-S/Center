@@ -1,0 +1,1 @@
+Python-only targeted diagnostics, real source SHA 0e2b41f376382702f9d3d942d0ce64919d405616. Scoped read-only private checkout; no private code/log/artifact uploaded.
