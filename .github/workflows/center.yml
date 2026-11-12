@@ -776,9 +776,13 @@ jobs:
             # Print exact known markers, never raw output, answers or paths.
             $qwenStatus=Join-Path $out 'native-candidate/temporary-installed-fixture/installed-real-qwen.status'
             if(Test-Path -LiteralPath $qwenStatus -PathType Leaf){
-              $safeQwenMarkers=@('AGENT_REAL_QWEN_VERIFIED_RUNTIME_READY',
-                'AGENT_REAL_QWEN_VERIFIED_WEIGHTS_READY','AGENT_REAL_QWEN_INFERENCE_PASS',
-                'AGENT_REAL_QWEN_TASK_HUMAN_REVIEW_PASS','AGENT_REAL_QWEN_IWXA_EXPORT_INSPECT_PASS',
+              $safeQwenMarkers=@('AGENT_REAL_QWEN_DOWNLOAD_MODE_READY',
+                'AGENT_REAL_QWEN_VERIFIED_RUNTIME_READY','AGENT_REAL_QWEN_MODEL_PLAN_READY',
+                'AGENT_REAL_QWEN_VERIFIED_WEIGHTS_READY','AGENT_REAL_QWEN_MODEL_ACTIVE_READY',
+                'AGENT_REAL_QWEN_INFERENCE_PASS','AGENT_REAL_QWEN_TASK_ACCEPTED',
+                'AGENT_REAL_QWEN_RESULT_IMPORTED','AGENT_REAL_QWEN_TASK_HUMAN_REVIEW_PASS',
+                'AGENT_REAL_QWEN_IWXA_EXPORT_INSPECT_PASS',
+                'AGENT_REAL_QWEN_COLD_TASK_READBACK_PASS','AGENT_REAL_QWEN_COLD_EXCHANGE_PASS',
                 'AGENT_INSTALLED_REAL_QWEN_INDEPENDENT_IMPORT_PASS')
               foreach($line in [IO.File]::ReadLines($qwenStatus)){
                 if([string]$line -cin $safeQwenMarkers){
