@@ -56,7 +56,7 @@ try{
   for(const name of ['Anna','Boris']){await page.getByTestId('person-name').fill(name);await page.getByTestId('add-person').click();}
   await page.getByTestId('nav-programs').click();await page.getByTestId('plan-agent-seat').first().click();
   assert.equal(await page.getByTestId('planned-agent-seats').textContent(),'1');checks.push('manager-plans-agent-seat-no-license-claim');
-  assert.equal(await page.getByTestId('cen04-select-test-iwxa').isEnabled(),false);
+  assert.equal(await page.getByTestId('cen04-select-test-iwxa').count(),0);
   assert.equal(await page.getByTestId('cen04-import-verified-age').isEnabled(),false);
   assert.equal(await page.getByTestId('cen04-import-verified-iwxa').isEnabled(),false);
   assert.equal(await page.getByTestId('cen04-enroll-trust').count(),0);
