@@ -771,6 +771,16 @@ jobs:
                   'GUI_COLD_RESTART','GUI_COLD_IMPORT','CLEAN_STOP','WITNESS_RECEIPT')
                 if($witnessFailure.status -ceq 'FAIL' -and $phase -cin $safePhases){
                   Write-Host ('PRIVATE_INSTALLED_WITNESS_PHASE='+$phase)
+                  if($phase -ceq 'QWEN_EXECUTE'){
+                    $reason=[string]$witnessFailure.failure_code
+                    $safeReasons=@('PROOF_EXISTS','DOWNLOAD_MODE','RUNTIME_PLAN',
+                      'MODEL_PLAN','MODEL_DOWNLOAD','MODEL_NOT_READY','INFERENCE',
+                      'TASK_SUBMIT','TASK_STOPPED','TASK_TIMEOUT','RESULT_READBACK',
+                      'ANSWER_QUALITY','REVIEW_READBACK','EXCHANGE_EXPORT','OTHER')
+                    if($reason -cin $safeReasons){
+                      Write-Host ('PRIVATE_QWEN_FAILURE_CODE='+$reason)
+                    }
+                  }
                 }
               }catch{Write-Host 'PRIVATE_INSTALLED_WITNESS_PHASE=UNREADABLE'}
             }
