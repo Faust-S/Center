@@ -1,0 +1,3 @@
+Agent 0.5 K03: pinned owner bundled, source-only real public issue, user-supplied text, Task draft, existing P01/Result and cold readbacks.
+Exact private source commit: 5038c5acffb7ed180aefe1191a9effeeaab654ca
+Public Windows runner: privacy level 2, read-only private checkout, no source or EXE artifacts.
