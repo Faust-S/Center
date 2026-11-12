@@ -587,6 +587,34 @@ jobs:
           }
           if($pass -lt 1 -or $fail -ne 0){throw 'PRIVATE_NODE_RESULT_INCOMPLETE'}
           Write-Host 'PRIVATE_NODE_REGRESSION_PASS'
+      - name: Isolated private desktop TypeScript preflight without source output
+        if: ${{ contains(github.event.head_commit.message, ' node-only') }}
+        timeout-minutes: 12
+        shell: pwsh
+        working-directory: private-product/desktop
+        run: |
+          $ErrorActionPreference='Stop'
+          $tsc=Join-Path (Get-Location) 'node_modules/.bin/tsc.cmd'
+          if(!(Test-Path -LiteralPath $tsc -PathType Leaf)){throw 'PRIVATE_TYPECHECK_COMPILER_MISSING'}
+          $stdout=Join-Path $env:RUNNER_TEMP 'private-typecheck.stdout.log'
+          $stderr=Join-Path $env:RUNNER_TEMP 'private-typecheck.stderr.log'
+          & $tsc --noEmit --pretty false 1>$stdout 2>$stderr
+          $exit=$LASTEXITCODE
+          $reported=0
+          foreach($file in @($stdout,$stderr)){
+            if(!(Test-Path -LiteralPath $file -PathType Leaf)){continue}
+            foreach($line in [IO.File]::ReadLines($file)){
+              if($reported -ge 16){break}
+              if($line -match '^(.{1,350})\(([0-9]{1,6}),([0-9]{1,5})\): error TS([0-9]{4}):'){
+                $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Matches[1].Replace('\','/')))).ToLowerInvariant()
+                Write-Host ('PRIVATE_TS_DIAG=TS'+$Matches[4]+'|'+$digest+'|'+$Matches[2]+'|'+$Matches[3])
+                $reported++
+              }
+            }
+          }
+          Write-Host ('PRIVATE_TS_DIAG_COUNT='+$reported)
+          if($null -eq $exit -or $exit -ne 0){throw 'PRIVATE_TYPECHECK_FAILED'}
+          Write-Host 'PRIVATE_TYPECHECK_PASS'
       - name: Prepare Windows Rust toolchain for native build
         if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
         timeout-minutes: 12
