@@ -1,0 +1,4 @@
+Private-only Windows Setup release for frozen IWXA Personal Agent 0.4.0.
+Source: 2a2fdebf905b96ef88211692cc02f2a14069445b
+Publish solely to Faust-S/iwxa-personal-agent GitHub Releases after complete native installed acceptance.
+No public artifacts, sources, binary or model output.
