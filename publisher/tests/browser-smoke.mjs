@@ -1320,11 +1320,13 @@ try {
   const selectedOwner=personal.getByTestId('publisher-person-owner');
   await selectedOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
     .waitFor({state:'visible'});
+  // Native inventory readback is asynchronous. Observe the authoritative
+  // lookup result before asserting the controlled exact request selection.
+  await selectedOwner.getByText('Поиск в исходном T3: найдено записей 1.',
+    {exact:false}).waitFor();
   assert.equal(await selectedOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
     .inputValue(),renewalRequestId,
     'The prepared PERSON request must navigate to its exact T3 issue source');
-  await selectedOwner.getByText('Поиск в исходном T3: найдено записей 1.',
-    {exact:false}).waitFor();
   assert.equal(await selectedOwner.getByTestId('publisher-person-lookup-input').inputValue(),
     renewalRequestId);
   assert.match(await selectedOwner.getByTestId('publisher-person-selected-license').innerText(),

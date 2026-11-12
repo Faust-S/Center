@@ -61,18 +61,6 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
   const [pendingRenewalSource,setPendingRenewalSource]=useState('');
   const [message,setMessage]=useState('');
   const [failure,setFailure]=useState('');
-  // Navigating from a prepared PERSON request selects its exact source and
-  // searches the original T3 ledger; a signed record is never inferred from
-  // draft state. Explicit confirmation is still required before signing.
-  useEffect(()=>{
-    if(!focusRequestId)return;
-    setProposalId(focusRequestId);setTermsConfirmed(false);
-    setLookupText(focusRequestId);
-  },[focusRequestId]);
-  useEffect(()=>{
-    if(!focusRequestId||loading||!available)return;
-    void findLicense(focusRequestId);
-  },[focusRequestId,loading,available]);
   const options=useMemo(()=>{
     const proposals=Array.isArray(draft?.proposals)?draft.proposals:[];
     return proposals.flatMap((proposal:any)=>{
@@ -103,6 +91,18 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       setProposalId('');setTermsConfirmed(false);
     }
   },[options,proposalId]);
+  // When the owner panel first mounts, its ordinary empty-selection
+  // cleanup runs before the requested deep-link selection. Otherwise the
+  // cleanup overwrites the exact signed source on the same React commit.
+  useEffect(()=>{
+    if(!focusRequestId)return;
+    setProposalId(focusRequestId);setTermsConfirmed(false);
+    setLookupText(focusRequestId);
+  },[focusRequestId]);
+  useEffect(()=>{
+    if(!focusRequestId||loading||!available)return;
+    void findLicense(focusRequestId);
+  },[focusRequestId,loading,available]);
   useEffect(()=>{
     if(!pendingRenewalSource)return;
     const proposals=Array.isArray(draft?.proposals)?draft.proposals:[];
