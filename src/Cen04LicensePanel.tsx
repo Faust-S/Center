@@ -1,10 +1,8 @@
 import React,{useEffect,useRef,useState} from 'react';
 
-// Center does not receive a license merely by opening a .iwxa file. Verified
-// intake is available only when an original private T3 Consumer executable
-// was assembled into this installed Tauri bundle with out-of-band trust.
-const MAX_TEST_IWXA=4*1024*1024;
-type Preview={size:number;source:'IWXA_SELECTED_NOT_VERIFIED'};
+// Signed license bytes never enter WebView: only original T3 Consumer may
+// intake a signed package after separate first-use enrollment. The raw .iwxa
+// preview is intentionally absent because it copied license bytes over IPC.
 type License={licenseId:string;status:'ACTIVE'|'SUSPENDED'|'REVOKED';
  sequence:number;claimedSeats:number;signatureVerified:true;statusVerified:true};
 type View={organizationId:string;productId:string;licenses:License[];
@@ -12,7 +10,6 @@ type View={organizationId:string;productId:string;licenses:License[];
 type Props={organizationId:string;invoke:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
 export default function Cen04LicensePanel({organizationId,invoke}:Props){
- const [preview,setPreview]=useState<Preview|null>(null);
  const [verified,setVerified]=useState<View|null>(null);
  const [ready,setReady]=useState(false);
  const [busy,setBusy]=useState(false);
@@ -43,7 +40,7 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    setVerified(value);
  }
  useEffect(()=>{
-   setReady(false);setVerified(null);setPreview(null);setLatest(null);setMessage('');setFailure('');
+   setReady(false);setVerified(null);setLatest(null);setMessage('');setFailure('');
    let live=true;
    if(invoke){
      (async()=>{
@@ -105,24 +102,6 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    }catch(e){setFailure('Не удалось подключить доверие T3: '+error(e));}
    finally{actionRef.current=false;setBusy(false);}
  }
- async function openPreview(){
-   if(!invoke||busy||actionRef.current)return;
-   actionRef.current=true;
-   setBusy(true);setPreview(null);setFailure('');setMessage('');
-   try{
-     const raw=await invoke('center_open_iwxa_file');
-     if(raw===null){setMessage('Выбор пакета отменён.');return;}
-     if(!Array.isArray(raw)||raw.length<4||raw.length>MAX_TEST_IWXA||
-       raw.slice(0,4).some((v,i)=>v!==[80,75,3,4][i])||
-       !raw.every(v=>Number.isInteger(v)&&v>=0&&v<=255))
-       throw Error('CEN04_IWXA_CARRIER_BYTES_INVALID');
-     // Preview bytes are intentionally discarded; the original T3 Host
-     // independently reads the selected .iwxa from a native file dialog.
-     setPreview({size:raw.length,source:'IWXA_SELECTED_NOT_VERIFIED'});
-     setMessage('Пакет открыт только для предварительного просмотра.');
-   }catch(e){setFailure('Не удалось открыть .iwxa: '+error(e));}
-   finally{actionRef.current=false;setBusy(false);}
- }
  async function importVerified(encrypted=false){
    if(!invoke||!ready||busy||actionRef.current)return;
    actionRef.current=true;
@@ -140,7 +119,6 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
      // The original T3 receive receipt proves signed verification and exact
      // encrypted-store readback for THIS license. Historical unrelated
      // expired statuses may still prevent rendering the full list.
-     setPreview(null);
      setLatest({licenseId:receipt.licenseId,status:receipt.status,outcome:receipt.outcome});
      let listFailure='';
      try{await readHost();}
@@ -171,8 +149,6 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
       проверяет подпись и статус и сохраняет лицензию без промежуточного файла в интерфейсе.
       Коммерческая активация не выполняется.</p>
    <div className="actions">
-     <button type="button" className="secondary" data-testid="cen04-select-test-iwxa"
-       onClick={openPreview} disabled={!invoke||busy}>{busy?'Открываем…':'Предпросмотр .iwxa'}</button>
      <button type="button" className="secondary" data-testid="cen04-import-verified-age"
        onClick={()=>void importVerified(true)} disabled={!ready||busy}>
        Получить защищённую .iwxa.age через T3
@@ -218,11 +194,6 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
       {latest.outcome==='ALREADY_RECEIVED'?' Повторная передача без новой записи.':''}
    </p>}
    {failure&&<p role="alert">{failure}</p>}
-   {preview&&<div data-testid="cen04-iwxa-unverified">
-      <p><strong>Пакет выбран. Проверка T3 ещё не выполнялась.</strong></p>
-      <p>Размер: {preview.size} байт. Организация: {organizationId}.</p>
-      <p><strong>Подтверждённых мест: 0.</strong></p>
-   </div>}
    {ready&&verified&&<div data-testid="cen04-t3-verified">
      <p><strong>Оригинальный T3 Consumer подключён.</strong>
        Сохранённых TEST-лицензий: {verified.licenses.length}. Коммерческих мест: 0.</p>
