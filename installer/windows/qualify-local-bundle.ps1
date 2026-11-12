@@ -6,7 +6,8 @@ param(
     [Parameter(Mandatory=$true)][string]$ProductId,
     [Parameter(Mandatory=$true)][string]$SandboxRoot,
     [string]$SourceCommit='',
-    [string]$WitnessScript=''
+    [string]$WitnessScript='',
+    [ValidateRange(180,3600)][int]$WitnessTimeoutSeconds=180
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -125,7 +126,7 @@ try{
             $scriptPath,$application,$data,$work,$witnessReceipt)
         $witness=Start-Process -FilePath $powershell -ArgumentList $arguments -PassThru -WindowStyle Hidden
         try{
-            if(!$witness.WaitForExit(180000)){
+            if(!$witness.WaitForExit($WitnessTimeoutSeconds*1000)){
                 Stop-Process -Id $witness.Id -Force -ErrorAction SilentlyContinue
                 throw 'SETUP_LOCAL_WITNESS_TIMEOUT'
             }
