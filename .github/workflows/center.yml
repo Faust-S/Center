@@ -1204,7 +1204,8 @@ jobs:
              $result.source_commit -cne $env:PRIVATE_SOURCE_SHA -or
              $result.gui_task_result_full_acceptance -cne 'PASS' -or
              $result.gui_task_cold_independent_import -cne 'PASS' -or
-             $result.qwen_practical_answer_minimal -cne 'PASS'){
+             $result.qwen_practical_answer_minimal -cne 'PASS' -or
+             $result.product_version -cne '0.4.0'){
             throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
           }
           $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
@@ -1218,5 +1219,6 @@ jobs:
           Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=PASS'
           Write-Host 'PRIVATE_GUI_TASK_COLD_INDEPENDENT_IMPORT=PASS'
           Write-Host 'PRIVATE_QWEN_PRACTICAL_ANSWER_MINIMAL=PASS'
+          Write-Host 'PRIVATE_PRODUCT_VERSION=0.4.0'
           # Never upload private files, archives, windows screenshots, or logs.
 
