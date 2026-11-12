@@ -1,0 +1,3 @@
+Private Agent 0.5 K03 document-only input and source readback regression.
+Pinned product SHA: 0c350e4030cf6e4296909b48fbb7e6ec845dfba8
+Public Center runner uses scoped read-only checkout; source/output/binaries stay private.
