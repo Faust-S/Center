@@ -1,0 +1,1 @@
+Private Python K03 exact provenance and native model diagnostics. Pinned 462f8ff6170cd4c77d66eaa4170a422ddbc41ef7. Sanitized counts/hash only.
