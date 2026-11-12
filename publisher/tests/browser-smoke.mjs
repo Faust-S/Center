@@ -1244,10 +1244,13 @@ try {
     sessionStorage.getItem('publisher-person-mock-ledger')||'[]')).length;
   await personal.evaluate(()=>{window.__personMockFailNextInventory=true;});
   await personal.getByRole('button',{name:'Удалить',exact:true}).first().click();
-  await personal.getByText('Журнал T3 недоступен: нельзя подтвердить',{exact:false}).waitFor();
-  assert.equal(JSON.parse(await personal.evaluate(()=>
-    sessionStorage.getItem('iwxa-publisher-person-fixture'))).proposals.length,3,
-    'Lost native ledger must preserve a possibly signed PERSON proposal');
+  const afterUnavailable=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture')));
+  const unavailableVisible=await personal.locator('main').innerText();
+  assert.equal(afterUnavailable.proposals.length,3,
+    'Lost native ledger must preserve PERSON proposal; UI: '+unavailableVisible.slice(-1200));
+  assert.match(unavailableVisible,/Журнал T3 недоступен: нельзя подтвердить/,
+    'The user must receive actionable failure feedback for an unreadable owner ledger');
   await personal.getByRole('button',{name:'Удалить',exact:true}).first().click();
   await personal.getByText('Подписанный PERSON-запрос нельзя удалить',{exact:false}).waitFor();
   assert.equal(JSON.parse(await personal.evaluate(()=>
