@@ -193,7 +193,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       const found=result.entries.filter(x=>x.licenseId===search||
         x.requestId===search||x.personId===search);
       if(found.length){
-        setLicenseId(found[0].licenseId);setStatus('');setRevokePending('');
+        setAgeRecipients('');setLicenseId(found[0].licenseId);setStatus('');setRevokePending('');
       }
       setMessage(result.matches?
         'Поиск в исходном T3: найдено записей '+result.matches+'.':
@@ -470,7 +470,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       {licenses.length>0&&<>
         <label>Персональная лицензия
         <select value={licenseId} disabled={busy}
-          onChange={e=>{setLicenseId(e.target.value);setStatus('');
+          onChange={e=>{setAgeRecipients('');setLicenseId(e.target.value);setStatus('');
             setRevokePending('');setRenewalTariff('');}}>
           <option value="">Выберите лицензию</option>
           {licenses.map(x=><option key={x.licenseId} value={x.licenseId}>
