@@ -1003,7 +1003,8 @@ try {
   assert.equal(renewedDraft.proposals[1].productId,directDraft.proposals[0].productId);
   assert.notEqual(renewedDraft.proposals[1].id,directDraft.proposals[0].id);
   await personOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
-    .locator('option[value="'+renewedDraft.proposals[1].id+'"]:checked').waitFor();
+    .locator('option[value="'+renewedDraft.proposals[1].id+'"]:checked')
+    .waitFor({state:'attached'});
   assert.equal(await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').isChecked(),false,
     'Auto-selecting the saved renewal must never imply consent to a signature');
   assert.equal(JSON.parse(await personal.evaluate(()=>
