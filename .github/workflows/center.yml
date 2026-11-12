@@ -757,6 +757,35 @@ jobs:
             $p.Dispose()
           }
           if($exit -ne 0){
+            # A failed installed witness has a finite, private receipt. Publish
+            # only its allowlisted stage to identify the real product blocker.
+            $witnessReceipt=Join-Path $out 'native-candidate/temporary-installed-fixture/installed-witness.json'
+            if(Test-Path -LiteralPath $witnessReceipt -PathType Leaf){
+              try{
+                $witnessFailure=Get-Content -LiteralPath $witnessReceipt -Raw -Encoding UTF8|ConvertFrom-Json
+                $phase=[string]$witnessFailure.phase
+                $safePhases=@('FIRST_CORE','CORE_QUERIES','DRAFT_CREATE','GUI_DRAFT_EDIT',
+                  'GUI_DRAFT_READBACK','QWEN_EXECUTE','COLD_RESTART','COLD_CORE_QUERIES',
+                  'GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT','GUI_RESULT','CLEAN_STOP','WITNESS_RECEIPT')
+                if($witnessFailure.status -ceq 'FAIL' -and $phase -cin $safePhases){
+                  Write-Host ('PRIVATE_INSTALLED_WITNESS_PHASE='+$phase)
+                }
+              }catch{Write-Host 'PRIVATE_INSTALLED_WITNESS_PHASE=UNREADABLE'}
+            }
+            # The Python probe already writes fixed Qwen milestones locally.
+            # Print exact known markers, never raw output, answers or paths.
+            $qwenStatus=Join-Path $out 'native-candidate/temporary-installed-fixture/installed-real-qwen.status'
+            if(Test-Path -LiteralPath $qwenStatus -PathType Leaf){
+              $safeQwenMarkers=@('AGENT_REAL_QWEN_VERIFIED_RUNTIME_READY',
+                'AGENT_REAL_QWEN_VERIFIED_WEIGHTS_READY','AGENT_REAL_QWEN_INFERENCE_PASS',
+                'AGENT_REAL_QWEN_TASK_HUMAN_REVIEW_PASS','AGENT_REAL_QWEN_IWXA_EXPORT_INSPECT_PASS',
+                'AGENT_INSTALLED_REAL_QWEN_INDEPENDENT_IMPORT_PASS')
+              foreach($line in [IO.File]::ReadLines($qwenStatus)){
+                if([string]$line -cin $safeQwenMarkers){
+                  Write-Host ('PRIVATE_INSTALLED_QWEN_CHECKPOINT='+[string]$line)
+                }
+              }
+            }
             $raw=if(Test-Path -LiteralPath $err){Get-Content -LiteralPath $err -Raw}else{''}
             $code=[regex]::Match($raw,'(full_qualification_[a-z0-9_-]+|PRIVATE_SETUP_CORE_BUILD_FAIL|private_setup_[a-z0-9_-]+)')
             if($code.Success){Write-Host ('PRIVATE_QUALIFICATION_STAGE='+$code.Value)}
