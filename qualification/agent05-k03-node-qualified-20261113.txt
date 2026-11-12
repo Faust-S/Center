@@ -1,0 +1,1 @@
+Verify Agent 0.5 K03 source-evidence Node tests and desktop TS on exact SHA 537c19c59d32ce016b009527fc6c1457ad3c6efb; failure identifiers hashed, no private artifacts.
