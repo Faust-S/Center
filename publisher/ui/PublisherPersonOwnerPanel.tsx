@@ -15,7 +15,7 @@ type PersonRecord={
 type Inventory={entries:PersonRecord[];truncated:boolean;total:number;matches?:number};
 type Props={draft:any;invoke:NativeInvoke;
  change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>;
- focusRequestId?:string;};
+ focusRequestId?:string;ageReady:boolean;};
 const err=(e:unknown)=>e instanceof Error?e.message:String(e);
 const id=(v:unknown)=>typeof v==='string'&&
   /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(v);
@@ -39,7 +39,7 @@ const personStatusAllowed=(license:PersonRecord|undefined,requested:string)=>{
 };
 const shortLicenseId=(value:string)=>value.length>30?
   value.slice(0,12)+'…'+value.slice(-12):value;
-export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequestId}:Props){
+export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequestId,ageReady}:Props){
   const [issuers,setIssuers]=useState<string[]>([]);
   const [issuer,setIssuer]=useState('');
   const [available,setAvailable]=useState(false);
@@ -591,7 +591,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
           onClick={()=>void exportIwxa()}>Экспортировать .iwxa</button>
         <button type="button" className="secondary"
           data-testid="publisher-person-export-age"
-          disabled={busy||needsRefresh||!selectedLicense||!ageRecipients.trim()||
+          disabled={busy||needsRefresh||!ageReady||!selectedLicense||!ageRecipients.trim()||
             selectedLicense.status==='NOT_ACTIVATED'||
             Date.parse(selectedLicense.expiresAt)<=Date.now()||
             !selectedLicense.statusValidUntil||

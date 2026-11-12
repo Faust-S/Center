@@ -15,8 +15,8 @@ function verifiedStatus(value:any):Status{
     throw Error('AGE_DESKTOP_STATUS_INVALID');
   return value;
 }
-export default function AgeExchangePanel({invoke,prefix}:{
-  invoke:Invoke|null;prefix:'center'|'publisher'
+export default function AgeExchangePanel({invoke,prefix,onReady}:{
+  invoke:Invoke|null;prefix:'center'|'publisher';onReady?:(ready:boolean)=>void
 }){
   const [state,setState]=useState<Status|null>(null);
   const [recipients,setRecipients]=useState('');
@@ -29,16 +29,22 @@ export default function AgeExchangePanel({invoke,prefix}:{
   async function refresh(){
     if(!invoke)return;
     const next=verifiedStatus(await invoke(prefix+'_age_status'));
-    setState(next);
+    setState(next);onReady?.(next.toolchain.ready);
   }
   useEffect(()=>{
     let live=true;
-    if(!invoke)return;
+    if(!invoke){onReady?.(false);return;}
     invoke(prefix+'_age_status').then((next:Status)=>{
-      if(live)setState(verifiedStatus(next));
-    }).catch(e=>{if(live)setFailure('Защищённый обмен недоступен: '+String(e));});
-    return()=>{live=false;};
-  },[invoke,prefix]);
+      if(live){
+        const verified=verifiedStatus(next);
+        setState(verified);onReady?.(verified.toolchain.ready);
+      }
+    }).catch(e=>{
+      if(live){onReady?.(false);
+        setFailure('Защищённый обмен недоступен: '+String(e));}
+    });
+    return()=>{live=false;onReady?.(false);};
+  },[invoke,prefix,onReady]);
   async function perform(action:'create_recipient'|'inspect'|'encrypt'|'decrypt'){
     if(!invoke||busy||operationRef.current)return;
     operationRef.current=true;

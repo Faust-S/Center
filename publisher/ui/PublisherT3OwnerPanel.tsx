@@ -15,9 +15,9 @@ type AdminRequest={requestId:string;requestedAt:string;environment:'TEST';
  termDays:number;seats:number;status:'UNSIGNED_REQUEST'};
 type Props={draft:any;invoke:(name:string,args?:Record<string,unknown>)=>Promise<any>;
  change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>;
- personRequestId?:string;};
+ personRequestId?:string;ageReady:boolean;};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function PublisherT3OwnerPanel({draft,invoke,change,personRequestId}:Props){
+export default function PublisherT3OwnerPanel({draft,invoke,change,personRequestId,ageReady}:Props){
  const [issuerIds,setIssuerIds]=useState<string[]>([]);
  const [issuer,setIssuer]=useState('');
  const [licenses,setLicenses]=useState<License[]>([]);
@@ -224,7 +224,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
    },true);
  }
  return <><PublisherPersonOwnerPanel draft={draft} invoke={invoke} change={change}
-   focusRequestId={personRequestId}/>
+   focusRequestId={personRequestId} ageReady={ageReady}/>
  <section className="publisher-test-owner" data-testid="publisher-t3-owner-panel">
    <h3>Выпуск лицензии через T3 Host</h3>
    <p className="muted">Только TEST. Команды выполняются в защищённом нативном компоненте T3,
@@ -389,7 +389,8 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
              setRevokePending({licenseId:selectedLicense.licenseId,organizationId:selectedLicense.organizationId});
            else void applyStatus();
          }}>{status==='REVOKED'?'Подготовить отзыв':'Изменить статус'}</button>
-       <button className="secondary" type="button" disabled={busy||needsRefresh||!licenseId}
+       <button className="secondary" type="button"
+         disabled={busy||needsRefresh||!selectedLicense||selectedLicense.status==='NOT_ACTIVATED'}
          data-testid="publisher-t3-export" onClick={()=>operation(async()=>{
            const receipt=await invoke('publisher_t3_export',{licenseId});
            if(receipt===null)return {message:'Экспорт отменён.'};
@@ -403,7 +404,8 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
          })}>Экспортировать подписанный .iwxa</button>
         <button className="secondary" type="button"
           data-testid="publisher-t3-export-age"
-          disabled={busy||needsRefresh||!licenseId||!ageRecipients.trim()}
+          disabled={busy||needsRefresh||!ageReady||!selectedLicense||
+            selectedLicense.status==='NOT_ACTIVATED'||!ageRecipients.trim()}
           onClick={()=>operation(async()=>{
             const receipt=await invoke('publisher_t3_export_age',{licenseId,recipients:ageRecipients});
             if(receipt===null)return {message:'Экспорт защищённой лицензии отменён.'};

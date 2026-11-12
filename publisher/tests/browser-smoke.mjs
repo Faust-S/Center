@@ -66,7 +66,8 @@ try {
         attentionRequired:false};
       if(command==='publisher_age_status')return {
         operation:'AGE_STATUS',available:false,recipient:null,
-        provider:'WINDOWS_DPAPI_CURRENT_USER',toolchain:{ready:true},admitted:false};
+        provider:'WINDOWS_DPAPI_CURRENT_USER',
+        toolchain:{ready:window.__publisherAgeToolchainReady!==false},admitted:false};
       if(command==='publisher_age_encrypt')return {
         operation:'AGE_ENCRYPTED',recipientCount:1,sourceSha256:'a'.repeat(64),
         ciphertextSha256:'b'.repeat(64),deliveryState:'NOT_CONFIRMED',admitted:false};
@@ -546,12 +547,15 @@ try {
   assert.equal(await page.getByTestId('publisher-t3-change-status').isDisabled(),true);
   await ownerPanel.getByRole('combobox',{name:'Лицензия',exact:true})
     .selectOption('license:test:native-ui:one');
-  assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
+  assert.equal(await page.getByTestId('publisher-t3-export').isDisabled(),true,
+    'Unsigned TEST status cannot be delivered as an active signed license');
+  assert.equal(await page.getByTestId('publisher-t3-export-age').isDisabled(),true);
   assert.equal(await page.getByTestId('publisher-t3-change-status').isDisabled(),true,
     'Status change must require a new explicit status choice');
   await ownerPanel.getByRole('combobox',{name:'Новый TEST-статус'}).selectOption('ACTIVE');
   await page.getByTestId('publisher-t3-change-status').click();
   await page.getByText('Новый подписанный TEST-статус сохранён в T3: ACTIVE').waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
   await page.getByTestId('publisher-t3-export').click();
   await page.getByText('Пакет .iwxa выпущен T3 и подтверждён повторным чтением.').waitFor();
   assert.match(await page.getByTestId('publisher-t3-owner-panel').innerText(),/Активных мест: 0/);
