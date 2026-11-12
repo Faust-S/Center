@@ -24,6 +24,8 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
  const [inventoryTotal,setInventoryTotal]=useState(0);
  const [inventoryTruncated,setInventoryTruncated]=useState(false);
  const [licenseId,setLicenseId]=useState('');
+ const [ageRecipients,setAgeRecipients]=useState('');
+ const [testTrustFingerprint,setTestTrustFingerprint]=useState('');
  const [adminRequest,setAdminRequest]=useState<AdminRequest|null>(null);
  const [proposalId,setProposalId]=useState('');
  const [seats,setSeats]=useState('');
@@ -320,6 +322,31 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
          </button>
        </div>}
      </div>
+     <div className="publisher-offer-review" data-testid="publisher-test-public-trust">
+       <h4>Публичное доверие TEST-издателя</h4>
+       <p>Перед первым приёмом лицензий Admin Center должен отдельно получить
+         публичные данные издателя и их SHA-256. Закрытые ключи не экспортируются.
+         Передавайте отпечаток независимым способом, отдельно от .iwxa.age.</p>
+       <button type="button" className="secondary"
+         data-testid="publisher-t3-export-test-trust"
+         disabled={busy||!available}
+         onClick={()=>void operation(async()=>{
+           const receipt=await invoke('publisher_t3_export_test_trust');
+           if(receipt===null)return {message:'Экспорт публичного доверия отменён.'};
+           if(receipt.operation!=='TEST_TRUST_EXPORTED'||receipt.publicOnly!==true||
+             receipt.activeSeats!==0||receipt.productionActivation!==false||
+             !Number.isSafeInteger(receipt.bytes)||receipt.bytes<3||
+             !/^[a-f0-9]{64}$/.test(receipt.sha256))
+             throw Error('PUBLISHER_T3_TEST_TRUST_EXPORT_INVALID');
+           setTestTrustFingerprint(receipt.sha256);
+           return {message:'Публичный файл доверия сохранён. Передайте SHA-256 получателю отдельно от файла.'};
+         })}>Экспортировать публичное доверие T3</button>
+       {testTrustFingerprint&&<label>SHA-256 для независимого подтверждения
+         <input readOnly aria-label="SHA-256 публичного доверия"
+           data-testid="publisher-t3-public-trust-fingerprint"
+           onFocus={e=>e.currentTarget.select()} value={testTrustFingerprint}/>
+       </label>}
+     </div>
      <h4>Подписанные TEST-лицензии T3</h4>
      <p className="muted" data-testid="publisher-t3-inventory-count">
        В реестре: {inventoryTotal} TEST-записей.
@@ -330,12 +357,18 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
      {licenses.length===0?<p className="muted">{needsRefresh?
        'Журнал пока не прочитан.':'Пока нет выпущенных лицензий.'}</p>:
        <label>Лицензия
-         <select value={licenseId} onChange={e=>{setLicenseId(e.target.value);setStatus('');setRevokePending(null);}} disabled={busy}>
+         <select value={licenseId} onChange={e=>{setAgeRecipients('');setLicenseId(e.target.value);setStatus('');setRevokePending(null);}} disabled={busy}>
            <option value="">Выберите лицензию</option>{licenses.map(x=><option value={x.licenseId} key={x.licenseId}>
              {x.licenseId} — {x.organizationId} — {x.status}
            </option>)}
          </select>
        </label>}
+     {selectedLicense&&<label>Публичный ключ получателя age1
+       <textarea rows={2} spellCheck={false} value={ageRecipients}
+         data-testid="publisher-t3-age-recipients"
+         onChange={e=>setAgeRecipients(e.target.value)} placeholder="age1…"/>
+       <small>Ключ получите из проверенного источника. Ввод не подтверждает личность владельца.</small>
+     </label>}
      <div className="actions">
        <select aria-label="Новый TEST-статус" value={status}
          onChange={e=>{setStatus(e.target.value as typeof status);setRevokePending(null);}}
@@ -365,6 +398,21 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
              throw Error('PUBLISHER_T3_EXPORT_RECEIPT_INVALID');
            return {message:'Пакет .iwxa выпущен T3 и подтверждён повторным чтением.'};
          })}>Экспортировать подписанный .iwxa</button>
+        <button className="secondary" type="button"
+          data-testid="publisher-t3-export-age"
+          disabled={busy||needsRefresh||!licenseId||!ageRecipients.trim()}
+          onClick={()=>operation(async()=>{
+            const receipt=await invoke('publisher_t3_export_age',{licenseId,recipients:ageRecipients});
+            if(receipt===null)return {message:'Экспорт защищённой лицензии отменён.'};
+            if(receipt?.operation!=='TEST_AGE_EXPORTED'||receipt.licenseId!==licenseId||
+               receipt.activeSeats!==0||receipt.productionActivation!==false||
+               receipt.admitted!==false||receipt.deliveryState!=='NOT_CONFIRMED'||
+               !Number.isSafeInteger(receipt.bytes)||receipt.bytes<1||
+               !/^[a-f0-9]{64}$/.test(receipt.packageSha256)||
+               !/^[a-f0-9]{64}$/.test(receipt.ciphertextSha256))
+              throw Error('PUBLISHER_T3_AGE_SIGNED_EXPORT_INVALID');
+            return {message:'Подписанная T3 TEST-лицензия зашифрована в .iwxa.age. Доставка и принятие получателем ещё не подтверждены.'};
+          })}>Экспортировать подписанную .iwxa.age</button>
      </div>
      {revokeReady&&<div className="notice" data-testid="publisher-t3-revoke-confirmation" role="alert">
        <p>Отозвать TEST-лицензию {selectedLicense?.licenseId} для организации {selectedLicense?.organizationId}?

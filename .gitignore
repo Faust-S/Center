@@ -11,3 +11,9 @@ private-runtime/
 /publisher/src-tauri/target/
 /publisher/src-tauri/gen/
 /vendor/setupcore/
+/src-tauri/private-t3/
+/src-tauri/private-t3-bundle.json
+/src-tauri/private-t3-age-bundle.json
+/publisher/src-tauri/private-t3/
+/publisher/src-tauri/private-t3-bundle.json
+/publisher/src-tauri/private-t3-age-bundle.json

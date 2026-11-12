@@ -64,6 +64,20 @@ try {
         webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
         licensing:'TEST_ONLY',activeSeats:0,productionActivation:false,
         attentionRequired:false};
+      if(command==='publisher_age_status')return {
+        operation:'AGE_STATUS',available:false,recipient:null,
+        provider:'WINDOWS_DPAPI_CURRENT_USER',toolchain:{ready:true},admitted:false};
+      if(command==='publisher_age_encrypt')return {
+        operation:'AGE_ENCRYPTED',recipientCount:1,sourceSha256:'a'.repeat(64),
+        ciphertextSha256:'b'.repeat(64),deliveryState:'NOT_CONFIRMED',admitted:false};
+      if(command==='publisher_age_inspect')return {
+        operation:'AGE_INSPECTED',recipientStanzas:1,admitted:false};
+      if(command==='publisher_age_decrypt')return {
+        operation:'AGE_DECRYPTED',sourceSha256:'a'.repeat(64),
+        state:'DECRYPTED_INTEGRITY_VERIFIED_NOT_ADMITTED',admitted:false};
+      if(command==='publisher_t3_export_test_trust')return {
+        operation:'TEST_TRUST_EXPORTED',bytes:2048,sha256:'c'.repeat(64),
+        publicOnly:true,activeSeats:0,productionActivation:false};
       if(command==='publisher_t3_capabilities')return {
         operation:'TEST_CAPABILITIES',issuers:['publisher:owner:test'],
         activeSeats:0,productionActivation:false,commercialAuthorityProven:false};
@@ -160,6 +174,28 @@ try {
   checks.push('compact-height-native-footer-clears-windows-taskbar-safe-inset');
   await page.setViewportSize({width:1366,height:900});
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
+  await page.getByTestId('publisher-age-exchange').waitFor();
+  await page.getByTestId('publisher-t3-export-age').waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-export-age').isEnabled(),false);
+  assert.equal(await page.getByTestId('publisher-t3-export-test-trust').isEnabled(),true);
+  await page.getByTestId('publisher-t3-export-test-trust').click();
+  await page.getByTestId('publisher-t3-public-trust-fingerprint').waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-public-trust-fingerprint').inputValue(),'c'.repeat(64));
+  assert.match(await page.getByTestId('publisher-test-public-trust').innerText(),/SHA-256/);
+  checks.push('original-T3-public-trust-export-returns-independent-fingerprint-not-license-grant');
+  // The independently provisioned production PERSON owner is unavailable in
+  // this TEST-only fake host. Its export controls must be ABSENT, not a
+  // disabled control belonging to the unrelated TEST publisher.
+  await page.getByTestId('publisher-person-owner-unavailable').waitFor();
+  assert.equal(await page.getByTestId('publisher-person-export-age').count(),0);
+  await page.getByTestId('publisher-age-recipients').fill('age1'+'q'.repeat(58));
+  await page.getByTestId('publisher-age-encrypt').click();
+  await page.getByTestId('publisher-age-success').waitFor();
+  assert.match(await page.getByTestId('publisher-age-success').innerText(),/Доставка получателю не подтверждена/);
+  await page.getByTestId('publisher-age-decrypt').click();
+  await page.waitForFunction(()=>document.querySelector('[data-testid="publisher-age-success"]')
+    ?.textContent?.includes('отдельно проверены T3')===true);
+  checks.push('age-native-transport-ui-does-not-claim-licensing-or-delivery');
   const select=page.getByTestId('publisher-select-test-iwxa');
   const exportButton=page.getByTestId('publisher-export-test-iwxa');
   assert.equal(await exportButton.isEnabled(),false);
@@ -589,6 +625,14 @@ try {
   assert.equal(externalLedger[1].requestId,fromAdmin.request.requestId);
   assert.equal(externalLedger[1].organizationId,fromAdmin.request.subject.id);
   assert.equal(externalLedger[1].claimedSeats,2);
+  // A delivery key belongs to the selected license, not to the whole form.
+  await page.getByTestId('publisher-t3-age-recipients').fill('age1'+'q'.repeat(58));
+  await ownerPanel.getByRole('combobox',{name:'Лицензия',exact:true})
+    .selectOption('license:test:native-ui:two');
+  assert.equal(await page.getByTestId('publisher-t3-age-recipients').inputValue(),'',
+    'Changing the organization license must clear the previous age recipient');
+  assert.equal(await page.getByTestId('publisher-t3-export-age').isDisabled(),true);
+  checks.push('test-age-recipient-is-scoped-to-selected-organization');
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')),
     draftsBefore,'Admin request must not mutate local Publisher drafts');
   checks.push('admin-unsigned-request-signing-through-original-T3-owner');
@@ -1067,7 +1111,11 @@ try {
   assert.match(renewedLicenseLabel,/license:person:mock:two/);
   assert.notEqual(renewedLicenseLabel,firstIssuedLabel,
     'Two signed records for the same PERSON/product must not be indistinguishable');
+  await personOwner.getByTestId('publisher-person-age-recipients').fill('age1'+'q'.repeat(58));
   await personLicensePicker.selectOption('license:person:mock:two');
+  assert.equal(await personOwner.getByTestId('publisher-person-age-recipients').inputValue(),'',
+    'Renewal must not inherit the previously selected PERSON recipient key');
+  checks.push('person-age-recipient-is-scoped-to-selected-license');
   assert.match(await personOwner.getByTestId('publisher-person-selected-license').innerText(),
     /Продление лицензии license:person:mock:one/);
   await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('ACTIVE');

@@ -4,6 +4,7 @@ import { prepareTestLicenseRequest, encodeTestLicenseRequest, suggestedTestReque
 import {simulateIssuerEvent} from '../src/issuer-simulation.mjs';
 import {prepareUnsignedPersonLicenseRequest} from '../src/person-license-request.mjs';
 import PublisherT3OwnerPanel from './PublisherT3OwnerPanel';
+import AgeExchangePanel from '../../src/AgeExchangePanel';
 import TariffPanel from './TariffPanel';
 import '../../src/style.css';
 import './style.css';
@@ -625,6 +626,7 @@ export default function App(){
            <PublisherT3OwnerPanel draft={state} invoke={invoke} change={change}
              personRequestId={personRequestId}/>
            <div className="divider"></div>
+           <AgeExchangePanel invoke={nativeHost?invoke:null} prefix="publisher"/>
            <h3>Офлайн-передача пакета .iwxa</h3>
            <p className="muted">Publisher сохраняет выбранный пакет без изменения байтов. Для организации проверку и распределение выполняет Admin Center, для частного лица — установленный продукт. Здесь подпись, статус, получатель и права не проверяются.</p>
            <div className="actions">

@@ -135,6 +135,51 @@ pub async fn publisher_t3_export(app:AppHandle,license_id:String)
 }
 
 
+// Public-only issuer trust export from the original T3 OWNER. The exported
+// fingerprint is independently delivered to Admin Center before any signed
+// license can be accepted. This command never provisions the recipient.
+#[tauri::command]
+pub async fn publisher_t3_export_test_trust(app:AppHandle)->Result<Option<Value>,String>{
+    if !t3::availability(&app,"owner"){
+        return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
+    }
+    let selection=rfd::FileDialog::new()
+       .set_title("Publisher — публичное доверие TEST-издателя")
+       .add_filter("T3 public trust",&["json"])
+       .set_file_name("publisher-test-trust.json").save_file();
+    let Some(path)=selection else{return Ok(None)};
+    if path.file_name().and_then(|p|p.to_str())!=Some("publisher-test-trust.json") ||
+       path.exists() {
+        return Err("PUBLISHER_TEST_TRUST_DESTINATION_INVALID".into());
+    }
+    let expected_path=path.to_string_lossy().into_owned();
+    let result=call(app,"trust-export-test",vec![expected_path]).await?;
+    t3::validate_test_result(&result,"TEST_TRUST_EXPORTED")?;
+    if result["publicOnly"]!=true {
+        return Err("PUBLISHER_TEST_TRUST_PRIVATE_MATERIAL_DENIED".into());
+    }
+    let bytes=result["bytes"].as_u64()
+        .ok_or("PUBLISHER_TEST_TRUST_READBACK_REQUIRED")?;
+    let digest=result["sha256"].as_str()
+        .ok_or("PUBLISHER_TEST_TRUST_READBACK_REQUIRED")?;
+    if bytes<3||bytes>1024*1024||digest.len()!=64||
+       !digest.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)){
+        return Err("PUBLISHER_TEST_TRUST_RECEIPT_INVALID".into());
+    }
+    let stat=fs::symlink_metadata(&path)
+        .map_err(|_|"PUBLISHER_TEST_TRUST_FILE_MISSING")?;
+    if !stat.is_file()||stat.file_type().is_symlink()||stat.len()!=bytes {
+        return Err("PUBLISHER_TEST_TRUST_FILE_CHANGED".into());
+    }
+    let actual=fs::read(&path).map_err(|_|"PUBLISHER_TEST_TRUST_READBACK_FAILED")?;
+    if actual.len() as u64!=bytes ||
+       format!("{:x}",Sha256::digest(&actual))!=digest ||
+       actual.windows(11).any(|window|window==b"PRIVATE KEY"){
+        return Err("PUBLISHER_TEST_TRUST_FILE_READBACK_INVALID".into());
+    }
+    Ok(Some(result))
+}
+
 // PERSON uses the original private T3 owner binary, but only the separately
 // pre-enrolled production root. The public bridge never signs or imports trust.
 const PERSON_REQUEST_LIMIT: usize = 32 * 1024;
@@ -368,6 +413,107 @@ pub async fn publisher_t3_person_export_public_trust(
     }
     Ok(Some(exported))
 }
+// Select the final destination on the native Tauri command path BEFORE
+// dispatching a blocking T3 worker. Windows modal file pickers must not
+// depend on the cryptographic subprocess worker or its thread apartment.
+fn select_signed_age_destination(
+    app:&AppHandle,license_id:&str,raw_recipients:&str,person:bool
+)->Result<Option<PathBuf>,String>{
+    if !t3::valid_identifier(license_id){
+        return Err("PUBLISHER_AGE_LICENSE_ID_INVALID".into());
+    }
+    crate::t3_age_transport::recipients(raw_recipients)?;
+    let role=if person{"owner-person"}else{"owner"};
+    if !t3::availability(app,role){
+        return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
+    }
+    let suggested=if person{"iwxa-person-license.iwxa.age"}else{"iwxa-product-test-delivery.iwxa.age"};
+    crate::t3_age_transport::select_encrypted_destination(suggested)
+}
+
+// One-step signed delivery: the original T3 issuer exports an existing signed
+// license, then the original T3 age operator encrypts it. Neither the signed
+// plaintext nor private issuer keys cross WebView IPC; plaintext is removed
+// with the short-lived native staging directory, including on an error.
+fn signed_age_export(
+    app:&AppHandle,license_id:&str,raw_recipients:&str,person:bool,destination:&std::path::Path
+)->Result<Option<Value>,String>{
+    if !t3::valid_identifier(license_id){
+        return Err("PUBLISHER_AGE_LICENSE_ID_INVALID".into());
+    }
+    crate::t3_age_transport::recipients(raw_recipients)?;
+    let role=if person{"owner-person"}else{"owner"};
+    let action=if person{"person-export"}else{"export"};
+    let expected=if person{"PERSON_IWXA_EXPORTED"}else{"TEST_IWXA_EXPORTED"};
+    if !t3::availability(app,role){
+        return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
+    }
+    // The modal dialog completed before this worker began. The original
+    // T3 signed plaintext exists only during the bounded native operation.
+    let tmp=crate::t3_age_transport::TransientPackage::new()?;
+    let signed=t3::run(app,role,action,&[
+        license_id.to_string(),tmp.path.to_string_lossy().into_owned()
+    ])?;
+    t3::validate_test_result(&signed,expected)?;
+    let declared=signed["bytes"].as_u64().ok_or("PUBLISHER_AGE_SIGNED_EXPORT_INVALID")?;
+    let source_hash=signed["packageSha256"].as_str()
+        .ok_or("PUBLISHER_AGE_SIGNED_EXPORT_INVALID")?;
+    if signed["licenseId"]!=license_id ||
+       signed["path"]!=tmp.path.to_string_lossy().as_ref() ||
+       declared==0||declared>4*1024*1024||source_hash.len()!=64||
+       !source_hash.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)){
+        return Err("PUBLISHER_AGE_SIGNED_EXPORT_INVALID".into());
+    }
+    let signed_bytes=fs::read(&tmp.path)
+        .map_err(|_|"PUBLISHER_AGE_SIGNED_READBACK_MISSING")?;
+    if signed_bytes.len() as u64!=declared||
+       format!("{:x}",Sha256::digest(&signed_bytes))!=source_hash {
+        return Err("PUBLISHER_AGE_SIGNED_READBACK_MISMATCH".into());
+    }
+    let age_root=crate::publisher_root(app)?.join("t3-age");
+    let encrypted=crate::t3_age_transport::encrypt_to_path(
+       app,&age_root,&tmp.path,destination,raw_recipients)?;
+    if encrypted["sourceSha256"]!=source_hash||
+       encrypted["admitted"]!=false||
+       encrypted["deliveryState"]!="NOT_CONFIRMED"{
+        return Err("PUBLISHER_AGE_TRANSPORT_RECEIPT_INVALID".into());
+    }
+    Ok(Some(serde_json::json!({
+      "operation":if person{"PERSON_AGE_EXPORTED"}else{"TEST_AGE_EXPORTED"},
+      "licenseId":license_id,
+      "packageSha256":source_hash,
+      "ciphertextSha256":encrypted["ciphertextSha256"],
+      "bytes":encrypted["bytes"],
+      "recipientCount":encrypted["recipientCount"],
+      "deliveryState":"NOT_CONFIRMED",
+      "admitted":false,
+      "activeSeats":0,
+      "productionActivation":false
+    })))
+}
+#[tauri::command]
+pub async fn publisher_t3_export_age(
+    app:AppHandle,license_id:String,recipients:String
+)->Result<Option<Value>,String>{
+    let Some(destination)=select_signed_age_destination(&app,&license_id,&recipients,false)? else{
+        return Ok(None);
+    };
+    tauri::async_runtime::spawn_blocking(move||
+       signed_age_export(&app,&license_id,&recipients,false,&destination))
+       .await.map_err(|_|"PUBLISHER_AGE_EXPORT_WORKER_FAILED".to_string())?
+}
+#[tauri::command]
+pub async fn publisher_t3_person_export_age(
+    app:AppHandle,license_id:String,recipients:String
+)->Result<Option<Value>,String>{
+    let Some(destination)=select_signed_age_destination(&app,&license_id,&recipients,true)? else{
+        return Ok(None);
+    };
+    tauri::async_runtime::spawn_blocking(move||
+       signed_age_export(&app,&license_id,&recipients,true,&destination))
+       .await.map_err(|_|"PUBLISHER_AGE_EXPORT_WORKER_FAILED".to_string())?
+}
+
 #[cfg(test)]
 mod person_native_bridge_tests {
     use super::*;
