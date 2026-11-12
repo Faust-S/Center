@@ -1,5 +1,5 @@
 // Windows acceptance fixture only: re-encode the *installed* Atlas owner's
-// exact native project blocks with the original Atlas 0.5 IWXA adapter.
+// exact native project blocks with the original released Atlas 0.6 IWXA adapter.
 // Read-only: no generated project, competing store, or T3 receipt.
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";

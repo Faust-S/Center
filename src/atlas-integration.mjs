@@ -4,7 +4,7 @@
 import {deserialize, summary} from '../vendor/atlas/src/core.mjs';
 import {portfolioNetwork} from '../vendor/atlas/src/portfolio.mjs';
 
-export const ATLAS_SOURCE_REVISION = '0de3b6058526021aeecee6f445acf89b956d10c9';
+export const ATLAS_SOURCE_REVISION = '06015647a2a6338d2e02d6bf84fd2041adb7ea82';
 export const ATLAS_SNAPSHOT_LIMIT = 16 * 1024 * 1024;
 const fail = code => {throw Object.assign(new Error(code), {code});};
 

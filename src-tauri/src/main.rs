@@ -6,36 +6,48 @@ include!(concat!(env!("OUT_DIR"), "/atlas_native.rs"));
 // Original IWXA Setup Core selects the user data directory at installation.
 // Keep all Center-owned Atlas, preparation and T3 identities under that root;
 // never store an X25519 DPAPI identity inside the Atlas block store.
+// Only registered locations of the two known IWXA products are accepted.
+// Paths come from the original Setup Core HKCU record, never from WebView IPC.
 #[cfg(windows)]
-fn center_setup_core_data_root() -> Result<Option<PathBuf>, String> {
+fn setup_core_registered_path(product:&str,field:&str)->Result<Option<PathBuf>,String>{
     use std::{ffi::OsString, os::windows::ffi::OsStringExt};
-    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND};
+    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND};
     use windows_sys::Win32::System::Registry::{RegGetValueW,HKEY_CURRENT_USER,RRF_RT_REG_SZ};
-    let key:Vec<u16>="Software\\IWXA\\SetupCore\\Products\\iwxa.admin-center\0"
+    if !matches!((product,field),
+        ("iwxa.admin-center","DataLocation")|
+        ("iwxa.atlas","DataLocation")|
+        ("iwxa.atlas","InstallLocation")){
+        return Err("SETUP_CORE_LOCATION_NOT_SUPPORTED".into());
+    }
+    let key:Vec<u16>=format!("Software\\IWXA\\SetupCore\\Products\\{product}\0")
         .encode_utf16().collect();
-    let name:Vec<u16>="DataLocation\0".encode_utf16().collect();
+    let name:Vec<u16>=format!("{field}\0").encode_utf16().collect();
     let mut bytes=0_u32;
     let status=unsafe{RegGetValueW(HKEY_CURRENT_USER,key.as_ptr(),name.as_ptr(),
         RRF_RT_REG_SZ,std::ptr::null_mut(),std::ptr::null_mut(),&mut bytes)};
     if status==ERROR_FILE_NOT_FOUND||status==ERROR_PATH_NOT_FOUND{return Ok(None);}
-    if status!=0||bytes<4||bytes>32768||bytes%2!=0{
-        return Err("CENTER_SETUP_CORE_DATA_LOCATION_INVALID".into());
+    if status!=0||bytes<4||bytes>32768||bytes%2!=0 {
+        return Err("SETUP_CORE_REGISTERED_LOCATION_INVALID".into());
     }
     let mut wide=vec![0_u16;bytes as usize/2];
     let status=unsafe{RegGetValueW(HKEY_CURRENT_USER,key.as_ptr(),name.as_ptr(),
         RRF_RT_REG_SZ,std::ptr::null_mut(),wide.as_mut_ptr().cast(),&mut bytes)};
     if status!=0||bytes<4||bytes%2!=0{
-        return Err("CENTER_SETUP_CORE_DATA_LOCATION_READ_FAILED".into());
+        return Err("SETUP_CORE_REGISTERED_LOCATION_READ_FAILED".into());
     }
-    let len=bytes as usize/2;
-    if len>wide.len()||len<2||wide[len-1]!=0{
-        return Err("CENTER_SETUP_CORE_DATA_LOCATION_INVALID".into());
+    let count=bytes as usize/2;
+    if count>wide.len()||count<2||wide[count-1]!=0{
+        return Err("SETUP_CORE_REGISTERED_LOCATION_INVALID".into());
     }
-    let selected=PathBuf::from(OsString::from_wide(&wide[..len-1]));
-    if !selected.is_absolute()||selected.as_os_str().is_empty(){
-        return Err("CENTER_SETUP_CORE_DATA_LOCATION_NOT_ABSOLUTE".into());
+    let path=PathBuf::from(OsString::from_wide(&wide[..count-1]));
+    if !path.is_absolute()||path.as_os_str().is_empty(){
+        return Err("SETUP_CORE_REGISTERED_LOCATION_NOT_ABSOLUTE".into());
     }
-    Ok(Some(selected))
+    Ok(Some(path))
+}
+#[cfg(windows)]
+fn center_setup_core_data_root()->Result<Option<PathBuf>,String>{
+    setup_core_registered_path("iwxa.admin-center","DataLocation")
 }
 fn center_product_data_root(app:&AppHandle)->Result<PathBuf,String>{
     #[cfg(windows)]
@@ -70,6 +82,18 @@ fn center_public_atlas_root_under(center_app_data: &Path) -> Result<PathBuf, Str
     let parent = center_app_data.parent().ok_or("ATLAS_PUBLIC_BASE_NOT_FOUND")?;
     Ok(parent.join("ru.iwxa.atlas").join("atlas-store-v1"))
 }
+// Atlas 0.6 Setup Core can use a non-default data directory. Read its
+// registered owner location rather than silently opening an outdated copy.
+fn center_public_atlas_root(app:&AppHandle)->Result<PathBuf,String>{
+    let local=app.path().app_local_data_dir()
+        .map_err(|_|"ATLAS_PUBLIC_BASE_NOT_FOUND")?;
+    let fallback=center_public_atlas_root_under(&local)?;
+    #[cfg(windows)]
+    if let Some(owned)=setup_core_registered_path("iwxa.atlas","DataLocation")?{
+        return Ok(owned.join("atlas-store-v1"));
+    }
+    Ok(fallback)
+}
 fn center_public_atlas_open_root(root: &Path) -> Result<OpenResult, String> {
     if !root.join("head.json").is_file() {
         return Err("ATLAS_PUBLIC_SOURCE_NOT_FOUND".into());
@@ -84,8 +108,7 @@ fn center_public_atlas_open_root(root: &Path) -> Result<OpenResult, String> {
 }
 #[tauri::command]
 fn center_atlas_public_open(app: AppHandle) -> Result<OpenResult, String> {
-    let local = app.path().app_local_data_dir().map_err(|_| "ATLAS_PUBLIC_BASE_NOT_FOUND")?;
-    center_public_atlas_open_root(&center_public_atlas_root_under(&local)?)
+    center_public_atlas_open_root(&center_public_atlas_root(&app)?)
 }
 
 fn center_atlas_open_root(root: &Path) -> Result<OpenResult, String> {

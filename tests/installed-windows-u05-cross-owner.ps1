@@ -15,6 +15,10 @@ public static class U05Window {
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extraInfo);
 }
 '@
+$atlasExe=$env:ATLAS_INSTALLED_EXE
+if(!$atlasExe -or !(Test-Path -LiteralPath $atlasExe -PathType Leaf)){
+  throw 'U04_RELEASED_ATLAS_SETUP_CORE_BINARY_MISSING'
+}
 $atlas=Join-Path $env:LOCALAPPDATA 'ru.iwxa.atlas/atlas-store-v1'
 $center=Join-Path $env:LOCALAPPDATA 'Programs/IWXA Admin Center/iwxa-admin-center.exe'
 $centerDraft=Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center/atlas-store-v1/preparation/draft.json'
@@ -292,8 +296,7 @@ try {
   # Real installed Center -> pinned U01 discovery -> original native U04
   # Windows port -> independent installed Atlas window -> return to Center.
   # This is an actual WebView2 control route, not direct test IPC.
-  $atlasExe=Join-Path $env:LOCALAPPDATA 'IWXA Atlas/iwxa-atlas-desktop.exe'
-  if(!(Test-Path -LiteralPath $atlasExe)){throw 'U04_INSTALLED_ATLAS_BINARY_MISSING'}
+
   Click 'Открыть окно Atlas'
   # Both original U04 states are valid: WINDOW_OBSERVED and
   # LAUNCHED_NO_WINDOW. Verify the honest UI status, then separately verify

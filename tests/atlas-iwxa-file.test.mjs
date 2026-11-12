@@ -18,7 +18,7 @@ const fromText=(value,name="atlas.json")=>({
  name,size:new TextEncoder().encode(value).byteLength,
  text:async()=>value,arrayBuffer:async()=>{throw Error("JSON must use existing text path");}
 });
-test("Center reads actual Atlas 0.5 .iwxa through owner's parser and retains WorkRef",async()=>{
+test("Center reads actual Atlas 0.6 .iwxa through owner's parser and retains WorkRef",async()=>{
  const {state,projectId,workId}=source();
  const bytes=await buildIwxaPortfolio(state,{now:"2026-11-09T10:00:00.000Z"});
  const {format,view}=await readAtlasSourceFile(fromBytes(bytes));

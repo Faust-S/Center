@@ -1,5 +1,5 @@
 // A selected Atlas file is a read-only source, not an organizational grant.
-// Use the ORIGINAL Atlas 0.5 IWXA reader and canonical project model.
+// Use the ORIGINAL released Atlas 0.6 IWXA reader and canonical project model.
 // Never reinterpret the T3 signed Task carrier or write a second portfolio Store.
 import {readIwxaPortfolio,IWXA_MAX_BYTES} from "../vendor/atlas/desktop/src/iwxa-portfolio.mjs";
 import {serialize,deserialize} from "../vendor/atlas/src/core.mjs";
