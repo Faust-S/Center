@@ -779,9 +779,27 @@ jobs:
                       'ANSWER_QUALITY','ANSWER_TEXT','ANSWER_THINKING',
                       'ANSWER_LENGTH','ANSWER_VOCABULARY','ANSWER_TOPIC',
                       'ANSWER_ACTION','ANSWER_STRUCTURE',
-                      'REVIEW_READBACK','EXCHANGE_EXPORT','OTHER')
+                      'REVIEW_READBACK','EXCHANGE_EXPORT',
+                      'OTHER_RUNTIME','OTHER_HTTP','OTHER_NETWORK','OTHER_TIMEOUT',
+                      'OTHER_VALUE','OTHER_KEY','OTHER_TYPE','OTHER_OS','OTHER')
                     if($reason -cin $safeReasons){
                       Write-Host ('PRIVATE_QWEN_FAILURE_CODE='+$reason)
+                    }
+                    $lastCheckpoint=[string]$witnessFailure.last_checkpoint
+                    $safeLastCheckpoints=@('NONE_OBSERVED',
+                      'AGENT_REAL_QWEN_DOWNLOAD_MODE_READY',
+                      'AGENT_REAL_QWEN_VERIFIED_RUNTIME_READY',
+                      'AGENT_REAL_QWEN_MODEL_PLAN_READY',
+                      'AGENT_REAL_QWEN_VERIFIED_WEIGHTS_READY',
+                      'AGENT_REAL_QWEN_MODEL_ACTIVE_READY',
+                      'AGENT_REAL_QWEN_INFERENCE_PASS',
+                      'AGENT_REAL_QWEN_TASK_ACCEPTED',
+                      'AGENT_REAL_QWEN_USER_RESULT_QUALITY_PASS',
+                      'AGENT_REAL_QWEN_RESULT_IMPORTED',
+                      'AGENT_REAL_QWEN_TASK_HUMAN_REVIEW_PASS',
+                      'AGENT_REAL_QWEN_IWXA_EXPORT_INSPECT_PASS')
+                    if($lastCheckpoint -cin $safeLastCheckpoints){
+                      Write-Host ('PRIVATE_QWEN_LAST_CHECKPOINT='+$lastCheckpoint)
                     }
                   }
                 }
