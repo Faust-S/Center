@@ -729,10 +729,19 @@ jobs:
             foreach($line in [IO.File]::ReadLines($out)){
               if($line -match '(\d{1,7}) passed'){$pass=[int]$Matches[1]}
               if($line -match '(\d{1,7}) failed'){$fail=[int]$Matches[1]}
-              if($line -match '^FAILED (.{1,240})' -and $hashes -lt 16){
-                $bytes=[Text.Encoding]::UTF8.GetBytes($Matches[1])
+              if($line.StartsWith('FAILED ') -and $hashes -lt 16){
+                # Hash the exact pytest node identity, never the assertion
+                # output, source path, model answer or private exception text.
+                $id=$line.Substring(7).Trim()
+                $divider=$id.IndexOf(' - ')
+                if($divider -ge 0){$id=$id.Substring(0,$divider)}
+                $bytes=[Text.Encoding]::UTF8.GetBytes($id)
                 $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+                $leaf=[IO.Path]::GetFileName(($id -split '::')[0])
+                $leafBytes=[Text.Encoding]::UTF8.GetBytes($leaf)
+                $leafHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($leafBytes)).ToLowerInvariant()
                 Write-Host ('PRIVATE_PYTHON_TARGETED_FAILED_ID_SHA256='+$sha)
+                Write-Host ('PRIVATE_PYTHON_TARGETED_FAILED_FILE_SHA256='+$leafHash)
                 $hashes++
               }
             }
