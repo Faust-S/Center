@@ -1,0 +1,4 @@
+Scoped private Agent 0.5 installed Windows qualification of the U01/U02/U03 receipt-bound CLI result.
+Exact private source SHA f5ef552b55755d81fecff3e9b4f19646b56cfa64
+Full Python tests include real CLI ToolRuntime Task, Review, Result, restart.
+No private binary or code is uploaded to public Center artifacts.
