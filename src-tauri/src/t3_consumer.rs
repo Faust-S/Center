@@ -250,13 +250,13 @@ mod tests {
     });
     assert!(verify_received(&good,"org:one").is_ok());
     let mut invalid=good.clone();
-    invalid["outcome"]="UNVERIFIED";
+    invalid["outcome"]=Value::String("UNVERIFIED".into());
     assert!(verify_received(&invalid,"org:one").is_err());
     invalid=good.clone();
-    invalid["sequence"]=1_000_000_000_000_000_000_u64;
+    invalid["sequence"]=Value::from(1_000_000_000_000_000_000_u64);
     assert!(verify_received(&invalid,"org:one").is_err());
     invalid=good.clone();
-    invalid["signatureVerified"]=false;
+    invalid["signatureVerified"]=Value::Bool(false);
     assert!(verify_received(&invalid,"org:one").is_err());
   }
 }
