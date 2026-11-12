@@ -1,0 +1,3 @@
+Private Agent 0.5 user effort, no forced thinking, K03 stage and truthful model wait, Node/TS compile.
+Exact SHA 0f2abe3f86e4b950108b1cba715b801846226d2a
+Read-only private ephemeral runner, public counters/hashes only.
