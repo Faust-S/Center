@@ -154,6 +154,31 @@ export default function App(){
    setBusy(true);setError('');setMessage('');setSimulated(null);
    try{
      const next=applyPublisherDraftCommand(state,command) as Draft;
+     // Signed PERSON history belongs to the original T3 owner, not to
+     // Publisher's local draft. Removing its source proposal would make
+     // later renewal impossible even though the signed LICENSE still exists.
+     const removing=command.kind==='removeProposal'?
+       state.proposals.find(p=>p.id===command.id):undefined;
+     if(removing?.tariffSnapshot&&
+        state.holders.find(h=>h.id===removing.holderId)?.type==='PERSON'&&
+        ['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(removing.productId)){
+       let ledger;
+       try{
+         ledger=await invoke('publisher_t3_person_inventory',{lookupId:removing.id});
+       }catch(e){
+         throw new Error('Журнал T3 недоступен: нельзя подтвердить, что PERSON-запрос не подписан. '+
+           'Подготовка сохранена. '+getError(e));
+       }
+       if(ledger?.operation!=='PERSON_INVENTORY'||ledger.lookupId!==removing.id||
+          ledger.productionActivation!==false||ledger.activeSeats!==0||
+          !Number.isSafeInteger(ledger.matches)||ledger.matches<0||
+          !Array.isArray(ledger.licenses)||
+          (ledger.matches===0&&ledger.licenses.length!==0))
+         throw new Error('Нет подтверждённого ответа исходного журнала T3. Подготовка сохранена.');
+       if(ledger.matches>0)
+         throw new Error('Подписанный PERSON-запрос нельзя удалить: он нужен для продления. '+
+           'Для прекращения прав подпишите отзыв в журнале T3.');
+     }
      await persistDraft(next);
      setState(next);
      setPendingRestore(null);
@@ -513,7 +538,7 @@ export default function App(){
             <p className="muted">Экспорт TEST-запроса для будущего оригинального издателя T3. Файл не подписан и не предоставляет права Admin Center.</p>
             <label>Места для TEST-запроса<input aria-label="Места для TEST-запроса" type="number" min={1} max={10000} value={testSeats} onChange={e=>setTestSeats(e.target.value)}/></label>
           </div>}
-         {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small>{p.tariffSnapshot&&<small>{p.tariffSnapshot.name} · редакция {p.tariffSnapshot.revision} · места {p.tariffSnapshot.productSeats} · сотрудники {p.tariffSnapshot.employeeLimit} · устройства {p.tariffSnapshot.deviceLimit} · {p.tariffSnapshot.holderType==='PERSON'?'Напрямую в продукт':'Через Admin Center'}</small>}{p.previousProposalId&&<small>Повторная подготовка по прежнему запросу; действующая лицензия не изменена</small>}{testScope.get(p.id)?.code==='PERSON_SIGNED_CONTRACT_UNAVAILABLE'&&<small className="publisher-license-unavailable">Для личной лицензии нужен подписанный контракт издателя и локальная проверка в установленной программе. Запрос сохранён, права не выданы.</small>}{testScope.get(p.id)?.code==='PRODUCT_SIGNED_CONTRACT_UNAVAILABLE'&&<small className="publisher-license-unavailable">Существующий T3 TEST-контракт не подписывает лицензии этого продукта.</small>}</div><span className="status neutral">Не выдано</span>
+         {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small>{p.tariffSnapshot&&<small>{p.tariffSnapshot.name} · редакция {p.tariffSnapshot.revision} · места {p.tariffSnapshot.productSeats} · сотрудники {p.tariffSnapshot.employeeLimit} · устройства {p.tariffSnapshot.deviceLimit} · {p.tariffSnapshot.holderType==='PERSON'?'Напрямую в продукт':'Через Admin Center'}</small>}{p.previousProposalId&&<small>Повторная подготовка по прежнему запросу; действующая лицензия не изменена</small>}{testScope.get(p.id)?.code==='PERSON_SIGNED_CONTRACT_UNAVAILABLE'&&<small className="publisher-license-unavailable">Для личной лицензии нужен подписанный контракт издателя и локальная проверка в установленной программе. Запрос сохранён, права не выданы.</small>}{testScope.get(p.id)?.code==='PRODUCT_SIGNED_CONTRACT_UNAVAILABLE'&&<small className="publisher-license-unavailable">Существующий T3 TEST-контракт не подписывает лицензии этого продукта.</small>}</div><span className="status neutral" data-testid="publisher-proposal-draft-status">Подготовка</span>
             <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>void exportTestRequest(p.id)}>Подготовить TEST-запрос</button>
             <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>simulateTestDecision(p.id)}>Моделировать TEST-ответ</button>
             <button className="quiet" disabled={busy} type="button" onClick={()=>void change({kind:'removeProposal',id:p.id},'Черновик удалён.')}>Удалить</button></div>)}

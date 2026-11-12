@@ -399,8 +399,8 @@ try {
   assert.match(await legacyFeedback.innerText(),/Черновик запроса сохранён/);
   assert.equal(await page.getByRole('combobox',{name:'Получатель',exact:true}).inputValue(),'');
   checks.push('legacy-test-request-explicit-product-recipient-native-failure-and-inline-save');
-  assert.match(await page.locator('main').innerText(),/Не выдано/);
-  checks.push('proposal-not-issued');
+  assert.equal(await page.getByTestId('publisher-proposal-draft-status').first().innerText(),'Подготовка');
+  checks.push('proposal-draft-status-does-not-claim-unsigned-T3-license');
   await page.getByLabel('Места для TEST-запроса').fill('3');
   await page.getByRole('button',{name:'Моделировать TEST-ответ'}).last().click();
   const simulatedText=await page.getByTestId('publisher-test-simulation-result').innerText();
@@ -1238,6 +1238,29 @@ try {
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
   await personal.getByText('Подготовленные запросы (3)').waitFor();
   checks.push('same-code-person-and-organization-tariffs-remain-independent-after-restart');
+  // A signed PERSON owner ledger is authoritative even if the local proposal
+  // remains DRAFT_NOT_ISSUED. Deleting it would break later renewal.
+  const signedCountBefore=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')||'[]')).length;
+  await personal.evaluate(()=>{window.__personMockFailNextInventory=true;});
+  await personal.getByRole('button',{name:'Удалить',exact:true}).first().click();
+  await personal.getByText('Журнал T3 недоступен: нельзя подтвердить',{exact:false}).waitFor();
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture'))).proposals.length,3,
+    'Lost native ledger must preserve a possibly signed PERSON proposal');
+  await personal.getByRole('button',{name:'Удалить',exact:true}).first().click();
+  await personal.getByText('Подписанный PERSON-запрос нельзя удалить',{exact:false}).waitFor();
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture'))).proposals.length,3,
+    'Deleting a signed T3 source request would break its renewal lineage');
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')||'[]')).length,signedCountBefore);
+  checks.push('signed-person-proposal-retained-after-ledger-failure-and-owner-readback');
+  // Unsigned organization drafts remain removable without a PERSON owner
+  // or a second Publisher-side license status store.
+  await personal.getByRole('button',{name:'Удалить',exact:true}).last().click();
+  await personal.getByText('Подготовленные запросы (2)').waitFor();
+  checks.push('unsigned-organization-proposal-remains-removable');
   await personal.close();
   checks.push('personal-offline-draft-persists-restart-without-admin-center-or-false-signing');
   assert.deepEqual(errors,[]);
