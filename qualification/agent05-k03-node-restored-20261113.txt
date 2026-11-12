@@ -1,0 +1,1 @@
+Only Node and TypeScript check of exact Agent 0.5 source 537c19c59d32ce016b009527fc6c1457ad3c6efb; no private artifacts. Restored single workflow, hashed test failure metadata.
