@@ -729,7 +729,24 @@ jobs:
             foreach($line in [IO.File]::ReadLines($out)){
               if($line -match '(\d{1,7}) passed'){$pass=[int]$Matches[1]}
               if($line -match '(\d{1,7}) failed'){$fail=[int]$Matches[1]}
-              if($line -match '^FAILED (.{1,240})
+              if($line -match '^FAILED (.{1,240})' -and $hashes -lt 16){
+                $bytes=[Text.Encoding]::UTF8.GetBytes($Matches[1])
+                $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+                Write-Host ('PRIVATE_PYTHON_TARGETED_FAILED_ID_SHA256='+$sha)
+                $hashes++
+              }
+            }
+          }
+          Write-Host ('PRIVATE_PYTHON_TARGETED_EXIT_CODE='+[string]$code)
+          Write-Host ('PRIVATE_PYTHON_TARGETED_PASSED_COUNT='+$pass)
+          Write-Host ('PRIVATE_PYTHON_TARGETED_FAILED_COUNT='+$fail)
+          Write-Host ('PRIVATE_PYTHON_TARGETED_FAILED_IDS='+$hashes)
+          if($code -ne 0 -or $pass -lt 1 -or $fail -ne 0){
+            throw 'PRIVATE_PYTHON_TARGETED_FAILED'
+          }
+          Write-Host 'PRIVATE_PYTHON_TARGETED_PASS'
+      - name: Parse private Windows product scripts before expensive qualification
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
         timeout-minutes: 3
         shell: pwsh
         run: |
