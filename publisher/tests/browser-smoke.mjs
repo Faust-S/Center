@@ -625,6 +625,14 @@ try {
   assert.equal(externalLedger[1].requestId,fromAdmin.request.requestId);
   assert.equal(externalLedger[1].organizationId,fromAdmin.request.subject.id);
   assert.equal(externalLedger[1].claimedSeats,2);
+  // A delivery key belongs to the selected license, not to the whole form.
+  await page.getByTestId('publisher-t3-age-recipients').fill('age1'+'q'.repeat(58));
+  await ownerPanel.getByRole('combobox',{name:'Лицензия',exact:true})
+    .selectOption('license:test:native-ui:two');
+  assert.equal(await page.getByTestId('publisher-t3-age-recipients').inputValue(),'',
+    'Changing the organization license must clear the previous age recipient');
+  assert.equal(await page.getByTestId('publisher-t3-export-age').isDisabled(),true);
+  checks.push('test-age-recipient-is-scoped-to-selected-organization');
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')),
     draftsBefore,'Admin request must not mutate local Publisher drafts');
   checks.push('admin-unsigned-request-signing-through-original-T3-owner');
@@ -1058,7 +1066,11 @@ try {
   assert.match(renewedLicenseLabel,/license:person:mock:two/);
   assert.notEqual(renewedLicenseLabel,firstIssuedLabel,
     'Two signed records for the same PERSON/product must not be indistinguishable');
+  await personOwner.getByTestId('publisher-person-age-recipients').fill('age1'+'q'.repeat(58));
   await personLicensePicker.selectOption('license:person:mock:two');
+  assert.equal(await personOwner.getByTestId('publisher-person-age-recipients').inputValue(),'',
+    'Renewal must not inherit the previously selected PERSON recipient key');
+  checks.push('person-age-recipient-is-scoped-to-selected-license');
   assert.match(await personOwner.getByTestId('publisher-person-selected-license').innerText(),
     /Продление лицензии license:person:mock:one/);
   await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('ACTIVE');
