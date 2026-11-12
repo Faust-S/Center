@@ -643,7 +643,7 @@ jobs:
           if($null -eq $exit -or $exit -ne 0){throw 'PRIVATE_TYPECHECK_FAILED'}
           Write-Host 'PRIVATE_TYPECHECK_PASS'
       - name: Prepare Windows Rust toolchain for native build
-        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') && !contains(github.event.head_commit.message, ' python-only') }}
         timeout-minutes: 12
         shell: pwsh
         run: |
@@ -713,6 +713,712 @@ jobs:
           python -m pip check 1>$null
           if($LASTEXITCODE -ne 0){throw 'PRIVATE_SOURCE_REQUIREMENTS_CONFLICT'}
           Write-Host 'PRIVATE_SOURCE_REQUIREMENTS_PASS'
+      - name: Isolated Python targeted regressions with bounded diagnostics
+        if: ${{ contains(github.event.head_commit.message, ' python-only') }}
+        timeout-minutes: 8
+        shell: pwsh
+        working-directory: private-product
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'private-python-targeted.stdout.log'
+          $err=Join-Path $env:RUNNER_TEMP 'private-python-targeted.stderr.log'
+          & python -B -m pytest -q tests/test_agent05_basic_runtime_error_clarity.py tests/test_agent05_k03_real_examples_gate.py tests/test_agent05_k03_installed_task_witness.py tests/test_agent05_k03_host_excerpt.py tests/test_u01_saved_output_projection.py -p no:cacheprovider --tb=short 1>$out 2>$err
+          $code=$LASTEXITCODE
+          $pass=-1; $fail=0; $hashes=0
+          if(Test-Path -LiteralPath $out -PathType Leaf){
+            foreach($line in [IO.File]::ReadLines($out)){
+              if($line -match '(\d{1,7}) passed'){$pass=[int]$Matches[1]}
+              if($line -match '(\d{1,7}) failed'){$fail=[int]$Matches[1]}
+              if($line -match '^FAILED (.{1,240})
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=Join-Path $env:GITHUB_WORKSPACE 'private-product'
+          $check=Join-Path $env:RUNNER_TEMP 'iwxa-ps-parser-check.ps1'
+          # Generated checker contains only known filenames, no private code.
+          @'
+          param([string]$Source)
+          $scripts=@('tools/qualify_setup_core_full_product.ps1',
+                     'tools/build_setup_core_windows_candidate.ps1',
+                     'tools/qualify_setup_core_runtime.ps1',
+                     'tools/qualify_setup_core_native_gui.ps1')
+          foreach($name in $scripts){
+            $file=Join-Path $Source $name
+            if(!(Test-Path -LiteralPath $file -PathType Leaf)){
+              Write-Host 'PRIVATE_POWERSHELL_SOURCE_MISSING'
+              exit 2
+            }
+            $tokens=$null
+            $syntaxErrors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $file,[ref]$tokens,[ref]$syntaxErrors)|Out-Null
+            if($syntaxErrors -and $syntaxErrors.Count -gt 0){
+              # No source fragments, private paths or exception text.
+              Write-Host 'PRIVATE_POWERSHELL_SYNTAX_FAILED'
+              exit 3
+            }
+          }
+          Write-Host 'PRIVATE_POWERSHELL_SYNTAX_PASS'
+          '@ | Set-Content -LiteralPath $check -Encoding UTF8
+          $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $check -Source $source
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_POWERSHELL_PARSER_UNVERIFIED'}
+          Remove-Item -LiteralPath $check -Force
+      - name: Qualify private source and native installed Windows lifecycle
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') && !contains(github.event.head_commit.message, ' python-only') }}
+        timeout-minutes: 150
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_SHA: ${{ steps.private-pin.outputs.sha }}
+          PRIVATE_QA_TRIGGER: ${{ github.event.head_commit.message }}
+        working-directory: private-product
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'private-product'
+          $center=Join-Path $env:GITHUB_WORKSPACE 'public-owner'
+          $out=Join-Path $env:RUNNER_TEMP 'private-product-qualification'
+          $cache=Join-Path $env:RUNNER_TEMP 'private-product-cache'
+          $log=Join-Path $env:RUNNER_TEMP 'private-qualifier.stdout.log'
+          $err=Join-Path $env:RUNNER_TEMP 'private-qualifier.stderr.log'
+          $script=Join-Path $root 'tools/qualify_setup_core_full_product.ps1'
+          $args=@('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$script,'-CenterRoot',$center,'-CenterCommit','d89133b921908cd47f0ad63fb367a5940606fc70','-OutputRoot',$out,'-ReleaseCacheRoot',$cache)
+          # Exact source revisions with completed independent Windows source
+          # suites. This native-only diagnostic is never a full acceptance.
+          # Agent 390773f7: 4,592 Python PASS and 757 Node PASS on prior CI.
+          if($env:PRIVATE_QA_TRIGGER -match ' native-only(?:\s|$)'){
+            if($env:PRIVATE_SOURCE_SHA -cnotin @(
+              '955af2fc11d6e78e36833497b003440c45ee084b',
+              '390773f765f4b3d1b82a8a870d8e51029a5d462b'
+            )){
+              throw 'PRIVATE_NATIVE_ONLY_UNQUALIFIED_SOURCE'
+            }
+            $args+=('-SkipSourceSuites')
+            Write-Host 'PRIVATE_NATIVE_DIAGNOSTIC_ONLY_SOURCE_SUITES_PREVIOUSLY_VERIFIED'
+          }
+          $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          # PowerShell 7 module paths inherited through intermediate processes
+          # can make Windows PowerShell 5.1 resolve Microsoft.PowerShell.Utility
+          # version 7 instead of its native module. Removing the inherited
+          # variable lets Windows PowerShell construct its own trusted defaults.
+          # See Microsoft's about_PSModulePath guidance for grandchild processes.
+          Remove-Item Env:PSModulePath -ErrorAction SilentlyContinue
+          & $powershell -NoLogo -NoProfile -NonInteractive -Command "if (Get-Command Get-FileHash -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" 1>$null 2>$null
+          if($LASTEXITCODE -ne 0){
+            throw 'PUBLIC_WINDOWS_POWERSHELL_FILE_HASH_UNAVAILABLE'
+          }
+          Write-Host 'PUBLIC_WINDOWS_POWERSHELL_FILE_HASH_READY'
+          # Preserve the native process handle before redirected execution completes.
+          $p=Start-Process -FilePath $powershell -ArgumentList $args -WorkingDirectory $root -RedirectStandardOutput $log -RedirectStandardError $err -PassThru
+          try {
+            $handle=$p.Handle
+            if($null -eq $handle -or $handle -eq [IntPtr]::Zero){
+              throw 'PRIVATE_QUALIFICATION_PROCESS_HANDLE_MISSING'
+            }
+            if(!$p.WaitForExit(8700000)){
+              Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+              throw 'PRIVATE_QUALIFICATION_TIMEOUT'
+            }
+            $p.Refresh()
+            $exit=$p.ExitCode
+            if($null -eq $exit -or $exit -isnot [int]){
+              throw 'PRIVATE_QUALIFICATION_PROCESS_EXIT_UNKNOWN'
+            }
+          } finally {
+            $p.Dispose()
+          }
+          if($exit -ne 0){
+            # A failed installed witness has a finite, private receipt. Publish
+            # only its allowlisted stage to identify the real product blocker.
+            $witnessReceipt=Join-Path $out 'native-candidate/temporary-installed-fixture/installed-witness.json'
+            if(Test-Path -LiteralPath $witnessReceipt -PathType Leaf){
+              try{
+                $witnessFailure=Get-Content -LiteralPath $witnessReceipt -Raw -Encoding UTF8|ConvertFrom-Json
+                $phase=[string]$witnessFailure.phase
+                $safePhases=@('FIRST_CORE','CORE_QUERIES','DRAFT_CREATE','GUI_DRAFT_EDIT',
+                  'GUI_DRAFT_READBACK','QWEN_EXECUTE','COLD_RESTART','COLD_CORE_QUERIES',
+                  'GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT','GUI_RESULT','GUI_TASK_SUBMIT',
+                  'GUI_TASK_RESULT','GUI_TASK_REVIEW','GUI_TASK_REVIEW_READBACK',
+                  'GUI_COLD_RESTART','GUI_COLD_IMPORT','CLEAN_STOP','WITNESS_RECEIPT')
+                if($witnessFailure.status -ceq 'FAIL' -and $phase -cin $safePhases){
+                  Write-Host ('PRIVATE_INSTALLED_WITNESS_PHASE='+$phase)
+                  if($phase -ceq 'QWEN_EXECUTE'){
+                    $reason=[string]$witnessFailure.failure_code
+                    $safeReasons=@('PROOF_EXISTS','DOWNLOAD_MODE','RUNTIME_PLAN',
+                      'MODEL_PLAN','MODEL_DOWNLOAD','MODEL_NOT_READY','INFERENCE',
+                      'TASK_SUBMIT','TASK_STOPPED','TASK_TIMEOUT','RESULT_READBACK',
+                      'REVIEW_READBACK','EXCHANGE_EXPORT',
+                      'CORE_NOT_READY','PREFS_READBACK','PREFS_NOT_CONFIRMED',
+                      'HTTP_400','HTTP_401','HTTP_403','HTTP_404','HTTP_409',
+                      'HTTP_422','HTTP_429','HTTP_500','HTTP_502','HTTP_503','HTTP_504',
+                      'OTHER_RUNTIME','OTHER_HTTP','OTHER_NETWORK','OTHER_TIMEOUT',
+                      'OTHER_VALUE','OTHER_KEY','OTHER_TYPE','OTHER_OS','OTHER')
+                    if($reason -cin $safeReasons){
+                      Write-Host ('PRIVATE_QWEN_FAILURE_CODE='+$reason)
+                    }
+                    $lastOperation=[string]$witnessFailure.last_operation
+                    $safeOperations=@('UI_PREFS_READ','UI_PREFS_SAVE',
+                      'RUNTIME_PLAN','RUNTIME_INSTALL','MODEL_PLAN','MODEL_DOWNLOAD',
+                      'MODEL_SELECT','MODEL_CONTROL','PROVIDER_SWITCH','MODEL_STATUS',
+                      'MODEL_TRY','WORK_AREAS','TASK_SUBMIT','TASK_POLL',
+                      'TASK_READ','TASKS_READ','HUMAN_REVIEW',
+                      'EXCHANGE_PREVIEW','EXCHANGE_EXPORT','EXCHANGE_INSPECT','SNAPSHOT')
+                    if($lastOperation -cin $safeOperations){
+                      Write-Host ('PRIVATE_QWEN_LAST_OPERATION='+$lastOperation)
+                    }
+                    $lastCheckpoint=[string]$witnessFailure.last_checkpoint
+                    $safeLastCheckpoints=@('NONE_OBSERVED',
+                      'AGENT_REAL_QWEN_CORE_SESSION_READY',
+                      'AGENT_REAL_QWEN_DOWNLOAD_MODE_READY',
+                      'AGENT_REAL_QWEN_VERIFIED_RUNTIME_READY',
+                      'AGENT_REAL_QWEN_MODEL_PLAN_READY',
+                      'AGENT_REAL_QWEN_VERIFIED_WEIGHTS_READY',
+                      'AGENT_REAL_QWEN_MODEL_ACTIVE_READY',
+                      'AGENT_REAL_QWEN_INFERENCE_PASS',
+                      'AGENT_REAL_QWEN_TASK_ACCEPTED',
+                      'AGENT_REAL_QWEN_RESULT_IMPORTED',
+                      'AGENT_REAL_QWEN_TASK_HUMAN_REVIEW_PASS',
+                      'AGENT_REAL_QWEN_IWXA_EXPORT_INSPECT_PASS')
+                    if($lastCheckpoint -cin $safeLastCheckpoints){
+                      Write-Host ('PRIVATE_QWEN_LAST_CHECKPOINT='+$lastCheckpoint)
+                    }
+                  }
+                }
+              }catch{Write-Host 'PRIVATE_INSTALLED_WITNESS_PHASE=UNREADABLE'}
+            }
+            # The Python probe already writes fixed Qwen milestones locally.
+            # Print exact known markers, never raw output, answers or paths.
+            $qwenStatus=Join-Path $out 'native-candidate/temporary-installed-fixture/installed-real-qwen.status'
+            if(Test-Path -LiteralPath $qwenStatus -PathType Leaf){
+              $safeQwenMarkers=@('AGENT_REAL_QWEN_CORE_SESSION_READY',
+                'AGENT_REAL_QWEN_DOWNLOAD_MODE_READY',
+                'AGENT_REAL_QWEN_VERIFIED_RUNTIME_READY','AGENT_REAL_QWEN_MODEL_PLAN_READY',
+                'AGENT_REAL_QWEN_VERIFIED_WEIGHTS_READY','AGENT_REAL_QWEN_MODEL_ACTIVE_READY',
+                'AGENT_REAL_QWEN_INFERENCE_PASS','AGENT_REAL_QWEN_TASK_ACCEPTED',
+                'AGENT_REAL_QWEN_RESULT_IMPORTED','AGENT_REAL_QWEN_TASK_HUMAN_REVIEW_PASS',
+                'AGENT_REAL_QWEN_IWXA_EXPORT_INSPECT_PASS',
+                'AGENT_REAL_QWEN_COLD_TASK_READBACK_PASS','AGENT_REAL_QWEN_COLD_EXCHANGE_PASS',
+                'AGENT_INSTALLED_REAL_QWEN_INDEPENDENT_IMPORT_PASS')
+              foreach($line in [IO.File]::ReadLines($qwenStatus)){
+                if([string]$line -cin $safeQwenMarkers){
+                  Write-Host ('PRIVATE_INSTALLED_QWEN_CHECKPOINT='+[string]$line)
+                }
+              }
+            }
+            # The GUI witness uses one additional private status file.
+            $guiStatus=Join-Path $out 'native-candidate/temporary-installed-fixture/native-gui-qwen.status'
+            if(Test-Path -LiteralPath $guiStatus -PathType Leaf){
+              $safeGuiMarkers=@('AGENT_REAL_QWEN_GUI_TASK_RESULT_PASS',
+                                'AGENT_REAL_QWEN_GUI_SUBMIT_REVIEW_ACCEPTED_PASS',
+                                'AGENT_REAL_QWEN_GUI_COLD_INDEPENDENT_IMPORT_PASS')
+              foreach($line in [IO.File]::ReadLines($guiStatus)){
+                if([string]$line -cin $safeGuiMarkers){
+                  Write-Host ('PRIVATE_INSTALLED_GUI_CHECKPOINT='+[string]$line)
+                }
+              }
+            }
+            $raw=if(Test-Path -LiteralPath $err){Get-Content -LiteralPath $err -Raw}else{''}
+            $code=[regex]::Match($raw,'(full_qualification_[a-z0-9_-]+|PRIVATE_SETUP_CORE_BUILD_FAIL|private_setup_[a-z0-9_-]+)')
+            if($code.Success){Write-Host ('PRIVATE_QUALIFICATION_STAGE='+$code.Value)}
+            else{Write-Host 'PRIVATE_QUALIFICATION_STAGE=UNCLASSIFIED'}
+            if($raw -match 'full_qualification_step_failed_native-install-and-function'){
+              $nativeLogs=Join-Path $out 'native-candidate/logs'
+              $stages=[ordered]@{
+                native_stub='native-setup-build.json'
+                managed_python='test-python-bootstrap.log'
+                desktop_icon='native-desktop-icon.json'
+                u04_fetch='u04-source-preparation.json'
+                u04_stage='u04-stage.json'
+                node_dependencies='native-desktop-dependencies.log'
+                tauri_build='native-desktop-build.log'
+                payload='package-build-only.json'
+                setup_resource='private-setup-core-build.json'
+                installed_acceptance='public-test-local-result.txt'
+              }
+              foreach($stage in $stages.Keys){
+                if(Test-Path -LiteralPath (Join-Path $nativeLogs $stages[$stage]) -PathType Leaf){
+                  Write-Host ('PRIVATE_NATIVE_ATTEMPTED_STAGE='+$stage)
+                }
+              }
+              $logPaths=@(
+                (Join-Path $out 'evidence/native-install-and-function.stderr.log'),
+                (Join-Path $out 'evidence/native-install-and-function.stdout.log'),
+                (Join-Path $nativeLogs 'test-python-bootstrap.log'),
+                (Join-Path $nativeLogs 'native-desktop-build.log'),
+                (Join-Path $nativeLogs 'native-desktop-build.log.stderr'),
+                (Join-Path $nativeLogs 'native-desktop-build.log.stderr'),
+                (Join-Path $nativeLogs 'native-desktop-dependencies.log.stderr'),
+                (Join-Path $nativeLogs 'package-build-only.json'),
+                (Join-Path $nativeLogs 'private-setup-core-build.json'),
+                (Join-Path $nativeLogs 'public-test-local-result.txt')
+              )
+              $codes=New-Object 'System.Collections.Generic.HashSet[string]'
+              $classes=New-Object 'System.Collections.Generic.HashSet[string]'
+              $setupNativeActions=New-Object 'System.Collections.Generic.HashSet[string]'
+              $setupNativeReasons=New-Object 'System.Collections.Generic.HashSet[string]'
+              foreach($lp in $logPaths){
+                if(!(Test-Path -LiteralPath $lp -PathType Leaf)){continue}
+                $scanned=0
+                foreach($line in [IO.File]::ReadLines($lp)){
+                  if(++$scanned -gt 30000){break}
+                  if($line -match '\b((?:native_candidate|private_setup|agent_setup|full_qualification|windows_python|windows_runtime|windows_release)_[a-z0-9_]{3,90}|SETUP_LOCAL_[A-Z0-9_]{3,90})\b'){
+                    $null=$codes.Add($Matches[1])
+                  }
+                  # A Setup Core native action may fail after creating its
+                  # private JSON receipt. Emit only the explicit public CLI
+                  # operation and an allowlisted Setup Core error identifier.
+                  # Never print the native receipt, paths or exception text.
+                  if($line -cmatch 'SETUP_LOCAL_NATIVE_FAILED_--(inspect|preflight|install-locations|verify-installed|locations|repair|confirm-upgrade|uninstall)-file_'){
+                    $null=$setupNativeActions.Add($Matches[1].Replace('-','_').ToUpperInvariant())
+                  }
+                  if($line -cmatch 'SETUP_LOCAL_NATIVE_FAILED_--(?:inspect|preflight|install-locations|verify-installed|locations|repair|confirm-upgrade|uninstall)-file_(SETUP_[A-Z0-9_]{3,80})(?:\b|$)'){
+                    $null=$setupNativeReasons.Add($Matches[1])
+                  }
+                  if($line -match 'error\[E\d{4}\]'){$null=$classes.Add('RUST_COMPILER')}
+                  if($line -match 'error TS(\d{4})'){
+                    $null=$classes.Add('TYPESCRIPT')
+                    Write-Host ('PRIVATE_NATIVE_TS_CODE=TS'+$Matches[1])
+                  }
+                  if($line -match 'error\[E(\d{4})\]'){
+                    $null=$classes.Add('RUST_COMPILER')
+                    Write-Host ('PRIVATE_NATIVE_RUST_CODE=E'+$Matches[1])
+                  }
+                  if($line -match 'Cannot find module|module not found'){$null=$classes.Add('MODULE_NOT_FOUND')}
+                  if($line -match 'linker|link\.exe'){$null=$classes.Add('LINKER')}
+                  if($line -match 'failed to load|failed to resolve'){$null=$classes.Add('RESOURCE_RESOLUTION')}
+                  if($line -match 'not recognized as the name|command not found'){$null=$classes.Add('MISSING_TOOL')}
+                  if($line -match 'failed to parse|invalid config'){$null=$classes.Add('CONFIG_PARSE')}
+                  if($line -match 'unresolved import'){$null=$classes.Add('UNRESOLVED_IMPORT')}
+                  if($line -match 'npm ERR!|npm error'){$null=$classes.Add('NPM')}
+                  if($line -match 'failed to compile|could not compile'){$null=$classes.Add('RUST_BUILD')}
+                  if($line -match 'ECONNRESET|ETIMEDOUT|Could not resolve host'){$null=$classes.Add('NETWORK')}
+                  if($line -match 'windows_runtime_wheel_fetch_failed'){$null=$classes.Add('WHEEL_FETCH')}
+                  if($line -match 'windows_runtime_wheel_(?:requirements_mismatch|identity_invalid|platform_or_python_mismatch)'){$null=$classes.Add('WHEEL_CONTRACT')}
+                  if($line -match 'windows_python_release_digest_mismatch'){$null=$classes.Add('PYTHON_ARCHIVE_SHA')}
+                  if($line -match 'windows_python_release_post_provision_verification_failed'){$null=$classes.Add('PYTHON_EXECUTABLE')}
+                  if($line -match 'Invoke-WebRequest|curl: \('){$null=$classes.Add('HTTP_DOWNLOAD')}
+                  if($line -match 'windows_runtime_wheel_fetch_failed:([A-Za-z0-9._-]{1,48})'){
+                    Write-Host ('PRIVATE_NATIVE_WHEEL_NAME='+$Matches[1])
+                  }
+                  # This exception concerns a public pinned PyPI wheel, not
+                  # user data. Redact locations, links and digests before
+                  # emitting one bounded diagnostic to the public CI log.
+                  if($line -match 'windows_runtime_wheel_fetch_failed:attrs:([^\r\n]{1,320})'){
+                    $cause=$Matches[1]
+                    $cause=[regex]::Replace($cause,'(?i)(?:https?://|[a-z]:\\|\\\\)[^\s,;]+','[location]')
+                    $cause=[regex]::Replace($cause,'(?i)\b[0-9a-f]{40,64}\b','[digest]')
+                    $cause=[regex]::Replace($cause,'[^\x20-\x7e]','?')
+                    if($cause.Length -gt 160){$cause=$cause.Substring(0,160)}
+                    Write-Host ('PRIVATE_PUBLIC_WHEEL_ERROR_SUMMARY='+$cause)
+                  }
+                  if($line -match 'HTTP (403|404|429|500|502|503|504)|returned error: (403|404|429|500|502|503|504)'){
+                    $null=$classes.Add('HTTP_STATUS')
+                  }
+                  if($line -match 'No such host|Could not resolve|Name or service not known'){
+                    $null=$classes.Add('DNS')
+                  }
+                  if($line -match 'timed out|timeout|ETIMEDOUT'){
+                    $null=$classes.Add('TIMEOUT')
+                  }
+                  if($line -match 'certificate|SSL|TLS'){
+                    $null=$classes.Add('CERTIFICATE_OR_TLS')
+                  }
+                  if($line -match 'digest_mismatch'){
+                    $null=$classes.Add('DIGEST_MISMATCH')
+                  }
+                }
+              }
+              foreach($item in @($codes) | Sort-Object | Select-Object -First 16){
+                Write-Host ('PRIVATE_NATIVE_ERROR_CODE='+$item)
+              }
+              foreach($item in @($classes) | Sort-Object){
+                Write-Host ('PRIVATE_NATIVE_ERROR_CLASS='+$item)
+              }
+              foreach($item in @($setupNativeActions) | Sort-Object | Select-Object -First 8){
+                Write-Host ('PRIVATE_NATIVE_SETUP_OPERATION='+$item)
+              }
+              foreach($item in @($setupNativeReasons) | Sort-Object | Select-Object -First 8){
+                Write-Host ('PRIVATE_NATIVE_SETUP_REASON_CODE='+$item)
+              }
+              # The private repair receipt is read ONLY inside the temporary
+              # runner. Print a finite product-neutral category, never a path.
+              $repairReceipt=Join-Path $out 'native-candidate/temporary-installed-fixture/repair.json'
+              if(Test-Path -LiteralPath $repairReceipt -PathType Leaf){
+                try {
+                  $repair=Get-Content -LiteralPath $repairReceipt -Raw -Encoding UTF8|ConvertFrom-Json
+                  $kind=[string]$repair.unownedCategory
+                  if($repair.status -eq 'ERROR' -and $kind -cin @(
+                     'WEBVIEW2_PROFILE','PYTHON_BYTECODE','DESKTOP_RUNTIME',
+                     'PYTHON_OR_MODEL_RUNTIME','APPLICATION_STATE','OTHER')){
+                    Write-Host ('PRIVATE_NATIVE_REPAIR_UNOWNED_CATEGORY='+$kind)
+                  }
+                } catch {
+                  Write-Host 'PRIVATE_NATIVE_REPAIR_CATEGORY_READBACK=UNAVAILABLE'
+                }
+              }
+              Write-Host ('PRIVATE_NATIVE_SETUP_OPERATIONS_OBSERVED='+$setupNativeActions.Count)
+              Write-Host ('PRIVATE_NATIVE_ERROR_CODES_OBSERVED='+$codes.Count)
+              # Native Setup Core writes the detailed reason only to a
+              # private local receipt. Project to a STRICT finite set of
+              # public-safe cause codes, never print the original string,
+              # any paths, its JSON, a stack trace or user-controlled text.
+              $installReceipt=Join-Path $out 'native-candidate/temporary-installed-fixture/installed.json'
+              if(Test-Path -LiteralPath $installReceipt -PathType Leaf){
+                try{
+                  $install=Get-Content -LiteralPath $installReceipt -Raw -Encoding UTF8 | ConvertFrom-Json
+                  if([string]$install.status -ceq 'ERROR'){
+                    Write-Host 'PRIVATE_NATIVE_INSTALL_RECEIPT=ERROR'
+                    # Only exact finite enums from the product-neutral native
+                    # installer may be published. No raw reason/path/stack trace.
+                    $nativeClass=[string]$install.exceptionClass
+                    $nativePhase=[string]$install.installPhase
+                    if($nativeClass -cin @('PATH_TOO_LONG','ACCESS_DENIED','COM','REFLECTION','SECURITY','INVALID_DATA','IO','INVALID_OPERATION','ARGUMENT','NOT_SUPPORTED','OTHER')){
+                      Write-Host ('PRIVATE_NATIVE_INSTALL_EXCEPTION_CLASS='+$nativeClass)
+                    }
+                    if($nativePhase -cin @('STAGE_EXTRACTION','STORAGE_VALIDATION','ACTIVATION','REGISTRATION','SHORTCUT','SHORTCUT_FOLDER','SHORTCUT_STAGE_CREATE','SHORTCUT_CREATE_COM','SHORTCUT_TARGET','SHORTCUT_WORKING_DIR','SHORTCUT_DESCRIPTION','SHORTCUT_SAVE','SHORTCUT_READBACK','SHORTCUT_CLAIM','REQUEST_OR_PREFLIGHT')){
+                      Write-Host ('PRIVATE_NATIVE_INSTALL_PHASE='+$nativePhase)
+                    }
+                    $reason=[string]$install.reason
+                    $safeCodes=@(
+                      'SETUP_DISK_SPACE_INSUFFICIENT',
+                      'SETUP_EXTRACTED_SIZE_EXCEEDED',
+                      'SETUP_ZIP_ENTRY_HASH_INVALID',
+                      'SETUP_ZIP_ENTRY_LENGTH_INVALID',
+                      'SETUP_ZIP_ENTRY_EXPANSION',
+                      'SETUP_ZIP_ENTRY_UNKNOWN',
+                      'SETUP_STAGING_ROOT_NOT_EMPTY_OR_UNTRUSTED',
+                      'SETUP_ENTRYPOINT_NOT_STAGED',
+                      'SETUP_STORAGE_VOLUME_UNAVAILABLE',
+                      'SETUP_RESERVED_FILE_COLLISION',
+                      'SETUP_INSTALL_ALREADY_EXISTS',
+                      'SETUP_INSTALL_ALREADY_RUNNING',
+                      'SETUP_BLOCKED_',
+                      'SETUP_RELATIVE_PATH_INVALID',
+                      'SETUP_POST_OWNED_PRODUCT_MISMATCH',
+                      'SETUP_INSTALL_ROOT_INVALID',
+                      'SETUP_INSTALL_ROOT_VOLUME_ROOT',
+                      'SETUP_INSTALL_ROOT_SYSTEM_FOLDER',
+                      'SETUP_INSTALL_ROOT_PARENT_FILE',
+                      'SETUP_INSTALL_ROOT_LINK',
+                      'SETUP_STORAGE_LOCATIONS_OVERLAP',
+                      'SETUP_LOCATIONS_SCHEMA_INVALID',
+                      'SETUP_LOCATIONS_FIELD_',
+                      'SETUP_LOCATIONS_STARTUP_MODE_INVALID',
+                      'SETUP_STARTUP_SHORTCUT_CONFLICT',
+                      'SETUP_START_MENU_SHORTCUT_CONFLICT',
+                      'SETUP_WINDOWS_SHORTCUT_SERVICE_MISSING',
+                      'SETUP_START_MENU_FOLDER_UNAVAILABLE',
+                      'SETUP_DISK_PACKAGE_SIZE_UNKNOWN',
+                      'SETUP_DISK_VOLUME_UNAVAILABLE',
+                      'SETUP_PACKAGE_CHANGED_DURING_STAGE',
+                      'SETUP_PACKAGE_MISSING',
+                      'SETUP_PACKAGE_HASH_INVALID',
+                      'SETUP_MANIFEST_HASH_INVALID',
+                      'SETUP_MANIFEST_SCHEMA_INVALID',
+                      'SETUP_LAYOUT_INVALID',
+                      'SETUP_RESOURCE_HEADER_INVALID',
+                      'SETUP_ZIP_FILE_COUNT_INVALID',
+                      'SETUP_ZIP_LINK_FORBIDDEN',
+                      'SETUP_ZIP_REGION_OUT_OF_BOUNDS',
+                      'SETUP_STAGING_ESCAPE',
+                      'SETUP_FILES_INVALID',
+                      'SETUP_FILE_IDENTITY_INVALID',
+                      'SETUP_FILE_LENGTH_INVALID',
+                      'SETUP_ENTRYPOINT_MISSING',
+                      'SETUP_PRODUCT_IDENTITY_INVALID',
+                      'SETUP_PRODUCT_SCHEMA_INVALID',
+                      'SETUP_SOURCE_IDENTITY_INVALID',
+                      'SETUP_REQUIREMENTS_INVALID',
+                      'SETUP_LOCATIONS_AUTHORITY_MISSING',
+                      'SETUP_STAGED_ENTRYPOINT_MISSING'
+                    )
+                    $found=$false
+                    foreach($safeCode in $safeCodes){
+                      if($reason.StartsWith($safeCode,[StringComparison]::Ordinal)){
+                        Write-Host ('PRIVATE_NATIVE_INSTALL_CAUSE_CODE='+$safeCode.TrimEnd('_'))
+                        $found=$true
+                        break
+                      }
+                    }
+                    if(!$found){
+                      $failureClass='OTHER'
+                      if($reason -match '(?i)path.{0,32}too long|too long.{0,32}path|filename.{0,24}too long|longpath'){
+                        $failureClass='PATH_TOO_LONG'
+                      }elseif($reason -match '(?i)not enough space|disk is full|insufficient disk'){
+                        $failureClass='DISK_SPACE'
+                      }elseif($reason -match '(?i)access.{0,10}denied|unauthorizedaccess|permission denied'){
+                        $failureClass='ACCESS_DENIED'
+                      }elseif($reason -match '(?i)cannot find.{0,30}path|could not find.{0,30}path|part of the path'){
+                        $failureClass='PATH_NOT_FOUND'
+                      }elseif($reason -match '(?i)another process|sharing violation|being used by'){
+                        $failureClass='FILE_LOCKED'
+                      }elseif($reason -match '(?i)javascriptserializer|maxjsonlength|maximum.{0,20}json|json.{0,20}length'){
+                        $failureClass='JSON_CAPACITY'
+                      }elseif($reason -match '(?i)file.{0,12}already exists|already exists'){
+                        $failureClass='FILE_ALREADY_EXISTS'
+                      }elseif($reason -match '(?i)the system cannot find the file specified|the system cannot find the path specified|the directory name is invalid'){
+                        $failureClass='WINDOWS_ENTRY_NOT_FOUND'
+                      }elseif($reason -match '(?i)illegal characters in path|path contains invalid characters|filename.{0,30}syntax is incorrect'){
+                        $failureClass='INVALID_PATH_SYNTAX'
+                      }elseif($reason -match '(?i)the directory is not empty|directory not empty'){
+                        $failureClass='DIRECTORY_NOT_EMPTY'
+                      }elseif($reason -match '(?i)requested registry access is not allowed|access to the registry key'){
+                        $failureClass='REGISTRY_ACCESS'
+                      }elseif($reason -match '(?i)class not registered|0x80040154|cannot create activex component'){
+                        $failureClass='SHELL_COM_UNAVAILABLE'
+                      }elseif($reason -match '(?i)out of memory|insufficient memory|too many open files'){
+                        $failureClass='RESOURCE_LIMIT'
+                      }elseif($reason -match '(?i)key was not present in the dictionary|an item with the same key|index was out of range'){
+                        $failureClass='COLLECTION_STATE'
+                      }elseif($reason -match '(?i)object reference not set to an instance'){
+                        $failureClass='NULL_REFERENCE'
+                      }elseif($reason -match '(?i)cannot access a disposed object'){
+                        $failureClass='DISPOSED_OBJECT'
+                      }elseif($reason -match '(?i)invalid argument|argument.{0,40}invalid|value cannot be null'){
+                        $failureClass='INVALID_ARGUMENT'
+                      }elseif($reason -match '(?i)end of central directory|invalid.*zip archive|zip archive.*invalid'){
+                        $failureClass='ZIP_STRUCTURE'
+                      }elseif($reason.StartsWith('SETUP_',[StringComparison]::Ordinal)){
+                        $failureClass='UNLISTED_ENGINE_CODE'
+                      }elseif([string]::IsNullOrWhiteSpace($reason)){
+                        $failureClass='MISSING_REASON'
+                      }
+                      Write-Host ('PRIVATE_NATIVE_INSTALL_CAUSE_CLASS='+$failureClass)
+                    }
+                  }else{
+                    Write-Host 'PRIVATE_NATIVE_INSTALL_RECEIPT=NON_ERROR'
+                  }
+                }catch{
+                  Write-Host 'PRIVATE_NATIVE_INSTALL_RECEIPT=UNREADABLE'
+                }
+              }else{
+                Write-Host 'PRIVATE_NATIVE_INSTALL_RECEIPT=MISSING'
+              }
+              # The native candidate is private, but the explicitly allowed
+              # SHA-256/size and verified pinned source revision can be
+              # published even when the subsequent installation fails.
+              $builtSetup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
+              $releaseReceipt=Join-Path $nativeLogs 'private-setup-core-build.json'
+              if((Test-Path -LiteralPath $builtSetup -PathType Leaf) -and
+                 (Test-Path -LiteralPath $releaseReceipt -PathType Leaf)){
+                try{
+                  $built=Get-Content -LiteralPath $releaseReceipt -Raw -Encoding UTF8 | ConvertFrom-Json
+                  if($built.status -ceq 'BUILT_UNQUALIFIED' -and
+                     $built.private_source_commit -ceq $env:PRIVATE_SOURCE_SHA -and
+                     $built.setup_sha256 -cmatch '^[0-9a-f]{64}$'){
+                    $nativeStream=[IO.File]::OpenRead([IO.Path]::GetFullPath($builtSetup))
+                    $sha=[Security.Cryptography.SHA256]::Create()
+                    try{
+                      $actual=([BitConverter]::ToString($sha.ComputeHash($nativeStream))).Replace('-','').ToLowerInvariant()
+                    }finally{
+                      $sha.Dispose()
+                      $nativeStream.Dispose()
+                    }
+                    if($actual -ceq $built.setup_sha256){
+                      Write-Host ('PRIVATE_NATIVE_SETUP_SHA256='+$actual)
+                      Write-Host ('PRIVATE_NATIVE_SETUP_BYTES='+((Get-Item -LiteralPath $builtSetup -ErrorAction Stop).Length))
+                    }else{
+                      Write-Host 'PRIVATE_NATIVE_SETUP_DIGEST_MISMATCH'
+                    }
+                  }
+                }catch{
+                  Write-Host 'PRIVATE_NATIVE_SETUP_DIGEST_OBSERVATION_UNAVAILABLE'
+                }
+              }
+            }
+            if($raw -match 'full_qualification_step_failed_python-(targeted|full)_exit_([0-9]{1,3})'){
+              Write-Host ('PRIVATE_PYTHON_EXIT_CODE='+$Matches[2])
+            }
+            # The Node TAP log stays private; output only counts and hashes.
+            $nodeStdout=Join-Path $out 'evidence/desktop-node-tests.stdout.log'
+            if(Test-Path -LiteralPath $nodeStdout -PathType Leaf){
+              $nodePass=-1; $nodeFail=-1; $nodeIds=0
+              foreach($line in [IO.File]::ReadLines($nodeStdout)){
+                if($line -match '^# pass (\d{1,7})\s*$'){$nodePass=[int]$Matches[1]}
+                if($line -match '^# fail (\d{1,7})\s*$'){$nodeFail=[int]$Matches[1]}
+                if($line -match '^not ok \d+ - (.{1,350})$' -and $nodeIds -lt 12){
+                  $bytes=[Text.Encoding]::UTF8.GetBytes($Matches[1].Trim())
+                  $hash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+                  Write-Host ('PRIVATE_NODE_FAILED_ID_SHA256='+$hash)
+                  $nodeIds++
+                }
+              }
+              Write-Host ('PRIVATE_NODE_PASSED_COUNT='+$nodePass)
+              Write-Host ('PRIVATE_NODE_FAILED_COUNT='+$nodeFail)
+              Write-Host ('PRIVATE_NODE_FAILED_ID_COUNT='+$nodeIds)
+            }
+            # The pytest log remains private on the ephemeral worker. Public
+            # output contains only bounded test identifiers, never captured
+            # tracebacks, assertion values, task content, or provider data.
+            $testStage=if($raw -match 'full_qualification_step_(?:failed|exit_unknown)_python-targeted'){'python-targeted'}else{'python-full'}
+            $pytestLog=Join-Path $out ('evidence/'+$testStage+'.stdout.log')
+            $pytestErr=Join-Path $out ('evidence/'+$testStage+'.stderr.log')
+            if($raw -match 'full_qualification_step_exit_unknown_python-(targeted|full)'){
+              Write-Host 'PRIVATE_PYTHON_EXIT_OBSERVATION=UNAVAILABLE'
+            }
+            if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
+              $outputText=Get-Content -LiteralPath $pytestLog -Raw -Encoding UTF8
+              if($null -eq $outputText){$outputText=''}
+              if($outputText -match '(\d{1,6})\s+passed'){Write-Host ('PRIVATE_PYTHON_PASSED_COUNT='+$Matches[1])}
+              if($outputText -match '(\d{1,6})\s+failed'){Write-Host ('PRIVATE_PYTHON_FAILED_COUNT='+$Matches[1])}
+              if($outputText -match 'INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=INTERNAL'}
+              if($outputText -match 'ERROR collecting '){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=COLLECTION'}
+              if($outputText -match 'unrecognized arguments|pytest: error:'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=ARGUMENTS'}
+              if($outputText -match 'no tests ran'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=NO_TESTS'}
+              if($outputText -match 'Traceback \(most recent call last\)'){Write-Host 'PRIVATE_PYTHON_RUNNER_ERROR=TRACEBACK_REDACTED'}
+              Write-Host ('PRIVATE_PYTHON_STDOUT_BYTES='+([Text.Encoding]::UTF8.GetByteCount($outputText)))
+            }else{Write-Host 'PRIVATE_PYTHON_STDOUT=NOT_FOUND'}
+            if(Test-Path -LiteralPath $pytestErr -PathType Leaf){
+              $errText=Get-Content -LiteralPath $pytestErr -Raw -Encoding UTF8
+              if($null -eq $errText){$errText=''}
+              if($errText -match 'unrecognized arguments|pytest: error:'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=ARGUMENTS'}
+              if($errText -match 'Fatal Python error|INTERNALERROR'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=INTERNAL'}
+              if($errText -match 'No module named pytest'){Write-Host 'PRIVATE_PYTHON_STDERR_CLASS=PYTEST_MISSING'}
+              Write-Host ('PRIVATE_PYTHON_STDERR_BYTES='+([Text.Encoding]::UTF8.GetByteCount($errText)))
+            }else{Write-Host 'PRIVATE_PYTHON_STDERR=NOT_FOUND'}
+            if(Test-Path -LiteralPath $pytestLog -PathType Leaf){
+              $count=0
+              $collections=0
+              $locations=0
+              $errors=0
+              foreach($line in [IO.File]::ReadLines($pytestLog)){
+                if($line -match '^(FAILED|ERROR)\s+(tests[/\\][A-Za-z0-9_/.\\:-]{1,220})\b'){
+                  Write-Host ('PRIVATE_PYTHON_FAILED_TEST='+$Matches[2])
+                  $count++
+                }elseif($line -match '^ERROR collecting (tests[/\\][A-Za-z0-9_./\\-]{1,180}\.py)' -and $collections -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_COLLECTION_ERROR='+$Matches[1])
+                  $collections++
+                }elseif($line -match '^tests[/\\]([A-Za-z0-9_./\\-]{1,180}\.py):(\d{1,5}):' -and $locations -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_FAILURE_LOCATION='+$Matches[1]+':'+$Matches[2])
+                  $locations++
+                }elseif($line -match '^E\s+([A-Za-z][A-Za-z0-9_]*Error)\b' -and $errors -lt 12){
+                  Write-Host ('PRIVATE_PYTHON_EXCEPTION_CLASS='+$Matches[1])
+                  if($line -match '\[WinError (\d{1,4})\]'){
+                    Write-Host ('PRIVATE_PYTHON_WINERROR='+$Matches[1])
+                  }
+                  if($line -match '^E\s+[A-Za-z][A-Za-z0-9_]*Error:\s+([a-z][a-z0-9_]{2,80})\s*$'){
+                    Write-Host ('PRIVATE_PYTHON_ERROR_CODE='+$Matches[1])
+                  }
+                  $errors++
+                }
+                if($count -ge 20 -and $locations -ge 12 -and $errors -ge 12){break}
+              }
+              Write-Host ('PRIVATE_PYTHON_FAILURE_IDENTIFIERS_SHOWN='+$count)
+              Write-Host ('PRIVATE_PYTHON_COLLECTION_IDENTIFIERS_SHOWN='+$collections)
+            }
+            throw 'PRIVATE_QUALIFICATION_NOT_ACCEPTED'
+          }
+          $resultPath=Join-Path $out 'result.json'
+          if(!(Test-Path -LiteralPath $resultPath -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_RESULT_MISSING'
+          }
+          $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or
+             $result.source_commit -cne $env:PRIVATE_SOURCE_SHA -or
+             $result.gui_task_result_full_acceptance -cne 'PASS' -or
+             $result.gui_task_cold_independent_import -cne 'PASS' -or
+             $result.model_result_transport_verified -cne 'PASS' -or
+             $result.product_version -cne '0.4.0'){
+            throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
+          }
+          $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
+            throw 'PRIVATE_QUALIFICATION_INSTALLER_MISSING'
+          }
+          $hash=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host 'PRIVATE_WINDOWS_SOURCE_AND_INSTALLED_SMOKE_PASS'
+          Write-Host ('PRIVATE_SETUP_SHA256='+$hash)
+          Write-Host ('PRIVATE_SOURCE_SHA='+$result.source_commit)
+          Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=PASS'
+          Write-Host 'PRIVATE_GUI_TASK_COLD_INDEPENDENT_IMPORT=PASS'
+          Write-Host 'PRIVATE_MODEL_RESULT_TRANSPORT_VERIFIED=PASS'
+          Write-Host 'PRIVATE_PRODUCT_VERSION=0.4.0'
+          # Never upload private files, archives, windows screenshots, or logs.
+      # Publish only after complete native installed acceptance, never as a public artifact.
+      - name: Publish verified 0.4.0 Setup only to private Agent release
+        if: ${{ contains(github.event.head_commit.message, ' private-release') && !contains(github.event.head_commit.message, ' node-only') }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.IWXA_PRIVATE_RELEASE_TOKEN }}
+          PRIVATE_SOURCE_SHA: ${{ steps.private-pin.outputs.sha }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='Faust-S/iwxa-personal-agent'
+          $tag='v0.4.0'
+          $fixed='2a2fdebf905b96ef88211692cc02f2a14069445b'
+          if ($env:PRIVATE_SOURCE_SHA -cne $fixed) { throw 'PRIVATE_RELEASE_SOURCE_NOT_FROZEN_0_4' }
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw 'PRIVATE_RELEASE_WRITE_TOKEN_NOT_CONFIGURED' }
+          $root=Join-Path $env:GITHUB_WORKSPACE 'private-product'
+          if ((& git -C $root rev-parse HEAD).Trim() -cne $fixed) { throw 'PRIVATE_RELEASE_SOURCE_MISMATCH' }
+          $out=Join-Path $env:RUNNER_TEMP 'private-product-qualification'
+          $receiptPath=Join-Path $out 'result.json'
+          $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
+          if (!(Test-Path -LiteralPath $receiptPath -PathType Leaf) -or !(Test-Path -LiteralPath $setup -PathType Leaf)) {
+            throw 'PRIVATE_RELEASE_QUALIFIED_SETUP_MISSING'
+          }
+          $r=Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($r.status -cne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $r.source_commit -cne $fixed -or
+              $r.product_version -cne '0.4.0' -or $r.gui_task_result_full_acceptance -cne 'PASS' -or
+              $r.gui_task_cold_independent_import -cne 'PASS' -or $r.model_result_transport_verified -cne 'PASS') {
+            throw 'PRIVATE_RELEASE_WINDOWS_ACCEPTANCE_UNVERIFIED'
+          }
+          $digest=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          $bytes=(Get-Item -LiteralPath $setup).Length
+          if ($bytes -lt 1000000 -or $digest -cnotmatch '^[0-9a-f]{64}$') { throw 'PRIVATE_RELEASE_BINARY_INVALID' }
+          if (!(Get-Command gh -ErrorAction SilentlyContinue)) { throw 'PRIVATE_RELEASE_GH_CLI_MISSING' }
+          $privateLog=Join-Path $env:RUNNER_TEMP 'private-gh-release.log'
+          & gh release view $tag --repo $repo --json tagName *> $privateLog
+          if ($LASTEXITCODE -eq 0) { throw 'PRIVATE_RELEASE_TAG_EXISTS_NO_OVERWRITE' }
+          $assetName='IWXA-Personal-Agent-0.4.0-Setup.exe'
+          $sums=Join-Path $env:RUNNER_TEMP 'agent04-release-SHA256SUMS.txt'
+          ($digest+'  '+$assetName) | Set-Content -LiteralPath $sums -Encoding ascii
+          $notes=Join-Path $env:RUNNER_TEMP 'agent04-release-notes.md'
+          @(
+            'IWXA Personal Agent 0.4.0 for Windows. Full installed acceptance PASS.'
+            ('Exact source SHA: '+$fixed)
+            ('Installer SHA-256: '+$digest)
+            ('Center Windows acceptance run: '+$env:GITHUB_RUN_ID)
+            'Verified: local model transport, Task, Human Review, Result, cold independent .iwxa import.'
+            'Model choice and reasoning effort remain user preferences; no subjective answer-quality gate.'
+            'Private release asset only; public Center artifacts remain empty.'
+          ) | Set-Content -LiteralPath $notes -Encoding utf8
+          & gh release create $tag ($setup+'#'+$assetName) ($sums+'#SHA256SUMS.txt') --repo $repo --target $fixed --title 'IWXA Personal Agent 0.4.0' --notes-file $notes --draft *> $privateLog
+          if ($LASTEXITCODE -ne 0) { throw 'PRIVATE_RELEASE_DRAFT_UPLOAD_FAILED' }
+          $raw=& gh release view $tag --repo $repo --json tagName,isDraft,targetCommitish,assets 2>$privateLog
+          if ($LASTEXITCODE -ne 0) { throw 'PRIVATE_RELEASE_READBACK_FAILED' }
+          $published=$raw | ConvertFrom-Json
+          $installer=@($published.assets | Where-Object { $_.name -ceq $assetName })
+          $checksums=@($published.assets | Where-Object { $_.name -ceq 'SHA256SUMS.txt' })
+          if ($published.tagName -cne $tag -or !$published.isDraft -or $published.targetCommitish -cne $fixed -or
+              $installer.Count -ne 1 -or [int64]$installer[0].size -ne $bytes -or $checksums.Count -ne 1) {
+            throw 'PRIVATE_RELEASE_ASSET_READBACK_MISMATCH'
+          }
+          & gh release edit $tag --repo $repo --draft=false *> $privateLog
+          if ($LASTEXITCODE -ne 0) { throw 'PRIVATE_RELEASE_PUBLISH_FAILED' }
+          $raw=& gh release view $tag --repo $repo --json tagName,isDraft 2>$privateLog
+          if ($LASTEXITCODE -ne 0 -or ($raw | ConvertFrom-Json).isDraft -ne $false) {
+            throw 'PRIVATE_RELEASE_FINAL_READBACK_MISSING'
+          }
+          Write-Host 'PRIVATE_RELEASE_PRIVATE_REPO_UPLOAD=PASS'
+          Write-Host ('PRIVATE_RELEASE_SETUP_SHA256='+$digest)
+          Write-Host 'PRIVATE_RELEASE_ASSET_COUNT=2'
+          Write-Host 'PRIVATE_RELEASE_VISIBILITY=PRIVATE'
+ -and $hashes -lt 16){
+                $text=[Text.Encoding]::UTF8.GetBytes($Matches[1])
+                $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($text)).ToLowerInvariant()
+                Write-Host ('PRIVATE_PYTHON_TARGETED_FAILED_ID_SHA256='+$sha)
+                $hashes++
+              }
+            }
+          }
+          Write-Host ('PRIVATE_PYTHON_TARGETED_EXIT_CODE='+[string]$code)
+          Write-Host ('PRIVATE_PYTHON_TARGETED_PASSED_COUNT='+$pass)
+          Write-Host ('PRIVATE_PYTHON_TARGETED_FAILED_COUNT='+$fail)
+          Write-Host ('PRIVATE_PYTHON_TARGETED_FAILED_IDS='+$hashes)
+          if($code -ne 0 -or $pass -lt 1 -or $fail -ne 0){
+            throw 'PRIVATE_PYTHON_TARGETED_FAILED'
+          }
+          Write-Host 'PRIVATE_PYTHON_TARGETED_PASS'
       - name: Parse private Windows product scripts before expensive qualification
         if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
         timeout-minutes: 3
@@ -751,7 +1457,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'PRIVATE_POWERSHELL_PARSER_UNVERIFIED'}
           Remove-Item -LiteralPath $check -Force
       - name: Qualify private source and native installed Windows lifecycle
-        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') && !contains(github.event.head_commit.message, ' python-only') }}
         timeout-minutes: 150
         shell: pwsh
         env:
