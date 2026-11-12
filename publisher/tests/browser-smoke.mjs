@@ -183,7 +183,11 @@ try {
   assert.equal(await page.getByTestId('publisher-t3-public-trust-fingerprint').inputValue(),'c'.repeat(64));
   assert.match(await page.getByTestId('publisher-test-public-trust').innerText(),/SHA-256/);
   checks.push('original-T3-public-trust-export-returns-independent-fingerprint-not-license-grant');
-  assert.equal(await page.getByTestId('publisher-person-export-age').isEnabled(),false);
+  // The independently provisioned production PERSON owner is unavailable in
+  // this TEST-only fake host. Its export controls must be ABSENT, not a
+  // disabled control belonging to the unrelated TEST publisher.
+  await page.getByTestId('publisher-person-owner-unavailable').waitFor();
+  assert.equal(await page.getByTestId('publisher-person-export-age').count(),0);
   await page.getByTestId('publisher-age-recipients').fill('age1'+'q'.repeat(58));
   await page.getByTestId('publisher-age-encrypt').click();
   await page.getByTestId('publisher-age-success').waitFor();
