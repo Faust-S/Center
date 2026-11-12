@@ -512,7 +512,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
-          ref: d4e4b4f5b6437071d27279808ebdde09eef5f50e
+          ref: d89133b921908cd47f0ad63fb367a5940606fc70
           path: public-owner
           persist-credentials: false
       - name: Checkout exact private source into ephemeral worker
@@ -538,7 +538,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $center=Join-Path $env:GITHUB_WORKSPACE 'public-owner'
           $private=Join-Path $env:GITHUB_WORKSPACE 'private-product'
-          if ((& git -C $center rev-parse HEAD).Trim() -cne 'd4e4b4f5b6437071d27279808ebdde09eef5f50e') {
+          if ((& git -C $center rev-parse HEAD).Trim() -cne 'd89133b921908cd47f0ad63fb367a5940606fc70') {
             throw 'PUBLIC_OWNER_IDENTITY_MISMATCH'
           }
           if ((& git -C $private rev-parse HEAD).Trim() -cne $env:PRIVATE_SOURCE_SHA) {
@@ -711,7 +711,7 @@ jobs:
           $log=Join-Path $env:RUNNER_TEMP 'private-qualifier.stdout.log'
           $err=Join-Path $env:RUNNER_TEMP 'private-qualifier.stderr.log'
           $script=Join-Path $root 'tools/qualify_setup_core_full_product.ps1'
-          $args=@('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$script,'-CenterRoot',$center,'-CenterCommit','d4e4b4f5b6437071d27279808ebdde09eef5f50e','-OutputRoot',$out,'-ReleaseCacheRoot',$cache)
+          $args=@('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$script,'-CenterRoot',$center,'-CenterCommit','d89133b921908cd47f0ad63fb367a5940606fc70','-OutputRoot',$out,'-ReleaseCacheRoot',$cache)
           # Exact source revisions with completed independent Windows source
           # suites. This native-only diagnostic is never a full acceptance.
           # Agent 390773f7: 4,592 Python PASS and 757 Node PASS on prior CI.
