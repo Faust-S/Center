@@ -1,0 +1,3 @@
+Scoped private Agent 0.5 Node/TypeScript regression with reasoning draft harness fix.
+Source: 55486874d21cb6d4b625da66f4af87e65f5239e8
+No private artifacts in public Center.
