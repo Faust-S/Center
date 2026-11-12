@@ -1,0 +1,1 @@
+Agent 0.5 user-controlled depth, model wait/stop, optional K03. Exact private SHA c4dca3ca622f5ecd6ffc3c7d857255e166f6c0ab. Node+TS only. No source or assets uploaded.
