@@ -24,7 +24,10 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
  const [inventoryTotal,setInventoryTotal]=useState(0);
  const [inventoryTruncated,setInventoryTruncated]=useState(false);
  const [licenseId,setLicenseId]=useState('');
- const [ageRecipients,setAgeRecipients]=useState('');
+ const [ageRecipientEntry,setAgeRecipientEntry]=useState<{licenseId:string;value:string}>({
+   licenseId:'',value:''
+ });
+ const ageRecipients=ageRecipientEntry.licenseId===licenseId?ageRecipientEntry.value:'';
  const [testTrustFingerprint,setTestTrustFingerprint]=useState('');
  const [adminRequest,setAdminRequest]=useState<AdminRequest|null>(null);
  const [proposalId,setProposalId]=useState('');
@@ -357,7 +360,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
      {licenses.length===0?<p className="muted">{needsRefresh?
        'Журнал пока не прочитан.':'Пока нет выпущенных лицензий.'}</p>:
        <label>Лицензия
-         <select value={licenseId} onChange={e=>{setAgeRecipients('');setLicenseId(e.target.value);setStatus('');setRevokePending(null);}} disabled={busy}>
+         <select value={licenseId} onChange={e=>{setAgeRecipientEntry({licenseId:'',value:''});setLicenseId(e.target.value);setStatus('');setRevokePending(null);}} disabled={busy}>
            <option value="">Выберите лицензию</option>{licenses.map(x=><option value={x.licenseId} key={x.licenseId}>
              {x.licenseId} — {x.organizationId} — {x.status}
            </option>)}
@@ -366,7 +369,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
      {selectedLicense&&<label>Публичный ключ получателя age1
        <textarea rows={2} spellCheck={false} value={ageRecipients}
          data-testid="publisher-t3-age-recipients"
-         onChange={e=>setAgeRecipients(e.target.value)} placeholder="age1…"/>
+         onChange={e=>setAgeRecipientEntry({licenseId,value:e.target.value})} placeholder="age1…"/>
        <small>Ключ получите из проверенного источника. Ввод не подтверждает личность владельца.</small>
      </label>}
      <div className="actions">

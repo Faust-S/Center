@@ -1041,6 +1041,10 @@ try {
   assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true,
     'Do not create redundant same-state signatures while current status has a full day left');
   checks.push('publisher-person-shows-separate-license-and-status-expiry');
+  // A signed carrier recipient belongs to THIS license. Auto-selection of a
+  // newly issued renewal must not carry the previous delivery key forward.
+  await personOwner.getByTestId('publisher-person-age-recipients')
+    .fill('age1'+'q'.repeat(58));
   // A new PERSON subscription is a distinct unsigned follow-up tied to
   // the exact signed original entry. It must not silently reissue rights.
   await personOwner.getByRole('combobox',{name:'Тариф продления PERSON'})
@@ -1091,6 +1095,10 @@ try {
     /license:person:mock:two/,
     'Signed renewal must be selected after exact original T3 readback');
   checks.push('person-renewal-references-original-T3-even-when-older-than-recent-view');
+  assert.equal(await personOwner.getByTestId('publisher-person-age-recipients').inputValue(),'',
+    'Automatic signed-renewal selection must not inherit the original license recipient key');
+  assert.equal(await personOwner.getByTestId('publisher-person-export-age').isDisabled(),true);
+  checks.push('person-age-recipient-bound-to-signed-license-even-after-auto-selection');
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true,
     'A signed renewal cannot silently be issued a second time');
   const updatedLedger=JSON.parse(await personal.evaluate(()=>

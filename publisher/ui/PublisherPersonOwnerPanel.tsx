@@ -54,7 +54,10 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
   const [lookupMatches,setLookupMatches]=useState<number|null>(null);
   const [proposalId,setProposalId]=useState('');
   const [licenseId,setLicenseId]=useState('');
-   const [ageRecipients,setAgeRecipients]=useState('');
+   const [ageRecipientEntry,setAgeRecipientEntry]=useState<{licenseId:string;value:string}>({
+   licenseId:'',value:''
+ });
+ const ageRecipients=ageRecipientEntry.licenseId===licenseId?ageRecipientEntry.value:'';
   const [status,setStatus]=useState<''|'ACTIVE'|'SUSPENDED'|'REVOKED'>('');
   const [termsConfirmed,setTermsConfirmed]=useState(false);
   const [revokePending,setRevokePending]=useState('');
@@ -220,7 +223,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       const found=result.entries.filter(x=>x.licenseId===search||
         x.requestId===search||x.personId===search);
       if(found.length){
-        setAgeRecipients('');setLicenseId(found[0].licenseId);setStatus('');setRevokePending('');
+        setAgeRecipientEntry({licenseId:'',value:''});setLicenseId(found[0].licenseId);setStatus('');setRevokePending('');
       }
       setMessage(result.matches?
         'Поиск в исходном T3: найдено записей '+result.matches+'.':
@@ -521,7 +524,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       {licenses.length>0&&<>
         <label>Персональная лицензия
         <select value={licenseId} disabled={busy}
-          onChange={e=>{setAgeRecipients('');setLicenseId(e.target.value);setStatus('');
+          onChange={e=>{setAgeRecipientEntry({licenseId:'',value:''});setLicenseId(e.target.value);setStatus('');
             setRevokePending('');setRenewalTariff('');}}>
           <option value="">Выберите лицензию</option>
           {licenses.map(x=><option key={x.licenseId} value={x.licenseId}>
@@ -598,7 +601,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       {selectedLicense&&<label>Публичный ключ получателя age1
         <textarea rows={2} spellCheck={false} value={ageRecipients}
           data-testid="publisher-person-age-recipients"
-          onChange={e=>setAgeRecipients(e.target.value)} placeholder="age1…"/>
+          onChange={e=>setAgeRecipientEntry({licenseId,value:e.target.value})} placeholder="age1…"/>
         <small>Принадлежность ключа получателю проверяется отдельно от лицензии.</small>
       </label>}
       {selectedLicense&&<section className="publisher-offer-review"
