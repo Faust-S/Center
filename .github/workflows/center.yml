@@ -601,13 +601,21 @@ jobs:
           & $tsc --noEmit --pretty false 1>$stdout 2>$stderr
           $exit=$LASTEXITCODE
           $reported=0
+          Write-Host ('PRIVATE_TYPECHECK_EXIT_CODE='+[string]$exit)
+          Write-Host ('PRIVATE_TYPECHECK_STDOUT_BYTES='+[string](Get-Item -LiteralPath $stdout -ErrorAction SilentlyContinue).Length)
+          Write-Host ('PRIVATE_TYPECHECK_STDERR_BYTES='+[string](Get-Item -LiteralPath $stderr -ErrorAction SilentlyContinue).Length)
           foreach($file in @($stdout,$stderr)){
             if(!(Test-Path -LiteralPath $file -PathType Leaf)){continue}
             foreach($line in [IO.File]::ReadLines($file)){
               if($reported -ge 16){break}
-              if($line -match '^(.{1,350})\(([0-9]{1,6}),([0-9]{1,5})\): error TS([0-9]{4}):'){
-                $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Matches[1].Replace('\','/')))).ToLowerInvariant()
-                Write-Host ('PRIVATE_TS_DIAG=TS'+$Matches[4]+'|'+$digest+'|'+$Matches[2]+'|'+$Matches[3])
+              if($line -match '\bTS([0-9]{4,5})\b'){
+                $code=$Matches[1]
+                $digest='UNKNOWN'; $lineNumber='0'; $column='0'
+                if($line -match '^(.{1,350})\(([0-9]{1,6}),([0-9]{1,5})\)\s*:\s*error\s+TS[0-9]{4,5}') {
+                  $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Matches[1].Replace('\','/')))).ToLowerInvariant()
+                  $lineNumber=$Matches[2]; $column=$Matches[3]
+                }
+                Write-Host ('PRIVATE_TS_DIAG=TS'+$code+'|'+$digest+'|'+$lineNumber+'|'+$column)
                 $reported++
               }
             }
