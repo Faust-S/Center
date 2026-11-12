@@ -123,6 +123,7 @@ export default function App(){
  },[state]);
  const [loaded,setLoaded]=useState(false);
  const [page,setPage]=useState<Page>('overview');
+ const [personRequestId,setPersonRequestId]=useState('');
  const [mobileNav,setMobileNav]=useState(false);
  const [legacyOpen,setLegacyOpen]=useState(false);
  const [busy,setBusy]=useState(false);
@@ -400,6 +401,7 @@ export default function App(){
    if(mainScrollRef.current)mainScrollRef.current.scrollTop=0;
    window.scrollTo(0,0);
    if(p!=='proposals')setLegacyOpen(false);
+   if(p!=='trust')setPersonRequestId('');
    setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);setOfflineCopies(null);
  }
  const diagnosticPanel=(
@@ -552,9 +554,20 @@ export default function App(){
             <p className="muted">Экспорт TEST-запроса для будущего оригинального издателя T3. Файл не подписан и не предоставляет права Admin Center.</p>
             <label>Места для TEST-запроса<input aria-label="Места для TEST-запроса" type="number" min={1} max={10000} value={testSeats} onChange={e=>setTestSeats(e.target.value)}/></label>
           </div>}
-         {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small>{p.tariffSnapshot&&<small>{p.tariffSnapshot.name} · редакция {p.tariffSnapshot.revision} · места {p.tariffSnapshot.productSeats} · сотрудники {p.tariffSnapshot.employeeLimit} · устройства {p.tariffSnapshot.deviceLimit} · {p.tariffSnapshot.holderType==='PERSON'?'Напрямую в продукт':'Через Admin Center'}</small>}{p.previousProposalId&&<small>Повторная подготовка по прежнему запросу; действующая лицензия не изменена</small>}{testScope.get(p.id)?.code==='PERSON_SIGNED_CONTRACT_UNAVAILABLE'&&<small className="publisher-license-unavailable">Для личной лицензии нужен подписанный контракт издателя и локальная проверка в установленной программе. Запрос сохранён, права не выданы.</small>}{testScope.get(p.id)?.code==='PRODUCT_SIGNED_CONTRACT_UNAVAILABLE'&&<small className="publisher-license-unavailable">Существующий T3 TEST-контракт не подписывает лицензии этого продукта.</small>}</div><span className="status neutral" data-testid="publisher-proposal-draft-status">Подготовка</span>
+         {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small>{p.tariffSnapshot&&<small>{p.tariffSnapshot.name} · редакция {p.tariffSnapshot.revision} · места {p.tariffSnapshot.productSeats} · сотрудники {p.tariffSnapshot.employeeLimit} · устройства {p.tariffSnapshot.deviceLimit} · {p.tariffSnapshot.holderType==='PERSON'?'Напрямую в продукт':'Через Admin Center'}</small>}{p.previousProposalId&&<small>Повторная подготовка по прежнему запросу; действующая лицензия не изменена</small>}{testScope.get(p.id)?.code==='PERSON_SIGNED_CONTRACT_UNAVAILABLE'&&
+   <small className="muted">Подпись и текущий статус PERSON проверяются в исходном журнале T3. Состояние локальной подготовки не является статусом лицензии.</small>}
+   {p.tariffSnapshot?.holderType==='PERSON'&&
+    ['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(p.productId)&&
+    <small data-testid="publisher-person-proposal-reference">ID запроса: {p.id}</small>}{testScope.get(p.id)?.code==='PRODUCT_SIGNED_CONTRACT_UNAVAILABLE'&&<small className="publisher-license-unavailable">Существующий T3 TEST-контракт не подписывает лицензии этого продукта.</small>}</div><span className="status neutral" data-testid="publisher-proposal-draft-status">Подготовка</span>
             <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>void exportTestRequest(p.id)}>Подготовить TEST-запрос</button>
             <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>simulateTestDecision(p.id)}>Моделировать TEST-ответ</button>
+            {p.tariffSnapshot?.holderType==='PERSON'&&
+             ['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(p.productId)&&
+             <button className="secondary" type="button"
+               data-testid="publisher-person-open-in-owner" disabled={busy}
+               onClick={()=>{setPersonRequestId(p.id);go('trust');}}>
+               Открыть выдачу PERSON
+             </button>}
             <button className="quiet" disabled={busy} type="button" onClick={()=>void change({kind:'removeProposal',id:p.id},'Черновик удалён.')}>Удалить</button></div>)}
          {simulated&&<div ref={simulationResultRef} className="publisher-test-request" data-testid="publisher-test-simulation-result" role="status" aria-label={`СИМУЛЯЦИЯ · НЕ ЛИЦЕНЗИЯ. Действительных лицензированных мест: ${simulated.actualSeats}`}>
            <strong>СИМУЛЯЦИЯ · НЕ ЛИЦЕНЗИЯ</strong>
@@ -603,7 +616,8 @@ export default function App(){
        </>}
        {page==='trust'&&<section className="card padded"><h2>Издательские полномочия</h2>
            <p className="muted">TEST-подпись доступна только через ранее зарегистрированного владельца и оригинальный нативный компонент T3. Подписанный выпуск PERSON требует отдельно зарегистрированного издателя. Закрытые ключи не передаются в интерфейс. Действие лицензии подтверждается установленным продуктом, а не фактом её выдачи.</p>
-           <PublisherT3OwnerPanel draft={state} invoke={invoke} change={change}/>
+           <PublisherT3OwnerPanel draft={state} invoke={invoke} change={change}
+             personRequestId={personRequestId}/>
            <div className="divider"></div>
            <h3>Офлайн-передача пакета .iwxa</h3>
            <p className="muted">Publisher сохраняет выбранный пакет без изменения байтов. Для организации проверку и распределение выполняет Admin Center, для частного лица — установленный продукт. Здесь подпись, статус, получатель и права не проверяются.</p>

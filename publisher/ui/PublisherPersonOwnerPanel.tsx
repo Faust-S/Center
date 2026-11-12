@@ -14,7 +14,8 @@ type PersonRecord={
 };
 type Inventory={entries:PersonRecord[];truncated:boolean;total:number;matches?:number};
 type Props={draft:any;invoke:NativeInvoke;
- change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>};
+ change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>;
+ focusRequestId?:string;};
 const err=(e:unknown)=>e instanceof Error?e.message:String(e);
 const id=(v:unknown)=>typeof v==='string'&&
   /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(v);
@@ -38,7 +39,7 @@ const personStatusAllowed=(license:PersonRecord|undefined,requested:string)=>{
 };
 const shortLicenseId=(value:string)=>value.length>30?
   value.slice(0,12)+'…'+value.slice(-12):value;
-export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
+export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequestId}:Props){
   const [issuers,setIssuers]=useState<string[]>([]);
   const [issuer,setIssuer]=useState('');
   const [available,setAvailable]=useState(false);
@@ -60,6 +61,18 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
   const [pendingRenewalSource,setPendingRenewalSource]=useState('');
   const [message,setMessage]=useState('');
   const [failure,setFailure]=useState('');
+  // Navigating from a prepared PERSON request selects its exact source and
+  // searches the original T3 ledger; a signed record is never inferred from
+  // draft state. Explicit confirmation is still required before signing.
+  useEffect(()=>{
+    if(!focusRequestId)return;
+    setProposalId(focusRequestId);setTermsConfirmed(false);
+    setLookupText(focusRequestId);
+  },[focusRequestId]);
+  useEffect(()=>{
+    if(!focusRequestId||loading||!available)return;
+    void findLicense(focusRequestId);
+  },[focusRequestId,loading,available]);
   const options=useMemo(()=>{
     const proposals=Array.isArray(draft?.proposals)?draft.proposals:[];
     return proposals.flatMap((proposal:any)=>{
@@ -195,9 +208,9 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       setFailure('Не удалось прочитать журнал T3: '+err(e));}
     finally{setBusy(false);}
   }
-  async function findLicense(){
+  async function findLicense(sourceText=lookupText){
     if(!available||busy)return;
-    const search=lookupText.trim();
+    const search=sourceText.trim();
     if(!id(search)){setFailure('Введите корректный ID лицензии, запроса или получателя.');return;}
     setBusy(true);setFailure('');setMessage('');
     try{

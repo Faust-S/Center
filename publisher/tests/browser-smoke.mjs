@@ -911,6 +911,8 @@ try {
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
   await personal.getByText('Подготовленные запросы (1)').waitFor();
   assert.match(await personal.locator('main').innerText(),/Напрямую в продукт/);
+  assert.equal(await personal.getByTestId('publisher-person-proposal-reference').innerText(),
+    'ID запроса: '+directDraft.proposals[0].id);
   await personal.getByRole('button',{name:'Доверие и ключи'}).click();
   await personal.getByTestId('publisher-person-issuer-unavailable').waitFor();
   assert.equal(await personal.getByTestId('publisher-t3-issue').isDisabled(),true);
@@ -1311,6 +1313,24 @@ try {
   assert.equal(JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('iwxa-publisher-person-fixture'))).updatedAt,intact.updatedAt);
   checks.push('restore-preserves-signed-person-identity-and-recovers-unchanged-draft');
+  await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
+  await personal.evaluate(()=>{window.__personNativeEnabled=true;});
+  const renewalRequestId=actualSignedDraft.proposals[1].id;
+  await personal.getByTestId('publisher-person-open-in-owner').nth(1).click();
+  const selectedOwner=personal.getByTestId('publisher-person-owner');
+  await selectedOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
+    .waitFor({state:'visible'});
+  assert.equal(await selectedOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
+    .inputValue(),renewalRequestId,
+    'The prepared PERSON request must navigate to its exact T3 issue source');
+  await selectedOwner.getByText('Поиск в исходном T3: найдено записей 1.',
+    {exact:false}).waitFor();
+  assert.equal(await selectedOwner.getByTestId('publisher-person-lookup-input').inputValue(),
+    renewalRequestId);
+  assert.match(await selectedOwner.getByTestId('publisher-person-selected-license').innerText(),
+    /license:person:mock:two/);
+  assert.equal(await selectedOwner.getByTestId('publisher-person-issue').isDisabled(),true);
+  checks.push('prepared-person-request-opens-exact-original-T3-signed-record');
   await personal.close();
   checks.push('personal-offline-draft-persists-restart-without-admin-center-or-false-signing');
   assert.deepEqual(errors,[]);

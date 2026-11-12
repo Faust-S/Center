@@ -14,9 +14,10 @@ type AdminRequest={requestId:string;requestedAt:string;environment:'TEST';
  product:{id:'IWXA_ADMIN_CENTER';version:string};featureIds:string[];
  termDays:number;seats:number;status:'UNSIGNED_REQUEST'};
 type Props={draft:any;invoke:(name:string,args?:Record<string,unknown>)=>Promise<any>;
- change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>};
+ change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>;
+ personRequestId?:string;};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
+export default function PublisherT3OwnerPanel({draft,invoke,change,personRequestId}:Props){
  const [issuerIds,setIssuerIds]=useState<string[]>([]);
  const [issuer,setIssuer]=useState('');
  const [licenses,setLicenses]=useState<License[]>([]);
@@ -217,7 +218,8 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
      };
    },true);
  }
- return <><PublisherPersonOwnerPanel draft={draft} invoke={invoke} change={change}/>
+ return <><PublisherPersonOwnerPanel draft={draft} invoke={invoke} change={change}
+   focusRequestId={personRequestId}/>
  <section className="publisher-test-owner" data-testid="publisher-t3-owner-panel">
    <h3>Выпуск лицензии через T3 Host</h3>
    <p className="muted">Только TEST. Команды выполняются в защищённом нативном компоненте T3,
