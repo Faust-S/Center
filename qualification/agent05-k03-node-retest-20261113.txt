@@ -1,0 +1,2 @@
+Exact private Agent 0.5 K03 source-and-draft Node test; source SHA a7ea29d20540c44889bf7ff5ec752e46b3c02b32.
+Only public-safe markers, no private artifacts or source content.
