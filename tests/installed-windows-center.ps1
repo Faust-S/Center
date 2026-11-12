@@ -301,35 +301,6 @@ function Visible-ButtonContaining([string]$name){
   }
   return $false
 }
-function Open-Cen04-Iwxa-NativeFileDialog([string]$file){
-  Click-Control 'Предпросмотр .iwxa'
-  $dialog=$null
-  for($i=0;$i -lt 60;$i++){
-    $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
-      [System.Windows.Automation.TreeScope]::Children,
-      [System.Windows.Automation.Condition]::TrueCondition)
-    foreach($candidate in $windows){
-      try {
-        if($candidate.Current.ProcessId -eq $proc.Id -and
-           $candidate.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window -and
-           $candidate.Current.NativeWindowHandle -ne $proc.MainWindowHandle) {
-          $dialog=$candidate
-          break
-        }
-      } catch {}
-    }
-    if($dialog){break}
-    Start-Sleep -Milliseconds 250
-  }
-  if(!$dialog){throw 'CEN04_INSTALLED_NATIVE_IWXA_DIALOG_NOT_FOUND'}
-  [System.Windows.Forms.SendKeys]::SendWait('%n')
-  Start-Sleep -Milliseconds 180
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  [System.Windows.Forms.SendKeys]::SendWait($file)
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  [void](Find-TextContaining 'Подтверждённых мест: 0')
-  [void](Find-TextContaining 'Проверка T3 ещё не выполнялась')
-}
 function Close-Center {
   $proc.Refresh()
   if($proc.HasExited){throw 'Installed GUI exited before deliberate close'}
@@ -426,14 +397,19 @@ try {
   }
   Click-Control 'Personal Agent и лицензии'
   Click-ButtonContaining 'Запланировать место'
-  # CEN04: real installed Tauri file dialog reuses the same .iwxa picker
-  # as corporate Task/Result. This deliberately malformed synthetic file is
-  # transport-only; no T3 signature check, Store write or licensed seat occurs.
-  $cen04Synthetic=Join-Path $artifactDir 'cen04-unverified-transport.iwxa'
-  [System.IO.File]::WriteAllBytes($cen04Synthetic,
-    [byte[]]@(0x50,0x4b,0x03,0x04,0x54,0x45,0x53,0x54,0x2d,0x4e,0x4f,0x54,0x2d,0x53,0x49,0x47,0x4e,0x45,0x44))
-  Open-Cen04-Iwxa-NativeFileDialog $cen04Synthetic
-  Write-Host 'CENTER_INSTALLED_CEN04_NATIVE_IWXA_PREVIEW_ZERO_SEATS_PASS'
+  # Public Setup Core does not embed original private T3 Consumer or issuer
+  # trust. The installed product must not expose an unverified plaintext
+  # preview or allow the native signed-package dialog before first-use trust.
+  if(Visible-ButtonContaining 'Предпросмотр .iwxa'){
+    throw 'CEN04_INSTALLED_RAW_IWXA_PREVIEW_MUST_NOT_EXIST'
+  }
+  [void](Find-TextContaining 'Оригинальный T3 Consumer ещё не подключён')
+  Assert-ButtonDisabled 'Получить защищённую .iwxa.age через T3'
+  Assert-ButtonDisabled 'Проверить и сохранить через T3'
+  Assert-ButtonDisabled 'Обновить лицензии'
+  Assert-ButtonDisabled 'Подключить доверие издателя T3'
+  [void](Find-TextContaining 'Активных мест: 0')
+  Write-Host 'CENTER_INSTALLED_CEN04_NATIVE_T3_NOT_CONFIGURED_ZERO_SEATS_PASS'
   Click-ButtonContaining 'Поручения'
   Click-ButtonContaining $expectedAssignment
   Type-Control 'Что нужно сделать' $expectedRevisedAssignment
