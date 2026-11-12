@@ -57,6 +57,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
   const [termsConfirmed,setTermsConfirmed]=useState(false);
   const [revokePending,setRevokePending]=useState('');
   const [renewalTariff,setRenewalTariff]=useState('');
+  const [pendingRenewalSource,setPendingRenewalSource]=useState('');
   const [message,setMessage]=useState('');
   const [failure,setFailure]=useState('');
   const options=useMemo(()=>{
@@ -89,6 +90,19 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
       setProposalId('');setTermsConfirmed(false);
     }
   },[options,proposalId]);
+  useEffect(()=>{
+    if(!pendingRenewalSource)return;
+    const proposals=Array.isArray(draft?.proposals)?draft.proposals:[];
+    // The existing prepareFollowupProposal command creates one new draft
+    // linked to the signed original. Never guess an ID before persistence.
+    const followups=proposals.filter((p:any)=>
+      p.previousProposalId===pendingRenewalSource&&
+      options.some(o=>o.proposalId===p.id));
+    if(followups.length!==1)return;
+    setProposalId(followups[0].id);
+    setTermsConfirmed(false);
+    setPendingRenewalSource('');
+  },[draft,options,pendingRenewalSource]);
   function checkedInventory(value:any,lookupId?:string):PersonRecord[]{
     if(value?.operation!=='PERSON_INVENTORY'||value.activeSeats!==0||
        value.productionActivation!==false||!Array.isArray(value.licenses))
@@ -324,8 +338,9 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change}:Props){
         'Подготовка продления сохранена. Прежняя лицензия не изменена.');
       if(!result.ok)throw Error(result.message);
       setRenewalTariff('');
-      setMessage('Подготовка продления сохранена. Выберите её в списке выше, '+
-        'проверьте условия и отдельно подпишите через T3.');
+      setPendingRenewalSource(selectedLicense.requestId);
+      setMessage('Подготовка продления сохранена. Новый черновик будет выбран '+
+        'автоматически. Проверьте условия, подтвердите их и отдельно подпишите через T3.');
     }catch(e){setFailure('Продление не подготовлено: '+err(e));}
     finally{setBusy(false);}
   }
