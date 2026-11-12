@@ -1,0 +1,3 @@
+Agent 0.5 K03 user-controlled research and model reasoning effort preflight.
+Private source pinned: a6f848196f0ca40de50abdc2c344d55158af093a
+Read-only private checkout; public CI prints bounded counts/error hashes only, no source or binaries.
