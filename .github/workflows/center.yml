@@ -776,7 +776,10 @@ jobs:
                     $safeReasons=@('PROOF_EXISTS','DOWNLOAD_MODE','RUNTIME_PLAN',
                       'MODEL_PLAN','MODEL_DOWNLOAD','MODEL_NOT_READY','INFERENCE',
                       'TASK_SUBMIT','TASK_STOPPED','TASK_TIMEOUT','RESULT_READBACK',
-                      'ANSWER_QUALITY','REVIEW_READBACK','EXCHANGE_EXPORT','OTHER')
+                      'ANSWER_QUALITY','ANSWER_TEXT','ANSWER_THINKING',
+                      'ANSWER_LENGTH','ANSWER_VOCABULARY','ANSWER_TOPIC',
+                      'ANSWER_ACTION','ANSWER_STRUCTURE',
+                      'REVIEW_READBACK','EXCHANGE_EXPORT','OTHER')
                     if($reason -cin $safeReasons){
                       Write-Host ('PRIVATE_QWEN_FAILURE_CODE='+$reason)
                     }
