@@ -766,7 +766,9 @@ jobs:
                 $phase=[string]$witnessFailure.phase
                 $safePhases=@('FIRST_CORE','CORE_QUERIES','DRAFT_CREATE','GUI_DRAFT_EDIT',
                   'GUI_DRAFT_READBACK','QWEN_EXECUTE','COLD_RESTART','COLD_CORE_QUERIES',
-                  'GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT','GUI_RESULT','CLEAN_STOP','WITNESS_RECEIPT')
+                  'GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT','GUI_RESULT','GUI_TASK_SUBMIT',
+                  'GUI_TASK_RESULT','GUI_TASK_REVIEW','GUI_TASK_REVIEW_READBACK',
+                  'CLEAN_STOP','WITNESS_RECEIPT')
                 if($witnessFailure.status -ceq 'FAIL' -and $phase -cin $safePhases){
                   Write-Host ('PRIVATE_INSTALLED_WITNESS_PHASE='+$phase)
                 }
@@ -787,6 +789,17 @@ jobs:
               foreach($line in [IO.File]::ReadLines($qwenStatus)){
                 if([string]$line -cin $safeQwenMarkers){
                   Write-Host ('PRIVATE_INSTALLED_QWEN_CHECKPOINT='+[string]$line)
+                }
+              }
+            }
+            # The GUI witness uses one additional private status file.
+            $guiStatus=Join-Path $out 'native-candidate/temporary-installed-fixture/native-gui-qwen.status'
+            if(Test-Path -LiteralPath $guiStatus -PathType Leaf){
+              $safeGuiMarkers=@('AGENT_REAL_QWEN_GUI_TASK_RESULT_PASS',
+                                'AGENT_REAL_QWEN_GUI_SUBMIT_REVIEW_ACCEPTED_PASS')
+              foreach($line in [IO.File]::ReadLines($guiStatus)){
+                if([string]$line -cin $safeGuiMarkers){
+                  Write-Host ('PRIVATE_INSTALLED_GUI_CHECKPOINT='+[string]$line)
                 }
               }
             }
@@ -1186,7 +1199,9 @@ jobs:
             throw 'PRIVATE_QUALIFICATION_RESULT_MISSING'
           }
           $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
-          if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $result.source_commit -cne $env:PRIVATE_SOURCE_SHA){
+          if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or
+             $result.source_commit -cne $env:PRIVATE_SOURCE_SHA -or
+             $result.gui_task_result_full_acceptance -cne 'PASS'){
             throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
           }
           $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
@@ -1197,6 +1212,6 @@ jobs:
           Write-Host 'PRIVATE_WINDOWS_SOURCE_AND_INSTALLED_SMOKE_PASS'
           Write-Host ('PRIVATE_SETUP_SHA256='+$hash)
           Write-Host ('PRIVATE_SOURCE_SHA='+$result.source_commit)
-          Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=NOT_RUN'
+          Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=PASS'
           # Never upload private files, archives, windows screenshots, or logs.
 
