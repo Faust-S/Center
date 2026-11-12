@@ -355,7 +355,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change}:Props){
      {licenses.length===0?<p className="muted">{needsRefresh?
        'Журнал пока не прочитан.':'Пока нет выпущенных лицензий.'}</p>:
        <label>Лицензия
-         <select value={licenseId} onChange={e=>{setLicenseId(e.target.value);setStatus('');setRevokePending(null);}} disabled={busy}>
+         <select value={licenseId} onChange={e=>{setAgeRecipients('');setLicenseId(e.target.value);setStatus('');setRevokePending(null);}} disabled={busy}>
            <option value="">Выберите лицензию</option>{licenses.map(x=><option value={x.licenseId} key={x.licenseId}>
              {x.licenseId} — {x.organizationId} — {x.status}
            </option>)}
