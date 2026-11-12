@@ -1243,7 +1243,10 @@ try {
   const signedCountBefore=JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger')||'[]')).length;
   await personal.evaluate(()=>{window.__personMockFailNextInventory=true;});
-  await personal.getByRole('button',{name:'Удалить',exact:true}).first().click();
+  // The first proposal has a linked renewal and is already protected by
+  // the draft model. Exercise the terminal SIGNED renewal (index 1) to
+  // reach the original T3 inventory check rather than that earlier guard.
+  await personal.getByRole('button',{name:'Удалить',exact:true}).nth(1).click();
   const afterUnavailable=JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('iwxa-publisher-person-fixture')));
   const unavailableVisible=await personal.locator('main').innerText();
@@ -1251,7 +1254,7 @@ try {
     'Lost native ledger must preserve PERSON proposal; UI: '+unavailableVisible.slice(-1200));
   assert.match(unavailableVisible,/Журнал T3 недоступен: нельзя подтвердить/,
     'The user must receive actionable failure feedback for an unreadable owner ledger');
-  await personal.getByRole('button',{name:'Удалить',exact:true}).first().click();
+  await personal.getByRole('button',{name:'Удалить',exact:true}).nth(1).click();
   await personal.getByText('Подписанный PERSON-запрос нельзя удалить',{exact:false}).waitFor();
   assert.equal(JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('iwxa-publisher-person-fixture'))).proposals.length,3,
