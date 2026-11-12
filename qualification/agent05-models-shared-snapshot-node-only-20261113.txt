@@ -1,0 +1,3 @@
+Scoped private Agent 0.5 Node/TypeScript regression for Core Models snapshot sharing.
+Source: 7ab1b9584aeb5d5d04ed21e598280dae2861866a
+No private source or artifacts uploaded to public Center.
