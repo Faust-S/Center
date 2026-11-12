@@ -2,6 +2,7 @@ import React, {useEffect,useMemo,useState} from 'react';
 import { emptyPublisherDraft, decodePublisherDraft, encodePublisherDraft, applyPublisherDraftCommand } from '../src/preparation.mjs';
 import { prepareTestLicenseRequest, encodeTestLicenseRequest, suggestedTestRequestFileName, inspectTestIssuerRequestScopes } from '../src/test-license-request.mjs';
 import {simulateIssuerEvent} from '../src/issuer-simulation.mjs';
+import {prepareUnsignedPersonLicenseRequest} from '../src/person-license-request.mjs';
 import PublisherT3OwnerPanel from './PublisherT3OwnerPanel';
 import TariffPanel from './TariffPanel';
 import '../../src/style.css';
@@ -77,6 +78,42 @@ async function persistDraft(state:Draft):Promise<void> {
  await invoke('publisher_draft_save',{content});
 }
 function typeLabel(type:Holder['type']):string {return type==='ORGANIZATION'?'Организация':'Физическое лицо';}
+
+// Replacing a local preparation must not discard an ORIGINAL T3 signed
+// source request. This also covers restoring an older draft backup, not only
+// pressing Delete. Compare the actual unsigned request shape: a proposal ID
+// that survives with altered subject, product, tariff or terms is NOT intact.
+async function preserveSignedPersonSources(current:Draft,replacement:Draft):Promise<void>{
+ for(const proposal of current.proposals){
+   if(!proposal.tariffSnapshot||proposal.tariffSnapshot.holderType!=='PERSON'||
+      !['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(proposal.productId))continue;
+   let before;
+   try{before=prepareUnsignedPersonLicenseRequest(current,{proposalId:proposal.id});}
+   catch{continue;} // Legacy requests without a signable PERSON tariff.
+   let after;
+   try{after=prepareUnsignedPersonLicenseRequest(replacement,{proposalId:proposal.id});}
+   catch{after=null;}
+   if(after&&JSON.stringify(before)===JSON.stringify(after))continue;
+   let ledger;
+   try{
+     ledger=await invoke('publisher_t3_person_inventory',{lookupId:proposal.id});
+   }catch(e){
+     throw new Error('Журнал T3 недоступен: нельзя подтвердить, что PERSON-запрос не подписан. '+
+       'Подготовка сохранена. '+getError(e));
+   }
+   if(ledger?.operation!=='PERSON_INVENTORY'||ledger.lookupId!==proposal.id||
+      ledger.productionActivation!==false||ledger.activeSeats!==0||
+      !Number.isSafeInteger(ledger.matches)||ledger.matches<0||
+      !Array.isArray(ledger.licenses)||ledger.licenses.length>48||
+      ledger.matches<ledger.licenses.length||
+      (ledger.matches===0&&ledger.licenses.length!==0))
+     throw new Error('Нет подтверждённого ответа исходного журнала T3. Подготовка сохранена.');
+   if(ledger.matches>0)
+     throw new Error('Подписанный PERSON-запрос нельзя удалить или изменить: он нужен для продления. '+
+       'Для прекращения прав подпишите отзыв в журнале T3.');
+ }
+}
+
 export default function App(){
  const [state,setState]=useState<Draft>(initialDraft);
  const testScope=useMemo(()=>{
@@ -154,31 +191,7 @@ export default function App(){
    setBusy(true);setError('');setMessage('');setSimulated(null);
    try{
      const next=applyPublisherDraftCommand(state,command) as Draft;
-     // Signed PERSON history belongs to the original T3 owner, not to
-     // Publisher's local draft. Removing its source proposal would make
-     // later renewal impossible even though the signed LICENSE still exists.
-     const removing=command.kind==='removeProposal'?
-       state.proposals.find(p=>p.id===command.id):undefined;
-     if(removing?.tariffSnapshot&&
-        state.holders.find(h=>h.id===removing.holderId)?.type==='PERSON'&&
-        ['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(removing.productId)){
-       let ledger;
-       try{
-         ledger=await invoke('publisher_t3_person_inventory',{lookupId:removing.id});
-       }catch(e){
-         throw new Error('Журнал T3 недоступен: нельзя подтвердить, что PERSON-запрос не подписан. '+
-           'Подготовка сохранена. '+getError(e));
-       }
-       if(ledger?.operation!=='PERSON_INVENTORY'||ledger.lookupId!==removing.id||
-          ledger.productionActivation!==false||ledger.activeSeats!==0||
-          !Number.isSafeInteger(ledger.matches)||ledger.matches<0||
-          !Array.isArray(ledger.licenses)||
-          (ledger.matches===0&&ledger.licenses.length!==0))
-         throw new Error('Нет подтверждённого ответа исходного журнала T3. Подготовка сохранена.');
-       if(ledger.matches>0)
-         throw new Error('Подписанный PERSON-запрос нельзя удалить: он нужен для продления. '+
-           'Для прекращения прав подпишите отзыв в журнале T3.');
-     }
+     if(command.kind==='removeProposal')await preserveSignedPersonSources(state,next);
      await persistDraft(next);
      setState(next);
      setPendingRestore(null);
@@ -274,6 +287,7 @@ export default function App(){
    if(!pendingRestore||busy||!nativeHost||!loaded)return;
    setBusy(true);setError('');setMessage('');
    try {
+     await preserveSignedPersonSources(state,pendingRestore);
      await persistDraft(pendingRestore);
      setState(pendingRestore);setPendingRestore(null);setSimulated(null);setInspected(null);
      setMessage('Черновики восстановлены из копии и сохранены. Подписи и права не изменены.');

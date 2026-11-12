@@ -781,6 +781,7 @@ try {
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(command==='publisher_draft_read')return sessionStorage.getItem('iwxa-publisher-person-fixture');
       if(command==='publisher_draft_save'){sessionStorage.setItem('iwxa-publisher-person-fixture',args.content);return true;}
+      if(command==='publisher_pick_preparation_backup')return window.__personMockRestoreContent??null;
       if(command==='publisher_t3_capabilities')return {operation:'TEST_CAPABILITIES',issuers:['test:owner'],activeSeats:0,productionActivation:false,commercialAuthorityProven:false};
       if(command==='publisher_t3_inventory')return {operation:'TEST_INVENTORY',licenses:[],activeSeats:0,productionActivation:false};
       if(command==='publisher_t3_person_capabilities'){
@@ -1267,6 +1268,49 @@ try {
   await personal.getByRole('button',{name:'Удалить',exact:true}).last().click();
   await personal.getByText('Подготовленные запросы (2)').waitFor();
   checks.push('unsigned-organization-proposal-remains-removable');
+  // A backup from before signed renewal is well-formed but MUST NOT erase
+  // the saved source request required for later original-T3 renewal/readback.
+  const actualSignedDraft=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture')));
+  assert.equal(actualSignedDraft.proposals.length,2);
+  await personal.getByRole('button',{name:'Обзор',exact:true}).click();
+  const restoreButton=personal.getByRole('button',{name:'Восстановить черновики'});
+  const replaceButton=personal.getByRole('button',{name:'Заменить текущие черновики'});
+  const chooseBackup=async backup=>{
+    await personal.evaluate(content=>{window.__personMockRestoreContent=content;},
+      JSON.stringify(backup));
+    await restoreButton.click();
+    await personal.getByTestId('publisher-restore-confirmation').waitFor();
+    await replaceButton.click();
+  };
+  await chooseBackup({...actualSignedDraft,proposals:[actualSignedDraft.proposals[0]]});
+  await personal.getByText('Подписанный PERSON-запрос нельзя удалить или изменить',
+    {exact:false}).waitFor();
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture'))).proposals.length,2,
+    'Old backup must not discard a signed T3 renewal source');
+  await personal.getByRole('button',{name:'Отмена восстановления'}).click();
+  checks.push('restore-rejects-dropping-a-signed-renewal-request');
+  // Keeping the ID while changing the recipient also invalidates the
+  // already-signed source, and must never silently rebind that identity.
+  const changedSubject=structuredClone(actualSignedDraft);
+  changedSubject.holders[0].name='Replaced Person Name';
+  await chooseBackup(changedSubject);
+  await personal.getByText('Подписанный PERSON-запрос нельзя удалить или изменить',
+    {exact:false}).waitFor();
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture'))).holders[0].name,
+    actualSignedDraft.holders[0].name);
+  await personal.getByRole('button',{name:'Отмена восстановления'}).click();
+  checks.push('restore-rejects-rebinding-the-same-signed-person-request');
+  // An unchanged signed source must NOT block ordinary backup recovery.
+  const intact={...actualSignedDraft,
+    updatedAt:new Date(Date.now()+1000).toISOString()};
+  await chooseBackup(intact);
+  await personal.getByText('Черновики восстановлены из копии и сохранены.',{exact:false}).waitFor();
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture'))).updatedAt,intact.updatedAt);
+  checks.push('restore-preserves-signed-person-identity-and-recovers-unchanged-draft');
   await personal.close();
   checks.push('personal-offline-draft-persists-restart-without-admin-center-or-false-signing');
   assert.deepEqual(errors,[]);
