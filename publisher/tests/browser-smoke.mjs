@@ -906,7 +906,12 @@ try {
   assert.equal(directDraft.proposals[0].tariffSnapshot.deviceLimit,3);
   assert.equal(directDraft.proposals[0].status,'DRAFT_NOT_ISSUED');
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
-  assert.equal(await personal.getByRole('button',{name:'Подготовить TEST-запрос'}).isDisabled(),true);
+  assert.equal(await personal.getByRole('button',{name:'Подготовить TEST-запрос'}).count(),0,
+    'PERSON license must not expose unsupported TEST issuance actions');
+  assert.equal(await personal.getByRole('button',{name:'Моделировать TEST-ответ'}).count(),0);
+  assert.equal(await personal.getByLabel('Места для TEST-запроса').count(),0);
+  assert.equal(await personal.getByTestId('publisher-person-open-in-owner').count(),1);
+  checks.push('personal-license-page-shows-only-supported-original-T3-person-actions');
   await personal.reload();
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
   await personal.getByText('Подготовленные запросы (1)').waitFor();

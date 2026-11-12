@@ -550,8 +550,10 @@ export default function App(){
                role={legacyFeedback.ok?'status':'alert'} data-testid="publisher-legacy-save-feedback">{legacyFeedback.message}</p>}
            </div></form>}</section>}
          <section className="card padded"><h2>Подготовленные запросы ({state.proposals.length})</h2>
-          {state.proposals.length>0&&<div className="publisher-test-request">
-            <p className="muted">Экспорт TEST-запроса для будущего оригинального издателя T3. Файл не подписан и не предоставляет права Admin Center.</p>
+          {state.proposals.some(p=>p.productId==='IWXA_ADMIN_CENTER'&&
+            state.holders.find(h=>h.id===p.holderId)?.type==='ORGANIZATION'&&
+            p.features.length>0)&&<div className="publisher-test-request">
+            <p className="muted">Экспорт неподписанного TEST-запроса для зарегистрированного издателя T3. Не предоставляет действительных прав.</p>
             <label>Места для TEST-запроса<input aria-label="Места для TEST-запроса" type="number" min={1} max={10000} value={testSeats} onChange={e=>setTestSeats(e.target.value)}/></label>
           </div>}
          {state.proposals.length===0?<p className="muted">Запросов пока нет.</p>:state.proposals.map(p=><div className="simple-row" key={p.id}><div><strong>{productTitle(p.productId)}</strong><small>{holderTitle(p.holderId)} · {p.termDays} дн. · {p.features.length? p.features.join(', '):'Функции не выбраны'}</small>{p.tariffSnapshot&&<small>{p.tariffSnapshot.name} · редакция {p.tariffSnapshot.revision} · места {p.tariffSnapshot.productSeats} · сотрудники {p.tariffSnapshot.employeeLimit} · устройства {p.tariffSnapshot.deviceLimit} · {p.tariffSnapshot.holderType==='PERSON'?'Напрямую в продукт':'Через Admin Center'}</small>}{p.previousProposalId&&<small>Повторная подготовка по прежнему запросу; действующая лицензия не изменена</small>}{testScope.get(p.id)?.code==='PERSON_SIGNED_CONTRACT_UNAVAILABLE'&&
@@ -559,8 +561,12 @@ export default function App(){
    {p.tariffSnapshot?.holderType==='PERSON'&&
     ['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(p.productId)&&
     <small data-testid="publisher-person-proposal-reference">ID запроса: {p.id}</small>}{testScope.get(p.id)?.code==='PRODUCT_SIGNED_CONTRACT_UNAVAILABLE'&&<small className="publisher-license-unavailable">Существующий T3 TEST-контракт не подписывает лицензии этого продукта.</small>}</div><span className="status neutral" data-testid="publisher-proposal-draft-status">Подготовка</span>
-            <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>void exportTestRequest(p.id)}>Подготовить TEST-запрос</button>
-            <button className="secondary" disabled={busy||p.features.length===0||p.productId!=='IWXA_ADMIN_CENTER'||state.holders.find(h=>h.id===p.holderId)?.type!=='ORGANIZATION'} type="button" onClick={()=>simulateTestDecision(p.id)}>Моделировать TEST-ответ</button>
+            {p.productId==='IWXA_ADMIN_CENTER'&&
+             state.holders.find(h=>h.id===p.holderId)?.type==='ORGANIZATION'&&
+             p.features.length>0&&<>
+               <button className="secondary" disabled={busy} type="button" onClick={()=>void exportTestRequest(p.id)}>Подготовить TEST-запрос</button>
+               <button className="secondary" disabled={busy} type="button" onClick={()=>simulateTestDecision(p.id)}>Моделировать TEST-ответ</button>
+             </>}
             {p.tariffSnapshot?.holderType==='PERSON'&&
              ['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(p.productId)&&
              <button className="secondary" type="button"
