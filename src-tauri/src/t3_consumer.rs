@@ -20,6 +20,59 @@ async fn invoke_t3(app:AppHandle,action:&'static str,org:String,more:Vec<String>
     t3::run(&app,"consumer",action,&args))
     .await.map_err(|_|"CEN04_T3_NATIVE_WORKER_FAILED".to_string())?
 }
+const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+// Never present a saved row as signature-verified unless every row returned
+// by the ORIGINAL T3 Consumer passes the native boundary checks. Historical
+// signed status verification and storage still belong exclusively to T3.
+fn verify_readback(value:&Value,org:&str)->Result<(),String>{
+  t3::validate_test_result(value,"TEST_READ")?;
+  let view=&value["view"];
+  if view["schema"]!="IWXA_T3_PRODUCT_LICENSE_CONSUMER_VIEW/1" ||
+     view["organizationId"]!=org || view["productId"]!="IWXA_ADMIN_CENTER" ||
+     view["trustOrigin"]!="HOST_PREINSTALLED_PUBLIC_POLICY" ||
+     view["revision"].as_u64().is_none_or(|n|n>MAX_SAFE_INTEGER) ||
+     view["productionActivation"]!=false || view["activeSeats"]!=0 ||
+     view["assignableSeats"]!=0 {
+    return Err("CEN04_T3_NATIVE_VERIFIED_READBACK_REQUIRED".into());
+  }
+  let licenses=view["licenses"].as_array()
+    .ok_or("CEN04_T3_NATIVE_VERIFIED_READBACK_REQUIRED")?;
+  let mut seen=std::collections::HashSet::new();
+  for license in licenses {
+    let license_id=license["licenseId"].as_str()
+      .ok_or("CEN04_T3_NATIVE_UNVERIFIED_LICENSE_ROW")?;
+    if !t3::valid_identifier(license_id) || !seen.insert(license_id) ||
+       license["organizationId"]!=org ||
+       license["productId"]!="IWXA_ADMIN_CENTER" ||
+       !matches!(license["status"].as_str(),Some("ACTIVE"|"SUSPENDED"|"REVOKED")) ||
+       license["sequence"].as_u64().is_none_or(|n|n==0||n>MAX_SAFE_INTEGER) ||
+       license["claimedSeats"].as_u64().is_none_or(|n|n==0||n>MAX_SAFE_INTEGER) ||
+       license["signatureVerified"]!=true || license["statusVerified"]!=true ||
+       license["commercialAuthorityProven"]!=false ||
+       license["productionActivation"]!=false ||
+       license["activeSeats"]!=0 || license["assignableSeats"]!=0 {
+      return Err("CEN04_T3_NATIVE_UNVERIFIED_LICENSE_ROW".into());
+    }
+  }
+  Ok(())
+}
+fn verify_received(value:&Value,org:&str)->Result<(),String>{
+  t3::validate_test_result(value,"TEST_RECEIVE")?;
+  let id=value["licenseId"].as_str().unwrap_or("");
+  if value["organizationId"]!=org || !t3::valid_identifier(id) ||
+     !matches!(value["status"].as_str(),Some("ACTIVE"|"SUSPENDED"|"REVOKED")) ||
+     !matches!(value["outcome"].as_str(),Some("VERIFIED_TEST_SAVED"|"ALREADY_RECEIVED")) ||
+     value["sequence"].as_u64().is_none_or(|n|n==0||n>MAX_SAFE_INTEGER) ||
+     value["revision"].as_u64().is_none_or(|n|n>MAX_SAFE_INTEGER) ||
+     value["signatureVerified"]!=true || value["statusVerified"]!=true ||
+     value["activeSeats"]!=0 || value["assignableSeats"]!=0 ||
+     value["productionActivation"]!=false {
+    return Err("CEN04_T3_NATIVE_SIGNED_RECEIPT_REQUIRED".into());
+  }
+  Ok(())
+}
+
 // First use is an independent user action, never an effect of importing a
 // license. The original T3 checks an out-of-band SHA-256 public trust pin and
 // provisions a Windows CurrentUser DPAPI key with no private material in IPC.
@@ -69,6 +122,7 @@ pub async fn center_cen04_t3_capabilities(app:AppHandle,organization_id:String)
   if value["organizationId"]!=Value::String(org) ||
      value["productId"]!="IWXA_ADMIN_CENTER" ||
      value["intakeConfigured"]!=true ||
+     value["trustOrigin"]!="HOST_PREINSTALLED_PUBLIC_POLICY" ||
      value["assignableSeats"]!=0 {
     return Err("CEN04_T3_NATIVE_INTAKE_CAPABILITIES_REQUIRED".into());
   }
@@ -78,15 +132,7 @@ pub async fn center_cen04_t3_capabilities(app:AppHandle,organization_id:String)
 pub async fn center_cen04_t3_read(app:AppHandle,organization_id:String)->Result<Value,String>{
   let org=scope(&organization_id)?;
   let value=invoke_t3(app,"read",org.clone(),vec![]).await?;
-  t3::validate_test_result(&value,"TEST_READ")?;
-  let view=&value["view"];
-  if view["organizationId"]!=Value::String(org) ||
-     view["productId"]!="IWXA_ADMIN_CENTER" ||
-     view["productionActivation"]!=Value::Bool(false) ||
-     view["activeSeats"]!=Value::from(0) ||
-     !view["licenses"].is_array() {
-    return Err("CEN04_T3_NATIVE_VERIFIED_READBACK_REQUIRED".into());
-  }
+  verify_readback(&value,&org)?;
   Ok(value)
 }
 #[tauri::command]
@@ -109,14 +155,7 @@ pub async fn center_cen04_t3_import(app:AppHandle,organization_id:String)
   }
   let receipt=invoke_t3(app,"receive",org.clone(),
     vec![path.to_string_lossy().into_owned()]).await?;
-  t3::validate_test_result(&receipt,"TEST_RECEIVE")?;
-  if receipt["organizationId"]!=Value::String(org) ||
-     receipt["signatureVerified"]!=true ||
-     receipt["statusVerified"]!=true ||
-     receipt["activeSeats"]!=0 ||
-     !receipt["licenseId"].as_str().is_some_and(t3::valid_identifier) {
-    return Err("CEN04_T3_NATIVE_SIGNED_RECEIPT_REQUIRED".into());
-  }
+  verify_received(&receipt,&org)?;
   Ok(Some(receipt))
 }
 
@@ -152,14 +191,72 @@ pub async fn center_cen04_t3_import_age(app:AppHandle,organization_id:String)
     let result=t3::run(&app,"consumer","receive", &[
       org.clone(),temporary.path.to_string_lossy().into_owned()
     ])?;
-    t3::validate_test_result(&result,"TEST_RECEIVE")?;
-    if result["organizationId"]!=Value::String(org) ||
-       result["signatureVerified"]!=true ||
-       result["statusVerified"]!=true ||
-       result["activeSeats"]!=0 ||
-       !result["licenseId"].as_str().is_some_and(t3::valid_identifier) {
-      return Err("CEN04_T3_AGE_SIGNED_RECEIPT_REQUIRED".into());
-    }
+    verify_received(&result,&org)?;
     Ok(Some(result))
   }).await.map_err(|_|"CEN04_T3_AGE_WORKER_FAILED".to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  fn valid_read()->Value{
+    serde_json::json!({
+      "operation":"TEST_READ","activeSeats":0,"productionActivation":false,
+      "view":{
+        "schema":"IWXA_T3_PRODUCT_LICENSE_CONSUMER_VIEW/1",
+        "organizationId":"org:one","productId":"IWXA_ADMIN_CENTER",
+        "trustOrigin":"HOST_PREINSTALLED_PUBLIC_POLICY","revision":1,
+        "activeSeats":0,"assignableSeats":0,"productionActivation":false,
+        "licenses":[{
+          "licenseId":"license:test:one","organizationId":"org:one",
+          "productId":"IWXA_ADMIN_CENTER","status":"ACTIVE",
+          "sequence":1,"claimedSeats":2,"signatureVerified":true,
+          "statusVerified":true,"commercialAuthorityProven":false,
+          "productionActivation":false,"activeSeats":0,"assignableSeats":0
+        }]
+      }
+    })
+  }
+  #[test]
+  fn readback_refuses_unverified_license_rows_and_duplicates(){
+    let good=valid_read();
+    assert!(verify_readback(&good,"org:one").is_ok());
+    assert!(verify_readback(&good,"org:other").is_err());
+    for (field,forged) in [
+      ("signatureVerified",Value::Bool(false)),
+      ("statusVerified",Value::Bool(false)),
+      ("productionActivation",Value::Bool(true)),
+      ("activeSeats",Value::from(3)),
+      ("status",Value::String("PENDING".into())),
+      ("sequence",Value::from(0))
+    ] {
+      let mut bad=good.clone();
+      bad["view"]["licenses"][0][field]=forged;
+      assert!(verify_readback(&bad,"org:one").is_err(),"field {field}");
+    }
+    let mut duplicate=good.clone();
+    let row=duplicate["view"]["licenses"][0].clone();
+    duplicate["view"]["licenses"].as_array_mut().unwrap().push(row);
+    assert!(verify_readback(&duplicate,"org:one").is_err());
+  }
+  #[test]
+  fn receiving_requires_signed_durable_status_receipt(){
+    let good=serde_json::json!({
+      "operation":"TEST_RECEIVE","organizationId":"org:one",
+      "licenseId":"license:test:one","status":"REVOKED",
+      "outcome":"VERIFIED_TEST_SAVED","sequence":2,"revision":2,
+      "signatureVerified":true,"statusVerified":true,
+      "activeSeats":0,"assignableSeats":0,"productionActivation":false
+    });
+    assert!(verify_received(&good,"org:one").is_ok());
+    let mut invalid=good.clone();
+    invalid["outcome"]="UNVERIFIED";
+    assert!(verify_received(&invalid,"org:one").is_err());
+    invalid=good.clone();
+    invalid["sequence"]=1_000_000_000_000_000_000_u64;
+    assert!(verify_received(&invalid,"org:one").is_err());
+    invalid=good.clone();
+    invalid["signatureVerified"]=false;
+    assert!(verify_received(&invalid,"org:one").is_err());
+  }
 }
