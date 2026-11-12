@@ -1,0 +1,3 @@
+Scoped private Agent 0.5 Node test only.
+Source: 4edeea9b79917f16dbfd9c3db742e59eb27bb8a9
+Never upload private code or binaries to public Center artifacts.
