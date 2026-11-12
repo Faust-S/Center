@@ -1,0 +1,146 @@
+name: D08 MarketOps private source qualification
+on:
+  push:
+    branches:
+      - work/2026-11-13-d08-marketops-private-qualification
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d08-marketops-private-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  d08-windows-source:
+    name: D08 actual Windows Node and TypeScript
+    runs-on: windows-latest
+    timeout-minutes: 50
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 'true'
+      npm_config_audit: 'false'
+      npm_config_fund: 'false'
+    steps:
+      - name: Require existing scoped private checkout permission
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) {
+            throw 'D08_PRIVATE_SOURCE_TOKEN_NOT_CONFIGURED'
+          }
+          Write-Host 'D08_PRIVATE_SOURCE_TOKEN_AVAILABLE'
+      - name: Checkout exact private MarketOps domain revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops
+          ref: adc3a1d893af80be4272d06ce22d0974ce4fcd01
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private/domain
+          persist-credentials: false
+      - name: Checkout exact private MarketOps site revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: f2e3f6012b89967b53ea2b0c8e116eb1120eec10
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private/site
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: ''
+      - name: Verify immutable input revisions
+        shell: pwsh
+        run: |
+          $domain=(& git -C private/domain rev-parse HEAD).Trim()
+          $site=(& git -C private/site rev-parse HEAD).Trim()
+          if ($domain -ne 'adc3a1d893af80be4272d06ce22d0974ce4fcd01' -or
+              $site -ne 'f2e3f6012b89967b53ea2b0c8e116eb1120eec10') {
+            throw 'D08_SOURCE_REVISION_MISMATCH'
+          }
+          Write-Host 'D08_INPUT_SHA_PIN_PASS'
+      - name: Run actual domain tests
+        shell: pwsh
+        working-directory: private/domain
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-domain-test.log'
+          & npm.cmd run test:cases --silent *> $log
+          $status=$LASTEXITCODE
+          Get-Content $log | Select-String -Pattern '^# (tests|pass|fail|duration_ms)' |
+            ForEach-Object { Write-Host $_.Line }
+          if ($status -ne 0) {
+            Get-Content $log | Select-String -Pattern '^not ok ' |
+              Select-Object -First 30 | ForEach-Object { Write-Host $_.Line }
+            throw 'D08_DOMAIN_TESTS_FAILED'
+          }
+          Write-Host 'D08_DOMAIN_TESTS_PASS'
+      - name: Install actual site dependency lock
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-npm-ci.log'
+          & npm.cmd ci --no-audit --no-fund *> $log
+          $status=$LASTEXITCODE
+          if ($status -ne 0) {
+            Get-Content $log | Select-String -Pattern '^(npm error|npm ERR|ERROR)' |
+              Select-Object -First 15 | ForEach-Object { Write-Host $_.Line }
+            throw 'D08_NPM_CI_FAILED'
+          }
+          Write-Host 'D08_NPM_CI_PASS'
+      - name: Run actual TypeScript typecheck
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-types.log'
+          & npm.cmd run check:types --silent *> $log
+          $status=$LASTEXITCODE
+          if ($status -ne 0) {
+            Get-Content $log | Select-String -Pattern 'error TS[0-9]+' |
+              Select-Object -First 50 | ForEach-Object { Write-Host $_.Line }
+            throw 'D08_TYPES_FAILED'
+          }
+          Write-Host 'D08_TYPES_PASS'
+      - name: Run actual lint
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-lint.log'
+          & npm.cmd run lint --silent *> $log
+          $status=$LASTEXITCODE
+          if ($status -ne 0) {
+            Get-Content $log | Select-String -Pattern '(error|problem|warning)' |
+              Select-Object -First 40 | ForEach-Object { Write-Host $_.Line }
+            throw 'D08_LINT_FAILED'
+          }
+          Write-Host 'D08_LINT_PASS'
+      - name: Run actual D08 adapter suite
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-adapters.log'
+          & npm.cmd run test:d08:adapters --silent *> $log
+          $status=$LASTEXITCODE
+          Get-Content $log | Select-String -Pattern '^# (tests|pass|fail|duration_ms)' |
+            ForEach-Object { Write-Host $_.Line }
+          if ($status -ne 0) {
+            Get-Content $log | Select-String -Pattern '^not ok ' |
+              Select-Object -First 40 | ForEach-Object { Write-Host $_.Line }
+            throw 'D08_ADAPTER_TESTS_FAILED'
+          }
+          Write-Host 'D08_ADAPTER_TESTS_PASS'
+      - name: Check T2 entry without building production dist
+        shell: pwsh
+        working-directory: private/site
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'd08-t2-entry.log'
+          & npm.cmd run check:t2:entry --silent *> $log
+          $status=$LASTEXITCODE
+          Get-Content $log | Select-String -Pattern '^# (tests|pass|fail|duration_ms)' |
+            ForEach-Object { Write-Host $_.Line }
+          if ($status -ne 0) {
+            Get-Content $log | Select-String -Pattern '^not ok ' |
+              Select-Object -First 25 | ForEach-Object { Write-Host $_.Line }
+            throw 'D08_T2_ENTRY_FAILED'
+          }
+          Write-Host 'D08_T2_ENTRY_PASS'
+# No private files, artifacts, source logs, cache or compiled dist are published.
