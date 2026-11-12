@@ -75,6 +75,9 @@ try {
       if(command==='publisher_age_decrypt')return {
         operation:'AGE_DECRYPTED',sourceSha256:'a'.repeat(64),
         state:'DECRYPTED_INTEGRITY_VERIFIED_NOT_ADMITTED',admitted:false};
+      if(command==='publisher_t3_export_test_trust')return {
+        operation:'TEST_TRUST_EXPORTED',bytes:2048,sha256:'c'.repeat(64),
+        publicOnly:true,activeSeats:0,productionActivation:false};
       if(command==='publisher_t3_capabilities')return {
         operation:'TEST_CAPABILITIES',issuers:['publisher:owner:test'],
         activeSeats:0,productionActivation:false,commercialAuthorityProven:false};
@@ -174,7 +177,12 @@ try {
   await page.getByTestId('publisher-age-exchange').waitFor();
   await page.getByTestId('publisher-t3-export-age').waitFor();
   assert.equal(await page.getByTestId('publisher-t3-export-age').isEnabled(),false);
-  assert.equal(await page.getByTestId('publisher-t3-export-test-trust').isEnabled(),false);
+  assert.equal(await page.getByTestId('publisher-t3-export-test-trust').isEnabled(),true);
+  await page.getByTestId('publisher-t3-export-test-trust').click();
+  await page.getByTestId('publisher-t3-public-trust-fingerprint').waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-public-trust-fingerprint').inputValue(),'c'.repeat(64));
+  assert.match(await page.getByTestId('publisher-test-public-trust').innerText(),/SHA-256/);
+  checks.push('original-T3-public-trust-export-returns-independent-fingerprint-not-license-grant');
   assert.equal(await page.getByTestId('publisher-person-export-age').isEnabled(),false);
   await page.getByTestId('publisher-age-recipients').fill('age1'+'q'.repeat(58));
   await page.getByTestId('publisher-age-encrypt').click();
