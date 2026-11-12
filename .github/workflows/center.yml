@@ -768,7 +768,7 @@ jobs:
                   'GUI_DRAFT_READBACK','QWEN_EXECUTE','COLD_RESTART','COLD_CORE_QUERIES',
                   'GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT','GUI_RESULT','GUI_TASK_SUBMIT',
                   'GUI_TASK_RESULT','GUI_TASK_REVIEW','GUI_TASK_REVIEW_READBACK',
-                  'CLEAN_STOP','WITNESS_RECEIPT')
+                  'GUI_COLD_RESTART','GUI_COLD_IMPORT','CLEAN_STOP','WITNESS_RECEIPT')
                 if($witnessFailure.status -ceq 'FAIL' -and $phase -cin $safePhases){
                   Write-Host ('PRIVATE_INSTALLED_WITNESS_PHASE='+$phase)
                 }
@@ -796,7 +796,8 @@ jobs:
             $guiStatus=Join-Path $out 'native-candidate/temporary-installed-fixture/native-gui-qwen.status'
             if(Test-Path -LiteralPath $guiStatus -PathType Leaf){
               $safeGuiMarkers=@('AGENT_REAL_QWEN_GUI_TASK_RESULT_PASS',
-                                'AGENT_REAL_QWEN_GUI_SUBMIT_REVIEW_ACCEPTED_PASS')
+                                'AGENT_REAL_QWEN_GUI_SUBMIT_REVIEW_ACCEPTED_PASS',
+                                'AGENT_REAL_QWEN_GUI_COLD_INDEPENDENT_IMPORT_PASS')
               foreach($line in [IO.File]::ReadLines($guiStatus)){
                 if([string]$line -cin $safeGuiMarkers){
                   Write-Host ('PRIVATE_INSTALLED_GUI_CHECKPOINT='+[string]$line)
@@ -1201,7 +1202,8 @@ jobs:
           $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
           if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or
              $result.source_commit -cne $env:PRIVATE_SOURCE_SHA -or
-             $result.gui_task_result_full_acceptance -cne 'PASS'){
+             $result.gui_task_result_full_acceptance -cne 'PASS' -or
+             $result.gui_task_cold_independent_import -cne 'PASS'){
             throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
           }
           $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
@@ -1213,5 +1215,6 @@ jobs:
           Write-Host ('PRIVATE_SETUP_SHA256='+$hash)
           Write-Host ('PRIVATE_SOURCE_SHA='+$result.source_commit)
           Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=PASS'
+          Write-Host 'PRIVATE_GUI_TASK_COLD_INDEPENDENT_IMPORT=PASS'
           # Never upload private files, archives, windows screenshots, or logs.
 
