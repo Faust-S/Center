@@ -1,0 +1,2 @@
+Scoped private Agent 0.5 Node and TypeScript regression. Exact private SHA 7dea6378085e6f75eefbf7c9d47bb575a7b17ce2.
+Public runner may read private sources transiently; do not upload private sources, logs, binaries or response data to public artifacts.
