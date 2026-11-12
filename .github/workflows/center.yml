@@ -694,6 +694,43 @@ jobs:
           python -m pip check 1>$null
           if($LASTEXITCODE -ne 0){throw 'PRIVATE_SOURCE_REQUIREMENTS_CONFLICT'}
           Write-Host 'PRIVATE_SOURCE_REQUIREMENTS_PASS'
+      - name: Parse private Windows product scripts before expensive qualification
+        if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=Join-Path $env:GITHUB_WORKSPACE 'private-product'
+          $check=Join-Path $env:RUNNER_TEMP 'iwxa-ps-parser-check.ps1'
+          # Generated checker contains only known filenames, no private code.
+          @'
+          param([string]$Source)
+          $scripts=@('tools/qualify_setup_core_full_product.ps1',
+                     'tools/build_setup_core_windows_candidate.ps1',
+                     'tools/qualify_setup_core_runtime.ps1',
+                     'tools/qualify_setup_core_native_gui.ps1')
+          foreach($name in $scripts){
+            $file=Join-Path $Source $name
+            if(!(Test-Path -LiteralPath $file -PathType Leaf)){
+              Write-Host 'PRIVATE_POWERSHELL_SOURCE_MISSING'
+              exit 2
+            }
+            $tokens=$null
+            $syntaxErrors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $file,[ref]$tokens,[ref]$syntaxErrors)|Out-Null
+            if($syntaxErrors -and $syntaxErrors.Count -gt 0){
+              # No source fragments, private paths or exception text.
+              Write-Host 'PRIVATE_POWERSHELL_SYNTAX_FAILED'
+              exit 3
+            }
+          }
+          Write-Host 'PRIVATE_POWERSHELL_SYNTAX_PASS'
+          '@ | Set-Content -LiteralPath $check -Encoding UTF8
+          $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $check -Source $source
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_POWERSHELL_PARSER_UNVERIFIED'}
+          Remove-Item -LiteralPath $check -Force
       - name: Qualify private source and native installed Windows lifecycle
         if: ${{ !contains(github.event.head_commit.message, ' node-only') }}
         timeout-minutes: 150
