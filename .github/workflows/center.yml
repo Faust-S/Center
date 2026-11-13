@@ -483,7 +483,7 @@ jobs:
 # Explicit opt-in. Private checkout and outputs stay on this ephemeral runner.
   # No private executable, source, dump, or report is uploaded as a public artifact.
   private-windows-qualification:
-    if: ${{ (github.ref == 'refs/heads/work/2026-11-10-setup-core-product-neutral-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-release-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-k03-diagnostics') && startsWith(github.event.head_commit.message, 'ci(private):') }}
+    if: ${{ (github.ref == 'refs/heads/work/2026-11-10-setup-core-product-neutral-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-release-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-k03-diagnostics' || github.ref == 'refs/heads/work/2026-11-13-agent05-ui-qualification') && startsWith(github.event.head_commit.message, 'ci(private):') }}
     runs-on: windows-latest
     timeout-minutes: 180
     permissions:
