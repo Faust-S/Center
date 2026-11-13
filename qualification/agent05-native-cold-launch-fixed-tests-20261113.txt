@@ -1,0 +1,1 @@
+Agent 0.5 native installed, first-launch regression with repaired static tests. Private SHA 9e585eaf9a5be259c415cc8b5d0e5717ea157aca
