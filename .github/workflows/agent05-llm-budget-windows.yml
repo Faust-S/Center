@@ -119,5 +119,5 @@ jobs:
           & npm.cmd run build *> $log
           if ($LASTEXITCODE -ne 0) { throw 'AGENT05_TYPESCRIPT_VITE_BUILD_FAILED' }
           Write-Host 'AGENT05_TYPESCRIPT_VITE_BUILD_PASS'
-      # Deliberately do not publish source, executable installers, logs,
+      # Qualify only pinned private content; never publish source, installers, logs,
       # artifacts, caches, paths, model weights, or secrets from this runner.
