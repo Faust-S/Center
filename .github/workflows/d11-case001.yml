@@ -25,3 +25,67 @@ jobs:
           done
       - name: Parse browser route TSX
         run: npx --yes esbuild@0.25.5 src/routes/tools.delivery-network-planner.tsx --format=esm --outfile=/tmp/d11-route.js --log-level=error
+
+  authorized-source:
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - id: check
+        name: Check read-only source access without exposing credentials
+        env:
+          SITE_READ_TOKEN: ${{ secrets.IWXA_D11_READ_TOKEN }}
+          T2_READ_TOKEN: ${{ secrets.IWXA_T2_READ_TOKEN }}
+        shell: bash
+        run: |
+          if [ -n "$SITE_READ_TOKEN" ] && [ -n "$T2_READ_TOKEN" ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo '::notice title=D11 complete build blocked::Read-only source credentials are not provisioned to the public Center. Only the canonical domain and browser TSX are qualified.'
+          fi
+  integrated-product:
+    needs: authorized-source
+    if: needs.authorized-source.outputs.available == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact D11 site source privately on runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/advice-logistics.ru
+          ref: 4dd1f0408c39b762cb292409d6064f294ebd6973
+          token: ${{ secrets.IWXA_D11_READ_TOKEN }}
+          persist-credentials: false
+      - name: Checkout pinned normative T2 privately on runner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          path: .t2-source
+          token: ${{ secrets.IWXA_T2_READ_TOKEN }}
+          persist-credentials: false
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install and exercise actual site tests
+        run: |
+          npm ci --no-audit --no-fund
+          npm run test:d11-handoff
+          npm run test:d11-site
+          npx tsc --noEmit -p tsconfig.app.json
+          npm run lint
+      - name: Build sole site plus normative T2 Host and Kernel
+        env:
+          IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/.t2-source
+        run: npm run build:static:check
+      - name: Assert shipped integrated Host, Exchange and Lifecycle
+        run: |
+          test -s dist/index.html
+          test -s dist/workspace/index.html
+          test -s dist/workspace/exchange/index.html
+          test -s dist/workspace/lifecycle/index.html
+          test -s dist/_iwxa/runtime/0.3.6/runtime.js
+          test ! -e dist/workspace/studio
