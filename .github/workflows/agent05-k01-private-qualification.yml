@@ -1,0 +1,104 @@
+name: Agent 0.5 K01 private Windows source qualification
+on:
+  push:
+    branches:
+      - work/2026-11-13-agent05-k01-private-qualification
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent05-k01-private-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows-k01:
+    name: Exact private Agent K01 Windows Node, Python and desktop build
+    runs-on: windows-latest
+    timeout-minutes: 50
+    env:
+      npm_config_audit: 'false'
+      npm_config_fund: 'false'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - name: Require temporary private checkout grant
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) {
+            throw 'AGENT05_K01_SCOPED_SOURCE_TOKEN_UNAVAILABLE'
+          }
+          Write-Host 'AGENT05_K01_SCOPED_SOURCE_TOKEN_PRESENT'
+      - name: Checkout exact private Agent revision without storing credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: deced8cb64a0189e3b9cb6f8d573801601ff521c
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private/agent
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: ''
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify frozen private source identity
+        shell: pwsh
+        run: |
+          $head=(& git -C private/agent rev-parse HEAD).Trim()
+          if ($head -ne 'deced8cb64a0189e3b9cb6f8d573801601ff521c') { throw 'AGENT05_K01_REVISION_MISMATCH' }
+          Write-Host 'AGENT05_K01_EXACT_SHA_PASS'
+      - name: Install desktop locked dependencies privately
+        shell: pwsh
+        working-directory: private/agent/desktop
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'agent05-k01-npm-ci.log'
+          & npm.cmd ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_K01_NPM_CI_FAILED' }
+          Write-Host 'AGENT05_K01_NPM_CI_PASS'
+      - name: Run full K01 Node test suite without disclosing test data
+        shell: pwsh
+        working-directory: private/agent/desktop
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'agent05-k01-node.log'
+          & node --test tests/k01-owner-pin.test.mjs tests/k01-accepted-project.test.mjs tests/k01-accepted-project-ui.test.mjs tests/k01-attachment-comparison.test.mjs tests/k01-document-change-preview.test.mjs tests/k01-revision-task-draft.test.mjs *> $log
+          $code=$LASTEXITCODE
+          Get-Content $log | Select-String -Pattern '^# (tests|pass|fail|duration_ms) ' |
+            ForEach-Object { Write-Host $_.Line }
+          if ($code -ne 0) { throw 'AGENT05_K01_NODE_FAILED' }
+          Write-Host 'AGENT05_K01_NODE_PASS'
+      - name: Verify entire React TypeScript and Vite build privately
+        shell: pwsh
+        working-directory: private/agent/desktop
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'agent05-k01-build.log'
+          & npm.cmd run build --silent *> $log
+          $code=$LASTEXITCODE
+          if ($code -ne 0) {
+            $codes=@(Get-Content $log | Select-String -AllMatches -Pattern 'TS[0-9]{4,5}' |
+              ForEach-Object { $_.Matches.Value } | Sort-Object -Unique)
+            Write-Host ('AGENT05_K01_TYPESCRIPT_CODES=' + ($codes -join ','))
+            throw 'AGENT05_K01_DESKTOP_BUILD_FAILED'
+          }
+          Write-Host 'AGENT05_K01_TYPESCRIPT_VITE_BUILD_PASS'
+      - name: Install Python test dependencies without public package logs
+        shell: pwsh
+        working-directory: private/agent
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'agent05-k01-python-deps.log'
+          & python -m pip install -r requirements-ci.txt *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_K01_PYTHON_DEPENDENCIES_FAILED' }
+          Write-Host 'AGENT05_K01_PYTHON_DEPENDENCIES_PASS'
+      - name: Execute real Core K01, owner receipt and restart regression
+        shell: pwsh
+        working-directory: private/agent
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'agent05-k01-pytest.log'
+          & python -m pytest -q tests/test_k01_accepted_result_pair.py tests/test_k01_accepted_result_source.py tests/test_k01_accepted_result_real_cycle.py tests/test_k01_task_source_status.py *> $log
+          $code=$LASTEXITCODE
+          if ($code -ne 0) { throw 'AGENT05_K01_CORE_PYTEST_FAILED' }
+          Write-Host 'AGENT05_K01_CORE_PYTEST_PASS'
+# No private source, package logs, Python traceback, test case names,
+# binaries, caches, user files, or artifacts are published in public Center.
