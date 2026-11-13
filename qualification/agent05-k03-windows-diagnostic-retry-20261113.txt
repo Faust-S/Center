@@ -1,0 +1,1 @@
+Retest finite K03 milestone diagnostics; Agent private source exact SHA 7fa04eeeb8782b6fbd04c4536acd9ff08a764bd2. Previous job 43416357226 did not execute due invalid public YAML; restored before this trigger.
