@@ -1503,6 +1503,24 @@ jobs:
               $installer.Count -ne 1 -or [int64]$installer[0].size -ne $bytes -or $checksums.Count -ne 1) {
             throw 'PRIVATE_RELEASE_ASSET_READBACK_MISMATCH'
           }
+          # Re-download both private release assets and compare actual bytes
+          # with the verified local Windows product before publishing.
+          $readbackDir=Join-Path $env:RUNNER_TEMP 'agent05-private-release-readback'
+          New-Item -Path $readbackDir -ItemType Directory -Force | Out-Null
+          & gh release download $tag --repo $repo --pattern $assetName --dir $readbackDir --clobber *> $privateLog
+          if ($LASTEXITCODE -ne 0) { throw 'PRIVATE_RELEASE_BINARY_REDOWNLOAD_FAILED' }
+          $readbackExe=Join-Path $readbackDir $assetName
+          if (!(Test-Path -LiteralPath $readbackExe -PathType Leaf) -or
+              (Get-Item -LiteralPath $readbackExe).Length -ne $bytes -or
+              (Get-FileHash -LiteralPath $readbackExe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $digest) {
+            throw 'PRIVATE_RELEASE_BINARY_REDOWNLOAD_MISMATCH'
+          }
+          & gh release download $tag --repo $repo --pattern SHA256SUMS.txt --dir $readbackDir --clobber *> $privateLog
+          if ($LASTEXITCODE -ne 0 -or
+              !(Test-Path -LiteralPath (Join-Path $readbackDir 'SHA256SUMS.txt') -PathType Leaf) -or
+              [IO.File]::ReadAllText((Join-Path $readbackDir 'SHA256SUMS.txt')).Trim() -cne ($digest+'  '+$assetName)) {
+            throw 'PRIVATE_RELEASE_CHECKSUM_REDOWNLOAD_MISMATCH'
+          }
           & gh release edit $tag --repo $repo --draft=false *> $privateLog
           if ($LASTEXITCODE -ne 0) { throw 'PRIVATE_RELEASE_PUBLISH_FAILED' }
           $raw=& gh release view $tag --repo $repo --json tagName,isDraft 2>$privateLog
