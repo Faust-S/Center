@@ -116,4 +116,6 @@ jobs:
             }
             throw 'AGENT05_NATIVE_INSTALLED_UIA_GATE_FAILED'
           }
+      # The public job prints only fixed stage/category identifiers; the
+      # actual installed product and diagnostics remain in RUNNER_TEMP.
       # No uploads, build caches, screenshots, logs or private binaries.
