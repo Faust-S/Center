@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 23f835c14d0033841240dd0a502dbf4bc65a64b4
+          ref: 4080d1020e4e40614493ee90b9fd71aa110ed22f
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne '23f835c14d0033841240dd0a502dbf4bc65a64b4') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          if ($actual -cne '4080d1020e4e40614493ee90b9fd71aa110ed22f') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
           $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
           Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
@@ -126,6 +126,15 @@ jobs:
           & python -c "from pathlib import Path; p=Path('tools/qualify_setup_core_real_qwen.py'); compile(p.read_text(encoding='utf-8'),str(p),'exec')" *> $log
           if ($LASTEXITCODE -ne 0) { throw 'AGENT05_PRIVATE_GRAPH_WITNESS_SYNTAX_FAILED' }
           Write-Host 'AGENT05_PRIVATE_GRAPH_WITNESS_SYNTAX_PASS'
+      - name: Validate private Windows UIA Graph witness PowerShell syntax
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $text = Get-Content -LiteralPath 'tools/qualify_setup_core_native_gui.ps1' -Raw
+          $tokens=$null; $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseInput($text,[ref]$tokens,[ref]$errors)
+          if (@($errors).Count -ne 0) { throw 'AGENT05_PRIVATE_GUI_GRAPH_SCRIPT_SYNTAX_FAILED' }
+          Write-Host 'AGENT05_PRIVATE_GUI_GRAPH_SCRIPT_SYNTAX_PASS'
       - name: Compile real Tauri Windows executable
         working-directory: private-product/desktop
         shell: pwsh
@@ -379,6 +388,25 @@ jobs:
               throw 'AGENT05_INSTALLED_GGUF_GUI_RESULT_READBACK_INVALID'
             }
             Write-Host 'AGENT05_INSTALLED_REAL_GGUF_GUI_RESULT_PASS'
+            # Verify the FULL saved Graph Result through the user's normal
+            # Chains page, not a direct API-only readback.
+            $graphSaved = Get-Content -LiteralPath $graphProof -Raw | ConvertFrom-Json
+            $graphGuiReceipt = Join-Path $logs 'agent05-native-graph-gui-result.json'
+            $graphGuiLog = Join-Path $logs 'agent05-native-graph-gui-result.log'
+            & pwsh -NoProfile -NonInteractive -File tools/qualify_setup_core_native_gui.ps1 -WindowProcessId $p.Id -Mode graph-result -GraphId ([string]$graphSaved.graph_id) -ExpectedSha256 ([string]$graphSaved.result_sha256) -ReceiptPath $graphGuiReceipt *> $graphGuiLog
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $graphGuiReceipt -PathType Leaf)) {
+              throw 'AGENT05_INSTALLED_GGUF_GRAPH_GUI_NOT_ACCEPTED'
+            }
+            $graphGui = Get-Content -LiteralPath $graphGuiReceipt -Raw | ConvertFrom-Json
+            if ($graphGui.status -cne 'PASS' -or
+                $graphGui.input -cne 'NATIVE_WINDOWS_UI_AUTOMATION' -or
+                $graphGui.workflow_selected -ne $true -or
+                $graphGui.full_saved_result_visible -ne $true -or
+                $graphGui.result_digest_matched -ne $true -or
+                $graphGui.read_only -ne $true) {
+              throw 'AGENT05_INSTALLED_GGUF_GRAPH_GUI_RECEIPT_INVALID'
+            }
+            Write-Host 'AGENT05_INSTALLED_REAL_GGUF_GRAPH_GUI_FULL_RESULT_PASS'
           } finally {
             if ($null -ne $p) {
               try { Stop-AgentNative $p } catch {
