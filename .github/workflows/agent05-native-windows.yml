@@ -113,6 +113,28 @@ jobs:
               }
             } else {
               Write-Host 'AGENT05_NATIVE_FAILURE_CATEGORY=REPORT_MISSING'
+              # The private product script failed before its GUI metrics were
+              # initialized. Inspect only fixed error tokens; do not print
+              # any original log line or file contents to the public run.
+              $precheck='UNCLASSIFIED_PRECHECK_FAILURE'
+              if (Test-Path -LiteralPath $log -PathType Leaf) {
+                $known=@(
+                  @('gui_managed_python_capsule_failed','MANAGED_PYTHON_CAPSULE'),
+                  @('gui_native_package_failed','NATIVE_PACKAGE'),
+                  @('gui_package_install_failed','PACKAGE_INSTALL'),
+                  @('gui_storage_authority_failed','STORAGE_AUTHORITY'),
+                  @('gui_native_executable_not_installed','INSTALLED_EXE_MISSING'),
+                  @('gui_native_process_exited_before_window','NATIVE_PROCESS_EARLY_EXIT'),
+                  @('gui_native_window_missing','NATIVE_WINDOW_MISSING')
+                )
+                foreach ($pair in $known) {
+                  if (Select-String -LiteralPath $log -Pattern $pair[0] -SimpleMatch -Quiet -ErrorAction SilentlyContinue) {
+                    $precheck=[string]$pair[1]
+                    break
+                  }
+                }
+              }
+              Write-Host ('AGENT05_NATIVE_PRECHECK_FAILURE_CATEGORY=' + $precheck)
             }
             throw 'AGENT05_NATIVE_INSTALLED_UIA_GATE_FAILED'
           }
