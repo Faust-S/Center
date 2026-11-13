@@ -1,9 +1,9 @@
 /** D11 CASE-002: maintenance spare-parts distribution across bus depots.
  * Domain business logic only; dispatches use the existing D11 transport engine.
  * Operational numbers belong to the input project, not to a named operator. */
-import { fingerprintModel, runScenario, type Project } from "./engine.ts";
-import { simulateOperations, type OperationSettings } from "./execution.ts";
-import { calculateVerifiedInventory, inspectionReleaseDay } from "./inventory.ts";
+import { runScenario, type Project } from "./engine.ts";
+import { calculateVerifiedInventory, simulateOperations, type OperationSettings } from "./execution.ts";
+import { inspectionReleaseDay } from "./inventory.ts";
 
 export type SupplyMode = "reactive" | "advance";
 export interface SparePart {
