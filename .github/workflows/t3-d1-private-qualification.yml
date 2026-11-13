@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: de632cca4cbe10f7d3d16508d4e6a8aa46246497
+          ref: 070300a23724dde32b58fac313f2f4570291d928
           path: public/knowledge
           persist-credentials: false
       - name: Checkout exact original private Control owner
@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C public/knowledge rev-parse HEAD)" = "de632cca4cbe10f7d3d16508d4e6a8aa46246497"
+          test "$(git -C public/knowledge rev-parse HEAD)" = "070300a23724dde32b58fac313f2f4570291d928"
           test "$(git -C private/t3 rev-parse HEAD)" = "da85c3aacd517d0edf358f866b6f0763d73c3699"
           node --check private/t3/interop/server.mjs
           node --check public/knowledge/packages/t3-core/src/t3/isolated-ui-server.mjs
@@ -66,6 +66,9 @@ jobs:
             "$GITHUB_WORKSPACE/private/t3" "$stage" --qualify > "$RUNNER_TEMP/t3-stage-receipt.json"
           cmp public/knowledge/packages/t3-core/src/t3/isolated-ui-server.mjs \
             "$stage/interop/t3-isolated-ui-server.mjs"
+          cmp public/knowledge/packages/t3-core/src/t3/signed-access-host-port.mjs \
+            "$stage/src/t3/signed-access-host-port.mjs"
+          node --check "$stage/src/t3/signed-access-host-port.mjs"
           test ! -e "$stage/.git"
           test ! -e "$stage/interop/.env"
           node --check "$stage/interop/server.mjs"
