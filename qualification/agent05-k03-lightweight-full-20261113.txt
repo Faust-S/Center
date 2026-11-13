@@ -1,0 +1,1 @@
+Agent 0.5 true installed Windows qualification with K03 lightweight source read, previous version upgrade and pinned Qwen. Private SHA 6aa4698c1305295a4f151affbe965fdc2bc33f18. Read-only runner.
