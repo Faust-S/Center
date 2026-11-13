@@ -960,6 +960,27 @@ jobs:
                 }
               }
             }
+            # K03 emits fixed phase names only. No task text, model output,
+            # paths, tokens, or evidence bytes leave the private runner.
+            $k03Status=Join-Path $out 'native-candidate/temporary-installed-fixture/installed-k03-task.status'
+            if(Test-Path -LiteralPath $k03Status -PathType Leaf){
+              $safeK03=@('AGENT_K03_OWNER_SESSION_READY',
+                'AGENT_K03_SOURCE_PREVIEW_VERIFIED',
+                'AGENT_K03_SOURCE_SELECTION_VERIFIED',
+                'AGENT_K03_DRAFT_EVIDENCE_SAVED',
+                'AGENT_K03_LOST_DRAFT_ACK_VERIFIED',
+                'AGENT_K03_TASK_ACCEPTED',
+                'AGENT_K03_MODEL_RESULT_IMPORTED',
+                'AGENT_K03_HUMAN_REVIEW_VERIFIED',
+                'AGENT_K03_INSTALLED_REAL_TASK_HUMAN_REVIEW_PASS',
+                'AGENT_K03_INSTALLED_TASK_COLD_RESULT_PASS',
+                'AGENT_K03_INSTALLED_REAL_TASK_FAIL')
+              foreach($line in [IO.File]::ReadLines($k03Status)){
+                if([string]$line -cin $safeK03){
+                  Write-Host ('PRIVATE_INSTALLED_K03_CHECKPOINT='+[string]$line)
+                }
+              }
+            }
             # The GUI witness uses one additional private status file.
             $guiStatus=Join-Path $out 'native-candidate/temporary-installed-fixture/native-gui-qwen.status'
             if(Test-Path -LiteralPath $guiStatus -PathType Leaf){
