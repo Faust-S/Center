@@ -14,6 +14,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  private-agent-typescript-diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require read-only private source permission
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) { throw 'AGENT05_PRIVATE_READ_PERMISSION_UNAVAILABLE' }
+      - name: Checkout pinned Agent for private typecheck
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 27d18ab0b97c192922fcb878e0888651ff9d1532
+          path: private-product
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Typecheck with no public source or diagnostic exposure
+        working-directory: private-product/desktop
+        shell: pwsh
+        run: |
+          $deps=Join-Path $env:RUNNER_TEMP 'agent05-ts-diagnostic-deps.log'
+          & npm.cmd ci --no-audit --no-fund *> $deps
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_TS_DIAG_DEPS_FAILED' }
+          $log=Join-Path $env:RUNNER_TEMP 'agent05-ts-diagnostic-private.log'
+          & npx.cmd tsc --noEmit --pretty false *> $log
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'AGENT05_TS_DIAGNOSTIC_PASS'
+          } else {
+            $raw=Get-Content -LiteralPath $log -Raw
+            $matches=[regex]::Matches($raw,'chain-builder[.]tsx[(]([0-9]+),[0-9]+[)]: error TS2345')
+            $area='OTHER'
+            foreach ($match in $matches) {
+              $n=[int]$match.Groups[1].Value
+              if ($n -ge 680 -and $n -le 702) { $area='INPROCESS_EVIDENCE_CALL';break }
+              if ($n -ge 770 -and $n -le 795) { $area='GRAPH_PREVIEW_RESULT';break }
+              if ($n -ge 646 -and $n -le 670) { $area='TASK_SOURCE_BINDING';break }
+            }
+            Write-Host ('AGENT05_TS2345_LOCATION='+$area)
+            throw 'AGENT05_TYPESCRIPT_PRIVATE_ERROR'
+          }
   private-agent-windows:
     runs-on: windows-latest
     timeout-minutes: 50
