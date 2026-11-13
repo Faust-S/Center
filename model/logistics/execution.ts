@@ -1,7 +1,7 @@
 /** D11: reproducible operational replay and plan/fact ledger for route scenarios. */
 import { assembleScenario, auditScenario, fingerprintModel, planDay, runScenario, travelMinutes, type Order, type Project, type Scenario, type Vehicle } from "./engine.ts";
 import { warehouseOptions } from "./warehouse.ts";
-import { calculateInventory, initialStock, receiveStock, subtractDeliveredStock, type InventoryReport } from "./inventory.ts";
+import { calculateInventory, initialStock, inspectionReleaseDay, receiveStock, subtractDeliveredStock, type InventoryReport } from "./inventory.ts";
 
 export interface OperationSettings {
   trafficPercent: number; dockDelayMinutes: number; extraServiceMinutes: number;
@@ -288,7 +288,7 @@ export function replanAfterReturns(
   const orders = new Map(model.orders.map(o => [o.id, o]));
   const vehicles = new Map(model.fleet.map(v => [v.id, v]));
   const stock = initialStock(model);
-  const pendingInspection = new Map<string, number>();
+  const dueInspection = new Map<string, Map<string, number>>();
   const acceptedReturnsByDay = new Map<string, Map<string, number>>();
   const days: Scenario["days"] = [], actualDays: OperationDay[] = [];
   const changes: ReplanningChange[] = [];
@@ -297,8 +297,8 @@ export function replanAfterReturns(
     const day = model.days[index];
     receiveStock(model, day, stock);
     // No rejected consignment is available again during the day of rejection.
-    const accepted = new Map(pendingInspection);
-    pendingInspection.clear();
+    const accepted = dueInspection.get(day) ?? new Map<string, number>();
+    dueInspection.delete(day);
     for (const [sku, units] of accepted) stock.set(sku, (stock.get(sku) ?? 0) + units);
     acceptedReturnsByDay.set(day, accepted);
 
@@ -310,12 +310,17 @@ export function replanAfterReturns(
     subtractDeliveredStock(model, ordersForDay(model, day),
       new Set(planned.runs.flatMap(run => run.stops.map(stop => stop.orderId))), stock);
 
-    for (const rejected of performed.trips.flatMap(trip =>
-      trip.deliveries.filter(delivery => delivery.status === "refused"))) {
-      const order = orders.get(rejected.orderId);
-      if (!order || order.day !== day) throw Error("D11_REPLAN_REFUSAL_INVALID");
-      for (const line of order.lines ?? [])
-        pendingInspection.set(line.skuId, (pendingInspection.get(line.skuId) ?? 0) + line.units);
+    for (const trip of performed.trips) {
+      const eligibleDay = inspectionReleaseDay(model, day, trip.returnMinute);
+      for (const rejected of trip.deliveries.filter(delivery => delivery.status === "refused")) {
+        const order = orders.get(rejected.orderId);
+        if (!order || order.day !== day) throw Error("D11_REPLAN_REFUSAL_INVALID");
+        if (!eligibleDay) continue; // Remains pending after the project calendar.
+        const scheduled = dueInspection.get(eligibleDay) ?? new Map<string, number>();
+        for (const line of order.lines ?? [])
+          scheduled.set(line.skuId, (scheduled.get(line.skuId) ?? 0) + line.units);
+        dueInspection.set(eligibleDay, scheduled);
+      }
     }
 
     const initialDay = original.days[index];

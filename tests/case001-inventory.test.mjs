@@ -288,3 +288,36 @@ test("the T2 proposal records exact order events from the second, re-dispatched 
   // The initial operational fact is an independent, unmodified journal.
   assert.equal(payload.operation.after.days[1].trips.length, 0);
 });
+
+
+test("overnight depot returns cannot be inspected or sold on the morning of physical arrival", async () => {
+  const { inspectionReleaseDay } = await import("../model/logistics/inventory.ts");
+  const { replanAfterReturns, auditReplanning } = await import("../model/logistics/execution.ts");
+  const model = threeDayReturnModel();
+  model.orders.forEach((order, index) => {
+    order.xKm = 400;
+    order.windowEnd = index === 0 ? 900 : 980;
+  });
+  model.road.avgKmHour = 100;
+  const severe = { ...returnSettings, trafficPercent: 250 };
+  const original = runScenario(model, "to-be");
+  assert.deepEqual(original.days.map(d => d.delivered), [1, 0, 0]);
+  const result = replanAfterReturns(model, original, severe);
+  assert.deepEqual(result.revised.days.map(d => d.delivered), [1, 0, 1]);
+  const depotReturn = result.actual.days[0].trips[0].returnMinute;
+  assert.ok(depotReturn >= 1440, "refused consignment physically returns on the next calendar day");
+  assert.equal(inspectionReleaseDay(model, model.days[0], depotReturn), model.days[2]);
+  assert.deepEqual(result.changes[1].acceptedReturns, []);
+  assert.deepEqual(result.changes[2].acceptedReturns, [{ skuId: "SKU-01", units: 5 }]);
+  assert.equal(result.inventory.days[1].movements[0].returned, 0);
+  assert.equal(result.inventory.days[1].movements[0].awaitingInspection, 5);
+  assert.equal(result.inventory.days[2].movements[0].returned, 5);
+  assert.equal(result.inventory.days[2].movements[0].issued, 5);
+  assert.deepEqual(result.audit, []);
+  assert.deepEqual(auditReplanning(model, result), []);
+  const fixedActual = simulateOperations(model, original, severe);
+  const fixedLedger = calculateVerifiedInventory(model, original, fixedActual);
+  assert.equal(fixedLedger.days[1].movements[0].returned, 0);
+  assert.equal(fixedLedger.days[2].movements[0].returned, 5);
+  assert.equal(fixedLedger.days[2].movements[0].closingUnits, 5);
+});

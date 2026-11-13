@@ -39,6 +39,17 @@ export function receiveStock(model: Project, day: string, stock: Map<string, num
   }
   return received;
 }
+/** Earliest configured working day strictly after the vehicle has returned to
+ * the depot. An overnight return must not make stock available that morning. */
+export function inspectionReleaseDay(
+  model: Project, dispatchDay: string, returnMinute: number,
+): string | null {
+  if (!model.days.includes(dispatchDay) || !Number.isFinite(returnMinute) ||
+      returnMinute < 0) throw Error("D11_RETURN_ARRIVAL_INVALID");
+  const actualDate = new Date(Date.parse(dispatchDay + "T00:00:00.000Z") +
+    Math.floor(returnMinute / 1440) * 86400000).toISOString().slice(0, 10);
+  return model.days.find(workDay => workDay > actualDate) ?? null;
+}
 export function orderUnits(order: Order): Map<string, number> {
   return new Map((order.lines ?? []).map(line => [line.skuId, line.units]));
 }
@@ -73,6 +84,7 @@ export function calculateInventory(
   const stock = initialStock(model);
   const byId = new Map(model.orders.map(o => [o.id, o]));
   const pending = new Map<string, number>();
+  const queuedInspection = new Map<string, Map<string, number>>();
   const result: InventoryDay[] = [];
   const violations: string[] = [];
   let totalReceipts = 0, totalIssued = 0, totalDelivered = 0, totalReturned = 0;
@@ -80,13 +92,15 @@ export function calculateInventory(
     const day = model.days[i], planned = plan.days[i], operational = actual?.days[i];
     if (planned.day !== day || (operational && operational.day !== day)) throw Error("D11_INVENTORY_DAY_MISMATCH");
     const opening = new Map(stock);
-    const pendingFromYesterday = new Map(pending);
+    const acceptedToday = queuedInspection.get(day) ?? new Map<string, number>();
+    queuedInspection.delete(day);
     const receipts = receiveStock(model, day, stock);
-    // Items rejected by a customer are physically returned to the depot and
-    // released only after next-day inspection. No same-day stock reuse.
-    for (const [sku, units] of pendingFromYesterday) {
+    // Release only goods whose vehicles returned on an earlier calendar day.
+    for (const [sku, units] of acceptedToday) {
+      const held = pending.get(sku) ?? 0;
+      if (units > held) violations.push("INVENTORY_RETURN_WITHOUT_REFUSAL:" + day + ":" + sku);
       stock.set(sku, (stock.get(sku) ?? 0) + units);
-      pending.delete(sku);
+      pending.set(sku, held - units);
     }
     const visits = planned.runs.flatMap(r => r.stops.map(s => s.orderId));
     const deliveredIds = operational
@@ -114,10 +128,25 @@ export function calculateInventory(
       if (available < units) violations.push("INVENTORY_NEGATIVE_STOCK:" + day + ":" + sku);
       stock.set(sku, available - units);
     }
-    for (const [sku, units] of refused) pending.set(sku, (pending.get(sku) ?? 0) + units);
+    for (const trip of operational?.trips ?? []) {
+      const eligibleDay = inspectionReleaseDay(model, day, trip.returnMinute);
+      for (const delivery of trip.deliveries) {
+        if (delivery.status !== "refused") continue;
+        const order = byId.get(delivery.orderId);
+        if (!order) continue; // The independent operation auditor rejects unknown IDs.
+        for (const line of order.lines ?? []) {
+          pending.set(line.skuId, (pending.get(line.skuId) ?? 0) + line.units);
+          if (eligibleDay) {
+            const scheduled = queuedInspection.get(eligibleDay) ?? new Map<string, number>();
+            scheduled.set(line.skuId, (scheduled.get(line.skuId) ?? 0) + line.units);
+            queuedInspection.set(eligibleDay, scheduled);
+          }
+        }
+      }
+    }
     const movements = model.inventory.map(entry => {
       const sku = entry.skuId, start = opening.get(sku) ?? 0, receiptsUnits = receipts.get(sku) ?? 0;
-      const returned = pendingFromYesterday.get(sku) ?? 0;
+      const returned = acceptedToday.get(sku) ?? 0;
       const issuedUnits = issued.get(sku) ?? 0, deliveredUnits = delivered.get(sku) ?? 0;
       const returnedUnits = refused.get(sku) ?? 0;
       const closing = stock.get(sku) ?? 0;
@@ -135,7 +164,8 @@ export function calculateInventory(
       excludedShortages: planned.unserved.filter(v => v.reason === "stock-shortage").length });
   }
   const pendingReturnUnits = [...pending.values()].reduce((n, x) => n + x, 0);
-  if (result.some(d => d.movements.some(m => m.closingUnits < 0))) violations.push("INVENTORY_NEGATIVE_CLOSING");
+  if (result.some(d => d.movements.some(m => m.closingUnits < 0)) ||
+      [...pending.values()].some(units => units < 0)) violations.push("INVENTORY_NEGATIVE_CLOSING");
   return { modelId: model.id, inputFingerprint: plan.inputFingerprint, mode: plan.mode,
     days: result, totalReceipts, totalIssued, totalDelivered, totalReturned,
     pendingReturnUnits, audit: violations };
