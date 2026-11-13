@@ -17,5 +17,11 @@ jobs:
         run: |
           node --version
           node --experimental-strip-types --test tests/*.test.mjs
+      - name: Canonical and browser project modules are identical
+        run: |
+          set -eu
+          for module in engine warehouse case001 execution inventory project-import proposal; do
+            cmp "model/logistics/$module.ts" "src/lib/logistics/$module.ts"
+          done
       - name: Parse browser route TSX
         run: npx --yes esbuild@0.25.5 src/routes/tools.delivery-network-planner.tsx --format=esm --outfile=/tmp/d11-route.js --log-level=error
