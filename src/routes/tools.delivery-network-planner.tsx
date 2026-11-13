@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SiteLayout } from "@/components/SiteLayout";
 import { createCase001 } from "@/lib/logistics/case001";
 import { importDeliveryProject, MAX_D11_REPORT_JSON_BYTES } from "@/lib/logistics/project-import";
@@ -269,6 +269,11 @@ function ReplanningResults({ result }: { result: ReplanningResult }) {
 function DeliveryNetworkPlanner() {
   const { state, setState, clearDraft } = useToolDraft("delivery-network-planner", INITIAL);
   const [importError, setImportError] = useState("");
+  const [refusalDraft, setRefusalDraft] = useState(state.customerRefusalOrderIds ?? "");
+  // Keep typing responsive: a large route replay runs only when applied.
+  useEffect(() => {
+    setRefusalDraft(state.customerRefusalOrderIds ?? "");
+  }, [state.customerRefusalOrderIds]);
   const importedModel = state.importedModel ?? null;
   function downloadTemplate() {
     const template = createCase001({ days: 1, dailyOrders: 40 });
@@ -525,14 +530,22 @@ function DeliveryNetworkPlanner() {
         </div>
         <label className={labelCls + " mt-5"}>Фактические отказы клиентов по ID заказов
           <textarea className={fieldCls + " min-h-20"} rows={2}
-            value={refusalText} onChange={e => setState(prev => ({
-              ...prev, customerRefusalOrderIds: e.target.value,
-            }))}
+            value={refusalDraft} onChange={e => setRefusalDraft(e.target.value)}
             placeholder="Например: D01-0001, D01-0002"
             aria-label="ID заказов, от которых клиенты отказались, включая своевременные доставки" />
         </label>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button type="button" disabled={refusalDraft === refusalText}
+            className="rounded border border-[#3B82F6] px-4 py-2 text-sm hover:bg-[#3B82F6]/10 disabled:opacity-50"
+            onClick={() => setState(prev => ({ ...prev, customerRefusalOrderIds: refusalDraft }))}>
+            Применить отказы и пересчитать
+          </button>
+          {refusalDraft !== refusalText && <span role="status" className="text-sm text-muted">
+            Изменения не применены к плану и факту.
+          </span>}
+        </div>
         <p className="mt-2 text-xs text-muted">Введите ID через запятую или с новой строки.
-          Такой отказ учитывается даже при доставке вовремя. Товар возвращается на склад,
+          Такой отказ учитывается даже при доставке вовремя. После нажатия кнопки товар возвращается на склад,
           проходит приёмку и участвует в перепланировании следующих рабочих дней.</p>
       </section>
       <div className="mt-8 grid gap-4">
