@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: b7b38555ace7540461040fb5c87ca6df6b5486ce
+          ref: 0fc40686c8a85bf5758c20352c26296ef5905dff
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -36,7 +36,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne 'b7b38555ace7540461040fb5c87ca6df6b5486ce') { throw 'K02_PRIVATE_SOURCE_MISMATCH' }
+          if ($actual -cne '0fc40686c8a85bf5758c20352c26296ef5905dff') { throw 'K02_PRIVATE_SOURCE_MISMATCH' }
           Write-Host 'K02_PRIVATE_SOURCE_PIN_PASS'
       - uses: actions/setup-node@v4
         with:
@@ -107,4 +107,22 @@ jobs:
             if (-not ((Get-Content -LiteralPath $log -Raw).Contains('K02_WINDOWS_BINARY_EXACT_NEGATIVE_VETO_PASS'))) { throw 'PROOF_MISSING' }
             Write-Host 'K02_WINDOWS_BINARY_EXACT_NEGATIVE_VETO_PASS'
           } catch { throw 'K02_WINDOWS_BINARY_EXACT_NEGATIVE_VETO_FAILED' }
+      - name: Qualify two real reviewed U01 owner CLI receipts and cold Core readback
+        shell: pwsh
+        working-directory: private-product
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $deps = Join-Path $env:RUNNER_TEMP 'k02-private-python-deps.log'
+          $log = Join-Path $env:RUNNER_TEMP 'k02-private-owner-u01-e2e.log'
+          $owners = Join-Path $env:RUNNER_TEMP 'k02-owner-binaries'
+          $env:IWXA_K02_OWNER_EXE = Join-Path $owners 'iwxa-k02-owner.exe'
+          $env:IWXA_K04_OWNER_EXE = Join-Path $owners 'iwxa-k04-owner.exe'
+          try {
+            & python -m pip install --disable-pip-version-check -r requirements.txt pytest *> $deps
+            if ($LASTEXITCODE -ne 0) { throw 'DEPS' }
+            & python -m pytest -q tests/test_k02_k04_native_owner_u01_e2e.py *> $log
+            if ($LASTEXITCODE -ne 0) { throw 'TEST_FAILURE' }
+            Write-Host 'K02_REAL_U01_TWO_OWNER_RECEIPTS_COLD_CORE_PASS'
+          } catch { throw 'K02_REAL_U01_TWO_OWNER_RECEIPTS_COLD_CORE_FAILED' }
       # Private source, binaries and raw logs are not uploaded or cached.
