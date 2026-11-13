@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: e95f05ad1f5442d9f9d816afd9478aff0208652d
+          ref: e7f3f819aca55c389e22b7c0658d5e7d0debb1e1
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne 'e95f05ad1f5442d9f9d816afd9478aff0208652d') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          if ($actual -cne 'e7f3f819aca55c389e22b7c0658d5e7d0debb1e1') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
           $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
           Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
@@ -412,7 +412,8 @@ jobs:
             $k02GuiReceipt = Join-Path $logs 'agent05-native-k02-graph-preview.json'
             $k02GuiLog = Join-Path $logs 'agent05-native-k02-graph-preview.log'
             $k02GuiFailure = Join-Path $logs 'agent05-native-k02-graph-failure-stage.txt'
-            & pwsh -NoProfile -NonInteractive -File tools/qualify_setup_core_native_gui.ps1 -WindowProcessId $p.Id -Mode graph-k02 -TaskId ([string]$saved.task_id) -ExpectedTitleSha256 ([string]$saved.task_title_sha256) -ExpectedModelName ([string]$graphSaved.model_name) -ReceiptPath $k02GuiReceipt -FailureStagePath $k02GuiFailure *> $k02GuiLog
+            $k02GuiFailureReason = Join-Path $logs 'agent05-native-k02-graph-failure-reason.txt'
+            & pwsh -NoProfile -NonInteractive -File tools/qualify_setup_core_native_gui.ps1 -WindowProcessId $p.Id -Mode graph-k02 -TaskId ([string]$saved.task_id) -ExpectedTitleSha256 ([string]$saved.task_title_sha256) -ExpectedModelName ([string]$graphSaved.model_name) -ReceiptPath $k02GuiReceipt -FailureStagePath $k02GuiFailure -FailureReasonPath $k02GuiFailureReason *> $k02GuiLog
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $k02GuiReceipt -PathType Leaf)) {
               $stage = 'UNKNOWN'
               if (Test-Path -LiteralPath $k02GuiFailure -PathType Leaf) {
@@ -422,6 +423,19 @@ jobs:
                 }
               }
               Write-Host ('AGENT05_K02_GUI_FAILURE_STAGE=' + $stage)
+              $reason = 'UNKNOWN'
+              if (Test-Path -LiteralPath $k02GuiFailureReason -PathType Leaf) {
+                $candidate = (Get-Content -LiteralPath $k02GuiFailureReason -Raw).Trim()
+                if ($candidate -in @(
+                  'PREVIEW_LABEL_MODEL_MISSING','PREVIEW_NOT_RENDERED',
+                  'TASK_NOT_ACCEPTED','SKILL_UNAVAILABLE','BINDING_UNAVAILABLE',
+                  'BINDING_CHANGED','MODEL_OBSERVATION_MISSING','MODEL_NOT_ACTIVE',
+                  'MODEL_SOURCE_NOT_READY','MODEL_PIN_INVALID','MODEL_SELECTION_CHANGED',
+                  'PREVIEW_SCOPE_CHANGED','K02_UNSUPPORTED','K04_UNSUPPORTED',
+                  'OWNER_PLANS_DISAGREE'
+                )) { $reason = $candidate }
+              }
+              Write-Host ('AGENT05_K02_GUI_FAILURE_REASON=' + $reason)
               throw 'AGENT05_INSTALLED_K02_K04_GUI_NOT_ACCEPTED'
             }
             $k02View = Get-Content -LiteralPath $k02GuiReceipt -Raw | ConvertFrom-Json
