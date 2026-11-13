@@ -1365,7 +1365,7 @@ jobs:
           # Never upload private files, archives, windows screenshots, or logs.
       # Publish only after complete native installed acceptance, never as a public artifact.
       - name: Publish verified 0.4.0 Setup only to private Agent release
-        if: ${{ contains(github.event.head_commit.message, ' private-release') && !contains(github.event.head_commit.message, ' node-only') }}
+        if: ${{ contains(github.event.head_commit.message, ' private-release') && !contains(github.event.head_commit.message, ' private-release-v0.5') && !contains(github.event.head_commit.message, ' node-only') }}
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.IWXA_PRIVATE_RELEASE_TOKEN }}
@@ -1412,6 +1412,87 @@ jobs:
             'Private release asset only; public Center artifacts remain empty.'
           ) | Set-Content -LiteralPath $notes -Encoding utf8
           & gh release create $tag ($setup+'#'+$assetName) ($sums+'#SHA256SUMS.txt') --repo $repo --target $fixed --title 'IWXA Personal Agent 0.4.0' --notes-file $notes --draft *> $privateLog
+          if ($LASTEXITCODE -ne 0) { throw 'PRIVATE_RELEASE_DRAFT_UPLOAD_FAILED' }
+          $raw=& gh release view $tag --repo $repo --json tagName,isDraft,targetCommitish,assets 2>$privateLog
+          if ($LASTEXITCODE -ne 0) { throw 'PRIVATE_RELEASE_READBACK_FAILED' }
+          $published=$raw | ConvertFrom-Json
+          $installer=@($published.assets | Where-Object { $_.name -ceq $assetName })
+          $checksums=@($published.assets | Where-Object { $_.name -ceq 'SHA256SUMS.txt' })
+          if ($published.tagName -cne $tag -or !$published.isDraft -or $published.targetCommitish -cne $fixed -or
+              $installer.Count -ne 1 -or [int64]$installer[0].size -ne $bytes -or $checksums.Count -ne 1) {
+            throw 'PRIVATE_RELEASE_ASSET_READBACK_MISMATCH'
+          }
+          & gh release edit $tag --repo $repo --draft=false *> $privateLog
+          if ($LASTEXITCODE -ne 0) { throw 'PRIVATE_RELEASE_PUBLISH_FAILED' }
+          $raw=& gh release view $tag --repo $repo --json tagName,isDraft 2>$privateLog
+          if ($LASTEXITCODE -ne 0 -or ($raw | ConvertFrom-Json).isDraft -ne $false) {
+            throw 'PRIVATE_RELEASE_FINAL_READBACK_MISSING'
+          }
+          Write-Host 'PRIVATE_RELEASE_PRIVATE_REPO_UPLOAD=PASS'
+          Write-Host ('PRIVATE_RELEASE_SETUP_SHA256='+$digest)
+          Write-Host 'PRIVATE_RELEASE_ASSET_COUNT=2'
+          Write-Host 'PRIVATE_RELEASE_VISIBILITY=PRIVATE'
+      - name: Publish verified 0.5.0 Setup to private Agent release
+        if: ${{ contains(github.event.head_commit.message, ' private-release-v0.5') && contains(github.event.head_commit.message, ' agent05-full') && !contains(github.event.head_commit.message, ' node-only') }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.IWXA_PRIVATE_RELEASE_TOKEN }}
+          PRIVATE_SOURCE_SHA: ${{ steps.private-pin.outputs.sha }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='Faust-S/iwxa-personal-agent'
+          $tag='v0.5.0'
+          $fixed='0000000000000000000000000000000000000000'
+          # A zero pin prevents accidental publication. Replace ONLY after exact 0.5 installed PASS.
+          if ($fixed -ceq '0000000000000000000000000000000000000000' -or
+              $env:PRIVATE_SOURCE_SHA -cne $fixed) { throw 'PRIVATE_RELEASE_SOURCE_NOT_FROZEN_0_5' }
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw 'PRIVATE_RELEASE_WRITE_TOKEN_NOT_CONFIGURED' }
+          $root=Join-Path $env:GITHUB_WORKSPACE 'private-product'
+          if ((& git -C $root rev-parse HEAD).Trim() -cne $fixed) { throw 'PRIVATE_RELEASE_SOURCE_MISMATCH' }
+          $out=Join-Path $env:RUNNER_TEMP 'private-product-qualification'
+          $receiptPath=Join-Path $out 'result.json'
+          $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
+          if (!(Test-Path -LiteralPath $receiptPath -PathType Leaf) -or !(Test-Path -LiteralPath $setup -PathType Leaf)) {
+            throw 'PRIVATE_RELEASE_QUALIFIED_SETUP_MISSING'
+          }
+          $r=Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $installedPath=Join-Path $out 'native-candidate/temporary-installed-fixture/installed-witness.json'
+          if(!(Test-Path -LiteralPath $installedPath -PathType Leaf)) {
+            throw 'PRIVATE_RELEASE_INSTALLED_WITNESS_MISSING'
+          }
+          $installed=Get-Content -LiteralPath $installedPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($installed.installed_native_cold_launch_verified -ne $true -or
+             $installed.installed_start_menu_shortcut_verified -ne $true -or
+             $installed.installed_real_qwen_task_review_verified -ne $true -or
+             $installed.installed_k03_real_source_task_result_restart_verified -ne $true){
+            throw 'PRIVATE_RELEASE_NATIVE_ACCEPTANCE_INCOMPLETE'
+          }
+          if ($r.status -cne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $r.source_commit -cne $fixed -or
+              $r.product_version -cne '0.5.0' -or $r.gui_task_result_full_acceptance -cne 'PASS' -or
+              $r.gui_task_cold_independent_import -cne 'PASS' -or $r.model_result_transport_verified -cne 'PASS') {
+            throw 'PRIVATE_RELEASE_WINDOWS_ACCEPTANCE_UNVERIFIED'
+          }
+          $digest=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          $bytes=(Get-Item -LiteralPath $setup).Length
+          if ($bytes -lt 1000000 -or $digest -cnotmatch '^[0-9a-f]{64}$') { throw 'PRIVATE_RELEASE_BINARY_INVALID' }
+          if (!(Get-Command gh -ErrorAction SilentlyContinue)) { throw 'PRIVATE_RELEASE_GH_CLI_MISSING' }
+          $privateLog=Join-Path $env:RUNNER_TEMP 'private-gh-release.log'
+          & gh release view $tag --repo $repo --json tagName *> $privateLog
+          if ($LASTEXITCODE -eq 0) { throw 'PRIVATE_RELEASE_TAG_EXISTS_NO_OVERWRITE' }
+          $assetName='IWXA-Personal-Agent-0.5.0-Setup.exe'
+          $sums=Join-Path $env:RUNNER_TEMP 'agent05-release-SHA256SUMS.txt'
+          ($digest+'  '+$assetName) | Set-Content -LiteralPath $sums -Encoding ascii
+          $notes=Join-Path $env:RUNNER_TEMP 'agent05-release-notes.md'
+          @(
+            'IWXA Personal Agent 0.5.0 for Windows. Full installed acceptance PASS.'
+            ('Exact source SHA: '+$fixed)
+            ('Installer SHA-256: '+$digest)
+            ('Center Windows acceptance run: '+$env:GITHUB_RUN_ID)
+            'Verified: first native launch without Core prestart, real Start Menu shortcut, local model Task, Human Review, Result, K03, cold independent .iwxa import.'
+            'Model choice and reasoning effort remain user preferences; no subjective answer-quality gate.'
+            'Private release asset only; public Center artifacts remain empty.'
+          ) | Set-Content -LiteralPath $notes -Encoding utf8
+          & gh release create $tag ($setup+'#'+$assetName) ($sums+'#SHA256SUMS.txt') --repo $repo --target $fixed --title 'IWXA Personal Agent 0.5.0' --notes-file $notes --draft *> $privateLog
           if ($LASTEXITCODE -ne 0) { throw 'PRIVATE_RELEASE_DRAFT_UPLOAD_FAILED' }
           $raw=& gh release view $tag --repo $repo --json tagName,isDraft,targetCommitish,assets 2>$privateLog
           if ($LASTEXITCODE -ne 0) { throw 'PRIVATE_RELEASE_READBACK_FAILED' }
