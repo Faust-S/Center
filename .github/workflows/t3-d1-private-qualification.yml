@@ -30,14 +30,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: c9de7c328d441fe5a54b1e54f0ce18e0abf15227
+          ref: 232d66a4da8c43074cdd64d0045fbe79a084273f
           path: public/knowledge
           persist-credentials: false
       - name: Checkout exact original private Control owner
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 35293651c4e27464306516ce5b32c79c01a21981
+          ref: da85c3aacd517d0edf358f866b6f0763d73c3699
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private/t3
           persist-credentials: false
@@ -48,14 +48,29 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C public/knowledge rev-parse HEAD)" = "c9de7c328d441fe5a54b1e54f0ce18e0abf15227"
-          test "$(git -C private/t3 rev-parse HEAD)" = "35293651c4e27464306516ce5b32c79c01a21981"
+          test "$(git -C public/knowledge rev-parse HEAD)" = "232d66a4da8c43074cdd64d0045fbe79a084273f"
+          test "$(git -C private/t3 rev-parse HEAD)" = "da85c3aacd517d0edf358f866b6f0763d73c3699"
           node --check private/t3/interop/server.mjs
-          node --check private/t3/interop/t3-isolated-ui-server.mjs
+          node --check public/knowledge/packages/t3-core/src/t3/isolated-ui-server.mjs
+          node --check public/knowledge/packages/t3-core/scripts/stage-original-control-consumer.mjs
           node --check private/t3/interop/t3-control-workspace-entry.mjs
           node --check private/t3/qualification/t3-d1-loopback-owner-local.test.mjs
           node --check public/knowledge/packages/t3-core/src/t3/control-loopback-owner.mjs
           echo 'T3_D1_EXACT_PUBLIC_AND_PRIVATE_SOURCES_PASS'
+      - name: Stage disposable ORIGINAL Control with knowledge-owned UI
+        shell: bash
+        run: |
+          set -eu
+          stage="$RUNNER_TEMP/t3-original-control-staged"
+          node public/knowledge/packages/t3-core/scripts/stage-original-control-consumer.mjs \
+            "$GITHUB_WORKSPACE/private/t3" "$stage" --qualify > "$RUNNER_TEMP/t3-stage-receipt.json"
+          cmp public/knowledge/packages/t3-core/src/t3/isolated-ui-server.mjs \
+            "$stage/interop/t3-isolated-ui-server.mjs"
+          test ! -e "$stage/.git"
+          test ! -e "$stage/interop/.env"
+          node --check "$stage/interop/server.mjs"
+          node --check "$stage/interop/t3-isolated-ui-server.mjs"
+          echo 'T3_D1_CONSUMER_KNOWLEDGE_UI_MODULE_STAGED'
       - name: Run genuine Ed25519 AccessRegistry and Control HTTP integration
         shell: bash
         env:
@@ -64,7 +79,7 @@ jobs:
           set -eu
           output="$RUNNER_TEMP/t3-d1-private-node.log"
           set +e
-          node --test private/t3/qualification/t3-d1-loopback-owner-local.test.mjs > "$output" 2>&1
+          node --test "$RUNNER_TEMP/t3-original-control-staged/qualification/t3-d1-loopback-owner-local.test.mjs" > "$output" 2>&1
           code=$?
           set -e
           # Private assertions, organization IDs, stack traces, keys and source
@@ -74,11 +89,27 @@ jobs:
             echo 'T3_D1_REAL_SIGNER_HTTP_FAILED'
             exit 1
           fi
-          grep -Eq '^# tests [2-9][0-9]*$' "$output" || {
+          grep -Eq '^# tests 2$' "$output" || {
             echo 'T3_D1_REAL_SIGNER_TESTS_MISSING'
             exit 1
           }
-          grep -Eq '^# fail 0$' "$output" || {
+          grep -Eq '^# pass 2
+            echo 'T3_D1_REAL_SIGNER_ASSERTIONS_FAILED'
+            exit 1
+          }
+          echo 'T3_D1_REAL_SIGNER_TWO_ORGANIZATIONS_HTTP_PASS'
+
+ "$output" || {
+            echo 'T3_D1_REAL_SIGNER_PASS_COUNT_INVALID'
+            exit 1
+          }
+          grep -Eq '^# fail 0
+            echo 'T3_D1_REAL_SIGNER_ASSERTIONS_FAILED'
+            exit 1
+          }
+          echo 'T3_D1_REAL_SIGNER_TWO_ORGANIZATIONS_HTTP_PASS'
+
+ "$output" || {
             echo 'T3_D1_REAL_SIGNER_ASSERTIONS_FAILED'
             exit 1
           }
@@ -92,7 +123,7 @@ jobs:
           set -eu
           output="$RUNNER_TEMP/t3-d1-d2-private-cross-owner.log"
           set +e
-          node --test private/t3/qualification/t3-d1-cross-owner-integration.mjs > "$output" 2>&1
+          node --test "$RUNNER_TEMP/t3-original-control-staged/qualification/t3-d1-cross-owner-integration.mjs" > "$output" 2>&1
           code=$?
           set -e
           # Cross-owner assertions and private source stay on disposable runner.
@@ -110,4 +141,13 @@ jobs:
             exit 1
           }
           echo 'T3_D1_PRIVATE_SIGNED_D2_CROSS_OWNER_PASS'
+      - name: Discard all staged Control sources and private test logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/t3-original-control-staged"
+          rm -f "$RUNNER_TEMP/t3-stage-receipt.json"
+          rm -f "$RUNNER_TEMP/t3-d1-private-node.log"
+          rm -f "$RUNNER_TEMP/t3-d1-d2-private-cross-owner.log"
+          echo 'T3_D1_PRIVATE_STAGING_DISCARDED'
 # No private code, logs, keys, packed data, screenshots or artifacts are uploaded.
