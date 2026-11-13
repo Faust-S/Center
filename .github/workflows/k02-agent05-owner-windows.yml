@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 486eb06f021771b5398f67f81bf586c5b8363e1b
+          ref: b7b38555ace7540461040fb5c87ca6df6b5486ce
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -36,7 +36,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne '486eb06f021771b5398f67f81bf586c5b8363e1b') { throw 'K02_PRIVATE_SOURCE_MISMATCH' }
+          if ($actual -cne 'b7b38555ace7540461040fb5c87ca6df6b5486ce') { throw 'K02_PRIVATE_SOURCE_MISMATCH' }
           Write-Host 'K02_PRIVATE_SOURCE_PIN_PASS'
       - uses: actions/setup-node@v4
         with:
