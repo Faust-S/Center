@@ -51,6 +51,8 @@ jobs:
           test "$(git -C public/knowledge rev-parse HEAD)" = "c417b47ebdc0a06b3d95e683383651a093c44a2e"
           test "$(git -C private/t3 rev-parse HEAD)" = "a5d2ec82bcbd55a5cc261779beba16ef591f20d0"
           node --check private/t3/interop/server.mjs
+          node --check private/t3/interop/t3-isolated-ui-server.mjs
+          node --check private/t3/interop/t3-control-workspace-entry.mjs
           node --check private/t3/qualification/t3-d1-loopback-owner-local.test.mjs
           node --check public/knowledge/packages/t3-core/src/t3/control-loopback-owner.mjs
           echo 'T3_D1_EXACT_PUBLIC_AND_PRIVATE_SOURCES_PASS'
