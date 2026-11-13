@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 4080d1020e4e40614493ee90b9fd71aa110ed22f
+          ref: 18b816e532c3325f4a27b4b8e9ebcc073011f1b3
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne '4080d1020e4e40614493ee90b9fd71aa110ed22f') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          if ($actual -cne '18b816e532c3325f4a27b4b8e9ebcc073011f1b3') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
           $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
           Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
