@@ -1,7 +1,7 @@
 /** D11: reproducible operational replay and plan/fact ledger for route scenarios. */
-import { auditScenario, fingerprintModel, travelMinutes, type Order, type Project, type Scenario, type Vehicle } from "./engine.ts";
+import { assembleScenario, auditScenario, fingerprintModel, planDay, runScenario, travelMinutes, type Order, type Project, type Scenario, type Vehicle } from "./engine.ts";
 import { warehouseOptions } from "./warehouse.ts";
-import { calculateInventory, type InventoryReport } from "./inventory.ts";
+import { calculateInventory, initialStock, receiveStock, subtractDeliveredStock, type InventoryReport } from "./inventory.ts";
 
 export interface OperationSettings {
   trafficPercent: number; dockDelayMinutes: number; extraServiceMinutes: number;
@@ -196,20 +196,31 @@ export function simulateOperations(model: Project, plan: Scenario,
       plan.orderCount !== model.orders.length ||
       plan.days.length !== model.days.length) throw Error("D11_OPERATION_PLAN_INVALID");
   const settings = settingsOf(input);
-  const sourceOrders = new Map(model.orders.map(o => [o.id, o]));
+  const orders = new Map(model.orders.map(o => [o.id, o]));
   const vehicles = new Map(model.fleet.map(v => [v.id, v]));
-  const days: OperationDay[] = plan.days.map(day => {
-    const trips = replayDayTrips(model, day, settings, sourceOrders, vehicles);
-    const all = trips.flatMap(r => r.deliveries);
-    return { day: day.day, scheduled: day.delivered,
-      executed: all.filter(x => x.status !== "refused").length,
-      refused: all.filter(x => x.status === "refused").length,
-      late: all.filter(x => x.latenessMinutes > 0).length,
-      onTime: all.filter(x => x.status === "on-time").length,
-      notScheduled: day.unserved.length,
-      actualCostRub: round(day.fixedOwnedCostRub + trips.reduce((n, t) => n + t.actualCostRub, 0)),
-      plannedCostRub: day.totalCostRub, trips };
-  });
+  return summarizeOperations(model, plan, settings,
+    plan.days.map(day => operateDay(model, day, settings, orders, vehicles)));
+}
+
+/** One day's actual fleet and depot calendar, reused by fixed and adaptive plans. */
+function operateDay(
+  model: Project, day: Scenario["days"][number], settings: OperationSettings,
+  orders: ReadonlyMap<string, Order>, vehicles: ReadonlyMap<string, Vehicle>,
+): OperationDay {
+  const trips = replayDayTrips(model, day, settings, orders, vehicles);
+  const all = trips.flatMap(t => t.deliveries);
+  return { day: day.day, scheduled: day.delivered,
+    executed: all.filter(x => x.status !== "refused").length,
+    refused: all.filter(x => x.status === "refused").length,
+    late: all.filter(x => x.latenessMinutes > 0).length,
+    onTime: all.filter(x => x.status === "on-time").length,
+    notScheduled: day.unserved.length,
+    actualCostRub: round(day.fixedOwnedCostRub + trips.reduce((n, t) => n + t.actualCostRub, 0)),
+    plannedCostRub: day.totalCostRub, trips };
+}
+function summarizeOperations(
+  model: Project, plan: Scenario, settings: OperationSettings, days: OperationDay[],
+): OperationReport {
   const sum = (f: (d: OperationDay) => number) => days.reduce((n, d) => n + f(d), 0);
   const report: OperationReport = {
     modelId: model.id, inputFingerprint: plan.inputFingerprint, mode: plan.mode, settings, days,
@@ -222,6 +233,7 @@ export function simulateOperations(model: Project, plan: Scenario,
   report.audit = auditOperations(model, plan, report);
   return report;
 }
+
 export function compareOperations(before: OperationReport, after: OperationReport): {
   comparable: boolean; costDifferenceRub: number | null; serviceDelta: number; lateDelta: number;
 } {
@@ -250,4 +262,94 @@ export function calculateVerifiedInventory(
   const inventory = calculateInventory(model, plan, actual);
   if (inventory.audit.length) throw Error("D11_INVENTORY_BALANCE_UNVERIFIED");
   return inventory;
+}
+
+/** Each day is planned only after the previous day's verifiable returns have
+ * entered the next working-day inspection cycle. The original plan is immutable. */
+export interface ReplanningChange {
+  day: string;
+  acceptedReturns: { skuId: string; units: number }[];
+  originalScheduled: number; revisedScheduled: number;
+  newlyScheduledOrders: string[]; removedScheduledOrders: string[];
+}
+export interface ReplanningResult {
+  original: Scenario; revised: Scenario; actual: OperationReport;
+  inventory: InventoryReport; changes: ReplanningChange[]; audit: string[];
+}
+export function replanAfterReturns(
+  model: Project, original: Scenario, input: Partial<OperationSettings> = {},
+): ReplanningResult {
+  if (original.modelId !== model.id || original.inputFingerprint !== fingerprintModel(model) ||
+      original.audit.length || original.days.length !== model.days.length ||
+      JSON.stringify(original) !== JSON.stringify(
+        runScenario(model, original.mode, original.unavailableVehicleIds)))
+    throw Error("D11_REPLAN_ORIGINAL_UNVERIFIED");
+  const settings = settingsOf(input);
+  const orders = new Map(model.orders.map(o => [o.id, o]));
+  const vehicles = new Map(model.fleet.map(v => [v.id, v]));
+  const stock = initialStock(model);
+  const pendingInspection = new Map<string, number>();
+  const acceptedReturnsByDay = new Map<string, Map<string, number>>();
+  const days: Scenario["days"] = [], actualDays: OperationDay[] = [];
+  const changes: ReplanningChange[] = [];
+
+  for (let index = 0; index < model.days.length; index++) {
+    const day = model.days[index];
+    receiveStock(model, day, stock);
+    // No rejected consignment is available again during the day of rejection.
+    const accepted = new Map(pendingInspection);
+    pendingInspection.clear();
+    for (const [sku, units] of accepted) stock.set(sku, (stock.get(sku) ?? 0) + units);
+    acceptedReturnsByDay.set(day, accepted);
+
+    const planned = planDay(model, day, original.mode, original.unavailableVehicleIds,
+      model.inventory ? stock : undefined);
+    const performed = operateDay(model, planned, settings, orders, vehicles);
+    days.push(planned);
+    actualDays.push(performed);
+    subtractDeliveredStock(model, ordersForDay(model, day),
+      new Set(planned.runs.flatMap(run => run.stops.map(stop => stop.orderId))), stock);
+
+    for (const rejected of performed.trips.flatMap(trip =>
+      trip.deliveries.filter(delivery => delivery.status === "refused"))) {
+      const order = orders.get(rejected.orderId);
+      if (!order || order.day !== day) throw Error("D11_REPLAN_REFUSAL_INVALID");
+      for (const line of order.lines ?? [])
+        pendingInspection.set(line.skuId, (pendingInspection.get(line.skuId) ?? 0) + line.units);
+    }
+
+    const initialDay = original.days[index];
+    const initiallyScheduled = new Set(initialDay.runs.flatMap(run => run.stops.map(stop => stop.orderId)));
+    const newlyScheduled = new Set(planned.runs.flatMap(run => run.stops.map(stop => stop.orderId)));
+    changes.push({ day,
+      acceptedReturns: [...accepted].sort(([a], [b]) => a.localeCompare(b))
+        .map(([skuId, units]) => ({ skuId, units })),
+      originalScheduled: initialDay.delivered, revisedScheduled: planned.delivered,
+      newlyScheduledOrders: [...newlyScheduled].filter(id => !initiallyScheduled.has(id)).sort(),
+      removedScheduledOrders: [...initiallyScheduled].filter(id => !newlyScheduled.has(id)).sort() });
+  }
+
+  const revised = assembleScenario(model, original.mode, original.unavailableVehicleIds,
+    days, acceptedReturnsByDay);
+  const actual = summarizeOperations(model, revised, settings, actualDays);
+  const inventory = calculateInventory(model, revised, actual);
+  const audit = [...revised.audit, ...actual.audit, ...inventory.audit];
+  if (audit.length) throw Error("D11_REPLAN_AUDIT_FAILED:" + audit[0]);
+  return { original, revised, actual, inventory, changes, audit };
+}
+function ordersForDay(model: Project, day: string): Order[] {
+  return model.orders.filter(order => order.day === day);
+}
+/** Independent deterministic replay rejects a forged route, returned SKU,
+ * delivery event or copied/stale plan before it reaches the T2 Result. */
+export function auditReplanning(model: Project, candidate: ReplanningResult): string[] {
+  try {
+    if (candidate.audit.length) return ["D11_REPLAN_DECLARED_AUDIT"];
+    const checked = replanAfterReturns(model, candidate.original, candidate.actual.settings);
+    return (["revised", "actual", "inventory", "changes"] as const).flatMap(field =>
+      JSON.stringify(candidate[field]) === JSON.stringify(checked[field])
+        ? [] : ["D11_REPLAN_REPLAY_MISMATCH:" + field]);
+  } catch {
+    return ["D11_REPLAN_REPLAY_FAILED"];
+  }
 }

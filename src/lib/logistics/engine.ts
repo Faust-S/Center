@@ -359,16 +359,29 @@ export function planDay(model: Project, day: string, mode: Mode, unavailableIds:
     fixedOwnedCostRub, totalCostRub: round(fixedOwnedCostRub + runs.reduce((n, r) => n + r.costRub, 0)) };
 }
 /** Reconstruct the warehouse, dock and vehicle calendars independently of the stored ledger. */
-export function auditScenario(model: Project, days: DayResult[], unavailableIds: readonly string[] = []): string[] {
+export function auditScenario(
+  model: Project, days: DayResult[], unavailableIds: readonly string[] = [],
+  inspectedReturnsByDay?: ReadonlyMap<string, ReadonlyMap<string, number>>,
+): string[] {
   const issues: string[] = [];
   if (days.length !== model.days.length || new Set(days.map(d => d.day)).size !== model.days.length ||
-      model.days.some(day => !days.some(d => d.day === day))) issues.push("DAYS_INCOMPLETE_OR_DUPLICATE");
+      model.days.some((day, index) => days[index]?.day !== day)) issues.push("DAYS_INCOMPLETE_OR_DUPLICATE");
   const orders = new Map(model.orders.map(o => [o.id, o]));
   const vehicles = new Map(model.fleet.map(v => [v.id, v]));
   const cfg = warehouseOptions(model);
   const inventoryStock = initialStock(model);
   for (const day of days) {
     receiveStock(model, day.day, inventoryStock);
+    // Only the operational replan passes inspected returns here; the calling
+    // auditor must first reconstruct them from verified previous-day events.
+    for (const [sku, units] of inspectedReturnsByDay?.get(day.day) ?? []) {
+      if (!model.inventory?.some(item => item.skuId === sku) ||
+          !Number.isSafeInteger(units) || units < 1) {
+        issues.push("INSPECTED_RETURN_INVALID:" + day.day + ":" + sku);
+        continue;
+      }
+      inventoryStock.set(sku, (inventoryStock.get(sku) ?? 0) + units);
+    }
     const picked = pickWarehouseOrders(model, day.day, model.inventory ? inventoryStock : undefined);
     const pickedIds = new Set(picked.accepted.map(o => o.id));
     const missedIds = new Set(picked.missed.map(o => o.id));
@@ -437,6 +450,23 @@ export function auditScenario(model: Project, days: DayResult[], unavailableIds:
   }
   return issues;
 }
+/** Summarize the same physical route ledger for an initial or event-replanned day sequence. */
+export function assembleScenario(
+  model: Project, mode: Mode, unavailableIds: readonly string[], days: DayResult[],
+  inspectedReturnsByDay?: ReadonlyMap<string, ReadonlyMap<string, number>>,
+): Scenario {
+  const delivered = days.reduce((n, d) => n + d.delivered, 0);
+  const totalCostRub = round(days.reduce((n, d) => n + d.totalCostRub, 0));
+  return { modelId: model.id, inputFingerprint: fingerprintModel(model), mode, orderCount: model.orders.length, delivered,
+    unserved: model.orders.length - delivered,
+    totalKm: round(days.reduce((n, d) => n + d.runs.reduce((m, r) => m + r.km, 0), 0)),
+    totalCostRub, costPerDeliveredRub: delivered ? round(totalCostRub / delivered) : null,
+    ownedRuns: days.reduce((n, d) => n + d.runs.filter(r => r.kind === "owned").length, 0),
+    hiredRuns: days.reduce((n, d) => n + d.runs.filter(r => r.kind === "contracted").length, 0),
+    totalBreakMinutes: days.reduce((n, d) => n + d.runs.reduce((m, r) => m + r.breakMinutes, 0), 0),
+    unavailableVehicleIds: [...new Set(unavailableIds)].sort(), days,
+    audit: auditScenario(model, days, unavailableIds, inspectedReturnsByDay) };
+}
 export function runScenario(model: Project, mode: Mode, unavailableIds: readonly string[] = []): Scenario {
   validate(model);
   if (mode !== "as-is" && mode !== "to-be") throw Error("D11_UNKNOWN_MODE");
@@ -450,17 +480,7 @@ export function runScenario(model: Project, mode: Mode, unavailableIds: readonly
       new Set(planned.runs.flatMap(r => r.stops.map(s => s.orderId))), stock);
     days.push(planned);
   }
-  const delivered = days.reduce((n, d) => n + d.delivered, 0);
-  const totalCostRub = round(days.reduce((n, d) => n + d.totalCostRub, 0));
-  return { modelId: model.id, inputFingerprint: fingerprintModel(model), mode, orderCount: model.orders.length, delivered,
-    unserved: model.orders.length - delivered,
-    totalKm: round(days.reduce((n, d) => n + d.runs.reduce((m, r) => m + r.km, 0), 0)),
-    totalCostRub, costPerDeliveredRub: delivered ? round(totalCostRub / delivered) : null,
-    ownedRuns: days.reduce((n, d) => n + d.runs.filter(r => r.kind === "owned").length, 0),
-    hiredRuns: days.reduce((n, d) => n + d.runs.filter(r => r.kind === "contracted").length, 0),
-    totalBreakMinutes: days.reduce((n, d) => n + d.runs.reduce((m, r) => m + r.breakMinutes, 0), 0),
-    unavailableVehicleIds: [...new Set(unavailableIds)].sort(), days,
-    audit: auditScenario(model, days, unavailableIds) };
+  return assembleScenario(model, mode, unavailableIds, days);
 }
 export interface Comparison {
   comparable: boolean; reason: string | null; savedRub: number | null; savedPercent: number | null;

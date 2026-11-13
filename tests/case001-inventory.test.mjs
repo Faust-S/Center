@@ -156,3 +156,74 @@ test("imported working days must progress in chronological order for receipts an
   impossible.days[1] = "2026-02-30";
   assert.throws(() => runScenario(impossible, "to-be"), /D11_DAYS_NOT_CHRONOLOGICAL/);
 });
+
+
+function threeDayReturnModel() {
+  const days = ["2026-11-16", "2026-11-17", "2026-11-18"];
+  return {
+    id: "D11-RETURN-REPLAN-001", days,
+    orders: days.map((day, index) => ({
+      id: "ORDER-" + (index + 1), day, customerId: "C-1", zone: 0,
+      xKm: 20, yKm: 0, weightKg: 5, volumeM3: 0.05,
+      serviceMinutes: 20, windowStart: 500, windowEnd: index === 0 ? 560 : 900,
+      lines: [{ skuId: "SKU-01", units: 5 }],
+    })),
+    fleet: [{ id: "OWN-1", kind: "owned", zone: 0, capacityKg: 500,
+      capacityM3: 5, shiftStart: 480, shiftEnd: 1080,
+      kmRateRub: 10, hourRateRub: 100, activationRub: 0 }],
+    warehouse: { bays: 1, loadMinutes: 20, dailyOrderCapacity: 30,
+      pickers: 1, pickMinutesPerOrder: 5, pickingStartMinute: 480,
+      pickingEndMinute: 1000, maxRunsPerVehicle: 1 },
+    road: { gridDetourFactor: 1, avgKmHour: 50 },
+    ownedDailyFixedRub: 100, fuelMultiplier: 1,
+    inventory: [{ skuId: "SKU-01", openingUnits: 5, unitWeightKg: 1,
+      unitVolumeM3: 0.01, receipts: [] }],
+  };
+}
+const returnSettings = { trafficPercent: 200, dockDelayMinutes: 0,
+  extraServiceMinutes: 0, latePenaltyRub: 2500, rejectOutOfWindow: true };
+
+test("actual refused stock changes the next working day's real vehicle plan", async () => {
+  const { replanAfterReturns, auditReplanning } = await import("../model/logistics/execution.ts");
+  const model = threeDayReturnModel();
+  const baseline = runScenario(model, "to-be");
+  assert.deepEqual(baseline.days.map(d => d.delivered), [1, 0, 0]);
+  const result = replanAfterReturns(model, baseline, returnSettings);
+  assert.deepEqual(result.revised.days.map(d => d.delivered), [1, 1, 0]);
+  assert.deepEqual(result.actual.days.map(d => d.refused), [1, 0, 0]);
+  assert.equal(result.changes[0].acceptedReturns.length, 0);
+  assert.deepEqual(result.changes[1].acceptedReturns, [{ skuId: "SKU-01", units: 5 }]);
+  assert.deepEqual(result.changes[1].newlyScheduledOrders, ["ORDER-2"]);
+  assert.equal(result.inventory.days[0].movements[0].awaitingInspection, 5);
+  assert.equal(result.inventory.days[0].movements[0].closingUnits, 0);
+  assert.equal(result.inventory.days[1].movements[0].returned, 5);
+  assert.equal(result.inventory.days[1].movements[0].issued, 5);
+  assert.equal(result.inventory.days[1].movements[0].closingUnits, 0);
+  assert.equal(result.inventory.days[2].movements[0].closingUnits, 0);
+  assert.deepEqual(result.audit, []);
+  assert.deepEqual(auditReplanning(model, result), []);
+  assert.deepEqual(replanAfterReturns(model, baseline, returnSettings), result);
+  assert.equal(baseline.days[1].delivered, 0, "initial plan remains unchanged");
+});
+
+test("replanning cannot invent returned SKU, fake an order or backdate inspection", async () => {
+  const { replanAfterReturns, auditReplanning } = await import("../model/logistics/execution.ts");
+  const model = threeDayReturnModel();
+  const baseline = runScenario(model, "to-be");
+  const result = replanAfterReturns(model, baseline, returnSettings);
+  const forged = structuredClone(result);
+  forged.changes[1].acceptedReturns[0].units = 500;
+  assert.match(auditReplanning(model, forged).join(","), /D11_REPLAN_REPLAY_MISMATCH:changes/);
+  const tamperedRoute = structuredClone(result);
+  tamperedRoute.revised.days[1].runs[0].stops[0].orderId = "ORDER-3";
+  assert.match(auditReplanning(model, tamperedRoute).join(","), /D11_REPLAN_REPLAY_MISMATCH:revised/);
+  const tamperedEvent = structuredClone(result);
+  tamperedEvent.actual.days[0].trips[0].deliveries[0].status = "on-time";
+  assert.match(auditReplanning(model, tamperedEvent).join(","), /D11_REPLAN_REPLAY_MISMATCH:actual/);
+  const tamperedLedger = structuredClone(result);
+  tamperedLedger.inventory.days[1].movements[0].closingUnits += 5;
+  assert.match(auditReplanning(model, tamperedLedger).join(","), /D11_REPLAN_REPLAY_MISMATCH:inventory/);
+  const changedModel = structuredClone(model);
+  changedModel.inventory[0].openingUnits += 5;
+  assert.match(auditReplanning(changedModel, result).join(","), /D11_REPLAN_REPLAY_FAILED/);
+});
