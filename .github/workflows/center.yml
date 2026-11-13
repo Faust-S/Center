@@ -1682,7 +1682,7 @@ jobs:
                     'K03_HOST_SELECTION_SOURCE_OR_EVIDENCE_CHANGED','UNCLASSIFIED')
           $observed=New-Object 'System.Collections.Generic.HashSet[string]'
           foreach($line in [IO.File]::ReadLines($privateLog)){
-            if($line -cmatch '^AGENT_K03_CORE_CHECKPOINT=([A-Z_]+)$' -and $Matches[1] -cin $good){
+            if($line -cmatch '^AGENT_K03_CORE_CHECKPOINT=([A-Z0-9_]+)$' -and $Matches[1] -cin $good){
               $null=$observed.Add($Matches[1])
               Write-Host ('PRIVATE_K03_CORE_CHECKPOINT='+$Matches[1])
             }elseif($line -cmatch '^AGENT_K03_CORE_FAILURE=([a-zA-Z0-9_]+)$' -and $Matches[1] -cin $reason){
