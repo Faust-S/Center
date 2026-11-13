@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 48b1eb80c9babcc124d26845cde830a8390ce0f1
+          ref: adc37afa253b1196aee0f4024a8cf61db20442c9
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne '48b1eb80c9babcc124d26845cde830a8390ce0f1') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          if ($actual -cne 'adc37afa253b1196aee0f4024a8cf61db20442c9') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
           $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
           Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
@@ -407,6 +407,25 @@ jobs:
               throw 'AGENT05_INSTALLED_GGUF_GRAPH_GUI_RECEIPT_INVALID'
             }
             Write-Host 'AGENT05_INSTALLED_REAL_GGUF_GRAPH_GUI_FULL_RESULT_PASS'
+            # Follow the user-facing accepted Task > linked Goal handoff to
+            # the in-process K02/K04 compatibility check, with no inference.
+            $k02GuiReceipt = Join-Path $logs 'agent05-native-k02-graph-preview.json'
+            $k02GuiLog = Join-Path $logs 'agent05-native-k02-graph-preview.log'
+            & pwsh -NoProfile -NonInteractive -File tools/qualify_setup_core_native_gui.ps1 -WindowProcessId $p.Id -Mode graph-k02 -TaskId ([string]$saved.task_id) -ExpectedTitleSha256 ([string]$saved.task_title_sha256) -ExpectedModelName ([string]$graphSaved.model_name) -ReceiptPath $k02GuiReceipt *> $k02GuiLog
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $k02GuiReceipt -PathType Leaf)) {
+              throw 'AGENT05_INSTALLED_K02_K04_GUI_NOT_ACCEPTED'
+            }
+            $k02View = Get-Content -LiteralPath $k02GuiReceipt -Raw | ConvertFrom-Json
+            if ($k02View.status -cne 'PASS' -or
+                $k02View.input -cne 'NATIVE_WINDOWS_UI_AUTOMATION' -or
+                $k02View.accepted_task_selected -ne $true -or
+                $k02View.linked_goal_handoff_opened -ne $true -or
+                $k02View.k02_k04_check_button_invoked -ne $true -or
+                $k02View.selected_model_visible -ne $true -or
+                $k02View.preview_only -ne $true) {
+              throw 'AGENT05_INSTALLED_K02_K04_GUI_RECEIPT_INVALID'
+            }
+            Write-Host 'AGENT05_INSTALLED_K02_K04_INPROCESS_GUI_PREVIEW_PASS'
           } finally {
             if ($null -ne $p) {
               try { Stop-AgentNative $p } catch {
