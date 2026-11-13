@@ -113,3 +113,23 @@ test("few trucks and supplier delay change actual plans, rather than just labels
     normal.days.map(d => d.shipments));
   assert.notEqual(supply.advance.totalRub, normal.totalRub);
 });
+
+
+test("last-day shipments and refused consignments remain in transit after the project window", () => {
+  const input = createCase002();
+  const normal = simulateDepotSupply(input, "advance");
+  const last = normal.days.at(-1);
+  const shipped = last.shipments.find(s => s.routeStatus === "delivered");
+  assert.ok(shipped, "a final-day shipment must be present");
+  assert.equal(shipped.availableDay, "2026-11-30", "next actual working day");
+  for (const part of shipped.parts)
+    assert.ok((last.inTransit[part.skuId] ?? 0) >= part.units);
+  const interrupted = createCase002({ refusalIds: [shipped.id] });
+  const broken = simulateDepotSupply(interrupted, "advance");
+  assert.deepEqual(broken.audit, []);
+  assert.deepEqual(auditDepotSupply(interrupted, broken), []);
+  assert.equal(broken.days.at(-1).shipments.find(s=>s.id===shipped.id).routeStatus, "refused");
+  for (const part of shipped.parts)
+    assert.ok((broken.days.at(-1).pendingReturns[part.skuId] ?? 0) >= part.units,
+      "stock remains held until an inspection beyond the model horizon");
+});

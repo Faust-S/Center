@@ -60,7 +60,14 @@ const add = (target: Record<string, number>, sku: string, units: number) =>
   { target[sku] = (target[sku] ?? 0) + units; };
 const copy = (input: Record<string, number>) => ({ ...input });
 const capacity = (n: unknown) => Number.isSafeInteger(n) && (n as number) >= 0;
-const nextDay = (days: string[], day: string) => days[days.indexOf(day) + 1] ?? null;
+function nextDay(days: string[], day: string): string {
+  const configured = days[days.indexOf(day) + 1];
+  if (configured) return configured;
+  let date = Date.parse(day + "T00:00:00.000Z");
+  do { date += 86400000; }
+    while ([0,6].includes(new Date(date).getUTCDay()));
+  return new Date(date).toISOString().slice(0, 10);
+}
 const date = (day: string) => /^\d{4}-\d{2}-\d{2}$/.test(day) &&
   !Number.isNaN(Date.parse(day + "T00:00:00.000Z")) &&
   new Date(day + "T00:00:00.000Z").toISOString().slice(0, 10) === day;
@@ -174,6 +181,8 @@ export function simulateDepotSupply(input: SupplyInput, mode: SupplyMode): Suppl
   const completed = new Set<string>();
   const inbound = new Map<string, { depotId: string; parts: { skuId: string; units: number }[] }[]>();
   const returned = new Map<string, Record<string, number>>();
+  // Refused goods still physically exist when a project ends before inspection.
+  const awaitingInspectionBeyondHorizon: Record<string, number> = {};
   const recordedShipments = new Set<string>();
   const history: SupplyDay[] = [];
   let downtimeRub = 0, transportRub = 0, delayJobDays = 0, shippedUnits = 0, acceptedUnits = 0;
@@ -289,12 +298,15 @@ export function simulateDepotSupply(input: SupplyInput, mode: SupplyMode): Suppl
           inbound.set(availableDay, row);
         }
       } else {
-        const releaseDay = inspectionReleaseDay(input.days.length
-          ? { days: input.days } as Project : deliveryModel, day, status.returnMinute);
+        const releaseDay = inspectionReleaseDay({ days: input.days } as Project,
+          day, status.returnMinute);
         if (releaseDay) {
           const held = returned.get(releaseDay) ?? {};
           for (const p of source.parts) add(held, p.skuId, p.units);
           returned.set(releaseDay, held);
+        } else {
+          for (const p of source.parts)
+            add(awaitingInspectionBeyondHorizon, p.skuId, p.units);
         }
       }
     }
@@ -303,6 +315,8 @@ export function simulateDepotSupply(input: SupplyInput, mode: SupplyMode): Suppl
       for (const p of item.parts) add(inTransit, p.skuId, p.units);
     for (const held of returned.values())
       for (const [skuId, units] of Object.entries(held)) add(pendingReturns, skuId, units);
+    for (const [skuId, units] of Object.entries(awaitingInspectionBeyondHorizon))
+      add(pendingReturns, skuId, units);
     const costTransportRub = fact.totalCostRub;
     transportRub += costTransportRub;
     history.push({ day, openingHub, closingHub, depotStock: Object.fromEntries(
