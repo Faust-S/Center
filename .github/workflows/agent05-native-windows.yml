@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 39b28b9deb85bbed8edb4c45b66c432aad46cac5
+          ref: 95918437e62d0d552a59ffc204af7f0f6cc26dab
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne '39b28b9deb85bbed8edb4c45b66c432aad46cac5') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          if ($actual -cne '95918437e62d0d552a59ffc204af7f0f6cc26dab') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
           $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
           Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
@@ -418,7 +418,7 @@ jobs:
               $stage = 'UNKNOWN'
               if (Test-Path -LiteralPath $k02GuiFailure -PathType Leaf) {
                 $candidate = (Get-Content -LiteralPath $k02GuiFailure -Raw).Trim()
-                if ($candidate -in @('NOT_STARTED','TASK_NAVIGATION','TASK_SELECTION','RESULT_HANDOFF','RESULT_HANDOFF_READBACK','DETAILS_PANEL','MODEL_CHECK_BUTTON','PREVIEW_READBACK','RECEIPT_WRITE')) {
+                if ($candidate -in @('NOT_STARTED','TASK_NAVIGATION','TASK_SELECTION','RESULT_ACCEPTED_READBACK','RESULT_HANDOFF','RESULT_HANDOFF_READBACK','DETAILS_PANEL','MODEL_CHECK_BUTTON','PREVIEW_READBACK','RECEIPT_WRITE')) {
                   $stage = $candidate
                 }
               }
