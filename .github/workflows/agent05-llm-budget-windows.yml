@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 9e58ee957b88677195ec0b410017abb9435ed1c8
+          ref: 9bd6b2dfb9a095099bd8f70a2c1051cb70178d6d
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -76,7 +76,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 9e58ee957b88677195ec0b410017abb9435ed1c8
+          ref: 9bd6b2dfb9a095099bd8f70a2c1051cb70178d6d
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -84,7 +84,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne '9e58ee957b88677195ec0b410017abb9435ed1c8') { throw 'AGENT05_PRIVATE_SOURCE_REVISION_MISMATCH' }
+          if ($actual -cne '9bd6b2dfb9a095099bd8f70a2c1051cb70178d6d') { throw 'AGENT05_PRIVATE_SOURCE_REVISION_MISMATCH' }
           Write-Host 'AGENT05_PINNED_PRIVATE_SOURCE_CONFIRMED'
       - uses: actions/setup-python@v5
         with:
