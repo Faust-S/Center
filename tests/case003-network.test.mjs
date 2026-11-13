@@ -191,3 +191,31 @@ test("high demand, fewer usable depots, delayed supplier and fuel inflation rema
     compared.regional.delayedOrderDays>0);
   assert.notEqual(compared.regional.totalRub,compareNetwork(createCase003()).regional.totalRub);
 });
+
+
+test("actual SKU purchase prices change carrying costs, not delivery quantities",()=>{
+  const lower=createCase003({annualCapitalRatePercent:12});
+  const higher=createCase003({annualCapitalRatePercent:36});
+  const a=simulateNetwork(lower,"regional-network");
+  const b=simulateNetwork(higher,"regional-network");
+  assert.equal(a.deliveredOrders,b.deliveredOrders);
+  assert.equal(a.onTimeOrders,b.onTimeOrders);
+  assert.equal(a.transportRub,b.transportRub);
+  assert.ok(b.holdingRub>a.holdingRub);
+  assert.ok(b.totalRub>a.totalRub);
+  physicalConservation(lower,a);
+  physicalConservation(higher,b);
+});
+
+test("receiving bottlenecks cannot silently accept excess supplier or crossdock cargo",()=>{
+  const input=createCase003();
+  const invalid=structuredClone(input);
+  invalid.centers[0].dailyInboundCapacityUnits=50;
+  assert.throws(()=>validateNetworkInput(invalid),/D11_NETWORK_SUPPLIER_CAPACITY/);
+  const constrained=createCase003();
+  constrained.centers.find(c=>c.id==="DC-N").dailyInboundCapacityUnits=35;
+  const result=simulateNetwork(constrained,"regional-network");
+  physicalConservation(constrained,result);
+  for(const day of result.days)
+    assert.ok(total(day.centers.find(c=>c.centerId==="DC-N").transfersIn)<=35);
+});

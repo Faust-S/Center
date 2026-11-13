@@ -14,6 +14,7 @@ export interface Case003Options {
   trafficPercent?:100|120|150|180;
   regionalRentRubPerDay?:3500|7000|12000|22000;
   fuelMultiplier?:1|1.3|1.6;
+  annualCapitalRatePercent?:12|24|36;
   refusedStoreOrderIds?:string[];
   refusedTransferIds?:string[];
 }
@@ -70,12 +71,14 @@ export function createCase003(options:Case003Options={}):NetworkInput{
   const trafficPercent=options.trafficPercent??120;
   const regionalRentRubPerDay=options.regionalRentRubPerDay??7000;
   const fuelMultiplier=options.fuelMultiplier??1;
+  const annualCapitalRatePercent=options.annualCapitalRatePercent??24;
   if(![75,100,125,150].includes(demandPercent)||
     ![0,1,2].includes(supplierDelayDays)||
     !["both","north","south"].includes(regionalSelection)||
     ![100,120,150,180].includes(trafficPercent)||
     ![3500,7000,12000,22000].includes(regionalRentRubPerDay)||
-    ![1,1.3,1.6].includes(fuelMultiplier))
+    ![1,1.3,1.6].includes(fuelMultiplier)||
+    ![12,24,36].includes(annualCapitalRatePercent))
     throw Error("D11_CASE003_OPTIONS_INVALID");
   const selectedRegionalCenterIds=regionalSelection==="both"?["DC-N","DC-S"]:
     regionalSelection==="north"?["DC-N"]:["DC-S"];
@@ -134,7 +137,8 @@ export function createCase003(options:Case003Options={}):NetworkInput{
     fuelMultiplier,ownedDailyFixedRub:1700,
     operation:{trafficPercent,dockDelayMinutes:6,
       extraServiceMinutes:2,latePenaltyRub:1800,rejectOutOfWindow:true},
-    holdingRubPerUnitDay:2.5,missedOrderRubPerDay:8500,
+    holdingRubPerUnitDay:2.5,annualCapitalRatePercent,
+    missedOrderRubPerDay:8500,
     refusedOrderIds:[...(options.refusedStoreOrderIds??[])],
     refusedTransferIds:[...(options.refusedTransferIds??[])],
   };

@@ -26,7 +26,7 @@ test("saved CASE-003 always resumes its own original tool route, not CASE-001",(
 test("exact network draft and its large source project fit the real T2 preview envelope",()=>{
   const input=createCase003({supplierDelayDays:2,demandPercent:150});
   const options={
-    demand:150,rent:7000,region:"both",delay:2,traffic:120,fuel:1,
+    demand:150,rent:7000,region:"both",delay:2,traffic:120,fuel:1,capitalRate:24,
     imported:input,appliedRefusals:[],appliedTransfers:[],
   };
   const data={caseId:"D11-CASE-003",input,inputFingerprint:networkFingerprint(input),

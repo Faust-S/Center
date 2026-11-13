@@ -25,7 +25,7 @@ export interface NetworkInput {
   road:Project["road"]; fuelMultiplier:number; ownedDailyFixedRub:number;
   operation:Partial<OperationSettings>; transferLeadDays:number;
   forecastDays:number; holdingRubPerUnitDay:number;
-  missedOrderRubPerDay:number;
+  annualCapitalRatePercent:number; missedOrderRubPerDay:number;
   refusedOrderIds?:string[]; refusedTransferIds?:string[];
   selectedRegionalCenterIds?:string[];
 }
@@ -70,7 +70,10 @@ export interface NetworkComparison { baseline:NetworkResult; regional:NetworkRes
   totalCostDifferenceRub:number; comparable:boolean; recommendation:
     "regional-network"|"central-only"|"no-dominant-option"; }
 
-const round = (n:number) => Math.round(n*100)/100;
+const round = (n:number) => {
+  const value=Math.round(n*100)/100;
+  return Object.is(value,-0)?0:value;
+};
 const copy = (r:Record<string,number>) => ({...r});
 const add = (a:Record<string,number>, id:string, n:number) =>
   { a[id] = (a[id]??0) + n; };
@@ -121,7 +124,9 @@ export function validateNetworkInput(input:NetworkInput):void {
      !nonnegative(input.ownedDailyFixedRub)||
      ![1,2,3].includes(input.transferLeadDays)||!Number.isSafeInteger(input.forecastDays)||
      input.forecastDays<1||input.forecastDays>6||
-     !nonnegative(input.holdingRubPerUnitDay)||!nonnegative(input.missedOrderRubPerDay))
+     !nonnegative(input.holdingRubPerUnitDay)||
+     !nonnegative(input.annualCapitalRatePercent)||
+     input.annualCapitalRatePercent>60||!nonnegative(input.missedOrderRubPerDay))
     throw Error("D11_NETWORK_INPUT_INVALID");
   assertUnique(input.skus.map(s=>s.skuId),"SKU");
   assertUnique(input.centers.map(s=>s.id),"CENTER");
@@ -165,6 +170,11 @@ export function validateNetworkInput(input:NetworkInput):void {
   if(input.receipts.some(r=>!input.days.includes(r.day)||
        !skus.has(r.skuId)||!natural(r.units)||r.units===0))
     throw Error("D11_NETWORK_RECEIPT_INVALID");
+  const hub=input.centers.find(c=>c.kind==="hub")!;
+  for(const day of input.days)
+    if(input.receipts.filter(r=>r.day===day).reduce((n,r)=>n+r.units,0)>
+       hub.dailyInboundCapacityUnits)
+      throw Error("D11_NETWORK_SUPPLIER_CAPACITY:"+day);
   const fleetIds=input.centers.flatMap(c=>c.fleet.map(v=>v.id))
     .concat(input.trunkFleet.map(v=>v.id));
   assertUnique(fleetIds,"VEHICLE");
@@ -275,6 +285,15 @@ export function simulateNetwork(input:NetworkInput,mode:NetworkMode):NetworkResu
       add(supplierCumulative,receipt.skuId,receipt.units);
     }
     // A linehaul can be used only after its scheduled physical arrival and QC.
+    const unloadingUnits=new Map<string,number>();
+    for(const arrival of receivedTransfers.get(day)??[])
+      unloadingUnits.set(arrival.toId,(unloadingUnits.get(arrival.toId)??0)+
+        count(arrival.lines));
+    for(const [centerId,incoming] of unloadingUnits){
+      const c=active.find(c=>c.id===centerId);
+      if(!c||incoming>c.dailyInboundCapacityUnits)
+        throw Error("D11_NETWORK_INBOUND_CAPACITY:"+day+":"+centerId);
+    }
     for(const arrival of receivedTransfers.get(day)??[]){
       const dest=stock.get(arrival.toId);
       if(!dest)throw Error("D11_NETWORK_TRANSFER_TARGET_INVALID");
@@ -376,6 +395,7 @@ export function simulateNetwork(input:NetworkInput,mode:NetworkMode):NetworkResu
     // so neither the hub nor its routes can use the same SKU twice.
     if(mode==="regional-network"){
       const hubAvailable=stock.get("HUB")!;
+      const plannedHub=copy(hubAvailable);
       const wanted=new Map<string,Order>();
       for(const region of active.filter(c=>c.kind==="regional")){
         const forecast=input.orders.filter(o=>!completed.has(o.id)&&
@@ -389,13 +409,18 @@ export function simulateNetwork(input:NetworkInput,mode:NetworkMode):NetworkResu
           for(const row of rows.filter(s=>s.toId===region.id))tally(row.lines,reserved);
         const regional=stock.get(region.id)!;
         let capacityLeft=Math.max(0,region.capacityUnits-units(regional)-units(reserved));
-        let inboundLeft=Math.max(0,region.dailyInboundCapacityUnits);
+        const arrivalDay=afterWorkdays(input.days,day,input.transferLeadDays);
+        const alreadyIncoming=(receivedTransfers.get(arrivalDay)??[])
+          .filter(row=>row.toId===region.id)
+          .reduce((n,row)=>n+count(row.lines),0);
+        let inboundLeft=Math.max(0,region.dailyInboundCapacityUnits-alreadyIncoming);
         const lines:{skuId:string;units:number}[]=[];
         for(const sku of skuIds){
           const need=Math.max(0,(desired[sku]??0)-(regional[sku]??0)-(reserved[sku]??0));
-          const load=Math.min(need,hubAvailable[sku]??0,capacityLeft,inboundLeft);
+          const load=Math.min(need,plannedHub[sku]??0,capacityLeft,inboundLeft);
           if(load>0){
             lines.push({skuId:sku,units:load});
+            plannedHub[sku]-=load;
             capacityLeft-=load;inboundLeft-=load;
           }
         }
@@ -462,7 +487,13 @@ export function simulateNetwork(input:NetworkInput,mode:NetworkMode):NetworkResu
     for(const c of active){
       const log=logs.get(c.id)!;
       log.closing=copy(stock.get(c.id)!);
-      log.holdingCostRub=round(units(log.closing)*input.holdingRubPerUnitDay);
+      // Warehousing operations and the carrying cost of immobilized inventory
+      // are separate physical drivers. SKU values are used, not ignored.
+      log.holdingCostRub=round(input.skus.reduce((n,sku)=>{
+        const available=log.closing[sku.skuId]??0;
+        return n+available*(input.holdingRubPerUnitDay+
+          sku.unitCostRub*input.annualCapitalRatePercent/100/365);
+      },0));
       holding+=log.holdingCostRub;
     }
     facilitiesRub+=facilities;

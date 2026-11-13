@@ -23,10 +23,11 @@ type Choice=NonNullable<Case003Options["regionalSelection"]>;
 interface Case003Draft {
   demand:75|100|125|150; rent:3500|7000|12000|22000; region:Choice;
   delay:0|1|2; traffic:100|120|150|180; fuel:1|1.3|1.6;
+  capitalRate:12|24|36;
   appliedRefusals:string[]; appliedTransfers:string[]; imported:NetworkInput|null;
 }
 const INITIAL_DRAFT:Case003Draft={
-  demand:100,rent:7000,region:"both",delay:0,traffic:120,fuel:1,
+  demand:100,rent:7000,region:"both",delay:0,traffic:120,fuel:1,capitalRate:24,
   appliedRefusals:[],appliedTransfers:[],imported:null,
 };
 
@@ -62,7 +63,8 @@ function DistributionNetworkExpansion(){
   // The native D11 RESUME protocol restores this exact project state.
   // Its local draft key is separate from CASE-001, despite the shared T2 command.
   const { state:draft,setState:setDraft }=useToolDraft("distribution-network-expansion",INITIAL_DRAFT);
-  const {demand,rent,region,delay,traffic,fuel,appliedRefusals,appliedTransfers,imported}=draft;
+  const {demand,rent,region,delay,traffic,fuel,capitalRate,
+    appliedRefusals,appliedTransfers,imported}=draft;
   const [refusalText,setRefusalText]=useState("");
   const [transferText,setTransferText]=useState("");
   const [refusalError,setRefusalError]=useState("");
@@ -94,7 +96,7 @@ function DistributionNetworkExpansion(){
       const input=imported??createCase003({
         demandPercent:demand,regionalSelection:region,
         regionalRentRubPerDay:rent,supplierDelayDays:delay,
-        trafficPercent:traffic,fuelMultiplier:fuel,
+        trafficPercent:traffic,fuelMultiplier:fuel,annualCapitalRatePercent:capitalRate,
         refusedStoreOrderIds:appliedRefusals,refusedTransferIds:appliedTransfers,
       });
       validateNetworkInput(input);
@@ -108,7 +110,8 @@ function DistributionNetworkExpansion(){
     }catch(error){
       return {input:null,compared:null,error:error instanceof Error?error.message:"Ошибка исполнения маршрутов"};
     }
-  },[demand,region,rent,delay,traffic,fuel,appliedRefusals,appliedTransfers,imported]);
+  },[demand,region,rent,delay,traffic,fuel,capitalRate,
+    appliedRefusals,appliedTransfers,imported]);
 
   const input=evaluation.input, comparison=evaluation.compared;
   const baseline=comparison?.baseline, regional=comparison?.regional;
@@ -128,7 +131,7 @@ function DistributionNetworkExpansion(){
       const candidate=imported??createCase003({
         demandPercent:demand,regionalSelection:region,
         regionalRentRubPerDay:rent,supplierDelayDays:delay,
-        trafficPercent:traffic,fuelMultiplier:fuel,
+        trafficPercent:traffic,fuelMultiplier:fuel,annualCapitalRatePercent:capitalRate,
       });
       const known=new Set(candidate.orders.map(o=>o.id));
       const trunk=new Set(candidate.days.flatMap(d=>candidate.centers.filter(c=>c.kind==="regional")
@@ -167,7 +170,7 @@ function DistributionNetworkExpansion(){
         "Региональная сеть: "+regional.deliveredOrders+" из "+regional.orderCount+
           "; доставлено в исходный день "+regional.onTimeOrders+
           "; затраты "+money(regional.totalRub)+".",
-        "Перемещение по магистралям "+regional.trunkKm+" км. Последняя миля: "+
+        "Стоимость капитала "+input.annualCapitalRatePercent+"% годовых. Магистральные рейсы "+regional.trunkKm+" км. Последняя миля: "+
           regional.lastMileKm+" км.",
         "Изменение своевременных заказов "+comparison.additionalOnTime+
           "; разница затрат "+money(comparison.totalCostDifferenceRub)+".",
@@ -277,6 +280,13 @@ function DistributionNetworkExpansion(){
               onChange={e=>setDraft(prev=>({...prev,fuel:Number(e.target.value) as 1|1.3|1.6}))}>
               <option value={1}>100%</option><option value={1.3}>130%</option>
               <option value={1.6}>160%</option>
+            </select>
+          </label>
+          <label className="block text-sm text-muted">Годовая стоимость оборотного капитала
+            <select className={inputCls} value={capitalRate}
+              onChange={e=>setDraft(prev=>({...prev,
+                capitalRate:Number(e.target.value) as 12|24|36}))}>
+              {[12,24,36].map(v=><option key={v} value={v}>{v}% годовых</option>)}
             </select>
           </label>
         </fieldset>
