@@ -69,3 +69,14 @@ test("replay yields identical event and cost histories for the same settings", (
   const opts = { trafficPercent: 125, dockDelayMinutes: 10 };
   assert.deepEqual(simulateOperations(model, plan, opts), simulateOperations(model, plan, opts));
 });
+
+
+test("previously saved operations without optional refusal list still audit and replay", () => {
+  const model = createCase001({ days: 2, dailyOrders: 60 });
+  const plan = runScenario(model, "to-be");
+  const { audit, ...rest } = simulateOperations(model, plan);
+  const legacy = structuredClone({ ...rest, audit });
+  delete legacy.settings.customerRefusalOrderIds;
+  assert.deepEqual(auditOperations(model, plan, legacy), []);
+  assert.equal(legacy.executed + legacy.refused + legacy.notScheduled, plan.orderCount);
+});
