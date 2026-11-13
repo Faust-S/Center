@@ -3,9 +3,9 @@ import { createCase001 } from "./case001.ts";
 import { importDeliveryProject } from "./project-import.ts";
 import type { InventoryReport } from "./inventory.ts";
 import { auditScenario, compareScenarios, fingerprintModel, type Project, type Scenario } from "./engine.ts";
-import { auditOperations, compareOperations, calculateVerifiedInventory, type OperationReport } from "./execution.ts";
+import { auditOperations, compareOperations, calculateVerifiedInventory, replanAfterReturns, auditReplanning, type OperationReport, type ReplanningResult } from "./execution.ts";
 
-export const CASE001_ALGORITHM_VERSION = "d11.delivery-network-planner/1.4.0";
+export const CASE001_ALGORITHM_VERSION = "d11.delivery-network-planner/1.5.0";
 export interface DeliveryEditorState {
   days: number; orders: number; demand: number; fuel: number; breakdown: number;
   trafficPercent: number; dockDelayMinutes: number; extraServiceMinutes: number;
@@ -79,6 +79,28 @@ function compactInventory(report: InventoryReport) {
     })),
   };
 }
+export function compactReplanning(result: ReplanningResult) {
+  return {
+    initialPlanFingerprint: result.original.inputFingerprint,
+    revisedPlanFingerprint: result.revised.inputFingerprint,
+    originalScheduled: result.original.delivered,
+    revisedScheduled: result.revised.delivered,
+    actualDelivered: result.actual.executed,
+    actualRefused: result.actual.refused,
+    revisedTotalKm: result.revised.totalKm,
+    revisedPlanCostRub: result.revised.totalCostRub,
+    revisedActualCostRub: result.actual.totalCostRub,
+    inventory: compactInventory(result.inventory),
+    changes: result.changes,
+    days: result.revised.days.map(d => ({
+      day: d.day, delivered: d.delivered, unserved: d.unserved,
+      runs: d.runs.map(r => ({ vehicleId: r.vehicleId, tripNumber: r.tripNumber,
+        departMinute: r.departMinute, returnMinute: r.returnMinute,
+        stops: r.stops.map(s => s.orderId) })),
+    })),
+    audit: result.audit,
+  };
+}
 export function buildCase001ProposalData(input: DeliveryProjectInput) {
   const { state, model, before, after, operationBefore, operationAfter } = input;
   const reconstructed = state.importedModel
@@ -117,6 +139,9 @@ export function buildCase001ProposalData(input: DeliveryProjectInput) {
     throw Error("D11_CASE001_INVENTORY_INVALID");
   const comparison = compareScenarios(before, after);
   const operationalComparison = compareOperations(operationBefore, operationAfter);
+  const adaptive = model.inventory ? replanAfterReturns(model, after, actualSettings) : null;
+  if (adaptive && auditReplanning(model, adaptive).length)
+    throw Error("D11_CASE001_REPLAN_INVALID");
   return {
     _editorState: { ...state },
     generator: state.importedModel ? "D11_IMPORTED_PROJECT_V1" : "D11_CASE001_DETERMINISTIC_V1",
@@ -134,6 +159,7 @@ export function buildCase001ProposalData(input: DeliveryProjectInput) {
           peakTravelPercent: state.peakTravelPercent ?? 120, maxStopsPerTrip: state.maxStopsPerTrip ?? 12,
           stockCoveragePercent: state.stockCoveragePercent ?? 100 },
     before: compactPlan(before), after: compactPlan(after), comparison,
+    replanning: adaptive ? compactReplanning(adaptive) : null,
     inventory: model.inventory ? { before: compactInventory(inventoryBefore), after: compactInventory(inventoryAfter) } : null,
     operation: { before: compactFact(operationBefore), after: compactFact(operationAfter),
       comparison: operationalComparison },

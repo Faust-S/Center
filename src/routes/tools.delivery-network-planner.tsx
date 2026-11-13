@@ -5,7 +5,7 @@ import { createCase001 } from "@/lib/logistics/case001";
 import { importDeliveryProject, MAX_D11_REPORT_JSON_BYTES } from "@/lib/logistics/project-import";
 import type { InventoryReport } from "@/lib/logistics/inventory";
 import { runScenario, compareScenarios, type Scenario, type Project } from "@/lib/logistics/engine";
-import { simulateOperations, compareOperations, calculateVerifiedInventory, type OperationReport } from "@/lib/logistics/execution";
+import { simulateOperations, compareOperations, calculateVerifiedInventory, replanAfterReturns, type ReplanningResult, type OperationReport } from "@/lib/logistics/execution";
 import { buildCase001ProposalData, CASE001_ALGORITHM_VERSION, type DeliveryEditorState } from "@/lib/logistics/proposal";
 import { canonicalFor } from "@/site-routes";
 import { useToolDraft } from "@/components/tools/useToolDraft";
@@ -232,6 +232,38 @@ function InventoryResults({ report }: { report: InventoryReport }) {
       ? "выявлены расхождения" : "приход, выдача и возвраты согласованы"}.</p>
   </section>;
 }
+function ReplanningResults({ result }: { result: ReplanningResult }) {
+  return <section className={panel} aria-live="polite">
+    <h2 className="font-display text-2xl">Повторный план после отказов и возвратов</h2>
+    <p className="mt-2 text-sm text-muted">Исходный план сохранён отдельно. После каждого выполненного дня фактические отказы формируют партии для приёмки в следующий рабочий день. Планировщик заново распределяет доступные SKU, машины и погрузочные посты, а результат повторно проверяется.</p>
+    <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Result title="Исходный план" value={String(result.original.delivered)} subtitle="Запланировано доставок"/>
+      <Result title="Повторный план" value={String(result.revised.delivered)} subtitle="Попыток доставить по обновлённому плану"/>
+      <Result title="Доставлено по факту" value={String(result.actual.executed)} subtitle={"Отказы: " + result.actual.refused}/>
+      <Result title="Затраты обновлённого факта" value={money(result.actual.totalCostRub)} subtitle={"План: " + money(result.revised.totalCostRub)}/>
+    </div>
+    <div className="mt-5 overflow-x-auto">
+      <table className="w-full min-w-[700px] text-left text-sm">
+        <thead><tr className="border-b border-white/15 text-muted">
+          <th className="py-2 pr-3">День</th><th className="p-2">Принятые возвраты</th>
+          <th className="p-2">Исходный план</th><th className="p-2">Повторный план</th>
+          <th className="p-2">Новые заявки в рейсах</th>
+        </tr></thead>
+        <tbody>{result.changes.map(change => <tr key={change.day} className="border-b border-white/10">
+          <td className="py-2 pr-3">{change.day}</td>
+          <td className="p-2">{change.acceptedReturns.length
+            ? change.acceptedReturns.map(x => x.skuId + ": " + x.units).join(", ") : "Нет"}</td>
+          <td className="p-2">{change.originalScheduled}</td>
+          <td className="p-2">{change.revisedScheduled}</td>
+          <td className="p-2">{change.newlyScheduledOrders.length
+            ? change.newlyScheduledOrders.join(", ") : "Нет"}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+    <p className="mt-3 text-xs text-muted">Аудит перепланирования: {result.audit.length
+      ? "обнаружены расхождения" : "маршруты, фактические события и движения SKU согласованы"}.</p>
+  </section>;
+}
 function DeliveryNetworkPlanner() {
   const { state, setState, clearDraft } = useToolDraft("delivery-network-planner", INITIAL);
   const [importError, setImportError] = useState("");
@@ -289,8 +321,15 @@ function DeliveryNetworkPlanner() {
       return before.audit.length || after.audit.length ? null : { before, after };
     } catch { return null; }
   }, [data, operation]);
+  const replanning = useMemo(() => {
+    if (!data.model?.inventory || !data.after || !operation) return null;
+    try {
+      return replanAfterReturns(data.model, data.after, operation.after.settings);
+    } catch { return null; }
+  }, [data, operation]);
   const workspaceResult = useMemo(() => {
     if (!data.before || !data.after || !data.model || !operation ||
+        (data.model.inventory && !replanning) ||
         data.before.audit.length || data.after.audit.length ||
         operation.before.audit.length || operation.after.audit.length) return null;
     try {
@@ -327,6 +366,11 @@ function DeliveryNetworkPlanner() {
             resultData.inventory.after.pendingReturnUnits + " ед."
           : "SKU-остатки в исходной модели не заданы."),
         "История рейсов, невыполненные заявки и отклонения сохранены в предметном результате.",
+        "Повторное планирование: " + (resultData.replanning
+          ? "по возвратам запланировано " + resultData.replanning.revisedScheduled +
+            ", фактически доставлено " + resultData.replanning.actualDelivered +
+            ", принятых возвратов " + resultData.replanning.inventory.totalReturned + " ед."
+          : "SKU-склад не настроен."),
         "Полный журнал исполнения доступен для экспорта в JSON."
       ].join("\n\n");
       return { toolId: "delivery-network-planner", toolTitle: "Региональная доставка: AS-IS / TO-BE",
@@ -334,7 +378,7 @@ function DeliveryNetworkPlanner() {
         stage: op.comparable ? "Операционная проверка завершена" : "Операционные отклонения",
         data: resultData };
     } catch { return null; }
-  }, [data, state, operation]);
+  }, [data, state, operation, replanning]);
   function exportResults() {
     if (!data.model || !data.before || !data.after || data.before.audit.length || data.after.audit.length) return;
     const file = new Blob([JSON.stringify({ kind: "D11_CASE001_BROWSER_REPORT", parameters: { days, orders, demand, fuel, breakdown }, model: data.model,
@@ -477,6 +521,9 @@ function DeliveryNetworkPlanner() {
         {operation && <OperationResults before={operation.before} after={operation.after}/>}
         {data.model && data.after && operation && <RouteExplorer model={data.model} plan={data.after} actual={operation.after}/>}
         {inventory && <InventoryResults report={inventory.after}/>}
+        {replanning && <ReplanningResults result={replanning}/>}
+        {data.model?.inventory && data.after && operation && !replanning &&
+          <p role="alert" className={panel}>Повторный план не удалось подтвердить. Передача непроверенных изменений в Workspace запрещена.</p>}
         {data.before && !operation && <p role="alert" className={panel}>Не удалось воспроизвести фактическое исполнение.</p>}
       </div>
       <div className="mt-6 flex flex-wrap items-center gap-3">

@@ -31,7 +31,7 @@ const ROAD_FIELDS = [
 /** Parse an input Project or the full JSON report exported by the D11 browser. */
 export function importDeliveryProject(input: unknown): Project {
   const envelope = record(input) && input.kind === "D11_CASE001_BROWSER_REPORT"
-    ? requireFields(input, ["kind", "parameters", "model", "before", "after", "comparison", "operation", "inventory"], ["model"], "report")
+    ? requireFields(input, ["kind", "parameters", "model", "before", "after", "comparison", "operation", "inventory", "replanning"], ["model"], "report")
     : null;
   const source = envelope ? envelope.model : input;
   const root = requireFields(source, [

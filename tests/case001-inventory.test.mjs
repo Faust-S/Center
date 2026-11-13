@@ -227,3 +227,17 @@ test("replanning cannot invent returned SKU, fake an order or backdate inspectio
   changedModel.inventory[0].openingUnits += 5;
   assert.match(auditReplanning(changedModel, result).join(","), /D11_REPLAN_REPLAY_FAILED/);
 });
+
+test("browser report with adaptive routes retains its complete imported source project", async () => {
+  const { replanAfterReturns } = await import("../model/logistics/execution.ts");
+  const model = threeDayReturnModel();
+  const before = runScenario(model, "as-is");
+  const after = runScenario(model, "to-be");
+  const replanning = replanAfterReturns(model, after, returnSettings);
+  const loaded = importDeliveryProject({
+    kind: "D11_CASE001_BROWSER_REPORT", parameters: {},
+    model, before, after, comparison: {},
+    operation: {}, inventory: {}, replanning,
+  });
+  assert.deepEqual(loaded, model);
+});
