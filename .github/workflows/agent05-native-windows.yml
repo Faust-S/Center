@@ -65,6 +65,16 @@ jobs:
           & npm.cmd ci --no-audit --no-fund *> $log
           if ($LASTEXITCODE -ne 0) { throw 'AGENT05_NATIVE_NODE_DEPS_FAILED' }
           Write-Host 'AGENT05_NATIVE_NODE_DEPS_PASS'
+      - name: Stage verified pinned public U04 sources for installed WebView
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-native-u04-source.log'
+          & node scripts/prepare-public-modules.mjs --only-u04 --fetch *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_NATIVE_U04_PREPARE_FAILED' }
+          & node scripts/stage-u04-desktop.mjs build/u04-owner-sources desktop/public/u04 *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_NATIVE_U04_STAGE_FAILED' }
+          Write-Host 'AGENT05_NATIVE_U04_STAGE_PASS'
       - name: Compile real Tauri Windows executable
         working-directory: private-product/desktop
         shell: pwsh
@@ -74,6 +84,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'AGENT05_NATIVE_TAURI_BUILD_FAILED' }
           $exe = 'src-tauri/target/release/iwxa-personal.exe'
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'AGENT05_NATIVE_EXE_MISSING' }
+          # Staged owner sources are build inputs; keep the source checkout
+          # pristine for manifest-bound native packaging, while dist retains
+          # the verified U04 ESM closure.
+          Remove-Item -LiteralPath public/u04 -Force -Recurse
           Write-Host 'AGENT05_NATIVE_TAURI_EXE_PASS'
       - name: Qualify isolated installed native window, draft and cold reopen
         working-directory: private-product
