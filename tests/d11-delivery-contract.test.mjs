@@ -78,3 +78,30 @@ test("external operations project roundtrips through T2 proposal with exact sour
   assert.deepEqual(validateD11BrowserProposal(JSON.parse(serializeD11BrowserProposal(proposal))), proposal);
   assert.deepEqual(proposal.result.data._editorState.importedModel, importedModel);
 });
+
+test("inventory report from full browser export remains loadable as the same enterprise model", () => {
+  const state = { days: 2, orders: 120, demand: 100, fuel: 100, breakdown: 0,
+    trafficPercent: 160, dockDelayMinutes: 40, extraServiceMinutes: 10,
+    pickingWorkers: 20, maxRunsPerVehicle: 2, maxStopsPerTrip: 12,
+    peakTravelPercent: 120, stockCoveragePercent: 10 };
+  const model = createCase001({ days: state.days, dailyOrders: state.orders,
+    stockCoveragePercent: state.stockCoveragePercent });
+  const before = runScenario(model, "as-is");
+  const after = runScenario(model, "to-be");
+  const operation = {
+    before: simulateOperations(model, before, {
+      trafficPercent: 160, dockDelayMinutes: 40, extraServiceMinutes: 10,
+      latePenaltyRub: 2500, rejectOutOfWindow: true }),
+    after: simulateOperations(model, after, {
+      trafficPercent: 160, dockDelayMinutes: 40, extraServiceMinutes: 10,
+      latePenaltyRub: 2500, rejectOutOfWindow: true }),
+  };
+  const data = buildCase001ProposalData({ state, model, before, after,
+    operationBefore: operation.before, operationAfter: operation.after });
+  const complete = JSON.parse(JSON.stringify({
+    kind: "D11_CASE001_BROWSER_REPORT", parameters: state, model, before, after,
+    operation, inventory: data.inventory, comparison: data.comparison,
+  }));
+  assert.deepEqual(importDeliveryProject(complete), model);
+  assert.deepEqual(data.inventory.after.audit, []);
+});

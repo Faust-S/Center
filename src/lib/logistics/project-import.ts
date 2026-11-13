@@ -1,6 +1,7 @@
 /** D11 accepts real, externally supplied delivery projects, not only CASE-001 generators. */
 import { validate, type Project } from "./engine.ts";
 export const MAX_D11_PROJECT_JSON_BYTES = 2 * 1024 * 1024;
+export const MAX_D11_REPORT_JSON_BYTES = 16 * 1024 * 1024;
 type RecordValue = Record<string, unknown>;
 const record = (v: unknown): v is RecordValue =>
   v !== null && typeof v === "object" && !Array.isArray(v);
@@ -30,7 +31,7 @@ const ROAD_FIELDS = [
 /** Parse an input Project or the full JSON report exported by the D11 browser. */
 export function importDeliveryProject(input: unknown): Project {
   const envelope = record(input) && input.kind === "D11_CASE001_BROWSER_REPORT"
-    ? requireFields(input, ["kind", "parameters", "model", "before", "after", "comparison", "operation"], ["model"], "report")
+    ? requireFields(input, ["kind", "parameters", "model", "before", "after", "comparison", "operation", "inventory"], ["model"], "report")
     : null;
   const source = envelope ? envelope.model : input;
   const root = requireFields(source, [

@@ -13,7 +13,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Canonical D11 subject tests
+      - name: Canonical D11 subject and T2 contract tests
         run: |
           node --version
           node --experimental-strip-types --test tests/*.test.mjs
+      - name: Parse browser route TSX
+        run: npx --yes esbuild@0.25.5 src/routes/tools.delivery-network-planner.tsx --format=esm --outfile=/tmp/d11-route.js --log-level=error

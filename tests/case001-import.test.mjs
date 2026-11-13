@@ -16,6 +16,17 @@ test("real Project JSON and existing full browser report load without dropping f
   assert.equal(fingerprintModel(restored), fingerprintModel(source));
 });
 
+test("full inventory-bearing calculation export reimports the exact underlying model", () => {
+  const model = createCase001({ days: 5, dailyOrders: 380 });
+  const before = runScenario(model, "as-is");
+  const after = runScenario(model, "to-be");
+  const operation = { before: simulateOperations(model, before), after: simulateOperations(model, after) };
+  const report = { kind: "D11_CASE001_BROWSER_REPORT", parameters: {},
+    model, before, after, operation, inventory: { before: {}, after: {} },
+    comparison: { comparable: true } };
+  assert.deepEqual(importDeliveryProject(JSON.parse(JSON.stringify(report))), model);
+});
+
 test("imported orders, fleet and optional directed road distances use the same calculation engine", () => {
   const model = createCase001({ days: 1, dailyOrders: 50 });
   model.orders = model.orders.slice(0, 2);
