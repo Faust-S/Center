@@ -13,12 +13,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Exercise production-sized D11 proposal and transfer limits
+        run: node --experimental-strip-types tests/d11-case001-payload-probe.mjs
       - name: Canonical D11 subject and T2 contract tests
         run: |
           node --version
           node --experimental-strip-types --test tests/*.test.mjs
-      - name: Exercise production-sized D11 proposal and transfer limits
-        run: node --experimental-strip-types tests/d11-case001-payload-probe.mjs
       - name: Canonical and browser project modules are identical
         run: |
           set -eu
