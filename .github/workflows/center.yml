@@ -483,7 +483,7 @@ jobs:
 # Explicit opt-in. Private checkout and outputs stay on this ephemeral runner.
   # No private executable, source, dump, or report is uploaded as a public artifact.
   private-windows-qualification:
-    if: ${{ (github.ref == 'refs/heads/work/2026-11-10-setup-core-product-neutral-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-release-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-k03-diagnostics' || github.ref == 'refs/heads/work/2026-11-13-agent05-ui-qualification') && startsWith(github.event.head_commit.message, 'ci(private):') }}
+    if: ${{ (github.ref == 'refs/heads/work/2026-11-10-setup-core-product-neutral-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-release-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-k03-diagnostics' || github.ref == 'refs/heads/work/2026-11-13-agent05-ui-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-source-lock') && startsWith(github.event.head_commit.message, 'ci(private):') }}
     runs-on: windows-latest
     timeout-minutes: 180
     permissions:
@@ -559,6 +559,46 @@ jobs:
             }
           }
           Write-Host 'ISOLATED_SOURCE_IDENTITIES_PASS'
+      - name: Verify every build-time Agent owner source against exact public Git blob
+        if: ${{ contains(github.event.head_commit.message, ' source-lock-only') }}
+        timeout-minutes: 26
+        shell: pwsh
+        working-directory: private-product
+        run: |
+          $ErrorActionPreference='Stop'
+          $node=(Get-Command node.exe -ErrorAction Stop).Source
+          $script=Join-Path (Get-Location) 'scripts/prepare-public-modules.mjs'
+          if(!(Test-Path -LiteralPath $script -PathType Leaf)){throw 'AGENT05_OWNER_SOURCE_SCRIPT_MISSING'}
+          $out=Join-Path $env:RUNNER_TEMP 'agent05-source-prepare.stdout.json'
+          $err=Join-Path $env:RUNNER_TEMP 'agent05-source-prepare.stderr.log'
+          & $node $script --fetch 1>$out 2>$err
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_OWNER_RUNTIME_SOURCES_FETCH_FAILED'}
+          $runtime=Get-Content -LiteralPath $out -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($runtime.status -cne 'SOURCE_PREPARED' -or $runtime.modules -ne 10 -or
+             $runtime.files -lt 20 -or $runtime.runtimeExecutionTested -ne $false){
+            throw 'AGENT05_OWNER_RUNTIME_SOURCES_INVALID'
+          }
+          & $node $script --check 1>$out 2>$err
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_OWNER_RUNTIME_SOURCES_CHANGED'}
+          $runtimeCheck=Get-Content -LiteralPath $out -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($runtimeCheck.modules -ne $runtime.modules -or
+             $runtimeCheck.files -ne $runtime.files){
+            throw 'AGENT05_OWNER_RUNTIME_RECEIPT_CHANGED'
+          }
+          Write-Host ('AGENT05_OWNER_RUNTIME_SOURCE_MODULES='+$runtime.modules)
+          Write-Host ('AGENT05_OWNER_RUNTIME_SOURCE_FILES='+$runtime.files)
+          Write-Host 'AGENT05_OWNER_RUNTIME_SOURCE_LOCK_PASS'
+          & $node $script --qualification --fetch 1>$out 2>$err
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_OWNER_QUALIFICATION_SOURCES_FETCH_FAILED'}
+          $qualification=Get-Content -LiteralPath $out -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($qualification.status -cne 'SOURCE_PREPARED' -or
+             $qualification.modules -ne 1 -or $qualification.files -lt 1){
+            throw 'AGENT05_OWNER_QUALIFICATION_SOURCE_INVALID'
+          }
+          & $node $script --qualification --check 1>$out 2>$err
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_OWNER_QUALIFICATION_SOURCE_CHANGED'}
+          Write-Host ('AGENT05_OWNER_QUALIFICATION_SOURCE_FILES='+$qualification.files)
+          Write-Host 'AGENT05_OWNER_QUALIFICATION_SOURCE_LOCK_PASS'
       - name: Isolated desktop Node regression without source output
         if: ${{ contains(github.event.head_commit.message, ' node-only') }}
         timeout-minutes: 30
