@@ -1613,6 +1613,9 @@ jobs:
           path: private-product
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
+      - name: Keep pinned public owner files byte-identical to Git blobs
+        shell: pwsh
+        run: git config --global core.autocrlf false
       - name: Checkout original public K03 and U1 owners
         uses: actions/checkout@v4
         with:
