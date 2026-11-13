@@ -1,0 +1,92 @@
+name: Agent 0.5 private Windows native installed qualification
+
+on:
+  push:
+    branches:
+      - work/2026-11-13-agent05-native-qualification
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent05-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-windows:
+    runs-on: windows-latest
+    timeout-minutes: 80
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Require private read-only source credential
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) { throw 'AGENT05_NATIVE_PRIVATE_SOURCE_READ_MISSING' }
+      - name: Checkout pinned private Agent without credential persistence
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 8b018b6e90b1f00a0238bbf7e8248fbd02bb4570
+          path: private-product
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - name: Verify exact private source and product version
+        shell: pwsh
+        run: |
+          $actual = (& git -C private-product rev-parse HEAD).Trim()
+          if ($actual -cne '8b018b6e90b1f00a0238bbf7e8248fbd02bb4570') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
+          if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
+          Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned Python dependencies for isolated installed package
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-native-python-deps.log'
+          & python -m pip install -r requirements.txt *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_NATIVE_PYTHON_DEPS_FAILED' }
+          Write-Host 'AGENT05_NATIVE_PYTHON_DEPS_PASS'
+      - name: Install private desktop dependencies
+        working-directory: private-product/desktop
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-native-node-deps.log'
+          & npm.cmd ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_NATIVE_NODE_DEPS_FAILED' }
+          Write-Host 'AGENT05_NATIVE_NODE_DEPS_PASS'
+      - name: Compile real Tauri Windows executable
+        working-directory: private-product/desktop
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-native-tauri-build.log'
+          & npm.cmd run tauri:build *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_NATIVE_TAURI_BUILD_FAILED' }
+          $exe = 'src-tauri/target/release/iwxa-personal.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'AGENT05_NATIVE_EXE_MISSING' }
+          Write-Host 'AGENT05_NATIVE_TAURI_EXE_PASS'
+      - name: Qualify isolated installed native window, draft and cold reopen
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-native-installed-gui.log'
+          try {
+            & pwsh -NoProfile -NonInteractive -File qualification/phase1/agent02_installed_gui_acceptance.ps1 *> $log
+            if ($LASTEXITCODE -ne 0) { throw 'INSTALLED_GUI' }
+            Write-Host 'AGENT05_NATIVE_INSTALLED_UIA_COLD_REOPEN_PASS'
+          } catch {
+            # Only a stable failure category may be published in a public
+            # Center CI log; all private product details stay in RUNNER_TEMP.
+            throw 'AGENT05_NATIVE_INSTALLED_UIA_GATE_FAILED'
+          }
+      # No uploads, build caches, screenshots, logs or private binaries.
