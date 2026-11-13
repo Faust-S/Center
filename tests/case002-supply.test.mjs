@@ -117,15 +117,27 @@ test("few trucks and supplier delay change actual plans, rather than just labels
 
 test("last-day shipments and refused consignments remain in transit after the project window", () => {
   const input = createCase002();
-  const normal = simulateDepotSupply(input, "advance");
+  // A new critical spare first requested on the final working day requires a
+  // genuinely physical shipment, even under a reactive dispatch policy.
+  input.parts.push({ skuId: "END-09", name: "Критичная запасная деталь",
+    unitWeightKg: 2, unitVolumeM3: 0.01, valueRub: 5500 });
+  input.hubOpening["END-09"] = 5;
+  input.depots.forEach(depot => { depot.opening["END-09"] = 0; });
+  input.jobs.push({ id:"REPAIR-END-001", depotId:"AP-01",
+    dueDay:input.days.at(-1), priority:"safety",
+    parts:[{skuId:"END-09",units:1}], downtimeRubPerDay:18000,
+    workDescription:"Срочный ремонт в последнюю смену" });
+  const normal = simulateDepotSupply(input, "reactive");
   const last = normal.days.at(-1);
-  const shipped = last.shipments.find(s => s.routeStatus === "delivered");
-  assert.ok(shipped, "a final-day shipment must be present");
+  const shipped = last.shipments.find(s => s.routeStatus === "delivered" &&
+    s.parts.some(p => p.skuId === "END-09"));
+  assert.ok(shipped, "the last-day maintenance job must result in a real shipment");
   assert.equal(shipped.availableDay, "2026-11-30", "next actual working day");
   for (const part of shipped.parts)
     assert.ok((last.inTransit[part.skuId] ?? 0) >= part.units);
-  const interrupted = createCase002({ refusalIds: [shipped.id] });
-  const broken = simulateDepotSupply(interrupted, "advance");
+  const interrupted = structuredClone(input);
+  interrupted.refusedShipmentIds = [shipped.id];
+  const broken = simulateDepotSupply(interrupted, "reactive");
   assert.deepEqual(broken.audit, []);
   assert.deepEqual(auditDepotSupply(interrupted, broken), []);
   assert.equal(broken.days.at(-1).shipments.find(s=>s.id===shipped.id).routeStatus, "refused");
