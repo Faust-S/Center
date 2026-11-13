@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: center-${{ github.ref }}-${{ startsWith(github.event.head_commit.message, 'ci(private):') && 'private' || startsWith(github.event.head_commit.message, 'ci(ui):') && 'ui' || 'full' }}
+  group: center-${{ github.ref }}-${{ startsWith(github.event.head_commit.message, 'ci(private):') && (contains(github.event.head_commit.message, ' agent05-full') && !contains(github.event.head_commit.message, ' node-only') && !contains(github.event.head_commit.message, ' python-only') && 'private-installed' || 'private-targeted') || startsWith(github.event.head_commit.message, 'ci(ui):') && 'ui' || 'full' }}
   cancel-in-progress: true
 jobs:
   model:
