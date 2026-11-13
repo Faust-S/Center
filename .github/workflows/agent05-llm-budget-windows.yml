@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: b6f0e7a9b25d7b5725aefc6888f2188bbd2f9a49
+          ref: 95918437e62d0d552a59ffc204af7f0f6cc26dab
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -76,7 +76,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: b6f0e7a9b25d7b5725aefc6888f2188bbd2f9a49
+          ref: 95918437e62d0d552a59ffc204af7f0f6cc26dab
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -84,7 +84,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne 'b6f0e7a9b25d7b5725aefc6888f2188bbd2f9a49') { throw 'AGENT05_PRIVATE_SOURCE_REVISION_MISMATCH' }
+          if ($actual -cne '95918437e62d0d552a59ffc204af7f0f6cc26dab') { throw 'AGENT05_PRIVATE_SOURCE_REVISION_MISMATCH' }
           Write-Host 'AGENT05_PINNED_PRIVATE_SOURCE_CONFIRMED'
       - uses: actions/setup-python@v5
         with:
@@ -210,6 +210,31 @@ jobs:
               $reason='GRAPH_WORKFLOW'
             }
             Write-Host ('AGENT05_NODE_SUITE_FAILURE_CATEGORY='+$reason)
+            # Publish only SHA-256 of a static failing test filename/title.
+            # Neither raw TAP output nor private source paths leave runner.
+            $rows = @(Get-Content -LiteralPath $log)
+            $first = -1
+            for ($i=0; $i -lt $rows.Count; $i++) {
+              if ($rows[$i] -match '^\s*not ok\s+\d+\s+-\s+') { $first=$i; break }
+            }
+            if ($first -ge 0) {
+              $title = ($rows[$first] -replace '^\s*not ok\s+\d+\s+-\s+','').Trim()
+              $h = [Security.Cryptography.SHA256]::Create()
+              try {
+                $raw = $h.ComputeHash([Text.Encoding]::UTF8.GetBytes($title))
+                Write-Host ('AGENT05_NODE_FIRST_FAILED_TITLE_SHA256='+([BitConverter]::ToString($raw)).Replace('-','').ToLowerInvariant())
+                $fileCode = 'NO_LOCATION'
+                for ($i=$first+1; $i -lt [Math]::Min($rows.Count,$first+26); $i++) {
+                  $loc = [regex]::Match($rows[$i],'tests[\\/]+(?<file>[A-Za-z0-9_.-]+[.]test[.]mjs)')
+                  if ($loc.Success) {
+                    $raw = $h.ComputeHash([Text.Encoding]::UTF8.GetBytes([string]$loc.Groups['file'].Value))
+                    $fileCode=([BitConverter]::ToString($raw)).Replace('-','').ToLowerInvariant()
+                    break
+                  }
+                }
+                Write-Host ('AGENT05_NODE_FIRST_FAILED_FILE_SHA256='+$fileCode)
+              } finally { $h.Dispose() }
+            }
             throw 'AGENT05_DESKTOP_FULL_TESTS_FAILED'
           }
           Write-Host 'AGENT05_DESKTOP_FULL_TESTS_PASS'
