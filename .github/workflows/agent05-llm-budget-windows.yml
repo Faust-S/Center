@@ -145,8 +145,18 @@ jobs:
         shell: pwsh
         run: |
           $log = Join-Path $env:RUNNER_TEMP 'agent05-node-targeted.log'
-          & node --test tests/agent05-gguf-context-ui.test.mjs tests/dialog-conversation.test.mjs tests/graph-config-stable-id.test.mjs tests/agent05-inprocess-core-task-preview.test.mjs tests/agent05-inprocess-k02-k04.test.mjs tests/agent05-graph-full-result-readback.test.mjs tests/chain-builder-k02-recommendation.test.mjs *> $log
-          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_DESKTOP_TARGETED_FAILED' }
+          & node --test tests/agent05-gguf-context-ui.test.mjs tests/dialog-conversation.test.mjs tests/graph-config-stable-id.test.mjs tests/agent05-inprocess-core-task-preview.test.mjs tests/agent05-inprocess-k02-k04.test.mjs tests/agent05-graph-full-result-readback.test.mjs tests/chain-builder-k02-recommendation.test.mjs tests/work-handoff.test.mjs *> $log
+          if ($LASTEXITCODE -ne 0) {
+            $failed = @(Get-Content -LiteralPath $log | Where-Object { $_ -match '^\s*not ok\s+\d+\s+-\s+' })
+            $area = 'OTHER'
+            if ($failed | Where-Object { $_ -match 'boundary whitespace|full saved Result|Task objective or a truncated|original Task keep separate Goal' }) {
+              $area = 'WORK_HANDOFF'
+            } elseif ($failed | Where-Object { $_ -match 'K02|K04|Graph' }) {
+              $area = 'K02_GRAPH'
+            }
+            Write-Host ('AGENT05_DESKTOP_TARGETED_FAILURE_AREA=' + $area)
+            throw 'AGENT05_DESKTOP_TARGETED_FAILED'
+          }
           Write-Host 'AGENT05_DESKTOP_TARGETED_PASS'
       - name: TypeScript and Vite production build
         working-directory: private-product/desktop
@@ -185,10 +195,19 @@ jobs:
           $log = Join-Path $env:RUNNER_TEMP 'agent05-node-full.log'
           & npm.cmd test *> $log
           if ($LASTEXITCODE -ne 0) {
-            # Fixed-known regression category only; private TAP output stays local.
+            # Categorize ONLY actual failing TAP rows. Earlier matching
+            # a test title anywhere in the passing output falsely labeled
+            # unrelated failures as GRAPH_IMPORT_REGRESSION.
+            $failed = @(Get-Content -LiteralPath $log | Where-Object { $_ -match '^\s*not ok\s+\d+\s+-\s+' })
             $reason='OTHER'
-            if (Select-String -LiteralPath $log -SimpleMatch -Pattern 'K02/K04 model selection is optional' -Quiet -ErrorAction SilentlyContinue) {
-              $reason='GRAPH_IMPORT_REGRESSION'
+            if ($failed | Where-Object { $_ -match 'boundary whitespace' }) {
+              $reason='RESULT_WHITESPACE'
+            } elseif ($failed | Where-Object { $_ -match 'complete accepted Result|original Task keep separate Goal' }) {
+              $reason='RESULT_HANDOFF'
+            } elseif ($failed | Where-Object { $_ -match 'native accepted Task|K02/K04|in-process K02' }) {
+              $reason='K02_UIA'
+            } elseif ($failed | Where-Object { $_ -match 'Graph|graph|workflow' }) {
+              $reason='GRAPH_WORKFLOW'
             }
             Write-Host ('AGENT05_NODE_SUITE_FAILURE_CATEGORY='+$reason)
             throw 'AGENT05_DESKTOP_FULL_TESTS_FAILED'
