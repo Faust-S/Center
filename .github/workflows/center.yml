@@ -888,11 +888,13 @@ jobs:
               try{
                 $witnessFailure=Get-Content -LiteralPath $witnessReceipt -Raw -Encoding UTF8|ConvertFrom-Json
                 $phase=[string]$witnessFailure.phase
-                $safePhases=@('FIRST_CORE','CORE_QUERIES','DRAFT_CREATE','GUI_DRAFT_EDIT',
-                  'GUI_DRAFT_READBACK','QWEN_EXECUTE','COLD_RESTART','COLD_CORE_QUERIES',
-                  'GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT','GUI_RESULT','GUI_TASK_SUBMIT',
-                  'GUI_TASK_RESULT','GUI_TASK_REVIEW','GUI_TASK_REVIEW_READBACK',
-                  'GUI_COLD_RESTART','GUI_COLD_IMPORT','CLEAN_STOP','WITNESS_RECEIPT')
+                $safePhases=@('SHORTCUT_READBACK','COLD_GUI_BOOT','FIRST_CORE','CORE_QUERIES',
+                  'DRAFT_CREATE','GUI_DRAFT_EDIT','GUI_DRAFT_READBACK','QWEN_EXECUTE',
+                  'COLD_RESTART','COLD_CORE_QUERIES','GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT',
+                  'GUI_RESULT','GUI_TASK_SUBMIT','GUI_TASK_RESULT','GUI_TASK_REVIEW',
+                  'GUI_TASK_REVIEW_READBACK','GUI_COLD_RESTART','GUI_COLD_IMPORT',
+                  'K03_TASK_EXECUTE','K03_TASK_COLD_RESTART','K03_TASK_COLD_READBACK',
+                  'CLEAN_STOP','WITNESS_RECEIPT')
                 if($witnessFailure.status -ceq 'FAIL' -and $phase -cin $safePhases){
                   Write-Host ('PRIVATE_INSTALLED_WITNESS_PHASE='+$phase)
                   if($phase -ceq 'QWEN_EXECUTE'){
