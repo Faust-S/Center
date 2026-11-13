@@ -982,7 +982,18 @@ jobs:
                   Write-Host ('PRIVATE_INSTALLED_K03_CHECKPOINT='+[string]$line)
                 }elseif([string]$line -cmatch '^AGENT_K03_FAILURE_CODE=([a-z0-9_]{3,90})$' -and
                        $Matches[1] -cin @('k03_host_select_http_failed',
-                           'setup_core_k03_owner_selection_not_verified','OTHER')){
+                           'setup_core_k03_owner_selection_not_verified',
+                            'k03_task_model_result_timeout',
+                            'k03_task_model_execution_stopped',
+                            'k03_task_submission_identity_changed',
+                            'k03_task_model_result_or_source_unverified',
+                            'k03_task_human_review_provenance_unverified',
+                            'k03_task_personal_submission_not_accepted',
+                            'k03_task_selected_local_model_not_ready',
+                            'k03_installed_interaction_invalid',
+                            'k03_installed_query_not_confirmed',
+                            'k03_installed_command_not_confirmed',
+                            'k03_task_workspace_unavailable','OTHER')){
                   Write-Host ('PRIVATE_INSTALLED_K03_FAILURE='+$Matches[1])
                 }elseif([string]$line -cmatch '^AGENT_K03_SELECTION_HTTP_STATUS=(400|401|403|409|500|503|0)$'){
                   Write-Host ('PRIVATE_INSTALLED_K03_HTTP_STATUS='+$Matches[1])
