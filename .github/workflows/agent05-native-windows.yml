@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 8b018b6e90b1f00a0238bbf7e8248fbd02bb4570
+          ref: a86af63fda308793a4526ea0a25695e7ac311db4
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -39,7 +39,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne '8b018b6e90b1f00a0238bbf7e8248fbd02bb4570') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          if ($actual -cne 'a86af63fda308793a4526ea0a25695e7ac311db4') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
           $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
           Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
@@ -85,8 +85,35 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'INSTALLED_GUI' }
             Write-Host 'AGENT05_NATIVE_INSTALLED_UIA_COLD_REOPEN_PASS'
           } catch {
-            # Only a stable failure category may be published in a public
-            # Center CI log; all private product details stay in RUNNER_TEMP.
+            # A bounded stage/category is needed to distinguish a product
+            # regression from UIAutomation failing in the hosted session.
+            # NEVER emit raw private smoke logs, UI text, screenshots, paths,
+            # process arguments, tokens, drafts or installed binaries.
+            $smoke = Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-' + $env:GITHUB_RUN_ID)
+            $report = Join-Path $smoke 'logs/smoke-result.json'
+            if (Test-Path -LiteralPath $report -PathType Leaf) {
+              try {
+                $observed = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+                foreach ($field in @('install','button_invoked','react_page_changed','task_input_visible','task_input_editable','draft_restore','core_draft_before_close','core_draft_after_reopen','first_window_retry')) {
+                  $value = [string]$observed.$field
+                  if ($value -in @('PASS','NOT_TESTED','NOT_NEEDED','ATTEMPTED','RECOVERED')) {
+                    Write-Host ('AGENT05_NATIVE_STAGE_' + $field.ToUpperInvariant() + '=' + $value)
+                  }
+                }
+                $failure = [string]$observed.error
+                $category = 'UNCLASSIFIED_INSTALLED_FAILURE'
+                if ($failure -match 'gui_native_process_exited_before_window|gui_native_window_missing|gui_window_in_other_session') { $category='NATIVE_WINDOW_UNAVAILABLE' }
+                elseif ($failure -match 'control_unavailable|react_page_not_visible|ui_automation_root_missing|draft_value_pattern_unavailable') { $category='UI_AUTOMATION_CONTROL_UNAVAILABLE' }
+                elseif ($failure -match 'gui_native_close_unconfirmed|GUI_NATIVE_CLOSE_TIMEOUT') { $category='NATIVE_CLOSE_UNCONFIRMED' }
+                elseif ($failure -match 'gui_draft|draft_http|gui_core_draft|draft_value_change') { $category='DRAFT_READBACK_OR_EDIT_FAILURE' }
+                elseif ($failure -match 'gui_native_package_failed|gui_package_install_failed|gui_storage_authority_failed|gui_native_executable_not_installed') { $category='INSTALL_OR_STORAGE_FAILURE' }
+                Write-Host ('AGENT05_NATIVE_FAILURE_CATEGORY=' + $category)
+              } catch {
+                Write-Host 'AGENT05_NATIVE_FAILURE_CATEGORY=REPORT_UNAVAILABLE'
+              }
+            } else {
+              Write-Host 'AGENT05_NATIVE_FAILURE_CATEGORY=REPORT_MISSING'
+            }
             throw 'AGENT05_NATIVE_INSTALLED_UIA_GATE_FAILED'
           }
       # No uploads, build caches, screenshots, logs or private binaries.
