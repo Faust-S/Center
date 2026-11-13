@@ -1599,7 +1599,7 @@ jobs:
   # Fast, read-only reproduction of the exact pinned public K03 owner source.
   # Never publishes private source, Task text, tokens or downloaded artifacts.
   agent05-k03-owner-fast:
-    if: ${{ github.ref == 'refs/heads/work/2026-11-13-agent05-k03-diagnostics' && startsWith(github.event.head_commit.message, 'ci(private):') && contains(github.event.head_commit.message, ' k03-select-only') }}
+    if: ${{ (github.ref == 'refs/heads/work/2026-11-13-agent05-k03-diagnostics' || github.ref == 'refs/heads/work/2026-11-13-agent05-k03-core-after-tasks') && startsWith(github.event.head_commit.message, 'ci(private):') && contains(github.event.head_commit.message, ' k03-select-only') }}
     runs-on: windows-latest
     timeout-minutes: 12
     permissions:
