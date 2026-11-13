@@ -1,0 +1,1 @@
+Short Windows Core verification through frozen K03, P01 composer, Task, Result, Human Review, cold reopen. Private Agent 0b40d8127f89872492629ce1cc7269cd0374a5c6; no full Qwen inference in this address test.
