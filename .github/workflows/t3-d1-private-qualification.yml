@@ -82,8 +82,7 @@ jobs:
           node --test "$RUNNER_TEMP/t3-original-control-staged/qualification/t3-d1-loopback-owner-local.test.mjs" > "$output" 2>&1
           code=$?
           set -e
-          # Private assertions, organization IDs, stack traces, keys and source
-          # are never printed or uploaded to this public Actions run.
+          # Never print original private source, signer details or test fixtures.
           grep -E '^# (tests|pass|fail|cancelled|skipped|duration_ms) ' "$output" || true
           if [ "$code" -ne 0 ]; then
             echo 'T3_D1_REAL_SIGNER_HTTP_FAILED'
@@ -93,23 +92,11 @@ jobs:
             echo 'T3_D1_REAL_SIGNER_TESTS_MISSING'
             exit 1
           }
-          grep -Eq '^# pass 2
-            echo 'T3_D1_REAL_SIGNER_ASSERTIONS_FAILED'
-            exit 1
-          }
-          echo 'T3_D1_REAL_SIGNER_TWO_ORGANIZATIONS_HTTP_PASS'
-
- "$output" || {
+          grep -Eq '^# pass 2$' "$output" || {
             echo 'T3_D1_REAL_SIGNER_PASS_COUNT_INVALID'
             exit 1
           }
-          grep -Eq '^# fail 0
-            echo 'T3_D1_REAL_SIGNER_ASSERTIONS_FAILED'
-            exit 1
-          }
-          echo 'T3_D1_REAL_SIGNER_TWO_ORGANIZATIONS_HTTP_PASS'
-
- "$output" || {
+          grep -Eq '^# fail 0$' "$output" || {
             echo 'T3_D1_REAL_SIGNER_ASSERTIONS_FAILED'
             exit 1
           }
