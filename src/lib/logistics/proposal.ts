@@ -5,7 +5,7 @@ import type { InventoryReport } from "./inventory.ts";
 import { auditScenario, compareScenarios, fingerprintModel, type Project, type Scenario } from "./engine.ts";
 import { auditOperations, compareOperations, calculateVerifiedInventory, replanAfterReturns, auditReplanning, type OperationReport, type ReplanningResult } from "./execution.ts";
 
-export const CASE001_ALGORITHM_VERSION = "d11.delivery-network-planner/1.5.0";
+export const CASE001_ALGORITHM_VERSION = "d11.delivery-network-planner/1.6.0";
 export interface DeliveryEditorState {
   days: number; orders: number; demand: number; fuel: number; breakdown: number;
   trafficPercent: number; dockDelayMinutes: number; extraServiceMinutes: number;
@@ -17,6 +17,25 @@ export interface DeliveryProjectInput {
   state: DeliveryEditorState; model: Project; before: Scenario; after: Scenario;
   operationBefore: OperationReport; operationAfter: OperationReport;
 }
+function compactDay(d: Scenario["days"][number]) {
+  return {
+    day: d.day, ordered: d.ordered, delivered: d.delivered,
+    unservedByReason: {
+      warehouse: d.unserved.filter(v => v.reason === "warehouse-throughput").map(v => v.orderId),
+      transport: d.unserved.filter(v => v.reason === "fleet-capacity-or-time-window").map(v => v.orderId),
+      stock: d.unserved.filter(v => v.reason === "stock-shortage").map(v => v.orderId),
+    },
+    fixedOwnedCostRub: d.fixedOwnedCostRub, totalCostRub: d.totalCostRub,
+    runs: d.runs.map(r => ({
+      vehicleId: r.vehicleId, kind: r.kind, km: r.km, costRub: r.costRub,
+      tripNumber: r.tripNumber, loadingBay: r.loadingBay,
+      loadStartMinute: r.loadStartMinute, driverBreakStartMinute: r.driverBreakStartMinute,
+      lastBreakEndMinute: r.lastBreakEndMinute,
+      departMinute: r.departMinute, returnMinute: r.returnMinute,
+      stops: r.stops.map(stop => stop.orderId),
+    })),
+  };
+}
 function compactPlan(s: Scenario) {
   return {
     mode: s.mode, inputFingerprint: s.inputFingerprint,
@@ -24,28 +43,13 @@ function compactPlan(s: Scenario) {
     totalKm: s.totalKm, totalCostRub: s.totalCostRub,
     costPerDeliveredRub: s.costPerDeliveredRub,
     ownedRuns: s.ownedRuns, hiredRuns: s.hiredRuns, audit: s.audit,
-    days: s.days.map(d => ({
-      day: d.day, ordered: d.ordered, delivered: d.delivered,
-      unservedByReason: {
-        warehouse: d.unserved.filter(v => v.reason === "warehouse-throughput").map(v => v.orderId),
-        transport: d.unserved.filter(v => v.reason === "fleet-capacity-or-time-window").map(v => v.orderId),
-        stock: d.unserved.filter(v => v.reason === "stock-shortage").map(v => v.orderId),
-      },
-      fixedOwnedCostRub: d.fixedOwnedCostRub, totalCostRub: d.totalCostRub,
-      runs: d.runs.map(r => ({
-        vehicleId: r.vehicleId, kind: r.kind, km: r.km, costRub: r.costRub,
-        tripNumber: r.tripNumber, loadingBay: r.loadingBay,
-        loadStartMinute: r.loadStartMinute, driverBreakStartMinute: r.driverBreakStartMinute,
-        lastBreakEndMinute: r.lastBreakEndMinute,
-        departMinute: r.departMinute, returnMinute: r.returnMinute,
-        stops: r.stops.map(stop => stop.orderId),
-      })),
-    })),
+    days: s.days.map(compactDay),
   };
 }
 function compactFact(r: OperationReport) {
   return {
     mode: r.mode, settings: r.settings,
+    eventEncoding: "D11_ROUTE_ALIGNED_ARRIVAL_STATUS_V1",
     executed: r.executed, refused: r.refused, notScheduled: r.notScheduled,
     late: r.late, onTime: r.onTime, totalCostRub: r.totalCostRub,
     plannedCostRub: r.plannedCostRub, overtimeMinutes: r.overtimeMinutes, audit: r.audit,
@@ -59,12 +63,12 @@ function compactFact(r: OperationReport) {
         extraCostRub: t.extraCostRub, overtimeMinutes: t.overtimeMinutes,
         refusedOrders: t.deliveries.filter(v => v.status === "refused").map(v => v.orderId),
         lateOrders: t.deliveries.filter(v => v.latenessMinutes > 0).map(v => v.orderId),
-        // Lossless per-order execution events, not inferred from route totals.
-        events: t.deliveries.map(v => ({
-          orderId: v.orderId, status: v.status, arrivalMinute: v.arrivalMinute,
-          completionMinute: v.completionMinute, contractualEndMinute: v.contractualEndMinute,
-          latenessMinutes: v.latenessMinutes,
-        })),
+        // Aligned by index with the corresponding planned run's stops.
+        // Completion = arrival + order.serviceMinutes + settings.extraServiceMinutes.
+        // Contractual window and lateness are recovered from the input order.
+        events: t.deliveries.map(v => [
+          v.arrivalMinute, v.status === "on-time" ? 0 : v.status === "late" ? 1 : 2,
+        ]),
       })),
     })),
   };
@@ -86,6 +90,11 @@ function compactInventory(report: InventoryReport) {
   };
 }
 export function compactReplanning(result: ReplanningResult) {
+  // Unchanged future days are already retained in the original TO-BE plan.
+  // Store a precise, indexed delta, not a duplicate of thousands of routes.
+  const changedDays = result.revised.days.flatMap((day, index) =>
+    JSON.stringify(day) === JSON.stringify(result.original.days[index])
+      ? [] : [{ index, plan: compactDay(day) }]);
   return {
     initialPlanFingerprint: result.original.inputFingerprint,
     revisedPlanFingerprint: result.revised.inputFingerprint,
@@ -96,18 +105,71 @@ export function compactReplanning(result: ReplanningResult) {
     revisedTotalKm: result.revised.totalKm,
     revisedPlanCostRub: result.revised.totalCostRub,
     revisedActualCostRub: result.actual.totalCostRub,
-    // Include the re-dispatched runs' actual order events, not just counts.
     actual: compactFact(result.actual),
     inventory: compactInventory(result.inventory),
     changes: result.changes,
-    days: result.revised.days.map(d => ({
-      day: d.day, delivered: d.delivered, unserved: d.unserved,
-      runs: d.runs.map(r => ({ vehicleId: r.vehicleId, tripNumber: r.tripNumber,
-        departMinute: r.departMinute, returnMinute: r.returnMinute,
-        stops: r.stops.map(s => s.orderId) })),
-    })),
+    routeEncoding: "D11_ORIGINAL_PLUS_CHANGED_DAYS_V1",
+    originalDays: result.original.days.length,
+    changedDays,
     audit: result.audit,
   };
+}
+/** Recover each exact day route, including unchanged days, from the original
+ * plan plus the sparse replacement days. A corrupted delta cannot be accepted. */
+export function restoreReplannedDays(
+  baseline: ReturnType<typeof compactPlan>,
+  packed: ReturnType<typeof compactReplanning>,
+): ReturnType<typeof compactPlan>["days"] {
+  if (packed.routeEncoding !== "D11_ORIGINAL_PLUS_CHANGED_DAYS_V1" ||
+      baseline.days.length !== packed.originalDays) throw Error("D11_REPLAN_DAYS_ENCODING");
+  const rebuilt = baseline.days.map(day => day);
+  const seen = new Set<number>();
+  for (const change of packed.changedDays) {
+    if (!Number.isSafeInteger(change.index) || change.index < 0 ||
+        change.index >= rebuilt.length || seen.has(change.index) ||
+        change.plan.day !== rebuilt[change.index].day)
+      throw Error("D11_REPLAN_DAY_PATCH_INVALID");
+    rebuilt[change.index] = change.plan;
+    seen.add(change.index);
+  }
+  return rebuilt;
+}
+/** Restore every exact actual delivery event using the stored input project's
+ * immutable orders and the aligned planned stop order. No lossy timestamps. */
+export function restoreCompactDeliveryEvents(
+  model: Project,
+  routedDays: readonly { day: string; runs: readonly { vehicleId: string; stops: readonly string[] }[] }[],
+  fact: ReturnType<typeof compactFact>,
+) {
+  if (fact.eventEncoding !== "D11_ROUTE_ALIGNED_ARRIVAL_STATUS_V1" ||
+      fact.days.length !== routedDays.length) throw Error("D11_EVENTS_ENCODING_INVALID");
+  const orders = new Map(model.orders.map(order => [order.id, order]));
+  const statuses = ["on-time", "late", "refused"] as const;
+  return fact.days.map((day, dayIndex) => {
+    const routes = routedDays[dayIndex];
+    if (day.day !== routes.day || day.trips.length !== routes.runs.length)
+      throw Error("D11_EVENTS_ROUTE_SCOPE");
+    return day.trips.map((trip, tripIndex) => {
+      const run = routes.runs[tripIndex];
+      if (trip.vehicleId !== run.vehicleId || trip.events.length !== run.stops.length)
+        throw Error("D11_EVENTS_TRIP_SCOPE");
+      return trip.events.map(([arrivalMinute, statusCode], eventIndex) => {
+        const orderId = run.stops[eventIndex];
+        const order = orders.get(orderId);
+        if (!order || order.day !== day.day || !Number.isFinite(arrivalMinute) ||
+            !Number.isSafeInteger(statusCode) || statusCode < 0 || statusCode > 2)
+          throw Error("D11_EVENTS_ORDER_INVALID:" + orderId);
+        const completionMinute = arrivalMinute + order.serviceMinutes + fact.settings.extraServiceMinutes;
+        const latenessMinutes = Math.max(0, completionMinute - order.windowEnd);
+        if ((statusCode === 0 && latenessMinutes > 0) ||
+            (statusCode !== 0 && latenessMinutes === 0))
+          throw Error("D11_EVENTS_STATUS_INVALID:" + orderId);
+        return { orderId, vehicleId: run.vehicleId, arrivalMinute,
+          completionMinute, contractualEndMinute: order.windowEnd,
+          status: statuses[statusCode], latenessMinutes };
+      });
+    });
+  });
 }
 export function buildCase001ProposalData(input: DeliveryProjectInput) {
   const { state, model, before, after, operationBefore, operationAfter } = input;

@@ -243,7 +243,7 @@ test("browser report with adaptive routes retains its complete imported source p
 });
 
 
-test("the T2 proposal records exact order events from the second, re-dispatched schedule", () => {
+test("the T2 proposal records exact order events from the second, re-dispatched schedule", async () => {
   const model = threeDayReturnModel();
   const state = { days: 3, orders: 1, demand: 100, fuel: 100, breakdown: 0,
     trafficPercent: returnSettings.trafficPercent,
@@ -258,12 +258,29 @@ test("the T2 proposal records exact order events from the second, re-dispatched 
   assert.equal(payload.replanning.originalScheduled, 1);
   assert.equal(payload.replanning.revisedScheduled, 2);
   assert.equal(payload.replanning.actualRefused, 1);
-  assert.equal(payload.replanning.actual.days[0].trips[0].events[0].status, "refused");
-  const corrected = payload.replanning.actual.days[1].trips[0].events[0];
+  assert.equal(payload.replanning.actual.days[0].trips[0].events[0][1], 2);
+  assert.equal(payload.replanning.actual.days[1].trips[0].events[0][1], 0);
+  const { restoreReplannedDays, restoreCompactDeliveryEvents } = await import("../model/logistics/proposal.ts");
+  const fullDays = restoreReplannedDays(payload.after, payload.replanning);
+  assert.equal(fullDays[1].runs[0].stops[0], "ORDER-2");
+  const recovered = restoreCompactDeliveryEvents(model, fullDays, payload.replanning.actual);
+  const generated = (await import("../model/logistics/execution.ts"))
+    .replanAfterReturns(model, after, returnSettings);
+  assert.deepEqual(recovered, generated.actual.days.map(d => d.trips.map(t => t.deliveries)));
+  const initialEvents = restoreCompactDeliveryEvents(model, payload.after.days, payload.operation.after);
+  assert.deepEqual(initialEvents, operationAfter.days.map(d => d.trips.map(t => t.deliveries)));
+  const corrected = recovered[1][0][0];
   assert.equal(corrected.orderId, "ORDER-2");
   assert.equal(corrected.status, "on-time");
   assert.ok(corrected.completionMinute > corrected.arrivalMinute);
   assert.equal(corrected.contractualEndMinute, 900);
+  const modified = structuredClone(payload.replanning);
+  modified.changedDays.push({ ...modified.changedDays[0] });
+  assert.throws(() => restoreReplannedDays(payload.after, modified), /D11_REPLAN_DAY_PATCH_INVALID/);
+  const tampered = structuredClone(payload.replanning.actual);
+  tampered.days[0].trips[0].events[0][1] = 9;
+  assert.throws(() => restoreCompactDeliveryEvents(model, fullDays, tampered),
+    /D11_EVENTS_ORDER_INVALID/);
   assert.deepEqual(payload.replanning.changes[1].acceptedReturns,
     [{ skuId: "SKU-01", units: 5 }]);
   assert.equal(payload.replanning.inventory.days[1].movements[0].issued, 5);
