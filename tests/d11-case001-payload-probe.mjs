@@ -27,6 +27,12 @@ for (const workload of workloads) {
   const operationBefore = simulateOperations(model, before, settings);
   const operationAfter = simulateOperations(model, after, settings);
   const data = buildCase001ProposalData({ state, model, before, after, operationBefore, operationAfter });
+  const withoutEvents = structuredClone(data);
+  for (const fact of [withoutEvents.operation.before, withoutEvents.operation.after]) {
+    for (const day of fact.days) for (const trip of day.trips) delete trip.events;
+  }
+  delete withoutEvents.replanning?.actual;
+  const baseBytes = new TextEncoder().encode(JSON.stringify(withoutEvents)).length;
   const bytes = new TextEncoder().encode(JSON.stringify(data)).length;
   let transferBytes = 0, transferError = "none";
   try {
@@ -37,7 +43,7 @@ for (const workload of workloads) {
     transferError = error instanceof Error ? error.message : String(error);
   }
   console.log("D11_PAYLOAD_PROBE", JSON.stringify({
-    workload, bytes, limit: D11_MAX_BYTES, transferBytes, transferError,
+    workload, bytes, baseBytes, limit: D11_MAX_BYTES, transferBytes, transferError,
     timeMs: Date.now() - start, parts: Object.fromEntries(
       ["_editorState","before","after","replanning","inventory","operation"].map(k =>
         [k, new TextEncoder().encode(JSON.stringify(data[k])).length])),
