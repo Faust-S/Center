@@ -41,6 +41,7 @@ export const siteRoutes = [
   "/tools/project-brief-generator/",
   "/tools/delivery-network-planner/",
   "/tools/depot-maintenance-supply/",
+  "/tools/distribution-network-expansion/",
 ] as const;
 
 export type SiteRoute = (typeof siteRoutes)[number];
