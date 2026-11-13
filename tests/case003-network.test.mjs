@@ -219,3 +219,30 @@ test("receiving bottlenecks cannot silently accept excess supplier or crossdock 
   for(const day of result.days)
     assert.ok(total(day.centers.find(c=>c.centerId==="DC-N").transfersIn)<=35);
 });
+
+
+test("CASE-003 production decision produces a traceable ten-day operating scorecard",()=>{
+  const input=createCase003();
+  const result=compareNetwork(input);
+  const summary=(x)=>({
+    servicePercent:x.servicePercent,onTimePercent:x.onTimePercent,
+    deliveredOrders:x.deliveredOrders,onTimeOrders:x.onTimeOrders,
+    waitingOrderDays:x.delayedOrderDays,transportRub:x.transportRub,
+    facilitiesRub:x.facilitiesRub,holdingRub:x.holdingRub,
+    lostServiceRub:x.delayedOrdersRub,totalRub:x.totalRub,
+    lastMileKm:x.lastMileKm,trunkKm:x.trunkKm,
+    deliveredTransfers:x.days.flatMap(d=>d.transfers).filter(t=>t.status==="delivered").length,
+  });
+  console.log("D11_CASE003_DECISION",JSON.stringify({
+    orderCount:input.orders.length,
+    baseline:summary(result.baseline),regional:summary(result.regional),
+    economics: {avoidedOrderDays:result.avoidedOrderDays,
+      additionalDelivered:result.additionalDelivered,
+      additionalOnTime:result.additionalOnTime,
+      totalCostDifferenceRub:result.totalCostDifferenceRub,
+      recommendation:result.recommendation},
+  }));
+  assert.ok(result.baseline.orderCount===240&&result.regional.orderCount===240);
+  assert.deepEqual(result.baseline.audit,[]);
+  assert.deepEqual(result.regional.audit,[]);
+});
