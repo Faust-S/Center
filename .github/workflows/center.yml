@@ -791,6 +791,33 @@ jobs:
           & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $check -Source $source
           if($LASTEXITCODE -ne 0){throw 'PRIVATE_POWERSHELL_PARSER_UNVERIFIED'}
           Remove-Item -LiteralPath $check -Force
+      # Use an independently published, immutable 0.4 Setup binary for
+      # the real 0.4 -> 0.5 upgrade. It never leaves the ephemeral Windows host.
+      - name: Stage exact private 0.4.0 Setup for cross-version upgrade
+        if: ${{ contains(github.event.head_commit.message, ' agent05-full') && !contains(github.event.head_commit.message, ' node-only') }}
+        shell: pwsh
+        timeout-minutes: 7
+        env:
+          GH_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'PRIVATE_AGENT04_READ_TOKEN_MISSING'}
+          if(!(Get-Command gh -ErrorAction SilentlyContinue)){throw 'PRIVATE_AGENT04_GH_MISSING'}
+          $dir=Join-Path $env:RUNNER_TEMP 'agent04-private-upgrade-source'
+          New-Item -Path $dir -ItemType Directory -Force | Out-Null
+          $name='IWXA-Personal-Agent-0.4.0-Setup.exe'
+          $log=Join-Path $env:RUNNER_TEMP 'agent04-private-download.log'
+          & gh release download v0.4.0 --repo Faust-S/iwxa-personal-agent --pattern $name --dir $dir *> $log
+          if($LASTEXITCODE -ne 0){throw 'PRIVATE_AGENT04_RELEASE_DOWNLOAD_FAILED'}
+          $setup=Join-Path $dir $name
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf) -or
+             (Get-Item -LiteralPath $setup).Length -ne 20085760 -or
+             (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+                '28a7c69b4011803529abe5d409c7ac1ea4c119cf53a81c9a8655ad858eb369bb'){
+            throw 'PRIVATE_AGENT04_RELEASE_DIGEST_MISMATCH'
+          }
+          ('IWXA_AGENT04_SETUP_PATH='+$setup) >> $env:GITHUB_ENV
+          Write-Host 'PRIVATE_PINNED_AGENT04_RELEASE_READY'
       - name: Qualify private source and native installed Windows lifecycle
         if: ${{ !contains(github.event.head_commit.message, ' node-only') && !contains(github.event.head_commit.message, ' python-only') }}
         timeout-minutes: 150
