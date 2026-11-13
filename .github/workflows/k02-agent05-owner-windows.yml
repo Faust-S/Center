@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 21ef7ef8eccec959c2c7aae6feb107b7eff57f03
+          ref: 725e8b179b9a21a5e2cd531253543d9fe36c7937
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -36,7 +36,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne '21ef7ef8eccec959c2c7aae6feb107b7eff57f03') { throw 'K02_PRIVATE_SOURCE_MISMATCH' }
+          if ($actual -cne '725e8b179b9a21a5e2cd531253543d9fe36c7937') { throw 'K02_PRIVATE_SOURCE_MISMATCH' }
           Write-Host 'K02_PRIVATE_SOURCE_PIN_PASS'
       - uses: actions/setup-node@v4
         with:
@@ -118,11 +118,13 @@ jobs:
           $owners = Join-Path $env:RUNNER_TEMP 'k02-owner-binaries'
           $env:IWXA_K02_OWNER_EXE = Join-Path $owners 'iwxa-k02-owner.exe'
           $env:IWXA_K04_OWNER_EXE = Join-Path $owners 'iwxa-k04-owner.exe'
+          $env:IWXA_OWNER_BINARY_REQUIRED = '1'
           try {
             & python -m pip install --disable-pip-version-check -r requirements.txt pytest *> $deps
             if ($LASTEXITCODE -ne 0) { throw 'DEPS' }
             & python -m pytest -q tests/test_k02_k04_native_owner_u01_e2e.py *> $log
             if ($LASTEXITCODE -ne 0) { throw 'TEST_FAILURE' }
+            if (-not ((Get-Content -LiteralPath $log -Raw) -match '\b2 passed\b')) { throw 'EXPECTED_TWO_LIVE_CASES_REQUIRED' }
             Write-Host 'K02_REAL_U01_TWO_OWNER_RECEIPTS_COLD_CORE_PASS'
           } catch { throw 'K02_REAL_U01_TWO_OWNER_RECEIPTS_COLD_CORE_FAILED' }
       # Private source, binaries and raw logs are not uploaded or cached.
