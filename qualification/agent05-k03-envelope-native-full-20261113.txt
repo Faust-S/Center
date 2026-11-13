@@ -1,0 +1,1 @@
+Native Windows Agent 0.5 full qualification at immutable private SHA f75eccfd7f308a0d45fe8fb3b6d09acba5da6e82; 51 Python targeted regressions passed in Center run 43425953878. No private source or artifacts in Center.
