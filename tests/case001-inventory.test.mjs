@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createCase001 } from "../model/logistics/case001.ts";
 import { auditScenario, runScenario } from "../model/logistics/engine.ts";
-import { simulateOperations } from "../model/logistics/execution.ts";
+import { simulateOperations, calculateVerifiedInventory } from "../model/logistics/execution.ts";
 import { calculateInventory, initialStock } from "../model/logistics/inventory.ts";
 import { importDeliveryProject } from "../model/logistics/project-import.ts";
 import { buildCase001ProposalData } from "../model/logistics/proposal.ts";
@@ -113,4 +113,36 @@ test("imported enterprise model with no SKU-level detail stays supported", () =>
   const scenario = runScenario(imported, "to-be");
   assert.deepEqual(scenario.audit, []);
   assert.deepEqual(calculateInventory(imported, scenario).days, []);
+});
+
+test("forged delivery/refusal events cannot change the accepted SKU ledger", () => {
+  const model = createCase001({ days: 2, dailyOrders: 100 });
+  const plan = runScenario(model, "to-be");
+  const actual = simulateOperations(model, plan, settings);
+  assert.deepEqual(actual.audit, []);
+  assert.deepEqual(calculateVerifiedInventory(model, plan, actual).audit, []);
+  const victim = actual.days[0].trips.find(t => t.deliveries.length > 0);
+  assert.ok(victim);
+  for (const changed of ["status", "orderId", "completionMinute"]) {
+    const forged = structuredClone(actual);
+    const record = forged.days[0].trips.find(t => t.deliveries.length > 0).deliveries[0];
+    if (changed === "status") record.status = record.status === "refused" ? "on-time" : "refused";
+    else if (changed === "orderId") record.orderId = "FAKE-ORDER-ID";
+    else record.completionMinute += 20;
+    assert.throws(() => calculateVerifiedInventory(model, plan, forged),
+      /D11_INVENTORY_EVENTS_UNVERIFIED/);
+  }
+});
+
+test("modified route or stale input fingerprint cannot create a verified inventory report", () => {
+  const model = createCase001({ days: 1, dailyOrders: 40 });
+  const plan = runScenario(model, "to-be");
+  const altered = structuredClone(plan);
+  altered.days[0].runs[0].costRub += 1;
+  assert.throws(() => calculateVerifiedInventory(model, altered),
+    /D11_INVENTORY_PLAN_UNVERIFIED/);
+  const changedModel = structuredClone(model);
+  changedModel.inventory[0].openingUnits++;
+  assert.throws(() => calculateVerifiedInventory(changedModel, plan),
+    /D11_INVENTORY_PLAN_UNVERIFIED/);
 });

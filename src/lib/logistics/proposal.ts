@@ -1,9 +1,9 @@
 /** Canonical D11 CASE-001 proposal: same result model for the browser and T2 Workspace. */
 import { createCase001 } from "./case001.ts";
 import { importDeliveryProject } from "./project-import.ts";
-import { calculateInventory, type InventoryReport } from "./inventory.ts";
+import type { InventoryReport } from "./inventory.ts";
 import { auditScenario, compareScenarios, fingerprintModel, type Project, type Scenario } from "./engine.ts";
-import { auditOperations, compareOperations, type OperationReport } from "./execution.ts";
+import { auditOperations, compareOperations, calculateVerifiedInventory, type OperationReport } from "./execution.ts";
 
 export const CASE001_ALGORITHM_VERSION = "d11.delivery-network-planner/1.4.0";
 export interface DeliveryEditorState {
@@ -111,8 +111,8 @@ export function buildCase001ProposalData(input: DeliveryProjectInput) {
       auditOperations(model, after, operationAfter).length ||
       operationBefore.audit.length || operationAfter.audit.length)
     throw Error("D11_CASE001_PROPOSAL_EXECUTION_INVALID");
-  const inventoryBefore = calculateInventory(model, before, operationBefore);
-  const inventoryAfter = calculateInventory(model, after, operationAfter);
+  const inventoryBefore = calculateVerifiedInventory(model, before, operationBefore);
+  const inventoryAfter = calculateVerifiedInventory(model, after, operationAfter);
   if (inventoryBefore.audit.length || inventoryAfter.audit.length)
     throw Error("D11_CASE001_INVENTORY_INVALID");
   const comparison = compareScenarios(before, after);

@@ -1,6 +1,7 @@
 /** D11: reproducible operational replay and plan/fact ledger for route scenarios. */
 import { auditScenario, fingerprintModel, travelMinutes, type Order, type Project, type Scenario, type Vehicle } from "./engine.ts";
 import { warehouseOptions } from "./warehouse.ts";
+import { calculateInventory, type InventoryReport } from "./inventory.ts";
 
 export interface OperationSettings {
   trafficPercent: number; dockDelayMinutes: number; extraServiceMinutes: number;
@@ -231,4 +232,22 @@ export function compareOperations(before: OperationReport, after: OperationRepor
     before.refused + before.notScheduled === 0 && after.refused + after.notScheduled === 0;
   return { comparable, costDifferenceRub: comparable ? round(before.totalCostRub - after.totalCostRub) : null,
     serviceDelta: after.executed - before.executed, lateDelta: after.late - before.late };
+}
+
+/** Verified item-level ledger for a saved project. Never derive stock from an
+ * arbitrary browser delivery journal: rebuild every route and delivery event
+ * from the input model before releasing or consuming SKU inventory. */
+export function calculateVerifiedInventory(
+  model: Project, plan: Scenario, actual?: OperationReport,
+): InventoryReport {
+  if (plan.modelId !== model.id || plan.inputFingerprint !== fingerprintModel(model) ||
+      plan.audit.length || plan.orderCount !== model.orders.length ||
+      plan.days.length !== model.days.length ||
+      auditScenario(model, plan.days, plan.unavailableVehicleIds).length)
+    throw Error("D11_INVENTORY_PLAN_UNVERIFIED");
+  if (actual && (actual.audit.length || auditOperations(model, plan, actual).length))
+    throw Error("D11_INVENTORY_EVENTS_UNVERIFIED");
+  const inventory = calculateInventory(model, plan, actual);
+  if (inventory.audit.length) throw Error("D11_INVENTORY_BALANCE_UNVERIFIED");
+  return inventory;
 }

@@ -3,9 +3,9 @@ import { useMemo, useState } from "react";
 import { SiteLayout } from "@/components/SiteLayout";
 import { createCase001 } from "@/lib/logistics/case001";
 import { importDeliveryProject, MAX_D11_REPORT_JSON_BYTES } from "@/lib/logistics/project-import";
-import { calculateInventory, type InventoryReport } from "@/lib/logistics/inventory";
+import type { InventoryReport } from "@/lib/logistics/inventory";
 import { runScenario, compareScenarios, type Scenario, type Project } from "@/lib/logistics/engine";
-import { simulateOperations, compareOperations, type OperationReport } from "@/lib/logistics/execution";
+import { simulateOperations, compareOperations, calculateVerifiedInventory, type OperationReport } from "@/lib/logistics/execution";
 import { buildCase001ProposalData, CASE001_ALGORITHM_VERSION, type DeliveryEditorState } from "@/lib/logistics/proposal";
 import { canonicalFor } from "@/site-routes";
 import { useToolDraft } from "@/components/tools/useToolDraft";
@@ -284,8 +284,8 @@ function DeliveryNetworkPlanner() {
   const inventory = useMemo(() => {
     if (!data.model?.inventory || !data.after || !operation) return null;
     try {
-      const before = calculateInventory(data.model, data.before!, operation.before);
-      const after = calculateInventory(data.model, data.after, operation.after);
+      const before = calculateVerifiedInventory(data.model, data.before!, operation.before);
+      const after = calculateVerifiedInventory(data.model, data.after, operation.after);
       return before.audit.length || after.audit.length ? null : { before, after };
     } catch { return null; }
   }, [data, operation]);
