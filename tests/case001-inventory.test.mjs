@@ -241,3 +241,33 @@ test("browser report with adaptive routes retains its complete imported source p
   });
   assert.deepEqual(loaded, model);
 });
+
+
+test("the T2 proposal records exact order events from the second, re-dispatched schedule", () => {
+  const model = threeDayReturnModel();
+  const state = { days: 3, orders: 1, demand: 100, fuel: 100, breakdown: 0,
+    trafficPercent: returnSettings.trafficPercent,
+    dockDelayMinutes: 0, extraServiceMinutes: 0, importedModel: model };
+  const before = runScenario(model, "as-is");
+  const after = runScenario(model, "to-be");
+  const operationBefore = simulateOperations(model, before, returnSettings);
+  const operationAfter = simulateOperations(model, after, returnSettings);
+  const payload = buildCase001ProposalData({
+    state, model, before, after, operationBefore, operationAfter,
+  });
+  assert.equal(payload.replanning.originalScheduled, 1);
+  assert.equal(payload.replanning.revisedScheduled, 2);
+  assert.equal(payload.replanning.actualRefused, 1);
+  assert.equal(payload.replanning.actual.days[0].trips[0].events[0].status, "refused");
+  const corrected = payload.replanning.actual.days[1].trips[0].events[0];
+  assert.equal(corrected.orderId, "ORDER-2");
+  assert.equal(corrected.status, "on-time");
+  assert.ok(corrected.completionMinute > corrected.arrivalMinute);
+  assert.equal(corrected.contractualEndMinute, 900);
+  assert.deepEqual(payload.replanning.changes[1].acceptedReturns,
+    [{ skuId: "SKU-01", units: 5 }]);
+  assert.equal(payload.replanning.inventory.days[1].movements[0].issued, 5);
+  assert.deepEqual(payload.replanning.audit, []);
+  // The initial operational fact is an independent, unmodified journal.
+  assert.equal(payload.operation.after.days[1].trips.length, 0);
+});

@@ -59,6 +59,12 @@ function compactFact(r: OperationReport) {
         extraCostRub: t.extraCostRub, overtimeMinutes: t.overtimeMinutes,
         refusedOrders: t.deliveries.filter(v => v.status === "refused").map(v => v.orderId),
         lateOrders: t.deliveries.filter(v => v.latenessMinutes > 0).map(v => v.orderId),
+        // Lossless per-order execution events, not inferred from route totals.
+        events: t.deliveries.map(v => ({
+          orderId: v.orderId, status: v.status, arrivalMinute: v.arrivalMinute,
+          completionMinute: v.completionMinute, contractualEndMinute: v.contractualEndMinute,
+          latenessMinutes: v.latenessMinutes,
+        })),
       })),
     })),
   };
@@ -90,6 +96,8 @@ export function compactReplanning(result: ReplanningResult) {
     revisedTotalKm: result.revised.totalKm,
     revisedPlanCostRub: result.revised.totalCostRub,
     revisedActualCostRub: result.actual.totalCostRub,
+    // Include the re-dispatched runs' actual order events, not just counts.
+    actual: compactFact(result.actual),
     inventory: compactInventory(result.inventory),
     changes: result.changes,
     days: result.revised.days.map(d => ({
