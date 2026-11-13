@@ -1,0 +1,1 @@
+Targeted Python regressions for immutable K03 owner observation and true 0.4 to 0.5 upgrade; private source SHA 6aa4698c1305295a4f151affbe965fdc2bc33f18; no private test details emitted.
