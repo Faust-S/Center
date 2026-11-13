@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: e7f3f819aca55c389e22b7c0658d5e7d0debb1e1
+          ref: 39b28b9deb85bbed8edb4c45b66c432aad46cac5
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne 'e7f3f819aca55c389e22b7c0658d5e7d0debb1e1') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          if ($actual -cne '39b28b9deb85bbed8edb4c45b66c432aad46cac5') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
           $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
           Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
@@ -407,18 +407,18 @@ jobs:
               throw 'AGENT05_INSTALLED_GGUF_GRAPH_GUI_RECEIPT_INVALID'
             }
             Write-Host 'AGENT05_INSTALLED_REAL_GGUF_GRAPH_GUI_FULL_RESULT_PASS'
-            # Follow the user-facing accepted Task > linked Goal handoff to
-            # the in-process K02/K04 compatibility check, with no inference.
+            # The accepted UI Task has no linked Goal yet. Verify its full Result
+            # reaches a fresh Graph draft before the in-process K02/K04 check.
             $k02GuiReceipt = Join-Path $logs 'agent05-native-k02-graph-preview.json'
             $k02GuiLog = Join-Path $logs 'agent05-native-k02-graph-preview.log'
             $k02GuiFailure = Join-Path $logs 'agent05-native-k02-graph-failure-stage.txt'
             $k02GuiFailureReason = Join-Path $logs 'agent05-native-k02-graph-failure-reason.txt'
-            & pwsh -NoProfile -NonInteractive -File tools/qualify_setup_core_native_gui.ps1 -WindowProcessId $p.Id -Mode graph-k02 -TaskId ([string]$saved.task_id) -ExpectedTitleSha256 ([string]$saved.task_title_sha256) -ExpectedModelName ([string]$graphSaved.model_name) -ReceiptPath $k02GuiReceipt -FailureStagePath $k02GuiFailure -FailureReasonPath $k02GuiFailureReason *> $k02GuiLog
+            & pwsh -NoProfile -NonInteractive -File tools/qualify_setup_core_native_gui.ps1 -WindowProcessId $p.Id -Mode graph-k02 -TaskId ([string]$saved.task_id) -ExpectedTitleSha256 ([string]$saved.task_title_sha256) -ExpectedModelName ([string]$graphSaved.model_name) -ExpectedResultSha256 ([string]$saved.summary_sha256) -ReceiptPath $k02GuiReceipt -FailureStagePath $k02GuiFailure -FailureReasonPath $k02GuiFailureReason *> $k02GuiLog
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $k02GuiReceipt -PathType Leaf)) {
               $stage = 'UNKNOWN'
               if (Test-Path -LiteralPath $k02GuiFailure -PathType Leaf) {
                 $candidate = (Get-Content -LiteralPath $k02GuiFailure -Raw).Trim()
-                if ($candidate -in @('NOT_STARTED','TASK_NAVIGATION','TASK_SELECTION','GOAL_HANDOFF','DETAILS_PANEL','MODEL_CHECK_BUTTON','PREVIEW_READBACK','RECEIPT_WRITE')) {
+                if ($candidate -in @('NOT_STARTED','TASK_NAVIGATION','TASK_SELECTION','RESULT_HANDOFF','RESULT_HANDOFF_READBACK','DETAILS_PANEL','MODEL_CHECK_BUTTON','PREVIEW_READBACK','RECEIPT_WRITE')) {
                   $stage = $candidate
                 }
               }
@@ -442,7 +442,8 @@ jobs:
             if ($k02View.status -cne 'PASS' -or
                 $k02View.input -cne 'NATIVE_WINDOWS_UI_AUTOMATION' -or
                 $k02View.accepted_task_selected -ne $true -or
-                $k02View.linked_goal_handoff_opened -ne $true -or
+                $k02View.accepted_result_handoff_opened -ne $true -or
+                $k02View.accepted_result_input_sha256_matched -ne $true -or
                 $k02View.k02_k04_check_button_invoked -ne $true -or
                 $k02View.selected_model_visible -ne $true -or
                 $k02View.preview_only -ne $true) {
