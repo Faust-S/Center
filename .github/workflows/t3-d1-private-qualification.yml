@@ -30,14 +30,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: c417b47ebdc0a06b3d95e683383651a093c44a2e
+          ref: c9de7c328d441fe5a54b1e54f0ce18e0abf15227
           path: public/knowledge
           persist-credentials: false
       - name: Checkout exact original private Control owner
         uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: a5d2ec82bcbd55a5cc261779beba16ef591f20d0
+          ref: 35293651c4e27464306516ce5b32c79c01a21981
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private/t3
           persist-credentials: false
@@ -48,8 +48,8 @@ jobs:
         shell: bash
         run: |
           set -eu
-          test "$(git -C public/knowledge rev-parse HEAD)" = "c417b47ebdc0a06b3d95e683383651a093c44a2e"
-          test "$(git -C private/t3 rev-parse HEAD)" = "a5d2ec82bcbd55a5cc261779beba16ef591f20d0"
+          test "$(git -C public/knowledge rev-parse HEAD)" = "c9de7c328d441fe5a54b1e54f0ce18e0abf15227"
+          test "$(git -C private/t3 rev-parse HEAD)" = "35293651c4e27464306516ce5b32c79c01a21981"
           node --check private/t3/interop/server.mjs
           node --check private/t3/interop/t3-isolated-ui-server.mjs
           node --check private/t3/interop/t3-control-workspace-entry.mjs
@@ -83,4 +83,31 @@ jobs:
             exit 1
           }
           echo 'T3_D1_REAL_SIGNER_TWO_ORGANIZATIONS_HTTP_PASS'
+
+      - name: Run original signed Control and public D1/D2 cross-owner integration
+        shell: bash
+        env:
+          IWXA_T3_PUBLIC_CORE_DIR: ${{ github.workspace }}/public/knowledge/packages/t3-core
+        run: |
+          set -eu
+          output="$RUNNER_TEMP/t3-d1-d2-private-cross-owner.log"
+          set +e
+          node --test private/t3/qualification/t3-d1-cross-owner-integration.mjs > "$output" 2>&1
+          code=$?
+          set -e
+          # Cross-owner assertions and private source stay on disposable runner.
+          grep -E '^# (tests|pass|fail|cancelled|skipped|duration_ms) ' "$output" || true
+          if [ "$code" -ne 0 ]; then
+            echo 'T3_D1_PRIVATE_CROSS_OWNER_FAILED'
+            exit 1
+          fi
+          grep -Eq '^# tests [1-9][0-9]*$' "$output" || {
+            echo 'T3_D1_PRIVATE_CROSS_OWNER_TEST_MISSING'
+            exit 1
+          }
+          grep -Eq '^# fail 0$' "$output" || {
+            echo 'T3_D1_PRIVATE_CROSS_OWNER_ASSERTIONS_FAILED'
+            exit 1
+          }
+          echo 'T3_D1_PRIVATE_SIGNED_D2_CROSS_OWNER_PASS'
 # No private code, logs, keys, packed data, screenshots or artifacts are uploaded.
