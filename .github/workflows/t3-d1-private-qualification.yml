@@ -1,0 +1,84 @@
+name: IWXA T3 D1 real private Control dual-checkout qualification
+on:
+  push:
+    branches:
+      - work/2026-11-13-t3-d1-private-qualification
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: t3-d1-private-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  d1-original-signer:
+    name: Original signed Control two-organization HTTP qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - name: Require scoped temporary private source read grant
+        shell: bash
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "$PRIVATE_SOURCE_TOKEN" ]; then
+            echo 'T3_D1_PRIVATE_SOURCE_READ_TOKEN_UNAVAILABLE'
+            exit 1
+          fi
+          echo 'T3_D1_TEMPORARY_SOURCE_GRANT_PRESENT'
+      - name: Checkout exact public T3 successor
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 16674b7cde417a17fea5950c816a90adf4baf428
+          path: public/knowledge
+          persist-credentials: false
+      - name: Checkout exact original private Control owner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 056ea424983742b363c1d5879e6436bb4ee71c47
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private/t3
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify immutable original and successor source identities
+        shell: bash
+        run: |
+          set -eu
+          test "$(git -C public/knowledge rev-parse HEAD)" = "16674b7cde417a17fea5950c816a90adf4baf428"
+          test "$(git -C private/t3 rev-parse HEAD)" = "056ea424983742b363c1d5879e6436bb4ee71c47"
+          node --check private/t3/interop/server.mjs
+          node --check private/t3/qualification/t3-d1-loopback-owner-local.test.mjs
+          node --check public/knowledge/packages/t3-core/src/t3/control-loopback-owner.mjs
+          echo 'T3_D1_EXACT_PUBLIC_AND_PRIVATE_SOURCES_PASS'
+      - name: Run genuine Ed25519 AccessRegistry and Control HTTP integration
+        shell: bash
+        env:
+          IWXA_T3_PUBLIC_CORE_DIR: ${{ github.workspace }}/public/knowledge/packages/t3-core
+        run: |
+          set -eu
+          output="$RUNNER_TEMP/t3-d1-private-node.log"
+          set +e
+          node --test private/t3/qualification/t3-d1-loopback-owner-local.test.mjs > "$output" 2>&1
+          code=$?
+          set -e
+          # Private assertions, organization IDs, stack traces, keys and source
+          # are never printed or uploaded to this public Actions run.
+          grep -E '^# (tests|pass|fail|cancelled|skipped|duration_ms) ' "$output" || true
+          if [ "$code" -ne 0 ]; then
+            echo 'T3_D1_REAL_SIGNER_HTTP_FAILED'
+            exit 1
+          fi
+          grep -Eq '^# tests [2-9][0-9]*$' "$output" || {
+            echo 'T3_D1_REAL_SIGNER_TESTS_MISSING'
+            exit 1
+          }
+          grep -Eq '^# fail 0$' "$output" || {
+            echo 'T3_D1_REAL_SIGNER_ASSERTIONS_FAILED'
+            exit 1
+          }
+          echo 'T3_D1_REAL_SIGNER_TWO_ORGANIZATIONS_HTTP_PASS'
+# No private code, logs, keys, packed data, screenshots or artifacts are uploaded.
