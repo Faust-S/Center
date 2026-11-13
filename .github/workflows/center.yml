@@ -1374,7 +1374,8 @@ jobs:
              $result.gui_task_result_full_acceptance -cne 'PASS' -or
              $result.gui_task_cold_independent_import -cne 'PASS' -or
              $result.model_result_transport_verified -cne 'PASS' -or
-             $result.product_version -cne $expectedProductVersion){
+             $result.product_version -cne $expectedProductVersion -or
+             ($expectedProductVersion -ceq '0.5.0' -and $result.native_real_upgrade_04_to_05_accepted -ne $true)){
             throw 'PRIVATE_QUALIFICATION_RESULT_UNVERIFIED'
           }
           $setup=Join-Path $out 'native-candidate/IWXA-Private-SetupCore-Candidate.exe'
@@ -1388,6 +1389,7 @@ jobs:
           Write-Host 'PRIVATE_GUI_TASK_RESULT_FULL_ACCEPTANCE=PASS'
           Write-Host 'PRIVATE_GUI_TASK_COLD_INDEPENDENT_IMPORT=PASS'
           Write-Host 'PRIVATE_MODEL_RESULT_TRANSPORT_VERIFIED=PASS'
+          if($expectedProductVersion -ceq '0.5.0'){Write-Host 'PRIVATE_REAL_04_TO_05_UPGRADE=PASS'}
           Write-Host ('PRIVATE_PRODUCT_VERSION='+$expectedProductVersion)
           # Never upload private files, archives, windows screenshots, or logs.
       # Publish only after complete native installed acceptance, never as a public artifact.
@@ -1495,7 +1497,9 @@ jobs:
             throw 'PRIVATE_RELEASE_NATIVE_ACCEPTANCE_INCOMPLETE'
           }
           if ($r.status -cne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or $r.source_commit -cne $fixed -or
-              $r.product_version -cne '0.5.0' -or $r.gui_task_result_full_acceptance -cne 'PASS' -or
+              $r.product_version -cne '0.5.0' -or
+              $r.native_real_upgrade_04_to_05_accepted -ne $true -or
+              $r.gui_task_result_full_acceptance -cne 'PASS' -or
               $r.gui_task_cold_independent_import -cne 'PASS' -or $r.model_result_transport_verified -cne 'PASS') {
             throw 'PRIVATE_RELEASE_WINDOWS_ACCEPTANCE_UNVERIFIED'
           }
@@ -1515,7 +1519,7 @@ jobs:
             ('Exact source SHA: '+$fixed)
             ('Installer SHA-256: '+$digest)
             ('Center Windows acceptance run: '+$env:GITHUB_RUN_ID)
-            'Verified: first native launch without Core prestart, real Start Menu shortcut, local model Task, Human Review, Result, K03, cold independent .iwxa import.'
+            'Verified: actual upgrade from published 0.4.0 to 0.5.0 preserving data and shortcuts; native cold start; local model Task, Human Review, Result, K03, independent .iwxa import.'
             'Model choice and reasoning effort remain user preferences; no subjective answer-quality gate.'
             'Private release asset only; public Center artifacts remain empty.'
           ) | Set-Content -LiteralPath $notes -Encoding utf8
