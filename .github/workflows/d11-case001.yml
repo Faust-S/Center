@@ -19,6 +19,8 @@ jobs:
         run: |
           node --version
           node --experimental-strip-types --test tests/*.test.mjs
+      - name: Typecheck domain-owned logistics implementation
+        run: npx --yes --package typescript@5.8.3 tsc --noEmit --strict --skipLibCheck --allowImportingTsExtensions --moduleResolution bundler --module esnext --target es2022 --lib ES2022,DOM model/logistics/*.ts
       - name: Canonical and browser project modules are identical
         run: |
           set -eu
