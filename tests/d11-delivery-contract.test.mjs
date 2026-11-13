@@ -38,10 +38,18 @@ test("D11 transport result roundtrips through the existing preview schema", () =
 test("peak project is not lost when readable JSON exceeds transfer size", () => {
   const state = { days: 10, orders: 650, demand: 150, fuel: 100, breakdown: 0,
     trafficPercent: 160, dockDelayMinutes: 40, extraServiceMinutes: 10 };
-  const { proposal } = makeResult(state);
+  const { data, proposal } = makeResult(state);
   const wire = serializeD11BrowserProposal(proposal);
   assert.ok(Buffer.byteLength(wire, "utf8") <= D11_MAX_BYTES);
   assert.deepEqual(validateD11BrowserProposal(JSON.parse(wire)), proposal);
+  assert.equal(data.replanning.originalDays, 10);
+  assert.equal(data.replanning.actual.days.length, 10);
+  assert.equal(data.replanning.routeEncoding, "D11_ORIGINAL_PLUS_CHANGED_DAYS_V1");
+  assert.equal(data.replanning.actual.eventEncoding, "D11_ROUTE_ALIGNED_ARRIVAL_STATUS_V1");
+  assert.equal(data.replanning.actual.days.flatMap(d => d.trips)
+    .reduce((n, t) => n + t.events.length, 0), data.replanning.revisedScheduled);
+  assert.ok(data.replanning.actualRefused > 0);
+  assert.equal(data.replanning.audit.length, 0);
 });
 test("D11 T2 registration keeps the exact same transport schema through Host build", () => {
   const read = p => readFileSync(new URL("../" + p, import.meta.url), "utf8");

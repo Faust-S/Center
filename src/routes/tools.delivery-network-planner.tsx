@@ -10,6 +10,7 @@ import { buildCase001ProposalData, CASE001_ALGORITHM_VERSION, type DeliveryEdito
 import { canonicalFor } from "@/site-routes";
 import { useToolDraft } from "@/components/tools/useToolDraft";
 import { D11ProposalExport } from "@/components/tools/D11ProposalExport";
+import { buildD11BrowserProposal } from "@/components/tools/d11-transfer";
 
 const INITIAL: DeliveryEditorState = {
   days: 5, orders: 380, demand: 100, fuel: 100, breakdown: 0,
@@ -338,7 +339,7 @@ function DeliveryNetworkPlanner() {
         state, model: data.model, before, after,
         operationBefore: operation.before, operationAfter: operation.after,
       });
-      if (new TextEncoder().encode(JSON.stringify(resultData)).byteLength > 900000) return null;
+
       const comparison = resultData.comparison;
       const op = resultData.operation.comparison;
       const markdown = [
@@ -373,10 +374,14 @@ function DeliveryNetworkPlanner() {
           : "SKU-склад не настроен."),
         "Полный журнал исполнения доступен для экспорта в JSON."
       ].join("\n\n");
-      return { toolId: "delivery-network-planner", toolTitle: "Региональная доставка: AS-IS / TO-BE",
+      const candidate = { toolId: "delivery-network-planner", toolTitle: "Региональная доставка: AS-IS / TO-BE",
         filenameBase: "delivery-network-case001", markdown,
         stage: op.comparable ? "Операционная проверка завершена" : "Операционные отклонения",
         data: resultData };
+      // Use the real 1 MiB transfer contract (including markdown and envelope),
+      // not an arbitrary 900 kB estimate that silently hides valid large projects.
+      buildD11BrowserProposal(candidate, "2026-11-13T00:00:00.000Z");
+      return candidate;
     } catch { return null; }
   }, [data, state, operation, replanning]);
   function exportResults() {
