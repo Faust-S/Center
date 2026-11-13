@@ -14,7 +14,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # This public-only preflight prevents a 5-minute private Tauri build from
+  # running when the public acceptance script itself is syntactically invalid.
+  native-qa-script-preflight:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Parse the public real-GGUF PowerShell acceptance step
+        shell: pwsh
+        run: |
+          $lines = @(Get-Content -LiteralPath '.github/workflows/agent05-native-windows.yml')
+          $label = '      - name: Real installed GGUF Task Review, cold result, independent import and native readback'
+          $first = -1
+          for ($i=0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -ceq $label) { $first=$i; break }
+          }
+          if ($first -lt 0) { throw 'AGENT05_PUBLIC_GGUF_SCRIPT_NOT_FOUND' }
+          $begin = -1
+          for ($i=$first+1; $i -lt [Math]::Min($first+8,$lines.Count); $i++) {
+            if ($lines[$i].Trim() -ceq 'run: |') { $begin=$i+1; break }
+          }
+          if ($begin -lt 0) { throw 'AGENT05_PUBLIC_GGUF_SCRIPT_BODY_MISSING' }
+          $end = -1
+          for ($i=$begin; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -ceq '      # The public job prints only fixed stage/category identifiers; the') {
+              $end=$i;break
+            }
+          }
+          if ($end -le $begin) { throw 'AGENT05_PUBLIC_GGUF_SCRIPT_END_MISSING' }
+          $body = @()
+          for ($i=$begin; $i -lt $end; $i++) {
+            $line = [string]$lines[$i]
+            if (-not $line.StartsWith('          ')) { throw 'AGENT05_PUBLIC_GGUF_SCRIPT_INDENTATION' }
+            $body += $line.Substring(10)
+          }
+          $powerShellCode = $body -join [Environment]::NewLine
+          $tokens = $null; $issues = $null
+          [void][System.Management.Automation.Language.Parser]::ParseInput($powerShellCode,[ref]$tokens,[ref]$issues)
+          if (@($issues).Count -gt 0) { throw 'AGENT05_PUBLIC_GGUF_POWERSHELL_SYNTAX_FAILED' }
+          Write-Host 'AGENT05_PUBLIC_GGUF_POWERSHELL_SYNTAX_PASS'
   native-windows:
+    needs: native-qa-script-preflight
     runs-on: windows-latest
     timeout-minutes: 110
     env:
