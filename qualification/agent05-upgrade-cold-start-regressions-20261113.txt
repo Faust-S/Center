@@ -1,0 +1,1 @@
+Pin only the private Agent 0.5 source 6c74b5810a72b445926c42db3286a45749d876a1 for fast upgrade and K03 Python regressions. Source isolated on Windows runner.
