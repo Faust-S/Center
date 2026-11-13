@@ -1471,10 +1471,10 @@ jobs:
           $ErrorActionPreference='Stop'
           $repo='Faust-S/iwxa-personal-agent'
           $tag='v0.5.0'
-          $fixed='0000000000000000000000000000000000000000'
-          # A zero pin prevents accidental publication. Replace ONLY after exact 0.5 installed PASS.
-          if ($fixed -ceq '0000000000000000000000000000000000000000' -or
-              $env:PRIVATE_SOURCE_SHA -cne $fixed) { throw 'PRIVATE_RELEASE_SOURCE_NOT_FROZEN_0_5' }
+          # Release is fail-closed: publish only after same-run native 0.5
+          # first-launch, real 0.4 upgrade, Task/Review/Result and .iwxa PASS.
+          $fixed='dd0d1c8bb7015e94ef109400fdfddc5f8d589b33'
+          if ($env:PRIVATE_SOURCE_SHA -cne $fixed) { throw 'PRIVATE_RELEASE_SOURCE_NOT_FROZEN_0_5' }
           if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw 'PRIVATE_RELEASE_WRITE_TOKEN_NOT_CONFIGURED' }
           $root=Join-Path $env:GITHUB_WORKSPACE 'private-product'
           if ((& git -C $root rev-parse HEAD).Trim() -cne $fixed) { throw 'PRIVATE_RELEASE_SOURCE_MISMATCH' }
