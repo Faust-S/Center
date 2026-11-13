@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: deced8cb64a0189e3b9cb6f8d573801601ff521c
+          ref: 486eb06f021771b5398f67f81bf586c5b8363e1b
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -36,7 +36,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne 'deced8cb64a0189e3b9cb6f8d573801601ff521c') { throw 'K02_PRIVATE_SOURCE_MISMATCH' }
+          if ($actual -cne '486eb06f021771b5398f67f81bf586c5b8363e1b') { throw 'K02_PRIVATE_SOURCE_MISMATCH' }
           Write-Host 'K02_PRIVATE_SOURCE_PIN_PASS'
       - uses: actions/setup-node@v4
         with:
@@ -96,4 +96,15 @@ jobs:
             }
             Write-Host 'K02_K04_WINDOWS_OWNER_BINARY_BUILD_PASS'
           } catch { throw 'K02_K04_WINDOWS_OWNER_BINARY_BUILD_FAILED' }
+      - name: Verify compiled K02 binary rejects the exact failed Task and allows unrelated trials
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'k02-private-binary-veto.log'
+          $binary = Join-Path (Join-Path $env:RUNNER_TEMP 'k02-owner-binaries') 'iwxa-k02-owner.exe'
+          try {
+            & node .\private-product\tools\agent03-owner-cli\qualify-owner-binary.mjs $binary *> $log
+            if ($LASTEXITCODE -ne 0) { throw 'SMOKE_FAILURE' }
+            if (-not ((Get-Content -LiteralPath $log -Raw).Contains('K02_WINDOWS_BINARY_EXACT_NEGATIVE_VETO_PASS'))) { throw 'PROOF_MISSING' }
+            Write-Host 'K02_WINDOWS_BINARY_EXACT_NEGATIVE_VETO_PASS'
+          } catch { throw 'K02_WINDOWS_BINARY_EXACT_NEGATIVE_VETO_FAILED' }
       # Private source, binaries and raw logs are not uploaded or cached.
