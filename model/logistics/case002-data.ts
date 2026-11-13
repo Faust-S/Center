@@ -75,10 +75,16 @@ export function createCase002(options: Case002Options = {}): SupplyInput {
   const inbound = [
     { day: DAYS[2],units: 22 },{ day: DAYS[5],units: 22 },{ day: DAYS[8],units: 18 },
   ];
-  const receipts = inbound.flatMap((record, lotIndex) => PARTS.map((part, i) => ({
-    day: DAYS[Math.min(DAYS.length-1, DAYS.indexOf(record.day) + supplierDelayDays)],
-    skuId: part.skuId, units: record.units + ((i + lotIndex) % 3) * 3,
-  })));
+  const receipts = inbound.flatMap((record, lotIndex) => {
+    const arrivalIndex = DAYS.indexOf(record.day) + supplierDelayDays;
+    // A consignment falling outside the project horizon cannot be silently
+    // backdated to the last working day just to make a stock ledger balance.
+    if (arrivalIndex >= DAYS.length) return [];
+    return PARTS.map((part, i) => ({
+      day: DAYS[arrivalIndex],
+      skuId: part.skuId, units: record.units + ((i + lotIndex) % 3) * 3,
+    }));
+  });
   return {
     id: "D11-CASE-002-BUS-DEPOTS",
     days: [...DAYS], parts: PARTS.map(p => ({ ...p })), depots, jobs,

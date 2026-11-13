@@ -24,11 +24,13 @@ jobs:
       - name: Canonical and browser project modules are identical
         run: |
           set -eu
-          for module in engine warehouse case001 execution inventory project-import proposal; do
+          for module in engine warehouse case001 execution inventory project-import proposal case002-supply case002-data; do
             cmp "model/logistics/$module.ts" "src/lib/logistics/$module.ts"
           done
       - name: Parse browser route TSX
-        run: npx --yes esbuild@0.25.5 src/routes/tools.delivery-network-planner.tsx --format=esm --outfile=/tmp/d11-route.js --log-level=error
+        run: |
+          npx --yes esbuild@0.25.5 src/routes/tools.delivery-network-planner.tsx --format=esm --outfile=/tmp/d11-route.js --log-level=error
+          npx --yes esbuild@0.25.5 src/routes/tools.depot-maintenance-supply.tsx --format=esm --outfile=/tmp/d11-case002-route.js --log-level=error
 
   authorized-source:
     runs-on: ubuntu-latest
