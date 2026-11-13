@@ -1,0 +1,1 @@
+Scoped private Agent 0.5.0 installed qualification and release. Exact source SHA dd0d1c8bb7015e94ef109400fdfddc5f8d589b33. No private sources or artifacts committed.
