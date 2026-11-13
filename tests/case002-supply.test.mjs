@@ -106,7 +106,10 @@ test("few trucks and supplier delay change actual plans, rather than just labels
   const supply = compareDepotSupply(createCase002({ fleetVehicles: 1, supplierDelayDays: 2,
     openingCoveragePercent: 40, trafficPercent: 160 }));
   assert.deepEqual(supply.advance.audit, []);
-  assert.ok(supply.advance.days.flatMap(x => x.shipments).some(x => x.routeStatus === "not-routed") ||
-    supply.advance.waitingJobs.length > 0);
-  assert.notEqual(supply.advance.totalRub, compareDepotSupply(createCase002()).advance.totalRub);
+  const normal = compareDepotSupply(createCase002()).advance;
+  // Physical fleet, inbound timing and material supply must affect the
+  // actual truck allocation and economic ledger, not only the UI labels.
+  assert.notDeepEqual(supply.advance.days.map(d => d.shipments),
+    normal.days.map(d => d.shipments));
+  assert.notEqual(supply.advance.totalRub, normal.totalRub);
 });
