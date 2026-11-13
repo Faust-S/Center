@@ -249,7 +249,21 @@ jobs:
               $code = 'UNKNOWN'
               if (Test-Path -LiteralPath $failCode -PathType Leaf) {
                 $candidate = (Get-Content -LiteralPath $failCode -Raw).Trim()
-                if ($candidate -match '^(MODEL_[A-Z_]+|TASK_[A-Z_]+|RESULT_READBACK|REVIEW_READBACK|EXCHANGE_EXPORT|OTHER_[A-Z_]+|HTTP_(400|401|403|404|409|422|429|500|502|503|504))) { $code = $candidate }
+                $allowedCodes = @(
+                  'PROOF_EXISTS','DOWNLOAD_MODE','CORE_NOT_READY','PREFS_READBACK',
+                  'PREFS_NOT_CONFIRMED','RUNTIME_PLAN','MODEL_PLAN','MODEL_DOWNLOAD',
+                  'MODEL_NOT_READY','INFERENCE','TASK_SUBMIT','TASK_STOPPED',
+                  'TASK_TIMEOUT','RESULT_READBACK','REVIEW_READBACK','EXCHANGE_EXPORT',
+                  'MODEL_PROCESS_FAILED','MODEL_FINAL_OUTPUT_UNAVAILABLE',
+                  'MODEL_TIMED_OUT','MODEL_ALREADY_BUSY','MODEL_EFFORT_INVALID',
+                  'MODEL_START_FAILED','MODEL_TOKEN_LIMIT_INVALID','MODEL_BINARY_CHANGED',
+                  'MODEL_PROMPT_INVALID','OTHER','OTHER_RUNTIME','OTHER_HTTP',
+                  'OTHER_NETWORK','OTHER_TIMEOUT','OTHER_VALUE','OTHER_KEY',
+                  'OTHER_TYPE','OTHER_OS','HTTP_400','HTTP_401','HTTP_403',
+                  'HTTP_404','HTTP_409','HTTP_422','HTTP_429','HTTP_500',
+                  'HTTP_502','HTTP_503','HTTP_504'
+                )
+                if ($candidate -in $allowedCodes) { $code = $candidate }
               }
               Write-Host ('AGENT05_INSTALLED_GGUF_FAILURE_CODE=' + $code)
               throw 'AGENT05_INSTALLED_GGUF_TASK_REVIEW_FAILED'
