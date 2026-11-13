@@ -146,3 +146,13 @@ test("modified route or stale input fingerprint cannot create a verified invento
   assert.throws(() => calculateVerifiedInventory(changedModel, plan),
     /D11_INVENTORY_PLAN_UNVERIFIED/);
 });
+
+test("imported working days must progress in chronological order for receipts and returned goods", () => {
+  const model = createCase001({ days: 3, dailyOrders: 30 });
+  const reversed = structuredClone(model);
+  reversed.days = [...model.days].reverse();
+  assert.throws(() => runScenario(reversed, "to-be"), /D11_DAYS_NOT_CHRONOLOGICAL/);
+  const impossible = structuredClone(model);
+  impossible.days[1] = "2026-02-30";
+  assert.throws(() => runScenario(impossible, "to-be"), /D11_DAYS_NOT_CHRONOLOGICAL/);
+});

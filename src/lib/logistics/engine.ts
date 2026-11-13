@@ -109,6 +109,16 @@ export function validate(model: Project): void {
       !Number.isFinite(model.road.avgKmHour) || model.road.avgKmHour <= 0 ||
       !Number.isFinite(model.fuelMultiplier) || model.fuelMultiplier <= 0 ||
       !Number.isFinite(model.ownedDailyFixedRub) || model.ownedDailyFixedRub < 0) throw Error("D11_MODEL_INVALID");
+  // Stock receipts and next-working-day return inspections depend on a true,
+  // forward-only calendar. An imported project cannot reverse the warehouse days.
+  for (let i = 0; i < model.days.length; i++) {
+    const day = model.days[i];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+        Number.isNaN(Date.parse(day + "T00:00:00.000Z")) ||
+        new Date(day + "T00:00:00.000Z").toISOString().slice(0, 10) !== day ||
+        (i > 0 && day <= model.days[i - 1]))
+      throw Error("D11_DAYS_NOT_CHRONOLOGICAL");
+  }
   const ids = new Set<string>();
   for (const v of model.fleet) {
     if (!v.id || ids.has(v.id) || !Number.isSafeInteger(v.zone) || v.zone < 0 ||
