@@ -1670,11 +1670,15 @@ jobs:
           & python -B $script $sandbox *> $privateLog
           $code=$LASTEXITCODE
           $good=@('TWO_ACCEPTED_TASKS','POST_TASK_DISCOVERY','POST_TASK_SELECTION',
-                  'LOST_SELECTION_ACK','CORE_REOPEN_SAME_SELECTION')
+                  'LOST_SELECTION_ACK','CORE_REOPEN_SAME_SELECTION',
+                  'P01_EDITOR_SAVED','DEMO_TASK_RESULT_WITH_SOURCE','COLD_REOPEN_TASK_RESULT')
           $reason=@('k03_prior_user_task_missing','k03_prior_user_task_review_missing',
                     'k03_prior_task_count_invalid','k03_after_tasks_read_query_slow',
                     'k03_after_tasks_query_invalid','k03_unconfirmed_task_appeared',
                     'k03_selection_ack_not_idempotent','k03_restart_selection_changed',
+                    'k03_editor_revision_missing','k03_p01_draft_not_accepted',
+                    'k03_confirmed_task_not_created','k03_demo_task_result_or_evidence_missing',
+                    'k03_demo_review_missing','k03_demo_result_not_restored',
                     'K03_HOST_SELECTION_SOURCE_OR_EVIDENCE_CHANGED','UNCLASSIFIED')
           $observed=New-Object 'System.Collections.Generic.HashSet[string]'
           foreach($line in [IO.File]::ReadLines($privateLog)){
@@ -1685,5 +1689,5 @@ jobs:
               Write-Host ('PRIVATE_K03_CORE_FAILURE='+$Matches[1])
             }
           }
-          if($code -ne 0 -or $observed.Count -ne 5){throw 'AGENT_K03_CORE_AFTER_TASKS_NOT_QUALIFIED'}
+          if($code -ne 0 -or $observed.Count -ne 8){throw 'AGENT_K03_CORE_AFTER_TASKS_NOT_QUALIFIED'}
           Write-Host 'PRIVATE_K03_CORE_AFTER_REAL_TASKS_PASS'
