@@ -1,0 +1,123 @@
+name: Agent 0.5 private Windows source and model budget qualification
+
+on:
+  push:
+    branches:
+      - work/2026-11-13-agent05-llm-budget-qualification
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent05-budget-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  private-agent-windows:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Require read-only private source permission
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) { throw 'AGENT05_PRIVATE_READ_PERMISSION_UNAVAILABLE' }
+      - name: Checkout pinned private Agent without credential persistence
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 8b018b6e90b1f00a0238bbf7e8248fbd02bb4570
+          path: private-product
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - name: Verify exactly requested private revision
+        shell: pwsh
+        run: |
+          $actual = (& git -C private-product rev-parse HEAD).Trim()
+          if ($actual -cne '8b018b6e90b1f00a0238bbf7e8248fbd02bb4570') { throw 'AGENT05_PRIVATE_SOURCE_REVISION_MISMATCH' }
+          Write-Host 'AGENT05_PINNED_PRIVATE_SOURCE_CONFIRMED'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Install only pinned Python dependencies
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-python-dependencies.log'
+          & python -m pip install -r requirements.txt pytest *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_PYTHON_DEPENDENCIES_FAILED' }
+          Write-Host 'AGENT05_PYTHON_DEPENDENCIES_READY'
+      - name: Run exact model-context and GGUF metadata tests
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-python-context.log'
+          & python -m pytest -q tests/test_iwxa_basic_generation_budget.py tests/test_iwxa_gguf_metadata.py *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_PYTHON_CONTEXT_TESTS_FAILED' }
+          Write-Host 'AGENT05_PYTHON_CONTEXT_TESTS_PASS'
+      - name: Run cold and warm llama.cpp transport regressions
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-python-llama.log'
+          & python -m pytest -q tests/test_iwxa_basic_model_binding.py tests/test_iwxa_llm_warm_session.py *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_PYTHON_LLAMA_TRANSPORT_FAILED' }
+          Write-Host 'AGENT05_PYTHON_LLAMA_TRANSPORT_PASS'
+      - name: Run existing Graph and restart persistence tests
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-python-graph.log'
+          & python -m pytest -q tests/test_fc6_graph_node_executor.py tests/test_agent05_pinned_graph_restart.py *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_PYTHON_GRAPH_RESTART_FAILED' }
+          Write-Host 'AGENT05_PYTHON_GRAPH_RESTART_PASS'
+      - name: Run real Task and conversation regression suite
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-python-tasks.log'
+          & python -m pytest -q tests/test_daily_driver.py *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_PYTHON_TASKS_FAILED' }
+          Write-Host 'AGENT05_PYTHON_TASKS_PASS'
+      - name: Install private desktop dependencies without cache
+        working-directory: private-product/desktop
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-node-dependencies.log'
+          & npm.cmd ci --no-audit --no-fund *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_DESKTOP_DEPENDENCIES_FAILED' }
+          Write-Host 'AGENT05_DESKTOP_DEPENDENCIES_READY'
+      - name: Run targeted desktop model and conversation tests
+        working-directory: private-product/desktop
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-node-targeted.log'
+          & node --test tests/agent05-gguf-context-ui.test.mjs tests/dialog-conversation.test.mjs tests/graph-config-stable-id.test.mjs tests/agent05-inprocess-core-task-preview.test.mjs tests/agent05-inprocess-k02-k04.test.mjs *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_DESKTOP_TARGETED_FAILED' }
+          Write-Host 'AGENT05_DESKTOP_TARGETED_PASS'
+      - name: Full desktop Node suite
+        working-directory: private-product/desktop
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-node-full.log'
+          & npm.cmd test *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_DESKTOP_FULL_TESTS_FAILED' }
+          Write-Host 'AGENT05_DESKTOP_FULL_TESTS_PASS'
+      - name: TypeScript and Vite production build
+        working-directory: private-product/desktop
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-ts-vite-build.log'
+          & npm.cmd run build *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_TYPESCRIPT_VITE_BUILD_FAILED' }
+          Write-Host 'AGENT05_TYPESCRIPT_VITE_BUILD_PASS'
+      # Deliberately do not publish source, executable installers, logs,
+      # artifacts, caches, paths, model weights, or secrets from this runner.
