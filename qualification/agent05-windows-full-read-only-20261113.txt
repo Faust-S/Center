@@ -1,0 +1,1 @@
+Private Agent 0.5.0 native release acceptance, read-only runner. Exact pinned source: dd0d1c8bb7015e94ef109400fdfddc5f8d589b33. No private bytes committed.
