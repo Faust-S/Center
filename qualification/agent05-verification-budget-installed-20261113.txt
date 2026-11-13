@@ -1,0 +1,2 @@
+Agent 0.5 revision b14f0286119e06cef2ea4f0898001c27b4c175b0
+Scope: full native installed Windows acceptance with existing K03 and real model witness. No public artifacts.
