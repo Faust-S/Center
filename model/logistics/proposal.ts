@@ -3,14 +3,15 @@ import { createCase001 } from "./case001.ts";
 import { importDeliveryProject } from "./project-import.ts";
 import type { InventoryReport } from "./inventory.ts";
 import { auditScenario, compareScenarios, fingerprintModel, type Project, type Scenario } from "./engine.ts";
-import { auditOperations, compareOperations, calculateVerifiedInventory, replanAfterReturns, auditReplanning, type OperationReport, type ReplanningResult } from "./execution.ts";
+import { auditOperations, compareOperations, calculateVerifiedInventory, replanAfterReturns, auditReplanning, parseCustomerRefusalIds, type OperationReport, type ReplanningResult } from "./execution.ts";
 
-export const CASE001_ALGORITHM_VERSION = "d11.delivery-network-planner/1.6.0";
+export const CASE001_ALGORITHM_VERSION = "d11.delivery-network-planner/1.7.0";
 export interface DeliveryEditorState {
   days: number; orders: number; demand: number; fuel: number; breakdown: number;
   trafficPercent: number; dockDelayMinutes: number; extraServiceMinutes: number;
   pickingWorkers?: number; maxRunsPerVehicle?: number; peakTravelPercent?: number; maxStopsPerTrip?: number;
   stockCoveragePercent?: number;
+  customerRefusalOrderIds?: string;
   importedModel?: Project | null;
 }
 export interface DeliveryProjectInput {
@@ -162,7 +163,9 @@ export function restoreCompactDeliveryEvents(
         const completionMinute = arrivalMinute + order.serviceMinutes + fact.settings.extraServiceMinutes;
         const latenessMinutes = Math.max(0, completionMinute - order.windowEnd);
         if ((statusCode === 0 && latenessMinutes > 0) ||
-            (statusCode !== 0 && latenessMinutes === 0))
+            (statusCode === 1 && latenessMinutes === 0) ||
+            (statusCode === 2 && latenessMinutes === 0 &&
+              !fact.settings.customerRefusalOrderIds.includes(orderId)))
           throw Error("D11_EVENTS_STATUS_INVALID:" + orderId);
         return { orderId, vehicleId: run.vehicleId, arrivalMinute,
           completionMinute, contractualEndMinute: order.windowEnd,
@@ -195,7 +198,8 @@ export function buildCase001ProposalData(input: DeliveryProjectInput) {
     throw Error("D11_CASE001_PROPOSAL_FLEET_INVALID");
   const actualSettings = { trafficPercent: state.trafficPercent,
     dockDelayMinutes: state.dockDelayMinutes, extraServiceMinutes: state.extraServiceMinutes,
-    latePenaltyRub: 2500, rejectOutOfWindow: true };
+    latePenaltyRub: 2500, rejectOutOfWindow: true,
+    customerRefusalOrderIds: parseCustomerRefusalIds(state.customerRefusalOrderIds ?? "") };
   if (operationBefore.inputFingerprint !== signature || operationAfter.inputFingerprint !== signature ||
       JSON.stringify(operationBefore.settings) !== JSON.stringify(actualSettings) ||
       JSON.stringify(operationAfter.settings) !== JSON.stringify(actualSettings) ||

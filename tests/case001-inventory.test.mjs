@@ -321,3 +321,44 @@ test("overnight depot returns cannot be inspected or sold on the morning of phys
   assert.equal(fixedLedger.days[2].movements[0].returned, 5);
   assert.equal(fixedLedger.days[2].movements[0].closingUnits, 5);
 });
+
+
+test("an explicitly refused on-time delivery releases SKU and triggers real next-day routing", async () => {
+  const { replanAfterReturns, auditReplanning, auditOperations, parseCustomerRefusalIds } =
+    await import("../model/logistics/execution.ts");
+  const { restoreReplannedDays, restoreCompactDeliveryEvents } =
+    await import("../model/logistics/proposal.ts");
+  const model = threeDayReturnModel();
+  const baseline = runScenario(model, "to-be");
+  const settings = { trafficPercent: 100, dockDelayMinutes: 0, extraServiceMinutes: 0,
+    latePenaltyRub: 2500, rejectOutOfWindow: true,
+    customerRefusalOrderIds: parseCustomerRefusalIds("ORDER-1") };
+  const initialFact = simulateOperations(model, baseline, settings);
+  assert.equal(initialFact.days[0].refused, 1);
+  assert.equal(initialFact.days[0].late, 0, "the refusal was not caused by lateness");
+  assert.equal(initialFact.days[0].trips[0].deliveries[0].latenessMinutes, 0);
+  assert.deepEqual(initialFact.audit, []);
+  const adaptive = replanAfterReturns(model, baseline, settings);
+  assert.deepEqual(adaptive.revised.days.map(d => d.delivered), [1, 1, 0]);
+  assert.equal(adaptive.actual.days[0].trips[0].deliveries[0].status, "refused");
+  assert.deepEqual(adaptive.changes[1].acceptedReturns, [{ skuId: "SKU-01", units: 5 }]);
+  assert.deepEqual(auditReplanning(model, adaptive), []);
+  const state = { days: 3, orders: 1, demand: 100, fuel: 100, breakdown: 0,
+    trafficPercent: 100, dockDelayMinutes: 0, extraServiceMinutes: 0,
+    customerRefusalOrderIds: "ORDER-1", importedModel: model };
+  const before = runScenario(model, "as-is");
+  const payload = buildCase001ProposalData({ state, model, before, after: baseline,
+    operationBefore: simulateOperations(model, before, settings), operationAfter: initialFact });
+  const actuals = restoreCompactDeliveryEvents(model,
+    restoreReplannedDays(payload.after, payload.replanning), payload.replanning.actual);
+  assert.deepEqual(actuals, adaptive.actual.days.map(d => d.trips.map(t => t.deliveries)));
+  assert.equal(actuals[0][0][0].status, "refused");
+  assert.equal(actuals[0][0][0].latenessMinutes, 0);
+  assert.throws(() => simulateOperations(model, baseline,
+    { ...settings, customerRefusalOrderIds: ["UNKNOWN"] }), /D11_CUSTOMER_REFUSAL_ORDER_UNKNOWN/);
+  assert.throws(() => simulateOperations(model, baseline,
+    { ...settings, customerRefusalOrderIds: ["ORDER-1", "ORDER-1"] }), /D11_OPERATION_SETTINGS_INVALID/);
+  const tampered = structuredClone(initialFact);
+  tampered.settings.customerRefusalOrderIds = [];
+  assert.ok(auditOperations(model, baseline, tampered).length > 0);
+});

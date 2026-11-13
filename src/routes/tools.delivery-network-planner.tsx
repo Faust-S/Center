@@ -5,7 +5,7 @@ import { createCase001 } from "@/lib/logistics/case001";
 import { importDeliveryProject, MAX_D11_REPORT_JSON_BYTES } from "@/lib/logistics/project-import";
 import type { InventoryReport } from "@/lib/logistics/inventory";
 import { runScenario, compareScenarios, type Scenario, type Project } from "@/lib/logistics/engine";
-import { simulateOperations, compareOperations, calculateVerifiedInventory, replanAfterReturns, type ReplanningResult, type OperationReport } from "@/lib/logistics/execution";
+import { simulateOperations, compareOperations, calculateVerifiedInventory, replanAfterReturns, parseCustomerRefusalIds, type ReplanningResult, type OperationReport } from "@/lib/logistics/execution";
 import { buildCase001ProposalData, CASE001_ALGORITHM_VERSION, type DeliveryEditorState } from "@/lib/logistics/proposal";
 import { canonicalFor } from "@/site-routes";
 import { useToolDraft } from "@/components/tools/useToolDraft";
@@ -17,6 +17,7 @@ const INITIAL: DeliveryEditorState = {
   trafficPercent: 100, dockDelayMinutes: 0, extraServiceMinutes: 0,
   pickingWorkers: 20, maxRunsPerVehicle: 2, peakTravelPercent: 120, maxStopsPerTrip: 12,
   stockCoveragePercent: 100,
+  customerRefusalOrderIds: "",
   importedModel: null,
 };
 const CANONICAL = canonicalFor("/tools/delivery-network-planner/");
@@ -98,7 +99,7 @@ function OperationResults({ before, after }: { before: OperationReport; after: O
     <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Result title="Фактически выполнено" value={String(after.executed)}
         subtitle={"AS-IS: " + before.executed}/>
-      <Result title="Отказы из-за опоздания" value={String(after.refused)}
+      <Result title="Отказы клиентов" value={String(after.refused)}
         subtitle={"AS-IS: " + before.refused}/>
       <Result title="Расходы факта TO-BE" value={money(after.totalCostRub)}
         subtitle={"AS-IS: " + money(before.totalCostRub)}/>
@@ -190,7 +191,7 @@ function InventoryResults({ report }: { report: InventoryReport }) {
   return <section className={panel}>
     <h2 className="font-display text-2xl">Остатки, отгрузки и возвраты</h2>
     <p className="mt-2 text-sm text-muted">Товар учитывается в штуках по SKU: приход, выдача в рейс,
-      продажа клиенту, отказ и возврат после приёмки на следующий рабочий день.
+      продажа клиенту, отказ и возврат после приёмки в первый рабочий день после фактического возвращения транспорта.
       Недоставленные и не загруженные заказы остаются в запасе.</p>
     <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Result title="Поставлено на склад" value={String(report.totalReceipts) + " шт."}
@@ -236,7 +237,7 @@ function InventoryResults({ report }: { report: InventoryReport }) {
 function ReplanningResults({ result }: { result: ReplanningResult }) {
   return <section className={panel} aria-live="polite">
     <h2 className="font-display text-2xl">Повторный план после отказов и возвратов</h2>
-    <p className="mt-2 text-sm text-muted">Исходный план сохранён отдельно. После каждого выполненного дня фактические отказы формируют партии для приёмки в следующий рабочий день. Планировщик заново распределяет доступные SKU, машины и погрузочные посты, а результат повторно проверяется.</p>
+    <p className="mt-2 text-sm text-muted">Исходный план сохранён отдельно. После каждого выполненного дня фактические отказы формируют партии для приёмки только после возвращения машины на склад. Планировщик заново распределяет доступные SKU, машины и погрузочные посты, а результат повторно проверяется.</p>
     <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Result title="Исходный план" value={String(result.original.delivered)} subtitle="Запланировано доставок"/>
       <Result title="Повторный план" value={String(result.revised.delivered)} subtitle="Попыток доставить по обновлённому плану"/>
@@ -292,6 +293,7 @@ function DeliveryNetworkPlanner() {
   }
   const { days, orders, demand, fuel, breakdown, trafficPercent, dockDelayMinutes, extraServiceMinutes,
     pickingWorkers, maxRunsPerVehicle, peakTravelPercent, maxStopsPerTrip, stockCoveragePercent } = state;
+  const refusalText = state.customerRefusalOrderIds ?? "";
   const data = useMemo(() => {
     try {
       const model = importedModel
@@ -309,11 +311,12 @@ function DeliveryNetworkPlanner() {
     if (!data.model || !data.before || !data.after) return null;
     try {
       const settings = { trafficPercent, dockDelayMinutes, extraServiceMinutes,
-        latePenaltyRub: 2500, rejectOutOfWindow: true };
+        latePenaltyRub: 2500, rejectOutOfWindow: true,
+        customerRefusalOrderIds: parseCustomerRefusalIds(refusalText) };
       return { before: simulateOperations(data.model, data.before, settings),
         after: simulateOperations(data.model, data.after, settings) };
     } catch { return null; }
-  }, [data, trafficPercent, dockDelayMinutes, extraServiceMinutes]);
+  }, [data, trafficPercent, dockDelayMinutes, extraServiceMinutes, refusalText]);
   const inventory = useMemo(() => {
     if (!data.model?.inventory || !data.after || !operation) return null;
     try {
@@ -386,7 +389,8 @@ function DeliveryNetworkPlanner() {
   }, [data, state, operation, replanning]);
   function exportResults() {
     if (!data.model || !data.before || !data.after || data.before.audit.length || data.after.audit.length) return;
-    const file = new Blob([JSON.stringify({ kind: "D11_CASE001_BROWSER_REPORT", parameters: { days, orders, demand, fuel, breakdown }, model: data.model,
+    const file = new Blob([JSON.stringify({ kind: "D11_CASE001_BROWSER_REPORT", parameters: { days, orders, demand, fuel, breakdown,
+        customerRefusalOrderIds: refusalText }, model: data.model,
       before: data.before, after: data.after, comparison: compareScenarios(data.before, data.after), operation, inventory }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(file);
     const link = document.createElement("a"); link.href = url; link.download = "advice-logistics-case001-scenarios.json";
@@ -519,6 +523,17 @@ function DeliveryNetworkPlanner() {
               {[0, 3, 6, 10].map(v => <option key={v} value={v}>{v} мин на остановку</option>)}
             </select></label>
         </div>
+        <label className={labelCls + " mt-5"}>Фактические отказы клиентов по ID заказов
+          <textarea className={fieldCls + " min-h-20"} rows={2}
+            value={refusalText} onChange={e => setState(prev => ({
+              ...prev, customerRefusalOrderIds: e.target.value,
+            }))}
+            placeholder="Например: D01-0001, D01-0002"
+            aria-label="ID заказов, от которых клиенты отказались, включая своевременные доставки" />
+        </label>
+        <p className="mt-2 text-xs text-muted">Введите ID через запятую или с новой строки.
+          Такой отказ учитывается даже при доставке вовремя. Товар возвращается на склад,
+          проходит приёмку и участвует в перепланировании следующих рабочих дней.</p>
       </section>
       <div className="mt-8 grid gap-4">
         {data.before && data.after ? <Summary before={data.before} after={data.after}/> :
@@ -529,7 +544,7 @@ function DeliveryNetworkPlanner() {
         {replanning && <ReplanningResults result={replanning}/>}
         {data.model?.inventory && data.after && operation && !replanning &&
           <p role="alert" className={panel}>Повторный план не удалось подтвердить. Передача непроверенных изменений в Workspace запрещена.</p>}
-        {data.before && !operation && <p role="alert" className={panel}>Не удалось воспроизвести фактическое исполнение.</p>}
+        {data.before && !operation && <p role="alert" className={panel}>Не удалось воспроизвести фактическое исполнение. Проверьте ID отказов (они должны совпадать с заявками проекта) и параметры рейсов.</p>}
       </div>
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <button type="button" onClick={exportResults} disabled={!data.after || !!data.after.audit.length}

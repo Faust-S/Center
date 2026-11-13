@@ -6,6 +6,7 @@ import { calculateInventory, initialStock, inspectionReleaseDay, receiveStock, s
 export interface OperationSettings {
   trafficPercent: number; dockDelayMinutes: number; extraServiceMinutes: number;
   latePenaltyRub: number; rejectOutOfWindow: boolean;
+  customerRefusalOrderIds: string[];
 }
 export interface DeliveryActual {
   orderId: string; vehicleId: string; arrivalMinute: number; completionMinute: number;
@@ -34,16 +35,27 @@ const round = (x: number): number => Math.round(x * 100) / 100;
 const depot = { xKm: 0, yKm: 0 };
 const DEFAULT: OperationSettings = {
   trafficPercent: 100, dockDelayMinutes: 0, extraServiceMinutes: 0,
-  latePenaltyRub: 2500, rejectOutOfWindow: true,
+  latePenaltyRub: 2500, rejectOutOfWindow: true, customerRefusalOrderIds: [],
 };
+export function parseCustomerRefusalIds(source: string): string[] {
+  if (typeof source !== "string" || source.length > 12000)
+    throw Error("D11_CUSTOMER_REFUSAL_LIST_INVALID");
+  const ids = source.split(/[,;\n]+/).map(id => id.trim()).filter(Boolean);
+  if (new Set(ids).size !== ids.length) throw Error("D11_CUSTOMER_REFUSAL_LIST_DUPLICATE");
+  return ids.sort();
+}
 function settingsOf(input: Partial<OperationSettings>): OperationSettings {
   const options = { ...DEFAULT, ...input };
   if (!Number.isFinite(options.trafficPercent) || options.trafficPercent < 50 || options.trafficPercent > 250 ||
       !Number.isSafeInteger(options.dockDelayMinutes) || options.dockDelayMinutes < 0 || options.dockDelayMinutes > 240 ||
       !Number.isSafeInteger(options.extraServiceMinutes) || options.extraServiceMinutes < 0 || options.extraServiceMinutes > 60 ||
       !Number.isFinite(options.latePenaltyRub) || options.latePenaltyRub < 0 ||
-      typeof options.rejectOutOfWindow !== "boolean") throw Error("D11_OPERATION_SETTINGS_INVALID");
-  return options;
+      typeof options.rejectOutOfWindow !== "boolean" ||
+      !Array.isArray(options.customerRefusalOrderIds) ||
+      options.customerRefusalOrderIds.some(id => typeof id !== "string" || !id.trim()) ||
+      new Set(options.customerRefusalOrderIds).size !== options.customerRefusalOrderIds.length)
+    throw Error("D11_OPERATION_SETTINGS_INVALID");
+  return { ...options, customerRefusalOrderIds: [...options.customerRefusalOrderIds].sort() };
 }
 /** Operational trips share physical dock and driver calendars across repeated vehicle runs. */
 function actualTrip(
@@ -70,7 +82,8 @@ function actualTrip(
     const arrivalMinute = Math.max(now, order.windowStart);
     const completionMinute = arrivalMinute + order.serviceMinutes + settings.extraServiceMinutes;
     const latenessMinutes = Math.max(0, completionMinute - order.windowEnd);
-    const status: DeliveryActual["status"] = latenessMinutes === 0 ? "on-time"
+    const status: DeliveryActual["status"] = settings.customerRefusalOrderIds.includes(order.id)
+      ? "refused" : latenessMinutes === 0 ? "on-time"
       : settings.rejectOutOfWindow ? "refused" : "late";
     if (latenessMinutes) penaltyRub += settings.latePenaltyRub;
     deliveries.push({ orderId: order.id, vehicleId: vehicle.id, arrivalMinute, completionMinute,
@@ -121,6 +134,17 @@ function replayDayTrips(
 }
 export function auditOperations(model: Project, plan: Scenario, report: OperationReport): string[] {
   const problems: string[] = [];
+  let replaySettings: OperationSettings;
+  try {
+    replaySettings = settingsOf(report.settings);
+    // Older stored reports did not carry explicit customer refusal IDs; an
+    // omitted field means the previous documented default: no manual refusals.
+    const encoded = report.settings.customerRefusalOrderIds === undefined
+      ? { ...replaySettings, customerRefusalOrderIds: undefined } : replaySettings;
+    if (JSON.stringify(encoded) !== JSON.stringify(report.settings) ||
+        replaySettings.customerRefusalOrderIds.some(id => !model.orders.some(order => order.id === id)))
+      return ["OPERATION_SETTINGS_INVALID"];
+  } catch { return ["OPERATION_SETTINGS_INVALID"]; }
   if (report.modelId !== plan.modelId || report.inputFingerprint !== fingerprintModel(model) ||
       report.inputFingerprint !== plan.inputFingerprint || report.mode !== plan.mode ||
       report.days.length !== plan.days.length) problems.push("OPERATION_SCOPE_INVALID");
@@ -134,7 +158,7 @@ export function auditOperations(model: Project, plan: Scenario, report: Operatio
       problems.push("OPERATION_DAY_INVALID:" + expected.day); continue;
     }
     const plannedVisits = new Set(expected.runs.flatMap(r => r.stops.map(s => s.orderId)));
-    const expectedTrips = replayDayTrips(model, expected, report.settings, sourceOrders, vehicles);
+    const expectedTrips = replayDayTrips(model, expected, replaySettings, sourceOrders, vehicles);
     const seen = new Set<string>();
     let dayExecuted = 0, dayRefused = 0, dayLate = 0, dayOnTime = 0, dayCost = expected.fixedOwnedCostRub;
     for (let i = 0; i < actual.trips.length; i++) {
@@ -163,8 +187,11 @@ export function auditOperations(model: Project, plan: Scenario, report: Operatio
           if (stop.latenessMinutes <= 0) problems.push("OPERATION_STATUS_INVALID:" + stop.orderId);
           dayExecuted++; dayLate++;
         } else if (stop.status === "refused") {
-          if (stop.latenessMinutes <= 0) problems.push("OPERATION_STATUS_INVALID:" + stop.orderId);
-          dayRefused++; dayLate++;
+          if (stop.latenessMinutes <= 0 &&
+              !replaySettings.customerRefusalOrderIds.includes(stop.orderId))
+            problems.push("OPERATION_STATUS_INVALID:" + stop.orderId);
+          dayRefused++;
+          if (stop.latenessMinutes > 0) dayLate++;
         } else problems.push("OPERATION_UNKNOWN_STATUS:" + stop.orderId);
       }
     }
@@ -196,6 +223,8 @@ export function simulateOperations(model: Project, plan: Scenario,
       plan.orderCount !== model.orders.length ||
       plan.days.length !== model.days.length) throw Error("D11_OPERATION_PLAN_INVALID");
   const settings = settingsOf(input);
+  if (settings.customerRefusalOrderIds.some(id => !model.orders.some(o => o.id === id)))
+    throw Error("D11_CUSTOMER_REFUSAL_ORDER_UNKNOWN");
   const orders = new Map(model.orders.map(o => [o.id, o]));
   const vehicles = new Map(model.fleet.map(v => [v.id, v]));
   return summarizeOperations(model, plan, settings,
@@ -285,6 +314,8 @@ export function replanAfterReturns(
         runScenario(model, original.mode, original.unavailableVehicleIds)))
     throw Error("D11_REPLAN_ORIGINAL_UNVERIFIED");
   const settings = settingsOf(input);
+  if (settings.customerRefusalOrderIds.some(id => !model.orders.some(o => o.id === id)))
+    throw Error("D11_CUSTOMER_REFUSAL_ORDER_UNKNOWN");
   const orders = new Map(model.orders.map(o => [o.id, o]));
   const vehicles = new Map(model.fleet.map(v => [v.id, v]));
   const stock = initialStock(model);
