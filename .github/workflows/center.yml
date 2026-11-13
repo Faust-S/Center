@@ -1341,7 +1341,7 @@ jobs:
           $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
           # The 0.5 candidate is a separate, explicitly marked product qualification.
           # Existing 0.4 release gates remain pinned and unchanged.
-          $expectedProductVersion=if($env:PRIVATE_QA_TRIGGER -match ' agent05-full(?:\\s|$)'){'0.5.0'}else{'0.4.0'}
+          $expectedProductVersion=if($env:PRIVATE_QA_TRIGGER -match ' agent05-full( |$)'){'0.5.0'}else{'0.4.0'}
           if($result.status -ne 'SOURCE_AND_INSTALLED_SMOKE_PASS' -or
              $result.source_commit -cne $env:PRIVATE_SOURCE_SHA -or
              $result.gui_task_result_full_acceptance -cne 'PASS' -or
