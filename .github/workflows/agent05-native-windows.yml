@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: d7a392a663769aeedac6a335730f8084f88f370a
+          ref: 23f835c14d0033841240dd0a502dbf4bc65a64b4
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne 'd7a392a663769aeedac6a335730f8084f88f370a') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          if ($actual -cne '23f835c14d0033841240dd0a502dbf4bc65a64b4') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
           $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
           Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
@@ -118,6 +118,14 @@ jobs:
           & node scripts/stage-u04-desktop.mjs build/u04-owner-sources desktop/public/u04 *> $log
           if ($LASTEXITCODE -ne 0) { throw 'AGENT05_NATIVE_U04_STAGE_FAILED' }
           Write-Host 'AGENT05_NATIVE_U04_STAGE_PASS'
+      - name: Validate private real-GGUF Graph witness Python syntax
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-private-graph-python-syntax.log'
+          & python -c "from pathlib import Path; p=Path('tools/qualify_setup_core_real_qwen.py'); compile(p.read_text(encoding='utf-8'),str(p),'exec')" *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_PRIVATE_GRAPH_WITNESS_SYNTAX_FAILED' }
+          Write-Host 'AGENT05_PRIVATE_GRAPH_WITNESS_SYNTAX_PASS'
       - name: Compile real Tauri Windows executable
         working-directory: private-product/desktop
         shell: pwsh
@@ -315,6 +323,62 @@ jobs:
               throw 'AGENT05_INSTALLED_GGUF_RESULT_PROOF_MISSING'
             }
             Write-Host 'AGENT05_INSTALLED_REAL_GGUF_TASK_REVIEW_PASS'
+            # Execute the same installed Qwen3 through the existing Graph,
+            # with human Goal proof and a separate explicit model step.
+            $graphProof = Join-Path $logs 'agent05-real-gguf-graph-proof.json'
+            $graphExecuteLog = Join-Path $logs 'agent05-real-gguf-graph-execute.log'
+            Remove-Item -LiteralPath $failCode -Force -ErrorAction SilentlyContinue
+            & python -B tools/qualify_setup_core_real_qwen.py --install-root $install --port 18789 --proof $proof --graph-proof $graphProof --phase graph-execute --failure-code-path $failCode *> $graphExecuteLog
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $graphProof -PathType Leaf)) {
+              $category = 'UNKNOWN'
+              if (Test-Path -LiteralPath $failCode -PathType Leaf) {
+                $candidate = (Get-Content -LiteralPath $failCode -Raw).Trim()
+                if ($candidate -match '^GRAPH_[A-Z_]+
+            $p = $null
+            $p = Start-AgentNative
+            Wait-AgentCore
+            & python -B tools/qualify_setup_core_real_qwen.py --install-root $install --port 18789 --proof $proof --phase readback *> $readbackLog
+            if ($LASTEXITCODE -ne 0 -or
+                -not (Select-String -LiteralPath $readbackLog -Pattern 'AGENT_INSTALLED_REAL_QWEN_RESULT_RESTART_PASS' -SimpleMatch -Quiet) -or
+                -not (Select-String -LiteralPath $readbackLog -Pattern 'AGENT_INSTALLED_REAL_QWEN_INDEPENDENT_IMPORT_PASS' -SimpleMatch -Quiet)) {
+              throw 'AGENT05_INSTALLED_GGUF_COLD_READBACK_FAILED'
+            }
+            Write-Host 'AGENT05_INSTALLED_REAL_GGUF_COLD_IMPORT_PASS'
+            $saved = Get-Content -LiteralPath $proof -Raw | ConvertFrom-Json
+            $guiReceipt = Join-Path $logs 'agent05-native-gui-result.json'
+            $guiLog = Join-Path $logs 'agent05-native-gui-result.log'
+            & pwsh -NoProfile -NonInteractive -File tools/qualify_setup_core_native_gui.ps1 -WindowProcessId $p.Id -Mode result -TaskId ([string]$saved.task_id) -ExpectedTitleSha256 ([string]$saved.task_title_sha256) -ReceiptPath $guiReceipt *> $guiLog
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $guiReceipt -PathType Leaf)) {
+              throw 'AGENT05_INSTALLED_GGUF_GUI_RESULT_FAILED'
+            }
+            $view = Get-Content -LiteralPath $guiReceipt -Raw | ConvertFrom-Json
+            if ($view.status -cne 'PASS' -or $view.input -cne 'NATIVE_WINDOWS_UI_AUTOMATION' -or
+                $view.source_task_selected -ne $true -or $view.title_digest_matched -ne $true -or
+                $view.accepted_result_visible -ne $true) {
+              throw 'AGENT05_INSTALLED_GGUF_GUI_RESULT_READBACK_INVALID'
+            }
+            Write-Host 'AGENT05_INSTALLED_REAL_GGUF_GUI_RESULT_PASS'
+          } finally {
+            if ($null -ne $p) {
+              try { Stop-AgentNative $p } catch {
+                Write-Host 'AGENT05_GGUF_NATIVE_CLOSE_NOT_CONFIRMED'
+                # Only the process created by this QA step can be stopped.
+                try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch {}
+              }
+            }
+          }
+      # The public job prints only fixed stage/category identifiers; the
+      # actual installed product and diagnostics remain in RUNNER_TEMP.
+      # No uploads, build caches, screenshots, logs or private binaries.
+) { $category = $candidate }
+              }
+              Write-Host ('AGENT05_INSTALLED_GGUF_GRAPH_FAILURE_CODE=' + $category)
+              throw 'AGENT05_INSTALLED_GGUF_GRAPH_EXECUTION_FAILED'
+            }
+            if (-not (Select-String -LiteralPath $graphExecuteLog -Pattern 'AGENT_INSTALLED_REAL_GGUF_GRAPH_EXECUTION_REVIEW_PASS' -SimpleMatch -Quiet)) {
+              throw 'AGENT05_INSTALLED_GGUF_GRAPH_EXECUTION_PROOF_MISSING'
+            }
+            Write-Host 'AGENT05_INSTALLED_REAL_GGUF_GRAPH_EXECUTION_REVIEW_PASS'
             Stop-AgentNative $p
             $p = $null
             $p = Start-AgentNative
