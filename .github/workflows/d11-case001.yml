@@ -1,0 +1,19 @@
+name: D11 Case001 canonical qualification
+on:
+  push:
+    branches:
+      - work/2026-11-13-d11-case001-qualification
+  workflow_dispatch:
+jobs:
+  node-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Canonical D11 subject tests
+        run: |
+          node --version
+          node --experimental-strip-types --test tests/*.test.mjs
