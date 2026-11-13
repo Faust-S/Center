@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: cb61237bac2175a3f18f0072ec35e5277c2d5337
+          ref: b3f3c65229b2738fc0a447dbbc8e07eac9c22e0b
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne 'cb61237bac2175a3f18f0072ec35e5277c2d5337') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          if ($actual -cne 'b3f3c65229b2738fc0a447dbbc8e07eac9c22e0b') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
           $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
           Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
@@ -432,7 +432,9 @@ jobs:
                   'BINDING_CHANGED','MODEL_OBSERVATION_MISSING','MODEL_NOT_ACTIVE',
                   'MODEL_SOURCE_NOT_READY','MODEL_PIN_INVALID','MODEL_SELECTION_CHANGED',
                   'PREVIEW_SCOPE_CHANGED','K02_UNSUPPORTED','K04_UNSUPPORTED',
-                  'OWNER_PLANS_DISAGREE'
+                  'OWNER_PLANS_DISAGREE',
+                  'GRAPH_INPUT_DISABLED','GRAPH_INPUT_DIGEST_MISMATCH',
+                  'GRAPH_INPUT_UNREADABLE','GRAPH_INPUT_NOT_FOUND'
                 )) { $reason = $candidate }
               }
               Write-Host ('AGENT05_K02_GUI_FAILURE_REASON=' + $reason)
