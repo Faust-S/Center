@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 67d6d8a8c030c7fa09f875e9bbc3482a3a14cb36
+          ref: 21a4d868313f3383d5590a7bf0470999f515acd4
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private/agent
           persist-credentials: false
@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           $head=(& git -C private/agent rev-parse HEAD).Trim()
-          if ($head -ne '67d6d8a8c030c7fa09f875e9bbc3482a3a14cb36') { throw 'AGENT05_K01_REVISION_MISMATCH' }
+          if ($head -ne '21a4d868313f3383d5590a7bf0470999f515acd4') { throw 'AGENT05_K01_REVISION_MISMATCH' }
           Write-Host 'AGENT05_K01_EXACT_SHA_PASS'
       - name: Install desktop locked dependencies privately
         shell: pwsh
