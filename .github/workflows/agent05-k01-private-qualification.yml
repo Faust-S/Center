@@ -91,14 +91,30 @@ jobs:
           & python -m pip install -r requirements-ci.txt *> $log
           if ($LASTEXITCODE -ne 0) { throw 'AGENT05_K01_PYTHON_DEPENDENCIES_FAILED' }
           Write-Host 'AGENT05_K01_PYTHON_DEPENDENCIES_PASS'
-      - name: Execute real Core K01, owner receipt and restart regression
+      - name: Execute four isolated Core K01 qualification groups
         shell: pwsh
         working-directory: private/agent
         run: |
-          $log=Join-Path $env:RUNNER_TEMP 'agent05-k01-pytest.log'
-          & python -m pytest -q tests/test_k01_accepted_result_pair.py tests/test_k01_accepted_result_source.py tests/test_k01_accepted_result_real_cycle.py tests/test_k01_task_source_status.py *> $log
-          $code=$LASTEXITCODE
-          if ($code -ne 0) { throw 'AGENT05_K01_CORE_PYTEST_FAILED' }
+          $cases=@(
+            @{Label='PAIR';Path='tests/test_k01_accepted_result_pair.py'},
+            @{Label='SOURCE';Path='tests/test_k01_accepted_result_source.py'},
+            @{Label='RESTART';Path='tests/test_k01_accepted_result_real_cycle.py'},
+            @{Label='SNAPSHOT';Path='tests/test_k01_task_source_status.py'}
+          )
+          $failed=$false
+          foreach ($case in $cases) {
+            $log=Join-Path $env:RUNNER_TEMP ('agent05-k01-'+$case.Label+'.log')
+            & python -m pytest -q $case.Path *> $log
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host ('AGENT05_K01_'+$case.Label+'_PASS')
+            } else {
+              $failed=$true
+              $types=@(Get-Content $log | Select-String -AllMatches -Pattern '(AssertionError|AttributeError|ValueError|TypeError|RuntimeError|ImportError|ModuleNotFoundError|KeyError|IndexError|OSError|Failed):' |
+                ForEach-Object { $_.Matches.Value } | Sort-Object -Unique)
+              Write-Host ('AGENT05_K01_'+$case.Label+'_FAILED_CLASSES='+($types -join ','))
+            }
+          }
+          if ($failed) { throw 'AGENT05_K01_CORE_PYTEST_FAILED' }
           Write-Host 'AGENT05_K01_CORE_PYTEST_PASS'
 # No private source, package logs, Python traceback, test case names,
 # binaries, caches, user files, or artifacts are published in public Center.
