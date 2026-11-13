@@ -966,6 +966,8 @@ jobs:
             if(Test-Path -LiteralPath $k03Status -PathType Leaf){
               $safeK03=@('AGENT_K03_OWNER_SESSION_READY',
                 'AGENT_K03_SOURCE_PREVIEW_VERIFIED',
+                'AGENT_K03_SELECTION_REQUEST_SENT',
+                'AGENT_K03_SELECTION_RESPONSE_RECEIVED',
                 'AGENT_K03_SOURCE_SELECTION_VERIFIED',
                 'AGENT_K03_DRAFT_EVIDENCE_SAVED',
                 'AGENT_K03_LOST_DRAFT_ACK_VERIFIED',
@@ -978,6 +980,14 @@ jobs:
               foreach($line in [IO.File]::ReadLines($k03Status)){
                 if([string]$line -cin $safeK03){
                   Write-Host ('PRIVATE_INSTALLED_K03_CHECKPOINT='+[string]$line)
+                }elseif([string]$line -cmatch '^AGENT_K03_FAILURE_CODE=([a-z0-9_]{3,90})$' -and
+                       $Matches[1] -cin @('k03_host_select_http_failed',
+                           'setup_core_k03_owner_selection_not_verified','OTHER')){
+                  Write-Host ('PRIVATE_INSTALLED_K03_FAILURE='+$Matches[1])
+                }elseif([string]$line -cmatch '^AGENT_K03_SELECTION_HTTP_STATUS=(400|401|403|409|500|503|0)$'){
+                  Write-Host ('PRIVATE_INSTALLED_K03_HTTP_STATUS='+$Matches[1])
+                }elseif([string]$line -cmatch '^AGENT_K03_SELECTION_HTTP_REASON=(k03_host_source_changed|k03_host_selection_input_invalid|k03_builtin_surface_required|unknown_query)$'){
+                  Write-Host ('PRIVATE_INSTALLED_K03_HTTP_REASON='+$Matches[1])
                 }
               }
             }
