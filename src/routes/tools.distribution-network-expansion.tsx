@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SiteLayout } from "@/components/SiteLayout";
 import { D11ProposalExport } from "@/components/tools/D11ProposalExport";
+import { useToolDraft } from "@/components/tools/useToolDraft";
 import { buildD11BrowserProposal } from "@/components/tools/d11-transfer";
 import { createCase003, type Case003Options } from "@/lib/logistics/case003-data";
 import { auditNetwork, compareNetwork, networkFingerprint, validateNetworkInput,
@@ -19,6 +20,15 @@ const simpleTime = (v:number|null)=>{
 };
 const sum = (x:Record<string,number>)=>Object.values(x).reduce((n,v)=>n+v,0);
 type Choice=NonNullable<Case003Options["regionalSelection"]>;
+interface Case003Draft {
+  demand:75|100|125|150; rent:3500|7000|12000|22000; region:Choice;
+  delay:0|1|2; traffic:100|120|150|180; fuel:1|1.3|1.6;
+  appliedRefusals:string[]; appliedTransfers:string[]; imported:NetworkInput|null;
+}
+const INITIAL_DRAFT:Case003Draft={
+  demand:100,rent:7000,region:"both",delay:0,traffic:120,fuel:1,
+  appliedRefusals:[],appliedTransfers:[],imported:null,
+};
 
 export const Route=createFileRoute("/tools/distribution-network-expansion")({
   head:()=>({
@@ -49,22 +59,23 @@ function parseIds(value:string):string[]{
   return parts.sort();
 }
 function DistributionNetworkExpansion(){
-  const [demand,setDemand]=useState<75|100|125|150>(100);
-  const [rent,setRent]=useState<3500|7000|12000|22000>(7000);
-  const [region,setRegion]=useState<Choice>("both");
-  const [delay,setDelay]=useState<0|1|2>(0);
-  const [traffic,setTraffic]=useState<100|120|150|180>(120);
-  const [fuel,setFuel]=useState<1|1.3|1.6>(1);
+  // The native D11 RESUME protocol restores this exact project state.
+  // Its local draft key is separate from CASE-001, despite the shared T2 command.
+  const { state:draft,setState:setDraft }=useToolDraft("distribution-network-expansion",INITIAL_DRAFT);
+  const {demand,rent,region,delay,traffic,fuel,appliedRefusals,appliedTransfers,imported}=draft;
   const [refusalText,setRefusalText]=useState("");
   const [transferText,setTransferText]=useState("");
-  const [appliedRefusals,setAppliedRefusals]=useState<string[]>([]);
-  const [appliedTransfers,setAppliedTransfers]=useState<string[]>([]);
   const [refusalError,setRefusalError]=useState("");
-  const [imported,setImported]=useState<NetworkInput|null>(null);
   const [importError,setImportError]=useState("");
   const [selectedDay,setSelectedDay]=useState("");
   const [selectedCenter,setSelectedCenter]=useState("HUB");
   const [viewMode,setViewMode]=useState<NetworkMode>("regional-network");
+  useEffect(()=>{
+    // A verified Workspace RESUME restores both the effective calculation
+    // and the visible, editable refusal inputs.
+    setRefusalText((imported?.refusedOrderIds??appliedRefusals).join(", "));
+    setTransferText((imported?.refusedTransferIds??appliedTransfers).join(", "));
+  },[imported,appliedRefusals,appliedTransfers]);
 
   async function readProject(file?:File){
     if(!file)return;
@@ -72,7 +83,7 @@ function DistributionNetworkExpansion(){
       if(file.size>2*1024*1024)throw Error("Файл превышает 2 МБ.");
       const source=JSON.parse(await file.text()) as NetworkInput;
       validateNetworkInput(source);
-      setImported(source);setImportError("");
+      setDraft(prev=>({...prev,imported:source}));setImportError("");
       setSelectedDay("");setSelectedCenter("HUB");
       setRefusalText((source.refusedOrderIds??[]).join(", "));
       setTransferText((source.refusedTransferIds??[]).join(", "));
@@ -106,8 +117,10 @@ function DistributionNetworkExpansion(){
   const info=visible?.days.find(d=>d.day===day);
   const node=info?.centers.find(c=>c.centerId===selectedCenter)??info?.centers[0];
   const sourceNode=input?.centers.find(c=>c.id===node?.centerId);
-  const hasChangedDraft=refusalText.trim()!==appliedRefusals.join(", ")||
-    transferText.trim()!==appliedTransfers.join(", ");
+  const savedRefusals=imported?.refusedOrderIds??appliedRefusals;
+  const savedTransfers=imported?.refusedTransferIds??appliedTransfers;
+  const hasChangedDraft=refusalText.trim()!==savedRefusals.join(", ")||
+    transferText.trim()!==savedTransfers.join(", ");
 
   function applyRefusals(){
     try{
@@ -122,8 +135,9 @@ function DistributionNetworkExpansion(){
         .map(c=>"TR:"+d+":"+c.id)));
       if(customer.some(id=>!known.has(id)))throw Error("Неизвестный ID заказа магазина.");
       if(transfer.some(id=>!trunk.has(id)))throw Error("Неизвестный ID межскладского рейса.");
-      if(imported)setImported(prev=>prev?{...prev,refusedOrderIds:customer,refusedTransferIds:transfer}:prev);
-      else{setAppliedRefusals(customer);setAppliedTransfers(transfer);}
+      setDraft(prev=>prev.imported?
+        {...prev,imported:{...prev.imported,refusedOrderIds:customer,refusedTransferIds:transfer}}:
+        {...prev,appliedRefusals:customer,appliedTransfers:transfer});
       setRefusalError("");
     }catch(error){setRefusalError(error instanceof Error?error.message:"Ошибка списка отказов.");}
   }
@@ -165,13 +179,14 @@ function DistributionNetworkExpansion(){
         "В журнале: исходные заказы, исполнение доставки, межскладские рейсы, приходные партии, "+
           "физические остатки и ожидание возврата после проверки.",
       ].join("\n\n"),
-      data:{caseId:"D11-CASE-003",input,inputFingerprint:networkFingerprint(input),comparison},
+      data:{caseId:"D11-CASE-003",input,inputFingerprint:networkFingerprint(input),
+        _editorState:draft,comparison},
     };
     try{
       buildD11BrowserProposal(payload,"2026-11-14T00:00:00.000Z");
       return payload;
     }catch{return null;}
-  },[input,comparison]);
+  },[input,comparison,draft]);
 
   return <SiteLayout>
     <main className="mx-auto max-w-6xl px-6 pb-24 pt-24 md:pt-32">
@@ -215,7 +230,9 @@ function DistributionNetworkExpansion(){
           </button>
           {imported&&<button type="button"
             className="rounded border border-white/20 px-4 py-3 text-sm"
-            onClick={()=>{setImported(null);setImportError("");setSelectedDay("");setSelectedCenter("HUB");}}>
+            onClick={()=>{setDraft(prev=>({...prev,imported:null}));setImportError("");
+              setRefusalText(appliedRefusals.join(", "));setTransferText(appliedTransfers.join(", "));
+              setSelectedDay("");setSelectedCenter("HUB");}}>
             Вернуться к CASE-003
           </button>}
         </div>
@@ -223,7 +240,7 @@ function DistributionNetworkExpansion(){
         <fieldset disabled={Boolean(imported)} className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <label className="block text-sm text-muted">Какие региональные склады открыть
             <select className={inputCls} value={region}
-              onChange={e=>setRegion(e.target.value as Choice)}>
+              onChange={e=>setDraft(prev=>({...prev,region:e.target.value as Choice}))}>
               <option value="both">Северный и Южный</option>
               <option value="north">Только Северный</option>
               <option value="south">Только Южный</option>
@@ -231,13 +248,13 @@ function DistributionNetworkExpansion(){
           </label>
           <label className="block text-sm text-muted">Спрос магазинов
             <select className={inputCls} value={demand}
-              onChange={e=>setDemand(Number(e.target.value) as 75|100|125|150)}>
+              onChange={e=>setDraft(prev=>({...prev,demand:Number(e.target.value) as 75|100|125|150}))}>
               {[75,100,125,150].map(v=><option key={v} value={v}>{v}%</option>)}
             </select>
           </label>
           <label className="block text-sm text-muted">Аренда одного регионального склада
             <select className={inputCls} value={rent}
-              onChange={e=>setRent(Number(e.target.value) as 3500|7000|12000|22000)}>
+              onChange={e=>setDraft(prev=>({...prev,rent:Number(e.target.value) as 3500|7000|12000|22000}))}>
               {[3500,7000,12000,22000].map(v=><option key={v} value={v}>
                 {money(v)} / рабочий день
               </option>)}
@@ -245,19 +262,19 @@ function DistributionNetworkExpansion(){
           </label>
           <label className="block text-sm text-muted">Задержка поставщика
             <select className={inputCls} value={delay}
-              onChange={e=>setDelay(Number(e.target.value) as 0|1|2)}>
+              onChange={e=>setDraft(prev=>({...prev,delay:Number(e.target.value) as 0|1|2}))}>
               {[0,1,2].map(v=><option key={v} value={v}>{v} рабочих дня</option>)}
             </select>
           </label>
           <label className="block text-sm text-muted">Дорожные задержки
             <select className={inputCls} value={traffic}
-              onChange={e=>setTraffic(Number(e.target.value) as 100|120|150|180)}>
+              onChange={e=>setDraft(prev=>({...prev,traffic:Number(e.target.value) as 100|120|150|180}))}>
               {[100,120,150,180].map(v=><option key={v} value={v}>{v}% времени</option>)}
             </select>
           </label>
           <label className="block text-sm text-muted">Стоимость топлива
             <select className={inputCls} value={fuel}
-              onChange={e=>setFuel(Number(e.target.value) as 1|1.3|1.6)}>
+              onChange={e=>setDraft(prev=>({...prev,fuel:Number(e.target.value) as 1|1.3|1.6}))}>
               <option value={1}>100%</option><option value={1.3}>130%</option>
               <option value={1.6}>160%</option>
             </select>
