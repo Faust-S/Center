@@ -1,0 +1,1 @@
+Finite K03 Windows diagnosis only, private Agent revision 7fa04eeeb8782b6fbd04c4536acd9ff08a764bd2 checked out read-only into ephemeral Windows worker, no uploaded private artifacts.
