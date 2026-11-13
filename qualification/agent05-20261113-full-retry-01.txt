@@ -1,0 +1,1 @@
+Agent 0.5 full native Windows acceptance. SHA c056cb98f9312602e8ed22798c60391f6237443a; private source not copied to public repository.
