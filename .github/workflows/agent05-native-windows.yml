@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 95918437e62d0d552a59ffc204af7f0f6cc26dab
+          ref: cb61237bac2175a3f18f0072ec35e5277c2d5337
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne '95918437e62d0d552a59ffc204af7f0f6cc26dab') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          if ($actual -cne 'cb61237bac2175a3f18f0072ec35e5277c2d5337') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
           $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
           Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
@@ -450,6 +450,69 @@ jobs:
               throw 'AGENT05_INSTALLED_K02_K04_GUI_RECEIPT_INVALID'
             }
             Write-Host 'AGENT05_INSTALLED_K02_K04_INPROCESS_GUI_PREVIEW_PASS'
+            # Pin and recheck K02/K04 in the actual installed editor. Then
+            # save only the tentative Core Graph proposal; never activate it.
+            $k02ProposalReceipt = Join-Path $logs 'agent05-native-k02-graph-proposal.json'
+            $k02ProposalLog = Join-Path $logs 'agent05-native-k02-graph-proposal.log'
+            $k02ProposalStage = Join-Path $logs 'agent05-native-k02-graph-proposal-stage.txt'
+            & pwsh -NoProfile -NonInteractive -File tools/qualify_setup_core_native_gui.ps1 -WindowProcessId $p.Id -Mode graph-k02-proposal -ExpectedModelName ([string]$graphSaved.model_name) -ExpectedResultSha256 ([string]$saved.summary_sha256) -ReceiptPath $k02ProposalReceipt -FailureStagePath $k02ProposalStage *> $k02ProposalLog
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $k02ProposalReceipt -PathType Leaf)) {
+              $stage = 'UNKNOWN'
+              if (Test-Path -LiteralPath $k02ProposalStage -PathType Leaf) {
+                $candidate = (Get-Content -LiteralPath $k02ProposalStage -Raw).Trim()
+                if ($candidate -in @('NOT_STARTED','PROPOSAL_PIN_MODEL','PROPOSAL_RECHECK',
+                                      'PROPOSAL_CHOOSE_GOAL','PROPOSAL_SAVE','PROPOSAL_READBACK')) {
+                  $stage = $candidate
+                }
+              }
+              Write-Host ('AGENT05_K02_PROPOSAL_GUI_FAILURE_STAGE=' + $stage)
+              throw 'AGENT05_INSTALLED_K02_GRAPH_GUI_PROPOSAL_NOT_ACCEPTED'
+            }
+            $proposalGui = Get-Content -LiteralPath $k02ProposalReceipt -Raw | ConvertFrom-Json
+            if ($proposalGui.status -cne 'PASS' -or
+                $proposalGui.input -cne 'NATIVE_WINDOWS_UI_AUTOMATION' -or
+                $proposalGui.k02_k04_pinned_model_rechecked -ne $true -or
+                $proposalGui.existing_linked_goal_selected -ne $true -or
+                $proposalGui.graph_initial_proposal_preview_saved -ne $true -or
+                $proposalGui.graph_execution_not_requested -ne $true) {
+              throw 'AGENT05_INSTALLED_K02_GRAPH_GUI_PROPOSAL_RECEIPT_INVALID'
+            }
+            Write-Host 'AGENT05_INSTALLED_REAL_GGUF_K02_GRAPH_GUI_PROPOSAL_PASS'
+            $proposalProof = Join-Path $logs 'agent05-real-gguf-k02-proposal-proof.json'
+            $proposalVerifyLog = Join-Path $logs 'agent05-real-gguf-k02-proposal-core.log'
+            Remove-Item -LiteralPath $failCode -Force -ErrorAction SilentlyContinue
+            & python -B tools/qualify_setup_core_real_qwen.py --install-root $install --port 18789 --proof $proof --graph-proof $graphProof --graph-proposal-proof $proposalProof --phase graph-provenance --failure-code-path $failCode *> $proposalVerifyLog
+            if ($LASTEXITCODE -ne 0 -or
+                -not (Select-String -LiteralPath $proposalVerifyLog -Pattern 'AGENT_INSTALLED_REAL_GGUF_K02_GRAPH_PROPOSAL_PASS' -SimpleMatch -Quiet)) {
+              $category = 'UNKNOWN'
+              if (Test-Path -LiteralPath $failCode -PathType Leaf) {
+                $candidate = (Get-Content -LiteralPath $failCode -Raw).Trim()
+                if ($candidate -match '^GRAPH_[A-Z_]+$') { $category = $candidate }
+              }
+              Write-Host ('AGENT05_INSTALLED_K02_GRAPH_CORE_FAILURE=' + $category)
+              throw 'AGENT05_INSTALLED_K02_GRAPH_CORE_PROVENANCE_NOT_ACCEPTED'
+            }
+            Write-Host 'AGENT05_INSTALLED_REAL_GGUF_K02_GRAPH_PROPOSAL_CORE_PASS'
+            # A second cold native launch proves the saved, non-authoritative
+            # proposal remains intact without any inference or repeat command.
+            Stop-AgentNative $p
+            $p = $null
+            $p = Start-AgentNative
+            Wait-AgentCore
+            $proposalColdLog = Join-Path $logs 'agent05-real-gguf-k02-proposal-cold.log'
+            Remove-Item -LiteralPath $failCode -Force -ErrorAction SilentlyContinue
+            & python -B tools/qualify_setup_core_real_qwen.py --install-root $install --port 18789 --proof $proof --graph-proof $graphProof --graph-proposal-proof $proposalProof --phase graph-provenance-readback --failure-code-path $failCode *> $proposalColdLog
+            if ($LASTEXITCODE -ne 0 -or
+                -not (Select-String -LiteralPath $proposalColdLog -Pattern 'AGENT_INSTALLED_REAL_GGUF_K02_GRAPH_COLD_PROPOSAL_PASS' -SimpleMatch -Quiet)) {
+              $category = 'UNKNOWN'
+              if (Test-Path -LiteralPath $failCode -PathType Leaf) {
+                $candidate = (Get-Content -LiteralPath $failCode -Raw).Trim()
+                if ($candidate -match '^GRAPH_[A-Z_]+$') { $category = $candidate }
+              }
+              Write-Host ('AGENT05_INSTALLED_K02_GRAPH_COLD_FAILURE=' + $category)
+              throw 'AGENT05_INSTALLED_K02_GRAPH_PROPOSAL_COLD_NOT_ACCEPTED'
+            }
+            Write-Host 'AGENT05_INSTALLED_REAL_GGUF_K02_GRAPH_PROPOSAL_COLD_PASS'
           } finally {
             if ($null -ne $p) {
               try { Stop-AgentNative $p } catch {
