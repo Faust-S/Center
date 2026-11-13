@@ -1,0 +1,1 @@
+Agent 0.5 full installed Windows qualification, K03 after GUI/Qwen and genuine private 0.4-to-0.5 upgrade. Exact pinned private source SHA 6c74b5810a72b445926c42db3286a45749d876a1; no private source or artifacts committed.\n
