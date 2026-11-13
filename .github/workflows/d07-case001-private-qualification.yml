@@ -1,0 +1,142 @@
+name: D07 CASE-001 private product qualification
+on:
+  push:
+    branches:
+      - work/2026-11-13-d07-case001-private-qualification
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: d07-case001-private-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  d07-product:
+    name: D07 pinned native tests, types and integrated T2 build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: "true"
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "true"
+      npm_config_audit: "false"
+      npm_config_fund: "false"
+      IWXA_T2_SOURCE_DIR: ${{ github.workspace }}/private/t2
+    steps:
+      - name: Confirm existing private read grant without exposing it
+        shell: bash
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if [ -z "${PRIVATE_SOURCE_TOKEN:-}" ]; then
+            echo "D07_PRIVATE_READ_GRANT_UNAVAILABLE"
+            exit 1
+          fi
+          echo "D07_PRIVATE_READ_GRANT_PRESENT"
+      - name: Checkout exact D07 canonical domain revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod
+          ref: 03107d02dd96718ce6d29c03b7d2b528e6eeb87d
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private/domain
+          persist-credentials: false
+      - name: Checkout exact D07 site revision
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/uslugovod.ru
+          ref: 9a0bb303390fcaabf17871aa0d1eace5a9a2d78b
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private/site
+          persist-credentials: false
+      - name: Checkout exact normative T2 without modifying it
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private/t2
+          persist-credentials: false
+      - name: Install Node 22 and Bun
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.3"
+      - name: Confirm immutable HEAD and TREE for all three checkouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          check() {
+            local path="$1" want_sha="$2" want_tree="$3"
+            test "$(git -C "$path" rev-parse HEAD)" = "$want_sha"
+            test "$(git -C "$path" rev-parse 'HEAD^{tree}')" = "$want_tree"
+            test -z "$(git -C "$path" status --porcelain --untracked-files=all)"
+          }
+          check private/domain 03107d02dd96718ce6d29c03b7d2b528e6eeb87d db46ef4fcd471a696e90eec308a65ae25e469020
+          check private/site 9a0bb303390fcaabf17871aa0d1eace5a9a2d78b f01dc56713e55e34765dfae6503f399f3cbb7f15
+          check private/t2 e70de29b72b83e2546f7ab74b17572685a728c17 b36ed00dcd7c518b593cb4794bfabf85e7eab049
+          echo "D07_THREE_PINNED_SOURCE_TREES_PASS"
+      - name: Install frozen Bun site dependency lock
+        shell: bash
+        working-directory: private/site
+        run: |
+          if bun install --frozen-lockfile > "$RUNNER_TEMP/d07-install.log" 2>&1; then
+            echo "D07_BUN_LOCK_INSTALL_PASS"
+          else
+            echo "D07_BUN_LOCK_INSTALL_FAIL"
+            grep -E -i '^(error|fail|failed|bun install)' "$RUNNER_TEMP/d07-install.log" | head -20 || true
+            exit 1
+          fi
+      - name: Run all 20 registered product-first test files
+        shell: bash
+        working-directory: private/site
+        run: |
+          if npm run test:product-first --silent > "$RUNNER_TEMP/d07-product-tests.log" 2>&1; then
+            grep -E '^# (tests|pass|fail|skipped|cancelled) ' "$RUNNER_TEMP/d07-product-tests.log" || true
+            echo "D07_ALL_20_PRODUCT_FIRST_FILES_PASS"
+          else
+            grep -E '^# (tests|pass|fail|skipped|cancelled) ' "$RUNNER_TEMP/d07-product-tests.log" || true
+            grep '^not ok ' "$RUNNER_TEMP/d07-product-tests.log" | head -25 || true
+            echo "D07_ALL_20_PRODUCT_FIRST_FILES_FAIL"
+            exit 1
+          fi
+      - name: TypeScript full site check
+        shell: bash
+        working-directory: private/site
+        run: |
+          if ./node_modules/.bin/tsc --noEmit > "$RUNNER_TEMP/d07-types.log" 2>&1; then
+            echo "D07_FULL_TYPESCRIPT_PASS"
+          else
+            grep -Eo 'error TS[0-9]+' "$RUNNER_TEMP/d07-types.log" | sort -u | head -30 || true
+            echo "D07_FULL_TYPESCRIPT_FAIL"
+            exit 1
+          fi
+      - name: Build one integrated D07 dist with exact normative T2
+        shell: bash
+        working-directory: private/site
+        timeout-minutes: 35
+        run: |
+          if npm run build:t2-integrated --silent > "$RUNNER_TEMP/d07-build.log" 2>&1; then
+            test -f dist/index.html
+            test -f dist/workspace/index.html
+            test -f dist/workspace/exchange/index.html
+            test -f dist/workspace/lifecycle/index.html
+            echo "D07_INTEGRATED_T2_BUILD_PASS"
+            echo "D07_DIST_FILES=$(find dist -type f | wc -l)"
+          else
+            grep -E '^((D07_|Error:|error:|Error |npm error|\[vite\])|.*(ERROR|FAIL|not found))' "$RUNNER_TEMP/d07-build.log" | tail -25 || true
+            echo "D07_INTEGRATED_T2_BUILD_FAIL"
+            exit 1
+          fi
+      - name: Validate exact local Host preview prerequisites without publishing
+        shell: bash
+        working-directory: private/site
+        run: |
+          if node scripts/preview-d07-integrated-site.mjs --check > "$RUNNER_TEMP/d07-preview-check.log" 2>&1; then
+            echo "D07_HTTPS_HOST_PREFLIGHT_PASS"
+          else
+            echo "D07_HTTPS_HOST_PREFLIGHT_FAIL"
+            exit 1
+          fi
+# No source, .iwxa, test logs, caches, dist, browser profiles or other artifacts are uploaded.
+# No production activation, main updates, or private-repository Actions.
