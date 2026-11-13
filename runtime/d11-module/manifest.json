@@ -1,0 +1,146 @@
+{
+  "module_manifest_version": "1.0.0",
+  "module_id": "iwxa.domain.advice-logistics",
+  "module_version": "0.1.0",
+  "title": "IWXA D11 Advice Logistics",
+  "compatibility": {
+    "workspace_contract": "0.1.0",
+    "runtime_contract": "1.3.0"
+  },
+  "contributions": {
+    "routes": [
+      {
+        "id": "d11.product.home"
+      }
+    ],
+    "navigation": [
+      {
+        "id": "d11.product.nav"
+      }
+    ],
+    "editors": [],
+    "viewers": [
+      {
+        "id": "d11.process.preview"
+      },
+      {
+        "id": "d11.process.detail"
+      },
+      {
+        "id": "d11.data-role-matrix.preview"
+      },
+      {
+        "id": "d11.data-role-matrix.detail"
+      },
+      {
+        "id": "d11.automation-readiness.preview"
+      },
+      {
+        "id": "d11.automation-readiness.detail"
+      },
+      {
+        "id": "d11.functional-requirements.preview"
+      },
+      {
+        "id": "d11.functional-requirements.detail"
+      },
+      {
+        "id": "d11.terms-of-reference.preview"
+      },
+      {
+        "id": "d11.terms-of-reference.detail"
+      },
+      {
+        "id": "d11.project-brief.preview"
+      },
+      {
+        "id": "d11.project-brief.detail"
+      },
+      {
+        "id": "d11.delivery-network.preview"
+      },
+      {
+        "id": "d11.delivery-network.detail"
+      }
+    ],
+    "commands": [
+      {
+        "id": "ru.iwxa.advice-logistics.command.process.save-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.process.load-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.process.list-proposals"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.data-role-matrix.save-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.data-role-matrix.load-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.data-role-matrix.list-proposals"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.automation-readiness.save-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.automation-readiness.load-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.automation-readiness.list-proposals"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.functional-requirements.save-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.functional-requirements.load-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.functional-requirements.list-proposals"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.terms-of-reference.save-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.terms-of-reference.load-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.terms-of-reference.list-proposals"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.project-brief.save-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.project-brief.load-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.project-brief.list-proposals"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.delivery-network.save-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.delivery-network.load-proposal"
+      },
+      {
+        "id": "ru.iwxa.advice-logistics.command.delivery-network.list-proposals"
+      }
+    ],
+    "panels": [],
+    "dashboard_cards": [
+      {
+        "id": "d11.proposals.workspace"
+      }
+    ],
+    "validators": [],
+    "migrations": [],
+    "legacy_importers": []
+  },
+  "security": {
+    "direct_indexeddb": false,
+    "remote_code": false,
+    "iwxa_executable_payload": false
+  }
+}

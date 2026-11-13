@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://advice-logistics.ru/schemas/ru.iwxa.advice-logistics.delivery-network.proposal/1.0.0",
+  "title": "ru.iwxa.advice-logistics.delivery-network.proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "phase",
+    "acceptance",
+    "producer",
+    "payload"
+  ],
+  "properties": {
+    "phase": {
+      "const": "PROPOSAL_ONLY"
+    },
+    "acceptance": {
+      "const": "NOT_REQUESTED"
+    },
+    "producer": {
+      "const": "delivery-network-planner"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ru.iwxa.advice-logistics.browser-proposal/1"
+        },
+        "domainId": {
+          "const": "D11"
+        },
+        "producer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "toolId": {
+              "const": "delivery-network-planner"
+            },
+            "publicToolId": {
+              "const": "delivery-network-planner"
+            },
+            "resultKind": {
+              "const": "delivery-network-scenario"
+            },
+            "source": {
+              "const": "advice-logistics.ru"
+            }
+          },
+          "required": [
+            "toolId",
+            "publicToolId",
+            "resultKind",
+            "source"
+          ]
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "inputEvidence": {
+              "const": "USER_ENTERED_NOT_INDEPENDENTLY_VERIFIED"
+            },
+            "execution": {
+              "const": "BROWSER_LOCAL"
+            },
+            "resultMethod": {
+              "const": "SITE_CURRENT_CALCULATION"
+            }
+          },
+          "required": [
+            "createdAt",
+            "inputEvidence",
+            "execution",
+            "resultMethod"
+          ]
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "PROPOSAL_ONLY"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 240
+            },
+            "markdown": {
+              "type": "string",
+              "maxLength": 1048576
+            },
+            "data": {
+              "type": "object"
+            },
+            "completeness": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "stage": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "title",
+            "markdown",
+            "data",
+            "completeness",
+            "stage"
+          ]
+        },
+        "authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "accepted": {
+              "const": false
+            },
+            "decision": {
+              "const": "NOT_REQUESTED"
+            },
+            "approver": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "accepted",
+            "decision",
+            "approver"
+          ]
+        },
+        "disclosure": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "transfer": {
+              "const": "EXPLICIT_LOCAL_FILE_EXPORT"
+            },
+            "publicProjection": {
+              "const": false
+            },
+            "automaticUpload": {
+              "const": false
+            }
+          },
+          "required": [
+            "transfer",
+            "publicProjection",
+            "automaticUpload"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "domainId",
+        "producer",
+        "provenance",
+        "result",
+        "authority",
+        "disclosure"
+      ]
+    }
+  }
+}
