@@ -1,0 +1,1 @@
+Retry exact private 0.5 Windows K03 late source selection + real v0.4 upgrade. Agent c0e4f8cd2bd22ba9a128230a4ce50c0bee9be8a2; syntax-corrected public workflow, no private output.
