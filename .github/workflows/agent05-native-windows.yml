@@ -135,6 +135,34 @@ jobs:
                 }
               }
               Write-Host ('AGENT05_NATIVE_PRECHECK_FAILURE_CATEGORY=' + $precheck)
+              # Only fixed, whitelisted error identifiers. No original
+              # private output, paths, source, credentials or diagnostics.
+              if ($precheck -eq 'NATIVE_PACKAGE') {
+                $reason = 'UNKNOWN'
+                $safeMatch = @(
+                  @('release_worktree_not_clean','SOURCE_TREE_DIRTY'),
+                  @('release_payload_not_tracked','UNTRACKED_SOURCE'),
+                  @('desktop_frontend_not_built','FRONTEND_BUILD_MISSING'),
+                  @('desktop_asset_path_invalid','FRONTEND_ASSET_PATH'),
+                  @('desktop_u04_owner_modules_incomplete','U04_ASSET_SET'),
+                  @('desktop_frontend_assets_missing_or_excessive','FRONTEND_ASSET_SET'),
+                  @('desktop_artifact_conflicts_with_source','PAYLOAD_COLLISION'),
+                  @('managed_runtime_capsule_invalid','MANAGED_RUNTIME_INCOMPATIBLE'),
+                  @('managed_runtime_platform_unsupported','MANAGED_RUNTIME_PLATFORM'),
+                  @('desktop_native_executable_missing','TAURI_BINARY_MISSING'),
+                  @('forbidden_payload_path','PAYLOAD_PATH_INVALID'),
+                  @('git_command_failed','GIT_SOURCE_ERROR')
+                )
+                if (Test-Path -LiteralPath $log -PathType Leaf) {
+                  foreach ($pair in $safeMatch) {
+                    if (Select-String -LiteralPath $log -Pattern $pair[0] -SimpleMatch -Quiet -ErrorAction SilentlyContinue) {
+                      $reason = [string]$pair[1]
+                      break
+                    }
+                  }
+                }
+                Write-Host ('AGENT05_NATIVE_PACKAGE_FAILURE_CATEGORY=' + $reason)
+              }
             }
             throw 'AGENT05_NATIVE_INSTALLED_UIA_GATE_FAILED'
           }
