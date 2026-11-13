@@ -1,0 +1,99 @@
+name: K02 Agent 0.5 private owner Windows qualification
+
+on:
+  push:
+    branches:
+      - work/2026-11-13-k02-agent05-owner-qualification
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: k02-agent05-owner-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  owner-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Require scoped private read token
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) { throw 'K02_PRIVATE_READ_TOKEN_MISSING' }
+      - name: Checkout exact private Agent revision without storing credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: deced8cb64a0189e3b9cb6f8d573801601ff521c
+          path: private-product
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - name: Verify exact source revision
+        shell: pwsh
+        run: |
+          $actual = (& git -C private-product rev-parse HEAD).Trim()
+          if ($actual -cne 'deced8cb64a0189e3b9cb6f8d573801601ff521c') { throw 'K02_PRIVATE_SOURCE_MISMATCH' }
+          Write-Host 'K02_PRIVATE_SOURCE_PIN_PASS'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run isolated Python U01 Task-bound receipt tests
+        shell: pwsh
+        working-directory: private-product
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'k02-private-py.log'
+          try {
+            & python -m unittest discover -s tests -p test_u01_saved_output_projection.py -v *> $log
+            if ($LASTEXITCODE -ne 0) { throw 'TEST_FAILURE' }
+            Write-Host 'K02_PRIVATE_PYTHON_RECEIPT_TESTS_PASS'
+          } catch { throw 'K02_PRIVATE_PYTHON_RECEIPT_TESTS_FAILED' }
+      - name: Run isolated Node K02 owner and UI regressions
+        shell: pwsh
+        working-directory: private-product/desktop
+        run: |
+          $deps = Join-Path $env:RUNNER_TEMP 'k02-private-npm.log'
+          $log = Join-Path $env:RUNNER_TEMP 'k02-private-node.log'
+          try {
+            & npm.cmd ci --no-audit --no-fund *> $deps
+            if ($LASTEXITCODE -ne 0) { throw 'DEPS' }
+            & node --test tests/agent04-k02-recommendation-port.test.mjs tests/chain-builder-k02-recommendation.test.mjs *> $log
+            if ($LASTEXITCODE -ne 0) { throw 'TEST_FAILURE' }
+            Write-Host 'K02_PRIVATE_NODE_OWNER_TESTS_PASS'
+          } catch { throw 'K02_PRIVATE_NODE_OWNER_TESTS_FAILED' }
+      - name: Install pinned Windows Bun compiler
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'k02-private-bun-install.log'
+          try {
+            & npm.cmd install --global --no-audit --no-fund bun@1.2.23 *> $log
+            if ($LASTEXITCODE -ne 0) { throw 'INSTALL' }
+            Write-Host 'K02_WINDOWS_BUN_READY'
+          } catch { throw 'K02_WINDOWS_BUN_INSTALL_FAILED' }
+      - name: Build exact K02 and K04 Windows owner binaries and verify their digests
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'k02-private-owner-build.log'
+          $target = Join-Path $env:RUNNER_TEMP 'k02-owner-binaries'
+          try {
+            & .\private-product\tools\agent03-owner-cli\build-windows.ps1 -OutputDirectory $target *> $log
+            if ($LASTEXITCODE -ne 0) { throw 'BUILD' }
+            $manifest = Get-Content -LiteralPath (Join-Path $target 'OWNER_BUILD_MANIFEST.json') -Raw | ConvertFrom-Json
+            if ($manifest.schema -cne 'PA.K02_K04.OWNER_BUILD/0.1.0' -or $manifest.binaries.Count -ne 2) { throw 'MANIFEST' }
+            foreach ($item in $manifest.binaries) {
+              $path = Join-Path $target $item.executable_name
+              if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'BINARY' }
+              $sha = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($sha -cne $item.sha256) { throw 'SHA256' }
+            }
+            Write-Host 'K02_K04_WINDOWS_OWNER_BINARY_BUILD_PASS'
+          } catch { throw 'K02_K04_WINDOWS_OWNER_BINARY_BUILD_FAILED' }
+      # Private source, binaries and raw logs are not uploaded or cached.
