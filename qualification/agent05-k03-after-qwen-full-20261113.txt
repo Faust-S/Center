@@ -1,0 +1,1 @@
+Full Windows Agent 0.5 K03-after-Qwen and actual 0.4-to-0.5 upgrade, private SHA c0e4f8cd2bd22ba9a128230a4ce50c0bee9be8a2. Only bounded status codes may leave ephemeral runner.
