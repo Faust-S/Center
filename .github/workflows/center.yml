@@ -483,7 +483,7 @@ jobs:
 # Explicit opt-in. Private checkout and outputs stay on this ephemeral runner.
   # No private executable, source, dump, or report is uploaded as a public artifact.
   private-windows-qualification:
-    if: ${{ (github.ref == 'refs/heads/work/2026-11-10-setup-core-product-neutral-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-release-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-k03-diagnostics') && startsWith(github.event.head_commit.message, 'ci(private):') }}
+    if: ${{ (github.ref == 'refs/heads/work/2026-11-10-setup-core-product-neutral-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-release-qualification' || github.ref == 'refs/heads/work/2026-11-13-agent05-k03-diagnostics') && startsWith(github.event.head_commit.message, 'ci(private):') && !contains(github.event.head_commit.message, ' k03-select-only') }}
     runs-on: windows-latest
     timeout-minutes: 180
     permissions:
@@ -1585,3 +1585,57 @@ jobs:
           Write-Host ('PRIVATE_RELEASE_SETUP_SHA256='+$digest)
           Write-Host 'PRIVATE_RELEASE_ASSET_COUNT=2'
           Write-Host 'PRIVATE_RELEASE_VISIBILITY=PRIVATE'
+
+  # Fast, read-only reproduction of the exact pinned public K03 owner source.
+  # Never publishes private source, Task text, tokens or downloaded artifacts.
+  agent05-k03-owner-fast:
+    if: ${{ github.ref == 'refs/heads/work/2026-11-13-agent05-k03-diagnostics' && startsWith(github.event.head_commit.message, 'ci(private):') && contains(github.event.head_commit.message, ' k03-select-only') }}
+    runs-on: windows-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Bind exact private Agent revision for fast pinned-owner test
+        id: private-pin
+        shell: pwsh
+        env:
+          SOURCE_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          if ([string]$env:SOURCE_COMMIT_MESSAGE -cnotmatch '^ci\(private\):([0-9a-f]{40})\s+k03-select-only(?:\s|$)') {
+            throw 'PRIVATE_K03_FAST_PIN_INVALID'
+          }
+          "sha=$($Matches[1])" >> $env:GITHUB_OUTPUT
+      - name: Checkout pinned Agent source into disposable worker
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ steps.private-pin.outputs.sha }}
+          path: private-product
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - name: Checkout original public K03 and U1 owners
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 8f3ce9e58723fff2d51a44cee5b63b4dd15a6441
+          path: k03-public
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.15'
+      - name: Reproduce real K03 source -> selection twice; reject stale source
+        shell: pwsh
+        env:
+          IWXA_K03_PUBLIC_ROOT: ${{ github.workspace }}/k03-public
+        run: |
+          $ErrorActionPreference='Stop'
+          $private=Join-Path $env:GITHUB_WORKSPACE 'private-product'
+          $public=Join-Path $env:GITHUB_WORKSPACE 'k03-public'
+          if ((& git -C $private rev-parse HEAD).Trim() -cne '${{ steps.private-pin.outputs.sha }}' -or
+              (& git -C $public rev-parse HEAD).Trim() -cne '8f3ce9e58723fff2d51a44cee5b63b4dd15a6441') {
+            throw 'K03_FAST_SOURCE_IDENTITY_INVALID'
+          }
+          $script=Join-Path $private 'tools/diagnose_agent05_k03_owner_select.py'
+          & python -B $script
+          if ($LASTEXITCODE -ne 0) { throw 'K03_FAST_PINNED_OWNER_SELECTION_FAIL' }
+          Write-Host 'K03_FAST_ORIGINAL_OWNER_SELECTION_PASS'
