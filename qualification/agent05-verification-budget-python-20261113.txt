@@ -1,0 +1,2 @@
+Agent 0.5 private source revision: b14f0286119e06cef2ea4f0898001c27b4c175b0
+Scope: Python targeted regressions only. No private artifact or output.
