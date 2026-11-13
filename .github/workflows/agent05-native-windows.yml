@@ -16,7 +16,7 @@ concurrency:
 jobs:
   native-windows:
     runs-on: windows-latest
-    timeout-minutes: 80
+    timeout-minutes: 110
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: d92014fea0ab4da6041e679f32c98798ab14d822
+          ref: 5f1d740e83c25f188725864863dd99fad89f71ab
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -39,7 +39,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne 'd92014fea0ab4da6041e679f32c98798ab14d822') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
+          if ($actual -cne '5f1d740e83c25f188725864863dd99fad89f71ab') { throw 'AGENT05_NATIVE_SOURCE_MISMATCH' }
           $cargo = Get-Content -LiteralPath private-product/desktop/src-tauri/Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version = "0.5.0"$') { throw 'AGENT05_NATIVE_VERSION_MISMATCH' }
           Write-Host 'AGENT05_NATIVE_SOURCE_AND_VERSION_PASS'
@@ -179,6 +179,118 @@ jobs:
               }
             }
             throw 'AGENT05_NATIVE_INSTALLED_UIA_GATE_FAILED'
+          }
+      - name: Real installed GGUF Task Review, cold result, independent import and native readback
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          # Reuse the exact disposable profile and installed package from
+          # the successful UIA smoke; never touch a normal user installation.
+          $qa = Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-' + $env:GITHUB_RUN_ID)
+          $install = Join-Path $qa 'install'
+          $exe = Join-Path $install 'desktop/bin/IWXA Personal.exe'
+          $logs = Join-Path $qa 'logs'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'AGENT05_GGUF_NATIVE_INSTALL_MISSING' }
+          $env:USERPROFILE = Join-Path $qa 'profile'
+          $env:HOME = $env:USERPROFILE
+          $env:APPDATA = Join-Path $env:USERPROFILE 'AppData/Roaming'
+          $env:LOCALAPPDATA = Join-Path $env:USERPROFILE 'AppData/Local'
+          $env:TEMP = Join-Path $qa 'temp'
+          $env:TMP = $env:TEMP
+          $env:TMPDIR = $env:TEMP
+          $env:IWXA_STORAGE_AUTHORITY = Join-Path $env:LOCALAPPDATA 'IWXA/storage-authority.json'
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class Agent05QAClose {
+            [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
+          }
+          '@
+          function Start-AgentNative {
+            $p = Start-Process -FilePath $exe -ArgumentList @('--port','18789') -PassThru
+            for ($i=0; $i -lt 120; $i++) {
+              Start-Sleep -Milliseconds 500
+              $p.Refresh()
+              if ($p.HasExited) { throw 'AGENT05_GGUF_NATIVE_PROCESS_EXITED' }
+              if ($p.MainWindowHandle -ne [IntPtr]::Zero) { return $p }
+            }
+            throw 'AGENT05_GGUF_NATIVE_WINDOW_MISSING'
+          }
+          function Wait-AgentCore {
+            for ($i=0; $i -lt 100; $i++) {
+              try {
+                $r = Invoke-WebRequest -Uri 'http://127.0.0.1:18789/desktop/' -UseBasicParsing -TimeoutSec 3
+                if ($r.StatusCode -eq 200) { return }
+              } catch {}
+              Start-Sleep -Milliseconds 500
+            }
+            throw 'AGENT05_GGUF_NATIVE_CORE_NOT_READY'
+          }
+          function Stop-AgentNative([System.Diagnostics.Process]$p) {
+            if ($null -eq $p) { return }
+            $p.Refresh()
+            if ($p.HasExited) { return }
+            if ($p.MainWindowHandle -ne [IntPtr]::Zero) {
+              [void][Agent05QAClose]::PostMessage($p.MainWindowHandle,0x0010,[IntPtr]::Zero,[IntPtr]::Zero)
+            }
+            if (-not $p.WaitForExit(45000)) { throw 'AGENT05_GGUF_NATIVE_CLOSE_TIMEOUT' }
+          }
+          $p = $null
+          $proof = Join-Path $logs 'agent05-real-qwen-proof.json'
+          $executionLog = Join-Path $logs 'agent05-real-qwen-execute.log'
+          $readbackLog = Join-Path $logs 'agent05-real-qwen-readback.log'
+          $failCode = Join-Path $logs 'agent05-real-qwen-failure-code.txt'
+          $operationCode = Join-Path $logs 'agent05-real-qwen-last-operation.txt'
+          try {
+            $p = Start-AgentNative
+            Wait-AgentCore
+            & python -B tools/qualify_setup_core_real_qwen.py --install-root $install --port 18789 --proof $proof --phase execute --failure-code-path $failCode --last-operation-path $operationCode *> $executionLog
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $proof -PathType Leaf)) {
+              $code = 'UNKNOWN'
+              if (Test-Path -LiteralPath $failCode -PathType Leaf) {
+                $candidate = (Get-Content -LiteralPath $failCode -Raw).Trim()
+                if ($candidate -match '^(MODEL_[A-Z_]+|TASK_[A-Z_]+|RESULT_READBACK|REVIEW_READBACK|EXCHANGE_EXPORT|OTHER_[A-Z_]+|HTTP_(400|401|403|404|409|422|429|500|502|503|504))) { $code = $candidate }
+              }
+              Write-Host ('AGENT05_INSTALLED_GGUF_FAILURE_CODE=' + $code)
+              throw 'AGENT05_INSTALLED_GGUF_TASK_REVIEW_FAILED'
+            }
+            if (-not (Select-String -LiteralPath $executionLog -Pattern 'AGENT_INSTALLED_REAL_QWEN_TASK_REVIEW_PASS' -SimpleMatch -Quiet)) {
+              throw 'AGENT05_INSTALLED_GGUF_RESULT_PROOF_MISSING'
+            }
+            Write-Host 'AGENT05_INSTALLED_REAL_GGUF_TASK_REVIEW_PASS'
+            Stop-AgentNative $p
+            $p = $null
+            $p = Start-AgentNative
+            Wait-AgentCore
+            & python -B tools/qualify_setup_core_real_qwen.py --install-root $install --port 18789 --proof $proof --phase readback *> $readbackLog
+            if ($LASTEXITCODE -ne 0 -or
+                -not (Select-String -LiteralPath $readbackLog -Pattern 'AGENT_INSTALLED_REAL_QWEN_RESULT_RESTART_PASS' -SimpleMatch -Quiet) -or
+                -not (Select-String -LiteralPath $readbackLog -Pattern 'AGENT_INSTALLED_REAL_QWEN_INDEPENDENT_IMPORT_PASS' -SimpleMatch -Quiet)) {
+              throw 'AGENT05_INSTALLED_GGUF_COLD_READBACK_FAILED'
+            }
+            Write-Host 'AGENT05_INSTALLED_REAL_GGUF_COLD_IMPORT_PASS'
+            $saved = Get-Content -LiteralPath $proof -Raw | ConvertFrom-Json
+            $guiReceipt = Join-Path $logs 'agent05-native-gui-result.json'
+            $guiLog = Join-Path $logs 'agent05-native-gui-result.log'
+            & pwsh -NoProfile -NonInteractive -File tools/qualify_setup_core_native_gui.ps1 -WindowProcessId $p.Id -Mode result -TaskId ([string]$saved.task_id) -ExpectedTitleSha256 ([string]$saved.task_title_sha256) -ReceiptPath $guiReceipt *> $guiLog
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $guiReceipt -PathType Leaf)) {
+              throw 'AGENT05_INSTALLED_GGUF_GUI_RESULT_FAILED'
+            }
+            $view = Get-Content -LiteralPath $guiReceipt -Raw | ConvertFrom-Json
+            if ($view.status -cne 'PASS' -or $view.input -cne 'NATIVE_WINDOWS_UI_AUTOMATION' -or
+                $view.source_task_selected -ne $true -or $view.title_digest_matched -ne $true -or
+                $view.accepted_result_visible -ne $true) {
+              throw 'AGENT05_INSTALLED_GGUF_GUI_RESULT_READBACK_INVALID'
+            }
+            Write-Host 'AGENT05_INSTALLED_REAL_GGUF_GUI_RESULT_PASS'
+          } finally {
+            if ($null -ne $p) {
+              try { Stop-AgentNative $p } catch {
+                Write-Host 'AGENT05_GGUF_NATIVE_CLOSE_NOT_CONFIRMED'
+                # Only the process created by this QA step can be stopped.
+                try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch {}
+              }
+            }
           }
       # The public job prints only fixed stage/category identifiers; the
       # actual installed product and diagnostics remain in RUNNER_TEMP.
