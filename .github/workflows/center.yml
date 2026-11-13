@@ -722,7 +722,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $out=Join-Path $env:RUNNER_TEMP 'private-python-targeted.stdout.log'
           $err=Join-Path $env:RUNNER_TEMP 'private-python-targeted.stderr.log'
-          & python -B -m pytest -q tests/test_agent05_basic_runtime_error_clarity.py tests/test_agent05_k03_real_examples_gate.py tests/test_agent05_k03_installed_task_witness.py tests/test_agent05_k03_host_excerpt.py tests/test_agent05_k03_read_observation_perf.py tests/test_agent05_k03_query_envelope.py tests/test_agent05_real_upgrade_acceptance.py tests/test_u01_saved_output_projection.py tests/test_u03_program_card_projection.py tests/test_agent05_u03_source_pin.py -p no:cacheprovider --tb=short 1>$out 2>$err
+          & python -B -m pytest -q tests/test_agent05_basic_runtime_error_clarity.py tests/test_agent05_k03_real_examples_gate.py tests/test_agent05_k03_installed_task_witness.py tests/test_agent05_k03_host_excerpt.py tests/test_agent05_k03_read_observation_perf.py tests/test_agent05_k03_query_envelope.py tests/test_agent05_real_upgrade_acceptance.py tests/test_u01_saved_output_projection.py tests/test_u03_program_card_projection.py tests/test_agent05_u03_source_pin.py tests/test_agent05_u01_owner_adoption.py -p no:cacheprovider --tb=short 1>$out 2>$err
           $code=$LASTEXITCODE
           $pass=-1; $fail=0; $hashes=0
           if(Test-Path -LiteralPath $out -PathType Leaf){
