@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 95918437e62d0d552a59ffc204af7f0f6cc26dab
+          ref: 01321867c8d2f4cd0b8a2cb7cdc7b38004ebf708
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -76,7 +76,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 95918437e62d0d552a59ffc204af7f0f6cc26dab
+          ref: 01321867c8d2f4cd0b8a2cb7cdc7b38004ebf708
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -84,7 +84,7 @@ jobs:
         shell: pwsh
         run: |
           $actual = (& git -C private-product rev-parse HEAD).Trim()
-          if ($actual -cne '95918437e62d0d552a59ffc204af7f0f6cc26dab') { throw 'AGENT05_PRIVATE_SOURCE_REVISION_MISMATCH' }
+          if ($actual -cne '01321867c8d2f4cd0b8a2cb7cdc7b38004ebf708') { throw 'AGENT05_PRIVATE_SOURCE_REVISION_MISMATCH' }
           Write-Host 'AGENT05_PINNED_PRIVATE_SOURCE_CONFIRMED'
       - uses: actions/setup-python@v5
         with:
@@ -145,7 +145,7 @@ jobs:
         shell: pwsh
         run: |
           $log = Join-Path $env:RUNNER_TEMP 'agent05-node-targeted.log'
-          & node --test tests/agent05-gguf-context-ui.test.mjs tests/dialog-conversation.test.mjs tests/graph-config-stable-id.test.mjs tests/agent05-inprocess-core-task-preview.test.mjs tests/agent05-inprocess-k02-k04.test.mjs tests/agent05-graph-full-result-readback.test.mjs tests/chain-builder-k02-recommendation.test.mjs tests/work-handoff.test.mjs *> $log
+          & node --test tests/agent05-gguf-context-ui.test.mjs tests/dialog-conversation.test.mjs tests/graph-config-stable-id.test.mjs tests/agent05-inprocess-core-task-preview.test.mjs tests/agent05-inprocess-k02-k04.test.mjs tests/agent05-graph-full-result-readback.test.mjs tests/chain-builder-k02-recommendation.test.mjs tests/work-handoff.test.mjs tests/meeting-followup-review.test.mjs *> $log
           if ($LASTEXITCODE -ne 0) {
             $failed = @(Get-Content -LiteralPath $log | Where-Object { $_ -match '^\s*not ok\s+\d+\s+-\s+' })
             $area = 'OTHER'
