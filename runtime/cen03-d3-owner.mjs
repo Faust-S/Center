@@ -56,6 +56,39 @@ function checkedTarget(value,context){
    'CEN_D3_ORIGINAL_APPLICATION_TARGET_REQUIRED');
  return copy(value,'CEN_D3_APPLICATION_TARGET_INVALID');
 }
+// Only the ORIGINAL signed owner can prove a committed graph. The Center
+// boundary checks that its read-only Object and Event evidence refers to
+// the exact selected acceptance and original effect, not a similar object.
+function checkedKernelRecovery(result,context,selection){
+ const confirmed=result?.status==='ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED';
+ need((confirmed||result?.status==='OUTCOME_UNKNOWN')&&
+   validSha(result.effectKey)&&result.automaticRetryAllowed===false&&
+   result.kernelWriteReadback===(confirmed?'CONFIRMED':'NOT_CONFIRMED'),
+   'CEN_D3_KERNEL_RECOVERY_READBACK_INVALID');
+ if(!confirmed){
+   need(result.originalKernelReadback==null&&result.originalEventReadback==null,
+     'CEN_D3_KERNEL_RECOVERY_READBACK_INVALID');
+   return result;
+ }
+ const object=result.originalKernelReadback?.object;
+ const event=result.originalEventReadback;
+ const recorded=event?.payload?.reconciliation_revision_ids;
+ need(result.externalProductAcceptance==='NOT_ACCEPTED'&&
+   object?.workspace_id===context.workspace_id&&
+   validId(object.object_id)&&Number.isSafeInteger(object.revision)&&
+   object.revision>0&&
+   event?.workspace_id===context.workspace_id&&
+   validId(event.event_id)&&event.idempotency_key===result.effectKey&&
+   (event.object_id==null||event.object_id===object.object_id)&&
+   (event.revision==null||event.revision===object.revision)&&
+   event.payload?.reconciliation_acceptance_id===selection.acceptanceId&&
+   Array.isArray(recorded)&&recorded.length===selection.revisionIds.length&&
+   recorded.every(validSha)&&
+   JSON.stringify([...recorded].sort())===
+     JSON.stringify([...selection.revisionIds].sort()),
+   'CEN_D3_KERNEL_RECOVERY_READBACK_INVALID');
+ return result;
+}
 
 // A trusted native product Host, never WebView, supplies:
 // admission = createTrustedReconciliationAdmission(original private recipient),
@@ -176,19 +209,8 @@ export function createCenD3OwnerHost({admission,access,apply=null,
          'CEN_D3_APPLY_RECOVERY_NOT_CONNECTED');
        // Original signed D1 Kernel Object + Event readback. Never issue
        // another commitObjectGraph or another Human APPLY during recovery.
-       result=await apply.recoverApplied({...selection,target});
-       const confirmed=result?.status===
-         'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED';
-       need((confirmed||result?.status==='OUTCOME_UNKNOWN')&&
-         validSha(result.effectKey)&&
-         result.automaticRetryAllowed===false&&
-         result.kernelWriteReadback===(confirmed?'CONFIRMED':'NOT_CONFIRMED')&&
-         (confirmed
-           ? result.originalKernelReadback?.object&&
-             result.originalEventReadback?.event_id&&
-             result.externalProductAcceptance==='NOT_ACCEPTED'
-           : !result.originalKernelReadback&&!result.originalEventReadback),
-         'CEN_D3_KERNEL_RECOVERY_READBACK_INVALID');
+       result=checkedKernelRecovery(
+         await apply.recoverApplied({...selection,target}),c,selection);
     }else if(operation==='d3ApplyAccepted'){
        const selection=sourceSelection(input),target=await targetFor(c,selection);
        entered=true;

@@ -12,7 +12,7 @@ const why=(e:unknown)=>{
  const message=e instanceof Error?e.message:String(e);
  if(message.includes('T3_RECEIVE_STORE_READBACK_HOLD'))
    return 'Получение не подтверждено хранилищем организации. Обновите список Result и проверьте журнал перед повторной передачей файла.';
- if(/CEN_D3_KERNEL_COMMIT_OUTCOME_UNKNOWN|CEN_D3_KERNEL_RECOVERY_READBACK_INVALID|T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED|CEN_D3_APPLY_RECOVERY_NOT_CONNECTED/.test(message))
+ if(/CEN_D3_KERNEL_COMMIT_OUTCOME_UNKNOWN|CEN_D3_KERNEL_RECOVERY_READBACK_INVALID|T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED|CEN_D3_APPLY_RECOVERY_NOT_CONNECTED|CEN_D3_PREVIOUS_APPLY_REQUIRED_FOR_RECOVERY/.test(message))
    return 'Kernel Apply не подтверждён. Не отправляйте Apply повторно: после подключения исходного владельца используйте «Проверить Kernel без повторного Apply».';
  if(/OUTCOME_UNKNOWN|T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED/.test(message))
    return 'Исход операции неизвестен. Не повторяйте ACCEPT, REJECT или Apply. Откройте исходную квитанцию по сохранённому ID и SHA-256 пакета.';

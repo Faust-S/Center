@@ -80,7 +80,10 @@ function original(){
      effectKey:A,kernelWriteReadback:'CONFIRMED',
      originalKernelReadback:{object:{workspace_id:'workspace:1',
        object_id:'object:1',revision:2}},
-     originalEventReadback:{event_id:'event:1',idempotency_key:A},
+     originalEventReadback:{event_id:'event:1',workspace_id:'workspace:1',
+       object_id:'object:1',revision:2,idempotency_key:A,
+       payload:{reconciliation_acceptance_id:C,
+         reconciliation_revision_ids:[C]}},
      externalProductAcceptance:'NOT_ACCEPTED',automaticRetryAllowed:false};
  };
  const signedD3Owner={admission,access:{currentContext:async()=>structuredClone(claims)},
@@ -278,4 +281,31 @@ test('D3: no original signed recovery port cannot be advertised as available',as
    .snapshot.d3ApplyRecoverAvailable,false);
  await assert.rejects(()=>command(host,'d3RecoverApplied',
    {acceptanceId:C,revisionIds:[C]}),/CEN_D3_APPLY_RECOVERY_NOT_CONNECTED/);
+});
+
+test('D3: a different original Event provenance never attests a prior Kernel Apply',async()=>{
+ const {host,apply,log}=original();
+ const selection={acceptanceId:C,revisionIds:[C]};
+ const different=[
+   ['event.idempotency_key',out=>{out.originalEventReadback.idempotency_key=B;}],
+   ['event.source_acceptance',out=>{out.originalEventReadback.payload.reconciliation_acceptance_id=B;}],
+   ['event.revision_ids',out=>{out.originalEventReadback.payload.reconciliation_revision_ids=[B];}],
+   ['event.workspace',out=>{out.originalEventReadback.workspace_id='workspace:other';}],
+   ['object.revision',out=>{out.originalEventReadback.revision=3;}]
+ ];
+ for(const [name,alter] of different){
+   const valid={status:'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED',
+     effectKey:A,kernelWriteReadback:'CONFIRMED',automaticRetryAllowed:false,
+     originalKernelReadback:{object:{workspace_id:'workspace:1',
+       object_id:'object:1',revision:2}},
+     originalEventReadback:{event_id:'event:1',workspace_id:'workspace:1',
+       object_id:'object:1',revision:2,idempotency_key:A,
+       payload:{reconciliation_acceptance_id:C,reconciliation_revision_ids:[C]}},
+     externalProductAcceptance:'NOT_ACCEPTED'};
+   alter(valid);
+   apply.recoverApplied=async()=>valid;
+   await assert.rejects(()=>command(host,'d3RecoverApplied',selection),
+     /CEN_D3_KERNEL_RECOVERY_READBACK_INVALID/,name);
+ }
+ assert.equal(log.filter(x=>x[0]==='apply').length,0);
 });

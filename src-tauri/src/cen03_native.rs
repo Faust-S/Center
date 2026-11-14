@@ -109,13 +109,23 @@ fn supported_state(result:&Value,organization_id:&str,
        !view["snapshot"]["contextId"].as_str().is_some_and(t3::valid_identifier)||
        !view["snapshot"]["contextEpoch"].as_u64().is_some_and(|x|x>0&&x<=9_007_199_254_740_991)||
        !view["snapshot"]["d3ApplyAvailable"].is_boolean()||
+       (view["snapshot"]["d3ApplyRecoverAvailable"]!=Value::Null&&
+        !view["snapshot"]["d3ApplyRecoverAvailable"].is_boolean())||
+       (view["snapshot"]["d3ApplyRecoverAvailable"]==true&&
+        view["snapshot"]["d3ApplyAvailable"]!=true)||
        !view["snapshot"]["d3TaskIssueAvailable"].is_boolean()||
        !view["snapshot"]["tasks"].is_array()||
        !view["snapshot"]["totalTasks"].as_u64().is_some_and(|n|n<=256){
 
         return Err("CEN_D3_SIGNED_SESSION_READBACK_INVALID".into());
     }
-    Ok(view.clone())
+    // Legacy originals do not advertise Kernel recovery. Never turn an
+    // absent port into a UI action just because Center supports the command.
+    let mut projected=view.clone();
+    if projected["snapshot"]["d3ApplyRecoverAvailable"]==Value::Null {
+        projected["snapshot"]["d3ApplyRecoverAvailable"]=Value::Bool(false);
+    }
+    Ok(projected)
 }
 fn exact_binding(view:&Value,organization_id:&str,binding:&Value)->bool{
     let s=&view["snapshot"];
@@ -124,6 +134,49 @@ fn exact_binding(view:&Value,organization_id:&str,binding:&Value)->bool{
       binding["actorId"]==s["actorId"]&&
       binding["contextId"]==s["contextId"]&&
       binding["contextEpoch"]==s["contextEpoch"]
+}
+fn verify_kernel_recovery(result:&Value,input:&Value,view:&Value)->Result<(),String>{
+    let bad=||"CEN_D3_KERNEL_RECOVERY_READBACK_INVALID".to_string();
+    let confirmed=result["status"]=="ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED";
+    if !confirmed && result["status"]!="OUTCOME_UNKNOWN" {
+        return Err(bad());
+    }
+    let effect=result["effectKey"].as_str();
+    if !validate_hex(effect)||result["automaticRetryAllowed"]!=false||
+       result["kernelWriteReadback"]!=if confirmed {"CONFIRMED"} else {"NOT_CONFIRMED"}{
+        return Err(bad());
+    }
+    if !confirmed{
+        return if result["originalKernelReadback"].is_null()&&
+            result["originalEventReadback"].is_null(){Ok(())}else{Err(bad())};
+    }
+    let object=&result["originalKernelReadback"]["object"];
+    let event=&result["originalEventReadback"];
+    let workspace=&view["snapshot"]["workspaceId"];
+    if result["externalProductAcceptance"]!="NOT_ACCEPTED"||
+       object["workspace_id"]!=*workspace||event["workspace_id"]!=*workspace||
+       !object["object_id"].as_str().is_some_and(t3::valid_identifier)||
+       !object["revision"].as_u64().is_some_and(|n|n>0&&n<=9_007_199_254_740_991)||
+       !event["event_id"].as_str().is_some_and(t3::valid_identifier)||
+       event["idempotency_key"]!=effect.unwrap()||
+       (!event["object_id"].is_null()&&event["object_id"]!=object["object_id"])||
+       (!event["revision"].is_null()&&event["revision"]!=object["revision"])||
+       event["payload"]["reconciliation_acceptance_id"]!=input["acceptanceId"]{
+        return Err(bad());
+    }
+    let expected=input["revisionIds"].as_array().ok_or_else(bad)?;
+    let observed=event["payload"]["reconciliation_revision_ids"]
+        .as_array().ok_or_else(bad)?;
+    if observed.len()!=expected.len()||
+       observed.iter().any(|id|!validate_hex(id.as_str())){
+        return Err(bad());
+    }
+    let mut a:Vec<_>=expected.iter().filter_map(Value::as_str).collect();
+    let mut b:Vec<_>=observed.iter().filter_map(Value::as_str).collect();
+    if a.len()!=expected.len()||b.len()!=observed.len(){return Err(bad());}
+    a.sort_unstable();b.sort_unstable();
+    if a!=b{return Err(bad());}
+    Ok(())
 }
 fn source_file(path:&Path)->Result<(),String>{
     let meta=fs::symlink_metadata(path).map_err(|_|"CEN_D3_FILE_UNREADABLE")?;
@@ -357,6 +410,9 @@ pub async fn center_corporate_action(
         // Age decryption is NOT admission. The original T3 recipient must
         // prove it received the same signed archive as the age tool verified.
         let mut result=output["result"].clone();
+        if operation=="d3RecoverApplied"{
+            verify_kernel_recovery(&result,&input,&observed)?;
+        }
         if let Some(proof)=decrypted{
             if proof["operation"]!="AGE_DECRYPTED"||
                proof["admitted"]!=false||
@@ -394,7 +450,15 @@ mod tests{
               "d3TaskIssueAvailable":true,"tasks":[],"totalTasks":0,
               "d3ApplyAvailable":false,"productionActivation":false,
               "T3_READY":false}}});
-        assert!(supported_state(&valid,"org:1","D3_STATE").is_ok());
+        let qualified=supported_state(&valid,"org:1","D3_STATE").unwrap();
+        assert_eq!(qualified["snapshot"]["d3ApplyRecoverAvailable"],false);
+        let mut recovery_capable=valid.clone();
+        recovery_capable["view"]["snapshot"]["d3ApplyAvailable"]=Value::Bool(true);
+        recovery_capable["view"]["snapshot"]["d3ApplyRecoverAvailable"]=Value::Bool(true);
+        assert_eq!(supported_state(&recovery_capable,"org:1","D3_STATE")
+            .unwrap()["snapshot"]["d3ApplyRecoverAvailable"],true);
+        recovery_capable["view"]["snapshot"]["d3ApplyAvailable"]=Value::Bool(false);
+        assert!(supported_state(&recovery_capable,"org:1","D3_STATE").is_err());
         assert!(supported_state(&valid,"org:2","D3_STATE").is_err());
         let mut forged=valid.clone();
         forged["view"]["snapshot"]["T3_READY"]=Value::Bool(true);
@@ -430,5 +494,41 @@ mod tests{
         assert!(check_bound_request(&json!({"acceptanceId":"c".repeat(64),
             "revisionIds":["d".repeat(64),"d".repeat(64)]}),
             "d3ApplyAccepted").is_err());
+    }
+    #[test]
+    fn recovery_requires_exact_original_event_object_and_acceptance_proof(){
+        let digest="a".repeat(64);
+        let accepted="c".repeat(64);
+        let input=json!({"acceptanceId":accepted,"revisionIds":[accepted]});
+        let view=json!({"snapshot":{"workspaceId":"workspace:1"}});
+        let mut result=json!({
+            "status":"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED",
+            "effectKey":digest,"kernelWriteReadback":"CONFIRMED",
+            "automaticRetryAllowed":false,
+            "externalProductAcceptance":"NOT_ACCEPTED",
+            "originalKernelReadback":{"object":{"workspace_id":"workspace:1",
+                "object_id":"object:1","revision":2}},
+            "originalEventReadback":{"workspace_id":"workspace:1","event_id":"event:1",
+                "object_id":"object:1","revision":2,"idempotency_key":digest,
+                "payload":{"reconciliation_acceptance_id":accepted,
+                    "reconciliation_revision_ids":[accepted]}}
+        });
+        assert!(verify_kernel_recovery(&result,&input,&view).is_ok());
+        result["originalEventReadback"]["idempotency_key"]=json!("b".repeat(64));
+        assert!(verify_kernel_recovery(&result,&input,&view).is_err());
+        result["originalEventReadback"]["idempotency_key"]=json!(digest);
+        result["originalEventReadback"]["payload"]["reconciliation_acceptance_id"]
+            =json!("d".repeat(64));
+        assert!(verify_kernel_recovery(&result,&input,&view).is_err());
+        result["originalEventReadback"]["payload"]["reconciliation_acceptance_id"]
+            =json!(accepted);
+        result["originalKernelReadback"]["object"]["workspace_id"]=json!("workspace:other");
+        assert!(verify_kernel_recovery(&result,&input,&view).is_err());
+        let unknown=json!({"status":"OUTCOME_UNKNOWN","effectKey":digest,
+            "kernelWriteReadback":"NOT_CONFIRMED","automaticRetryAllowed":false});
+        assert!(verify_kernel_recovery(&unknown,&input,&view).is_ok());
+        let mut forged=unknown.clone();
+        forged["originalEventReadback"]=json!({"event_id":"event:fake"});
+        assert!(verify_kernel_recovery(&forged,&input,&view).is_err());
     }
 }

@@ -61,6 +61,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [kernelResult,setKernelResult]=useState<any>(null);
  const [applySelection,setApplySelection]=useState<{acceptanceId:string;revisionIds:string[]}|null>(null);
  const [kernelRecovery,setKernelRecovery]=useState<any>(null);
+ const [recoverPrevious,setRecoverPrevious]=useState(false);
+ // Prevent a lost Apply acknowledgment from becoming a second Apply when
+ // the manager switches packages and returns during the same signed session.
+ const dispatchedApplications=useRef<Map<string,string[]>>(new Map());
  const [lastReceiveState,setLastReceiveState]=useState<string|null>(null);
  const [orgAge,setOrgAge]=useState<AgeStatus|null>(null);
  const [ageUnavailable,setAgeUnavailable]=useState('');
@@ -98,11 +102,12 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setDecisionAttempted(false);setDecisionType(null);setReceipt(null);
    setSelectedRevisions([]);setApplication(null);setApplyConsent(false);
    setApplyAttempted(false);setKernelResult(null);
-   setApplySelection(null);setKernelRecovery(null);
+   setApplySelection(null);setKernelRecovery(null);setRecoverPrevious(false);
  };
  useEffect(()=>{
    if(previous.current!==sessionKey){
-   previous.current=sessionKey;setHash('');setInbox(null);setTaskId('');
+   previous.current=sessionKey;dispatchedApplications.current.clear();
+   setHash('');setInbox(null);setTaskId('');
    setTaskText('');setTaskOperationId('');setTaskIdSaved(false);
    setTaskAttempted(false);setTaskReadback(null);
    setLastReceiveState(null);setDraftId('');setDraftSnapshot('');reset();
@@ -217,6 +222,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    receipt.receipt.packageSha256===hash&&
    receipt.receipt.operationId===operationId&&
    receipt.kernelApplication==='NOT_ATTESTED_BY_RECONCILIATION_RECEIPT';
+ const applyPreviouslySent=accepted&&
+   dispatchedApplications.current.has(receipt.receipt.acceptanceId as string);
  const receiveResult=(encrypted:boolean)=>run(
    'Оригинальный подписанный Result получен в Reconciliation. ACCEPT и Apply остаются отдельными действиями.',
    async()=>{
@@ -307,12 +314,16 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setApplication(result);setApplyConsent(false);
  });
  const apply=()=>run('Исходный T3 Kernel вернул квитанцию записи и повторное чтение.',async()=>{
-   if(!accepted||!application||!applyConsent||applyAttempted)
+   if(!accepted||!application||!applyConsent||applyAttempted||
+      applyPreviouslySent||recoverPrevious)
      throw Error('CEN_D3_SEPARATE_HUMAN_APPLY_REQUIRED');
    const selection={acceptanceId:receipt.receipt.acceptanceId as string,
      revisionIds:[...selectedRevisions]};
    if(!hex(selection.acceptanceId)||selection.revisionIds.length===0)
      throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
+   // Record the exact selection synchronously before sending to the owner.
+   // React reset after switching a Result must not erase this no-replay gate.
+   dispatchedApplications.current.set(selection.acceptanceId,[...selection.revisionIds]);
    setApplySelection(selection);setApplyAttempted(true);
    setKernelResult(null);setKernelRecovery(null);
    const result=await execute('d3ApplyAccepted',selection);
@@ -324,15 +335,21 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const recoverApplied=()=>run('Проверка исходного Kernel завершена без повторного Apply.',async()=>{
    if(session.d3ApplyRecoverAvailable!==true||!accepted)
      throw Error('CEN_D3_APPLY_RECOVERY_NOT_CONNECTED');
-   // Preserve the exact first attempted selection, even when the
-   // requested readback follows a lost native acknowledgment.
-   const source=applySelection??{
-     acceptanceId:receipt.receipt.acceptanceId as string,
-     revisionIds:[...selectedRevisions]
-   };
+   if(!applyAttempted&&!applyPreviouslySent&&!recoverPrevious)
+     throw Error('CEN_D3_PREVIOUS_APPLY_REQUIRED_FOR_RECOVERY');
+   const acceptanceId=receipt.receipt.acceptanceId as string;
+   // A live session reuses the actual previously dispatched selection.
+   // After a cold restart the manager must explicitly mark the previous
+   // attempt and reselect its original revisions before read-only recovery.
+   const saved=dispatchedApplications.current.get(acceptanceId);
+   const source=applySelection??(saved?{acceptanceId,revisionIds:[...saved]}:{
+     acceptanceId,revisionIds:[...selectedRevisions]
+   });
    if(!hex(source.acceptanceId)||source.revisionIds.length===0||
      source.revisionIds.length>32||!source.revisionIds.every(hex))
      throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
+   dispatchedApplications.current.set(source.acceptanceId,[...source.revisionIds]);
+   setApplySelection(source);setApplyAttempted(true);
    const result=await execute('d3RecoverApplied',source);
    const confirmed=result?.status==='ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED';
    if((!confirmed&&result?.status!=='OUTCOME_UNKNOWN')||
@@ -343,7 +360,6 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      throw Error('CEN_D3_KERNEL_RECOVERY_READBACK_INVALID');
    // Recovery is an inquiry, never consent to repeat Apply. Even an
    // unconfirmed original outcome cannot enable another commit here.
-   setApplySelection(source);setApplyAttempted(true);
    setKernelRecovery(result);
  });
  return <div className="nested-form" data-testid="cen03-d3-original">
@@ -613,7 +629,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     <p>Выберите принятые редакции:</p>
     {revisions.map(id=><label key={id}>
       <input type="checkbox" checked={selectedRevisions.includes(id)}
-       disabled={applyAttempted} onChange={e=>toggleRevision(id,e.target.checked)}/>
+       disabled={applyAttempted||applyPreviouslySent}
+       onChange={e=>toggleRevision(id,e.target.checked)}/>
       {label(preview.entries.find((x:any)=>same(x.revisionId,id)))} · {id.slice(0,16)}
     </label>)}
     <div className="actions">
@@ -621,8 +638,21 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       disabled={busy||selectedRevisions.length===0||applyAttempted}
       onClick={inspectApplication}>Предпросмотр применения</button>
     </div>
+    {applyPreviouslySent&&!applyAttempted&&<p role="status"
+      data-testid="d3-apply-already-sent">
+      Для этого ACCEPT ранее отправлялся Apply. Повторная запись заблокирована.
+      Восстановление использует исходный выбор редакций.
+    </p>}
+    {session.d3ApplyRecoverAvailable===true&&!applyAttempted&&
+      !applyPreviouslySent&&<label>
+       <input type="checkbox" data-testid="d3-recovery-previous-ack"
+        checked={recoverPrevious} onChange={e=>setRecoverPrevious(e.target.checked)}/>
+       Я уже отправлял Apply для этого ACCEPT в предыдущем сеансе и
+       восстанавливаю исход, а не начинаю новое применение
+      </label>}
     {session.d3ApplyRecoverAvailable===true&&
-      (applySelection!==null||selectedRevisions.length>0)&&<button
+      (applySelection!==null||applyPreviouslySent||selectedRevisions.length>0)&&
+      (applyAttempted||applyPreviouslySent||recoverPrevious)&&<button
        className="secondary" data-testid="d3-recover-apply" disabled={busy}
        onClick={recoverApplied}>Проверить Kernel без повторного Apply</button>}
     {kernelRecovery&&<p role="status" data-testid="d3-kernel-recovery">
@@ -634,11 +664,13 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     </p>}
     {application&&<div>
      <p>Источник подтверждён как кандидат. Запись не выполнялась.</p>
-     <label><input type="checkbox" checked={applyConsent} disabled={applyAttempted}
+     <label><input type="checkbox" checked={applyConsent}
+       disabled={applyAttempted||applyPreviouslySent||recoverPrevious}
        onChange={e=>setApplyConsent(e.target.checked)}/>
        Отдельно подтверждаю применение выбранных редакций</label>
      <button className="primary" data-testid="d3-apply-confirm"
-      disabled={busy||!applyConsent||applyAttempted} onClick={apply}>Apply</button>
+      disabled={busy||!applyConsent||applyAttempted||applyPreviouslySent||recoverPrevious}
+      onClick={apply}>Apply</button>
     </div>}
    </>}
    {applyAttempted&&!kernelResult&&<p className="notice subdued">
