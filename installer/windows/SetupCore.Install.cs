@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -1189,14 +1190,19 @@ namespace IwxaSetup
                     return;
                 throw;
             }
-            if (product == null || Convert.ToString(product["schema"]) !=
+            if (product == null || !product.ContainsKey("schema") ||
+                !product.ContainsKey("status") ||
+                !product.ContainsKey("managed_runtime") ||
+                Convert.ToString(product["schema"]) !=
                     "IWXA_EXPLORER_INSTALL_RECEIPT/1.1.0" ||
                 Convert.ToString(product["status"]) !=
                     "INSTALLED_GENERIC_STATE_READY")
                 return;
             var managed = product["managed_runtime"] as
                 IDictionary<string, object>;
-            if (managed == null || Convert.ToString(managed["runtime_mode"]) !=
+            if (managed == null || !managed.ContainsKey("runtime_mode") ||
+                !managed.ContainsKey("python_executable") ||
+                Convert.ToString(managed["runtime_mode"]) !=
                     "PRODUCT_MANAGED")
                 return;
             string raw = Convert.ToString(managed["python_executable"]);
