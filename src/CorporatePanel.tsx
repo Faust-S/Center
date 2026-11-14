@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
+import CorporateD3Panel from './CorporateD3Panel';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
-import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox} from '../runtime/cen03-review.mjs';
+import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox,signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
 
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
@@ -31,10 +32,13 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  const [reuseText,setReuseText]=useState('');
  const organizationId=organization.id;
  const requestRef=useRef(0),sessionRef=useRef<string|null>(null),actionRef=useRef(false);
- const ready=ownerSessionFingerprint(owner,organizationId)!==null;
+ const legacyReady=ownerSessionFingerprint(owner,organizationId)!==null;
+ const d3Ready=signedD3SessionFingerprint(owner,organizationId)!==null;
+ const ready=legacyReady||d3Ready;
  const resetReview=()=>{setReview(null);setConsent(false);setRejectReason('');setPreview(null);setApplyConsent(false);setApplyDecided(false)};
  const adoptOwner=(candidate:any)=>{
-   const fingerprint=ownerSessionFingerprint(candidate,organizationId);
+   const fingerprint=ownerSessionFingerprint(candidate,organizationId)??
+     signedD3SessionFingerprint(candidate,organizationId);
    if(fingerprint!==sessionRef.current){
      sessionRef.current=fingerprint;
      setHash('');setSelected('');setReuseKey('');setReuseText('');
@@ -81,7 +85,8 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
    if(!ready||!invoke)throw Error('CEN_OWNER_NOT_CONNECTED');
    const context=owner.snapshot;
    const r=await invoke('center_corporate_action',{organizationId,operation,input,
-     binding:{organizationId:context.organizationId,workspaceId:context.workspaceId,contextEpoch:context.contextEpoch}});
+     binding:{organizationId:context.organizationId,workspaceId:context.workspaceId,
+       contextEpoch:context.contextEpoch,actorId:context.actorId,contextId:context.contextId}});
    if(!r||r.status==='NOT_CONNECTED')throw Error('CEN_OWNER_NOT_CONNECTED');
    return r;
  };
@@ -96,14 +101,14 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
    finally{await refresh();actionRef.current=false;setBusy(false)}
  };
  const applied=(()=>{
-   if(!ready)return {status:'NOT_CONNECTED',records:[] as any[]};
+   if(!legacyReady)return {status:'NOT_CONNECTED',records:[] as any[]};
    try{return readAppliedResults(owner.snapshot,organizationId,owner.snapshot.workspaceId)}
    catch{return {status:'HOLD_FOR_EXPLICIT_RECOVERY',records:[] as any[]}}
  })();
  const records=applied.records as any[];
  const chosen=records.find(r=>r.taskId+'|'+r.resultRevisionId===reuseKey);
  const inbox=(()=>{
-  if(!ready)return {status:'NOT_CONNECTED',items:[] as any[],counts:null};
+  if(!legacyReady)return {status:'NOT_CONNECTED',items:[] as any[],counts:null};
   try{return receivedResultInbox(owner.snapshot,organizationId,owner.snapshot.workspaceId)}
   catch{return {status:'OWNER_READBACK_INVALID',items:[] as any[],counts:null}}
  })();
@@ -113,20 +118,22 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  };
  // Real staff/operator identities are projections of the ORIGINAL T3 owner,
  // not the draft participants in CEN01 and not a license or credential issuer.
- const staff=ready&&Array.isArray(owner?.snapshot?.staff)
+ const staff=legacyReady&&Array.isArray(owner?.snapshot?.staff)
    ?owner.snapshot.staff.filter((x:any)=>typeof x?.id==='string' &&
       typeof x?.personId==='string'&&typeof x?.workspaceId==='string'):[];
- const operators=ready&&Array.isArray(owner?.snapshot?.operators)
+ const operators=legacyReady&&Array.isArray(owner?.snapshot?.operators)
    ?owner.snapshot.operators.filter((x:any)=>typeof x?.id==='string' &&
       typeof x?.personId==='string'):[];
  const acceptedSelection=acceptedApplicationSelection(review,hash);
- const canApply=ready&&!!acceptedSelection&&
+ const canApply=legacyReady&&!!acceptedSelection&&
    owner.snapshot?.application?.status!=='HOLD_FOR_EXPLICIT_RECOVERY';
  return <section className="card padded" data-testid="corporate-panel">
   <div className="section-head"><h2>Поручения и корпоративная приёмка</h2><button className="secondary" disabled={busy} onClick={()=>act('Состояние перечитано.',async()=>{await refresh();resetReview()})}>Обновить</button></div>
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
-  <p className="notice subdued" data-testid="corporate-owner-status">{ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; проверьте состояние владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
+  <p className="notice subdued" data-testid="corporate-owner-status">{d3Ready?'Подписанный T3 D3 получатель доступен. Это не статус готовности всего T3.':ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; проверьте состояние владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
+  {d3Ready&&invoke ? <CorporateD3Panel owner={owner} execute={execute}
+    run={act} busy={busy} invoke={invoke}/> : <>
   <div className="nested-form" data-testid="cen02-owner-people">
    <h3>Ответственные в организации</h3>
    <p className="muted">Выбор выполняется только из подтверждённого реестра T3. Черновики сотрудников и запланированные места Personal Agent не дают полномочий.</p>
@@ -313,5 +320,6 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
     onClick={()=>{try{const r=prepareAppliedReuse(applied,{taskId:chosen.taskId,resultRevisionId:chosen.resultRevisionId,text:reuseText});onReuse({description:r.description,source:r.source})}
     catch(e){setError(why(e))}}}>Вставить в новый черновик</button>
   </div>
+  </>}
  </section>;
 }

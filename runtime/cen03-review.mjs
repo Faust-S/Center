@@ -174,3 +174,19 @@ export function createCen03Review({runtime,snapshot,bind}) {
     }
   });
 }
+
+
+// UI-only fingerprint for the separately qualified original D3 recipient.
+// Native origin/subject admission is mandatory; this grants no rights by itself.
+export function signedD3SessionFingerprint(view,organizationId){
+ const s=view?.snapshot;
+ if(view?.status!=='D3_OWNER_READY'||s?.product!=='admin'||
+   s.organizationId!==organizationId||s.d3RecipientAvailable!==true||
+   typeof s.workspaceId!=='string'||!s.workspaceId||
+   typeof s.actorId!=='string'||!s.actorId||
+   typeof s.contextId!=='string'||!s.contextId||
+   !Number.isSafeInteger(s.contextEpoch)||s.contextEpoch<=0||
+   s.productionActivation!==false||s.T3_READY!==false)return null;
+ return JSON.stringify([s.organizationId,s.workspaceId,s.actorId,
+   s.contextId,s.contextEpoch,'ORIGINAL_D3_ONLY']);
+}
