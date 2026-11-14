@@ -62,7 +62,7 @@ jobs:
         run: |
           $log = Join-Path $env:RUNNER_TEMP 'agent05-full-core-pytest-private.log'
           $temp = Join-Path $env:RUNNER_TEMP 'agent05-full-core-pytest-sandbox'
-          & python -B -m pytest -q tests -p no:cacheprovider --tb=short --basetemp $temp *> $log
+          & python -B -m pytest -q tests -x -p no:cacheprovider --tb=short --basetemp $temp *> $log
           $status = $LASTEXITCODE
           $raw = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
           if ($status -ne 0) {
@@ -79,6 +79,25 @@ jobs:
             Write-Host ('AGENT05_FULL_CORE_FAILURE_CLASS=' + $category)
             Write-Host ('AGENT05_FULL_CORE_COLLECTION_ERROR_COUNT=' + $errors)
             Write-Host ('AGENT05_FULL_CORE_FAILED_TEST_COUNT=' + $count)
+            # Return numeric indices only. Never print a private file name,
+            # test identifier, traceback, assertion, model output or path.
+            $failure = [regex]::Match([string]$raw,'(?m)^FAILED\s+(tests[/\\][A-Za-z0-9_./\\-]+[.]py)(?:::([A-Za-z0-9_:.[\\]-]+))?')
+            if ($failure.Success) {
+              $relative = $failure.Groups[1].Value.Replace('\\','/')
+              $files = @(Get-ChildItem -Path tests -File -Filter 'test_*.py' -Recurse | Sort-Object FullName)
+              $directory = (Get-Location).Path.TrimEnd('\\')+'\\'
+              $paths = @($files | ForEach-Object {$_.FullName.Substring($directory.Length).Replace('\\','/')})
+              $index = [array]::IndexOf($paths,$relative)
+              Write-Host ('AGENT05_FULL_CORE_FAILURE_FILE_INDEX='+$index)
+              Write-Host ('AGENT05_FULL_CORE_FAILURE_FILE_COUNT='+$paths.Count)
+              $f = [regex]::Match($failure.Groups[2].Value,'test_[A-Za-z0-9_]+')
+              if ($index -ge 0 -and $f.Success) {
+                $functions = @([regex]::Matches((Get-Content -LiteralPath $files[$index].FullName -Raw),
+                  '(?m)^\s*(?:async\s+)?def\s+(test_[A-Za-z0-9_]+)\s*\\(') | ForEach-Object {$_.Groups[1].Value})
+                Write-Host ('AGENT05_FULL_CORE_FAILURE_TEST_INDEX='+[array]::IndexOf($functions,$f.Value))
+                Write-Host ('AGENT05_FULL_CORE_FAILURE_TEST_COUNT_IN_FILE='+$functions.Count)
+              }
+            }
             throw 'AGENT05_FULL_CORE_REGRESSION_NOT_ACCEPTED'
           }
           if ($raw -notmatch '(?m)([0-9]{1,6}) passed') {
