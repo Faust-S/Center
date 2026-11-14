@@ -343,6 +343,7 @@ test('D3 Human Review: only fully read original signed Task/Result permits ACCEP
    packageSha256:p,previewDigest:d,taskId:'task:one',taskRevisionId:p,
    resultRevisionId:r,executorId:'person:worker',organizationId:'org:1',
    workspaceId:'workspace:1',signatureVerified:true,taskBindingProven:true,
+   taskCatalogVerified:true,assignmentText:'Подготовить результат и проверить критерии',
    resultLength:5500};
  const format=(offset,text)=>({schema:'IWXA_T3_RECONCILIATION_PREVIEW/1',
    packageSha256:p,previewDigest:d,entries:[{revisionId:r}],
@@ -357,6 +358,17 @@ test('D3 Human Review: only fully read original signed Task/Result permits ACCEP
  assert.equal(second.resultText.length,5500);
  assert.equal(second.hasMore,false);
  assert.equal(second.nextOffset,5500);
+ assert.equal(second.assignmentText,'Подготовить результат и проверить критерии');
+ assert.throws(()=>readOriginalResultReview({
+   ...format(0,'Ж'.repeat(4096)),
+   resultInspection:{...format(0,'Ж'.repeat(4096)).resultInspection,
+     taskCatalogVerified:false}
+ },'org:1','workspace:1'),/CEN_D3_SIGNED_RESULT_REVIEW_INVALID/);
+ assert.throws(()=>appendOriginalResultReview(first,{
+   ...format(4096,'R'.repeat(1404)),
+   resultInspection:{...format(4096,'R'.repeat(1404)).resultInspection,
+      assignmentText:'Другое поручение'}
+ },'org:1','workspace:1'),/CEN_D3_SIGNED_RESULT_REVIEW_STALE/);
  assert.equal(readOriginalResultReview({
    schema:'IWXA_T3_RECONCILIATION_PREVIEW/1',packageSha256:p,
    previewDigest:d,entries:[{revisionId:r}],resultInspection:null

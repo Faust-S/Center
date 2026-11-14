@@ -609,6 +609,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       Исполнитель: {reviewedResult.executorId} ·
       Поручение: {reviewedResult.taskId} ·
       Редакция Task: {reviewedResult.taskRevisionId.slice(0,16)}…</p>
+     <p><strong>Исходное подписанное поручение и критерии</strong></p>
+     <pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',maxHeight:200,
+       overflow:'auto'}} data-testid="d3-original-assignment-text">{reviewedResult.assignmentText}</pre>
+     <p><strong>Ответ исполнителя</strong></p>
      <pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',maxHeight:320,
        overflow:'auto'}} data-testid="d3-original-result-text">{reviewedResult.resultText}</pre>
      {reviewedResult.hasMore&&<div>

@@ -102,6 +102,9 @@ export function readOriginalResultReview(preview,organizationId,workspaceId,
    validSha(preview.packageSha256)&&validSha(preview.previewDigest)&&
    r?.schema==='IWXA_T3_ORIGINAL_SIGNED_RESULT_REVIEW/1'&&
    r.signatureVerified===true&&r.taskBindingProven===true&&
+   r.taskCatalogVerified===true&&
+   typeof r.assignmentText==='string'&&r.assignmentText.length>0&&
+   r.assignmentText.length<=10000&&
    r.packageSha256===preview.packageSha256&&
    r.previewDigest===preview.previewDigest&&
    validId(organizationId)&&validId(workspaceId)&&
@@ -133,7 +136,8 @@ export function appendOriginalResultReview(previous,preview,organizationId,
    previous.nextOffset);
  need(next!==null&&
    ['schema','packageSha256','previewDigest','taskId','taskRevisionId',
-    'resultRevisionId','executorId','organizationId','workspaceId','resultLength']
+    'resultRevisionId','executorId','organizationId','workspaceId','resultLength',
+    'assignmentText','taskCatalogVerified']
      .every(key=>next[key]===previous[key]),bad);
  const accumulated=previous.resultText+next.resultText;
  need(accumulated.length===next.nextOffset,bad);
