@@ -55,7 +55,7 @@ function makeVehicle(index:number,regime:"frozen"|"chilled"):ColdVehicle{
 }
 export function createCase004(options:Case004Options={}):ColdInput{
   const demandPercent=options.demandPercent??100;
-  const trafficPercent=options.trafficPercent??115;
+  const trafficPercent=options.trafficPercent??120;
   const faults=options.faults??"both";
   const loggerGap=options.loggerGap??"none";
   const coolingFleetSize=options.coolingFleetSize??4;

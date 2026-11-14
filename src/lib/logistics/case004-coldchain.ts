@@ -146,7 +146,8 @@ export function validateColdInput(input:ColdInput):void{
        !positive(s.unitVolumeM3))
       throw Error("D11_COLD_SKU_INVALID:"+s.skuId);
   }
-  if(Object.keys(input.opening).some(id=>!sku.has(id))||
+  if(!input.opening||typeof input.opening!=="object"||Array.isArray(input.opening)||
+     Object.keys(input.opening).some(id=>!sku.has(id))||
      Object.values(input.opening).some(n=>!int(n)))
     throw Error("D11_COLD_STOCK_INVALID");
   for(const regime of ["frozen","chilled"] as const){
@@ -282,13 +283,10 @@ export function simulateCold(input:ColdInput,mode:ColdMode):ColdResult{
     transportRub=0,coolingRub=0,destroyedRub=0,
     warehouseRub=0,unfilledRub=0;
   const products=new Map(input.skus.map(s=>[s.skuId,s]));
-  const orders=new Map(input.orders.map(o=>[o.id,o]));
   const trace=new Map(input.loggers.map(l=>[l.day+":"+l.vehicleId,l.readings]));
-  const moving:Record<string,number>={};
   const supplier:Record<string,number>={};
   const accepted:Record<string,number>={};
   const destroyed:Record<string,number>={};
-  for(const sku of input.skus)moving[sku.skuId]=0;
   for(const day of input.days){
     const opening={...stock};
     const received:Record<string,number>={},inspected:Record<string,number>={};
