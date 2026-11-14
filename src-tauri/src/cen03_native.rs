@@ -248,7 +248,7 @@ fn verify_kernel_apply(result:&Value,input:&Value,view:&Value)->Result<(),String
     for revision in &requested{
         if records.iter().filter(|record|
             record["acceptanceId"]==*accepted&&
-            record["resultRevisionId"]==**revision&&
+            record["resultRevisionId"]==*revision&&
             record["workspaceId"]==*workspace&&
             record["organizationId"]==view["snapshot"]["organizationId"]&&
             record["result"].as_str().is_some()
