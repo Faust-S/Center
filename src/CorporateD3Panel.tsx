@@ -10,6 +10,7 @@ type Run=(success:string,work:()=>Promise<void|boolean>)=>Promise<void>;
 type SignedTask={taskId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:'NOT_CONFIRMED'};
 type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   contextId:string;contextEpoch:number;d3ApplyAvailable:boolean;
+  d3InspectAvailable?:boolean;
   d3TaskIssueAvailable?:boolean;d3ApplyRecoverAvailable?:boolean;
   tasks?:SignedTask[];totalTasks?:number}};
 type AssignmentDraft={id:string;title:string;assigneeId:string;editNumber:number;
@@ -303,13 +304,30 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setApplication(null);setApplyConsent(false);setKernelRecovery(null);
  };
  const inspectApplication=()=>run('Оригинальный Reconciliation подтвердил только кандидат на применение.',async()=>{
-   if(!accepted||!session.d3ApplyAvailable||!hex(receipt.receipt.acceptanceId))
+   if(!accepted||
+     (session.d3InspectAvailable!==true&&session.d3ApplyAvailable!==true)||
+     !hex(receipt.receipt.acceptanceId))
      throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
    const result=await execute('d3InspectAccepted',{
      acceptanceId:receipt.receipt.acceptanceId,revisionIds:selectedRevisions
    });
-   if(result?.status!=='CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION'||
-     result.applicationAttempted!==false||result.applicationAuthorized!==false)
+   if(result?.schema!=='IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1'||
+     result.status!=='CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION'||
+     result.applicationAttempted!==false||result.applicationAuthorized!==false||
+     result.externalContextCoreApplied!==false||
+     (result.source?.acceptanceId!==undefined&&
+       result.source.acceptanceId!==receipt.receipt.acceptanceId)||
+     (result.target?.workspaceId!==undefined&&
+       result.target.workspaceId!==session.workspaceId)||
+     (result.target?.subjectId!==undefined&&
+       result.target.subjectId!==session.organizationId)||
+     (result.changes!==undefined&&
+       (!Array.isArray(result.changes)||result.changes.length!==selectedRevisions.length||
+        !result.changes.every((x:any)=>hex(x?.resultRevisionId)&&
+          selectedRevisions.includes(x.resultRevisionId)&&
+          opPattern.test(x.taskId)&&opPattern.test(x.executorId)&&
+          typeof x.resultExcerpt==='string'&&x.resultExcerpt.length<=500&&
+          typeof x.resultTruncated==='boolean'))))
      throw Error('CEN_D3_APPLICATION_PREVIEW_INVALID');
    setApplication(result);setApplyConsent(false);
  });
@@ -625,7 +643,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    <p className="muted">ACCEPT подтверждён только в Reconciliation.
     Применение требует отдельного Human APPLY и подписанного D1 JIT.
     Неизвестный результат не повторяется автоматически.</p>
-   {!session.d3ApplyAvailable?<p>Исходный подписанный Apply-владелец ещё не подключён.</p>:<>
+   {!session.d3InspectAvailable&&!session.d3ApplyAvailable?
+    <p>Исходный подписанный получатель не поддерживает просмотр принятого Result.</p>:<>
     <p>Выберите принятые редакции:</p>
     {revisions.map(id=><label key={id}>
       <input type="checkbox" checked={selectedRevisions.includes(id)}
@@ -635,8 +654,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     </label>)}
     <div className="actions">
      <button className="secondary" data-testid="d3-inspect-apply"
-      disabled={busy||selectedRevisions.length===0||applyAttempted}
-      onClick={inspectApplication}>Предпросмотр применения</button>
+      disabled={busy||selectedRevisions.length===0||applyAttempted||applyPreviouslySent}
+      onClick={inspectApplication}>Проверить принятый Result</button>
     </div>
     {applyPreviouslySent&&!applyAttempted&&<p role="status"
       data-testid="d3-apply-already-sent">
@@ -662,8 +681,16 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        : 'Исход Apply неизвестен: точное событие и объект не подтверждены. '+
          'Повторная запись запрещена. Ключ эффекта: '+kernelRecovery.effectKey+'.'}
     </p>}
-    {application&&<div>
-     <p>Источник подтверждён как кандидат. Запись не выполнялась.</p>
+    {application&&<div data-testid="d3-accepted-result-readback">
+     <p>Оригинальный T3 подтвердил принятый Result и выбранные редакции.
+      Это только просмотр: запись в Kernel не выполнялась.</p>
+     {Array.isArray(application.changes)&&application.changes.map((item:any)=>
+       <p key={item.resultRevisionId}>
+        Поручение {item.taskId}; исполнитель {item.executorId}.
+        Результат: {item.resultExcerpt}
+        {item.resultTruncated?' (показан фрагмент)':''}
+       </p>)}
+     {session.d3ApplyAvailable===true&&<>
      <label><input type="checkbox" checked={applyConsent}
        disabled={applyAttempted||applyPreviouslySent||recoverPrevious}
        onChange={e=>setApplyConsent(e.target.checked)}/>
@@ -671,7 +698,12 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      <button className="primary" data-testid="d3-apply-confirm"
       disabled={busy||!applyConsent||applyAttempted||applyPreviouslySent||recoverPrevious}
       onClick={apply}>Apply</button>
+     </>}
     </div>}
+    {!session.d3ApplyAvailable&&<p role="status" data-testid="d3-original-kernel-not-connected">
+      Подписанный Result можно проверить, но применение в оригинальный
+      Kernel пока не подключено. ACCEPT не означает Apply.
+     </p>}
    </>}
    {applyAttempted&&!kernelResult&&<p className="notice subdued">
     Результат Apply не подтверждён. Требуется независимое чтение исходного Kernel

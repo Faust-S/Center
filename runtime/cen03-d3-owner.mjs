@@ -131,6 +131,7 @@ export function createCenD3OwnerHost({admission,access,apply=null,
      product:'admin',organizationId,workspaceId:c.workspace_id,
      personId:c.actor_id,actorId:c.actor_id,contextId:c.context_id,
      contextEpoch:c.scope_revision,d3RecipientAvailable:true,
+     d3InspectAvailable:applicationTargetFor!==null,
      d3ApplyAvailable:apply!==null&&applicationTargetFor!==null,
      d3ApplyRecoverAvailable:apply!==null&&
        typeof apply.recoverApplied==='function'&&applicationTargetFor!==null,
@@ -139,7 +140,7 @@ export function createCenD3OwnerHost({admission,access,apply=null,
    }};
  }
  async function targetFor(c,selection){
-   need(apply!==null&&applicationTargetFor!==null,'CEN_D3_APPLY_NOT_CONNECTED');
+   need(applicationTargetFor!==null,'CEN_D3_INSPECT_NOT_CONNECTED');
    return checkedTarget(await applicationTargetFor(copy(c,
      'CEN_D3_SIGNED_CONTEXT_INVALID'),copy(selection,
      'CEN_D3_ACCEPTED_SOURCE_INVALID')),c);
@@ -204,7 +205,9 @@ export function createCenD3OwnerHost({admission,access,apply=null,
          result.externalContextCoreApplied===false,
          'CEN_D3_APPLICATION_PREVIEW_INVALID');
      }else if(operation==='d3RecoverApplied'){
-       const selection=sourceSelection(input),target=await targetFor(c,selection);
+       const selection=sourceSelection(input);
+       need(apply!==null,'CEN_D3_APPLY_RECOVERY_NOT_CONNECTED');
+       const target=await targetFor(c,selection);
        need(typeof apply.recoverApplied==='function',
          'CEN_D3_APPLY_RECOVERY_NOT_CONNECTED');
        // Original signed D1 Kernel Object + Event readback. Never issue
@@ -212,7 +215,9 @@ export function createCenD3OwnerHost({admission,access,apply=null,
        result=checkedKernelRecovery(
          await apply.recoverApplied({...selection,target}),c,selection);
     }else if(operation==='d3ApplyAccepted'){
-       const selection=sourceSelection(input),target=await targetFor(c,selection);
+       const selection=sourceSelection(input);
+       need(apply!==null,'CEN_D3_APPLY_NOT_CONNECTED');
+       const target=await targetFor(c,selection);
        entered=true;
        // The original trusted owner repeats source review, gets sealed
        // effect/graph, independently confirms HUMAN APPLY, authorizes via

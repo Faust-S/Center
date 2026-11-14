@@ -101,6 +101,7 @@ test('D3: real signed subject scope, original archive, ACCEPT receipt and separa
  assert.equal(state.snapshot.productionActivation,false);
  assert.equal(state.snapshot.T3_READY,false);
  assert.equal(state.snapshot.d3RecipientAvailable,true);
+ assert.equal(state.snapshot.d3InspectAvailable,true);
  assert.equal(state.snapshot.d3ApplyAvailable,true);
  assert.equal(state.snapshot.d3ApplyRecoverAvailable,true);
  assert.ok(signedD3SessionFingerprint(state,'org:1'));
@@ -308,4 +309,29 @@ test('D3: a different original Event provenance never attests a prior Kernel App
      /CEN_D3_KERNEL_RECOVERY_READBACK_INVALID/,name);
  }
  assert.equal(log.filter(x=>x[0]==='apply').length,0);
+});
+
+test('D3: original recipient can inspect accepted Result without a Kernel Apply owner',async()=>{
+ const {signedD3Owner,log}=original();
+ const host=createCorporateOwnerHost({signedD3Owner:{
+   ...signedD3Owner,apply:null
+ }});
+ const state=await host.state({organizationId:'org:1'});
+ assert.equal(state.snapshot.d3RecipientAvailable,true);
+ assert.equal(state.snapshot.d3InspectAvailable,true);
+ assert.equal(state.snapshot.d3ApplyAvailable,false);
+ assert.equal(state.snapshot.d3ApplyRecoverAvailable,false);
+ const selection={acceptanceId:C,revisionIds:[C]};
+ const candidate=await command(host,'d3InspectAccepted',selection);
+ assert.equal(candidate.schema,'IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1');
+ assert.equal(candidate.status,'CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION');
+ assert.equal(candidate.applicationAuthorized,false);
+ assert.equal(candidate.applicationAttempted,false);
+ assert.deepEqual(log.filter(x=>x[0]==='inspectApply')[0][1].target,target);
+ await assert.rejects(()=>command(host,'d3ApplyAccepted',selection),
+   /CEN_D3_APPLY_NOT_CONNECTED/);
+ await assert.rejects(()=>command(host,'d3RecoverApplied',selection),
+   /CEN_D3_APPLY_RECOVERY_NOT_CONNECTED/);
+ assert.equal(log.filter(x=>x[0]==='apply').length,0);
+ assert.equal(log.filter(x=>x[0]==='recoverApply').length,0);
 });
