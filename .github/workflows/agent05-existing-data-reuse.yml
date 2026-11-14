@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: b1fdfb05ead45242eca164c0fc5bfe28abdecbf9
+          ref: 81a6c8515e5729e4c302ae9d5242e87477c614be
           path: private-agent
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
@@ -62,11 +62,9 @@ jobs:
               }
               Write-Host ('AGENT05_EXISTING_DATA_FAILED_STAGE='+$stage)
               $kind='UNKNOWN'
-              foreach($candidateKind in @('ValueError','TypeError','KeyError','OSError','RuntimeError','AttributeError','AssertionError','FileNotFoundError','PermissionError','UnicodeError','OTHER')){
-                if($text.Contains('AGENT05_LEGACY_STAGE_'+$stage+'_'+$candidateKind)){
-                  $kind=$candidateKind
-                  break
-                }
+              $stageMarker=[regex]::Escape('AGENT05_LEGACY_STAGE_'+$stage+'_')
+              if($text -match ($stageMarker+'([A-Za-z_][A-Za-z_0-9]{0,47})')){
+                $kind=$Matches[1]
               }
               Write-Host ('AGENT05_EXISTING_DATA_FAILED_EXCEPTION_KIND='+$kind)
               throw 'AGENT05_EXISTING_DATA_TEST_FAILED'
