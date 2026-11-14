@@ -1542,14 +1542,18 @@ namespace IwxaSetup
                     else
                     {
                     SetState(entrypointMissing ?
-                            T("Файлы программы отсутствуют — доступно восстановление",
-                              "Application files missing — repair available") :
-                            T("Эта версия уже установлена", "This version is installed"),
-                        T("Восстановление заменит отсутствующие или повреждённые файлы программы. Личные данные останутся без изменений.",
-                          "Repair restores missing or damaged application files without changing personal data."),
+                            T("Файлы программы отсутствуют", "Application files are missing") :
+                            T("Программа установлена", "Application installed"),
+                        entrypointMissing ?
+                            T("Нажмите «Восстановить файлы». Личные данные сохраняются.",
+                              "Select Repair files. Your personal data is preserved.") :
+                            T("Нажмите «Открыть программу». Значок запуска также есть в папке установки и меню «Пуск».",
+                              "Select Open application. You can also launch it from its installed folder or Start menu."),
                         versionLine, entrypointMissing);
-                    ConfigureActions(SetupOperation.Repair, SetupOperation.None,
-                        T("Восстановить файлы", "Repair files"));
+                    ConfigureActions(entrypointMissing ? SetupOperation.Repair :
+                        SetupOperation.None, SetupOperation.None,
+                        entrypointMissing ? T("Восстановить файлы", "Repair files") :
+                        T("Открыть программу", "Open application"));
                     openApplication.Tag = "APPLICATION";
                     openApplication.Text = T("Открыть установленную программу",
                         "Open installed application");
