@@ -321,7 +321,7 @@ pub async fn center_corporate_action(
         }else{(selected_path,None)};
         let payload=json!({
             "organizationId":organization_id,
-            "operation":if operation=="d3ReceiveAge"{"d3Receive"}else{&operation},
+            "operation":if operation=="d3ReceiveAge"{"d3Receive"}else{operation.as_str()},
             "input":input,
             "binding":binding,
             "archivePath":source_for_owner.as_ref()

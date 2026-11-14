@@ -1,20 +1,33 @@
-# Original private corporate T3 D3 owner
+# Original signed T3 and original age in the same Admin Center Setup Core
 
-This public repository never contains private T3 source, keys or signed
-product-owner executable. The ignored resource is compiled from Faust-S/T3
-using original AccessRegistry, OfflinePackageReconciler and Windows DPAPI,
-not a reference TEST owner.
-
-The private T3 repository owns this Windows release recipe:
+The public Center repository contains **no private T3 source, vault keys,
+licensed business rights, or original owner executables**. The two original
+Windows operators are built from private Faust-S/T3 source by the private
+local release recipe, not by public Center Actions.
 
     pwsh scripts/build-admin-center-d3-owner.ps1 -CenterRoot CENTER_CHECKOUT -BuildCenter
 
-The recipe builds the existing IWXA Setup Core installer with TWO executable
-payload files: iwxa-admin-center.exe and t3/iwxa-t3-product-owner.exe.
-Their checksums are verified using the existing Setup Core verifier.
-The Tauri resource overlay is not an alternative end-user application.
+That recipe builds ONE original IWXA Setup Core containing exactly seven
+payload files, with the native Tauri binary in the installed root:
 
-Public Center Actions contain NO private binary and show NOT_CONNECTED.
-The original corporate Kernel Apply remains unavailable until the native
-signed D1 commitObjectGraph/getObject and original sealed application-host
-binding are included in the real T3 product.
+1. iwxa-admin-center.exe
+2. t3/iwxa-t3-product-owner.exe (original private signed D3 owner)
+3. t3/iwxa-t3-age-desktop.exe (original private age transport/DPAPI owner)
+4. t3/age.exe (unmodified upstream age v1.3.2)
+5. t3/age-keygen.exe (unmodified upstream age v1.3.2)
+6. t3/age-LICENSE.txt (original BSD redistribution notice)
+7. t3/age-toolchain.json (upstream executable SHA-256 pins)
+
+The Windows release recipe checks the official upstream ZIP SHA-256 before
+extracting tools. Center embeds both original owner executable SHA-256 pins
+at compilation. Each age/age-keygen SHA-256 is checked through the already
+existing native T3 age-toolchain verifier. Setup Core checks the entire
+7-file payload and exact original product entrypoint; no other EXE or
+installer is presented to the user.
+
+Public Center Actions intentionally ship none of those private resources
+and therefore corporate D3 reports NOT_CONNECTED. Signed first-use enrollment,
+the independent Personal Agent Result and original D1 Kernel Apply are
+**not accepted as installed product capabilities** without a real original
+private Windows run and cold readback. Acceptance is not conferred by
+a successful public Center CI.
