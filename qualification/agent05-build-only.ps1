@@ -8,6 +8,12 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+$script:BuildStage='PRECHECK'
+trap {
+    # Public logs expose only a bounded stage, never package data or paths.
+    [Console]::Error.WriteLine('AGENT05_BUILD_ONLY_FAIL_STAGE='+$script:BuildStage)
+    exit 1
+}
 $agentSha='47ba22bdb0e4dbeeb91d3a56199395db3472145e'
 if($env:OS -ne 'Windows_NT'){throw 'agent05_build_windows_required'}
 $center=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -52,6 +58,7 @@ $stage=Join-Path $work 'native-desktop'
 foreach($p in @($work,$logs,$cache,$stage)){New-Item -ItemType Directory -Force -Path $p | Out-Null}
 # The already-qualified Windows packaging path is reused. Only build steps
 # execute; no acceptance script or installed application is launched.
+$script:BuildStage='MANAGED_PYTHON'
 $managed=Join-Path $work 'managed-python'
 & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $agent 'tools/ensure_windows_python_runtime.ps1') -RuntimeRoot $managed -ManifestPath (Join-Path $agent 'config/runtime-bootstrap/windows-python.json') -CacheRoot $cache -RuntimeWheelManifest (Join-Path $agent 'config/runtime-bootstrap/windows-runtime-wheels.json') *> (Join-Path $logs 'managed-python.log')
 if($LASTEXITCODE -ne 0){throw 'agent05_build_managed_python_failed'}
@@ -59,13 +66,16 @@ $pointer=Join-Path $managed 'current-python.txt'
 if(!(Test-Path -LiteralPath $pointer -PathType Leaf)){throw 'agent05_build_python_pointer_missing'}
 $python=(Get-Content -LiteralPath $pointer -Raw).Trim()
 if(!(Test-Path -LiteralPath $python -PathType Leaf)){throw 'agent05_build_python_missing'}
+$script:BuildStage='COPY_DESKTOP'
 foreach($name in @('package.json','package-lock.json','tsconfig.json','vite.config.ts','index.html','src','public','src-tauri')){
     Copy-Item -LiteralPath (Join-Path $agent ('desktop/'+$name)) -Destination (Join-Path $stage $name) -Recurse -Force
 }
+$script:BuildStage='ICON'
 $iconDir=Join-Path $stage 'src-tauri/icons'
 New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
 & $python -I (Join-Path $agent 'tools/iwxa_ico_for_rc.py') --source (Join-Path $agent 'webui/iwxa-personal.ico') --output (Join-Path $iconDir 'icon.ico') *> (Join-Path $logs 'icon.log')
 if($LASTEXITCODE -ne 0){throw 'agent05_build_icon_failed'}
+$script:BuildStage='U04'
 & $node (Join-Path $agent 'scripts/prepare-public-modules.mjs') --only-u04 --fetch *> (Join-Path $logs 'u04-pin.log')
 if($LASTEXITCODE -ne 0){throw 'agent05_build_u04_owner_unavailable'}
 & $node (Join-Path $agent 'scripts/stage-u04-desktop.mjs') (Join-Path $agent 'build/u04-owner-sources') (Join-Path $stage 'public/u04') *> (Join-Path $logs 'u04-stage.log')
@@ -81,9 +91,11 @@ function NpmBuild([string[]]$NpmArguments,[string]$code,[string]$logname){
         if($null -eq $process.ExitCode -or $process.ExitCode -ne 0){throw $code}
     }finally{$process.Dispose()}
 }
+$script:BuildStage='NPM_DEPENDENCIES'
 NpmBuild @('ci','--no-audit','--no-fund') 'agent05_build_npm_dependencies_failed' 'npm-ci'
 # Production build necessarily compiles TypeScript, Vite and Rust. It does
 # NOT run tests, inspect a GUI, invoke a model, or execute an installed Setup.
+$script:BuildStage='TAURI_BUILD'
 NpmBuild @('run','tauri:build','--','--no-bundle') 'agent05_build_tauri_failed' 'tauri-build'
 $nativeExe=Join-Path $stage 'src-tauri/target/release/iwxa-personal.exe'
 $nativeDist=Join-Path $stage 'dist'
@@ -94,9 +106,11 @@ if(!(Test-Path -LiteralPath $nativeExe -PathType Leaf) -or
 $packageRoot=Join-Path $work 'package'
 $packageLogs=Join-Path $logs 'package'
 New-Item -ItemType Directory -Force -Path $packageRoot,$packageLogs | Out-Null
+$script:BuildStage='PACKAGE'
 $packageBuildLog=Join-Path $logs 'package-build-only.json'
 & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $agent 'tools/qualify_explorer_windows_phase1_package.ps1') -BuildDir $packageRoot -LogsDir $packageLogs -CacheRoot $cache -NativeDesktopDist $nativeDist -NativeDesktopExe $nativeExe -BuildOnly *> $packageBuildLog
 if($LASTEXITCODE -ne 0){throw 'agent05_build_private_package_failed'}
+$script:BuildStage='PACKAGE_RECEIPT'
 $packageReceipt=Get-Content -LiteralPath $packageBuildLog -Raw -Encoding UTF8 | ConvertFrom-Json
 $package=Join-Path $packageRoot 'IWXA-Personal-Agent-Windows-Explorer-Prototype.zip'
 if($packageReceipt.status -cne 'BUILT_ONLY' -or
@@ -106,9 +120,11 @@ if($packageReceipt.status -cne 'BUILT_ONLY' -or
     throw 'agent05_build_package_identity_failed'
 }
 $setup=Join-Path $out 'IWXA-Personal-Agent-0.5.0-Setup.exe'
+$script:BuildStage='SETUP_CORE'
 $builderLog=Join-Path $logs 'setup-core-build.json'
 & $python -B (Join-Path $agent 'tools/build_setup_core_release.py') --product-package $package --center-root $center --center-commit $centerCommit --output $setup --python $python *> $builderLog
 if($LASTEXITCODE -ne 0){throw 'agent05_build_setup_core_failed'}
+$script:BuildStage='SETUP_RECEIPT'
 $record=Get-Content -LiteralPath $builderLog -Raw -Encoding UTF8 | ConvertFrom-Json
 $sha=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
 if($record.status -cne 'BUILT_UNQUALIFIED' -or $record.version -cne '0.5.0' -or
