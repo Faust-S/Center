@@ -240,6 +240,12 @@ function ToolsIndex() {
           >
             Холодовая цепь (CASE-004)
           </Link>
+          <Link
+            to="/tools/inbound-yard-crossdock"
+            className="rounded border border-[#3B82F6] px-4 py-2 font-mono text-xs uppercase tracking-widest text-foreground transition-colors hover:bg-[#3B82F6]/10"
+          >
+            Кросс-докинг и грузовой двор (CASE-005)
+          </Link>
           <a
             href="#catalog"
             className="rounded border border-white/15 bg-white/[0.03] px-4 py-2 font-mono text-xs uppercase tracking-widest text-foreground transition-colors hover:border-[#3B82F6] hover:text-[#3B82F6]"

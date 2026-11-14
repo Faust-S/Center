@@ -43,6 +43,7 @@ export const siteRoutes = [
   "/tools/depot-maintenance-supply/",
   "/tools/distribution-network-expansion/",
   "/tools/cold-chain-control/",
+  "/tools/inbound-yard-crossdock/",
 ] as const;
 
 export type SiteRoute = (typeof siteRoutes)[number];

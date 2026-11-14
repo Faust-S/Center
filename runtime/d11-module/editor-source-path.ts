@@ -22,6 +22,7 @@ export function d11CaseEditorPath(proposal:D11EditorProposal):string|null{
     case "D11-CASE-002":return "/tools/depot-maintenance-supply";
     case "D11-CASE-003":return "/tools/distribution-network-expansion";
     case "D11-CASE-004":return "/tools/cold-chain-control";
+    case "D11-CASE-005":return "/tools/inbound-yard-crossdock";
     default:return null;
   }
 }
