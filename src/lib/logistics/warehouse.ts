@@ -45,6 +45,23 @@ export function pickWarehouseOrders(model: Project, day: string, stockAvailable?
   }
   return { accepted, missed, shortages, readyAt: ready };
 }
+/** Required when real loading shifts after a planned reservation. Keep the
+ * original bay but move start past any supplier truck already occupying it. */
+export function firstOpenDockStart(
+  bay: number, requiredAt: number, loadMinutes: number,
+  blocked: readonly DockReservation[] = [],
+): number {
+  if (!Number.isSafeInteger(bay) || bay < 0 ||
+      !Number.isFinite(requiredAt) || !Number.isFinite(loadMinutes) ||
+      loadMinutes <= 0) throw Error("D11_DOCK_REQUEST_INVALID");
+  let start = requiredAt;
+  for (const block of blocked.filter(x => x.bay === bay)
+    .sort((a,b) => a.startMinute-b.startMinute)) {
+    if (start < block.endMinute && start+loadMinutes > block.startMinute)
+      start = block.endMinute;
+  }
+  return start;
+}
 /** Reserve the earliest feasible bay without colliding with real inbound
  * reservations. The old three-argument call remains byte-for-byte equivalent
  * for projects with no reserved inbound/maintenance windows. */
@@ -55,15 +72,8 @@ export function selectDock(
   if (!bayFreeAt.length || !Number.isFinite(requiredAt) ||
       !Number.isFinite(loadMinutes) || loadMinutes <= 0)
     throw Error("D11_DOCK_REQUEST_INVALID");
-  const beginsAt = (bay: number) => {
-    let start = Math.max(requiredAt, bayFreeAt[bay]);
-    for (const block of blocked.filter(x => x.bay === bay)
-      .sort((a,b) => a.startMinute - b.startMinute)) {
-      if (start < block.endMinute && start + loadMinutes > block.startMinute)
-        start = block.endMinute;
-    }
-    return start;
-  };
+  const beginsAt = (bay: number) =>
+    firstOpenDockStart(bay, Math.max(requiredAt, bayFreeAt[bay]), loadMinutes, blocked);
   let best = 0, startMinute = beginsAt(0);
   for (let bay = 1; bay < bayFreeAt.length; bay++) {
     const t = beginsAt(bay);

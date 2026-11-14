@@ -1,6 +1,6 @@
 /** D11: reproducible operational replay and plan/fact ledger for route scenarios. */
 import { assembleScenario, auditScenario, fingerprintModel, planDay, runScenario, travelMinutes, type Order, type Project, type Scenario, type Vehicle } from "./engine.ts";
-import { warehouseOptions } from "./warehouse.ts";
+import { firstOpenDockStart, warehouseOptions } from "./warehouse.ts";
 import { calculateInventory, initialStock, inspectionReleaseDay, receiveStock, subtractDeliveredStock, type InventoryReport } from "./inventory.ts";
 
 export interface OperationSettings {
@@ -121,9 +121,12 @@ function replayDayTrips(
     const previous = lastTrip.get(run.vehicleId);
     const readyForNextTrip = previous
       ? previous.returnMinute + turnaroundMinutes : vehicle.shiftStart;
-    const loadStartMinute = Math.max(
-      run.loadStartMinute + settings.dockDelayMinutes,
-      bayAvailable[run.loadingBay], readyForNextTrip,
+    const loadStartMinute = firstOpenDockStart(
+      run.loadingBay,
+      Math.max(run.loadStartMinute + settings.dockDelayMinutes,
+        bayAvailable[run.loadingBay], readyForNextTrip),
+      model.warehouse.loadMinutes,
+      model.warehouse.dockBlocks?.filter(b => b.day === day.day) ?? [],
     );
     const trip = actualTrip(model, vehicle, orders, run, settings, loadStartMinute,
       previous?.lastBreakEndMinute ?? vehicle.shiftStart);
