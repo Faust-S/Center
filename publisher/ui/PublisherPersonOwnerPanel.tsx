@@ -39,6 +39,20 @@ const personStatusAllowed=(license:PersonRecord|undefined,requested:string)=>{
 };
 const shortLicenseId=(value:string)=>value.length>30?
   value.slice(0,12)+'…'+value.slice(-12):value;
+// The owner inventory is deliberately bounded: check every available
+// identity and term field before treating a signed requestId as this draft.
+// The original T3 owner alone verifies the full immutable request digest.
+const matchesSignedPersonScope=(record:PersonRecord,request:any,issuer?:string)=>
+  record.requestId===request?.requestId&&
+  record.personId===request?.subject?.id&&
+  record.productId===request?.product?.id&&
+  (!issuer||record.issuerAuthorityId===issuer)&&
+  record.deviceLimit===request?.deviceLimit&&
+  record.quotaCount===request?.quotas?.length&&
+  Number.isSafeInteger(request?.termDays)&&
+  Date.parse(record.expiresAt)-Date.parse(record.notBefore)===
+    request.termDays*86400000&&
+  Boolean(record.renewalOfLicenseId)===Boolean(request?.renewalOfRequestId);
 export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequestId,ageReady}:Props){
   const [issuers,setIssuers]=useState<string[]>([]);
   const [issuer,setIssuer]=useState('');
@@ -83,6 +97,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
   // confirms this request, the UI must not invite a redundant signature.
   const issuedSelected=selected?licenses.find(l=>
     l.requestId===selected.request.requestId):undefined;
+  const signedSourceConflict=Boolean(issuedSelected&&selected&&
+    !matchesSignedPersonScope(issuedSelected,selected.request,issuer));
   const selectedLicense=licenses.find(l=>l.licenseId===licenseId);
   const renewalOptions=(Array.isArray(draft?.tariffs)?draft.tariffs:[])
     .filter((t:any)=>t.productId===selectedLicense?.productId&&t.holderType==='PERSON');
@@ -304,14 +320,33 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         lookupId:request.requestId});
       const prior=checkedInventory(before,request.requestId)
         .find(x=>x.requestId===request.requestId);
-      if(prior)return {
-        message:'Эта подготовка уже подписана исходным T3. '+
-          'Лицензия выбрана в журнале для дальнейших действий.',
-        readbackLookupId:request.requestId,
-        selectLicenseId:prior.licenseId,
-        confirm:({entries}:Inventory)=>entries.some(x=>
-          x.licenseId===prior.licenseId&&x.requestId===request.requestId)
-      };
+      if(prior){
+        if(!matchesSignedPersonScope(prior,request,authority))
+          throw Error('PERSON_SIGNED_REQUEST_SCOPE_MISMATCH');
+        if(request.renewalOfRequestId){
+          // Recover a previously signed renewal even after the predecessor
+          // has been revoked. Verify its immutable original linkage without
+          // re-running eligibility rules for NEW signed issuance.
+          const original=await invoke('publisher_t3_person_inventory',{
+            lookupId:request.renewalOfRequestId});
+          const predecessor=checkedInventory(original,request.renewalOfRequestId)
+            .find(x=>x.requestId===request.renewalOfRequestId);
+          if(!predecessor||prior.renewalOfLicenseId!==predecessor.licenseId||
+             predecessor.personId!==prior.personId||
+             predecessor.productId!==prior.productId||
+             predecessor.issuerAuthorityId!==authority)
+            throw Error('PERSON_SIGNED_RENEWAL_LINEAGE_MISMATCH');
+        }
+        return {
+          message:'Подписанная запись с этим ID найдена в исходном T3. '+
+            'Она выбрана в журнале; новая подпись не создавалась.',
+          readbackLookupId:request.requestId,
+          selectLicenseId:prior.licenseId,
+          confirm:({entries}:Inventory)=>entries.some(x=>
+            x.licenseId===prior.licenseId&&
+            matchesSignedPersonScope(x,request,authority))
+        };
+      }
       if(source?.previousProposalId){
         // For a NEW renewal, consult the original T3 owner by requestId,
         // even if the predecessor is no longer in the last 48 UI entries.
@@ -338,9 +373,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         readbackLookupId:request.requestId,
         selectLicenseId:result.licenseId,
         confirm:({entries}:Inventory)=>entries.some(x=>x.licenseId===result.licenseId&&
-          x.requestId===request.requestId&&x.issuerAuthorityId===authority&&
-          x.personId===request.subject.id&&x.productId===request.product.id&&
-          x.deviceLimit===request.deviceLimit&&x.quotaCount===request.quotas.length)
+          matchesSignedPersonScope(x,request,authority))
       };
     },true);
   }
@@ -485,12 +518,21 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
           onChange={e=>setTermsConfirmed(e.target.checked)}
           disabled={busy}/> Подтверждаю выпуск на указанных условиях</label>
       </div>}
-      {issuedSelected&&<p className="notice subdued"
-        data-testid="publisher-person-already-issued">
-        Эта подготовка уже выпущена в T3: {issuedSelected.licenseId}
-        (издатель {issuedSelected.issuerAuthorityId}).
-        Выберите запись в журнале ниже для подписания статуса или экспорта .iwxa.
-      </p>}
+      {issuedSelected&&(signedSourceConflict?
+        <p className="notice" role="alert"
+          data-testid="publisher-person-signed-source-conflict">
+          Этот requestId уже занят подписанной записью T3:
+          {' '+issuedSelected.licenseId}. Её получатель, издатель или
+          условия отличаются от выбранной подготовки.
+          Новую подпись с тем же ID создавать нельзя.
+          Выберите правильную подготовку или создайте новый запрос.
+        </p>:
+        <p className="notice subdued"
+          data-testid="publisher-person-already-issued">
+          Эта подготовка уже выпущена в T3: {issuedSelected.licenseId}
+          (издатель {issuedSelected.issuerAuthorityId}).
+          Выберите запись в журнале ниже для подписания статуса или экспорта .iwxa.
+        </p>)}
       <div className="actions">
         <button type="button" className="primary" data-testid="publisher-person-issue"
           disabled={busy||needsRefresh||!issuer||!selected||!termsConfirmed||!!issuedSelected}

@@ -947,6 +947,7 @@ try {
           activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_person_issue'){
+        window.__personMockIssueCalls=(window.__personMockIssueCalls||0)+1;
         const r=JSON.parse(args.requestJson);
         window.assertPersonRequest(r,args.issuerAuthorityId);
         const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
@@ -1096,6 +1097,43 @@ try {
   assert.equal(JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger')||'[]')).length,0);
   checks.push('person-preflight-error-retry-does-not-create-ambiguous-signature');
+  // A signed requestId belongs to the ORIGINAL T3 ledger, not to an
+  // arbitrary local draft. Refuse a different subject, including when the
+  // conflicting record has already fallen outside the recent inventory.
+  const conflictingSignedSource={
+    licenseId:'license:person:other:issuer:1',
+    requestId:directDraft.proposals[0].id,
+    issuerAuthorityId:'publisher:person:mock',
+    personId:'person:different-customer',
+    productId:'IWXA_ATLAS',deviceLimit:3,quotaCount:0,
+    issuedAt:new Date().toISOString(),notBefore:new Date().toISOString(),
+    expiresAt:new Date(Date.now()+30*86400000).toISOString(),
+    status:'NOT_ACTIVATED',sequence:0,activeSeats:0
+  };
+  const nativeIssueCallsBefore=await personal.evaluate(()=>
+    window.__personMockIssueCalls||0);
+  await personal.evaluate(({record,requestId})=>{
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify([record]));
+    window.__personMockHideOriginalRecent=requestId;
+  },{record:conflictingSignedSource,requestId:directDraft.proposals[0].id});
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isEnabled(),true);
+  await personOwner.getByTestId('publisher-person-issue').click();
+  await personOwner.getByText('PERSON_SIGNED_REQUEST_SCOPE_MISMATCH',{exact:false}).waitFor();
+  assert.equal(await personal.evaluate(()=>window.__personMockIssueCalls||0),
+    nativeIssueCallsBefore,'Conflicting signed source must not reach original signer');
+  await personal.evaluate(()=>{window.__personMockHideOriginalRecent=null;});
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByTestId('publisher-person-signed-source-conflict').waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
+  assert.equal(await personOwner.getByTestId('publisher-person-already-issued').count(),0);
+  checks.push('person-signed-request-id-conflict-never-claimed-as-issued-or-resigned');
+  await personal.evaluate(()=>{
+    sessionStorage.removeItem('publisher-person-mock-ledger');
+  });
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
   await personOwner.getByTestId('publisher-person-issue').click();
   await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя и выбрана.',{exact:false}).waitFor();
   await personOwner.getByTestId('publisher-person-already-issued').waitFor();
