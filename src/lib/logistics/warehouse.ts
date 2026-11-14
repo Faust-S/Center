@@ -8,6 +8,7 @@ export interface WarehouseDay {
   readyAt: ReadonlyMap<string, number>;
 }
 export interface DockReservation { bay: number; startMinute: number; endMinute: number; }
+export interface DockBlock extends DockReservation { day: string; reference: string; }
 export function warehouseOptions(model: Project) {
   return {
     pickers: model.warehouse.pickers ?? 20,
@@ -44,11 +45,29 @@ export function pickWarehouseOrders(model: Project, day: string, stockAvailable?
   }
   return { accepted, missed, shortages, readyAt: ready };
 }
-/** Reserve an actual bay only after route acceptance; tentative checks do not mutate the dock calendar. */
-export function selectDock(bayFreeAt: readonly number[], requiredAt: number, loadMinutes: number): DockReservation {
-  let best = 0;
-  const beginsAt = (bay: number) => Math.max(requiredAt, bayFreeAt[bay]);
-  for (let i = 1; i < bayFreeAt.length; i++) if (beginsAt(i) < beginsAt(best)) best = i;
-  const startMinute = beginsAt(best);
+/** Reserve the earliest feasible bay without colliding with real inbound
+ * reservations. The old three-argument call remains byte-for-byte equivalent
+ * for projects with no reserved inbound/maintenance windows. */
+export function selectDock(
+  bayFreeAt: readonly number[], requiredAt: number, loadMinutes: number,
+  blocked: readonly DockReservation[] = [],
+): DockReservation {
+  if (!bayFreeAt.length || !Number.isFinite(requiredAt) ||
+      !Number.isFinite(loadMinutes) || loadMinutes <= 0)
+    throw Error("D11_DOCK_REQUEST_INVALID");
+  const beginsAt = (bay: number) => {
+    let start = Math.max(requiredAt, bayFreeAt[bay]);
+    for (const block of blocked.filter(x => x.bay === bay)
+      .sort((a,b) => a.startMinute - b.startMinute)) {
+      if (start < block.endMinute && start + loadMinutes > block.startMinute)
+        start = block.endMinute;
+    }
+    return start;
+  };
+  let best = 0, startMinute = beginsAt(0);
+  for (let bay = 1; bay < bayFreeAt.length; bay++) {
+    const t = beginsAt(bay);
+    if (t < startMinute) { best = bay; startMinute = t; }
+  }
   return { bay: best, startMinute, endMinute: startMinute + loadMinutes };
 }

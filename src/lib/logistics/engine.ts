@@ -17,6 +17,7 @@ export interface Project {
     bays: number; loadMinutes: number; dailyOrderCapacity: number;
     pickers?: number; pickMinutesPerOrder?: number; pickingStartMinute?: number;
     pickingEndMinute?: number; turnaroundMinutes?: number; maxRunsPerVehicle?: number; maxStopsPerTrip?: number;
+    dockBlocks?: { day: string; bay: number; startMinute: number; endMinute: number; reference: string }[];
   };
   road: {
     gridDetourFactor: number; avgKmHour: number;
@@ -142,6 +143,16 @@ export function validate(model: Project): void {
       !Number.isSafeInteger(wh.maxRunsPerVehicle) || wh.maxRunsPerVehicle < 1 || wh.maxRunsPerVehicle > 4 ||
       !Number.isSafeInteger(wh.maxStopsPerTrip) || wh.maxStopsPerTrip < 1 || wh.maxStopsPerTrip > 100)
     throw Error("D11_WAREHOUSE_CONFIG_INVALID");
+  const blocks = model.warehouse.dockBlocks ?? [];
+  if (!Array.isArray(blocks) || blocks.length > 2500 || blocks.some((x, i) =>
+      !x || !model.days.includes(x.day) || !Number.isSafeInteger(x.bay) ||
+      x.bay < 0 || x.bay >= model.warehouse.bays ||
+      !Number.isSafeInteger(x.startMinute) || !Number.isSafeInteger(x.endMinute) ||
+      x.startMinute < 0 || x.endMinute > 1440 || x.startMinute >= x.endMinute ||
+      typeof x.reference !== "string" || !x.reference.trim() ||
+      blocks.slice(i + 1).some(other => other.day === x.day && other.bay === x.bay &&
+        x.startMinute < other.endMinute && other.startMinute < x.endMinute)))
+    throw Error("D11_DOCK_BLOCKS_INVALID");
   const trafficPeriods = model.road.trafficPeriods ?? [];
   if (!Array.isArray(trafficPeriods) || trafficPeriods.some((p, i) =>
       !Number.isSafeInteger(p.fromMinute) || !Number.isSafeInteger(p.toMinute) ||
@@ -324,7 +335,8 @@ export function planDay(model: Project, day: string, mode: Mode, unavailableIds:
           const selectedWithCandidate = [...selected, item.order];
           const readyMinute = Math.max(...selectedWithCandidate.map(o => picked.readyAt.get(o.id)!));
           const dock = selectDock(bayFreeAt,
-            Math.max(state.nextAvailableMinute, readyMinute), model.warehouse.loadMinutes);
+            Math.max(state.nextAvailableMinute, readyMinute), model.warehouse.loadMinutes,
+            model.warehouse.dockBlocks?.filter(b => b.day === day) ?? []);
           const candidate = evaluateRun(model, vehicle, day, selectedWithCandidate, index, {
             loadStartMinute: dock.startMinute, loadingBay: dock.bay,
             tripNumber: roundNumber, driverBreakStartMinute: state.lastBreakEndMinute,
@@ -407,7 +419,8 @@ export function auditScenario(
       }
       const readyMinute = Math.max(...(sequence as Order[]).map(o => picked.readyAt.get(o.id)!));
       const dock = selectDock(dockAvailable,
-        Math.max(state.nextAvailableMinute, readyMinute), model.warehouse.loadMinutes);
+        Math.max(state.nextAvailableMinute, readyMinute), model.warehouse.loadMinutes,
+        model.warehouse.dockBlocks?.filter(b => b.day === day.day) ?? []);
       const recalculated = evaluateRun(model, vehicle, day.day, sequence as Order[], index, {
         loadStartMinute: dock.startMinute, loadingBay: dock.bay,
         tripNumber: state.trips + 1, driverBreakStartMinute: state.lastBreakEndMinute,
