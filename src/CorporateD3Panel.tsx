@@ -21,6 +21,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
  const [confirmed,setConfirmed]=useState(false);
  const [rejectReason,setRejectReason]=useState('');
  const [operationId,setOperationId]=useState('');
+ const [preparedId,setPreparedId]=useState('');
+ const [idSaved,setIdSaved]=useState(false);
  const [decisionAttempted,setDecisionAttempted]=useState(false);
  const [decisionType,setDecisionType]=useState<'ACCEPT'|'REJECT'|null>(null);
  const [receipt,setReceipt]=useState<any>(null);
@@ -35,6 +37,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
  const previous=useRef(sessionKey);
  const reset=()=>{
    setPreview(null);setConfirmed(false);setRejectReason('');setOperationId('');
+   setPreparedId('');setIdSaved(false);
    setDecisionAttempted(false);setDecisionType(null);setReceipt(null);
    setSelectedRevisions([]);setApplication(null);setApplyConsent(false);
    setApplyAttempted(false);setKernelResult(null);
@@ -56,6 +59,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
      result.packageSha256!==hash||!hex(result.previewDigest))
      throw Error('CEN_D3_ORIGINAL_PREVIEW_INVALID');
    setPreview(result);setConfirmed(false);setApplication(null);
+   setPreparedId('');setIdSaved(false);
  });
  const recover=()=>run('Оригинальная квитанция перечитана. Это не подтверждение записи в Kernel.',async()=>{
    const id=operationId.trim();
@@ -72,13 +76,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
    'Решение записано исходным Reconciliation. Для проверки используйте отдельное чтение квитанции.',
    async()=>{
      if(decisionAttempted||!confirmed||!preview||!hex(hash)||
+       !idSaved||!opPattern.test(preparedId)||preparedId!==operationId||
        (kind==='ACCEPT'&&preview.allowedAction!=='EXPLICIT_ACCEPT_ONLY')||
        (kind==='REJECT'&&!rejectReason.trim()))
        throw Error('CEN_D3_EXPLICIT_HUMAN_REVIEW_REQUIRED');
-     // Keep operationId visible BEFORE posting. It remains available when
-     // the native process commits but the reply/connection disappears.
-     const id='decision:'+crypto.randomUUID();
-     setOperationId(id);setDecisionAttempted(true);setDecisionType(kind);
+     // The ID was visible and explicitly saved BEFORE dispatch. On a lost
+     // acknowledgment, restoring the original receipt never retries the write.
+     const id=preparedId;
+     setDecisionAttempted(true);setDecisionType(kind);
      setReceipt(null);setApplication(null);
      const outcome=await execute('d3Decide',{operationId:id,packageSha256:hash,
        previewDigest:preview.previewDigest,decision:kind,
@@ -159,12 +164,29 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
      onChange={e=>setRejectReason(e.target.value)}/>
    </label>
    <div className="actions">
+    <button className="secondary" data-testid="d3-prepare-id"
+     disabled={busy||decisionAttempted}
+     onClick={()=>{
+       const id='decision:'+crypto.randomUUID();
+       setOperationId(id);setPreparedId(id);setIdSaved(false);
+       setReceipt(null);setApplication(null);
+     }}>Подготовить ID решения</button>
+   </div>
+   {preparedId&&operationId===preparedId&&<div data-testid="d3-id-before-send">
+    <p>Сохраните ID до отправки: <code>{preparedId}</code></p>
+    <label><input type="checkbox" checked={idSaved}
+      onChange={e=>setIdSaved(e.target.checked)}/>
+      Я сохранил ID для восстановления при потере ответа</label>
+   </div>}
+   <div className="actions">
     <button className="primary" data-testid="d3-accept"
-     disabled={busy||!confirmed||decisionAttempted||
+     disabled={busy||!confirmed||decisionAttempted||!idSaved||
+       !preparedId||preparedId!==operationId||
        preview.allowedAction!=='EXPLICIT_ACCEPT_ONLY'}
      onClick={()=>decide('ACCEPT')}>ACCEPT</button>
     <button className="secondary" data-testid="d3-reject"
-     disabled={busy||!confirmed||decisionAttempted||!rejectReason.trim()}
+     disabled={busy||!confirmed||decisionAttempted||!idSaved||
+       !preparedId||preparedId!==operationId||!rejectReason.trim()}
      onClick={()=>decide('REJECT')}>REJECT</button>
    </div>
   </div>}
@@ -175,7 +197,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
     ID можно сохранить отдельно для восстановления после перезапуска.</p>
    <label>ID операции
     <input data-testid="d3-operation-id" value={operationId} maxLength={160}
-     onChange={e=>{setOperationId(e.target.value.trim());setReceipt(null);setApplication(null)}}
+     onChange={e=>{setOperationId(e.target.value.trim());setPreparedId('');
+      setIdSaved(false);setReceipt(null);setApplication(null)}}
      placeholder="decision:..." />
    </label>
    <div className="actions">
