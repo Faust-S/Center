@@ -112,6 +112,18 @@ jobs:
           }
           Write-Host 'AGENT05_SHORT_ROOT_WINDOWS_BUILD_ONLY_PASS'
           Write-Host ('AGENT05_SHORT_ROOT_SETUP_SHA256='+$sha)
+      - name: Native Setup layout at standard and scaled Windows DPI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $setup='C:\i5\o\IWXA-Personal-Agent-0.5.0-Setup.exe'
+          $script='C:\i5\c\installer\windows\qualify-gui-layout-fast.ps1'
+          $log=Join-Path $env:RUNNER_TEMP 'agent05-native-dpi-private.log'
+          $ps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          & $ps -NoProfile -NonInteractive -Sta -ExecutionPolicy Bypass -File $script -Stub $setup *> $log
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_NATIVE_SETUP_DPI_FAILED'}
+          if(-not((Get-Content -LiteralPath $log) -ccontains 'IWXA_SETUP_NATIVE_UNIFIED_UX_ACCEPTANCE_PASS')){throw 'AGENT05_NATIVE_SETUP_DPI_RESULT_MISSING'}
+          Write-Host 'AGENT05_NATIVE_SETUP_DPI_PASS'
       - name: Actual first install and visible installed Windows launcher
         shell: pwsh
         run: |
@@ -225,5 +237,69 @@ jobs:
           $p=Start-Process -FilePath $setup -ArgumentList @('--upgrade-plan-file',$plan2) -Wait -PassThru
           if($p.ExitCode -ne 0 -or (Get-Content $plan2 -Raw | ConvertFrom-Json).status -cne 'REPAIR_CANDIDATE_NOT_ACTIVATED'){throw 'AGENT05_FINISH_READBACK_FAILED'}
           Write-Host 'AGENT05_FINISH_WITH_PRESERVED_DATA_PASS'
+      - name: Real installed local model Task Result and cold reopen
+        shell: pwsh
+        timeout-minutes: 35
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\IWXA\Agent'
+          $receipt=Get-Content -LiteralPath (Join-Path $root 'explorer-install-receipt.json') -Raw -Encoding utf8 | ConvertFrom-Json
+          $relative=[string]$receipt.managed_runtime.python_executable
+          if([string]::IsNullOrWhiteSpace($relative) -or
+             [IO.Path]::IsPathRooted($relative) -or
+             $relative.Contains('..') -or $relative.Contains(':')){throw 'AGENT05_INSTALLED_PYTHON_PATH_INVALID'}
+          $python=Join-Path $root ($relative.Replace('/','\'))
+          $control=Join-Path $root 'tools\iwxa_windows_user_control.py'
+          $probe='C:\i5\a\tools\qualify_setup_core_real_qwen.py'
+          if(!(Test-Path $python -PathType Leaf) -or !(Test-Path $control -PathType Leaf) -or !(Test-Path $probe -PathType Leaf)){throw 'AGENT05_REAL_TASK_WITNESS_MISSING'}
+          $port=8765
+          $private=Join-Path $env:RUNNER_TEMP 'agent05-real-task'
+          New-Item -ItemType Directory -Force -Path $private | Out-Null
+          $proof=Join-Path $private 'proof.json'
+          $errorCode=Join-Path $private 'failure-code.txt'
+          $lastOperation=Join-Path $private 'last-operation.txt'
+          function Invoke-Control([string]$action){
+            $log=Join-Path $private ('control-'+$action+'.log')
+            & $python -B $control --install-root $root --action $action --port $port --ready-timeout 60 --no-dialog *> $log
+            if($LASTEXITCODE -ne 0){throw ('AGENT05_CORE_'+$action.ToUpperInvariant()+'_FAILED')}
+            return (Get-Content -LiteralPath $log -Raw | ConvertFrom-Json)
+          }
+          $null=Invoke-Control 'stop'
+          try{
+            $start=Invoke-Control 'start'
+            if($start.started -ne $true -or !$start.pid){throw 'AGENT05_TASK_CORE_START_INVALID'}
+            $log=Join-Path $private 'execute.log'
+            & $python -B $probe --install-root $root --port $port --proof $proof --phase execute --failure-code-path $errorCode --last-operation-path $lastOperation *> $log
+            if($LASTEXITCODE -ne 0){
+              $reason='UNKNOWN'
+              if(Test-Path $errorCode){
+                $candidate=(Get-Content -LiteralPath $errorCode -Raw).Trim()
+                if($candidate -cmatch '^[A-Z0-9_]{1,80}
+
+){$reason=$candidate}
+              }
+              $phase='UNKNOWN'
+              if(Test-Path $lastOperation){
+                $candidate=(Get-Content -LiteralPath $lastOperation -Raw).Trim()
+                if($candidate -cmatch '^[A-Z0-9_]{1,40}
+
+){$phase=$candidate}
+              }
+              Write-Host ('AGENT05_REAL_TASK_FAILURE_CATEGORY='+$reason)
+              Write-Host ('AGENT05_REAL_TASK_FAILURE_PHASE='+$phase)
+              throw 'AGENT05_REAL_TASK_EXECUTE_FAILED'
+            }
+            if(-not((Get-Content -LiteralPath $log) -ccontains 'AGENT_INSTALLED_REAL_QWEN_TASK_REVIEW_PASS')){throw 'AGENT05_REAL_TASK_NOT_ACCEPTED'}
+            Write-Host 'AGENT05_REAL_TASK_REVIEW_PASS'
+            $restart=Invoke-Control 'restart'
+            if(!$restart.pid -or !$restart.token){throw 'AGENT05_REAL_TASK_RESTART_INVALID'}
+            $cold=Join-Path $private 'cold-readback.log'
+            & $python -B $probe --install-root $root --port $port --proof $proof --phase readback *> $cold
+            if($LASTEXITCODE -ne 0 -or -not((Get-Content -LiteralPath $cold) -ccontains 'AGENT_INSTALLED_REAL_QWEN_RESULT_RESTART_PASS')){throw 'AGENT05_REAL_TASK_COLD_READBACK_FAILED'}
+            if(!(Test-Path 'C:\IWXA\Personal data Agent\Data\user-file.txt')){throw 'AGENT05_REAL_TASK_EXISTING_DATA_LOST'}
+            Write-Host 'AGENT05_REAL_TASK_RESULT_COLD_READBACK_PASS'
+          }finally{
+            $null=Invoke-Control 'stop'
+          }
       # No private binaries, logs or models are published.
 
