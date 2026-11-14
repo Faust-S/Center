@@ -134,11 +134,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
   <div className="actions">
    <button className="secondary" data-testid="d3-receive" disabled={busy}
     onClick={()=>run('Подлинный .iwxa получен. Требуется Review.',async()=>{
-     const bytes=await invoke('center_open_iwxa_file');
-     if(bytes===null)return false;
-     if(!Array.isArray(bytes)||bytes.length===0||bytes.length>16*1024*1024)
-       throw Error('CEN_D3_CARRIER_INVALID');
-     const result=await execute('d3Receive',{bytes});
+     // Native Tauri chooses the file. Original signed bytes never traverse
+     // WebView JSON or a separate package parser in Center.
+     const result=await execute('d3Receive');
+     if(result?.status==='CANCELLED')return false;
      if(result.acceptanceState!=='NOT_ACCEPTED'||
        !hex(result.preview?.packageSha256))throw Error('CEN_D3_RECEIVE_READBACK_UNKNOWN');
      choose(result.preview.packageSha256);

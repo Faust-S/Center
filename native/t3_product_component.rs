@@ -14,6 +14,9 @@ fn kind_spec(role: &str) -> Result<(&'static str, &'static str), String> {
     match role {
         "owner" => Ok(("iwxa-t3-product-owner.exe", "t3-owner-test")),
         "consumer" => Ok(("iwxa-t3-product-consumer.exe", "t3-consumer-test")),
+        // Reuse the SAME private original owner binary. D3 is an entirely
+        // separate signed corporate profile, never the TEST issuer root.
+        "admin-d3" => Ok(("iwxa-t3-product-owner.exe", "t3-admin")),
         _ => Err("T3_PRODUCT_COMPONENT_ROLE_INVALID".into())
     }
 }
@@ -38,6 +41,8 @@ pub fn availability(app:&AppHandle,role:&str) -> bool {
         "owner" => &["registry.iwxa","anchor.json","keys.vault.json",
             "master-secret.dpapi.json","administrator.dpapi.json"],
         "consumer" => &["publisher-test-trust.json","master-secret.dpapi.json"],
+        "admin-d3" => &["registry.json","identity.json","vault.json",
+            "operators.json","master-secret.dpapi.json"],
         _ => return false
     };
     exe.is_file() && required.iter().all(|x|root.join(x).is_file())
