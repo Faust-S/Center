@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: ee10573ae4f58a79b7002e6990c0f2544dc0cbf9
+          ref: a7fb89774d82f9ab5b50da3c5c4a8ba7d441ec40
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -47,7 +47,7 @@ jobs:
           $privateLog=Join-Path $env:RUNNER_TEMP 'agent05-short-root-checkout-private.log'
           & git -c core.longpaths=true clone --no-checkout (Resolve-Path 'private-product').Path $a *> $privateLog
           if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_AGENT_CLONE_FAILED'}
-          & git -C $a -c core.longpaths=true checkout --detach ee10573ae4f58a79b7002e6990c0f2544dc0cbf9 *> $privateLog
+          & git -C $a -c core.longpaths=true checkout --detach a7fb89774d82f9ab5b50da3c5c4a8ba7d441ec40 *> $privateLog
           if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_AGENT_CHECKOUT_FAILED'}
           & git -c core.longpaths=true clone --no-checkout (Resolve-Path 'center-owner').Path $c *> $privateLog
           if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_CENTER_CLONE_FAILED'}
@@ -55,7 +55,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_CENTER_CHECKOUT_FAILED'}
           $gotA=(& git -C $a rev-parse HEAD).Trim()
           $gotC=(& git -C $c rev-parse HEAD).Trim()
-          if($gotA -cne 'ee10573ae4f58a79b7002e6990c0f2544dc0cbf9' -or
+          if($gotA -cne 'a7fb89774d82f9ab5b50da3c5c4a8ba7d441ec40' -or
               $gotC -cne $env:GITHUB_SHA){throw 'AGENT05_SHORT_ROOT_IDENTITY_FAILED'}
           Write-Host 'AGENT05_SHORT_ROOT_CHECKOUT_PASS'
       - name: Targeted Core install regression
@@ -67,7 +67,13 @@ jobs:
             & python -m pip install -r requirements-ci.txt *> $log
             if($LASTEXITCODE -ne 0){throw 'AGENT05_PYTHON_DEPENDENCIES_FAILED'}
             & python -B -m pytest -q -p no:cacheprovider tests/test_setup_core_install_bridge.py tests/test_windows_install_authority.py tests/test_windows_user_runtime_readiness.py tests/test_explorer_windows_bootstrap.py *> $log
-            if($LASTEXITCODE -ne 0){throw 'AGENT05_INSTALL_REGRESSION_FAILED'}
+            if($LASTEXITCODE -ne 0){
+              $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              $failed='UNKNOWN'
+              if($raw -match '([0-9]{1,5}) failed'){$failed=$Matches[1]}
+              Write-Host ('AGENT05_INSTALL_PYTHON_FAILED_COUNT='+$failed)
+              throw 'AGENT05_INSTALL_REGRESSION_FAILED'
+            }
             Write-Host 'AGENT05_INSTALL_REGRESSION_PASS'
           }finally{Pop-Location}
       - name: Build Setup only and inspect its own receipt (no tests, no upload)
@@ -97,7 +103,7 @@ jobs:
           $sha=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           if($receipt.status -cne 'BUILT_ONLY' -or
              $receipt.version -cne '0.5.0' -or
-             $receipt.source_commit -cne 'ee10573ae4f58a79b7002e6990c0f2544dc0cbf9' -or
+             $receipt.source_commit -cne 'a7fb89774d82f9ab5b50da3c5c4a8ba7d441ec40' -or
              $receipt.setup_sha256 -cne $sha -or
              $receipt.tests_reexecuted -ne $false -or
              $receipt.installer_launched -ne $false -or
