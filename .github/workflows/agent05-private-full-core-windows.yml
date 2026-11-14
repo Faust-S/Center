@@ -68,6 +68,16 @@ jobs:
           if ($status -ne 0) {
             $count = 'UNKNOWN'
             if ($raw -match '(?m)([0-9]{1,6}) failed') { $count = $Matches[1] }
+            $category = if ($raw -match 'ERROR collecting|errors during collection') {'COLLECTION'} elseif (
+              $raw -match 'ERROR: usage:|unrecognized arguments') {'USAGE'} elseif (
+              $raw -match 'no tests ran') {'NO_TESTS'} elseif (
+              $raw -match 'INTERNALERROR|Traceback \(most recent call last\)') {'FRAMEWORK'} elseif (
+              $raw -match '[0-9]{1,6} failed') {'TEST_FAILURES'} else {'UNKNOWN'}
+            $errors = [regex]::Matches([string]$raw,'(?m)ERROR collecting').Count
+            if ($errors -gt 99) { $errors = 99 }
+            Write-Host ('AGENT05_FULL_CORE_PYTEST_EXIT=' + [int]$status)
+            Write-Host ('AGENT05_FULL_CORE_FAILURE_CLASS=' + $category)
+            Write-Host ('AGENT05_FULL_CORE_COLLECTION_ERROR_COUNT=' + $errors)
             Write-Host ('AGENT05_FULL_CORE_FAILED_TEST_COUNT=' + $count)
             throw 'AGENT05_FULL_CORE_REGRESSION_NOT_ACCEPTED'
           }
