@@ -556,7 +556,10 @@ namespace IwxaSetup
             unifiedRight.ColumnCount = 1;
             unifiedRight.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             unifiedRight.RowCount = 10;
-            float[] rows = {8, 12, 10, 19, 4, 8, 9, 9, 10, 11};
+            // The version and explanation contain several translated lines.
+            // Give them dedicated space rather than painting text into the
+            // following row on laptop DPI and narrow product cards.
+            float[] rows = {8, 12, 13, 24, 4, 8, 8, 8, 7, 8};
             foreach (float percent in rows)
                 unifiedRight.RowStyles.Add(new RowStyle(SizeType.Percent, percent));
             card.Controls.Add(unifiedRight);
