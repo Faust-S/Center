@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createNativeAtlasPort} from './atlas-native.mjs';
 import {atlasLinkReadback,atlasWorkReadback} from './atlas-integration.mjs';
+import {readOriginalResultReview,appendOriginalResultReview} from '../runtime/cen03-d3-owner.mjs';
 
 // D3 UI is deliberately limited to the ORIGINAL recipient and signed D1 Host.
 // It cannot issue a task, sign a grant, interpret an ACCEPT as Apply, or
@@ -47,6 +48,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [taskAttempted,setTaskAttempted]=useState(false);
  const [taskReadback,setTaskReadback]=useState<any>(null);
  const [preview,setPreview]=useState<any>(null);
+ const [reviewedResult,setReviewedResult]=useState<any>(null);
  const [confirmed,setConfirmed]=useState(false);
  const [rejectReason,setRejectReason]=useState('');
  const [operationId,setOperationId]=useState('');
@@ -98,7 +100,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setOrgAge(latest);setAgeUnavailable('');
  });
  const reset=()=>{
-   setPreview(null);setConfirmed(false);setRejectReason('');setOperationId('');
+   setPreview(null);setReviewedResult(null);
+   setConfirmed(false);setRejectReason('');setOperationId('');
    setPreparedId('');setIdSaved(false);
    setDecisionAttempted(false);setDecisionType(null);setReceipt(null);
    setSelectedRevisions([]);setApplication(null);setApplyConsent(false);
@@ -200,6 +203,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      throw Error('CEN_D3_ORIGINAL_INVITATION_EXPORT_UNKNOWN');
  });
  const selectedInboxItem=inbox?.items.find(x=>x.packageSha256===hash);
+ const reviewFullyDisplayed=reviewedResult!==null&&
+   reviewedResult.hasMore===false&&reviewedResult.packageSha256===hash&&
+   reviewedResult.previewDigest===preview?.previewDigest&&
+   reviewedResult.nextOffset===reviewedResult.resultLength;
  const originalDecisionRecorded=
    ['ACCEPTED','REJECTED'].includes(selectedInboxItem?.status??'')||
    ['ACCEPTED','REJECTED'].includes(lastReceiveState??'');
@@ -239,17 +246,40 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        !hex(result.encryptedTransport.ciphertextSha256)||
        result.encryptedTransport.sourceSha256!==result.preview.packageSha256))
        throw Error('CEN_D3_AGE_ADMISSION_READBACK_UNKNOWN');
+     const inspection=readOriginalResultReview(result.preview,
+       session.organizationId,session.workspaceId);
      choose(result.preview.packageSha256);
      setLastReceiveState(result.acceptanceState);
-     setPreview(result.preview);
+     setPreview(result.preview);setReviewedResult(inspection);
    });
  const review=()=>run('Оригинальный Reconciliation проверил пакет без принятия.',async()=>{
    const result=await execute('d3Preview',{packageSha256:hash});
    if(result.schema!=='IWXA_T3_RECONCILIATION_PREVIEW/1'||
      result.packageSha256!==hash||!hex(result.previewDigest))
      throw Error('CEN_D3_ORIGINAL_PREVIEW_INVALID');
-   setPreview(result);setConfirmed(false);setApplication(null);
+   const inspection=readOriginalResultReview(result,session.organizationId,
+     session.workspaceId);
+   setPreview(result);setReviewedResult(inspection);
+   setConfirmed(false);setApplication(null);
    setPreparedId('');setIdSaved(false);
+ });
+ const nextReviewPage=()=>run('Следующая часть оригинального подписанного Result проверена.',async()=>{
+   const previousPage=reviewedResult;
+   if(!previousPage||!previousPage.hasMore||!hex(hash))
+     throw Error('CEN_D3_SIGNED_RESULT_REVIEW_NOT_AVAILABLE');
+   // A changed package, digest, Task, executor, or revision must not let
+   // previous Human Review consent survive into another Result.
+   setConfirmed(false);
+   const result=await execute('d3Preview',{
+     packageSha256:hash,resultOffset:previousPage.nextOffset
+   });
+   if(result?.schema!=='IWXA_T3_RECONCILIATION_PREVIEW/1'||
+     result.packageSha256!==hash||
+     result.previewDigest!==preview?.previewDigest)
+     throw Error('CEN_D3_SIGNED_RESULT_REVIEW_STALE');
+   const joined=appendOriginalResultReview(previousPage,result,
+     session.organizationId,session.workspaceId);
+   setReviewedResult(joined);
  });
  const recover=()=>run('Оригинальная квитанция перечитана. Это не подтверждение записи в Kernel.',async()=>{
    const id=operationId.trim();
@@ -267,7 +297,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    async()=>{
      if(decisionAttempted||originalDecisionRecorded||!confirmed||!preview||!hex(hash)||
        !idSaved||!opPattern.test(preparedId)||preparedId!==operationId||
-       (kind==='ACCEPT'&&preview.allowedAction!=='EXPLICIT_ACCEPT_ONLY')||
+       (kind==='ACCEPT'&&
+         (preview.allowedAction!=='EXPLICIT_ACCEPT_ONLY'||!reviewFullyDisplayed))||
        (kind==='REJECT'&&!rejectReason.trim()))
        throw Error('CEN_D3_EXPLICIT_HUMAN_REVIEW_REQUIRED');
      // The ID was visible and explicitly saved BEFORE dispatch. On a lost
@@ -573,6 +604,25 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    <p>Классификация: {preview.classification??'нет сведений'} ·
     Решение: {preview.allowedAction??'нет сведений'} ·
     Редакции: {revisions.length}</p>
+   {reviewedResult?<div className="nested-form" data-testid="d3-original-signed-review">
+     <p><strong>Проверенный подписанный Result</strong> ·
+      Исполнитель: {reviewedResult.executorId} ·
+      Поручение: {reviewedResult.taskId} ·
+      Редакция Task: {reviewedResult.taskRevisionId.slice(0,16)}…</p>
+     <pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',maxHeight:320,
+       overflow:'auto'}} data-testid="d3-original-result-text">{reviewedResult.resultText}</pre>
+     {reviewedResult.hasMore&&<div>
+       <p className="muted">Показано {reviewedResult.nextOffset} из
+        {reviewedResult.resultLength} символов. Для ACCEPT требуется весь результат.</p>
+       <button type="button" className="secondary"
+        data-testid="d3-review-next" disabled={busy}
+        onClick={nextReviewPage}>Показать продолжение</button>
+     </div>}
+    </div>:
+    <p role="status" data-testid="d3-original-review-not-proven">
+     Подлинное содержание Result или связь с подписанной Task ещё не подтверждены.
+     ACCEPT недоступен. Можно отклонить пакет с указанием причины.
+    </p>}
    <label><input type="checkbox" checked={confirmed}
      onChange={e=>setConfirmed(e.target.checked)}/>
     Я просмотрел этот пакет и подтверждаю отдельное решение</label>
@@ -599,7 +649,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     <button className="primary" data-testid="d3-accept"
      disabled={busy||!confirmed||decisionAttempted||originalDecisionRecorded||!idSaved||
        !preparedId||preparedId!==operationId||
-       preview.allowedAction!=='EXPLICIT_ACCEPT_ONLY'}
+       preview.allowedAction!=='EXPLICIT_ACCEPT_ONLY'||!reviewFullyDisplayed}
      onClick={()=>decide('ACCEPT')}>ACCEPT</button>
     <button className="secondary" data-testid="d3-reject"
      disabled={busy||!confirmed||decisionAttempted||originalDecisionRecorded||!idSaved||

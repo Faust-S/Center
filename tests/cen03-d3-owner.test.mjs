@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCorporateOwnerHost} from '../runtime/cen-corporate-owner-host.mjs';
 import {signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
-import {MAX_CEN_D3_IWXA_CARRIER_BYTES} from '../runtime/cen03-d3-owner.mjs';
+import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
+ appendOriginalResultReview} from '../runtime/cen03-d3-owner.mjs';
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64);
@@ -334,4 +335,37 @@ test('D3: original recipient can inspect accepted Result without a Kernel Apply 
    /CEN_D3_APPLY_RECOVERY_NOT_CONNECTED/);
  assert.equal(log.filter(x=>x[0]==='apply').length,0);
  assert.equal(log.filter(x=>x[0]==='recoverApply').length,0);
+});
+
+test('D3 Human Review: only fully read original signed Task/Result permits ACCEPT UI',()=>{
+ const p='a'.repeat(64),d='b'.repeat(64),r='c'.repeat(64);
+ const identity={schema:'IWXA_T3_ORIGINAL_SIGNED_RESULT_REVIEW/1',
+   packageSha256:p,previewDigest:d,taskId:'task:one',taskRevisionId:p,
+   resultRevisionId:r,executorId:'person:worker',organizationId:'org:1',
+   workspaceId:'workspace:1',signatureVerified:true,taskBindingProven:true,
+   resultLength:5500};
+ const format=(offset,text)=>({schema:'IWXA_T3_RECONCILIATION_PREVIEW/1',
+   packageSha256:p,previewDigest:d,entries:[{revisionId:r}],
+   resultInspection:{...identity,offset,resultText:text,
+     nextOffset:offset+text.length,hasMore:offset+text.length<5500}});
+ const first=readOriginalResultReview(format(0,'Ж'.repeat(4096)),
+   'org:1','workspace:1');
+ assert.equal(first.hasMore,true);
+ assert.equal(first.nextOffset,4096);
+ const second=appendOriginalResultReview(first,
+   format(4096,'R'.repeat(1404)),'org:1','workspace:1');
+ assert.equal(second.resultText.length,5500);
+ assert.equal(second.hasMore,false);
+ assert.equal(second.nextOffset,5500);
+ assert.equal(readOriginalResultReview({
+   schema:'IWXA_T3_RECONCILIATION_PREVIEW/1',packageSha256:p,
+   previewDigest:d,entries:[{revisionId:r}],resultInspection:null
+ },'org:1','workspace:1'),null);
+ assert.throws(()=>readOriginalResultReview(format(0,'Ж'.repeat(4096)),
+   'org:other','workspace:1'),/CEN_D3_SIGNED_RESULT_REVIEW_INVALID/);
+ assert.throws(()=>appendOriginalResultReview(first,
+   {...format(4096,'R'.repeat(1404)),previewDigest:'d'.repeat(64)},
+   'org:1','workspace:1'),/CEN_D3_SIGNED_RESULT_REVIEW_INVALID/);
+ assert.throws(()=>appendOriginalResultReview(first,format(0,'A'.repeat(4096)),
+   'org:1','workspace:1'),/CEN_D3_SIGNED_RESULT_REVIEW_INVALID/);
 });

@@ -90,6 +90,56 @@ function checkedKernelRecovery(result,context,selection){
  return result;
 }
 
+// Only display ORIGINAL recipient-verified selected Result text.
+// The original verifier owns signatures, Task binding, content and currentness;
+// this is a UI shape check, not another Reconciliation.
+export function readOriginalResultReview(preview,organizationId,workspaceId,
+  offset=0){
+ const r=preview?.resultInspection;
+ if(r==null)return null;
+ const bad='CEN_D3_SIGNED_RESULT_REVIEW_INVALID';
+ need(preview?.schema==='IWXA_T3_RECONCILIATION_PREVIEW/1'&&
+   validSha(preview.packageSha256)&&validSha(preview.previewDigest)&&
+   r?.schema==='IWXA_T3_ORIGINAL_SIGNED_RESULT_REVIEW/1'&&
+   r.signatureVerified===true&&r.taskBindingProven===true&&
+   r.packageSha256===preview.packageSha256&&
+   r.previewDigest===preview.previewDigest&&
+   validId(organizationId)&&validId(workspaceId)&&
+   r.organizationId===organizationId&&r.workspaceId===workspaceId&&
+   validId(r.executorId)&&validId(r.taskId)&&
+   validSha(r.taskRevisionId)&&validSha(r.resultRevisionId)&&
+   Array.isArray(preview.entries)&&
+   preview.entries.some(x=>x?.revisionId===r.resultRevisionId)&&
+   Number.isSafeInteger(offset)&&offset>=0&&
+   Number.isSafeInteger(r.resultLength)&&r.resultLength>=0&&
+   r.resultLength<=100000&&r.offset===offset&&
+   typeof r.resultText==='string'&&r.resultText.length<=4096&&
+   Number.isSafeInteger(r.nextOffset)&&
+   r.nextOffset===offset+r.resultText.length&&
+   r.nextOffset<=r.resultLength&&
+   r.hasMore===(r.nextOffset<r.resultLength),bad);
+ need(r.hasMore!==true||r.resultText.length>0,bad);
+ return copy(r,bad);
+}
+
+export function appendOriginalResultReview(previous,preview,organizationId,
+ workspaceId){
+ const bad='CEN_D3_SIGNED_RESULT_REVIEW_STALE';
+ need(previous&&previous.schema==='IWXA_T3_ORIGINAL_SIGNED_RESULT_REVIEW/1'&&
+   previous.hasMore===true&&Number.isSafeInteger(previous.nextOffset)&&
+   previous.offset===0&&typeof previous.resultText==='string'&&
+   previous.nextOffset===previous.resultText.length,bad);
+ const next=readOriginalResultReview(preview,organizationId,workspaceId,
+   previous.nextOffset);
+ need(next!==null&&
+   ['schema','packageSha256','previewDigest','taskId','taskRevisionId',
+    'resultRevisionId','executorId','organizationId','workspaceId','resultLength']
+     .every(key=>next[key]===previous[key]),bad);
+ const accumulated=previous.resultText+next.resultText;
+ need(accumulated.length===next.nextOffset,bad);
+ return {...next,offset:0,resultText:accumulated};
+}
+
 // A trusted native product Host, never WebView, supplies:
 // admission = createTrustedReconciliationAdmission(original private recipient),
 // access = the existing signed D1 owner, apply = optional original Kernel port,

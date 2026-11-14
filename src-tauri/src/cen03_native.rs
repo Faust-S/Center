@@ -55,8 +55,14 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               return Err("CEN_D3_ORIGINAL_TASK_SELECTION_REQUIRED".into());
           }
       },
-      "d3Preview"=>if !validate_hex(sha) {
-          return Err("CEN_D3_PACKAGE_SHA_REQUIRED".into());
+      "d3Preview"=>{
+          if !validate_hex(sha){
+              return Err("CEN_D3_PACKAGE_SHA_REQUIRED".into());
+          }
+          if !input["resultOffset"].is_null() &&
+             !input["resultOffset"].as_u64().is_some_and(|n|n<=100000){
+              return Err("CEN_D3_RESULT_REVIEW_OFFSET_INVALID".into());
+          }
       },
       "d3Receipt"=>if !validate_hex(sha) ||
           !input["operationId"].as_str().is_some_and(t3::valid_identifier){
@@ -477,6 +483,12 @@ mod tests{
             "d3Preview").is_ok());
         assert!(check_bound_request(&json!({"packageSha256":"Z".repeat(64)}),
             "d3Preview").is_err());
+        assert!(check_bound_request(&json!({"packageSha256":"a".repeat(64),
+            "resultOffset":4096}),"d3Preview").is_ok());
+        assert!(check_bound_request(&json!({"packageSha256":"a".repeat(64),
+            "resultOffset":-1}),"d3Preview").is_err());
+        assert!(check_bound_request(&json!({"packageSha256":"a".repeat(64),
+            "resultOffset":100001}),"d3Preview").is_err());
         assert!(check_bound_request(&json!({"task":"Подготовить смету",
             "taskId":"task:11111111-2222-3333-4444-555555555555"}),
             "d3CreateTask").is_ok());
