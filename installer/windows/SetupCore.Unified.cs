@@ -714,8 +714,12 @@ namespace IwxaSetup
                           "The application is not installed. Review folders and install.");
                     break;
                 case "SAME_VERSION_DIFFERENT_PACKAGE":
-                    message = T("Установлена другая сборка. Её можно открыть, обслужить или удалить. Этот пакет не заменяет её автоматически.",
-                        "Another build is installed. You can open, maintain or uninstall it. This package will not replace it automatically.");
+                    message = inspectedBundle != null &&
+                        inspectedBundle.Id == "iwxa.personal-agent" ?
+                        T("Вы можете заменить файлы Agent этой сборкой. Пользовательские данные и модели сохраняются.",
+                          "You can replace Agent application files with this build. User data and models are preserved.") :
+                        T("Установлена другая сборка. Её можно открыть, обслужить или удалить. Этот пакет не заменяет её автоматически.",
+                          "Another build is installed. You can open, maintain or uninstall it. This package will not replace it automatically.");
                     break;
                 case "DOWNGRADE_BLOCKED":
                 case "VERSION_UNSUPPORTED":
