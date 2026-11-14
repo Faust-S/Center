@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "private-distribution/iwxa-t3-product-owner.exe": "t3/iwxa-t3-product-owner.exe"
+    }
+  }
+}

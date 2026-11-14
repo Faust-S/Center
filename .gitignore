@@ -13,3 +13,6 @@ private-runtime/
 /publisher/src-tauri/private-t3/
 /publisher/src-tauri/private-t3-bundle.json
 /publisher/src-tauri/private-t3-age-bundle.json
+
+# Private signed T3 native distribution (never publish binary)
+src-tauri/private-distribution/*.exe
