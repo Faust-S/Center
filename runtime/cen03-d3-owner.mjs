@@ -4,7 +4,9 @@
 // This adapter has no Store, signer, grant evaluator or automatic retry.
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const SHA=/^[a-f0-9]{64}$/;
-const MAX_ARCHIVE=16*1024*1024;
+// The installed original corporate D3 owner accepts up to 32 MiB, not the
+// larger browser-host carrier limit. Match the existing Windows file picker.
+export const MAX_CEN_D3_IWXA_CARRIER_BYTES=32*1024*1024;
 const TARGET_FIELDS=['consumerId','processId','processVersion','purpose',
   'subjectId','workspaceId','dataRootId'];
 const CONTEXT_FIELDS=['kind','context_id','actor_id','principal_id','role_id',
@@ -18,7 +20,7 @@ const sameSubject=(a,b)=>JSON.stringify(CONTEXT_FIELDS.map(field=>a?.[field]))==
   JSON.stringify(CONTEXT_FIELDS.map(field=>b?.[field]));
 const copy=(value,code)=>{try{return structuredClone(value);}catch{fail(code);}};
 function originalArchive(value){
- need(Array.isArray(value)&&value.length>0&&value.length<=MAX_ARCHIVE,
+ need(Array.isArray(value)&&value.length>0&&value.length<=MAX_CEN_D3_IWXA_CARRIER_BYTES,
    'CEN_D3_CARRIER_INVALID');
  // Array.every skips holes, so enumerate every physical index.
  for(let i=0;i<value.length;i++)need(Object.hasOwn(value,i)&&
@@ -97,6 +99,8 @@ export function createCenD3OwnerHost({admission,access,apply=null,
      personId:c.actor_id,actorId:c.actor_id,contextId:c.context_id,
      contextEpoch:c.scope_revision,d3RecipientAvailable:true,
      d3ApplyAvailable:apply!==null&&applicationTargetFor!==null,
+     d3ApplyRecoverAvailable:apply!==null&&
+       typeof apply.recoverApplied==='function'&&applicationTargetFor!==null,
      // D3 readiness is NOT the entire T3 release/production activation.
      productionActivation:false,T3_READY:false,
    }};
@@ -166,7 +170,26 @@ export function createCenD3OwnerHost({admission,access,apply=null,
          result.applicationAttempted===false&&
          result.externalContextCoreApplied===false,
          'CEN_D3_APPLICATION_PREVIEW_INVALID');
-     }else if(operation==='d3ApplyAccepted'){
+     }else if(operation==='d3RecoverApplied'){
+       const selection=sourceSelection(input),target=await targetFor(c,selection);
+       need(typeof apply.recoverApplied==='function',
+         'CEN_D3_APPLY_RECOVERY_NOT_CONNECTED');
+       // Original signed D1 Kernel Object + Event readback. Never issue
+       // another commitObjectGraph or another Human APPLY during recovery.
+       result=await apply.recoverApplied({...selection,target});
+       const confirmed=result?.status===
+         'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED';
+       need((confirmed||result?.status==='OUTCOME_UNKNOWN')&&
+         validSha(result.effectKey)&&
+         result.automaticRetryAllowed===false&&
+         result.kernelWriteReadback===(confirmed?'CONFIRMED':'NOT_CONFIRMED')&&
+         (confirmed
+           ? result.originalKernelReadback?.object&&
+             result.originalEventReadback?.event_id&&
+             result.externalProductAcceptance==='NOT_ACCEPTED'
+           : !result.originalKernelReadback&&!result.originalEventReadback),
+         'CEN_D3_KERNEL_RECOVERY_READBACK_INVALID');
+    }else if(operation==='d3ApplyAccepted'){
        const selection=sourceSelection(input),target=await targetFor(c,selection);
        entered=true;
        // The original trusted owner repeats source review, gets sealed

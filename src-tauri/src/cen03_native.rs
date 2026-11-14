@@ -70,7 +70,7 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
            !input["reason"].as_str().is_some_and(|s|!s.trim().is_empty()&&s.len()<=1000)) {
           return Err("CEN_D3_EXPLICIT_DECISION_REQUIRED".into());
       },
-      "d3InspectAccepted"|"d3ApplyAccepted"=>{
+      "d3InspectAccepted"|"d3ApplyAccepted"|"d3RecoverApplied"=>{
           let revisions=input["revisionIds"].as_array()
               .ok_or("CEN_D3_ACCEPTED_SOURCE_INVALID")?;
           if !validate_hex(input["acceptanceId"].as_str())||

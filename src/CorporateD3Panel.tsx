@@ -10,7 +10,8 @@ type Run=(success:string,work:()=>Promise<void|boolean>)=>Promise<void>;
 type SignedTask={taskId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:'NOT_CONFIRMED'};
 type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   contextId:string;contextEpoch:number;d3ApplyAvailable:boolean;
-  d3TaskIssueAvailable?:boolean;tasks?:SignedTask[];totalTasks?:number}};
+  d3TaskIssueAvailable?:boolean;d3ApplyRecoverAvailable?:boolean;
+  tasks?:SignedTask[];totalTasks?:number}};
 type AssignmentDraft={id:string;title:string;assigneeId:string;editNumber:number;
  description:string;criteria:string;dueDate:string;
  atlasRef:{projectId:string;revision:string;workId?:string}|null};
@@ -58,6 +59,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [applyConsent,setApplyConsent]=useState(false);
  const [applyAttempted,setApplyAttempted]=useState(false);
  const [kernelResult,setKernelResult]=useState<any>(null);
+ const [applySelection,setApplySelection]=useState<{acceptanceId:string;revisionIds:string[]}|null>(null);
+ const [kernelRecovery,setKernelRecovery]=useState<any>(null);
  const [lastReceiveState,setLastReceiveState]=useState<string|null>(null);
  const [orgAge,setOrgAge]=useState<AgeStatus|null>(null);
  const [ageUnavailable,setAgeUnavailable]=useState('');
@@ -95,10 +98,13 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setDecisionAttempted(false);setDecisionType(null);setReceipt(null);
    setSelectedRevisions([]);setApplication(null);setApplyConsent(false);
    setApplyAttempted(false);setKernelResult(null);
+   setApplySelection(null);setKernelRecovery(null);
  };
  useEffect(()=>{
    if(previous.current!==sessionKey){
    previous.current=sessionKey;setHash('');setInbox(null);setTaskId('');
+   setTaskText('');setTaskOperationId('');setTaskIdSaved(false);
+   setTaskAttempted(false);setTaskReadback(null);
    setLastReceiveState(null);setDraftId('');setDraftSnapshot('');reset();
  }
  },[sessionKey]);
@@ -287,7 +293,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const toggleRevision=(id:string,checked:boolean)=>{
    setSelectedRevisions(old=>checked?[...old.filter(x=>x!==id),id]:
      old.filter(x=>x!==id));
-   setApplication(null);setApplyConsent(false);
+   setApplication(null);setApplyConsent(false);setKernelRecovery(null);
  };
  const inspectApplication=()=>run('Оригинальный Reconciliation подтвердил только кандидат на применение.',async()=>{
    if(!accepted||!session.d3ApplyAvailable||!hex(receipt.receipt.acceptanceId))
@@ -303,14 +309,42 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const apply=()=>run('Исходный T3 Kernel вернул квитанцию записи и повторное чтение.',async()=>{
    if(!accepted||!application||!applyConsent||applyAttempted)
      throw Error('CEN_D3_SEPARATE_HUMAN_APPLY_REQUIRED');
-   setApplyAttempted(true);setKernelResult(null);
-   const result=await execute('d3ApplyAccepted',{
-     acceptanceId:receipt.receipt.acceptanceId,revisionIds:selectedRevisions
-   });
+   const selection={acceptanceId:receipt.receipt.acceptanceId as string,
+     revisionIds:[...selectedRevisions]};
+   if(!hex(selection.acceptanceId)||selection.revisionIds.length===0)
+     throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
+   setApplySelection(selection);setApplyAttempted(true);
+   setKernelResult(null);setKernelRecovery(null);
+   const result=await execute('d3ApplyAccepted',selection);
    if(result.kernelWriteReadback!=='CONFIRMED'||!result.originalKernelReadback||
      !result.originalKernelReceipt)
      throw Error('CEN_D3_KERNEL_COMMIT_OUTCOME_UNKNOWN');
    setKernelResult(result);
+ });
+ const recoverApplied=()=>run('Проверка исходного Kernel завершена без повторного Apply.',async()=>{
+   if(session.d3ApplyRecoverAvailable!==true||!accepted)
+     throw Error('CEN_D3_APPLY_RECOVERY_NOT_CONNECTED');
+   // Preserve the exact first attempted selection, even when the
+   // requested readback follows a lost native acknowledgment.
+   const source=applySelection??{
+     acceptanceId:receipt.receipt.acceptanceId as string,
+     revisionIds:[...selectedRevisions]
+   };
+   if(!hex(source.acceptanceId)||source.revisionIds.length===0||
+     source.revisionIds.length>32||!source.revisionIds.every(hex))
+     throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
+   const result=await execute('d3RecoverApplied',source);
+   const confirmed=result?.status==='ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED';
+   if((!confirmed&&result?.status!=='OUTCOME_UNKNOWN')||
+     !hex(result.effectKey)||result.automaticRetryAllowed!==false||
+     result.kernelWriteReadback!==(confirmed?'CONFIRMED':'NOT_CONFIRMED')||
+     (confirmed&&(!result.originalKernelReadback?.object||
+       !result.originalEventReadback?.event_id)))
+     throw Error('CEN_D3_KERNEL_RECOVERY_READBACK_INVALID');
+   // Recovery is an inquiry, never consent to repeat Apply. Even an
+   // unconfirmed original outcome cannot enable another commit here.
+   setApplySelection(source);setApplyAttempted(true);
+   setKernelRecovery(result);
  });
  return <div className="nested-form" data-testid="cen03-d3-original">
   <h3>Подписанный T3: получение и принятие Result</h3>
@@ -579,7 +613,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     <p>Выберите принятые редакции:</p>
     {revisions.map(id=><label key={id}>
       <input type="checkbox" checked={selectedRevisions.includes(id)}
-       onChange={e=>toggleRevision(id,e.target.checked)}/>
+       disabled={applyAttempted} onChange={e=>toggleRevision(id,e.target.checked)}/>
       {label(preview.entries.find((x:any)=>same(x.revisionId,id)))} · {id.slice(0,16)}
     </label>)}
     <div className="actions">
@@ -587,6 +621,17 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       disabled={busy||selectedRevisions.length===0||applyAttempted}
       onClick={inspectApplication}>Предпросмотр применения</button>
     </div>
+    {session.d3ApplyRecoverAvailable===true&&
+      (applySelection!==null||selectedRevisions.length>0)&&<button
+       className="secondary" data-testid="d3-recover-apply" disabled={busy}
+       onClick={recoverApplied}>Проверить Kernel без повторного Apply</button>}
+    {kernelRecovery&&<p role="status" data-testid="d3-kernel-recovery">
+     {kernelRecovery.status==='ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED'
+       ? 'Применение подтверждено оригинальными Object и Event, ключ эффекта: '+
+         kernelRecovery.effectKey+'. Повторный Apply не выполнялся.'
+       : 'Исход Apply неизвестен: точное событие и объект не подтверждены. '+
+         'Повторная запись запрещена. Ключ эффекта: '+kernelRecovery.effectKey+'.'}
+    </p>}
     {application&&<div>
      <p>Источник подтверждён как кандидат. Запись не выполнялась.</p>
      <label><input type="checkbox" checked={applyConsent} disabled={applyAttempted}

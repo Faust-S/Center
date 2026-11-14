@@ -2,12 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCorporateOwnerHost} from '../runtime/cen-corporate-owner-host.mjs';
 import {signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
+import {MAX_CEN_D3_IWXA_CARRIER_BYTES} from '../runtime/cen03-d3-owner.mjs';
+import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64);
 const context=()=>({kind:'CORP',context_id:'context:1',actor_id:'person:manager',
  principal_id:'org:1',role_id:'role:manager',grant_id:'grant:accept',
  organization_id:'org:1',workspace_id:'workspace:1',resource:'workspace:1',
  realm_id:'realm:1',audience:'admin',purpose:'application',scope_revision:7});
+test('D3 native carrier limit matches original installed 32 MiB owner',()=>{
+ assert.equal(MAX_CEN_D3_IWXA_CARRIER_BYTES,32*1024*1024);
+ assert.equal(MAX_CEN_D3_IWXA_CARRIER_BYTES,MAX_CEN_IWXA_CARRIER_BYTES);
+});
 const binding={organizationId:'org:1',workspaceId:'workspace:1',
  contextEpoch:7,actorId:'person:manager',contextId:'context:1'};
 const target={consumerId:'IWXA_ADMIN_CENTER',processId:'admin.applied-results',
@@ -68,6 +74,15 @@ function original(){
        externalProductAcceptance:'NOT_ACCEPTED'};
    }
  };
+ apply.recoverApplied=async args=>{
+   log.push(['recoverApply',structuredClone(args)]);
+   return {status:'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED',
+     effectKey:A,kernelWriteReadback:'CONFIRMED',
+     originalKernelReadback:{object:{workspace_id:'workspace:1',
+       object_id:'object:1',revision:2}},
+     originalEventReadback:{event_id:'event:1',idempotency_key:A},
+     externalProductAcceptance:'NOT_ACCEPTED',automaticRetryAllowed:false};
+ };
  const signedD3Owner={admission,access:{currentContext:async()=>structuredClone(claims)},
    apply,applicationTargetFor:async()=>structuredClone(target)};
  const host=createCorporateOwnerHost({signedD3Owner});
@@ -84,6 +99,7 @@ test('D3: real signed subject scope, original archive, ACCEPT receipt and separa
  assert.equal(state.snapshot.T3_READY,false);
  assert.equal(state.snapshot.d3RecipientAvailable,true);
  assert.equal(state.snapshot.d3ApplyAvailable,true);
+ assert.equal(state.snapshot.d3ApplyRecoverAvailable,true);
  assert.ok(signedD3SessionFingerprint(state,'org:1'));
  assert.equal(signedD3SessionFingerprint(state,'org:other'),null);
  const received=await command(host,'d3Receive',{bytes:[80,75,3,4]});
@@ -111,6 +127,13 @@ test('D3: real signed subject scope, original archive, ACCEPT receipt and separa
  assert.equal(log.filter(x=>x[0]==='accept').length,1);
  assert.equal(log.filter(x=>x[0]==='apply').length,1);
  assert.deepEqual(log.find(x=>x[0]==='apply')[1].target,target);
+ const verified=await command(host,'d3RecoverApplied',selection);
+ assert.equal(verified.status,'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED');
+ assert.equal(verified.originalEventReadback.idempotency_key,A);
+ assert.equal(verified.automaticRetryAllowed,false);
+ assert.equal(log.filter(x=>x[0]==='apply').length,1,
+   'original signed recovery must not call Apply again');
+ assert.deepEqual(log.find(x=>x[0]==='recoverApply')[1].target,target);
 });
 
 test('D3: lost ACCEPT acknowledgment is UNKNOWN; only original receipt can recover',async()=>{
@@ -207,4 +230,52 @@ test('D3: late signed-context error after original ACCEPT remains UNKNOWN, not r
  assert.equal(saved.found,true);
  assert.equal(saved.receipt.decisionBy,'person:manager');
  assert.equal(log.filter(x=>x[0]==='accept').length,1);
+});
+
+test('D3: lost original Kernel Apply acknowledgment recovers only by Object and Event query',async()=>{
+ const {host,apply,log}=original();
+ apply.applyAccepted=async args=>{
+   log.push(['apply',structuredClone(args)]);
+   throw new Error('T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED');
+ };
+ const selection={acceptanceId:C,revisionIds:[C]};
+ await assert.rejects(()=>command(host,'d3ApplyAccepted',selection),/CEN_D3_OUTCOME_UNKNOWN/);
+ const recovered=await command(host,'d3RecoverApplied',selection);
+ assert.equal(recovered.status,'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED');
+ assert.equal(recovered.originalEventReadback.event_id,'event:1');
+ assert.equal(log.filter(x=>x[0]==='apply').length,1);
+ assert.equal(log.filter(x=>x[0]==='recoverApply').length,1);
+});
+
+test('D3: unknown Apply remains unknown, forged or absent original Event never confirms',async()=>{
+ const {host,apply,log}=original();
+ const selection={acceptanceId:C,revisionIds:[C]};
+ apply.recoverApplied=async args=>{
+   log.push(['recoverApply',structuredClone(args)]);
+   return {status:'OUTCOME_UNKNOWN',effectKey:A,
+     kernelWriteReadback:'NOT_CONFIRMED',automaticRetryAllowed:false};
+ };
+ const unknown=await command(host,'d3RecoverApplied',selection);
+ assert.equal(unknown.status,'OUTCOME_UNKNOWN');
+ assert.equal(unknown.automaticRetryAllowed,false);
+ assert.equal(log.filter(x=>x[0]==='apply').length,0);
+ apply.recoverApplied=async()=>({
+   status:'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED',effectKey:A,
+   kernelWriteReadback:'CONFIRMED',originalKernelReadback:{object:{}},
+   automaticRetryAllowed:false,externalProductAcceptance:'NOT_ACCEPTED'
+ });
+ await assert.rejects(()=>command(host,'d3RecoverApplied',selection),
+   /CEN_D3_KERNEL_RECOVERY_READBACK_INVALID/);
+ assert.equal(log.filter(x=>x[0]==='apply').length,0);
+});
+
+test('D3: no original signed recovery port cannot be advertised as available',async()=>{
+ const {signedD3Owner}=original();
+ const host=createCorporateOwnerHost({signedD3Owner:{
+   ...signedD3Owner,apply:{applyAccepted:signedD3Owner.apply.applyAccepted}
+ }});
+ assert.equal((await host.state({organizationId:'org:1'}))
+   .snapshot.d3ApplyRecoverAvailable,false);
+ await assert.rejects(()=>command(host,'d3RecoverApplied',
+   {acceptanceId:C,revisionIds:[C]}),/CEN_D3_APPLY_RECOVERY_NOT_CONNECTED/);
 });
