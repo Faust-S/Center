@@ -33,7 +33,8 @@ jobs:
           if ($null -eq $ast -or @($errors).Count -ne 0) {
             throw 'AGENT05_BUILD_ONLY_POWERSHELL_SYNTAX_FAILED'
           }
-          $raw = Get-Content $script -Raw
+          # Compare executable statements, not documentary comments.
+          $raw = ((Get-Content $script) | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
           foreach ($disallowed in @('pytest ','node --test','cargo test','qualify_setup_core_runtime.ps1',
             'qualify_setup_core_full_product.ps1','qualify_setup_core_upgrade_04_to_05.py',
             'qualify-local-bundle.ps1','gh release create','gh release upload')) {
