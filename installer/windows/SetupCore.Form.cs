@@ -1362,7 +1362,7 @@ namespace IwxaSetup
                     plan.Status == "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED";
                 SetWizardStep(readyForReview ? 3 : 2);
                 configureInstallation.Visible =
-                    plan.Status == "NO_OWNED_INSTALLATION" ||
+                    IsFirstInstallState(plan.Status) ||
                     AllowsOwnedUninstall(plan.Status) ||
                     plan.Status == "UPGRADE_CANDIDATE_NOT_ACTIVATED" ||
                     readyForReview;
@@ -1382,7 +1382,7 @@ namespace IwxaSetup
                     T("    ·    В пакете: ", "    ·    Package: ") + info.Version;
                 SetTechnicalReport(info, plan.Status, null);
 
-                if (plan.Status == "NO_OWNED_INSTALLATION")
+                if (IsFirstInstallState(plan.Status))
                 {
                     InstallPreflight check = SetupReadiness.Check(info,
                         selectedLocations.ProgramRoot);

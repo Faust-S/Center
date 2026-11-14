@@ -797,7 +797,7 @@ namespace IwxaSetup
         {
             if (performingOperation || verifyingState || inspectedBundle == null)
                 return;
-            bool first = inspectedStatus == "NO_OWNED_INSTALLATION";
+            bool first = IsFirstInstallState(inspectedStatus);
             bool hadChanges = locationDraftChanged;
             if (hadChanges)
             {
@@ -824,7 +824,7 @@ namespace IwxaSetup
         {
             if (unifiedMain.ColumnCount == 0) return;
             bool ready = !performingOperation && !verifyingState;
-            bool first = inspectedStatus == "NO_OWNED_INSTALLATION";
+            bool first = IsFirstInstallState(inspectedStatus);
             bool installed = inspectedBundle != null && !first;
             bool changes = locationDraftChanged;
             bool canCopyPriorData = first && inspectedBundle != null &&
@@ -1025,7 +1025,7 @@ namespace IwxaSetup
                 for(int i=0;i<5;i++)
                     edits[i] = new TextBox {
                         Text = locationInputs[i].Text,
-                        ReadOnly = i==0 && inspectedStatus!="NO_OWNED_INSTALLATION"
+                        ReadOnly = i==0 && !IsFirstInstallState(inspectedStatus)
                     };
                 string[] labels = {
                     T("Программа", "Application"),

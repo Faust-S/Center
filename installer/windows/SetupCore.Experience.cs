@@ -30,6 +30,16 @@ namespace IwxaSetup
         private bool commonEditedByUser;
         private bool locationDraftChanged;
 
+        // An occupied or foreign default program path does not mean that
+        // this product is already installed. The user can select another
+        // folder without editing the registry or restoring an old release.
+        private static bool IsFirstInstallState(string status)
+        {
+            return status == "NO_OWNED_INSTALLATION" ||
+                status == "UNOWNED_INSTALL_ROOT" ||
+                status == "INSTALL_ROOT_NOT_EMPTY";
+        }
+
         private void BuildExperienceLayout()
         {
             BuildUnifiedLayout();
@@ -56,7 +66,7 @@ namespace IwxaSetup
         private void RefreshExperience(BundleInfo info, UpgradeAssessment plan)
         {
             if (info == null || plan == null) return;
-            bool initial = plan.Status == "NO_OWNED_INSTALLATION";
+            bool initial = IsFirstInstallState(plan.Status);
             journeyStage.Text = initial ?
                 T("ПЕРВАЯ УСТАНОВКА", "FIRST INSTALL") :
                 T("ОБСЛУЖИВАНИЕ ПРОГРАММЫ", "APPLICATION MAINTENANCE");
@@ -124,7 +134,7 @@ namespace IwxaSetup
             SetupLocations paths;
             try
             {
-                paths = inspectedStatus == "NO_OWNED_INSTALLATION" ?
+                paths = IsFirstInstallState(inspectedStatus) ?
                     selectedLocations : SetupInstallation.InstalledLocations(inspectedBundle);
                 if (paths == null) return;
             }
@@ -139,10 +149,10 @@ namespace IwxaSetup
             {
                 locationInputs[0].Text = paths.ProgramRoot;
                 locationInputs[0].ReadOnly =
-                    inspectedStatus != "NO_OWNED_INSTALLATION";
+                    !IsFirstInstallState(inspectedStatus);
                 if (programBrowse != null)
                     programBrowse.Enabled =
-                        inspectedStatus == "NO_OWNED_INSTALLATION";
+                        IsFirstInstallState(inspectedStatus);
                 for (int i = 1; i <= 4; i++)
                     locationInputs[i].Text = new [] {paths.DataRoot,
                         paths.SoftwareRoot, paths.ModelsRoot,
@@ -151,7 +161,7 @@ namespace IwxaSetup
                 commonEditedByUser = false;
                 launchAtLogin.Checked = paths.StartWithWindows;
                 launchAfterSetup.Enabled =
-                    inspectedStatus == "NO_OWNED_INSTALLATION" ||
+                    IsFirstInstallState(inspectedStatus) ||
                     inspectedStatus == "UPGRADE_CANDIDATE_NOT_ACTIVATED";
                 locationDraftChanged = false;
                 draftNotice.Text = T("Параметры проверены.",
@@ -199,7 +209,7 @@ namespace IwxaSetup
             if (inspectedBundle == null || performingOperation || verifyingState)
                 return;
             BundleInfo info = inspectedBundle;
-            bool first = inspectedStatus == "NO_OWNED_INSTALLATION";
+            bool first = IsFirstInstallState(inspectedStatus);
             SetupLocations previous;
             try
             {

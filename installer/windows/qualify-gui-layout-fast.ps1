@@ -319,6 +319,48 @@ try{
         throw 'SETUP_EDITED_FIRST_INSTALL_RECOVERY_ACTION_MISSING'
     }
     Write-Host 'IWXA_SETUP_EDITED_BLOCKED_LOCATION_RECOVERY_PASS'
+    # An occupied or foreign default program path is not an installed
+    # application. The owner must be able to reselect a clean directory.
+    $firstMethod=$formType.GetMethod('IsFirstInstallState',
+        [Reflection.BindingFlags]'Static,NonPublic')
+    if($null -eq $firstMethod){
+        throw 'SETUP_BLOCKED_FIRST_INSTALL_STATE_HELPER_MISSING'
+    }
+    $defaultsMethod=$engine.GetMethod('DefaultLocations',
+        [Reflection.BindingFlags]'Static,NonPublic')
+    $refreshPaths=$formType.GetMethod('RefreshExperienceLocations',
+        [Reflection.BindingFlags]'Instance,NonPublic')
+    if($null -eq $defaultsMethod -or $null -eq $refreshPaths){
+        throw 'SETUP_BLOCKED_FIRST_INSTALL_PATH_CONTROL_MISSING'
+    }
+    $defaultPaths=$defaultsMethod.Invoke($null,[object[]]@($info))
+    $formType.GetField('selectedLocations',$binding).SetValue($form,$defaultPaths)
+    $program=One $form 'iwxaSetupInstallRoot'
+    foreach($state in @('NO_OWNED_INSTALLATION','UNOWNED_INSTALL_ROOT',
+        'INSTALL_ROOT_NOT_EMPTY')){
+        if(![bool]$firstMethod.Invoke($null,[object[]]@([string]$state))){
+            throw ('SETUP_BLOCKED_FIRST_INSTALL_STATE_NOT_EDITABLE_'+$state)
+        }
+        $field.SetValue($form,$state)
+        $null=$refreshPaths.Invoke($form,[object[]]@([bool]$true))
+        $browse=$formType.GetField('programBrowse',$binding).GetValue($form)
+        if($program.ReadOnly -or $null -eq $browse -or !$browse.Enabled){
+            throw ('SETUP_BLOCKED_PROGRAM_PATH_NOT_EDITABLE_'+$state)
+        }
+        $formType.GetField('locationDraftChanged',$binding).SetValue($form,$true)
+        $null=$refresh.Invoke($form,[object[]]@())
+        if(!(WantsVisible $install) -or !$install.Enabled){
+            throw ('SETUP_BLOCKED_FIRST_INSTALL_ACTION_UNAVAILABLE_'+$state)
+        }
+    }
+    foreach($state in @('REPAIR_CANDIDATE_NOT_ACTIVATED',
+        'UPGRADE_PENDING_CONFIRMATION','AGENT_PREVIOUS_INSTALL_PENDING',
+        'START_MENU_SHORTCUT_CONFLICT')){
+        if([bool]$firstMethod.Invoke($null,[object[]]@([string]$state))){
+            throw ('SETUP_OWNED_INSTALL_MISTAKEN_FOR_FIRST_'+$state)
+        }
+    }
+    Write-Host 'IWXA_SETUP_BLOCKED_FIRST_INSTALL_RESELECTION_PASS'
 }finally{$form.Dispose()}
 # DPI model: same form and real controls, layout at 100-250% scales.
 foreach($factor in @(1.0,1.5,2.0,2.5)){
