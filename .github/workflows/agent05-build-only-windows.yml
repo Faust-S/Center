@@ -84,7 +84,14 @@ jobs:
               'agent05_build_setup_core_identity_failed','agent05_build_checkout_not_clean'
             )
             foreach ($code in $reasons) { if ($raw -and $raw.Contains($code)) {$reason=$code;break} }
+            $stage='UNKNOWN'
+            $allowed=@('PRECHECK','MANAGED_PYTHON','COPY_DESKTOP','ICON','U04',
+              'NPM_DEPENDENCIES','TAURI_BUILD','PACKAGE','PACKAGE_RECEIPT',
+              'SETUP_CORE','SETUP_RECEIPT')
+            if ($raw -match 'AGENT05_BUILD_ONLY_FAIL_STAGE=([A-Z_]+)' -and
+                $Matches[1] -in $allowed) {$stage=$Matches[1]}
             Write-Host ('AGENT05_BUILD_ONLY_FAILURE_STAGE='+$reason)
+            Write-Host ('AGENT05_BUILD_ONLY_FAILURE_PHASE='+$stage)
             throw 'AGENT05_BUILD_ONLY_NOT_READY'
           }
           $receipt = Get-Content -LiteralPath (Join-Path $output 'build-receipt.json') -Raw | ConvertFrom-Json
