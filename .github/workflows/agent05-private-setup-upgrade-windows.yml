@@ -1,0 +1,161 @@
+name: Agent 0.5 private Setup Core Windows upgrade acceptance
+
+on:
+  push:
+    branches:
+      - work/2026-11-14-agent05-setup-core-upgrade-qualification
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent05-private-setup-upgrade
+  cancel-in-progress: true
+
+jobs:
+  actual-setup-04-to-05:
+    runs-on: windows-latest
+    timeout-minutes: 110
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Checkout public Center Setup Core owner
+        uses: actions/checkout@v4
+        with:
+          path: center-owner
+          persist-credentials: false
+      - name: Require private read-only source credential
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) {
+            throw 'AGENT05_SETUP_PRIVATE_READ_PERMISSION_UNAVAILABLE'
+          }
+      - name: Checkout pinned private Agent release candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 47ba22bdb0e4dbeeb91d3a56199395db3472145e
+          path: private-product
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - name: Verify exact private and public source identities
+        shell: pwsh
+        run: |
+          $agent = (& git -C private-product rev-parse HEAD).Trim()
+          $center = (& git -C center-owner rev-parse HEAD).Trim()
+          if ($agent -cne '47ba22bdb0e4dbeeb91d3a56199395db3472145e' -or
+              $center -cne $env:GITHUB_SHA) { throw 'AGENT05_SETUP_SOURCE_REVISION_MISMATCH' }
+          $native = Get-Content private-product/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          if ($native.version -cne '0.5.0') { throw 'AGENT05_SETUP_PRODUCT_VERSION_MISMATCH' }
+          Write-Host 'AGENT05_SETUP_PINNED_PRODUCT_AND_CENTER_PASS'
+      - name: Download and authenticate released private 0.4.0 Setup
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          $folder = Join-Path $env:RUNNER_TEMP 'agent05-prior-private-setup'
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-private-04-download.log'
+          & gh release download v0.4.0 --repo Faust-S/iwxa-personal-agent --pattern IWXA-Personal-Agent-0.4.0-Setup.exe --dir $folder *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_SETUP_PREVIOUS_RELEASE_DOWNLOAD_FAILED' }
+          $setup = Join-Path $folder 'IWXA-Personal-Agent-0.4.0-Setup.exe'
+          if (!(Test-Path -LiteralPath $setup -PathType Leaf)) {
+            throw 'AGENT05_SETUP_PREVIOUS_RELEASE_NOT_FOUND'
+          }
+          $size = (Get-Item -LiteralPath $setup).Length
+          $sha = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($size -ne 20085760 -or $sha -cne '28a7c69b4011803529abe5d409c7ac1ea4c119cf53a81c9a8655ad858eb369bb') {
+            throw 'AGENT05_SETUP_PREVIOUS_RELEASE_IDENTITY_MISMATCH'
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('IWXA_AGENT04_SETUP_PATH=' + $setup)
+          Write-Host 'AGENT05_SETUP_RELEASED_04_BINARY_VERIFIED'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build actual 0.5 Setup, install, qualify, rollback, upgrade from 0.4, uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'agent05-setup-candidate'
+          $profile = Join-Path $root 'isolated-profile'
+          $originalHome = $env:USERPROFILE
+          $rustup = if ([string]::IsNullOrWhiteSpace($env:RUSTUP_HOME)) { Join-Path $originalHome '.rustup' } else { $env:RUSTUP_HOME }
+          $cargo = if ([string]::IsNullOrWhiteSpace($env:CARGO_HOME)) { Join-Path $originalHome '.cargo' } else { $env:CARGO_HOME }
+          $env:RUSTUP_HOME = $rustup
+          $env:CARGO_HOME = $cargo
+          $env:USERPROFILE = Join-Path $profile 'Home'
+          $env:APPDATA = Join-Path $env:USERPROFILE 'AppData/Roaming'
+          $env:LOCALAPPDATA = Join-Path $env:USERPROFILE 'AppData/Local'
+          $env:TEMP = Join-Path $root 'tmp'
+          $env:TMP = $env:TEMP
+          foreach ($p in @($env:USERPROFILE,$env:APPDATA,$env:LOCALAPPDATA,$env:TEMP)) {
+            New-Item -ItemType Directory -Force -Path $p | Out-Null
+          }
+          $candidate = Join-Path $root 'native-candidate'
+          $privateLog = Join-Path $env:RUNNER_TEMP 'agent05-setup-core-private-qualification.log'
+          $exe = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $script = Join-Path $env:GITHUB_WORKSPACE 'private-product/tools/build_setup_core_windows_candidate.ps1'
+          $center = Join-Path $env:GITHUB_WORKSPACE 'center-owner'
+          & $exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -CenterRoot $center -CenterCommit $env:GITHUB_SHA -OutputRoot $candidate -ReleaseCacheRoot (Join-Path $root 'release-cache') *> $privateLog
+          if ($LASTEXITCODE -ne 0) {
+            # Never print the private build log, model text, paths, exception or binary.
+            $text = Get-Content -LiteralPath $privateLog -Raw -ErrorAction SilentlyContinue
+            $stage = 'UNKNOWN'
+            $known = @(
+              'private_setup_native_product_package_build_failed',
+              'private_setup_core_package_build_failed',
+              'private_setup_core_local_acceptance_failed',
+              'private_setup_core_installed_runtime_not_verified',
+              'private_setup_core_rollback_failed',
+              'private_setup_core_prior_release_missing',
+              'private_setup_core_real_upgrade_failed',
+              'private_setup_core_real_upgrade_receipt_invalid',
+              'private_setup_core_local_acceptance_not_confirmed'
+            )
+            foreach ($code in $known) {
+              if ($text -and $text.Contains($code)) { $stage = $code; break }
+            }
+            Write-Host ('AGENT05_SETUP_FAILURE_STAGE=' + $stage)
+            throw 'AGENT05_SETUP_CORE_FULL_PRODUCT_NOT_ACCEPTED'
+          }
+          $result = Get-Content -LiteralPath $privateLog -Raw | ConvertFrom-Json
+          $upgrade = Join-Path $candidate 'temporary-upgrade-fixture/upgrade-witness.json'
+          $installed = Join-Path $candidate 'temporary-installed-fixture/installed-witness.json'
+          $rollback = Join-Path $candidate 'temporary-rollback-fixture/rollback-witness.json'
+          if (!(Test-Path -LiteralPath $upgrade -PathType Leaf) -or
+              !(Test-Path -LiteralPath $installed -PathType Leaf) -or
+              !(Test-Path -LiteralPath $rollback -PathType Leaf)) {
+            throw 'AGENT05_SETUP_WITNESS_MISSING'
+          }
+          $u = Get-Content -LiteralPath $upgrade -Raw | ConvertFrom-Json
+          $i = Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json
+          $r = Get-Content -LiteralPath $rollback -Raw | ConvertFrom-Json
+          if ($result.source_commit -cne '47ba22bdb0e4dbeeb91d3a56199395db3472145e' -or
+              $result.setup_core_commit -cne $env:GITHUB_SHA -or
+              $result.native_real_upgrade_04_to_05_accepted -ne $true -or
+              $result.native_same_version_repair_rollback_accepted -ne $true -or
+              $result.native_gui_window_accepted -ne $true -or
+              $result.installed_runtime_launch_accepted -ne $true -or
+              $result.private_artifacts_uploaded_to_public -ne $false -or
+              $u.status -cne 'PASS' -or $u.old_version -cne '0.4.0' -or
+              $u.new_version -cne '0.5.0' -or $u.preserved_storage_roots -ne 4 -or
+              $u.upgraded_core_ready_verified -ne $true -or
+              $u.uninstall_preserved_user_data -ne $true -or
+              $r.status -cne 'PASS' -or
+              $r.rollback_restored_previous -ne $true -or
+              $i.status -cne 'PASS' -or
+              $i.installed_k03_real_source_task_result_restart_verified -ne $true) {
+            throw 'AGENT05_SETUP_CORE_PROOF_INVALID'
+          }
+          Write-Host 'AGENT05_SETUP_NATIVE_INSTALL_K03_TASK_REVIEW_COLD_PASS'
+          Write-Host 'AGENT05_SETUP_NATIVE_REPAIR_ROLLBACK_UNINSTALL_PASS'
+          Write-Host 'AGENT05_SETUP_REAL_04_TO_05_USER_DATA_PRESERVATION_PASS'
+          Write-Host ('AGENT05_SETUP_05_SHA256=' + [string]$result.setup_sha256)
+      # No upload, cache, persisted private binary, model response or private log.
