@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: bd0019c7c5e1ba01e5c30292571d3d85e2905545
+          ref: b1fdfb05ead45242eca164c0fc5bfe28abdecbf9
           path: private-agent
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
@@ -53,7 +53,7 @@ jobs:
               }
               Write-Host ('AGENT05_EXISTING_DATA_FAILED_CASE='+$case)
               $stage='UNKNOWN'
-              $allowedStages=@('CORE_INIT','STATUS_QUERY','STATUS_ISSUES','PLAN_ENGINE','PLAN_ENGINE_SHA','SER_TASKS','SER_GOALS','SER_BOARDS','SER_AUTOMATIONS','SER_TOOL_PLANS','SER_TOOL_APPROVALS','SER_TOOL_REPAIRS','SER_TOOL_RECEIPTS','SER_MEMORY','SER_PROVIDERS','REV_TASKS','REV_GOALS','REV_BOARDS','REV_AUTOMATIONS','REV_TOOL_PLANS','REV_TOOL_APPROVALS','REV_TOOL_REPAIRS','REV_TOOL_RECEIPTS','REV_MEMORY','REV_PROVIDERS','FULL_REVISION','FULL_REVISION_SHA','PLAN_QUERY','PLAN_SHA','PRESERVE_BYTES','COLD_INIT','COLD_STATUS','REPEAT_STATUS','COLD_ISSUES')
+              $allowedStages=@('CORE_INIT','STATUS_QUERY','STATUS_ISSUES','PLAN_ENGINE','PLAN_ENGINE_SHA','SER_TASKS','SER_GOALS','SER_BOARDS','SER_AUTOMATIONS','SER_TOOL_PLANS','SER_TOOL_APPROVALS','SER_TOOL_REPAIRS','SER_TOOL_RECEIPTS','SER_MEMORY','SER_PROVIDERS','REV_TASKS','REV_GOALS','REV_BOARDS','REV_AUTOMATIONS','REV_TOOL_PLANS','REV_TOOL_APPROVALS','REV_TOOL_REPAIRS','REV_TOOL_RECEIPTS','REV_MEMORY','REV_PROVIDERS','REV_MATERIAL','REV_MATERIAL_JSON','FULL_REVISION','FULL_REVISION_SHA','PLAN_QUERY','PLAN_SHA','PRESERVE_BYTES','COLD_INIT','COLD_STATUS','REPEAT_STATUS','COLD_ISSUES')
               foreach($candidateStage in $allowedStages){
                 if($text.Contains('AGENT05_LEGACY_STAGE_'+$candidateStage)){
                   $stage=$candidateStage
@@ -61,6 +61,14 @@ jobs:
                 }
               }
               Write-Host ('AGENT05_EXISTING_DATA_FAILED_STAGE='+$stage)
+              $kind='UNKNOWN'
+              foreach($candidateKind in @('ValueError','TypeError','KeyError','OSError','RuntimeError','AttributeError','AssertionError','FileNotFoundError','PermissionError','UnicodeError','OTHER')){
+                if($text.Contains('AGENT05_LEGACY_STAGE_'+$stage+'_'+$candidateKind)){
+                  $kind=$candidateKind
+                  break
+                }
+              }
+              Write-Host ('AGENT05_EXISTING_DATA_FAILED_EXCEPTION_KIND='+$kind)
               throw 'AGENT05_EXISTING_DATA_TEST_FAILED'
             }
             Write-Host 'AGENT05_EXISTING_DATA_AND_CLEAN_START_PASS'
