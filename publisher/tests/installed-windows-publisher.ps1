@@ -187,7 +187,7 @@ function Choose-Publisher-Option([string]$name){
     [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
     Start-Sleep -Milliseconds 350
     $actual=Read-Publisher-Option (Find-Control $name 'ComboBox')
-    if($actual -and $actual -notmatch '^Выберите\\s'){
+    if($actual -and $actual -notlike 'Выберите *'){
       Write-Host "PUBLISHER_GUI_SELECT_EXACT_NATIVE_READBACK_PASS $name"
       return
     }
