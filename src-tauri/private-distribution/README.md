@@ -1,14 +1,20 @@
-# Installed original T3 corporate owner
+# Original private corporate T3 D3 owner
 
-The signed Windows owner executable is compiled from the **private** Faust-S/T3
-source by the trusted release builder. It is NEVER checked into the public Center
-repository or downloaded through public Center Actions. The executable contains
-the original AccessRegistry, Reconciliation, receipt recovery and issuer custody.
+This public repository never contains private T3 source, keys or signed
+product-owner executable. The ignored resource is compiled from Faust-S/T3
+using original AccessRegistry, OfflinePackageReconciler and Windows DPAPI,
+not a reference TEST owner.
 
-Private packaging uses `src-tauri/tauri.private-d3.conf.json` as an additional
-Tauri build configuration. Public builds omit this resource and return
-`NOT_CONNECTED` to the corporate workbench. This is not a TEST owner fallback.
+The private T3 repository owns this Windows release recipe:
 
-Build from the private T3 repo, then compile Center with:
-`npx tauri build --config src-tauri/tauri.private-d3.conf.json`.
-Do not promote a public build or a TEST-only license issuer to signed D3.
+    pwsh scripts/build-admin-center-d3-owner.ps1 -CenterRoot CENTER_CHECKOUT -BuildCenter
+
+The recipe builds the existing IWXA Setup Core installer with TWO executable
+payload files: iwxa-admin-center.exe and t3/iwxa-t3-product-owner.exe.
+Their checksums are verified using the existing Setup Core verifier.
+The Tauri resource overlay is not an alternative end-user application.
+
+Public Center Actions contain NO private binary and show NOT_CONNECTED.
+The original corporate Kernel Apply remains unavailable until the native
+signed D1 commitObjectGraph/getObject and original sealed application-host
+binding are included in the real T3 product.

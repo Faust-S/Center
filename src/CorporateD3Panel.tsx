@@ -54,8 +54,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
  },[sessionKey]);
  const choose=(value:string)=>{setHash(value);setLastReceiveState(null);reset();};
  const selectedInboxItem=inbox?.items.find(x=>x.packageSha256===hash);
- const originalDecisionRecorded=['ACCEPTED','REJECTED'].includes(
-   selectedInboxItem?.status??lastReceiveState??'');
+ const originalDecisionRecorded=
+   ['ACCEPTED','REJECTED'].includes(selectedInboxItem?.status??'')||
+   ['ACCEPTED','REJECTED'].includes(lastReceiveState??'');
  const refreshInbox=()=>run('Полученные пакеты перечитаны из оригинального Reconciliation.',async()=>{
    const result=await execute('d3Inbox');
    if(result?.schema!=='IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1'||

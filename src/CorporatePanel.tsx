@@ -10,9 +10,13 @@ type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;assign
 const hex=/^[a-f0-9]{64}$/;
 const why=(e:unknown)=>{
  const message=e instanceof Error?e.message:String(e);
- return message.includes('T3_RECEIVE_STORE_READBACK_HOLD')
-   ? 'Получение не подтверждено хранилищем организации. Обновите список Result и проверьте журнал перед повторной передачей файла.'
-   : message;
+ if(message.includes('T3_RECEIVE_STORE_READBACK_HOLD'))
+   return 'Получение не подтверждено хранилищем организации. Обновите список Result и проверьте журнал перед повторной передачей файла.';
+ if(/OUTCOME_UNKNOWN|T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED/.test(message))
+   return 'Исход операции неизвестен. Не повторяйте ACCEPT, REJECT или Apply. Откройте исходную квитанцию по сохранённому ID и SHA-256 пакета.';
+ if(message.includes('CEN_D3_HUMAN_REVIEW_CANCELLED'))
+   return 'Решение отменено в системном окне Windows. Оно не отправлялось.';
+ return message;
 };
 export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
  const [owner,setOwner]=useState<any>(null);
