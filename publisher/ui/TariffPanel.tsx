@@ -133,7 +133,13 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
         {eligibleSources.map(p=><option key={p.id} value={p.id}>{p.tariffSnapshot?.name} · редакция {p.tariffSnapshot?.revision} · прежняя подготовка</option>)}
       </select>
     </label>}
-    {selected&&<p className="muted">{selected.holderType==='PERSON'?'Личная лицензия предназначена для проверки прямо в установленном продукте, без Admin Center. Подписанный маршрут PERSON пока не подключён.':'Организационная лицензия предназначена для проверки в Admin Center. Сейчас Publisher сохраняет условия и не выдаёт действующих прав.'}</p>}
+    {selected&&<p className="muted">{selected.holderType==='PERSON'?
+      ['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(selected.productId)?
+        'После сохранения подготовки откройте «Лицензии» и выберите «Открыть выдачу PERSON». Исходный T3 подписывает лицензию и статус, а действующие права проверяет установленный продукт.':
+        'Для этого продукта подписанный PERSON-контракт не предусмотрен. Подготовка останется черновиком.':
+      selected.productId==='IWXA_ADMIN_CENTER'?
+        'Организационный TEST-запрос можно подписать через исходный T3 в разделе «Доверие и ключи», а .iwxa передать в установленный Admin Center. TEST не активирует коммерческие места.':
+        'Оригинальный T3 TEST Owner не подписывает произвольные организационные продукты. Подготовка останется черновиком.'}</p>}
     {selectedSource&&<p className="muted">Новая подготовка будет связана с прежним запросом. Это не продлевает и не изменяет действующие права без отдельной подписи издателя.</p>}
     {selected&&selectedHolder&&<div className="publisher-offer-review" data-testid="publisher-offline-offer-preview" role="status">
       <strong>Условия для проверки</strong>
