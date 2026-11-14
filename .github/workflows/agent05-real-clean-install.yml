@@ -268,6 +268,59 @@ jobs:
           $p=Start-Process -FilePath $setup -ArgumentList @('--upgrade-plan-file',$plan2) -Wait -PassThru
           if($p.ExitCode -ne 0 -or (Get-Content $plan2 -Raw | ConvertFrom-Json).status -cne 'REPAIR_CANDIDATE_NOT_ACTIVATED'){throw 'AGENT05_FINISH_READBACK_FAILED'}
           Write-Host 'AGENT05_FINISH_WITH_PRESERVED_DATA_PASS'
+      - name: Uninstall closed Agent with live background Core, preserve data, reinstall same folders
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\IWXA\Agent'
+          $data='C:\IWXA\Personal data Agent'
+          $setup='C:\i5\o\IWXA-Personal-Agent-0.5.0-Setup.exe'
+          $request='C:\i5\locations.json'
+          $sentinel=Join-Path $data 'Data\user-file.txt'
+          $originalHash=(Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash
+          $installer=Join-Path $root 'explorer-install-receipt.json'
+          $receipt=Get-Content -LiteralPath $installer -Raw -Encoding UTF8 | ConvertFrom-Json
+          $relative=[string]$receipt.managed_runtime.python_executable
+          if([string]::IsNullOrWhiteSpace($relative) -or [IO.Path]::IsPathRooted($relative) -or
+             $relative.Contains('..') -or $relative.Contains(':')){throw 'AGENT05_UNINSTALL_PYTHON_PATH_INVALID'}
+          $python=Join-Path $root ($relative.Replace('/','\'))
+          $control=Join-Path $root 'tools\iwxa_windows_user_control.py'
+          $env:WEBVIEW2_USER_DATA_FOLDER='C:\i5\webview'
+          # Simulate a closed desktop with a still-live detached Core. Its
+          # actual executable is installed beneath $root, not the user data.
+          $startLog=Join-Path $env:RUNNER_TEMP 'agent05-uninstall-start-private.log'
+          & $python -I -B $control --install-root $root --action start --port 8765 --no-dialog *> $startLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_UNINSTALL_BACKGROUND_START_FAILED'}
+          $background=Get-Content -LiteralPath $startLog -Raw | ConvertFrom-Json
+          if(!$background.pid){throw 'AGENT05_UNINSTALL_BACKGROUND_NOT_STARTED'}
+          Write-Host 'AGENT05_BACKGROUND_CORE_REMAINS_AFTER_WINDOW_CLOSED_PASS'
+          # The public Setup CLI runs outside the owned install root and is
+          # noninteractive. The same UninstallLocked is used by the worker.
+          $uninstallResult='C:\i5\uninstall-preserved.json'
+          $process=Start-Process -FilePath $setup -ArgumentList @('--uninstall-file',$uninstallResult) -Wait -PassThru
+          if($process.ExitCode -ne 0){throw 'AGENT05_BACKGROUND_UNINSTALL_FAILED'}
+          $result=Get-Content -LiteralPath $uninstallResult -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($result.status -cne 'UNINSTALLED_USER_DATA_PRESERVED'){throw 'AGENT05_BACKGROUND_UNINSTALL_STATUS_INVALID'}
+          if(Test-Path (Join-Path $root 'IWXA Personal Agent.exe')){throw 'AGENT05_BACKGROUND_UNINSTALL_APP_REMAINS'}
+          if(!(Test-Path $sentinel) -or
+             (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash -cne $originalHash){
+             throw 'AGENT05_BACKGROUND_UNINSTALL_DATA_CHANGED'
+          }
+          Write-Host 'AGENT05_BACKGROUND_UNINSTALL_PRESERVED_USER_DATA_PASS'
+          # Reinstall into exactly the same program and user-data folders;
+          # never require users to invent fresh folder names as a workaround.
+          $reinstallResult='C:\i5\reinstall-after-uninstall.json'
+          $reinstall=Start-Process -FilePath $setup -ArgumentList @('--install-locations-file',$request,$reinstallResult) -Wait -PassThru
+          if($reinstall.ExitCode -ne 0){throw 'AGENT05_SAME_FOLDERS_REINSTALL_FAILED'}
+          $installed=Get-Content -LiteralPath $reinstallResult -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($installed.status -cne 'INSTALLED_NOT_LAUNCHED' -or
+             !(Test-Path (Join-Path $root 'IWXA Personal Agent.exe')) -or
+             !(Test-Path $sentinel) -or
+             (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash -cne $originalHash){
+             throw 'AGENT05_SAME_FOLDERS_REINSTALL_READBACK_FAILED'
+          }
+          Write-Host 'AGENT05_SAME_FOLDERS_REINSTALL_PRESERVED_DATA_PASS'
       - name: Real installed local model Task Result and cold reopen
         shell: pwsh
         timeout-minutes: 35
