@@ -220,13 +220,19 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     try{
       const result=await inventory(search);
       setLookupTarget(search);setNeedsRefresh(false);
-      const found=result.entries.filter(x=>x.licenseId===search||
-        x.requestId===search||x.personId===search);
-      if(found.length){
-        setAgeRecipientEntry({licenseId:'',value:''});setLicenseId(found[0].licenseId);setStatus('');setRevokePending('');
-      }
+      // A person can have an original and one or more signed renewals.
+      // Exact native lookup is authoritative; never auto-select a random
+      // record for a status change, revocation or delivery.
+      const found=result.matches===1?result.entries.find(x=>
+        x.licenseId===search||x.requestId===search||x.personId===search):undefined;
+      // A failed or ambiguous lookup must also clear the PREVIOUS selection:
+      // otherwise an unrelated license could still be exported or revoked.
+      setAgeRecipientEntry({licenseId:'',value:''});
+      setLicenseId(found?.licenseId??'');
+      setStatus('');setRevokePending('');setRenewalTariff('');
       setMessage(result.matches?
-        'Поиск в исходном T3: найдено записей '+result.matches+'.':
+        'Поиск в исходном T3: найдено записей '+result.matches+'.'+
+          (result.matches>1?' Выберите конкретную лицензию из списка.':''):
         'В исходном T3 нет лицензии с таким идентификатором.');
     }catch(e){setNeedsRefresh(true);
       setFailure('Поиск в журнале T3 не выполнен: '+err(e));}

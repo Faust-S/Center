@@ -1325,6 +1325,29 @@ try {
   assert.equal(await personOwner.getByRole('combobox',{name:'Персональная лицензия'}).inputValue(),oldLicense);
   assert.equal(await personOwner.getByTestId('publisher-person-export').isEnabled(),true);
   checks.push('person-historical-license-search-and-export-remain-available-after-48-records');
+  // A missing exact ID must clear the PREVIOUS license; otherwise the
+  // operator can accidentally export or revoke that old record.
+  await personOwner.getByTestId('publisher-person-lookup-input')
+    .fill('license:person:unknown:1001');
+  await personOwner.getByTestId('publisher-person-lookup').click();
+  await personOwner.getByText('В исходном T3 нет лицензии с таким идентификатором.').waitFor();
+  assert.equal(await personOwner.getByRole('combobox',{name:'Персональная лицензия'}).inputValue(),'');
+  assert.equal(await personOwner.getByTestId('publisher-person-export').isDisabled(),true);
+  assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true);
+  checks.push('person-missing-lookup-clears-previously-selected-license-and-revocation');
+  // Original and renewal belong to the SAME person. A lookup by personId
+  // returns both, requiring an explicit choice instead of the first record.
+  await personOwner.getByTestId('publisher-person-lookup-input')
+    .fill(updatedLedger[0].personId);
+  await personOwner.getByTestId('publisher-person-lookup').click();
+  await personOwner.getByText('Поиск в исходном T3: найдено записей 2. Выберите конкретную лицензию из списка.').waitFor();
+  assert.equal(await personOwner.getByRole('combobox',{name:'Персональная лицензия'}).inputValue(),'');
+  assert.equal(await personOwner.getByTestId('publisher-person-export').isDisabled(),true);
+  assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true);
+  await personOwner.getByRole('combobox',{name:'Персональная лицензия'})
+    .selectOption(oldLicense);
+  assert.equal(await personOwner.getByTestId('publisher-person-export').isEnabled(),true);
+  checks.push('person-original-and-renewal-ambiguous-lookup-never-auto-selects');
   // The already-issued original request is absent from the recent 48.
   // Issue must consult original T3 and recover the old signed record.
   await personOwner.getByTestId('publisher-person-lookup-clear').click();
