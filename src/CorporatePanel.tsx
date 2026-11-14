@@ -6,7 +6,7 @@ import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerp
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
 type Invoke=(command:string,args?:Record<string,unknown>)=>Promise<any>;
-type Org={id:string;name:string;assignments:Array<{id:string;title:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
+type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;assignments:Array<{id:string;title:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
 const hex=/^[a-f0-9]{64}$/;
 const why=(e:unknown)=>{
  const message=e instanceof Error?e.message:String(e);
@@ -17,6 +17,8 @@ const why=(e:unknown)=>{
 export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
+ const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
+ const [enrollWorkspace,setEnrollWorkspace]=useState('');
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
  const [notice,setNotice]=useState('');
@@ -31,6 +33,8 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  const [reuseKey,setReuseKey]=useState('');
  const [reuseText,setReuseText]=useState('');
  const organizationId=organization.id;
+ const selectedEnrollmentWorkspace=organization.workspaces.some(w=>w.id===enrollWorkspace)
+   ?enrollWorkspace:organization.workspaces[0]?.id??'';
  const requestRef=useRef(0),sessionRef=useRef<string|null>(null),actionRef=useRef(false);
  const legacyReady=ownerSessionFingerprint(owner,organizationId)!==null;
  const d3Ready=signedD3SessionFingerprint(owner,organizationId)!==null;
@@ -45,6 +49,8 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
      resetReview();
    }
    const valid=fingerprint===null?null:candidate;
+   setEnrollmentAvailable(!valid&&candidate?.status==='NOT_CONNECTED'&&
+     candidate?.enrollmentAvailable===true);
    setOwner(valid);
     setOwnerAvailability(valid?'OWNER_READY':
       candidate===null||candidate?.status==='NOT_CONNECTED'||candidate?.status==='REFERENCE_ONLY'
@@ -132,6 +138,27 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
   <p className="notice subdued" data-testid="corporate-owner-status">{d3Ready?'Подписанный T3 D3 получатель доступен. Это не статус готовности всего T3.':ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; проверьте состояние владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
+  {!ready&&enrollmentAvailable&&invoke&&<div className="nested-form" data-testid="d3-org-onboarding">
+   <h3>Подключить подписанную организацию T3</h3>
+   <p className="muted">Создать собственный подписанный организационный контур
+    с оригинальным AccessRegistry, ключами Ed25519 и Windows DPAPI.
+    Это отдельное подтверждаемое действие, а не преобразование черновиков в права.</p>
+   <label>Первая рабочая область
+    <select data-testid="d3-enrollment-workspace" value={selectedEnrollmentWorkspace}
+     onChange={e=>setEnrollWorkspace(e.target.value)}>
+     {organization.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+    </select>
+   </label>
+   <button className="primary" data-testid="d3-enroll" disabled={busy||!selectedEnrollmentWorkspace}
+    onClick={()=>act('Оригинальный подписанный T3-владелец организации подключён.',async()=>{
+      const result=await invoke('center_corporate_enroll',{
+        organizationId,workspaceId:selectedEnrollmentWorkspace,
+        organizationName:organization.name});
+      if(result?.status!=='D3_OWNER_READY'||
+        result.snapshot?.organizationId!==organizationId)
+        throw Error('CEN_D3_SIGNED_ENROLLMENT_UNCONFIRMED');
+    })}>Подключить организацию</button>
+  </div>}
   {d3Ready&&invoke ? <CorporateD3Panel owner={owner} execute={execute}
     run={act} busy={busy} invoke={invoke}/> : <>
   <div className="nested-form" data-testid="cen02-owner-people">
