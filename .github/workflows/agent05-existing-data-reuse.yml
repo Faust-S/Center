@@ -1,0 +1,47 @@
+name: Agent 0.5 old user data startup
+# Public Center qualification only. No private artifacts, logs, or data uploads.
+on:
+  push:
+    branches: [work/2026-11-14-setup-core-real-install-fix]
+    paths: [.github/workflows/agent05-existing-data-reuse.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  previous-data-startup:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 648bc24933feced471e912972e11b070122ddfee
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Existing data and clean data Core regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location 'private-agent'
+          try {
+            $log=Join-Path $env:RUNNER_TEMP 'agent05-existing-data-private.log'
+            & python -m pip install -r requirements-ci.txt *> $log
+            if($LASTEXITCODE -ne 0){ throw 'AGENT05_EXISTING_DATA_DEPENDENCIES_FAILED' }
+            & python -B -m pytest -q --tb=no -p no:cacheprovider tests/test_agent05_existing_user_data_startup.py tests/test_daily_driver_composition.py tests/test_user_provider_settings.py *> $log
+            if($LASTEXITCODE -ne 0){
+              $text=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              $failed='UNKNOWN'
+              if($text -match '([0-9]{1,3}) failed'){$failed=$Matches[1]}
+              Write-Host ('AGENT05_EXISTING_DATA_FAILED_COUNT='+$failed)
+              throw 'AGENT05_EXISTING_DATA_TEST_FAILED'
+            }
+            Write-Host 'AGENT05_EXISTING_DATA_AND_CLEAN_START_PASS'
+          }finally{
+            Pop-Location
+          }
