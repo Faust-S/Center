@@ -1,0 +1,319 @@
+name: Agent 0.5 uninstall with detached Core on Windows
+# Dedicated installed-product uninstall qualification. No private code,
+# executable, customer data, runtime text or traceback is published.
+on:
+  push:
+    branches: [work/2026-11-14-setup-core-real-install-fix]
+    paths:
+      - .github/workflows/agent05-background-uninstall.yml
+      - installer/windows/SetupCore.Install.cs
+      - installer/windows/SetupCore.Switch.cs
+      - installer/windows/SetupCore.Program.cs
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent05-background-uninstall-windows
+  cancel-in-progress: true
+jobs:
+  installed-uninstall:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: center-owner
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: bab5379628ad9ff5ff4378784e49dd7c64c45323
+          path: private-product
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Checkout exact source into short Windows paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='C:\i5'
+          if(Test-Path -LiteralPath $base){throw 'AGENT05_SHORT_ROOT_UNAVAILABLE'}
+          New-Item -ItemType Directory -Path $base | Out-Null
+          $a=Join-Path $base 'a'
+          $c=Join-Path $base 'c'
+          $privateLog=Join-Path $env:RUNNER_TEMP 'agent05-short-root-checkout-private.log'
+          & git -c core.longpaths=true clone --no-checkout (Resolve-Path 'private-product').Path $a *> $privateLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_AGENT_CLONE_FAILED'}
+          & git -C $a -c core.longpaths=true checkout --detach bab5379628ad9ff5ff4378784e49dd7c64c45323 *> $privateLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_AGENT_CHECKOUT_FAILED'}
+          & git -c core.longpaths=true clone --no-checkout (Resolve-Path 'center-owner').Path $c *> $privateLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_CENTER_CLONE_FAILED'}
+          & git -C $c -c core.longpaths=true checkout --detach $env:GITHUB_SHA *> $privateLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_CENTER_CHECKOUT_FAILED'}
+          $gotA=(& git -C $a rev-parse HEAD).Trim()
+          $gotC=(& git -C $c rev-parse HEAD).Trim()
+          if($gotA -cne 'bab5379628ad9ff5ff4378784e49dd7c64c45323' -or
+              $gotC -cne $env:GITHUB_SHA){throw 'AGENT05_SHORT_ROOT_IDENTITY_FAILED'}
+          Write-Host 'AGENT05_SHORT_ROOT_CHECKOUT_PASS'
+      - name: Build Setup only and inspect its own receipt (no tests, no upload)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $script='C:\i5\c\qualification\agent05-build-only.ps1'
+          $logs=Join-Path $env:RUNNER_TEMP 'agent05-short-build-private.log'
+          $errors=$null
+          $tokens=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'AGENT05_SHORT_ROOT_BUILDER_PARSE_FAILED'}
+          & pwsh -NoProfile -NonInteractive -File $script -AgentRoot 'C:\i5\a' -OutputRoot 'C:\i5\o' *> $logs
+          if($LASTEXITCODE -ne 0){
+            $raw=Get-Content -LiteralPath $logs -Raw -ErrorAction SilentlyContinue
+            $phase='UNKNOWN'
+            $reason='UNKNOWN'
+            if($raw -match 'AGENT05_BUILD_ONLY_FAIL_STAGE=([A-Z_]+)'){$phase=$Matches[1]}
+            if($raw -match 'AGENT05_BUILD_ONLY_FAIL_REASON=([a-z0-9_]+)'){$reason=$Matches[1]}
+            Write-Host ('AGENT05_SHORT_ROOT_FAILURE_PHASE='+$phase)
+            Write-Host ('AGENT05_SHORT_ROOT_FAILURE_REASON='+$reason)
+            throw 'AGENT05_SHORT_ROOT_BUILD_ONLY_FAILED'
+          }
+          $receipt=Get-Content 'C:\i5\o\build-receipt.json' -Raw | ConvertFrom-Json
+          $exe='C:\i5\o\IWXA-Personal-Agent-0.5.0-Setup.exe'
+          if(!(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'AGENT05_SHORT_ROOT_SETUP_MISSING'}
+          $sha=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($receipt.status -cne 'BUILT_ONLY' -or
+             $receipt.version -cne '0.5.0' -or
+             $receipt.source_commit -cne 'bab5379628ad9ff5ff4378784e49dd7c64c45323' -or
+             $receipt.setup_sha256 -cne $sha -or
+             $receipt.tests_reexecuted -ne $false -or
+             $receipt.installer_launched -ne $false -or
+             $receipt.private_artifacts_published -ne $false){
+            throw 'AGENT05_SHORT_ROOT_BUILD_RECEIPT_FAILED'
+          }
+          Write-Host 'AGENT05_SHORT_ROOT_WINDOWS_BUILD_ONLY_PASS'
+          Write-Host ('AGENT05_SHORT_ROOT_SETUP_SHA256='+$sha)
+      - name: Actual first install and visible installed Windows launcher
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $setup='C:\i5\o\IWXA-Personal-Agent-0.5.0-Setup.exe'
+          $root='C:\IWXA\Agent'
+          $data='C:\IWXA\Personal data Agent'
+          $request='C:\i5\locations.json'
+          $receipt='C:\i5\installed.json'
+          $choice=[ordered]@{schema='IWXA_SETUP_LOCATIONS/1';programRoot=$root;dataRoot=(Join-Path $data 'Data');softwareRoot=(Join-Path $data 'Software');modelsRoot=(Join-Path $data 'Models');cacheRoot=(Join-Path $data 'Cache');startWithWindows=$false}
+          New-Item -ItemType Directory -Force -Path (Join-Path $data 'Data') | Out-Null
+          $sentinel=Join-Path $data 'Data\user-file.txt'
+          Set-Content -LiteralPath $sentinel -Value 'preserve' -Encoding utf8
+          # Preserve a realistic prior Data/Settings/Work tree, not only a
+          # new empty Data directory. Deliberately unsupported optional
+          # settings must not prevent the native Python Core from starting.
+          $legacy=@(
+            @{Path=(Join-Path $data 'Data\Settings\control\mcp-read-tools.json'); Text='{"schema":"IWXA_USER_MCP_READ_TOOLS/0.3","tools":[]}'},
+            @{Path=(Join-Path $data 'Data\Settings\control\provider-settings.json'); Text='{"schema":"IWXA_USER_PROVIDER_SETTINGS/0.3","providers":{}}'},
+            @{Path=(Join-Path $data 'Data\Work\sessions-0.11\index.json'); Text='{"chat_turn_ids":"previous_version"}'},
+            @{Path=(Join-Path $env:LOCALAPPDATA 'IWXA\PersonalAgent\Local\control\user-secrets.dpapi.json'); Text='{"schema":"IWXA_SECRET_STORE/0.3","values":{}}'},
+            @{Path=(Join-Path $data 'Data\Work\core\tasks\TASK-previous\previous-task.keep'); Text='original-task'},
+            @{Path=(Join-Path $data 'Data\Work\core\results\previous-result.keep'); Text='original-result'},
+            @{Path=(Join-Path $data 'Models\previous-model.keep'); Text='original-model'}
+          )
+          $legacyHashes=@{}
+          foreach($entry in $legacy){
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $entry.Path) | Out-Null
+            Set-Content -LiteralPath $entry.Path -Value $entry.Text -Encoding utf8
+            $legacyHashes[$entry.Path]=(Get-FileHash -LiteralPath $entry.Path -Algorithm SHA256).Hash
+          }
+          $choice | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $request -Encoding utf8
+          $p=Start-Process -FilePath $setup -ArgumentList @('--install-locations-file',$request,$receipt) -Wait -PassThru
+          if($p.ExitCode -ne 0){throw 'AGENT05_REAL_INSTALL_FAILED'}
+          $status=Get-Content $receipt -Raw -Encoding utf8 | ConvertFrom-Json
+          if($status.status -cne 'INSTALLED_NOT_LAUNCHED'){throw 'AGENT05_REAL_INSTALL_RESULT_INVALID'}
+          $exe=Join-Path $root 'IWXA Personal Agent.exe'
+          $inner=Join-Path $root 'desktop\bin\IWXA Personal.exe'
+          if(!(Test-Path $exe -PathType Leaf) -or !(Test-Path $inner -PathType Leaf)){throw 'AGENT05_INSTALLED_ROOT_EXE_MISSING'}
+          if((Get-FileHash $exe -Algorithm SHA256).Hash -cne (Get-FileHash $inner -Algorithm SHA256).Hash){throw 'AGENT05_INSTALLED_NATIVE_EXE_MISMATCH'}
+          if(!(Test-Path $sentinel)){throw 'AGENT05_USER_DATA_MISSING'}
+          Write-Host 'AGENT05_REAL_INSTALL_ROOT_EXE_PASS'
+          $env:WEBVIEW2_USER_DATA_FOLDER='C:\i5\webview'
+          # Reproduce inheritance of a PowerShell 7-only module search path
+          # during an ordinary installed GUI first launch.
+          $env:PSModulePath='C:\i5\incompatible-pwsh7-modules-only'
+          $app=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+          try{
+            Add-Type -AssemblyName UIAutomationClient
+            Add-Type -AssemblyName UIAutomationTypes
+            $ready=$false
+            for($i=0;$i -lt 100;$i++){
+              Start-Sleep -Milliseconds 800
+              $app.Refresh()
+              if($app.HasExited){throw 'AGENT05_INSTALLED_APP_EXITED'}
+              if($app.MainWindowHandle -eq [IntPtr]::Zero){continue}
+              $w=[System.Windows.Automation.AutomationElement]::FromHandle($app.MainWindowHandle)
+              $doc=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Document)
+              if($w.FindAll([System.Windows.Automation.TreeScope]::Descendants,$doc).Count -gt 0){$ready=$true;break}
+            }
+            if(!$ready){throw 'AGENT05_INSTALLED_UI_NOT_READY'}
+            $authority=Join-Path $env:LOCALAPPDATA 'IWXA\PersonalAgent\storage-authority.json'
+            $installed=Join-Path $env:LOCALAPPDATA 'IWXA\PersonalAgent\current-install.json'
+            if(!(Test-Path $authority) -or !(Test-Path $installed)){throw 'AGENT05_CORE_REGISTRATION_MISSING'}
+            if((Get-Content $installed -Raw | ConvertFrom-Json).install_root -cne $root){throw 'AGENT05_CORE_ROOT_MISMATCH'}
+            if(!(Test-Path $sentinel)){throw 'AGENT05_USER_DATA_CHANGED'}
+            foreach($entry in $legacy){
+              if(!(Test-Path -LiteralPath $entry.Path -PathType Leaf) -or
+                 (Get-FileHash -LiteralPath $entry.Path -Algorithm SHA256).Hash -cne $legacyHashes[$entry.Path]){
+                throw 'AGENT05_EXISTING_USER_STATE_CHANGED'
+              }
+            }
+            Write-Host 'AGENT05_EXISTING_USER_STATE_WITH_CORE_PASS'
+            Write-Host 'AGENT05_REAL_INSTALLED_AGENT_OPEN_PASS'
+            Write-Host 'AGENT05_PS_MODULE_PATH_DESKTOP_BOOT_PASS'
+          }finally{
+            $app.Refresh()
+            if(!$app.HasExited){Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue}
+          }
+      - name: Start Menu launcher and cold reopen
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\IWXA\Agent'
+          $exe=Join-Path $root 'IWXA Personal Agent.exe'
+          $inner=Join-Path $root 'desktop\bin\IWXA Personal.exe'
+          $shortcuts=Join-Path ([Environment]::GetFolderPath('Programs')) '*.lnk'
+          $shell=New-Object -ComObject WScript.Shell
+          $match=@(Get-ChildItem -Path $shortcuts -ErrorAction Stop | Where-Object {
+            $link=$shell.CreateShortcut($_.FullName)
+            [string]::Equals($link.TargetPath,$inner,[StringComparison]::OrdinalIgnoreCase)
+          })
+          if($match.Count -ne 1){throw 'AGENT05_START_MENU_SHORTCUT_INVALID'}
+          Write-Host 'AGENT05_START_MENU_SHORTCUT_PASS'
+          $env:WEBVIEW2_USER_DATA_FOLDER='C:\i5\webview'
+          $app=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+          try{
+            Add-Type -AssemblyName UIAutomationClient
+            Add-Type -AssemblyName UIAutomationTypes
+            $ready=$false
+            for($i=0;$i -lt 80;$i++){
+              Start-Sleep -Milliseconds 750
+              $app.Refresh()
+              if($app.HasExited){throw 'AGENT05_REOPEN_EXITED'}
+              if($app.MainWindowHandle -eq [IntPtr]::Zero){continue}
+              $window=[System.Windows.Automation.AutomationElement]::FromHandle($app.MainWindowHandle)
+              $condition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Document)
+              if($window.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition).Count -gt 0){$ready=$true;break}
+            }
+            if(!$ready){throw 'AGENT05_COLD_REOPEN_NOT_READY'}
+            Write-Host 'AGENT05_COLD_REOPEN_PASS'
+          }finally{
+            $app.Refresh()
+            if(!$app.HasExited){Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue}
+          }
+      - name: Uninstall closed Agent with live background Core, preserve data, reinstall same folders
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\IWXA\Agent'
+          $data='C:\IWXA\Personal data Agent'
+          $setup='C:\i5\o\IWXA-Personal-Agent-0.5.0-Setup.exe'
+          $request='C:\i5\locations.json'
+          $sentinel=Join-Path $data 'Data\user-file.txt'
+          $originalHash=(Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash
+          $installer=Join-Path $root 'explorer-install-receipt.json'
+          $receipt=Get-Content -LiteralPath $installer -Raw -Encoding UTF8 | ConvertFrom-Json
+          $relative=[string]$receipt.managed_runtime.python_executable
+          if([string]::IsNullOrWhiteSpace($relative) -or [IO.Path]::IsPathRooted($relative) -or
+             $relative.Contains('..') -or $relative.Contains(':')){throw 'AGENT05_UNINSTALL_PYTHON_PATH_INVALID'}
+          $python=Join-Path $root ($relative.Replace('/','\'))
+          $control=Join-Path $root 'tools\iwxa_windows_user_control.py'
+          $env:WEBVIEW2_USER_DATA_FOLDER='C:\i5\webview'
+          # Simulate a closed desktop with a still-live detached Core. Its
+          # actual executable is installed beneath $root, not the user data.
+          $startLog=Join-Path $env:RUNNER_TEMP 'agent05-uninstall-start-private.log'
+          & $python -I -B $control --install-root $root --action start --port 8765 --no-dialog *> $startLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_UNINSTALL_BACKGROUND_START_FAILED'}
+          $background=Get-Content -LiteralPath $startLog -Raw | ConvertFrom-Json
+          if(!$background.pid){throw 'AGENT05_UNINSTALL_BACKGROUND_NOT_STARTED'}
+          Write-Host 'AGENT05_BACKGROUND_CORE_REMAINS_AFTER_WINDOW_CLOSED_PASS'
+          # The public Setup CLI runs outside the owned install root and is
+          # noninteractive. The same UninstallLocked is used by the worker.
+          $uninstallResult='C:\i5\uninstall-preserved.json'
+          $process=Start-Process -FilePath $setup -ArgumentList @('--uninstall-file',$uninstallResult) -Wait -PassThru
+          if($process.ExitCode -ne 0){throw 'AGENT05_BACKGROUND_UNINSTALL_FAILED'}
+          $result=Get-Content -LiteralPath $uninstallResult -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($result.status -cne 'UNINSTALLED_USER_DATA_PRESERVED'){throw 'AGENT05_BACKGROUND_UNINSTALL_STATUS_INVALID'}
+          if(Test-Path (Join-Path $root 'IWXA Personal Agent.exe')){throw 'AGENT05_BACKGROUND_UNINSTALL_APP_REMAINS'}
+          if(!(Test-Path $sentinel) -or
+             (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash -cne $originalHash){
+             throw 'AGENT05_BACKGROUND_UNINSTALL_DATA_CHANGED'
+          }
+          Write-Host 'AGENT05_BACKGROUND_UNINSTALL_PRESERVED_USER_DATA_PASS'
+          # Reinstall into exactly the same program and user-data folders;
+          # never require users to invent fresh folder names as a workaround.
+          $reinstallResult='C:\i5\reinstall-after-uninstall.json'
+          $reinstall=Start-Process -FilePath $setup -ArgumentList @('--install-locations-file',$request,$reinstallResult) -Wait -PassThru
+          if($reinstall.ExitCode -ne 0){throw 'AGENT05_SAME_FOLDERS_REINSTALL_FAILED'}
+          $installed=Get-Content -LiteralPath $reinstallResult -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($installed.status -cne 'INSTALLED_NOT_LAUNCHED' -or
+             !(Test-Path (Join-Path $root 'IWXA Personal Agent.exe')) -or
+             !(Test-Path $sentinel) -or
+             (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash -cne $originalHash){
+             throw 'AGENT05_SAME_FOLDERS_REINSTALL_READBACK_FAILED'
+          }
+          Write-Host 'AGENT05_SAME_FOLDERS_REINSTALL_PRESERVED_DATA_PASS'
+      - name: Uninstall Agent with selected Cache removal and preserve other storage
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\IWXA\Agent'
+          $data='C:\IWXA\Personal data Agent'
+          $cache=Join-Path $data 'Cache'
+          $sentinel=Join-Path $data 'Data\user-file.txt'
+          $model=Join-Path $data 'Models\previous-model.keep'
+          $originalDataHash=(Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash
+          $originalModelHash=(Get-FileHash -LiteralPath $model -Algorithm SHA256).Hash
+          New-Item -ItemType Directory -Path $cache -Force | Out-Null
+          Set-Content -LiteralPath (Join-Path $cache 'remove-on-request.txt') -Value 'remove selected cache' -Encoding utf8
+          $receipt=Get-Content -LiteralPath (Join-Path $root 'explorer-install-receipt.json') -Raw -Encoding utf8 | ConvertFrom-Json
+          $relative=[string]$receipt.managed_runtime.python_executable
+          if(!$relative -or [IO.Path]::IsPathRooted($relative) -or $relative.Contains('..') -or $relative.Contains(':')){throw 'AGENT05_SELECTED_UNINSTALL_RUNTIME_INVALID'}
+          $python=Join-Path $root ($relative.Replace('/','\'))
+          $control=Join-Path $root 'tools\iwxa_windows_user_control.py'
+          $startLog=Join-Path $env:RUNNER_TEMP 'agent05-selected-uninstall-background-private.log'
+          & $python -I -B $control --install-root $root --action start --port 8765 --no-dialog *> $startLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_SELECTED_UNINSTALL_CORE_START_FAILED'}
+          $ownedUninstaller=Join-Path $root 'IWXA.SetupCore.Uninstall.exe'
+          if(!(Test-Path -LiteralPath $ownedUninstaller -PathType Leaf)){throw 'AGENT05_SELECTED_UNINSTALL_EXECUTABLE_MISSING'}
+          # Mask 8 is the explicitly selected Cache root. No model, personal
+          # data, or shared software root is selected or eligible for deletion.
+          $parent=Start-Process -FilePath $ownedUninstaller -ArgumentList @('--uninstall','8') -Wait -PassThru
+          if($parent.ExitCode -ne 0){throw 'AGENT05_SELECTED_UNINSTALL_WORKER_START_FAILED'}
+          $ownedReg='HKCU:\Software\IWXA\SetupCore\Products\iwxa.personal-agent'
+          $complete=$false
+          for($i=0;$i -lt 150;$i++){
+            if(!(Test-Path -LiteralPath $ownedReg) -and
+               !(Test-Path -LiteralPath (Join-Path $root 'IWXA Personal Agent.exe')) -and
+               !(Test-Path -LiteralPath $cache)){$complete=$true;break}
+            Start-Sleep -Milliseconds 400
+          }
+          if(!$complete){throw 'AGENT05_SELECTED_UNINSTALL_NOT_FINISHED'}
+          if(!(Test-Path -LiteralPath $sentinel) -or !(Test-Path -LiteralPath $model) -or
+             (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash -cne $originalDataHash -or
+             (Get-FileHash -LiteralPath $model -Algorithm SHA256).Hash -cne $originalModelHash){
+             throw 'AGENT05_SELECTED_UNINSTALL_OTHER_DATA_CHANGED'
+          }
+          Write-Host 'AGENT05_SELECTED_CACHE_REMOVED_OTHER_DATA_PRESERVED_PASS'
+          $setup='C:\i5\o\IWXA-Personal-Agent-0.5.0-Setup.exe'
+          $request='C:\i5\locations.json'
+          $reinstallResult='C:\i5\reinstall-after-selected-uninstall.json'
+          $again=Start-Process -FilePath $setup -ArgumentList @('--install-locations-file',$request,$reinstallResult) -Wait -PassThru
+          if($again.ExitCode -ne 0){throw 'AGENT05_SELECTED_UNINSTALL_REINSTALL_FAILED'}
+          if(!(Test-Path -LiteralPath (Join-Path $root 'IWXA Personal Agent.exe')) -or
+             !(Test-Path -LiteralPath $sentinel) -or !(Test-Path -LiteralPath $model)){
+             throw 'AGENT05_SELECTED_UNINSTALL_REINSTALL_READBACK_FAILED'
+          }
+          Write-Host 'AGENT05_SELECTED_UNINSTALL_SAME_FOLDERS_REINSTALL_PASS'
