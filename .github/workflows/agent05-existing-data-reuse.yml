@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 6231dfb905998ada719ab6204f117599b7625f5b
+          ref: 00db2058f16796085fc4b3f01e54d937a9913074
           path: private-agent
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
@@ -53,7 +53,7 @@ jobs:
               }
               Write-Host ('AGENT05_EXISTING_DATA_FAILED_CASE='+$case)
               $stage='UNKNOWN'
-              $allowedStages=@('CORE_INIT','STATUS_QUERY','STATUS_ISSUES','PLAN_QUERY','PLAN_SHA','PRESERVE_BYTES','COLD_INIT','COLD_STATUS','REPEAT_STATUS','COLD_ISSUES')
+              $allowedStages=@('CORE_INIT','STATUS_QUERY','STATUS_ISSUES','PLAN_ENGINE','PLAN_ENGINE_SHA','FULL_REVISION','FULL_REVISION_SHA','PLAN_QUERY','PLAN_SHA','PRESERVE_BYTES','COLD_INIT','COLD_STATUS','REPEAT_STATUS','COLD_ISSUES')
               foreach($candidateStage in $allowedStages){
                 if($text.Contains('AGENT05_LEGACY_STAGE_'+$candidateStage)){
                   $stage=$candidateStage
