@@ -1,0 +1,185 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createCorporateOwnerHost} from '../runtime/cen-corporate-owner-host.mjs';
+import {signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
+
+const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64);
+const context=()=>({kind:'CORP',context_id:'context:1',actor_id:'person:manager',
+ principal_id:'org:1',role_id:'role:manager',grant_id:'grant:accept',
+ organization_id:'org:1',workspace_id:'workspace:1',resource:'workspace:1',
+ realm_id:'realm:1',audience:'admin',purpose:'application',scope_revision:7});
+const binding={organizationId:'org:1',workspaceId:'workspace:1',
+ contextEpoch:7,actorId:'person:manager',contextId:'context:1'};
+const target={consumerId:'IWXA_ADMIN_CENTER',processId:'admin.applied-results',
+ processVersion:'1',purpose:'application',subjectId:'org:1',
+ workspaceId:'workspace:1',dataRootId:'root:1'};
+function original(){
+ const log=[],claims={...context()},receipts=new Map();
+ const preview=()=>({schema:'IWXA_T3_RECONCILIATION_PREVIEW/1',packageSha256:A,
+   previewDigest:B,allowedAction:'EXPLICIT_ACCEPT_ONLY',classification:'NEW',
+   entries:[{kind:'OBJECT',id:'object:1',revisionId:C}]});
+ const admission={
+   async receive(bytes){
+     log.push(['receive',Array.from(bytes)]);
+     return {transportReceipt:{status:'RECEIVED'},preview:preview(),
+       acceptanceState:'NOT_ACCEPTED',kernelApplication:'NOT_APPLIED'};
+   },
+   async preview(sha){log.push(['preview',sha]);return preview();},
+   async receipt(id,sha){
+     log.push(['receipt',id,sha]);
+     const r=receipts.get(id);
+     return r&&r.packageSha256===sha?
+       {found:true,receipt:r,
+        kernelApplication:'NOT_ATTESTED_BY_RECONCILIATION_RECEIPT'}:
+       {found:false,receipt:null,
+        kernelApplication:'NOT_ATTESTED_BY_RECONCILIATION_RECEIPT'};
+   },
+   async accept(args){
+     log.push(['accept',structuredClone(args)]);
+     const receipt={schema:'IWXA_T3_ACCEPTANCE_RECEIPT/1',operationId:args.operationId,
+       decisionBy:args.decisionBy,packageSha256:args.packageSha256,
+       acceptanceId:C,acceptanceState:'ACCEPTED',appliedScope:'RECONCILIATION_LEDGER_ONLY',
+       externalContextCoreApplied:false};
+     receipts.set(args.operationId,receipt);
+     return {receipt,acceptanceState:'ACCEPTED',kernelApplication:'NOT_APPLIED'};
+   },
+   async reject(args){
+     log.push(['reject',structuredClone(args)]);
+     const receipt={schema:'IWXA_T3_REJECTION_RECEIPT/1',operationId:args.operationId,
+       decisionBy:args.decisionBy,packageSha256:args.packageSha256,
+       acceptanceState:'REJECTED',applicationState:'NOT_APPLIED'};
+     receipts.set(args.operationId,receipt);
+     return {receipt,acceptanceState:'REJECTED',kernelApplication:'NOT_APPLIED'};
+   },
+   async inspectAcceptedApplication(args){
+     log.push(['inspectApply',structuredClone(args)]);
+     return {schema:'IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1',
+       status:'CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION',
+       applicationAuthorized:false,applicationAttempted:false,
+       externalContextCoreApplied:false};
+   },
+ };
+ const apply={
+   async applyAccepted(args){
+     log.push(['apply',structuredClone(args)]);
+     return {kernelWriteReadback:'CONFIRMED',
+       originalKernelReceipt:{workspace_id:'workspace:1',object:{revision:2}},
+       originalKernelReadback:{object:{object_id:'object:1',revision:2}},
+       externalProductAcceptance:'NOT_ACCEPTED'};
+   }
+ };
+ const signedD3Owner={admission,access:{currentContext:async()=>structuredClone(claims)},
+   apply,applicationTargetFor:async()=>structuredClone(target)};
+ const host=createCorporateOwnerHost({signedD3Owner});
+ return {log,claims,receipts,host,admission,apply,signedD3Owner};
+}
+const command=(host,operation,input={})=>
+ host.action({organizationId:'org:1',operation,input,binding});
+
+test('D3: real signed subject scope, original archive, ACCEPT receipt and separate Kernel Apply',async()=>{
+ const {host,log}=original();
+ const state=await host.state({organizationId:'org:1'});
+ assert.equal(state.status,'D3_OWNER_READY');
+ assert.equal(state.snapshot.productionActivation,false);
+ assert.equal(state.snapshot.T3_READY,false);
+ assert.equal(state.snapshot.d3RecipientAvailable,true);
+ assert.equal(state.snapshot.d3ApplyAvailable,true);
+ assert.ok(signedD3SessionFingerprint(state,'org:1'));
+ assert.equal(signedD3SessionFingerprint(state,'org:other'),null);
+ const received=await command(host,'d3Receive',{bytes:[80,75,3,4]});
+ assert.equal(received.acceptanceState,'NOT_ACCEPTED');
+ assert.equal(received.kernelApplication,'NOT_APPLIED');
+ assert.deepEqual(log[0],['receive',[80,75,3,4]]);
+ const view=await command(host,'d3Preview',{packageSha256:A});
+ assert.equal(view.previewDigest,B);
+ const decision=await command(host,'d3Decide',{operationId:'decision:one',
+   packageSha256:A,previewDigest:B,decision:'ACCEPT'});
+ assert.equal(decision.acceptanceState,'ACCEPTED');
+ assert.equal(decision.kernelApplication,'NOT_APPLIED');
+ assert.equal(log[2][1].decisionBy,'person:manager',
+   'actor is read from signed D1 owner, never supplied by UI');
+ const recovered=await command(host,'d3Receipt',
+   {operationId:'decision:one',packageSha256:A});
+ assert.equal(recovered.found,true);
+ assert.equal(recovered.kernelApplication,'NOT_ATTESTED_BY_RECONCILIATION_RECEIPT');
+ const selection={acceptanceId:C,revisionIds:[C]};
+ const candidate=await command(host,'d3InspectAccepted',selection);
+ assert.equal(candidate.applicationAttempted,false);
+ const applied=await command(host,'d3ApplyAccepted',selection);
+ assert.equal(applied.kernelWriteReadback,'CONFIRMED');
+ assert.equal(applied.originalKernelReadback.object.revision,2);
+ assert.equal(log.filter(x=>x[0]==='accept').length,1);
+ assert.equal(log.filter(x=>x[0]==='apply').length,1);
+ assert.deepEqual(log.find(x=>x[0]==='apply')[1].target,target);
+});
+
+test('D3: lost ACCEPT acknowledgment is UNKNOWN; only original receipt can recover',async()=>{
+ const {host,admission,log,receipts}=original();
+ admission.accept=async args=>{
+   log.push(['accept',args]);
+   receipts.set(args.operationId,{schema:'IWXA_T3_ACCEPTANCE_RECEIPT/1',
+     operationId:args.operationId,packageSha256:args.packageSha256,
+     decisionBy:args.decisionBy,acceptanceId:C,acceptanceState:'ACCEPTED'});
+   throw Object.assign(new Error('T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED'),
+     {code:'T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED'});
+ };
+ await assert.rejects(()=>command(host,'d3Decide',{
+   operationId:'decision:lost',packageSha256:A,previewDigest:B,decision:'ACCEPT'
+ }),/CEN_D3_OUTCOME_UNKNOWN/);
+ const recovered=await command(host,'d3Receipt',{
+   operationId:'decision:lost',packageSha256:A});
+ assert.equal(recovered.found,true);
+ assert.equal(recovered.receipt.operationId,'decision:lost');
+ assert.equal(log.filter(x=>x[0]==='accept').length,1,
+   'recovery is read-only, not a second ACCEPT');
+ assert.equal((await command(host,'d3Receipt',{
+   operationId:'decision:lost',packageSha256:B})).found,false);
+ assert.equal(log.filter(x=>x[0]==='accept').length,1);
+});
+
+test('D3: original actor/organization and epoch changes invalidate retained selection',async()=>{
+ const {host,claims,log}=original();
+ await assert.rejects(()=>host.state({organizationId:'org:other'}),
+   /SIGNED_CORPORATE_CONTEXT_REQUIRED/);
+ claims.actor_id='person:other';
+ await assert.rejects(()=>command(host,'d3Preview',{packageSha256:A}),
+   /CEN_D3_CONTEXT_CHANGED/);
+ assert.deepEqual(log,[]);
+ claims.actor_id='person:manager';claims.scope_revision=8;
+ await assert.rejects(()=>command(host,'d3Receipt',{
+   operationId:'decision:one',packageSha256:A}),/CEN_D3_CONTEXT_CHANGED/);
+ assert.deepEqual(log,[]);
+});
+
+test('D3: no reference owner mixing and no unsigned or incomplete Apply target',async()=>{
+ const {signedD3Owner,host,log}=original();
+ assert.throws(()=>createCorporateOwnerHost({runtime:{product:'admin'},
+   signedD3Owner}),/LEGACY_OWNER_MIXING_FORBIDDEN/);
+ await assert.rejects(()=>command(host,'issue',{assignmentId:'draft'}),
+   /CEN_D3_OPERATION_NOT_SUPPORTED/);
+ await assert.rejects(()=>command(host,'d3Decide',{operationId:'bad id',
+   packageSha256:A,previewDigest:B,decision:'ACCEPT'}),/EXPLICIT_DECISION_REQUIRED/);
+ await assert.rejects(()=>command(host,'d3Receive',{bytes:[80,,75]}),
+   /CEN_D3_CARRIER_INVALID/);
+ assert.deepEqual(log,[]);
+ const wrong=createCorporateOwnerHost({signedD3Owner:{
+   ...signedD3Owner,applicationTargetFor:async()=>({...target,dataRootId:undefined})
+ }});
+ await assert.rejects(()=>command(wrong,'d3ApplyAccepted',
+   {acceptanceId:C,revisionIds:[C]}),/ORIGINAL_APPLICATION_TARGET_REQUIRED/);
+ assert.equal(log.filter(x=>x[0]==='apply').length,0);
+});
+
+test('D3: context change after Kernel dispatch is UNKNOWN and never auto-retries',async()=>{
+ const {host,claims,apply,log}=original();
+ apply.applyAccepted=async args=>{
+   log.push(['apply',args]);claims.scope_revision++;
+   return {kernelWriteReadback:'CONFIRMED',originalKernelReceipt:{object:{revision:1}},
+     originalKernelReadback:{object:{revision:1}},externalProductAcceptance:'NOT_ACCEPTED'};
+ };
+ await assert.rejects(()=>command(host,'d3ApplyAccepted',
+   {acceptanceId:C,revisionIds:[C]}),/CEN_D3_OUTCOME_UNKNOWN/);
+ assert.equal(log.filter(x=>x[0]==='apply').length,1);
+ host.close();
+ await assert.rejects(()=>host.state({organizationId:'org:1'}),/CEN_D3_HOST_CLOSED/);
+});
