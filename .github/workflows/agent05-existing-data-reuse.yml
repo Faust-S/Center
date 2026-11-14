@@ -39,6 +39,19 @@ jobs:
               $failed='UNKNOWN'
               if($text -match '([0-9]{1,3}) failed'){$failed=$Matches[1]}
               Write-Host ('AGENT05_EXISTING_DATA_FAILED_COUNT='+$failed)
+              $case='UNKNOWN'
+              $allowed=@(
+                'test_legacy_optional_settings_preserve_existing_tasks_and_results',
+                'test_new_user_data_keeps_clean_startup_without_warnings',
+                'test_saved_valid_provider_limit_rebinds_old_binding_atomically',
+                'test_verified_saved_policy_rebinds_without_enabling_other_mcp_tools',
+                'test_tampered_binding_history_is_never_auto_rebound',
+                'test_legacy_invalid_model_selection_keeps_weights_and_does_not_block_core'
+              )
+              foreach($candidate in $allowed){
+                if($text.Contains('::'+$candidate)){$case=$candidate;break}
+              }
+              Write-Host ('AGENT05_EXISTING_DATA_FAILED_CASE='+$case)
               throw 'AGENT05_EXISTING_DATA_TEST_FAILED'
             }
             Write-Host 'AGENT05_EXISTING_DATA_AND_CLEAN_START_PASS'
