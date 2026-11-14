@@ -274,16 +274,12 @@ jobs:
               $reason='UNKNOWN'
               if(Test-Path $errorCode){
                 $candidate=(Get-Content -LiteralPath $errorCode -Raw).Trim()
-                if($candidate -cmatch '^[A-Z0-9_]{1,80}
-
-){$reason=$candidate}
+                if($candidate -cmatch ('^[A-Z0-9_]{1,80}' + [char]36)){$reason=$candidate}
               }
               $phase='UNKNOWN'
               if(Test-Path $lastOperation){
                 $candidate=(Get-Content -LiteralPath $lastOperation -Raw).Trim()
-                if($candidate -cmatch '^[A-Z0-9_]{1,40}
-
-){$phase=$candidate}
+                if($candidate -cmatch ('^[A-Z0-9_]{1,40}' + [char]36)){$phase=$candidate}
               }
               Write-Host ('AGENT05_REAL_TASK_FAILURE_CATEGORY='+$reason)
               Write-Host ('AGENT05_REAL_TASK_FAILURE_PHASE='+$phase)
