@@ -4,6 +4,7 @@ fn main() {
     // standard IWXA Setup Core distributes with the Center native binary.
     println!("cargo:rerun-if-env-changed=IWXA_T3_ADMIN_D3_OWNER_SHA256");
     println!("cargo:rerun-if-env-changed=IWXA_T3_AGE_DESKTOP_OWNER_SHA256");
+    println!("cargo:rerun-if-env-changed=IWXA_T3_CONSUMER_SHA256");
     // Keep native Atlas persistence code owned by the pinned Atlas repository.
     // Only inner rustdoc comments are removed for inclusion at the crate root;
     // no Atlas implementation code is rewritten or copied to this repository.

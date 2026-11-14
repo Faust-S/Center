@@ -28,30 +28,43 @@ fn binary(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
     let target = root.join("t3").join(file);
     match std::fs::symlink_metadata(&target) {
         Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {
-            if role=="admin-d3" {
-                // The public Center cannot infer "original signed owner"
-                // from an EXE filename alone. Its trusted private installer
-                // pins the EXACT original owner bytes at compile time.
-                let expected=option_env!("IWXA_T3_ADMIN_D3_OWNER_SHA256")
-                    .ok_or("CEN_D3_ORIGINAL_OWNER_DIGEST_NOT_COMPILED")?;
+            if role=="admin-d3" || role=="consumer" {
+                // Neither the signed corporate owner nor the original
+                // license Consumer is authenticated by an EXE filename.
+                // Both SHA-256 pins are compiled by the trusted private
+                // Setup Core recipe from the exact original T3 binaries.
+                let (expected,missing,invalid,unreadable,mismatch)=
+                  if role=="admin-d3" {
+                    (option_env!("IWXA_T3_ADMIN_D3_OWNER_SHA256"),
+                     "CEN_D3_ORIGINAL_OWNER_DIGEST_NOT_COMPILED",
+                     "CEN_D3_ORIGINAL_OWNER_DIGEST_INVALID",
+                     "CEN_D3_ORIGINAL_OWNER_UNREADABLE",
+                     "CEN_D3_ORIGINAL_OWNER_BINARY_MISMATCH")
+                  }else{
+                    (option_env!("IWXA_T3_CONSUMER_SHA256"),
+                     "CEN04_ORIGINAL_CONSUMER_DIGEST_NOT_COMPILED",
+                     "CEN04_ORIGINAL_CONSUMER_DIGEST_INVALID",
+                     "CEN04_ORIGINAL_CONSUMER_UNREADABLE",
+                     "CEN04_ORIGINAL_CONSUMER_BINARY_MISMATCH")
+                  };
+                let expected=expected.ok_or(missing)?;
                 if expected.len()!=64 ||
                    !expected.bytes().all(|x|x.is_ascii_digit()||
                        (b'a'..=b'f').contains(&x)) {
-                    return Err("CEN_D3_ORIGINAL_OWNER_DIGEST_INVALID".into());
+                    return Err(invalid.into());
                 }
                 let mut file=std::fs::File::open(&target)
-                    .map_err(|_|"CEN_D3_ORIGINAL_OWNER_UNREADABLE")?;
+                    .map_err(|_|unreadable.to_owned())?;
                 let mut digest=Sha256::new();
                 let mut buffer=[0_u8;64*1024];
                 loop {
                     let n=file.read(&mut buffer)
-                        .map_err(|_|"CEN_D3_ORIGINAL_OWNER_UNREADABLE")?;
+                        .map_err(|_|unreadable.to_owned())?;
                     if n==0{break;}
                     digest.update(&buffer[..n]);
                 }
-                let actual=format!("{:x}",digest.finalize());
-                if actual!=expected{
-                    return Err("CEN_D3_ORIGINAL_OWNER_BINARY_MISMATCH".into());
+                if format!("{:x}",digest.finalize())!=expected{
+                    return Err(mismatch.into());
                 }
             }
             Ok(target)
