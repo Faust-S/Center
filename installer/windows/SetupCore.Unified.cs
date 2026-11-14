@@ -890,7 +890,8 @@ namespace IwxaSetup
             retry.Enabled = ready;
             cancelStorageMove.Enabled = ready || storageCancellation != null;
             serviceOwnedSetup.Visible = installed &&
-                (inspectedStatus == "SAME_VERSION_DIFFERENT_PACKAGE" ||
+                ((inspectedStatus == "SAME_VERSION_DIFFERENT_PACKAGE" &&
+                  (inspectedBundle == null || inspectedBundle.Id != "iwxa.personal-agent")) ||
                  inspectedStatus == "DOWNGRADE_BLOCKED" ||
                  inspectedStatus == "VERSION_UNSUPPORTED");
             serviceOwnedSetup.Enabled = ready && serviceOwnedSetup.Visible;
