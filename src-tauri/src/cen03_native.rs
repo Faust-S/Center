@@ -133,6 +133,15 @@ fn supported_state(result:&Value,organization_id:&str,
     }
     Ok(projected)
 }
+fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
+    let snapshot=&view["snapshot"];
+    match operation{
+        "d3ApplyAccepted"=>snapshot["d3ApplyAvailable"]==true,
+        "d3RecoverApplied"=>snapshot["d3ApplyRecoverAvailable"]==true&&
+            snapshot["d3ApplyAvailable"]==true,
+        _=>true,
+    }
+}
 fn exact_binding(view:&Value,organization_id:&str,binding:&Value)->bool{
     let s=&view["snapshot"];
     binding["organizationId"]==organization_id&&
@@ -316,6 +325,34 @@ pub async fn center_corporate_action(
     if !t3::admin_d3_availability(&app,&organization_id){
         return Err("CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED".into());
     }
+    if matches!(operation.as_str(),"d3ApplyAccepted"|"d3RecoverApplied"){
+        // Application is NOT implicit in ACCEPT. The original owner must
+        // actually advertise a signed D1 Kernel port before Center can
+        // offer either writing or recovery. Never ask for Human APPLY when
+        // the only installed owner is the read-only Reconciliation recipient.
+        let verified=private_owner_state(&app,&organization_id)?;
+        if !exact_binding(&verified,&organization_id,&binding){
+            return Err("CEN_D3_CONTEXT_CHANGED".into());
+        }
+        if !exact_kernel_apply_capability(&verified,&operation){
+            return Err("CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED".into());
+        }
+    }
+    if operation=="d3ApplyAccepted"{
+        let accepted=input["acceptanceId"].as_str().unwrap_or("");
+        let count=input["revisionIds"].as_array().map(|v|v.len()).unwrap_or(0);
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: отдельное применение результата")
+            .set_description(&format!(
+                "ACCEPT уже записан в Reconciliation. Применить отдельно в оригинальный подписанный Kernel {} редакций для ACCEPT {}? Это самостоятельная операция, повторять её при потерянном ответе нельзя.",
+                count,accepted))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED".into());
+        }
+    }
     if operation=="d3Decide" {
         let kind=input["decision"].as_str().unwrap_or("?");
         let digest=input["packageSha256"].as_str().unwrap_or("");
@@ -376,6 +413,9 @@ pub async fn center_corporate_action(
         let observed=private_owner_state(&app,&organization_id)?;
         if !exact_binding(&observed,&organization_id,&binding){
             return Err("CEN_D3_CONTEXT_CHANGED".into());
+        }
+        if !exact_kernel_apply_capability(&observed,&operation){
+            return Err("CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED".into());
         }
         // The already installed ORIGINAL T3 age executable first verifies
         // ciphertext/X25519 and creates a short-lived, private plaintext
@@ -458,11 +498,21 @@ mod tests{
               "T3_READY":false}}});
         let qualified=supported_state(&valid,"org:1","D3_STATE").unwrap();
         assert_eq!(qualified["snapshot"]["d3ApplyRecoverAvailable"],false);
+        assert!(!exact_kernel_apply_capability(&qualified,"d3ApplyAccepted"));
+        assert!(!exact_kernel_apply_capability(&qualified,"d3RecoverApplied"));
+        assert!(exact_kernel_apply_capability(&qualified,"d3InspectAccepted"));
         let mut recovery_capable=valid.clone();
         recovery_capable["view"]["snapshot"]["d3ApplyAvailable"]=Value::Bool(true);
         recovery_capable["view"]["snapshot"]["d3ApplyRecoverAvailable"]=Value::Bool(true);
         assert_eq!(supported_state(&recovery_capable,"org:1","D3_STATE")
             .unwrap()["snapshot"]["d3ApplyRecoverAvailable"],true);
+        let checked=supported_state(&recovery_capable,"org:1","D3_STATE").unwrap();
+        assert!(exact_kernel_apply_capability(&checked,"d3ApplyAccepted"));
+        assert!(exact_kernel_apply_capability(&checked,"d3RecoverApplied"));
+        let mut no_recovery=checked.clone();
+        no_recovery["snapshot"]["d3ApplyRecoverAvailable"]=Value::Bool(false);
+        assert!(exact_kernel_apply_capability(&no_recovery,"d3ApplyAccepted"));
+        assert!(!exact_kernel_apply_capability(&no_recovery,"d3RecoverApplied"));
         recovery_capable["view"]["snapshot"]["d3ApplyAvailable"]=Value::Bool(false);
         assert!(supported_state(&recovery_capable,"org:1","D3_STATE").is_err());
         assert!(supported_state(&valid,"org:2","D3_STATE").is_err());
