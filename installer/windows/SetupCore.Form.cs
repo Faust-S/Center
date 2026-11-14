@@ -1560,6 +1560,23 @@ namespace IwxaSetup
                     openApplication.Visible = !entrypointMissing;
                     }
                 }
+                else if (plan.Status == "SAME_VERSION_DIFFERENT_PACKAGE" &&
+                         info.Id == "iwxa.personal-agent")
+                {
+                    SetState(T("Доступна исправленная сборка Agent",
+                               "An updated Agent build is available"),
+                        T("Можно переустановить только файлы программы. Задачи, результаты, модели и выбранные папки сохранятся.",
+                          "You can reinstall application files only. Tasks, results, models and chosen folders are preserved."),
+                        versionLine, false);
+                    ConfigureActions(SetupOperation.Repair, SetupOperation.None,
+                        T("Переустановить файлы", "Reinstall files"));
+                    openApplication.Tag = "APPLICATION";
+                    openApplication.Text = T("Открыть установленную программу",
+                        "Open installed application");
+                    openApplication.Visible = File.Exists(Path.Combine(
+                        SetupInstallation.RootFor(info),
+                        info.Entrypoint.Replace('/', Path.DirectorySeparatorChar)));
+                }
                 else if (plan.Status == "SAME_VERSION_DIFFERENT_PACKAGE" ||
                          plan.Status == "DOWNGRADE_BLOCKED" ||
                          plan.Status == "VERSION_UNSUPPORTED")
