@@ -146,7 +146,8 @@ pub async fn center_cen04_t3_import(app:AppHandle,organization_id:String)
     .set_title("Admin Center — проверить подписанную TEST лицензию .iwxa")
     .add_filter("IWXA",&["iwxa"]).pick_file();
   let Some(path)=choice else{return Ok(None)};
-  if path.extension().and_then(|x|x.to_str())!=Some("iwxa"){
+  if !path.extension().and_then(|x|x.to_str())
+      .is_some_and(|x|x.eq_ignore_ascii_case("iwxa")){
     return Err("CEN04_T3_IWXA_EXTENSION_REQUIRED".into());
   }
   let size=std::fs::metadata(&path).map_err(|_|"CEN04_T3_IWXA_UNREADABLE")?;
