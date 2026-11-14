@@ -80,13 +80,14 @@ jobs:
               'agent05_build_u04_owner_unavailable','agent05_build_u04_stage_failed',
               'agent05_build_npm_dependencies_failed','agent05_build_tauri_failed',
               'agent05_build_native_outputs_missing','agent05_build_private_package_failed',
-              'agent05_build_package_identity_failed','agent05_build_setup_core_failed',
+              'agent05_build_package_identity_failed','agent05_build_package_outputs_missing',
+              'agent05_build_package_payload_incomplete','agent05_build_setup_core_failed',
               'agent05_build_setup_core_identity_failed','agent05_build_checkout_not_clean'
             )
             foreach ($code in $reasons) { if ($raw -and $raw.Contains($code)) {$reason=$code;break} }
             $stage='UNKNOWN'
             $allowed=@('PRECHECK','MANAGED_PYTHON','COPY_DESKTOP','ICON','U04',
-              'NPM_DEPENDENCIES','TAURI_BUILD','PACKAGE','PACKAGE_RECEIPT',
+              'NPM_DEPENDENCIES','TAURI_BUILD','PACKAGE','PACKAGE_MANIFEST',
               'SETUP_CORE','SETUP_RECEIPT')
             if ($raw -match 'AGENT05_BUILD_ONLY_FAIL_STAGE=([A-Z_]+)' -and
                 $Matches[1] -in $allowed) {$stage=$Matches[1]}
