@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: bab5379628ad9ff5ff4378784e49dd7c64c45323
+          ref: 6231dfb905998ada719ab6204f117599b7625f5b
           path: private-agent
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
@@ -33,7 +33,7 @@ jobs:
             $log=Join-Path $env:RUNNER_TEMP 'agent05-existing-data-private.log'
             & python -m pip install -r requirements-ci.txt *> $log
             if($LASTEXITCODE -ne 0){ throw 'AGENT05_EXISTING_DATA_DEPENDENCIES_FAILED' }
-            & python -B -m pytest -q --tb=no -p no:cacheprovider tests/test_agent05_existing_user_data_startup.py tests/test_daily_driver_composition.py tests/test_user_provider_settings.py *> $log
+            & python -B -m pytest -q --tb=line -p no:cacheprovider tests/test_agent05_existing_user_data_startup.py tests/test_daily_driver_composition.py tests/test_user_provider_settings.py *> $log
             if($LASTEXITCODE -ne 0){
               $text=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
               $failed='UNKNOWN'
@@ -52,6 +52,15 @@ jobs:
                 if($text.Contains('::'+$candidate)){$case=$candidate;break}
               }
               Write-Host ('AGENT05_EXISTING_DATA_FAILED_CASE='+$case)
+              $stage='UNKNOWN'
+              $allowedStages=@('CORE_INIT','STATUS_QUERY','STATUS_ISSUES','PLAN_QUERY','PLAN_SHA','PRESERVE_BYTES','COLD_INIT','COLD_STATUS','REPEAT_STATUS','COLD_ISSUES')
+              foreach($candidateStage in $allowedStages){
+                if($text.Contains('AGENT05_LEGACY_STAGE_'+$candidateStage)){
+                  $stage=$candidateStage
+                  break
+                }
+              }
+              Write-Host ('AGENT05_EXISTING_DATA_FAILED_STAGE='+$stage)
               throw 'AGENT05_EXISTING_DATA_TEST_FAILED'
             }
             Write-Host 'AGENT05_EXISTING_DATA_AND_CLEAN_START_PASS'
