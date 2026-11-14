@@ -162,5 +162,68 @@ jobs:
             $app.Refresh()
             if(!$app.HasExited){Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue}
           }
+      - name: Start Menu launcher and cold reopen
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\IWXA\Agent'
+          $exe=Join-Path $root 'IWXA Personal Agent.exe'
+          $inner=Join-Path $root 'desktop\bin\IWXA Personal.exe'
+          $shortcuts=Join-Path ([Environment]::GetFolderPath('Programs')) '*.lnk'
+          $shell=New-Object -ComObject WScript.Shell
+          $match=@(Get-ChildItem -Path $shortcuts -ErrorAction Stop | Where-Object {
+            $link=$shell.CreateShortcut($_.FullName)
+            [string]::Equals($link.TargetPath,$inner,[StringComparison]::OrdinalIgnoreCase)
+          })
+          if($match.Count -ne 1){throw 'AGENT05_START_MENU_SHORTCUT_INVALID'}
+          Write-Host 'AGENT05_START_MENU_SHORTCUT_PASS'
+          $env:WEBVIEW2_USER_DATA_FOLDER='C:\i5\webview'
+          $app=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+          try{
+            Add-Type -AssemblyName UIAutomationClient
+            Add-Type -AssemblyName UIAutomationTypes
+            $ready=$false
+            for($i=0;$i -lt 80;$i++){
+              Start-Sleep -Milliseconds 750
+              $app.Refresh()
+              if($app.HasExited){throw 'AGENT05_REOPEN_EXITED'}
+              if($app.MainWindowHandle -eq [IntPtr]::Zero){continue}
+              $window=[System.Windows.Automation.AutomationElement]::FromHandle($app.MainWindowHandle)
+              $condition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Document)
+              if($window.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition).Count -gt 0){$ready=$true;break}
+            }
+            if(!$ready){throw 'AGENT05_COLD_REOPEN_NOT_READY'}
+            Write-Host 'AGENT05_COLD_REOPEN_PASS'
+          }finally{
+            $app.Refresh()
+            if(!$app.HasExited){Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue}
+          }
+      - name: Finish a registered installation with a retained backup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\IWXA\Agent'
+          $previous=$root+'.iwxa-previous'
+          $setup='C:\i5\o\IWXA-Personal-Agent-0.5.0-Setup.exe'
+          $sentinel='C:\IWXA\Personal data Agent\Data\user-file.txt'
+          if(Test-Path -LiteralPath $previous){throw 'AGENT05_UNEXPECTED_PREVIOUS'}
+          Copy-Item -LiteralPath $root -Destination $previous -Recurse -Force
+          $plan='C:\i5\pending-plan.json'
+          $result='C:\i5\finish-result.json'
+          $p=Start-Process -FilePath $setup -ArgumentList @('--upgrade-plan-file',$plan) -Wait -PassThru
+          if($p.ExitCode -ne 0){throw 'AGENT05_PENDING_PLAN_FAILED'}
+          $state=Get-Content -LiteralPath $plan -Raw | ConvertFrom-Json
+          if($state.status -cne 'UPGRADE_PENDING_CONFIRMATION'){throw 'AGENT05_ACTIVE_WITH_BACKUP_NOT_RECOGNIZED'}
+          if(!(Test-Path 'C:\IWXA\Agent\IWXA Personal Agent.exe') -or !(Test-Path $sentinel)){throw 'AGENT05_ACTIVE_OR_DATA_MISSING'}
+          Write-Host 'AGENT05_ACTIVE_WITH_BACKUP_PASS'
+          $p=Start-Process -FilePath $setup -ArgumentList @('--confirm-upgrade-file',$result) -Wait -PassThru
+          if($p.ExitCode -ne 0){throw 'AGENT05_FINISH_PREVIOUS_FAILED'}
+          $finished=Get-Content -LiteralPath $result -Raw | ConvertFrom-Json
+          if($finished.status -cne 'UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED'){throw 'AGENT05_FINISH_RESULT_INVALID'}
+          if((Test-Path $previous) -or !(Test-Path (Join-Path $root 'IWXA Personal Agent.exe')) -or !(Test-Path $sentinel)){throw 'AGENT05_FINISH_AFFECTED_ACTIVE_INSTALL'}
+          $plan2='C:\i5\finished-plan.json'
+          $p=Start-Process -FilePath $setup -ArgumentList @('--upgrade-plan-file',$plan2) -Wait -PassThru
+          if($p.ExitCode -ne 0 -or (Get-Content $plan2 -Raw | ConvertFrom-Json).status -cne 'REPAIR_CANDIDATE_NOT_ACTIVATED'){throw 'AGENT05_FINISH_READBACK_FAILED'}
+          Write-Host 'AGENT05_FINISH_WITH_PRESERVED_DATA_PASS'
       # No private binaries, logs or models are published.
 
