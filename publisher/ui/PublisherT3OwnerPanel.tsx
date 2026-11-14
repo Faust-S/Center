@@ -426,7 +426,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
      </div>
      {lookupMatches!==null&&<p className="muted" data-testid="publisher-t3-lookup-count">
        По точному запросу: {lookupMatches} записей.
-     </p>
+     </p>}
      {licenses.length===0?<p className="muted">{needsRefresh?
        'Журнал пока не прочитан.':'Пока нет выпущенных лицензий.'}</p>:
        <label>Лицензия
