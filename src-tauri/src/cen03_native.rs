@@ -9,7 +9,9 @@ use uuid::Uuid;
 use crate::t3_product_component as t3;
 
 const MAX_REQUEST:usize=256*1024;
-const MAX_IWXA:u64=16*1024*1024;
+// Match the original T3 D3 admission maximum. Signed bytes stay on disk,
+// not in WebView JSON; the owner independently verifies the carrier.
+const MAX_IWXA:u64=200*1024*1024;
 const SCHEMA:&str="IWXA_T3_ADMIN_D3_NATIVE/1";
 const SHA_LEN:usize=64;
 
