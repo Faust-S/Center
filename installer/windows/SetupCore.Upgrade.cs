@@ -239,6 +239,30 @@ namespace IwxaSetup
                     throw;
                 }
 
+                // The user-visible launcher may run from the install root
+                // rather than desktop/bin. Only exact owned executable
+                // paths are considered, never process names alone.
+                string visibleLauncher = info.Id == "iwxa.personal-agent" ?
+                    Path.Combine(root, "IWXA Personal Agent.exe") : "";
+                if (!String.IsNullOrEmpty(visibleLauncher))
+                {
+                    foreach (Process visible in Process.GetProcessesByName(
+                        "IWXA Personal Agent"))
+                    {
+                        try
+                        {
+                            if (!visible.HasExited && SamePath(
+                                visible.MainModule.FileName, visibleLauncher))
+                            {
+                                plan.Status = "APPLICATION_RUNNING";
+                                return plan;
+                            }
+                        }
+                        catch (System.ComponentModel.Win32Exception) { }
+                        catch (InvalidOperationException) { }
+                        finally { visible.Dispose(); }
+                    }
+                }
                 foreach (Process p in Process.GetProcessesByName(
                     Path.GetFileNameWithoutExtension(info.Entrypoint)))
                 {
