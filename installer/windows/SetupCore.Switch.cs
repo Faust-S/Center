@@ -56,7 +56,14 @@ namespace IwxaSetup
             string required = repairMode ?
                 "REPAIR_CANDIDATE_NOT_ACTIVATED" :
                 "UPGRADE_CANDIDATE_NOT_ACTIVATED";
-            if (plan.Status != required)
+            // A failed Agent candidate can be replaced by a corrected,
+            // explicitly chosen same-version package without touching the
+            // independently configured Task, model or data directories.
+            // Reuse the owned atomic Repair switch; no new installer engine.
+            bool agentReinstall = repairMode &&
+                candidate.Id == "iwxa.personal-agent" &&
+                plan.Status == "SAME_VERSION_DIFFERENT_PACKAGE";
+            if (plan.Status != required && !agentReinstall)
                 throw new InvalidOperationException(
                     (repairMode ? "SETUP_REPAIR_BLOCKED_" : "SETUP_UPGRADE_BLOCKED_")
                     + plan.Status);
