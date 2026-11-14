@@ -851,11 +851,17 @@ namespace IwxaSetup
             // Even if the OLD path was blocked, an edited first-install
             // directory must offer a clear way to recheck and install.
             bool editedFirstInstall = first && inspectedBundle != null && changes;
-            install.Visible = editedFirstInstall ||
+            bool installedReadyToLaunch = !first && !changes &&
+                inspectedStatus == "REPAIR_CANDIDATE_NOT_ACTIVATED" &&
+                openApplication.Visible;
+            install.Visible = installedReadyToLaunch || editedFirstInstall ||
                 (primaryAction != SetupOperation.None && (!changes || first));
             install.Enabled = ready &&
-                (primaryAction != SetupOperation.None || editedFirstInstall);
-            if (editedFirstInstall)
+                (installedReadyToLaunch || primaryAction != SetupOperation.None ||
+                 editedFirstInstall);
+            if (installedReadyToLaunch)
+                install.Text = T("Открыть программу", "Open application");
+            else if (editedFirstInstall)
                 install.Text = T("Установить", "Install");
             applyLocations.Visible = changes && !first;
             applyLocations.Enabled = ready && inspectedBundle != null;
