@@ -14,7 +14,7 @@ const SCHEMA:&str="IWXA_T3_ADMIN_D3_NATIVE/1";
 const SHA_LEN:usize=64;
 
 fn check_org(organization_id:&str)->Result<(),String>{
-    if !t3::valid_identifier(organization_id){
+    if !t3::valid_organization_scope_id(organization_id){
         return Err("CEN_D3_ORGANIZATION_REQUIRED".into());
     }
     Ok(())
@@ -133,7 +133,7 @@ pub async fn center_corporate_state(
     check_org(&organization_id)?;
     // Public Center is fully functional for unsigned preparation/Atlas even
     // without a private signed original corporate owner installed.
-    if !t3::availability(&app,"admin-d3") {
+    if !t3::admin_d3_availability(&app,&organization_id) {
         return Ok(json!({"status":"NOT_CONNECTED",
             "enrollmentAvailable":t3::binary_present(&app,"admin-d3")}));
     }
@@ -185,7 +185,7 @@ pub async fn center_corporate_action(
 )->Result<Value,String>{
     check_org(&organization_id)?;
     check_bound_request(&input,&operation)?;
-    if !t3::availability(&app,"admin-d3"){
+    if !t3::admin_d3_availability(&app,&organization_id){
         return Err("CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED".into());
     }
     if operation=="d3Decide" {

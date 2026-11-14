@@ -64,6 +64,27 @@ pub fn data_root(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
     let base = crate::center_product_data_root(app)?;
     Ok(base.join(subdirectory))
 }
+// One ORIGINAL per-organization Reconciliation/Access root. Never merge two
+// company grants, result quarantine or Windows DPAPI secrets into a global
+// 't3-admin' profile. Match Center's established Atlas org ID scope.
+pub fn valid_organization_scope_id(s:&str)->bool {
+    !s.is_empty()&&s.len()<=100&&s.bytes().all(|b|
+        b.is_ascii_alphanumeric()||b==b'-'||b==b'_')
+}
+fn admin_d3_root(app:&AppHandle,org:&str)->Result<PathBuf,String>{
+    if !valid_organization_scope_id(org){
+        return Err("CEN_D3_ORGANIZATION_SCOPE_INVALID".into());
+    }
+    Ok(data_root(app,"admin-d3")?.join("organizations").join(org))
+}
+fn admin_d3_files_available(root:&Path)->bool{
+    ["registry.json","identity.json","vault.json","operators.json",
+     "master-secret.dpapi.json"].iter().all(|name|root.join(name).is_file())
+}
+pub fn admin_d3_availability(app:&AppHandle,org:&str)->bool {
+    binary(app,"admin-d3").is_ok() &&
+      admin_d3_root(app,org).is_ok_and(|root|admin_d3_files_available(&root))
+}
 pub fn binary_present(app:&AppHandle,role:&str)->bool {
     binary(app,role).is_ok()
 }
@@ -122,12 +143,6 @@ pub fn run(app:&AppHandle,role:&str,action:&str,details:&[String]) -> Result<Val
     // Explicit first-use trust enrollment only needs the ORIGINAL installed
     // consumer binary. All license operations still require preinstalled
     // public trust and a Windows CurrentUser DPAPI vault.
-    if (role=="consumer" && action=="test-enroll") ||
-       (role=="admin-d3" && action=="d3-enroll") {
-        binary(app,role)?;
-    } else if !availability(app,role) {
-        return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
-    }
     if !action.bytes().all(|b|b.is_ascii_lowercase()||b==b'-') ||
        action.len()>24 || details.len()>4 ||
        details.iter().any(|s|s.is_empty() || s.len()>4096 ||
@@ -135,7 +150,20 @@ pub fn run(app:&AppHandle,role:&str,action:&str,details:&[String]) -> Result<Val
         return Err("T3_PRODUCT_COMPONENT_ARGUMENTS_INVALID".into());
     }
     let file=binary(app,role)?;
-    let root=data_root(app,role)?;
+    let root=if role=="admin-d3"{
+        let organization=details.first()
+            .ok_or("CEN_D3_ORGANIZATION_SCOPE_REQUIRED")?;
+        let scope=admin_d3_root(app,organization)?;
+        if action!="d3-enroll" && !admin_d3_files_available(&scope){
+            return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
+        }
+        scope
+    }else{
+        if !(role=="consumer"&&action=="test-enroll") && !availability(app,role){
+            return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
+        }
+        data_root(app,role)?
+    };
     let mut cmd=Command::new(file);
     cmd.arg(action).arg(root).args(details)
        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
