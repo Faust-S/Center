@@ -968,7 +968,7 @@ try {
           ...(prior?{renewalOfLicenseId:prior.licenseId}:{}),
           deviceLimit:r.deviceLimit,quotaCount:r.quotas.length,
           issuedAt,notBefore:issuedAt,
-          expiresAt:new Date(Date.now()+r.termDays*86400000).toISOString(),
+          expiresAt:new Date(Date.parse(issuedAt)+r.termDays*86400000).toISOString(),
           status:'NOT_ACTIVATED',sequence:0,activeSeats:0};
         ledger.push(one);
         sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));

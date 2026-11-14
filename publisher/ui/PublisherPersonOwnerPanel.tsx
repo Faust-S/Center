@@ -98,7 +98,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
   const issuedSelected=selected?licenses.find(l=>
     l.requestId===selected.request.requestId):undefined;
   const signedSourceConflict=Boolean(issuedSelected&&selected&&
-    !matchesSignedPersonScope(issuedSelected,selected.request,issuer));
+    !matchesSignedPersonScope(issuedSelected,selected.request));
   const selectedLicense=licenses.find(l=>l.licenseId===licenseId);
   const renewalOptions=(Array.isArray(draft?.tariffs)?draft.tariffs:[])
     .filter((t:any)=>t.productId===selectedLicense?.productId&&t.holderType==='PERSON');
