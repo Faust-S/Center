@@ -1,0 +1,100 @@
+name: Agent 0.5 build-only Windows packaging preflight
+
+on:
+  push:
+    branches:
+      - work/2026-11-14-agent05-build-only
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent05-build-only-windows
+  cancel-in-progress: true
+
+jobs:
+  build-only:
+    runs-on: windows-latest
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: center-owner
+          persist-credentials: false
+      - name: Validate build-only script parsing and scope
+        shell: pwsh
+        run: |
+          $script = 'center-owner/qualification/agent05-build-only.ps1'
+          $errors = $null
+          $tokens = $null
+          $ast = [Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $script).Path,[ref]$tokens,[ref]$errors)
+          if ($null -eq $ast -or @($errors).Count -ne 0) {
+            throw 'AGENT05_BUILD_ONLY_POWERSHELL_SYNTAX_FAILED'
+          }
+          $raw = Get-Content $script -Raw
+          foreach ($disallowed in @('pytest ','node --test','cargo test','qualify_setup_core_runtime.ps1',
+            'qualify_setup_core_full_product.ps1','qualify_setup_core_upgrade_04_to_05.py',
+            'qualify-local-bundle.ps1','gh release create','gh release upload')) {
+            if ($raw.Contains($disallowed)) {
+              throw 'AGENT05_BUILD_ONLY_UNEXPECTED_TEST_OR_PUBLISH'
+            }
+          }
+          Write-Host 'AGENT05_BUILD_ONLY_STATIC_PREFLIGHT_PASS'
+      - name: Require narrow private read-only permission
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) {
+            throw 'AGENT05_BUILD_ONLY_PRIVATE_READ_UNAVAILABLE'
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 47ba22bdb0e4dbeeb91d3a56199395db3472145e
+          path: private-product
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build Agent 0.5 Setup only (no tests, installation, model or upload)
+        shell: pwsh
+        run: |
+          $script = (Resolve-Path 'center-owner/qualification/agent05-build-only.ps1').Path
+          $agent = (Resolve-Path 'private-product').Path
+          $output = Join-Path $env:RUNNER_TEMP 'agent05-build-only-output'
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-build-only-private.log'
+          & pwsh -NoProfile -NonInteractive -File $script -AgentRoot $agent -OutputRoot $output *> $log
+          if ($LASTEXITCODE -ne 0) {
+            $raw = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            $reason = 'UNKNOWN'
+            $reasons = @(
+              'agent05_build_managed_python_failed','agent05_build_icon_failed',
+              'agent05_build_u04_owner_unavailable','agent05_build_u04_stage_failed',
+              'agent05_build_npm_dependencies_failed','agent05_build_tauri_failed',
+              'agent05_build_native_outputs_missing','agent05_build_private_package_failed',
+              'agent05_build_package_identity_failed','agent05_build_setup_core_failed',
+              'agent05_build_setup_core_identity_failed','agent05_build_checkout_not_clean'
+            )
+            foreach ($code in $reasons) { if ($raw -and $raw.Contains($code)) {$reason=$code;break} }
+            Write-Host ('AGENT05_BUILD_ONLY_FAILURE_STAGE='+$reason)
+            throw 'AGENT05_BUILD_ONLY_NOT_READY'
+          }
+          $receipt = Get-Content -LiteralPath (Join-Path $output 'build-receipt.json') -Raw | ConvertFrom-Json
+          if ($receipt.status -cne 'BUILT_ONLY' -or
+              $receipt.source_commit -cne '47ba22bdb0e4dbeeb91d3a56199395db3472145e' -or
+              $receipt.version -cne '0.5.0' -or
+              $receipt.tests_reexecuted -ne $false -or
+              $receipt.installer_launched -ne $false -or
+              $receipt.private_artifacts_published -ne $false) {
+            throw 'AGENT05_BUILD_ONLY_RECEIPT_INVALID'
+          }
+          Write-Host 'AGENT05_BUILD_ONLY_WINDOWS_SETUP_READY'
+          Write-Host ('AGENT05_BUILD_ONLY_SETUP_SHA256='+$receipt.setup_sha256)
+      # Never upload, cache or expose private EXE, sources, logs or model outputs.
