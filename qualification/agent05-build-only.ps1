@@ -31,7 +31,7 @@ trap {
     [Console]::Error.WriteLine('AGENT05_BUILD_ONLY_FAIL_REASON='+$reason)
     exit 1
 }
-$agentSha='ce088c56f465d7809ec432a65e525ff30bc9f214'
+$agentSha='937e193a30f65d77133c27ac20f960e68a556df0'
 if($env:OS -ne 'Windows_NT'){throw 'agent05_build_windows_required'}
 $script:BuildStage='PRECHECK_PATHS'
 $center=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
