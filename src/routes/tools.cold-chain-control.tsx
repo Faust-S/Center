@@ -115,6 +115,7 @@ function ColdChainControl(){
   const input=calculated.input,comparison=calculated.comparison;
   const before=comparison?.uncontrolled,after=comparison?.protected;
   const day=input?.days.includes(selectedDay)?selectedDay:input?.days[0]??"";
+  const beforeDay=before?.days.find(d=>d.day===day);
   const afterDay=after?.days.find(d=>d.day===day);
   const dayEvents=afterDay?.events.filter(e=>e.regime===selectedRegime)??[];
   const daySkus=input?.skus.filter(s=>s.regime===selectedRegime)??[];
@@ -382,7 +383,8 @@ function ColdChainControl(){
             <Metric label="Заказы приняты" value={num(after.acceptedOrders)+"/"+num(after.ordered)}
               detail={"Исходная эксплуатация: "+before.acceptedOrders}/>
             <Metric label="Списания по температуре" value={num(after.destroyedUnits)+" ед."}
-              detail={"Стоимость: "+money(after.destroyedRub)}/>
+              detail={"Стоимость: "+money(after.destroyedRub)+
+                "; отпущено из карантина: "+after.qualityReleasedUnits+" ед."}/>
             <Metric label="Карантин по датчикам" value={num(after.temperatureHolds)}
               detail={"Исходная эксплуатация: "+before.temperatureHolds+" партий"}/>
             <Metric label="Полные расходы" value={money(after.totalRub)}
@@ -490,15 +492,21 @@ function ColdChainControl(){
               </tr>)}</tbody>
             </table>
           </div>
-          {afterDay&&afterDay.qualityReviews.length>0&&
-            <div className="mt-5 space-y-2">
-              <h3 className="font-semibold">Решения контроля качества за день</h3>
-              {afterDay.qualityReviews.map(review=><p key={review.orderId} className="text-sm text-muted">
-                {review.orderId}: {review.decision==="release"?"допущено":"списано"},
-                {" "}единиц {review.units}, акт {review.documentRef},
-                {" "}{review.status==="applied"?"исполнено":"не применимо к этому варианту рейсов"}
-              </p>)}
-            </div>}
+          {(beforeDay?.qualityReviews.length||afterDay?.qualityReviews.length)?(
+            <div className="mt-5 space-y-3">
+              <h3 className="font-semibold">Исполнение решений службы качества</h3>
+              {([["Исходная эксплуатация",beforeDay],["Защищённый режим",afterDay]] as const)
+                .map(([label,report])=><div key={label} className="rounded border border-white/10 px-3 py-2">
+                  <p className="text-sm font-semibold">{label}</p>
+                  {report?.qualityReviews.map(review=><p key={review.orderId+":"+review.documentRef}
+                    className="mt-1 text-sm text-muted">
+                    {review.orderId}: {review.decision==="release"?"допуск":"списание"},
+                    {" "}единиц {review.units}, документ {review.documentRef},
+                    {" "}{review.status==="applied"?"исполнено":"не применимо к этим рейсам"}
+                  </p>)}
+                </div>)}
+            </div>
+          ):null}
           <p className="mt-3 text-sm text-muted">
             Возвращённый товар освобождается для новых заказов только после фактического
             возвращения рефрижератора и приёмки на следующем рабочем цикле.
