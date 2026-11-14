@@ -5,8 +5,10 @@ import React,{useEffect,useRef,useState} from 'react';
 // automatically repeat a decision whose native acknowledgment was lost.
 type Exec=(operation:string,input?:Record<string,unknown>)=>Promise<any>;
 type Run=(success:string,work:()=>Promise<void|boolean>)=>Promise<void>;
+type SignedTask={taskId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:'NOT_CONFIRMED'};
 type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
-  contextId:string;contextEpoch:number;d3ApplyAvailable:boolean}};
+  contextId:string;contextEpoch:number;d3ApplyAvailable:boolean;
+  d3TaskIssueAvailable?:boolean;tasks?:SignedTask[];totalTasks?:number}};
 const hex=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const opPattern=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const same=(a:unknown,b:unknown)=>a===b;
@@ -17,6 +19,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
  invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;
 }){
  const [hash,setHash]=useState('');
+ const [taskText,setTaskText]=useState('');
+ const [taskId,setTaskId]=useState('');
  const [preview,setPreview]=useState<any>(null);
  const [confirmed,setConfirmed]=useState(false);
  const [rejectReason,setRejectReason]=useState('');
@@ -48,11 +52,48 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
  };
  useEffect(()=>{
    if(previous.current!==sessionKey){
-   previous.current=sessionKey;setHash('');setInbox(null);
+   previous.current=sessionKey;setHash('');setInbox(null);setTaskId('');
    setLastReceiveState(null);reset();
  }
  },[sessionKey]);
  const choose=(value:string)=>{setHash(value);setLastReceiveState(null);reset();};
+ const signedTasks=Array.isArray(session.tasks)?session.tasks.filter(t=>
+   opPattern.test(t.taskId)&&hex(t.taskRevisionId)&&hex(t.packageSha256)):[];
+ const selectedTask=signedTasks.find(t=>t.taskId===taskId)??signedTasks.at(-1);
+ const createSignedTask=()=>run('Подписанная Task сохранена. Передача получателю ещё не подтверждена.',async()=>{
+   if(session.d3TaskIssueAvailable!==true||!taskText.trim()||
+     taskText.length>10000)throw Error('CEN_D3_SIGNED_TASK_TEXT_REQUIRED');
+   const result=await execute('d3CreateTask',{task:taskText.trim()});
+   if(result?.schema!=='IWXA_T3_ORIGINAL_SIGNED_TASK/1'||
+     result.status!=='SIGNED_TASK_CREATED_NOT_DELIVERED'||
+     !opPattern.test(result.taskId)||!hex(result.taskRevisionId)||
+     !hex(result.packageSha256)||result.recipientId!==session.actorId)
+     throw Error('CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN');
+   setTaskText('');
+ });
+ const exportTask=()=>run('Оригинальный подписанный .iwxa сохранён. Доставка остаётся неподтверждённой.',async()=>{
+   if(!selectedTask)throw Error('CEN_D3_ORIGINAL_TASK_SELECTION_REQUIRED');
+   const result=await execute('d3ExportTask',{taskId:selectedTask.taskId});
+   if(result?.status==='CANCELLED')return false;
+   if(result?.schema!=='IWXA_T3_ORIGINAL_SIGNED_TASK_EXPORT/1'||
+     result.status!=='EXPORTED_UNDELIVERED'||
+     result.taskId!==selectedTask.taskId||
+     result.taskRevisionId!==selectedTask.taskRevisionId||
+     result.packageSha256!==selectedTask.packageSha256||
+     result.recipientId!==session.actorId||
+     !Number.isSafeInteger(result.bytes)||result.bytes<=0)
+     throw Error('CEN_D3_ORIGINAL_TASK_EXPORT_UNKNOWN');
+ });
+ const exportInvitation=()=>run('Оригинальное подписанное приглашение сохранено. Personal Agent ещё не подключён.',async()=>{
+   if(session.d3TaskIssueAvailable!==true)
+     throw Error('CEN_D3_SIGNED_INVITATION_REQUIRED');
+   const result=await execute('d3ExportInvitation');
+   if(result?.status==='CANCELLED')return false;
+   if(result?.schema!=='IWXA_T3_ORIGINAL_SIGNED_INVITATION_EXPORT/1'||
+     result.status!=='EXPORTED_UNDELIVERED'||!hex(result.packageSha256)||
+     !Number.isSafeInteger(result.bytes)||result.bytes<=0)
+     throw Error('CEN_D3_ORIGINAL_INVITATION_EXPORT_UNKNOWN');
+ });
  const selectedInboxItem=inbox?.items.find(x=>x.packageSha256===hash);
  const originalDecisionRecorded=
    ['ACCEPTED','REJECTED'].includes(selectedInboxItem?.status??'')||
@@ -155,6 +196,47 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
   <p className="muted">Подтверждённый субъект: {session.actorId} · Workspace: {session.workspaceId}.
    Оригинальный получатель проверяет подпись и полномочия. Приём не означает ACCEPT;
    ACCEPT не означает запись в Kernel.</p>
+  <div className="nested-form" data-testid="d3-signed-task-workflow">
+   <h3>Подписанные поручения T3</h3>
+   <p className="muted">Текущий получатель: {session.actorId}.
+    Это локальный участник организации. Выдача другому сотруднику требует
+    отдельной регистрации его ключей, а не выбора имени из черновика.</p>
+   {session.d3TaskIssueAvailable===true ? <>
+    <label>Поручение и критерии результата
+     <textarea data-testid="d3-task-text" rows={3} maxLength={10000}
+      value={taskText} onChange={e=>setTaskText(e.target.value)}
+      placeholder="Что сделать и по каким критериям принять результат"/>
+    </label>
+    <div className="actions">
+     <button className="primary" data-testid="d3-create-task"
+      disabled={busy||!taskText.trim()} onClick={createSignedTask}>
+      Подписать и сохранить Task
+     </button>
+     <button className="secondary" data-testid="d3-export-invitation"
+      disabled={busy} onClick={exportInvitation}>
+      Сохранить приглашение .iwxa
+     </button>
+    </div>
+   </> : <p className="notice subdued">
+    Подписанные права на выдачу Task ещё не установлены.</p>}
+   {!!signedTasks.length&&<>
+    <label>Сохранённая Task
+     <select data-testid="d3-signed-task-select" value={selectedTask?.taskId??''}
+      onChange={e=>setTaskId(e.target.value)}>
+      {signedTasks.map(t=><option key={t.taskId} value={t.taskId}>
+       {t.summary.slice(0,90)} · {t.taskId.slice(0,23)}
+      </option>)}
+     </select>
+    </label>
+    <p className="muted" data-testid="d3-signed-task-proof">
+     Ревизия: {selectedTask?.taskRevisionId.slice(0,16)}… ·
+     SHA-256: {selectedTask?.packageSha256.slice(0,16)}… ·
+     Передача: не подтверждена
+    </p>
+    <button className="secondary" data-testid="d3-export-task" disabled={busy}
+     onClick={exportTask}>Сохранить подписанную Task в .iwxa</button>
+   </>}
+  </div>
   <div className="actions">
    <button className="secondary" data-testid="d3-receive" disabled={busy}
     onClick={()=>run('Пакет перечитан исходным Reconciliation. Решение показано отдельно.',async()=>{
