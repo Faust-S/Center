@@ -404,7 +404,6 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       disabled={busy} onClick={exportInvitation}>
       Сохранить приглашение .iwxa
      </button>
-    </div>
    </> : <div className="nested-form" data-testid="d3-finish-first-use">
     <p className="notice subdued">
      Первоначальный реестр T3 существует, но подписанное приглашение ещё не
