@@ -622,8 +622,12 @@ namespace IwxaSetup
                 TwoLetterISOLanguageName == "ru";
             if (reason == "SETUP_APP_STILL_RUNNING")
                 return russian ?
-                    "Программа сейчас открыта. Закройте её и повторите удаление." :
-                    "The application is still running. Close it and try again.";
+                    "Окно программы ещё открыто. Закройте его и повторите удаление." :
+                    "The application window is still open. Close it and try again.";
+            if (reason == "SETUP_AGENT_BACKGROUND_PROCESS_STILL_RUNNING")
+                return russian ?
+                    "Окно Agent закрыто, но фоновый процесс ещё работает и не завершился автоматически. Удаление остановлено; данные сохранены. Попробуйте ещё раз." :
+                    "The Agent window is closed, but a background process did not stop automatically. Uninstall was stopped and data preserved. Try again.";
             if (reason == "SETUP_UPGRADE_PENDING_RESOLUTION")
                 return russian ?
                     "Обновление ещё не завершено. Сначала подтвердите новую версию или верните прежнюю." :

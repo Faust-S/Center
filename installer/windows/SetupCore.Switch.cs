@@ -514,6 +514,39 @@ namespace IwxaSetup
             return "OTHER";
         }
 
+        private static void AssertVisibleLauncherNotRunning(BundleInfo original, string root)
+        {
+            // An explicit, still-running GUI is never shut down behind the
+            // user's back. A detached Core, by contrast, may be stopped by
+            // the product's authenticated uninstall-stop controller.
+            var launchers = new List<string> {
+                Path.Combine(root, original.Entrypoint.Replace('/',
+                    Path.DirectorySeparatorChar))
+            };
+            if (original.Id == "iwxa.personal-agent")
+                launchers.Add(Path.Combine(root, "IWXA Personal Agent.exe"));
+            foreach (string target in launchers)
+            {
+                foreach (Process proc in Process.GetProcessesByName(
+                    Path.GetFileNameWithoutExtension(target)))
+                {
+                    try
+                    {
+                        if (!proc.HasExited &&
+                            SamePath(proc.MainModule.FileName, target))
+                            throw new InvalidOperationException(
+                                "SETUP_APP_STILL_RUNNING");
+                    }
+                    catch (Win32Exception) { }
+                    catch (InvalidOperationException ex)
+                    {
+                        if (ex.Message == "SETUP_APP_STILL_RUNNING") throw;
+                    }
+                    finally { proc.Dispose(); }
+                }
+            }
+        }
+
         private static void AssertNotRunning(BundleInfo original, string root)
         {
             string target = Path.Combine(root,

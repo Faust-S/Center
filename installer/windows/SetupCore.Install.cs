@@ -1044,10 +1044,23 @@ namespace IwxaSetup
                     Convert.ToString(reg.GetValue("Version")) != info.Version)
                     throw new InvalidOperationException("SETUP_INSTALL_AUTHORITY_MISSING");
             }
-            // Both the Start Menu executable and the user-facing root
-            // launcher belong to the same installed program. The existing
-            // owned-tree process check handles both before any files move.
-            AssertNotRunning(info, root);
+            // A native window can close while its managed background Core
+            // and supervisor remain alive. Only the Agent product may call
+            // its existing authenticated uninstall-stop controller, after
+            // proving the visible GUI has been closed. No user storage is
+            // removed here. The final owned-tree process check still fences
+            // every deletion if a component could not be stopped.
+            AssertVisibleLauncherNotRunning(info, root);
+            StopOwnedAgentRuntimeBeforeUninstall(info, root, receipt);
+            try { AssertNotRunning(info, root); }
+            catch (InvalidOperationException ex)
+            {
+                if (ex.Message == "SETUP_APP_STILL_RUNNING" &&
+                    info.Id == "iwxa.personal-agent")
+                    throw new InvalidOperationException(
+                        "SETUP_AGENT_BACKGROUND_PROCESS_STILL_RUNNING", ex);
+                throw;
+            }
 
             if (receipt.ContainsKey("legacyHandoff"))
             {
@@ -1127,6 +1140,118 @@ namespace IwxaSetup
                 Status = "UNINSTALLED_USER_DATA_PRESERVED",
                 Product = info.Id, Version = info.Version, Root = root
             };
+        }
+
+        private static bool ReceiptOwnsFile(
+            IDictionary<string, object> receipt, string relative)
+        {
+            var files = receipt["files"] as IList;
+            if (files == null) return false;
+            foreach (object entry in files)
+                if (String.Equals(Convert.ToString(entry), relative,
+                    StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        private static void StopOwnedAgentRuntimeBeforeUninstall(
+            BundleInfo info, string root, IDictionary<string, object> owned)
+        {
+            if (info.Id != "iwxa.personal-agent") return;
+            string controllerRelative = "tools/iwxa_windows_user_control.py";
+            string productReceiptRelative = "explorer-install-receipt.json";
+            if (!ReceiptOwnsFile(owned, controllerRelative) ||
+                !ReceiptOwnsFile(owned, productReceiptRelative))
+                return;
+
+            string controller = Path.Combine(root,
+                controllerRelative.Replace('/', Path.DirectorySeparatorChar));
+            string receiptPath = Path.Combine(root, productReceiptRelative);
+            if (!File.Exists(controller) || !File.Exists(receiptPath))
+                return;
+            // The Python command is loaded only from the installed, owned
+            // product tree; never from a PATH lookup or a user-selected data
+            // root. A damaged optional runtime must not block uninstall when
+            // no owned executable is actually running.
+            IDictionary<string, object> product;
+            try
+            {
+                var json = new JavaScriptSerializer {
+                    MaxJsonLength = 2 * 1024 * 1024
+                };
+                product = json.DeserializeObject(File.ReadAllText(
+                    receiptPath, Encoding.UTF8)) as IDictionary<string, object>;
+            }
+            catch (Exception ex)
+            {
+                if (ex is IOException || ex is UnauthorizedAccessException ||
+                    ex is ArgumentException || ex is InvalidOperationException)
+                    return;
+                throw;
+            }
+            if (product == null || Convert.ToString(product["schema"]) !=
+                    "IWXA_EXPLORER_INSTALL_RECEIPT/1.1.0" ||
+                Convert.ToString(product["status"]) !=
+                    "INSTALLED_GENERIC_STATE_READY")
+                return;
+            var managed = product["managed_runtime"] as
+                IDictionary<string, object>;
+            if (managed == null || Convert.ToString(managed["runtime_mode"]) !=
+                    "PRODUCT_MANAGED")
+                return;
+            string raw = Convert.ToString(managed["python_executable"]);
+            if (String.IsNullOrWhiteSpace(raw)) return;
+            string relative;
+            try { relative = BundleReader.SafePath(raw); }
+            catch (InvalidDataException) { return; }
+            if (!relative.StartsWith("managed-runtime/",
+                    StringComparison.OrdinalIgnoreCase) ||
+                !String.Equals(Path.GetFileName(relative), "python.exe",
+                    StringComparison.OrdinalIgnoreCase) ||
+                !ReceiptOwnsFile(owned, relative))
+                return;
+            string binary = Path.GetFullPath(Path.Combine(root,
+                relative.Replace('/', Path.DirectorySeparatorChar)));
+            if (!binary.StartsWith(root + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase) ||
+                !File.Exists(binary))
+                return;
+            RequireUninstallTargetsReady(root,
+                new List<string> {controller, receiptPath, binary});
+
+            // Call the product's existing 'uninstall-stop' action. It proves
+            // OS process identity, tries authenticated graceful shutdown,
+            // and can recover its own stale supervisor. Exit status is not a
+            // deletion authority: AssertNotRunning independently checks the
+            // actual process table after this attempt.
+            try
+            {
+                var psi = new ProcessStartInfo(binary,
+                    "-I -B \"" + controller + "\" --install-root \"" +
+                    root + "\" --action uninstall-stop --port 8765 --no-dialog") {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = root
+                };
+                using (Process stop = Process.Start(psi))
+                {
+                    if (stop == null) return;
+                    if (!stop.WaitForExit(45000))
+                    {
+                        try { stop.Kill(); }
+                        catch (InvalidOperationException) { }
+                        try { stop.WaitForExit(3000); }
+                        catch (InvalidOperationException) { }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (ex is Win32Exception || ex is IOException ||
+                    ex is UnauthorizedAccessException ||
+                    ex is InvalidOperationException) return;
+                throw;
+            }
         }
 
         private static void TestUninstallFailure(BundleInfo info, string phase)
