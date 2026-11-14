@@ -113,6 +113,16 @@ namespace IwxaSetup
                     }
                     else
                         plan.Status = "UPGRADE_RECOVERY_REQUIRED";
+                    // A prior interrupted Agent install can retain a fully
+                    // owned backup while its active launcher is missing.
+                    // Reinstall the selected 0.5 files directly; never make
+                    // the user restore a broken build just to replace it.
+                    if (plan.Status == "UPGRADE_RECOVERY_REQUIRED" &&
+                        AgentInterruptedRepairAllowed(info, root))
+                    {
+                        plan.Status = "AGENT_INTERRUPTED_FILES_REINSTALL";
+                        plan.InstalledVersion = info.Version;
+                    }
                     return plan;
                 }
             }
@@ -312,6 +322,56 @@ namespace IwxaSetup
                         "REPAIR_CANDIDATE_NOT_ACTIVATED" :
                         "SAME_VERSION_DIFFERENT_PACKAGE";
                 return plan;
+            }
+        }
+
+        private static bool AgentInterruptedRepairAllowed(
+            BundleInfo candidate, string root)
+        {
+            if (candidate.Id != "iwxa.personal-agent") return false;
+            string previous = PreviousFor(candidate);
+            try
+            {
+                if (!Directory.Exists(previous) ||
+                    (File.GetAttributes(previous) & FileAttributes.ReparsePoint) != 0)
+                    return false;
+                BundleInfo backup = ReadOwnedRelease(
+                    previous, root, candidate.Id, true);
+                if (backup.Version != candidate.Version ||
+                    !String.Equals(backup.Entrypoint, candidate.Entrypoint,
+                        StringComparison.OrdinalIgnoreCase))
+                    return false;
+                // The original receipt must account for every surviving file.
+                // No unknown files or junctions will be discarded.
+                RequireOnlyOwnedFiles(previous, true);
+                BundleInfo registered = backup;
+                if (Directory.Exists(root))
+                {
+                    if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0)
+                        return false;
+                    registered = ReadOwnedRelease(root, root, candidate.Id, true);
+                    if (registered.Version != candidate.Version ||
+                        !String.Equals(registered.Entrypoint, candidate.Entrypoint,
+                            StringComparison.OrdinalIgnoreCase))
+                        return false;
+                    // Repair only a missing launcher, not a still working
+                    // installation with an ordinary pending confirmation.
+                    string launcher = Path.Combine(root,
+                        registered.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+                    if (File.Exists(launcher) || Directory.Exists(launcher))
+                        return false;
+                    RequireOnlyOwnedFiles(root, true);
+                }
+                else if (File.Exists(root))
+                    return false;
+                RequireRegistryOwnership(candidate.Id, root, registered);
+                return true;
+            }
+            catch (Exception)
+            {
+                // Untrusted or unaccounted files remain untouched. The usual
+                // recovery explanation is shown, never an automatic delete.
+                return false;
             }
         }
 

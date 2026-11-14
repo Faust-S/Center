@@ -1520,6 +1520,18 @@ namespace IwxaSetup
                         "Open installed application");
                     openApplication.Visible = true;
                 }
+                else if (plan.Status == "AGENT_INTERRUPTED_FILES_REINSTALL")
+                {
+                    SetState(T("Найдена незавершённая установка",
+                               "An incomplete installation was found"),
+                        T("Файлы запуска отсутствуют, но резервная копия проверена. Нажмите «Установить исправленные файлы». Данные и выбранные папки сохраняются.",
+                          "Launcher files are missing, but the backup is verified. Select Reinstall application files. Data and chosen folders are preserved."),
+                        versionLine, false);
+                    ConfigureActions(SetupOperation.Repair, SetupOperation.None,
+                        T("Установить исправленные файлы",
+                          "Reinstall application files"));
+                    openApplication.Visible = false;
+                }
                 else if (plan.Status == "AGENT_PREVIOUS_INSTALL_PENDING")
                 {
                     SetState(T("Программа установлена", "Application installed"),

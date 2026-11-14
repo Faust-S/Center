@@ -63,12 +63,17 @@ namespace IwxaSetup
             bool agentReinstall = repairMode &&
                 candidate.Id == "iwxa.personal-agent" &&
                 plan.Status == "SAME_VERSION_DIFFERENT_PACKAGE";
-            if (plan.Status != required && !agentReinstall)
+            bool interruptedAgentRepair = repairMode &&
+                candidate.Id == "iwxa.personal-agent" &&
+                plan.Status == "AGENT_INTERRUPTED_FILES_REINSTALL";
+            if (plan.Status != required && !agentReinstall && !interruptedAgentRepair)
                 throw new InvalidOperationException(
                     (repairMode ? "SETUP_REPAIR_BLOCKED_" : "SETUP_UPGRADE_BLOCKED_")
                     + plan.Status);
 
-            BundleInfo old = ReadOwnedRelease(root, root, candidate.Id, repairMode);
+            BundleInfo old = interruptedAgentRepair && !Directory.Exists(root) ?
+                ReadOwnedRelease(previous, root, candidate.Id, true) :
+                ReadOwnedRelease(root, root, candidate.Id, repairMode);
             // Changing the entrypoint requires a separately witnessed handoff.
             // The regular upgrade/repair path deliberately never rewrites
             // Start Menu shortcuts owned or customized by the user.
@@ -79,9 +84,16 @@ namespace IwxaSetup
             RequireRegistryOwnership(candidate.Id, root, old);
             // Repair may restore missing owned files, but never adopts
             // unexpected files, redirected paths or a different package.
-            RequireOnlyOwnedFiles(root, repairMode);
+            if (interruptedAgentRepair)
+            {
+                if (Directory.Exists(root)) RequireOnlyOwnedFiles(root, true);
+                RequireOnlyOwnedFiles(previous, true);
+            }
+            else
+                RequireOnlyOwnedFiles(root, repairMode);
             AssertNotRunning(old, root);
-            if (Directory.Exists(previous) || File.Exists(previous))
+            if (!interruptedAgentRepair &&
+                (Directory.Exists(previous) || File.Exists(previous)))
                 throw new InvalidOperationException("SETUP_UPGRADE_RECOVERY_REQUIRED");
 
             // Reject insufficient disk before changing the registered release.
@@ -90,17 +102,40 @@ namespace IwxaSetup
             string staged = root + ".iwxa-new-" + Guid.NewGuid().ToString("N");
             Directory.CreateDirectory(staged);
             bool movedOld = false, movedNew = false;
+            bool movedDamaged = false, interruptedSuccess = false;
+            string damaged = root + ".iwxa-unfinished-" +
+                Guid.NewGuid().ToString("N");
             try
             {
                 PrepareVerifiedStage(bundle, candidate, staged, root);
                 ReadOwnedRelease(staged, root, candidate.Id);
                 RequireOnlyOwnedFiles(staged);
 
-                Directory.Move(root, previous);
-                movedOld = true;
+                if (interruptedAgentRepair)
+                {
+                    // Keep the verified prior backup in place. Replace only
+                    // the incomplete owned application directory.
+                    if (Directory.Exists(root))
+                    {
+                        Directory.Move(root, damaged);
+                        movedDamaged = true;
+                    }
+                }
+                else
+                {
+                    Directory.Move(root, previous);
+                    movedOld = true;
+                }
                 Directory.Move(staged, root);
                 movedNew = true;
                 Register(candidate, root);
+                if (interruptedAgentRepair)
+                {
+                    ReadOwnedRelease(root, root, candidate.Id);
+                    RequireRegistryOwnership(candidate.Id, root, candidate);
+                    RequireOnlyOwnedFiles(root);
+                    interruptedSuccess = true;
+                }
                 // Upgrade and same-version Repair preserve the existing
                 // Start Menu link exactly. The owned installation root and
                 // entrypoint are stable; rewriting it destroys user edits.
@@ -112,7 +147,24 @@ namespace IwxaSetup
             }
             catch
             {
-                if (movedOld)
+                if (interruptedAgentRepair)
+                {
+                    try
+                    {
+                        if (movedNew && Directory.Exists(root))
+                            Directory.Move(root, staged);
+                        if (movedDamaged && Directory.Exists(damaged) &&
+                            !Directory.Exists(root))
+                            Directory.Move(damaged, root);
+                        Register(old, root);
+                    }
+                    catch (Exception restoration)
+                    {
+                        throw new InvalidOperationException(
+                            "SETUP_UPGRADE_RECOVERY_REQUIRED", restoration);
+                    }
+                }
+                else if (movedOld)
                 {
                     try
                     {
@@ -143,6 +195,16 @@ namespace IwxaSetup
                 if (Directory.Exists(staged) &&
                     (!movedOld || !Directory.Exists(previous)))
                     Directory.Delete(staged, true);
+                // This attempt owns the displaced incomplete files. They
+                // were checked against the old receipt before movement. Keep
+                // the prior backup until the person confirms the new install.
+                if (interruptedSuccess && movedDamaged &&
+                    Directory.Exists(damaged))
+                {
+                    try { Directory.Delete(damaged, true); }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
             }
         }
 

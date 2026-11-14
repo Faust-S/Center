@@ -237,6 +237,48 @@ jobs:
           $p=Start-Process -FilePath $setup -ArgumentList @('--upgrade-plan-file',$plan2) -Wait -PassThru
           if($p.ExitCode -ne 0 -or (Get-Content $plan2 -Raw | ConvertFrom-Json).status -cne 'REPAIR_CANDIDATE_NOT_ACTIVATED'){throw 'AGENT05_FINISH_READBACK_FAILED'}
           Write-Host 'AGENT05_FINISH_WITH_PRESERVED_DATA_PASS'
+      - name: Direct reinstall after interrupted files with preserved data
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\IWXA\Agent'
+          $previous=$root+'.iwxa-previous'
+          $setup='C:\i5\o\IWXA-Personal-Agent-0.5.0-Setup.exe'
+          $sentinel='C:\IWXA\Personal data Agent\Data\user-file.txt'
+          if(Test-Path $previous){throw 'AGENT05_INTERRUPTED_PRIOR_UNEXPECTED'}
+          $receipt=Get-Content -LiteralPath (Join-Path $root 'explorer-install-receipt.json') -Raw -Encoding utf8 | ConvertFrom-Json
+          $relative=[string]$receipt.managed_runtime.python_executable
+          if([string]::IsNullOrWhiteSpace($relative) -or [IO.Path]::IsPathRooted($relative) -or $relative.Contains('..') -or $relative.Contains(':')){throw 'AGENT05_INTERRUPTED_PYTHON_PATH_INVALID'}
+          $python=Join-Path $root ($relative.Replace('/','\'))
+          $control=Join-Path $root 'tools\iwxa_windows_user_control.py'
+          $coreLog=Join-Path $env:RUNNER_TEMP 'agent05-interrupted-core-stop-private.log'
+          & $python -B $control --install-root $root --action stop --port 8765 --no-dialog *> $coreLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_INTERRUPTED_CORE_NOT_STOPPED'}
+          $beforeData=(Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash
+          Copy-Item -LiteralPath $root -Destination $previous -Recurse -Force
+          $inner=Join-Path $root 'desktop\bin\IWXA Personal.exe'
+          $visible=Join-Path $root 'IWXA Personal Agent.exe'
+          Remove-Item -LiteralPath $inner,$visible -Force
+          $plan='C:\i5\interrupted-plan.json'
+          $p=Start-Process -FilePath $setup -ArgumentList @('--upgrade-plan-file',$plan) -Wait -PassThru
+          if($p.ExitCode -ne 0 -or (Get-Content -LiteralPath $plan -Raw | ConvertFrom-Json).status -cne 'AGENT_INTERRUPTED_FILES_REINSTALL'){throw 'AGENT05_INTERRUPTED_INSTALL_NOT_OFFERED'}
+          Write-Host 'AGENT05_INTERRUPTED_INSTALL_DETECTED_PASS'
+          $repaired='C:\i5\interrupted-repaired.json'
+          $p=Start-Process -FilePath $setup -ArgumentList @('--repair-file',$repaired) -Wait -PassThru
+          if($p.ExitCode -ne 0 -or (Get-Content -LiteralPath $repaired -Raw | ConvertFrom-Json).status -cne 'REPAIRED_BACKUP_RETAINED'){throw 'AGENT05_INTERRUPTED_REINSTALL_FAILED'}
+          if(!(Test-Path $inner -PathType Leaf) -or !(Test-Path $visible -PathType Leaf)){throw 'AGENT05_INTERRUPTED_EXE_NOT_RESTORED'}
+          if((Get-FileHash $inner -Algorithm SHA256).Hash -cne (Get-FileHash $visible -Algorithm SHA256).Hash){throw 'AGENT05_INTERRUPTED_EXE_CHANGED'}
+          if((Get-FileHash $sentinel -Algorithm SHA256).Hash -cne $beforeData){throw 'AGENT05_INTERRUPTED_DATA_CHANGED'}
+          $pending='C:\i5\interrupted-pending.json'
+          $p=Start-Process -FilePath $setup -ArgumentList @('--upgrade-plan-file',$pending) -Wait -PassThru
+          if($p.ExitCode -ne 0 -or (Get-Content -LiteralPath $pending -Raw | ConvertFrom-Json).status -cne 'UPGRADE_PENDING_CONFIRMATION'){throw 'AGENT05_INTERRUPTED_REINSTALL_READBACK_INVALID'}
+          $confirmed='C:\i5\interrupted-confirmed.json'
+          $p=Start-Process -FilePath $setup -ArgumentList @('--confirm-upgrade-file',$confirmed) -Wait -PassThru
+          if($p.ExitCode -ne 0 -or (Get-Content -LiteralPath $confirmed -Raw | ConvertFrom-Json).status -cne 'UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED'){throw 'AGENT05_INTERRUPTED_CONFIRM_FAILED'}
+          if(Test-Path $previous){throw 'AGENT05_INTERRUPTED_PREVIOUS_REMAINED'}
+          if(@(Get-ChildItem -Path 'C:\IWXA' -Directory | Where-Object {$_.Name -like 'Agent.iwxa-unfinished-*' -or $_.Name -like 'Agent.iwxa-new-*'}).Count -ne 0){throw 'AGENT05_INTERRUPTED_STAGING_REMAINED'}
+          if((Get-FileHash $sentinel -Algorithm SHA256).Hash -cne $beforeData){throw 'AGENT05_INTERRUPTED_USER_DATA_NOT_PRESERVED'}
+          Write-Host 'AGENT05_INTERRUPTED_REINSTALL_PRESERVED_DATA_PASS'
       - name: Real installed local model Task Result and cold reopen
         shell: pwsh
         timeout-minutes: 35
@@ -296,6 +338,41 @@ jobs:
             Write-Host 'AGENT05_REAL_TASK_RESULT_COLD_READBACK_PASS'
           }finally{
             $null=Invoke-Control 'stop'
+          }
+      - name: Cold-open the actual Agent window and view saved Result
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\IWXA\Agent'
+          $exe=Join-Path $root 'IWXA Personal Agent.exe'
+          $modelProof=Join-Path $env:RUNNER_TEMP 'agent05-real-task\proof.json'
+          $guiScript='C:\i5\a\tools\qualify_setup_core_native_gui.ps1'
+          $log=Join-Path $env:RUNNER_TEMP 'agent05-real-task-gui-private.log'
+          $receiptPath=Join-Path $env:RUNNER_TEMP 'agent05-real-task-gui.json'
+          if(!(Test-Path -LiteralPath $modelProof -PathType Leaf) -or !(Test-Path $exe -PathType Leaf)){throw 'AGENT05_GUI_COLD_RESULT_PROOF_MISSING'}
+          $proof=Get-Content -LiteralPath $modelProof -Raw -Encoding utf8 | ConvertFrom-Json
+          if($proof.schema -cne 'IWXA_INSTALLED_REAL_QWEN_RESULT/1' -or !$proof.task_id -or !$proof.task_title_sha256 -or $proof.human_review_accepted -ne $true){throw 'AGENT05_GUI_COLD_RESULT_PROOF_INVALID'}
+          $env:WEBVIEW2_USER_DATA_FOLDER='C:\i5\webview'
+          $app=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+          try{
+            $ps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+            & $ps -NoProfile -NonInteractive -Sta -ExecutionPolicy Bypass -File $guiScript -WindowProcessId $app.Id -Mode result -TaskId ([string]$proof.task_id) -ExpectedTitleSha256 ([string]$proof.task_title_sha256) -ReceiptPath $receiptPath *> $log
+            if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $receiptPath -PathType Leaf)){throw 'AGENT05_GUI_COLD_RESULT_NOT_VISIBLE'}
+            $receipt=Get-Content -LiteralPath $receiptPath -Raw -Encoding utf8 | ConvertFrom-Json
+            if($receipt.status -cne 'PASS' -or
+               $receipt.input -cne 'NATIVE_WINDOWS_UI_AUTOMATION' -or
+               $receipt.source_task_selected -ne $true -or
+               $receipt.accepted_result_visible -ne $true -or
+               $receipt.title_digest_matched -ne $true){throw 'AGENT05_GUI_COLD_RESULT_MISMATCH'}
+            Write-Host 'AGENT05_GUI_COLD_SAVED_RESULT_VISIBLE_PASS'
+          }finally{
+            $app.Refresh()
+            if(!$app.HasExited){
+              $null=$app.CloseMainWindow()
+              if(!$app.WaitForExit(8000)){Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue}
+            }
+            $app.Dispose()
           }
       # No private binaries, logs or models are published.
 
