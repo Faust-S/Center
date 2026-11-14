@@ -174,6 +174,13 @@ export function appendOriginalResultReview(previous,preview,organizationId,
 // A manager can request all remaining ORIGINAL signed Result pages at
 // once. Every page is tied to the unchanged package, Task, original signer
 // and preview digest. This remains read-only, not Human ACCEPT or Kernel APPLY.
+/** @param {any} first
+ *  @param {any} preview
+ *  @param {string} organizationId
+ *  @param {string} workspaceId
+ *  @param {(offset:number)=>Promise<any>} readPage
+ *  @param {(page:any)=>void} onPage
+ */
 export async function readCompleteOriginalResult(first,preview,organizationId,
   workspaceId,readPage,onPage=()=>{}){
  const bad='CEN_D3_SIGNED_RESULT_REVIEW_STALE';
