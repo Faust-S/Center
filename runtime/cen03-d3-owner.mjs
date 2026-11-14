@@ -171,6 +171,31 @@ export function appendOriginalResultReview(previous,preview,organizationId,
  return {...next,offset:0,resultText:accumulated};
 }
 
+// A manager can request all remaining ORIGINAL signed Result pages at
+// once. Every page is tied to the unchanged package, Task, original signer
+// and preview digest. This remains read-only, not Human ACCEPT or Kernel APPLY.
+export async function readCompleteOriginalResult(first,preview,organizationId,
+  workspaceId,readPage,onPage=()=>{}){
+ const bad='CEN_D3_SIGNED_RESULT_REVIEW_STALE';
+ need(first?.schema==='IWXA_T3_ORIGINAL_SIGNED_RESULT_REVIEW/1'&&
+   first.offset===0&&validSha(first.packageSha256)&&
+   validSha(first.previewDigest)&&preview?.packageSha256===first.packageSha256&&
+   preview.previewDigest===first.previewDigest&&
+   typeof readPage==='function'&&typeof onPage==='function',bad);
+ let current=first;
+ // A 100,000-character Result requires at most 25 original pages.
+ for(let part=0;part<26&&current.hasMore;part++){
+   const next=await readPage(current.nextOffset);
+   need(next?.schema==='IWXA_T3_RECONCILIATION_PREVIEW/1'&&
+     next.packageSha256===first.packageSha256&&
+     next.previewDigest===first.previewDigest,bad);
+   current=appendOriginalResultReview(current,next,organizationId,workspaceId);
+   onPage(current);
+ }
+ need(current.hasMore===false&&current.nextOffset===current.resultLength,bad);
+ return current;
+}
+
 // A trusted native product Host, never WebView, supplies:
 // admission = createTrustedReconciliationAdmission(original private recipient),
 // access = the existing signed D1 owner, apply = optional original Kernel port,

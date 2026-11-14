@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createNativeAtlasPort} from './atlas-native.mjs';
 import {atlasLinkReadback,atlasWorkReadback} from './atlas-integration.mjs';
-import {readOriginalResultReview,appendOriginalResultReview,
+import {readOriginalResultReview,readCompleteOriginalResult,
  validateOriginalSignedTaskReadback} from '../runtime/cen03-d3-owner.mjs';
 
 // D3 UI is deliberately limited to the ORIGINAL recipient and signed D1 Host.
@@ -268,23 +268,18 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setConfirmed(false);setApplication(null);
    setPreparedId('');setIdSaved(false);
  });
- const nextReviewPage=()=>run('Следующая часть оригинального подписанного Result проверена.',async()=>{
-   const previousPage=reviewedResult;
-   if(!previousPage||!previousPage.hasMore||!hex(hash))
+ const showCompleteReview=()=>run('Полный оригинальный подписанный Result показан для Human Review.',async()=>{
+   const first=reviewedResult,source=preview;
+   if(!first?.hasMore||!source||!hex(hash)||
+     first.packageSha256!==hash||first.previewDigest!==source.previewDigest)
      throw Error('CEN_D3_SIGNED_RESULT_REVIEW_NOT_AVAILABLE');
-   // A changed package, digest, Task, executor, or revision must not let
-   // previous Human Review consent survive into another Result.
+   // Reading original pages never approves ACCEPT. Consent is a separate
+   // explicit manager action after the complete Result is displayed.
    setConfirmed(false);
-   const result=await execute('d3Preview',{
-     packageSha256:hash,resultOffset:previousPage.nextOffset
-   });
-   if(result?.schema!=='IWXA_T3_RECONCILIATION_PREVIEW/1'||
-     result.packageSha256!==hash||
-     result.previewDigest!==preview?.previewDigest)
-     throw Error('CEN_D3_SIGNED_RESULT_REVIEW_STALE');
-   const joined=appendOriginalResultReview(previousPage,result,
-     session.organizationId,session.workspaceId);
-   setReviewedResult(joined);
+   await readCompleteOriginalResult(first,source,session.organizationId,
+     session.workspaceId,
+     (offset:number)=>execute('d3Preview',{packageSha256:hash,resultOffset:offset}),
+     (page:any)=>setReviewedResult(page));
  });
  const recover=()=>run('Оригинальная квитанция перечитана. Это не подтверждение записи в Kernel.',async()=>{
    const id=operationId.trim();
@@ -595,7 +590,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    <p>Оригинальный журнал получателя: {inbox.total} пакетов.
     {inbox.truncated?' Показаны последние 64.':''}</p>
    <label>Полученный результат
-    <select data-testid="d3-inbox-select" value={inbox.items.some(x=>x.packageSha256===hash)?hash:''}
+    <select data-testid="d3-inbox-select" disabled={busy} value={inbox.items.some(x=>x.packageSha256===hash)?hash:''}
      onChange={e=>{
        const value=e.target.value;
        const item=inbox.items.find(x=>x.packageSha256===value);
@@ -610,7 +605,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    </label>
   </div>}
   <label>SHA-256 пакета
-   <input data-testid="d3-package-sha" value={hash} maxLength={64}
+   <input data-testid="d3-package-sha" value={hash} maxLength={64} disabled={busy}
     onChange={e=>choose(e.target.value.trim().toLowerCase())}
     placeholder="64 символа SHA-256" />
   </label>
@@ -637,14 +632,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
         {reviewedResult.resultLength} символов. Для ACCEPT требуется весь результат.</p>
        <button type="button" className="secondary"
         data-testid="d3-review-next" disabled={busy}
-        onClick={nextReviewPage}>Показать продолжение</button>
+        onClick={showCompleteReview}>Показать весь Result</button>
      </div>}
     </div>:
     <p role="status" data-testid="d3-original-review-not-proven">
      Подлинное содержание Result или связь с подписанной Task ещё не подтверждены.
      ACCEPT недоступен. Можно отклонить пакет с указанием причины.
     </p>}
-   <label><input type="checkbox" checked={confirmed}
+   <label><input type="checkbox" checked={confirmed} disabled={busy}
      onChange={e=>setConfirmed(e.target.checked)}/>
     Я просмотрел этот пакет и подтверждаю отдельное решение</label>
    <label>Причина REJECT

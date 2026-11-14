@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {createCorporateOwnerHost} from '../runtime/cen-corporate-owner-host.mjs';
 import {signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
 import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
- appendOriginalResultReview,validateOriginalSignedTaskReadback} from '../runtime/cen03-d3-owner.mjs';
+ appendOriginalResultReview,readCompleteOriginalResult,
+ validateOriginalSignedTaskReadback} from '../runtime/cen03-d3-owner.mjs';
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64);
@@ -410,4 +411,42 @@ test('D3 Task ID survives native ACK loss through original signed inventory read
    found:false,status:'NOT_IN_ORIGINAL_TASK_INVENTORY'},
    saved.taskId,'person:manager');
  assert.equal(unknown.found,false);
+});
+
+test('D3: one explicit click shows complete original Result without ACCEPT',async()=>{
+ const sha='a'.repeat(64),digest='b'.repeat(64),rev='c'.repeat(64);
+ const full='Работа завершена. '+'Проверено; '.repeat(950);
+ const identity={schema:'IWXA_T3_ORIGINAL_SIGNED_RESULT_REVIEW/1',
+   packageSha256:sha,previewDigest:digest,taskId:'task:one',
+   taskRevisionId:sha,resultRevisionId:rev,executorId:'person:worker',
+   organizationId:'org:1',workspaceId:'workspace:1',
+   signatureVerified:true,taskBindingProven:true,taskCatalogVerified:true,
+   assignmentText:'Проверить документы',resultLength:full.length};
+ const page=offset=>{
+   const text=full.slice(offset,offset+4096);
+   return {schema:'IWXA_T3_RECONCILIATION_PREVIEW/1',
+     packageSha256:sha,previewDigest:digest,entries:[{revisionId:rev}],
+     resultInspection:{...identity,offset,resultText:text,
+       nextOffset:offset+text.length,hasMore:offset+text.length<full.length}};
+ };
+ const preview=page(0);
+ const first=readOriginalResultReview(preview,'org:1','workspace:1');
+ const requested=[],shown=[];
+ const result=await readCompleteOriginalResult(first,preview,'org:1','workspace:1',
+   async offset=>{requested.push(offset);return page(offset);},
+   progress=>shown.push(progress.nextOffset));
+ assert.equal(result.resultText,full);
+ assert.equal(result.hasMore,false);
+ assert.equal(result.nextOffset,full.length);
+ assert.ok(requested.length>=2);
+ assert.deepEqual(shown,requested.slice(1).concat(full.length));
+ await assert.rejects(()=>readCompleteOriginalResult(first,preview,
+   'org:1','workspace:1',
+   async()=>({...page(4096),previewDigest:'d'.repeat(64)})),
+   /CEN_D3_SIGNED_RESULT_REVIEW_STALE/);
+ await assert.rejects(()=>readCompleteOriginalResult(first,preview,
+   'org:1','workspace:1',async()=>({...page(4096),
+     resultInspection:{...page(4096).resultInspection,
+       assignmentText:'Другое поручение'}})),
+   /CEN_D3_SIGNED_RESULT_REVIEW_STALE/);
 });
