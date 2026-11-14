@@ -1,4 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
+import {createNativeAtlasPort} from './atlas-native.mjs';
+import {atlasLinkReadback,atlasWorkReadback} from './atlas-integration.mjs';
 
 // D3 UI is deliberately limited to the ORIGINAL recipient and signed D1 Host.
 // It cannot issue a task, sign a grant, interpret an ACCEPT as Apply, or
@@ -67,6 +69,22 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const createSignedTask=()=>run('Подписанная Task сохранена. Передача получателю ещё не подтверждена.',async()=>{
    if(session.d3TaskIssueAvailable!==true||!taskText.trim()||
      taskText.length>10000)throw Error('CEN_D3_SIGNED_TASK_TEXT_REQUIRED');
+   // A draft Atlas link is not automatically a valid current source. Before
+   // original T3 signs it, reread the installed Atlas Desktop owner in its
+   // existing fixed-path READ_ONLY mode, never a cached/selected file copy.
+   const source=assignmentDrafts.find(a=>a.id===draftId)?.atlasRef;
+   if(source){
+     const port=createNativeAtlasPort(invoke);
+     let sessionFromInstalled;
+     try{
+       sessionFromInstalled=await port.openPublicAtlas(session.organizationId);
+     }catch{throw Error('CEN_D3_ATLAS_OWNER_NOT_AVAILABLE');}
+     const fresh=port.view(sessionFromInstalled);
+     const current=source.workId?
+       atlasWorkReadback(fresh,source):atlasLinkReadback(fresh,source);
+     if(current!=='SOURCE_REVISION_MATCHES')
+       throw Error('CEN_D3_ATLAS_SOURCE_REVISION_STALE');
+   }
    const result=await execute('d3CreateTask',{task:taskText.trim()});
    if(result?.schema!=='IWXA_T3_ORIGINAL_SIGNED_TASK/1'||
      result.status!=='SIGNED_TASK_CREATED_NOT_DELIVERED'||
