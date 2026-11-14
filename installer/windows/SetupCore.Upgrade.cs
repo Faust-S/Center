@@ -64,40 +64,47 @@ namespace IwxaSetup
                     RegistryProducts + info.Id))
                 {
                     if (Directory.Exists(root) && owned != null &&
-                        String.Equals(Convert.ToString(
-                            owned.GetValue("PackageSha256")), info.PackageSha256,
-                            StringComparison.OrdinalIgnoreCase))
+                        SamePath(Convert.ToString(
+                            owned.GetValue("InstallLocation")), root))
                     {
                         try
                         {
+                            // The active registered build may differ from the
+                            // candidate while an earlier owned backup remains.
+                            // Do not call that healthy application a failed
+                            // installation or force a rollback.
                             BundleInfo current = ReadOwnedRelease(root, root, info.Id);
+                            RequireRegistryOwnership(info.Id, root, current);
                             BundleInfo old = ReadOwnedRelease(
                                 PreviousFor(info), root, info.Id, true);
-                            // A damaged same-version backup is expected after
-                            // Repair, but an incomplete previous upgrade
-                            // cannot silently be treated as verified.
-                            bool repairedVersion = old.Version == current.Version &&
-                                old.PackageSha256 == current.PackageSha256;
-                            RequireOnlyOwnedFiles(
-                                PreviousFor(info), repairedVersion);
-                            bool incompleteRepairBackup = false;
-                            if (repairedVersion)
+                            bool incompleteBackup = false;
+                            try { RequireOnlyOwnedFiles(PreviousFor(info)); }
+                            catch (InvalidDataException missing)
                             {
-                                try { RequireOnlyOwnedFiles(PreviousFor(info)); }
-                                catch (InvalidDataException missing)
-                                {
-                                    if (missing.Message != "SETUP_OWNED_FILES_MISSING")
-                                        throw;
-                                    incompleteRepairBackup = true;
-                                }
+                                bool samePackage = old.Version == current.Version &&
+                                    old.PackageSha256 == current.PackageSha256;
+                                if (missing.Message != "SETUP_OWNED_FILES_MISSING" ||
+                                    (!samePackage && info.Id != "iwxa.personal-agent"))
+                                    throw;
+                                // A repaired Agent can have been backed up with
+                                // its original launcher missing. Every remaining
+                                // file must still be accounted for by the receipt.
+                                RequireOnlyOwnedFiles(PreviousFor(info), true);
+                                incompleteBackup = true;
                             }
-                            plan.Status = current.PackageSha256 == info.PackageSha256 &&
-                                Convert.ToString(owned.GetValue("Version")) == info.Version &&
-                                old.Id == info.Id ?
-                                (incompleteRepairBackup ?
+                            plan.InstalledVersion = current.Version;
+                            if (current.Version == info.Version &&
+                                current.PackageSha256 == info.PackageSha256)
+                                plan.Status = incompleteBackup ?
                                     "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK" :
-                                    "UPGRADE_PENDING_CONFIRMATION") :
-                                "UPGRADE_RECOVERY_REQUIRED";
+                                    "UPGRADE_PENDING_CONFIRMATION";
+                            else if (info.Id == "iwxa.personal-agent" &&
+                                     current.Version == info.Version)
+                                // Confirmation is explicit. The verified backup
+                                // is never discarded merely by opening Setup.
+                                plan.Status = "AGENT_PREVIOUS_INSTALL_PENDING";
+                            else
+                                plan.Status = "UPGRADE_RECOVERY_REQUIRED";
                         }
                         catch (Exception)
                         {
@@ -159,8 +166,9 @@ namespace IwxaSetup
                         // damaged receipt, symlink or legacy NSIS preview.
                         if (receipt.ContainsKey("legacyHandoff") ||
                             oldVersion != info.Version ||
-                            Convert.ToString(receipt["packageSha256"]) !=
-                                info.PackageSha256)
+                            (info.Id != "iwxa.personal-agent" &&
+                             Convert.ToString(receipt["packageSha256"]) !=
+                                 info.PackageSha256))
                         {
                             plan.Status = "OWNERSHIP_MISMATCH";
                             return plan;
@@ -170,7 +178,8 @@ namespace IwxaSetup
                         if (!String.Equals(damaged.Entrypoint, info.Entrypoint,
                                 StringComparison.OrdinalIgnoreCase) ||
                             damaged.Version != info.Version ||
-                            damaged.PackageSha256 != info.PackageSha256)
+                            (info.Id != "iwxa.personal-agent" &&
+                             damaged.PackageSha256 != info.PackageSha256))
                         {
                             plan.Status = "OWNERSHIP_MISMATCH";
                             return plan;
@@ -181,7 +190,9 @@ namespace IwxaSetup
                             String.IsNullOrWhiteSpace(
                                 SetupReadiness.DetectWebView2Version()) ?
                             "WEBVIEW2_MISSING" :
-                            "REPAIR_CANDIDATE_NOT_ACTIVATED";
+                            damaged.PackageSha256 == info.PackageSha256 ?
+                                "REPAIR_CANDIDATE_NOT_ACTIVATED" :
+                                "SAME_VERSION_DIFFERENT_PACKAGE";
                         return plan;
                     }
                     plan.InstalledVersion = oldVersion;

@@ -309,7 +309,12 @@ namespace IwxaSetup
             if (!Directory.Exists(previous))
                 throw new InvalidOperationException("SETUP_PREVIOUS_RELEASE_NOT_FOUND");
             BundleInfo installed = ReadOwnedRelease(root, root, candidate.Id);
-            if (installed.PackageSha256 != candidate.PackageSha256)
+            // The person may explicitly finish a previously installed Agent
+            // before using a corrected same-version package. Confirm the
+            // registered active build, not an uninstalled candidate's hash.
+            if (installed.PackageSha256 != candidate.PackageSha256 &&
+                !(candidate.Id == "iwxa.personal-agent" &&
+                  installed.Version == candidate.Version))
                 throw new InvalidOperationException("SETUP_CONFIRM_CANDIDATE_MISMATCH");
             RequireRegistryOwnership(candidate.Id, root, installed);
             BundleInfo backedUp = ReadOwnedRelease(
@@ -319,7 +324,10 @@ namespace IwxaSetup
             // confirmation after the new installation has been verified.
             bool previousWasRepair = backedUp.Version == installed.Version &&
                 backedUp.PackageSha256 == installed.PackageSha256;
-            RequireOnlyOwnedFiles(previous, previousWasRepair);
+            // Incomplete owned Agent backups can result from repairing a
+            // missing launcher. No unowned files or links may be discarded.
+            RequireOnlyOwnedFiles(previous,
+                previousWasRepair || candidate.Id == "iwxa.personal-agent");
 
             // Calling E2E must prove launch/readback before invoking confirm.
             string retired = root + ".iwxa-confirmed-" + Guid.NewGuid().ToString("N");

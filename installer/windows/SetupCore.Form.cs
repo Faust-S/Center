@@ -214,6 +214,9 @@ namespace IwxaSetup
                 secondary.Text = T("Из файла…", "From file…");
             else if (alternate == SetupOperation.CancelLegacyPreview)
                 secondary.Text = T("Отменить переход", "Cancel preview");
+            else if (alternate == SetupOperation.Confirm)
+                secondary.Text = T("Завершить прежнюю установку",
+                    "Finish previous installation");
             secondary.AccessibleName = secondary.Text;
             secondary.AccessibleDescription =
                 alternate == SetupOperation.InstallWebView2Offline ?
@@ -840,7 +843,8 @@ namespace IwxaSetup
                          observedPlan == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK");
                 case "Confirm":
                     return nativeOutcome == "UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED" &&
-                        observedPlan == "REPAIR_CANDIDATE_NOT_ACTIVATED";
+                        (observedPlan == "REPAIR_CANDIDATE_NOT_ACTIVATED" ||
+                         observedPlan == "SAME_VERSION_DIFFERENT_PACKAGE");
                 case "Rollback":
                     return (nativeOutcome == "ROLLBACK_RESTORED_PREVIOUS" ||
                             nativeOutcome == "ROLLBACK_RESTORED_USER_FILES_QUARANTINED") &&
@@ -1351,6 +1355,7 @@ namespace IwxaSetup
                 bool readyForReview =
                     plan.Status == "UPGRADE_PENDING_CONFIRMATION" ||
                     plan.Status == "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK" ||
+                    plan.Status == "AGENT_PREVIOUS_INSTALL_PENDING" ||
                     plan.Status == "LEGACY_MIGRATION_PENDING_GUI_READBACK" ||
                     plan.Status == "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED";
                 SetWizardStep(readyForReview ? 3 : 2);
@@ -1515,6 +1520,19 @@ namespace IwxaSetup
                         "Open installed application");
                     openApplication.Visible = true;
                 }
+                else if (plan.Status == "AGENT_PREVIOUS_INSTALL_PENDING")
+                {
+                    SetState(T("Программа установлена", "Application installed"),
+                        T("Текущую программу можно открыть. От предыдущей установки осталась резервная копия файлов. Проверьте работу программы, затем нажмите «Завершить прежнюю установку». После этого можно переустановить исправленную сборку. Личные данные сохраняются.",
+                          "You can open the current application. Application files from a previous installation remain as a backup. Verify the application, then select Finish previous installation before installing the corrected build. Personal data is preserved."),
+                        versionLine, false);
+                    ConfigureActions(SetupOperation.None, SetupOperation.Confirm,
+                        T("Открыть программу", "Open application"));
+                    openApplication.Tag = "APPLICATION";
+                    openApplication.Text = T("Открыть установленную программу",
+                        "Open installed application");
+                    openApplication.Visible = true;
+                }
                 else if (plan.Status == "UPGRADE_RECOVERY_REQUIRED")
                 {
                     SetState(T("Обновление было прервано", "Upgrade was interrupted"),
@@ -1523,6 +1541,14 @@ namespace IwxaSetup
                         versionLine, true);
                     ConfigureActions(SetupOperation.Recover, SetupOperation.None,
                         T("Восстановить", "Recover"));
+                    // A stale or damaged backup must not hide the independently
+                    // registered and launchable active application.
+                    openApplication.Tag = "APPLICATION";
+                    openApplication.Text = T("Открыть установленную программу",
+                        "Open installed application");
+                    openApplication.Visible = File.Exists(Path.Combine(
+                        SetupInstallation.RootFor(info),
+                        info.Entrypoint.Replace('/', Path.DirectorySeparatorChar)));
                 }
                 else if (plan.Status == "REPAIR_CANDIDATE_NOT_ACTIVATED")
                 {

@@ -752,9 +752,16 @@ namespace IwxaSetup
                     message = T("Проверьте установленную версию и завершите обновление. Личные данные сохранены.",
                         "Check the installed release and finish the update. Your data is preserved.");
                     break;
+                case "AGENT_PREVIOUS_INSTALL_PENDING":
+                    message = T("Установленная программа доступна. Сначала проверьте её, затем завершите предыдущую установку. Резервные файлы не удаляются без вашего действия.",
+                        "The installed application is available. Check it, then finish the previous installation. Backup files are not removed without your action.");
+                    break;
                 case "UPGRADE_RECOVERY_REQUIRED":
-                    message = T("Прерванную операцию необходимо завершить восстановлением. Личные данные не удаляются.",
-                        "The interrupted operation requires recovery. Your data is not removed.");
+                    message = openApplication.Visible ?
+                        T("Установленная программа доступна. Резервная копия требует проверки. Личные данные сохраняются.",
+                          "The installed application is available. The previous backup needs review. Personal data is preserved.") :
+                        T("Прерванную операцию необходимо завершить восстановлением. Личные данные не удаляются.",
+                          "The interrupted operation requires recovery. Your data is not removed.");
                     break;
                 case "REPAIR_CANDIDATE_NOT_ACTIVATED":
                     message = openApplication.Visible ?
@@ -800,7 +807,9 @@ namespace IwxaSetup
             }
             if (primaryAction != SetupOperation.None)
                 await ExecuteAsync(primaryAction);
-            else if (!first && inspectedStatus == "REPAIR_CANDIDATE_NOT_ACTIVATED" &&
+            else if (!first &&
+                     (inspectedStatus == "REPAIR_CANDIDATE_NOT_ACTIVATED" ||
+                      inspectedStatus == "AGENT_PREVIOUS_INSTALL_PENDING") &&
                      !locationDraftChanged && openApplication.Visible)
                 OpenRelatedAction();
             else if (!first)
@@ -869,7 +878,8 @@ namespace IwxaSetup
             // directory must offer a clear way to recheck and install.
             bool editedFirstInstall = first && inspectedBundle != null && changes;
             bool installedReadyToLaunch = !first && !changes &&
-                inspectedStatus == "REPAIR_CANDIDATE_NOT_ACTIVATED" &&
+                (inspectedStatus == "REPAIR_CANDIDATE_NOT_ACTIVATED" ||
+                 inspectedStatus == "AGENT_PREVIOUS_INSTALL_PENDING") &&
                 openApplication.Visible;
             install.Visible = installedReadyToLaunch || editedFirstInstall ||
                 (primaryAction != SetupOperation.None && (!changes || first));
