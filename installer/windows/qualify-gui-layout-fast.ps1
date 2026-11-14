@@ -184,6 +184,26 @@ function AssertUnified([System.Windows.Forms.Form]$form,[string]$label){
     }
     $install=One $form 'iwxaSetupPrimaryAction'
     $recheck=One $form 'iwxaSetupRecheck'
+    $alternate=One $form 'iwxaSetupAlternateAction'
+    # Real labels used when the Agent replaces an interrupted install.
+    # They must fit into the native fixed-width action buttons even at DPI
+    # scaling, not paint over neighbouring controls.
+    foreach($entry in @(
+        @{ Button=$install; Captions=@((-join ([char[]]@(0x41f,0x435,0x440,0x435,0x443,0x441,0x442,0x430,0x43d,0x43e,0x432,0x438,0x442,0x44c))),'Reinstall',
+            (-join ([char[]]@(0x41e,0x442,0x43a,0x440,0x44b,0x442,0x44c,0x20,0x43f,0x440,0x43e,0x433,0x440,0x430,0x43c,0x43c,0x443))),'Open application') },
+        @{ Button=$alternate; Captions=@((-join ([char[]]@(0x417,0x430,0x432,0x435,0x440,0x448,0x438,0x442,0x44c))),'Finish') }
+    )){
+        foreach($caption in $entry.Captions){
+            $measured=[System.Windows.Forms.TextRenderer]::MeasureText(
+                [string]$caption,$entry.Button.Font)
+            # Hidden buttons still retain their intended native Size.
+            $available=[Math]::Max([int]$entry.Button.ClientSize.Width,
+                [int]$entry.Button.Width)-8
+            if($measured.Width -gt $available){
+                throw ('SETUP_NATIVE_ACTION_LABEL_OVERFLOW_'+$label)
+            }
+        }
+    }
     foreach($control in @($install,$recheck)){
         if(!(WantsVisible $control)){continue}
         if($control.Width -lt 88 -or $control.Right -gt $control.Parent.ClientSize.Width){

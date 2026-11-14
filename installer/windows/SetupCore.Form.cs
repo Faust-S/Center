@@ -215,8 +215,7 @@ namespace IwxaSetup
             else if (alternate == SetupOperation.CancelLegacyPreview)
                 secondary.Text = T("Отменить переход", "Cancel preview");
             else if (alternate == SetupOperation.Confirm)
-                secondary.Text = T("Завершить прежнюю установку",
-                    "Finish previous installation");
+                secondary.Text = T("Завершить", "Finish");
             secondary.AccessibleName = secondary.Text;
             secondary.AccessibleDescription =
                 alternate == SetupOperation.InstallWebView2Offline ?
@@ -227,7 +226,10 @@ namespace IwxaSetup
                       "Restore the previously installed version") :
                 alternate == SetupOperation.CancelLegacyPreview ?
                     T("Отменить предпросмотр, сохранив прежнюю установку",
-                      "Cancel the preview without changing the existing installation") : "";
+                      "Cancel the preview without changing the existing installation") :
+                alternate == SetupOperation.Confirm ?
+                    T("Завершить установку и удалить проверенную резервную копию только файлов программы",
+                      "Finish the installation and remove only the verified application file backup") : "";
             secondary.TabStop = alternate != SetupOperation.None;
         }
 
@@ -1524,19 +1526,18 @@ namespace IwxaSetup
                 {
                     SetState(T("Найдена незавершённая установка",
                                "An incomplete installation was found"),
-                        T("Файлы запуска отсутствуют, но резервная копия проверена. Нажмите «Установить исправленные файлы». Данные и выбранные папки сохраняются.",
-                          "Launcher files are missing, but the backup is verified. Select Reinstall application files. Data and chosen folders are preserved."),
+                        T("Файлы запуска отсутствуют, но резервная копия проверена. Нажмите «Переустановить». Данные и выбранные папки сохраняются.",
+                          "Launcher files are missing, but the backup is verified. Select Reinstall. Data and chosen folders are preserved."),
                         versionLine, false);
                     ConfigureActions(SetupOperation.Repair, SetupOperation.None,
-                        T("Установить исправленные файлы",
-                          "Reinstall application files"));
+                        T("Переустановить", "Reinstall"));
                     openApplication.Visible = false;
                 }
                 else if (plan.Status == "AGENT_PREVIOUS_INSTALL_PENDING")
                 {
                     SetState(T("Программа установлена", "Application installed"),
-                        T("Текущую программу можно открыть. От предыдущей установки осталась резервная копия файлов. Проверьте работу программы, затем нажмите «Завершить прежнюю установку». После этого можно переустановить исправленную сборку. Личные данные сохраняются.",
-                          "You can open the current application. Application files from a previous installation remain as a backup. Verify the application, then select Finish previous installation before installing the corrected build. Personal data is preserved."),
+                        T("Программа доступна. Осталась резервная копия файлов. Проверьте запуск, затем нажмите «Завершить». При необходимости используйте «Переустановить». Личные данные сохраняются.",
+                          "The application is available. An application file backup remains. Verify it, select Finish, and use Reinstall if needed. Personal data is preserved."),
                         versionLine, false);
                     ConfigureActions(SetupOperation.None, SetupOperation.Confirm,
                         T("Открыть программу", "Open application"));
@@ -1607,7 +1608,7 @@ namespace IwxaSetup
                           "You can reinstall application files only. Tasks, results, models and chosen folders are preserved."),
                         versionLine, false);
                     ConfigureActions(SetupOperation.Repair, SetupOperation.None,
-                        T("Переустановить файлы", "Reinstall files"));
+                        T("Переустановить", "Reinstall"));
                     openApplication.Tag = "APPLICATION";
                     openApplication.Text = T("Открыть установленную программу",
                         "Open installed application");

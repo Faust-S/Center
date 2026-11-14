@@ -753,8 +753,8 @@ namespace IwxaSetup
                         "Check the installed release and finish the update. Your data is preserved.");
                     break;
                 case "AGENT_INTERRUPTED_FILES_REINSTALL":
-                    message = T("Нажмите «Установить исправленные файлы». Прежние данные и модели останутся в выбранных папках.",
-                        "Select Reinstall application files. Existing data and models remain in the chosen folders.");
+                    message = T("Нажмите «Переустановить». Прежние данные и модели останутся в выбранных папках.",
+                        "Select Reinstall. Existing data and models remain in the chosen folders.");
                     break;
                 case "AGENT_PREVIOUS_INSTALL_PENDING":
                     message = T("Установленная программа доступна. Сначала проверьте её, затем завершите предыдущую установку. Резервные файлы не удаляются без вашего действия.",
