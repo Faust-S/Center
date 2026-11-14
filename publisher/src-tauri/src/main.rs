@@ -316,8 +316,14 @@ struct UnverifiedIwxaCarrier {
     active_seats: u8,
     production_activation: bool,
 }
+// The original Windows file dialog and Admin Center Consumer treat .IWXA
+// as the same .iwxa container. A different final extension is still denied.
+fn is_iwxa_path(path:&Path)->bool {
+    path.extension().and_then(|value|value.to_str())
+        .is_some_and(|value|value.eq_ignore_ascii_case("iwxa"))
+}
 fn publisher_read_test_iwxa(path: &Path) -> Result<(Vec<u8>, UnverifiedIwxaCarrier), String> {
-    if path.extension().and_then(|x|x.to_str()) != Some("iwxa") {
+    if !is_iwxa_path(path) {
         return Err("PUBLISHER_IWXA_EXTENSION_REQUIRED".into());
     }
     let metadata=fs::metadata(path).map_err(|_| "PUBLISHER_IWXA_FILE_UNREADABLE")?;
@@ -365,7 +371,7 @@ fn publisher_export_test_iwxa(state:State<DeliveryLock>,expected_sha256:String)-
         .add_filter("IWXA",&["iwxa"]).set_file_name("iwxa-product-transfer.iwxa").save_file();
     match path {
         Some(path)=>{
-            if path.extension().and_then(|x|x.to_str())!=Some("iwxa"){
+            if !is_iwxa_path(&path) {
                 return Err("PUBLISHER_IWXA_EXTENSION_REQUIRED".into());
             }
             write_publisher_iwxa_copy(&path,bytes).map(|_|true)
@@ -390,10 +396,19 @@ mod publisher_iwxa_carrier_native_tests {
         assert_eq!(preview.active_seats,0);
         assert!(!preview.production_activation);
         assert_eq!(preview.sha256,format!("{:x}",Sha256::digest(contents)));
+        let upper=name.with_extension("IWXA");
+        fs::write(&upper,contents).unwrap();
+        let (upperBytes,upperPreview)=publisher_read_test_iwxa(&upper).unwrap();
+        assert_eq!(upperBytes,contents);
+        assert_eq!(upperPreview.sha256,preview.sha256);
+        assert!(is_iwxa_path(&upper));
+        assert!(is_iwxa_path(&name));
         let other=name.with_extension("json");
         fs::write(&other,contents).unwrap();
         assert!(publisher_read_test_iwxa(&other).is_err());
+        assert!(!is_iwxa_path(&name.with_extension("iwxa.txt")));
         let _=fs::remove_file(&name);
+        let _=fs::remove_file(&upper);
         let _=fs::remove_file(&other);
     }
 }

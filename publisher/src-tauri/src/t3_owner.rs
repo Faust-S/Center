@@ -104,7 +104,7 @@ pub async fn publisher_t3_export(app:AppHandle,license_id:String)
         .add_filter("IWXA",&["iwxa"])
         .set_file_name("iwxa-product-test-delivery.iwxa").save_file();
     let Some(path)=selected else{return Ok(None)};
-    if path.extension().and_then(|v|v.to_str())!=Some("iwxa"){
+    if !crate::is_iwxa_path(&path) {
         return Err("PUBLISHER_T3_EXPORT_IWXA_EXTENSION_REQUIRED".into());
     }
     if path.exists(){return Err("PUBLISHER_T3_EXPORT_OVERWRITE_DENIED".into());}
@@ -344,7 +344,7 @@ pub async fn publisher_t3_person_export(
         .add_filter("IWXA",&["iwxa"])
         .set_file_name("iwxa-person-license.iwxa").save_file();
     let Some(path)=selected else {return Ok(None)};
-    if path.extension().and_then(|v|v.to_str())!=Some("iwxa"){
+    if !crate::is_iwxa_path(&path) {
         return Err("PUBLISHER_PERSON_T3_EXPORT_EXTENSION_REQUIRED".into());
     }
     if path.exists(){return Err("PUBLISHER_PERSON_T3_EXPORT_OVERWRITE_DENIED".into());}
