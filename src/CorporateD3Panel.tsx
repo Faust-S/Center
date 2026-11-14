@@ -31,6 +31,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
  const [applyConsent,setApplyConsent]=useState(false);
  const [applyAttempted,setApplyAttempted]=useState(false);
  const [kernelResult,setKernelResult]=useState<any>(null);
+ const [inbox,setInbox]=useState<{total:number;truncated:boolean;
+   items:{packageSha256:string;status:string;acceptanceId:string|null}[]} | null>(null);
  const session=owner.snapshot;
  const sessionKey=JSON.stringify([session.organizationId,session.workspaceId,
    session.actorId,session.contextId,session.contextEpoch]);
@@ -43,9 +45,21 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
    setApplyAttempted(false);setKernelResult(null);
  };
  useEffect(()=>{
-   if(previous.current!==sessionKey){previous.current=sessionKey;setHash('');reset();}
+   if(previous.current!==sessionKey){previous.current=sessionKey;setHash('');setInbox(null);reset();}
  },[sessionKey]);
  const choose=(value:string)=>{setHash(value);reset();};
+ const refreshInbox=()=>run('Полученные пакеты перечитаны из оригинального Reconciliation.',async()=>{
+   const result=await execute('d3Inbox');
+   if(result?.schema!=='IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1'||
+     result.organizationId!==session.organizationId||
+     result.workspaceId!==session.workspaceId||
+     !Number.isSafeInteger(result.total)||!Array.isArray(result.items)||
+     result.items.length>64||
+     !result.items.every((x:any)=>hex(x.packageSha256)&&
+       ['REVIEW_REQUIRED','ACCEPTED','REJECTED','RECEIPT_CONFLICT'].includes(x.status)))
+     throw Error('CEN_D3_ORIGINAL_INBOX_INVALID');
+   setInbox(result);
+ });
  const revisions=Array.isArray(preview?.entries)?
    [...new Set(preview.entries.map((x:any)=>x?.revisionId).filter(hex))].slice(0,32) as string[]:[];
  const accepted=receipt?.found===true&&
@@ -145,7 +159,22 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
     })}>Получить .iwxa</button>
    <button className="secondary" data-testid="d3-review" disabled={busy||!hex(hash)}
     onClick={review}>Review</button>
+   <button className="secondary" data-testid="d3-inbox-refresh" disabled={busy}
+    onClick={refreshInbox}>Открыть полученные</button>
   </div>
+  {inbox&&<div data-testid="d3-original-inbox">
+   <p>Оригинальный журнал получателя: {inbox.total} пакетов.
+    {inbox.truncated?' Показаны последние 64.':''}</p>
+   <label>Полученный результат
+    <select data-testid="d3-inbox-select" value={inbox.items.some(x=>x.packageSha256===hash)?hash:''}
+     onChange={e=>choose(e.target.value)}>
+     <option value="">Выберите полученный .iwxa</option>
+     {inbox.items.map(x=><option key={x.packageSha256} value={x.packageSha256}>
+      {x.status} · {x.packageSha256.slice(0,16)}…
+     </option>)}
+    </select>
+   </label>
+  </div>}
   <label>SHA-256 пакета
    <input data-testid="d3-package-sha" value={hash} maxLength={64}
     onChange={e=>choose(e.target.value.trim().toLowerCase())}
