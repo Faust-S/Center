@@ -27,7 +27,18 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
     if !input.is_object(){return Err("CEN_D3_INPUT_INVALID".into());}
     let sha=input["packageSha256"].as_str();
     match operation {
-      "d3Inbox"|"d3Receive"=>{},
+      "d3Inbox"|"d3Receive"|"d3ExportInvitation"=>{},
+      "d3CreateTask"=>{
+          if !input["task"].as_str().is_some_and(|s|
+              !s.trim().is_empty()&&s.len()<=10000) {
+              return Err("CEN_D3_SIGNED_TASK_TEXT_REQUIRED".into());
+          }
+      },
+      "d3ExportTask"=>{
+          if !input["taskId"].as_str().is_some_and(t3::valid_identifier) {
+              return Err("CEN_D3_ORIGINAL_TASK_SELECTION_REQUIRED".into());
+          }
+      },
       "d3Preview"=>if !validate_hex(sha) {
           return Err("CEN_D3_PACKAGE_SHA_REQUIRED".into());
       },
@@ -81,7 +92,11 @@ fn supported_state(result:&Value,organization_id:&str,
        !view["snapshot"]["actorId"].as_str().is_some_and(t3::valid_identifier)||
        !view["snapshot"]["contextId"].as_str().is_some_and(t3::valid_identifier)||
        !view["snapshot"]["contextEpoch"].as_u64().is_some_and(|x|x>0&&x<=9_007_199_254_740_991)||
-       !view["snapshot"]["d3ApplyAvailable"].is_boolean(){
+       !view["snapshot"]["d3ApplyAvailable"].is_boolean()||
+       !view["snapshot"]["d3TaskIssueAvailable"].is_boolean()||
+       !view["snapshot"]["tasks"].is_array()||
+       !view["snapshot"]["totalTasks"].as_u64().is_some_and(|n|n<=256){
+
         return Err("CEN_D3_SIGNED_SESSION_READBACK_INVALID".into());
     }
     Ok(view.clone())
@@ -216,6 +231,25 @@ pub async fn center_corporate_action(
         };
         source_file(&path)?;
         Some(path)
+    }else if matches!(operation.as_str(),"d3ExportTask"|"d3ExportInvitation"){
+        // Native Windows Save dialog, not a WebView-supplied arbitrary path.
+        // The original private owner writes & reads back exact signed bytes.
+        let title=if operation=="d3ExportTask"{
+            "Сохранить подписанную Task T3"
+        }else{"Сохранить подписанное приглашение T3"};
+        let name=if operation=="d3ExportTask"{
+            "iwxa-signed-task.iwxa"
+        }else{"iwxa-signed-invitation.iwxa"};
+        let selection=rfd::FileDialog::new()
+            .set_title(title).add_filter("IWXA",&["iwxa"])
+            .set_file_name(name).save_file();
+        let Some(path)=selection else {
+            return Ok(json!({"status":"CANCELLED"}));
+        };
+        if path.extension().and_then(|s|s.to_str())!=Some("iwxa"){
+            return Err("CEN_D3_IWXA_DESTINATION_REQUIRED".into());
+        }
+        Some(path)
     }else{None};
     tauri::async_runtime::spawn_blocking(move||{
         // A changed actor or signed scope cancels the selected UI decision.
@@ -262,6 +296,7 @@ mod tests{
               "organizationId":"org:1","workspaceId":"workspace:1",
               "actorId":"person:manager","contextId":"context:one",
               "contextEpoch":4,"d3RecipientAvailable":true,
+              "d3TaskIssueAvailable":true,"tasks":[],"totalTasks":0,
               "d3ApplyAvailable":false,"productionActivation":false,
               "T3_READY":false}}});
         assert!(supported_state(&valid,"org:1","D3_STATE").is_ok());
@@ -283,6 +318,12 @@ mod tests{
             "d3Preview").is_ok());
         assert!(check_bound_request(&json!({"packageSha256":"Z".repeat(64)}),
             "d3Preview").is_err());
+        assert!(check_bound_request(&json!({"task":"Подготовить смету"}),
+            "d3CreateTask").is_ok());
+        assert!(check_bound_request(&json!({"task":"  "}),
+            "d3CreateTask").is_err());
+        assert!(check_bound_request(&json!({"taskId":"task:one"}),
+            "d3ExportTask").is_ok());
         assert!(check_bound_request(&json!({"decision":"ACCEPT",
             "operationId":"decision:one","packageSha256":"a".repeat(64),
             "previewDigest":"b".repeat(64)}),"d3Decide").is_ok());
