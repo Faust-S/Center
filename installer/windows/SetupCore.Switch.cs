@@ -136,7 +136,12 @@ namespace IwxaSetup
             }
             finally
             {
-                if (Directory.Exists(staged) && !Directory.Exists(previous))
+                // Staging created by THIS attempt is always disposable if
+                // activation never began. A stale previous-backup directory
+                // must not make a failed pre-activation attempt leak another
+                // .iwxa-new-* folder into the user's IWXA directory.
+                if (Directory.Exists(staged) &&
+                    (!movedOld || !Directory.Exists(previous)))
                     Directory.Delete(staged, true);
             }
         }
