@@ -27,7 +27,7 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
     if !input.is_object(){return Err("CEN_D3_INPUT_INVALID".into());}
     let sha=input["packageSha256"].as_str();
     match operation {
-      "d3Receive"=>{},
+      "d3Inbox"|"d3Receive"=>{},
       "d3Preview"=>if !validate_hex(sha) {
           return Err("CEN_D3_PACKAGE_SHA_REQUIRED".into());
       },
