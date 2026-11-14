@@ -588,6 +588,7 @@ namespace IwxaSetup
             unifiedExplanation.Font = new Font("Segoe UI", 9.25F);
             unifiedExplanation.ForeColor = Color.FromArgb(62, 82, 112);
             unifiedExplanation.TextAlign = ContentAlignment.TopLeft;
+            unifiedExplanation.AutoEllipsis = true;
             unifiedRight.Controls.Add(unifiedExplanation, 0, 3);
             packageDetails.TextChanged += (sender, args) =>
                 RefreshUnifiedExplanation();
