@@ -13,8 +13,19 @@ type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   d3TaskIssueAvailable?:boolean;tasks?:SignedTask[];totalTasks?:number}};
 type AssignmentDraft={id:string;title:string;description:string;criteria:string;dueDate:string;
  atlasRef:{projectId:string;revision:string;workId?:string}|null};
+type AgeStatus={operation:'AGE_STATUS';available:boolean;recipient:string|null;
+  toolchain:{ready:boolean;reason?:string};provider:string;admitted:false};
 const hex=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const opPattern=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
+const age1=/^age1[023456789acdefghjklmnpqrstuvwxyz]{58}$/;
+function requireAgeStatus(value:any):AgeStatus{
+ if(value?.operation!=='AGE_STATUS'||value.admitted!==false||
+    typeof value.available!=='boolean'||
+    typeof value.toolchain?.ready!=='boolean'||
+    (value.available?!age1.test(value.recipient):value.recipient!=null))
+   throw Error('CEN_D3_AGE_STATUS_INVALID');
+ return value as AgeStatus;
+}
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
@@ -42,6 +53,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [applyAttempted,setApplyAttempted]=useState(false);
  const [kernelResult,setKernelResult]=useState<any>(null);
  const [lastReceiveState,setLastReceiveState]=useState<string|null>(null);
+ const [orgAge,setOrgAge]=useState<AgeStatus|null>(null);
+ const [ageUnavailable,setAgeUnavailable]=useState('');
  const [inbox,setInbox]=useState<{total:number;truncated:boolean;
    items:{packageSha256:string;status:string;acceptanceId:string|null;
      operationId:string|null}[]} | null>(null);
@@ -49,6 +62,27 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const sessionKey=JSON.stringify([session.organizationId,session.workspaceId,
    session.actorId,session.contextId,session.contextEpoch]);
  const previous=useRef(sessionKey);
+ const ageStatusRead=async()=>requireAgeStatus(await invoke('center_corporate_age_status',{
+   organizationId:session.organizationId
+ }));
+ useEffect(()=>{
+   let current=true;setOrgAge(null);setAgeUnavailable('');
+   void ageStatusRead().then(value=>{if(current)setOrgAge(value)}).catch(e=>{
+     if(current)setAgeUnavailable(String(e));
+   });
+   return ()=>{current=false};
+ },[sessionKey,invoke]);
+ const createOrgAge=()=>run('Ключ age1 этой организации создан и защищён Windows DPAPI.',async()=>{
+   const result=await invoke('center_corporate_age_create_recipient',{
+     organizationId:session.organizationId});
+   if(result?.operation!=='AGE_RECIPIENT_CREATED'||result.admitted!==false||
+      !age1.test(result.recipient)||result.available!==true)
+     throw Error('CEN_D3_AGE_CREATION_UNCONFIRMED');
+   const latest=await ageStatusRead();
+   if(!latest.available||latest.recipient!==result.recipient)
+     throw Error('CEN_D3_AGE_CREATION_READBACK_UNKNOWN');
+   setOrgAge(latest);setAgeUnavailable('');
+ });
  const reset=()=>{
    setPreview(null);setConfirmed(false);setRejectReason('');setOperationId('');
    setPreparedId('');setIdSaved(false);
@@ -140,6 +174,24 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    receipt.receipt.packageSha256===hash&&
    receipt.receipt.operationId===operationId&&
    receipt.kernelApplication==='NOT_ATTESTED_BY_RECONCILIATION_RECEIPT';
+ const receiveResult=(encrypted:boolean)=>run(
+   'Оригинальный подписанный Result получен в Reconciliation. ACCEPT и Apply остаются отдельными действиями.',
+   async()=>{
+     const result=await execute(encrypted?'d3ReceiveAge':'d3Receive');
+     if(result?.status==='CANCELLED')return false;
+     if(!['NOT_ACCEPTED','ACCEPTED','REJECTED'].includes(result.acceptanceState)||
+        !hex(result.preview?.packageSha256)||
+        !hex(result.transportReceipt?.packageSha256)||
+        result.transportReceipt.packageSha256!==result.preview.packageSha256)
+       throw Error('CEN_D3_RECEIVE_READBACK_UNKNOWN');
+     if(encrypted&&(result.encryptedTransport?.status!=='DECRYPTED_THEN_RECEIVED_BY_ORIGINAL_T3'||
+       !hex(result.encryptedTransport.ciphertextSha256)||
+       result.encryptedTransport.sourceSha256!==result.preview.packageSha256))
+       throw Error('CEN_D3_AGE_ADMISSION_READBACK_UNKNOWN');
+     choose(result.preview.packageSha256);
+     setLastReceiveState(result.acceptanceState);
+     setPreview(result.preview);
+   });
  const review=()=>run('Оригинальный Reconciliation проверил пакет без принятия.',async()=>{
    const result=await execute('d3Preview',{packageSha256:hash});
    if(result.schema!=='IWXA_T3_RECONCILIATION_PREVIEW/1'||
@@ -290,19 +342,31 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      onClick={exportTask}>Сохранить подписанную Task в .iwxa</button>
    </>}
   </div>
+  <div className="nested-form" data-testid="d3-organization-age-recipient">
+   <h3>Защищённое получение Result</h3>
+   <p className="muted">Ключ age1 привязан к выбранной организации. Расшифрование
+    само по себе не означает ACCEPT и не изменяет Kernel.</p>
+   {orgAge?.available&&<label>Публичный ключ age1 организации
+    <input data-testid="d3-org-age1" aria-label="age1 организации" readOnly
+     value={orgAge.recipient??''} onFocus={e=>e.currentTarget.select()}/>
+   </label>}
+   {orgAge&&!orgAge.available&&orgAge.toolchain.ready&&
+    <button type="button" className="secondary" data-testid="d3-age-create"
+     disabled={busy} onClick={createOrgAge}>Создать ключ age1</button>}
+   {orgAge&&!orgAge.toolchain.ready&&
+    <p className="muted" data-testid="d3-age-toolchain-missing">
+     Проверенные age и age-keygen не установлены: {orgAge.toolchain.reason??'NOT_CONFIGURED'}
+    </p>}
+   {ageUnavailable&&<p className="muted" data-testid="d3-age-owner-missing">
+    Криптографический владелец недоступен: {ageUnavailable}
+   </p>}
+  </div>
   <div className="actions">
    <button className="secondary" data-testid="d3-receive" disabled={busy}
-    onClick={()=>run('Пакет перечитан исходным Reconciliation. Решение показано отдельно.',async()=>{
-     // Native Tauri chooses the file. Original signed bytes never traverse
-     // WebView JSON or a separate package parser in Center.
-     const result=await execute('d3Receive');
-     if(result?.status==='CANCELLED')return false;
-     if(!['NOT_ACCEPTED','ACCEPTED','REJECTED'].includes(result.acceptanceState)||
-       !hex(result.preview?.packageSha256))throw Error('CEN_D3_RECEIVE_READBACK_UNKNOWN');
-     choose(result.preview.packageSha256);
-     setLastReceiveState(result.acceptanceState);
-     setPreview(result.preview);
-    })}>Получить .iwxa</button>
+    onClick={()=>receiveResult(false)}>Получить .iwxa</button>
+   <button className="secondary" data-testid="d3-receive-age"
+    disabled={busy||!orgAge?.available||!orgAge.toolchain.ready}
+    onClick={()=>receiveResult(true)}>Получить .iwxa.age</button>
    <button className="secondary" data-testid="d3-review" disabled={busy||!hex(hash)}
     onClick={review}>Review</button>
    <button className="secondary" data-testid="d3-inbox-refresh" disabled={busy}
