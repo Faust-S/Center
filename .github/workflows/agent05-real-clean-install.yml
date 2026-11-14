@@ -347,8 +347,15 @@ jobs:
           if(!(Test-Path -LiteralPath $ownedUninstaller -PathType Leaf)){throw 'AGENT05_SELECTED_UNINSTALL_EXECUTABLE_MISSING'}
           # Mask 8 is the explicitly selected Cache root. No model, personal
           # data, or shared software root is selected or eligible for deletion.
-          $parent=Start-Process -FilePath $ownedUninstaller -ArgumentList @('--uninstall','8') -Wait -PassThru
-          if($parent.ExitCode -ne 0){throw 'AGENT05_SELECTED_UNINSTALL_WORKER_START_FAILED'}
+          # The installed --uninstall process spawns a short-lived worker
+          # that shows the ordinary Windows completion dialog. PowerShell's
+          # Start-Process -Wait waits for the full descendant tree and would
+          # hang on that dialog. Wait for the parent by its exact OS handle.
+          $parent=Start-Process -FilePath $ownedUninstaller -ArgumentList @('--uninstall','8') -PassThru
+          try{
+            if(!$parent.WaitForExit(30000)){throw 'AGENT05_SELECTED_UNINSTALL_PARENT_TIMEOUT'}
+            if($parent.ExitCode -ne 0){throw 'AGENT05_SELECTED_UNINSTALL_WORKER_START_FAILED'}
+          }finally{$parent.Dispose()}
           $ownedReg='HKCU:\Software\IWXA\SetupCore\Products\iwxa.personal-agent'
           $complete=$false
           for($i=0;$i -lt 150;$i++){
