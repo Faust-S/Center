@@ -338,8 +338,9 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
             throw Error('PERSON_SIGNED_RENEWAL_LINEAGE_MISMATCH');
         }
         return {
-          message:'Подписанная запись с этим ID найдена в исходном T3. '+
-            'Она выбрана в журнале; новая подпись не создавалась.',
+          message:'Эта подготовка уже подписана исходным T3. '+
+            'Лицензия выбрана в журнале для дальнейших действий. '+
+            'Новая подпись не создавалась.',
           readbackLookupId:request.requestId,
           selectLicenseId:prior.licenseId,
           confirm:({entries}:Inventory)=>entries.some(x=>
