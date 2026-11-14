@@ -321,6 +321,59 @@ jobs:
              throw 'AGENT05_SAME_FOLDERS_REINSTALL_READBACK_FAILED'
           }
           Write-Host 'AGENT05_SAME_FOLDERS_REINSTALL_PRESERVED_DATA_PASS'
+      - name: Uninstall Agent with selected Cache removal and preserve other storage
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\IWXA\Agent'
+          $data='C:\IWXA\Personal data Agent'
+          $cache=Join-Path $data 'Cache'
+          $sentinel=Join-Path $data 'Data\user-file.txt'
+          $model=Join-Path $data 'Models\previous-model.keep'
+          $originalDataHash=(Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash
+          $originalModelHash=(Get-FileHash -LiteralPath $model -Algorithm SHA256).Hash
+          New-Item -ItemType Directory -Path $cache -Force | Out-Null
+          Set-Content -LiteralPath (Join-Path $cache 'remove-on-request.txt') -Value 'remove selected cache' -Encoding utf8
+          $receipt=Get-Content -LiteralPath (Join-Path $root 'explorer-install-receipt.json') -Raw -Encoding utf8 | ConvertFrom-Json
+          $relative=[string]$receipt.managed_runtime.python_executable
+          if(!$relative -or [IO.Path]::IsPathRooted($relative) -or $relative.Contains('..') -or $relative.Contains(':')){throw 'AGENT05_SELECTED_UNINSTALL_RUNTIME_INVALID'}
+          $python=Join-Path $root ($relative.Replace('/','\'))
+          $control=Join-Path $root 'tools\iwxa_windows_user_control.py'
+          $startLog=Join-Path $env:RUNNER_TEMP 'agent05-selected-uninstall-background-private.log'
+          & $python -I -B $control --install-root $root --action start --port 8765 --no-dialog *> $startLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_SELECTED_UNINSTALL_CORE_START_FAILED'}
+          $ownedUninstaller=Join-Path $root 'IWXA.SetupCore.Uninstall.exe'
+          if(!(Test-Path -LiteralPath $ownedUninstaller -PathType Leaf)){throw 'AGENT05_SELECTED_UNINSTALL_EXECUTABLE_MISSING'}
+          # Mask 8 is the explicitly selected Cache root. No model, personal
+          # data, or shared software root is selected or eligible for deletion.
+          $parent=Start-Process -FilePath $ownedUninstaller -ArgumentList @('--uninstall','8') -Wait -PassThru
+          if($parent.ExitCode -ne 0){throw 'AGENT05_SELECTED_UNINSTALL_WORKER_START_FAILED'}
+          $ownedReg='HKCU:\Software\IWXA\SetupCore\Products\iwxa.personal-agent'
+          $complete=$false
+          for($i=0;$i -lt 150;$i++){
+            if(!(Test-Path -LiteralPath $ownedReg) -and
+               !(Test-Path -LiteralPath (Join-Path $root 'IWXA Personal Agent.exe')) -and
+               !(Test-Path -LiteralPath $cache)){$complete=$true;break}
+            Start-Sleep -Milliseconds 400
+          }
+          if(!$complete){throw 'AGENT05_SELECTED_UNINSTALL_NOT_FINISHED'}
+          if(!(Test-Path -LiteralPath $sentinel) -or !(Test-Path -LiteralPath $model) -or
+             (Get-FileHash -LiteralPath $sentinel -Algorithm SHA256).Hash -cne $originalDataHash -or
+             (Get-FileHash -LiteralPath $model -Algorithm SHA256).Hash -cne $originalModelHash){
+             throw 'AGENT05_SELECTED_UNINSTALL_OTHER_DATA_CHANGED'
+          }
+          Write-Host 'AGENT05_SELECTED_CACHE_REMOVED_OTHER_DATA_PRESERVED_PASS'
+          $setup='C:\i5\o\IWXA-Personal-Agent-0.5.0-Setup.exe'
+          $request='C:\i5\locations.json'
+          $reinstallResult='C:\i5\reinstall-after-selected-uninstall.json'
+          $again=Start-Process -FilePath $setup -ArgumentList @('--install-locations-file',$request,$reinstallResult) -Wait -PassThru
+          if($again.ExitCode -ne 0){throw 'AGENT05_SELECTED_UNINSTALL_REINSTALL_FAILED'}
+          if(!(Test-Path -LiteralPath (Join-Path $root 'IWXA Personal Agent.exe')) -or
+             !(Test-Path -LiteralPath $sentinel) -or !(Test-Path -LiteralPath $model)){
+             throw 'AGENT05_SELECTED_UNINSTALL_REINSTALL_READBACK_FAILED'
+          }
+          Write-Host 'AGENT05_SELECTED_UNINSTALL_SAME_FOLDERS_REINSTALL_PASS'
       - name: Real installed local model Task Result and cold reopen
         shell: pwsh
         timeout-minutes: 35
