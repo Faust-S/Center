@@ -71,7 +71,7 @@ pub fn valid_organization_scope_id(s:&str)->bool {
     !s.is_empty()&&s.len()<=100&&s.bytes().all(|b|
         b.is_ascii_alphanumeric()||b==b'-'||b==b'_')
 }
-fn admin_d3_root(app:&AppHandle,org:&str)->Result<PathBuf,String>{
+pub fn admin_d3_root(app:&AppHandle,org:&str)->Result<PathBuf,String>{
     if !valid_organization_scope_id(org){
         return Err("CEN_D3_ORGANIZATION_SCOPE_INVALID".into());
     }

@@ -240,6 +240,11 @@ pub fn create_recipient(app:&AppHandle,root:&Path)->Result<Value,String>{
 pub fn choose_inspect()->Option<PathBuf>{
     file_picker("Проверить заголовок .iwxa.age","age")
 }
+// Same original age owner, but the decrypted bytes go directly to the
+// original signed D3 Reconciliation. No user-visible decrypted copy.
+pub fn choose_corporate_receive()->Option<PathBuf>{
+    file_picker("Получить защищённый Result T3 (.iwxa.age)","age")
+}
 pub fn inspect_source(app:&AppHandle,root:&Path,source:&Path)->Result<Value,String>{
     ensure_file(source,".iwxa.age",33*1024*1024)?;
     run(app,root,"inspect",&[source.to_string_lossy().into_owned()])

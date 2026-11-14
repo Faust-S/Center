@@ -7,6 +7,7 @@ use std::{fs::{self,OpenOptions},io::Write,path::{Path,PathBuf}};
 use tauri::AppHandle;
 use uuid::Uuid;
 use crate::t3_product_component as t3;
+use crate::t3_age_transport as age;
 
 const MAX_REQUEST:usize=256*1024;
 // Match the original T3 D3 admission maximum. Signed bytes stay on disk,
@@ -29,7 +30,7 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
     if !input.is_object(){return Err("CEN_D3_INPUT_INVALID".into());}
     let sha=input["packageSha256"].as_str();
     match operation {
-      "d3Inbox"|"d3Receive"|"d3ExportInvitation"=>{},
+      "d3Inbox"|"d3Receive"|"d3ReceiveAge"|"d3ExportInvitation"=>{},
       "d3CreateTask"=>{
           if !input["task"].as_str().is_some_and(|s|
               !s.trim().is_empty()&&s.len()<=10000) {
@@ -144,6 +145,43 @@ fn private_owner_state(app:&AppHandle,organization_id:&str)->Result<Value,String
     let result=t3::run(app,"admin-d3","d3-state",&[organization_id.to_owned()])?;
     supported_state(&result,organization_id,"D3_STATE")
 }
+fn corporate_age_root(app:&AppHandle,organization_id:&str)->Result<PathBuf,String>{
+    Ok(t3::admin_d3_root(app,organization_id)?.join("age"))
+}
+#[tauri::command]
+pub async fn center_corporate_age_status(
+    app:AppHandle,organization_id:String
+)->Result<Value,String>{
+    check_org(&organization_id)?;
+    if !t3::admin_d3_availability(&app,&organization_id){
+        return Err("CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED".into());
+    }
+    tauri::async_runtime::spawn_blocking(move||{
+        private_owner_state(&app,&organization_id)?;
+        age::status(&app,&corporate_age_root(&app,&organization_id)?)
+    }).await.map_err(|_|"CEN_D3_NATIVE_WORKER_FAILED".to_owned())?
+}
+#[tauri::command]
+pub async fn center_corporate_age_create_recipient(
+    app:AppHandle,organization_id:String
+)->Result<Value,String>{
+    check_org(&organization_id)?;
+    if !t3::admin_d3_availability(&app,&organization_id){
+        return Err("CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED".into());
+    }
+    let accepted=rfd::MessageDialog::new()
+        .set_title("IWXA T3: ключ защищённого приёма")
+        .set_description("Создать ключ age1 для этой организации? Закрытый ключ останется в её каталоге и будет защищён Windows DPAPI.")
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .set_level(rfd::MessageLevel::Info).show();
+    if accepted!=rfd::MessageDialogResult::Yes{
+        return Err("CEN_D3_AGE_CREATION_CANCELLED".into());
+    }
+    tauri::async_runtime::spawn_blocking(move||{
+        private_owner_state(&app,&organization_id)?;
+        age::create_recipient(&app,&corporate_age_root(&app,&organization_id)?)
+    }).await.map_err(|_|"CEN_D3_NATIVE_WORKER_FAILED".to_owned())?
+}
 #[tauri::command]
 pub async fn center_corporate_state(
     app:AppHandle,organization_id:String
@@ -234,6 +272,11 @@ pub async fn center_corporate_action(
         };
         source_file(&path)?;
         Some(path)
+    }else if operation=="d3ReceiveAge"{
+        let Some(path)=age::choose_corporate_receive() else {
+            return Ok(json!({"status":"CANCELLED"}));
+        };
+        Some(path)
     }else if matches!(operation.as_str(),"d3ExportTask"|"d3ExportInvitation"){
         // Native Windows Save dialog, not a WebView-supplied arbitrary path.
         // The original private owner writes & reads back exact signed bytes.
@@ -262,16 +305,31 @@ pub async fn center_corporate_action(
         if !exact_binding(&observed,&organization_id,&binding){
             return Err("CEN_D3_CONTEXT_CHANGED".into());
         }
+        // The already installed ORIGINAL T3 age executable first verifies
+        // ciphertext/X25519 and creates a short-lived, private plaintext
+        // file. It stays alive only until ORIGINAL D3 Reconciliation finishes.
+        let mut original_age_file=None;
+        let (source_for_owner,decrypted)=if operation=="d3ReceiveAge"{
+            let chosen=selected_path.as_ref().ok_or("CEN_D3_AGE_SOURCE_REQUIRED")?;
+            let transient=age::TransientPackage::new()?;
+            let receipt=age::decrypt_source(
+                &app,&corporate_age_root(&app,&organization_id)?,
+                chosen,&transient.path)?;
+            let source=transient.path.clone();
+            original_age_file=Some(transient);
+            (Some(source),Some(receipt))
+        }else{(selected_path,None)};
         let payload=json!({
             "organizationId":organization_id,
-            "operation":operation,
+            "operation":if operation=="d3ReceiveAge"{"d3Receive"}else{&operation},
             "input":input,
             "binding":binding,
-            "archivePath":selected_path.as_ref().map(|p|p.to_string_lossy().to_string())
+            "archivePath":source_for_owner.as_ref()
+                .map(|p|p.to_string_lossy().to_string())
         });
-        let transient=store_request(&app,&payload)?;
+        let temporary_request=store_request(&app,&payload)?;
         let output=t3::run(&app,"admin-d3","d3-action", &[
-            organization_id.clone(),transient.0.to_string_lossy().into_owned(),
+            organization_id.clone(),temporary_request.0.to_string_lossy().into_owned(),
         ])?;
         if output["schema"]!=SCHEMA||
            output["operation"]!="D3_ACTION"||
@@ -283,8 +341,28 @@ pub async fn center_corporate_action(
            output.get("result").is_none(){
             return Err("CEN_D3_ORIGINAL_OWNER_ACTION_INVALID".into());
         }
-        // No implicit acceptance or write: preserve the original result.
-        Ok(output["result"].clone())
+        // Age decryption is NOT admission. The original T3 recipient must
+        // prove it received the same signed archive as the age tool verified.
+        let mut result=output["result"].clone();
+        if let Some(proof)=decrypted{
+            if proof["operation"]!="AGE_DECRYPTED"||
+               proof["admitted"]!=false||
+               proof["state"]!="DECRYPTED_INTEGRITY_VERIFIED_NOT_ADMITTED"||
+               !validate_hex(proof["sourceSha256"].as_str())||
+               !validate_hex(proof["ciphertextSha256"].as_str())||
+               result["preview"]["packageSha256"]!=proof["sourceSha256"]||
+               result["transportReceipt"]["packageSha256"]!=proof["sourceSha256"]{
+                return Err("CEN_D3_AGE_ADMISSION_READBACK_UNKNOWN".into());
+            }
+            result["encryptedTransport"]=json!({
+                "ciphertextSha256":proof["ciphertextSha256"],
+                "sourceSha256":proof["sourceSha256"],
+                "status":"DECRYPTED_THEN_RECEIVED_BY_ORIGINAL_T3"
+            });
+        }
+        drop(original_age_file);
+        // No implicit ACCEPT or Kernel Apply.
+        Ok(result)
     }).await.map_err(|_|"CEN_D3_NATIVE_WORKER_FAILED".to_owned())?
 }
 #[cfg(test)]

@@ -362,6 +362,8 @@ fn main() {
             cen03_native::center_corporate_state,
             cen03_native::center_corporate_enroll,
             cen03_native::center_corporate_action,
+            cen03_native::center_corporate_age_status,
+            cen03_native::center_corporate_age_create_recipient,
             center_age_status,center_age_create_recipient,center_age_inspect,
             center_age_encrypt,center_age_decrypt
         ])
