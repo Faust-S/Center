@@ -10,9 +10,10 @@ use crate::t3_product_component as t3;
 use crate::t3_age_transport as age;
 
 const MAX_REQUEST:usize=256*1024;
-// Match the original T3 D3 admission maximum. Signed bytes stay on disk,
-// not in WebView JSON; the owner independently verifies the carrier.
-const MAX_IWXA:u64=200*1024*1024;
+// The installed original private T3 IWXA parser has a 32 MiB carrier
+// limit. The public D3 Host supports larger transfers, but this Windows
+// original-owner integration must reject unsupported carriers up front.
+const MAX_IWXA:u64=32*1024*1024;
 const SCHEMA:&str="IWXA_T3_ADMIN_D3_NATIVE/1";
 const SHA_LEN:usize=64;
 
