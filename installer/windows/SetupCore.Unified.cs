@@ -577,6 +577,8 @@ namespace IwxaSetup
             version.ForeColor = Secondary;
             version.Font = new Font("Segoe UI", 8.75F);
             version.Dock = DockStyle.Fill;
+            version.TextAlign = ContentAlignment.TopLeft;
+            version.AutoEllipsis = true;
             unifiedRight.Controls.Add(version, 0, 2);
             unifiedExplanation.Name = "iwxaSetupStatusExplanation";
             unifiedExplanation.Text = T(
