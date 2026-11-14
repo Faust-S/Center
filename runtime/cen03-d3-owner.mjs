@@ -125,6 +125,11 @@ export function readOriginalResultReview(preview,organizationId,workspaceId,
  return copy(r,bad);
 }
 
+/** @param {unknown} result
+ *  @param {string} taskId
+ *  @param {string} actorId
+ *  @param {{taskId:string,taskRevisionId:string,packageSha256:string,deliveryState:string}|null} observed
+ */
 export function validateOriginalSignedTaskReadback(result,taskId,actorId,observed=null){
  const code='CEN_D3_ORIGINAL_TASK_READBACK_UNKNOWN';
  need(validId(actorId)&&typeof taskId==='string'&&
