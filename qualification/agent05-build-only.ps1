@@ -14,7 +14,7 @@ trap {
     [Console]::Error.WriteLine('AGENT05_BUILD_ONLY_FAIL_STAGE='+$script:BuildStage)
     exit 1
 }
-$agentSha='47ba22bdb0e4dbeeb91d3a56199395db3472145e'
+$agentSha='ce088c56f465d7809ec432a65e525ff30bc9f214'
 if($env:OS -ne 'Windows_NT'){throw 'agent05_build_windows_required'}
 $center=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $agent=[IO.Path]::GetFullPath($AgentRoot)
@@ -108,7 +108,7 @@ $packageLogs=Join-Path $logs 'package'
 New-Item -ItemType Directory -Force -Path $packageRoot,$packageLogs | Out-Null
 $script:BuildStage='PACKAGE'
 $packageBuildLog=Join-Path $logs 'package-build-only.json'
-& $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $agent 'tools/qualify_explorer_windows_phase1_package.ps1') -BuildDir $packageRoot -LogsDir $packageLogs -CacheRoot $cache -NativeDesktopDist $nativeDist -NativeDesktopExe $nativeExe -BuildOnly *> $packageBuildLog
+& $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $agent 'tools/qualify_explorer_windows_phase1_package.ps1') -BuildDir $packageRoot -LogsDir $packageLogs -CacheRoot $cache -NativeDesktopDist $nativeDist -NativeDesktopExe $nativeExe -BuildOnly > $packageBuildLog 2> (Join-Path $logs 'package-stderr.log')
 if($LASTEXITCODE -ne 0){throw 'agent05_build_private_package_failed'}
 $script:BuildStage='PACKAGE_RECEIPT'
 $packageReceipt=Get-Content -LiteralPath $packageBuildLog -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -122,7 +122,7 @@ if($packageReceipt.status -cne 'BUILT_ONLY' -or
 $setup=Join-Path $out 'IWXA-Personal-Agent-0.5.0-Setup.exe'
 $script:BuildStage='SETUP_CORE'
 $builderLog=Join-Path $logs 'setup-core-build.json'
-& $python -B (Join-Path $agent 'tools/build_setup_core_release.py') --product-package $package --center-root $center --center-commit $centerCommit --output $setup --python $python *> $builderLog
+& $python -B (Join-Path $agent 'tools/build_setup_core_release.py') --product-package $package --center-root $center --center-commit $centerCommit --output $setup --python $python > $builderLog 2> (Join-Path $logs 'setup-stderr.log')
 if($LASTEXITCODE -ne 0){throw 'agent05_build_setup_core_failed'}
 $script:BuildStage='SETUP_RECEIPT'
 $record=Get-Content -LiteralPath $builderLog -Raw -Encoding UTF8 | ConvertFrom-Json
