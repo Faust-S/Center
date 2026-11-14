@@ -1044,23 +1044,10 @@ namespace IwxaSetup
                     Convert.ToString(reg.GetValue("Version")) != info.Version)
                     throw new InvalidOperationException("SETUP_INSTALL_AUTHORITY_MISSING");
             }
-            string app = Path.Combine(root,
-                info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
-            foreach (Process proc in Process.GetProcessesByName(
-                Path.GetFileNameWithoutExtension(info.Entrypoint)))
-            {
-                try
-                {
-                    if (!proc.HasExited && SamePath(proc.MainModule.FileName, app))
-                        throw new InvalidOperationException("SETUP_APP_STILL_RUNNING");
-                }
-                catch (System.ComponentModel.Win32Exception) { }
-                catch (InvalidOperationException ex)
-                {
-                    if (ex.Message == "SETUP_APP_STILL_RUNNING") throw;
-                }
-                finally { proc.Dispose(); }
-            }
+            // Both the Start Menu executable and the user-facing root
+            // launcher belong to the same installed program. The existing
+            // owned-tree process check handles both before any files move.
+            AssertNotRunning(info, root);
 
             if (receipt.ContainsKey("legacyHandoff"))
             {
