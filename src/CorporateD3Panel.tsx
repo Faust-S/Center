@@ -31,8 +31,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
  const [applyConsent,setApplyConsent]=useState(false);
  const [applyAttempted,setApplyAttempted]=useState(false);
  const [kernelResult,setKernelResult]=useState<any>(null);
+ const [lastReceiveState,setLastReceiveState]=useState<string|null>(null);
  const [inbox,setInbox]=useState<{total:number;truncated:boolean;
-   items:{packageSha256:string;status:string;acceptanceId:string|null}[]} | null>(null);
+   items:{packageSha256:string;status:string;acceptanceId:string|null;
+     operationId:string|null}[]} | null>(null);
  const session=owner.snapshot;
  const sessionKey=JSON.stringify([session.organizationId,session.workspaceId,
    session.actorId,session.contextId,session.contextEpoch]);
@@ -45,9 +47,15 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
    setApplyAttempted(false);setKernelResult(null);
  };
  useEffect(()=>{
-   if(previous.current!==sessionKey){previous.current=sessionKey;setHash('');setInbox(null);reset();}
+   if(previous.current!==sessionKey){
+   previous.current=sessionKey;setHash('');setInbox(null);
+   setLastReceiveState(null);reset();
+ }
  },[sessionKey]);
- const choose=(value:string)=>{setHash(value);reset();};
+ const choose=(value:string)=>{setHash(value);setLastReceiveState(null);reset();};
+ const selectedInboxItem=inbox?.items.find(x=>x.packageSha256===hash);
+ const originalDecisionRecorded=['ACCEPTED','REJECTED'].includes(
+   selectedInboxItem?.status??lastReceiveState??'');
  const refreshInbox=()=>run('Полученные пакеты перечитаны из оригинального Reconciliation.',async()=>{
    const result=await execute('d3Inbox');
    if(result?.schema!=='IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1'||
@@ -56,7 +64,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
      !Number.isSafeInteger(result.total)||!Array.isArray(result.items)||
      result.items.length>64||
      !result.items.every((x:any)=>hex(x.packageSha256)&&
-       ['REVIEW_REQUIRED','ACCEPTED','REJECTED','RECEIPT_CONFLICT'].includes(x.status)))
+       ['REVIEW_REQUIRED','ACCEPTED','REJECTED','RECEIPT_CONFLICT'].includes(x.status)&&
+       (x.operationId==null||opPattern.test(x.operationId))))
      throw Error('CEN_D3_ORIGINAL_INBOX_INVALID');
    setInbox(result);
  });
@@ -89,7 +98,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
  const decide=(kind:'ACCEPT'|'REJECT')=>run(
    'Решение записано исходным Reconciliation. Для проверки используйте отдельное чтение квитанции.',
    async()=>{
-     if(decisionAttempted||!confirmed||!preview||!hex(hash)||
+     if(decisionAttempted||originalDecisionRecorded||!confirmed||!preview||!hex(hash)||
        !idSaved||!opPattern.test(preparedId)||preparedId!==operationId||
        (kind==='ACCEPT'&&preview.allowedAction!=='EXPLICIT_ACCEPT_ONLY')||
        (kind==='REJECT'&&!rejectReason.trim()))
@@ -147,14 +156,15 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
    ACCEPT не означает запись в Kernel.</p>
   <div className="actions">
    <button className="secondary" data-testid="d3-receive" disabled={busy}
-    onClick={()=>run('Подлинный .iwxa получен. Требуется Review.',async()=>{
+    onClick={()=>run('Пакет перечитан исходным Reconciliation. Решение показано отдельно.',async()=>{
      // Native Tauri chooses the file. Original signed bytes never traverse
      // WebView JSON or a separate package parser in Center.
      const result=await execute('d3Receive');
      if(result?.status==='CANCELLED')return false;
-     if(result.acceptanceState!=='NOT_ACCEPTED'||
+     if(!['NOT_ACCEPTED','ACCEPTED','REJECTED'].includes(result.acceptanceState)||
        !hex(result.preview?.packageSha256))throw Error('CEN_D3_RECEIVE_READBACK_UNKNOWN');
      choose(result.preview.packageSha256);
+     setLastReceiveState(result.acceptanceState);
      setPreview(result.preview);
     })}>Получить .iwxa</button>
    <button className="secondary" data-testid="d3-review" disabled={busy||!hex(hash)}
@@ -167,7 +177,12 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
     {inbox.truncated?' Показаны последние 64.':''}</p>
    <label>Полученный результат
     <select data-testid="d3-inbox-select" value={inbox.items.some(x=>x.packageSha256===hash)?hash:''}
-     onChange={e=>choose(e.target.value)}>
+     onChange={e=>{
+       const value=e.target.value;
+       const item=inbox.items.find(x=>x.packageSha256===value);
+       choose(value);
+       if(item?.operationId)setOperationId(item.operationId);
+     }}>
      <option value="">Выберите полученный .iwxa</option>
      {inbox.items.map(x=><option key={x.packageSha256} value={x.packageSha256}>
       {x.status} · {x.packageSha256.slice(0,16)}…
@@ -180,6 +195,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
     onChange={e=>choose(e.target.value.trim().toLowerCase())}
     placeholder="64 символа SHA-256" />
   </label>
+  {lastReceiveState&&lastReceiveState!=='NOT_ACCEPTED'&&
+   <p data-testid="d3-already-decided">В исходном журнале найдено решение: {lastReceiveState}.
+    Повторный ACCEPT/REJECT не требуется. Откройте исходную квитанцию.</p>}
   {preview&&<div data-testid="d3-preview">
    <p>Классификация: {preview.classification??'нет сведений'} ·
     Решение: {preview.allowedAction??'нет сведений'} ·
@@ -208,12 +226,12 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
    </div>}
    <div className="actions">
     <button className="primary" data-testid="d3-accept"
-     disabled={busy||!confirmed||decisionAttempted||!idSaved||
+     disabled={busy||!confirmed||decisionAttempted||originalDecisionRecorded||!idSaved||
        !preparedId||preparedId!==operationId||
        preview.allowedAction!=='EXPLICIT_ACCEPT_ONLY'}
      onClick={()=>decide('ACCEPT')}>ACCEPT</button>
     <button className="secondary" data-testid="d3-reject"
-     disabled={busy||!confirmed||decisionAttempted||!idSaved||
+     disabled={busy||!confirmed||decisionAttempted||originalDecisionRecorded||!idSaved||
        !preparedId||preparedId!==operationId||!rejectReason.trim()}
      onClick={()=>decide('REJECT')}>REJECT</button>
    </div>
