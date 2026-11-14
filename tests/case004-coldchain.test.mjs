@@ -16,7 +16,7 @@ function conservation(input,result){
       received[id]=(received[id]??0)+row.receipts;
       delivered[id]=(delivered[id]??0)+row.accepted;
       destroyed[id]=(destroyed[id]??0)+row.destroyed;
-      assert.equal(row.opening+row.receipts+row.inspectedReturns-row.issued,row.closing);
+      assert.equal(row.opening+row.receipts+row.inspectedReturns+row.qualityReleased-row.issued,row.closing);
       assert.ok(row.closing>=0&&row.pendingInspection>=0&&row.pendingQuality>=0);
       assert.equal((initial[id]??0)+(received[id]??0),
         row.closing+(delivered[id]??0)+(destroyed[id]??0)+
