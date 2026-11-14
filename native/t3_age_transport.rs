@@ -21,6 +21,28 @@ fn component(app: &AppHandle) -> Result<PathBuf,String> {
     if !meta.is_file() || meta.file_type().is_symlink() {
         return Err("AGE_DESKTOP_COMPONENT_NOT_BUNDLED".into());
     }
+    // The private Setup Core must compile Center against this exact ORIGINAL
+    // age operator. The upstream age/age-keygen binaries remain independently
+    // pinned by the existing toolchain manifest.
+    let expected=option_env!("IWXA_T3_AGE_DESKTOP_OWNER_SHA256")
+        .ok_or("AGE_DESKTOP_ORIGINAL_OWNER_PIN_NOT_COMPILED")?;
+    if expected.len()!=64||
+       !expected.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)){
+        return Err("AGE_DESKTOP_ORIGINAL_OWNER_PIN_INVALID".into());
+    }
+    let mut source=std::fs::File::open(&file)
+        .map_err(|_|"AGE_DESKTOP_COMPONENT_UNREADABLE")?;
+    let mut hash=Sha256::new();
+    let mut buffer=[0u8;65536];
+    loop{
+        let n=source.read(&mut buffer)
+            .map_err(|_|"AGE_DESKTOP_COMPONENT_UNREADABLE")?;
+        if n==0{break;}
+        hash.update(&buffer[..n]);
+    }
+    if format!("{:x}",hash.finalize())!=expected{
+        return Err("AGE_DESKTOP_ORIGINAL_OWNER_MISMATCH".into());
+    }
     Ok(file)
 }
 fn valid_recipient(v:&str)->bool {
