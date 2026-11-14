@@ -1,7 +1,8 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createNativeAtlasPort} from './atlas-native.mjs';
 import {atlasLinkReadback,atlasWorkReadback} from './atlas-integration.mjs';
-import {readOriginalResultReview,appendOriginalResultReview} from '../runtime/cen03-d3-owner.mjs';
+import {readOriginalResultReview,appendOriginalResultReview,
+ validateOriginalSignedTaskReadback} from '../runtime/cen03-d3-owner.mjs';
 
 // D3 UI is deliberately limited to the ORIGINAL recipient and signed D1 Host.
 // It cannot issue a task, sign a grant, interpret an ACCEPT as Apply, or
@@ -131,7 +132,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    if(draftStale)throw Error('CEN_D3_DRAFT_CHANGED_BEFORE_SIGNING');
    if(draftAssigneeUnbound)throw Error('CEN_D3_DRAFT_ASSIGNEE_NOT_SIGNED');
    if(!/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)||
-     !taskIdSaved||taskAttempted)
+     !taskIdSaved||taskAttempted||
+     signedTasks.some(t=>t.taskId===taskOperationId))
      throw Error('CEN_D3_SIGNED_TASK_OPERATION_REQUIRED');
    // A draft Atlas link is not automatically a valid current source. Before
    // original T3 signs it, reread the installed Atlas Desktop owner in its
@@ -166,19 +168,22 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      packageSha256:result.packageSha256,recipientId:result.recipientId,
      status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED'});
  });
- const recoverTask=()=>run('Исходная Task прочитана по сохранённому идентификатору без повторного подписания.',async()=>{
-   if(!/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId))
+ const recoverTaskById=(knownId:string,observed:SignedTask|null=null)=>run(
+   'Исходная подписанная Task перечитана без нового выпуска.',async()=>{
+   if(!/^task:[A-Za-z0-9-]{1,100}$/.test(knownId))
      throw Error('CEN_D3_ORIGINAL_TASK_OPERATION_ID_REQUIRED');
-   const result=await execute('d3TaskReadback',{taskId:taskOperationId});
-   if(result?.schema!=='IWXA_T3_ORIGINAL_TASK_READBACK/1'||
-      result.taskId!==taskOperationId||typeof result.found!=='boolean'||
-      (result.found&&(
-        result.status!=='SIGNED_TASK_PERSISTED_NOT_DELIVERED'||
-        result.recipientId!==session.actorId||
-        !hex(result.taskRevisionId)||!hex(result.packageSha256))))
-     throw Error('CEN_D3_ORIGINAL_TASK_READBACK_UNKNOWN');
-   setTaskReadback(result);
+   // The original recipient verifies stored signed .iwxa bytes and exact
+   // revision. The UI never re-signs a Task to discover a lost ACK.
+   const result=await execute('d3TaskReadback',{taskId:knownId});
+   const verified=validateOriginalSignedTaskReadback(result,knownId,
+     session.actorId,observed);
+   if(observed&&!verified.found)
+     throw Error('CEN_D3_ORIGINAL_TASK_INVENTORY_READBACK_HOLD');
+   setTaskOperationId(knownId);setTaskIdSaved(false);
+   setTaskAttempted(taskAttempted||verified.found);
+   setTaskReadback(verified);
  });
+ const recoverTask=()=>recoverTaskById(taskOperationId);
  const exportTask=()=>run('Оригинальный подписанный .iwxa сохранён. Доставка остаётся неподтверждённой.',async()=>{
    if(!selectedTask)throw Error('CEN_D3_ORIGINAL_TASK_SELECTION_REQUIRED');
    const result=await execute('d3ExportTask',{taskId:selectedTask.taskId});
@@ -423,7 +428,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     отдельной регистрации его ключей, а не выбора имени из черновика.</p>
    {session.d3TaskIssueAvailable===true ? <>
     {!!assignmentDrafts.length&&<label>Подготовить текст из сохранённого черновика
-     <select data-testid="d3-task-from-draft" value={draftId}
+     <select data-testid="d3-task-from-draft" disabled={busy||taskAttempted}
+      value={draftId}
       onChange={e=>{
        const id=e.target.value;
        setDraftId(id);
@@ -457,6 +463,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     </p>}
     <label>Поручение и критерии результата
      <textarea data-testid="d3-task-text" rows={3} maxLength={10000}
+      disabled={busy||taskAttempted}
       value={taskText} onChange={e=>setTaskText(e.target.value)}
       placeholder="Что сделать и по каким критериям принять результат"/>
     </label>
@@ -498,6 +505,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       <button className="primary" data-testid="d3-create-task"
        disabled={busy||!taskText.trim()||draftAssigneeUnbound||draftStale||
          !taskIdSaved||taskAttempted||
+         signedTasks.some(t=>t.taskId===taskOperationId)||
          !/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)}
        onClick={createSignedTask}>Подписать и сохранить Task</button>
      </div>
@@ -540,8 +548,17 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      SHA-256: {selectedTask?.packageSha256.slice(0,16)}… ·
      Передача: не подтверждена
     </p>
-    <button className="secondary" data-testid="d3-export-task" disabled={busy}
-     onClick={exportTask}>Сохранить подписанную Task в .iwxa</button>
+    <div className="actions">
+     <button className="secondary" data-testid="d3-saved-task-readback"
+      disabled={busy||!selectedTask} onClick={()=>{
+       if(selectedTask)recoverTaskById(selectedTask.taskId,selectedTask);
+      }}>Проверить сохранённую Task</button>
+     <button className="secondary" data-testid="d3-export-task" disabled={busy}
+      onClick={exportTask}>Сохранить подписанную Task в .iwxa</button>
+    </div>
+    <p className="muted">После перезапуска или потерянного ответа выберите
+     поручение из исходного списка и нажмите «Проверить сохранённую Task».
+     Проверка не создаёт второе поручение.</p>
    </>}
   </div>
   <div className="nested-form" data-testid="d3-organization-age-recipient">

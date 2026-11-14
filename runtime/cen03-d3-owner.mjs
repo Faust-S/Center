@@ -125,6 +125,28 @@ export function readOriginalResultReview(preview,organizationId,workspaceId,
  return copy(r,bad);
 }
 
+export function validateOriginalSignedTaskReadback(result,taskId,actorId,observed=null){
+ const code='CEN_D3_ORIGINAL_TASK_READBACK_UNKNOWN';
+ need(validId(actorId)&&typeof taskId==='string'&&
+   /^task:[A-Za-z0-9-]{1,100}$/.test(taskId)&&
+   result?.schema==='IWXA_T3_ORIGINAL_TASK_READBACK/1'&&
+   result.taskId===taskId&&typeof result.found==='boolean',code);
+ if(!result.found){
+   need(result.status==='NOT_IN_ORIGINAL_TASK_INVENTORY'&&observed==null,code);
+ }else{
+   need(result.status==='SIGNED_TASK_PERSISTED_NOT_DELIVERED'&&
+     result.recipientId===actorId&&validSha(result.taskRevisionId)&&
+     validSha(result.packageSha256),code);
+   if(observed!==null){
+     need(observed?.taskId===taskId&&
+       observed.taskRevisionId===result.taskRevisionId&&
+       observed.packageSha256===result.packageSha256&&
+       observed.deliveryState==='NOT_CONFIRMED',code);
+   }
+ }
+ return copy(result,code);
+}
+
 export function appendOriginalResultReview(previous,preview,organizationId,
  workspaceId){
  const bad='CEN_D3_SIGNED_RESULT_REVIEW_STALE';

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createCorporateOwnerHost} from '../runtime/cen-corporate-owner-host.mjs';
 import {signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
 import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
- appendOriginalResultReview} from '../runtime/cen03-d3-owner.mjs';
+ appendOriginalResultReview,validateOriginalSignedTaskReadback} from '../runtime/cen03-d3-owner.mjs';
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64);
@@ -380,4 +380,34 @@ test('D3 Human Review: only fully read original signed Task/Result permits ACCEP
    'org:1','workspace:1'),/CEN_D3_SIGNED_RESULT_REVIEW_INVALID/);
  assert.throws(()=>appendOriginalResultReview(first,format(0,'A'.repeat(4096)),
    'org:1','workspace:1'),/CEN_D3_SIGNED_RESULT_REVIEW_INVALID/);
+});
+
+test('D3 Task ID survives native ACK loss through original signed inventory readback',()=>{
+ const saved={taskId:'task:11111111-2222-3333-4444-555555555555',
+   taskRevisionId:A,packageSha256:B,deliveryState:'NOT_CONFIRMED'};
+ const originalReadback={schema:'IWXA_T3_ORIGINAL_TASK_READBACK/1',
+   found:true,taskId:saved.taskId,status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED',
+   recipientId:'person:manager',taskRevisionId:A,packageSha256:B};
+ // A different contextEpoch remounts the panel; only original signed
+ // persisted inventory, NOT its transient previous operationId, survives.
+ const found=validateOriginalSignedTaskReadback(originalReadback,
+   saved.taskId,'person:manager',saved);
+ assert.equal(found.found,true);
+ assert.equal(found.taskId,saved.taskId);
+ assert.equal(found.packageSha256,B);
+ assert.throws(()=>validateOriginalSignedTaskReadback(
+   {...originalReadback,packageSha256:C},saved.taskId,'person:manager',saved),
+   /CEN_D3_ORIGINAL_TASK_READBACK_UNKNOWN/);
+ assert.throws(()=>validateOriginalSignedTaskReadback(
+   {...originalReadback,recipientId:'person:other'},saved.taskId,
+   'person:manager',saved),/CEN_D3_ORIGINAL_TASK_READBACK_UNKNOWN/);
+ assert.throws(()=>validateOriginalSignedTaskReadback(
+   {schema:'IWXA_T3_ORIGINAL_TASK_READBACK/1',taskId:saved.taskId,
+    found:false,status:'NOT_IN_ORIGINAL_TASK_INVENTORY'},
+   saved.taskId,'person:manager',saved),/CEN_D3_ORIGINAL_TASK_READBACK_UNKNOWN/);
+ const unknown=validateOriginalSignedTaskReadback({
+   schema:'IWXA_T3_ORIGINAL_TASK_READBACK/1',taskId:saved.taskId,
+   found:false,status:'NOT_IN_ORIGINAL_TASK_INVENTORY'},
+   saved.taskId,'person:manager');
+ assert.equal(unknown.found,false);
 });

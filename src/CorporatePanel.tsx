@@ -26,6 +26,10 @@ const why=(e:unknown)=>{
    return 'Установленный Atlas не открыл источник проекта. Не подписывайте Task по старой копии. Откройте проект в Atlas и проверьте связь.';
  if(message.includes('CEN_D3_ATLAS_SOURCE_REVISION_STALE'))
    return 'Исходный план Atlas изменён или работа отсутствует. Обновите связь поручения с актуальной редакцией до подписания Task.';
+ if(message.includes('CEN_D3_ORIGINAL_TASK_INVENTORY_READBACK_HOLD'))
+   return 'Список поручений изменился. Обновите корпоративную сессию и прочитайте оригинальную Task ещё раз, не подписывая её повторно.';
+ if(message.includes('CEN_D3_ORIGINAL_TASK_ALREADY_ISSUED'))
+   return 'У этого поручения уже есть подписанный ID. Откройте сохранённую Task или подготовьте новый ID.';
  if(/CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN|T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN/.test(message))
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
