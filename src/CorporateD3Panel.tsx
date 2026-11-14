@@ -9,17 +9,20 @@ type SignedTask={taskId:string;taskRevisionId:string;packageSha256:string;summar
 type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   contextId:string;contextEpoch:number;d3ApplyAvailable:boolean;
   d3TaskIssueAvailable?:boolean;tasks?:SignedTask[];totalTasks?:number}};
+type AssignmentDraft={id:string;title:string;description:string;criteria:string;dueDate:string};
 const hex=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const opPattern=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts}:{
  owner:Owner;execute:Exec;run:Run;busy:boolean;
  invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;
+ assignmentDrafts:AssignmentDraft[];
 }){
  const [hash,setHash]=useState('');
  const [taskText,setTaskText]=useState('');
+ const [draftId,setDraftId]=useState('');
  const [taskId,setTaskId]=useState('');
  const [preview,setPreview]=useState<any>(null);
  const [confirmed,setConfirmed]=useState(false);
@@ -53,7 +56,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
  useEffect(()=>{
    if(previous.current!==sessionKey){
    previous.current=sessionKey;setHash('');setInbox(null);setTaskId('');
-   setLastReceiveState(null);reset();
+   setLastReceiveState(null);setDraftId('');reset();
  }
  },[sessionKey]);
  const choose=(value:string)=>{setHash(value);setLastReceiveState(null);reset();};
@@ -150,9 +153,19 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
      const id=preparedId;
      setDecisionAttempted(true);setDecisionType(kind);
      setReceipt(null);setApplication(null);
-     const outcome=await execute('d3Decide',{operationId:id,packageSha256:hash,
+     let outcome:any;
+     try{
+      outcome=await execute('d3Decide',{operationId:id,packageSha256:hash,
        previewDigest:preview.previewDigest,decision:kind,
        ...(kind==='REJECT'?{reason:rejectReason.trim()}:{} )});
+     }catch(e){
+      // If the Windows confirmation was cancelled, no signed decision
+      // was sent and the original preview can still be confirmed.
+      if(String(e).includes('CEN_D3_HUMAN_REVIEW_CANCELLED')){
+        setDecisionAttempted(false);setDecisionType(null);
+      }
+      throw e;
+     }
      if(outcome.acceptanceState!==(kind==='ACCEPT'?'ACCEPTED':'REJECTED')||
        outcome.kernelApplication!=='NOT_APPLIED')
        throw Error('CEN_D3_OUTCOME_UNKNOWN');
@@ -202,6 +215,23 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke}:{
     Это локальный участник организации. Выдача другому сотруднику требует
     отдельной регистрации его ключей, а не выбора имени из черновика.</p>
    {session.d3TaskIssueAvailable===true ? <>
+    {!!assignmentDrafts.length&&<label>Подготовить текст из сохранённого черновика
+     <select data-testid="d3-task-from-draft" value={draftId}
+      onChange={e=>{
+       const id=e.target.value;
+       setDraftId(id);
+       const selected=assignmentDrafts.find(a=>a.id===id);
+       if(selected){
+         const content=[selected.title,selected.description,
+           selected.criteria&&'Критерии приёмки: '+selected.criteria,
+           selected.dueDate&&'Срок: '+selected.dueDate].filter(Boolean).join('\n\n');
+         setTaskText(content.slice(0,10000));
+       }
+      }}>
+      <option value="">Выберите черновик (не выдаёт полномочий)</option>
+      {assignmentDrafts.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}
+     </select>
+    </label>}
     <label>Поручение и критерии результата
      <textarea data-testid="d3-task-text" rows={3} maxLength={10000}
       value={taskText} onChange={e=>setTaskText(e.target.value)}
