@@ -229,6 +229,20 @@ export function inspectTemperature(
   return {coverage:"complete",minC:min,maxC:max,excursionMinutes:excursion,
     safe:excursion<=product.maxExcursionMinutes};
 }
+/** Pre-dispatch qualification checks the entire intended shift, not only the
+ * readings around already loaded consignments. If the recorder is offline,
+ * protected dispatch must use another vehicle or leave the order unplanned. */
+function loggerReady(readings:readonly ColdReading[]|undefined,
+  start:number,end:number,maxGap:number):boolean{
+  if(!readings?.length||readings[0].minute>start||
+     readings[readings.length-1].minute<end)return false;
+  for(let i=0;i<readings.length-1;i++){
+    if(readings[i].minute>=end)break;
+    if(readings[i+1].minute>start&&
+       readings[i+1].minute-readings[i].minute>maxGap)return false;
+  }
+  return true;
+}
 function orderRegime(input:ColdInput,order:ColdOrder){
   return input.skus.find(s=>s.skuId===order.lines[0].skuId)!.regime;
 }
@@ -318,10 +332,11 @@ export function simulateCold(input:ColdInput,mode:ColdMode):ColdResult{
           a.day.localeCompare(b.day)||a.windowEnd-b.windowEnd||a.id.localeCompare(b.id));
       const project=planningModel(input,day,regime,waiting,stock);
       const excluded=mode==="protected"?
-        input.alerts.filter(a=>a.day===day&&
-          a.startMinute<Math.max(...project.fleet.map(v=>v.shiftEnd)))
-          .map(a=>a.vehicleId).filter(id=>project.fleet.some(v=>v.id===id))
-        :[];
+        project.fleet.filter(v=>input.alerts.some(a=>
+          a.day===day&&a.vehicleId===v.id&&a.startMinute<v.shiftEnd&&
+          a.endMinute>v.shiftStart)||
+          !loggerReady(trace.get(day+":"+v.id),v.shiftStart,v.shiftEnd,
+            input.maxSensorGapMinutes)).map(v=>v.id):[];
       const plan=runScenario(project,mode==="protected"?"to-be":"as-is",excluded);
       if(plan.audit.length)throw Error("D11_COLD_PLAN:"+plan.audit[0]);
       const manual=input.customerRefusals.filter(id=>

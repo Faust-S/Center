@@ -161,3 +161,17 @@ test("stored cost, quality decision, logger and original inputs are independentl
   changed.loggers[0].readings[0].tempC=17;
   assert.deepEqual(auditCold(changed,result),["D11_COLD_REPLAY_MISMATCH"]);
 });
+
+
+test("protected dispatch declines a reefer with unqualified logger coverage before loading",()=>{
+  const input=createCase004({faults:"none",loggerGap:"frozen-day3"});
+  const uncontrolled=simulateCold(input,"uncontrolled");
+  const protectedPlan=simulateCold(input,"protected");
+  const d=input.days[2];
+  assert.ok(uncontrolled.days[2].events.some(e=>e.day===d&&e.vehicleId==="REF-F-1"&&
+    e.quality==="quality-hold"));
+  assert.ok(protectedPlan.days[2].events.every(e=>e.vehicleId!=="REF-F-1"));
+  assert.ok(protectedPlan.days[2].events.every(e=>e.quality!=="quality-hold"));
+  conservation(input,protectedPlan);
+  assert.deepEqual(auditCold(input,protectedPlan),[]);
+});
