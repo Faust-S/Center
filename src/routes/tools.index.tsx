@@ -234,6 +234,12 @@ function ToolsIndex() {
           >
             Распределительная сеть (CASE-003)
           </Link>
+          <Link
+            to="/tools/cold-chain-control"
+            className="rounded border border-[#3B82F6] px-4 py-2 font-mono text-xs uppercase tracking-widest text-foreground transition-colors hover:bg-[#3B82F6]/10"
+          >
+            Холодовая цепь (CASE-004)
+          </Link>
           <a
             href="#catalog"
             className="rounded border border-white/15 bg-white/[0.03] px-4 py-2 font-mono text-xs uppercase tracking-widest text-foreground transition-colors hover:border-[#3B82F6] hover:text-[#3B82F6]"

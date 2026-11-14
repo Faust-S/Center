@@ -12,6 +12,7 @@ const PRODUCERS: Record<string, string> = {
   "project-brief-generator": "project-brief-generator",
   "delivery-network-planner": "delivery-network-planner",
   "distribution-network-expansion": "delivery-network-planner",
+  "cold-chain-control": "delivery-network-planner",
 };
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -56,7 +57,7 @@ function editableState<T extends object>(value: unknown, initial: T, maxBytes = 
 /** User-entered drafts live here; their authoritative saved source remains in the T2 Kernel. */
 export function useToolDraft<T extends object>(toolId: string, initial: T) {
   const key = `advlog:tool:${toolId}`;
-  const maxBytes = ["delivery-network-planner","distribution-network-expansion"].includes(toolId)
+  const maxBytes = ["delivery-network-planner","distribution-network-expansion","cold-chain-control"].includes(toolId)
     ? 3 * 1024 * 1024 : 1024 * 1024;
   const [state, setState] = useState<T>(initial);
   const [draftReady, setDraftReady] = useState(false);

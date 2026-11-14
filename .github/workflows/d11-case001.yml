@@ -32,6 +32,7 @@ jobs:
           npx --yes esbuild@0.25.5 src/routes/tools.delivery-network-planner.tsx --format=esm --outfile=/tmp/d11-route.js --log-level=error
           npx --yes esbuild@0.25.5 src/routes/tools.depot-maintenance-supply.tsx --format=esm --outfile=/tmp/d11-case002-route.js --log-level=error
           npx --yes esbuild@0.25.5 src/routes/tools.distribution-network-expansion.tsx --format=esm --outfile=/tmp/d11-case003-route.js --log-level=error
+          npx --yes esbuild@0.25.5 src/routes/tools.cold-chain-control.tsx --format=esm --outfile=/tmp/d11-case004-route.js --log-level=error
 
   authorized-source:
     runs-on: ubuntu-latest

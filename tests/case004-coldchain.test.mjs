@@ -153,7 +153,9 @@ test("stored cost, quality decision, logger and original inputs are independentl
   tampered.days[0].stock[0].closing+=2;
   assert.deepEqual(auditCold(input,tampered),["D11_COLD_REPLAY_MISMATCH"]);
   const falsified=structuredClone(result);
-  falsified.days[2].events.find(e=>e.vehicleId!==null).quality="accepted";
+  const falsifiedEvent=falsified.days[2].events.find(e=>e.vehicleId!==null);
+  assert.ok(falsifiedEvent);
+  falsifiedEvent.quality=falsifiedEvent.quality==="accepted"?"quality-rejected":"accepted";
   assert.deepEqual(auditCold(input,falsified),["D11_COLD_REPLAY_MISMATCH"]);
   const changed=structuredClone(input);
   changed.loggers[0].readings[0].tempC=17;
