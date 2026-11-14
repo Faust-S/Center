@@ -34,6 +34,9 @@ pub fn data_root(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
     let base = crate::center_product_data_root(app)?;
     Ok(base.join(subdirectory))
 }
+pub fn binary_present(app:&AppHandle,role:&str)->bool {
+    binary(app,role).is_ok()
+}
 pub fn availability(app:&AppHandle,role:&str) -> bool {
     let exe = match binary(app,role) { Ok(v)=>v, Err(_)=>return false };
     let root = match data_root(app,role) { Ok(v)=>v, Err(_)=>return false };
@@ -89,7 +92,8 @@ pub fn run(app:&AppHandle,role:&str,action:&str,details:&[String]) -> Result<Val
     // Explicit first-use trust enrollment only needs the ORIGINAL installed
     // consumer binary. All license operations still require preinstalled
     // public trust and a Windows CurrentUser DPAPI vault.
-    if role=="consumer" && action=="test-enroll" {
+    if (role=="consumer" && action=="test-enroll") ||
+       (role=="admin-d3" && action=="d3-enroll") {
         binary(app,role)?;
     } else if !availability(app,role) {
         return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());

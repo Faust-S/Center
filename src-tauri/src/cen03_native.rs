@@ -60,8 +60,9 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
     }
     Ok(())
 }
-fn supported_state(result:&Value,organization_id:&str)->Result<Value,String>{
-    if result["schema"]!=SCHEMA||result["operation"]!="D3_STATE"||
+fn supported_state(result:&Value,organization_id:&str,
+    expected_operation:&str)->Result<Value,String>{
+    if result["schema"]!=SCHEMA||result["operation"]!=expected_operation||
        result["ownerMode"]!="ORIGINAL_SIGNED_CORPORATE_D3"||
        result["productionActivation"]!=false||
        result["T3_READY"]!=false||
@@ -123,7 +124,7 @@ fn store_request(app:&AppHandle,data:&Value)->Result<EphemeralRequest,String>{
 }
 fn private_owner_state(app:&AppHandle,organization_id:&str)->Result<Value,String>{
     let result=t3::run(app,"admin-d3","d3-state",&[organization_id.to_owned()])?;
-    supported_state(&result,organization_id)
+    supported_state(&result,organization_id,"D3_STATE")
 }
 #[tauri::command]
 pub async fn center_corporate_state(
@@ -133,11 +134,49 @@ pub async fn center_corporate_state(
     // Public Center is fully functional for unsigned preparation/Atlas even
     // without a private signed original corporate owner installed.
     if !t3::availability(&app,"admin-d3") {
-        return Ok(json!({"status":"NOT_CONNECTED"}));
+        return Ok(json!({"status":"NOT_CONNECTED",
+            "enrollmentAvailable":t3::binary_present(&app,"admin-d3")}));
     }
     tauri::async_runtime::spawn_blocking(move||
         private_owner_state(&app,&organization_id))
         .await.map_err(|_|"CEN_D3_NATIVE_WORKER_FAILED".to_owned())?
+}
+#[tauri::command]
+pub async fn center_corporate_enroll(
+    app:AppHandle,organization_id:String,workspace_id:String,
+    organization_name:String
+)->Result<Value,String>{
+    check_org(&organization_id)?;
+    if !t3::valid_identifier(&workspace_id)||
+       organization_name.trim().is_empty()||
+       organization_name.len()>120{
+        return Err("CEN_D3_EXPLICIT_ORGANIZATION_REQUIRED".into());
+    }
+    if !t3::binary_present(&app,"admin-d3"){
+        return Err("CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED".into());
+    }
+    // Original signed corporate Access is explicitly created under this
+    // Windows account. No draft becomes an issuer without this ceremony.
+    let answered=rfd::MessageDialog::new()
+        .set_title("IWXA T3: подключить организацию")
+        .set_description(&format!(
+            "Создать подписанную организацию T3 «{}» для выбранной рабочей области? Полномочия будут закреплены за текущей учётной записью Windows.",
+            organization_name.trim()))
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .set_level(rfd::MessageLevel::Info)
+        .show();
+    if answered!=rfd::MessageDialogResult::Yes{
+        return Err("CEN_D3_ENROLLMENT_CANCELLED".into());
+    }
+    tauri::async_runtime::spawn_blocking(move||{
+        let data=json!({"organizationId":organization_id,
+            "organizationName":organization_name.trim(),
+            "workspaceId":workspace_id});
+        let transient=store_request(&app,&data)?;
+        let out=t3::run(&app,"admin-d3","d3-enroll",
+            &[organization_id.clone(),transient.0.to_string_lossy().into_owned()])?;
+        supported_state(&out,&organization_id,"D3_ENROLLED")
+    }).await.map_err(|_|"CEN_D3_NATIVE_WORKER_FAILED".to_owned())?
 }
 #[tauri::command]
 pub async fn center_corporate_action(
@@ -148,6 +187,21 @@ pub async fn center_corporate_action(
     check_bound_request(&input,&operation)?;
     if !t3::availability(&app,"admin-d3"){
         return Err("CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED".into());
+    }
+    if operation=="d3Decide" {
+        let kind=input["decision"].as_str().unwrap_or("?");
+        let digest=input["packageSha256"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: подтвердить корпоративное решение")
+            .set_description(&format!(
+                "Подтвердить {} для подписанного пакета {}? Операция будет записана исходным Reconciliation.",
+                kind,digest))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_HUMAN_REVIEW_CANCELLED".into());
+        }
     }
     // Deliberately no WebView-resolved path or arbitrary Node executable.
     // For received .iwxa, use the pre-existing native Windows file chooser:
@@ -210,13 +264,13 @@ mod tests{
               "contextEpoch":4,"d3RecipientAvailable":true,
               "d3ApplyAvailable":false,"productionActivation":false,
               "T3_READY":false}}});
-        assert!(supported_state(&valid,"org:1").is_ok());
-        assert!(supported_state(&valid,"org:2").is_err());
+        assert!(supported_state(&valid,"org:1","D3_STATE").is_ok());
+        assert!(supported_state(&valid,"org:2","D3_STATE").is_err());
         let mut forged=valid.clone();
         forged["view"]["snapshot"]["T3_READY"]=Value::Bool(true);
-        assert!(supported_state(&forged,"org:1").is_err());
+        assert!(supported_state(&forged,"org:1","D3_STATE").is_err());
         forged=valid.clone();forged["ownerMode"]=Value::String("TEST_OWNER".into());
-        assert!(supported_state(&forged,"org:1").is_err());
+        assert!(supported_state(&forged,"org:1","D3_STATE").is_err());
         assert!(exact_binding(&valid["view"],"org:1",&json!({
             "organizationId":"org:1","workspaceId":"workspace:1",
             "actorId":"person:manager","contextId":"context:one",

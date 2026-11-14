@@ -360,6 +360,7 @@ fn main() {
             t3_consumer::center_cen04_t3_read, t3_consumer::center_cen04_t3_import,
             t3_consumer::center_cen04_t3_import_age,
             cen03_native::center_corporate_state,
+            cen03_native::center_corporate_enroll,
             cen03_native::center_corporate_action,
             center_age_status,center_age_create_recipient,center_age_inspect,
             center_age_encrypt,center_age_decrypt
