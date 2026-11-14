@@ -1,0 +1,79 @@
+name: Agent 0.5 private full Python Core regression
+
+on:
+  push:
+    branches:
+      - work/2026-11-14-agent05-full-core-regression
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent05-private-full-core
+  cancel-in-progress: true
+
+jobs:
+  full-python-core:
+    runs-on: windows-latest
+    timeout-minutes: 85
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Require narrow private read-only source permission
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)) {
+            throw 'AGENT05_FULL_CORE_PRIVATE_SOURCE_PERMISSION_UNAVAILABLE'
+          }
+      - name: Checkout exact qualified private Agent source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 47ba22bdb0e4dbeeb91d3a56199395db3472145e
+          path: private-product
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - name: Verify pinned source identity
+        shell: pwsh
+        run: |
+          $actual = (& git -C private-product rev-parse HEAD).Trim()
+          if ($actual -cne '47ba22bdb0e4dbeeb91d3a56199395db3472145e') {
+            throw 'AGENT05_FULL_CORE_SOURCE_IDENTITY_FAILED'
+          }
+          Write-Host 'AGENT05_FULL_CORE_PINNED_SOURCE_PASS'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned private Python dependencies
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-full-core-pip-private.log'
+          & python -m pip install -r requirements.txt pytest *> $log
+          if ($LASTEXITCODE -ne 0) { throw 'AGENT05_FULL_CORE_DEPS_FAILED' }
+          Write-Host 'AGENT05_FULL_CORE_DEPS_PASS'
+      - name: Run entire existing Python suite without publishing private source or output
+        working-directory: private-product
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'agent05-full-core-pytest-private.log'
+          $temp = Join-Path $env:RUNNER_TEMP 'agent05-full-core-pytest-sandbox'
+          & python -B -m pytest -q tests -p no:cacheprovider --tb=short --basetemp $temp *> $log
+          $status = $LASTEXITCODE
+          $raw = Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+          if ($status -ne 0) {
+            $count = 'UNKNOWN'
+            if ($raw -match '(?m)([0-9]{1,6}) failed') { $count = $Matches[1] }
+            Write-Host ('AGENT05_FULL_CORE_FAILED_TEST_COUNT=' + $count)
+            throw 'AGENT05_FULL_CORE_REGRESSION_NOT_ACCEPTED'
+          }
+          if ($raw -notmatch '(?m)([0-9]{1,6}) passed') {
+            throw 'AGENT05_FULL_CORE_TEST_TOTAL_UNVERIFIED'
+          }
+          Write-Host ('AGENT05_FULL_CORE_PYTHON_PASS_COUNT=' + $Matches[1])
+          Write-Host 'AGENT05_FULL_CORE_WINDOWS_REGRESSION_PASS'
+      # No public artifacts or caches. All private logs are on the disposable runner.
