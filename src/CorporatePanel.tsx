@@ -16,6 +16,12 @@ const why=(e:unknown)=>{
    return 'Исход операции неизвестен. Не повторяйте ACCEPT, REJECT или Apply. Откройте исходную квитанцию по сохранённому ID и SHA-256 пакета.';
  if(message.includes('CEN_D3_HUMAN_REVIEW_CANCELLED'))
    return 'Решение отменено в системном окне Windows. Оно не отправлялось.';
+ if(message.includes('T3_D3_DESTINATION_ALREADY_EXISTS'))
+   return 'Файл .iwxa с таким именем уже существует. Выберите новое имя: исходный подписанный файл не перезаписывается.';
+ if(message.includes('T3_D3_DESTINATION_UNAVAILABLE'))
+   return 'Папка для сохранения .iwxa недоступна. Выберите другой каталог.';
+ if(/CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN|T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN/.test(message))
+   return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
 export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void}){
@@ -168,7 +174,8 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
     assignmentDrafts={organization.assignments.filter(a=>
       a.workspaceId===owner.snapshot.workspaceId).map(a=>({
         id:a.id,title:a.title,description:a.description??'',
-        criteria:a.criteria??'',dueDate:a.dueDate??''
+        criteria:a.criteria??'',dueDate:a.dueDate??'',
+        atlasRef:a.atlasRef??null
       }))}/> : <>
   <div className="nested-form" data-testid="cen02-owner-people">
    <h3>Ответственные в организации</h3>

@@ -9,7 +9,8 @@ type SignedTask={taskId:string;taskRevisionId:string;packageSha256:string;summar
 type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   contextId:string;contextEpoch:number;d3ApplyAvailable:boolean;
   d3TaskIssueAvailable?:boolean;tasks?:SignedTask[];totalTasks?:number}};
-type AssignmentDraft={id:string;title:string;description:string;criteria:string;dueDate:string};
+type AssignmentDraft={id:string;title:string;description:string;criteria:string;dueDate:string;
+ atlasRef:{projectId:string;revision:string;workId?:string}|null};
 const hex=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const opPattern=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const same=(a:unknown,b:unknown)=>a===b;
@@ -72,7 +73,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      !opPattern.test(result.taskId)||!hex(result.taskRevisionId)||
      !hex(result.packageSha256)||result.recipientId!==session.actorId)
      throw Error('CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN');
-   setTaskText('');
+   setTaskText('');setDraftId('');
  });
  const exportTask=()=>run('Оригинальный подписанный .iwxa сохранён. Доставка остаётся неподтверждённой.',async()=>{
    if(!selectedTask)throw Error('CEN_D3_ORIGINAL_TASK_SELECTION_REQUIRED');
@@ -222,9 +223,13 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        setDraftId(id);
        const selected=assignmentDrafts.find(a=>a.id===id);
        if(selected){
+         const atlas=selected.atlasRef;
          const content=[selected.title,selected.description,
            selected.criteria&&'Критерии приёмки: '+selected.criteria,
-           selected.dueDate&&'Срок: '+selected.dueDate].filter(Boolean).join('\n\n');
+           selected.dueDate&&'Срок: '+selected.dueDate,
+           atlas&&'Ссылка на проект Atlas (из черновика, не доказательство полномочий): '+
+             atlas.projectId+' @ '+atlas.revision+
+             (atlas.workId?', работа: '+atlas.workId:'')].filter(Boolean).join('\n\n');
          setTaskText(content.slice(0,10000));
        }
       }}>
