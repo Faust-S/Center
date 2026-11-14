@@ -1,4 +1,5 @@
 import {createT3AdminPort} from './t3-admin-port.mjs';
+import {createCenD3OwnerHost} from './cen03-d3-owner.mjs';
 
 // Thin Node host adapter for the separately approved private technology
 // package. Neither the WebView nor this module owns signed carriers, grants,
@@ -23,7 +24,16 @@ const encodeCarrier=bytes=>{
   check(bytes.byteLength<=MAX_CEN_IWXA_CARRIER_BYTES,'CEN_OWNER_CARRIER_LIMIT');
   return Array.from(bytes);
 };
-export function createCorporateOwnerHost({runtime,openAtlas,resolveAssignment}={}){
+export function createCorporateOwnerHost({runtime,openAtlas,resolveAssignment,
+  signedD3Owner=null}={}){
+  // A fully signed original T3 D3 owner is a distinct contract from the old
+  // interop/runtime reference (productionActivation=false, T3_READY=false).
+  // Never promote the old reference into real rights or mix their receipts.
+  if(signedD3Owner!==null){
+    check(runtime===undefined||runtime===null,
+      'CEN_D3_LEGACY_OWNER_MIXING_FORBIDDEN');
+    return createCenD3OwnerHost(signedD3Owner);
+  }
   const port=createT3AdminPort(runtime,{openAtlas});
   const observe=organizationId=>{
     const snapshot=port.snapshot();
