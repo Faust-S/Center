@@ -769,8 +769,8 @@ namespace IwxaSetup
                     break;
                 case "REPAIR_CANDIDATE_NOT_ACTIVATED":
                     message = openApplication.Visible ?
-                        T("Программа готова к запуску. Данные и модели сохраняются в выбранных папках.",
-                          "The application is ready to launch. Data and models stay in the chosen folders.") :
+                        T("Программа установлена. Работа ядра проверяется при открытии. Данные и модели сохранены.",
+                          "The application is installed. Core startup is checked on opening. Data and models are preserved.") :
                         T("Отсутствует файл запуска. Доступно восстановление файлов программы.",
                           "The launcher is missing. Application files can be repaired.");
                     break;
