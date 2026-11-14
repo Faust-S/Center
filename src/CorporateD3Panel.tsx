@@ -40,6 +40,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [draftId,setDraftId]=useState('');
  const [draftSnapshot,setDraftSnapshot]=useState('');
  const [taskId,setTaskId]=useState('');
+ const [taskOperationId,setTaskOperationId]=useState('');
+ const [taskIdSaved,setTaskIdSaved]=useState(false);
+ const [taskAttempted,setTaskAttempted]=useState(false);
+ const [taskReadback,setTaskReadback]=useState<any>(null);
  const [preview,setPreview]=useState<any>(null);
  const [confirmed,setConfirmed]=useState(false);
  const [rejectReason,setRejectReason]=useState('');
@@ -111,6 +115,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      taskText.length>10000)throw Error('CEN_D3_SIGNED_TASK_TEXT_REQUIRED');
    if(draftStale)throw Error('CEN_D3_DRAFT_CHANGED_BEFORE_SIGNING');
    if(draftAssigneeUnbound)throw Error('CEN_D3_DRAFT_ASSIGNEE_NOT_SIGNED');
+   if(!/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)||
+     !taskIdSaved||taskAttempted)
+     throw Error('CEN_D3_SIGNED_TASK_OPERATION_REQUIRED');
    // A draft Atlas link is not automatically a valid current source. Before
    // original T3 signs it, reread the installed Atlas Desktop owner in its
    // existing fixed-path READ_ONLY mode, never a cached/selected file copy.
@@ -127,13 +134,35 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      if(current!=='SOURCE_REVISION_MATCHES')
        throw Error('CEN_D3_ATLAS_SOURCE_REVISION_STALE');
    }
-   const result=await execute('d3CreateTask',{task:taskText.trim()});
+   // The operation ID is saved before the original signer may write. Even if
+   // this call loses its reply, the same ID can be queried without re-signing.
+   const immutableId=taskOperationId;
+   setTaskAttempted(true);setTaskReadback(null);
+   const result=await execute('d3CreateTask',{
+     task:taskText.trim(),taskId:immutableId});
    if(result?.schema!=='IWXA_T3_ORIGINAL_SIGNED_TASK/1'||
      result.status!=='SIGNED_TASK_CREATED_NOT_DELIVERED'||
-     !opPattern.test(result.taskId)||!hex(result.taskRevisionId)||
+     result.taskId!==immutableId||!hex(result.taskRevisionId)||
      !hex(result.packageSha256)||result.recipientId!==session.actorId)
      throw Error('CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN');
    setTaskText('');setDraftId('');setDraftSnapshot('');
+   setTaskReadback({schema:'IWXA_T3_ORIGINAL_TASK_READBACK/1',
+     found:true,taskId:immutableId,taskRevisionId:result.taskRevisionId,
+     packageSha256:result.packageSha256,recipientId:result.recipientId,
+     status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED'});
+ });
+ const recoverTask=()=>run('Исходная Task прочитана по сохранённому идентификатору без повторного подписания.',async()=>{
+   if(!/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId))
+     throw Error('CEN_D3_ORIGINAL_TASK_OPERATION_ID_REQUIRED');
+   const result=await execute('d3TaskReadback',{taskId:taskOperationId});
+   if(result?.schema!=='IWXA_T3_ORIGINAL_TASK_READBACK/1'||
+      result.taskId!==taskOperationId||typeof result.found!=='boolean'||
+      (result.found&&(
+        result.status!=='SIGNED_TASK_PERSISTED_NOT_DELIVERED'||
+        result.recipientId!==session.actorId||
+        !hex(result.taskRevisionId)||!hex(result.packageSha256))))
+     throw Error('CEN_D3_ORIGINAL_TASK_READBACK_UNKNOWN');
+   setTaskReadback(result);
  });
  const exportTask=()=>run('Оригинальный подписанный .iwxa сохранён. Доставка остаётся неподтверждённой.',async()=>{
    if(!selectedTask)throw Error('CEN_D3_ORIGINAL_TASK_SELECTION_REQUIRED');
@@ -329,12 +358,48 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       value={taskText} onChange={e=>setTaskText(e.target.value)}
       placeholder="Что сделать и по каким критериям принять результат"/>
     </label>
-    <div className="actions">
-     <button className="primary" data-testid="d3-create-task"
-      disabled={busy||!taskText.trim()||draftAssigneeUnbound||draftStale}
-      onClick={createSignedTask}>
-      Подписать и сохранить Task
-     </button>
+    <div className="nested-form" data-testid="d3-signed-task-operation">
+     <button className="secondary" type="button" data-testid="d3-task-prepare-id"
+      disabled={busy||(taskAttempted&&taskReadback?.found!==true)}
+      onClick={()=>{
+       setTaskOperationId('task:'+crypto.randomUUID());
+       setTaskIdSaved(false);setTaskAttempted(false);setTaskReadback(null);
+      }}>Подготовить ID поручения</button>
+     <label>Оригинальный ID Task для восстановления
+      <input data-testid="d3-task-operation-id" value={taskOperationId}
+       maxLength={105} placeholder="task:..."
+       onChange={e=>{
+        setTaskOperationId(e.target.value.trim());
+        setTaskIdSaved(false);setTaskReadback(null);
+        setTaskAttempted(false);
+       }}/>
+     </label>
+     {!!taskOperationId&&<label>
+      <input type="checkbox" checked={taskIdSaved}
+       onChange={e=>setTaskIdSaved(e.target.checked)}/>
+      Я сохранил этот ID до подписания
+     </label>}
+     {taskAttempted&&<p role="status" data-testid="d3-task-operation-attempted">
+      Операция отправлялась. Не подписывайте Task повторно при потерянном ответе.
+      Сначала прочитайте оригинальный результат по этому ID.
+     </p>}
+     {taskReadback&&<p role="status" data-testid="d3-task-operation-readback">
+      {taskReadback.found
+       ? 'Оригинальная Task сохранена, SHA-256 '+taskReadback.packageSha256+
+         '. Доставка получателю не подтверждена.'
+       : 'В исходном реестре Task с указанным ID не обнаружена. Неизвестный исход нельзя автоматически повторять.'}
+     </p>}
+     <div className="actions">
+      <button className="secondary" type="button" data-testid="d3-task-recover"
+       disabled={busy||!/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)}
+       onClick={recoverTask}>Проверить выпуск без повтора</button>
+      <button className="primary" data-testid="d3-create-task"
+       disabled={busy||!taskText.trim()||draftAssigneeUnbound||draftStale||
+         !taskIdSaved||taskAttempted||
+         !/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)}
+       onClick={createSignedTask}>Подписать и сохранить Task</button>
+     </div>
+    </div>
      <button className="secondary" data-testid="d3-export-invitation"
       disabled={busy} onClick={exportInvitation}>
       Сохранить приглашение .iwxa
