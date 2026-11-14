@@ -64,7 +64,8 @@ fn recipients(input:&str)->Result<String,String> {
 }
 fn exact_suffix(path:&Path,extension:&str)->bool {
     path.file_name().and_then(|n|n.to_str())
-        .is_some_and(|n|n.ends_with(extension) && n.len()>extension.len())
+        .is_some_and(|n|n.len()>extension.len() &&
+            n.to_ascii_lowercase().ends_with(extension))
 }
 fn ensure_file(path:&Path,extension:&str,max:u64)->Result<(),String> {
     if !path.is_absolute() || !exact_suffix(path,extension) {
