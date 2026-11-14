@@ -6,7 +6,7 @@ import { useToolDraft } from "@/components/tools/useToolDraft";
 import { buildD11BrowserProposal } from "@/components/tools/d11-transfer";
 import { createCase004, type Case004Options } from "@/lib/logistics/case004-data";
 import { compareCold, validateColdInput, auditCold, coldFingerprint,
-  type ColdInput, type ColdQuality } from "@/lib/logistics/case004-coldchain";
+  type ColdInput, type ColdQuality, type ColdQualityReview } from "@/lib/logistics/case004-coldchain";
 import { canonicalFor } from "@/site-routes";
 
 const CANONICAL=canonicalFor("/tools/cold-chain-control/");
@@ -26,10 +26,11 @@ interface ColdDraft {
   gap:"none"|"frozen-day3"|"chilled-day5";
   fleet:2|4|6; storage:75|100|125;
   refusedOrderIds:string[];
+  reviews:ColdQualityReview[];
   imported:ColdInput|null;
 }
 const INITIAL:ColdDraft={demand:100,traffic:120,faults:"both",gap:"none",
-  fleet:4,storage:100,refusedOrderIds:[],imported:null};
+  fleet:4,storage:100,refusedOrderIds:[],reviews:[],imported:null};
 export const Route=createFileRoute("/tools/cold-chain-control")({
   head:()=>({
     meta:[
@@ -64,10 +65,16 @@ function downloadJson(name:string,value:unknown){
 }
 function ColdChainControl(){
   const {state:draft,setState:setDraft,clearDraft}=useToolDraft("cold-chain-control",INITIAL);
-  const {demand,traffic,faults,gap,fleet,storage,refusedOrderIds,imported}=draft;
+  const {demand,traffic,faults,gap,fleet,storage,refusedOrderIds,reviews,imported}=draft;
   const [refusalText,setRefusalText]=useState("");
   const [importError,setImportError]=useState("");
   const [applyError,setApplyError]=useState("");
+  const [qaError,setQaError]=useState("");
+  const [qaOrderId,setQaOrderId]=useState("");
+  const [qaDay,setQaDay]=useState("");
+  const [qaDecision,setQaDecision]=useState<"release"|"destroy">("release");
+  const [qaReviewer,setQaReviewer]=useState("");
+  const [qaDocument,setQaDocument]=useState("");
   const [selectedDay,setSelectedDay]=useState("");
   const [selectedRegime,setSelectedRegime]=useState<"frozen"|"chilled">("frozen");
   useEffect(()=>{
@@ -90,7 +97,7 @@ function ColdChainControl(){
       const input=imported??createCase004({
         demandPercent:demand,trafficPercent:traffic,faults,
         loggerGap:gap,coolingFleetSize:fleet,coldStoragePercent:storage,
-        rejectedOrderIds:refusedOrderIds,
+        rejectedOrderIds:refusedOrderIds,qualityReviews:reviews,
       } satisfies Case004Options);
       validateColdInput(input);
       const comparison=compareCold(input);
@@ -104,7 +111,7 @@ function ColdChainControl(){
       return {input:null,comparison:null,
         error:error instanceof Error?error.message:"Не удалось рассчитать проект"};
     }
-  },[demand,traffic,faults,gap,fleet,storage,refusedOrderIds,imported]);
+  },[demand,traffic,faults,gap,fleet,storage,refusedOrderIds,reviews,imported]);
   const input=calculated.input,comparison=calculated.comparison;
   const before=comparison?.uncontrolled,after=comparison?.protected;
   const day=input?.days.includes(selectedDay)?selectedDay:input?.days[0]??"";
@@ -129,6 +136,39 @@ function ColdChainControl(){
       setApplyError("");
     }catch(e){setApplyError(e instanceof Error?e.message:"Ошибка применения отказов.");}
   }
+  const heldCandidates=[...new Map([...before?.days??[],...after?.days??[]]
+    .flatMap(d=>d.events.filter(e=>e.quality==="quality-hold"))
+    .map(event=>[event.orderId,event] as const)).values()];
+  const appliedReviews=imported?.qualityReviews??reviews;
+  function applyQualityReview(){
+    try{
+      if(!input)throw Error("Нет подтверждённой входной модели.");
+      const orderId=qaOrderId||heldCandidates[0]?.orderId;
+      if(!orderId)throw Error("Нет поставок в карантине. Выберите проект с пропуском данных.");
+      const candidate:ColdQualityReview={
+        orderId,reviewDay:qaDay||input.days[3],decision:qaDecision,
+        documentRef:qaDocument.trim(),reviewer:qaReviewer.trim(),
+      };
+      if(appliedReviews.some(review=>review.orderId===orderId&&review.reviewDay===candidate.reviewDay))
+        throw Error("Решение по этому заказу и дню уже записано. Сначала удалите прежнее.");
+      const proposed={...input,qualityReviews:[...appliedReviews,candidate]};
+      validateColdInput(proposed);
+      // No release on an invalid inspection date or before the physical return.
+      compareCold(proposed);
+      setDraft(prev=>prev.imported?
+        {...prev,imported:{...prev.imported,qualityReviews:proposed.qualityReviews}}:
+        {...prev,reviews:[...prev.reviews,candidate]});
+      setQaError("");setQaDocument("");
+    }catch(error){setQaError(error instanceof Error?error.message:"Решение о качестве не применено.");}
+  }
+  function removeQualityReview(orderId:string,reviewDay:string){
+    const keep=(x:ColdQualityReview)=>x.orderId!==orderId||x.reviewDay!==reviewDay;
+    setDraft(prev=>prev.imported?
+      {...prev,imported:{...prev.imported,
+        qualityReviews:(prev.imported.qualityReviews??[]).filter(keep)}}:
+      {...prev,reviews:prev.reviews.filter(keep)});
+    setQaError("");
+  }
   const result=useMemo(()=>{
     if(!input||!comparison||!before||!after)return null;
     const payload={
@@ -152,6 +192,9 @@ function ColdChainControl(){
         "Предотвращены потери стоимости продукции: "+money(comparison.preventedDestructionRub)+
           "; дополнительные принятые заказы: "+comparison.additionalAccepted,
         "Экономическая разница по заданным ставкам: "+money(comparison.costDifferenceRub),
+        "Отпущено из карантина по документированным решениям: "+after.qualityReleasedUnits+
+          " ед. Зарегистрировано решений службы качества: "+
+          (input.qualityReviews?.length??0),
         "Термограммы, временные интервалы контроля, физические возвраты, " +
           "партии списания и исполнение по каждому заказу сохранены в исходном результате.",
       ].join("\n\n"),
@@ -268,6 +311,62 @@ function ColdChainControl(){
           </div>
           {applyError&&<p role="alert" className="mt-2 text-sm text-red-400">{applyError}</p>}
         </div>
+        <section className="mt-6 rounded border border-white/10 p-4">
+          <h3 className="font-display text-xl">Решение службы качества по карантину</h3>
+          <p className="mt-2 text-sm text-muted">Вводится отдельно от температурных показаний.
+            Партия может быть допущена повторно только после фактического возвращения
+            и документированной проверки в следующий рабочий день. До этого товар
+            не доступен для комплектования.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm text-muted">Поставка в карантине
+              <select className={field} value={qaOrderId||heldCandidates[0]?.orderId||""}
+                onChange={e=>setQaOrderId(e.target.value)}>
+                {heldCandidates.length===0&&<option value="">Нет карантинных партий</option>}
+                {heldCandidates.map(event=><option key={event.orderId} value={event.orderId}>
+                  {event.orderId} ({event.day})
+                </option>)}
+              </select>
+            </label>
+            <label className="block text-sm text-muted">Дата проверки качества
+              <select className={field} value={qaDay||input?.days[3]||""}
+                onChange={e=>setQaDay(e.target.value)}>
+                {input?.days.map(d=><option key={d} value={d}>{d}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm text-muted">Решение
+              <select className={field} value={qaDecision}
+                onChange={e=>setQaDecision(e.target.value as "release"|"destroy")}>
+                <option value="release">Вернуть в пригодный складской запас</option>
+                <option value="destroy">Списать и учесть стоимость потери</option>
+              </select>
+            </label>
+            <label className="block text-sm text-muted">Ответственный за контроль
+              <input className={field} value={qaReviewer}
+                onChange={e=>setQaReviewer(e.target.value)} placeholder="ID или должность контролёра" />
+            </label>
+            <label className="block text-sm text-muted sm:col-span-2">Документ проверки / акт списания
+              <input className={field} value={qaDocument}
+                onChange={e=>setQaDocument(e.target.value)} placeholder="QA-2026-004 / акт лабораторного заключения" />
+            </label>
+          </div>
+          <button type="button" onClick={applyQualityReview}
+            disabled={!input||heldCandidates.length===0}
+            className="mt-3 rounded border border-[#3B82F6] px-4 py-2 text-sm hover:bg-[#3B82F6]/10 disabled:opacity-50">
+            Применить документированное решение и пересчитать
+          </button>
+          {qaError&&<p role="alert" className="mt-3 text-sm text-red-400">{qaError}</p>}
+          {appliedReviews.length>0&&<div className="mt-4 space-y-2">
+            {appliedReviews.map(review=><div key={review.orderId+":"+review.reviewDay}
+              className="flex flex-wrap items-center justify-between gap-3 rounded border border-white/10 px-3 py-2 text-sm">
+              <span>{review.orderId} · {review.reviewDay} ·
+                {review.decision==="release"?"Допуск":"Списание"} · {review.documentRef}</span>
+              <button type="button" onClick={()=>removeQualityReview(review.orderId,review.reviewDay)}
+                className="rounded border border-white/20 px-3 py-1 hover:border-[#3B82F6]">
+                Удалить решение
+              </button>
+            </div>)}
+          </div>}
+        </section>
         {input&&<p className="mt-4 text-xs text-muted">
           ID проекта: {input.id}. Отпечаток неизменённых входных данных: {coldFingerprint(input)}.
           При импорте показания регистратора не подменяются расчётными значениями.
@@ -383,7 +482,7 @@ function ColdChainControl(){
               <tbody>{stockOfDay.map(row=><tr key={row.skuId} className="border-b border-white/10">
                 <td className="py-2 pr-3">{input.skus.find(s=>s.skuId===row.skuId)?.name??row.skuId}</td>
                 <td className="p-2">{row.opening}</td>
-                <td className="p-2">{row.receipts+row.inspectedReturns}</td>
+                <td className="p-2">{row.receipts+row.inspectedReturns+row.qualityReleased}</td>
                 <td className="p-2">{row.issued}</td>
                 <td className="p-2">{row.pendingInspection+" / "+row.pendingQuality}</td>
                 <td className="p-2">{row.destroyed}</td>
@@ -391,6 +490,15 @@ function ColdChainControl(){
               </tr>)}</tbody>
             </table>
           </div>
+          {afterDay&&afterDay.qualityReviews.length>0&&
+            <div className="mt-5 space-y-2">
+              <h3 className="font-semibold">Решения контроля качества за день</h3>
+              {afterDay.qualityReviews.map(review=><p key={review.orderId} className="text-sm text-muted">
+                {review.orderId}: {review.decision==="release"?"допущено":"списано"},
+                {" "}единиц {review.units}, акт {review.documentRef},
+                {" "}{review.status==="applied"?"исполнено":"не применимо к этому варианту рейсов"}
+              </p>)}
+            </div>}
           <p className="mt-3 text-sm text-muted">
             Возвращённый товар освобождается для новых заказов только после фактического
             возвращения рефрижератора и приёмки на следующем рабочем цикле.

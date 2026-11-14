@@ -3,7 +3,7 @@
  * temperature envelopes are product specifications, not generic legal limits.
  */
 import type { ColdInput, ColdSku, ColdCustomer, ColdVehicle,
-  ColdLogger, ColdEquipmentAlert } from "./case004-coldchain.ts";
+  ColdLogger, ColdEquipmentAlert, ColdQualityReview } from "./case004-coldchain.ts";
 import type { Vehicle } from "./engine.ts";
 
 export const CASE004_REFERENCE={
@@ -17,6 +17,7 @@ export interface Case004Options {
   loggerGap?:"none"|"frozen-day3"|"chilled-day5";
   coolingFleetSize?:2|4|6;
   rejectedOrderIds?:string[];
+  qualityReviews?:ColdQualityReview[];
   coldStoragePercent?:75|100|125;
 }
 const DAYS=[
@@ -137,6 +138,7 @@ export function createCase004(options:Case004Options={}):ColdInput{
     operation:{trafficPercent,dockDelayMinutes:8,extraServiceMinutes:2,
       latePenaltyRub:1700,rejectOutOfWindow:true},
     customerRefusals:[...(options.rejectedOrderIds??[])],
+    qualityReviews:(options.qualityReviews??[]).map(x=>({...x})),
     fixedWarehouseRubPerDay:11500,fuelMultiplier:1.08,
     ownedDailyFixedRub:1900,failureRubPerUnfilledDay:10500,
     maxSensorGapMinutes:30,

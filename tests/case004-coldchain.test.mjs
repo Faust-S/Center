@@ -175,3 +175,57 @@ test("protected dispatch declines a reefer with unqualified logger coverage befo
   conservation(input,protectedPlan);
   assert.deepEqual(auditCold(input,protectedPlan),[]);
 });
+
+
+test("documented QA disposition releases held cold freight only after physical return and records every SKU",()=>{
+  const input=createCase004({faults:"none",loggerGap:"frozen-day3"});
+  const baseline=simulateCold(input,"uncontrolled");
+  const held=baseline.days[2].events.find(e=>e.quality==="quality-hold");
+  assert.ok(held,"a broken logger must result in an actual held consignment");
+  const review={
+    orderId:held.orderId,reviewDay:input.days[3],decision:"release",
+    reviewer:"QA-Shift-A",documentRef:"QA-EIR-2026-001",
+  };
+  const reviewed=structuredClone(input);
+  reviewed.qualityReviews=[review];
+  const before=simulateCold(input,"uncontrolled");
+  const after=simulateCold(reviewed,"uncontrolled");
+  assert.deepEqual(after.audit,[]);
+  assert.deepEqual(auditCold(reviewed,after),[]);
+  const entry=after.days[3].qualityReviews.find(e=>e.orderId===held.orderId);
+  assert.equal(entry.status,"applied");
+  assert.equal(entry.decision,"release");
+  assert.equal(entry.documentRef,review.documentRef);
+  assert.ok(after.days[3].stock.some(s=>s.qualityReleased>0));
+  assert.ok(after.qualityReleasedUnits>=held.units);
+  conservation(reviewed,after);
+  const protectedPlan=simulateCold(reviewed,"protected");
+  assert.deepEqual(auditCold(reviewed,protectedPlan),[]);
+  assert.ok(protectedPlan.days[3].qualityReviews.some(e=>
+    e.orderId===held.orderId&&e.status==="not-applicable"));
+  assert.equal(protectedPlan.qualityReleasedUnits,0,
+    "review referencing non-held cargo cannot manufacture inventory");
+  assert.equal(before.qualityReleasedUnits,0);
+});
+test("QC destruction converts previously held physical lots to accounted losses, never to sale",()=>{
+  const input=createCase004({faults:"none",loggerGap:"frozen-day3"});
+  const preliminary=simulateCold(input,"uncontrolled");
+  const held=preliminary.days[2].events.find(e=>e.quality==="quality-hold");
+  assert.ok(held);
+  input.qualityReviews=[{
+    orderId:held.orderId,reviewDay:input.days[3],decision:"destroy",
+    reviewer:"Quality-Manager",documentRef:"QC-DISPOSAL-014",
+  }];
+  const resolved=simulateCold(input,"uncontrolled");
+  const event=resolved.days[3].qualityReviews.find(x=>x.orderId===held.orderId);
+  assert.equal(event.status,"applied");
+  assert.equal(event.units,held.units);
+  assert.ok(resolved.days[3].stock.some(x=>x.destroyed>0));
+  assert.ok(resolved.destroyedRub>preliminary.destroyedRub);
+  assert.equal(resolved.qualityReleasedUnits,0);
+  conservation(input,resolved);
+  assert.deepEqual(auditCold(input,resolved),[]);
+  const altered=structuredClone(input);
+  altered.qualityReviews[0].documentRef="";
+  assert.throws(()=>validateColdInput(altered),/D11_COLD_REVIEW_INVALID/);
+});

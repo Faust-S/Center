@@ -29,6 +29,11 @@ export interface ColdEquipmentAlert {
   day: string; vehicleId: string; startMinute: number; endMinute: number;
   reason: string;
 }
+/** Explicit documented QC disposition, never inferred from air temperatures. */
+export interface ColdQualityReview {
+  orderId: string; reviewDay: string; decision: "release" | "destroy";
+  documentRef: string; reviewer: string;
+}
 export interface ColdInput {
   id: string; days: string[]; skus: ColdSku[];
   customers: ColdCustomer[]; orders: ColdOrder[];
@@ -37,6 +42,7 @@ export interface ColdInput {
   receipts: { day: string; skuId: string; units: number }[];
   loggers: ColdLogger[]; alerts: ColdEquipmentAlert[];
   customerRefusals: string[];
+  qualityReviews?: ColdQualityReview[];
   road: Project["road"]; warehouse: Project["warehouse"];
   operation: Partial<OperationSettings>;
   fixedWarehouseRubPerDay: number; fuelMultiplier: number;
@@ -56,11 +62,13 @@ export interface ColdEvent {
 }
 export interface ColdStockMovement {
   skuId: string; opening: number; receipts: number; inspectedReturns: number;
-  issued: number; accepted: number; destroyed: number;
+  qualityReleased: number; issued: number; accepted: number; destroyed: number;
   closing: number; pendingInspection: number; pendingQuality: number;
 }
 export interface ColdDay {
   day: string; events: ColdEvent[]; stock: ColdStockMovement[];
+  qualityReviews: { orderId: string; decision: "release" | "destroy";
+    documentRef: string; units: number; status: "applied" | "not-applicable" }[];
   completedOrderIds: string[]; pendingOrderIds: string[];
   transportRub: number; coolingRub: number; destroyedRub: number;
   warehouseRub: number; unfilledRub: number; totalRub: number;
@@ -70,7 +78,8 @@ export interface ColdResult {
   mode: ColdMode; days: ColdDay[];
   ordered: number; acceptedOrders: number; pendingOrders: string[];
   customerRefusals: number; temperatureRejected: number; temperatureHolds: number;
-  destroyedUnits: number; recoveredUnits: number; acceptedUnits: number;
+  destroyedUnits: number; recoveredUnits: number; qualityReleasedUnits: number;
+  acceptedUnits: number;
   transportRub: number; coolingRub: number; destroyedRub: number;
   warehouseRub: number; unfilledRub: number; totalRub: number;
   audit: string[];
@@ -132,6 +141,12 @@ export function validateColdInput(input:ColdInput):void{
   unique(input.loggers.map(x=>x.day+":"+x.vehicleId),"LOGGER");
   unique(input.alerts.map(x=>x.day+":"+x.vehicleId),"ALERT");
   unique(input.customerRefusals,"REFUSAL");
+  if(input.qualityReviews!==undefined){
+    if(!Array.isArray(input.qualityReviews)||input.qualityReviews.length>500)
+      throw Error("D11_COLD_REVIEW_LIST_INVALID");
+    // A returned order may be dispatched, held again, and re-reviewed later.
+    unique(input.qualityReviews.map(x=>x.orderId+":"+x.reviewDay),"REVIEW_ORDER_DAY");
+  }
   const sku=new Map(input.skus.map(x=>[x.skuId,x]));
   const customer=new Set(input.customers.map(x=>x.id));
   const vehicles=new Map(input.fleet.map(x=>[x.vehicle.id,x]));
@@ -198,6 +213,16 @@ export function validateColdInput(input:ColdInput):void{
   const orders=new Set(input.orders.map(x=>x.id));
   if(input.customerRefusals.some(id=>!orders.has(id)))
     throw Error("D11_COLD_REFUSAL_UNKNOWN");
+  for(const review of input.qualityReviews??[]){
+    const order=input.orders.find(x=>x.id===review.orderId);
+    if(!order||!input.days.includes(review.reviewDay)||
+       review.reviewDay<=order.day||
+       !["release","destroy"].includes(review.decision)||
+       typeof review.reviewer!=="string"||!review.reviewer.trim()||
+       review.reviewer.length>140||typeof review.documentRef!=="string"||
+       !review.documentRef.trim()||review.documentRef.length>180)
+      throw Error("D11_COLD_REVIEW_INVALID");
+  }
 }
 /** Exact observed air-temperature coverage between loading and handover.
  * No samples, holes, or missing end readings are NEVER classified as safe.
@@ -278,6 +303,8 @@ function validInspectionRelease(input:ColdInput,day:string,returnMinute:number){
   return inspectionReleaseDay({days:input.days} as Project,day,returnMinute);
 }
 interface PendingRelease{day:string|null;skuId:string;units:number;}
+interface HeldForQuality { releaseDay: string | null;
+  lines: {skuId:string;units:number}[]; }
 /** The operational ledger is fully replayable; no separate route planner or
  * persistence is introduced. Controlled dispatch avoids declared failed
  * refrigeration units; actual logger samples determine acceptance in BOTH modes. */
@@ -291,9 +318,10 @@ export function simulateCold(input:ColdInput,mode:ColdMode):ColdResult{
   const quarantine:Record<string,number>={};
   const withheld:Record<string,number>={};
   const releases:PendingRelease[]=[];
+  const qualityHeld=new Map<string,HeldForQuality[]>();
   const days:ColdDay[]=[];
   let customerRefusals=0,temperatureRejected=0,temperatureHolds=0,
-    destroyedUnits=0,recoveredUnits=0,acceptedUnits=0,
+    destroyedUnits=0,recoveredUnits=0,qualityReleasedUnits=0,acceptedUnits=0,
     transportRub=0,coolingRub=0,destroyedRub=0,
     warehouseRub=0,unfilledRub=0;
   const products=new Map(input.skus.map(s=>[s.skuId,s]));
@@ -304,9 +332,11 @@ export function simulateCold(input:ColdInput,mode:ColdMode):ColdResult{
   for(const day of input.days){
     const opening={...stock};
     const received:Record<string,number>={},inspected:Record<string,number>={};
+    const qualityReleased:Record<string,number>={};
     const issued:Record<string,number>={},customerAccepted:Record<string,number>={},
       waste:Record<string,number>={};
     const events:ColdEvent[]=[];
+    const dayReviews:ColdDay["qualityReviews"]=[];
     const completedOrderIds:string[]=[];
     let dayTransport=0,dayCooling=0,dayWaste=0;
     for(const r of input.receipts.filter(r=>r.day===day)){
@@ -319,6 +349,37 @@ export function simulateCold(input:ColdInput,mode:ColdMode):ColdResult{
       add(stock,item.skuId,item.units);add(inspected,item.skuId,item.units);
       add(quarantine,item.skuId,-item.units);
       recoveredUnits+=item.units;
+    }
+    // A separate human QC record can resolve a prior hold only after
+    // the truck has returned and a later inspection workday is reached.
+    // A review referring to a non-held consignment never creates stock.
+    for(const review of input.qualityReviews?.filter(r=>r.reviewDay===day)??[]){
+      const held=qualityHeld.get(review.orderId);
+      if(!held?.length){
+        dayReviews.push({orderId:review.orderId,decision:review.decision,
+          documentRef:review.documentRef,units:0,status:"not-applicable"});
+        continue;
+      }
+      if(held.some(item=>!item.releaseDay||day<item.releaseDay))
+        throw Error("D11_COLD_REVIEW_PREMATURE:"+review.orderId);
+      for(const line of held.flatMap(item=>item.lines)){
+        add(quarantine,line.skuId,-line.units);
+        add(withheld,line.skuId,-line.units);
+        if(review.decision==="release"){
+          add(stock,line.skuId,line.units);
+          add(qualityReleased,line.skuId,line.units);
+          qualityReleasedUnits+=line.units;
+        }else{
+          add(destroyed,line.skuId,line.units);
+          add(waste,line.skuId,line.units);
+          destroyedUnits+=line.units;
+          dayWaste+=line.units*products.get(line.skuId)!.unitValueRub;
+        }
+      }
+      dayReviews.push({orderId:review.orderId,decision:review.decision,
+        documentRef:review.documentRef,
+        units:held.reduce((n,item)=>n+count(item.lines),0),status:"applied"});
+      qualityHeld.delete(review.orderId);
     }
     for(const regime of ["frozen","chilled"] as const){
       const inStore=input.skus.filter(s=>s.regime===regime)
@@ -398,6 +459,10 @@ export function simulateCold(input:ColdInput,mode:ColdMode):ColdResult{
           }
         }else if(quality==="quality-hold"){
           temperatureHolds++;
+          const prior=qualityHeld.get(order.id)??[];
+          prior.push({releaseDay:validInspectionRelease(input,day,trip.returnMinute),
+            lines:order.lines.map(l=>({...l}))});
+          qualityHeld.set(order.id,prior);
           for(const line of order.lines){
             add(quarantine,line.skuId,line.units);
             add(withheld,line.skuId,line.units);
@@ -436,6 +501,7 @@ export function simulateCold(input:ColdInput,mode:ColdMode):ColdResult{
       skuId:sku.skuId,opening:opening[sku.skuId]??0,
       receipts:received[sku.skuId]??0,
       inspectedReturns:inspected[sku.skuId]??0,
+      qualityReleased:qualityReleased[sku.skuId]??0,
       issued:issued[sku.skuId]??0,
       accepted:customerAccepted[sku.skuId]??0,
       destroyed:waste[sku.skuId]??0,
@@ -444,7 +510,7 @@ export function simulateCold(input:ColdInput,mode:ColdMode):ColdResult{
       pendingQuality:withheld[sku.skuId]??0,
     }));
     for(const r of rows){
-      if(r.opening+r.receipts+r.inspectedReturns-r.issued!==r.closing||
+      if(r.opening+r.receipts+r.inspectedReturns+r.qualityReleased-r.issued!==r.closing||
          r.closing<0||r.pendingInspection<0||r.pendingQuality<0)
         throw Error("D11_COLD_SKU_LEDGER:"+day+":"+r.skuId);
       // Physical conservation across depot, accepted shops, destruction and hold.
@@ -454,7 +520,8 @@ export function simulateCold(input:ColdInput,mode:ColdMode):ColdResult{
         throw Error("D11_COLD_CONSERVATION:"+day+":"+r.skuId);
     }
     const totalRub=round(dayTransport+dayCooling+dayWaste+warehouse+dayUnfilled);
-    days.push({day,events,stock:rows,completedOrderIds,pendingOrderIds:pending,
+    days.push({day,events,stock:rows,qualityReviews:dayReviews,
+      completedOrderIds,pendingOrderIds:pending,
       transportRub:round(dayTransport),coolingRub:round(dayCooling),
       destroyedRub:round(dayWaste),warehouseRub:round(warehouse),
       unfilledRub:round(dayUnfilled),totalRub});
@@ -463,7 +530,7 @@ export function simulateCold(input:ColdInput,mode:ColdMode):ColdResult{
     mode,days,ordered:input.orders.length,
     acceptedOrders:fulfilled.size,pendingOrders:input.orders.filter(o=>!fulfilled.has(o.id)).map(o=>o.id),
     customerRefusals,temperatureRejected,temperatureHolds,
-    destroyedUnits,recoveredUnits,acceptedUnits,
+    destroyedUnits,recoveredUnits,qualityReleasedUnits,acceptedUnits,
     transportRub:round(transportRub),coolingRub:round(coolingRub),
     destroyedRub:round(destroyedRub),warehouseRub:round(warehouseRub),
     unfilledRub:round(unfilledRub),

@@ -11,7 +11,7 @@ function preview(options={}){
   const input=createCase004(options);
   const comparison=compareCold(input);
   const state={demand:100,traffic:120,faults:"both",gap:"none",
-    fleet:4,storage:100,refusedOrderIds:[],imported:null};
+    fleet:4,storage:100,refusedOrderIds:[],reviews:[],imported:null};
   const payload={
     toolId:"delivery-network-planner",
     toolTitle:"CASE-004: контроль холодовой цепи",
@@ -75,4 +75,33 @@ test("CASE-004 is real site route with live order events, QA decisions and suppo
   assert.match(hook,/"cold-chain-control": "delivery-network-planner"/);
   assert.match(hook,/cold-chain-control"\]\.includes\(toolId\)/);
   assert.doesNotMatch(page,/putObject\(|indexedDB|localStorage\.setItem/);
+});
+
+
+test("an independently documented QC release survives T2 preview with exact event and stock origin",()=>{
+  const input=createCase004({faults:"none",loggerGap:"frozen-day3"});
+  const before=compareCold(input);
+  const held=before.uncontrolled.days[2].events.find(x=>x.quality==="quality-hold");
+  assert.ok(held);
+  const review={orderId:held.orderId,reviewDay:input.days[3],decision:"release",
+    reviewer:"QA manager",documentRef:"QC-004-ACCEPT-17"};
+  input.qualityReviews=[review];
+  const comparison=compareCold(input);
+  const proposal=buildD11BrowserProposal({
+    toolId:"delivery-network-planner",toolTitle:"CASE-004: решение контроля качества",
+    markdown:"# CASE-004\n\nКонтроль качества и реальный возврат",
+    data:{caseId:"D11-CASE-004",input,
+      inputFingerprint:coldFingerprint(input),
+      _editorState:{demand:100,traffic:120,faults:"none",gap:"frozen-day3",
+        fleet:4,storage:100,refusedOrderIds:[],reviews:[review],imported:null},
+      comparison},
+  },"2026-11-14T09:00:00.000Z");
+  const wire=serializeD11BrowserProposal(proposal);
+  assert.ok(Buffer.byteLength(wire,"utf8")<=D11_MAX_BYTES);
+  const restored=validateD11BrowserProposal(JSON.parse(wire));
+  assert.equal(restored.result.data.input.qualityReviews[0].documentRef,review.documentRef);
+  assert.ok(restored.result.data.comparison.uncontrolled.days[3].qualityReviews
+    .some(r=>r.orderId===held.orderId&&r.status==="applied"));
+  assert.deepEqual(auditCold(input,restored.result.data.comparison.uncontrolled),[]);
+  assert.equal(d11CaseEditorPath(restored),"/tools/cold-chain-control");
 });
