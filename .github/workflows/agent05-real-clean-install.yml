@@ -1,0 +1,160 @@
+name: Agent 0.5 real clean install Windows
+
+on:
+  push:
+    branches:
+      - work/2026-11-14-setup-core-real-install-fix
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent05-real-clean-install
+  cancel-in-progress: true
+
+jobs:
+  short-path-build-only:
+    runs-on: windows-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: center-owner
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ee10573ae4f58a79b7002e6990c0f2544dc0cbf9
+          path: private-product
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Checkout exact source into short Windows paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='C:\i5'
+          if(Test-Path -LiteralPath $base){throw 'AGENT05_SHORT_ROOT_UNAVAILABLE'}
+          New-Item -ItemType Directory -Path $base | Out-Null
+          $a=Join-Path $base 'a'
+          $c=Join-Path $base 'c'
+          $privateLog=Join-Path $env:RUNNER_TEMP 'agent05-short-root-checkout-private.log'
+          & git -c core.longpaths=true clone --no-checkout (Resolve-Path 'private-product').Path $a *> $privateLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_AGENT_CLONE_FAILED'}
+          & git -C $a -c core.longpaths=true checkout --detach ee10573ae4f58a79b7002e6990c0f2544dc0cbf9 *> $privateLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_AGENT_CHECKOUT_FAILED'}
+          & git -c core.longpaths=true clone --no-checkout (Resolve-Path 'center-owner').Path $c *> $privateLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_CENTER_CLONE_FAILED'}
+          & git -C $c -c core.longpaths=true checkout --detach $env:GITHUB_SHA *> $privateLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT05_SHORT_ROOT_CENTER_CHECKOUT_FAILED'}
+          $gotA=(& git -C $a rev-parse HEAD).Trim()
+          $gotC=(& git -C $c rev-parse HEAD).Trim()
+          if($gotA -cne 'ee10573ae4f58a79b7002e6990c0f2544dc0cbf9' -or
+              $gotC -cne $env:GITHUB_SHA){throw 'AGENT05_SHORT_ROOT_IDENTITY_FAILED'}
+          Write-Host 'AGENT05_SHORT_ROOT_CHECKOUT_PASS'
+      - name: Targeted Core install regression
+        shell: pwsh
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'agent05-regression-private.log'
+          Push-Location private-product
+          try{
+            & python -m pip install -r requirements-ci.txt *> $log
+            if($LASTEXITCODE -ne 0){throw 'AGENT05_PYTHON_DEPENDENCIES_FAILED'}
+            & python -B -m pytest -q -p no:cacheprovider tests/test_setup_core_install_bridge.py tests/test_windows_install_authority.py tests/test_windows_user_runtime_readiness.py tests/test_explorer_windows_bootstrap.py *> $log
+            if($LASTEXITCODE -ne 0){throw 'AGENT05_INSTALL_REGRESSION_FAILED'}
+            Write-Host 'AGENT05_INSTALL_REGRESSION_PASS'
+          }finally{Pop-Location}
+      - name: Build Setup only and inspect its own receipt (no tests, no upload)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $script='C:\i5\c\qualification\agent05-build-only.ps1'
+          $logs=Join-Path $env:RUNNER_TEMP 'agent05-short-build-private.log'
+          $errors=$null
+          $tokens=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'AGENT05_SHORT_ROOT_BUILDER_PARSE_FAILED'}
+          & pwsh -NoProfile -NonInteractive -File $script -AgentRoot 'C:\i5\a' -OutputRoot 'C:\i5\o' *> $logs
+          if($LASTEXITCODE -ne 0){
+            $raw=Get-Content -LiteralPath $logs -Raw -ErrorAction SilentlyContinue
+            $phase='UNKNOWN'
+            $reason='UNKNOWN'
+            if($raw -match 'AGENT05_BUILD_ONLY_FAIL_STAGE=([A-Z_]+)'){$phase=$Matches[1]}
+            if($raw -match 'AGENT05_BUILD_ONLY_FAIL_REASON=([a-z0-9_]+)'){$reason=$Matches[1]}
+            Write-Host ('AGENT05_SHORT_ROOT_FAILURE_PHASE='+$phase)
+            Write-Host ('AGENT05_SHORT_ROOT_FAILURE_REASON='+$reason)
+            throw 'AGENT05_SHORT_ROOT_BUILD_ONLY_FAILED'
+          }
+          $receipt=Get-Content 'C:\i5\o\build-receipt.json' -Raw | ConvertFrom-Json
+          $exe='C:\i5\o\IWXA-Personal-Agent-0.5.0-Setup.exe'
+          if(!(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'AGENT05_SHORT_ROOT_SETUP_MISSING'}
+          $sha=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($receipt.status -cne 'BUILT_ONLY' -or
+             $receipt.version -cne '0.5.0' -or
+             $receipt.source_commit -cne 'ee10573ae4f58a79b7002e6990c0f2544dc0cbf9' -or
+             $receipt.setup_sha256 -cne $sha -or
+             $receipt.tests_reexecuted -ne $false -or
+             $receipt.installer_launched -ne $false -or
+             $receipt.private_artifacts_published -ne $false){
+            throw 'AGENT05_SHORT_ROOT_BUILD_RECEIPT_FAILED'
+          }
+          Write-Host 'AGENT05_SHORT_ROOT_WINDOWS_BUILD_ONLY_PASS'
+          Write-Host ('AGENT05_SHORT_ROOT_SETUP_SHA256='+$sha)
+      - name: Actual first install and visible installed Windows launcher
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $setup='C:\i5\o\IWXA-Personal-Agent-0.5.0-Setup.exe'
+          $root='C:\IWXA\Agent'
+          $data='C:\IWXA\Personal data Agent'
+          $request='C:\i5\locations.json'
+          $receipt='C:\i5\installed.json'
+          $choice=[ordered]@{schema='IWXA_SETUP_LOCATIONS/1';programRoot=$root;dataRoot=(Join-Path $data 'Data');softwareRoot=(Join-Path $data 'Software');modelsRoot=(Join-Path $data 'Models');cacheRoot=(Join-Path $data 'Cache');startWithWindows=$false}
+          New-Item -ItemType Directory -Force -Path (Join-Path $data 'Data') | Out-Null
+          $sentinel=Join-Path $data 'Data\user-file.txt'
+          Set-Content -LiteralPath $sentinel -Value 'preserve' -Encoding utf8
+          $choice | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $request -Encoding utf8
+          $p=Start-Process -FilePath $setup -ArgumentList @('--install-locations-file',$request,$receipt) -Wait -PassThru
+          if($p.ExitCode -ne 0){throw 'AGENT05_REAL_INSTALL_FAILED'}
+          $status=Get-Content $receipt -Raw -Encoding utf8 | ConvertFrom-Json
+          if($status.status -cne 'INSTALLED_NOT_LAUNCHED'){throw 'AGENT05_REAL_INSTALL_RESULT_INVALID'}
+          $exe=Join-Path $root 'IWXA Personal Agent.exe'
+          $inner=Join-Path $root 'desktop\bin\IWXA Personal.exe'
+          if(!(Test-Path $exe -PathType Leaf) -or !(Test-Path $inner -PathType Leaf)){throw 'AGENT05_INSTALLED_ROOT_EXE_MISSING'}
+          if((Get-FileHash $exe -Algorithm SHA256).Hash -cne (Get-FileHash $inner -Algorithm SHA256).Hash){throw 'AGENT05_INSTALLED_NATIVE_EXE_MISMATCH'}
+          if(!(Test-Path $sentinel)){throw 'AGENT05_USER_DATA_MISSING'}
+          Write-Host 'AGENT05_REAL_INSTALL_ROOT_EXE_PASS'
+          $env:WEBVIEW2_USER_DATA_FOLDER='C:\i5\webview'
+          $app=Start-Process -FilePath $exe -WorkingDirectory $root -PassThru
+          try{
+            Add-Type -AssemblyName UIAutomationClient
+            Add-Type -AssemblyName UIAutomationTypes
+            $ready=$false
+            for($i=0;$i -lt 100;$i++){
+              Start-Sleep -Milliseconds 800
+              $app.Refresh()
+              if($app.HasExited){throw 'AGENT05_INSTALLED_APP_EXITED'}
+              if($app.MainWindowHandle -eq [IntPtr]::Zero){continue}
+              $w=[System.Windows.Automation.AutomationElement]::FromHandle($app.MainWindowHandle)
+              $doc=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Document)
+              if($w.FindAll([System.Windows.Automation.TreeScope]::Descendants,$doc).Count -gt 0){$ready=$true;break}
+            }
+            if(!$ready){throw 'AGENT05_INSTALLED_UI_NOT_READY'}
+            $authority=Join-Path $env:LOCALAPPDATA 'IWXA\PersonalAgent\storage-authority.json'
+            $installed=Join-Path $env:LOCALAPPDATA 'IWXA\PersonalAgent\current-install.json'
+            if(!(Test-Path $authority) -or !(Test-Path $installed)){throw 'AGENT05_CORE_REGISTRATION_MISSING'}
+            if((Get-Content $installed -Raw | ConvertFrom-Json).install_root -cne $root){throw 'AGENT05_CORE_ROOT_MISMATCH'}
+            if(!(Test-Path $sentinel)){throw 'AGENT05_USER_DATA_CHANGED'}
+            Write-Host 'AGENT05_REAL_INSTALLED_AGENT_OPEN_PASS'
+          }finally{
+            $app.Refresh()
+            if(!$app.HasExited){Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue}
+          }
+      # No private binaries, logs or models are published.
+
