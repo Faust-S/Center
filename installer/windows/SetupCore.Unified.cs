@@ -752,6 +752,13 @@ namespace IwxaSetup
                     message = T("Прерванную операцию необходимо завершить восстановлением. Личные данные не удаляются.",
                         "The interrupted operation requires recovery. Your data is not removed.");
                     break;
+                case "REPAIR_CANDIDATE_NOT_ACTIVATED":
+                    message = openApplication.Visible ?
+                        T("Программа готова к запуску. Данные и модели сохраняются в выбранных папках.",
+                          "The application is ready to launch. Data and models stay in the chosen folders.") :
+                        T("Отсутствует файл запуска. Доступно восстановление файлов программы.",
+                          "The launcher is missing. Application files can be repaired.");
+                    break;
                 default:
                     message = !String.IsNullOrWhiteSpace(packageDetails.Text) &&
                         packageDetails.Text.Length <= 175 ?
