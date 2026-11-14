@@ -1,4 +1,6 @@
 name: Agent 0.5 real clean install Windows
+# Final qualification includes the occupied default-folder selection fix.
+# No private source, binaries, model data or detailed logs are uploaded.
 
 on:
   push:
