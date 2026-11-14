@@ -367,11 +367,11 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       }}>Подготовить ID поручения</button>
      <label>Оригинальный ID Task для восстановления
       <input data-testid="d3-task-operation-id" value={taskOperationId}
-       maxLength={105} placeholder="task:..."
+       maxLength={105} placeholder="task:..." disabled={taskAttempted}
        onChange={e=>{
+        if(taskAttempted)return;
         setTaskOperationId(e.target.value.trim());
         setTaskIdSaved(false);setTaskReadback(null);
-        setTaskAttempted(false);
        }}/>
      </label>
      {!!taskOperationId&&<label>
