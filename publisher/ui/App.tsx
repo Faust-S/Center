@@ -443,7 +443,7 @@ export default function App(){
          <img className="publisher-brand-logo" src="/favicon.svg" alt="IWXA" width="43" height="43"/>
          <div className="publisher-brand-copy"><strong>IWXA</strong><small>Publisher</small></div>
        </div>
-       <span className="version publisher-version">0.4</span>
+       <span className="version publisher-version">0.5</span>
      </header>
      <div className="publisher-nav-caption">ИЗДАТЕЛЬ И ЛИЦЕНЗИИ</div>
      <nav aria-label="Разделы Publisher">

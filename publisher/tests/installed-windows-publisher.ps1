@@ -133,20 +133,73 @@ function Click-Publisher([string]$name){
   }
   Start-Sleep -Milliseconds 300
 }
+function Read-Publisher-Option([System.Windows.Automation.AutomationElement]$node){
+  # WebView2 may expose the chosen HTML option as ValuePattern or as a
+  # SelectionPattern child, depending on its installed runtime version.
+  try {
+    $value=$node.GetCurrentPattern(
+      [System.Windows.Automation.ValuePattern]::Pattern).Current.Value
+    if($value){return [string]$value}
+  }catch{}
+  try {
+    $selection=$node.GetCurrentPattern(
+      [System.Windows.Automation.SelectionPattern]::Pattern).Current.GetSelection()
+    if($selection.Count -gt 0){return [string]$selection[0].Current.Name}
+  }catch{}
+  return ''
+}
 function Choose-Publisher-Option([string]$name){
-  # WebView2 exposes native HTML <select> as an accessible ComboBox.
-  # The first entry is the explicit blank placeholder; choose the next
-  # entry by keyboard instead of writing to or skipping the React form.
+  # Exercise a real native WebView2 <select> change and read its actual
+  # accessible value. Focus + Enter alone sometimes leaves the placeholder
+  # selected after a cold restart, even though the same selector works in
+  # the ordinary browser test. Never set React state or edit stored JSON.
   Write-Host "PUBLISHER_GUI_SELECT $name"
-  $node=Find-Control $name 'ComboBox'
-  $node.SetFocus()
-  Start-Sleep -Milliseconds 200
-  [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
-  Start-Sleep -Milliseconds 100
-  [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
-  Start-Sleep -Milliseconds 100
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  Start-Sleep -Milliseconds 400
+  for($attempt=1;$attempt -le 3;$attempt++){
+    $node=Find-Control $name 'ComboBox'
+    $node.SetFocus()
+    Start-Sleep -Milliseconds 180
+    if($attempt -eq 2){
+      # A mouse activation is needed on some installed WebView2 versions.
+      # It is a user action on the actual Windows control, not an IPC mock.
+      $bounds=$node.Current.BoundingRectangle
+      if(!$bounds.IsEmpty -and $bounds.Width -gt 8 -and $bounds.Height -gt 8){
+        [System.Windows.Forms.Cursor]::Position=[System.Drawing.Point]::new(
+          [int]($bounds.Left+$bounds.Width/2),
+          [int]($bounds.Top+$bounds.Height/2))
+        [PublisherWindow]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+        Start-Sleep -Milliseconds 65
+        [PublisherWindow]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+        Start-Sleep -Milliseconds 180
+      }
+    }
+    if($attempt -eq 3){
+      [System.Windows.Forms.SendKeys]::SendWait('%{DOWN}')
+      Start-Sleep -Milliseconds 150
+    }
+    [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+    Start-Sleep -Milliseconds 120
+    [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+    Start-Sleep -Milliseconds 130
+    if($attempt -gt 1){
+      [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    }
+    # Blur commits the HTML select instead of leaving an open popup.
+    [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+    Start-Sleep -Milliseconds 350
+    $actual=Read-Publisher-Option (Find-Control $name 'ComboBox')
+    if($actual -and $actual -notmatch '^Выберите\\s'){
+      Write-Host "PUBLISHER_GUI_SELECT_EXACT_NATIVE_READBACK_PASS $name"
+      return
+    }
+    if(!$actual){
+      # No accessible readback support: the caller must verify that the
+      # actual dependent action became enabled and persisted its result.
+      Write-Host "PUBLISHER_GUI_SELECT_NATIVE_READBACK_UNAVAILABLE $name"
+      return
+    }
+    Write-Host "PUBLISHER_GUI_SELECT_RETRY $name attempt=$attempt"
+  }
+  throw "PUBLISHER_GUI_SELECT_STILL_PLACEHOLDER $name"
 }
 function Enter-Value([string]$name,[string]$value){
   Write-Host "PUBLISHER_GUI_ENTER $name"

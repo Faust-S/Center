@@ -212,6 +212,9 @@ try {
   const mark=page.locator('.publisher-brand-logo');
   assert.equal(await mark.getAttribute('src'),'/favicon.svg');
   assert.equal(await mark.getAttribute('alt'),'IWXA');
+  assert.equal((await page.locator('.publisher-version').innerText()).trim(),'0.5',
+    'Installed Publisher 0.5 must not display the frozen 0.4 version badge');
+  checks.push('publisher-visible-version-matches-installed-0-5');
   const brandSvg=await (await page.request.get('http://127.0.0.1:4175/favicon.svg')).text();
   assert.match(brandSvg,/fill="#FFFFFF"/);
   assert.match(brandSvg,/fill="#05070D"/);
