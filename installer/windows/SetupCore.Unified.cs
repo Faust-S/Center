@@ -783,6 +783,9 @@ namespace IwxaSetup
             }
             if (primaryAction != SetupOperation.None)
                 await ExecuteAsync(primaryAction);
+            else if (!first && inspectedStatus == "REPAIR_CANDIDATE_NOT_ACTIVATED" &&
+                     !locationDraftChanged && openApplication.Visible)
+                OpenRelatedAction();
             else if (!first)
                 await VerifyAsync();
         }
