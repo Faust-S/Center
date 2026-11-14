@@ -180,16 +180,17 @@ export function createCenD3OwnerHost({admission,access,apply=null,
      }else fail('CEN_D3_OPERATION_NOT_SUPPORTED');
    }catch(error){
      if(entered&&mayWrite){
-       // Even an original post-write readback exception does not mean that
-       // the first operation failed. Recovery is read-only; NEVER replay.
+       // An unknown original owner failure or context change may occur
+       // AFTER the ledger or original Kernel committed. No auto-retry.
+       // Only explicitly documented pre-write rejections are definite.
        const code=error?.code??error?.message;
-       if(['CEN_D3_DECISION_OUTCOME_UNKNOWN','CEN_D3_RECEIVE_READBACK_UNKNOWN',
-         'CEN_D3_KERNEL_COMMIT_OUTCOME_UNKNOWN',
-         'T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED',
-         'T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED',
-         'T3_D3_OWNER_REQUEST_OUTCOME_UNKNOWN',
-         'T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN'].includes(code))
-         fail('CEN_D3_OUTCOME_UNKNOWN');
+       const definiteBeforeWrite=[
+         'T3_D3_HUMAN_REVIEW_REQUIRED',
+         'T3_D3_SEPARATE_HUMAN_APPLY_REQUIRED',
+         'T3_D3_PREVIEW_STALE',
+         'T3_D3_ORIGINAL_ACCEPTANCE_NOT_ELIGIBLE'
+       ].includes(code);
+       if(!definiteBeforeWrite)fail('CEN_D3_OUTCOME_UNKNOWN');
      }
      throw error;
    }

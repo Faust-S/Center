@@ -183,3 +183,28 @@ test('D3: context change after Kernel dispatch is UNKNOWN and never auto-retries
  host.close();
  await assert.rejects(()=>host.state({organizationId:'org:1'}),/CEN_D3_HOST_CLOSED/);
 });
+
+
+test('D3: late signed-context error after original ACCEPT remains UNKNOWN, not retryable',async()=>{
+ const {host,claims,admission,receipts,log}=original();
+ admission.accept=async args=>{
+   log.push(['accept',structuredClone(args)]);
+   receipts.set(args.operationId,{schema:'IWXA_T3_ACCEPTANCE_RECEIPT/1',
+     operationId:args.operationId,packageSha256:args.packageSha256,
+     decisionBy:args.decisionBy,acceptanceId:C,acceptanceState:'ACCEPTED'});
+   claims.scope_revision++;
+   throw Object.assign(new Error('T3_D3_SELECTED_CONTEXT_CHANGED'),
+     {code:'T3_D3_SELECTED_CONTEXT_CHANGED',outcome:'DENIED'});
+ };
+ await assert.rejects(()=>command(host,'d3Decide',{
+   operationId:'decision:late-context',packageSha256:A,previewDigest:B,
+   decision:'ACCEPT'
+ }),/CEN_D3_OUTCOME_UNKNOWN/);
+ assert.equal(log.filter(x=>x[0]==='accept').length,1);
+ claims.scope_revision=7;
+ const saved=await command(host,'d3Receipt',{
+   operationId:'decision:late-context',packageSha256:A});
+ assert.equal(saved.found,true);
+ assert.equal(saved.receipt.decisionBy,'person:manager');
+ assert.equal(log.filter(x=>x[0]==='accept').length,1);
+});
