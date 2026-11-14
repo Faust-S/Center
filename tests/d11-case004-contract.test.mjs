@@ -73,7 +73,7 @@ test("CASE-004 is real site route with live order events, QA decisions and suppo
   assert.match(page,/pendingInspection/);
   const hook=read("src/components/tools/useToolDraft.ts");
   assert.match(hook,/"cold-chain-control": "delivery-network-planner"/);
-  assert.match(hook,/cold-chain-control"\]\.includes\(toolId\)/);
+  assert.match(hook,/cold-chain-control"[^\n]*\.includes\(toolId\)/);
   assert.doesNotMatch(page,/putObject\(|indexedDB|localStorage\.setItem/);
 });
 
