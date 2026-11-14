@@ -110,14 +110,27 @@ $script:BuildStage='PACKAGE'
 $packageBuildLog=Join-Path $logs 'package-build-only.json'
 & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $agent 'tools/qualify_explorer_windows_phase1_package.ps1') -BuildDir $packageRoot -LogsDir $packageLogs -CacheRoot $cache -NativeDesktopDist $nativeDist -NativeDesktopExe $nativeExe -BuildOnly > $packageBuildLog 2> (Join-Path $logs 'package-stderr.log')
 if($LASTEXITCODE -ne 0){throw 'agent05_build_private_package_failed'}
-$script:BuildStage='PACKAGE_RECEIPT'
-$packageReceipt=Get-Content -LiteralPath $packageBuildLog -Raw -Encoding UTF8 | ConvertFrom-Json
+$script:BuildStage='PACKAGE_MANIFEST'
+# The package's extracted manifest is authoritative build output. Child
+# PowerShell can print informational messages around its JSON summary, so do
+# not treat combined stdout as a machine-readable receipt.
 $package=Join-Path $packageRoot 'IWXA-Personal-Agent-Windows-Explorer-Prototype.zip'
-if($packageReceipt.status -cne 'BUILT_ONLY' -or
-   $packageReceipt.source_commit -cne $sourceCommit -or
-   $packageReceipt.source_tree -cne $sourceTree -or
-   !(Test-Path -LiteralPath $package -PathType Leaf)){
+$manifestPath=Join-Path $packageRoot 'bootstrap/package-manifest.json'
+if(!(Test-Path -LiteralPath $package -PathType Leaf) -or
+   !(Test-Path -LiteralPath $manifestPath -PathType Leaf)){
+    throw 'agent05_build_package_outputs_missing'
+}
+$manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if($manifest.source_commit -cne $sourceCommit -or
+   $manifest.source_tree -cne $sourceTree -or
+   $manifest.desktop_native_included -ne $true){
     throw 'agent05_build_package_identity_failed'
+}
+foreach($required in @('desktop/bin/IWXA Personal.exe','desktop/dist/index.html',
+    'runtime/windows_install_paths.py','runtime/windows_install_authority.py')){
+    if($required -notin @($manifest.files | ForEach-Object {[string]$_.path})){
+        throw 'agent05_build_package_payload_incomplete'
+    }
 }
 $setup=Join-Path $out 'IWXA-Personal-Agent-0.5.0-Setup.exe'
 $script:BuildStage='SETUP_CORE'
