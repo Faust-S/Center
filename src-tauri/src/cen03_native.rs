@@ -114,7 +114,8 @@ fn exact_binding(view:&Value,organization_id:&str,binding:&Value)->bool{
 fn source_file(path:&Path)->Result<(),String>{
     let meta=fs::symlink_metadata(path).map_err(|_|"CEN_D3_FILE_UNREADABLE")?;
     if meta.file_type().is_symlink()||!meta.is_file()||meta.len()==0||meta.len()>MAX_IWXA||
-       path.extension().and_then(|e|e.to_str())!=Some("iwxa"){
+       !path.extension().and_then(|e|e.to_str())
+          .is_some_and(|e|e.eq_ignore_ascii_case("iwxa")){
         return Err("CEN_D3_CARRIER_INVALID".into());
     }
     Ok(())
@@ -248,7 +249,8 @@ pub async fn center_corporate_action(
         let Some(path)=selection else {
             return Ok(json!({"status":"CANCELLED"}));
         };
-        if path.extension().and_then(|s|s.to_str())!=Some("iwxa"){
+        if !path.extension().and_then(|s|s.to_str())
+            .is_some_and(|s|s.eq_ignore_ascii_case("iwxa")){
             return Err("CEN_D3_IWXA_DESTINATION_REQUIRED".into());
         }
         Some(path)
