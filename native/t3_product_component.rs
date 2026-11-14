@@ -2,6 +2,8 @@
 // privately by the T3 owner into product bundles. No cryptography, T3 source,
 // trusting the file, fallback Node/Bun install, new license Store or IAM here.
 use serde_json::Value;
+use sha2::{Digest,Sha256};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -25,7 +27,35 @@ fn binary(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
     let root = app.path().resource_dir().map_err(|_|"T3_PRODUCT_RESOURCE_ROOT_UNAVAILABLE")?;
     let target = root.join("t3").join(file);
     match std::fs::symlink_metadata(&target) {
-        Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => Ok(target),
+        Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {
+            if role=="admin-d3" {
+                // The public Center cannot infer "original signed owner"
+                // from an EXE filename alone. Its trusted private installer
+                // pins the EXACT original owner bytes at compile time.
+                let expected=option_env!("IWXA_T3_ADMIN_D3_OWNER_SHA256")
+                    .ok_or("CEN_D3_ORIGINAL_OWNER_DIGEST_NOT_COMPILED")?;
+                if expected.len()!=64 ||
+                   !expected.bytes().all(|x|x.is_ascii_digit()||
+                       (b'a'..=b'f').contains(&x)) {
+                    return Err("CEN_D3_ORIGINAL_OWNER_DIGEST_INVALID".into());
+                }
+                let mut file=std::fs::File::open(&target)
+                    .map_err(|_|"CEN_D3_ORIGINAL_OWNER_UNREADABLE")?;
+                let mut digest=Sha256::new();
+                let mut buffer=[0_u8;64*1024];
+                loop {
+                    let n=file.read(&mut buffer)
+                        .map_err(|_|"CEN_D3_ORIGINAL_OWNER_UNREADABLE")?;
+                    if n==0{break;}
+                    digest.update(&buffer[..n]);
+                }
+                let actual=format!("{:x}",digest.finalize());
+                if actual!=expected{
+                    return Err("CEN_D3_ORIGINAL_OWNER_BINARY_MISMATCH".into());
+                }
+            }
+            Ok(target)
+        },
         _ => Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_BUNDLED".into())
     }
 }
