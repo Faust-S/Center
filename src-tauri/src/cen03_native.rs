@@ -193,6 +193,69 @@ fn verify_kernel_recovery(result:&Value,input:&Value,view:&Value)->Result<(),Str
     if a!=b{return Err(bad());}
     Ok(())
 }
+// Verify the ACTUAL first Kernel Apply result as strictly as recovery.
+// A failed post-dispatch receipt check is OUTCOME_UNKNOWN, never a definite
+// non-write: the separate recovery path must read original Object + Event.
+fn verify_kernel_apply(result:&Value,input:&Value,view:&Value)->Result<(),String>{
+    let bad=||"CEN_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED".to_owned();
+    let workspace=&view["snapshot"]["workspaceId"];
+    let accepted=&input["acceptanceId"];
+    let wanted=input["revisionIds"].as_array().ok_or_else(bad)?;
+    let receipt=&result["originalKernelReceipt"];
+    let committed=&receipt["object"];
+    let event=&receipt["event"];
+    let read=&result["originalKernelReadback"]["object"];
+    let effect=event["idempotency_key"].as_str().ok_or_else(bad)?;
+    if result["kernelWriteReadback"]!="CONFIRMED"||
+       result["reconciliationLedgerSync"]!="OWNER_FOLLOWUP_REQUIRED"||
+       result["externalProductAcceptance"]!="NOT_ACCEPTED"||
+       !validate_hex(Some(effect))||
+       receipt["workspace_id"]!=*workspace||
+       committed["workspace_id"]!=*workspace||
+       read["workspace_id"]!=*workspace||
+       !read["object_id"].as_str().is_some_and(t3::valid_identifier)||
+       read["object_id"]!=format!("result:applied:{effect}")||
+       committed["object_id"]!=read["object_id"]||
+       committed["revision"]!=read["revision"]||
+       !read["revision"].as_u64().is_some_and(|x|x>0&&x<=9_007_199_254_740_991)||
+       read["schema_id"]!="iwxa.admin.applied-results"||
+       committed["schema_id"]!=read["schema_id"]||
+       read["schema_version"]!="1.0.0"||
+       event["workspace_id"]!=*workspace||
+       !event["event_id"].as_str().is_some_and(t3::valid_identifier)||
+       event["event_type"]!="iwxa.admin.result.applied"||
+       (!event["object_id"].is_null()&&event["object_id"]!=read["object_id"])||
+       (!event["revision"].is_null()&&event["revision"]!=read["revision"])||
+       event["payload"]["reconciliation_acceptance_id"]!=*accepted||
+       read["data"]["schema"]!="IWXA_T3_ADMIN_APPLIED_RESULTS/1"{
+        return Err(bad());
+    }
+    let actual=event["payload"]["reconciliation_revision_ids"]
+        .as_array().ok_or_else(bad)?;
+    let records=read["data"]["records"].as_array().ok_or_else(bad)?;
+    if actual.len()!=wanted.len()||records.len()!=wanted.len()||
+       actual.iter().any(|id|!validate_hex(id.as_str())) {
+        return Err(bad());
+    }
+    let mut requested:Vec<_>=wanted.iter().filter_map(Value::as_str).collect();
+    let mut observed:Vec<_>=actual.iter().filter_map(Value::as_str).collect();
+    if requested.len()!=wanted.len()||observed.len()!=actual.len(){
+        return Err(bad());
+    }
+    requested.sort_unstable();
+    observed.sort_unstable();
+    if requested!=observed{return Err(bad());}
+    for revision in &requested{
+        if records.iter().filter(|record|
+            record["acceptanceId"]==*accepted&&
+            record["resultRevisionId"]==**revision&&
+            record["workspaceId"]==*workspace&&
+            record["organizationId"]==view["snapshot"]["organizationId"]&&
+            record["result"].as_str().is_some()
+        ).count()!=1{return Err(bad());}
+    }
+    Ok(())
+}
 fn source_file(path:&Path)->Result<(),String>{
     let meta=fs::symlink_metadata(path).map_err(|_|"CEN_D3_FILE_UNREADABLE")?;
     if meta.file_type().is_symlink()||!meta.is_file()||meta.len()==0||meta.len()>MAX_IWXA||
@@ -456,6 +519,9 @@ pub async fn center_corporate_action(
         // Age decryption is NOT admission. The original T3 recipient must
         // prove it received the same signed archive as the age tool verified.
         let mut result=output["result"].clone();
+        if operation=="d3ApplyAccepted"{
+            verify_kernel_apply(&result,&input,&observed)?;
+        }
         if operation=="d3RecoverApplied"{
             verify_kernel_recovery(&result,&input,&observed)?;
         }
@@ -556,6 +622,65 @@ mod tests{
         assert!(check_bound_request(&json!({"acceptanceId":"c".repeat(64),
             "revisionIds":["d".repeat(64),"d".repeat(64)]}),
             "d3ApplyAccepted").is_err());
+    }
+    #[test]
+    fn first_kernel_apply_requires_original_committed_object_event_and_result(){
+        let effect="a".repeat(64);
+        let accepted="b".repeat(64);
+        let revision="c".repeat(64);
+        let view=json!({"snapshot":{"workspaceId":"workspace:1",
+            "organizationId":"org:1"}});
+        let selection=json!({"acceptanceId":accepted,
+            "revisionIds":[revision]});
+        let object_id=format!("result:applied:{effect}");
+        let mut result=json!({
+            "kernelWriteReadback":"CONFIRMED",
+            "reconciliationLedgerSync":"OWNER_FOLLOWUP_REQUIRED",
+            "externalProductAcceptance":"NOT_ACCEPTED",
+            "originalKernelReceipt":{
+                "workspace_id":"workspace:1",
+                "object":{"workspace_id":"workspace:1",
+                    "object_id":object_id,"revision":1,
+                    "schema_id":"iwxa.admin.applied-results"},
+                "event":{"event_id":"event:original-1",
+                    "workspace_id":"workspace:1",
+                    "object_id":format!("result:applied:{effect}"),
+                    "revision":1,
+                    "event_type":"iwxa.admin.result.applied",
+                    "idempotency_key":effect,
+                    "payload":{"reconciliation_acceptance_id":accepted,
+                        "reconciliation_revision_ids":[revision]}}
+            },
+            "originalKernelReadback":{"object":{
+                "workspace_id":"workspace:1",
+                "object_id":format!("result:applied:{effect}"),
+                "revision":1,"schema_id":"iwxa.admin.applied-results",
+                "schema_version":"1.0.0",
+                "data":{"schema":"IWXA_T3_ADMIN_APPLIED_RESULTS/1",
+                    "records":[{"acceptanceId":accepted,
+                        "resultRevisionId":revision,
+                        "workspaceId":"workspace:1","organizationId":"org:1",
+                        "result":"Результат принят"}]}}}
+        });
+        assert!(verify_kernel_apply(&result,&selection,&view).is_ok());
+        result["originalKernelReceipt"]["event"]["idempotency_key"]
+            =json!("d".repeat(64));
+        assert!(verify_kernel_apply(&result,&selection,&view).is_err());
+        result["originalKernelReceipt"]["event"]["idempotency_key"]
+            =json!(effect);
+        result["originalKernelReadback"]["object"]["data"]["records"][0]
+            ["resultRevisionId"]=json!("e".repeat(64));
+        assert!(verify_kernel_apply(&result,&selection,&view).is_err());
+        result["originalKernelReadback"]["object"]["data"]["records"][0]
+            ["resultRevisionId"]=selection["revisionIds"][0].clone();
+        result["originalKernelReceipt"]["event"]["payload"]
+            ["reconciliation_acceptance_id"]=json!("f".repeat(64));
+        assert!(verify_kernel_apply(&result,&selection,&view).is_err());
+        result["originalKernelReceipt"]["event"]["payload"]
+            ["reconciliation_acceptance_id"]=selection["acceptanceId"].clone();
+        result["originalKernelReadback"]["object"]["workspace_id"]
+            =json!("workspace:foreign");
+        assert!(verify_kernel_apply(&result,&selection,&view).is_err());
     }
     #[test]
     fn recovery_requires_exact_original_event_object_and_acceptance_proof(){
