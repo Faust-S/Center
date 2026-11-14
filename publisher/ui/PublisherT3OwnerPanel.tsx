@@ -23,6 +23,9 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
  const [licenses,setLicenses]=useState<License[]>([]);
  const [inventoryTotal,setInventoryTotal]=useState(0);
  const [inventoryTruncated,setInventoryTruncated]=useState(false);
+ const [lookupText,setLookupText]=useState('');
+ const [lookupTarget,setLookupTarget]=useState('');
+ const [lookupMatches,setLookupMatches]=useState<number|null>(null);
  const [licenseId,setLicenseId]=useState('');
  const [ageRecipientEntry,setAgeRecipientEntry]=useState<{licenseId:string;value:string}>({
    licenseId:'',value:''
@@ -69,14 +72,14 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
   if(!eligible.some((p:any)=>p.id===proposalId))
     setProposalId('');
  },[draft,proposalId]);
- type InventoryReadback={entries:License[];truncated:boolean};
- async function inventory():Promise<InventoryReadback>{
-   const value=await invoke('publisher_t3_inventory');
+ type InventoryReadback={entries:License[];truncated:boolean;matches?:number};
+ const validId=(v:unknown)=>typeof v==='string'&&
+   /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(v);
+ function checkedInventory(value:any,exact?:string):License[]{
    if(value?.operation!=='TEST_INVENTORY'||value.activeSeats!==0||
-      value.productionActivation!==false||!Array.isArray(value.licenses))
-      throw Error('PUBLISHER_T3_INVENTORY_INVALID');
+      value.productionActivation!==false||!Array.isArray(value.licenses)||
+      value.licenses.length>48)throw Error('PUBLISHER_T3_INVENTORY_INVALID');
    const entries=value.licenses as License[];
-   const validId=(s:unknown)=>typeof s==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/.test(s);
    if(entries.some(e=>!e||!validId(e.licenseId)||!validId(e.requestId)||
       !validId(e.issuerAuthorityId)||!validId(e.organizationId)||!validId(e.productId)||
       !['NOT_ACTIVATED','ACTIVE','SUSPENDED','REVOKED'].includes(e.status)||
@@ -85,13 +88,33 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
       e.activeSeats!==0)||
       new Set(entries.map(e=>e.licenseId)).size!==entries.length)
       throw Error('PUBLISHER_T3_INVENTORY_ENTRY_INVALID');
-   const truncated=value.truncated===true;
+   if(exact!==undefined&&
+      (value.lookupId!==exact||!Number.isSafeInteger(value.matches)||
+       value.matches<entries.length||value.matches<0||
+       entries.some(e=>e.licenseId!==exact&&e.requestId!==exact&&e.organizationId!==exact)))
+      throw Error('PUBLISHER_T3_EXACT_LOOKUP_INVALID');
+   return entries;
+ }
+ async function inventory(search=lookupTarget):Promise<InventoryReadback>{
+   const recent=await invoke('publisher_t3_inventory');
+   const latest=checkedInventory(recent);
+   let entries=latest,matches:number|undefined;
+   if(search){
+     const result=await invoke('publisher_t3_inventory',{lookupId:search});
+     const found=checkedInventory(result,search);
+     matches=result.matches;
+     // Read only the ORIGINAL signed ledger; never create another store.
+     const byId=new Map(latest.map(x=>[x.licenseId,x] as const));
+     for(const record of found)byId.set(record.licenseId,record);
+     entries=[...byId.values()];
+   }
    setLicenses(entries);
-   setInventoryTotal(Number.isSafeInteger(value.total)&&value.total>=entries.length?
-     value.total:entries.length);
-   setInventoryTruncated(truncated);
+   setInventoryTotal(Number.isSafeInteger(recent.total)&&recent.total>=latest.length?
+     recent.total:latest.length);
+   setInventoryTruncated(recent.truncated===true);
+   setLookupMatches(matches??null);
    setLicenseId(previous=>entries.some(x=>x.licenseId===previous)?previous:'');
-   return {entries,truncated};
+   return {entries,truncated:recent.truncated===true,matches};
  }
  useEffect(()=>{
    let alive=true;
@@ -129,11 +152,38 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
    try{
      await inventory();setNeedsRefresh(false);
      setMessage('Журнал T3 обновлён. Подписи и права не изменены.');
-   }catch(e){setFailure('Не удалось обновить журнал T3: '+error(e));}
+   }catch(e){setNeedsRefresh(true);
+     setFailure('Не удалось обновить журнал T3: '+error(e));}
+   finally{setBusy(false);}
+ }
+ async function findLicense(){
+   if(busy||!available||needsRefresh)return;
+   const search=lookupText.trim();
+   if(!validId(search)){
+     setFailure('Введите корректный ID лицензии, запроса или организации.');return;
+   }
+   setBusy(true);setFailure('');setMessage('');
+   try{
+     const reply=await inventory(search);
+     setLookupTarget(search);setNeedsRefresh(false);
+     // An organization can have many signed TEST licenses. Do not choose
+     // one arbitrarily: auto-select only a unique ORIGINAL T3 match.
+     const found=reply.matches===1?reply.entries.find(x=>x.licenseId===search||
+       x.requestId===search||x.organizationId===search):undefined;
+     // Never leave a different signed record selected after a failed
+     // lookup, or the next export/revoke could target the wrong license.
+     setAgeRecipientEntry({licenseId:'',value:''});
+     setLicenseId(found?.licenseId??'');
+     setStatus('');setRevokePending(null);
+     setMessage(reply.matches?
+       'Поиск в исходном T3: найдено записей '+reply.matches+'.':
+       'В исходном T3 нет TEST-лицензии с таким идентификатором.');
+   }catch(e){setNeedsRefresh(true);
+     setFailure('Точный поиск в T3 не выполнен: '+error(e));}
    finally{setBusy(false);}
  }
  type ActionOutcome={message:string;confirm?:(readback:InventoryReadback)=>boolean;
-  readbackMismatchMessage?:string};
+  readbackMismatchMessage?:string;readbackLookupId?:string};
  async function operation(action:()=>Promise<ActionOutcome>,mutatesLedger=false){
    if(busy||!available||needsRefresh)return;
    setBusy(true);setFailure('');setMessage('');
@@ -142,7 +192,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
      // A committed owner action can outlive an interrupted inventory read.
      // Never show success before verifying the original T3 ledger.
      let readback:InventoryReadback;
-     try{readback=await inventory();}
+     try{readback=await inventory(outcome.readbackLookupId??lookupTarget);}
      catch(e){
        setNeedsRefresh(true);
        setFailure('Не удалось перечитать журнал T3. Операция могла выполниться: обновите журнал перед повтором. '+error(e));
@@ -153,6 +203,10 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
        setFailure(outcome.readbackMismatchMessage||
          'Запись T3 не совпала с результатом операции. Обновите журнал перед повтором.');
        return;
+     }
+     if(outcome.readbackLookupId){
+       setLookupTarget(outcome.readbackLookupId);
+       setLookupText(outcome.readbackLookupId);
      }
      setMessage(outcome.message);
    }catch(e){
@@ -195,6 +249,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
        throw Error('PUBLISHER_ADMIN_REQUEST_T3_ISSUE_INVALID');
      return {
        message:'Запрос Admin Center подписан исходным T3. Выберите запись ниже, установите статус и экспортируйте .iwxa.',
+       readbackLookupId:request.requestId,
        readbackMismatchMessage:'Результат подписи не найден в журнале T3. Проверьте исходный журнал перед повтором.',
        confirm:({entries}:InventoryReadback)=>entries.some(x=>
          x.licenseId===result.licenseId&&x.requestId===request.requestId&&
@@ -218,6 +273,7 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
        throw Error('PUBLISHER_T3_STATUS_RECEIPT_INVALID');
      return {
        message:'Новый подписанный TEST-статус сохранён в T3: '+requested,
+       readbackLookupId:target,
        confirm:({entries}:InventoryReadback)=>entries.some(x=>x.licenseId===target&&
          x.status===requested&&x.sequence===receipt.sequence)
      };
@@ -287,9 +343,10 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
              message:result.outcome==='ALREADY_ISSUED'?
                'Ранее выпущенная TEST-лицензия найдена в журнале T3.':
                'TEST-лицензия подписана T3 и сохранена в журнале издателя.',
+             readbackLookupId:request.requestId,
              readbackMismatchMessage:result.outcome==='ALREADY_ISSUED'?
-               'T3 сообщил о ранее выпущенной TEST-лицензии, но её запись не видна в текущем журнале. '+
-               'Показаны только последние записи: результат не подтверждён. '+
+               'T3 сообщил о ранее выпущенной TEST-лицензии, но точный поиск её не подтвердил: '+
+               'результат не подтверждён. '+
                'Проверьте полный журнал оригинального T3 перед повтором.':
                'T3 сообщил о новом TEST-выпуске, но запись не найдена при повторном чтении. '+
                'Результат не подтверждён. Проверьте оригинальный T3 перед повтором.',
@@ -353,10 +410,23 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
      <h4>Подписанные TEST-лицензии T3</h4>
      <p className="muted" data-testid="publisher-t3-inventory-count">
        В реестре: {inventoryTotal} TEST-записей.
-       {inventoryTruncated&&` Показаны последние ${licenses.length}.`}
+       {inventoryTruncated&&' Последние записи ограничены 48; старые доступны через точный поиск.'}
      </p>
-     <button type="button" className="secondary" data-testid="publisher-t3-refresh"
-       disabled={busy} onClick={()=>void refreshInventory()}>Обновить журнал</button>
+     <div className="actions">
+       <label>Поиск лицензии по ID, запросу или организации
+         <input type="text" data-testid="publisher-t3-lookup-input"
+           value={lookupText} onChange={e=>setLookupText(e.target.value)}
+           placeholder="ID из исходного T3" disabled={busy}/>
+       </label>
+       <button type="button" className="secondary" data-testid="publisher-t3-lookup"
+         disabled={busy||needsRefresh||!lookupText.trim()}
+         onClick={()=>void findLicense()}>Найти в T3</button>
+       <button type="button" className="secondary" data-testid="publisher-t3-refresh"
+         disabled={busy} onClick={()=>void refreshInventory()}>Обновить журнал</button>
+     </div>
+     {lookupMatches!==null&&<p className="muted" data-testid="publisher-t3-lookup-count">
+       По точному запросу: {lookupMatches} записей.
+     </p>
      {licenses.length===0?<p className="muted">{needsRefresh?
        'Журнал пока не прочитан.':'Пока нет выпущенных лицензий.'}</p>:
        <label>Лицензия
@@ -400,7 +470,8 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
               typeof receipt.packageSha256!=='string'||
               !/^[a-f0-9]{64}$/.test(receipt.packageSha256))
              throw Error('PUBLISHER_T3_EXPORT_RECEIPT_INVALID');
-           return {message:'Пакет .iwxa выпущен T3 и подтверждён повторным чтением.'};
+           return {message:'Пакет .iwxa выпущен T3 и подтверждён повторным чтением.',
+             readbackLookupId:licenseId};
          })}>Экспортировать подписанный .iwxa</button>
         <button className="secondary" type="button"
           data-testid="publisher-t3-export-age"
@@ -416,7 +487,8 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
                !/^[a-f0-9]{64}$/.test(receipt.packageSha256)||
                !/^[a-f0-9]{64}$/.test(receipt.ciphertextSha256))
               throw Error('PUBLISHER_T3_AGE_SIGNED_EXPORT_INVALID');
-            return {message:'Подписанная T3 TEST-лицензия зашифрована в .iwxa.age. Доставка и принятие получателем ещё не подтверждены.'};
+            return {message:'Подписанная T3 TEST-лицензия зашифрована в .iwxa.age. Доставка и принятие получателем ещё не подтверждены.',
+              readbackLookupId:licenseId};
           })}>Экспортировать подписанную .iwxa.age</button>
      </div>
      {revokeReady&&<div className="notice" data-testid="publisher-t3-revoke-confirmation" role="alert">

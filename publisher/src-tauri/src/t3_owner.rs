@@ -24,11 +24,23 @@ pub async fn publisher_t3_capabilities(app:AppHandle)->Result<Value,String>{
     Ok(v)
 }
 #[tauri::command]
-pub async fn publisher_t3_inventory(app:AppHandle)->Result<Value,String>{
-    let v=call(app,"inventory",vec![]).await?;
+pub async fn publisher_t3_inventory(app:AppHandle,lookup_id:Option<String>)->Result<Value,String>{
+    // The ORIGINAL Product Owner already supports bounded exact lookup for
+    // old signed TEST licenses. Do not copy its ledger into Publisher.
+    if lookup_id.as_deref().is_some_and(|id|!t3::valid_identifier(id)){
+        return Err("PUBLISHER_T3_INVENTORY_LOOKUP_INVALID".into());
+    }
+    let args=lookup_id.iter().cloned().collect();
+    let v=call(app,"inventory",args).await?;
     t3::validate_test_result(&v,"TEST_INVENTORY")?;
     if !v.get("licenses").is_some_and(Value::is_array){
         return Err("PUBLISHER_T3_INVENTORY_REQUIRED".into());
+    }
+    if let Some(id)=lookup_id.as_deref(){
+        if v.get("lookupId").and_then(Value::as_str)!=Some(id)||
+           v.get("matches").and_then(Value::as_u64).is_none(){
+            return Err("PUBLISHER_T3_INVENTORY_LOOKUP_MISMATCH".into());
+        }
     }
     Ok(v)
 }

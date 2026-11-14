@@ -92,9 +92,20 @@ try {
           window.__publisherMockFailNextInventory=false;
           throw Error('PUBLISHER_T3_TEMPORARY_INVENTORY_UNAVAILABLE');
         }
-        return {
-          operation:'TEST_INVENTORY',
-          licenses:JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]'),
+        const ledger=JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]');
+        const search=args?.lookupId;
+        if(search){
+          const matched=ledger.filter(x=>x.licenseId===search||
+            x.requestId===search||x.organizationId===search);
+          return {operation:'TEST_INVENTORY',
+            licenses:matched.slice(-48),matches:matched.length,lookupId:search,
+            total:ledger.length,truncated:matched.length>48,
+            activeSeats:0,productionActivation:false};
+        }
+        const cap=window.__publisherMockRecentCap??48;
+        return {operation:'TEST_INVENTORY',
+          licenses:ledger.slice(-cap),total:ledger.length,
+          truncated:ledger.length>cap,
           activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_issue'){
@@ -107,9 +118,11 @@ try {
           status:'NOT_ACTIVATED',sequence:0,activeSeats:0};
         const alreadyIssued=window.__publisherMockNextAlreadyIssued===true;
         window.__publisherMockNextAlreadyIssued=false;
-        if(!alreadyIssued&&!ledger.some(x=>x.requestId===req.requestId))ledger.push(entry);
+        const previous=ledger.find(x=>x.requestId===req.requestId);
+        const saved=previous??entry;
+        if(!alreadyIssued&&!previous)ledger.push(entry);
         sessionStorage.setItem('publisher-t3-mock-licenses',JSON.stringify(ledger));
-        return {operation:'TEST_ISSUE',outcome:alreadyIssued?'ALREADY_ISSUED':'ISSUED_NEW',licenseId:entry.licenseId,
+        return {operation:'TEST_ISSUE',outcome:alreadyIssued||!!previous?'ALREADY_ISSUED':'ISSUED_NEW',licenseId:saved.licenseId,
           requestId:req.requestId,activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_change_status'){
@@ -148,7 +161,12 @@ try {
   await page.goto('http://127.0.0.1:4175');
   assert.match(await page.locator('main').innerText(),/Подтверждённых релизов: 0/);
   assert.match(await page.locator('main').innerText(),/Подписанные лицензии PERSON учитывает отдельный журнал T3/);
+  assert.match(await page.locator('main').innerText(),/Статус выдачи — в журнале T3/);
+  assert.match(await page.locator('.publisher-app .inspector').textContent(),/Подписанные лицензии[\s\S]*Журнал T3/);
+  assert.equal(await page.getByText('Действительные лицензии',{exact:true}).count(),0,
+    'Local unsigned preparations cannot assert that original T3 has issued no licenses');
   checks.push('empty-owner-first-run-no-synthetic-license');
+  checks.push('publisher-overview-reports-original-T3-as-license-owner');
   await page.setViewportSize({width:1024,height:640});
   const footerVisible=await page.locator('.publisher-app .sidebar-bottom p').last().evaluate(el=>{
     const r=el.getBoundingClientRect(),area=el.closest('.sidebar').getBoundingClientRect();
@@ -643,6 +661,75 @@ try {
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')),
     draftsBefore,'Admin request must not mutate local Publisher drafts');
   checks.push('admin-unsigned-request-signing-through-original-T3-owner');
+  // The old signed request is no longer in the short recent list, but the
+  // ORIGINAL owner returns ALREADY_ISSUED. Exact native readback must
+  // recover its real ID and prevent a second signed issue.
+  await page.evaluate(()=>{
+    window.__publisherMockRecentCap=1;
+    window.__publisherMockNextAlreadyIssued=true;
+  });
+  await page.getByTestId('publisher-t3-refresh').click();
+  await page.getByText('Журнал T3 обновлён. Подписи и права не изменены.').waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-issue').isEnabled(),true);
+  await page.getByTestId('publisher-t3-issue').click();
+  await ownerPanel.getByText('Ранее выпущенная TEST-лицензия найдена в журнале T3.').waitFor();
+  assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
+  assert.equal(JSON.parse(await page.evaluate(()=>
+    sessionStorage.getItem('publisher-t3-mock-licenses'))).length,2);
+  checks.push('old-test-already-issued-recovers-with-exact-owner-lookup');
+  // The ORIGINAL T3 exposes a bounded exact lookup for any historical
+  // signed TEST record. The Publisher must find, select and export it even
+  // when it is no longer in the recent native inventory window.
+  const historicalTest={...externalLedger[0],
+    licenseId:'license:test:historical:42',requestId:'request:archived:42',
+    organizationId:'org:archived:42',status:'ACTIVE',sequence:3};
+  const historicalOther={...historicalTest,
+    licenseId:'license:test:historical:43',requestId:'request:archived:43'};
+  await page.evaluate(records=>{
+    const existing=JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]');
+    existing.unshift(...records);
+    sessionStorage.setItem('publisher-t3-mock-licenses',JSON.stringify(existing));
+    window.__publisherMockRecentCap=2;
+  },[historicalTest,historicalOther]);
+  await page.getByTestId('publisher-t3-refresh').click();
+  await page.getByText('Журнал T3 обновлён. Подписи и права не изменены.').waitFor();
+  const historicalLicenseChoice=ownerPanel.getByRole('combobox',{name:'Лицензия',exact:true});
+  assert.equal(await historicalLicenseChoice.locator('option[value="license:test:historical:42"]').count(),0,
+    'The historical signed TEST record must not be in the last-two native view');
+  await page.getByTestId('publisher-t3-lookup-input').fill(historicalTest.requestId);
+  await page.getByTestId('publisher-t3-lookup').click();
+  await ownerPanel.getByText('Поиск в исходном T3: найдено записей 1.').waitFor();
+  assert.equal(await historicalLicenseChoice.inputValue(),historicalTest.licenseId);
+  assert.equal(await page.getByTestId('publisher-t3-export').isEnabled(),true);
+  await page.getByTestId('publisher-t3-export').click();
+  await page.getByText('Пакет .iwxa выпущен T3 и подтверждён повторным чтением.').waitFor();
+  assert.equal(await historicalLicenseChoice.inputValue(),historicalTest.licenseId,
+    'Export readback must keep the exact historical signed record selected');
+  await ownerPanel.getByRole('combobox',{name:'Новый TEST-статус'}).selectOption('SUSPENDED');
+  await page.getByTestId('publisher-t3-change-status').click();
+  await page.getByText('Новый подписанный TEST-статус сохранён в T3: SUSPENDED').waitFor();
+  assert.equal(await historicalLicenseChoice.inputValue(),historicalTest.licenseId,
+    'Original T3 status readback must keep the historical record selected');
+  const historicalReadback=JSON.parse(await page.evaluate(()=>
+    sessionStorage.getItem('publisher-t3-mock-licenses')))
+    .find(x=>x.licenseId===historicalTest.licenseId);
+  assert.equal(historicalReadback.status,'SUSPENDED');
+  assert.equal(historicalReadback.sequence,historicalTest.sequence+1);
+  checks.push('test-original-T3-exact-old-license-readback-export-and-signed-status');
+  await page.getByTestId('publisher-t3-lookup-input').fill(historicalTest.organizationId);
+  await page.getByTestId('publisher-t3-lookup').click();
+  await ownerPanel.getByText('Поиск в исходном T3: найдено записей 2.').waitFor();
+  assert.equal(await historicalLicenseChoice.inputValue(),'',
+    'Ambiguous organization lookup must never auto-select a signed license');
+  assert.equal(await page.getByTestId('publisher-t3-change-status').isDisabled(),true);
+  checks.push('multiple-old-test-licenses-require-explicit-recipient-selection');
+  await page.evaluate(records=>{
+    const ids=new Set(records.map(x=>x.licenseId));
+    const entries=JSON.parse(sessionStorage.getItem('publisher-t3-mock-licenses')||'[]');
+    sessionStorage.setItem('publisher-t3-mock-licenses',
+      JSON.stringify(entries.filter(x=>!ids.has(x.licenseId))));
+    window.__publisherMockRecentCap=null;
+  },[historicalTest,historicalOther]);
   await page.getByRole('button',{name:'Лицензии'}).click();
 
   await page.reload();

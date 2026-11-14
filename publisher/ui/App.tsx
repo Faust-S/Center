@@ -466,7 +466,7 @@ export default function App(){
          <div className="metrics">
            <div className="card metric publisher-metric"><span>Продукты</span><strong>{state.products.length}</strong><small>Каталог в подготовке</small></div>
            <div className="card metric publisher-metric"><span>Клиенты</span><strong>{state.holders.length}</strong><small>Привязанные идентификаторы</small></div>
-           <div className="card metric publisher-metric"><span>Черновики запросов</span><strong>{state.proposals.length}</strong><small>Без выданных лицензий</small></div>
+           <div className="card metric publisher-metric"><span>Черновики запросов</span><strong>{state.proposals.length}</strong><small>Статус выдачи — в журнале T3</small></div>
          </div>
          <section className="card padded"><strong>Тарифы и лимиты ({state.tariffs.length})</strong><p className="muted">Организации и физические лица получают разные маршруты выдачи. Сохранённые тарифы пока не являются лицензиями.</p><button className="secondary" type="button" onClick={()=>go('tariffs')}>Открыть тарифы</button></section>
           <section className="hero publisher-hero">
@@ -645,7 +645,7 @@ export default function App(){
      <footer className="footer"><span>IWXA Publisher · отдельная owner-side программа</span><span>Локальные подготовительные данные · не лицензия и не release authority</span></footer>
    </main>
    <aside className="inspector"><div className="eyebrow">ИЗДАТЕЛЬСКАЯ ПАНЕЛЬ</div><h2>TEST и подготовка</h2>
-     <div className="inspector-card"><strong>Действительные лицензии</strong><p>0</p><small>Подписанные TEST-лицензии не предоставляют коммерческих мест.</small></div>
+     <div className="inspector-card"><strong>Подписанные лицензии</strong><p>Журнал T3</p><small>Состояние PERSON и TEST определяется исходным издателем. Коммерческих TEST-мест: 0.</small></div>
      <div className="inspector-card"><strong>Подтверждённые релизы</strong><p>0</p><small>SHA-256 сам по себе не является решением о публикации.</small></div>
      <div className="inspector-card"><strong>Разделение полномочий</strong><small>Publisher выдаёт лицензии. Admin Center только потребляет подтверждённые права и распределяет места.</small></div>
    </aside>
