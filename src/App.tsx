@@ -443,7 +443,16 @@ export default function App() {
       </section>}
 
       {org && page==='work' && <>
-        <div className="section-head"><p className="muted">Черновик не считается выданным поручением.</p><button className="primary" disabled={!org.workspaces.length||!!editor} onClick={()=>startAssignment()}>＋ Новое поручение</button></div>
+        <div className="section-head"><p className="muted">Черновик не считается выданным поручением.</p>
+          <div className="actions">
+            {!editor&&org.assignments.length>0&&<button className="secondary" type="button"
+              data-testid="open-signed-t3-task" onClick={()=>go('results')}>
+              Подписать поручение T3
+            </button>}
+            <button className="primary" disabled={!org.workspaces.length||!!editor}
+              onClick={()=>startAssignment()}>＋ Новое поручение</button>
+          </div>
+        </div>
         {editor ? <form className="card form-panel" data-testid="assignment-form" onSubmit={e=>{e.preventDefault();if(command({type:'SAVE_ASSIGNMENT',organizationId:org.id,...editor})){editorBaselineRef.current=null;setEditor(null);}}}>
           <div className="section-head"><h2>{editor.assignmentId?'Редактировать поручение':'Новое поручение'}</h2><button type="button" className="quiet" onClick={closeEditor}>Закрыть редактор</button></div>
           <label>Что нужно сделать<input autoFocus value={editor.title} maxLength={200} required onChange={e=>editorField('title',e.target.value)} data-testid="task-title"/></label>
@@ -473,7 +482,10 @@ export default function App() {
               onClick={confirmAtlasWorkRevision}>
               Проверить и обновить редакцию ссылки
             </button>}
-          <div className="form-footer"><span className="muted">Выдача через T3 пока не выполняется.</span><button className="primary" data-testid="save-assignment">Сохранить черновик</button></div>
+          <div className="form-footer"><span className="muted">
+           Сохраните черновик, затем откройте «Результаты» и выпустите подписанную Task через установленный T3.
+           Черновик не является подписанным поручением.
+          </span><button className="primary" data-testid="save-assignment">Сохранить черновик</button></div>
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 

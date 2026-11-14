@@ -20,6 +20,10 @@ const why=(e:unknown)=>{
    return 'Файл .iwxa с таким именем уже существует. Выберите новое имя: исходный подписанный файл не перезаписывается.';
  if(message.includes('T3_D3_DESTINATION_UNAVAILABLE'))
    return 'Папка для сохранения .iwxa недоступна. Выберите другой каталог.';
+ if(message.includes('CEN_D3_ATLAS_OWNER_NOT_AVAILABLE'))
+   return 'Установленный Atlas не открыл источник проекта. Не подписывайте Task по старой копии. Откройте проект в Atlas и проверьте связь.';
+ if(message.includes('CEN_D3_ATLAS_SOURCE_REVISION_STALE'))
+   return 'Исходный план Atlas изменён или работа отсутствует. Обновите связь поручения с актуальной редакцией до подписания Task.';
  if(/CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN|T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN/.test(message))
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
