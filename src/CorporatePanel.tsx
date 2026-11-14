@@ -6,7 +6,7 @@ import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerp
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
 type Invoke=(command:string,args?:Record<string,unknown>)=>Promise<any>;
-type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;assignments:Array<{id:string;title:string;workspaceId?:string;description?:string;criteria?:string;dueDate?:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
+type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;assignments:Array<{id:string;title:string;workspaceId?:string;assigneeId?:string;editNumber?:number;description?:string;criteria?:string;dueDate?:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
 const hex=/^[a-f0-9]{64}$/;
 const why=(e:unknown)=>{
  const message=e instanceof Error?e.message:String(e);
@@ -177,7 +177,8 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
     run={act} busy={busy} invoke={invoke} organizationName={organization.name}
     assignmentDrafts={organization.assignments.filter(a=>
       a.workspaceId===owner.snapshot.workspaceId).map(a=>({
-        id:a.id,title:a.title,description:a.description??'',
+        id:a.id,title:a.title,assigneeId:a.assigneeId??'',
+        editNumber:a.editNumber??0,description:a.description??'',
         criteria:a.criteria??'',dueDate:a.dueDate??'',
         atlasRef:a.atlasRef??null
       }))}/> : <>

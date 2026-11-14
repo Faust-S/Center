@@ -11,7 +11,8 @@ type SignedTask={taskId:string;taskRevisionId:string;packageSha256:string;summar
 type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   contextId:string;contextEpoch:number;d3ApplyAvailable:boolean;
   d3TaskIssueAvailable?:boolean;tasks?:SignedTask[];totalTasks?:number}};
-type AssignmentDraft={id:string;title:string;description:string;criteria:string;dueDate:string;
+type AssignmentDraft={id:string;title:string;assigneeId:string;editNumber:number;
+ description:string;criteria:string;dueDate:string;
  atlasRef:{projectId:string;revision:string;workId?:string}|null};
 type AgeStatus={operation:'AGE_STATUS';available:boolean;recipient:string|null;
   toolchain:{ready:boolean;reason?:string};provider:string;admitted:false};
@@ -37,6 +38,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [hash,setHash]=useState('');
  const [taskText,setTaskText]=useState('');
  const [draftId,setDraftId]=useState('');
+ const [draftSnapshot,setDraftSnapshot]=useState('');
  const [taskId,setTaskId]=useState('');
  const [preview,setPreview]=useState<any>(null);
  const [confirmed,setConfirmed]=useState(false);
@@ -93,16 +95,22 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  useEffect(()=>{
    if(previous.current!==sessionKey){
    previous.current=sessionKey;setHash('');setInbox(null);setTaskId('');
-   setLastReceiveState(null);setDraftId('');reset();
+   setLastReceiveState(null);setDraftId('');setDraftSnapshot('');reset();
  }
  },[sessionKey]);
  const choose=(value:string)=>{setHash(value);setLastReceiveState(null);reset();};
  const signedTasks=Array.isArray(session.tasks)?session.tasks.filter(t=>
    opPattern.test(t.taskId)&&hex(t.taskRevisionId)&&hex(t.packageSha256)):[];
  const selectedTask=signedTasks.find(t=>t.taskId===taskId)??signedTasks.at(-1);
+ const chosenDraft=assignmentDrafts.find(a=>a.id===draftId);
+ const draftAssigneeUnbound=!!chosenDraft?.assigneeId;
+ const draftStale=!!draftId&&(
+   !chosenDraft||JSON.stringify(chosenDraft)!==draftSnapshot);
  const createSignedTask=()=>run('Подписанная Task сохранена. Передача получателю ещё не подтверждена.',async()=>{
    if(session.d3TaskIssueAvailable!==true||!taskText.trim()||
      taskText.length>10000)throw Error('CEN_D3_SIGNED_TASK_TEXT_REQUIRED');
+   if(draftStale)throw Error('CEN_D3_DRAFT_CHANGED_BEFORE_SIGNING');
+   if(draftAssigneeUnbound)throw Error('CEN_D3_DRAFT_ASSIGNEE_NOT_SIGNED');
    // A draft Atlas link is not automatically a valid current source. Before
    // original T3 signs it, reread the installed Atlas Desktop owner in its
    // existing fixed-path READ_ONLY mode, never a cached/selected file copy.
@@ -125,7 +133,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      !opPattern.test(result.taskId)||!hex(result.taskRevisionId)||
      !hex(result.packageSha256)||result.recipientId!==session.actorId)
      throw Error('CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN');
-   setTaskText('');setDraftId('');
+   setTaskText('');setDraftId('');setDraftSnapshot('');
  });
  const exportTask=()=>run('Оригинальный подписанный .iwxa сохранён. Доставка остаётся неподтверждённой.',async()=>{
    if(!selectedTask)throw Error('CEN_D3_ORIGINAL_TASK_SELECTION_REQUIRED');
@@ -292,6 +300,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        const id=e.target.value;
        setDraftId(id);
        const selected=assignmentDrafts.find(a=>a.id===id);
+       setDraftSnapshot(selected?JSON.stringify(selected):'');
        if(selected){
          const atlas=selected.atlasRef;
          const content=[selected.title,selected.description,
@@ -307,6 +316,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       {assignmentDrafts.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}
      </select>
     </label>}
+    {draftAssigneeUnbound&&<p role="status" data-testid="d3-unbound-draft-assignee">
+      В черновике выбран сотрудник, но его отдельная подписанная личность T3
+      не подключена. Нельзя выдавать поручение локальному руководителю вместо него.
+      Для этого черновика сначала требуется организационное подключение сотрудника.
+    </p>}
+    {draftStale&&<p role="status" data-testid="d3-draft-changed">
+      Черновик изменился после выбора. Выберите его повторно перед подписанием.
+    </p>}
     <label>Поручение и критерии результата
      <textarea data-testid="d3-task-text" rows={3} maxLength={10000}
       value={taskText} onChange={e=>setTaskText(e.target.value)}
@@ -314,7 +331,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     </label>
     <div className="actions">
      <button className="primary" data-testid="d3-create-task"
-      disabled={busy||!taskText.trim()} onClick={createSignedTask}>
+      disabled={busy||!taskText.trim()||draftAssigneeUnbound||draftStale}
+      onClick={createSignedTask}>
       Подписать и сохранить Task
      </button>
      <button className="secondary" data-testid="d3-export-invitation"
