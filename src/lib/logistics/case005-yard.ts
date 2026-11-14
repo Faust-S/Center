@@ -359,13 +359,13 @@ export function simulateYard(input:YardConfig,mode:YardMode):YardResult{
     const waitingOrders=input.orders.filter(o=>o.day<=day&&!completed.has(o.id))
       .map(o=>o.id);
     orderDelayDays+=waitingOrders.length;
-    const unfilledRub=waitingOrders.length*input.lostServiceRubPerOrderDay;
+    const dayUnfilledRub=waitingOrders.length*input.lostServiceRubPerOrderDay;
     const storageRubDay=round((total(stock)+staged.reduce((n,t)=>n+units(t.lines),0))*
       input.holdingCostRubPerUnitDay);
     const transport=actual.totalCostRub;
-    let dayTotal=round(costDock+costWait+storageRubDay+transport+unfilledRub);
+    const dayTotal=round(costDock+costWait+storageRubDay+transport+dayUnfilledRub);
     handlingRub+=costDock;demurrageRub+=costWait;
-    storageRub+=storageRubDay;transportRub+=transport;unfilledRub+=unfilledRub;
+    storageRub+=storageRubDay;transportRub+=transport;unfilledRub+=dayUnfilledRub;
     const stagedTotal:Record<string,number>={},pendingReturn:Record<string,number>={};
     for(const item of staged)for(const line of item.lines)add(stagedTotal,line.skuId,line.units);
     for(const item of customerReturns)add(pendingReturn,item.skuId,item.units);
@@ -399,7 +399,7 @@ export function simulateYard(input:YardConfig,mode:YardMode):YardResult{
       waitingOrders,queueNextDay:[...pendingSupplier],documentsHeld:incoming
         .filter(x=>x.status==="document-hold").map(x=>x.id),
       dockingRub:round(costDock),demurrageRub:round(costWait),
-      storageRub:storageRubDay,transportRub:transport,unfilledRub,
+      storageRub:storageRubDay,transportRub:transport,unfilledRub:dayUnfilledRub,
       totalRub:dayTotal});
   }
   const outstandingOrders=input.orders.filter(o=>!completed.has(o.id)).map(o=>o.id);
