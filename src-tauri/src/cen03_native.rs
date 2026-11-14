@@ -37,6 +37,18 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               !s.trim().is_empty()&&s.len()<=10000) {
               return Err("CEN_D3_SIGNED_TASK_TEXT_REQUIRED".into());
           }
+          if !input["taskId"].as_str().is_some_and(|s|
+              s.len()>5&&s.len()<=105&&s.starts_with("task:")&&
+              s[5..].bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-')){
+              return Err("CEN_D3_ORIGINAL_TASK_OPERATION_ID_REQUIRED".into());
+          }
+      },
+      "d3TaskReadback"=>{
+          if !input["taskId"].as_str().is_some_and(|s|
+              s.len()>5&&s.len()<=105&&s.starts_with("task:")&&
+              s[5..].bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-')){
+              return Err("CEN_D3_ORIGINAL_TASK_OPERATION_ID_REQUIRED".into());
+          }
       },
       "d3ExportTask"=>{
           if !input["taskId"].as_str().is_some_and(t3::valid_identifier) {
@@ -401,8 +413,13 @@ mod tests{
             "d3Preview").is_ok());
         assert!(check_bound_request(&json!({"packageSha256":"Z".repeat(64)}),
             "d3Preview").is_err());
-        assert!(check_bound_request(&json!({"task":"Подготовить смету"}),
+        assert!(check_bound_request(&json!({"task":"Подготовить смету",
+            "taskId":"task:11111111-2222-3333-4444-555555555555"}),
             "d3CreateTask").is_ok());
+        assert!(check_bound_request(&json!({"taskId":"task:11111111"}),
+            "d3TaskReadback").is_ok());
+        assert!(check_bound_request(&json!({"task":"Подготовить смету"}),
+            "d3CreateTask").is_err());
         assert!(check_bound_request(&json!({"task":"  "}),
             "d3CreateTask").is_err());
         assert!(check_bound_request(&json!({"taskId":"task:one"}),
