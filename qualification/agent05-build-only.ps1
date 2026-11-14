@@ -8,14 +8,32 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
-$script:BuildStage='PRECHECK'
+$script:BuildStage='PRECHECK_PLATFORM'
 trap {
-    # Public logs expose only a bounded stage, never package data or paths.
+    # Only finite, non-sensitive failure categories leave the build process.
+    # Never print an exception, a private path or a Git stdout/stderr payload.
+    $known = @(
+        'agent05_build_windows_required',
+        'agent05_build_output_inside_checkout_forbidden',
+        'agent05_build_output_must_not_exist',
+        'agent05_build_git_identity_failed',
+        'agent05_build_private_source_changed',
+        'agent05_build_checkout_not_clean',
+        'agent05_build_product_version_changed',
+        'agent05_build_windows_powershell_missing'
+    )
+    $message=[string]$_.Exception.Message
+    $reason='UNKNOWN'
+    foreach($candidate in $known){
+        if($message -ceq $candidate){$reason=$candidate;break}
+    }
     [Console]::Error.WriteLine('AGENT05_BUILD_ONLY_FAIL_STAGE='+$script:BuildStage)
+    [Console]::Error.WriteLine('AGENT05_BUILD_ONLY_FAIL_REASON='+$reason)
     exit 1
 }
 $agentSha='ce088c56f465d7809ec432a65e525ff30bc9f214'
 if($env:OS -ne 'Windows_NT'){throw 'agent05_build_windows_required'}
+$script:BuildStage='PRECHECK_PATHS'
 $center=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $agent=[IO.Path]::GetFullPath($AgentRoot)
 $out=[IO.Path]::GetFullPath($OutputRoot)
@@ -28,29 +46,44 @@ function IsInside([string]$child,[string]$root){
 if((IsInside $out $center) -or (IsInside $out $agent)){
     throw 'agent05_build_output_inside_checkout_forbidden'
 }
+ $script:BuildStage='PRECHECK_OUTPUT'
 if(Test-Path -LiteralPath $out){throw 'agent05_build_output_must_not_exist'}
+$script:BuildStage='PRECHECK_GIT'
 $git=(Get-Command git.exe -ErrorAction Stop).Source
 function GitText([string]$directory,[string[]]$arguments){
     $text=@(& $git -C $directory @arguments)
     if($LASTEXITCODE -ne 0){throw 'agent05_build_git_identity_failed'}
     return ([string]::Join([Environment]::NewLine,$text)).Trim()
 }
+$script:BuildStage='PRECHECK_AGENT_REVISION'
 $sourceCommit=GitText $agent @('rev-parse','HEAD')
 $sourceTree=GitText $agent @('rev-parse','HEAD^{tree}')
-$centerCommit=GitText $center @('rev-parse','HEAD')
 if($sourceCommit -cne $agentSha){throw 'agent05_build_private_source_changed'}
-if((GitText $agent @('status','--porcelain','--untracked-files=all')) -or
-   (GitText $center @('status','--porcelain','--untracked-files=all'))){
+$script:BuildStage='PRECHECK_CENTER_REVISION'
+$centerCommit=GitText $center @('rev-parse','HEAD')
+$script:BuildStage='PRECHECK_AGENT_CLEAN'
+if(GitText $agent @('status','--porcelain','--untracked-files=all')){
     throw 'agent05_build_checkout_not_clean'
 }
+$script:BuildStage='PRECHECK_CENTER_CLEAN'
+if(GitText $center @('status','--porcelain','--untracked-files=all')){
+    throw 'agent05_build_checkout_not_clean'
+}
+$script:BuildStage='PRECHECK_VERSION'
 $version=Get-Content -LiteralPath (Join-Path $agent 'desktop/src-tauri/tauri.conf.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if($version.version -cne '0.5.0'){throw 'agent05_build_product_version_changed'}
+$script:BuildStage='PRECHECK_WINDOWS_POWERSHELL'
 $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
 if(!(Test-Path -LiteralPath $ps -PathType Leaf)){throw 'agent05_build_windows_powershell_missing'}
+$script:BuildStage='PRECHECK_NODE'
 $node=(Get-Command node.exe -ErrorAction Stop).Source
+$script:BuildStage='PRECHECK_NPM'
 $npm=(Get-Command npm.cmd -ErrorAction Stop).Source
+$script:BuildStage='PRECHECK_CARGO'
 $null=(Get-Command cargo.exe -ErrorAction Stop).Source
+$script:BuildStage='PRECHECK_CREATE_OUTPUT'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
+Write-Host 'AGENT05_BUILD_ONLY_PRECHECK_PASS'
 $work=Join-Path $out 'work'
 $logs=Join-Path $out 'private-build-logs'
 $cache=Join-Path $out 'download-cache'
