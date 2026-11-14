@@ -70,10 +70,10 @@ if($LASTEXITCODE -ne 0){throw 'agent05_build_icon_failed'}
 if($LASTEXITCODE -ne 0){throw 'agent05_build_u04_owner_unavailable'}
 & $node (Join-Path $agent 'scripts/stage-u04-desktop.mjs') (Join-Path $agent 'build/u04-owner-sources') (Join-Path $stage 'public/u04') *> (Join-Path $logs 'u04-stage.log')
 if($LASTEXITCODE -ne 0){throw 'agent05_build_u04_stage_failed'}
-function NpmBuild([string[]]$args,[string]$code,[string]$logname){
+function NpmBuild([string[]]$NpmArguments,[string]$code,[string]$logname){
     $stdout=Join-Path $logs ($logname+'.stdout')
     $stderr=Join-Path $logs ($logname+'.stderr')
-    $process=Start-Process -FilePath $npm -ArgumentList $args -WorkingDirectory $stage -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    $process=Start-Process -FilePath $npm -ArgumentList $NpmArguments -WorkingDirectory $stage -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     try{
         $null=$process.Handle
         $process.WaitForExit()
