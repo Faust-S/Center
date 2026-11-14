@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 47ba22bdb0e4dbeeb91d3a56199395db3472145e
+          ref: ce088c56f465d7809ec432a65e525ff30bc9f214
           path: private-product
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -47,7 +47,7 @@ jobs:
         run: |
           $agent = (& git -C private-product rev-parse HEAD).Trim()
           $center = (& git -C center-owner rev-parse HEAD).Trim()
-          if ($agent -cne '47ba22bdb0e4dbeeb91d3a56199395db3472145e' -or
+          if ($agent -cne 'ce088c56f465d7809ec432a65e525ff30bc9f214' -or
               $center -cne $env:GITHUB_SHA) { throw 'AGENT05_SETUP_SOURCE_REVISION_MISMATCH' }
           $native = Get-Content private-product/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           if ($native.version -cne '0.5.0') { throw 'AGENT05_SETUP_PRODUCT_VERSION_MISMATCH' }
@@ -137,7 +137,7 @@ jobs:
           $u = Get-Content -LiteralPath $upgrade -Raw | ConvertFrom-Json
           $i = Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json
           $r = Get-Content -LiteralPath $rollback -Raw | ConvertFrom-Json
-          if ($result.source_commit -cne '47ba22bdb0e4dbeeb91d3a56199395db3472145e' -or
+          if ($result.source_commit -cne 'ce088c56f465d7809ec432a65e525ff30bc9f214' -or
               $result.setup_core_commit -cne $env:GITHUB_SHA -or
               $result.native_real_upgrade_04_to_05_accepted -ne $true -or
               $result.native_same_version_repair_rollback_accepted -ne $true -or
