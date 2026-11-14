@@ -339,6 +339,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
              atlas.projectId+' @ '+atlas.revision+
              (atlas.workId?', работа: '+atlas.workId:'')].filter(Boolean).join('\n\n');
          setTaskText(content.slice(0,10000));
+       }else{
+         // Do not retain a previous employee-assigned draft in manual mode.
+         setTaskText('');
        }
       }}>
       <option value="">Выберите черновик (не выдаёт полномочий)</option>
