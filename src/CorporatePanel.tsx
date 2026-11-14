@@ -174,7 +174,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
     })}>Подключить организацию</button>
   </div>}
   {d3Ready&&invoke ? <CorporateD3Panel owner={owner} execute={execute}
-    run={act} busy={busy} invoke={invoke}
+    run={act} busy={busy} invoke={invoke} organizationName={organization.name}
     assignmentDrafts={organization.assignments.filter(a=>
       a.workspaceId===owner.snapshot.workspaceId).map(a=>({
         id:a.id,title:a.title,description:a.description??'',

@@ -29,8 +29,8 @@ function requireAgeStatus(value:any):AgeStatus{
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts}:{
- owner:Owner;execute:Exec;run:Run;busy:boolean;
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName}:{
+ owner:Owner;execute:Exec;run:Run;busy:boolean;organizationName:string;
  invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;
  assignmentDrafts:AssignmentDraft[];
 }){
@@ -322,8 +322,26 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       Сохранить приглашение .iwxa
      </button>
     </div>
-   </> : <p className="notice subdued">
-    Подписанные права на выдачу Task ещё не установлены.</p>}
+   </> : <div className="nested-form" data-testid="d3-finish-first-use">
+    <p className="notice subdued">
+     Первоначальный реестр T3 существует, но подписанное приглашение ещё не
+     завершено. Продолжение использует те же ключи Windows и прежний реестр.
+    </p>
+    <button type="button" className="secondary" disabled={busy}
+     data-testid="d3-complete-enrollment"
+     onClick={()=>run('Подписанное приглашение T3 подтверждено. Теперь можно выпускать Task.',async()=>{
+      const result=await invoke('center_corporate_enroll',{
+       organizationId:session.organizationId,
+       workspaceId:session.workspaceId,
+       organizationName
+      });
+      if(result?.status!=='D3_OWNER_READY'||
+         result.snapshot?.organizationId!==session.organizationId||
+         result.snapshot?.workspaceId!==session.workspaceId||
+         result.snapshot?.d3TaskIssueAvailable!==true)
+       throw Error('CEN_D3_FIRST_USE_COMPLETION_UNCONFIRMED');
+     })}>Завершить подключение подписанных Task</button>
+   </div>}
    {!!signedTasks.length&&<>
     <label>Сохранённая Task
      <select data-testid="d3-signed-task-select" value={selectedTask?.taskId??''}
