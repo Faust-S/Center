@@ -283,7 +283,22 @@ try{
   assert.ok(localWorkspaceId.length>0,'new Workspace has an explicit local ID');
   assert.equal(await onboardPage.getByTestId('d3-enroll').isEnabled(),true);
   await onboardPage.getByTestId('d3-enroll').click();
-  await onboardPage.getByTestId('cen03-d3-original').waitFor();
+  try{
+    await onboardPage.getByTestId('cen03-d3-original').waitFor({timeout:8000});
+  }catch(e){
+    // Preserve the precise original owner response and React UI state:
+    // a fixture error must never be mislabeled as native signed D3 failure.
+    const diagnostic={
+      fixture:await onboardPage.evaluate(()=>window.__onboardD3Fixture),
+      native:await onboardPage.evaluate(()=>window.__TAURI_INTERNALS__.invoke(
+        'center_corporate_state',{organizationId:document.querySelector('#active-organization')?.value})),
+      status:await onboardPage.getByTestId('corporate-owner-status').allInnerTexts(),
+      alerts:await onboardPage.getByRole('alert').allInnerTexts(),
+      panelCount:await onboardPage.getByTestId('cen03-d3-original').count()
+    };
+    console.error('CEN_D3_FIRST_USE_DIAGNOSTIC',JSON.stringify(diagnostic));
+    throw e;
+  }
   assert.equal((await onboardPage.evaluate(()=>window.__onboardD3Fixture)).enrollmentCalls,1);
   await onboardPage.close();
   checks.push('d3-first-use-no-workspace-creates-draft-and-returns-to-signed-enrollment-ui');
