@@ -66,6 +66,9 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  // Original signed Task IDs must survive the child remount when the T3
  // contextEpoch changes. This parent UI ref is not another Task store.
  const attemptedD3Tasks=useRef<Map<string,{taskId:string;attempted:boolean}>>(new Map());
+ // Keep an already sent Human decision available for receipt-only recovery
+ // across signed owner epoch changes, without another Store or journal.
+ const attemptedD3Decisions=useRef<Map<string,{operationId:string;decision:'ACCEPT'|'REJECT'}>>(new Map());
  const legacyReady=ownerSessionFingerprint(owner,organizationId)!==null;
  const d3Ready=signedD3SessionFingerprint(owner,organizationId)!==null;
  const ready=legacyReady||d3Ready;
@@ -199,6 +202,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   {d3Ready&&invoke ? <CorporateD3Panel key={signedD3SessionFingerprint(owner,organizationId)??'unknown'} owner={owner} execute={execute}
     dispatchedApplications={dispatchedD3Applications}
     taskAttempts={attemptedD3Tasks}
+    decisionAttempts={attemptedD3Decisions}
     run={act} busy={busy} invoke={invoke} organizationName={organization.name}
     assignmentDrafts={organization.assignments.filter(a=>
       a.workspaceId===owner.snapshot.workspaceId).map(a=>({

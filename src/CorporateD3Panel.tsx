@@ -36,10 +36,11 @@ function requireAgeStatus(value:any):AgeStatus{
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts}:{
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts}:{
  owner:Owner;execute:Exec;run:Run;busy:boolean;organizationName:string;
  dispatchedApplications:React.RefObject<Map<string,string[]>>;
  taskAttempts:React.RefObject<Map<string,{taskId:string;attempted:boolean}>>;
+ decisionAttempts:React.RefObject<Map<string,{operationId:string;decision:'ACCEPT'|'REJECT'}>>;
  invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;
  assignmentDrafts:AssignmentDraft[];
  }){
@@ -95,6 +96,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  };
  const attemptKey=(acceptanceId:string)=>JSON.stringify([
    session.organizationId,session.workspaceId,session.actorId,acceptanceId]);
+ const decisionKey=(packageSha256:string)=>JSON.stringify([
+   session.organizationId,session.workspaceId,session.actorId,packageSha256]);
  const sessionKey=JSON.stringify([session.organizationId,session.workspaceId,
    session.actorId,session.contextId,session.contextEpoch]);
  const previous=useRef(sessionKey),previousTaskIdentity=useRef(taskAttemptKey);
@@ -146,7 +149,16 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setLastReceiveState(null);setDraftId('');setDraftSnapshot('');reset();
  }
  },[sessionKey]);
- const choose=(value:string)=>{setHash(value);setLastReceiveState(null);reset();};
+ const choose=(value:string)=>{
+   setHash(value);setLastReceiveState(null);reset();
+   // A remounted panel restores the ID of a previously dispatched decision,
+   // rather than accidentally allowing a second ACCEPT/REJECT for this .iwxa.
+   const pending=decisionAttempts.current.get(decisionKey(value));
+   if(pending){
+     setOperationId(pending.operationId);
+     setDecisionAttempted(true);setDecisionType(pending.decision);
+   }
+ };
  const signedTasks=Array.isArray(session.tasks)?session.tasks.filter(t=>
    opPattern.test(t.taskId)&&hex(t.taskRevisionId)&&hex(t.packageSha256)):[];
  const selectedTask=signedTasks.find(t=>t.taskId===taskId)??signedTasks.at(-1);
@@ -346,6 +358,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      // The ID was visible and explicitly saved BEFORE dispatch. On a lost
      // acknowledgment, restoring the original receipt never retries the write.
      const id=preparedId;
+     decisionAttempts.current.set(decisionKey(hash),{operationId:id,decision:kind});
      setDecisionAttempted(true);setDecisionType(kind);
      setReceipt(null);setApplication(null);
      let outcome:any;
@@ -356,7 +369,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      }catch(e){
       // If the Windows confirmation was cancelled, no signed decision
       // was sent and the original preview can still be confirmed.
-      if(String(e).includes('CEN_D3_HUMAN_REVIEW_CANCELLED')){
+      if(String(e)==='Error: CEN_D3_HUMAN_REVIEW_CANCELLED'||
+         String(e)==='CEN_D3_HUMAN_REVIEW_CANCELLED'){
+        const pending=decisionAttempts.current.get(decisionKey(hash));
+        if(pending?.operationId===id)decisionAttempts.current.delete(decisionKey(hash));
         setDecisionAttempted(false);setDecisionType(null);
       }
       throw e;
@@ -763,6 +779,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     ID можно сохранить отдельно для восстановления после перезапуска.</p>
    <label>ID операции
     <input data-testid="d3-operation-id" value={operationId} maxLength={160}
+     disabled={busy||decisionAttempted}
      onChange={e=>{setOperationId(e.target.value.trim());setPreparedId('');
       setIdSaved(false);setReceipt(null);setApplication(null)}}
      placeholder="decision:..." />
@@ -774,7 +791,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       onClick={()=>navigator.clipboard.writeText(operationId)}>
       Скопировать ID</button>}
    </div>
-   {decisionAttempted&&!receipt&&<p className="notice subdued">
+   {decisionAttempted&&!receipt&&<p className="notice subdued"
+     data-testid="d3-decision-already-sent">
     Решение отправлялось. До подтверждения исходного владельца результат неизвестен.
     Не отправляйте его повторно.
    </p>}

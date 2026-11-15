@@ -230,7 +230,7 @@ try{
   // owner changes its epoch after a write and the ACK disappears.
   const d3Page=await browser.newPage({viewport:{width:1366,height:900}});
   await d3Page.addInitScript(()=>{
-    const held={epoch:7,task:null,writes:0};
+    const held={epoch:7,task:null,writes:0,decisionWrites:0,decision:null};
     window.__d3UiFixture=held;
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(command==='center_draft_read_local')return null;
@@ -269,6 +269,44 @@ try{
             taskRevisionId:'a'.repeat(64),packageSha256:'b'.repeat(64),
             recipientId:'person:reviewer',
             status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED'};
+        if(args.operation==='d3Preview'){
+          const sha='c'.repeat(64),digest='d'.repeat(64),revision='e'.repeat(64);
+          const resultText='Результат выполнен';
+          return {schema:'IWXA_T3_RECONCILIATION_PREVIEW/1',
+            packageSha256:sha,previewDigest:digest,allowedAction:'EXPLICIT_ACCEPT_ONLY',
+            classification:'NEW',entries:[{revisionId:revision}],
+            resultInspection:{
+              schema:'IWXA_T3_ORIGINAL_SIGNED_RESULT_REVIEW/1',
+              packageSha256:sha,previewDigest:digest,
+              taskId:'task:employee',taskRevisionId:'a'.repeat(64),
+              resultRevisionId:revision,executorId:'person:employee',
+              organizationId:args.organizationId,workspaceId:'workspace:ui-smoke',
+              signatureVerified:true,taskBindingProven:true,
+              taskCatalogVerified:true,assignmentText:'Проверить исходный документ',
+              resultLength:resultText.length,offset:0,resultText,
+              nextOffset:resultText.length,hasMore:false
+            }};
+        }
+        if(args.operation==='d3Decide'){
+          held.decisionWrites++;
+          held.decision={operationId:args.input.operationId,
+            packageSha256:args.input.packageSha256};
+          held.epoch++;
+          // Model the original owner recording ACCEPT before losing native ACK.
+          throw Error('T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED');
+        }
+        if(args.operation==='d3Receipt'){
+          const found=held.decision?.operationId===args.input.operationId&&
+            held.decision?.packageSha256===args.input.packageSha256;
+          return {kernelApplication:'NOT_ATTESTED_BY_RECONCILIATION_RECEIPT',
+            found,receipt:found?{
+              schema:'IWXA_T3_ACCEPTANCE_RECEIPT/1',
+              operationId:held.decision.operationId,
+              packageSha256:held.decision.packageSha256,
+              decisionBy:'person:reviewer',acceptanceState:'ACCEPTED',
+              acceptanceId:'f'.repeat(64)
+            }:null};
+        }
       }
       return null;
     }};
@@ -295,8 +333,34 @@ try{
     /Оригинальная Task сохранена/);
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).writes,1,
     'read-only Task recovery must not reissue signed Task');
-  await d3Page.close();
   checks.push('d3-task-id-and-no-replay-survive-unknown-ack-and-signed-epoch-remount');
+  // UI-only owner fixture: ACCEPT commits, native ACK is lost and owner epoch
+  // advances. A React remount must retain the original ID for receipt recovery.
+  const decisionSha='c'.repeat(64);
+  await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
+  await d3Page.getByTestId('d3-review').click();
+  await d3Page.getByTestId('d3-original-signed-review').waitFor();
+  await d3Page.getByLabel('Я просмотрел этот пакет и подтверждаю отдельное решение').check();
+  await d3Page.getByTestId('d3-prepare-id').click();
+  const pendingDecisionId=await d3Page.getByTestId('d3-operation-id').inputValue();
+  await d3Page.getByLabel('Я сохранил ID для восстановления при потере ответа').check();
+  await d3Page.getByTestId('d3-accept').click();
+  await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
+  await d3Page.getByTestId('d3-decision-already-sent').waitFor();
+  assert.equal(await d3Page.getByTestId('d3-operation-id').inputValue(),
+    pendingDecisionId,'sent Human decision ID must survive signed epoch remount');
+  await d3Page.getByTestId('d3-review').click();
+  assert.equal(await d3Page.getByTestId('d3-prepare-id').isEnabled(),false,
+    'unknown ACCEPT ACK cannot prepare another decision');
+  assert.equal(await d3Page.getByTestId('d3-accept').isEnabled(),false);
+  await d3Page.getByTestId('d3-recover').click();
+  await d3Page.getByTestId('d3-recovered-receipt').waitFor();
+  assert.match(await d3Page.getByTestId('d3-recovered-receipt').innerText(),
+    /Оригинальная квитанция/);
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
+    'read-only decision recovery must not send a second ACCEPT');
+  await d3Page.close();
+  checks.push('d3-human-decision-no-replay-survives-unknown-ack-and-signed-epoch-remount');
   // React can reload while the REAL native signed WebView (and its Kernel)
   // survives. Model that lifetime using a separate Node-side host, NOT
   // localStorage/React state, so a browser reload cannot recreate its status.
