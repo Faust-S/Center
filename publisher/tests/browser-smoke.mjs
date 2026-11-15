@@ -939,6 +939,7 @@ try {
         return {operation:'PERSON_CAPABILITIES',environment:'PRODUCTION',
           issuers:['publisher:person:mock','publisher:person:alternate'],
           statusSequenceCas:!window.__personMockLegacyStatusCas,
+          exportSequenceCas:!window.__personMockLegacyExportCas,
           activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_person_inventory'){
@@ -1123,8 +1124,21 @@ try {
     /Обновите компонент T3 в Publisher/);
   assert.equal(await personOwner.getByTestId('publisher-person-issue').count(),0);
   checks.push('person-outdated-original-owner-shows-upgrade-requirement-not-fake-unenrollment');
+  // An intermediate Owner supports STATUS CAS but still ignores the export
+  // sequence argument. Reject it BEFORE showing native export controls.
   await personal.evaluate(()=>{
     window.__personMockLegacyStatusCas=false;
+    window.__personMockLegacyExportCas=true;
+  });
+  await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
+  await personal.getByRole('button',{name:'Доверие и ключи'}).click();
+  await personal.getByTestId('publisher-person-owner-unavailable').waitFor();
+  assert.match(await personal.getByTestId('publisher-person-owner-unavailable').innerText(),
+    /экспортируемых пакетов/);
+  assert.equal(await personal.getByTestId('publisher-person-export').count(),0);
+  checks.push('person-original-owner-export-cas-upgrade-required-before-delivery');
+  await personal.evaluate(()=>{
+    window.__personMockLegacyExportCas=false;
     window.__personMockFailNextInventory=true;
   });
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();

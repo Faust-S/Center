@@ -227,7 +227,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     (async()=>{
       try{
         const info=await invoke('publisher_t3_person_capabilities');
-        if(info?.operation==='PERSON_CAPABILITIES'&&info.statusSequenceCas!==true)
+        if(info?.operation==='PERSON_CAPABILITIES'&&
+           (info.statusSequenceCas!==true||info.exportSequenceCas!==true))
           throw Error('PUBLISHER_PERSON_T3_OWNER_UPDATE_REQUIRED');
         if(info?.operation!=='PERSON_CAPABILITIES'||info.environment!=='PRODUCTION'||
            info.productionActivation!==false||info.activeSeats!==0||
@@ -581,7 +582,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     {!loading&&!available&&<p className="notice subdued"
       data-testid="publisher-person-owner-unavailable">
       {ownerUnavailableReason.includes('PUBLISHER_PERSON_T3_OWNER_UPDATE_REQUIRED')?
-        'Установлен устаревший оригинальный T3 Owner. Обновите компонент T3 в Publisher: требуется проверка последовательности подписанных статусов.':
+        'Установлен устаревший оригинальный T3 Owner. Обновите компонент T3 в Publisher: требуется проверка последовательности подписанных статусов и экспортируемых пакетов.':
         'Производственный издатель T3 не зарегистрирован в этой установке.'}
       {' '}Выпуск и отзыв недоступны, сохранённые тарифы и черновики не изменены.
     </p>}
