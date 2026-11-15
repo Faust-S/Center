@@ -60,6 +60,13 @@ jobs:
           & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-office-pip-private.txt')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_PYTHON_DEPENDENCIES_FAIL'}
           Write-Host 'AGENT06_OFFICE_DEPENDENCIES_PASS'
+          # The managed Python capsule is built from this same interpreter.
+          # Test requirements use >=, but the actual product runtime declares
+          # exact == identities. Apply the canonical pins before packaging,
+          # rather than weakening or bypassing the installed equality gate.
+          & python -m pip install -r private-agent/requirements.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-office-runtime-pins-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_RUNTIME_PINNED_DEPENDENCIES_FAIL'}
+          Write-Host 'AGENT06_OFFICE_RUNTIME_PINNED_REQUIREMENTS_PASS'
       - name: Python original Agent office and surrounding regression suites
         if: env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
         shell: pwsh
