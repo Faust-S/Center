@@ -99,7 +99,15 @@ jobs:
                 Write-Host ('AGENT06_OFFICE_FAILED_TEST_HASH='+[Convert]::ToHexString($hash).Substring(0,12))
                 $kind=[string]$failure.Attributes['type'].Value
                 if($kind -in $knownTypes){Write-Host ('AGENT06_OFFICE_FAILURE_TYPE='+$kind)}
-                else{Write-Host 'AGENT06_OFFICE_FAILURE_TYPE=OTHER'}
+                elseif($kind -match '^[A-Za-z0-9_.]{1,80}$'){
+                  Write-Host ('AGENT06_OFFICE_FAILURE_TYPE_CLASS='+($kind.Split('.')[-1]))
+                }else{Write-Host 'AGENT06_OFFICE_FAILURE_TYPE=OTHER'}
+                if($label -eq 'PDF_OCR'){
+                  $body=[string]$failure.InnerText
+                  foreach($code in @('ocr_destination_created_during_processing','ocr_file_scope_changed_after_processing','ocr_u01_outcome_unconfirmed','ocr_source_changed_after_processing','ocr_destination_exists','ocr_original_overwrite_forbidden','ocr_output_coverage_invalid','ocr_executable_revision_changed','DID NOT RAISE','AssertionError','FileExistsError','PermissionError','OSError')){
+                    if($body.Contains($code)){Write-Host ('AGENT06_OFFICE_PDF_ERROR_MARKER='+$code)}
+                  }
+                }
                 $lines=[regex]::Matches([string]$failure.InnerText,'test_[A-Za-z0-9_]+\.py:(\d+)')
                 if($lines.Count -gt 0){
                   Write-Host ('AGENT06_OFFICE_FAILURE_TEST_LINE='+$lines[$lines.Count-1].Groups[1].Value)
@@ -139,8 +147,26 @@ jobs:
                 $name=$entry.Groups[1].Value
                 $hash=[System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($name))
                 Write-Host ('AGENT06_OFFICE_NODE_FAILED_HASH='+[Convert]::ToHexString($hash).Substring(0,12))
+                foreach($testFile in $tests){
+                  $basename=[IO.Path]::GetFileName([string]$testFile)
+                  if($name.EndsWith($basename,[StringComparison]::OrdinalIgnoreCase)){
+                    $category=switch($basename){
+                      'office-personal-file-picker-ui.test.mjs' {'PICKER_INTERACTION'}
+                      'office-personal-file-picker.test.mjs' {'PICKER_CONTRACT'}
+                      'office-docx-launch.test.mjs' {'OFFICE_DOCX_LAUNCH'}
+                      'office-docx-proposal.test.mjs' {'OFFICE_DOCX_PROPOSAL'}
+                      'office-pdf-ocr-readback.test.mjs' {'PDF_OCR_READBACK'}
+                      'office-pdf-ocr-proposal.test.mjs' {'PDF_OCR_PROPOSAL'}
+                      'native-program-link.test.mjs' {'U04_PRESENTATION'}
+                      'u04-native-host.test.mjs' {'U04_HOST'}
+                      'task-review-file-candidate.test.mjs' {'TASK_REVIEW'}
+                      default {'OTHER_OFFICE_NODE'}
+                    }
+                    Write-Host ('AGENT06_OFFICE_NODE_FAIL_CATEGORY='+$category)
+                  }
+                }
               }
-              foreach($code in @('ERR_ASSERTION','ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND','ERR_TEST_FAILURE','SyntaxError','TypeError','ReferenceError','RangeError')){
+              foreach($code in @('ERR_ASSERTION','ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND','ERR_TEST_FAILURE','SyntaxError','TypeError','ReferenceError','RangeError','Unexpected token','Unexpected identifier','Unexpected end of input','Cannot use import statement outside a module')){
                 if($private.Contains($code)){Write-Host ('AGENT06_OFFICE_NODE_ERROR_CLASS='+$code)}
               }
             } else { Write-Host 'AGENT06_OFFICE_DOCUMENT_REVIEW_PASS' }
