@@ -173,20 +173,3 @@ jobs:
           echo "AGENT06_NATIVE_TOOLRUNTIME_READ_TRR_COLD_PASS"
       # Absolutely no actions/upload-artifact, actions/cache, private source
       # binary distribution, workspace dump, diagnostic upload or raw test logs.
- \
-              "$RUNNER_TEMP/agent06-native-private.log" || true
-            echo "AGENT06_NATIVE_TOOLRUNTIME_READ_FAILED"
-            exit 6
-          fi
-          # Require explicit execution of the full real Engine scenario.
-          # A skipped native test must never be reported as PASS.
-          for milestone in ENGINE_T3_GUARD_PASS ENGINE_LIVE_SWITCH_PASS ENGINE_NONE_RESTART_PASS ENGINE_FIRECRAWL_RESTART_PASS; do
-            if ! grep -Fq "AGENT06_NATIVE_STAGE_$milestone" "$RUNNER_TEMP/agent06-native-private.log"; then
-              echo "AGENT06_NATIVE_QUALIFICATION_STAGE_MISSING"
-              exit 7
-            fi
-          done
-          echo "AGENT06_NATIVE_ENGINE_FULL_SWITCH_PASS"
-          echo "AGENT06_NATIVE_TOOLRUNTIME_READ_TRR_COLD_PASS"
-      # Absolutely no actions/upload-artifact, actions/cache, private source
-      # binary distribution, workspace dump, diagnostic upload or raw test logs.
