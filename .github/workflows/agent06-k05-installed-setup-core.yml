@@ -157,6 +157,21 @@ jobs:
                 if($step[1] -eq 'WITNESS' -and
                    [string]$receipt.phase -match '^[A-Z0-9_]{2,65}$'){
                   $stage=[string]$receipt.phase
+                  # These three fields are sourced from finite allowlists
+                  # in the original private installed witness, not from LLM.
+                  $failureCode=[string]$receipt.failure_code
+                  $lastOperation=[string]$receipt.last_operation
+                  $checkpoint=[string]$receipt.last_checkpoint
+                  if($failureCode -match '^[A-Z0-9_]{2,75}$'){
+                    Write-Host ('K05_NATIVE_QWEN_FAILURE_CODE='+$failureCode)
+                  }
+                  if($lastOperation -match '^[A-Z0-9_]{2,75}$'){
+                    Write-Host ('K05_NATIVE_QWEN_LAST_OPERATION='+$lastOperation)
+                  }
+                  if($checkpoint -match '^AGENT_REAL_QWEN_[A-Z_]{3,75}$' -or
+                     $checkpoint -ceq 'NONE_OBSERVED'){
+                    Write-Host ('K05_NATIVE_QWEN_LAST_CHECKPOINT='+$checkpoint)
+                  }
                 }
               }catch{}
               Write-Host ('K05_NATIVE_INSTALLED_RECEIPT_'+$step[1]+'='+$status)
