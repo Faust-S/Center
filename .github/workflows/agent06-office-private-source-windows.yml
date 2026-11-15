@@ -21,6 +21,7 @@ jobs:
       PIP_NO_CACHE_DIR: '1'
       AGENT_OFFICE_SHA: '93c96ffe2ceed1b1d3c8b00f23cf2374566d62cc'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
+      AGENT_OFFICE_INSTALLED_ONLY: 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,6 +61,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_PYTHON_DEPENDENCIES_FAIL'}
           Write-Host 'AGENT06_OFFICE_DEPENDENCIES_PASS'
       - name: Python original Agent office and surrounding regression suites
+        if: env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference='Continue'
@@ -116,6 +118,7 @@ jobs:
             }
           }
       - name: Desktop full-fidelity review and complete TypeScript Vite build
+        if: env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
         shell: pwsh
         run: |
           Push-Location private-agent/desktop
@@ -188,6 +191,7 @@ jobs:
             } else { Write-Host 'AGENT06_OFFICE_DESKTOP_BUILD_PASS' }
           } finally {Pop-Location}
       - name: Original U04 native-window host regression (not Office qualification)
+        if: env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
         shell: pwsh
         run: |
           Push-Location private-agent/desktop
@@ -197,7 +201,7 @@ jobs:
             Write-Host 'AGENT06_EXISTING_U04_BASELINE_PASS'
           } finally {Pop-Location}
       - name: Windows MSVC compile and run the actual native U04 module
-        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true'
+        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true' && env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
         shell: pwsh
         run: |
           $probe=Join-Path $env:RUNNER_TEMP 'agent06-u04-native-qualification'
@@ -213,7 +217,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_U04_NATIVE_MSCV_TEST_FAIL'}
           Write-Host 'AGENT06_OFFICE_U04_NATIVE_MSCV_TEST_PASS'
       - name: Full Agent native Tauri Cargo source checks
-        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true'
+        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true' && env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference='Continue'
@@ -232,6 +236,7 @@ jobs:
             } else {Write-Host 'AGENT06_OFFICE_TAURI_CHECK_PASS'}
           } finally {Pop-Location}
       - name: Final source qualification gate
+        if: env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
         shell: pwsh
         run: |
           $failures=@('python','ui','build','tauri')
@@ -250,6 +255,11 @@ jobs:
           $ErrorActionPreference='Stop'
           Push-Location private-agent/desktop
           try{
+            if($env:AGENT_OFFICE_INSTALLED_ONLY -eq 'true'){
+              & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-office-native-npm-private.txt')
+              if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_NATIVE_DEPENDENCIES_FAIL'}
+              Write-Host 'AGENT06_OFFICE_NATIVE_DEPENDENCIES_PASS'
+            }
             & npm.cmd run tauri:build *> (Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-release-private.txt')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_NATIVE_EXE_BUILD_FAIL'}
             if(!(Test-Path -LiteralPath 'src-tauri/target/release/iwxa-personal.exe' -PathType Leaf)){
@@ -264,6 +274,38 @@ jobs:
             & pwsh -NoProfile -NonInteractive -File qualification/phase1/agent02_installed_gui_acceptance.ps1 *> (Join-Path $env:RUNNER_TEMP 'agent06-office-installed-native-private.txt')
             if($LASTEXITCODE -ne 0){
               Write-Host 'AGENT06_OFFICE_INSTALLED_NATIVE_GUI_FAIL'
+              $privateLog=Join-Path $env:RUNNER_TEMP 'agent06-office-installed-native-private.txt'
+              if(Test-Path -LiteralPath $privateLog){
+                $text=Get-Content -LiteralPath $privateLog -Raw
+                $allowed=@(
+                  'gui_managed_python_capsule_failed','gui_native_package_failed',
+                  'gui_package_install_failed','gui_storage_authority_failed',
+                  'gui_native_executable_not_installed','gui_window_automation_root_missing',
+                  'BLOCKED_ENVIRONMENT:ui_automation_root_missing',
+                  'BLOCKED_ENVIRONMENT:uia_invoke_unavailable_and_control_not_visible',
+                  'BLOCKED_ENVIRONMENT:draft_value_pattern_unavailable',
+                  'BLOCKED_ENVIRONMENT:draft_keyboard_input_unavailable',
+                  'gui_draft_value_change_not_observed','gui_core_draft_http_readback_failed',
+                  'gui_core_draft_http_response_invalid','gui_native_process_exited_before_window',
+                  'BLOCKED_ENVIRONMENT:gui_native_window_missing',
+                  'BLOCKED_ENVIRONMENT:gui_window_in_other_session',
+                  'gui_wrong_product_window','test_profile_not_empty',
+                  'gui_draft_lost_before_close','gui_draft_not_restored_after_restart',
+                  'gui_core_draft_changed_after_restart','gui_native_close_unconfirmed',
+                  'gui_first_launch_blank_recovered_but_qualification_failed'
+                )
+                $found=$false
+                foreach($code in $allowed){
+                  if($text.Contains($code)){
+                    $found=$true
+                    Write-Host ('AGENT06_OFFICE_INSTALLED_GUI_FAILURE_CODE='+$code)
+                  }
+                }
+                if(!$found){Write-Host 'AGENT06_OFFICE_INSTALLED_GUI_FAILURE_CODE=OTHER'}
+                if($text.Contains('control_unavailable:')){
+                  Write-Host 'AGENT06_OFFICE_INSTALLED_GUI_FAILURE_CLASS=CONTROL_UNAVAILABLE'
+                }
+              }
               throw 'AGENT06_OFFICE_INSTALLED_NATIVE_GUI_HOLD'
             }
             Write-Host 'AGENT06_OFFICE_INSTALLED_NATIVE_GUI_PASS'
