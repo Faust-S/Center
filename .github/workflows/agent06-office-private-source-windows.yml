@@ -1,0 +1,97 @@
+# Scope: public Windows runner, read-only private Agent 0.6 Office branch checkout.
+# Private source, test logs, build files and EXEs never become public artifacts.
+name: Agent 0.6 Office private source qualification
+on:
+  push:
+    branches: ['work/2026-11-15-agent06-office-source-qualification']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-office-source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows-agent-office-source:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PIP_NO_CACHE_DIR: '1'
+      AGENT_OFFICE_SHA: '9d3c1d09b55b215ef0c4316a1f08dcc4ee132c9b'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require scoped temporary read-only private source
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'AGENT06_OFFICE_SOURCE_READ_NOT_AVAILABLE'
+          }
+          Write-Host 'AGENT06_OFFICE_READ_ONLY_ACCESS_AVAILABLE'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_OFFICE_SHA }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Pin private source without disclosure
+        shell: pwsh
+        run: |
+          $source=(& git -C private-agent rev-parse HEAD).Trim()
+          if($source -cne $env:AGENT_OFFICE_SHA){throw 'AGENT06_OFFICE_SOURCE_SHA_MISMATCH'}
+          Write-Host ('AGENT06_OFFICE_PINNED_SHA='+$source)
+      - name: Dependencies stay in runner temp
+        shell: pwsh
+        run: |
+          & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-office-pip-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_PYTHON_DEPENDENCIES_FAIL'}
+          Write-Host 'AGENT06_OFFICE_DEPENDENCIES_PASS'
+      - name: Python original Agent office and surrounding regression suites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $cases=@(
+            @('BINARY_E2E', 'tests/test_agent06_office_binary.py'),
+            @('TOOL_RUNTIME', 'tests/test_tool_provider_layer.py'),
+            @('DOCUMENT_TEXT', 'tests/test_local_document_text_v3.py'),
+            @('INSTALLED_SOFTWARE', 'tests/test_existing_software_discovery.py')
+          )
+          $failed=$false
+          foreach($pair in $cases) {
+            $label=$pair[0];$file=$pair[1]
+            Push-Location private-agent
+            try {
+              & python -B -m pytest -q -p no:cacheprovider $file *> (Join-Path $env:RUNNER_TEMP ('agent06-office-'+$label+'-private.txt'))
+              if($LASTEXITCODE -eq 0){Write-Host ('AGENT06_OFFICE_'+$label+'_PASS')}
+              else{Write-Host ('AGENT06_OFFICE_'+$label+'_FAIL');$failed=$true}
+            } finally {Pop-Location}
+          }
+          if($failed){throw 'AGENT06_OFFICE_PYTHON_QUALIFICATION_HOLD'}
+      - name: Desktop full-fidelity review and complete TypeScript Vite build
+        shell: pwsh
+        run: |
+          Push-Location private-agent/desktop
+          try {
+            & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-office-npm-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_DESKTOP_DEPENDENCIES_FAIL'}
+            & node --test tests/task-review-file-candidate.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-tests-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_DOCUMENT_REVIEW_FAIL'}
+            Write-Host 'AGENT06_OFFICE_DOCUMENT_REVIEW_PASS'
+            & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-office-desktop-build-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_DESKTOP_BUILD_FAIL'}
+            Write-Host 'AGENT06_OFFICE_DESKTOP_BUILD_PASS'
+          } finally {Pop-Location}
+      # There is intentionally no upload-artifact, upload-pages-artifact,
+      # cache, commit, log upload, EXE publication or secret persistence.
