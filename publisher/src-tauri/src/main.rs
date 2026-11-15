@@ -61,7 +61,27 @@ fn draft_fingerprint(root:&Path)->Result<String,String>{
         Some(raw)=>format!("{:x}",Sha256::digest(raw.as_bytes()))
     })
 }
+// On Windows, the independent Publisher processes must not both validate
+// the same disk digest before either atomically renames its new draft. A
+// persistent, empty lock file is held with Windows deny-all sharing only
+// during the existing save transaction. A crash releases the kernel handle;
+// the file itself is intentionally reusable after restart.
+#[cfg(windows)]
+fn take_preparation_write_lock(root:&Path)->Result<File,String>{
+    use std::os::windows::fs::OpenOptionsExt;
+    fs::create_dir_all(root)
+        .map_err(|_|"PUBLISHER_DRAFT_LOCK_UNAVAILABLE".to_string())?;
+    OpenOptions::new().read(true).write(true).create(true)
+        .share_mode(0)
+        .open(root.join(".publisher-preparation.lock"))
+        .map_err(|e|match e.raw_os_error(){
+            Some(32)|Some(33)=>"PUBLISHER_DRAFT_BUSY_OTHER_INSTANCE".to_string(),
+            _=>"PUBLISHER_DRAFT_LOCK_UNAVAILABLE".to_string()
+        })
+}
 fn write_preparation_if_current(root:&Path,content:&str,expected:&str)->Result<(),String>{
+    #[cfg(windows)]
+    let _interprocess_guard=take_preparation_write_lock(root)?;
     let valid=expected=="ABSENT"||
       (expected.len()==64&&expected.bytes().all(|b|
         b.is_ascii_digit()||(b'a'..=b'f').contains(&b)));
@@ -762,6 +782,25 @@ mod tests {
         write_preparation_if_current(&root,&stale,&newer).unwrap();
         assert_eq!(read_preparation(&root).unwrap().unwrap(),stale);
         let _=fs::remove_dir_all(root);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn windows_independent_writer_lock_prevents_simultaneous_stale_save(){
+        let root=scratch();
+        fs::create_dir_all(&root).unwrap();
+        let original=valid_preparation();
+        write_preparation(&root,&original).unwrap();
+        let expected=draft_fingerprint(&root).unwrap();
+        let exclusive=take_preparation_write_lock(&root).unwrap();
+        let changed=original.replace("\"products\":[]",
+            "\"products\":[{\"id\":\"SECOND\"}]");
+        assert_eq!(write_preparation_if_current(&root,&changed,&expected).unwrap_err(),
+            "PUBLISHER_DRAFT_BUSY_OTHER_INSTANCE");
+        assert_eq!(read_preparation(&root).unwrap().unwrap(),original);
+        drop(exclusive);
+        write_preparation_if_current(&root,&changed,&expected).unwrap();
+        assert_eq!(read_preparation(&root).unwrap().unwrap(),changed);
+        let _=fs::remove_dir_all(&root);
     }
     #[test]
     fn native_legacy_preparation_migrates_in_place_to_version_two() {

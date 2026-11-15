@@ -916,6 +916,10 @@ try {
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(command==='publisher_draft_read')return sessionStorage.getItem(name);
       if(command==='publisher_draft_save'){
+        if(window.__parallelMockOtherWriterBusyOnce){
+          window.__parallelMockOtherWriterBusyOnce=false;
+          throw Error('PUBLISHER_DRAFT_BUSY_OTHER_INSTANCE');
+        }
         const current=sessionStorage.getItem(name);
         if(args.expectedSha256!==await hash(current))
           throw Error('PUBLISHER_DRAFT_CHANGED_ON_DISK');
@@ -956,8 +960,27 @@ try {
   await parallel.getByText('Продукты (2)').waitFor();
   assert.equal(JSON.parse(await parallel.evaluate(()=>
     sessionStorage.getItem('publisher-parallel-preparation'))).products.length,2);
+  // A Windows writer handle is exclusive even when both app instances
+  // last read the same hash. Reject the losing save without changes,
+  // then allow a deliberate reload and normal retry.
+  const beforeBusySave=await parallel.evaluate(()=>
+    sessionStorage.getItem('publisher-parallel-preparation'));
+  await parallel.evaluate(()=>{window.__parallelMockOtherWriterBusyOnce=true;});
+  await parallel.getByLabel('Идентификатор продукта').fill('IWXA_ADMIN_CENTER');
+  await parallel.getByLabel('Название').fill('Publisher Busy Recovery');
+  await parallel.getByLabel('Версия',{exact:true}).fill('0.5.0');
+  await parallel.getByRole('button',{name:'Сохранить продукт'}).click();
+  await parallel.getByTestId('publisher-draft-reload').waitFor();
+  assert.equal(await parallel.evaluate(()=>
+    sessionStorage.getItem('publisher-parallel-preparation')),
+    beforeBusySave,'The losing native save modified the current disk snapshot');
+  await parallel.getByTestId('publisher-draft-reload').click();
+  await parallel.getByText('Актуальные черновики перечитаны',{exact:false}).waitFor();
+  await parallel.getByRole('button',{name:'Сохранить продукт'}).click();
+  await parallel.getByText('Продукты (3)').waitFor();
   await parallel.close();
   checks.push('native-draft-external-edit-refuses-overwrite-and-reloads-before-next-save');
+  checks.push('windows-second-publisher-writer-busy-reload-and-retry');
   // Independent direct-to-product personal flow, using a bounded IPC test double.
   // It cannot claim that a PERSON license was signed by T3.
   const personal=await browser.newPage({viewport:{width:1050,height:820}});

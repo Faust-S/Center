@@ -206,6 +206,11 @@ export default function App(){
  },[]);
  function handleDraftSaveError(e:unknown):string{
    const code=e instanceof Error?e.message:String(e);
+   if(code.includes('PUBLISHER_DRAFT_BUSY_OTHER_INSTANCE')){
+     setLoaded(false);setDraftChangedExternally(true);setPendingRestore(null);
+     return 'Другой экземпляр Publisher сохраняет черновики. '+
+       'Запись не выполнялась. Перечитайте сохранённые данные и повторите действие.';
+   }
    if(code.includes('PUBLISHER_DRAFT_CHANGED_ON_DISK')){
      setLoaded(false);setDraftChangedExternally(true);setPendingRestore(null);
      return 'Черновики изменились в другом экземпляре Publisher. '+
