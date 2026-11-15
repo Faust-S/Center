@@ -64,6 +64,7 @@ export default function App() {
   // Control bearer and Kernel remain owned by the private installed Host.
   const [signedWorkspaceOrg,setSignedWorkspaceOrg] = useState<string|null>(null);
   const [signedWorkspaceVisible,setSignedWorkspaceVisible] = useState(false);
+  const checkedNativeChildFor=useRef<string|null>(null);
   // Native WebView close releases its ORIGINAL signed D3 owner. Refresh the
   // existing corporate panel so APPLY cannot remain shown from a stale
   // Kernel binding; the authoritative capabilities are read from T3 again.
@@ -184,6 +185,45 @@ export default function App() {
     setError(errors[code] ?? 'Изменение не выполнено. Проверьте поля и повторите действие.');
     setMessage('');
   };
+  // React reload does not terminate the already mounted native T3 child.
+  // Its UI buttons are transient, but the existing Tauri Session knows
+  // exactly which signed organization owns it and whether it is hidden.
+  // Recover this ONE child without reopening any signer or browser Kernel.
+  useEffect(()=>{
+    if(!nativeHost||nativeRestoring)return;
+    if(!org){
+      // Without a restored organization a previously signed child must not
+      // cover the empty startup screen under an unknown corporate scope.
+      void nativeInvoke('center_corporate_close_signed_workspace')
+        .catch(()=>{});
+      return;
+    }
+    if(checkedNativeChildFor.current===org.id)return;
+    checkedNativeChildFor.current=org.id;
+    let active=true;
+    void nativeInvoke('center_corporate_signed_workspace_status',{
+      organizationId:org.id
+    }).then(async info=>{
+      if(!active||info?.schema!=='IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1')return;
+      if(info.foreignOrOrphaned===true){
+        // Cross-organization/orphaned native child cannot be recovered into
+        // the currently selected actor's React Review or Kernel.
+        await nativeInvoke('center_corporate_close_signed_workspace');
+        if(active){
+          setSignedWorkspaceOrg(null);setSignedWorkspaceVisible(false);
+          setSignedWorkspaceGeneration(n=>n+1);
+        }
+      }else if(info.open===true&&active){
+        setSignedWorkspaceOrg(org.id);
+        setSignedWorkspaceVisible(info.visible===true);
+        setPage('results');
+        setSignedWorkspaceGeneration(n=>n+1);
+      }
+    }).catch(()=>{
+      if(active)setError('Не удалось проверить открытый подписанный T3. Завершите его сеанс перед продолжением.');
+    });
+    return()=>{active=false};
+  },[nativeHost,nativeRestoring,org?.id]);
   const command = (value: any) => {
     try {
       const next = applyDraftCommand(state,value) as Draft;
