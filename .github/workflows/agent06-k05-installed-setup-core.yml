@@ -14,7 +14,8 @@ permissions:
   contents: read
 concurrency:
   group: agent06-k05-installed-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve the preceding installed witness so K03/UIA regressions stay attributable.
+  cancel-in-progress: false
 jobs:
   k05-installed-windows:
     runs-on: windows-2022
