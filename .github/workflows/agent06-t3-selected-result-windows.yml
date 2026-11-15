@@ -86,14 +86,46 @@ jobs:
                 }
                 if($sourceLine -lt 0){
                   Write-Host 'AGENT06_ERP_READ_PATH_STAGE_UNKNOWN'
-                }elseif($sourceLine -le 179){
+                }elseif($sourceLine -le 178){
                   Write-Host 'AGENT06_ERP_READ_PATH_STAGE_CONFIG'
-                }elseif($sourceLine -le 183){
-                  Write-Host 'AGENT06_ERP_READ_PATH_STAGE_PROVIDER'
-                }elseif($sourceLine -le 190){
-                  Write-Host 'AGENT06_ERP_READ_PATH_STAGE_READ_OR_ASSERT'
+                }elseif($sourceLine -eq 179){
+                  Write-Host 'AGENT06_ERP_READ_PATH_STAGE_SWITCH'
+                }elseif($sourceLine -le 182){
+                  Write-Host 'AGENT06_ERP_READ_PATH_STAGE_POLICY_ASSERT'
+                }elseif($sourceLine -eq 183){
+                  Write-Host 'AGENT06_ERP_READ_PATH_STAGE_TOOL_READ'
+                }elseif($sourceLine -le 188){
+                  Write-Host 'AGENT06_ERP_READ_PATH_STAGE_OUTPUT_ASSERT'
                 }else{
                   Write-Host 'AGENT06_ERP_READ_PATH_STAGE_RECEIPT_FILE'
+                }
+                $safeErrorClasses=@(
+                  'ToolDenied','ToolPolicyError','ToolProviderPortError',
+                  'ERPOrderReadError','HTTPProviderError','ProviderError',
+                  'ProviderRoutingError','ValueError','TypeError',
+                  'KeyError','AssertionError','RuntimeError','OSError'
+                )
+                foreach($class in $safeErrorClasses){
+                  if($privateLog.Contains($class)){
+                    Write-Host ('AGENT06_ERP_READ_PATH_ERROR_CLASS_'+$class.ToUpperInvariant())
+                  }
+                }
+                $knownCodes=@(
+                  'POLICY_UNCLASSIFIED','TOOL_DISABLED','DESCRIPTOR_INVALID',
+                  'tool_provider_not_ready','tool_provider_slot_disabled',
+                  'provider_not_ready','provider_missing_capabilities',
+                  'secret_material_forbidden_in_tool_arguments',
+                  'tool_arguments_schema_invalid','unknown_tool',
+                  'binding_document_invalid','binding_slot_set_mismatch',
+                  'erp_source_account_required','erp_source_identity_mismatch',
+                  'erp_http_network_error','erp_http_http_401','erp_http_http_403',
+                  'PORT_PROTOCOL_ERROR','PORT_UNAVAILABLE'
+                )
+                foreach($code in $knownCodes){
+                  if($privateLog.Contains($code)){
+                    $label=($code -replace '[^A-Za-z0-9]','_').ToUpperInvariant()
+                    Write-Host ('AGENT06_ERP_READ_PATH_MATCH_'+$label)
+                  }
                 }
                 # No traceback, private path, user content, runtime response or credentials on stdout.
               }
