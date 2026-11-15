@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '0cf459215805e6ae2614cab8fc1a97af0f1b59c2'
+      AGENT_OFFICE_SHA: '74d3927db448ec4ae4462792f7a6e9cc5fe75b0f'
     steps:
       - uses: actions/checkout@v4
         with:
