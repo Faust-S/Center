@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "7ab2a8d59902fd30889a6daa656337282226ba4c"
+          test "$(git -C private-agent rev-parse HEAD)" = "93faf2a56e252e43d93598aae19a1fcf02509f2a"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -188,6 +188,9 @@ jobs:
           & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-private-desktop-build.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_PRIVATE_DESKTOP_BUILD_FAILED'}
           Write-Host 'AGENT06_PRIVATE_DESKTOP_BUILD_PASS'
+          & node.exe --test tests/agent05-owner-source-lock.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-private-u01-owner-lock-test.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_U01_DESKTOP_OWNER_LOCK_FAILED'}
+          Write-Host 'AGENT06_U01_DESKTOP_OWNER_LOCK_PASS'
           & npm.cmd test *> (Join-Path $env:RUNNER_TEMP 'agent06-private-desktop-node-tests.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_PRIVATE_DESKTOP_TEST_FAILED'}
           Write-Host 'AGENT06_PRIVATE_DESKTOP_TEST_PASS'
