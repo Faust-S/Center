@@ -1,0 +1,94 @@
+name: IWXA Agent 0.6 official public CLI compatibility
+on:
+  push:
+    branches: ['work/2026-11-15-agent06-ai-integration-qualification']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-public-vendor-cli-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  vendor-public-cli-probe:
+    # Officially published programs only. This separate, public-only job
+    # does not checkout private Agent, copy account tokens, or run mock LLMs.
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Install official Codex CLI in temporary Windows test prefix
+        shell: pwsh
+        run: |
+          $prefix=Join-Path $env:RUNNER_TEMP 'official-openai-codex'
+          $log=Join-Path $env:RUNNER_TEMP 'official-codex-install.private.log'
+          & npm.cmd install -g --prefix $prefix @openai/codex --no-audit --no-fund *> $log
+          if($LASTEXITCODE -ne 0){throw 'PUBLIC_CLI_CODEX_INSTALL_BLOCKED'}
+          $exe=Join-Path $prefix 'codex.cmd'
+          if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'PUBLIC_CLI_CODEX_BINARY_MISSING'}
+          & $exe --version *> $log
+          if($LASTEXITCODE -ne 0){throw 'PUBLIC_CLI_CODEX_VERSION_FAIL'}
+          Write-Host 'PUBLIC_CLI_CODEX_OFFICIAL_BINARY_PASS'
+          & $exe login status *> $log
+          if($LASTEXITCODE -ne 0){
+            Write-Host 'PUBLIC_CLI_CODEX_AUTH=NOT_LOGGED_IN'
+          }else{
+            # No authenticated profile is provisioned by this test job.
+            # Do not print account identifiers or private status text.
+            Write-Host 'PUBLIC_CLI_CODEX_AUTH=PROFILE_PRESENT'
+          }
+      - name: Install and inspect official Claude Code CLI
+        shell: pwsh
+        run: |
+          $script=Join-Path $env:RUNNER_TEMP 'official-claude-install.ps1'
+          $log=Join-Path $env:RUNNER_TEMP 'official-claude-install.private.log'
+          try{
+            Invoke-WebRequest -Uri 'https://claude.ai/install.ps1' -OutFile $script -UseBasicParsing
+            & pwsh -NoProfile -NonInteractive -File $script *> $log
+            if($LASTEXITCODE -ne 0){throw 'install'}
+            $paths=@(
+              (Join-Path $env:USERPROFILE '.local\bin\claude.exe'),
+              (Join-Path $env:LOCALAPPDATA 'Programs\claude\claude.exe')
+            )
+            $bin=Get-Command claude.exe -ErrorAction SilentlyContinue
+            $exe=if($null -ne $bin){$bin.Source}else{@($paths | Where-Object {Test-Path -LiteralPath $_ -PathType Leaf})[0]}
+            if([string]::IsNullOrWhiteSpace($exe)){throw 'missing'}
+            & $exe --version *> $log
+            if($LASTEXITCODE -ne 0){throw 'version'}
+            Write-Host 'PUBLIC_CLI_CLAUDE_OFFICIAL_BINARY_PASS'
+            & $exe auth status *> $log
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'PUBLIC_CLI_CLAUDE_AUTH=NOT_LOGGED_IN'
+            }else{
+              Write-Host 'PUBLIC_CLI_CLAUDE_AUTH=PROFILE_PRESENT'
+            }
+          }catch{
+            throw 'PUBLIC_CLI_CLAUDE_INSTALL_OR_PROBE_BLOCKED'
+          }
+      - name: Install and inspect official Google Antigravity CLI
+        shell: pwsh
+        run: |
+          $script=Join-Path $env:RUNNER_TEMP 'official-agy-install.ps1'
+          $log=Join-Path $env:RUNNER_TEMP 'official-agy-install.private.log'
+          try{
+            Invoke-WebRequest -Uri 'https://antigravity.google/cli/install.ps1' -OutFile $script -UseBasicParsing
+            & pwsh -NoProfile -NonInteractive -File $script *> $log
+            if($LASTEXITCODE -ne 0){throw 'install'}
+            $exe=Join-Path $env:LOCALAPPDATA 'agy\bin\agy.exe'
+            if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'missing'}
+            & $exe --version *> $log
+            if($LASTEXITCODE -ne 0){throw 'version'}
+            & $exe --help *> $log
+            if($LASTEXITCODE -ne 0){throw 'help'}
+            $help=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            foreach($required in @('--mode','--model','--print','--output-format','--sandbox')){
+              if(-not ([string]$help).Contains($required)){throw 'cli-options'}
+            }
+            Write-Host 'PUBLIC_CLI_ANTIGRAVITY_OFFICIAL_BINARY_AND_FLAGS_PASS'
+            Write-Host 'PUBLIC_CLI_ANTIGRAVITY_AUTH=NOT_TESTED_NO_APPROVED_PROFILE'
+          }catch{
+            throw 'PUBLIC_CLI_ANTIGRAVITY_INSTALL_OR_PROBE_BLOCKED'
+          }
+      # No account sign-up, login tokens, prompts, uploaded logs or artifacts.
+      # Actual model inference requires provider-approved user authentication.
