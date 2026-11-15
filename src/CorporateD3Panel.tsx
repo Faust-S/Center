@@ -36,20 +36,26 @@ function requireAgeStatus(value:any):AgeStatus{
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications}:{
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts}:{
  owner:Owner;execute:Exec;run:Run;busy:boolean;organizationName:string;
  dispatchedApplications:React.RefObject<Map<string,string[]>>;
+ taskAttempts:React.RefObject<Map<string,{taskId:string;attempted:boolean}>>;
  invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;
  assignmentDrafts:AssignmentDraft[];
-}){
+ }){
+ const session=owner.snapshot;
+ const taskAttemptKey=JSON.stringify([
+   session.organizationId,session.workspaceId,session.actorId]);
  const [hash,setHash]=useState('');
  const [taskText,setTaskText]=useState('');
  const [draftId,setDraftId]=useState('');
  const [draftSnapshot,setDraftSnapshot]=useState('');
  const [taskId,setTaskId]=useState('');
- const [taskOperationId,setTaskOperationId]=useState('');
+ const [taskOperationId,setTaskOperationId]=useState(
+   ()=>taskAttempts.current.get(taskAttemptKey)?.taskId??'');
  const [taskIdSaved,setTaskIdSaved]=useState(false);
- const [taskAttempted,setTaskAttempted]=useState(false);
+ const [taskAttempted,setTaskAttempted]=useState(
+   ()=>taskAttempts.current.get(taskAttemptKey)?.attempted??false);
  const [taskReadback,setTaskReadback]=useState<any>(null);
  const [preview,setPreview]=useState<any>(null);
  const [reviewedResult,setReviewedResult]=useState<any>(null);
@@ -79,12 +85,15 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [inbox,setInbox]=useState<{total:number;truncated:boolean;
    items:{packageSha256:string;status:string;acceptanceId:string|null;
      operationId:string|null}[]} | null>(null);
- const session=owner.snapshot;
+ const rememberTaskAttempt=(taskId:string,attempted:boolean)=>{
+   if(!taskId)taskAttempts.current.delete(taskAttemptKey);
+   else taskAttempts.current.set(taskAttemptKey,{taskId,attempted});
+ };
  const attemptKey=(acceptanceId:string)=>JSON.stringify([
    session.organizationId,session.workspaceId,session.actorId,acceptanceId]);
  const sessionKey=JSON.stringify([session.organizationId,session.workspaceId,
    session.actorId,session.contextId,session.contextEpoch]);
- const previous=useRef(sessionKey);
+ const previous=useRef(sessionKey),previousTaskIdentity=useRef(taskAttemptKey);
  const ageStatusRead=async()=>requireAgeStatus(await invoke('center_corporate_age_status',{
    organizationId:session.organizationId
  }));
@@ -119,8 +128,16 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    if(previous.current!==sessionKey){
    previous.current=sessionKey;
    setHash('');setInbox(null);setTaskId('');
-   setTaskText('');setTaskOperationId('');setTaskIdSaved(false);
-   setTaskAttempted(false);setTaskReadback(null);
+   // A signed epoch change after Task creation is not a different actor.
+   // Recover its original ID, but clear it for any different signed scope.
+   if(previousTaskIdentity.current!==taskAttemptKey){
+     previousTaskIdentity.current=taskAttemptKey;
+     const selected=taskAttempts.current.get(taskAttemptKey);
+     setTaskOperationId(selected?.taskId??'');
+     setTaskAttempted(selected?.attempted??false);
+     setTaskIdSaved(false);
+   }
+   setTaskText('');setTaskReadback(null);
    setLastReceiveState(null);setDraftId('');setDraftSnapshot('');reset();
  }
  },[sessionKey]);
@@ -160,6 +177,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    // The operation ID is saved before the original signer may write. Even if
    // this call loses its reply, the same ID can be queried without re-signing.
    const immutableId=taskOperationId;
+   rememberTaskAttempt(immutableId,true);
    setTaskAttempted(true);setTaskReadback(null);
    let result:any;
    try{
@@ -170,6 +188,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      // Rust preflight errors. Other errors may follow a successful signing:
      // retain the saved Task ID and require original read-only recovery.
      if(isDefiniteUndispatchedD3Failure(error,'d3CreateTask')){
+       rememberTaskAttempt(immutableId,false);
        setTaskAttempted(false);setTaskReadback(null);
      }
      throw error;
@@ -196,6 +215,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      session.actorId,observed);
    if(observed&&!verified.found)
      throw Error('CEN_D3_ORIGINAL_TASK_INVENTORY_READBACK_HOLD');
+   rememberTaskAttempt(knownId,taskAttempted||verified.found);
    setTaskOperationId(knownId);setTaskIdSaved(false);
    setTaskAttempted(taskAttempted||verified.found);
    setTaskReadback(verified);
@@ -512,7 +532,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      <button className="secondary" type="button" data-testid="d3-task-prepare-id"
       disabled={busy||(taskAttempted&&taskReadback?.found!==true)}
       onClick={()=>{
-       setTaskOperationId('task:'+crypto.randomUUID());
+       const fresh='task:'+crypto.randomUUID();
+       rememberTaskAttempt(fresh,false);
+       setTaskOperationId(fresh);
        setTaskIdSaved(false);setTaskAttempted(false);setTaskReadback(null);
       }}>Подготовить ID поручения</button>
      <label>Оригинальный ID Task для восстановления
@@ -520,7 +542,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        maxLength={105} placeholder="task:..." disabled={taskAttempted}
        onChange={e=>{
         if(taskAttempted)return;
-        setTaskOperationId(e.target.value.trim());
+        const typed=e.target.value.trim();
+        rememberTaskAttempt(typed,false);
+        setTaskOperationId(typed);
         setTaskIdSaved(false);setTaskReadback(null);
        }}/>
      </label>
