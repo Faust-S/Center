@@ -1,4 +1,4 @@
-# Authorized public Center Windows runner only. This file contains no private source.
+# Authorized public Center Windows runner only. UI and source-closure qualification.
 # Private checkout is transient, read-only, SHA pinned, with no published artifacts.
 name: Agent 0.6 K05 original approval and execution readback Windows qualification
 on:
