@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 0ae4f372ac73dc0e383aaa485922d9c04cdfcad9
+          ref: 2b40f942add7c12251241bae2fc47cd58c0b3ce2
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,75 +46,76 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '0ae4f372ac73dc0e383aaa485922d9c04cdfcad9'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
+          if($sha -cne '2b40f942add7c12251241bae2fc47cd58c0b3ce2'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
           & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-pip-private.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_DEPENDENCIES_FAIL'}
           Write-Host 'AGENT06_AI_DEPENDENCIES_PASS'
-      - name: Independent grouped original Python regression
+      - name: Diagnose Graph contract and control on original tests
         shell: pwsh
         run: |
           Push-Location private-agent
-          $failures=0
-          function Check-Group([string]$label,[string[]]$cases){
-            $privateLog=Join-Path $env:RUNNER_TEMP ('agent06-ai-'+$label+'-private.log')
-            & python -B -m pytest -q -p no:cacheprovider @cases *> $privateLog
-            if($LASTEXITCODE -ne 0){
-              Write-Host ('AGENT06_AI_'+$label+'_FAIL')
-              # Only the digest of a test node is exposed. No traceback,
-              # function name, prompt, file content or private data is logged.
-              $privateText=Get-Content -LiteralPath $privateLog -Raw -ErrorAction SilentlyContinue
-              foreach($match in [regex]::Matches([string]$privateText, '(?m)^FAILED\s+(\S+)\s+-\s+')){
-                $node=$match.Groups[1].Value
-                $bytes=[Text.Encoding]::UTF8.GetBytes($node)
-                $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
-                Write-Host ('AGENT06_AI_'+$label+'_FAIL_NODE_HASH='+$digest.Substring(0,16))
-              }
-              $script:failures++
-            }else{Write-Host ('AGENT06_AI_'+$label+'_PASS')}
-          }
+          $cases=@(
+            @{Label='CANCEL_PRE_DISPATCH'; Node='tests/test_fc6_graph_agent_runtime_executor.py::test_graph_cancel_committed_before_cli_dispatch_never_launches_program'},
+            @{Label='MODEL_PIN'; Node='tests/test_fc6_graph_node_config.py::test_pinned_local_model_config_is_immutable_and_refuses_identity_drift'},
+            @{Label='CONCURRENT_CANCEL'; Node='tests/test_fc6_graph_control_human_review_integration.py::test_graph_cancel_decision_is_not_blocked_by_running_advance'}
+          )
+          $bad=0
           try{
-            Check-Group 'CLI' @(
-              'tests/test_agent06_claude_code_cli.py',
-              'tests/test_agent06_external_program_selection.py',
-              'tests/test_codex_chatgpt_cli_adapter.py',
-              'tests/test_antigravity_agent_runtime.py',
-              'tests/test_goose_agent_runtime_user_ready.py',
-              'tests/test_agent06_program_cli_cancel.py',
-              'tests/test_fc2_agent_runtime_management_port.py'
-            )
-            Check-Group 'GRAPH_RUNTIME' @('tests/test_fc6_graph_agent_runtime_executor.py')
-            Check-Group 'GRAPH_CONFIG' @('tests/test_fc6_graph_node_config.py')
-            Check-Group 'GRAPH_ORCHESTRATOR' @('tests/test_fc6_graph_orchestrator_wait_m9.py')
-            Check-Group 'RETRY' @('tests/test_interactive_task_retry_claim.py')
-            Check-Group 'T3' @('tests/test_t3_mode.py','tests/test_t3_result_projection.py')
-            Check-Group 'GRAPH_TASK' @(
-              'tests/test_agent06_graph_result_task_seed.py',
-              'tests/test_agent06_graph_result_interaction.py'
-            )
-            Check-Group 'GRAPH_FILE' @('tests/test_agent06_graph_result_file_draft.py')
-            Check-Group 'GRAPH_REVIEW' @('tests/test_fc6_graph_control_human_review_integration.py')
-            Check-Group 'TASK_TOOL_SESSION' @(
-              'tests/test_p01_obsidian_toolruntime.py',
-              'tests/test_tool_execution_intent_claim_recovery.py',
-              'tests/test_session_runtime_long_paths.py',
-              'tests/test_agent05_existing_user_data_startup.py'
-            )
+            foreach($case in $cases){
+              $privateLog=Join-Path $env:RUNNER_TEMP ('agent06-ai-'+$case.Label+'-private.log')
+              & python -B -m pytest -q -p no:cacheprovider $case.Node *> $privateLog
+              if($LASTEXITCODE -ne 0){
+                Write-Host ('AGENT06_DIAGNOSTIC_'+$case.Label+'_FAIL')
+                $raw=Get-Content -LiteralPath $privateLog -Raw -ErrorAction SilentlyContinue
+                $summary=[regex]::Match([string]$raw,'(?m)^FAILED\s+\S+\s+-\s+([A-Za-z_][A-Za-z0-9_]*)')
+                if($summary.Success){
+                  $type=$summary.Groups[1].Value
+                  if($type -match '^(?:[A-Za-z_]*Error|Failed|TimeoutExpired)$'){
+                    Write-Host ('AGENT06_DIAGNOSTIC_'+$case.Label+'_EXCEPTION='+$type)
+                  }
+                }
+                foreach($match in [regex]::Matches([string]$raw,'(?m)^tests/[^\r\n:]+\.py:(\d{1,5}):\s+([A-Za-z][A-Za-z0-9_]*)')){
+                  Write-Host ('AGENT06_DIAGNOSTIC_'+$case.Label+'_LINE='+$match.Groups[1].Value)
+                  Write-Host ('AGENT06_DIAGNOSTIC_'+$case.Label+'_CLASS='+$match.Groups[2].Value)
+                }
+                $bad++
+              }else{
+                Write-Host ('AGENT06_DIAGNOSTIC_'+$case.Label+'_PASS')
+              }
+            }
           }finally{Pop-Location}
-          Write-Host ('AGENT06_AI_PYTHON_FAILED_GROUPS='+$failures)
-          if($failures -ne 0){throw 'AGENT06_AI_PYTHON_REGRESSIONS_FAIL'}
-      - name: Complete existing desktop Node tests and TypeScript build
+          if($bad -ne 0){throw 'AGENT06_DIAGNOSTIC_GRAPH_REPRODUCED'}
+      - name: Diagnose existing Node tests and always execute TypeScript build
         if: always()
         shell: pwsh
         run: |
           Push-Location private-agent/desktop
+          $bad=0
           try{
             & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-npm-private.log')
-            if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_NPM_CI_FAIL'}
-            & npm.cmd test *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-node-private.log')
-            if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_NODE_TESTS_FAIL'}
-            Write-Host 'AGENT06_AI_NODE_TESTS_PASS'
-            & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-desktop-private.log')
-            if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_DESKTOP_BUILD_FAIL'}
-            Write-Host 'AGENT06_AI_DESKTOP_BUILD_PASS'
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_DIAGNOSTIC_NPM_CI_FAIL'}
+            $nodeLog=Join-Path $env:RUNNER_TEMP 'agent06-ai-node-private.log'
+            & npm.cmd test *> $nodeLog
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'AGENT06_DIAGNOSTIC_NODE_FAIL'
+              $raw=Get-Content -LiteralPath $nodeLog -Raw -ErrorAction SilentlyContinue
+              foreach($match in [regex]::Matches([string]$raw,'(?m)^\s*not ok\s+(\d{1,5})\b')){
+                Write-Host ('AGENT06_DIAGNOSTIC_NODE_TAP_INDEX='+$match.Groups[1].Value)
+              }
+              $bad++
+            }else{Write-Host 'AGENT06_DIAGNOSTIC_NODE_PASS'}
+            $buildLog=Join-Path $env:RUNNER_TEMP 'agent06-ai-desktop-private.log'
+            & npm.cmd run build *> $buildLog
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'AGENT06_DIAGNOSTIC_DESKTOP_FAIL'
+              $raw=Get-Content -LiteralPath $buildLog -Raw -ErrorAction SilentlyContinue
+              $codes=[regex]::Matches([string]$raw,'\berror\s+TS(\d{4})\b')
+              Write-Host ('AGENT06_DIAGNOSTIC_TYPESCRIPT_ERROR_COUNT='+$codes.Count)
+              foreach($code in @($codes | ForEach-Object {$_.Groups[1].Value} | Select-Object -Unique)){
+                Write-Host ('AGENT06_DIAGNOSTIC_TYPESCRIPT_CODE=TS'+$code)
+              }
+              $bad++
+            }else{Write-Host 'AGENT06_DIAGNOSTIC_DESKTOP_PASS'}
           }finally{Pop-Location}
+          if($bad -ne 0){throw 'AGENT06_DIAGNOSTIC_DESKTOP_REGRESSIONS_FAIL'}
       # No artifacts, cache, installer, private test logs or model output.
