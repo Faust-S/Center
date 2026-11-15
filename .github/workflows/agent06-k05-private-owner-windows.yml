@@ -102,7 +102,7 @@ jobs:
               $exit=$LASTEXITCODE
               if($label -eq 'K05_EXECUTOR_COMPARISON'){
                 Get-Content $log | Where-Object {
-                  $_ -match '^K05_(EXECUTOR_COMPARE|DIFFERENT_TASK|SAME_EXECUTOR)_[A-Z_]+='
+                  $_ -match '^K05_(EXECUTOR_COMPARE|EXECUTOR_PAIR|EXECUTOR_EQUIVALENCE|EXECUTOR_DEFINITION|EXECUTOR_SOURCE|EXECUTOR_PROMPT|EXECUTOR_SYSTEM|DIFFERENT_TASK|SAME_EXECUTOR)_[A-Z_]+=[A-Za-z0-9_,]*$'
                 } | ForEach-Object { Write-Host $_ }
               }
               if(Test-Path $xml){
