@@ -14,6 +14,7 @@ test('D3 native definite pre-dispatch failures permit a deliberate retry, never 
    d3ApplyAccepted:[
      'CEN_D3_CONTEXT_CHANGED','CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED',
      'CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED',
+     'CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING',
      'CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED',
      'CEN_D3_ACCEPTED_SOURCE_INVALID'
    ],
