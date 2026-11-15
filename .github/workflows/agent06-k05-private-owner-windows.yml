@@ -1,0 +1,122 @@
+# Authorized public Center Windows runner only. This file contains no private source.
+# Private checkout is transient, read-only, SHA pinned, with no published artifacts.
+name: Agent 0.6 K05 original approval and execution readback Windows qualification
+on:
+  push:
+    branches:
+      - work/2026-11-15-agent06-k05-owner-source-qualification
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-k05-original-owner-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  k05-private-owner:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PIP_NO_CACHE_DIR: '1'
+      AGENT_K05_EXACT_SHA: '4d1b0fbefd0ebee88fbbd5026495a174efe85cf2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require authorized temporary private source read
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'AGENT06_K05_PRIVATE_SOURCE_PERMISSION_MISSING'
+          }
+          Write-Host 'AGENT06_K05_PRIVATE_SOURCE_ACCESS_PRESENT'
+      - name: Read exact private Agent SHA without saving credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_K05_EXACT_SHA }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify source and install Python CI dependencies privately
+        shell: pwsh
+        run: |
+          $sha=(& git -C private-agent rev-parse HEAD).Trim()
+          if($sha -cne $env:AGENT_K05_EXACT_SHA){throw 'AGENT06_K05_SOURCE_REVISION_MISMATCH'}
+          $deps=Join-Path $env:RUNNER_TEMP 'k05-private-deps.log'
+          & python -m pip install -r private-agent/requirements-ci.txt *> $deps
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_K05_PRIVATE_DEPENDENCIES_FAIL'}
+          Write-Host ('AGENT06_K05_PINNED_AGENT_SHA='+$sha)
+          Write-Host 'AGENT06_K05_DEPENDENCIES_PASS'
+      - name: Execute original Approval, ToolRuntime and K05 source tests privately
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $groups=@(
+            @('K05_HISTORY','tests/test_k05_historical_approval_readback.py'),
+            @('APPROVAL_OWNER','tests/cells/test_approval_execution_reconciliation.py'),
+            @('APPROVAL_ADMISSION','tests/test_approval_admission_serialization.py'),
+            @('TOOL_EXECUTION_INTENT','tests/test_tool_execution_intent_claim_recovery.py')
+          )
+          $failed=$false
+          $all=0
+          Push-Location private-agent
+          try{
+            foreach($group in $groups){
+              $label=$group[0]
+              $path=$group[1]
+              $log=Join-Path $env:RUNNER_TEMP ('k05-private-'+$label+'.txt')
+              $xml=Join-Path $env:RUNNER_TEMP ('k05-private-'+$label+'.xml')
+              & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) $path *> $log
+              $exit=$LASTEXITCODE
+              if(Test-Path $xml){
+                [xml]$doc=Get-Content -Raw $xml
+                $suite=$doc.testsuites.testsuite
+                if($null -eq $suite){$suite=$doc.testsuite}
+                $number=[int]$suite.tests
+                $errors=[int]$suite.errors+[int]$suite.failures
+                $all+=$number
+                Write-Host ('AGENT06_K05_'+$label+'_TESTS='+$number)
+                Write-Host ('AGENT06_K05_'+$label+'_ERRORS='+$errors)
+                if($exit -ne 0){
+                  foreach($case in $doc.SelectNodes('//testcase')){
+                    $failure=$case.SelectSingleNode('failure')
+                    if($null -eq $failure){$failure=$case.SelectSingleNode('error')}
+                    if($null -eq $failure){continue}
+                    $id=[string]$case.name
+                    $digest=[System.Security.Cryptography.SHA256]::HashData(
+                      [Text.Encoding]::UTF8.GetBytes($id))
+                    $anon=[Convert]::ToHexString($digest).Substring(0,12)
+                    Write-Host ('AGENT06_K05_'+$label+'_FAILED_TEST_SHA='+$anon)
+                    $exception=[string]$failure.Attributes['type'].Value
+                    $allowed=@('AssertionError','ToolDenied','ApprovalError',
+                      'AttributeError','TypeError','ValueError','KeyError',
+                      'RuntimeError','ImportError','ModuleNotFoundError')
+                    if($exception -notin $allowed){$exception='OTHER'}
+                    Write-Host ('AGENT06_K05_'+$label+'_FAIL_CLASS='+$exception)
+                  }
+                }
+              }else{
+                Write-Host ('AGENT06_K05_'+$label+'_TEST_COUNT_UNKNOWN')
+              }
+              if($exit -ne 0){
+                $failed=$true
+                Write-Host ('AGENT06_K05_'+$label+'_FAIL')
+              }else{
+                Write-Host ('AGENT06_K05_'+$label+'_PASS')
+              }
+            }
+          }finally{
+            Pop-Location
+          }
+          Write-Host ('AGENT06_K05_TOTAL_TESTS='+$all)
+          if($failed){throw 'AGENT06_K05_OWNER_TESTS_FAILED'}
+          Write-Host 'AGENT06_K05_ORIGINAL_OWNER_SOURCE_QUALIFIED'
+      # Deliberately no cache, upload-artifact, installer or private log publication.
