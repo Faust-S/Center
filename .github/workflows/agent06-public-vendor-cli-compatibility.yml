@@ -86,7 +86,7 @@ jobs:
             foreach($flag in @('--output-format','--permission-mode','--tools',
              '--safe-mode','--strict-mcp-config','--disallowedTools',
              '--disable-slash-commands','--no-session-persistence',
-             '--no-chrome','--max-turns','--model','--json-schema')){
+             '--no-chrome','--model','--json-schema')){
               if(-not ([string]$claudeHelp).Contains($flag)){
                 Write-Host ('PUBLIC_CLI_CLAUDE_REQUIRED_FLAG_MISSING='+$flag)
                 $missing++
@@ -97,6 +97,41 @@ jobs:
             & $exe auth status *> $log
             if($LASTEXITCODE -ne 0){
               Write-Host 'PUBLIC_CLI_CLAUDE_AUTH=NOT_LOGGED_IN'
+              # Some official Claude versions support --max-turns without
+              # advertising it in --help. Probe the real binary parser only
+              # when the test runner is explicitly unauthenticated. Never
+              # treat this as real model inference or read user credentials.
+              $psi=[System.Diagnostics.ProcessStartInfo]::new()
+              $psi.FileName=$exe
+              $psi.UseShellExecute=$false
+              $psi.CreateNoWindow=$true
+              $psi.RedirectStandardOutput=$true
+              $psi.RedirectStandardError=$true
+              $psi.WorkingDirectory=$env:RUNNER_TEMP
+              foreach($part in @('-p','Return the word IWXA.', '--max-turns','1',
+                '--permission-mode','plan','--tools','','--safe-mode',
+                '--no-session-persistence')){
+                [void]$psi.ArgumentList.Add($part)
+              }
+              $process=[System.Diagnostics.Process]::new()
+              $process.StartInfo=$psi
+              if(-not $process.Start()){throw 'claude parser probe start failed'}
+              $outTask=$process.StandardOutput.ReadToEndAsync()
+              $errTask=$process.StandardError.ReadToEndAsync()
+              if(-not $process.WaitForExit(15000)){
+                $process.Kill($true)
+                [void]$process.WaitForExit(5000)
+                Write-Host 'PUBLIC_CLI_CLAUDE_MAX_TURNS_PROBE=BLOCKED_NO_ACCOUNT_TIMEOUT'
+              }else{
+                $diagnostic=([string]$outTask.GetAwaiter().GetResult())+
+                            ([string]$errTask.GetAwaiter().GetResult())
+                if($diagnostic -match '(?i)(unknown|unrecognized|invalid)\s+(option|argument)[^|\r\n]*max-turns'){
+                  throw 'claude parser rejected --max-turns'
+                }
+                Write-Host 'PUBLIC_CLI_CLAUDE_MAX_TURNS_PARSER_NOT_REJECTED'
+                Write-Host 'PUBLIC_CLI_CLAUDE_LIVE_INFERENCE=NOT_QUALIFIED_NO_ACCOUNT'
+              }
+              $process.Dispose()
             }else{
               Write-Host 'PUBLIC_CLI_CLAUDE_AUTH=PROFILE_PRESENT'
             }
