@@ -1,0 +1,102 @@
+# Authorized scoped public Windows source qualification.
+# Private Agent source stays transient; no uploads/cache/artifacts or private logs.
+name: IWXA Agent 0.6 AI Programs private source qualification
+on:
+  push:
+    branches: ['work/2026-11-15-agent06-ai-integration-qualification']
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-agent06-ai-integration-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows-source:
+    runs-on: windows-latest
+    timeout-minutes: 65
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      NODE_OPTIONS: '--max-old-space-size=4096'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require pre-authorized read-only private source
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'AGENT06_AI_PRIVATE_READ_UNAVAILABLE'
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 6d2d4d99b53893ccd2a50b56c35d6e25ab807f85
+          path: private-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact private SHA and install CI requirements
+        shell: pwsh
+        run: |
+          $sha=(& git -C private-agent rev-parse HEAD).Trim()
+          if($sha -cne '6d2d4d99b53893ccd2a50b56c35d6e25ab807f85'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
+          & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-pip-private.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_DEPENDENCIES_FAIL'}
+          Write-Host 'AGENT06_AI_DEPENDENCIES_PASS'
+      - name: Official CLI and port regression
+        shell: pwsh
+        run: |
+          Push-Location private-agent
+          try{
+            $cases=@(
+              'tests/test_agent06_claude_code_cli.py',
+              'tests/test_agent06_external_program_selection.py',
+              'tests/test_codex_chatgpt_cli_adapter.py',
+              'tests/test_antigravity_agent_runtime.py',
+              'tests/test_goose_agent_runtime_user_ready.py',
+              'tests/test_agent06_program_cli_cancel.py',
+              'tests/test_fc2_agent_runtime_management_port.py'
+            )
+            & python -B -m pytest -q -p no:cacheprovider $cases *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-cli-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_CLI_PYTEST_FAIL'}
+            Write-Host 'AGENT06_AI_CLI_PYTEST_PASS'
+          } finally {Pop-Location}
+      - name: Graph and original T3 regression
+        shell: pwsh
+        run: |
+          Push-Location private-agent
+          try{
+            $cases=@(
+              'tests/test_fc6_graph_agent_runtime_executor.py',
+              'tests/test_fc6_graph_node_config.py',
+              'tests/test_fc6_graph_orchestrator_wait_m9.py',
+              'tests/test_interactive_task_retry_claim.py',
+              'tests/test_t3_mode.py',
+              'tests/test_t3_result_projection.py'
+            )
+            & python -B -m pytest -q -p no:cacheprovider $cases *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-graph-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_GRAPH_PYTEST_FAIL'}
+            Write-Host 'AGENT06_AI_GRAPH_PYTEST_PASS'
+          } finally {Pop-Location}
+      - name: Full existing Node and desktop TypeScript Vite
+        shell: pwsh
+        run: |
+          Push-Location private-agent/desktop
+          try{
+            & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-npm-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_NPM_CI_FAIL'}
+            & npm.cmd test *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-node-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_NODE_TESTS_FAIL'}
+            Write-Host 'AGENT06_AI_NODE_TESTS_PASS'
+            & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-desktop-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_DESKTOP_BUILD_FAIL'}
+            Write-Host 'AGENT06_AI_DESKTOP_BUILD_PASS'
+          } finally {Pop-Location}
+      # Do not upload any artifacts/caches or expose user prompts, binary or stderr.
