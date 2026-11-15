@@ -135,11 +135,8 @@ jobs:
             > "$RUNNER_TEMP/agent06-native-private.log" 2>&1; then
             # Only fixed tokens from the approved test source, never
             # private paths, stack traces or actual page contents.
-            grep -E '^AGENT06_NATIVE_STAGE_[A-Z_]+
-          echo "AGENT06_NATIVE_TOOLRUNTIME_READ_TRR_COLD_PASS"
-      # Absolutely no actions/upload-artifact, actions/cache, private source
-      # binary distribution, workspace dump, diagnostic upload or raw test logs.
-               "$RUNNER_TEMP/agent06-native-private.log" || true
+            grep -E '^AGENT06_NATIVE_STAGE_[A-Z_]+$' \
+              "$RUNNER_TEMP/agent06-native-private.log" || true
             echo "AGENT06_NATIVE_TOOLRUNTIME_READ_FAILED"
             exit 6
           fi
