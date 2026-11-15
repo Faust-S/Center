@@ -107,8 +107,8 @@ class BundleTests(unittest.TestCase):
         receipt = self.bundle()
         self.assertEqual(receipt["status"], "VERIFIED")
         self.assertEqual(receipt["file_count"], len(entries) + 2)
-        self.assertEqual(inspect_bundle(self.out, verify_files=True)["file_count"],
-                         len(entries) + 2)
+        self.assertEqual(inspect_bundle(self.out, verify_files=True)["status"],
+                         "VERIFIED")
         packed = self.out.read_bytes()
         _, stub_size, zip_size, meta_size, *_ = FOOTER.unpack(packed[-FOOTER.size:])
         manifest = json.loads(packed[stub_size + zip_size:
