@@ -224,6 +224,79 @@ try{
   await page.setViewportSize({width:320,height:800});assert.ok(await page.locator('.menu-button').isVisible());await page.locator('.menu-button').click();await page.getByTestId('nav-work').click();
   const sizes=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert.ok(sizes.scroll<=sizes.width+1,JSON.stringify(sizes));checks.push('navigation-and-no-overflow-320');
   await page.screenshot({path:'artifacts/work-320.png',fullPage:true});assert.deepEqual(errors,[]);checks.push('no-page-errors');
+  // UI-only mock of the EXISTING native signed owner: this does not
+  // assert Ed25519, original Kernel or installed T3 integration. It checks
+  // that the manager does not lose an attempted Task ID when the signed
+  // owner changes its epoch after a write and the ACK disappears.
+  const d3Page=await browser.newPage({viewport:{width:1366,height:900}});
+  await d3Page.addInitScript(()=>{
+    const held={epoch:7,task:null,writes:0};
+    window.__d3UiFixture=held;
+    window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
+      if(command==='center_draft_read_local')return null;
+      if(command==='center_corporate_state'){
+        const tasks=held.task?[{
+          taskId:held.task.taskId,taskRevisionId:'a'.repeat(64),
+          packageSha256:'b'.repeat(64),summary:'UI recovery task',
+          deliveryState:'NOT_CONFIRMED'
+        }]:[];
+        return {status:'D3_OWNER_READY',snapshot:{
+          product:'admin',organizationId:args.organizationId,
+          workspaceId:'workspace:ui-smoke',actorId:'person:reviewer',
+          contextId:'context:ui-smoke',contextEpoch:held.epoch,
+          d3RecipientAvailable:true,d3TaskIssueAvailable:true,
+          d3InspectAvailable:true,d3ApplyAvailable:false,
+          d3ApplyRecoverAvailable:false,
+          productionActivation:false,T3_READY:false,
+          tasks,totalTasks:tasks.length
+        }};
+      }
+      if(command==='center_corporate_age_status')
+        return {operation:'AGE_STATUS',available:false,recipient:null,
+          toolchain:{ready:false},provider:'WINDOWS_TEST_UI',admitted:false};
+      if(command==='center_corporate_action'){
+        if(args.binding?.contextEpoch!==held.epoch)
+          throw Error('CEN_D3_CONTEXT_CHANGED');
+        if(args.operation==='d3CreateTask'){
+          held.task={taskId:args.input.taskId};
+          held.writes++;held.epoch++;
+          throw Error('CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN');
+        }
+        if(args.operation==='d3TaskReadback')
+          return {schema:'IWXA_T3_ORIGINAL_TASK_READBACK/1',
+            found:held.task?.taskId===args.input.taskId,
+            taskId:args.input.taskId,
+            taskRevisionId:'a'.repeat(64),packageSha256:'b'.repeat(64),
+            recipientId:'person:reviewer',
+            status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED'};
+      }
+      return null;
+    }};
+  });
+  await d3Page.goto('http://127.0.0.1:4173');
+  await d3Page.getByTestId('org-name').fill('UI signed Task fixture');
+  await d3Page.getByTestId('create-org').click();
+  await d3Page.getByTestId('nav-results').click();
+  await d3Page.getByTestId('d3-signed-task-workflow').waitFor();
+  await d3Page.getByTestId('d3-task-text').fill('Check original supplier receipt');
+  await d3Page.getByTestId('d3-task-prepare-id').click();
+  const attemptedTaskId=await d3Page.getByTestId('d3-task-operation-id').inputValue();
+  assert.match(attemptedTaskId,/^task:[A-Za-z0-9-]{1,100}$/);
+  await d3Page.getByLabel('Я сохранил этот ID до подписания').check();
+  await d3Page.getByTestId('d3-create-task').click();
+  await d3Page.getByTestId('d3-task-operation-attempted').waitFor();
+  assert.equal(await d3Page.getByTestId('d3-task-operation-id').inputValue(),
+    attemptedTaskId,'the original ID must survive signed epoch remount');
+  assert.equal(await d3Page.getByTestId('d3-create-task').isEnabled(),false,
+    'unknown original ACK cannot allow a second Task signature');
+  await d3Page.getByTestId('d3-task-recover').click();
+  await d3Page.getByTestId('d3-task-operation-readback').waitFor();
+  assert.match(await d3Page.getByTestId('d3-task-operation-readback').innerText(),
+    /Оригинальная Task сохранена/);
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).writes,1,
+    'read-only Task recovery must not reissue signed Task');
+  await d3Page.close();
+  checks.push('d3-task-id-and-no-replay-survive-unknown-ack-and-signed-epoch-remount');
   writeFileSync('artifacts/ui-report.json',JSON.stringify({status:'PASS_BROWSER_DRAFT_SCOPE',browser:'Firefox',checks,errors,t3RuntimeIntegrated:false,installedWindowsGui:false},null,2));
   console.log('CENTER_DRAFT_UI_PASS',checks.length);
 }finally{await browser?.close();server.kill();}
