@@ -677,8 +677,15 @@ pub async fn center_corporate_open_signed_workspace(
             original_signed_workspace_origins(&view)?;
         // Keep a single WebView. The separate browser Kernel realm remains
         // an iframe at the pinned Control origin, not a second native window.
-        if app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_some(){
-            return Err("CEN_D3_ORIGINAL_WORKSPACE_ALREADY_OPEN".into());
+        if let Some(existing)=app.get_webview(SIGNED_WORKSPACE_WEBVIEW){
+            // The React main WebView may be reloaded independently while
+            // the signed T3 child and original Kernel stay alive. Reuse that
+            // SAME child under the already revalidated native owner instead
+            // of marooning the user behind an ALREADY_OPEN error.
+            existing.show()
+                .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_SHOW_FAILED".to_owned())?;
+            let _=existing.set_focus();
+            return Ok(());
         }
         let window=app.get_window("main")
             .ok_or("CEN_D3_ORIGINAL_MAIN_WINDOW_REQUIRED")?;
