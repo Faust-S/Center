@@ -621,6 +621,41 @@ pub async fn center_corporate_close_signed_workspace(
         close_original_owner(&app)
     ).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
 }
+// The signed Kernel MUST remain alive while the manager returns to the
+// native Center Review/Apply controls in the same window. Hiding only the
+// child WebView is not a logout: use close_signed_workspace to release the
+// native owner and revoke the original Kernel session.
+#[tauri::command]
+pub async fn center_corporate_hide_signed_workspace(
+    app:AppHandle
+)->Result<(),String>{
+    tauri::async_runtime::spawn_blocking(move||{
+        let webview=app.get_webview(SIGNED_WORKSPACE_WEBVIEW)
+            .ok_or("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING")?;
+        webview.hide()
+            .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_HIDE_FAILED".to_owned())?;
+        Ok(())
+    }).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
+}
+#[tauri::command]
+pub async fn center_corporate_show_signed_workspace(
+    app:AppHandle,organization_id:String
+)->Result<(),String>{
+    check_org(&organization_id)?;
+    tauri::async_runtime::spawn_blocking(move||{
+        // Revalidate the ORIGINAL installed signer and Control epoch before
+        // showing a previously hidden child, never revive a foreign owner.
+        let view=private_owner_state(&app,&organization_id)?;
+        original_signed_workspace_origins(&view)?;
+        let webview=app.get_webview(SIGNED_WORKSPACE_WEBVIEW)
+            .ok_or("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING")?;
+        webview.show()
+            .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_SHOW_FAILED".to_owned())?;
+        webview.set_focus()
+            .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_FOCUS_FAILED".to_owned())?;
+        Ok(())
+    }).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
+}
 #[tauri::command]
 pub async fn center_corporate_open_signed_workspace(
     app:AppHandle,organization_id:String
