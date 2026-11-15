@@ -612,8 +612,13 @@ fn close_original_signed_workspace(app:&AppHandle)->Result<(),String>{
 pub async fn center_corporate_close_signed_workspace(
     app:AppHandle
 )->Result<(),String>{
+    // Closing the native child also releases the ORIGINAL DPAPI D3 Host.
+    // Otherwise a detached WebView leaves d3ApplyAvailable=true while the
+    // trusted browser Kernel is gone: the next Human APPLY would hang and
+    // incorrectly become OUTCOME_UNKNOWN. The next state/open command
+    // cold-opens the SAME signed original owner with a fresh bearer/epoch.
     tauri::async_runtime::spawn_blocking(move||
-        close_original_signed_workspace(&app)
+        close_original_owner(&app)
     ).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
 }
 #[tauri::command]
