@@ -15,9 +15,11 @@ type AdminRequest={requestId:string;requestedAt:string;environment:'TEST';
  termDays:number;seats:number;status:'UNSIGNED_REQUEST'};
 type Props={draft:any;invoke:(name:string,args?:Record<string,unknown>)=>Promise<any>;
  change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>;
- personRequestId?:string;ageReady:boolean;};
+ personRequestId?:string;ageReady:boolean;draftSourceSha256:string;
+ ensureSigningDraftCurrent:(expectedSha256:string)=>Promise<void>;};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function PublisherT3OwnerPanel({draft,invoke,change,personRequestId,ageReady}:Props){
+export default function PublisherT3OwnerPanel({draft,invoke,change,personRequestId,ageReady,
+ draftSourceSha256,ensureSigningDraftCurrent}:Props){
  const [issuerIds,setIssuerIds]=useState<string[]>([]);
  const [issuer,setIssuer]=useState('');
  const [licenses,setLicenses]=useState<License[]>([]);
@@ -280,7 +282,9 @@ export default function PublisherT3OwnerPanel({draft,invoke,change,personRequest
    },true);
  }
  return <><PublisherPersonOwnerPanel draft={draft} invoke={invoke} change={change}
-   focusRequestId={personRequestId} ageReady={ageReady}/>
+   focusRequestId={personRequestId} ageReady={ageReady}
+   draftSourceSha256={draftSourceSha256}
+   ensureSigningDraftCurrent={ensureSigningDraftCurrent}/>
  <section className="publisher-test-owner" data-testid="publisher-t3-owner-panel">
    <h3>Выпуск лицензии через T3 Host</h3>
    <p className="muted">Только TEST. Команды выполняются в защищённом нативном компоненте T3,

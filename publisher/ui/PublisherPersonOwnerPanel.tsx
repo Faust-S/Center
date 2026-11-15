@@ -17,7 +17,8 @@ type PersonRecord={
 type Inventory={entries:PersonRecord[];truncated:boolean;total:number;matches?:number};
 type Props={draft:any;invoke:NativeInvoke;
  change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>;
- focusRequestId?:string;ageReady:boolean;};
+ focusRequestId?:string;ageReady:boolean;draftSourceSha256:string;
+ ensureSigningDraftCurrent:(expectedSha256:string)=>Promise<void>;};
 const err=(e:unknown)=>e instanceof Error?e.message:String(e);
 const id=(v:unknown)=>typeof v==='string'&&
   /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(v);
@@ -64,7 +65,8 @@ async function assertOriginalPersonRenewalRequest(draft:any,record:PersonRecord|
   if(await fingerprintUnsignedPersonRequest(original)!==record.requestDigest)
     throw Error('PERSON_RENEWAL_SIGNED_SOURCE_DIGEST_MISMATCH');
 }
-export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequestId,ageReady}:Props){
+export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequestId,ageReady,
+  draftSourceSha256,ensureSigningDraftCurrent}:Props){
   const [issuers,setIssuers]=useState<string[]>([]);
   const [issuer,setIssuer]=useState('');
   const [available,setAvailable]=useState(false);
@@ -350,7 +352,9 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     const request=prepareUnsignedPersonLicenseRequest(draft,{proposalId:selected.proposalId});
     const authority=issuer;
     const source=draft.proposals?.find((p:any)=>p.id===selected.proposalId);
+    const reviewedDraftSha256=draftSourceSha256;
     await operate(async mutationSent=>{
+      await ensureSigningDraftCurrent(reviewedDraftSha256);
       const sourceHash=await fingerprintUnsignedPersonRequest(request);
       // A signed renewal remains a durable record even if its original
       // license was later revoked or expired. Find it before checking the
@@ -401,6 +405,9 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
            verified.productId!==request.product.id)
           throw Error('PERSON_RENEWAL_REQUEST_SCOPE_MISMATCH');
       }
+      // Renewal and duplicate checks can take time. Recheck the reviewed
+      // source immediately before asking the original T3 to sign.
+      await ensureSigningDraftCurrent(reviewedDraftSha256);
       mutationSent();
       const result=await invoke('publisher_t3_person_issue',{
         requestJson:JSON.stringify(request),issuerAuthorityId:authority});

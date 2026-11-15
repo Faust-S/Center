@@ -1227,6 +1227,35 @@ try {
   assert.equal(JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger')||'[]')).length,0);
   checks.push('person-preflight-error-retry-does-not-create-ambiguous-signature');
+  // Another Publisher may modify the same preparation file after review.
+  // A stale UI must not send even the first irreversible signed request.
+  const originalPersonDraft=await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture'));
+  const beforeStaleDraftIssue=await personal.evaluate(()=>
+    window.__personMockIssueCalls||0);
+  await personal.evaluate(()=>{
+    const key='iwxa-publisher-person-fixture';
+    const newer=JSON.parse(sessionStorage.getItem(key));
+    newer.products[0].name='Externally updated product';
+    sessionStorage.setItem(key,JSON.stringify(newer));
+  });
+  await personOwner.getByTestId('publisher-person-issue').click();
+  await personal.getByTestId('publisher-draft-reload').waitFor();
+  assert.equal(await personal.evaluate(()=>window.__personMockIssueCalls||0),
+    beforeStaleDraftIssue,
+    'Changed local source must not reach original T3 PERSON signing');
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')||'[]')).length,0);
+  await personal.evaluate(prior=>
+    sessionStorage.setItem('iwxa-publisher-person-fixture',prior),originalPersonDraft);
+  await personal.getByTestId('publisher-draft-reload').click();
+  await personOwner.getByTestId('publisher-person-issue').waitFor();
+  await personOwner.getByRole('combobox',{name:'Издатель'})
+    .selectOption('publisher:person:mock');
+  await personOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
+    .selectOption(directDraft.proposals[0].id);
+  await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
+  checks.push('person-signing-refuses-stale-local-draft-before-original-t3');
   // A signed requestId belongs to the ORIGINAL T3 ledger, not to an
   // arbitrary local draft. Refuse a different subject, including when the
   // conflicting record has already fallen outside the recent inventory.

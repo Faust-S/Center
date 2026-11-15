@@ -225,6 +225,16 @@ export default function App(){
    }catch(e){setLoaded(false);setError('Не удалось перечитать черновики: '+getError(e));}
    finally{setBusy(false);}
  }
+ // A signed PERSON operation must use the exact preparation that the
+ // operator reviewed. Do not sign a stale draft from another open window.
+ async function ensureSigningDraftCurrent(expectedSha256:string):Promise<void>{
+   const latest=await invoke('publisher_draft_read');
+   const observed=latest===null?ABSENT_DRAFT:await draftSha256(latest);
+   if(observed!==expectedSha256||draftSourceSha256.current!==expectedSha256){
+     setError(handleDraftSaveError(Error('PUBLISHER_DRAFT_CHANGED_ON_DISK')));
+     throw Error('PUBLISHER_DRAFT_CHANGED_ON_DISK');
+   }
+ }
  async function change(command:Record<string,unknown>,success:string):Promise<{ok:boolean;message:string}>{
    if(busy||!loaded)return {ok:false,message:'Сохранение сейчас недоступно. Дождитесь завершения текущего действия.'};
    setBusy(true);setError('');setMessage('');setSimulated(null);
@@ -669,7 +679,9 @@ export default function App(){
        {page==='trust'&&<section className="card padded"><h2>Издательские полномочия</h2>
            <p className="muted">TEST-подпись доступна только через ранее зарегистрированного владельца и оригинальный нативный компонент T3. Подписанный выпуск PERSON требует отдельно зарегистрированного издателя. Закрытые ключи не передаются в интерфейс. Действие лицензии подтверждается установленным продуктом, а не фактом её выдачи.</p>
            <PublisherT3OwnerPanel draft={state} invoke={invoke} change={change}
-             personRequestId={personRequestId} ageReady={ageReady}/>
+             personRequestId={personRequestId} ageReady={ageReady}
+             draftSourceSha256={draftSourceSha256.current}
+             ensureSigningDraftCurrent={ensureSigningDraftCurrent}/>
            <div className="divider"></div>
            <AgeExchangePanel invoke={nativeHost?invoke:null} prefix="publisher"
              onReady={setAgeReady}/>
