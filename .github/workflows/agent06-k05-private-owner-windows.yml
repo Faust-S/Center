@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_EXACT_SHA: '1b5bcbb84280f92b64b2af7642ef956c84e3349d'
+      AGENT_K05_EXACT_SHA: '5a9f264a91a30cdbf870acf5a139ebf94f0d9bc8'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,10 +76,17 @@ jobs:
         run: |
           $tokens=$null
           $errors=$null
-          $script=Join-Path $env:GITHUB_WORKSPACE 'private-agent/tools/qualify_setup_core_native_gui.ps1'
-          [void][System.Management.Automation.Language.Parser]::ParseFile(
-            $script,[ref]$tokens,[ref]$errors)
-          if(@($errors).Count -ne 0){throw 'AGENT06_K05_NATIVE_UIA_SYNTAX_FAIL'}
+          foreach($relative in @(
+            'tools/qualify_setup_core_native_gui.ps1',
+            'tools/build_setup_core_windows_candidate.ps1',
+            'qualification/phase1/build_native_windows_setup_candidate.ps1'
+          )){
+            $tokens=$null;$errors=$null
+            $script=Join-Path (Join-Path $env:GITHUB_WORKSPACE 'private-agent') $relative
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $script,[ref]$tokens,[ref]$errors)
+            if(@($errors).Count -ne 0){throw 'AGENT06_K05_NATIVE_UIA_SYNTAX_FAIL'}
+          }
           Write-Host 'AGENT06_K05_NATIVE_UIA_SYNTAX_PASS'
       - name: Execute original Approval, ToolRuntime and K05 source tests privately
         shell: pwsh
