@@ -1,0 +1,78 @@
+# Public execution only. The private Agent source and binaries remain
+# on the transient Windows runner: no cache, artifact, private log, or installer.
+name: Agent 0.6 T3 selected Result Windows source qualification
+on:
+  push:
+    branches: ['work/2026-11-15-t3-agent06-source-qualification']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: t3-agent06-selected-result-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-source:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require previously authorized read-only private checkout
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'AGENT06_T3_PRIVATE_SOURCE_READ_UNAVAILABLE'
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 6f27543ad51c2908d009eadc7f181726e44803da
+          path: private-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact Agent SHA and dependencies with private output
+        shell: pwsh
+        run: |
+          $sha=(& git -C private-agent rev-parse HEAD).Trim()
+          if($sha -cne '6f27543ad51c2908d009eadc7f181726e44803da'){
+            throw 'AGENT06_T3_SOURCE_REVISION_MISMATCH'
+          }
+          & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'a06-t3-dependencies-private.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_T3_DEPENDENCIES_UNAVAILABLE'}
+          Write-Host 'AGENT06_T3_PINNED_SOURCE_PASS'
+      - name: Verify original selected Result projection and T3 mode
+        shell: pwsh
+        run: |
+          Push-Location private-agent
+          try{
+            & python -B -m pytest -q -p no:cacheprovider tests/test_t3_result_projection.py *> (Join-Path $env:RUNNER_TEMP 'a06-t3-projection-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_T3_SELECTED_RESULT_SOURCE_FAIL'}
+            Write-Host 'AGENT06_T3_SELECTED_RESULT_SOURCE_PASS'
+            & python -B -m pytest -q -p no:cacheprovider tests/test_t3_mode.py *> (Join-Path $env:RUNNER_TEMP 'a06-t3-mode-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_T3_MODE_SOURCE_FAIL'}
+            Write-Host 'AGENT06_T3_MODE_SOURCE_PASS'
+          } finally {Pop-Location}
+      - name: Compile complete Agent 0.6 desktop at exact source
+        shell: pwsh
+        run: |
+          Push-Location private-agent/desktop
+          try{
+            & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'a06-t3-npm-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_T3_DESKTOP_DEPENDENCIES_FAIL'}
+            & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'a06-t3-build-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_T3_DESKTOP_BUILD_FAIL'}
+            Write-Host 'AGENT06_T3_DESKTOP_TYPESCRIPT_VITE_PASS'
+          } finally {Pop-Location}
+      # No artifacts, caches, EXE, private test details or private source uploads.
