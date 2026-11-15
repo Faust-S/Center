@@ -247,7 +247,7 @@ mod person_draft_issue_tests {
             let _cleanup=cleanup;
             ready_tx.send(()).unwrap();
             done_rx.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
-            assert_eq!(fs::read(&worker_file).unwrap(),b"original person request");
+            assert_eq!(fs::read_to_string(&worker_file).unwrap(),"original person request");
         });
         ready_rx.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
         assert!(file.exists());
