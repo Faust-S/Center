@@ -20,6 +20,8 @@ const why=(e:unknown)=>{
    return 'Решение отменено в системном окне Windows. Оно не отправлялось.';
  if(message.includes('CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED'))
    return 'Применение отменено в системном окне Windows до отправки в Kernel. Для продолжения подтвердите применение ещё раз.';
+ if(message.includes('CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING'))
+   return 'Для Apply и проверки Kernel откройте подписанную Workspace T3 в этом окне Admin Center. Закрытие Workspace не отправляет Apply.';
  if(message.includes('T3_D3_DESTINATION_ALREADY_EXISTS'))
    return 'Файл .iwxa с таким именем уже существует. Выберите новое имя: исходный подписанный файл не перезаписывается.';
  if(message.includes('T3_D3_DESTINATION_UNAVAILABLE'))
