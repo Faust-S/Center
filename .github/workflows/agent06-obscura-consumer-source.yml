@@ -243,10 +243,7 @@ jobs:
             if ! python -B -m pytest -q -s -p no:cacheprovider \
               tests/test_agent06_obscura_native_first_user_flow.py \
               > "$RUNNER_TEMP/agent06-firstuser-real-native-private.log" 2>&1; then
-              grep -E '^AGENT06_FIRSTUSER_[A-Z0-9_]+_PASS
-      # Absolutely no actions/upload-artifact, actions/cache, private source
-      # binary distribution, workspace dump, diagnostic upload or raw test logs.
- \
+              grep -E '^AGENT06_FIRSTUSER_[A-Z0-9_]+_PASS$' \
                 "$RUNNER_TEMP/agent06-firstuser-real-native-private.log" || true
               echo "AGENT06_FIRSTUSER_NATIVE_FLOW_FAILED"
               exit 16
