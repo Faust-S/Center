@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "808e291bbcbead7cbad8c1ea6f5ea3da2234b763"
+          test "$(git -C private-agent rev-parse HEAD)" = "2a18d7715e102e5bb32e59ea028aba80ca5cfee4"
           test "$(git -C public-brtest rev-parse HEAD)" = "cb804a846b9ac73014d6feb6faa4a3f9feaac46e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -158,6 +158,9 @@ jobs:
           & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-private-desktop-build.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_PRIVATE_DESKTOP_BUILD_FAILED'}
           Write-Host 'AGENT06_PRIVATE_DESKTOP_BUILD_PASS'
+          & npm.cmd test *> (Join-Path $env:RUNNER_TEMP 'agent06-private-desktop-node-tests.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_PRIVATE_DESKTOP_TEST_FAILED'}
+          Write-Host 'AGENT06_PRIVATE_DESKTOP_TEST_PASS'
       - name: Test native U01 install, real ToolRuntime read and cold TRR readback
         shell: bash
         working-directory: private-agent
