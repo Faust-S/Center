@@ -498,6 +498,9 @@ fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
         .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
     if guard.owner.as_ref()
         .map(|owner|owner.organization_id.as_str())!=Some(organization_id){
+        // A signed Workspace must never survive a switch to another
+        // organization while the old DPAPI owner is released.
+        close_original_signed_workspace(app)?;
         guard.owner.take();
         guard.owner=Some(OriginalOwner::open(app,organization_id)?);
     }
@@ -506,7 +509,8 @@ fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
         .call(verb,&body);
     if result.is_err(){
         // One failed command may have committed to original T3 before ACK
-        // was lost. Never send another action through that same process.
+        // was lost. Revoke the browser session and do not redispatch.
+        let _=close_original_signed_workspace(app);
         guard.owner.take();
     }
     result
@@ -515,6 +519,7 @@ fn close_original_owner(app:&AppHandle)->Result<(),String>{
     let state=app.state::<Mutex<Session>>();
     let mut guard=state.lock()
         .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
+    close_original_signed_workspace(app)?;
     guard.owner.take();
     Ok(())
 }
