@@ -782,6 +782,8 @@ mod tests{
             =json!(accepted);
         result["originalKernelReadback"]["object"]["workspace_id"]=json!("workspace:other");
         assert!(verify_kernel_recovery(&result,&input,&view).is_err());
+        result["originalKernelReadback"]["object"]["workspace_id"]=json!("workspace:1");
+        assert!(verify_kernel_recovery(&result,&input,&view).is_ok());
         // A superficially matching event must not turn an unrelated
         // Object or altered accepted Result into a successful recovery.
         let canonical=result.clone();
