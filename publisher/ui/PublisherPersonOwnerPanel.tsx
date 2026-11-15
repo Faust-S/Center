@@ -68,6 +68,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
   const [issuers,setIssuers]=useState<string[]>([]);
   const [issuer,setIssuer]=useState('');
   const [available,setAvailable]=useState(false);
+  const [ownerUnavailableReason,setOwnerUnavailableReason]=useState('');
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(false);
   const [needsRefresh,setNeedsRefresh]=useState(false);
@@ -226,8 +227,9 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     (async()=>{
       try{
         const info=await invoke('publisher_t3_person_capabilities');
+        if(info?.operation==='PERSON_CAPABILITIES'&&info.statusSequenceCas!==true)
+          throw Error('PUBLISHER_PERSON_T3_OWNER_UPDATE_REQUIRED');
         if(info?.operation!=='PERSON_CAPABILITIES'||info.environment!=='PRODUCTION'||
-           info.statusSequenceCas!==true||
            info.productionActivation!==false||info.activeSeats!==0||
            !Array.isArray(info.issuers)||!info.issuers.every(id))
           throw Error('PERSON_NATIVE_ISSUER_NOT_ENROLLED');
@@ -245,8 +247,11 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
             }
           }
         }
-      }catch{
-        if(alive)setAvailable(false);
+      }catch(e){
+        if(alive){
+          setAvailable(false);
+          setOwnerUnavailableReason(err(e));
+        }
       }finally{if(alive)setLoading(false);}
     })();
     return()=>{alive=false;};
@@ -548,8 +553,10 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     {loading&&<p role="status">Проверяем издателя PERSON…</p>}
     {!loading&&!available&&<p className="notice subdued"
       data-testid="publisher-person-owner-unavailable">
-      Производственный издатель T3 не зарегистрирован в этой установке.
-      Выпуск и отзыв недоступны, сохранённые тарифы и черновики не изменены.
+      {ownerUnavailableReason.includes('PUBLISHER_PERSON_T3_OWNER_UPDATE_REQUIRED')?
+        'Установлен устаревший оригинальный T3 Owner. Обновите компонент T3 в Publisher: требуется проверка последовательности подписанных статусов.':
+        'Производственный издатель T3 не зарегистрирован в этой установке.'}
+      {' '}Выпуск и отзыв недоступны, сохранённые тарифы и черновики не изменены.
     </p>}
     {available&&<>
       <div className="form-grid">

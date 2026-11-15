@@ -256,8 +256,10 @@ async fn call_person(app:AppHandle,action:&'static str,values:Vec<String>)
 pub async fn publisher_t3_person_capabilities(app:AppHandle)->Result<Value,String>{
     let v=call_person(app,"person-capabilities",vec![]).await?;
     t3::validate_test_result(&v,"PERSON_CAPABILITIES")?;
+    if v.get("statusSequenceCas")!=Some(&Value::Bool(true)) {
+        return Err("PUBLISHER_PERSON_T3_OWNER_UPDATE_REQUIRED".into());
+    }
     if v.get("environment").and_then(Value::as_str)!=Some("PRODUCTION") ||
-       v.get("statusSequenceCas")!=Some(&Value::Bool(true)) ||
        !v.get("issuers").is_some_and(Value::is_array) {
         return Err("PUBLISHER_PERSON_T3_ISSUER_REQUIRED".into());
     }

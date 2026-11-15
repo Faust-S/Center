@@ -938,7 +938,8 @@ try {
         if(!window.__personNativeEnabled)throw Error('PERSON_OWNER_NOT_ENROLLED');
         return {operation:'PERSON_CAPABILITIES',environment:'PRODUCTION',
           issuers:['publisher:person:mock','publisher:person:alternate'],
-          statusSequenceCas:true,activeSeats:0,productionActivation:false};
+          statusSequenceCas:!window.__personMockLegacyStatusCas,
+          activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_person_inventory'){
         if(window.__personMockFailNextInventory){
@@ -1092,13 +1093,26 @@ try {
   assert.equal(await personal.getByRole('combobox',{name:'Подготовленный запрос'}).locator('option:not([value=""])').count(),0);
   checks.push('personal-test-issuer-unavailable-even-with-active-original-owner');
 
-  // A synthetic native PERSON issuer may be enabled only after separate
-  // explicit pre-enrollment. This is a UI double, not a signer or entitlement.
-  await personal.evaluate(()=>{window.__personNativeEnabled=true;
-    window.__personMockFailNextInventory=true;});
+  // Explicit pre-enrollment does not make an outdated native T3 owner safe
+  // for a Publisher that requires original sequence compare-and-commit.
+  await personal.evaluate(()=>{
+    window.__personNativeEnabled=true;
+    window.__personMockLegacyStatusCas=true;
+  });
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
   await personal.getByRole('button',{name:'Доверие и ключи'}).click();
   const personOwner=personal.getByTestId('publisher-person-owner');
+  await personOwner.getByTestId('publisher-person-owner-unavailable').waitFor();
+  assert.match(await personOwner.getByTestId('publisher-person-owner-unavailable').innerText(),
+    /Обновите компонент T3 в Publisher/);
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').count(),0);
+  checks.push('person-outdated-original-owner-shows-upgrade-requirement-not-fake-unenrollment');
+  await personal.evaluate(()=>{
+    window.__personMockLegacyStatusCas=false;
+    window.__personMockFailNextInventory=true;
+  });
+  await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
+  await personal.getByRole('button',{name:'Доверие и ключи'}).click();
   await personOwner.getByText('Журнал персональных лицензий T3 недоступен при запуске.',{exact:false}).waitFor();
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
   assert.equal(await personOwner.getByTestId('publisher-person-refresh').isEnabled(),true);
