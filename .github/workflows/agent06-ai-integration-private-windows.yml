@@ -12,7 +12,7 @@ concurrency:
 jobs:
   windows-source:
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 110
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -189,37 +189,9 @@ jobs:
           if($bad -ne 0){throw 'AGENT06_DIAGNOSTIC_DESKTOP_REGRESSIONS_FAIL'}
       # No artifacts, cache, installer, private test logs or model output.
 
-  native-windows:
-    # Existing approved runner only. Private sources and installed binaries
-    # remain transient. This is not an authenticated external account test.
-    needs: windows-source
-    runs-on: windows-latest
-    timeout-minutes: 110
-    env:
-      PYTHONDONTWRITEBYTECODE: '1'
-      PIP_DISABLE_PIP_VERSION_CHECK: '1'
-    steps:
-      - name: Require scoped private read-only source permission
-        shell: pwsh
-        env:
-          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
-        run: |
-          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
-            throw 'AGENT06_NATIVE_PRIVATE_SOURCE_READ_UNAVAILABLE'
-          }
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/iwxa-personal-agent
-          ref: 63d21298968f52f06b49b996634894a94f6392e0
-          path: private-agent
-          persist-credentials: false
-          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
+      # The native binary and installed-window checks use the SAME private
+      # read-only checkout as the already-qualified source job. An extra
+      # Windows job cannot assume a second private credential scope.
       - name: Require exact source and native Rust toolchain
         shell: pwsh
         run: |
@@ -294,4 +266,5 @@ jobs:
             }
             Write-Host 'AGENT06_NATIVE_INSTALLED_COLD_REOPEN_PASS'
           }finally{Pop-Location}
-      # No upload-artifact, cache, installer publication or raw private logs.
+      # No upload-artifact/cache, installer publication, private source
+      # or full log is exported from the temporary Windows runner.
