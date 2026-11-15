@@ -60,6 +60,9 @@ export default function App() {
   const [nativeRestoring,setNativeRestoring] = useState(nativeHost);
   const [state,setState] = useState<Draft>(() => emptyDraft() as Draft);
   const [page,setPage] = useState<Page>('overview');
+  // UI-only presence of the original signed child WebView; signing state,
+  // Control bearer and Kernel remain owned by the private installed Host.
+  const [signedWorkspaceOrg,setSignedWorkspaceOrg] = useState<string|null>(null);
   const [editor,setEditor] = useState<Editor|null>(null);
   const [creatingOrg,setCreatingOrg] = useState(false);
   const [menuOpen,setMenuOpen] = useState(false);
@@ -167,6 +170,25 @@ export default function App() {
       revisionRef.current++;
       setState(next); setDirty(true); setError(''); setMessage('Черновик изменён. Сохраните его в файл.'); return true;
     } catch(e) {problem(e); return false;}
+  };
+  useEffect(()=>{
+    if(!signedWorkspaceOrg||!nativeHost)return;
+    if(page==='results'&&state.activeOrganizationId===signedWorkspaceOrg)return;
+    let active=true;
+    void nativeInvoke('center_corporate_close_signed_workspace')
+      .then(()=>{if(active)setSignedWorkspaceOrg(null)})
+      .catch(()=>{if(active)setError('Не удалось закрыть подписанную Workspace T3. Закройте её перед сменой организации.')});
+    return ()=>{active=false};
+  },[signedWorkspaceOrg,page,state.activeOrganizationId,nativeHost]);
+  const openSignedWorkspace=async(organizationId:string)=>{
+    if(!nativeHost||page!=='results'||state.activeOrganizationId!==organizationId)
+      throw Error('CEN_D3_ORIGINAL_WORKSPACE_CONTEXT_CHANGED');
+    await nativeInvoke('center_corporate_open_signed_workspace',{organizationId});
+    setSignedWorkspaceOrg(organizationId);
+  };
+  const closeSignedWorkspace=async()=>{
+    await nativeInvoke('center_corporate_close_signed_workspace');
+    setSignedWorkspaceOrg(null);
   };
   const go = (next: Page) => {setPage(next); setMenuOpen(false);};
   const reuseAppliedResult = ({description,source}:{description:string;source:SourceResultRef}) => {
@@ -364,7 +386,10 @@ export default function App() {
     </aside>
 
     <main className="main">
-      <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb">{org?.name??'Начало работы'} <span>/ {title}</span></div><button className="secondary top-save" onClick={saveFile} disabled={!org||saving}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
+      <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb">{org?.name??'Начало работы'} <span>/ {title}</span></div>
+       {signedWorkspaceOrg&&<button className="secondary" data-testid="d3-close-signed-workspace"
+        onClick={()=>{void closeSignedWorkspace().catch(()=>setError('Не удалось закрыть Workspace T3.'));}}>Закрыть Workspace T3</button>}
+       <button className="secondary top-save" onClick={saveFile} disabled={!org||saving}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
       <div className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ ОРГАНИЗАЦИЕЙ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>
       {error && <div className="notice error" role="alert">{error}</div>}
       {message && <div className="notice" role="status">{message}</div>}
@@ -489,7 +514,7 @@ export default function App() {
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 
-       {org && page==='results' && <CorporatePanel key={org.id} organization={org} invoke={nativeHost?nativeInvoke:null} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()}/>} 
+       {org && page==='results' && <CorporatePanel key={org.id} organization={org} invoke={nativeHost?nativeInvoke:null} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onOpenSignedWorkspace={openSignedWorkspace}/>} 
       {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
         <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
         {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button></div>)}
