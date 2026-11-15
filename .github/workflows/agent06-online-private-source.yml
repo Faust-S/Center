@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT06_PRIVATE_PIN: '6a86c8ebe10b1f74ff76f7d9d12cb58f0cd1e204'
+      AGENT06_PRIVATE_PIN: '88be7b397474984964267625a37918913683dfc7'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,9 +67,9 @@ jobs:
           Write-Host 'AGENT06_PY_DEPENDENCIES_PASS'
           Push-Location private-agent
           try {
-            $paths=@(Get-ChildItem tests -Filter 'test_agent06_*.py' -File | Sort-Object Name | ForEach-Object FullName)
-            $paths+=@('tests/test_google_oauth_user_ready.py',
-                      'tests/cells/test_interaction_surface.py')
+            # Diagnose the only remaining failing test on exact current private source.
+            # No source, traceback or test name may be published.
+            $paths=@('tests/test_agent06_online_interaction_surface.py::test_scoped_google_oauth_interaction_routes_without_cross_account_access')
             $log=Join-Path $env:RUNNER_TEMP 'agent06-online-py-private.log'
             $xml=Join-Path $env:RUNNER_TEMP 'agent06-online-py-private.xml'
             & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) @paths *> $log
@@ -103,13 +103,85 @@ jobs:
                 $locations=[regex]::Matches($trace,
                   'test_(?:agent06_online_interaction_surface|google_oauth_user_ready)\.py:(\d+)')
                 if($locations.Count -gt 0){
-                  Write-Host ('AGENT06_PY_FAILED_TEST_LINE='+
-                    $locations[$locations.Count-1].Groups[1].Value)
+                  $uniqueLines=@($locations | ForEach-Object {$_.Groups[1].Value} |
+                    Select-Object -Unique | Select-Object -First 12)
+                  Write-Host ('AGENT06_PY_FAILURE_CALL_LINES='+($uniqueLines -join ','))
                 }
                 $reasons=[regex]::Matches($trace,
                   '(?<![A-Za-z0-9_])(?:online|google_oauth|dav|interaction)_[a-z][a-z0-9_]{3,70}(?![A-Za-z0-9_])')
-                foreach($reason in @($reasons|Select-Object -First 4)){
+                foreach($reason in @($reasons|Select-Object -Last 8)){
                   Write-Host ('AGENT06_PY_SAFE_REASON='+$reason.Value)
+                }
+                if($type -eq 'OTHER'){
+                  $exceptionType=[string]$fail.GetAttribute('type')
+                  if($exceptionType.Contains('.')){$exceptionType=$exceptionType.Split('.')[-1]}
+                  if($exceptionType -match '^[A-Za-z_][A-Za-z0-9_]{0,80}
+              }
+            }else{Write-Host 'AGENT06_PY_JUNIT_MISSING'}
+            if($exitCode -ne 0){
+              Write-Host 'AGENT06_PY_SOURCE_FAIL'
+              "AGENT06_PY_GATE=FAIL" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+              exit 1
+            }
+            Write-Host 'AGENT06_PY_SOURCE_PASS'
+            "AGENT06_PY_GATE=PASS" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          } finally { Pop-Location }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Type-check and build original private Desktop
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference='Continue'
+          Push-Location private-agent/desktop
+          try{
+            $dep=Join-Path $env:RUNNER_TEMP 'agent06-online-node-private.log'
+            & npm ci --no-audit --no-fund *> $dep
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'AGENT06_DESKTOP_DEPS_FAIL'
+              "AGENT06_DESKTOP_GATE=FAIL" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+              exit 1
+            }
+            Write-Host 'AGENT06_DESKTOP_DEPS_PASS'
+            $ts=Join-Path $env:RUNNER_TEMP 'agent06-online-types-private.log'
+            & npx tsc --noEmit *> $ts
+            $tsExit=$LASTEXITCODE
+            if($tsExit -ne 0){
+              Write-Host 'AGENT06_DESKTOP_TSC_FAIL'
+              $safe=Get-Content -LiteralPath $ts -Raw
+              [regex]::Matches($safe,'TS[0-9]{4,5}') |
+                ForEach-Object Value | Sort-Object -Unique |
+                ForEach-Object {Write-Host ('AGENT06_DESKTOP_TS_CODE='+$_)}
+            }else{Write-Host 'AGENT06_DESKTOP_TSC_PASS'}
+            $build=Join-Path $env:RUNNER_TEMP 'agent06-online-build-private.log'
+            & npm run build *> $build
+            $buildExit=$LASTEXITCODE
+            if($buildExit -ne 0){Write-Host 'AGENT06_DESKTOP_BUILD_FAIL'}
+            else{Write-Host 'AGENT06_DESKTOP_BUILD_PASS'}
+            if($tsExit -ne 0 -or $buildExit -ne 0){
+              "AGENT06_DESKTOP_GATE=FAIL" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+              exit 1
+            }
+            "AGENT06_DESKTOP_GATE=PASS" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          }finally{Pop-Location}
+      - name: Report final private source qualification gate only
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host ('AGENT06_PRIVATE_PY_GATE='+$env:AGENT06_PY_GATE)
+          Write-Host ('AGENT06_PRIVATE_DESKTOP_GATE='+$env:AGENT06_DESKTOP_GATE)
+          if($env:AGENT06_PY_GATE -ne 'PASS' -or
+             $env:AGENT06_DESKTOP_GATE -ne 'PASS'){
+            throw 'AGENT06_ONLINE_PRIVATE_SOURCE_NOT_QUALIFIED'
+          }
+          Write-Host 'AGENT06_ONLINE_PRIVATE_SOURCE_QUALIFIED'
+      # Deliberately no artifact, cache, private test logs or compiled app upload.
+){
+                    $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                      [Text.Encoding]::UTF8.GetBytes($exceptionType))).Substring(0,12)
+                    Write-Host ('AGENT06_PY_UNRECOGNIZED_EXCEPTION_SHA='+$digest)
+                  }
                 }
               }
             }else{Write-Host 'AGENT06_PY_JUNIT_MISSING'}
