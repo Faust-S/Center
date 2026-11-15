@@ -373,7 +373,7 @@ fn store_request(app:&AppHandle,data:&Value)->Result<EphemeralRequest,String>{
 const D3_HOST_CALL:&str="IWXA_T3_D3_NATIVE_OWNER_CALL/1";
 const D3_HOST_REPLY:&str="IWXA_T3_D3_NATIVE_OWNER_REPLY/1";
 #[derive(Default)]
-pub struct Session{owner:Option<OriginalOwner>}
+pub struct Session{owner:Option<OriginalOwner>,signed_workspace_visible:bool}
 struct OriginalOwner{
     organization_id:String,
     child:Child,
@@ -517,6 +517,7 @@ fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
         // organization while the old DPAPI owner is released.
         close_original_signed_workspace(app)?;
         guard.owner.take();
+        guard.signed_workspace_visible=false;
         guard.owner=Some(OriginalOwner::open(app,organization_id)?);
     }
     let result=guard.owner.as_mut()
@@ -528,6 +529,7 @@ fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
         // before ACK was lost. Revoke the browser and require cold readback.
         let _=close_original_signed_workspace(app);
         guard.owner.take();
+        guard.signed_workspace_visible=false;
     }
     result
 }
@@ -537,6 +539,7 @@ fn close_original_owner(app:&AppHandle)->Result<(),String>{
         .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
     close_original_signed_workspace(app)?;
     guard.owner.take();
+    guard.signed_workspace_visible=false;
     Ok(())
 }
 fn private_owner_state(app:&AppHandle,organization_id:&str)->Result<Value,String>{
@@ -547,6 +550,25 @@ fn private_owner_state(app:&AppHandle,organization_id:&str)->Result<Value,String
 // desktop window. Never open an external browser, another Tauri window, or a
 // caller-supplied URL. The signed D3 owner supplies its two loopback origins.
 const SIGNED_WORKSPACE_WEBVIEW:&str="iwxa-t3-signed-workspace";
+// These are ONLY UI-navigation bits about the existing child, never signed
+// authority, persisted rights, a Kernel capability or a bearer projection.
+fn signed_workspace_ui_state(
+    owner_org:Option<&str>,exists:bool,visible:bool,selected:&str
+)->Value{
+    let current=exists&&owner_org==Some(selected);
+    json!({"schema":"IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1",
+        "open":current,"visible":current&&visible,
+        "foreignOrOrphaned":exists&&!current})
+}
+fn record_signed_workspace_visible(
+    app:&AppHandle,visible:bool
+)->Result<(),String>{
+    let state=app.state::<Mutex<Session>>();
+    let mut guard=state.lock()
+        .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
+    guard.signed_workspace_visible=visible;
+    Ok(())
+}
 fn original_signed_workspace_origins(view:&Value)
     ->Result<(tauri::Url,String,String),String>{
     let s=&view["snapshot"];
@@ -624,6 +646,25 @@ fn close_original_signed_workspace(app:&AppHandle)->Result<(),String>{
     }
     Ok(())
 }
+// A React reload discards its UI-only state without closing the original
+// signed native child. Read its exact presence/visibility from the SAME
+// Tauri process so the manager can return to Review rather than being
+// stranded behind an overlay without navigation.
+#[tauri::command]
+pub async fn center_corporate_signed_workspace_status(
+    app:AppHandle,organization_id:String
+)->Result<Value,String>{
+    check_org(&organization_id)?;
+    tauri::async_runtime::spawn_blocking(move||{
+        let exists=app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_some();
+        let state=app.state::<Mutex<Session>>();
+        let guard=state.lock()
+            .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
+        Ok(signed_workspace_ui_state(
+            guard.owner.as_ref().map(|o|o.organization_id.as_str()),
+            exists,guard.signed_workspace_visible,&organization_id))
+    }).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
+}
 #[tauri::command]
 pub async fn center_corporate_close_signed_workspace(
     app:AppHandle
@@ -650,6 +691,7 @@ pub async fn center_corporate_hide_signed_workspace(
             .ok_or("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING")?;
         webview.hide()
             .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_HIDE_FAILED".to_owned())?;
+        record_signed_workspace_visible(&app,false)?;
         // The native Review controls live in the original main WebView.
         // Recover keyboard focus after hiding the child; focus failure
         // cannot turn a successful hide into a misleading UI error.
@@ -673,6 +715,7 @@ pub async fn center_corporate_show_signed_workspace(
             .ok_or("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING")?;
         webview.show()
             .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_SHOW_FAILED".to_owned())?;
+        record_signed_workspace_visible(&app,true)?;
         let _=webview.set_focus();
         Ok(())
     }).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
@@ -700,6 +743,7 @@ pub async fn center_corporate_open_signed_workspace(
             // of marooning the user behind an ALREADY_OPEN error.
             existing.show()
                 .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_SHOW_FAILED".to_owned())?;
+            record_signed_workspace_visible(&app,true)?;
             let _=existing.set_focus();
             return Ok(());
         }
@@ -729,6 +773,7 @@ pub async fn center_corporate_open_signed_workspace(
             tauri::LogicalPosition::new(x,y),
             tauri::LogicalSize::new(logical.width-x,logical.height-y))
             .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_CREATE_FAILED")?;
+        record_signed_workspace_visible(&app,true)?;
         Ok(())
     }).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
 }
@@ -1064,7 +1109,22 @@ mod tests{
             "action",&apply,&Ok(json!({"status":"CONFIRMED"}))));
     }
     #[test]
-    fn signed_workspace_comes_only_from_original_two_loopback_origins(){
+    fn native_child_ui_status_restores_only_the_same_signed_owner(){
+        let hidden=signed_workspace_ui_state(Some("org:a"),true,false,"org:a");
+        assert_eq!(hidden["open"],true);
+        assert_eq!(hidden["visible"],false);
+        assert_eq!(hidden["foreignOrOrphaned"],false);
+        let shown=signed_workspace_ui_state(Some("org:a"),true,true,"org:a");
+        assert_eq!(shown["visible"],true);
+        let foreign=signed_workspace_ui_state(Some("org:a"),true,true,"org:b");
+        assert_eq!(foreign["open"],false);
+        assert_eq!(foreign["foreignOrOrphaned"],true);
+        let missing=signed_workspace_ui_state(Some("org:a"),false,true,"org:a");
+        assert_eq!(missing["open"],false);
+        assert_eq!(missing["visible"],false);
+    }
+    #[test]
+        fn signed_workspace_comes_only_from_original_two_loopback_origins(){
         let original=json!({"snapshot":{
             "product":"admin","d3RecipientAvailable":true,"T3_READY":false,
             "originalControlEpoch":8,
