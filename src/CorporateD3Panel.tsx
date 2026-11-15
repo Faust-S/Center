@@ -3,7 +3,8 @@ import {createNativeAtlasPort} from './atlas-native.mjs';
 import {atlasLinkReadback,atlasWorkReadback} from './atlas-integration.mjs';
 import {readOriginalResultReview,readCompleteOriginalResult,
  validateOriginalSignedTaskReadback,
- isDefiniteUndispatchedD3Failure} from '../runtime/cen03-d3-owner.mjs';
+ isDefiniteUndispatchedD3Failure,
+ readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
 
 // D3 UI is deliberately limited to the ORIGINAL recipient and signed D1 Host.
 // It cannot issue a task, sign a grant, interpret an ACCEPT as Apply, or
@@ -376,14 +377,20 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
           typeof x.resultExcerpt==='string'&&x.resultExcerpt.length<=500&&
           typeof x.resultTruncated==='boolean'))))
      throw Error('CEN_D3_APPLICATION_PREVIEW_INVALID');
-   setApplication(result);setApplyConsent(false);
+   const target=readOriginalApplicationTarget(result.target,
+     session.organizationId,session.workspaceId);
+   if(result.source?.acceptanceId!==receipt.receipt.acceptanceId)
+     throw Error('CEN_D3_APPLICATION_PREVIEW_INVALID');
+   setApplication({...result,target});setApplyConsent(false);
  });
  const apply=()=>run('Исходный T3 Kernel вернул квитанцию записи и повторное чтение.',async()=>{
    if(!accepted||!application||!applyConsent||applyAttempted||
       applyPreviouslySent||recoverPrevious)
      throw Error('CEN_D3_SEPARATE_HUMAN_APPLY_REQUIRED');
    const selection={acceptanceId:receipt.receipt.acceptanceId as string,
-     revisionIds:[...selectedRevisions]};
+     revisionIds:[...selectedRevisions],
+     target:readOriginalApplicationTarget(application.target,
+       session.organizationId,session.workspaceId)};
    if(!hex(selection.acceptanceId)||selection.revisionIds.length===0)
      throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
    // Record the exact selection synchronously before sending to the owner.
@@ -427,7 +434,18 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
    dispatchedApplications.current.set(attemptKey(source.acceptanceId),[...source.revisionIds]);
    setApplySelection(source);setApplyAttempted(true);
-   const result=await execute('d3RecoverApplied',source);
+   // A cold restart has no cached target. Re-read it exclusively from the
+   // original ACCEPTED source; this never records another Human APPLY.
+   const candidate=await execute('d3InspectAccepted',source);
+   if(candidate?.schema!=='IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1'||
+     candidate.status!=='CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION'||
+     candidate.source?.acceptanceId!==source.acceptanceId||
+     candidate.applicationAttempted!==false||
+     candidate.applicationAuthorized!==false)
+     throw Error('CEN_D3_ORIGINAL_APPLICATION_TARGET_CHANGED');
+   const target=readOriginalApplicationTarget(candidate.target,
+     session.organizationId,session.workspaceId);
+   const result=await execute('d3RecoverApplied',{...source,target});
    const confirmed=result?.status==='ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED';
    if((!confirmed&&result?.status!=='OUTCOME_UNKNOWN')||
      !hex(result.effectKey)||result.automaticRetryAllowed!==false||

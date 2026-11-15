@@ -78,12 +78,31 @@ function checkedReceipt(outcome,operationId,packageSha256,actorId){
 }
 function checkedTarget(value,context){
  need(value!==null&&typeof value==='object'&&!Array.isArray(value)&&
+   Object.keys(value).length===TARGET_FIELDS.length&&
    TARGET_FIELDS.every(field=>validId(value[field]))&&
    value.subjectId===context.organization_id&&
    value.workspaceId===context.workspace_id&&
    ['IWXA_ADMIN_CENTER','IWXA_CONTROL_CENTER'].includes(value.consumerId),
    'CEN_D3_ORIGINAL_APPLICATION_TARGET_REQUIRED');
  return copy(value,'CEN_D3_APPLICATION_TARGET_INVALID');
+}
+// Send back the exact accepted original Application target. It is not a
+// browser-selected grant: the original signed owner checks the same target
+// AGAIN at Host APPLY and read-only recovery.
+export function readOriginalApplicationTarget(value,organizationId,workspaceId){
+ need(validId(organizationId)&&validId(workspaceId),
+   'CEN_D3_ORIGINAL_APPLICATION_TARGET_REQUIRED');
+ return checkedTarget(value,{organization_id:organizationId,
+   workspace_id:workspaceId});
+}
+function assertSameRequestedTarget(input,owned){
+ if(!Object.hasOwn(input,'target'))return; // Existing legacy Host adapter.
+ const claimed=input.target;
+ need(claimed!==null&&typeof claimed==='object'&&
+   !Array.isArray(claimed)&&
+   Object.keys(claimed).length===TARGET_FIELDS.length&&
+   TARGET_FIELDS.every(key=>claimed[key]===owned[key]),
+   'CEN_D3_ORIGINAL_APPLICATION_TARGET_CHANGED');
 }
 // Only the ORIGINAL signed owner can prove a committed graph. The Center
 // boundary checks that its read-only Object and Event evidence refers to
@@ -350,6 +369,7 @@ export function createCenD3OwnerHost({admission,access,apply=null,
        const selection=sourceSelection(input);
        need(apply!==null,'CEN_D3_APPLY_RECOVERY_NOT_CONNECTED');
        const target=await targetFor(c,selection);
+       assertSameRequestedTarget(input,target);
        need(typeof apply.recoverApplied==='function',
          'CEN_D3_APPLY_RECOVERY_NOT_CONNECTED');
        // Original signed D1 Kernel Object + Event readback. Never issue
@@ -360,6 +380,7 @@ export function createCenD3OwnerHost({admission,access,apply=null,
        const selection=sourceSelection(input);
        need(apply!==null,'CEN_D3_APPLY_NOT_CONNECTED');
        const target=await targetFor(c,selection);
+       assertSameRequestedTarget(input,target);
        entered=true;
        // The original trusted owner repeats source review, gets sealed
        // effect/graph, independently confirms HUMAN APPLY, authorizes via

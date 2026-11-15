@@ -4,7 +4,8 @@ import {createCorporateOwnerHost} from '../runtime/cen-corporate-owner-host.mjs'
 import {signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
 import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
  appendOriginalResultReview,readCompleteOriginalResult,
- validateOriginalSignedTaskReadback,isDefiniteUndispatchedD3Failure} from '../runtime/cen03-d3-owner.mjs';
+ validateOriginalSignedTaskReadback,isDefiniteUndispatchedD3Failure,
+ readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64);
@@ -52,6 +53,28 @@ const context=()=>({kind:'CORP',context_id:'context:1',actor_id:'person:manager'
  principal_id:'org:1',role_id:'role:manager',grant_id:'grant:accept',
  organization_id:'org:1',workspace_id:'workspace:1',resource:'workspace:1',
  realm_id:'realm:1',audience:'admin',purpose:'application',scope_revision:7});
+test('original D3 target is exact and bound to the accepted organization',async()=>{
+ assert.deepEqual(readOriginalApplicationTarget(target,'org:1','workspace:1'),target);
+ for(const invalid of [
+   {...target,workspaceId:'workspace:foreign'},
+   {...target,subjectId:'org:foreign'},
+   {...target,dataRootId:'root:foreign',extra:'caller-inserted'},
+   {...target,consumerId:'IWXA_OTHER'},
+   {...target,processId:undefined},
+ ]){
+   assert.throws(()=>readOriginalApplicationTarget(invalid,'org:1','workspace:1'),
+     /CEN_D3_ORIGINAL_APPLICATION_TARGET_REQUIRED/);
+ }
+ const {host,log}=original();
+ for(const operation of ['d3ApplyAccepted','d3RecoverApplied']){
+   const selection={acceptanceId:C,revisionIds:[C],
+     target:{...target,dataRootId:'root:foreign'}};
+   await assert.rejects(()=>command(host,operation,selection),
+     /CEN_D3_ORIGINAL_APPLICATION_TARGET_CHANGED/);
+ }
+ assert.equal(log.filter(x=>x[0]==='apply'||x[0]==='recoverApply').length,0);
+});
+
 test('D3 native carrier limit matches original installed 32 MiB owner',()=>{
  assert.equal(MAX_CEN_D3_IWXA_CARRIER_BYTES,32*1024*1024);
  assert.equal(MAX_CEN_D3_IWXA_CARRIER_BYTES,MAX_CEN_IWXA_CARRIER_BYTES);
@@ -167,13 +190,13 @@ test('D3: real signed subject scope, original archive, ACCEPT receipt and separa
  const selection={acceptanceId:C,revisionIds:[C]};
  const candidate=await command(host,'d3InspectAccepted',selection);
  assert.equal(candidate.applicationAttempted,false);
- const applied=await command(host,'d3ApplyAccepted',selection);
+ const applied=await command(host,'d3ApplyAccepted',{...selection,target});
  assert.equal(applied.kernelWriteReadback,'CONFIRMED');
  assert.equal(applied.originalKernelReadback.object.revision,2);
  assert.equal(log.filter(x=>x[0]==='accept').length,1);
  assert.equal(log.filter(x=>x[0]==='apply').length,1);
  assert.deepEqual(log.find(x=>x[0]==='apply')[1].target,target);
- const verified=await command(host,'d3RecoverApplied',selection);
+ const verified=await command(host,'d3RecoverApplied',{...selection,target});
  assert.equal(verified.status,'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED');
  assert.equal(verified.originalEventReadback.idempotency_key,A);
  assert.equal(verified.automaticRetryAllowed,false);
