@@ -775,6 +775,14 @@ pub async fn center_corporate_action(
         return Err("CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED".into());
     }
     if matches!(operation.as_str(),"d3ApplyAccepted"|"d3RecoverApplied"){
+        // The ORIGINAL T2 Kernel lives exclusively in the currently
+        // mounted trusted child WebView. A stale native APPLY capability
+        // after that view is gone must NOT prompt Human approval or enter
+        // an operation that can only end as OUTCOME_UNKNOWN.
+        if app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_none(){
+            close_original_owner(&app)?;
+            return Err("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING".into());
+        }
         // Application is NOT implicit in ACCEPT. The original owner must
         // actually advertise a signed D1 Kernel port before Center can
         // offer either writing or recovery. Never ask for Human APPLY when
@@ -865,6 +873,14 @@ pub async fn center_corporate_action(
         }
         if !exact_kernel_apply_capability(&observed,&operation){
             return Err("CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED".into());
+        }
+        // The manager may have closed the child while the separate Windows
+        // Human APPLY dialog was visible. This check still precedes the
+        // private owner's first Kernel dispatch and cannot cause a replay.
+        if matches!(operation.as_str(),"d3ApplyAccepted"|"d3RecoverApplied")&&
+            app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_none(){
+            close_original_owner(&app)?;
+            return Err("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING".into());
         }
         // The already installed ORIGINAL T3 age executable first verifies
         // ciphertext/X25519 and creates a short-lived, private plaintext
