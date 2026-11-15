@@ -156,6 +156,61 @@ try {
   $duplicate=Invoke-Setup '--install-file' $duplicateFile 2
   if($duplicate.status -ne 'ERROR' -or $duplicate.reason -notlike 'SETUP_BLOCKED_EXISTING_INSTALLATION*'){throw 'PUBLISHER_SETUP_DUPLICATE_INSTALL_NOT_REJECTED'}
   Write-Host 'PUBLISHER_SETUP_DUPLICATE_REJECT_PASS'
+  # Repair the SAME owned installation while preserving the exact selected
+  # data folder. This is the real Setup Core lifecycle path for a user who
+  # reinstalls Publisher into the original program/data locations, not a
+  # fresh-install simulation with a new directory.
+  $existingVersion=Invoke-Setup '--upgrade-plan-file' (Join-Path $artifact 'repair-plan-before.json') 0
+  if($existingVersion.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED' -or
+     $existingVersion.installedVersion -ne '0.5.0-dev.1' -or
+     $existingVersion.candidateVersion -ne '0.5.0-dev.1'){
+    throw "PUBLISHER_SETUP_REPAIR_NOT_AVAILABLE_$($existingVersion.status)"
+  }
+  $selectedDataLocation=[string]$registered.DataLocation
+  if($selectedDataLocation -ne $dataRoot){
+    throw 'PUBLISHER_SETUP_REPAIR_DATA_LOCATION_INVALID'
+  }
+  $sentinelHash=(Get-FileHash -LiteralPath $dataSentinel -Algorithm SHA256).Hash
+  $repaired=Invoke-Setup '--repair-file' (Join-Path $artifact 'repair-result.json') 0
+  if($repaired.status -ne 'REPAIRED_BACKUP_RETAINED' -or
+     $repaired.product -ne 'iwxa.publisher' -or
+     $repaired.version -ne '0.5.0-dev.1' -or
+     $repaired.installRoot -ne $root){
+    throw 'PUBLISHER_SETUP_REPAIR_RESULT_INVALID'
+  }
+  $pendingRepair=Invoke-Setup '--upgrade-plan-file' (Join-Path $artifact 'repair-pending.json') 0
+  if(@('UPGRADE_PENDING_CONFIRMATION','REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK') -notcontains $pendingRepair.status){
+    throw "PUBLISHER_SETUP_REPAIR_PENDING_STATE_INVALID_$($pendingRepair.status)"
+  }
+  $verifiedRepair=Invoke-Setup '--verify-installed-file' (Join-Path $artifact 'repair-verified.json') 0
+  if($verifiedRepair.status -ne 'OWNED_FILES_VERIFIED' -or
+     $verifiedRepair.version -ne '0.5.0-dev.1'){
+    throw 'PUBLISHER_SETUP_REPAIR_INSTALLED_BYTES_UNVERIFIED'
+  }
+  if((Get-FileHash -LiteralPath $app -Algorithm SHA256).Hash -ne
+     (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash){
+    throw 'PUBLISHER_SETUP_REPAIR_CHANGED_APPLICATION'
+  }
+  if($componentSource -and
+     (Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash -ne $componentHash){
+    throw 'PUBLISHER_SETUP_REPAIR_CHANGED_ORIGINAL_OWNER'
+  }
+  $repairRegistry=Get-ItemProperty -Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher'
+  if([string]$repairRegistry.DataLocation -ne $selectedDataLocation -or
+     (Get-FileHash -LiteralPath $dataSentinel -Algorithm SHA256).Hash -ne $sentinelHash){
+    throw 'PUBLISHER_SETUP_REPAIR_CHANGED_USER_DATA_OR_LOCATION'
+  }
+  $confirmedRepair=Invoke-Setup '--confirm-upgrade-file' (Join-Path $artifact 'repair-confirm.json') 0
+  if($confirmedRepair.status -ne 'UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED' -or
+     (Test-Path -LiteralPath ($root + '.iwxa-previous'))){
+    throw 'PUBLISHER_SETUP_REPAIR_CONFIRMATION_INVALID'
+  }
+  $repairReady=Invoke-Setup '--upgrade-plan-file' (Join-Path $artifact 'repair-plan-final.json') 0
+  if($repairReady.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED' -or
+     (Get-FileHash -LiteralPath $dataSentinel -Algorithm SHA256).Hash -ne $sentinelHash){
+    throw 'PUBLISHER_SETUP_REPAIR_FINAL_DATA_INCONSISTENT'
+  }
+  Write-Host 'PUBLISHER_SETUP_REPAIR_SAME_LOCATION_USER_DATA_PRESERVED_PASS'
   if(!$TransportOnly){
   $env:IWXA_PUBLISHER_ALREADY_INSTALLED='1'
   $env:IWXA_PUBLISHER_INSTALLED_EXE=$app
