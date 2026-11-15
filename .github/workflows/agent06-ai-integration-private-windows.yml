@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: d0c88bd53b6def229ac6fc2bd1f6b8fc1de10b8e
+          ref: 0ae4f372ac73dc0e383aaa485922d9c04cdfcad9
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne 'd0c88bd53b6def229ac6fc2bd1f6b8fc1de10b8e'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
+          if($sha -cne '0ae4f372ac73dc0e383aaa485922d9c04cdfcad9'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
           & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-pip-private.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_DEPENDENCIES_FAIL'}
           Write-Host 'AGENT06_AI_DEPENDENCIES_PASS'
@@ -60,6 +60,15 @@ jobs:
             & python -B -m pytest -q -p no:cacheprovider @cases *> $privateLog
             if($LASTEXITCODE -ne 0){
               Write-Host ('AGENT06_AI_'+$label+'_FAIL')
+              # Only the digest of a test node is exposed. No traceback,
+              # function name, prompt, file content or private data is logged.
+              $privateText=Get-Content -LiteralPath $privateLog -Raw -ErrorAction SilentlyContinue
+              foreach($match in [regex]::Matches([string]$privateText, '(?m)^FAILED\s+(\S+)\s+-\s+')){
+                $node=$match.Groups[1].Value
+                $bytes=[Text.Encoding]::UTF8.GetBytes($node)
+                $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+                Write-Host ('AGENT06_AI_'+$label+'_FAIL_NODE_HASH='+$digest.Substring(0,16))
+              }
               $script:failures++
             }else{Write-Host ('AGENT06_AI_'+$label+'_PASS')}
           }
@@ -94,6 +103,7 @@ jobs:
           Write-Host ('AGENT06_AI_PYTHON_FAILED_GROUPS='+$failures)
           if($failures -ne 0){throw 'AGENT06_AI_PYTHON_REGRESSIONS_FAIL'}
       - name: Complete existing desktop Node tests and TypeScript build
+        if: always()
         shell: pwsh
         run: |
           Push-Location private-agent/desktop
