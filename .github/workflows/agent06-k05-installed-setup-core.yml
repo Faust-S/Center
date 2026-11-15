@@ -23,7 +23,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_NATIVE_EXACT_SHA: 'ec7b46e666a626b5d0dbd4fd8ab05fe6d85ad135'
+      AGENT_K05_NATIVE_EXACT_SHA: 'ddd40e0e837aca73f234d388a22b257d591923a9'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -171,6 +171,14 @@ jobs:
                   if($checkpoint -match '^AGENT_REAL_QWEN_[A-Z_]{3,75}$' -or
                      $checkpoint -ceq 'NONE_OBSERVED'){
                     Write-Host ('K05_NATIVE_QWEN_LAST_CHECKPOINT='+$checkpoint)
+                  }
+                  $k05Stage=[string]$receipt.k05_gui_stage
+                  $k05Reason=[string]$receipt.k05_gui_reason
+                  if($k05Stage -match '^(NOT_REPORTED|NOT_STARTED|TASK_NAVIGATION|TASK_SELECTION|ACCEPTED_RESULT|ALTERNATIVE_SELECTION|COMPARE_BUTTON|COMPARISON_READBACK|RECEIPT_WRITE)$'){
+                    Write-Host ('K05_NATIVE_UIA_STAGE='+$k05Stage)
+                  }
+                  if($k05Reason -match '^(NOT_REPORTED|UNKNOWN|ALTERNATIVE_COMBO_NOT_FOUND|ALTERNATIVE_OPTION_NOT_FOUND|ALTERNATIVE_SELECTION_NOT_CONFIRMED|ALTERNATIVE_UNKNOWN|EXPECTED_COMPARISON_STATUS_NOT_VISIBLE)$'){
+                    Write-Host ('K05_NATIVE_UIA_REASON='+$k05Reason)
                   }
                   $k03Code=[string]$receipt.k03_failure_code
                   $k03Checkpoint=[string]$receipt.last_k03_checkpoint
