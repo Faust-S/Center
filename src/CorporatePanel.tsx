@@ -18,6 +18,8 @@ const why=(e:unknown)=>{
    return 'Исход операции неизвестен. Не повторяйте ACCEPT, REJECT или Apply. Откройте исходную квитанцию по сохранённому ID и SHA-256 пакета.';
  if(message.includes('CEN_D3_HUMAN_REVIEW_CANCELLED'))
    return 'Решение отменено в системном окне Windows. Оно не отправлялось.';
+ if(message.includes('CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED'))
+   return 'Применение отменено в системном окне Windows до отправки в Kernel. Для продолжения подтвердите применение ещё раз.';
  if(message.includes('T3_D3_DESTINATION_ALREADY_EXISTS'))
    return 'Файл .iwxa с таким именем уже существует. Выберите новое имя: исходный подписанный файл не перезаписывается.';
  if(message.includes('T3_D3_DESTINATION_UNAVAILABLE'))
