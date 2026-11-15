@@ -216,6 +216,9 @@ export default function App() {
   const hideSignedWorkspace=async()=>{
     await nativeInvoke('center_corporate_hide_signed_workspace');
     setSignedWorkspaceVisible(false);
+    // The original trusted Kernel may have attached while its child was
+    // visible. Re-read signed APPLY availability before showing Review.
+    setSignedWorkspaceGeneration(value=>value+1);
   };
   const closeSignedWorkspace=async()=>{
     await nativeInvoke('center_corporate_close_signed_workspace');
