@@ -1,0 +1,58 @@
+# Public Windows runner, narrow read-only private checkout for one synthetic test.
+# No upload of private source, model data, binary, full logs or build artifacts.
+name: IWXA Agent06 canonical Graph Result cold readback
+on:
+  push:
+    branches: ['work/2026-11-16-agent06-graph-artifact-qualification']
+permissions:
+  contents: read
+jobs:
+  graph-persisted:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require scoped read-only access
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'AGENT06_GRAPH_PRIVATE_READ_UNAVAILABLE'
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: c1caa423a4d263dc0acd1244f346bb9baf2a6b16
+          path: private-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Original Graph artifact Task ToolRuntime and cold readback
+        shell: pwsh
+        run: |
+          $sha=(& git -C private-agent rev-parse HEAD).Trim()
+          if($sha -cne 'c1caa423a4d263dc0acd1244f346bb9baf2a6b16'){throw 'AGENT06_GRAPH_SOURCE_SHA_MISMATCH'}
+          Write-Host 'AGENT06_GRAPH_EXACT_PRIVATE_SHA_PASS'
+          & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-graph-pip-private.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_GRAPH_DEPENDENCIES_FAIL'}
+          Push-Location private-agent
+          try{
+            $privateLog=Join-Path $env:RUNNER_TEMP 'agent06-graph-persisted-tests-private.log'
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_graph_persisted_result_file.py *> $privateLog
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'AGENT06_GRAPH_CANONICAL_PERSISTED_RESULT_FAIL'
+              # Private failure messages, paths and inputs stay on this runner.
+              throw 'AGENT06_GRAPH_CANONICAL_RESULT_QUALIFICATION_FAIL'
+            }
+            Write-Host 'AGENT06_GRAPH_CANONICAL_PERSISTED_RESULT_PASS'
+            Write-Host 'AGENT06_GRAPH_VENDOR_INFERENCE=SYNTHETIC_FIXTURE_ONLY'
+          }finally{Pop-Location}
+      # No artifact/cache publication.
