@@ -150,6 +150,62 @@ fn exact_binding(view:&Value,organization_id:&str,binding:&Value)->bool{
       binding["contextId"]==s["contextId"]&&
       binding["contextEpoch"]==s["contextEpoch"]
 }
+// The first APPLY and both cold-restart recoveries must prove the SAME
+// original T2 object, event and signed Result selection. A matching event
+// alone is not proof that the expected Result was stored.
+fn valid_original_applied_graph(
+    object:&Value,event:&Value,input:&Value,view:&Value
+)->bool{
+    let Some(effect)=event["idempotency_key"].as_str() else{return false;};
+    let Some(acceptance)=input["acceptanceId"].as_str() else{return false;};
+    let Some(wanted)=input["revisionIds"].as_array() else{return false;};
+    let Some(actual)=event["payload"]["reconciliation_revision_ids"].as_array()
+        else{return false;};
+    let Some(records)=object["data"]["records"].as_array() else{return false;};
+    if !validate_hex(Some(effect))||!validate_hex(Some(acceptance))||
+       wanted.is_empty()||wanted.len()>32||
+       wanted.len()!=actual.len()||records.len()!=wanted.len()||
+       wanted.iter().any(|x|!validate_hex(x.as_str()))||
+       actual.iter().any(|x|!validate_hex(x.as_str())){
+        return false;
+    }
+    let mut expected:Vec<_>=wanted.iter().filter_map(Value::as_str).collect();
+    let mut observed:Vec<_>=actual.iter().filter_map(Value::as_str).collect();
+    if expected.len()!=wanted.len()||observed.len()!=actual.len(){return false;}
+    expected.sort_unstable();
+    observed.sort_unstable();
+    if expected!=observed||
+       expected.windows(2).any(|pair|pair[0]==pair[1]){
+        return false;
+    }
+    let workspace=&view["snapshot"]["workspaceId"];
+    let organization=&view["snapshot"]["organizationId"];
+    if !workspace.as_str().is_some_and(t3::valid_identifier)||
+       !organization.as_str().is_some_and(t3::valid_identifier)||
+       object["workspace_id"]!=*workspace||
+       object["object_id"]!=format!("result:applied:{effect}")||
+       object["schema_id"]!="iwxa.admin.applied-results"||
+       object["schema_version"]!="1.0.0"||
+       object["revision"].as_u64()!=Some(1)||
+       object["data"]["schema"]!="IWXA_T3_ADMIN_APPLIED_RESULTS/1"||
+       event["workspace_id"]!=*workspace||
+       event["event_type"]!="iwxa.admin.result.applied"||
+       !event["event_id"].as_str().is_some_and(t3::valid_identifier)||
+       (!event["object_id"].is_null()&&event["object_id"]!=object["object_id"])||
+       (!event["revision"].is_null()&&event["revision"]!=object["revision"])||
+       event["payload"]["reconciliation_acceptance_id"]!=acceptance {
+        return false;
+    }
+    expected.iter().all(|revision|
+       records.iter().filter(|record|
+          record["acceptanceId"]==acceptance&&
+          record["resultRevisionId"]==*revision&&
+          record["workspaceId"]==*workspace&&
+          record["organizationId"]==*organization&&
+          record["result"].as_str().is_some()
+       ).count()==1
+    )
+}
 fn verify_kernel_recovery(result:&Value,input:&Value,view:&Value)->Result<(),String>{
     let bad=||"CEN_D3_KERNEL_RECOVERY_READBACK_INVALID".to_string();
     let confirmed=result["status"]=="ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED";
@@ -190,7 +246,9 @@ fn verify_kernel_recovery(result:&Value,input:&Value,view:&Value)->Result<(),Str
     let mut b:Vec<_>=observed.iter().filter_map(Value::as_str).collect();
     if a.len()!=expected.len()||b.len()!=observed.len(){return Err(bad());}
     a.sort_unstable();b.sort_unstable();
-    if a!=b{return Err(bad());}
+    if a!=b||!valid_original_applied_graph(object,event,input,view){
+        return Err(bad());
+    }
     Ok(())
 }
 // Verify the ACTUAL first Kernel Apply result as strictly as recovery.
@@ -230,6 +288,7 @@ fn verify_kernel_apply(result:&Value,input:&Value,view:&Value)->Result<(),String
        read["data"]["schema"]!="IWXA_T3_ADMIN_APPLIED_RESULTS/1"{
         return Err(bad());
     }
+    if !valid_original_applied_graph(read,event,input,view){return Err(bad());}
     let actual=event["payload"]["reconciliation_revision_ids"]
         .as_array().ok_or_else(bad)?;
     let records=read["data"]["records"].as_array().ok_or_else(bad)?;
@@ -686,19 +745,31 @@ mod tests{
     fn recovery_requires_exact_original_event_object_and_acceptance_proof(){
         let digest="a".repeat(64);
         let accepted="c".repeat(64);
-        let input=json!({"acceptanceId":accepted,"revisionIds":[accepted]});
-        let view=json!({"snapshot":{"workspaceId":"workspace:1"}});
+        let revision="d".repeat(64);
+        let input=json!({"acceptanceId":accepted,"revisionIds":[revision]});
+        let view=json!({"snapshot":{"workspaceId":"workspace:1",
+            "organizationId":"org:1"}});
         let mut result=json!({
             "status":"ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED",
             "effectKey":digest,"kernelWriteReadback":"CONFIRMED",
             "automaticRetryAllowed":false,
             "externalProductAcceptance":"NOT_ACCEPTED",
-            "originalKernelReadback":{"object":{"workspace_id":"workspace:1",
-                "object_id":"object:1","revision":2}},
-            "originalEventReadback":{"workspace_id":"workspace:1","event_id":"event:1",
-                "object_id":"object:1","revision":2,"idempotency_key":digest,
+            "originalKernelReadback":{"object":{
+                "workspace_id":"workspace:1",
+                "object_id":format!("result:applied:{digest}"),
+                "revision":1,"schema_id":"iwxa.admin.applied-results",
+                "schema_version":"1.0.0",
+                "data":{"schema":"IWXA_T3_ADMIN_APPLIED_RESULTS/1",
+                    "records":[{"acceptanceId":accepted,
+                        "resultRevisionId":revision,
+                        "workspaceId":"workspace:1","organizationId":"org:1",
+                        "result":"Подписанный результат"}]}}},
+            "originalEventReadback":{"workspace_id":"workspace:1",
+                "event_id":"event:1","event_type":"iwxa.admin.result.applied",
+                "object_id":format!("result:applied:{digest}"),
+                "revision":1,"idempotency_key":digest,
                 "payload":{"reconciliation_acceptance_id":accepted,
-                    "reconciliation_revision_ids":[accepted]}}
+                    "reconciliation_revision_ids":[revision]}}
         });
         assert!(verify_kernel_recovery(&result,&input,&view).is_ok());
         result["originalEventReadback"]["idempotency_key"]=json!("b".repeat(64));
@@ -711,6 +782,29 @@ mod tests{
             =json!(accepted);
         result["originalKernelReadback"]["object"]["workspace_id"]=json!("workspace:other");
         assert!(verify_kernel_recovery(&result,&input,&view).is_err());
+        // A superficially matching event must not turn an unrelated
+        // Object or altered accepted Result into a successful recovery.
+        let canonical=result.clone();
+        result["originalKernelReadback"]["object"]["object_id"]=json!("object:foreign");
+        assert!(verify_kernel_recovery(&result,&input,&view).is_err());
+        result=canonical.clone();
+        result["originalKernelReadback"]["object"]["schema_id"]=json!("other");
+        assert!(verify_kernel_recovery(&result,&input,&view).is_err());
+        result=canonical.clone();
+        result["originalKernelReadback"]["object"]["data"]["records"][0]
+            ["resultRevisionId"]=json!("f".repeat(64));
+        assert!(verify_kernel_recovery(&result,&input,&view).is_err());
+        result=canonical.clone();
+        result["originalKernelReadback"]["object"]["data"]["records"][0]
+            ["organizationId"]=json!("org:other");
+        assert!(verify_kernel_recovery(&result,&input,&view).is_err());
+        result=canonical.clone();
+        result["originalEventReadback"]["event_type"]=json!("other");
+        assert!(verify_kernel_recovery(&result,&input,&view).is_err());
+        result=canonical.clone();
+        result["originalKernelReadback"]["object"]["revision"]=json!(2);
+        assert!(verify_kernel_recovery(&result,&input,&view).is_err());
+        result=canonical;
         let unknown=json!({"status":"OUTCOME_UNKNOWN","effectKey":digest,
             "kernelWriteReadback":"NOT_CONFIRMED","automaticRetryAllowed":false});
         assert!(verify_kernel_recovery(&unknown,&input,&view).is_ok());
