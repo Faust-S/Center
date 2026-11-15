@@ -1200,6 +1200,28 @@ try {
   // the exact signed original entry. It must not silently reissue rights.
   await personOwner.getByRole('combobox',{name:'Тариф продления PERSON'})
     .selectOption('ATLAS_PERSONAL#1');
+  const originalSignedHash=await personal.evaluate(()=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    const hash=ledger[0].requestDigest;
+    ledger[0].requestDigest='0'.repeat(64);
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+    return hash;
+  });
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  await personOwner.getByTestId('publisher-person-prepare-renewal').click();
+  await personOwner.getByText('PERSON_RENEWAL_SIGNED_SOURCE_DIGEST_MISMATCH',{exact:false}).waitFor();
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture'))).proposals.length,1,
+    'Mismatched signed source must not create renewal');
+  await personal.evaluate(hash=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    ledger[0].requestDigest=hash;
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+  },originalSignedHash);
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  checks.push('person-renewal-preparation-checks-original-request-digest');
   await personOwner.getByTestId('publisher-person-prepare-renewal').click();
   await personOwner.getByText('Подготовка продления сохранена.',{exact:false}).waitFor();
   const renewedDraft=JSON.parse(await personal.evaluate(()=>
@@ -1237,6 +1259,26 @@ try {
   const renewalPreview=await personOwner.getByTestId('publisher-person-issue-preview').innerText();
   assert.match(renewalPreview,/устройств: 3/);
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
+  await personal.evaluate(()=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    ledger[0].requestDigest='0'.repeat(64);
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+  });
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  const nativeCallsBeforeRenewal=await personal.evaluate(()=>window.__personMockIssueCalls||0);
+  await personOwner.getByTestId('publisher-person-issue').click();
+  await personOwner.getByText('PERSON_RENEWAL_SIGNED_SOURCE_DIGEST_MISMATCH',{exact:false}).waitFor();
+  assert.equal(await personal.evaluate(()=>window.__personMockIssueCalls||0),
+    nativeCallsBeforeRenewal,'Changed original request must not reach T3 signer');
+  await personal.evaluate(hash=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    ledger[0].requestDigest=hash;
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+  },originalSignedHash);
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  checks.push('person-renewal-signature-preflight-checks-original-request-digest');
   await personOwner.getByTestId('publisher-person-issue').click();
   await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя и выбрана.',{exact:false}).waitFor();
   await personOwner.getByTestId('publisher-person-already-issued').waitFor();

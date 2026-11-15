@@ -56,6 +56,14 @@ const matchesSignedPersonScope=(record:PersonRecord,request:any,issuer?:string,e
     request.termDays*86400000&&
   Boolean(record.renewalOfLicenseId)===Boolean(request?.renewalOfRequestId)&&
   (expectedDigest===undefined||record.requestDigest===expectedDigest);
+// A renewal may change its NEW tariff. Its original signed request cannot change.
+async function assertOriginalPersonRenewalRequest(draft:any,record:PersonRecord|undefined){
+  if(!record||!digest(record.requestDigest))
+    throw Error('PERSON_RENEWAL_SIGNED_SOURCE_REQUIRED');
+  const original=prepareUnsignedPersonLicenseRequest(draft,{proposalId:record.requestId});
+  if(await fingerprintUnsignedPersonRequest(original)!==record.requestDigest)
+    throw Error('PERSON_RENEWAL_SIGNED_SOURCE_DIGEST_MISMATCH');
+}
 export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequestId,ageReady}:Props){
   const [issuers,setIssuers]=useState<string[]>([]);
   const [issuer,setIssuer]=useState('');
@@ -379,6 +387,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
           lookupId:source.previousProposalId});
         const previous=checkedInventory(original,source.previousProposalId)
           .find(x=>x.requestId===source.previousProposalId);
+        await assertOriginalPersonRenewalRequest(draft,previous);
         const verified=validatePersonRenewalSource(draft,{
           sourceLicense:previous,issuerAuthorityId:authority});
         if(verified.personId!==request.subject.id||
@@ -403,23 +412,22 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     },true);
   }
   async function prepareRenewal(){
-    if(!selectedLicense||!selectedRenewal||busy||needsRefresh)return;
-    let command;
-    try{
-      command=preparePersonRenewalDraftCommand(draft,{
-        sourceLicense:selectedLicense,
-        issuerAuthorityId:selectedLicense.issuerAuthorityId,
-        tariffId:selectedRenewal.id,revision:selectedRenewal.revision,
-        issuedRecords:licenses
-      });
-    }catch(e){setFailure('Подготовка продления отклонена: '+err(e));return;}
+    const current=selectedLicense,renewal=selectedRenewal;
+    if(!current||!renewal||busy||needsRefresh)return;
     setBusy(true);setFailure('');setMessage('');
     try{
+      await assertOriginalPersonRenewalRequest(draft,current);
+      const command=preparePersonRenewalDraftCommand(draft,{
+        sourceLicense:current,
+        issuerAuthorityId:current.issuerAuthorityId,
+        tariffId:renewal.id,revision:renewal.revision,
+        issuedRecords:licenses
+      });
       const result=await change(command,
         'Подготовка продления сохранена. Прежняя лицензия не изменена.');
       if(!result.ok)throw Error(result.message);
       setRenewalTariff('');
-      setPendingRenewalSource(selectedLicense.requestId);
+      setPendingRenewalSource(current.requestId);
       setMessage('Подготовка продления сохранена. Новый черновик будет выбран '+
         'автоматически. Проверьте условия, подтвердите их и отдельно подпишите через T3.');
     }catch(e){setFailure('Продление не подготовлено: '+err(e));}
