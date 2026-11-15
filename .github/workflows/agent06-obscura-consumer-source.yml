@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "ee69c3c29f12d7afa8987268e41a27255ac168de"
+          test "$(git -C private-agent rev-parse HEAD)" = "01bfd295b07cad91b2c299e68ed6a6885ca6bbc6"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -182,6 +182,13 @@ jobs:
             tests/test_agent06_obscura_user_install.py \
             -k 'not cold_restart and not origin_selection and not saved_source and not engine_uses') \
             > "$RUNNER_TEMP/agent06-private-u01-install-contract.log" 2>&1; then
+            # Report fixed test-category codes, never private failures/logs.
+            if grep -Fq 'test_missing_obscura_worker_retains_prior_selection' "$RUNNER_TEMP/agent06-private-u01-install-contract.log"; then
+              echo "AGENT06_COLD_BOOT_CASE_NEEDS_REVIEW"
+            fi
+            if grep -Fq 'test_approved_origin_choice_survives_bounded_journal' "$RUNNER_TEMP/agent06-private-u01-install-contract.log"; then
+              echo "AGENT06_RECEIPT_HISTORY_CASE_NEEDS_REVIEW"
+            fi
             echo "AGENT06_U01_INSTALL_CONSENT_BASE_FAIL"
             exit 14
           fi
@@ -190,6 +197,12 @@ jobs:
             tests/test_agent06_obscura_user_install.py \
             -k 'cold_restart or origin_selection or saved_source or engine_uses') \
             > "$RUNNER_TEMP/agent06-private-u01-origin-connection.log" 2>&1; then
+            if grep -Fq 'test_cold_restart_applies_explicit_origin_choice' "$RUNNER_TEMP/agent06-private-u01-origin-connection.log"; then
+              echo "AGENT06_ORIGIN_COLD_CASE_NEEDS_REVIEW"
+            fi
+            if grep -Fq 'test_obscura_saved_source_rejected' "$RUNNER_TEMP/agent06-private-u01-origin-connection.log"; then
+              echo "AGENT06_ORIGIN_TAMPER_CASE_NEEDS_REVIEW"
+            fi
             echo "AGENT06_U01_ORIGIN_CONNECTION_FAIL"
             exit 15
           fi
