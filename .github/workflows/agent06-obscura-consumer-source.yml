@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "da641db9e4dec2b1c1f874657fb856ba234e3f57"
+          test "$(git -C private-agent rev-parse HEAD)" = "f9e00ba9bcffd47f86f9d4fbf30f8b76394cd6ec"
           test "$(git -C public-brtest rev-parse HEAD)" = "cb804a846b9ac73014d6feb6faa4a3f9feaac46e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -117,11 +117,32 @@ jobs:
         working-directory: private-agent
         run: |
           set -euo pipefail
-          if ! python -B -m pytest -q -p no:cacheprovider             tests/test_agent06_obscura_web_optin.py             tests/cells/test_tool_provider_port.py             tests/test_u01_owner_program_connection.py             > "$RUNNER_TEMP/agent06-obscura-pytest-private.log" 2>&1; then
+          if ! python -B -m pytest -q -p no:cacheprovider \
+            tests/test_agent06_obscura_web_optin.py \
+            tests/cells/test_tool_provider_port.py \
+            tests/test_u01_owner_program_connection.py \
+            tests/test_user_provider_settings.py \
+            tests/test_fc3_provider_registry.py \
+            > "$RUNNER_TEMP/agent06-obscura-pytest-private.log" 2>&1; then
             echo "AGENT06_PRIVATE_PORT_TEST_FAILED"
             exit 5
           fi
           echo "AGENT06_PRIVATE_PORT_TEST_PASS"
+      - name: Set up Windows Node.js 22 for Agent desktop source qualification
+        if: runner.os == 'Windows'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: TypeScript and Vite desktop build of exact private Agent source
+        if: runner.os == 'Windows'
+        working-directory: private-agent/desktop
+        shell: pwsh
+        run: |
+          & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-private-npm-install.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_PRIVATE_NPM_INSTALL_FAILED'}
+          & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-private-desktop-build.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_PRIVATE_DESKTOP_BUILD_FAILED'}
+          Write-Host 'AGENT06_PRIVATE_DESKTOP_BUILD_PASS'
       - name: Test native U01 install, real ToolRuntime read and cold TRR readback
         shell: bash
         working-directory: private-agent
@@ -135,7 +156,24 @@ jobs:
             > "$RUNNER_TEMP/agent06-native-private.log" 2>&1; then
             # Only fixed tokens from the approved test source, never
             # private paths, stack traces or actual page contents.
-            grep -E '^AGENT06_NATIVE_STAGE_[A-Z_]+$' \
+            grep -E '^AGENT06_NATIVE_STAGE_[A-Z0-9_]+ \
+              "$RUNNER_TEMP/agent06-native-private.log" || true
+            echo "AGENT06_NATIVE_TOOLRUNTIME_READ_FAILED"
+            exit 6
+          fi
+          # Require explicit execution of the full real Engine scenario.
+          # A skipped native test must never be reported as PASS.
+          for milestone in ENGINE_T3_GUARD_PASS ENGINE_LIVE_SWITCH_PASS ENGINE_NONE_RESTART_PASS ENGINE_FIRECRAWL_RESTART_PASS; do
+            if ! grep -Fq "AGENT06_NATIVE_STAGE_$milestone" "$RUNNER_TEMP/agent06-native-private.log"; then
+              echo "AGENT06_NATIVE_QUALIFICATION_STAGE_MISSING"
+              exit 7
+            fi
+          done
+          echo "AGENT06_NATIVE_ENGINE_FULL_SWITCH_PASS"
+          echo "AGENT06_NATIVE_TOOLRUNTIME_READ_TRR_COLD_PASS"
+      # Absolutely no actions/upload-artifact, actions/cache, private source
+      # binary distribution, workspace dump, diagnostic upload or raw test logs.
+ \
               "$RUNNER_TEMP/agent06-native-private.log" || true
             echo "AGENT06_NATIVE_TOOLRUNTIME_READ_FAILED"
             exit 6
