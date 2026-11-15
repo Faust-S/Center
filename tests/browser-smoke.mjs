@@ -359,8 +359,27 @@ try{
     /Оригинальная квитанция/);
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
     'read-only decision recovery must not send a second ACCEPT');
-  await d3Page.close();
   checks.push('d3-human-decision-no-replay-survives-unknown-ack-and-signed-epoch-remount');
+  // A navigation away fully unmounts CorporatePanel, losing every React
+  // decision guard. The original receipt alone must prevent a new ACCEPT.
+  // This UI fixture keeps native owner state independent of the React panel.
+  await d3Page.getByTestId('nav-overview').click();
+  await d3Page.getByTestId('nav-results').click();
+  await d3Page.getByTestId('d3-signed-task-workflow').waitFor();
+  await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
+  await d3Page.getByTestId('d3-operation-id').fill(pendingDecisionId);
+  await d3Page.getByTestId('d3-recover').click();
+  await d3Page.getByTestId('d3-recovered-receipt').waitFor();
+  await d3Page.getByTestId('d3-review').click();
+  await d3Page.getByTestId('d3-original-signed-review').waitFor();
+  assert.equal(await d3Page.getByTestId('d3-prepare-id').isEnabled(),false,
+    'accepted original receipt blocks preparing another decision after cold panel reopen');
+  assert.equal(await d3Page.getByTestId('d3-accept').isEnabled(),false,
+    'accepted original receipt blocks Human ACCEPT after cold panel reopen');
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
+    'cold panel receipt recovery must not dispatch another decision');
+  checks.push('d3-cold-react-panel-receipt-prevents-duplicate-human-accept');
+  await d3Page.close();
   // React can reload while the REAL native signed WebView (and its Kernel)
   // survives. Model that lifetime using a separate Node-side host, NOT
   // localStorage/React state, so a browser reload cannot recreate its status.

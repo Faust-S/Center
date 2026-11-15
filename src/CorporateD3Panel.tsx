@@ -268,7 +268,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    reviewedResult.nextOffset===reviewedResult.resultLength;
  const originalDecisionRecorded=
    ['ACCEPTED','REJECTED'].includes(selectedInboxItem?.status??'')||
-   ['ACCEPTED','REJECTED'].includes(lastReceiveState??'');
+   ['ACCEPTED','REJECTED'].includes(lastReceiveState??'')||
+   // The read-only original receipt is authoritative after a full React
+   // unmount/cold UI reopen. Do not offer another Human ACCEPT or REJECT.
+   (receipt?.found===true&&
+     ['ACCEPTED','REJECTED'].includes(receipt.receipt?.acceptanceState)&&
+     receipt.receipt?.operationId===operationId&&
+     receipt.receipt?.packageSha256===hash)||
+   decisionAttempts.current.has(decisionKey(hash));
  const refreshInbox=()=>run('Полученные пакеты перечитаны из оригинального Reconciliation.',async()=>{
    const result=await execute('d3Inbox');
    if(result?.schema!=='IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1'||
@@ -341,8 +348,21 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    const result=await execute('d3Receipt',{operationId:id,packageSha256:hash});
    if(result?.kernelApplication!=='NOT_ATTESTED_BY_RECONCILIATION_RECEIPT'||
      typeof result.found!=='boolean'||result.found&&(
-       result.receipt?.operationId!==id||result.receipt?.packageSha256!==hash))
+       result.receipt?.operationId!==id||
+       result.receipt?.packageSha256!==hash||
+       result.receipt?.decisionBy!==session.actorId||
+       !['ACCEPTED','REJECTED'].includes(result.receipt?.acceptanceState)||
+       result.receipt?.schema!==(result.receipt.acceptanceState==='ACCEPTED'
+         ?'IWXA_T3_ACCEPTANCE_RECEIPT/1':'IWXA_T3_REJECTION_RECEIPT/1')))
      throw Error('CEN_D3_RECEIPT_INVALID');
+   if(result.found){
+     const decision=result.receipt.acceptanceState==='ACCEPTED'?'ACCEPT':'REJECT';
+     const pending=decisionAttempts.current.get(decisionKey(hash));
+     if(pending&&pending.operationId!==id)
+       throw Error('CEN_D3_ORIGINAL_DECISION_RECEIPT_CONFLICT');
+     decisionAttempts.current.set(decisionKey(hash),{operationId:id,decision});
+     setDecisionAttempted(true);setDecisionType(decision);
+   }
    setReceipt(result);setApplication(null);
    if(!result.found)setSelectedRevisions([]);
  });
