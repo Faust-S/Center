@@ -333,6 +333,16 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       }
       setMessage(result.message);
     }catch(e){
+      // This error is raised while acquiring the EXISTING Windows draft
+      // lock, before original T3 Owner is invoked. It is a definite refusal,
+      // unlike a lost response after a signed native status or issue.
+      if(err(e).includes('PUBLISHER_DRAFT_BUSY_OTHER_INSTANCE')){
+        setNeedsRefresh(true);
+        setFailure('Другой экземпляр Publisher использует текущую подготовку. '+
+          'Подписание исходным T3 в этом окне не запускалось. '+
+          'После завершения другой операции обновите журнал и перечитайте условия.');
+        return;
+      }
       if(err(e).includes('PUBLISHER_DRAFT_CHANGED_ON_DISK')){
         setFailure('Локальный черновик изменился перед подписью. '+
           'Выпуск не выполнен. Перечитайте сохранённые условия.');

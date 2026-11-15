@@ -1061,6 +1061,11 @@ try {
         if(args.expectedDraftSha256!==await hash(
           sessionStorage.getItem('iwxa-publisher-person-fixture')))
           throw Error('PUBLISHER_DRAFT_CHANGED_ON_DISK');
+        if(window.__personMockBusyBeforeOwner){
+          // The existing Windows lock denied the request before the T3 signer.
+          window.__personMockBusyBeforeOwner=false;
+          throw Error('PUBLISHER_DRAFT_BUSY_OTHER_INSTANCE');
+        }
         window.__personMockIssueCalls=(window.__personMockIssueCalls||0)+1;
         const r=JSON.parse(args.requestJson);
         window.assertPersonRequest(r,args.issuerAuthorityId);
@@ -1320,6 +1325,23 @@ try {
     .selectOption(directDraft.proposals[0].id);
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
   checks.push('person-native-bridge-refuses-draft-race-before-original-signer');
+  // The shared Windows lock can be held by another Publisher before signing
+  // starts. It is not the ambiguous state of a lost post-commit IPC response.
+  const beforeBusyOwner=await personal.evaluate(()=>window.__personMockIssueCalls||0);
+  await personal.evaluate(()=>{window.__personMockBusyBeforeOwner=true;});
+  await personOwner.getByTestId('publisher-person-issue').click();
+  await personOwner.getByText('Другой экземпляр Publisher использует текущую подготовку.',
+    {exact:false}).waitFor();
+  assert.match(await personOwner.innerText(),/Подписание исходным T3 в этом окне не запускалось/);
+  assert.doesNotMatch(await personOwner.innerText(),/операция могла сохраниться в T3/i);
+  assert.equal(await personal.evaluate(()=>window.__personMockIssueCalls||0),beforeBusyOwner);
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')||'[]')).length,0);
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isEnabled(),true);
+  checks.push('person-existing-writer-lock-busy-definite-no-issue-and-operator-recovery');
   // A signed requestId belongs to the ORIGINAL T3 ledger, not to an
   // arbitrary local draft. Refuse a different subject, including when the
   // conflicting record has already fallen outside the recent inventory.
