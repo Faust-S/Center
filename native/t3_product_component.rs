@@ -213,6 +213,32 @@ pub fn run(app:&AppHandle,role:&str,action:&str,details:&[String]) -> Result<Val
     let status=status.ok_or("T3_PRODUCT_COMPONENT_TIMEOUT_OR_WAIT_FAILED")?;
     checked_output(std::process::Output{status,stdout:out,stderr:err})
 }
+// Open the SAME pinned private original D3 owner EXE for the lifetime of
+// one selected corporate session. This replaces concurrent d3-state/action
+// CLI opens of the same product.lock. It is NOT a new binary or a new Host.
+pub fn spawn_admin_d3_host(app:&AppHandle,organization_id:&str)
+    ->Result<std::process::Child,String>{
+    if !cfg!(target_os="windows"){
+        return Err("T3_D3_NATIVE_WINDOWS_REQUIRED".into());
+    }
+    let scope=admin_d3_root(app,organization_id)?;
+    if !admin_d3_files_available(&scope){
+        return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());
+    }
+    let exe=binary(app,"admin-d3")?;
+    let mut command=Command::new(exe);
+    command.arg("d3-host").arg(scope).arg(organization_id)
+        .stdin(Stdio::piped()).stdout(Stdio::piped())
+        // All host replies are bounded JSON on stdout. Do not risk
+        // leaking private paths or signer diagnostics to Tauri/WebView.
+        .stderr(Stdio::null());
+    #[cfg(target_os="windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    command.spawn().map_err(|_|"T3_D3_ORIGINAL_HOST_START_FAILED".into())
+}
 pub fn valid_identifier(s:&str)->bool{
     !s.is_empty() && s.len()<=160 &&
     s.as_bytes().iter().enumerate().all(|(i,b)|
