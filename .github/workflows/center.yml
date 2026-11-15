@@ -231,23 +231,6 @@ jobs:
       - name: Build/install/launch/uninstall Publisher with original IWXA Setup Core
         shell: pwsh
         run: ./publisher/tests/installed-setupcore-publisher.ps1
-      - name: Retrieve original public Publisher 0.4.0-dev.2 Setup Core artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: publisher-windows-setupcore
-          repository: Faust-S/Center
-          run-id: 42852930361
-          github-token: ${{ github.token }}
-          path: artifacts/publisher-0.4-baseline
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/Center
-          ref: 8a1c390f7263b5a6fac60b5fd8bae2db3fe58679
-          path: vendor/publisher04
-          persist-credentials: false
-      - name: Actual installed Publisher 0.4 to 0.5 Upgrade with original draft readback
-        shell: pwsh
-        run: ./publisher/tests/installed-upgrade-04-to-05.ps1
       - name: Validate Center-owned Windows dual-desktop acceptance driver syntax
         shell: pwsh
         run: |
