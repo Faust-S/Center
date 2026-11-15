@@ -87,6 +87,16 @@ jobs:
                 if($case.SelectSingleNode('failure') -or $case.SelectSingleNode('error')) {
                   $hash=[System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$case.name))
                   Write-Host ('AGENT06_OFFICE_FAILED_TEST_HASH='+[Convert]::ToHexString($hash).Substring(0,12))
+                  $failure=$case.SelectSingleNode('failure')
+                  if($null -eq $failure){$failure=$case.SelectSingleNode('error')}
+                  $knownTypes=@('AssertionError','ValueError','TypeError','KeyError','ToolDenied','ToolExecutionError','LocalFileError','DocumentOperationError','ImportError','AttributeError','RuntimeError','IndexError')
+                  $kind=[string]$failure.Attributes['type'].Value
+                  if($kind -in $knownTypes){Write-Host ('AGENT06_OFFICE_FAILURE_TYPE='+$kind)}
+                  else{Write-Host 'AGENT06_OFFICE_FAILURE_TYPE=OTHER'}
+                  $lines=[regex]::Matches([string]$failure.InnerText,'test_agent06_office_binary\\.py:(\\d+)')
+                  if($lines.Count -gt 0){
+                    Write-Host ('AGENT06_OFFICE_FAILURE_TEST_LINE='+$lines[$lines.Count-1].Groups[1].Value)
+                  }
                 }
               }
             } else { Write-Host 'AGENT06_OFFICE_BINARY_COLLECTION_UNKNOWN' }
