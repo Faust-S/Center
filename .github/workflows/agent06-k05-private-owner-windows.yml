@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: agent06-k05-original-owner-${{ github.ref }}
+  group: agent06-k05-original-owner-\${{ github.ref }}
   cancel-in-progress: true
 jobs:
   k05-private-owner:
@@ -28,7 +28,7 @@ jobs:
       - name: Require authorized temporary private source read
         shell: pwsh
         env:
-          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          PRIVATE_SOURCE_TOKEN: \${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: |
           if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
             throw 'AGENT06_K05_PRIVATE_SOURCE_PERMISSION_MISSING'
@@ -38,9 +38,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: ${{ env.AGENT_K05_EXACT_SHA }}
+          ref: \${{ env.AGENT_K05_EXACT_SHA }}
           path: private-agent
-          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          token: \${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
       - name: Read exact public K05 adapter source without copying into Agent
         uses: actions/checkout@v4
@@ -56,10 +56,14 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne $env:AGENT_K05_EXACT_SHA){throw 'AGENT06_K05_SOURCE_REVISION_MISMATCH'}
+          if($sha -cne $env:AGENT_K05_EXACT_SHA){
+            throw 'AGENT06_K05_SOURCE_REVISION_MISMATCH'
+          }
           $deps=Join-Path $env:RUNNER_TEMP 'k05-private-deps.log'
           & python -m pip install -r private-agent/requirements-ci.txt *> $deps
-          if($LASTEXITCODE -ne 0){throw 'AGENT06_K05_PRIVATE_DEPENDENCIES_FAIL'}
+          if($LASTEXITCODE -ne 0){
+            throw 'AGENT06_K05_PRIVATE_DEPENDENCIES_FAIL'
+          }
           $k05=(& git -C public-k05 rev-parse HEAD).Trim()
           if($k05 -cne 'b2de1d6cd8dd1e660183c16febd18da9ac3b94a7'){
             throw 'AGENT06_K05_PUBLIC_ADAPTER_REVISION_MISMATCH'
@@ -87,13 +91,13 @@ jobs:
           try{
             foreach($group in $groups){
               $label=$group[0]
-              $path=$group[1]
+              $testPath=$group[1]
               $log=Join-Path $env:RUNNER_TEMP ('k05-private-'+$label+'.txt')
               $xml=Join-Path $env:RUNNER_TEMP ('k05-private-'+$label+'.xml')
               if($label -eq 'K05_EXECUTOR_COMPARISON'){
-                & python -B -m pytest -s -q -p no:cacheprovider ('--junitxml='+$xml) $path *> $log
+                & python -B -m pytest -s -q -p no:cacheprovider ('--junitxml='+$xml) $testPath *> $log
               }else{
-                & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) $path *> $log
+                & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) $testPath *> $log
               }
               $exit=$LASTEXITCODE
               if($label -eq 'K05_EXECUTOR_COMPARISON'){
@@ -121,49 +125,28 @@ jobs:
                     $anon=[Convert]::ToHexString($digest).Substring(0,12)
                     Write-Host ('AGENT06_K05_'+$label+'_FAILED_TEST_SHA='+$anon)
                     $exception=[string]$failure.Attributes['type'].Value
-                    if($exception.Contains('.')){$exception=$exception.Split('.')[-1]}
-                    $allowed=@('AssertionError','ToolDenied','ApprovalError',
-                      'AttributeError','TypeError','ValueError','KeyError','IndexError',
-                      'RuntimeError','ImportError','ModuleNotFoundError','AgentK05ComparisonHold',
-                      'NameError','UnboundLocalError','StopIteration','FileNotFoundError',
-                      'NotADirectoryError','OSError','PermissionError','JSONDecodeError',
-                      'UnicodeDecodeError')
-                    if($exception -match '^[A-Za-z_][A-Za-z0-9_]{0,80}
-                    $safeCodes=[regex]::Matches([string]$failure.InnerText,
-                      '(?<![A-Za-z0-9_])(?:AGENT_K05|K05|MODEL_RUN|PROVIDER|TASK|SOURCE|HUMAN_REVIEW)_[A-Z0-9_]+')
-                    foreach($code in $safeCodes){Write-Host ('AGENT06_K05_'+$label+'_SAFE_CODE='+$code.Value)}
-                    $locations=[regex]::Matches([string]$failure.InnerText,
-                      'test_k05_agent06_executor_comparison\.py:(\d+)')
-                    if($locations.Count -gt 0){
-                      Write-Host ('AGENT06_K05_'+$label+'_SOURCE_LINE='+$locations[$locations.Count-1].Groups[1].Value)
+                    if($exception.Contains('.')){
+                      $exception=$exception.Split('.')[-1]
                     }
-                  }
-                }
-              }else{
-                Write-Host ('AGENT06_K05_'+$label+'_TEST_COUNT_UNKNOWN')
-              }
-              if($exit -ne 0){
-                $failed=$true
-                Write-Host ('AGENT06_K05_'+$label+'_FAIL')
-              }else{
-                Write-Host ('AGENT06_K05_'+$label+'_PASS')
-              }
-            }
-          }finally{
-            Pop-Location
-          }
-          Write-Host ('AGENT06_K05_TOTAL_TESTS='+$all)
-          if($failed){throw 'AGENT06_K05_OWNER_TESTS_FAILED'}
-          Write-Host 'AGENT06_K05_ORIGINAL_OWNER_SOURCE_QUALIFIED'
-      # Deliberately no cache, upload-artifact, installer or private log publication.
-){
+                    if($exception -match '^[A-Za-z_][A-Za-z0-9_]{0,80}$'){
                       Write-Host ('AGENT06_K05_'+$label+'_EXCEPTION_TYPE='+$exception)
                     }
+                    $allowed=@(
+                      'AssertionError','ToolDenied','ApprovalError',
+                      'AttributeError','TypeError','ValueError','KeyError',
+                      'IndexError','RuntimeError','ImportError',
+                      'ModuleNotFoundError','AgentK05ComparisonHold',
+                      'NameError','UnboundLocalError','StopIteration',
+                      'FileNotFoundError','NotADirectoryError','OSError',
+                      'PermissionError','JSONDecodeError','UnicodeDecodeError'
+                    )
                     if($exception -notin $allowed){$exception='OTHER'}
                     Write-Host ('AGENT06_K05_'+$label+'_FAIL_CLASS='+$exception)
                     $safeCodes=[regex]::Matches([string]$failure.InnerText,
                       '(?<![A-Za-z0-9_])(?:AGENT_K05|K05|MODEL_RUN|PROVIDER|TASK|SOURCE|HUMAN_REVIEW)_[A-Z0-9_]+')
-                    foreach($code in $safeCodes){Write-Host ('AGENT06_K05_'+$label+'_SAFE_CODE='+$code.Value)}
+                    foreach($code in $safeCodes){
+                      Write-Host ('AGENT06_K05_'+$label+'_SAFE_CODE='+$code.Value)
+                    }
                     $locations=[regex]::Matches([string]$failure.InnerText,
                       'test_k05_agent06_executor_comparison\.py:(\d+)')
                     if($locations.Count -gt 0){
