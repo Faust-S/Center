@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '96f47a1222f4a8d4cef6b8c27645e5300d5e81cf'
+      AGENT_OFFICE_SHA: '3e44a39520414dfecce1e68a19cebf3db626f392'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -118,6 +118,15 @@ jobs:
               Write-Host 'AGENT06_OFFICE_DESKTOP_BUILD_FAIL'
               Set-Content (Join-Path $env:RUNNER_TEMP 'agent06-office-build-failed') 'FAIL'
             } else { Write-Host 'AGENT06_OFFICE_DESKTOP_BUILD_PASS' }
+          } finally {Pop-Location}
+      - name: Original U04 native-window host regression (not Office qualification)
+        shell: pwsh
+        run: |
+          Push-Location private-agent/desktop
+          try {
+            & node --test tests/u04-native-host.test.mjs tests/u04-rust-host-contract.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-office-u04-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_EXISTING_U04_BASELINE_FAIL'}
+            Write-Host 'AGENT06_EXISTING_U04_BASELINE_PASS'
           } finally {Pop-Location}
       - name: Final source qualification gate
         shell: pwsh
