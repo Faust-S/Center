@@ -106,7 +106,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     l.requestId===selected.request.requestId):undefined;
   // A short inventory summary is not enough: different featureIds, quota
   // amounts, product versions or original requestedAt can share its fields.
-  const originalRequestHash=selectedFingerprint?.source===selected?.request?
+  const originalRequestHash=selectedFingerprint&&
+    selectedFingerprint.source===selected?.request?
     selectedFingerprint.hash:null;
   const signedSourceConflict=Boolean(issuedSelected&&selected&&originalRequestHash&&
     !matchesSignedPersonScope(issuedSelected,selected.request,undefined,originalRequestHash));
