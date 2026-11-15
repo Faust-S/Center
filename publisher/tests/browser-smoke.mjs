@@ -1269,6 +1269,28 @@ try {
     .selectOption(directDraft.proposals[0].id);
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
   checks.push('person-signing-refuses-stale-local-draft-before-original-t3');
+  // The disk may also change AFTER both React checks but at the native
+  // command boundary. The Rust bridge must reject it before starting Owner.
+  const beforeNativeRace=await personal.evaluate(()=>
+    window.__personMockIssueCalls||0);
+  await personal.evaluate(()=>{window.__personMockRaceBeforeNativeIssue=true;});
+  await personOwner.getByTestId('publisher-person-issue').click();
+  await personal.getByTestId('publisher-draft-reload').waitFor();
+  assert.equal(await personal.evaluate(()=>window.__personMockIssueCalls||0),
+    beforeNativeRace,
+    'Native request preflight must not invoke original signer for stale disk source');
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')||'[]')).length,0);
+  await personal.evaluate(prior=>
+    sessionStorage.setItem('iwxa-publisher-person-fixture',prior),originalPersonDraft);
+  await personal.getByTestId('publisher-draft-reload').click();
+  await personOwner.getByTestId('publisher-person-issue').waitFor();
+  await personOwner.getByRole('combobox',{name:'Издатель'})
+    .selectOption('publisher:person:mock');
+  await personOwner.getByRole('combobox',{name:'Подготовленная лицензия'})
+    .selectOption(directDraft.proposals[0].id);
+  await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
+  checks.push('person-native-bridge-refuses-draft-race-before-original-signer');
   // A signed requestId belongs to the ORIGINAL T3 ledger, not to an
   // arbitrary local draft. Refuse a different subject, including when the
   // conflicting record has already fallen outside the recent inventory.
