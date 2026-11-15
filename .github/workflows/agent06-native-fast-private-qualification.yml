@@ -99,7 +99,7 @@ jobs:
               throw 'AGENT06_NATIVE_BINARY_MISSING'
             }
             Write-Host 'AGENT06_NATIVE_TAURI_COMPILE_PASS'
-            $dirty=@(& git -C ../.. status --porcelain --untracked-files=all)
+            $dirty=@(& git -C .. status --porcelain --untracked-files=all)
             if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_POSTBUILD_GIT_STATUS_UNAVAILABLE'}
             Write-Host ('AGENT06_NATIVE_POSTBUILD_DIRTY_COUNT='+$dirty.Count)
             if($dirty.Count -ne 0){throw 'AGENT06_NATIVE_POSTBUILD_SOURCE_DIRTY'}
