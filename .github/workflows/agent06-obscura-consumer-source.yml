@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "5adbd3f4e05d9d8b6f2b130bdda40be31aeddd57"
+          test "$(git -C private-agent rev-parse HEAD)" = "0ba14cb2e7950653de7f3c58474b4145e4c55d23"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
