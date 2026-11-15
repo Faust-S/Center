@@ -50,7 +50,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/Br-test
-          ref: cb804a846b9ac73014d6feb6faa4a3f9feaac46e
+          ref: afb49d5912b9f6ab8fc8054d8b554079a6bbda2e
           path: public-brtest
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -60,8 +60,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "75fb3997eda655a610f5058edbcaec528740a83f"
-          test "$(git -C public-brtest rev-parse HEAD)" = "cb804a846b9ac73014d6feb6faa4a3f9feaac46e"
+          test "$(git -C private-agent rev-parse HEAD)" = "b4cc07bdab1ba441bac013ec8928b36eef5a124e"
+          test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
         shell: bash
@@ -143,11 +143,31 @@ jobs:
             exit 8
           fi
           echo "AGENT06_ORIGINAL_TASK_REGRESSION_PASS"
-      - name: Set up Windows Node.js 22 for Agent desktop source qualification
-        if: runner.os == 'Windows'
+      - name: Set up Node.js 22 for U01 packaging and Windows desktop source qualification
         uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - name: Qualify pinned U01 package and original installed Python imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The local public checkout is the exact source lock. No private
+          # source leaves the ephemeral runner or becomes a GitHub artifact.
+          export IWXA_PUBLIC_CHECKOUTS="$(python -c 'import os,json;print(json.dumps({"u01":os.path.join(os.environ["GITHUB_WORKSPACE"],"public-brtest")}))')"
+          if ! node private-agent/scripts/prepare-public-modules.mjs --only-u01             > "$RUNNER_TEMP/agent06-private-u01-stage.log" 2>&1; then
+            echo "AGENT06_U01_SOURCE_PREPARE_FAIL"
+            exit 10
+          fi
+          export IWXA_AGENT06_U01_PREPARED="$GITHUB_WORKSPACE/private-agent/build/u01-owner-sources"
+          if ! (cd private-agent && python -B -m pytest -q -s -p no:cacheprovider             tests/test_agent06_u01_public_sources.py)             > "$RUNNER_TEMP/agent06-private-u01-package.log" 2>&1; then
+            echo "AGENT06_U01_PACKAGE_OR_COLD_IMPORT_FAIL"
+            exit 11
+          fi
+          if ! grep -Fq 'AGENT06_U01_INSTALLED_IMPORT_PASS'             "$RUNNER_TEMP/agent06-private-u01-package.log"; then
+            echo "AGENT06_U01_INSTALLED_IMPORT_MISSING"
+            exit 12
+          fi
+          echo "AGENT06_U01_PINNED_INSTALLED_IMPORT_PASS"
       - name: TypeScript and Vite desktop build of exact private Agent source
         if: runner.os == 'Windows'
         working-directory: private-agent/desktop
