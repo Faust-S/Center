@@ -210,6 +210,19 @@ fn verify_person_draft_source(root:&Path,expected_sha256:&str)->Result<(),String
     }
     Ok(())
 }
+// A second Publisher instance can save a new proposal after a SHA preflight
+// but BEFORE the original T3 Owner finishes signing. Reuse the SAME Windows
+// interprocess draft writer lock for the whole irreversible native issue.
+// No signing, Store or trust logic is implemented here.
+fn with_stable_person_draft_source<T>(
+    root:&Path,expected_sha256:&str,
+    issue:impl FnOnce()->Result<T,String>
+)->Result<T,String>{
+    #[cfg(windows)]
+    let _draft_lock=crate::take_preparation_write_lock(root)?;
+    verify_person_draft_source(root,expected_sha256)?;
+    issue()
+}
 #[cfg(test)]
 mod person_draft_issue_tests {
     use super::*;
@@ -235,6 +248,35 @@ mod person_draft_issue_tests {
         assert_eq!(verify_person_draft_source(&root,"ABSENT").unwrap_err(),
             "PUBLISHER_PERSON_EXPECTED_DRAFT_SHA256_INVALID");
         let _=fs::remove_dir_all(&root);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn person_issue_holds_existing_writer_lock_through_original_owner_call(){
+        let root=std::env::temp_dir().join(format!(
+            "iwxa-publisher-person-issue-writer-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let original=r#"{"format":"iwxa.publisher.preparation","version":2,"products":[],"holders":[],"tariffs":[],"proposals":[],"artifacts":[],"updatedAt":"2026-11-15T00:00:00.000Z"}"#;
+        crate::write_preparation(&root,original).unwrap();
+        let digest=format!("{:x}",Sha256::digest(original.as_bytes()));
+        let updated=original.replace("\"products\":[]",
+            "\"products\":[{\"id\":\"SECOND_PUBLISHER\"}]");
+        let confirmed=with_stable_person_draft_source(&root,&digest,||{
+            assert_eq!(crate::write_preparation_if_current(&root,&updated,&digest).unwrap_err(),
+                "PUBLISHER_DRAFT_BUSY_OTHER_INSTANCE");
+            assert_eq!(crate::draft_fingerprint(&root).unwrap(),digest);
+            Ok("ORIGINAL_OWNER_CALLED")
+        }).unwrap();
+        assert_eq!(confirmed,"ORIGINAL_OWNER_CALLED");
+        crate::write_preparation_if_current(&root,&updated,&digest).unwrap();
+        let called=std::cell::Cell::new(false);
+        assert_eq!(with_stable_person_draft_source(&root,&digest,||{
+            called.set(true);
+            Ok::<_,String>(())
+        }).unwrap_err(),"PUBLISHER_DRAFT_CHANGED_ON_DISK");
+        assert!(!called.get());
+        assert_eq!(crate::read_preparation(&root).unwrap().as_deref(),Some(updated.as_str()));
+        let _=fs::remove_dir_all(root);
     }
 }
 fn validate_person_request(raw:&str)->Result<Value,String>{
@@ -363,9 +405,11 @@ pub async fn publisher_t3_person_issue(
     // worker immediately before invoking original T3. No signer or Store
     // is copied into Publisher.
     let v=tauri::async_runtime::spawn_blocking(move||{
-        verify_person_draft_source(&crate::publisher_root(&app)?,&expected_draft_sha256)?;
-        t3::run(&app,"owner-person","person-issue",&[
-            file.to_string_lossy().into_owned(),issuer_authority_id])
+        let root=crate::publisher_root(&app)?;
+        with_stable_person_draft_source(&root,&expected_draft_sha256,||{
+            t3::run(&app,"owner-person","person-issue",&[
+                file.to_string_lossy().into_owned(),issuer_authority_id])
+        })
     }).await.map_err(|_|"PUBLISHER_PERSON_T3_WORKER_FAILED".to_string())??;
     t3::validate_test_result(&v,"PERSON_ISSUE")?;
     if !v.get("licenseId").and_then(Value::as_str)

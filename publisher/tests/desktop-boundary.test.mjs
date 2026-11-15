@@ -209,6 +209,19 @@ test('new products and release files never inherit unrelated version or source d
 });
 
 
+test('original T3 PERSON issue holds the existing Windows draft write lock until the signer returns',()=>{
+ const native=read('publisher/src-tauri/src/t3_owner.rs');
+ const main=read('publisher/src-tauri/src/main.rs');
+ assert.match(native,/fn with_stable_person_draft_source<T>/);
+ assert.match(native,/let _draft_lock=crate::take_preparation_write_lock\(root\)\?/);
+ assert.match(native,/with_stable_person_draft_source\(&root,&expected_draft_sha256,\|\|/);
+ assert.match(native,/fn person_issue_holds_existing_writer_lock_through_original_owner_call/);
+ assert.match(native,/PUBLISHER_DRAFT_BUSY_OTHER_INSTANCE/);
+ assert.match(native,/PUBLISHER_DRAFT_CHANGED_ON_DISK/);
+ assert.match(main,/fn take_preparation_write_lock\(root:&Path\)/);
+ assert.doesNotMatch(native,/signRecord|signTestProductLicense|new LocalStore/);
+});
+
 test('Publisher 0.3 diagnostics reuses native storage and Setup Core, without a parallel log/store',()=>{
  const native=read('publisher/src-tauri/src/main.rs');
  const app=read('publisher/ui/App.tsx');
