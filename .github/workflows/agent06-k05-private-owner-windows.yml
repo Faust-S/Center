@@ -113,10 +113,21 @@ jobs:
                     Write-Host ('AGENT06_K05_'+$label+'_FAILED_TEST_SHA='+$anon)
                     $exception=[string]$failure.Attributes['type'].Value
                     $allowed=@('AssertionError','ToolDenied','ApprovalError',
-                      'AttributeError','TypeError','ValueError','KeyError',
-                      'RuntimeError','ImportError','ModuleNotFoundError','AgentK05ComparisonHold')
+                      'AttributeError','TypeError','ValueError','KeyError','IndexError',
+                      'RuntimeError','ImportError','ModuleNotFoundError','AgentK05ComparisonHold',
+                      'NameError','UnboundLocalError','StopIteration','FileNotFoundError',
+                      'NotADirectoryError','OSError','PermissionError','JSONDecodeError',
+                      'UnicodeDecodeError')
                     if($exception -notin $allowed){$exception='OTHER'}
                     Write-Host ('AGENT06_K05_'+$label+'_FAIL_CLASS='+$exception)
+                    $safeCodes=[regex]::Matches([string]$failure.InnerText,
+                      '(?<![A-Za-z0-9_])(?:AGENT_K05|K05|MODEL_RUN|PROVIDER|TASK|SOURCE|HUMAN_REVIEW)_[A-Z0-9_]+')
+                    foreach($code in $safeCodes){Write-Host ('AGENT06_K05_'+$label+'_SAFE_CODE='+$code.Value)}
+                    $locations=[regex]::Matches([string]$failure.InnerText,
+                      'test_k05_agent06_executor_comparison\.py:(\d+)')
+                    if($locations.Count -gt 0){
+                      Write-Host ('AGENT06_K05_'+$label+'_SOURCE_LINE='+$locations[$locations.Count-1].Groups[1].Value)
+                    }
                   }
                 }
               }else{
