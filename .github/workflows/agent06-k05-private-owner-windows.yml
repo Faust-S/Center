@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_EXACT_SHA: '119eb6339519037469d575bd9fe55c079fa777b6'
+      AGENT_K05_EXACT_SHA: '784b890ef338441ff34203486c988dc73b55584b'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -251,5 +251,20 @@ jobs:
               throw 'AGENT06_K05_PRODUCT_PACKAGE_TEST_FAIL'
             }
             Write-Host 'AGENT06_K05_PRODUCT_PACKAGE_TEST_PASS'
+            $coldLog=Join-Path $env:RUNNER_TEMP 'k05-private-cold-product-test.log'
+            $coldXml=Join-Path $env:RUNNER_TEMP 'k05-private-cold-product-test.xml'
+            & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$coldXml) tests/test_agent06_k05_packaged_cold_core.py *> $coldLog
+            $coldExit=$LASTEXITCODE
+            if(Test-Path $coldXml){
+              [xml]$doc=Get-Content -Raw $coldXml
+              $suite=$doc.testsuites.testsuite
+              if($null -eq $suite){$suite=$doc.testsuite}
+              Write-Host ('AGENT06_K05_PACKAGED_COLD_TESTS='+[int]$suite.tests)
+              Write-Host ('AGENT06_K05_PACKAGED_COLD_ERRORS='+([int]$suite.errors+[int]$suite.failures))
+              Write-Host ('AGENT06_K05_PACKAGED_COLD_SKIPPED='+[int]$suite.skipped)
+              if([int]$suite.skipped -gt 0){throw 'AGENT06_K05_PACKAGED_COLD_NOT_EXECUTED'}
+            }
+            if($coldExit -ne 0){throw 'AGENT06_K05_PACKAGED_COLD_CORE_FAIL'}
+            Write-Host 'AGENT06_K05_PACKAGED_COLD_CORE_PASS'
           }finally{Pop-Location}
       # Deliberately no cache, upload-artifact, installer or private log publication.
