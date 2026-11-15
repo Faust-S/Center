@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 2b40f942add7c12251241bae2fc47cd58c0b3ce2
+          ref: 3dd3a7e47cd0ce9d2f6b107284a73f5f04f6381e
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '2b40f942add7c12251241bae2fc47cd58c0b3ce2'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
+          if($sha -cne '3dd3a7e47cd0ce9d2f6b107284a73f5f04f6381e'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
           & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-pip-private.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_DEPENDENCIES_FAIL'}
           Write-Host 'AGENT06_AI_DEPENDENCIES_PASS'
@@ -70,13 +70,12 @@ jobs:
                 $summary=[regex]::Match([string]$raw,'(?m)^FAILED\s+\S+\s+-\s+([A-Za-z_][A-Za-z0-9_]*)')
                 if($summary.Success){
                   $type=$summary.Groups[1].Value
-                  if($type -match '^(?:[A-Za-z_]*Error|Failed|TimeoutExpired)$'){
+                  if($type -match '^(?:[A-Za-z_]*Error|Failed|TimeoutExpired|assert)$'){
                     Write-Host ('AGENT06_DIAGNOSTIC_'+$case.Label+'_EXCEPTION='+$type)
                   }
                 }
-                foreach($match in [regex]::Matches([string]$raw,'(?m)^tests/[^\r\n:]+\.py:(\d{1,5}):\s+([A-Za-z][A-Za-z0-9_]*)')){
+                foreach($match in [regex]::Matches([string]$raw,'(?i)(?:test_fc6_graph_agent_runtime_executor|test_fc6_graph_node_config|test_fc6_graph_control_human_review_integration)\.py:(\d{1,5})')){
                   Write-Host ('AGENT06_DIAGNOSTIC_'+$case.Label+'_LINE='+$match.Groups[1].Value)
-                  Write-Host ('AGENT06_DIAGNOSTIC_'+$case.Label+'_CLASS='+$match.Groups[2].Value)
                 }
                 $bad++
               }else{
@@ -99,8 +98,12 @@ jobs:
             if($LASTEXITCODE -ne 0){
               Write-Host 'AGENT06_DIAGNOSTIC_NODE_FAIL'
               $raw=Get-Content -LiteralPath $nodeLog -Raw -ErrorAction SilentlyContinue
-              foreach($match in [regex]::Matches([string]$raw,'(?m)^\s*not ok\s+(\d{1,5})\b')){
+              foreach($match in [regex]::Matches([string]$raw,'(?m)^\s*not ok\s+(\d{1,5})\s+-\s+([^\r\n]+)')){
                 Write-Host ('AGENT06_DIAGNOSTIC_NODE_TAP_INDEX='+$match.Groups[1].Value)
+                $label=$match.Groups[2].Value.Trim()
+                $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                  [Text.Encoding]::UTF8.GetBytes($label))).ToLowerInvariant()
+                Write-Host ('AGENT06_DIAGNOSTIC_NODE_TITLE_HASH='+$digest.Substring(0,16))
               }
               $bad++
             }else{Write-Host 'AGENT06_DIAGNOSTIC_NODE_PASS'}
@@ -113,6 +116,13 @@ jobs:
               Write-Host ('AGENT06_DIAGNOSTIC_TYPESCRIPT_ERROR_COUNT='+$codes.Count)
               foreach($code in @($codes | ForEach-Object {$_.Groups[1].Value} | Select-Object -Unique)){
                 Write-Host ('AGENT06_DIAGNOSTIC_TYPESCRIPT_CODE=TS'+$code)
+              }
+              foreach($match in [regex]::Matches([string]$raw,'(?m)^(.+?)\((\d{1,5}),(\d{1,5})\):\s+error\s+TS(\d{4}):')){
+                $file=$match.Groups[1].Value.Replace('\','/')
+                $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                  [Text.Encoding]::UTF8.GetBytes($file))).ToLowerInvariant()
+                Write-Host ('AGENT06_DIAGNOSTIC_TYPESCRIPT_PATH_HASH='+$digest.Substring(0,16))
+                Write-Host ('AGENT06_DIAGNOSTIC_TYPESCRIPT_LINE='+$match.Groups[2].Value)
               }
               $bad++
             }else{Write-Host 'AGENT06_DIAGNOSTIC_DESKTOP_PASS'}
