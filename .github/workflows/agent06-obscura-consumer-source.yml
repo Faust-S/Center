@@ -5,7 +5,7 @@ name: Agent 0.6 Obscura source consumer qualification
 on:
   push:
     branches:
-      - work/2026-11-15-agent06-obscura-port-qualification
+      - work/2026-11-16-agent06-obscura-central-qualification
   workflow_dispatch:
 permissions:
   contents: read
@@ -44,7 +44,7 @@ jobs:
           repository: Faust-S/iwxa-personal-agent
           # Immutable private source; later parallel commits must not change
           # the code being qualified by this specific Center run.
-          ref: aa26a48a1446796755f5121cd94e09284da34a70
+          ref: 1d5bf496082e0dc1df8720e1e74d5126e23b4ac8
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "aa26a48a1446796755f5121cd94e09284da34a70"
+          test "$(git -C private-agent rev-parse HEAD)" = "1d5bf496082e0dc1df8720e1e74d5126e23b4ac8"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -140,11 +140,13 @@ jobs:
             tests/test_workspace_composer_integration.py \
             tests/test_tool_provider_layer.py \
             tests/test_interactive_task_list_status.py \
+            tests/test_interactive_task_retry_claim.py \
             > "$RUNNER_TEMP/agent06-original-task-regression-private.log" 2>&1; then
             echo "AGENT06_ORIGINAL_TASK_REGRESSION_FAILED"
             exit 8
           fi
           echo "AGENT06_ORIGINAL_TASK_REGRESSION_PASS"
+          echo "AGENT06_CENTRAL_SCHEDULER_CLAIM_REGRESSION_PASS"
       - name: Set up Node.js 22 for U01 packaging and Windows desktop source qualification
         uses: actions/setup-node@v4
         with:
