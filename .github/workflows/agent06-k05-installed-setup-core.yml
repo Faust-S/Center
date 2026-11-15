@@ -23,7 +23,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_NATIVE_EXACT_SHA: 'da97557137e8fed769d10cc3d0e2fb9b60f81622'
+      AGENT_K05_NATIVE_EXACT_SHA: 'ec7b46e666a626b5d0dbd4fd8ab05fe6d85ad135'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -168,10 +168,59 @@ jobs:
                   if($lastOperation -match '^[A-Z0-9_]{2,75}$'){
                     Write-Host ('K05_NATIVE_QWEN_LAST_OPERATION='+$lastOperation)
                   }
-                  if($checkpoint -match '^AGENT_REAL_QWEN_[A-Z_]{3,75}$' -or
+                  if($checkpoint -match '^AGENT_REAL_QWEN_[A-Z_]{3,75}
+              }catch{}
+              Write-Host ('K05_NATIVE_INSTALLED_RECEIPT_'+$step[1]+'='+$status)
+            }
+            Write-Host ('K05_NATIVE_INSTALLED_FAILURE_STAGE='+$stage)
+            if(Test-Path -LiteralPath $log -PathType Leaf){
+              $privateText=[IO.File]::ReadAllText($log)
+              # Never print raw errors, paths, documents, model output or tokens.
+              $regex='(?<![A-Za-z0-9_])(?:SETUP_LOCAL|agent_setup|agent_native_gui|K05_NATIVE)_[A-Za-z0-9_]{3,75}'
+              $unique=[System.Collections.Generic.HashSet[string]]::new(
+                [StringComparer]::OrdinalIgnoreCase)
+              foreach($match in [regex]::Matches($privateText,$regex)){
+                $code=[string]$match.Value
+                if($unique.Add($code) -and $unique.Count -le 12){
+                  Write-Host ('K05_NATIVE_INSTALLED_SAFE_ERROR_CODE='+$code)
+                }
+              }
+              if($unique.Count -eq 0){
+                Write-Host 'K05_NATIVE_INSTALLED_SAFE_ERROR_CODE=NONE_FOUND'
+              }
+            }
+            throw 'K05_NATIVE_INSTALLED_TAURI_WITNESS_FAIL'
+          }
+          Write-Host 'K05_NATIVE_SETUP_CORE_INSTALLED_TAURI_WITNESS_PASS'
+      # Do not cache, upload, print, email or persist any private artifacts.
+ -or
                      $checkpoint -ceq 'NONE_OBSERVED'){
                     Write-Host ('K05_NATIVE_QWEN_LAST_CHECKPOINT='+$checkpoint)
+                    # K03 values also come from finite enumerations in the
+                  # original installed witness, not model or document text.
+                  $k03Code=[string]$receipt.k03_failure_code
+                  $k03Checkpoint=[string]$receipt.last_k03_checkpoint
+                  $k03HttpStatus=[string]$receipt.k03_http_status
+                  $k03HttpReason=[string]$receipt.k03_http_reason
+                  if($k03Code -match '^(k03_|k05_|setup_core_k03_)[a-z0-9_]{3,80}
+                } -or
+                     $k03Code -ceq 'OTHER'){
+                    Write-Host ('K05_NATIVE_K03_FAILURE_CODE='+$k03Code)
                   }
+                  if($k03Checkpoint -match '^AGENT_K03_[A-Z_]{3,80}
+                } -or
+                     $k03Checkpoint -ceq 'NONE_OBSERVED'){
+                    Write-Host ('K05_NATIVE_K03_LAST_CHECKPOINT='+$k03Checkpoint)
+                  }
+                  if($k03HttpStatus -match '^(400|401|403|409|500|503)
+                }){
+                    Write-Host ('K05_NATIVE_K03_HTTP_STATUS='+$k03HttpStatus)
+                  }
+                  if($k03HttpReason -match '^(k03_host_source_changed|k03_host_selection_input_invalid|k03_builtin_surface_required|unknown_query)
+                }){
+                    Write-Host ('K05_NATIVE_K03_HTTP_REASON='+$k03HttpReason)
+                  }
+                }
                 }
               }catch{}
               Write-Host ('K05_NATIVE_INSTALLED_RECEIPT_'+$step[1]+'='+$status)
