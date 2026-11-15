@@ -156,7 +156,7 @@ jobs:
             > "$RUNNER_TEMP/agent06-native-private.log" 2>&1; then
             # Only fixed tokens from the approved test source, never
             # private paths, stack traces or actual page contents.
-            grep -E '^AGENT06_NATIVE_STAGE_[A-Z0-9_]+ \
+            grep -E '^AGENT06_NATIVE_STAGE_[A-Z0-9_]+$' \
               "$RUNNER_TEMP/agent06-native-private.log" || true
             echo "AGENT06_NATIVE_TOOLRUNTIME_READ_FAILED"
             exit 6
