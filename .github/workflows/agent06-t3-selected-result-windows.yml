@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: b756020e703a596335e0df84ff2cecb7b4b0d87e
+          ref: 8764a79e56eb490a3b38f699f7d985ac1254e4fc
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -45,7 +45,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne 'b756020e703a596335e0df84ff2cecb7b4b0d87e'){
+          if($sha -cne '8764a79e56eb490a3b38f699f7d985ac1254e4fc'){
             throw 'AGENT06_ERP_PRIVATE_SOURCE_REVISION_MISMATCH'
           }
           & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'a06-erp-pip-private.log')
