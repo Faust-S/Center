@@ -17,6 +17,15 @@ const MAX_IWXA:u64=32*1024*1024;
 const SCHEMA:&str="IWXA_T3_ADMIN_D3_NATIVE/1";
 const SHA_LEN:usize=64;
 
+// Match the original T3 JavaScript .length contract (UTF-16 code units).
+// UTF-8 bytes would reject ordinary Russian Task text at half the UI limit.
+fn original_text_len(value:&str)->usize{value.encode_utf16().count()}
+fn valid_enrollment_details(workspace_id:&str,organization_name:&str)->bool{
+    t3::valid_identifier(workspace_id)&&
+    !organization_name.trim().is_empty()&&
+    original_text_len(organization_name)<=120
+}
+
 fn check_org(organization_id:&str)->Result<(),String>{
     if !t3::valid_organization_scope_id(organization_id){
         return Err("CEN_D3_ORGANIZATION_REQUIRED".into());
@@ -34,7 +43,7 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
       "d3Inbox"|"d3Receive"|"d3ReceiveAge"|"d3ExportInvitation"=>{},
       "d3CreateTask"=>{
           if !input["task"].as_str().is_some_and(|s|
-              !s.trim().is_empty()&&s.len()<=10000) {
+              !s.trim().is_empty()&&original_text_len(s)<=10000) {
               return Err("CEN_D3_SIGNED_TASK_TEXT_REQUIRED".into());
           }
           if !input["taskId"].as_str().is_some_and(|s|
@@ -73,7 +82,7 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
           !input["operationId"].as_str().is_some_and(t3::valid_identifier)||
           !matches!(input["decision"].as_str(),Some("ACCEPT"|"REJECT"))||
           (input["decision"]=="REJECT" &&
-           !input["reason"].as_str().is_some_and(|s|!s.trim().is_empty()&&s.len()<=1000)) {
+           !input["reason"].as_str().is_some_and(|s|!s.trim().is_empty()&&original_text_len(s)<=1000)) {
           return Err("CEN_D3_EXPLICIT_DECISION_REQUIRED".into());
       },
       "d3InspectAccepted"|"d3ApplyAccepted"|"d3RecoverApplied"=>{
@@ -406,9 +415,7 @@ pub async fn center_corporate_enroll(
     organization_name:String
 )->Result<Value,String>{
     check_org(&organization_id)?;
-    if !t3::valid_identifier(&workspace_id)||
-       organization_name.trim().is_empty()||
-       organization_name.len()>120{
+    if !valid_enrollment_details(&workspace_id,&organization_name){
         return Err("CEN_D3_EXPLICIT_ORGANIZATION_REQUIRED".into());
     }
     if !t3::binary_present(&app,"admin-d3"){
@@ -608,6 +615,32 @@ pub async fn center_corporate_action(
 #[cfg(test)]
 mod tests{
     use super::*;
+    #[test]
+    fn original_d3_utf16_limits_match_russian_windows_forms(){
+        // Original private Node T3 checks JS String.length, not UTF-8 bytes.
+        // Russian letters must get the same 10k/1k/120 limits as Latin text.
+        let task=json!({"task":"З".repeat(6000),"taskId":"task:ru-1"});
+        assert!(check_bound_request(&task,"d3CreateTask").is_ok());
+        let maximum=json!({"task":"Я".repeat(10000),"taskId":"task:ru-max"});
+        assert!(check_bound_request(&maximum,"d3CreateTask").is_ok());
+        let too_long=json!({"task":"Я".repeat(10001),"taskId":"task:ru-max"});
+        assert_eq!(check_bound_request(&too_long,"d3CreateTask").unwrap_err(),
+            "CEN_D3_SIGNED_TASK_TEXT_REQUIRED");
+        let mut decision=json!({"packageSha256":"a".repeat(64),
+            "previewDigest":"b".repeat(64),"operationId":"decision:ru",
+            "decision":"REJECT","reason":"Н".repeat(850)});
+        assert!(check_bound_request(&decision,"d3Decide").is_ok());
+        decision["reason"]=json!("Н".repeat(1001));
+        assert_eq!(check_bound_request(&decision,"d3Decide").unwrap_err(),
+            "CEN_D3_EXPLICIT_DECISION_REQUIRED");
+        assert!(valid_enrollment_details("workspace:ru","Организация"));
+        assert!(valid_enrollment_details("workspace:ru",&"Ж".repeat(120)));
+        assert!(!valid_enrollment_details("workspace:ru",&"Ж".repeat(121)));
+        // Non-BMP characters occupy two JS UTF-16 code units.
+        assert_eq!(original_text_len("🚀"),2);
+        assert!(valid_enrollment_details("workspace:ru",&"🚀".repeat(60)));
+        assert!(!valid_enrollment_details("workspace:ru",&"🚀".repeat(61)));
+    }
     #[test]
     fn state_must_be_genuinely_scoped_and_not_a_test_owner(){
         let valid=json!({"schema":SCHEMA,"operation":"D3_STATE",
