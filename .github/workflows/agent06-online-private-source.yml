@@ -115,7 +115,13 @@ jobs:
                 if($type -eq 'OTHER'){
                   $exceptionType=[string]$fail.GetAttribute('type')
                   if($exceptionType.Contains('.')){$exceptionType=$exceptionType.Split('.')[-1]}
-                  if($exceptionType -match '^[A-Za-z_][A-Za-z0-9_]{0,80}
+                  $exceptionType=$exceptionType -replace '[^A-Za-z0-9_]', ''
+                  if($exceptionType.Length -gt 0 -and $exceptionType.Length -lt 81){
+                    $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                      [Text.Encoding]::UTF8.GetBytes($exceptionType))).Substring(0,12)
+                    Write-Host ('AGENT06_PY_UNRECOGNIZED_EXCEPTION_SHA='+$digest)
+                  }
+                }
               }
             }else{Write-Host 'AGENT06_PY_JUNIT_MISSING'}
             if($exitCode -ne 0){
