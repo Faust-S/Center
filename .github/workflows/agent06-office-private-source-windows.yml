@@ -19,8 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '1502ed43bec79ebc110e96a3886c7dbc02a3a7be'
-      AGENT_OFFICE_UI_DIAGNOSTIC_ONLY: '1'
+      AGENT_OFFICE_SHA: 'f27f8eb7ec1f66a37cfb23142acf97299e149209'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,7 +59,6 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_PYTHON_DEPENDENCIES_FAIL'}
           Write-Host 'AGENT06_OFFICE_DEPENDENCIES_PASS'
       - name: Python original Agent office and surrounding regression suites
-        if: env.AGENT_OFFICE_UI_DIAGNOSTIC_ONLY != '1'
         shell: pwsh
         run: |
           $ErrorActionPreference='Continue'
