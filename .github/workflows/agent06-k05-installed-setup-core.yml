@@ -24,7 +24,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_NATIVE_EXACT_SHA: '12d8c5040e192fd21003d8152974ef3440cda406'
+      AGENT_K05_NATIVE_EXACT_SHA: '763583b306ca4a7896609a1c42e535e64b855c33'
     steps:
       - uses: actions/checkout@v4
         with:
