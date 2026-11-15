@@ -2,7 +2,8 @@ import React,{useEffect,useRef,useState} from 'react';
 import {createNativeAtlasPort} from './atlas-native.mjs';
 import {atlasLinkReadback,atlasWorkReadback} from './atlas-integration.mjs';
 import {readOriginalResultReview,readCompleteOriginalResult,
- validateOriginalSignedTaskReadback} from '../runtime/cen03-d3-owner.mjs';
+ validateOriginalSignedTaskReadback,
+ isDefiniteUndispatchedD3Failure} from '../runtime/cen03-d3-owner.mjs';
 
 // D3 UI is deliberately limited to the ORIGINAL recipient and signed D1 Host.
 // It cannot issue a task, sign a grant, interpret an ACCEPT as Apply, or
@@ -159,8 +160,19 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    // this call loses its reply, the same ID can be queried without re-signing.
    const immutableId=taskOperationId;
    setTaskAttempted(true);setTaskReadback(null);
-   const result=await execute('d3CreateTask',{
-     task:taskText.trim(),taskId:immutableId});
+   let result:any;
+   try{
+     result=await execute('d3CreateTask',{
+       task:taskText.trim(),taskId:immutableId});
+   }catch(error){
+     // The native owner was never dispatched only for these exact public
+     // Rust preflight errors. Other errors may follow a successful signing:
+     // retain the saved Task ID and require original read-only recovery.
+     if(isDefiniteUndispatchedD3Failure(error,'d3CreateTask')){
+       setTaskAttempted(false);setTaskReadback(null);
+     }
+     throw error;
+   }
    if(result?.schema!=='IWXA_T3_ORIGINAL_SIGNED_TASK/1'||
      result.status!=='SIGNED_TASK_CREATED_NOT_DELIVERED'||
      result.taskId!==immutableId||!hex(result.taskRevisionId)||
@@ -383,11 +395,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    try{
      result=await execute('d3ApplyAccepted',selection);
    }catch(error){
-     // The native Windows dialog returns this exact cancellation BEFORE it
-     // opens the signed original owner or dispatches any Kernel operation.
-     // Every other error may have occurred AFTER dispatch: preserve the
-     // recorded attempt and require original read-only recovery instead.
-     if(String(error).includes('CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED')){
+     // These exact public native preflight codes are returned before the
+     // original owner is invoked. Every other failure can be post-dispatch,
+     // and must retain the no-replay marker until original recovery.
+     if(isDefiniteUndispatchedD3Failure(error,'d3ApplyAccepted')){
        dispatchedApplications.current.delete(attemptKey(selection.acceptanceId));
        setApplySelection(null);setApplyAttempted(false);setApplyConsent(false);
      }

@@ -2,6 +2,35 @@
 // The actual Reconciliation ledger, Human Review, signed D1 authorization,
 // sealed application binding, Kernel commit and readback remain with T3.
 // This adapter has no Store, signer, grant evaluator or automatic retry.
+// A definite native rejection BEFORE owner dispatch is safe to retry after
+// the operator fixes it. Any error past dispatch (including a lost reply)
+// remains UNKNOWN and may only be resolved with original read-only receipts.
+const PRE_DISPATCH_BASE=new Set([
+  'CEN_D3_CONTEXT_CHANGED',
+  'CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED',
+  'CEN_D3_ORGANIZATION_REQUIRED',
+  'CEN_D3_INPUT_INVALID',
+]);
+const PRE_DISPATCH_APPLY=new Set([
+  'CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED',
+  'CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED',
+  'CEN_D3_ACCEPTED_SOURCE_INVALID',
+]);
+const PRE_DISPATCH_TASK=new Set([
+  'CEN_D3_SIGNED_TASK_TEXT_REQUIRED',
+  'CEN_D3_ORIGINAL_TASK_OPERATION_ID_REQUIRED',
+]);
+export function isDefiniteUndispatchedD3Failure(error,operation){
+  if(operation!=='d3ApplyAccepted'&&operation!=='d3CreateTask')return false;
+  const raw=typeof error==='string'?error:
+    error instanceof Error?error.message:'';
+  const match=/^(?:Error:\s*)?([A-Z][A-Z0-9_]{4,99})$/.exec(raw.trim());
+  if(!match)return false;
+  return PRE_DISPATCH_BASE.has(match[1])||
+    (operation==='d3ApplyAccepted'&&PRE_DISPATCH_APPLY.has(match[1]))||
+    (operation==='d3CreateTask'&&PRE_DISPATCH_TASK.has(match[1]));
+}
+
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const SHA=/^[a-f0-9]{64}$/;
 // The installed original corporate D3 owner accepts up to 32 MiB, not the

@@ -4,10 +4,50 @@ import {createCorporateOwnerHost} from '../runtime/cen-corporate-owner-host.mjs'
 import {signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
 import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
  appendOriginalResultReview,readCompleteOriginalResult,
- validateOriginalSignedTaskReadback} from '../runtime/cen03-d3-owner.mjs';
+ validateOriginalSignedTaskReadback,isDefiniteUndispatchedD3Failure} from '../runtime/cen03-d3-owner.mjs';
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64);
+test('D3 native definite pre-dispatch failures permit a deliberate retry, never lost ACK',()=>{
+ const safe={
+   d3ApplyAccepted:[
+     'CEN_D3_CONTEXT_CHANGED','CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED',
+     'CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED',
+     'CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED',
+     'CEN_D3_ACCEPTED_SOURCE_INVALID'
+   ],
+   d3CreateTask:[
+     'CEN_D3_CONTEXT_CHANGED','CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED',
+     'CEN_D3_ORIGINAL_TASK_OPERATION_ID_REQUIRED',
+     'CEN_D3_SIGNED_TASK_TEXT_REQUIRED'
+   ]
+ };
+ for(const [operation,codes] of Object.entries(safe)){
+   for(const code of codes){
+     assert.equal(isDefiniteUndispatchedD3Failure(code,operation),true,code);
+     assert.equal(isDefiniteUndispatchedD3Failure(new Error(code),operation),true,code);
+   }
+ }
+ const unconfirmed=[
+   'CEN_D3_OUTCOME_UNKNOWN','T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED',
+   'CEN_D3_NATIVE_WORKER_FAILED','CEN_D3_ORIGINAL_TASK_ALREADY_ISSUED',
+   'T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN',
+   'CEN_D3_KERNEL_COMMIT_OUTCOME_UNKNOWN',
+   'CEN_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED',
+   'CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED additional text'
+ ];
+ for(const operation of Object.keys(safe))
+   for(const code of unconfirmed)
+     assert.equal(isDefiniteUndispatchedD3Failure(code,operation),false,code);
+ assert.equal(isDefiniteUndispatchedD3Failure('CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED',
+   'd3CreateTask'),false);
+ assert.equal(isDefiniteUndispatchedD3Failure('CEN_D3_SIGNED_TASK_TEXT_REQUIRED',
+   'd3ApplyAccepted'),false);
+ assert.equal(isDefiniteUndispatchedD3Failure('CEN_D3_CONTEXT_CHANGED',
+   'd3Decide'),false);
+ assert.equal(isDefiniteUndispatchedD3Failure(null,'d3CreateTask'),false);
+});
+
 const context=()=>({kind:'CORP',context_id:'context:1',actor_id:'person:manager',
  principal_id:'org:1',role_id:'role:manager',grant_id:'grant:accept',
  organization_id:'org:1',workspace_id:'workspace:1',resource:'workspace:1',
