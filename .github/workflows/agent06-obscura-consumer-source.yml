@@ -1,0 +1,111 @@
+# Public Center runner is the explicitly permitted source-qualification
+# exception for private Agent. Never publish its code, artifacts, test output,
+# temporary logs, executable, secrets, cache or model/user data.
+name: Agent 0.6 Obscura source consumer qualification
+on:
+  push:
+    branches:
+      - work/2026-11-15-agent06-obscura-port-qualification
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-obscura-private-qualification-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  private-port:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - name: Checkout qualification harness (no product sources)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require existing approved read-only Agent credential
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$PRIVATE_SOURCE_TOKEN" ]; then
+            echo "AGENT06_PRIVATE_READ_UNAVAILABLE"
+            exit 2
+          fi
+          echo "AGENT06_PRIVATE_READ_AVAILABLE"
+      - name: Checkout exact private Agent source to ephemeral runner only
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 0faff9477fa8c04f3ab8f7a3027a9b55ac92f7ac
+          path: private-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - name: Checkout exact public Obscura/U01 source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Br-test
+          ref: cb804a846b9ac73014d6feb6faa4a3f9feaac46e
+          path: public-brtest
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact public and private SHAs without source output
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C private-agent rev-parse HEAD)" = "0faff9477fa8c04f3ab8f7a3027a9b55ac92f7ac"
+          test "$(git -C public-brtest rev-parse HEAD)" = "cb804a846b9ac73014d6feb6faa4a3f9feaac46e"
+          echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
+      - name: Install private source test dependencies (no logs exported)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python -m pip install -r private-agent/requirements-ci.txt > "$RUNNER_TEMP/agent06-obscura-pip-private.log" 2>&1; then
+            echo "AGENT06_PRIVATE_DEPENDENCIES_FAILED"
+            exit 3
+          fi
+          echo "AGENT06_PRIVATE_DEPENDENCIES_PASS"
+      - name: Source module imports and PA port contract, no native worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python -B - > "$RUNNER_TEMP/agent06-obscura-import-private.log" 2>&1 <<'PY'
+          import pathlib, sys
+          root=pathlib.Path.cwd()
+          sys.path[:0]=[
+              str(root/'private-agent'),
+              str(root/'public-brtest'/'agent-headless'),
+              str(root/'public-brtest'/'universal-install'),
+          ]
+          from providers.tool_provider_port import TOOL_PROVIDER_CONTRACT_ID
+          from providers.obscura_read_port import OptInObscuraWebCatalog
+          from iwxa_obscura.agent_port import ObscuraAgentToolPort
+          from iwxa_universal_install.obscura import ObscuraManagedBackend
+          assert TOOL_PROVIDER_CONTRACT_ID == ObscuraAgentToolPort.contract_id
+          assert callable(OptInObscuraWebCatalog)
+          assert callable(ObscuraManagedBackend)
+          PY
+          then
+            echo "AGENT06_PRIVATE_PUBLIC_PORT_IMPORT_FAILED"
+            exit 4
+          fi
+          echo "AGENT06_PUBLIC_PRIVATE_IMPORT_PASS"
+      - name: Test private read-only composition and unchanged port/U01 fixtures
+        shell: bash
+        working-directory: private-agent
+        run: |
+          set -euo pipefail
+          if ! python -B -m pytest -q -p no:cacheprovider             tests/test_agent06_obscura_web_optin.py             tests/cells/test_tool_provider_port.py             tests/test_u01_owner_program_connection.py             > "$RUNNER_TEMP/agent06-obscura-pytest-private.log" 2>&1; then
+            echo "AGENT06_PRIVATE_PORT_TEST_FAILED"
+            exit 5
+          fi
+          echo "AGENT06_PRIVATE_PORT_TEST_PASS"
+      # Absolutely no actions/upload-artifact, actions/cache, private source
+      # binary distribution, workspace dump, diagnostic upload or raw test logs.
