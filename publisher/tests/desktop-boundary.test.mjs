@@ -215,6 +215,10 @@ test('Publisher 0.3 diagnostics reuses native storage and Setup Core, without a 
  const browser=read('publisher/tests/browser-smoke.mjs');
  assert.match(native,/fn publisher_diagnostics\(app: AppHandle, state: State<DraftLock>\)/);
  assert.match(native,/schema: "IWXA_DIAGNOSTICS\/1"/);
+ assert.match(native,/licensing: "TEST_AND_PERSON_T3_BRIDGE"/);
+ assert.match(app,/Лицензирование: TEST и PERSON через оригинальный T3/);
+ assert.doesNotMatch(app,/Лицензирование: только TEST/);
+ assert.match(browser,/native-diagnostics-describes-person-bridge-without-claiming-signing-or-rights/);
  assert.match(native,/read_preparation\(root\)/);
  assert.match(native,/setup_core: "CHECK_IN_SETUP_CORE"/);
  assert.match(native,/fn native_diagnostics_are_read_only_and_do_not_expose_preparation_content/);

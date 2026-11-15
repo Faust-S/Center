@@ -171,7 +171,7 @@ fn inspect_publisher_diagnostics(root: &Path, webview_profile: &Path) -> Publish
         webview_profile: if webview_profile.is_dir() { "FOLDER_PRESENT" }
                          else { "FOLDER_NOT_OBSERVED" },
         setup_core: "CHECK_IN_SETUP_CORE",
-        licensing: "TEST_ONLY",
+        licensing: "TEST_AND_PERSON_T3_BRIDGE",
         active_seats: 0,
         production_activation: false,
         attention_required: local_preparation == "NEEDS_ATTENTION",
@@ -952,6 +952,7 @@ mod tests {
         assert_eq!(empty.version, env!("CARGO_PKG_VERSION"));
         assert_eq!(empty.local_preparation, "EMPTY");
         assert_eq!(empty.setup_core, "CHECK_IN_SETUP_CORE");
+        assert_eq!(empty.licensing, "TEST_AND_PERSON_T3_BRIDGE");
         assert_eq!(empty.active_seats, 0);
         assert!(!empty.production_activation);
         fs::create_dir_all(&profile).unwrap();

@@ -59,10 +59,10 @@ try {
       if(command==='publisher_pick_preparation_backup')return null;
       if(command==='publisher_inspect_artifact')return window.__publisherMockInspectedArtifact??null;
       if(command==='publisher_diagnostics')return {
-        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.4.0-dev.2',
+        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.5.0-dev.1',
         application:'NATIVE_RUNNING',localPreparation:'READABLE',
         webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
-        licensing:'TEST_ONLY',activeSeats:0,productionActivation:false,
+        licensing:'TEST_AND_PERSON_T3_BRIDGE',activeSeats:0,productionActivation:false,
         attentionRequired:false};
       if(command==='publisher_age_status')return {
         operation:'AGE_STATUS',available:false,recipient:null,
@@ -249,12 +249,17 @@ try {
   await page.getByRole('button',{name:'Проверить программу'}).click();
   const diagnostics=page.getByTestId('publisher-diagnostics-result');
   await diagnostics.waitFor();
-  assert.match(await diagnostics.innerText(),/IWXA Publisher 0.4.0-dev.2/);
+  assert.match(await diagnostics.innerText(),/IWXA Publisher 0.5.0-dev.1/);
   assert.match(await diagnostics.innerText(),/Черновики: читаются/);
   assert.match(await diagnostics.innerText(),/проверки, восстановления или удаления/);
   const diag=JSON.parse(await page.getByRole('textbox',{name:'Сведения диагностики'}).inputValue());
   assert.equal(diag.schema,'IWXA_DIAGNOSTICS/1');
   assert.equal(diag.setupCore,'CHECK_IN_SETUP_CORE');
+  assert.equal(diag.licensing,'TEST_AND_PERSON_T3_BRIDGE');
+  assert.match(await diagnostics.innerText(),/TEST и PERSON через оригинальный T3/);
+  assert.match(await diagnostics.innerText(),/Наличие подписанта, выдача лицензий и права получателя проверяются отдельно/);
+  assert.doesNotMatch(await diagnostics.innerText(),/только TEST/);
+  checks.push('native-diagnostics-describes-person-bridge-without-claiming-signing-or-rights');
   assert.equal(diag.productionActivation,false);
   assert.equal(diag.activeSeats,0);
   assert.ok(!JSON.stringify(diag).includes('Test Corporation'));
@@ -268,10 +273,10 @@ try {
     window.__TAURI_INTERNALS__={invoke:async(command)=>{
       if(command==='publisher_draft_read')throw Error('PUBLISHER_DRAFT_FORMAT_INVALID');
       if(command==='publisher_diagnostics')return {
-        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.4.0-dev.2',
+        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.5.0-dev.1',
         application:'NATIVE_RUNNING',localPreparation:'NEEDS_ATTENTION',
         webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
-        licensing:'TEST_ONLY',activeSeats:0,productionActivation:false,
+        licensing:'TEST_AND_PERSON_T3_BRIDGE',activeSeats:0,productionActivation:false,
         attentionRequired:true};
       throw Error('UNEXPECTED_DIAGNOSTIC_ONLY_COMMAND:'+command);
     }};
@@ -284,6 +289,7 @@ try {
   const degradedReport=damaged.getByTestId('publisher-diagnostics-result');
   await degradedReport.waitFor();
   assert.match(await degradedReport.innerText(),/Черновики: требуют внимания/);
+  assert.match(await degradedReport.innerText(),/TEST и PERSON через оригинальный T3/);
   assert.equal(JSON.parse(await damaged.getByRole('textbox',{name:'Сведения диагностики'}).inputValue()).attentionRequired,true);
   await damaged.close();
   checks.push('common-diagnostics-available-after-corrupt-draft-load-failure');

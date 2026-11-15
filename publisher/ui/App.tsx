@@ -26,7 +26,7 @@ type IwxaTransfer={size:number;sha256:string;integrityVerified:false;signatureVe
 type PublisherDiagnosticsReport={schema:'IWXA_DIAGNOSTICS/1';productId:'iwxa.publisher';version:string;
  application:'NATIVE_RUNNING';localPreparation:'READABLE'|'EMPTY'|'NEEDS_ATTENTION';
  webviewProfile:'FOLDER_PRESENT'|'FOLDER_NOT_OBSERVED';setupCore:'CHECK_IN_SETUP_CORE';
- licensing:'TEST_ONLY';activeSeats:0;productionActivation:false;attentionRequired:boolean};
+ licensing:'TEST_AND_PERSON_T3_BRIDGE';activeSeats:0;productionActivation:false;attentionRequired:boolean};
 type Page = 'overview'|'products'|'tariffs'|'holders'|'proposals'|'releases'|'trust';
 const navigation: [Page,string][] = [
  ['overview','Обзор'],['products','Продукты'],['tariffs','Тарифы и лимиты'],['holders','Клиенты'],
@@ -431,7 +431,8 @@ export default function App(){
      if(report?.schema!=='IWXA_DIAGNOSTICS/1'||report.productId!=='iwxa.publisher'||
         report.application!=='NATIVE_RUNNING'||!['READABLE','EMPTY','NEEDS_ATTENTION'].includes(report.localPreparation)||
         !['FOLDER_PRESENT','FOLDER_NOT_OBSERVED'].includes(report.webviewProfile)||
-        report.setupCore!=='CHECK_IN_SETUP_CORE'||report.licensing!=='TEST_ONLY'||
+        report.setupCore!=='CHECK_IN_SETUP_CORE'||
+        report.licensing!=='TEST_AND_PERSON_T3_BRIDGE'||
         report.activeSeats!==0||report.productionActivation!==false||
         typeof report.version!=='string'||typeof report.attentionRequired!=='boolean')
        throw Error('PUBLISHER_DIAGNOSTICS_INVALID_REPORT');
@@ -469,7 +470,9 @@ export default function App(){
               <p>Программа: IWXA Publisher {diagnostics.version} · нативный запуск подтверждён.</p>
               <p>Черновики: {diagnostics.localPreparation==='READABLE'?'читаются':diagnostics.localPreparation==='EMPTY'?'ещё не созданы':'требуют внимания'}.
               Профиль WebView2: {diagnostics.webviewProfile==='FOLDER_PRESENT'?'каталог доступен':'каталог не обнаружен'}.</p>
-              <p className="muted">Установка: откройте IWXA Setup Core для проверки, восстановления или удаления. Лицензирование: только TEST, коммерческих мест — 0.</p>
+              <p className="muted">Установка: откройте IWXA Setup Core для проверки, восстановления или удаления. Лицензирование: TEST и PERSON через оригинальный T3.
+                Наличие подписанта, выдача лицензий и права получателя проверяются отдельно.
+                Коммерческих мест: 0.</p>
               <textarea aria-label="Сведения диагностики" readOnly rows={8}
                 value={JSON.stringify(diagnostics,null,2)} style={{width:'100%',fontFamily:'monospace'}}/>
             </div>}
