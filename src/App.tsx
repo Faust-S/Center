@@ -427,8 +427,9 @@ export default function App() {
               onClick={()=>{void hideSignedWorkspace().catch(()=>setError('Не удалось вернуться к приёмке.'));}}>К приёмке</button>
           : <button className="secondary" data-testid="d3-show-signed-workspace"
               onClick={()=>{void openSignedWorkspace(signedWorkspaceOrg).catch(()=>setError('Не удалось показать подписанную Workspace T3.'));}}>Workspace T3</button>}
-        <button className="secondary" data-testid="d3-close-signed-workspace"
-          onClick={()=>{void closeSignedWorkspace().catch(()=>setError('Не удалось завершить Workspace T3.'));}}>Завершить Workspace</button>
+        <button className="quiet" data-testid="d3-close-signed-workspace"
+          aria-label="Завершить подписанную Workspace T3" title="Завершить сеанс Workspace T3"
+          onClick={()=>{void closeSignedWorkspace().catch(()=>setError('Не удалось завершить Workspace T3.'));}}>×</button>
        </>}
        <button className="secondary top-save" onClick={saveFile} disabled={!org||saving}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
       <div className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ ОРГАНИЗАЦИЕЙ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>
