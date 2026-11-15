@@ -6,7 +6,7 @@ use serde_json::{json,Value};
  use std::{fs::{self,OpenOptions},io::{BufRead,BufReader,Read,Write},
     path::{Path,PathBuf},process::{Child,ChildStdin},
     sync::{mpsc::{self,Receiver},Mutex},time::Duration};
-use tauri::{AppHandle,Manager};
+use tauri::{AppHandle,Emitter,Manager};
 use uuid::Uuid;
 use crate::t3_product_component as t3;
 use crate::t3_age_transport as age;
@@ -602,6 +602,9 @@ fn close_original_signed_workspace(app:&AppHandle)->Result<(),String>{
     if let Some(webview)=app.get_webview(SIGNED_WORKSPACE_WEBVIEW){
         webview.close()
             .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_CLOSE_FAILED".to_owned())?;
+        // Keep the existing React navigation in sync with the ONE native
+        // child, including revocation initiated by a signed Task mutation.
+        let _=app.emit_to("main","iwxa:d3-signed-workspace-closed",());
     }
     Ok(())
 }
@@ -932,6 +935,15 @@ pub async fn center_corporate_action(
             });
         }
         drop(original_age_file);
+        // These three original native actions advance the signed D3 epoch
+        // and rotate the bearer in the existing private Host. Its former
+        // Workspace must no longer remain mounted after successful Task
+        // issuance. A view-close failure cannot turn an already completed
+        // signed operation into a retryable failure.
+        if matches!(operation.as_str(),
+            "d3CreateTask"|"d3ExportTask"|"d3ExportInvitation"){
+            let _=close_original_signed_workspace(&app);
+        }
         // No implicit ACCEPT or Kernel Apply.
         Ok(result)
     }).await.map_err(|_|"CEN_D3_NATIVE_WORKER_FAILED".to_owned())?
