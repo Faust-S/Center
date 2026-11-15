@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '74d3927db448ec4ae4462792f7a6e9cc5fe75b0f'
+      AGENT_OFFICE_SHA: '80fdde95df40b4eab322bf39989250b668a03881'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,6 +64,9 @@ jobs:
           $ErrorActionPreference='Continue'
           $cases=@(
             @('BINARY_E2E', 'tests/test_agent06_office_binary.py'),
+            @('OFFICE_READ', 'tests/test_agent06_office_read.py'),
+            @('PDF_OCR', 'tests/test_agent06_pdf_ocr.py'),
+            @('INTERACTIVE_CLAIM', 'tests/test_interactive_task_retry_claim.py'),
             @('TOOL_RUNTIME', 'tests/test_tool_provider_layer.py'),
             @('DOCUMENT_TEXT', 'tests/test_local_document_text_v3.py'),
             @('INSTALLED_SOFTWARE', 'tests/test_existing_software_discovery.py')
@@ -108,7 +111,21 @@ jobs:
           try {
             & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-office-npm-private.txt')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_DESKTOP_DEPENDENCIES_FAIL'}
-            & node --test tests/task-review-file-candidate.test.mjs tests/office-docx-proposal.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-tests-private.txt')
+            $tests=@(
+              'tests/task-review-file-candidate.test.mjs',
+              'tests/office-docx-proposal.test.mjs',
+              'tests/office-docx-launch.test.mjs',
+              'tests/office-pdf-ocr-proposal.test.mjs',
+              'tests/office-pdf-ocr-readback.test.mjs',
+              'tests/office-personal-file-picker.test.mjs',
+              'tests/office-personal-file-picker-ui.test.mjs',
+              'tests/recovery-observation.test.mjs',
+              'tests/native-program-link.test.mjs',
+              'tests/u04-native-host.test.mjs',
+              'tests/u04-rust-host-contract.test.mjs',
+              'tests/u04-native-build-manifest.test.mjs'
+            )
+            & node --test $tests *> (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-tests-private.txt')
             if($LASTEXITCODE -ne 0){
               Write-Host 'AGENT06_OFFICE_DOCUMENT_REVIEW_FAIL'
               Set-Content (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-failed') 'FAIL'
@@ -145,7 +162,7 @@ jobs:
           $probe=Join-Path $env:RUNNER_TEMP 'agent06-u04-native-qualification'
           $src=Join-Path $probe 'src'
           New-Item -ItemType Directory -Path $src -Force | Out-Null
-          @('[package]','name = "agent06_u04_qualification"','version = "0.0.1"','edition = "2021"','[dependencies]','serde_json = "1"') |
+          @('[package]','name = "agent06_u04_qualification"','version = "0.0.1"','edition = "2021"','[dependencies]','serde_json = "1"','sha2 = "0.10.9"') |
             Set-Content -Path (Join-Path $probe 'Cargo.toml') -Encoding utf8
           Copy-Item -LiteralPath 'private-agent/desktop/src-tauri/src/u04_windows_host.rs' -Destination (Join-Path $src 'u04_windows_host.rs')
           @('mod u04_windows_host;','fn main() {}') |
@@ -154,15 +171,34 @@ jobs:
           & cargo.exe test --manifest-path (Join-Path $probe 'Cargo.toml') --quiet *> (Join-Path $env:RUNNER_TEMP 'agent06-office-u04-msvc-private.txt')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_U04_NATIVE_MSCV_TEST_FAIL'}
           Write-Host 'AGENT06_OFFICE_U04_NATIVE_MSCV_TEST_PASS'
+      - name: Full Agent native Tauri Cargo source checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $env:CARGO_TARGET_DIR=Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-target'
+          Push-Location private-agent/desktop/src-tauri
+          try {
+            & cargo.exe test --locked --quiet *> (Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-tests-private.txt')
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'AGENT06_OFFICE_TAURI_TEST_FAIL'
+              Set-Content -Path (Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-failed') -Value 'FAIL'
+            } else {Write-Host 'AGENT06_OFFICE_TAURI_TEST_PASS'}
+            & cargo.exe check --locked --quiet *> (Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-check-private.txt')
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'AGENT06_OFFICE_TAURI_CHECK_FAIL'
+              Set-Content -Path (Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-failed') -Value 'FAIL'
+            } else {Write-Host 'AGENT06_OFFICE_TAURI_CHECK_PASS'}
+          } finally {Pop-Location}
       - name: Final source qualification gate
         shell: pwsh
         run: |
-          $failures=@('python','ui','build')
+          $failures=@('python','ui','build','tauri')
           foreach($name in $failures){
             if(Test-Path (Join-Path $env:RUNNER_TEMP ('agent06-office-'+$name+'-failed'))){
               throw ('AGENT06_OFFICE_'+$name.ToUpper()+'_QUALIFICATION_HOLD')
             }
           }
+          Write-Host ('AGENT06_OFFICE_SOURCE_QUALIFIED_SHA='+$env:AGENT_OFFICE_SHA)
           Write-Host 'AGENT06_OFFICE_SOURCE_QUALIFIED'
       # There is intentionally no upload-artifact, upload-pages-artifact,
       # cache, commit, log upload, EXE publication or secret persistence.
