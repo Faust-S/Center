@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_EXACT_SHA: '12d8c5040e192fd21003d8152974ef3440cda406'
+      AGENT_K05_EXACT_SHA: '763583b306ca4a7896609a1c42e535e64b855c33'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -100,7 +100,8 @@ jobs:
             @('K05_EXECUTOR_COMPARISON','tests/test_k05_agent06_executor_comparison.py'),
             @('APPROVAL_OWNER','tests/cells/test_approval_execution_reconciliation.py'),
             @('APPROVAL_ADMISSION','tests/test_approval_admission_serialization.py'),
-            @('TOOL_EXECUTION_INTENT','tests/test_tool_execution_intent_claim_recovery.py')
+            @('TOOL_EXECUTION_INTENT','tests/test_tool_execution_intent_claim_recovery.py'),
+            @('INTERACTIVE_SCHEDULER','tests/test_interactive_task_retry_claim.py')
           )
           $failed=$false
           $all=0
