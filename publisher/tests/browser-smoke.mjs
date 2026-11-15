@@ -901,6 +901,63 @@ try {
   assert.equal(await confirmation.count(),0);
   checks.push('restore-confirm-atomically-writes-only-strict-draft');
   await nativeMockPage.close();
+  // A second Publisher process must not silently replace a draft edited by
+  // another process while this window was open. Reopen the actual source
+  // snapshot before any later PERSON signature or tariff edit.
+  const parallel=await browser.newPage({viewport:{width:1100,height:720}});
+  parallel.on('pageerror',e=>errors.push('parallel draft: '+e.message));
+  await parallel.addInitScript(()=>{
+    const name='publisher-parallel-preparation';
+    const hash=async raw=>{
+      if(raw===null)return 'ABSENT';
+      const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(raw));
+      return Array.from(new Uint8Array(bytes),v=>v.toString(16).padStart(2,'0')).join('');
+    };
+    window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
+      if(command==='publisher_draft_read')return sessionStorage.getItem(name);
+      if(command==='publisher_draft_save'){
+        const current=sessionStorage.getItem(name);
+        if(args.expectedSha256!==await hash(current))
+          throw Error('PUBLISHER_DRAFT_CHANGED_ON_DISK');
+        sessionStorage.setItem(name,args.content);
+        return true;
+      }
+      throw Error('UNEXPECTED_PARALLEL_DRAFT_IPC:'+command);
+    }};
+  });
+  await parallel.goto('http://127.0.0.1:4175');
+  await parallel.getByRole('button',{name:'Продукты',exact:true}).click();
+  await parallel.getByLabel('Идентификатор продукта').fill('IWXA_ATLAS');
+  await parallel.getByLabel('Название').fill('Original Draft Product');
+  await parallel.getByLabel('Версия',{exact:true}).fill('0.5.0');
+  await parallel.getByRole('button',{name:'Сохранить продукт'}).click();
+  await parallel.getByText('Продукты (1)').waitFor();
+  // Simulate only a real external file change, not a second signer or Store.
+  const savedAfterExternalChange=await parallel.evaluate(()=>{
+    const key='publisher-parallel-preparation';
+    const draft=JSON.parse(sessionStorage.getItem(key));
+    draft.products[0].name='Updated by Other Publisher Window';
+    const next=JSON.stringify(draft);
+    sessionStorage.setItem(key,next);
+    return next;
+  });
+  await parallel.getByLabel('Идентификатор продукта').fill('IWXA_PERSONAL_AGENT');
+  await parallel.getByLabel('Название').fill('Needs Fresh Draft');
+  await parallel.getByLabel('Версия',{exact:true}).fill('0.5.0');
+  await parallel.getByRole('button',{name:'Сохранить продукт'}).click();
+  await parallel.getByTestId('publisher-draft-reload').waitFor();
+  assert.equal(await parallel.evaluate(()=>sessionStorage.getItem('publisher-parallel-preparation')),
+    savedAfterExternalChange,'Stale native save overwrote another Publisher');
+  assert.equal(await parallel.getByRole('button',{name:'Сохранить продукт'}).count(),0,
+    'Stale draft must not expose editing controls');
+  await parallel.getByTestId('publisher-draft-reload').click();
+  await parallel.getByText('Updated by Other Publisher Window').waitFor();
+  await parallel.getByRole('button',{name:'Сохранить продукт'}).click();
+  await parallel.getByText('Продукты (2)').waitFor();
+  assert.equal(JSON.parse(await parallel.evaluate(()=>
+    sessionStorage.getItem('publisher-parallel-preparation'))).products.length,2);
+  await parallel.close();
+  checks.push('native-draft-external-edit-refuses-overwrite-and-reloads-before-next-save');
   // Independent direct-to-product personal flow, using a bounded IPC test double.
   // It cannot claim that a PERSON license was signed by T3.
   const personal=await browser.newPage({viewport:{width:1050,height:820}});
