@@ -269,6 +269,20 @@ jobs:
           }finally{Pop-Location}
           Push-Location private-agent
           try{
+            # Installed Office uses the unchanged, pinned original U04 owner.
+            # The source is prepared only from the public Br-test commit in
+            # config/public-module-sources.json. It stays under ignored build/.
+            & node.exe scripts/prepare-public-modules.mjs --only-u04 --fetch *> (Join-Path $env:RUNNER_TEMP 'agent06-office-u04-source-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_U04_OWNER_PREPARE_FAIL'}
+            # Stage only the three verified U04 ESM modules into ignored
+            # desktop/dist. Never add untracked files to the source checkout.
+            & node.exe scripts/stage-u04-desktop.mjs build/u04-owner-sources desktop/dist/u04 *> (Join-Path $env:RUNNER_TEMP 'agent06-office-u04-stage-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_U04_OWNER_STAGE_FAIL'}
+            foreach($name in @('bridge.mjs','id.mjs','surface.mjs')){
+              $path=Join-Path 'desktop/dist/u04/u04-presentation' $name
+              if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw 'AGENT06_OFFICE_U04_OWNER_MODULE_MISSING'}
+            }
+            Write-Host 'AGENT06_OFFICE_U04_OWNER_STAGED_PASS'
             # Reuse the existing native GUI + isolated data install acceptance.
             # Never print its UI text, private paths, screenshots or raw logs.
             & pwsh -NoProfile -NonInteractive -File qualification/phase1/agent02_installed_gui_acceptance.ps1 *> (Join-Path $env:RUNNER_TEMP 'agent06-office-installed-native-private.txt')
