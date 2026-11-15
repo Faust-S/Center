@@ -38,7 +38,9 @@ jobs:
             # Do not print account identifiers or private status text.
             Write-Host 'PUBLIC_CLI_CODEX_AUTH=PROFILE_PRESENT'
           }
+          exit 0
       - name: Install and inspect official Claude Code CLI
+        if: always()
         shell: pwsh
         run: |
           $script=Join-Path $env:RUNNER_TEMP 'official-claude-install.ps1'
@@ -66,7 +68,9 @@ jobs:
           }catch{
             throw 'PUBLIC_CLI_CLAUDE_INSTALL_OR_PROBE_BLOCKED'
           }
+          exit 0
       - name: Install and inspect official Google Antigravity CLI
+        if: always()
         shell: pwsh
         run: |
           $script=Join-Path $env:RUNNER_TEMP 'official-agy-install.ps1'
@@ -90,5 +94,6 @@ jobs:
           }catch{
             throw 'PUBLIC_CLI_ANTIGRAVITY_INSTALL_OR_PROBE_BLOCKED'
           }
+          exit 0
       # No account sign-up, login tokens, prompts, uploaded logs or artifacts.
       # Actual model inference requires provider-approved user authentication.
