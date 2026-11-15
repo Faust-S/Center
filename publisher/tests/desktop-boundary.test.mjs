@@ -95,7 +95,7 @@ test('Publisher tariff and license preparation show true persistence outcomes ne
  const app=read('publisher/ui/App.tsx');
  const smoke=read('publisher/tests/browser-smoke.mjs');
  assert.match(app,/Promise<\{ok:boolean;message:string\}>/);
-  assert.match(app,/await persistDraft\\(next,draftSourceSha256\\.current\\)/);
+ assert.match(app,/await persistDraft\(next,draftSourceSha256\.current\)/);
   assert.match(app,/publisher_draft_save.*content,expectedSha256/);
   assert.match(app,/PUBLISHER_DRAFT_CHANGED_ON_DISK/);
   assert.match(smoke,/native-draft-external-edit-refuses-overwrite-and-reloads-before-next-save/);
