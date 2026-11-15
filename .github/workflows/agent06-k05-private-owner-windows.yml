@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_EXACT_SHA: 'e0e48c19acb66ac4095ede459054b4477e2643fe'
+      AGENT_K05_EXACT_SHA: '119eb6339519037469d575bd9fe55c079fa777b6'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -214,6 +214,11 @@ jobs:
             & node scripts/prepare-public-modules.mjs --only-k05 --check *> $sourceLog
             if($LASTEXITCODE -ne 0){throw 'AGENT06_K05_PRODUCT_SOURCE_RECEIPT_FAIL'}
             Write-Host 'AGENT06_K05_PRODUCT_SOURCE_RECEIPT_PASS'
+            $dirty=@(& git status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){
+              throw 'AGENT06_K05_GENERATED_SOURCE_CHECKOUT_NOT_CLEAN'
+            }
+            Write-Host 'AGENT06_K05_PRODUCT_CHECKOUT_CLEAN_PASS'
             $testLog=Join-Path $env:RUNNER_TEMP 'k05-private-product-test.log'
             $testXml=Join-Path $env:RUNNER_TEMP 'k05-private-product-test.xml'
             & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$testXml) tests/test_agent06_k05_package_delivery.py *> $testLog
@@ -224,7 +229,27 @@ jobs:
               Write-Host ('AGENT06_K05_PRODUCT_PACKAGE_TESTS='+[int]$suite.tests)
               Write-Host ('AGENT06_K05_PRODUCT_PACKAGE_ERRORS='+([int]$suite.errors+[int]$suite.failures))
             }
-            if($LASTEXITCODE -ne 0){throw 'AGENT06_K05_PRODUCT_PACKAGE_TEST_FAIL'}
+            if($LASTEXITCODE -ne 0){
+              if(Test-Path $testXml){
+                foreach($case in $doc.SelectNodes('//testcase')){
+                  $failure=$case.SelectSingleNode('failure')
+                  if($null -eq $failure){$failure=$case.SelectSingleNode('error')}
+                  if($null -eq $failure){continue}
+                  $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::UTF8.GetBytes([string]$case.name))).Substring(0,12)
+                  Write-Host ('AGENT06_K05_PRODUCT_FAILED_TEST_SHA='+$sha)
+                  $category='OTHER'
+                  foreach($code in @('release_worktree_not_clean','file_identity_changed',
+                    'required_files_missing','receipt_mismatch','owner_pin_changed',
+                    'undeclared_files','file_size_changed','file_set_invalid',
+                    'file_unavailable','source_blob_unavailable')){
+                    if([string]$failure.InnerText -match [regex]::Escape($code)){$category=$code;break}
+                  }
+                  Write-Host ('AGENT06_K05_PRODUCT_FAIL_CATEGORY='+$category)
+                }
+              }
+              throw 'AGENT06_K05_PRODUCT_PACKAGE_TEST_FAIL'
+            }
             Write-Host 'AGENT06_K05_PRODUCT_PACKAGE_TEST_PASS'
           }finally{Pop-Location}
       # Deliberately no cache, upload-artifact, installer or private log publication.
