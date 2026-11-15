@@ -1066,6 +1066,16 @@ try {
           window.__personMockBusyBeforeOwner=false;
           throw Error('PUBLISHER_DRAFT_BUSY_OTHER_INSTANCE');
         }
+        if(window.__personMockMismatchBeforeOwner){
+          // A matching draft digest is insufficient if the request differs
+          // from the actual reviewed tariff/subject at the native boundary.
+          window.__personMockMismatchBeforeOwner=false;
+          throw Error('PUBLISHER_PERSON_REQUEST_DRAFT_MISMATCH');
+        }
+        if(window.__personMockNoDraftBeforeOwner){
+          window.__personMockNoDraftBeforeOwner=false;
+          throw Error('PUBLISHER_PERSON_DRAFT_SOURCE_UNAVAILABLE');
+        }
         window.__personMockIssueCalls=(window.__personMockIssueCalls||0)+1;
         const r=JSON.parse(args.requestJson);
         window.assertPersonRequest(r,args.issuerAuthorityId);
@@ -1342,6 +1352,25 @@ try {
   await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isEnabled(),true);
   checks.push('person-existing-writer-lock-busy-definite-no-issue-and-operator-recovery');
+  // Native request-to-draft mismatches (and missing draft source) happen
+  // before the original signer. They must never be reported as an uncertain
+  // post-signature T3 write; no Owner call or signed receipt may appear.
+  const beforeMismatchedTerms=await personal.evaluate(()=>
+    window.__personMockIssueCalls||0);
+  for(const flag of ['__personMockMismatchBeforeOwner','__personMockNoDraftBeforeOwner']){
+    await personal.evaluate(name=>{window[name]=true;},flag);
+    await personOwner.getByTestId('publisher-person-issue').click();
+    await personOwner.getByText('Запрос PERSON не совпадает с сохранённой подготовкой',
+      {exact:false}).waitFor();
+    assert.match(await personOwner.innerText(),/Подписание в исходном T3 не запускалось/);
+    assert.doesNotMatch(await personOwner.innerText(),/операция могла сохраниться в T3/i);
+    assert.equal(await personal.evaluate(()=>window.__personMockIssueCalls||0),
+      beforeMismatchedTerms);
+    assert.equal(JSON.parse(await personal.evaluate(()=>
+      sessionStorage.getItem('publisher-person-mock-ledger')||'[]')).length,0);
+    assert.equal(await personOwner.getByTestId('publisher-person-issue').isEnabled(),true);
+  }
+  checks.push('person-native-review-draft-mismatch-and-missing-source-definite-no-issue');
   // A signed requestId belongs to the ORIGINAL T3 ledger, not to an
   // arbitrary local draft. Refuse a different subject, including when the
   // conflicting record has already fallen outside the recent inventory.

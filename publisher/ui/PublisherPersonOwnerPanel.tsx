@@ -348,6 +348,15 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
           'Выпуск не выполнен. Перечитайте сохранённые условия.');
         return;
       }
+      // Both errors are raised by the native Publisher before entering the
+      // original T3 signer. A reviewed proposal and the actual request must
+      // agree exactly; neither refusal means an uncertain signed mutation.
+      if(err(e).includes('PUBLISHER_PERSON_REQUEST_DRAFT_MISMATCH')||
+         err(e).includes('PUBLISHER_PERSON_DRAFT_SOURCE_UNAVAILABLE')){
+        setFailure('Запрос PERSON не совпадает с сохранённой подготовкой или она недоступна. '+
+          'Подписание в исходном T3 не запускалось. Перечитайте черновик и его условия.');
+        return;
+      }
       // The native T3 process may have committed a signed mutation before
       // losing its IPC response. Never allow a second issue/status change
       // until an independently read owner ledger settles the ambiguity.
