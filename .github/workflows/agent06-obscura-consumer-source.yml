@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "b4cc07bdab1ba441bac013ec8928b36eef5a124e"
+          test "$(git -C private-agent rev-parse HEAD)" = "b240c4aac2dcbc949bb83afbc8547a9795606754"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -159,13 +159,23 @@ jobs:
             exit 10
           fi
           export IWXA_AGENT06_U01_PREPARED="$GITHUB_WORKSPACE/private-agent/build/u01-owner-sources"
-          if ! (cd private-agent && python -B -m pytest -q -s -p no:cacheprovider             tests/test_agent06_u01_public_sources.py)             > "$RUNNER_TEMP/agent06-private-u01-package.log" 2>&1; then
-            echo "AGENT06_U01_PACKAGE_OR_COLD_IMPORT_FAIL"
+          if ! (cd private-agent && python -B -m pytest -q -s -p no:cacheprovider \
+            tests/test_agent06_u01_public_sources.py -k PinnedU01SourceTests) \
+            > "$RUNNER_TEMP/agent06-private-u01-unit.log" 2>&1; then
+            echo "AGENT06_U01_RECEIPT_AND_PACKAGE_UNIT_FAIL"
             exit 11
           fi
-          if ! grep -Fq 'AGENT06_U01_INSTALLED_IMPORT_PASS'             "$RUNNER_TEMP/agent06-private-u01-package.log"; then
-            echo "AGENT06_U01_INSTALLED_IMPORT_MISSING"
+          echo "AGENT06_U01_RECEIPT_AND_PACKAGE_UNIT_PASS"
+          if ! (cd private-agent && python -B -m pytest -q -s -p no:cacheprovider \
+            tests/test_agent06_u01_public_sources.py -k ActualOwnerU01InPackageTests) \
+            > "$RUNNER_TEMP/agent06-private-u01-cold-import.log" 2>&1; then
+            echo "AGENT06_U01_ACTUAL_OWNER_COLD_IMPORT_FAIL"
             exit 12
+          fi
+          if ! grep -Fq 'AGENT06_U01_INSTALLED_IMPORT_PASS' \
+            "$RUNNER_TEMP/agent06-private-u01-cold-import.log"; then
+            echo "AGENT06_U01_INSTALLED_IMPORT_MISSING"
+            exit 13
           fi
           echo "AGENT06_U01_PINNED_INSTALLED_IMPORT_PASS"
       - name: TypeScript and Vite desktop build of exact private Agent source
