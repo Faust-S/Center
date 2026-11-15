@@ -1200,6 +1200,31 @@ try {
   // the exact signed original entry. It must not silently reissue rights.
   await personOwner.getByRole('combobox',{name:'Тариф продления PERSON'})
     .selectOption('ATLAS_PERSONAL#1');
+  // The selected ACTIVE state can become terminally REVOKED in another
+  // Publisher session. No renewal draft may be saved from stale UI state.
+  const originalSignedStatus=await personal.evaluate(()=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    const old={status:ledger[0].status,sequence:ledger[0].sequence};
+    ledger[0].status='REVOKED';
+    ledger[0].sequence+=1;
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+    return old;
+  });
+  await personOwner.getByTestId('publisher-person-prepare-renewal').click();
+  await personOwner.getByText('PERSON_RENEWAL_SIGNED_SOURCE_STALE_REFRESH_REQUIRED',
+    {exact:false}).waitFor();
+  assert.equal(JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-person-fixture'))).proposals.length,1,
+    'A revoked original license must not create a new renewal draft');
+  await personal.evaluate(old=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    ledger[0].status=old.status;
+    ledger[0].sequence=old.sequence;
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+  },originalSignedStatus);
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  checks.push('person-renewal-preparation-refuses-stale-original-status');
   const originalSignedHash=await personal.evaluate(()=>{
     const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
     const hash=ledger[0].requestDigest;

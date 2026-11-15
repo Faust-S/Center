@@ -416,12 +416,33 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     if(!current||!renewal||busy||needsRefresh)return;
     setBusy(true);setFailure('');setMessage('');
     try{
-      await assertOriginalPersonRenewalRequest(draft,current);
+      // Another installed Publisher may have suspended or revoked this
+      // license since the selector was rendered. Consult the original owner,
+      // not the cached last-48 view, before persisting a new renewal draft.
+      const response=await invoke('publisher_t3_person_inventory',{
+        lookupId:current.licenseId});
+      const matching=checkedInventory(response,current.licenseId)
+        .filter(x=>x.licenseId===current.licenseId);
+      const latest=matching.length===1?matching[0]:undefined;
+      if(!latest||
+         latest.requestId!==current.requestId||
+         latest.issuerAuthorityId!==current.issuerAuthorityId||
+         latest.personId!==current.personId||
+         latest.productId!==current.productId||
+         latest.requestDigest!==current.requestDigest||
+         latest.renewalOfLicenseId!==current.renewalOfLicenseId||
+         latest.status!==current.status||latest.sequence!==current.sequence||
+         latest.statusIssuedAt!==current.statusIssuedAt||
+         latest.statusValidUntil!==current.statusValidUntil){
+        setNeedsRefresh(true);
+        throw Error('PERSON_RENEWAL_SIGNED_SOURCE_STALE_REFRESH_REQUIRED');
+      }
+      await assertOriginalPersonRenewalRequest(draft,latest);
       const command=preparePersonRenewalDraftCommand(draft,{
-        sourceLicense:current,
-        issuerAuthorityId:current.issuerAuthorityId,
+        sourceLicense:latest,
+        issuerAuthorityId:latest.issuerAuthorityId,
         tariffId:renewal.id,revision:renewal.revision,
-        issuedRecords:licenses
+        issuedRecords:[latest]
       });
       const result=await change(command,
         'Подготовка продления сохранена. Прежняя лицензия не изменена.');
