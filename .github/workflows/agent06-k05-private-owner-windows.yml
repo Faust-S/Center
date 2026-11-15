@@ -1,4 +1,4 @@
-# Authorized public Center Windows runner only. Exact K05 UIA diagnostics source acceptance.
+# Authorized public Center Windows runner only. Final source qualification of K05 native UIA diagnostic receipts.
 # Private checkout is transient, read-only, SHA pinned, with no published artifacts.
 name: Agent 0.6 K05 original approval and execution readback Windows qualification
 on:
