@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 39eb0dd1f49b67f48f1d205c3ce09a14738cfb9a
+          ref: 679589b8c38aecda8ca8f90b0ba9130f7c79e4da
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '39eb0dd1f49b67f48f1d205c3ce09a14738cfb9a'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
+          if($sha -cne '679589b8c38aecda8ca8f90b0ba9130f7c79e4da'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
           & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-pip-private.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_DEPENDENCIES_FAIL'}
           Write-Host 'AGENT06_AI_DEPENDENCIES_PASS'
@@ -196,7 +196,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '39eb0dd1f49b67f48f1d205c3ce09a14738cfb9a'){
+          if($sha -cne '679589b8c38aecda8ca8f90b0ba9130f7c79e4da'){
             throw 'AGENT06_NATIVE_SOURCE_SHA_MISMATCH'
           }
           if($null -eq (Get-Command cargo.exe -ErrorAction SilentlyContinue)){
