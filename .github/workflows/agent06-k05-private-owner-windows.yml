@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_EXACT_SHA: '4317f19e5795ee9b4a78dbd12a7d3b6cbb5d0376'
+      AGENT_K05_EXACT_SHA: '1b5bcbb84280f92b64b2af7642ef956c84e3349d'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,6 +71,16 @@ jobs:
           Write-Host ('AGENT06_K05_PINNED_AGENT_SHA='+$sha)
           Write-Host ('AGENT06_K05_PINNED_PUBLIC_K05_SHA='+$k05)
           Write-Host 'AGENT06_K05_DEPENDENCIES_PASS'
+      - name: Parse native UIA K05 witness with Windows PowerShell parser
+        shell: pwsh
+        run: |
+          $tokens=$null
+          $errors=$null
+          $script=Join-Path $env:GITHUB_WORKSPACE 'private-agent/tools/qualify_setup_core_native_gui.ps1'
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            $script,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'AGENT06_K05_NATIVE_UIA_SYNTAX_FAIL'}
+          Write-Host 'AGENT06_K05_NATIVE_UIA_SYNTAX_PASS'
       - name: Execute original Approval, ToolRuntime and K05 source tests privately
         shell: pwsh
         run: |
