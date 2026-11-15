@@ -186,7 +186,8 @@ jobs:
                   $k03HttpStatus=[string]$receipt.k03_http_status
                   $k03HttpReason=[string]$receipt.k03_http_reason
                   if($k03Code -match '^(k03_|k05_|setup_core_k03_)[a-z0-9_]{3,80}$' -or
-                     $k03Code -ceq 'OTHER'){
+                     $k03Code -match '^HTTP_(400|401|403|404|409|422|429|500|502|503|504)$' -or
+                     $k03Code -cin @('OTHER','OTHER_HTTP','OTHER_TIMEOUT')){
                     Write-Host ('K05_NATIVE_K03_FAILURE_CODE='+$k03Code)
                   }
                   if($k03Checkpoint -match '^AGENT_K03_[A-Z_]{3,80}$' -or
