@@ -16,6 +16,12 @@ const PRE_DISPATCH_APPLY=new Set([
   'CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING',
   'CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED',
   'CEN_D3_ACCEPTED_SOURCE_INVALID',
+  // Canonical One Core pre-Apply getWorkspace may definitively fail before
+  // the native owner has sent any commitObjectGraph. These exact errors
+  // keep the installed signed owner live; UNKNOWN errors never do.
+  'T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED',
+  'T3_D3_ORIGINAL_WORKSPACE_DELETED',
+  'T3_D3_ORIGINAL_WORKSPACE_READ_ONLY',
 ]);
 const PRE_DISPATCH_TASK=new Set([
   'CEN_D3_SIGNED_TASK_TEXT_REQUIRED',
