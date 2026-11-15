@@ -76,6 +76,27 @@ jobs:
                 & python -B -m pytest -q -p no:cacheprovider $test *> $out
               }
               $code=$LASTEXITCODE
+              if($kind -eq 'READ_PATH' -and $code -ne 0){
+                $privateLog=Get-Content -LiteralPath $out -Raw
+                $hits=[regex]::Matches($privateLog, 'test_erp_order_readonly_v1\.py:(\d+)')
+                $sourceLine=-1
+                foreach($hit in $hits){
+                  $lineNumber=[int]$hit.Groups[1].Value
+                  if($lineNumber -ge 170 -and $lineNumber -lt 220){$sourceLine=$lineNumber}
+                }
+                if($sourceLine -lt 0){
+                  Write-Host 'AGENT06_ERP_READ_PATH_STAGE_UNKNOWN'
+                }elseif($sourceLine -le 179){
+                  Write-Host 'AGENT06_ERP_READ_PATH_STAGE_CONFIG'
+                }elseif($sourceLine -le 183){
+                  Write-Host 'AGENT06_ERP_READ_PATH_STAGE_PROVIDER'
+                }elseif($sourceLine -le 190){
+                  Write-Host 'AGENT06_ERP_READ_PATH_STAGE_READ_OR_ASSERT'
+                }else{
+                  Write-Host 'AGENT06_ERP_READ_PATH_STAGE_RECEIPT_FILE'
+                }
+                # No traceback, private path, user content, runtime response or credentials on stdout.
+              }
               if($code -ne 0){
                 Write-Host ('AGENT06_ERP_'+$kind+'_FAIL')
                 $anyFail=$true
