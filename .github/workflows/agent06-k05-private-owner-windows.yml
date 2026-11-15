@@ -96,6 +96,11 @@ jobs:
                 & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) $path *> $log
               }
               $exit=$LASTEXITCODE
+              if($label -eq 'K05_EXECUTOR_COMPARISON'){
+                Get-Content $log | Where-Object {
+                  $_ -match '^K05_(EXECUTOR_COMPARE|DIFFERENT_TASK|SAME_EXECUTOR)_[A-Z_]+='
+                } | ForEach-Object { Write-Host $_ }
+              }
               if(Test-Path $xml){
                 [xml]$doc=Get-Content -Raw $xml
                 $suite=$doc.testsuites.testsuite
@@ -123,6 +128,37 @@ jobs:
                       'NameError','UnboundLocalError','StopIteration','FileNotFoundError',
                       'NotADirectoryError','OSError','PermissionError','JSONDecodeError',
                       'UnicodeDecodeError')
+                    if($exception -match '^[A-Za-z_][A-Za-z0-9_]{0,80}
+                    $safeCodes=[regex]::Matches([string]$failure.InnerText,
+                      '(?<![A-Za-z0-9_])(?:AGENT_K05|K05|MODEL_RUN|PROVIDER|TASK|SOURCE|HUMAN_REVIEW)_[A-Z0-9_]+')
+                    foreach($code in $safeCodes){Write-Host ('AGENT06_K05_'+$label+'_SAFE_CODE='+$code.Value)}
+                    $locations=[regex]::Matches([string]$failure.InnerText,
+                      'test_k05_agent06_executor_comparison\.py:(\d+)')
+                    if($locations.Count -gt 0){
+                      Write-Host ('AGENT06_K05_'+$label+'_SOURCE_LINE='+$locations[$locations.Count-1].Groups[1].Value)
+                    }
+                  }
+                }
+              }else{
+                Write-Host ('AGENT06_K05_'+$label+'_TEST_COUNT_UNKNOWN')
+              }
+              if($exit -ne 0){
+                $failed=$true
+                Write-Host ('AGENT06_K05_'+$label+'_FAIL')
+              }else{
+                Write-Host ('AGENT06_K05_'+$label+'_PASS')
+              }
+            }
+          }finally{
+            Pop-Location
+          }
+          Write-Host ('AGENT06_K05_TOTAL_TESTS='+$all)
+          if($failed){throw 'AGENT06_K05_OWNER_TESTS_FAILED'}
+          Write-Host 'AGENT06_K05_ORIGINAL_OWNER_SOURCE_QUALIFIED'
+      # Deliberately no cache, upload-artifact, installer or private log publication.
+){
+                      Write-Host ('AGENT06_K05_'+$label+'_EXCEPTION_TYPE='+$exception)
+                    }
                     if($exception -notin $allowed){$exception='OTHER'}
                     Write-Host ('AGENT06_K05_'+$label+'_FAIL_CLASS='+$exception)
                     $safeCodes=[regex]::Matches([string]$failure.InnerText,
