@@ -1,4 +1,4 @@
-# Authorized public Center Windows runner only. Final K05 Task UI and product-source recheck.
+# Authorized public Center Windows runner only. K05 UIA and Workspace denial regression.
 # Private checkout is transient, read-only, SHA pinned, with no published artifacts.
 name: Agent 0.6 K05 original approval and execution readback Windows qualification
 on:
