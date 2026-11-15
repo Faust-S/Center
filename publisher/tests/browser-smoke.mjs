@@ -1449,6 +1449,33 @@ try {
   checks.push('person-original-and-renewal-requests-cannot-be-reissued-by-ui');
   await personOwner.getByRole('combobox',{name:'Персональная лицензия',exact:true})
     .selectOption('license:person:mock:one');
+  // A second Owner instance may change status after Publisher has read its
+  // inventory but before the native Save dialog returns. No file may be
+  // reported as exported for an unexpected signed status sequence.
+  const beforeRaceExport=await personal.evaluate(()=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    return {status:ledger[0].status,sequence:ledger[0].sequence,
+      statusIssuedAt:ledger[0].statusIssuedAt,
+      statusValidUntil:ledger[0].statusValidUntil};
+  });
+  await personal.evaluate(()=>{window.__personMockRaceNextExport=true;});
+  const exportCallsBefore=await personal.evaluate(()=>window.__personMockExportCalls||0);
+  await personOwner.getByTestId('publisher-person-export').click();
+  await personOwner.getByText('PERSON_OWNER_EXPORT_SEQUENCE_STALE',{exact:false}).waitFor();
+  assert.equal(await personal.evaluate(()=>window.__personMockExportCalls||0),
+    exportCallsBefore+1,'Stale signed export must not invoke native Owner twice');
+  const raceExportLedger=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')));
+  assert.equal(raceExportLedger[0].status,'SUSPENDED');
+  assert.equal(raceExportLedger[0].sequence,beforeRaceExport.sequence+1);
+  await personal.evaluate(previous=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    Object.assign(ledger[0],previous);
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+  },beforeRaceExport);
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  checks.push('person-original-owner-export-sequence-race-rejected-before-delivery');
   await personOwner.getByTestId('publisher-person-export').click();
   await personOwner.getByText('Подписанный пакет .iwxa сохранён',{exact:false}).waitFor();
   await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('REVOKED');
