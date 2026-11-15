@@ -70,13 +70,23 @@ async function invoke(command:string,args?:Record<string,unknown>):Promise<any> 
  return fn(command,args);
 }
 function initialDraft():Draft{return emptyPublisherDraft() as Draft;}
-async function loadDraft():Promise<Draft> {
- const text=await invoke('publisher_draft_read');
- return text===null?initialDraft():decodePublisherDraft(text) as Draft;
+const ABSENT_DRAFT='ABSENT';
+async function draftSha256(text:string):Promise<string>{
+ const subtle=globalThis.crypto?.subtle;
+ if(!subtle)throw Error('PUBLISHER_DRAFT_SHA256_UNAVAILABLE');
+ const bytes=await subtle.digest('SHA-256',new TextEncoder().encode(text));
+ return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
 }
-async function persistDraft(state:Draft):Promise<void> {
+async function loadDraft():Promise<{draft:Draft;sourceSha256:string}>{
+ const text=await invoke('publisher_draft_read');
+ if(text===null)return {draft:initialDraft(),sourceSha256:ABSENT_DRAFT};
+ return {draft:decodePublisherDraft(text) as Draft,sourceSha256:await draftSha256(text)};
+}
+async function persistDraft(state:Draft,expectedSha256:string):Promise<string>{
  const content=encodePublisherDraft(state);
- await invoke('publisher_draft_save',{content});
+ const nextSha256=await draftSha256(content);
+ await invoke('publisher_draft_save',{content,expectedSha256});
+ return nextSha256;
 }
 function typeLabel(type:Holder['type']):string {return type==='ORGANIZATION'?'Организация':'Физическое лицо';}
 
@@ -123,6 +133,8 @@ export default function App(){
    return new Map<string,Scope>(reports.map(v=>[v.proposalId,v] as const));
  },[state]);
  const [loaded,setLoaded]=useState(false);
+ const draftSourceSha256=React.useRef(ABSENT_DRAFT);
+ const [draftChangedExternally,setDraftChangedExternally]=useState(false);
  const [page,setPage]=useState<Page>('overview');
  const [personRequestId,setPersonRequestId]=useState('');
  const [ageReady,setAgeReady]=useState(false);
@@ -185,23 +197,47 @@ export default function App(){
  useEffect(()=>{
    if(!nativeHost)return;
    let alive=true;
-   loadDraft().then(data=>{if(alive){setState(data);setLoaded(true);}})
+   loadDraft().then(snapshot=>{if(alive){
+       draftSourceSha256.current=snapshot.sourceSha256;
+       setState(snapshot.draft);setLoaded(true);
+     }})
      .catch(e=>{if(alive){setError('Не удалось открыть сохранённые черновики: '+getError(e));setLoaded(false);}});
    return ()=>{alive=false;};
  },[]);
+ function handleDraftSaveError(e:unknown):string{
+   const code=e instanceof Error?e.message:String(e);
+   if(code.includes('PUBLISHER_DRAFT_CHANGED_ON_DISK')){
+     setLoaded(false);setDraftChangedExternally(true);setPendingRestore(null);
+     return 'Черновики изменились в другом экземпляре Publisher. '+
+       'Ничего не перезаписано. Перечитайте сохранённые черновики перед продолжением.';
+   }
+   return getError(e);
+ }
+ async function reloadDraft(){
+   if(busy||!nativeHost)return;
+   setBusy(true);setError('');setMessage('');
+   try{
+     const snapshot=await loadDraft();
+     draftSourceSha256.current=snapshot.sourceSha256;
+     setState(snapshot.draft);setLoaded(true);setDraftChangedExternally(false);
+     setPendingRestore(null);setSimulated(null);setInspected(null);
+     setMessage('Актуальные черновики перечитаны с этого компьютера.');
+   }catch(e){setLoaded(false);setError('Не удалось перечитать черновики: '+getError(e));}
+   finally{setBusy(false);}
+ }
  async function change(command:Record<string,unknown>,success:string):Promise<{ok:boolean;message:string}>{
    if(busy||!loaded)return {ok:false,message:'Сохранение сейчас недоступно. Дождитесь завершения текущего действия.'};
    setBusy(true);setError('');setMessage('');setSimulated(null);
    try{
      const next=applyPublisherDraftCommand(state,command) as Draft;
      if(command.kind==='removeProposal')await preserveSignedPersonSources(state,next);
-     await persistDraft(next);
+     draftSourceSha256.current=await persistDraft(next,draftSourceSha256.current);
      setState(next);
      setPendingRestore(null);
      setMessage(success);
      return {ok:true,message:success};
    }catch(e){
-     const reason=getError(e);
+     const reason=handleDraftSaveError(e);
      setError(reason);
      return {ok:false,message:'Не удалось сохранить: '+reason};
    }
@@ -291,10 +327,10 @@ export default function App(){
    setBusy(true);setError('');setMessage('');
    try {
      await preserveSignedPersonSources(state,pendingRestore);
-     await persistDraft(pendingRestore);
+     draftSourceSha256.current=await persistDraft(pendingRestore,draftSourceSha256.current);
      setState(pendingRestore);setPendingRestore(null);setSimulated(null);setInspected(null);
      setMessage('Черновики восстановлены из копии и сохранены. Подписи и права не изменены.');
-   } catch(e){setError('Восстановление не выполнено, текущие черновики не заменены: '+getError(e));}
+   } catch(e){setError('Восстановление не выполнено, текущие черновики не заменены: '+handleDraftSaveError(e));}
    finally{setBusy(false);}
  }
  function cancelPreparationRestore(){
@@ -461,7 +497,15 @@ export default function App(){
      <div className="notice">Publisher 0.5.0-dev.1 · Черновики хранятся отдельно от Admin Center. Лицензии TEST и PERSON подписывает исходный T3 при заранее зарегистрированном издателе. Подписанный пакет сам по себе не открывает функции получателя. Коммерческая активация мест и выпуск релизов отключены.</div>
      {error&&<div className="notice error" role="alert">{error}</div>}
      {message&&<div className="notice" role="status">{message}</div>}
-     {!loaded?<><section className="card padded" role="status">Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.</section>{page==='overview'&&diagnosticPanel}</>:<>
+     {!loaded?<><section className="card padded" role="status">
+       {draftChangedExternally?
+         <>Черновики изменились в другом экземпляре Publisher. Новые изменения не
+           перезаписаны. Перечитайте текущую версию перед продолжением работы.
+           <div className="actions"><button type="button" className="primary"
+             data-testid="publisher-draft-reload" disabled={busy}
+             onClick={()=>void reloadDraft()}>Перечитать черновики</button></div>
+         </>:'Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.'}
+       </section>{page==='overview'&&diagnosticPanel}</>:<>
        {page==='overview'&&<>
          <div className="metrics">
            <div className="card metric publisher-metric"><span>Продукты</span><strong>{state.products.length}</strong><small>Каталог в подготовке</small></div>
