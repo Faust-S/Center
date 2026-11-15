@@ -209,6 +209,20 @@ test('new products and release files never inherit unrelated version or source d
 });
 
 
+test('original TEST and PERSON issuer workers retain transient request until the signer returns',()=>{
+ const native=read('publisher/src-tauri/src/t3_owner.rs');
+ const testIssue=native.slice(native.indexOf('pub async fn publisher_t3_issue('),
+   native.indexOf('pub async fn publisher_t3_change_status('));
+ const personIssue=native.slice(native.indexOf('pub async fn publisher_t3_person_issue('),
+   native.indexOf('pub async fn publisher_t3_person_change_status('));
+ for(const source of [testIssue,personIssue]){
+   assert.match(source,/let cleanup=TransientRequest\(file\.clone\(\)\);/);
+   assert.match(source,/spawn_blocking\(move\|\|\{\s*let _cleanup=cleanup;/);
+   assert.doesNotMatch(source,/let _cleanup=TransientRequest\(file\.clone\(\)\);/);
+ }
+ assert.match(native,/fn issuer_request_file_lives_in_worker_until_original_owner_returns/);
+});
+
 test('original T3 PERSON issue holds the existing Windows draft write lock until the signer returns',()=>{
  const native=read('publisher/src-tauri/src/t3_owner.rs');
  const main=read('publisher/src-tauri/src/main.rs');

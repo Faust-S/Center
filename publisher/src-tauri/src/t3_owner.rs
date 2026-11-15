@@ -73,8 +73,14 @@ pub async fn publisher_t3_issue(app:AppHandle,request_json:String,issuer_authori
          .map_err(|_|"PUBLISHER_T3_REQUEST_FILE_DENIED")?;
       handle.sync_all().map_err(|_|"PUBLISHER_T3_REQUEST_FILE_DENIED")?;
     }
-    let _cleanup=TransientRequest(file.clone());
-    let v=call(app,"issue",vec![file.to_string_lossy().into_owned(),issuer_authority_id]).await?;
+    // Keep the request file owned by the blocking original Owner worker.
+    // Cancellation of the async IPC waiter must not delete its input early.
+    let cleanup=TransientRequest(file.clone());
+    let v=tauri::async_runtime::spawn_blocking(move||{
+        let _cleanup=cleanup;
+        t3::run(&app,"owner","issue",&[
+            file.to_string_lossy().into_owned(),issuer_authority_id])
+    }).await.map_err(|_|"PUBLISHER_T3_WORKER_FAILED".to_string())??;
     t3::validate_test_result(&v,"TEST_ISSUE")?;
     if !v.get("licenseId").and_then(Value::as_str).is_some_and(t3::valid_identifier) {
         return Err("PUBLISHER_T3_LICENSE_ID_REQUIRED".into());
@@ -226,6 +232,29 @@ fn with_stable_person_draft_source<T>(
 #[cfg(test)]
 mod person_draft_issue_tests {
     use super::*;
+    #[test]
+    fn issuer_request_file_lives_in_worker_until_original_owner_returns(){
+        let file=std::env::temp_dir().join(format!(
+            "iwxa-publisher-issuer-request-worker-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        fs::write(&file,b"original person request").unwrap();
+        let cleanup=TransientRequest(file.clone());
+        let worker_file=file.clone();
+        let (ready_tx,ready_rx)=std::sync::mpsc::channel();
+        let (done_tx,done_rx)=std::sync::mpsc::channel();
+        let worker=std::thread::spawn(move||{
+            let _cleanup=cleanup;
+            ready_tx.send(()).unwrap();
+            done_rx.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
+            assert_eq!(fs::read(&worker_file).unwrap(),b"original person request");
+        });
+        ready_rx.recv_timeout(std::time::Duration::from_secs(15)).unwrap();
+        assert!(file.exists());
+        done_tx.send(()).unwrap();
+        worker.join().unwrap();
+        assert!(!file.exists());
+    }
     #[test]
     fn original_person_owner_never_receives_stale_or_missing_local_source(){
         let root=std::env::temp_dir().join(format!(
@@ -400,11 +429,14 @@ pub async fn publisher_t3_person_issue(
             .map_err(|_|"PUBLISHER_PERSON_T3_REQUEST_FILE_DENIED")?;
         handle.sync_all().map_err(|_|"PUBLISHER_PERSON_T3_REQUEST_FILE_DENIED")?;
     }
-    let _cleanup=TransientRequest(file.clone());
+    // Preserve this request until the original T3 Owner returns, even when
+    // its async caller is dropped while the blocking worker still executes.
+    let cleanup=TransientRequest(file.clone());
     // Re-read the actual chosen Setup Core DataLocation in the same native
     // worker immediately before invoking original T3. No signer or Store
     // is copied into Publisher.
     let v=tauri::async_runtime::spawn_blocking(move||{
+        let _cleanup=cleanup;
         let root=crate::publisher_root(&app)?;
         with_stable_person_draft_source(&root,&expected_draft_sha256,||{
             t3::run(&app,"owner-person","person-issue",&[
