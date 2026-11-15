@@ -202,7 +202,7 @@ jobs:
       - name: Require scoped private read-only source permission
         shell: pwsh
         env:
-          PRIVATE_SOURCE_TOKEN: \${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: |
           if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
             throw 'AGENT06_NATIVE_PRIVATE_SOURCE_READ_UNAVAILABLE'
@@ -213,7 +213,7 @@ jobs:
           ref: 63d21298968f52f06b49b996634894a94f6392e0
           path: private-agent
           persist-credentials: false
-          token: \${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
