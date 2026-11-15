@@ -276,7 +276,11 @@ try{
   await onboardPage.getByTestId('add-workspace').click();
   await onboardPage.getByTestId('nav-results').click();
   await onboardPage.getByTestId('d3-enrollment-workspace').waitFor();
-  assert.match(await onboardPage.getByTestId('d3-enrollment-workspace').innerText(),/Purchasing team/);
+  const signedWorkspaceSelect=onboardPage.getByTestId('d3-enrollment-workspace');
+  assert.ok((await signedWorkspaceSelect.locator('option').allTextContents()).includes('Purchasing team'),
+    'new Workspace appears as an original enrollment choice');
+  const localWorkspaceId=await signedWorkspaceSelect.inputValue();
+  assert.ok(localWorkspaceId.length>0,'new Workspace has an explicit local ID');
   assert.equal(await onboardPage.getByTestId('d3-enroll').isEnabled(),true);
   await onboardPage.getByTestId('d3-enroll').click();
   await onboardPage.getByTestId('cen03-d3-original').waitFor();
