@@ -42,7 +42,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: work/2026-11-15-agent06-obscura-consumer-optin
+          # Immutable private source; later parallel commits must not change
+          # the code being qualified by this specific Center run.
+          ref: aa26a48a1446796755f5121cd94e09284da34a70
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -60,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "01bfd295b07cad91b2c299e68ed6a6885ca6bbc6"
+          test "$(git -C private-agent rev-parse HEAD)" = "aa26a48a1446796755f5121cd94e09284da34a70"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
