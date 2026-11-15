@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: fc001c6c9b5df7d6cd03f0b96b2b7c4499d3a373
+          ref: 457c1d910b207134bad4ca7b039e85490272b5ed
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "fc001c6c9b5df7d6cd03f0b96b2b7c4499d3a373"
+          test "$(git -C private-agent rev-parse HEAD)" = "457c1d910b207134bad4ca7b039e85490272b5ed"
           test "$(git -C public-brtest rev-parse HEAD)" = "cb804a846b9ac73014d6feb6faa4a3f9feaac46e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -130,9 +130,16 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/private-agent:${{ github.workspace }}/public-brtest/agent-headless:${{ github.workspace }}/public-brtest/universal-install
         run: |
           set -euo pipefail
-          if ! python -B -m pytest -q -p no:cacheprovider \
+          if ! python -B -m pytest -q -s -p no:cacheprovider \
             tests/test_agent06_obscura_native_read.py \
             > "$RUNNER_TEMP/agent06-native-private.log" 2>&1; then
+            # Only fixed tokens from the approved test source, never
+            # private paths, stack traces or actual page contents.
+            grep -E '^AGENT06_NATIVE_STAGE_[A-Z_]+
+          echo "AGENT06_NATIVE_TOOLRUNTIME_READ_TRR_COLD_PASS"
+      # Absolutely no actions/upload-artifact, actions/cache, private source
+      # binary distribution, workspace dump, diagnostic upload or raw test logs.
+               "$RUNNER_TEMP/agent06-native-private.log" || true
             echo "AGENT06_NATIVE_TOOLRUNTIME_READ_FAILED"
             exit 6
           fi
