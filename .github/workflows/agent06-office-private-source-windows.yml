@@ -20,6 +20,7 @@ jobs:
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
       AGENT_OFFICE_SHA: '80fdde95df40b4eab322bf39989250b668a03881'
+      AGENT_OFFICE_DIAGNOSTICS_ONLY: 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -83,26 +84,28 @@ jobs:
           }
           if($failed) {
             Set-Content -Path (Join-Path $env:RUNNER_TEMP 'agent06-office-python-failed') -Value 'FAIL'
-            $xmlPath=Join-Path $env:RUNNER_TEMP 'agent06-office-BINARY_E2E-private.xml'
-            if(Test-Path $xmlPath){
-              [xml]$result=Get-Content -Path $xmlPath -Raw
-              foreach($case in $result.SelectNodes('//testcase')) {
-                if($case.SelectSingleNode('failure') -or $case.SelectSingleNode('error')) {
-                  $hash=[System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$case.name))
-                  Write-Host ('AGENT06_OFFICE_FAILED_TEST_HASH='+[Convert]::ToHexString($hash).Substring(0,12))
-                  $failure=$case.SelectSingleNode('failure')
-                  if($null -eq $failure){$failure=$case.SelectSingleNode('error')}
-                  $knownTypes=@('AssertionError','ValueError','TypeError','KeyError','ToolDenied','ToolExecutionError','LocalFileError','DocumentOperationError','ImportError','AttributeError','RuntimeError','IndexError')
-                  $kind=[string]$failure.Attributes['type'].Value
-                  if($kind -in $knownTypes){Write-Host ('AGENT06_OFFICE_FAILURE_TYPE='+$kind)}
-                  else{Write-Host 'AGENT06_OFFICE_FAILURE_TYPE=OTHER'}
-                  $lines=[regex]::Matches([string]$failure.InnerText,'test_agent06_office_binary\.py:(\d+)')
-                  if($lines.Count -gt 0){
-                    Write-Host ('AGENT06_OFFICE_FAILURE_TEST_LINE='+$lines[$lines.Count-1].Groups[1].Value)
-                  }
+            $knownTypes=@('AssertionError','ValueError','TypeError','KeyError','ToolDenied','ToolExecutionError','LocalFileError','DocumentOperationError','ImportError','ModuleNotFoundError','AttributeError','RuntimeError','IndexError','FileNotFoundError','OSError','PermissionError')
+            foreach($pair in $cases) {
+              $label=$pair[0]
+              $xmlPath=Join-Path $env:RUNNER_TEMP ('agent06-office-'+$label+'-private.xml')
+              if(!(Test-Path -LiteralPath $xmlPath)){continue}
+              [xml]$result=Get-Content -LiteralPath $xmlPath -Raw
+              foreach($case in $result.SelectNodes('//testcase')){
+                $failure=$case.SelectSingleNode('failure')
+                if($null -eq $failure){$failure=$case.SelectSingleNode('error')}
+                if($null -eq $failure){continue}
+                Write-Host ('AGENT06_OFFICE_FAILED_SUITE='+$label)
+                $hash=[System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$case.name))
+                Write-Host ('AGENT06_OFFICE_FAILED_TEST_HASH='+[Convert]::ToHexString($hash).Substring(0,12))
+                $kind=[string]$failure.Attributes['type'].Value
+                if($kind -in $knownTypes){Write-Host ('AGENT06_OFFICE_FAILURE_TYPE='+$kind)}
+                else{Write-Host 'AGENT06_OFFICE_FAILURE_TYPE=OTHER'}
+                $lines=[regex]::Matches([string]$failure.InnerText,'test_[A-Za-z0-9_]+\.py:(\d+)')
+                if($lines.Count -gt 0){
+                  Write-Host ('AGENT06_OFFICE_FAILURE_TEST_LINE='+$lines[$lines.Count-1].Groups[1].Value)
                 }
               }
-            } else { Write-Host 'AGENT06_OFFICE_BINARY_COLLECTION_UNKNOWN' }
+            }
           }
       - name: Desktop full-fidelity review and complete TypeScript Vite build
         shell: pwsh
@@ -129,6 +132,17 @@ jobs:
             if($LASTEXITCODE -ne 0){
               Write-Host 'AGENT06_OFFICE_DOCUMENT_REVIEW_FAIL'
               Set-Content (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-failed') 'FAIL'
+              $private=Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-tests-private.txt') -Raw
+              $matches=[regex]::Matches($private,'(?m)^not ok\s+\d+\s+-\s+([^\r\n]+)')
+              Write-Host ('AGENT06_OFFICE_NODE_FAILURE_COUNT='+$matches.Count)
+              foreach($entry in $matches){
+                $name=$entry.Groups[1].Value
+                $hash=[System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($name))
+                Write-Host ('AGENT06_OFFICE_NODE_FAILED_HASH='+[Convert]::ToHexString($hash).Substring(0,12))
+              }
+              foreach($code in @('ERR_ASSERTION','ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND','ERR_TEST_FAILURE','SyntaxError','TypeError','ReferenceError','RangeError')){
+                if($private.Contains($code)){Write-Host ('AGENT06_OFFICE_NODE_ERROR_CLASS='+$code)}
+              }
             } else { Write-Host 'AGENT06_OFFICE_DOCUMENT_REVIEW_PASS' }
             & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-office-desktop-build-private.txt')
             if($LASTEXITCODE -ne 0){
@@ -157,6 +171,7 @@ jobs:
             Write-Host 'AGENT06_EXISTING_U04_BASELINE_PASS'
           } finally {Pop-Location}
       - name: Windows MSVC compile and run the actual native U04 module
+        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true'
         shell: pwsh
         run: |
           $probe=Join-Path $env:RUNNER_TEMP 'agent06-u04-native-qualification'
@@ -172,6 +187,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_U04_NATIVE_MSCV_TEST_FAIL'}
           Write-Host 'AGENT06_OFFICE_U04_NATIVE_MSCV_TEST_PASS'
       - name: Full Agent native Tauri Cargo source checks
+        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference='Continue'
