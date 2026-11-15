@@ -63,6 +63,7 @@ export default function App() {
   // UI-only presence of the original signed child WebView; signing state,
   // Control bearer and Kernel remain owned by the private installed Host.
   const [signedWorkspaceOrg,setSignedWorkspaceOrg] = useState<string|null>(null);
+  const [signedWorkspaceVisible,setSignedWorkspaceVisible] = useState(false);
   // Native WebView close releases its ORIGINAL signed D3 owner. Refresh the
   // existing corporate panel so APPLY cannot remain shown from a stale
   // Kernel binding; the authoritative capabilities are read from T3 again.
@@ -74,6 +75,7 @@ export default function App() {
       .then(({listen})=>listen('iwxa:d3-signed-workspace-closed',()=>{
         if(live){
           setSignedWorkspaceOrg(null);
+          setSignedWorkspaceVisible(false);
           setSignedWorkspaceGeneration(value=>value+1);
         }
       }))
@@ -194,19 +196,31 @@ export default function App() {
     if(page==='results'&&state.activeOrganizationId===signedWorkspaceOrg)return;
     let active=true;
     void nativeInvoke('center_corporate_close_signed_workspace')
-      .then(()=>{if(active)setSignedWorkspaceOrg(null)})
+      .then(()=>{if(active){setSignedWorkspaceOrg(null);setSignedWorkspaceVisible(false)}})
       .catch(()=>{if(active)setError('Не удалось закрыть подписанную Workspace T3. Закройте её перед сменой организации.')});
     return ()=>{active=false};
   },[signedWorkspaceOrg,page,state.activeOrganizationId,nativeHost]);
   const openSignedWorkspace=async(organizationId:string)=>{
     if(!nativeHost||page!=='results'||state.activeOrganizationId!==organizationId)
       throw Error('CEN_D3_ORIGINAL_WORKSPACE_CONTEXT_CHANGED');
-    await nativeInvoke('center_corporate_open_signed_workspace',{organizationId});
+    if(signedWorkspaceOrg===organizationId){
+      // The previously opened trusted T2 Kernel remains alive when its
+      // native child is hidden so the manager can perform Human APPLY.
+      await nativeInvoke('center_corporate_show_signed_workspace',{organizationId});
+    }else{
+      await nativeInvoke('center_corporate_open_signed_workspace',{organizationId});
+    }
     setSignedWorkspaceOrg(organizationId);
+    setSignedWorkspaceVisible(true);
+  };
+  const hideSignedWorkspace=async()=>{
+    await nativeInvoke('center_corporate_hide_signed_workspace');
+    setSignedWorkspaceVisible(false);
   };
   const closeSignedWorkspace=async()=>{
     await nativeInvoke('center_corporate_close_signed_workspace');
     setSignedWorkspaceOrg(null);
+    setSignedWorkspaceVisible(false);
     // No native event is emitted if an already-destroyed child was absent.
     setSignedWorkspaceGeneration(value=>value+1);
   };
@@ -407,8 +421,15 @@ export default function App() {
 
     <main className="main">
       <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb">{org?.name??'Начало работы'} <span>/ {title}</span></div>
-       {signedWorkspaceOrg&&<button className="secondary" data-testid="d3-close-signed-workspace"
-        onClick={()=>{void closeSignedWorkspace().catch(()=>setError('Не удалось закрыть Workspace T3.'));}}>Закрыть Workspace T3</button>}
+       {signedWorkspaceOrg&&<>
+        {signedWorkspaceVisible
+          ? <button className="secondary" data-testid="d3-return-to-review"
+              onClick={()=>{void hideSignedWorkspace().catch(()=>setError('Не удалось вернуться к приёмке.'));}}>К приёмке</button>
+          : <button className="secondary" data-testid="d3-show-signed-workspace"
+              onClick={()=>{void openSignedWorkspace(signedWorkspaceOrg).catch(()=>setError('Не удалось показать подписанную Workspace T3.'));}}>Workspace T3</button>}
+        <button className="secondary" data-testid="d3-close-signed-workspace"
+          onClick={()=>{void closeSignedWorkspace().catch(()=>setError('Не удалось завершить Workspace T3.'));}}>Завершить Workspace</button>
+       </>}
        <button className="secondary top-save" onClick={saveFile} disabled={!org||saving}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
       <div className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ ОРГАНИЗАЦИЕЙ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>
       {error && <div className="notice error" role="alert">{error}</div>}
