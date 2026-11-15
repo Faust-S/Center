@@ -937,7 +937,8 @@ try {
       if(command==='publisher_t3_person_capabilities'){
         if(!window.__personNativeEnabled)throw Error('PERSON_OWNER_NOT_ENROLLED');
         return {operation:'PERSON_CAPABILITIES',environment:'PRODUCTION',
-          issuers:['publisher:person:mock','publisher:person:alternate'],activeSeats:0,productionActivation:false};
+          issuers:['publisher:person:mock','publisher:person:alternate'],
+          statusSequenceCas:true,activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_person_inventory'){
         if(window.__personMockFailNextInventory){
@@ -996,6 +997,17 @@ try {
         const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
         const one=ledger.find(e=>e.licenseId===args.licenseId);
         if(!one||one.status==='REVOKED')throw Error('PERSON_OWNER_REVOKED_TERMINAL');
+        // Exact lookups can race another original signed status writer.
+        if(window.__personMockRaceNextStatus){
+          window.__personMockRaceNextStatus=false;
+          one.status='SUSPENDED';one.sequence+=1;
+          one.statusIssuedAt=new Date().toISOString();
+          one.statusValidUntil=new Date(Math.min(
+            Date.now()+24*3600000,Date.parse(one.expiresAt))).toISOString();
+          sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+        }
+        if(args.expectedSequence!==one.sequence)
+          throw Error('PERSON_OWNER_STATUS_SEQUENCE_STALE');
         one.status=args.nextStatus;one.sequence+=1;
         one.statusIssuedAt=new Date().toISOString();
         one.statusValidUntil=new Date(Math.min(
@@ -1007,6 +1019,7 @@ try {
         }
         return {operation:'PERSON_STATUS',licenseId:one.licenseId,
           state:one.status,sequence:one.sequence,
+          expectedSequence:args.expectedSequence,
           activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_person_export_public_trust')return {
@@ -1219,6 +1232,34 @@ try {
   await personOwner.getByTestId('publisher-person-refresh').click();
   await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
   checks.push('person-status-change-refuses-stale-owner-sequence');
+  // Another signed status can commit AFTER the UI preflight. Original T3
+  // must reject that stale sequence without signing a second transition.
+  await personOwner.getByRole('combobox',{name:'Новый статус PERSON'})
+    .selectOption('SUSPENDED');
+  const beforeOwnerRace=await personal.evaluate(()=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    return {status:ledger[0].status,sequence:ledger[0].sequence,
+      statusIssuedAt:ledger[0].statusIssuedAt,
+      statusValidUntil:ledger[0].statusValidUntil};
+  });
+  await personal.evaluate(()=>{window.__personMockRaceNextStatus=true;});
+  const signedCallsBeforeRace=await personal.evaluate(()=>window.__personMockStatusCalls||0);
+  await personOwner.getByTestId('publisher-person-status').click();
+  await personOwner.getByText('PERSON_OWNER_STATUS_SEQUENCE_STALE',{exact:false}).waitFor();
+  const ownerRaceState=JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger')))[0];
+  assert.equal(ownerRaceState.status,'SUSPENDED');
+  assert.equal(ownerRaceState.sequence,beforeOwnerRace.sequence+1);
+  assert.equal(await personal.evaluate(()=>window.__personMockStatusCalls||0),
+    signedCallsBeforeRace+1,'Failed T3 CAS must not call a second signer');
+  await personal.evaluate(before=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    Object.assign(ledger[0],before);
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+  },beforeOwnerRace);
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  checks.push('person-original-owner-cas-refuses-race-after-preflight');
   // A signed carrier recipient belongs to THIS license. Auto-selection of a
   // newly issued renewal must not carry the previous delivery key forward.
   await personOwner.getByTestId('publisher-person-age-recipients')

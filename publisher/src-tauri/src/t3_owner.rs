@@ -257,6 +257,7 @@ pub async fn publisher_t3_person_capabilities(app:AppHandle)->Result<Value,Strin
     let v=call_person(app,"person-capabilities",vec![]).await?;
     t3::validate_test_result(&v,"PERSON_CAPABILITIES")?;
     if v.get("environment").and_then(Value::as_str)!=Some("PRODUCTION") ||
+       v.get("statusSequenceCas")!=Some(&Value::Bool(true)) ||
        !v.get("issuers").is_some_and(Value::is_array) {
         return Err("PUBLISHER_PERSON_T3_ISSUER_REQUIRED".into());
     }
@@ -325,18 +326,23 @@ pub async fn publisher_t3_person_issue(
 }
 #[tauri::command]
 pub async fn publisher_t3_person_change_status(
-    app:AppHandle,license_id:String,next_status:String
+    app:AppHandle,license_id:String,next_status:String,expected_sequence:u64
 )->Result<Value,String>{
+    let next_sequence=expected_sequence.checked_add(1)
+        .ok_or("PUBLISHER_PERSON_T3_STATUS_SEQUENCE_INVALID")?;
+    // Original T3 floor is a JavaScript safe-integer contract.
     if !t3::valid_identifier(&license_id) ||
+       expected_sequence>9_007_199_254_740_990 ||
        !["ACTIVE","SUSPENDED","REVOKED"].contains(&next_status.as_str()){
         return Err("PUBLISHER_PERSON_T3_STATUS_INPUT_INVALID".into());
     }
     let v=call_person(app,"person-status",vec![
-        license_id.clone(),next_status.clone()]).await?;
+        license_id.clone(),next_status.clone(),expected_sequence.to_string()]).await?;
     t3::validate_test_result(&v,"PERSON_STATUS")?;
     if v.get("licenseId").and_then(Value::as_str)!=Some(license_id.as_str()) ||
        v.get("state").and_then(Value::as_str)!=Some(next_status.as_str()) ||
-       !v.get("sequence").and_then(Value::as_u64).is_some_and(|n|n>0){
+       v.get("expectedSequence").and_then(Value::as_u64)!=Some(expected_sequence) ||
+       v.get("sequence").and_then(Value::as_u64)!=Some(next_sequence){
         return Err("PUBLISHER_PERSON_T3_STATUS_RECEIPT_MISMATCH".into());
     }
     Ok(v)

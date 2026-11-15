@@ -227,6 +227,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       try{
         const info=await invoke('publisher_t3_person_capabilities');
         if(info?.operation!=='PERSON_CAPABILITIES'||info.environment!=='PRODUCTION'||
+           info.statusSequenceCas!==true||
            info.productionActivation!==false||info.activeSeats!==0||
            !Array.isArray(info.issuers)||!info.issuers.every(id))
           throw Error('PERSON_NATIVE_ISSUER_NOT_ENROLLED');
@@ -471,11 +472,13 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         current,'PERSON_STATUS_SIGNED_SOURCE_STALE_REFRESH_REQUIRED');
       mutationSent();
       const value=await invoke('publisher_t3_person_change_status',{
-        licenseId:current.licenseId,nextStatus:requested});
+        licenseId:current.licenseId,nextStatus:requested,
+        expectedSequence:current.sequence});
       if(value?.operation!=='PERSON_STATUS'||value.productionActivation!==false||
          value.activeSeats!==0||value.licenseId!==current.licenseId||
-         value.state!==requested||!Number.isSafeInteger(value.sequence)||
-         value.sequence<=current.sequence)
+         value.state!==requested||
+         value.expectedSequence!==current.sequence||
+         value.sequence!==current.sequence+1)
         throw Error('PERSON_NATIVE_STATUS_RECEIPT_INVALID');
       return {
         message:requested==='REVOKED'?
