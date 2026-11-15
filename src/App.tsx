@@ -397,6 +397,32 @@ export default function App() {
         : 'Начата загрузка файла черновиков. Проверьте сохранённый файл перед закрытием.');
     } catch(e){problem(e);}
   }
+  // Signing an original organization must never refer to a Workspace that
+  // existed only in transient React state. Use Center's established native
+  // atomic draft persistence and independent readback; no extra T3 Store.
+  const ensureDraftForSignedEnrollment=async(organizationId:string,workspaceId:string):Promise<void>=>{
+    if(!nativeHost||savingRef.current||editor!==null||
+       state.activeOrganizationId!==organizationId||
+       !state.organizations.some(o=>o.id===organizationId&&
+         o.workspaces.some(w=>w.id===workspaceId)))
+      throw Error('CEN_D3_SIGNED_ENROLLMENT_DRAFT_NOT_READY');
+    const revision=revisionRef.current;
+    const content=encodeDraft(state);
+    savingRef.current=true;setSaving(true);
+    try{
+      const saved=await nativeInvoke('center_draft_save_local',{content});
+      if(saved!==true)
+        throw Error('CEN_D3_SIGNED_ENROLLMENT_DRAFT_SAVE_UNCONFIRMED');
+      const readback=await nativeInvoke('center_draft_read_local');
+      if(readback!==content)
+        throw Error('CEN_D3_SIGNED_ENROLLMENT_DRAFT_READBACK_MISMATCH');
+      if(revisionRef.current!==revision||
+         activeOrganizationRef.current!==organizationId)
+        throw Error('CEN_D3_SIGNED_ENROLLMENT_DRAFT_CHANGED');
+      setDirty(false);setError('');
+      setMessage('Рабочая область и организация сохранены на этом компьютере до подписанного подключения T3.');
+    }finally{savingRef.current=false;setSaving(false);}
+  };
   async function saveFile() {
     if (editor) {setError('Сначала сохраните изменения поручения.'); return;}
     if(savingRef.current){setError('Сохранение уже выполняется.');return;}
@@ -599,7 +625,7 @@ export default function App() {
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 
-       {org && page==='results' && <CorporatePanel key={org.id} organization={org} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onOpenSignedWorkspace={openSignedWorkspace}/>} 
+       {org && page==='results' && <CorporatePanel key={org.id} organization={org} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace}/>} 
       {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
         <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
         {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button></div>)}

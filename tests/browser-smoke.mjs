@@ -230,10 +230,17 @@ try{
   // owner below is a UI fixture; it is not original DPAPI qualification.
   const onboardPage=await browser.newPage({viewport:{width:1366,height:900}});
   await onboardPage.addInitScript(()=>{
-    const fixture={enrolled:false,workspaceId:null,enrollmentCalls:0};
+    const fixture={enrolled:false,workspaceId:null,enrollmentCalls:0,
+      draftSaves:0,failSave:true,savedContent:null};
     window.__onboardD3Fixture=fixture;
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
-      if(command==='center_draft_read_local')return null;
+      if(command==='center_draft_read_local')return fixture.savedContent;
+      if(command==='center_draft_save_local'){
+        fixture.draftSaves++;
+        if(fixture.failSave)throw Error('CEN_D3_UI_FIXTURE_DRAFT_DISK_UNAVAILABLE');
+        fixture.savedContent=args.content;
+        return true;
+      }
       if(command==='center_corporate_signed_workspace_status')return {
         schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',
         open:false,visible:false,foreignOrOrphaned:false};
@@ -250,8 +257,14 @@ try{
         }};
       }
       if(command==='center_corporate_enroll'){
-        if(!args.workspaceId||args.organizationName!=='First use workshop')
+        if(!args.workspaceId||args.organizationName!=='First use workshop'||
+           !fixture.savedContent)
           throw Error('CEN_D3_UI_FIXTURE_ENROLLMENT_ARGUMENTS_INVALID');
+        const saved=JSON.parse(fixture.savedContent);
+        if(saved.activeOrganizationId!==args.organizationId||
+           !saved.organizations?.some(o=>o.id===args.organizationId&&
+             o.workspaces.some(w=>w.id===args.workspaceId)))
+          throw Error('CEN_D3_UI_FIXTURE_ENROLLMENT_DRAFT_NOT_SAVED');
         fixture.enrollmentCalls++;
         fixture.workspaceId=args.workspaceId;
         fixture.enrolled=true;
@@ -282,6 +295,13 @@ try{
   const localWorkspaceId=await signedWorkspaceSelect.inputValue();
   assert.ok(localWorkspaceId.length>0,'new Workspace has an explicit local ID');
   assert.equal(await onboardPage.getByTestId('d3-enroll').isEnabled(),true);
+  // The first disk save deliberately fails. No signed owner enrollment may
+  // occur until the same native draft is actually persisted and reread.
+  await onboardPage.getByTestId('d3-enroll').click();
+  await onboardPage.getByRole('alert').waitFor({state:'visible'});
+  assert.equal((await onboardPage.evaluate(()=>window.__onboardD3Fixture)).enrollmentCalls,0,
+    'failed local saving must precede any original T3 enrollment');
+  await onboardPage.evaluate(()=>{window.__onboardD3Fixture.failSave=false;});
   await onboardPage.getByTestId('d3-enroll').click();
   try{
     await onboardPage.getByTestId('cen03-d3-original').waitFor({timeout:8000});
@@ -299,9 +319,12 @@ try{
     console.error('CEN_D3_FIRST_USE_DIAGNOSTIC',JSON.stringify(diagnostic));
     throw e;
   }
-  assert.equal((await onboardPage.evaluate(()=>window.__onboardD3Fixture)).enrollmentCalls,1);
+  const firstUse=await onboardPage.evaluate(()=>window.__onboardD3Fixture);
+  assert.equal(firstUse.enrollmentCalls,1);
+  assert.equal(firstUse.draftSaves,2,'one failed and one verified local save');
+  assert.ok(firstUse.savedContent?.includes('Purchasing team'));
   await onboardPage.close();
-  checks.push('d3-first-use-no-workspace-creates-draft-and-returns-to-signed-enrollment-ui');
+  checks.push('d3-first-use-no-workspace-persists-and-rereads-before-signed-enrollment');
   // UI-only mock of the EXISTING native signed owner: this does not
   // assert Ed25519, original Kernel or installed T3 integration. It checks
   // that the manager does not lose an attempted Task ID when the signed

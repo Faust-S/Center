@@ -32,13 +32,15 @@ const why=(e:unknown)=>{
    return 'Исходный план Atlas изменён или работа отсутствует. Обновите связь поручения с актуальной редакцией до подписания Task.';
  if(message.includes('CEN_D3_ORIGINAL_TASK_INVENTORY_READBACK_HOLD'))
    return 'Список поручений изменился. Обновите корпоративную сессию и прочитайте оригинальную Task ещё раз, не подписывая её повторно.';
+ if(/CEN_D3_SIGNED_ENROLLMENT_DRAFT_(?:NOT_READY|SAVE_UNCONFIRMED|READBACK_MISMATCH|CHANGED)/.test(message))
+   return 'Подключение T3 не началось: не удалось подтвердить сохранение рабочей области организации на этом компьютере. Проверьте данные и повторите.';
  if(message.includes('CEN_D3_ORIGINAL_TASK_ALREADY_ISSUED'))
    return 'У этого поручения уже есть подписанный ID. Откройте сохранённую Task или подготовьте новый ID.';
  if(/CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN|T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN/.test(message))
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onOpenSignedWorkspace,signedWorkspaceGeneration=0}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
@@ -192,12 +194,16 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
        </div>
      : <label>Первая рабочая область
         <select data-testid="d3-enrollment-workspace" value={selectedEnrollmentWorkspace}
-         onChange={e=>setEnrollWorkspace(e.target.value)}>
+         disabled={busy} onChange={e=>setEnrollWorkspace(e.target.value)}>
          {organization.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
        </label>}
    <button className="primary" data-testid="d3-enroll" disabled={busy||!selectedEnrollmentWorkspace}
     onClick={()=>act('Оригинальный подписанный T3-владелец организации подключён.',async()=>{
+      // The original signed organization binds immutable organization and
+      // Workspace IDs. Ensure Center has durably stored and read back the
+      // exact current local draft BEFORE any irreversible T3 enrollment.
+      await onEnsureDraftSaved(organizationId,selectedEnrollmentWorkspace);
       const result=await invoke('center_corporate_enroll',{
         organizationId,workspaceId:selectedEnrollmentWorkspace,
         organizationName:organization.name});
