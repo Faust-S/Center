@@ -395,6 +395,21 @@ mod person_draft_issue_tests {
             Ok(())
         }).unwrap_err(),PERSON_DRAFT_BINDING_ERROR);
         assert!(!signer_called.get());
+        // A legitimate signed-licence follow-up must remain expressible:
+        // both the exact previous proposal and the new reviewed source
+        // belong to the same saved Publisher preparation.
+        let mut renewal=draft.clone();
+        let mut next_proposal=renewal["proposals"][0].clone();
+        next_proposal["id"]=serde_json::json!("proposal:two");
+        next_proposal["createdAt"]=serde_json::json!("2026-11-15T11:00:00.000Z");
+        next_proposal["previousProposalId"]=serde_json::json!("proposal:one");
+        renewal["proposals"].as_array_mut().unwrap().push(next_proposal);
+        crate::write_preparation(&root,&renewal.to_string()).unwrap();
+        let mut followup=request.clone();
+        followup["requestId"]=serde_json::json!("proposal:two");
+        followup["requestedAt"]=serde_json::json!("2026-11-15T11:00:00.000Z");
+        followup["renewalOfRequestId"]=serde_json::json!("proposal:one");
+        verify_person_request_matches_preparation(&root,&followup).unwrap();
         let _=fs::remove_dir_all(root);
     }
     #[test]
