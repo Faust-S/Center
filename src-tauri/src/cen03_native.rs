@@ -491,6 +491,21 @@ impl OriginalOwner{
         host_reply(&reply,id)
     }
 }
+// These errors originate ONLY in the existing One Core D3 read-only
+// Workspace preflight, before Human APPLY and before commitObjectGraph.
+// The installed owner keeps its signed Context and browser Kernel alive so
+// the manager can provision the same original Workspace and retry a NEW
+// explicit Human decision. All unknown/post-dispatch failures still close
+// this native owner and require original cold readback.
+fn definite_d3_pre_apply_workspace_refusal(
+    verb:&str,body:&Value,result:&Result<Value,String>
+)->bool{
+    verb=="action"&&body["operation"]=="d3ApplyAccepted"&&
+    matches!(result,Err(code) if matches!(code.as_str(),
+        "T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED"|
+        "T3_D3_ORIGINAL_WORKSPACE_DELETED"|
+        "T3_D3_ORIGINAL_WORKSPACE_READ_ONLY"))
+}
 fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
     body:Value)->Result<Value,String>{
     let state=app.state::<Mutex<Session>>();
@@ -507,9 +522,10 @@ fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
     let result=guard.owner.as_mut()
         .ok_or("CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?
         .call(verb,&body);
-    if result.is_err(){
-        // One failed command may have committed to original T3 before ACK
-        // was lost. Revoke the browser session and do not redispatch.
+    if result.is_err()&&
+        !definite_d3_pre_apply_workspace_refusal(verb,&body,&result){
+        // Unknown or post-dispatch error: original T2 may have committed
+        // before ACK was lost. Revoke the browser and require cold readback.
         let _=close_original_signed_workspace(app);
         guard.owner.take();
     }
@@ -1019,6 +1035,34 @@ pub async fn center_corporate_action(
 #[cfg(test)]
 mod tests{
     use super::*;
+    #[test]
+    fn pre_apply_workspace_refusal_keeps_original_native_owner_live(){
+        let apply=json!({"operation":"d3ApplyAccepted"});
+        for code in [
+            "T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED",
+            "T3_D3_ORIGINAL_WORKSPACE_DELETED",
+            "T3_D3_ORIGINAL_WORKSPACE_READ_ONLY",
+        ]{
+            let refusal=Err(code.to_string());
+            assert!(definite_d3_pre_apply_workspace_refusal(
+                "action",&apply,&refusal));
+            assert!(!definite_d3_pre_apply_workspace_refusal(
+                "state",&apply,&refusal));
+            assert!(!definite_d3_pre_apply_workspace_refusal(
+                "action",&json!({"operation":"d3Decide"}),&refusal));
+        }
+        for code in [
+            "T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN",
+            "T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED",
+            "WORKSPACE_NOT_FOUND","PERMISSION_DENIED",
+            "CEN_D3_ORIGINAL_HOST_OUTCOME_UNKNOWN",
+        ]{
+            assert!(!definite_d3_pre_apply_workspace_refusal(
+                "action",&apply,&Err(code.to_string())));
+        }
+        assert!(!definite_d3_pre_apply_workspace_refusal(
+            "action",&apply,&Ok(json!({"status":"CONFIRMED"}))));
+    }
     #[test]
     fn signed_workspace_comes_only_from_original_two_loopback_origins(){
         let original=json!({"snapshot":{
