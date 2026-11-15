@@ -261,7 +261,45 @@ jobs:
                     }
                   }
                 }catch{Write-Host 'AGENT06_NATIVE_UIA_REPORT_UNREADABLE'}
-              }else{Write-Host 'AGENT06_NATIVE_UIA_REPORT_MISSING'}
+              }else{
+                Write-Host 'AGENT06_NATIVE_UIA_REPORT_MISSING'
+              }
+              # All source logs stay private on the runner. Export only
+              # pre-approved failure categories, no freeform exception text.
+              $privateText=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              $allowed=@(
+                'gui_managed_python_capsule_failed',
+                'gui_native_package_failed',
+                'gui_package_install_failed',
+                'gui_storage_authority_failed',
+                'gui_native_executable_not_installed',
+                'gui_native_process_exited_before_window',
+                'gui_wrong_product_window',
+                'gui_native_window_missing',
+                'gui_native_close_unconfirmed',
+                'gui_draft_not_restored_after_restart',
+                'gui_core_draft_changed_after_restart',
+                'gui_draft_value_change_not_observed',
+                'gui_core_draft_http_readback_failed',
+                'gui_core_draft_http_response_invalid',
+                'BLOCKED_ENVIRONMENT',
+                'System.Management.Automation.CommandNotFoundException',
+                'ModuleNotFoundError',
+                'FileNotFoundError',
+                'PermissionError',
+                'OSError',
+                'Traceback',
+                'ParserError'
+              )
+              $matched=@()
+              foreach($tag in $allowed){
+                if(([string]$privateText).Contains($tag)){$matched+=,$tag}
+              }
+              if($matched.Count -gt 0){
+                foreach($tag in $matched){Write-Host ('AGENT06_NATIVE_FAILURE_CATEGORY='+$tag)}
+              }else{Write-Host 'AGENT06_NATIVE_FAILURE_CATEGORY=UNCLASSIFIED_EARLY_FAILURE'}
+              $firstPhase=Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)) -Force -ErrorAction SilentlyContinue
+              Write-Host ('AGENT06_NATIVE_FIRST_STAGE_DIR_COUNT='+@($firstPhase).Count)
               throw 'AGENT06_NATIVE_INSTALLED_UIA_FAIL'
             }
             Write-Host 'AGENT06_NATIVE_INSTALLED_COLD_REOPEN_PASS'
