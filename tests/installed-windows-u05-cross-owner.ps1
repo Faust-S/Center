@@ -57,10 +57,21 @@ function Root {
   return [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
 }
 function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false) {
+  $tokenUnavailable=0
   for($i=0;$i -lt 75;$i++){
     $element=Root
-    $items=$element.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-       [System.Windows.Automation.Condition]::TrueCondition)
+    try {
+      $items=$element.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+         [System.Windows.Automation.Condition]::TrueCondition)
+    } catch {
+      # WebView2 may rotate its accessibility process while a native file
+      # dialog closes. Retry only this known transient UIA token error.
+      # Never count a failed enumeration as evidence that a control exists.
+      if($_.Exception.ToString() -notmatch 'Could not open the process token'){throw}
+      $tokenUnavailable++
+      Start-Sleep -Milliseconds 300
+      continue
+    }
     foreach($c in $items){
       try{
         $n=[string]$c.Current.Name
@@ -71,13 +82,22 @@ function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false) {
     }
     Start-Sleep -Milliseconds 300
   }
+  if($tokenUnavailable -eq 75){throw "U05_CENTER_UIA_TOKEN_UNAVAILABLE $type $name"}
   throw "U05_CENTER_UI_CONTROL_MISSING $type $name"
 }
 function Find-UI-Text([string]$needle) {
+  $tokenUnavailable=0
   for($attempt=0;$attempt -lt 75;$attempt++){
     $root=Root
-    $controls=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-      [System.Windows.Automation.Condition]::TrueCondition)
+    try {
+      $controls=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+    } catch {
+      if($_.Exception.ToString() -notmatch 'Could not open the process token'){throw}
+      $tokenUnavailable++
+      Start-Sleep -Milliseconds 300
+      continue
+    }
     foreach($control in $controls){
       try{
         if(([string]$control.Current.Name).Contains($needle)){return $control}
@@ -85,6 +105,7 @@ function Find-UI-Text([string]$needle) {
     }
     Start-Sleep -Milliseconds 300
   }
+  if($tokenUnavailable -eq 75){throw "U05_CENTER_UIA_TOKEN_UNAVAILABLE Text $needle"}
   throw "U05_UI_TEXT_NOT_FOUND $needle"
 }
 function Click([string]$name,[bool]$contains=$false) {
