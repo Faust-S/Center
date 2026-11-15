@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_EXACT_SHA: '4d1b0fbefd0ebee88fbbd5026495a174efe85cf2'
+      AGENT_K05_EXACT_SHA: 'ee207c49e3a289a1ed7cd04291c56056927c19c0'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,6 +61,7 @@ jobs:
           $ErrorActionPreference='Continue'
           $groups=@(
             @('K05_HISTORY','tests/test_k05_historical_approval_readback.py'),
+            @('K05_COLD_REOPEN','tests/test_k05_original_owner_cold_readback.py'),
             @('APPROVAL_OWNER','tests/cells/test_approval_execution_reconciliation.py'),
             @('APPROVAL_ADMISSION','tests/test_approval_admission_serialization.py'),
             @('TOOL_EXECUTION_INTENT','tests/test_tool_execution_intent_claim_recovery.py')
