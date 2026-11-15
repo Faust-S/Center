@@ -1,7 +1,7 @@
 name: IWXA Agent 0.6 official public CLI compatibility
 on:
   push:
-    branches: ['work/2026-11-15-agent06-ai-integration-qualification']
+    branches: ['work/2026-11-15-agent06-vendor-flags-acceptance']
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,6 +30,26 @@ jobs:
           & $exe --version *> $log
           if($LASTEXITCODE -ne 0){throw 'PUBLIC_CLI_CODEX_VERSION_FAIL'}
           Write-Host 'PUBLIC_CLI_CODEX_OFFICIAL_BINARY_PASS'
+          & $exe exec --help *> $log
+          if($LASTEXITCODE -ne 0){throw 'PUBLIC_CLI_CODEX_EXEC_HELP_FAILED'}
+          $execHelp=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+          & $exe --help *> $log
+          if($LASTEXITCODE -ne 0){throw 'PUBLIC_CLI_CODEX_GLOBAL_HELP_FAILED'}
+          $globalHelp=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+          $missing=0
+          foreach($flag in @('--ephemeral','--ignore-user-config','--ignore-rules',
+              '--output-last-message','--output-schema','--json','--skip-git-repo-check')){
+            if(-not ([string]$execHelp).Contains($flag)){
+              Write-Host ('PUBLIC_CLI_CODEX_REQUIRED_FLAG_MISSING='+$flag)
+              $missing++
+            }
+          }
+          if(-not ([string]$globalHelp).Contains('--strict-config')){
+            Write-Host 'PUBLIC_CLI_CODEX_REQUIRED_FLAG_MISSING=--strict-config'
+            $missing++
+          }
+          if($missing -gt 0){throw 'PUBLIC_CLI_CODEX_ADAPTER_FLAGS_INCOMPATIBLE'}
+          Write-Host 'PUBLIC_CLI_CODEX_ADAPTER_FLAGS_PASS'
           & $exe login status *> $log
           if($LASTEXITCODE -ne 0){
             Write-Host 'PUBLIC_CLI_CODEX_AUTH=NOT_LOGGED_IN'
@@ -59,6 +79,21 @@ jobs:
             & $exe --version *> $log
             if($LASTEXITCODE -ne 0){throw 'version'}
             Write-Host 'PUBLIC_CLI_CLAUDE_OFFICIAL_BINARY_PASS'
+            & $exe --help *> $log
+            if($LASTEXITCODE -ne 0){throw 'claude help failed'}
+            $claudeHelp=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            $missing=0
+            foreach($flag in @('--output-format','--permission-mode','--tools',
+             '--safe-mode','--strict-mcp-config','--disallowedTools',
+             '--disable-slash-commands','--no-session-persistence',
+             '--no-chrome','--max-turns','--model','--json-schema')){
+              if(-not ([string]$claudeHelp).Contains($flag)){
+                Write-Host ('PUBLIC_CLI_CLAUDE_REQUIRED_FLAG_MISSING='+$flag)
+                $missing++
+              }
+            }
+            if($missing -gt 0){throw 'claude flags incompatible'}
+            Write-Host 'PUBLIC_CLI_CLAUDE_ADAPTER_FLAGS_PASS'
             & $exe auth status *> $log
             if($LASTEXITCODE -ne 0){
               Write-Host 'PUBLIC_CLI_CLAUDE_AUTH=NOT_LOGGED_IN'
@@ -86,10 +121,11 @@ jobs:
             & $exe --help *> $log
             if($LASTEXITCODE -ne 0){throw 'help'}
             $help=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
-            foreach($required in @('--mode','--model','--print','--output-format','--sandbox')){
+            foreach($required in @('--mode','--model','--input-format','--output-format','--sandbox','--disable-slash-commands','--json-schema')){
               if(-not ([string]$help).Contains($required)){throw 'cli-options'}
             }
             Write-Host 'PUBLIC_CLI_ANTIGRAVITY_OFFICIAL_BINARY_AND_FLAGS_PASS'
+            Write-Host 'PUBLIC_CLI_ANTIGRAVITY_STREAM_STDIN_FLAGS_PASS'
             Write-Host 'PUBLIC_CLI_ANTIGRAVITY_AUTH=NOT_TESTED_NO_APPROVED_PROFILE'
           }catch{
             throw 'PUBLIC_CLI_ANTIGRAVITY_INSTALL_OR_PROBE_BLOCKED'
