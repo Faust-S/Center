@@ -1027,10 +1027,26 @@ try {
         operation:'PERSON_TRUST_EXPORTED',publicOnly:true,bytes:850,
         sha256:'d'.repeat(64),keyCount:2,issuerCount:1,
         activeSeats:0,productionActivation:false};
-      if(command==='publisher_t3_person_export')return {
-        operation:'PERSON_IWXA_EXPORTED',licenseId:args.licenseId,
-        bytes:1024,packageSha256:'c'.repeat(64),
-        activeSeats:0,productionActivation:false};
+      if(command==='publisher_t3_person_export'){
+        const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
+        const one=ledger.find(x=>x.licenseId===args.licenseId);
+        window.__personMockExportCalls=(window.__personMockExportCalls||0)+1;
+        if(!one)throw Error('PERSON_OWNER_LICENSE_NOT_ISSUED');
+        if(window.__personMockRaceNextExport){
+          window.__personMockRaceNextExport=false;
+          one.sequence+=1;one.status='SUSPENDED';
+          one.statusIssuedAt=new Date().toISOString();
+          one.statusValidUntil=new Date(Math.min(
+            Date.now()+24*3600000,Date.parse(one.expiresAt))).toISOString();
+          sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+        }
+        if(one.sequence!==args.expectedSequence)
+          throw Error('PERSON_OWNER_EXPORT_SEQUENCE_STALE');
+        return {operation:'PERSON_IWXA_EXPORTED',licenseId:args.licenseId,
+          expectedSequence:args.expectedSequence,
+          bytes:1024,packageSha256:'c'.repeat(64),
+          activeSeats:0,productionActivation:false};
+      }
       throw new Error('Unexpected personal fixture IPC '+command);
     }};
   });

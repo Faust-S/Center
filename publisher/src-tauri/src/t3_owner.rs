@@ -351,9 +351,10 @@ pub async fn publisher_t3_person_change_status(
 }
 #[tauri::command]
 pub async fn publisher_t3_person_export(
-    app:AppHandle,license_id:String
+    app:AppHandle,license_id:String,expected_sequence:u64
 )->Result<Option<Value>,String>{
-    if !t3::valid_identifier(&license_id){
+    if !t3::valid_identifier(&license_id) ||
+       expected_sequence==0 || expected_sequence>9_007_199_254_740_990 {
         return Err("PUBLISHER_PERSON_T3_LICENSE_ID_REQUIRED".into());
     }
     if !t3::availability(&app,"owner-person"){
@@ -370,7 +371,7 @@ pub async fn publisher_t3_person_export(
     if path.exists(){return Err("PUBLISHER_PERSON_T3_EXPORT_OVERWRITE_DENIED".into());}
     let output_path=path.to_string_lossy().into_owned();
     let v=call_person(app,"person-export",vec![
-        license_id.clone(),output_path.clone()]).await?;
+        license_id.clone(),output_path.clone(),expected_sequence.to_string()]).await?;
     t3::validate_test_result(&v,"PERSON_IWXA_EXPORTED")?;
     let declared=v.get("bytes").and_then(Value::as_u64)
         .ok_or("PUBLISHER_PERSON_T3_EXPORT_SIZE_REQUIRED")?;
@@ -378,6 +379,7 @@ pub async fn publisher_t3_person_export(
         .ok_or("PUBLISHER_PERSON_T3_EXPORT_DIGEST_REQUIRED")?;
     if v.get("licenseId").and_then(Value::as_str)!=Some(license_id.as_str()) ||
        v.get("path").and_then(Value::as_str)!=Some(output_path.as_str()) ||
+       v.get("expectedSequence").and_then(Value::as_u64)!=Some(expected_sequence) ||
        declared==0 || declared>4*1024*1024 || hash.len()!=64 ||
        !hash.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)){
         return Err("PUBLISHER_PERSON_T3_EXPORT_RECEIPT_MISMATCH".into());
@@ -456,8 +458,13 @@ fn select_signed_age_destination(
 // plaintext nor private issuer keys cross WebView IPC; plaintext is removed
 // with the short-lived native staging directory, including on an error.
 fn signed_age_export(
-    app:&AppHandle,license_id:&str,raw_recipients:&str,person:bool,destination:&std::path::Path
+    app:&AppHandle,license_id:&str,raw_recipients:&str,person:bool,
+    destination:&std::path::Path,expected_sequence:Option<u64>
 )->Result<Option<Value>,String>{
+    if person!=expected_sequence.is_some() ||
+       expected_sequence.is_some_and(|n|n==0||n>9_007_199_254_740_990) {
+        return Err("PUBLISHER_AGE_SIGNED_STATUS_SEQUENCE_INVALID".into());
+    }
     if !t3::valid_identifier(license_id){
         return Err("PUBLISHER_AGE_LICENSE_ID_INVALID".into());
     }
@@ -471,14 +478,15 @@ fn signed_age_export(
     // The modal dialog completed before this worker began. The original
     // T3 signed plaintext exists only during the bounded native operation.
     let tmp=crate::t3_age_transport::TransientPackage::new()?;
-    let signed=t3::run(app,role,action,&[
-        license_id.to_string(),tmp.path.to_string_lossy().into_owned()
-    ])?;
+    let mut args=vec![license_id.to_string(),tmp.path.to_string_lossy().into_owned()];
+    if let Some(n)=expected_sequence {args.push(n.to_string());}
+    let signed=t3::run(app,role,action,&args)?;
     t3::validate_test_result(&signed,expected)?;
     let declared=signed["bytes"].as_u64().ok_or("PUBLISHER_AGE_SIGNED_EXPORT_INVALID")?;
     let source_hash=signed["packageSha256"].as_str()
         .ok_or("PUBLISHER_AGE_SIGNED_EXPORT_INVALID")?;
     if signed["licenseId"]!=license_id ||
+       expected_sequence.is_some_and(|n|signed["expectedSequence"].as_u64()!=Some(n)) ||
        signed["path"]!=tmp.path.to_string_lossy().as_ref() ||
        declared==0||declared>4*1024*1024||source_hash.len()!=64||
        !source_hash.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)){
@@ -501,6 +509,7 @@ fn signed_age_export(
     Ok(Some(serde_json::json!({
       "operation":if person{"PERSON_AGE_EXPORTED"}else{"TEST_AGE_EXPORTED"},
       "licenseId":license_id,
+      "expectedSequence":expected_sequence,
       "packageSha256":source_hash,
       "ciphertextSha256":encrypted["ciphertextSha256"],
       "bytes":encrypted["bytes"],
@@ -519,18 +528,22 @@ pub async fn publisher_t3_export_age(
         return Ok(None);
     };
     tauri::async_runtime::spawn_blocking(move||
-       signed_age_export(&app,&license_id,&recipients,false,&destination))
+       signed_age_export(&app,&license_id,&recipients,false,&destination,None))
        .await.map_err(|_|"PUBLISHER_AGE_EXPORT_WORKER_FAILED".to_string())?
 }
 #[tauri::command]
 pub async fn publisher_t3_person_export_age(
-    app:AppHandle,license_id:String,recipients:String
+    app:AppHandle,license_id:String,recipients:String,expected_sequence:u64
 )->Result<Option<Value>,String>{
+    if expected_sequence==0 || expected_sequence>9_007_199_254_740_990 {
+        return Err("PUBLISHER_AGE_SIGNED_STATUS_SEQUENCE_INVALID".into());
+    }
     let Some(destination)=select_signed_age_destination(&app,&license_id,&recipients,true)? else{
         return Ok(None);
     };
     tauri::async_runtime::spawn_blocking(move||
-       signed_age_export(&app,&license_id,&recipients,true,&destination))
+       signed_age_export(&app,&license_id,&recipients,true,&destination,
+           Some(expected_sequence)))
        .await.map_err(|_|"PUBLISHER_AGE_EXPORT_WORKER_FAILED".to_string())?
 }
 

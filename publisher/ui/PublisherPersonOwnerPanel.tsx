@@ -517,32 +517,59 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     const current=selectedLicense;
     if(!current||current.status==='NOT_ACTIVATED'||busy||needsRefresh)return;
     await operate(async()=>{
-      const value=await invoke('publisher_t3_person_export',{
-        licenseId:current.licenseId});
+      await currentPersonRecord(
+        current,'PERSON_EXPORT_SIGNED_SOURCE_STALE_REFRESH_REQUIRED');
+      let value;
+      try{
+        value=await invoke('publisher_t3_person_export',{
+          licenseId:current.licenseId,expectedSequence:current.sequence});
+      }catch(e){
+        if(err(e).includes('PERSON_OWNER_EXPORT_SEQUENCE_STALE'))setNeedsRefresh(true);
+        throw e;
+      }
       if(value===null)return {message:'Экспорт отменён.'};
       if(value?.operation!=='PERSON_IWXA_EXPORTED'||value.activeSeats!==0||
          value.productionActivation!==false||value.licenseId!==current.licenseId||
+         value.expectedSequence!==current.sequence||
          !Number.isSafeInteger(value.bytes)||value.bytes<1||!digest(value.packageSha256))
         throw Error('PERSON_NATIVE_EXPORT_RECEIPT_INVALID');
-      return {message:'Подписанный пакет .iwxa сохранён и повторно проверен по SHA-256.'};
+      return {message:'Подписанный пакет .iwxa сохранён и повторно проверен по SHA-256.',
+        readbackLookupId:current.licenseId,
+        confirm:({entries}:Inventory)=>entries.some(x=>
+          x.licenseId===current.licenseId&&x.sequence===current.sequence&&
+          x.status===current.status)};
     });
   }
   async function exportProtectedIwxa(){
     const current=selectedLicense;
     if(!current||current.status==='NOT_ACTIVATED'||busy||needsRefresh||!ageRecipients.trim())return;
     await operate(async()=>{
-      const receipt=await invoke('publisher_t3_person_export_age',{
-        licenseId:current.licenseId,recipients:ageRecipients});
+      await currentPersonRecord(
+        current,'PERSON_EXPORT_SIGNED_SOURCE_STALE_REFRESH_REQUIRED');
+      let receipt;
+      try{
+        receipt=await invoke('publisher_t3_person_export_age',{
+          licenseId:current.licenseId,recipients:ageRecipients,
+          expectedSequence:current.sequence});
+      }catch(e){
+        if(err(e).includes('PERSON_OWNER_EXPORT_SEQUENCE_STALE'))setNeedsRefresh(true);
+        throw e;
+      }
       if(receipt===null)return {message:'Экспорт защищённой лицензии отменён.'};
       if(receipt?.operation!=='PERSON_AGE_EXPORTED'||
          receipt.licenseId!==current.licenseId||
+         receipt.expectedSequence!==current.sequence||
          receipt.activeSeats!==0||receipt.productionActivation!==false||
          receipt.admitted!==false||receipt.deliveryState!=='NOT_CONFIRMED'||
          !Number.isSafeInteger(receipt.bytes)||receipt.bytes<1||
          !digest(receipt.packageSha256)||!digest(receipt.ciphertextSha256)){
         throw Error('PERSON_AGE_EXPORT_RECEIPT_INVALID');
       }
-      return {message:'Подписанная PERSON-лицензия защищена age/X25519 и сохранена как .iwxa.age. Получение и применение прав в продукте ещё не подтверждены.'};
+      return {message:'Подписанная PERSON-лицензия защищена age/X25519 и сохранена как .iwxa.age. Получение и применение прав в продукте ещё не подтверждены.',
+        readbackLookupId:current.licenseId,
+        confirm:({entries}:Inventory)=>entries.some(x=>
+          x.licenseId===current.licenseId&&x.sequence===current.sequence&&
+          x.status===current.status)};
     });
   }
   return <section className="publisher-test-owner publisher-person-owner"
