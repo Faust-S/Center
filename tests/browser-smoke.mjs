@@ -250,8 +250,8 @@ try{
         }};
       }
       if(command==='center_corporate_enroll'){
-        assert.ok(args.workspaceId,'original T3 enrollment requires selected Workspace');
-        assert.equal(args.organizationName,'First use workshop');
+        if(!args.workspaceId||args.organizationName!=='First use workshop')
+          throw Error('CEN_D3_UI_FIXTURE_ENROLLMENT_ARGUMENTS_INVALID');
         fixture.enrollmentCalls++;
         fixture.workspaceId=args.workspaceId;
         fixture.enrolled=true;
