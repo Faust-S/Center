@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: db60c448e33855fb810c0c3f60ec196270df94ea
+          ref: 8dd134623b24666bd2e3c9e577084934a2432876
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne 'db60c448e33855fb810c0c3f60ec196270df94ea'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
+          if($sha -cne '8dd134623b24666bd2e3c9e577084934a2432876'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
           & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-pip-private.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_DEPENDENCIES_FAIL'}
           Write-Host 'AGENT06_AI_DEPENDENCIES_PASS'
@@ -57,6 +57,7 @@ jobs:
           $cases=@(
             @{Label='CANCEL_PRE_DISPATCH'; Node='tests/test_fc6_graph_agent_runtime_executor.py::test_graph_cancel_committed_before_cli_dispatch_never_launches_program'},
             @{Label='MODEL_PIN'; Node='tests/test_fc6_graph_node_config.py::test_pinned_local_model_config_is_immutable_and_refuses_identity_drift'},
+            @{Label='GRAPH_ACK'; Node='tests/test_fc6_graph_control_human_review_integration.py::test_graph_prepare_ack_reuses_exact_verified_etag_without_granting_cancel'},
             @{Label='CONCURRENT_CANCEL'; Node='tests/test_fc6_graph_control_human_review_integration.py::test_graph_cancel_decision_is_not_blocked_by_running_advance'}
           )
           $bad=0
@@ -86,6 +87,37 @@ jobs:
             }
           }finally{Pop-Location}
           if($bad -ne 0){throw 'AGENT06_DIAGNOSTIC_GRAPH_REPRODUCED'}
+      - name: Original Agent06 Python integration regression matrix
+        if: always()
+        shell: pwsh
+        run: |
+          Push-Location private-agent
+          try{
+            $patterns=@(
+              'test_agent06_*.py','test_codex_*.py','test_antigravity_*.py',
+              'test_goose_*.py','test_fc6_*.py','test_graph_*.py',
+              'test_session_runtime_*.py','test_tool_execution_*.py',
+              'test_t3_*.py','test_agent05_existing_user_data_startup.py',
+              'test_interactive_task_retry_claim.py','test_p01_obsidian_toolruntime.py'
+            )
+            $cases=@()
+            foreach($pattern in $patterns){
+              $cases+=@(Get-ChildItem -LiteralPath tests -Filter $pattern -File |
+                ForEach-Object {$_.FullName})
+            }
+            $cases=@($cases|Sort-Object -Unique)
+            Write-Host ('AGENT06_AI_REGRESSION_FILES='+$cases.Count)
+            if($cases.Count -lt 35){throw 'AGENT06_AI_REGRESSION_SUITE_INCOMPLETE'}
+            $log=Join-Path $env:RUNNER_TEMP 'agent06-ai-full-regression-private.log'
+            & python -B -m pytest -q -p no:cacheprovider @cases *> $log
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            $summary=[regex]::Matches([string]$raw,'(?m)(\d{1,5}) (passed|failed|skipped|error|errors)\b')
+            foreach($group in $summary){
+              Write-Host ('AGENT06_AI_REGRESSION_'+$group.Groups[2].Value.ToUpperInvariant()+'='+$group.Groups[1].Value)
+            }
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_REGRESSION_FAIL'}
+            Write-Host 'AGENT06_AI_REGRESSION_PASS'
+          }finally{Pop-Location}
       - name: Diagnose existing Node tests and always execute TypeScript build
         if: always()
         shell: pwsh
