@@ -224,6 +224,65 @@ try{
   await page.setViewportSize({width:320,height:800});assert.ok(await page.locator('.menu-button').isVisible());await page.locator('.menu-button').click();await page.getByTestId('nav-work').click();
   const sizes=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert.ok(sizes.scroll<=sizes.width+1,JSON.stringify(sizes));checks.push('navigation-and-no-overflow-320');
   await page.screenshot({path:'artifacts/work-320.png',fullPage:true});assert.deepEqual(errors,[]);checks.push('no-page-errors');
+  // First-use UI with an available ORIGINAL native owner but no local
+  // Workspace: manager must be able to create the missing draft Workspace
+  // and then return to the ONE signed enrollment command. The native
+  // owner below is a UI fixture; it is not original DPAPI qualification.
+  const onboardPage=await browser.newPage({viewport:{width:1366,height:900}});
+  await onboardPage.addInitScript(()=>{
+    const fixture={enrolled:false,workspaceId:null,enrollmentCalls:0};
+    window.__onboardD3Fixture=fixture;
+    window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
+      if(command==='center_draft_read_local')return null;
+      if(command==='center_corporate_signed_workspace_status')return {
+        schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',
+        open:false,visible:false,foreignOrOrphaned:false};
+      if(command==='center_corporate_state'){
+        if(!fixture.enrolled)return {status:'NOT_CONNECTED',enrollmentAvailable:true};
+        return {status:'D3_OWNER_READY',snapshot:{
+          product:'admin',organizationId:args.organizationId,
+          workspaceId:fixture.workspaceId,actorId:'person:local-manager',
+          contextId:'context:enrolled',contextEpoch:1,
+          d3RecipientAvailable:true,d3TaskIssueAvailable:false,
+          d3InspectAvailable:true,d3ApplyAvailable:false,
+          d3ApplyRecoverAvailable:false,
+          productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
+        }};
+      }
+      if(command==='center_corporate_enroll'){
+        assert.ok(args.workspaceId,'original T3 enrollment requires selected Workspace');
+        assert.equal(args.organizationName,'First use workshop');
+        fixture.enrollmentCalls++;
+        fixture.workspaceId=args.workspaceId;
+        fixture.enrolled=true;
+        return {status:'D3_OWNER_READY',snapshot:{
+          organizationId:args.organizationId,workspaceId:args.workspaceId}};
+      }
+      if(command==='center_corporate_age_status')return {
+        operation:'AGE_STATUS',available:false,recipient:null,
+        toolchain:{ready:false},provider:'WINDOWS_UI_FIXTURE',admitted:false};
+      return null;
+    }};
+  });
+  await onboardPage.goto('http://127.0.0.1:4173');
+  await onboardPage.getByTestId('org-name').fill('First use workshop');
+  await onboardPage.getByTestId('create-org').click();
+  await onboardPage.getByTestId('nav-results').click();
+  await onboardPage.getByTestId('d3-enrollment-no-workspace').waitFor();
+  assert.equal(await onboardPage.getByTestId('d3-enroll').isEnabled(),false);
+  assert.equal(await onboardPage.getByTestId('d3-enrollment-workspace').count(),0);
+  await onboardPage.getByTestId('d3-enrollment-create-workspace').click();
+  await onboardPage.getByTestId('workspace-name').fill('Purchasing team');
+  await onboardPage.getByTestId('add-workspace').click();
+  await onboardPage.getByTestId('nav-results').click();
+  await onboardPage.getByTestId('d3-enrollment-workspace').waitFor();
+  assert.match(await onboardPage.getByTestId('d3-enrollment-workspace').innerText(),/Purchasing team/);
+  assert.equal(await onboardPage.getByTestId('d3-enroll').isEnabled(),true);
+  await onboardPage.getByTestId('d3-enroll').click();
+  await onboardPage.getByTestId('cen03-d3-original').waitFor();
+  assert.equal((await onboardPage.evaluate(()=>window.__onboardD3Fixture)).enrollmentCalls,1);
+  await onboardPage.close();
+  checks.push('d3-first-use-no-workspace-creates-draft-and-returns-to-signed-enrollment-ui');
   // UI-only mock of the EXISTING native signed owner: this does not
   // assert Ed25519, original Kernel or installed T3 integration. It checks
   // that the manager does not lose an attempted Task ID when the signed

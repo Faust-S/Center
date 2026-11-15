@@ -38,7 +38,7 @@ const why=(e:unknown)=>{
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onOpenSignedWorkspace,signedWorkspaceGeneration=0}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onOpenSignedWorkspace,signedWorkspaceGeneration=0}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
@@ -183,12 +183,19 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    <p className="muted">Создать собственный подписанный организационный контур
     с оригинальным AccessRegistry, ключами Ed25519 и Windows DPAPI.
     Это отдельное подтверждаемое действие, а не преобразование черновиков в права.</p>
-   <label>Первая рабочая область
-    <select data-testid="d3-enrollment-workspace" value={selectedEnrollmentWorkspace}
-     onChange={e=>setEnrollWorkspace(e.target.value)}>
-     {organization.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
-    </select>
-   </label>
+   {organization.workspaces.length===0
+     ? <div className="notice subdued" data-testid="d3-enrollment-no-workspace">
+        <p>Перед подписанным подключением создайте рабочую область этой организации.
+         Это подготовительный шаг: он не выдаёт права и не создаёт T3 Workspace.</p>
+        <button type="button" className="secondary" data-testid="d3-enrollment-create-workspace"
+         disabled={busy} onClick={onSetupWorkspace}>Создать рабочую область</button>
+       </div>
+     : <label>Первая рабочая область
+        <select data-testid="d3-enrollment-workspace" value={selectedEnrollmentWorkspace}
+         onChange={e=>setEnrollWorkspace(e.target.value)}>
+         {organization.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+        </select>
+       </label>}
    <button className="primary" data-testid="d3-enroll" disabled={busy||!selectedEnrollmentWorkspace}
     onClick={()=>act('Оригинальный подписанный T3-владелец организации подключён.',async()=>{
       const result=await invoke('center_corporate_enroll',{
