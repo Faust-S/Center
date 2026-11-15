@@ -57,7 +57,7 @@ function Root {
   return [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
 }
 function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false) {
-  $tokenUnavailable=0
+  $transientUnavailable=0
   for($i=0;$i -lt 75;$i++){
     $element=Root
     try {
@@ -65,10 +65,15 @@ function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false) {
          [System.Windows.Automation.Condition]::TrueCondition)
     } catch {
       # WebView2 may rotate its accessibility process while a native file
-      # dialog closes. Retry only this known transient UIA token error.
+      # dialog closes. The resulting token / detached-element errors are
+      # transient; never count a failed enumeration as a successful lookup.
       # Never count a failed enumeration as evidence that a control exists.
-      if($_.Exception.ToString() -notmatch 'Could not open the process token'){throw}
-      $tokenUnavailable++
+      # WebView2 may also replace its UIA subtree during navigation. The old
+      # AutomationElement becomes unavailable before the next enumeration;
+      # retry the freshly obtained root, never treat it as a successful read.
+      if($_.Exception.ToString() -notmatch
+          'Could not open the process token|target element corresponds to UI that is no longer'){throw}
+      $transientUnavailable++
       Start-Sleep -Milliseconds 300
       continue
     }
@@ -82,19 +87,23 @@ function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false) {
     }
     Start-Sleep -Milliseconds 300
   }
-  if($tokenUnavailable -eq 75){throw "U05_CENTER_UIA_TOKEN_UNAVAILABLE $type $name"}
+  if($transientUnavailable -eq 75){throw "U05_CENTER_UIA_TRANSIENT_UNAVAILABLE $type $name"}
   throw "U05_CENTER_UI_CONTROL_MISSING $type $name"
 }
 function Find-UI-Text([string]$needle) {
-  $tokenUnavailable=0
+  $transientUnavailable=0
   for($attempt=0;$attempt -lt 75;$attempt++){
     $root=Root
     try {
       $controls=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
         [System.Windows.Automation.Condition]::TrueCondition)
     } catch {
-      if($_.Exception.ToString() -notmatch 'Could not open the process token'){throw}
-      $tokenUnavailable++
+      # WebView2 may also replace its UIA subtree during navigation. The old
+      # AutomationElement becomes unavailable before the next enumeration;
+      # retry the freshly obtained root, never treat it as a successful read.
+      if($_.Exception.ToString() -notmatch
+          'Could not open the process token|target element corresponds to UI that is no longer'){throw}
+      $transientUnavailable++
       Start-Sleep -Milliseconds 300
       continue
     }
@@ -105,7 +114,7 @@ function Find-UI-Text([string]$needle) {
     }
     Start-Sleep -Milliseconds 300
   }
-  if($tokenUnavailable -eq 75){throw "U05_CENTER_UIA_TOKEN_UNAVAILABLE Text $needle"}
+  if($transientUnavailable -eq 75){throw "U05_CENTER_UIA_TRANSIENT_UNAVAILABLE Text $needle"}
   throw "U05_UI_TEXT_NOT_FOUND $needle"
 }
 function Click([string]$name,[bool]$contains=$false) {
