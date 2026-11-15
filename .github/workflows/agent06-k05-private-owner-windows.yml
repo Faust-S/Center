@@ -1,4 +1,4 @@
-# Authorized public Center Windows runner only. K05 native Setup Core source regression.
+# Authorized public Center Windows runner only. K05 negative UIA source and Windows qualification.
 # Private checkout is transient, read-only, SHA pinned, with no published artifacts.
 name: Agent 0.6 K05 original approval and execution readback Windows qualification
 on:
