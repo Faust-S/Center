@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "93faf2a56e252e43d93598aae19a1fcf02509f2a"
+          test "$(git -C private-agent rev-parse HEAD)" = "b127e5511a48cd0077c30967fe9c82a1cab390bc"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -178,6 +178,13 @@ jobs:
             exit 13
           fi
           echo "AGENT06_U01_PINNED_INSTALLED_IMPORT_PASS"
+          if ! (cd private-agent && python -B -m pytest -q -p no:cacheprovider \
+            tests/test_agent06_obscura_user_install.py) \
+            > "$RUNNER_TEMP/agent06-private-u01-user-install-contract.log" 2>&1; then
+            echo "AGENT06_U01_USER_INSTALL_CONTRACT_FAIL"
+            exit 14
+          fi
+          echo "AGENT06_U01_USER_INSTALL_CONTRACT_PASS"
       - name: TypeScript and Vite desktop build of exact private Agent source
         if: runner.os == 'Windows'
         working-directory: private-agent/desktop
