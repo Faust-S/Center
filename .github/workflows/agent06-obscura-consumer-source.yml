@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "98e6b62822cd40e098c7ce3c3d2283773ef57f4d"
+          test "$(git -C private-agent rev-parse HEAD)" = "e6df610faaba33d9c817f66fac666a9a44dc8822"
           test "$(git -C public-brtest rev-parse HEAD)" = "cb804a846b9ac73014d6feb6faa4a3f9feaac46e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -128,6 +128,21 @@ jobs:
             exit 5
           fi
           echo "AGENT06_PRIVATE_PORT_TEST_PASS"
+      - name: Regress original Task, Session and ToolRuntime before native replay
+        shell: bash
+        working-directory: private-agent
+        run: |
+          set -euo pipefail
+          if ! python -B -m pytest -q -p no:cacheprovider \
+            tests/test_daily_driver.py \
+            tests/test_workspace_composer_integration.py \
+            tests/test_tool_provider_layer.py \
+            tests/test_interactive_task_list_status.py \
+            > "$RUNNER_TEMP/agent06-original-task-regression-private.log" 2>&1; then
+            echo "AGENT06_ORIGINAL_TASK_REGRESSION_FAILED"
+            exit 8
+          fi
+          echo "AGENT06_ORIGINAL_TASK_REGRESSION_PASS"
       - name: Set up Windows Node.js 22 for Agent desktop source qualification
         if: runner.os == 'Windows'
         uses: actions/setup-node@v4
