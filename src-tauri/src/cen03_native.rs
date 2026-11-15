@@ -3,7 +3,7 @@
 // There is one trusted executable already owned by the T3 distribution;
 // absent original provisioning means NOT_CONNECTED, never a test fallback.
 use serde_json::{json,Value};
-use std::{fs::{self,OpenOptions},io::{BufRead,BufReader,Write},
+ use std::{fs::{self,OpenOptions},io::{BufRead,BufReader,Read,Write},
     path::{Path,PathBuf},process::{Child,ChildStdin},
     sync::{mpsc::{self,Receiver},Mutex},time::Duration};
 use tauri::{AppHandle,Manager};
@@ -407,11 +407,26 @@ fn host_reply(reply:&Value,id:u64)->Result<Value,String>{
 }
 impl OriginalOwner{
     fn open(app:&AppHandle,organization_id:&str)->Result<Self,String>{
-        let mut child=t3::spawn_admin_d3_host(app,organization_id)?;
-        let input=child.stdin.take()
-            .ok_or("CEN_D3_ORIGINAL_HOST_STDIN_UNAVAILABLE")?;
-        let output=child.stdout.take()
-            .ok_or("CEN_D3_ORIGINAL_HOST_STDOUT_UNAVAILABLE")?;
+        let child=t3::spawn_admin_d3_host(app,organization_id)?;
+        Self::from_child(child,organization_id)
+    }
+    fn from_child(mut child:Child,organization_id:&str)->Result<Self,String>{
+        let input=match child.stdin.take(){
+            Some(input)=>input,
+            None=>{
+                // std::process::Child drop does NOT terminate a process.
+                // Without cleanup this orphan could hold product.lock.
+                let _=child.kill();let _=child.wait();
+                return Err("CEN_D3_ORIGINAL_HOST_STDIN_UNAVAILABLE".into());
+            }
+        };
+        let output=match child.stdout.take(){
+            Some(output)=>output,
+            None=>{
+                let _=child.kill();let _=child.wait();
+                return Err("CEN_D3_ORIGINAL_HOST_STDOUT_UNAVAILABLE".into());
+            }
+        };
         // Read only the SAME pinned owner's line-delimited native receipts.
         // A bounded channel avoids unbounded queued responses. A timeout
         // kills this owner; callers must use original read-only recovery
@@ -421,7 +436,10 @@ impl OriginalOwner{
             let mut reader=BufReader::new(output);
             loop{
                 let mut line=Vec::new();
-                let read=reader.read_until(b'\n',&mut line);
+                // Bounded read prevents a malformed native response from
+                // allocating an unlimited line before the size check.
+                let read=reader.by_ref().take((MAX_REQUEST+1) as u64)
+                    .read_until(b'\n',&mut line);
                 let result=match read{
                     Ok(0)=>Err("CEN_D3_ORIGINAL_HOST_EOF".to_owned()),
                     Ok(_) if line.len()>MAX_REQUEST=>
@@ -757,6 +775,63 @@ pub async fn center_corporate_action(
 #[cfg(test)]
 mod tests{
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn one_native_process_handles_two_consecutive_original_host_commands(){
+        use std::process::{Command,Stdio};
+        // This standard Windows OS process verifies physical pipes, numeric
+        // request IDs and lifetime. It is NOT the private signer or Kernel.
+        let script=r#"
+          while($true){
+            $line=[Console]::In.ReadLine()
+            if($null -eq $line){break}
+            $q=ConvertFrom-Json -InputObject $line
+            $response=@{
+              schema='IWXA_T3_D3_NATIVE_OWNER_REPLY/1'
+              id=[long]$q.id
+              ok=$true
+              result=@{
+                schema='IWXA_T3_ADMIN_D3_NATIVE/1'
+                operation='D3_STATE'
+                organizationId='org:test'
+                ownerMode='ORIGINAL_SIGNED_CORPORATE_D3'
+                productionActivation=$false
+                T3_READY=$false
+                activeSeats=0
+              }
+            }
+            [Console]::Out.WriteLine(($response |
+                ConvertTo-Json -Compress -Depth 5))
+          }
+        "#;
+        let child=Command::new("powershell.exe")
+            .args(["-NoProfile","-NonInteractive","-Command",script])
+            .stdin(Stdio::piped()).stdout(Stdio::piped())
+            .stderr(Stdio::null()).spawn()
+            .expect("Windows OS pipe fixture");
+        let mut owner=OriginalOwner::from_child(child,"org:test").unwrap();
+        let first=owner.call("state",&Value::Null).unwrap();
+        let second=owner.call("state",&Value::Null).unwrap();
+        assert_eq!(first["organizationId"],"org:test");
+        assert_eq!(second["organizationId"],"org:test");
+        assert_eq!(owner.next_id,2);
+        assert!(owner.child.try_wait().unwrap().is_none(),
+            "owner stays alive between requests");
+        drop(owner); // same original lifecycle kills the child on detach
+    }
+    #[cfg(windows)]
+    #[test]
+    fn spawned_process_with_missing_pipe_is_terminated(){
+        use std::process::{Command,Stdio};
+        // A missing pipe previously returned Err and orphaned a live Child.
+        let child=Command::new("powershell.exe")
+            .args(["-NoProfile","-NonInteractive","-Command",
+                "Start-Sleep -Seconds 15"])
+            .stdin(Stdio::null()).stdout(Stdio::null())
+            .stderr(Stdio::null()).spawn().unwrap();
+        let err=OriginalOwner::from_child(child,"org:test").err().unwrap();
+        assert_eq!(err,"CEN_D3_ORIGINAL_HOST_STDIN_UNAVAILABLE");
+    }
     #[test]
     fn persistent_original_owner_replies_are_exact_and_fail_closed(){
         let good=json!({"schema":D3_HOST_REPLY,"id":4,"ok":true,
