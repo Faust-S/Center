@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 63d21298968f52f06b49b996634894a94f6392e0
+          ref: 5df7c565c5fede7b5d7408ef2860548da0f92a27
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '63d21298968f52f06b49b996634894a94f6392e0'){
+          if($sha -cne '5df7c565c5fede7b5d7408ef2860548da0f92a27'){
             throw 'AGENT06_NATIVE_SOURCE_SHA_MISMATCH'
           }
           if($null -eq (Get-Command cargo.exe -ErrorAction SilentlyContinue)){
@@ -78,6 +78,16 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_U04_STAGE_FAIL'}
             Write-Host 'AGENT06_NATIVE_U04_OWNER_PASS'
           }finally{Pop-Location}
+      - name: Assert verified U04 staging is ignored and native checkout stays clean
+        shell: pwsh
+        run: |
+          & git -C private-agent check-ignore --quiet --no-index -- desktop/public/u04/u04-presentation/bridge.mjs
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_U04_GENERATED_NOT_IGNORED'}
+          $dirty=@(& git -C private-agent status --porcelain --untracked-files=all)
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_SOURCE_STATUS_UNAVAILABLE'}
+          Write-Host ('AGENT06_NATIVE_PREBUILD_DIRTY_COUNT='+$dirty.Count)
+          if($dirty.Count -ne 0){throw 'AGENT06_NATIVE_PREBUILD_SOURCE_DIRTY'}
+          Write-Host 'AGENT06_NATIVE_U04_GIT_STAGE_PASS'
       - name: Compile original Tauri Windows executable from pinned integration SHA
         shell: pwsh
         run: |
@@ -89,6 +99,10 @@ jobs:
               throw 'AGENT06_NATIVE_BINARY_MISSING'
             }
             Write-Host 'AGENT06_NATIVE_TAURI_COMPILE_PASS'
+            $dirty=@(& git -C ../.. status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_POSTBUILD_GIT_STATUS_UNAVAILABLE'}
+            Write-Host ('AGENT06_NATIVE_POSTBUILD_DIRTY_COUNT='+$dirty.Count)
+            if($dirty.Count -ne 0){throw 'AGENT06_NATIVE_POSTBUILD_SOURCE_DIRTY'}
           }finally{Pop-Location}
       - name: Installed native Windows UI and cold reopen qualification
         shell: pwsh
