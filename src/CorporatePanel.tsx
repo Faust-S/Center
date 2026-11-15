@@ -164,8 +164,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  return <section className="card padded" data-testid="corporate-panel">
   <div className="section-head"><h2>Поручения и корпоративная приёмка</h2>
    <div className="actions">
-    {d3Ready&&invoke&&typeof owner?.snapshot?.originalControlOrigin==='string'&&
-      typeof owner?.snapshot?.originalIsolatedWorkspaceUrl==='string'&&
+    {d3Ready&&invoke&&owner?.snapshot?.originalSignedWorkspaceAvailable===true&&
       <button className="secondary" data-testid="d3-open-signed-workspace" disabled={busy}
         onClick={()=>act('Подписанная Workspace открыта внутри Admin Center.',async()=>
           onOpenSignedWorkspace(organizationId))}>Открыть Workspace T3</button>}
