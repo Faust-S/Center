@@ -68,8 +68,13 @@ jobs:
             foreach($pair in $groups){
               $kind=$pair[0];$test=$pair[1]
               $out=Join-Path $env:RUNNER_TEMP ('a06-erp-'+$kind.ToLower()+'-private.log')
-              $parts=$test.Split(' ')
-              & python -B -m pytest -q -p no:cacheprovider @parts *> $out
+              if($kind -eq 'HTTP'){
+                & python -B -m pytest -q -p no:cacheprovider tests/test_erp_order_readonly_v1.py -k 'not toolruntime' *> $out
+              }elseif($kind -eq 'READ_PATH'){
+                & python -B -m pytest -q -p no:cacheprovider tests/test_erp_order_readonly_v1.py -k 'toolruntime' *> $out
+              }else{
+                & python -B -m pytest -q -p no:cacheprovider $test *> $out
+              }
               $code=$LASTEXITCODE
               if($code -ne 0){
                 Write-Host ('AGENT06_ERP_'+$kind+'_FAIL')
