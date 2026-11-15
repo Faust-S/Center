@@ -757,10 +757,22 @@ pub async fn center_corporate_action(
         // prove it received the same signed archive as the age tool verified.
         let mut result=output["result"].clone();
         if operation=="d3ApplyAccepted"{
-            verify_kernel_apply(&result,&input,&observed)?;
+            if let Err(error)=verify_kernel_apply(&result,&input,&observed){
+                // The ORIGINAL Kernel may already have written an Object and
+                // Event. A forged/missing independent readback is UNKNOWN,
+                // never a pre-dispatch denial. End the same signed session;
+                // recovery must cold-open the original owner and READ only.
+                let _=close_original_owner(&app);
+                return Err(error);
+            }
         }
         if operation=="d3RecoverApplied"{
-            verify_kernel_recovery(&result,&input,&observed)?;
+            if let Err(error)=verify_kernel_recovery(&result,&input,&observed){
+                // Do not retain a native owner that returned false original
+                // Kernel evidence, even during a read-only recovery attempt.
+                let _=close_original_owner(&app);
+                return Err(error);
+            }
         }
         if let Some(proof)=decrypted{
             if proof["operation"]!="AGE_DECRYPTED"||
