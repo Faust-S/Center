@@ -992,6 +992,7 @@ try {
           activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_person_change_status'){
+        window.__personMockStatusCalls=(window.__personMockStatusCalls||0)+1;
         const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
         const one=ledger.find(e=>e.licenseId===args.licenseId);
         if(!one||one.status==='REVOKED')throw Error('PERSON_OWNER_REVOKED_TERMINAL');
@@ -1192,6 +1193,32 @@ try {
   assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true,
     'Do not create redundant same-state signatures while current status has a full day left');
   checks.push('publisher-person-shows-separate-license-and-status-expiry');
+  // Another Publisher can suspend the same license while this window still
+  // shows ACTIVE. Refuse an unintended additional STATUS signature.
+  const beforeExternalStatus=await personal.evaluate(()=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    const before={status:ledger[0].status,sequence:ledger[0].sequence};
+    ledger[0].status='SUSPENDED';
+    ledger[0].sequence+=1;
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+    return before;
+  });
+  await personOwner.getByRole('combobox',{name:'Новый статус PERSON'})
+    .selectOption('SUSPENDED');
+  const statusCallsBefore=await personal.evaluate(()=>window.__personMockStatusCalls||0);
+  await personOwner.getByTestId('publisher-person-status').click();
+  await personOwner.getByText('PERSON_STATUS_SIGNED_SOURCE_STALE_REFRESH_REQUIRED',
+    {exact:false}).waitFor();
+  assert.equal(await personal.evaluate(()=>window.__personMockStatusCalls||0),
+    statusCallsBefore,'Stale UI must not send a second native signed STATUS');
+  await personal.evaluate(before=>{
+    const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    ledger[0].status=before.status;ledger[0].sequence=before.sequence;
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+  },beforeExternalStatus);
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  checks.push('person-status-change-refuses-stale-owner-sequence');
   // A signed carrier recipient belongs to THIS license. Auto-selection of a
   // newly issued renewal must not carry the previous delivery key forward.
   await personOwner.getByTestId('publisher-person-age-recipients')

@@ -411,32 +411,37 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       };
     },true);
   }
+  // Confirm the exact current owner record before preparing a renewal OR
+  // changing an already signed status. The UI selector can be stale after
+  // another Publisher instance saves a newer signed status.
+  async function currentPersonRecord(current:PersonRecord,staleCode:string){
+    const response=await invoke('publisher_t3_person_inventory',{
+      lookupId:current.licenseId});
+    const matches=checkedInventory(response,current.licenseId)
+      .filter(x=>x.licenseId===current.licenseId);
+    const latest=matches.length===1?matches[0]:undefined;
+    if(!latest||
+       latest.requestId!==current.requestId||
+       latest.issuerAuthorityId!==current.issuerAuthorityId||
+       latest.personId!==current.personId||
+       latest.productId!==current.productId||
+       latest.requestDigest!==current.requestDigest||
+       latest.renewalOfLicenseId!==current.renewalOfLicenseId||
+       latest.status!==current.status||latest.sequence!==current.sequence||
+       latest.statusIssuedAt!==current.statusIssuedAt||
+       latest.statusValidUntil!==current.statusValidUntil){
+      setNeedsRefresh(true);
+      throw Error(staleCode);
+    }
+    return latest;
+  }
   async function prepareRenewal(){
     const current=selectedLicense,renewal=selectedRenewal;
     if(!current||!renewal||busy||needsRefresh)return;
     setBusy(true);setFailure('');setMessage('');
     try{
-      // Another installed Publisher may have suspended or revoked this
-      // license since the selector was rendered. Consult the original owner,
-      // not the cached last-48 view, before persisting a new renewal draft.
-      const response=await invoke('publisher_t3_person_inventory',{
-        lookupId:current.licenseId});
-      const matching=checkedInventory(response,current.licenseId)
-        .filter(x=>x.licenseId===current.licenseId);
-      const latest=matching.length===1?matching[0]:undefined;
-      if(!latest||
-         latest.requestId!==current.requestId||
-         latest.issuerAuthorityId!==current.issuerAuthorityId||
-         latest.personId!==current.personId||
-         latest.productId!==current.productId||
-         latest.requestDigest!==current.requestDigest||
-         latest.renewalOfLicenseId!==current.renewalOfLicenseId||
-         latest.status!==current.status||latest.sequence!==current.sequence||
-         latest.statusIssuedAt!==current.statusIssuedAt||
-         latest.statusValidUntil!==current.statusValidUntil){
-        setNeedsRefresh(true);
-        throw Error('PERSON_RENEWAL_SIGNED_SOURCE_STALE_REFRESH_REQUIRED');
-      }
+      const latest=await currentPersonRecord(
+        current,'PERSON_RENEWAL_SIGNED_SOURCE_STALE_REFRESH_REQUIRED');
       await assertOriginalPersonRenewalRequest(draft,latest);
       const command=preparePersonRenewalDraftCommand(draft,{
         sourceLicense:latest,
@@ -460,6 +465,10 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
        (requested==='REVOKED'&&!canRevoke))return;
     setRevokePending('');
     await operate(async mutationSent=>{
+      // A different installed session may have already signed a new status.
+      // Resolve it from the original owner before touching its sequence.
+      await currentPersonRecord(
+        current,'PERSON_STATUS_SIGNED_SOURCE_STALE_REFRESH_REQUIRED');
       mutationSent();
       const value=await invoke('publisher_t3_person_change_status',{
         licenseId:current.licenseId,nextStatus:requested});
