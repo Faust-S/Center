@@ -1,0 +1,157 @@
+# Ephemeral public Center runner with private read-only source checkout.
+# Pinned source only, no private artifact, full log, model or EXE export.
+name: IWXA Agent06 native installed Windows fast qualification
+on:
+  push:
+    branches: ['work/2026-11-15-agent06-ai-integration-qualification']
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-agent06-native-fast-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-fast:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      NODE_OPTIONS: '--max-old-space-size=4096'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require pre-authorized read-only private checkout
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'AGENT06_AI_PRIVATE_READ_UNAVAILABLE'
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 63d21298968f52f06b49b996634894a94f6392e0
+          path: private-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Require exact source and native Rust toolchain
+        shell: pwsh
+        run: |
+          $sha=(& git -C private-agent rev-parse HEAD).Trim()
+          if($sha -cne '63d21298968f52f06b49b996634894a94f6392e0'){
+            throw 'AGENT06_NATIVE_SOURCE_SHA_MISMATCH'
+          }
+          if($null -eq (Get-Command cargo.exe -ErrorAction SilentlyContinue)){
+            throw 'AGENT06_NATIVE_RUST_TOOLCHAIN_UNAVAILABLE'
+          }
+          Write-Host 'AGENT06_NATIVE_SOURCE_TOOLCHAIN_PASS'
+      - name: Install original runtime and Desktop dependencies
+        shell: pwsh
+        run: |
+          Push-Location private-agent
+          try{
+            & python -m pip install -r requirements.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-native-pip-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_PYTHON_DEPENDENCIES_FAIL'}
+            Push-Location desktop
+            try{
+              & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-native-npm-private.log')
+              if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_NPM_DEPENDENCIES_FAIL'}
+            }finally{Pop-Location}
+            Write-Host 'AGENT06_NATIVE_DEPENDENCIES_PASS'
+          }finally{Pop-Location}
+      - name: Stage original public U04 owner in ephemeral checkout
+        shell: pwsh
+        run: |
+          Push-Location private-agent
+          try{
+            & node scripts/prepare-public-modules.mjs --only-u04 --fetch *> (Join-Path $env:RUNNER_TEMP 'agent06-native-u04-prepare-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_U04_PREPARE_FAIL'}
+            & node scripts/stage-u04-desktop.mjs build/u04-owner-sources desktop/public/u04 *> (Join-Path $env:RUNNER_TEMP 'agent06-native-u04-stage-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_U04_STAGE_FAIL'}
+            Write-Host 'AGENT06_NATIVE_U04_OWNER_PASS'
+          }finally{Pop-Location}
+      - name: Compile original Tauri Windows executable from pinned integration SHA
+        shell: pwsh
+        run: |
+          Push-Location private-agent/desktop
+          try{
+            & npm.cmd run tauri:build *> (Join-Path $env:RUNNER_TEMP 'agent06-native-tauri-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_TAURI_COMPILE_FAIL'}
+            if(-not (Test-Path -LiteralPath 'src-tauri/target/release/iwxa-personal.exe' -PathType Leaf)){
+              throw 'AGENT06_NATIVE_BINARY_MISSING'
+            }
+            Write-Host 'AGENT06_NATIVE_TAURI_COMPILE_PASS'
+          }finally{Pop-Location}
+      - name: Installed native Windows UI and cold reopen qualification
+        shell: pwsh
+        run: |
+          Push-Location private-agent
+          try{
+            $log=Join-Path $env:RUNNER_TEMP 'agent06-native-uia-private.log'
+            & pwsh -NoProfile -NonInteractive -File qualification/phase1/agent02_installed_gui_acceptance.ps1 *> $log
+            if($LASTEXITCODE -ne 0){
+              $report=Join-Path (Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)) 'logs/smoke-result.json'
+              if(Test-Path -LiteralPath $report -PathType Leaf){
+                try{
+                  $observed=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+                  foreach($field in @('install','button_invoked','react_page_changed',
+                   'task_input_visible','task_input_editable','draft_restore',
+                   'core_draft_before_close','core_draft_after_reopen')){
+                    $v=[string]$observed.$field
+                    if($v -in @('PASS','NOT_TESTED','NOT_NEEDED')){
+                      Write-Host ('AGENT06_NATIVE_'+$field.ToUpperInvariant()+'='+$v)
+                    }
+                  }
+                }catch{Write-Host 'AGENT06_NATIVE_UIA_REPORT_UNREADABLE'}
+              }else{
+                Write-Host 'AGENT06_NATIVE_UIA_REPORT_MISSING'
+              }
+              # All source logs stay private on the runner. Export only
+              # pre-approved failure categories, no freeform exception text.
+              $privateText=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              $allowed=@(
+                'gui_managed_python_capsule_failed',
+                'gui_native_package_failed',
+                'gui_package_install_failed',
+                'gui_storage_authority_failed',
+                'gui_native_executable_not_installed',
+                'gui_native_process_exited_before_window',
+                'gui_wrong_product_window',
+                'gui_native_window_missing',
+                'gui_native_close_unconfirmed',
+                'gui_draft_not_restored_after_restart',
+                'gui_core_draft_changed_after_restart',
+                'gui_draft_value_change_not_observed',
+                'gui_core_draft_http_readback_failed',
+                'gui_core_draft_http_response_invalid',
+                'BLOCKED_ENVIRONMENT',
+                'System.Management.Automation.CommandNotFoundException',
+                'ModuleNotFoundError',
+                'FileNotFoundError',
+                'PermissionError',
+                'OSError',
+                'Traceback',
+                'ParserError'
+              )
+              $matched=@()
+              foreach($tag in $allowed){
+                if(([string]$privateText).Contains($tag)){$matched+=,$tag}
+              }
+              if($matched.Count -gt 0){
+                foreach($tag in $matched){Write-Host ('AGENT06_NATIVE_FAILURE_CATEGORY='+$tag)}
+              }else{Write-Host 'AGENT06_NATIVE_FAILURE_CATEGORY=UNCLASSIFIED_EARLY_FAILURE'}
+              $firstPhase=Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)) -Force -ErrorAction SilentlyContinue
+              Write-Host ('AGENT06_NATIVE_FIRST_STAGE_DIR_COUNT='+@($firstPhase).Count)
+              throw 'AGENT06_NATIVE_INSTALLED_UIA_FAIL'
+            }
+            Write-Host 'AGENT06_NATIVE_INSTALLED_COLD_REOPEN_PASS'
+          }finally{Pop-Location}
+      # No uploaded artifacts, binaries, sources, models or private logs.
