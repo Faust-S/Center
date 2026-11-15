@@ -4,7 +4,7 @@ name: Agent 0.6 K05 original approval and execution readback Windows qualificati
 on:
   push:
     branches:
-      - work/2026-11-15-agent06-k05-owner-source-qualification
+      - work/2026-11-15-agent06-k05-executor-comparison
   workflow_dispatch:
 permissions:
   contents: read
@@ -14,13 +14,13 @@ concurrency:
 jobs:
   k05-private-owner:
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_EXACT_SHA: '42ae3f2af01c02f2119344157a4ad6092b7a57a7'
+      AGENT_K05_EXACT_SHA: '4250e6586231e009c0e0dcb82260b78337bf3e18'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,7 +46,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: bc1adbfeba45a18926ac755bd51dc5501ba97085
+          ref: b2de1d6cd8dd1e660183c16febd18da9ac3b94a7
           path: public-k05
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -61,7 +61,7 @@ jobs:
           & python -m pip install -r private-agent/requirements-ci.txt *> $deps
           if($LASTEXITCODE -ne 0){throw 'AGENT06_K05_PRIVATE_DEPENDENCIES_FAIL'}
           $k05=(& git -C public-k05 rev-parse HEAD).Trim()
-          if($k05 -cne 'bc1adbfeba45a18926ac755bd51dc5501ba97085'){
+          if($k05 -cne 'b2de1d6cd8dd1e660183c16febd18da9ac3b94a7'){
             throw 'AGENT06_K05_PUBLIC_ADAPTER_REVISION_MISMATCH'
           }
           Write-Host ('AGENT06_K05_PINNED_AGENT_SHA='+$sha)
@@ -75,6 +75,7 @@ jobs:
             @('K05_HISTORY','tests/test_k05_historical_approval_readback.py'),
             @('K05_COLD_REOPEN','tests/test_k05_original_owner_cold_readback.py'),
             @('K05_ORIGINAL_TASK','tests/test_k05_original_task_accepted_readback.py'),
+            @('K05_EXECUTOR_COMPARISON','tests/test_k05_agent06_executor_comparison.py'),
             @('APPROVAL_OWNER','tests/cells/test_approval_execution_reconciliation.py'),
             @('APPROVAL_ADMISSION','tests/test_approval_admission_serialization.py'),
             @('TOOL_EXECUTION_INTENT','tests/test_tool_execution_intent_claim_recovery.py')
@@ -113,7 +114,7 @@ jobs:
                     $exception=[string]$failure.Attributes['type'].Value
                     $allowed=@('AssertionError','ToolDenied','ApprovalError',
                       'AttributeError','TypeError','ValueError','KeyError',
-                      'RuntimeError','ImportError','ModuleNotFoundError')
+                      'RuntimeError','ImportError','ModuleNotFoundError','AgentK05ComparisonHold')
                     if($exception -notin $allowed){$exception='OTHER'}
                     Write-Host ('AGENT06_K05_'+$label+'_FAIL_CLASS='+$exception)
                   }
