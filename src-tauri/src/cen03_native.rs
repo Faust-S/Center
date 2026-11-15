@@ -953,6 +953,31 @@ mod tests{
         assert_eq!(url.path(),"/workspace/isolated-signed-workspace.html");
         assert_eq!(ui,"http://127.0.0.1:18884");
         assert_eq!(kernel,"http://127.0.0.1:18883");
+        let projected=public_signed_workspace_projection(original.clone());
+        assert_eq!(projected["snapshot"]["originalSignedWorkspaceAvailable"],true);
+        assert!(projected["snapshot"].get("originalIsolatedWorkspaceUrl").is_none(),
+            "React must never see the session fragment bearer");
+        assert!(projected["snapshot"].get("originalControlOrigin").is_none(),
+            "the pinned Control URL belongs only to native code");
+        assert!(projected["snapshot"].get("originalControlEpoch").is_none());
+        assert!(signed_workspace_navigation_allowed(&url,&ui,&kernel));
+        let trusted=tauri::Url::parse(
+            "http://127.0.0.1:18883/workspace/trusted-kernel-realm.html"
+        ).unwrap();
+        assert!(signed_workspace_navigation_allowed(&trusted,&ui,&kernel));
+        for denied in [
+            "http://127.0.0.1:18883/api/t3/context-epoch",
+            "http://127.0.0.1:18883/_iwxa/loader.js",
+            "http://127.0.0.1:18884/workspace/signed-workspace.html",
+            "http://127.0.0.1:18884/workspace/isolated-signed-workspace.html?x=1",
+            "http://localhost:18884/workspace/",
+            "https://127.0.0.1:18884/workspace/",
+            "http://127.0.0.1:18883/workspace/trusted-kernel-realm.html#forged",
+        ]{
+            assert!(!signed_workspace_navigation_allowed(
+                &tauri::Url::parse(denied).unwrap(),&ui,&kernel),
+                "signed WebView navigation must not follow {denied}");
+        }
         for forged in [
             "https://127.0.0.1:18884/workspace/isolated-signed-workspace.html",
             "http://localhost:18884/workspace/isolated-signed-workspace.html",
