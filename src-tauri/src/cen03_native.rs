@@ -634,6 +634,12 @@ pub async fn center_corporate_hide_signed_workspace(
             .ok_or("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING")?;
         webview.hide()
             .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_HIDE_FAILED".to_owned())?;
+        // The native Review controls live in the original main WebView.
+        // Recover keyboard focus after hiding the child; focus failure
+        // cannot turn a successful hide into a misleading UI error.
+        if let Some(main)=app.get_webview("main"){
+            let _=main.set_focus();
+        }
         Ok(())
     }).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
 }
@@ -651,8 +657,7 @@ pub async fn center_corporate_show_signed_workspace(
             .ok_or("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING")?;
         webview.show()
             .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_SHOW_FAILED".to_owned())?;
-        webview.set_focus()
-            .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_FOCUS_FAILED".to_owned())?;
+        let _=webview.set_focus();
         Ok(())
     }).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
 }
