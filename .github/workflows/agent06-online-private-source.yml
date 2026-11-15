@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT06_PRIVATE_PIN: 'e1af7f2acfc3fab0503bee27206a54a72031b79f'
+      AGENT06_PRIVATE_PIN: '6a86c8ebe10b1f74ff76f7d9d12cb58f0cd1e204'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -95,9 +95,22 @@ jobs:
                   'KeyError','IndexError','RuntimeError','ImportError','ModuleNotFoundError',
                   'PermissionError','OSError','FileNotFoundError','TimeoutError',
                   'OnlineStandardError','GoogleOAuthManagerError','InteractionSurfaceError',
-                  'UserProviderSettingsError','OnlineAccountError')
+                  'UserProviderSettingsError','OnlineAccountError','HTTPError',
+                  'GoogleOAuthSupportError','RecursionError','StopIteration','SystemExit')
                 if($type -notin $allow){$type='OTHER'}
                 Write-Host ('AGENT06_PY_FAILED_CLASS='+$type)
+                $trace=[string]$fail.InnerText
+                $locations=[regex]::Matches($trace,
+                  'test_(?:agent06_online_interaction_surface|google_oauth_user_ready)\.py:(\d+)')
+                if($locations.Count -gt 0){
+                  Write-Host ('AGENT06_PY_FAILED_TEST_LINE='+
+                    $locations[$locations.Count-1].Groups[1].Value)
+                }
+                $reasons=[regex]::Matches($trace,
+                  '(?<![A-Za-z0-9_])(?:online|google_oauth|dav|interaction)_[a-z][a-z0-9_]{3,70}(?![A-Za-z0-9_])')
+                foreach($reason in @($reasons|Select-Object -First 4)){
+                  Write-Host ('AGENT06_PY_SAFE_REASON='+$reason.Value)
+                }
               }
             }else{Write-Host 'AGENT06_PY_JUNIT_MISSING'}
             if($exitCode -ne 0){
