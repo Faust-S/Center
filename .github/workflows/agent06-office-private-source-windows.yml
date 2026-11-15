@@ -285,8 +285,22 @@ jobs:
             Write-Host 'AGENT06_OFFICE_U04_OWNER_STAGED_PASS'
             # Reuse the existing native GUI + isolated data install acceptance.
             # Never print its UI text, private paths, screenshots or raw logs.
-            & pwsh -NoProfile -NonInteractive -File qualification/phase1/agent02_installed_gui_acceptance.ps1 *> (Join-Path $env:RUNNER_TEMP 'agent06-office-installed-native-private.txt')
-            if($LASTEXITCODE -ne 0){
+            # Keep installed CPython metadata paths below legacy Win32 limits.
+            # The original smoke script is unchanged and uses RUNNER_TEMP for
+            # disposable isolated install/profile roots. Never touch user state.
+            $privateNativeLog=Join-Path $env:RUNNER_TEMP 'agent06-office-installed-native-private.txt'
+            $originalRunnerTemp=$env:RUNNER_TEMP
+            $shortQa='C:\i6'
+            if(Test-Path -LiteralPath $shortQa){throw 'AGENT06_OFFICE_ISOLATED_QA_ROOT_OCCUPIED'}
+            New-Item -ItemType Directory -Path $shortQa -Force | Out-Null
+            try{
+              $env:RUNNER_TEMP=$shortQa
+              & pwsh -NoProfile -NonInteractive -File qualification/phase1/agent02_installed_gui_acceptance.ps1 *> $privateNativeLog
+              $installedExit=$LASTEXITCODE
+            }finally{
+              $env:RUNNER_TEMP=$originalRunnerTemp
+            }
+            if($installedExit -ne 0){
               Write-Host 'AGENT06_OFFICE_INSTALLED_NATIVE_GUI_FAIL'
               $privateLog=Join-Path $env:RUNNER_TEMP 'agent06-office-installed-native-private.txt'
               if(Test-Path -LiteralPath $privateLog){
@@ -351,7 +365,29 @@ jobs:
                     }
                   }
                   if(!$diagnosed){Write-Host 'AGENT06_OFFICE_INSTALLER_ERROR_CODE=OTHER'}
-                  $qa=Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+                  # Only public, predeclared error taxonomy is revealed.
+                  # No trace, Python path, dynamic exception text or identity.
+                  $inner=@(
+                    'runtime_requirements_missing','runtime_requirement_must_be_exact',
+                    'runtime_requirement_manifest_mismatch','runtime_dependencies_not_ready',
+                    'runtime_core_import_source_missing','runtime_core_import_source_mismatch',
+                    'runtime_core_import_failed','runtime_core_import_api_incomplete',
+                    'runtime_dependency_manifest_missing','runtime_dependency_manifest_invalid',
+                    'runtime_dependency_manifest_duplicate','schema_registry_unreadable',
+                    'jsonschema-specifications','ModuleNotFoundError','ImportError',
+                    'OSError','FileNotFoundError','PermissionError','WinError 206'
+                  )
+                  foreach($code in $inner){
+                    if($text.Contains($code)){
+                      $codeName=switch($code){
+                        'jsonschema-specifications' {'JSONSCHEMA_SPECIFICATIONS'}
+                        'WinError 206' {'WIN32_NAME_TOO_LONG'}
+                        default {($code -replace '[^A-Za-z0-9_]','_').ToUpperInvariant()}
+                      }
+                      Write-Host ('AGENT06_OFFICE_INSTALL_INNER_CLASS='+$codeName)
+                    }
+                  }
+                  $qa=Join-Path $shortQa ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
                   $receipt=Join-Path $qa 'install/explorer-install-receipt.json'
                   if(Test-Path -LiteralPath $receipt -PathType Leaf){
                     Write-Host 'AGENT06_OFFICE_INSTALL_RECEIPT_PRESENT=YES'
