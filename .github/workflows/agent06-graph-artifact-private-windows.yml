@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 679589b8c38aecda8ca8f90b0ba9130f7c79e4da
+          ref: 00bd0fe819a7c4ddad3cc896dab7d10c39198090
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -39,9 +39,10 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '679589b8c38aecda8ca8f90b0ba9130f7c79e4da'){throw 'AGENT06_GRAPH_SOURCE_SHA_MISMATCH'}
+          if($sha -cne '00bd0fe819a7c4ddad3cc896dab7d10c39198090'){throw 'AGENT06_GRAPH_SOURCE_SHA_MISMATCH'}
           Write-Host 'AGENT06_GRAPH_EXACT_PRIVATE_SHA_PASS'
           & python -B -m py_compile private-agent/qualification/phase1/agent06_installed_graph_result_toolruntime_smoke.py
+          & python -B -m py_compile private-agent/qualification/phase1/agent06_vendor_authorized_installed_e2e.py
           if($LASTEXITCODE -ne 0){throw 'AGENT06_INSTALLED_CANONICAL_GRAPH_SMOKE_SYNTAX_FAIL'}
           Write-Host 'AGENT06_INSTALLED_CANONICAL_GRAPH_SMOKE_SYNTAX_PASS'
           & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-graph-pip-private.log')
@@ -49,13 +50,14 @@ jobs:
           Push-Location private-agent
           try{
             $privateLog=Join-Path $env:RUNNER_TEMP 'agent06-graph-persisted-tests-private.log'
-            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_graph_persisted_result_file.py *> $privateLog
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_graph_persisted_result_file.py tests/test_agent06_live_vendor_qualification.py *> $privateLog
             if($LASTEXITCODE -ne 0){
               Write-Host 'AGENT06_GRAPH_CANONICAL_PERSISTED_RESULT_FAIL'
               # Private failure messages, paths and inputs stay on this runner.
               throw 'AGENT06_GRAPH_CANONICAL_RESULT_QUALIFICATION_FAIL'
             }
             Write-Host 'AGENT06_GRAPH_CANONICAL_PERSISTED_RESULT_PASS'
+            Write-Host 'AGENT06_LIVE_VENDOR_HARNESS_NO_AUTH_UNIT_PASS'
             Write-Host 'AGENT06_GRAPH_VENDOR_INFERENCE=SYNTHETIC_FIXTURE_ONLY'
           }finally{Pop-Location}
       # No artifact/cache publication.
