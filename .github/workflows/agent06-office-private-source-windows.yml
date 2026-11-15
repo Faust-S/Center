@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'f27f8eb7ec1f66a37cfb23142acf97299e149209'
+      AGENT_OFFICE_SHA: '0cf459215805e6ae2614cab8fc1a97af0f1b59c2'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -139,6 +139,21 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'AGENT06_EXISTING_U04_BASELINE_FAIL'}
             Write-Host 'AGENT06_EXISTING_U04_BASELINE_PASS'
           } finally {Pop-Location}
+      - name: Windows MSVC compile and run the actual native U04 module
+        shell: pwsh
+        run: |
+          $probe=Join-Path $env:RUNNER_TEMP 'agent06-u04-native-qualification'
+          $src=Join-Path $probe 'src'
+          New-Item -ItemType Directory -Path $src -Force | Out-Null
+          @('[package]','name = "agent06_u04_qualification"','version = "0.0.1"','edition = "2021"','[dependencies]','serde_json = "1"') |
+            Set-Content -Path (Join-Path $probe 'Cargo.toml') -Encoding utf8
+          Copy-Item -LiteralPath 'private-agent/desktop/src-tauri/src/u04_windows_host.rs' -Destination (Join-Path $src 'u04_windows_host.rs')
+          @('mod u04_windows_host;','fn main() {}') |
+            Set-Content -Path (Join-Path $src 'main.rs') -Encoding utf8
+          $env:CARGO_TARGET_DIR=Join-Path $env:RUNNER_TEMP 'agent06-office-u04-msvc-target'
+          & cargo.exe test --manifest-path (Join-Path $probe 'Cargo.toml') --quiet *> (Join-Path $env:RUNNER_TEMP 'agent06-office-u04-msvc-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_U04_NATIVE_MSCV_TEST_FAIL'}
+          Write-Host 'AGENT06_OFFICE_U04_NATIVE_MSCV_TEST_PASS'
       - name: Final source qualification gate
         shell: pwsh
         run: |
