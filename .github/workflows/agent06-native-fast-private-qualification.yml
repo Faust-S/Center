@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 331f6eb75d50d1a314ac1a018a2fc66d1354a61f
+          ref: 39eb0dd1f49b67f48f1d205c3ce09a14738cfb9a
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '331f6eb75d50d1a314ac1a018a2fc66d1354a61f'){
+          if($sha -cne '39eb0dd1f49b67f48f1d205c3ce09a14738cfb9a'){
             throw 'AGENT06_NATIVE_SOURCE_SHA_MISMATCH'
           }
           if($null -eq (Get-Command cargo.exe -ErrorAction SilentlyContinue)){
@@ -197,6 +197,7 @@ jobs:
               'installed_tool_receipt_not_succeeded','installed_written_file_mismatch',
               'installed_task_not_restored','installed_reopen_reexecuted_tool',
               'installed_receipt_changed_after_restart','installed_file_changed_after_restart',
+              'installed_stage_child_failed_','installed_recover_child_failed_',
               'synthetic_graph_source_reinvoked','ModuleNotFoundError','PermissionError',
               'OSError','KeyError','ValueError','TypeError','AssertionError'
             )
@@ -216,6 +217,7 @@ jobs:
             'AGENT06_INSTALLED_TASK_HUMAN_REVIEW=PASS',
             'AGENT06_INSTALLED_TOOLRUNTIME_REAL_FILE=PASS',
             'AGENT06_INSTALLED_COLD_RESTART_RECEIPT=PASS',
+            'AGENT06_INSTALLED_COLD_SEPARATE_PROCESS=PASS',
             'AGENT06_INSTALLED_VENDOR_MODEL_INFERENCE=NOT_RUN'
           )
           foreach($line in $expected){
