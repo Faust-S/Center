@@ -75,6 +75,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [applySelection,setApplySelection]=useState<{acceptanceId:string;revisionIds:string[]}|null>(null);
  const [kernelRecovery,setKernelRecovery]=useState<any>(null);
  const [recoverPrevious,setRecoverPrevious]=useState(false);
+ // Only a definite refusal before the original Kernel write can unlock a
+ // new separate Human APPLY after the manager repairs the SAME Workspace.
+ const [workspacePreflight,setWorkspacePreflight]=useState<
+   'missing'|'deleted'|'read_only'|null>(null);
  // Prevent a lost Apply acknowledgment from becoming a second Apply when
  // the manager switches packages and returns during the same signed session.
  // Kept by CorporatePanel across signed context-epoch remounts. Never
@@ -123,6 +127,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setSelectedRevisions([]);setApplication(null);setApplyConsent(false);
    setApplyAttempted(false);setKernelResult(null);
    setApplySelection(null);setKernelRecovery(null);setRecoverPrevious(false);
+   setWorkspacePreflight(null);
  };
  useEffect(()=>{
    if(previous.current!==sessionKey){
@@ -413,6 +418,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        session.organizationId,session.workspaceId)};
    if(!hex(selection.acceptanceId)||selection.revisionIds.length===0)
      throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
+   setWorkspacePreflight(null);
    // Record the exact selection synchronously before sending to the owner.
    // React reset after switching a Result must not erase this no-replay gate.
    dispatchedApplications.current.set(attemptKey(selection.acceptanceId),[...selection.revisionIds]);
@@ -428,6 +434,13 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      if(isDefiniteUndispatchedD3Failure(error,'d3ApplyAccepted')){
        dispatchedApplications.current.delete(attemptKey(selection.acceptanceId));
        setApplySelection(null);setApplyAttempted(false);setApplyConsent(false);
+       const raw=error instanceof Error?error.message:
+         typeof error==='string'?error:'';
+       const code=raw.trim().replace(/^Error:\s*/,'');
+       setWorkspacePreflight(
+         code==='T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED'?'missing':
+         code==='T3_D3_ORIGINAL_WORKSPACE_DELETED'?'deleted':
+         code==='T3_D3_ORIGINAL_WORKSPACE_READ_ONLY'?'read_only':null);
      }
      throw error;
    }
@@ -776,6 +789,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
   </div>
   {accepted&&<div className="nested-form" data-testid="d3-apply">
    <h3>Отдельное применение в оригинальный Kernel</h3>
+   {workspacePreflight&&<p role="status"
+     data-testid="d3-apply-workspace-preflight" className="notice subdued">
+     {workspacePreflight==='missing'
+       ?'Исходная Workspace ещё не создана. Откройте «Workspace T3», создайте выбранную рабочую область, затем вернитесь «К приёмке» и отдельно подтвердите Apply.'
+       :workspacePreflight==='deleted'
+         ?'Исходная Workspace удалена. Не создавайте другую с новым ID. Восстановите исходную Workspace разрешённым способом и повторите проверку.'
+         :'Исходная Workspace доступна только для чтения. Восстановите право записи в этой же Workspace и отдельно подтвердите Apply.'}
+   </p>}
    <p className="muted">ACCEPT подтверждён только в Reconciliation.
     Применение требует отдельного Human APPLY и подписанного D1 JIT.
     Неизвестный результат не повторяется автоматически.</p>
