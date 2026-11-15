@@ -223,6 +223,20 @@ test('original TEST and PERSON issuer workers retain transient request until the
  assert.match(native,/fn issuer_request_file_lives_in_worker_until_original_owner_returns/);
 });
 
+test('original PERSON signer receives only terms projected from the reviewed saved proposal',()=>{
+ const native=read('publisher/src-tauri/src/t3_owner.rs');
+ const issue=native.slice(native.indexOf('pub async fn publisher_t3_person_issue('),
+   native.indexOf('pub async fn publisher_t3_person_change_status('));
+ assert.match(native,/fn verify_person_request_matches_preparation\(/);
+ assert.match(native,/fn original_person_owner_cannot_sign_changed_terms_for_valid_draft_sha/);
+ assert.match(native,/PERSON_DRAFT_BINDING_ERROR/);
+ assert.match(native,/proposal\["createdAt"\]/);
+ assert.match(native,/tariff\["deviceLimit"\]/);
+ assert.equal((issue.match(/verify_person_request_matches_preparation\(/g)||[]).length,2);
+ assert.match(issue,/with_stable_person_draft_source\(&root,&expected_draft_sha256,\|\|\{\s*verify_person_request_matches_preparation\(&root,&request\)\?/);
+ assert.match(native,/let signer_called=std::cell::Cell::new\(false\)/);
+});
+
 test('original T3 PERSON issue holds the existing Windows draft write lock until the signer returns',()=>{
  const native=read('publisher/src-tauri/src/t3_owner.rs');
  const main=read('publisher/src-tauri/src/main.rs');

@@ -216,6 +216,75 @@ fn verify_person_draft_source(root:&Path,expected_sha256:&str)->Result<(),String
     }
     Ok(())
 }
+
+const PERSON_DRAFT_BINDING_ERROR:&str="PUBLISHER_PERSON_REQUEST_DRAFT_MISMATCH";
+// The native bridge must not sign a free-form in-memory request merely
+// because an unrelated on-disk draft has a matching SHA. The original T3
+// remains the sole signer and issuer-scope validator.
+fn person_draft_record<'a>(
+    draft:&'a Value,collection:&str,identifier:&Value
+)->Result<&'a Value,String>{
+    let list=draft.get(collection).and_then(Value::as_array)
+        .ok_or(PERSON_DRAFT_BINDING_ERROR)?;
+    let mut found=list.iter().filter(|row|row.get("id")==Some(identifier));
+    let record=found.next().ok_or(PERSON_DRAFT_BINDING_ERROR)?;
+    if found.next().is_some(){return Err(PERSON_DRAFT_BINDING_ERROR.into());}
+    Ok(record)
+}
+fn verify_person_request_matches_preparation(
+    root:&Path,request:&Value
+)->Result<(),String>{
+    let saved=crate::read_preparation(root)
+        .map_err(|_|"PUBLISHER_PERSON_DRAFT_SOURCE_UNAVAILABLE")?
+        .ok_or("PUBLISHER_PERSON_DRAFT_SOURCE_UNAVAILABLE")?;
+    let draft:Value=serde_json::from_str(&saved)
+        .map_err(|_|"PUBLISHER_PERSON_DRAFT_SOURCE_UNAVAILABLE")?;
+    let proposal=person_draft_record(&draft,"proposals",&request["requestId"])?;
+    let holder=person_draft_record(&draft,"holders",&proposal["holderId"])?;
+    let product=person_draft_record(&draft,"products",&proposal["productId"])?;
+    let tariff=proposal.get("tariffSnapshot")
+        .ok_or(PERSON_DRAFT_BINDING_ERROR)?;
+    let registered=draft.get("tariffs").and_then(Value::as_array)
+        .is_some_and(|items|items.iter().any(|item|item==tariff));
+    if !registered||proposal["status"]!="DRAFT_NOT_ISSUED"||
+       holder["type"]!="PERSON"||
+       tariff["holderType"]!="PERSON"||tariff["productSeats"]!=1||
+       tariff["employeeLimit"]!=0||
+       tariff["productId"]!=proposal["productId"]||
+       tariff["termDays"]!=proposal["termDays"]||
+       tariff["features"]!=proposal["features"] {
+        return Err(PERSON_DRAFT_BINDING_ERROR.into());
+    }
+    // A renewal link must belong to this local preparation as well.
+    if let Some(previous)=proposal.get("previousProposalId"){
+        let source=person_draft_record(&draft,"proposals",previous)?;
+        if source["holderId"]!=proposal["holderId"]||
+           source["productId"]!=proposal["productId"]||
+           source.get("tariffSnapshot").is_none() {
+            return Err(PERSON_DRAFT_BINDING_ERROR.into());
+        }
+    }
+    let mut expected=serde_json::json!({
+        "schema":"IWXA_PUBLISHER_PERSON_LICENSE_REQUEST/1",
+        "kind":"PERSON_LICENSE_REQUEST",
+        "requestId":proposal["id"],
+        "requestedAt":proposal["createdAt"],
+        "environment":"PRODUCTION",
+        "subject":{"type":"PERSON","id":holder["id"],"name":holder["name"]},
+        "product":{"id":product["id"],"version":proposal["productVersion"]},
+        "featureIds":proposal["features"],
+        "termDays":proposal["termDays"],
+        "seats":1,
+        "deviceLimit":tariff["deviceLimit"],
+        "quotas":tariff["quotas"],
+        "status":"UNSIGNED_REQUEST"
+    });
+    if let Some(previous)=proposal.get("previousProposalId"){
+        expected["renewalOfRequestId"]=previous.clone();
+    }
+    if &expected!=request{return Err(PERSON_DRAFT_BINDING_ERROR.into());}
+    Ok(())
+}
 // A second Publisher instance can save a new proposal after a SHA preflight
 // but BEFORE the original T3 Owner finishes signing. Reuse the SAME Windows
 // interprocess draft writer lock for the whole irreversible native issue.
@@ -254,6 +323,79 @@ mod person_draft_issue_tests {
         done_tx.send(()).unwrap();
         worker.join().unwrap();
         assert!(!file.exists());
+    }
+
+    #[test]
+    fn original_person_owner_cannot_sign_changed_terms_for_valid_draft_sha(){
+        let root=std::env::temp_dir().join(format!(
+            "iwxa-publisher-person-request-binding-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let tariff=serde_json::json!({
+            "id":"PERSON","productId":"IWXA_ATLAS","name":"PERSON",
+            "holderType":"PERSON","revision":1,
+            "features":["WORKSPACE"],"termDays":30,"productSeats":1,
+            "employeeLimit":0,"deviceLimit":2,"quotas":[]
+        });
+        let draft=serde_json::json!({
+            "format":"iwxa.publisher.preparation","version":2,
+            "products":[{"id":"IWXA_ATLAS","name":"Atlas","version":"0.6.0"}],
+            "holders":[{"id":"person:one","name":"Example Person","type":"PERSON"}],
+            "tariffs":[tariff.clone()],
+            "proposals":[{
+                "id":"proposal:one","holderId":"person:one","productId":"IWXA_ATLAS",
+                "features":["WORKSPACE"],"termDays":30,
+                "createdAt":"2026-11-15T10:00:00.000Z","status":"DRAFT_NOT_ISSUED",
+                "productVersion":"0.6.0","tariffSnapshot":tariff
+            }],
+            "artifacts":[],"updatedAt":"2026-11-15T10:00:00.000Z"
+        });
+        let source=draft.to_string();
+        crate::write_preparation(&root,&source).unwrap();
+        let sha=format!("{:x}",Sha256::digest(source.as_bytes()));
+        let request=serde_json::json!({
+            "schema":"IWXA_PUBLISHER_PERSON_LICENSE_REQUEST/1",
+            "kind":"PERSON_LICENSE_REQUEST","requestId":"proposal:one",
+            "requestedAt":"2026-11-15T10:00:00.000Z","environment":"PRODUCTION",
+            "subject":{"type":"PERSON","id":"person:one","name":"Example Person"},
+            "product":{"id":"IWXA_ATLAS","version":"0.6.0"},
+            "featureIds":["WORKSPACE"],"termDays":30,"seats":1,
+            "deviceLimit":2,"quotas":[],"status":"UNSIGNED_REQUEST"
+        });
+        verify_person_request_matches_preparation(&root,&request).unwrap();
+        for (field,value) in [
+            ("termDays",serde_json::json!(31)),
+            ("deviceLimit",serde_json::json!(3)),
+            ("featureIds",serde_json::json!(["OTHER"])),
+            ("quotas",serde_json::json!([{
+                "metric":"usage","service":"CLOUD","unit":"TOKENS",
+                "period":"MONTH","max":1000
+            }])),
+            ("requestedAt",serde_json::json!("2026-11-15T10:01:00.000Z"))
+        ]{
+            let mut forged=request.clone();
+            forged[field]=value;
+            assert_eq!(verify_person_request_matches_preparation(&root,&forged)
+                .unwrap_err(),PERSON_DRAFT_BINDING_ERROR);
+        }
+        let mut forged=request.clone();
+        forged["subject"]["id"]=serde_json::json!("person:other");
+        assert_eq!(verify_person_request_matches_preparation(&root,&forged)
+            .unwrap_err(),PERSON_DRAFT_BINDING_ERROR);
+        forged=request.clone();
+        forged["renewalOfRequestId"]=serde_json::json!("proposal:unreviewed");
+        assert_eq!(verify_person_request_matches_preparation(&root,&forged)
+            .unwrap_err(),PERSON_DRAFT_BINDING_ERROR);
+        let signer_called=std::cell::Cell::new(false);
+        let mut forged=request.clone();
+        forged["deviceLimit"]=serde_json::json!(30);
+        assert_eq!(with_stable_person_draft_source(&root,&sha,||{
+            verify_person_request_matches_preparation(&root,&forged)?;
+            signer_called.set(true);
+            Ok(())
+        }).unwrap_err(),PERSON_DRAFT_BINDING_ERROR);
+        assert!(!signer_called.get());
+        let _=fs::remove_dir_all(root);
     }
     #[test]
     fn original_person_owner_never_receives_stale_or_missing_local_source(){
@@ -410,6 +552,7 @@ pub async fn publisher_t3_person_issue(
 )->Result<Value,String>{
     let request=validate_person_request(&request_json)?;
     verify_person_draft_source(&crate::publisher_root(&app)?,&expected_draft_sha256)?;
+    verify_person_request_matches_preparation(&crate::publisher_root(&app)?,&request)?;
     let request_id=request["requestId"].as_str()
         .ok_or("PUBLISHER_PERSON_T3_REQUEST_ID_REQUIRED")?.to_owned();
     if !t3::valid_identifier(&issuer_authority_id){
@@ -439,6 +582,7 @@ pub async fn publisher_t3_person_issue(
         let _cleanup=cleanup;
         let root=crate::publisher_root(&app)?;
         with_stable_person_draft_source(&root,&expected_draft_sha256,||{
+            verify_person_request_matches_preparation(&root,&request)?;
             t3::run(&app,"owner-person","person-issue",&[
                 file.to_string_lossy().into_owned(),issuer_authority_id])
         })
