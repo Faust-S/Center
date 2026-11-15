@@ -93,7 +93,7 @@ jobs:
                   $kind=[string]$failure.Attributes['type'].Value
                   if($kind -in $knownTypes){Write-Host ('AGENT06_OFFICE_FAILURE_TYPE='+$kind)}
                   else{Write-Host 'AGENT06_OFFICE_FAILURE_TYPE=OTHER'}
-                  $lines=[regex]::Matches([string]$failure.InnerText,'test_agent06_office_binary\\.py:(\\d+)')
+                  $lines=[regex]::Matches([string]$failure.InnerText,'test_agent06_office_binary\.py:(\d+)')
                   if($lines.Count -gt 0){
                     Write-Host ('AGENT06_OFFICE_FAILURE_TEST_LINE='+$lines[$lines.Count-1].Groups[1].Value)
                   }
