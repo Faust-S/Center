@@ -3,8 +3,10 @@
 // There is one trusted executable already owned by the T3 distribution;
 // absent original provisioning means NOT_CONNECTED, never a test fallback.
 use serde_json::{json,Value};
-use std::{fs::{self,OpenOptions},io::Write,path::{Path,PathBuf}};
-use tauri::AppHandle;
+use std::{fs::{self,OpenOptions},io::{BufRead,BufReader,Write},
+    path::{Path,PathBuf},process::{Child,ChildStdin},
+    sync::{mpsc::{self,Receiver},Mutex},time::Duration};
+use tauri::{AppHandle,Manager};
 use uuid::Uuid;
 use crate::t3_product_component as t3;
 use crate::t3_age_transport as age;
@@ -353,8 +355,142 @@ fn store_request(app:&AppHandle,data:&Value)->Result<EphemeralRequest,String>{
     drop(file);
     Ok(cleanup)
 }
+// CEN03 owns only the lifetime of the EXACT private signed D3 executable
+// already shipped by the original T3 product owner. Its stdin calls use the
+// original runtime, one product.lock and one signed DPAPI owner; no new
+// Kernel, Store, issuer, Reconciliation or external sidecar is created.
+const D3_HOST_CALL:&str="IWXA_T3_D3_NATIVE_OWNER_CALL/1";
+const D3_HOST_REPLY:&str="IWXA_T3_D3_NATIVE_OWNER_REPLY/1";
+#[derive(Default)]
+pub struct Session{owner:Option<OriginalOwner>}
+struct OriginalOwner{
+    organization_id:String,
+    child:Child,
+    input:ChildStdin,
+    responses:Receiver<Result<Vec<u8>,String>>,
+    next_id:u64,
+}
+impl Drop for OriginalOwner{
+    fn drop(&mut self){
+        // Ending the installed Center or changing organizations MUST release
+        // the original product.lock before any other owner may open it.
+        let _=self.child.kill();
+        let _=self.child.wait();
+    }
+}
+fn host_reply(reply:&Value,id:u64)->Result<Value,String>{
+    if reply["schema"]!=D3_HOST_REPLY||reply["id"]!=id{
+        return Err("CEN_D3_ORIGINAL_HOST_REPLY_INVALID".into());
+    }
+    match reply["ok"].as_bool(){
+        Some(false)=>{
+            let code=reply["code"].as_str().unwrap_or("");
+            if code.len()<5||code.len()>100||
+               !code.bytes().all(|b|b.is_ascii_uppercase()||
+                   b.is_ascii_digit()||b==b'_'){
+                return Err("CEN_D3_ORIGINAL_HOST_REJECTED".into());
+            }
+            Err(code.to_owned())
+        },
+        Some(true)=>{
+            let value=&reply["result"];
+            if value["schema"]!=SCHEMA||
+               value["ownerMode"]!="ORIGINAL_SIGNED_CORPORATE_D3"||
+               value["productionActivation"]!=false||
+               value["T3_READY"]!=false||value["activeSeats"]!=0{
+                return Err("CEN_D3_ORIGINAL_HOST_RESULT_INVALID".into());
+            }
+            Ok(value.clone())
+        },
+        None=>Err("CEN_D3_ORIGINAL_HOST_REPLY_INVALID".into()),
+    }
+}
+impl OriginalOwner{
+    fn open(app:&AppHandle,organization_id:&str)->Result<Self,String>{
+        let mut child=t3::spawn_admin_d3_host(app,organization_id)?;
+        let input=child.stdin.take()
+            .ok_or("CEN_D3_ORIGINAL_HOST_STDIN_UNAVAILABLE")?;
+        let output=child.stdout.take()
+            .ok_or("CEN_D3_ORIGINAL_HOST_STDOUT_UNAVAILABLE")?;
+        // Read only the SAME pinned owner's line-delimited native receipts.
+        // A bounded channel avoids unbounded queued responses. A timeout
+        // kills this owner; callers must use original read-only recovery
+        // instead of redispatching a possibly committed action.
+        let (sender,responses)=mpsc::sync_channel(1);
+        std::thread::spawn(move||{
+            let mut reader=BufReader::new(output);
+            loop{
+                let mut line=Vec::new();
+                let read=reader.read_until(b'\n',&mut line);
+                let result=match read{
+                    Ok(0)=>Err("CEN_D3_ORIGINAL_HOST_EOF".to_owned()),
+                    Ok(_) if line.len()>MAX_REQUEST=>
+                        Err("CEN_D3_ORIGINAL_HOST_OUTPUT_TOO_LARGE".to_owned()),
+                    Ok(_)=>Ok(line),
+                    Err(_)=>Err("CEN_D3_ORIGINAL_HOST_READ_FAILED".to_owned()),
+                };
+                let stop=result.is_err();
+                if sender.send(result).is_err()||stop{break;}
+            }
+        });
+        Ok(Self{organization_id:organization_id.into(),
+            child,input,responses,next_id:0})
+    }
+    fn call(&mut self,verb:&str,body:&Value)->Result<Value,String>{
+        if self.child.try_wait().map_err(|_|"CEN_D3_ORIGINAL_HOST_WAIT_FAILED")?
+            .is_some(){
+            return Err("CEN_D3_ORIGINAL_HOST_EXITED".into());
+        }
+        let id=self.next_id.checked_add(1)
+            .filter(|id|*id<=9_007_199_254_740_991)
+            .ok_or("CEN_D3_ORIGINAL_HOST_REQUEST_ID_EXHAUSTED")?;
+        self.next_id=id;
+        let request=json!({"schema":D3_HOST_CALL,"id":id,"verb":verb,
+            "body":body});
+        let mut bytes=serde_json::to_vec(&request)
+            .map_err(|_|"CEN_D3_ORIGINAL_HOST_INPUT_INVALID")?;
+        if bytes.len()+1>MAX_REQUEST{
+            return Err("CEN_D3_ORIGINAL_HOST_INPUT_TOO_LARGE".into());
+        }
+        bytes.push(b'\n');
+        self.input.write_all(&bytes).and_then(|_|self.input.flush())
+            .map_err(|_|"CEN_D3_ORIGINAL_HOST_SEND_FAILED")?;
+        let line=self.responses.recv_timeout(Duration::from_secs(90))
+            .map_err(|_|"CEN_D3_ORIGINAL_HOST_OUTCOME_UNKNOWN")??;
+        let reply:Value=serde_json::from_slice(&line)
+            .map_err(|_|"CEN_D3_ORIGINAL_HOST_JSON_INVALID")?;
+        host_reply(&reply,id)
+    }
+}
+fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
+    body:Value)->Result<Value,String>{
+    let state=app.state::<Mutex<Session>>();
+    let mut guard=state.lock()
+        .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
+    if guard.owner.as_ref()
+        .map(|owner|owner.organization_id.as_str())!=Some(organization_id){
+        guard.owner.take();
+        guard.owner=Some(OriginalOwner::open(app,organization_id)?);
+    }
+    let result=guard.owner.as_mut()
+        .ok_or("CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?
+        .call(verb,&body);
+    if result.is_err(){
+        // One failed command may have committed to original T3 before ACK
+        // was lost. Never send another action through that same process.
+        guard.owner.take();
+    }
+    result
+}
+fn close_original_owner(app:&AppHandle)->Result<(),String>{
+    let state=app.state::<Mutex<Session>>();
+    let mut guard=state.lock()
+        .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
+    guard.owner.take();
+    Ok(())
+}
 fn private_owner_state(app:&AppHandle,organization_id:&str)->Result<Value,String>{
-    let result=t3::run(app,"admin-d3","d3-state",&[organization_id.to_owned()])?;
+    let result=original_owner_call(app,organization_id,"state",Value::Null)?;
     supported_state(&result,organization_id,"D3_STATE")
 }
 fn corporate_age_root(app:&AppHandle,organization_id:&str)->Result<PathBuf,String>{
@@ -402,6 +538,9 @@ pub async fn center_corporate_state(
     // Public Center is fully functional for unsigned preparation/Atlas even
     // without a private signed original corporate owner installed.
     if !t3::admin_d3_availability(&app,&organization_id) {
+        // A switch to an unenrolled organization must release the previous
+        // original product.lock, not leave a hidden owner in another scope.
+        close_original_owner(&app)?;
         return Ok(json!({"status":"NOT_CONNECTED",
             "enrollmentAvailable":t3::binary_present(&app,"admin-d3")}));
     }
@@ -439,6 +578,9 @@ pub async fn center_corporate_enroll(
             "organizationName":organization_name.trim(),
             "workspaceId":workspace_id});
         let transient=store_request(&app,&data)?;
+        // Enrollment is the existing private CLI ceremony. It cannot run
+        // concurrently with the persistent owner of this same product.lock.
+        close_original_owner(&app)?;
         let out=t3::run(&app,"admin-d3","d3-enroll",
             &[organization_id.clone(),transient.0.to_string_lossy().into_owned()])?;
         supported_state(&out,&organization_id,"D3_ENROLLED")
@@ -568,10 +710,10 @@ pub async fn center_corporate_action(
             "archivePath":source_for_owner.as_ref()
                 .map(|p|p.to_string_lossy().to_string())
         });
-        let temporary_request=store_request(&app,&payload)?;
-        let output=t3::run(&app,"admin-d3","d3-action", &[
-            organization_id.clone(),temporary_request.0.to_string_lossy().into_owned(),
-        ])?;
+        // The same original DPAPI/Ed25519 owner now processes state, Task,
+        // Result and Reconciliation without reopening its product.lock for
+        // every button click. Signed context is revalidated inside it.
+        let output=original_owner_call(&app,&organization_id,"action",payload)?;
         if output["schema"]!=SCHEMA||
            output["operation"]!="D3_ACTION"||
            output["ownerMode"]!="ORIGINAL_SIGNED_CORPORATE_D3"||
@@ -615,6 +757,34 @@ pub async fn center_corporate_action(
 #[cfg(test)]
 mod tests{
     use super::*;
+    #[test]
+    fn persistent_original_owner_replies_are_exact_and_fail_closed(){
+        let good=json!({"schema":D3_HOST_REPLY,"id":4,"ok":true,
+            "result":{"schema":SCHEMA,"operation":"D3_STATE",
+              "ownerMode":"ORIGINAL_SIGNED_CORPORATE_D3",
+              "productionActivation":false,"T3_READY":false,
+              "activeSeats":0}});
+        assert_eq!(host_reply(&good,4).unwrap()["operation"],"D3_STATE");
+        assert!(host_reply(&good,5).is_err());
+        let mut forged=good.clone();
+        forged["result"]["productionActivation"]=json!(true);
+        assert!(host_reply(&forged,4).is_err());
+        forged=good.clone();
+        forged["result"]["ownerMode"]=json!("TEST");
+        assert!(host_reply(&forged,4).is_err());
+        forged=good.clone();
+        forged["schema"]=json!("OTHER_PROTOCOL");
+        assert!(host_reply(&forged,4).is_err());
+        let denial=json!({"schema":D3_HOST_REPLY,"id":7,"ok":false,
+            "code":"T3_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED"});
+        assert_eq!(host_reply(&denial,7).unwrap_err(),
+            "T3_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED");
+        let unsafe_error=json!({"schema":D3_HOST_REPLY,"id":7,"ok":false,
+            "code":"C:\\\\Users\\\\private\\\\secret"});
+        assert_eq!(host_reply(&unsafe_error,7).unwrap_err(),
+            "CEN_D3_ORIGINAL_HOST_REJECTED");
+    }
+
     #[test]
     fn original_d3_utf16_limits_match_russian_windows_forms(){
         // Original private Node T3 checks JS String.length, not UTF-8 bytes.

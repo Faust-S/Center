@@ -350,6 +350,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(std::sync::Mutex::new(cen05_host::Session::default()))
+        .manage(std::sync::Mutex::new(cen03_native::Session::default()))
         .invoke_handler(tauri::generate_handler![
             save_draft_file, open_draft_file, center_save_iwxa_file, center_open_iwxa_file,
             center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open,
