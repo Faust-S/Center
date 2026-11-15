@@ -139,8 +139,8 @@ jobs:
               try{
                 $item=Get-Content -Raw 'C:\i6\o\installed\installed-witness.json' | ConvertFrom-Json
                 if([string]$item.status -eq 'FAIL' -and
-                   [string]$item.failed_phase -match '^[A-Z0-9_]{1,60}$'){
-                  $stage=[string]$item.failed_phase
+                   [string]$item.phase -match '^[A-Z0-9_]{1,60}$'){
+                  $stage=[string]$item.phase
                 }
               }catch{}
             }
