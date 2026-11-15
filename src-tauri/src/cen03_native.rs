@@ -566,6 +566,38 @@ fn original_signed_workspace_origins(view:&Value)
     let kernel_origin=trusted.origin().ascii_serialization();
     Ok((url,ui_origin,kernel_origin))
 }
+// Projection for the ordinary React frontend. The bearer and pinned
+// Control address remain in the native process; React only gets a capability
+// presence bit and never receives the signed Workspace fragment credential.
+fn public_signed_workspace_projection(mut view:Value)->Value{
+    let available=original_signed_workspace_origins(&view).is_ok();
+    if let Some(snapshot)=view.get_mut("snapshot")
+        .and_then(Value::as_object_mut){
+        snapshot.remove("originalIsolatedWorkspaceUrl");
+        snapshot.remove("originalControlOrigin");
+        snapshot.remove("originalControlEpoch");
+        snapshot.insert("originalSignedWorkspaceAvailable".into(),
+            Value::Bool(available));
+    }
+    view
+}
+fn signed_workspace_navigation_allowed(
+    candidate:&tauri::Url,ui_origin:&str,kernel_origin:&str
+)->bool{
+    let origin=candidate.origin().ascii_serialization();
+    if candidate.scheme()!="http"||candidate.host_str()!=Some("127.0.0.1")||
+        candidate.username()!=""||candidate.password().is_some()||
+        candidate.query().is_some(){return false;}
+    if origin==ui_origin{
+        return matches!(candidate.path(),
+            "/workspace/isolated-signed-workspace.html"|"/workspace/");
+    }
+    // Only the existing signed iframe may use the original trusted origin.
+    // Never allow top-level arbitrary Control, loader or API navigation.
+    origin==kernel_origin&&
+        candidate.path()=="/workspace/trusted-kernel-realm.html"&&
+        candidate.fragment().is_none()
+}
 fn close_original_signed_workspace(app:&AppHandle)->Result<(),String>{
     if let Some(webview)=app.get_webview(SIGNED_WORKSPACE_WEBVIEW){
         webview.close()
@@ -618,10 +650,9 @@ pub async fn center_corporate_open_signed_workspace(
         let builder=tauri::webview::WebviewBuilder::new(
             SIGNED_WORKSPACE_WEBVIEW,tauri::WebviewUrl::External(url)
         ).auto_resize()
-        .on_navigation(move|candidate|{
-            let origin=candidate.origin().ascii_serialization();
-            origin==ui_origin||origin==kernel_origin
-        })
+        .on_navigation(move|candidate|
+            signed_workspace_navigation_allowed(
+                &candidate,&ui_origin,&kernel_origin))
         .on_new_window(|_,_|tauri::webview::NewWindowResponse::Deny);
         window.add_child(builder,
             tauri::LogicalPosition::new(x,y),
@@ -683,7 +714,8 @@ pub async fn center_corporate_state(
             "enrollmentAvailable":t3::binary_present(&app,"admin-d3")}));
     }
     tauri::async_runtime::spawn_blocking(move||
-        private_owner_state(&app,&organization_id))
+        private_owner_state(&app,&organization_id)
+            .map(public_signed_workspace_projection))
         .await.map_err(|_|"CEN_D3_NATIVE_WORKER_FAILED".to_owned())?
 }
 #[tauri::command]
