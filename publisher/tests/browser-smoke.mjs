@@ -906,6 +906,18 @@ try {
   const personal=await browser.newPage({viewport:{width:1050,height:820}});
   personal.on('pageerror',e=>errors.push('personal fixture: '+e.message));
   await personal.addInitScript(()=>{
+    // Original T3 core canonical SHA-256, with mocked signatures/records.
+    const canonical=value=>value===null||typeof value!=='object'?
+      JSON.stringify(value):Array.isArray(value)?
+      '['+value.map(canonical).join(',')+']':
+      '{'+Object.keys(value).sort().map(k=>
+        JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}';
+    const requestDigest=async request=>{
+      const bytes=new TextEncoder().encode(canonical(request));
+      const hash=await crypto.subtle.digest('SHA-256',bytes);
+      return Array.from(new Uint8Array(hash),v=>
+        v.toString(16).padStart(2,'0')).join('');
+    };
     window.assertPersonRequest=(r,issuer)=>{
       if(r.environment!=='PRODUCTION'||r.kind!=='PERSON_LICENSE_REQUEST'||
          r.subject.type!=='PERSON'||r.product.id!=='IWXA_ATLAS'||
@@ -951,7 +963,10 @@ try {
         const r=JSON.parse(args.requestJson);
         window.assertPersonRequest(r,args.issuerAuthorityId);
         const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
+        const unsignedDigest=await requestDigest(r);
         const issued=ledger.find(e=>e.requestId===r.requestId);
+        if(issued&&issued.requestDigest!==unsignedDigest)
+          throw Error('PERSON_ISSUE_REQUEST_CONFLICT');
         if(issued)return {operation:'PERSON_ISSUE',outcome:'ALREADY_ISSUED',
           licenseId:issued.licenseId,requestId:r.requestId,
           activeSeats:0,productionActivation:false};
@@ -967,7 +982,7 @@ try {
           personId:r.subject.id,productId:r.product.id,
           ...(prior?{renewalOfLicenseId:prior.licenseId}:{}),
           deviceLimit:r.deviceLimit,quotaCount:r.quotas.length,
-          issuedAt,notBefore:issuedAt,
+          requestDigest:unsignedDigest,issuedAt,notBefore:issuedAt,
           expiresAt:new Date(Date.parse(issuedAt)+r.termDays*86400000).toISOString(),
           status:'NOT_ACTIVATED',sequence:0,activeSeats:0};
         ledger.push(one);
@@ -1100,14 +1115,17 @@ try {
   // A signed requestId belongs to the ORIGINAL T3 ledger, not to an
   // arbitrary local draft. Refuse a different subject, including when the
   // conflicting record has already fallen outside the recent inventory.
+  // All summary fields match; only the immutable full request differs.
+  const conflictingStart=new Date().toISOString();
   const conflictingSignedSource={
     licenseId:'license:person:other:issuer:1',
     requestId:directDraft.proposals[0].id,
     issuerAuthorityId:'publisher:person:mock',
-    personId:'person:different-customer',
+    personId:'person:local-example',
     productId:'IWXA_ATLAS',deviceLimit:3,quotaCount:0,
-    issuedAt:new Date().toISOString(),notBefore:new Date().toISOString(),
-    expiresAt:new Date(Date.now()+30*86400000).toISOString(),
+    requestDigest:'0'.repeat(64),
+    issuedAt:conflictingStart,notBefore:conflictingStart,
+    expiresAt:new Date(Date.parse(conflictingStart)+30*86400000).toISOString(),
     status:'NOT_ACTIVATED',sequence:0,activeSeats:0
   };
   const nativeIssueCallsBefore=await personal.evaluate(()=>
@@ -1129,6 +1147,7 @@ try {
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
   assert.equal(await personOwner.getByTestId('publisher-person-already-issued').count(),0);
   checks.push('person-signed-request-id-conflict-never-claimed-as-issued-or-resigned');
+  checks.push('person-request-digest-rejects-different-rights-with-matching-summary');
   await personal.evaluate(()=>{
     sessionStorage.removeItem('publisher-person-mock-ledger');
   });
@@ -1344,6 +1363,7 @@ try {
       licenseId:'license:historical:'+i,requestId:'request:historical:'+i,
       issuerAuthorityId:'publisher:person:mock',personId:'person:other:'+i,
       productId:'IWXA_ATLAS',deviceLimit:1,quotaCount:0,
+      requestDigest:'f'.repeat(64),
       issuedAt:new Date().toISOString(),notBefore:new Date().toISOString(),
       expiresAt:new Date(Date.now()+30*86400000).toISOString(),
       statusIssuedAt:new Date().toISOString(),

@@ -1,11 +1,13 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import {prepareUnsignedPersonLicenseRequest,preparePersonRenewalDraftCommand,
-  validatePersonRenewalSource} from '../src/person-license-request.mjs';
+  validatePersonRenewalSource,fingerprintUnsignedPersonRequest}
+  from '../src/person-license-request.mjs';
 
 type NativeInvoke=(name:string,args?:Record<string,unknown>)=>Promise<any>;
 type PersonRecord={
   licenseId:string;requestId:string;issuerAuthorityId:string;
   personId:string;productId:string;deviceLimit:number;quotaCount:number;
+  requestDigest:string;
   issuedAt:string;notBefore:string;expiresAt:string;
   statusIssuedAt?:string;statusValidUntil?:string;
   renewalOfLicenseId?:string;
@@ -42,7 +44,7 @@ const shortLicenseId=(value:string)=>value.length>30?
 // The owner inventory is deliberately bounded: check every available
 // identity and term field before treating a signed requestId as this draft.
 // The original T3 owner alone verifies the full immutable request digest.
-const matchesSignedPersonScope=(record:PersonRecord,request:any,issuer?:string)=>
+const matchesSignedPersonScope=(record:PersonRecord,request:any,issuer?:string,expectedDigest?:string)=>
   record.requestId===request?.requestId&&
   record.personId===request?.subject?.id&&
   record.productId===request?.product?.id&&
@@ -52,7 +54,8 @@ const matchesSignedPersonScope=(record:PersonRecord,request:any,issuer?:string)=
   Number.isSafeInteger(request?.termDays)&&
   Date.parse(record.expiresAt)-Date.parse(record.notBefore)===
     request.termDays*86400000&&
-  Boolean(record.renewalOfLicenseId)===Boolean(request?.renewalOfRequestId);
+  Boolean(record.renewalOfLicenseId)===Boolean(request?.renewalOfRequestId)&&
+  (expectedDigest===undefined||record.requestDigest===expectedDigest);
 export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequestId,ageReady}:Props){
   const [issuers,setIssuers]=useState<string[]>([]);
   const [issuer,setIssuer]=useState('');
@@ -79,6 +82,10 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
   const [pendingRenewalSource,setPendingRenewalSource]=useState('');
   const [message,setMessage]=useState('');
   const [failure,setFailure]=useState('');
+  const [selectedFingerprint,setSelectedFingerprint]=useState<{
+    source:any;hash:string
+  }|null>(null);
+  const [fingerprintFailure,setFingerprintFailure]=useState(false);
   const options=useMemo(()=>{
     const proposals=Array.isArray(draft?.proposals)?draft.proposals:[];
     return proposals.flatMap((proposal:any)=>{
@@ -97,9 +104,23 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
   // confirms this request, the UI must not invite a redundant signature.
   const issuedSelected=selected?licenses.find(l=>
     l.requestId===selected.request.requestId):undefined;
-  const signedSourceConflict=Boolean(issuedSelected&&selected&&
-    !matchesSignedPersonScope(issuedSelected,selected.request));
+  // A short inventory summary is not enough: different featureIds, quota
+  // amounts, product versions or original requestedAt can share its fields.
+  const originalRequestHash=selectedFingerprint?.source===selected?.request?
+    selectedFingerprint.hash:null;
+  const signedSourceConflict=Boolean(issuedSelected&&selected&&originalRequestHash&&
+    !matchesSignedPersonScope(issuedSelected,selected.request,undefined,originalRequestHash));
+  const signedSourcePending=Boolean(issuedSelected&&!originalRequestHash);
   const selectedLicense=licenses.find(l=>l.licenseId===licenseId);
+  useEffect(()=>{
+    let alive=true;
+    const request=selected?.request;
+    setSelectedFingerprint(null);setFingerprintFailure(false);
+    if(request)void fingerprintUnsignedPersonRequest(request)
+      .then(hash=>{if(alive)setSelectedFingerprint({source:request,hash});})
+      .catch(()=>{if(alive)setFingerprintFailure(true);});
+    return()=>{alive=false;};
+  },[selected?.request]);
   const renewalOptions=(Array.isArray(draft?.tariffs)?draft.tariffs:[])
     .filter((t:any)=>t.productId===selectedLicense?.productId&&t.holderType==='PERSON');
   const selectedRenewal=renewalOptions.find((t:any)=>
@@ -145,6 +166,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
        !id(x.requestId)||!id(x.issuerAuthorityId)||!id(x.personId)||
        !['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(x.productId)||
        !['NOT_ACTIVATED','ACTIVE','SUSPENDED','REVOKED'].includes(x.status)||
+       !digest(x.requestDigest)||
        !Number.isSafeInteger(x.deviceLimit)||x.deviceLimit<1||
        !Number.isSafeInteger(x.quotaCount)||x.quotaCount<0||
        !Number.isSafeInteger(x.sequence)||x.sequence<0||x.activeSeats!==0||
@@ -313,6 +335,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     const authority=issuer;
     const source=draft.proposals?.find((p:any)=>p.id===selected.proposalId);
     await operate(async mutationSent=>{
+      const sourceHash=await fingerprintUnsignedPersonRequest(request);
       // A signed renewal remains a durable record even if its original
       // license was later revoked or expired. Find it before checking the
       // conditions for a NEW renewal or invoking the signer.
@@ -321,7 +344,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       const prior=checkedInventory(before,request.requestId)
         .find(x=>x.requestId===request.requestId);
       if(prior){
-        if(!matchesSignedPersonScope(prior,request,authority))
+        if(!matchesSignedPersonScope(prior,request,authority,sourceHash))
           throw Error('PERSON_SIGNED_REQUEST_SCOPE_MISMATCH');
         if(request.renewalOfRequestId){
           // Recover a previously signed renewal even after the predecessor
@@ -345,7 +368,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
           selectLicenseId:prior.licenseId,
           confirm:({entries}:Inventory)=>entries.some(x=>
             x.licenseId===prior.licenseId&&
-            matchesSignedPersonScope(x,request,authority))
+            matchesSignedPersonScope(x,request,authority,sourceHash))
         };
       }
       if(source?.previousProposalId){
@@ -374,7 +397,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         readbackLookupId:request.requestId,
         selectLicenseId:result.licenseId,
         confirm:({entries}:Inventory)=>entries.some(x=>x.licenseId===result.licenseId&&
-          matchesSignedPersonScope(x,request,authority))
+          matchesSignedPersonScope(x,request,authority,sourceHash))
       };
     },true);
   }
@@ -519,7 +542,14 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
           onChange={e=>setTermsConfirmed(e.target.checked)}
           disabled={busy}/> Подтверждаю выпуск на указанных условиях</label>
       </div>}
-      {issuedSelected&&(signedSourceConflict?
+      {issuedSelected&&(signedSourcePending?
+        <p className="notice subdued" data-testid="publisher-person-signed-digest-pending">
+          {fingerprintFailure?
+            'Невозможно проверить точное совпадение подписанного запроса T3 в этом окружении.':
+            'Проверяем точный отпечаток подписанного запроса T3…'}
+          Выдача повторной лицензии недоступна.
+        </p>:
+        signedSourceConflict?
         <p className="notice" role="alert"
           data-testid="publisher-person-signed-source-conflict">
           Этот requestId уже занят подписанной записью T3:

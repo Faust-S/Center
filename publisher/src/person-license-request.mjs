@@ -70,6 +70,24 @@ export function validateUnsignedPersonLicenseRequest(input){
   }
   return structuredClone(input);
 }
+// Confirm the original T3 Owner's stored canonical requestDigest using the
+// browser's built-in SHA-256. No key material, signing or second ledger.
+// T3 core.mjs canonical() recursively sorts object keys before hashing.
+export async function fingerprintUnsignedPersonRequest(input){
+  const request=validateUnsignedPersonLicenseRequest(input);
+  const canonical=value=>value===null||typeof value!=='object'?
+    JSON.stringify(value):
+    Array.isArray(value)?'['+value.map(canonical).join(',')+']':
+    '{'+Object.keys(value).sort().map(key=>
+      JSON.stringify(key)+':'+canonical(value[key])).join(',')+'}';
+  const cryptoApi=globalThis.crypto?.subtle;
+  if(!cryptoApi)reject('PERSON_ORIGINAL_T3_DIGEST_UNAVAILABLE');
+  const bytes=new TextEncoder().encode(canonical(request));
+  const hash=await cryptoApi.digest('SHA-256',bytes);
+  return Array.from(new Uint8Array(hash),byte=>
+    byte.toString(16).padStart(2,'0')).join('');
+}
+
 export function prepareUnsignedPersonLicenseRequest(draft,{proposalId}){
   const state=validatePublisherDraft(draft);
   if(typeof proposalId!=='string'||!ID.test(proposalId))
