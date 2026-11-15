@@ -198,33 +198,7 @@ jobs:
                   if($k03HttpStatus -match '^(400|401|403|409|500|503)$'){
                     Write-Host ('K05_NATIVE_K03_HTTP_STATUS='+$k03HttpStatus)
                   }
-                  if($k03HttpReason -match '^(k03_host_source_changed|k03_host_selection_input_invalid|k03_builtin_surface_required|unknown_query)
-                }
-              }catch{}
-              Write-Host ('K05_NATIVE_INSTALLED_RECEIPT_'+$step[1]+'='+$status)
-            }
-            Write-Host ('K05_NATIVE_INSTALLED_FAILURE_STAGE='+$stage)
-            if(Test-Path -LiteralPath $log -PathType Leaf){
-              $privateText=[IO.File]::ReadAllText($log)
-              # Never print raw errors, paths, documents, model output or tokens.
-              $regex='(?<![A-Za-z0-9_])(?:SETUP_LOCAL|agent_setup|agent_native_gui|K05_NATIVE)_[A-Za-z0-9_]{3,75}'
-              $unique=[System.Collections.Generic.HashSet[string]]::new(
-                [StringComparer]::OrdinalIgnoreCase)
-              foreach($match in [regex]::Matches($privateText,$regex)){
-                $code=[string]$match.Value
-                if($unique.Add($code) -and $unique.Count -le 12){
-                  Write-Host ('K05_NATIVE_INSTALLED_SAFE_ERROR_CODE='+$code)
-                }
-              }
-              if($unique.Count -eq 0){
-                Write-Host 'K05_NATIVE_INSTALLED_SAFE_ERROR_CODE=NONE_FOUND'
-              }
-            }
-            throw 'K05_NATIVE_INSTALLED_TAURI_WITNESS_FAIL'
-          }
-          Write-Host 'K05_NATIVE_SETUP_CORE_INSTALLED_TAURI_WITNESS_PASS'
-      # Do not cache, upload, print, email or persist any private artifacts.
-){
+                  if($k03HttpReason -match '^(k03_host_source_changed|k03_host_selection_input_invalid|k03_builtin_surface_required|unknown_query)$'){
                     Write-Host ('K05_NATIVE_K03_HTTP_REASON='+$k03HttpReason)
                   }
                   # Bounded scheduler diagnostic, emitted by original private Core.
