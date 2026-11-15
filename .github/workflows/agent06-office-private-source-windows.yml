@@ -319,6 +319,44 @@ jobs:
                 if($text.Contains('control_unavailable:')){
                   Write-Host 'AGENT06_OFFICE_INSTALLED_GUI_FAILURE_CLASS=CONTROL_UNAVAILABLE'
                 }
+                if($text.Contains('gui_package_install_failed')){
+                  # The installed script captures the private installer's
+                  # error JSON. Emit only an explicit fixed-code allowlist,
+                  # never paths, exception messages, stdout, or stderr.
+                  $installCodes=@(
+                    'package_unreadable','archive_manifest_invalid','archive_manifest_mismatch',
+                    'managed_runtime_capsule_mismatch','managed_runtime_capsule_invalid',
+                    'managed_runtime_descriptor_capsule_identity_mismatch',
+                    'managed_runtime_expanded_size_mismatch','payload_digest_mismatch',
+                    'source_digest_mismatch','host_blocked','insufficient_disk_space',
+                    'install_disk_probe_failed','fresh_install_root_not_empty',
+                    'install_writer_busy_or_stale','install_destination_symlink_forbidden',
+                    'install_destination_parent_not_directory','install_destination_not_file',
+                    'example_config_missing','installed_payload_verification_failed',
+                    'managed_runtime_qualification_inputs_missing',
+                    'managed_runtime_dependency_check_failed',
+                    'managed_runtime_dependency_check_invalid',
+                    'managed_runtime_dependency_check_not_ready',
+                    'managed_runtime_core_import_not_verified',
+                    'managed_runtime_root_not_directory','managed_runtime_undeclared_dependency_cleanup_failed',
+                    'managed_cpython_not_staged','managed_runtime_dependency_manifest_missing',
+                    'product_managed_runtime_not_staged','package_missing',
+                    'managed_runtime_python_missing','python_executable_unavailable'
+                  )
+                  $diagnosed=$false
+                  foreach($code in $installCodes){
+                    if($text.Contains(('"error": "'+$code))){
+                      $diagnosed=$true
+                      Write-Host ('AGENT06_OFFICE_INSTALLER_ERROR_CODE='+$code)
+                    }
+                  }
+                  if(!$diagnosed){Write-Host 'AGENT06_OFFICE_INSTALLER_ERROR_CODE=OTHER'}
+                  $qa=Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+                  $receipt=Join-Path $qa 'install/explorer-install-receipt.json'
+                  if(Test-Path -LiteralPath $receipt -PathType Leaf){
+                    Write-Host 'AGENT06_OFFICE_INSTALL_RECEIPT_PRESENT=YES'
+                  }else{Write-Host 'AGENT06_OFFICE_INSTALL_RECEIPT_PRESENT=NO'}
+                }
               }
               throw 'AGENT06_OFFICE_INSTALLED_NATIVE_GUI_HOLD'
             }
