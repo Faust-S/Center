@@ -1,0 +1,151 @@
+# Public Center runner, private Agent source is temporary and read-only.
+# Uses original Setup Core, original Task/Core and real native UIA witness.
+# No upload-artifact, cache or private output in public logs.
+name: Agent 0.6 K05 installed native Setup Core Windows acceptance
+on:
+  push:
+    branches:
+      - work/2026-11-15-agent06-k05-executor-comparison
+    paths:
+      - .github/workflows/agent06-k05-installed-setup-core.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-k05-installed-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  k05-installed-windows:
+    runs-on: windows-2022
+    timeout-minutes: 110
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PIP_NO_CACHE_DIR: '1'
+      AGENT_K05_NATIVE_EXACT_SHA: '5a9f264a91a30cdbf870acf5a139ebf94f0d9bc8'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: center-owner
+          persist-credentials: false
+      - name: Require owner-authorized private source read
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'K05_NATIVE_PRIVATE_SOURCE_READ_MISSING'
+          }
+          Write-Host 'K05_NATIVE_PRIVATE_READ_ACCESS_PRESENT'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_K05_NATIVE_EXACT_SHA }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact owners and create short disposable Windows roots
+        shell: pwsh
+        run: |
+          $agent=(& git -C private-agent rev-parse HEAD).Trim()
+          $center=(& git -C center-owner rev-parse HEAD).Trim()
+          if($agent -cne $env:AGENT_K05_NATIVE_EXACT_SHA -or
+             $center -cne $env:GITHUB_SHA){
+            throw 'K05_NATIVE_SOURCE_SHA_MISMATCH'
+          }
+          $short='C:\i6'
+          if(Test-Path -LiteralPath $short){throw 'K05_NATIVE_SHORT_ROOT_OCCUPIED'}
+          New-Item -ItemType Directory -Force -Path $short | Out-Null
+          $log=Join-Path $env:RUNNER_TEMP 'k05-native-short-checkout-private.log'
+          & git -c core.longpaths=true clone --no-checkout (Resolve-Path private-agent).Path 'C:\i6\a' *> $log
+          if($LASTEXITCODE -ne 0){throw 'K05_NATIVE_SHORT_AGENT_CLONE_FAIL'}
+          & git -C 'C:\i6\a' -c core.longpaths=true checkout --detach $agent *> $log
+          if($LASTEXITCODE -ne 0){throw 'K05_NATIVE_SHORT_AGENT_SHA_FAIL'}
+          & git -c core.longpaths=true clone --no-checkout (Resolve-Path center-owner).Path 'C:\i6\c' *> $log
+          if($LASTEXITCODE -ne 0){throw 'K05_NATIVE_SHORT_CENTER_CLONE_FAIL'}
+          & git -C 'C:\i6\c' -c core.longpaths=true checkout --detach $center *> $log
+          if($LASTEXITCODE -ne 0){throw 'K05_NATIVE_SHORT_CENTER_SHA_FAIL'}
+          if(((& git -C 'C:\i6\a' rev-parse HEAD).Trim() -cne $agent) -or
+             ((& git -C 'C:\i6\c' rev-parse HEAD).Trim() -cne $center)){
+            throw 'K05_NATIVE_SHORT_PATH_IDENTITY_FAIL'
+          }
+          Write-Host ('K05_NATIVE_AGENT_SHA='+$agent)
+          Write-Host ('K05_NATIVE_CENTER_SHA='+$center)
+          Write-Host 'K05_NATIVE_SHORT_CHECKOUT_PASS'
+      - name: Build original product ZIP with K05 and one Center Setup Core
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $root='C:\i6'
+          $logs=Join-Path $root 'o\logs'
+          $build=Join-Path $root 'o\build'
+          $cache=Join-Path $root 'o\cache'
+          New-Item -ItemType Directory -Force -Path $logs,$build,$cache | Out-Null
+          $agent=(& git -C 'C:\i6\a' rev-parse HEAD).Trim()
+          $tree=(& git -C 'C:\i6\a' rev-parse 'HEAD^{tree}').Trim()
+          $center=(& git -C 'C:\i6\c' rev-parse HEAD).Trim()
+          $ps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          $log=Join-Path $env:RUNNER_TEMP 'k05-native-private-build.log'
+          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'C:\i6\a\qualification\phase1\build_native_windows_setup_candidate.ps1' -RepoRoot 'C:\i6\a' -BuildRoot $build -LogsRoot $logs -ReleaseCache $cache -SourceCommit $agent -SourceTree $tree -ProductPackageOnly *> $log
+          if($LASTEXITCODE -ne 0){
+            Write-Host 'K05_NATIVE_BUILD_FAILURE_STAGE=PRODUCT_PACKAGE'
+            throw 'K05_NATIVE_BUILD_PRODUCT_PACKAGE_FAIL'
+          }
+          $package=Join-Path $build 'package\IWXA-Personal-Agent-Windows-Explorer-Prototype.zip'
+          $manifest=Join-Path $build 'package\bootstrap\package-manifest.json'
+          if(!(Test-Path -LiteralPath $package -PathType Leaf) -or
+             !(Test-Path -LiteralPath $manifest -PathType Leaf)){
+            throw 'K05_NATIVE_PRODUCT_PACKAGE_MISSING'
+          }
+          $m=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+          if($m.source_commit -cne $agent -or
+             $m.source_tree -cne $tree -or
+             $m.k05_pinned_sources_included -ne $true -or
+             $m.desktop_native_included -ne $true){
+            throw 'K05_NATIVE_PRODUCT_MANIFEST_MISMATCH'
+          }
+          Write-Host 'K05_NATIVE_TAURI_AND_K05_PACKAGE_PASS'
+          $python=(Get-Content -LiteralPath (Join-Path $build 'test-python\current-python.txt') -Raw).Trim()
+          $setup=Join-Path $root 'o\IWXA-Personal-Agent-K05-Setup.exe'
+          $log=Join-Path $env:RUNNER_TEMP 'k05-native-setupcore-build-private.log'
+          & $python -B 'C:\i6\a\tools\build_setup_core_release.py' --product-package $package --center-root 'C:\i6\c' --center-commit $center --output $setup --python $python *> $log
+          if($LASTEXITCODE -ne 0){throw 'K05_NATIVE_ORIGINAL_SETUP_CORE_BUILD_FAIL'}
+          $digest=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($digest.Length -ne 64){throw 'K05_NATIVE_SETUP_CORE_SHA_INVALID'}
+          Write-Host 'K05_NATIVE_ORIGINAL_SETUP_CORE_BUILT_PASS'
+          Write-Host ('K05_NATIVE_SETUP_SHA256='+$digest)
+      - name: Install original Setup Core and qualify native Tauri witness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $setup='C:\i6\o\IWXA-Personal-Agent-K05-Setup.exe'
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
+            throw 'K05_NATIVE_SETUP_FILE_MISSING'
+          }
+          $log=Join-Path $env:RUNNER_TEMP 'k05-installed-acceptance-private.log'
+          $ps=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          $agent=(& git -C 'C:\i6\a' rev-parse HEAD).Trim()
+          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'C:\i6\c\installer\windows\qualify-local-bundle.ps1' -Setup $setup -ProductId 'iwxa.personal-agent' -SandboxRoot 'C:\i6\o\installed' -SourceCommit $agent -WitnessScript 'C:\i6\a\tools\qualify_setup_core_runtime.ps1' -WitnessTimeoutSeconds 3000 *> $log
+          if($LASTEXITCODE -ne 0){
+            $stage='UNKNOWN'
+            if(Test-Path -LiteralPath 'C:\i6\o\installed\installed-witness.json'){
+              try{
+                $item=Get-Content -Raw 'C:\i6\o\installed\installed-witness.json' | ConvertFrom-Json
+                if([string]$item.status -eq 'FAIL' -and
+                   [string]$item.failed_phase -match '^[A-Z0-9_]{1,60}$'){
+                  $stage=[string]$item.failed_phase
+                }
+              }catch{}
+            }
+            Write-Host ('K05_NATIVE_INSTALLED_FAILURE_STAGE='+$stage)
+            throw 'K05_NATIVE_INSTALLED_TAURI_WITNESS_FAIL'
+          }
+          Write-Host 'K05_NATIVE_SETUP_CORE_INSTALLED_TAURI_WITNESS_PASS'
+      # Do not cache, upload, print, email or persist any private artifacts.
