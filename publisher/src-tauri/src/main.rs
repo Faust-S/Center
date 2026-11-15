@@ -53,6 +53,24 @@ fn read_preparation(root: &Path) -> Result<Option<String>, String> {
     validate_preparation(&content)?;
     Ok(Some(content))
 }
+// Keep the actual source bytes, including legacy v1 files, authoritative.
+// The desktop may not overwrite a draft changed by a second Publisher.
+fn draft_fingerprint(root:&Path)->Result<String,String>{
+    Ok(match read_preparation(root)?{
+        None=>"ABSENT".to_string(),
+        Some(raw)=>format!("{:x}",Sha256::digest(raw.as_bytes()))
+    })
+}
+fn write_preparation_if_current(root:&Path,content:&str,expected:&str)->Result<(),String>{
+    let valid=expected=="ABSENT"||
+      (expected.len()==64&&expected.bytes().all(|b|
+        b.is_ascii_digit()||(b'a'..=b'f').contains(&b)));
+    if !valid{return Err("PUBLISHER_DRAFT_EXPECTED_SHA256_INVALID".into());}
+    if draft_fingerprint(root)?!=expected{
+        return Err("PUBLISHER_DRAFT_CHANGED_ON_DISK".into());
+    }
+    write_preparation(root,content)
+}
 #[cfg(windows)]
 fn setup_core_publisher_data_root() -> Result<Option<PathBuf>, String> {
     use std::{ffi::OsString, os::windows::ffi::OsStringExt};
@@ -151,9 +169,10 @@ fn publisher_diagnostics(app: AppHandle, state: State<DraftLock>)
     Ok(inspect_publisher_diagnostics(&root, &profile))
 }
 #[tauri::command]
-fn publisher_draft_save(app: AppHandle, state: State<DraftLock>, content: String) -> Result<bool, String> {
+fn publisher_draft_save(app: AppHandle, state: State<DraftLock>,
+    content: String, expected_sha256:String) -> Result<bool, String> {
     let _guard = state.0.lock().map_err(|_| "PUBLISHER_DRAFT_LOCK_INVALID")?;
-    write_preparation(&publisher_root(&app)?, &content)?;
+    write_preparation_if_current(&publisher_root(&app)?, &content, &expected_sha256)?;
     Ok(true)
 }
 #[tauri::command]
@@ -720,6 +739,30 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn stale_preparation_snapshot_refuses_overwrite_and_supports_reopen() {
+        let root=scratch();
+        let original=valid_preparation();
+        assert_eq!(draft_fingerprint(&root).unwrap(),"ABSENT");
+        write_preparation_if_current(&root,&original,"ABSENT").unwrap();
+        let initial=draft_fingerprint(&root).unwrap();
+        assert_eq!(initial,format!("{:x}",Sha256::digest(original.as_bytes())));
+        let changed=original.replace("\"products\":[]", "\"products\":[{\"id\":\"EXTERNAL\"}]");
+        write_preparation_if_current(&root,&changed,&initial).unwrap();
+        let newer=draft_fingerprint(&root).unwrap();
+        assert_ne!(newer,initial);
+        let stale=original.replace("\"products\":[]", "\"products\":[{\"id\":\"STALE\"}]");
+        assert_eq!(write_preparation_if_current(&root,&stale,&initial).unwrap_err(),
+            "PUBLISHER_DRAFT_CHANGED_ON_DISK");
+        assert_eq!(write_preparation_if_current(&root,&stale,"ABSENT").unwrap_err(),
+            "PUBLISHER_DRAFT_CHANGED_ON_DISK");
+        assert_eq!(read_preparation(&root).unwrap().unwrap(),changed);
+        assert_eq!(write_preparation_if_current(&root,&stale,"bad").unwrap_err(),
+            "PUBLISHER_DRAFT_EXPECTED_SHA256_INVALID");
+        write_preparation_if_current(&root,&stale,&newer).unwrap();
+        assert_eq!(read_preparation(&root).unwrap().unwrap(),stale);
+        let _=fs::remove_dir_all(root);
+    }
     #[test]
     fn native_legacy_preparation_migrates_in_place_to_version_two() {
         let root=scratch();
