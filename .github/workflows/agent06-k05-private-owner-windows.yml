@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: agent06-k05-original-owner-\${{ github.ref }}
+  group: agent06-k05-original-owner-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   k05-private-owner:
@@ -28,7 +28,7 @@ jobs:
       - name: Require authorized temporary private source read
         shell: pwsh
         env:
-          PRIVATE_SOURCE_TOKEN: \${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: |
           if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
             throw 'AGENT06_K05_PRIVATE_SOURCE_PERMISSION_MISSING'
@@ -38,9 +38,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: \${{ env.AGENT_K05_EXACT_SHA }}
+          ref: ${{ env.AGENT_K05_EXACT_SHA }}
           path: private-agent
-          token: \${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
       - name: Read exact public K05 adapter source without copying into Agent
         uses: actions/checkout@v4
