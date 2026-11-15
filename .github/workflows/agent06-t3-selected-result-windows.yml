@@ -57,7 +57,8 @@ jobs:
           Push-Location private-agent
           try {
             $groups=@(
-              @('TRANSPORT','tests/test_erp_order_readonly_v1.py'),
+              @('HTTP','tests/test_erp_order_readonly_v1.py -k not_toolruntime'),
+              @('READ_PATH','tests/test_erp_order_readonly_v1.py -k test_toolruntime'),
               @('BINDINGS','tests/test_provider_registry_erp_slot.py'),
               @('SETUP','tests/test_user_setup_connections.py'),
               @('TOOLRUNTIME','tests/test_tool_provider_layer.py'),
@@ -67,7 +68,8 @@ jobs:
             foreach($pair in $groups){
               $kind=$pair[0];$test=$pair[1]
               $out=Join-Path $env:RUNNER_TEMP ('a06-erp-'+$kind.ToLower()+'-private.log')
-              & python -B -m pytest -q -p no:cacheprovider $test *> $out
+              $parts=$test.Split(' ')
+              & python -B -m pytest -q -p no:cacheprovider @parts *> $out
               $code=$LASTEXITCODE
               if($code -ne 0){
                 Write-Host ('AGENT06_ERP_'+$kind+'_FAIL')
