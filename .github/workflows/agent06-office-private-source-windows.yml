@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '21d8f5dbc0caeec95634b4bd4936de1afe43d973'
+      AGENT_OFFICE_SHA: 'b0615984398fbcca5fe8d0a8cdee146203d1634d'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,7 +108,7 @@ jobs:
           try {
             & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-office-npm-private.txt')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_DESKTOP_DEPENDENCIES_FAIL'}
-            & node --test tests/task-review-file-candidate.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-tests-private.txt')
+            & node --test tests/task-review-file-candidate.test.mjs tests/office-docx-proposal.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-tests-private.txt')
             if($LASTEXITCODE -ne 0){
               Write-Host 'AGENT06_OFFICE_DOCUMENT_REVIEW_FAIL'
               Set-Content (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-failed') 'FAIL'
