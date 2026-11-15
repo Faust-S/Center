@@ -1019,6 +1019,19 @@ try {
           activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_person_issue'){
+        const latest=sessionStorage.getItem('iwxa-publisher-person-fixture');
+        const hash=async raw=>Array.from(new Uint8Array(
+          await crypto.subtle.digest('SHA-256',new TextEncoder().encode(raw))),
+          byte=>byte.toString(16).padStart(2,'0')).join('');
+        if(window.__personMockRaceBeforeNativeIssue){
+          window.__personMockRaceBeforeNativeIssue=false;
+          const external=JSON.parse(latest);
+          external.products[0].name='Other Publisher changed file during IPC';
+          sessionStorage.setItem('iwxa-publisher-person-fixture',JSON.stringify(external));
+        }
+        if(args.expectedDraftSha256!==await hash(
+          sessionStorage.getItem('iwxa-publisher-person-fixture')))
+          throw Error('PUBLISHER_DRAFT_CHANGED_ON_DISK');
         window.__personMockIssueCalls=(window.__personMockIssueCalls||0)+1;
         const r=JSON.parse(args.requestJson);
         window.assertPersonRequest(r,args.issuerAuthorityId);

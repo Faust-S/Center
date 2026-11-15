@@ -333,6 +333,11 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       }
       setMessage(result.message);
     }catch(e){
+      if(err(e).includes('PUBLISHER_DRAFT_CHANGED_ON_DISK')){
+        setFailure('Локальный черновик изменился перед подписью. '+
+          'Выпуск не выполнен. Перечитайте сохранённые условия.');
+        return;
+      }
       // The native T3 process may have committed a signed mutation before
       // losing its IPC response. Never allow a second issue/status change
       // until an independently read owner ledger settles the ambiguity.
@@ -409,8 +414,19 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       // source immediately before asking the original T3 to sign.
       await ensureSigningDraftCurrent(reviewedDraftSha256);
       mutationSent();
-      const result=await invoke('publisher_t3_person_issue',{
-        requestJson:JSON.stringify(request),issuerAuthorityId:authority});
+      let result;
+      try{
+        result=await invoke('publisher_t3_person_issue',{
+          requestJson:JSON.stringify(request),issuerAuthorityId:authority,
+          expectedDraftSha256:reviewedDraftSha256});
+      }catch(e){
+        if(err(e).includes('PUBLISHER_DRAFT_CHANGED_ON_DISK')){
+          // Native rejected the request before the original signer launched.
+          // Show a reload action, not an invented signed issuance.
+          await ensureSigningDraftCurrent(reviewedDraftSha256);
+        }
+        throw e;
+      }
       if(result?.operation!=='PERSON_ISSUE'||result.productionActivation!==false||
          result.activeSeats!==0||!['ISSUED_NEW','ALREADY_ISSUED'].includes(result.outcome)||
          !id(result.licenseId)||result.requestId!==request.requestId)

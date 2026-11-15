@@ -5,7 +5,7 @@ use serde_json::Value;
 use sha2::{Digest,Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path,PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use crate::t3_product_component as t3;
@@ -195,6 +195,48 @@ pub async fn publisher_t3_export_test_trust(app:AppHandle)->Result<Option<Value>
 // PERSON uses the original private T3 owner binary, but only the separately
 // pre-enrolled production root. The public bridge never signs or imports trust.
 const PERSON_REQUEST_LIMIT: usize = 32 * 1024;
+// Checking only inside React leaves a second-window edit possible between
+// the user preflight and the irreversible owner CLI invocation.
+fn verify_person_draft_source(root:&Path,expected_sha256:&str)->Result<(),String>{
+    if expected_sha256.len()!=64 || !expected_sha256.bytes().all(|b|
+        b.is_ascii_digit()||(b'a'..=b'f').contains(&b)){
+        return Err("PUBLISHER_PERSON_EXPECTED_DRAFT_SHA256_INVALID".into());
+    }
+    let raw=crate::read_preparation(root)
+        .map_err(|_|"PUBLISHER_PERSON_DRAFT_SOURCE_UNAVAILABLE")?
+        .ok_or("PUBLISHER_PERSON_DRAFT_SOURCE_UNAVAILABLE")?;
+    if format!("{:x}",Sha256::digest(raw.as_bytes()))!=expected_sha256 {
+        return Err("PUBLISHER_DRAFT_CHANGED_ON_DISK".into());
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod person_draft_issue_tests {
+    use super::*;
+    #[test]
+    fn original_person_owner_never_receives_stale_or_missing_local_source(){
+        let root=std::env::temp_dir().join(format!(
+            "iwxa-publisher-person-draft-source-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        let original=r#"{"format":"iwxa.publisher.preparation","version":1,"products":[],"holders":[],"proposals":[],"artifacts":[],"updatedAt":"2026-11-08T00:00:00.000Z"}"#;
+        let hash=format!("{:x}",Sha256::digest(original.as_bytes()));
+        assert_eq!(verify_person_draft_source(&root,&hash).unwrap_err(),
+            "PUBLISHER_PERSON_DRAFT_SOURCE_UNAVAILABLE");
+        crate::write_preparation(&root,original).unwrap();
+        verify_person_draft_source(&root,&hash).unwrap();
+        let updated=original.replace("\"products\":[]",
+            "\"products\":[{\"id\":\"another-publisher\"}]");
+        crate::write_preparation(&root,&updated).unwrap();
+        assert_eq!(verify_person_draft_source(&root,&hash).unwrap_err(),
+            "PUBLISHER_DRAFT_CHANGED_ON_DISK");
+        let new_hash=format!("{:x}",Sha256::digest(updated.as_bytes()));
+        verify_person_draft_source(&root,&new_hash).unwrap();
+        assert_eq!(verify_person_draft_source(&root,"ABSENT").unwrap_err(),
+            "PUBLISHER_PERSON_EXPECTED_DRAFT_SHA256_INVALID");
+        let _=fs::remove_dir_all(&root);
+    }
+}
 fn validate_person_request(raw:&str)->Result<Value,String>{
     if raw.is_empty() || raw.len()>PERSON_REQUEST_LIMIT {
         return Err("PUBLISHER_PERSON_REQUEST_SIZE_INVALID".into());
@@ -292,9 +334,11 @@ pub async fn publisher_t3_person_inventory(
 }
 #[tauri::command]
 pub async fn publisher_t3_person_issue(
-    app:AppHandle,request_json:String,issuer_authority_id:String
+    app:AppHandle,request_json:String,issuer_authority_id:String,
+    expected_draft_sha256:String
 )->Result<Value,String>{
     let request=validate_person_request(&request_json)?;
+    verify_person_draft_source(&crate::publisher_root(&app)?,&expected_draft_sha256)?;
     let request_id=request["requestId"].as_str()
         .ok_or("PUBLISHER_PERSON_T3_REQUEST_ID_REQUIRED")?.to_owned();
     if !t3::valid_identifier(&issuer_authority_id){
@@ -315,8 +359,14 @@ pub async fn publisher_t3_person_issue(
         handle.sync_all().map_err(|_|"PUBLISHER_PERSON_T3_REQUEST_FILE_DENIED")?;
     }
     let _cleanup=TransientRequest(file.clone());
-    let v=call_person(app,"person-issue",vec![
-        file.to_string_lossy().into_owned(),issuer_authority_id]).await?;
+    // Re-read the actual chosen Setup Core DataLocation in the same native
+    // worker immediately before invoking original T3. No signer or Store
+    // is copied into Publisher.
+    let v=tauri::async_runtime::spawn_blocking(move||{
+        verify_person_draft_source(&crate::publisher_root(&app)?,&expected_draft_sha256)?;
+        t3::run(&app,"owner-person","person-issue",&[
+            file.to_string_lossy().into_owned(),issuer_authority_id])
+    }).await.map_err(|_|"PUBLISHER_PERSON_T3_WORKER_FAILED".to_string())??;
     t3::validate_test_result(&v,"PERSON_ISSUE")?;
     if !v.get("licenseId").and_then(Value::as_str)
         .is_some_and(t3::valid_identifier) ||
