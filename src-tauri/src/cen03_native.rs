@@ -273,6 +273,9 @@ fn verify_kernel_apply(result:&Value,input:&Value,view:&Value)->Result<(),String
     let receipt=&result["originalKernelReceipt"];
     let committed=&receipt["object"];
     let event=&receipt["event"];
+    // One Core independently re-reads the committed event from the same T2
+    // Kernel. The commit receipt alone must never qualify Human APPLY.
+    let witnessed=&result["originalEventReadback"];
     let read=&result["originalKernelReadback"]["object"];
     let effect=event["idempotency_key"].as_str().ok_or_else(bad)?;
     if result["kernelWriteReadback"]!="CONFIRMED"||
@@ -299,7 +302,15 @@ fn verify_kernel_apply(result:&Value,input:&Value,view:&Value)->Result<(),String
        read["data"]["schema"]!="IWXA_T3_ADMIN_APPLIED_RESULTS/1"{
         return Err(bad());
     }
-    if !valid_original_applied_graph(read,event,input,view){return Err(bad());}
+    if !valid_original_applied_graph(read,event,input,view)||
+       !valid_original_applied_graph(read,witnessed,input,view)||
+       witnessed["event_id"]!=event["event_id"]||
+       witnessed["event_type"]!=event["event_type"]||
+       witnessed["idempotency_key"]!=event["idempotency_key"]{
+        // A missing or different independent Event readback means the write
+        // MAY have committed. Recovery is read-only, never a second APPLY.
+        return Err(bad());
+    }
     let actual=event["payload"]["reconciliation_revision_ids"]
         .as_array().ok_or_else(bad)?;
     let records=read["data"]["records"].as_array().ok_or_else(bad)?;
@@ -999,6 +1010,19 @@ mod tests{
                         "workspaceId":"workspace:1","organizationId":"org:1",
                         "result":"Результат принят"}]}}}
         });
+        result["originalEventReadback"]=result["originalKernelReceipt"]["event"].clone();
+        assert!(verify_kernel_apply(&result,&selection,&view).is_ok());
+        let original_event=result["originalEventReadback"].clone();
+        result["originalEventReadback"]=Value::Null;
+        assert!(verify_kernel_apply(&result,&selection,&view).is_err());
+        result["originalEventReadback"]=original_event.clone();
+        result["originalEventReadback"]["event_id"]=json!("event:foreign");
+        assert!(verify_kernel_apply(&result,&selection,&view).is_err());
+        result["originalEventReadback"]=original_event.clone();
+        result["originalEventReadback"]["payload"]
+            ["reconciliation_acceptance_id"]=json!("f".repeat(64));
+        assert!(verify_kernel_apply(&result,&selection,&view).is_err());
+        result["originalEventReadback"]=original_event;
         assert!(verify_kernel_apply(&result,&selection,&view).is_ok());
         result["originalKernelReceipt"]["event"]["idempotency_key"]
             =json!("d".repeat(64));
