@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 3dd3a7e47cd0ce9d2f6b107284a73f5f04f6381e
+          ref: 0636d2f5a5f87e161d419e04ee30bdeca64b0d5f
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '3dd3a7e47cd0ce9d2f6b107284a73f5f04f6381e'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
+          if($sha -cne '0636d2f5a5f87e161d419e04ee30bdeca64b0d5f'){throw 'AGENT06_AI_SOURCE_SHA_MISMATCH'}
           & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-ai-pip-private.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_AI_DEPENDENCIES_FAIL'}
           Write-Host 'AGENT06_AI_DEPENDENCIES_PASS'
@@ -67,6 +67,8 @@ jobs:
               if($LASTEXITCODE -ne 0){
                 Write-Host ('AGENT06_DIAGNOSTIC_'+$case.Label+'_FAIL')
                 $raw=Get-Content -LiteralPath $privateLog -Raw -ErrorAction SilentlyContinue
+                $stage=[regex]::Match([string]$raw,'graph_cancel_did_not_reach_core_while_running:(query|prepare|decide|checking|before_observation)')
+                if($stage.Success){Write-Host ('AGENT06_DIAGNOSTIC_CANCEL_BLOCKING_PHASE='+$stage.Groups[1].Value)}
                 $summary=[regex]::Match([string]$raw,'(?m)^FAILED\s+\S+\s+-\s+([A-Za-z_][A-Za-z0-9_]*)')
                 if($summary.Success){
                   $type=$summary.Groups[1].Value
@@ -104,6 +106,31 @@ jobs:
                 $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                   [Text.Encoding]::UTF8.GetBytes($label))).ToLowerInvariant()
                 Write-Host ('AGENT06_DIAGNOSTIC_NODE_TITLE_HASH='+$digest.Substring(0,16))
+              }
+              # Match failed TAP test labels to source files INSIDE the
+              # private runner; print only a short digest of each relative path.
+              $failed=@{}
+              foreach($m in [regex]::Matches([string]$raw,'(?m)^\s*not ok\s+\d{1,5}\s+-\s+([^\r\n]+)')){
+                $title=$m.Groups[1].Value.Trim()
+                $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                  [Text.Encoding]::UTF8.GetBytes($title))).ToLowerInvariant()
+                $failed[$digest]=$true
+              }
+              $pattern='\btest\s*\(\s*[''"]([^''"\r\n]+)[''"]\s*,'
+              foreach($file in Get-ChildItem -LiteralPath (Join-Path (Get-Location) 'tests') -Filter '*.test.*' -File){
+                $source=Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue
+                foreach($m in [regex]::Matches([string]$source,$pattern)){
+                  $title=$m.Groups[1].Value
+                  $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::UTF8.GetBytes($title))).ToLowerInvariant()
+                  if($failed.ContainsKey($digest)){
+                    $relative='tests/'+$file.Name
+                    $fileDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                      [Text.Encoding]::UTF8.GetBytes($relative))).ToLowerInvariant()
+                    Write-Host ('AGENT06_DIAGNOSTIC_NODE_SOURCE_HASH='+$fileDigest.Substring(0,16))
+                    Write-Host ('AGENT06_DIAGNOSTIC_NODE_MATCHED_TITLE_HASH='+$digest.Substring(0,16))
+                  }
+                }
               }
               $bad++
             }else{Write-Host 'AGENT06_DIAGNOSTIC_NODE_PASS'}
