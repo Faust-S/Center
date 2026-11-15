@@ -90,7 +90,11 @@ jobs:
               $path=$group[1]
               $log=Join-Path $env:RUNNER_TEMP ('k05-private-'+$label+'.txt')
               $xml=Join-Path $env:RUNNER_TEMP ('k05-private-'+$label+'.xml')
-              & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) $path *> $log
+              if($label -eq 'K05_EXECUTOR_COMPARISON'){
+                & python -B -m pytest -s -q -p no:cacheprovider ('--junitxml='+$xml) $path *> $log
+              }else{
+                & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) $path *> $log
+              }
               $exit=$LASTEXITCODE
               if(Test-Path $xml){
                 [xml]$doc=Get-Content -Raw $xml
@@ -112,6 +116,7 @@ jobs:
                     $anon=[Convert]::ToHexString($digest).Substring(0,12)
                     Write-Host ('AGENT06_K05_'+$label+'_FAILED_TEST_SHA='+$anon)
                     $exception=[string]$failure.Attributes['type'].Value
+                    if($exception.Contains('.')){$exception=$exception.Split('.')[-1]}
                     $allowed=@('AssertionError','ToolDenied','ApprovalError',
                       'AttributeError','TypeError','ValueError','KeyError','IndexError',
                       'RuntimeError','ImportError','ModuleNotFoundError','AgentK05ComparisonHold',
