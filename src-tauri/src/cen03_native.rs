@@ -907,6 +907,41 @@ pub async fn center_corporate_action(
 #[cfg(test)]
 mod tests{
     use super::*;
+    #[test]
+    fn signed_workspace_comes_only_from_original_two_loopback_origins(){
+        let original=json!({"snapshot":{
+            "product":"admin","d3RecipientAvailable":true,"T3_READY":false,
+            "originalControlEpoch":8,
+            "originalControlOrigin":"http://127.0.0.1:18883",
+            "originalIsolatedWorkspaceUrl":
+                format!("http://127.0.0.1:18884/workspace/isolated-signed-workspace.html#{}",
+                    "A".repeat(43))
+        }});
+        let (url,ui,kernel)=original_signed_workspace_origins(&original).unwrap();
+        assert_eq!(url.path(),"/workspace/isolated-signed-workspace.html");
+        assert_eq!(ui,"http://127.0.0.1:18884");
+        assert_eq!(kernel,"http://127.0.0.1:18883");
+        for forged in [
+            "https://127.0.0.1:18884/workspace/isolated-signed-workspace.html",
+            "http://localhost:18884/workspace/isolated-signed-workspace.html",
+            "http://127.0.0.1:18883/workspace/isolated-signed-workspace.html",
+            "http://127.0.0.1:18884/workspace/signed-workspace.html",
+            "http://127.0.0.1:18884/workspace/isolated-signed-workspace.html?open=1",
+        ]{
+            let mut test=original.clone();
+            test["snapshot"]["originalIsolatedWorkspaceUrl"]=
+                json!(format!("{forged}#{}","A".repeat(43)));
+            assert!(original_signed_workspace_origins(&test).is_err(),
+                "forged installed URL must not open: {forged}");
+        }
+        let mut without_epoch=original.clone();
+        without_epoch["snapshot"]["originalControlEpoch"]=json!(0);
+        assert!(original_signed_workspace_origins(&without_epoch).is_err());
+        let mut bearer=original.clone();
+        bearer["snapshot"]["originalIsolatedWorkspaceUrl"]=json!(
+            "http://127.0.0.1:18884/workspace/isolated-signed-workspace.html#short");
+        assert!(original_signed_workspace_origins(&bearer).is_err());
+    }
     #[cfg(windows)]
     #[test]
     fn one_native_process_handles_two_consecutive_original_host_commands(){
