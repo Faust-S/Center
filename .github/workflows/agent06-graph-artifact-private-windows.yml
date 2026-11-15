@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 00bd0fe819a7c4ddad3cc896dab7d10c39198090
+          ref: 1718e74d3eb605f3522aa79ee9e9f97c15e8cd42
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -39,7 +39,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '00bd0fe819a7c4ddad3cc896dab7d10c39198090'){throw 'AGENT06_GRAPH_SOURCE_SHA_MISMATCH'}
+          if($sha -cne '1718e74d3eb605f3522aa79ee9e9f97c15e8cd42'){throw 'AGENT06_GRAPH_SOURCE_SHA_MISMATCH'}
           Write-Host 'AGENT06_GRAPH_EXACT_PRIVATE_SHA_PASS'
           & python -B -m py_compile private-agent/qualification/phase1/agent06_installed_graph_result_toolruntime_smoke.py
           & python -B -m py_compile private-agent/qualification/phase1/agent06_vendor_authorized_installed_e2e.py
