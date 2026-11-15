@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_EXACT_SHA: 'c860dff4ba44072f20f3c90d2f0991f3852c74f1'
+      AGENT_K05_EXACT_SHA: '42ae3f2af01c02f2119344157a4ad6092b7a57a7'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,7 +46,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 91191f4146dc7c173a65088f5a404f7bc02a0486
+          ref: bc1adbfeba45a18926ac755bd51dc5501ba97085
           path: public-k05
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -61,7 +61,7 @@ jobs:
           & python -m pip install -r private-agent/requirements-ci.txt *> $deps
           if($LASTEXITCODE -ne 0){throw 'AGENT06_K05_PRIVATE_DEPENDENCIES_FAIL'}
           $k05=(& git -C public-k05 rev-parse HEAD).Trim()
-          if($k05 -cne '91191f4146dc7c173a65088f5a404f7bc02a0486'){
+          if($k05 -cne 'bc1adbfeba45a18926ac755bd51dc5501ba97085'){
             throw 'AGENT06_K05_PUBLIC_ADAPTER_REVISION_MISMATCH'
           }
           Write-Host ('AGENT06_K05_PINNED_AGENT_SHA='+$sha)
