@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 5df7c565c5fede7b5d7408ef2860548da0f92a27
+          ref: 92eb2e91fa38f30de52d570fa9bdcc8ce6ca9420
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '5df7c565c5fede7b5d7408ef2860548da0f92a27'){
+          if($sha -cne '92eb2e91fa38f30de52d570fa9bdcc8ce6ca9420'){
             throw 'AGENT06_NATIVE_SOURCE_SHA_MISMATCH'
           }
           if($null -eq (Get-Command cargo.exe -ErrorAction SilentlyContinue)){
@@ -88,6 +88,12 @@ jobs:
           Write-Host ('AGENT06_NATIVE_PREBUILD_DIRTY_COUNT='+$dirty.Count)
           if($dirty.Count -ne 0){throw 'AGENT06_NATIVE_PREBUILD_SOURCE_DIRTY'}
           Write-Host 'AGENT06_NATIVE_U04_GIT_STAGE_PASS'
+      - name: Verify installed ToolRuntime smoke syntax
+        shell: pwsh
+        run: |
+          & python -B -m py_compile private-agent/qualification/phase1/agent06_installed_graph_result_toolruntime_smoke.py
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_INSTALLED_TOOL_SMOKE_SYNTAX_FAIL'}
+          Write-Host 'AGENT06_INSTALLED_TOOL_SMOKE_SYNTAX_PASS'
       - name: Compile original Tauri Windows executable from pinned integration SHA
         shell: pwsh
         run: |
@@ -168,4 +174,55 @@ jobs:
             }
             Write-Host 'AGENT06_NATIVE_INSTALLED_COLD_REOPEN_PASS'
           }finally{Pop-Location}
+      - name: Installed original Task Human Review ToolRuntime file cold recovery
+        shell: pwsh
+        run: |
+          $qa=Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+          $install=Join-Path $qa 'install'
+          $scratch=Join-Path $qa 'agent06-program-effect'
+          $script='private-agent/qualification/phase1/agent06_installed_graph_result_toolruntime_smoke.py'
+          $log=Join-Path $env:RUNNER_TEMP 'agent06-installed-tool-smoke.private.log'
+          if(-not (Test-Path -LiteralPath (Join-Path $install 'runtime/daily_driver_engine.py') -PathType Leaf)){
+            throw 'AGENT06_INSTALLED_TOOL_SMOKE_INSTALL_ROOT_MISSING'
+          }
+          & python -B $script --install-root $install --scratch-root $scratch *> $log
+          if($LASTEXITCODE -ne 0){
+            Write-Host 'AGENT06_INSTALLED_TOOL_SMOKE_FAIL'
+            $raw=[string](Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue)
+            $known=@(
+              'installed_runtime_import_not_used','installed_configuration_missing',
+              'installed_smoke_target_not_clean','file_written_before_review',
+              'test_source_falsely_claims_model_call','tool_prepare_not_denied_before_review',
+              'file_written_before_tool_approval','file_written_before_tool_execution',
+              'installed_tool_receipt_not_succeeded','installed_written_file_mismatch',
+              'installed_task_not_restored','installed_reopen_reexecuted_tool',
+              'installed_receipt_changed_after_restart','installed_file_changed_after_restart',
+              'synthetic_graph_source_reinvoked','ModuleNotFoundError','PermissionError',
+              'OSError','KeyError','ValueError','TypeError','AssertionError'
+            )
+            $found=0
+            foreach($code in $known){
+              if($raw.Contains($code)){
+                Write-Host ('AGENT06_INSTALLED_TOOL_FAILURE_CATEGORY='+$code)
+                $found++
+              }
+            }
+            if($found -eq 0){Write-Host 'AGENT06_INSTALLED_TOOL_FAILURE_CATEGORY=UNCLASSIFIED'}
+            throw 'AGENT06_INSTALLED_TOOL_RUNTIME_QUALIFICATION_FAIL'
+          }
+          $raw=[string](Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue)
+          $expected=@(
+            'AGENT06_INSTALLED_GRAPH_SOURCE=SYNTHETIC_FIXED',
+            'AGENT06_INSTALLED_TASK_HUMAN_REVIEW=PASS',
+            'AGENT06_INSTALLED_TOOLRUNTIME_REAL_FILE=PASS',
+            'AGENT06_INSTALLED_COLD_RESTART_RECEIPT=PASS',
+            'AGENT06_INSTALLED_VENDOR_MODEL_INFERENCE=NOT_RUN'
+          )
+          foreach($line in $expected){
+            if(-not $raw.Contains($line)){
+              throw 'AGENT06_INSTALLED_TOOL_RUNTIME_EVIDENCE_MISSING'
+            }
+            Write-Host $line
+          }
+      # Installed synthetic Graph source is not a model provider E2E.
       # No uploaded artifacts, binaries, sources, models or private logs.
