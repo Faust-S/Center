@@ -375,7 +375,20 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    dispatchedApplications.current.set(selection.acceptanceId,[...selection.revisionIds]);
    setApplySelection(selection);setApplyAttempted(true);
    setKernelResult(null);setKernelRecovery(null);
-   const result=await execute('d3ApplyAccepted',selection);
+   let result:any;
+   try{
+     result=await execute('d3ApplyAccepted',selection);
+   }catch(error){
+     // The native Windows dialog returns this exact cancellation BEFORE it
+     // opens the signed original owner or dispatches any Kernel operation.
+     // Every other error may have occurred AFTER dispatch: preserve the
+     // recorded attempt and require original read-only recovery instead.
+     if(String(error).includes('CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED')){
+       dispatchedApplications.current.delete(selection.acceptanceId);
+       setApplySelection(null);setApplyAttempted(false);setApplyConsent(false);
+     }
+     throw error;
+   }
    if(result.kernelWriteReadback!=='CONFIRMED'||!result.originalKernelReadback||
      !result.originalKernelReceipt)
      throw Error('CEN_D3_KERNEL_COMMIT_OUTCOME_UNKNOWN');
