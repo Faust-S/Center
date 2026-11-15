@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "1cb4fc7c3d086d14a205db16c6950ad18ccf4308"
+          test "$(git -C private-agent rev-parse HEAD)" = "5adbd3f4e05d9d8b6f2b130bdda40be31aeddd57"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -179,11 +179,21 @@ jobs:
           fi
           echo "AGENT06_U01_PINNED_INSTALLED_IMPORT_PASS"
           if ! (cd private-agent && python -B -m pytest -q -p no:cacheprovider \
-            tests/test_agent06_obscura_user_install.py) \
-            > "$RUNNER_TEMP/agent06-private-u01-user-install-contract.log" 2>&1; then
-            echo "AGENT06_U01_USER_INSTALL_CONTRACT_FAIL"
+            tests/test_agent06_obscura_user_install.py \
+            -k 'not cold_restart and not origin_selection and not saved_source and not engine_uses') \
+            > "$RUNNER_TEMP/agent06-private-u01-install-contract.log" 2>&1; then
+            echo "AGENT06_U01_INSTALL_CONSENT_BASE_FAIL"
             exit 14
           fi
+          echo "AGENT06_U01_INSTALL_CONSENT_BASE_PASS"
+          if ! (cd private-agent && python -B -m pytest -q -p no:cacheprovider \
+            tests/test_agent06_obscura_user_install.py \
+            -k 'cold_restart or origin_selection or saved_source or engine_uses') \
+            > "$RUNNER_TEMP/agent06-private-u01-origin-connection.log" 2>&1; then
+            echo "AGENT06_U01_ORIGIN_CONNECTION_FAIL"
+            exit 15
+          fi
+          echo "AGENT06_U01_ORIGIN_CONNECTION_PASS"
           echo "AGENT06_U01_USER_INSTALL_CONTRACT_PASS"
       - name: TypeScript and Vite desktop build of exact private Agent source
         if: runner.os == 'Windows'
