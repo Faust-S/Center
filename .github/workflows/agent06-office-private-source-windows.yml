@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'b0615984398fbcca5fe8d0a8cdee146203d1634d'
+      AGENT_OFFICE_SHA: '1502ed43bec79ebc110e96a3886c7dbc02a3a7be'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -116,6 +116,9 @@ jobs:
             & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-office-desktop-build-private.txt')
             if($LASTEXITCODE -ne 0){
               Write-Host 'AGENT06_OFFICE_DESKTOP_BUILD_FAIL'
+              $buildPrivate=Join-Path $env:RUNNER_TEMP 'agent06-office-desktop-build-private.txt'
+              $codes=[regex]::Matches((Get-Content -Raw $buildPrivate),'TS[0-9]{4}') | ForEach-Object {$_.Value} | Select-Object -Unique
+              foreach($code in $codes){Write-Host ('AGENT06_OFFICE_TYPESCRIPT_ERROR_CODE='+$code)}
               Set-Content (Join-Path $env:RUNNER_TEMP 'agent06-office-build-failed') 'FAIL'
             } else { Write-Host 'AGENT06_OFFICE_DESKTOP_BUILD_PASS' }
           } finally {Pop-Location}
