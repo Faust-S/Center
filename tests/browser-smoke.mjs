@@ -297,6 +297,86 @@ try{
     'read-only Task recovery must not reissue signed Task');
   await d3Page.close();
   checks.push('d3-task-id-and-no-replay-survive-unknown-ack-and-signed-epoch-remount');
+  // React can reload while the REAL native signed WebView (and its Kernel)
+  // survives. Model that lifetime using a separate Node-side host, NOT
+  // localStorage/React state, so a browser reload cannot recreate its status.
+  const nativeState={organizationId:'org:reload-owner',open:true,visible:true,
+    shows:0,hides:0,closes:0};
+  const restoredDraft=JSON.stringify({
+    format:'iwxa.admin-center.draft',version:1,
+    organizations:[{id:nativeState.organizationId,name:'D3 recovery factory',
+      kind:'ORGANIZATION',workspaces:[],participants:[],assignments:[]}],
+    activeOrganizationId:nativeState.organizationId,
+    updatedAt:'2026-11-15T12:00:00.000Z',
+  });
+  const reloadPage=await browser.newPage({viewport:{width:1366,height:900}});
+  await reloadPage.exposeFunction('__centerNativeSignedFixture',
+    async(command,args={})=>{
+      if(command==='center_draft_read_local')return restoredDraft;
+      if(command==='center_corporate_signed_workspace_status'){
+        const same=nativeState.open&&args.organizationId===nativeState.organizationId;
+        return {schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',
+          open:same,visible:same&&nativeState.visible,
+          foreignOrOrphaned:nativeState.open&&!same};
+      }
+      if(command==='center_corporate_close_signed_workspace'){
+        nativeState.open=false;nativeState.visible=false;nativeState.closes++;return null;
+      }
+      if(command==='center_corporate_hide_signed_workspace'){
+        assert.equal(nativeState.open,true);
+        nativeState.visible=false;nativeState.hides++;return null;
+      }
+      if(command==='center_corporate_show_signed_workspace'){
+        assert.equal(args.organizationId,nativeState.organizationId);
+        assert.equal(nativeState.open,true);
+        nativeState.visible=true;nativeState.shows++;return null;
+      }
+      if(command==='center_corporate_state')return {
+        status:'D3_OWNER_READY',snapshot:{
+          product:'admin',organizationId:args.organizationId,
+          workspaceId:'workspace:reload-owner',actorId:'person:reviewer',
+          contextId:'context:reload-owner',contextEpoch:4,
+          originalSignedWorkspaceAvailable:true,
+          d3RecipientAvailable:true,d3TaskIssueAvailable:false,
+          d3InspectAvailable:true,d3ApplyAvailable:false,
+          d3ApplyRecoverAvailable:false,
+          productionActivation:false,T3_READY:false,tasks:[],totalTasks:0,
+        }};
+      if(command==='center_corporate_age_status')
+        return {operation:'AGE_STATUS',available:false,recipient:null,
+          toolchain:{ready:false},provider:'WINDOWS_TEST_UI',admitted:false};
+      return null;
+    });
+  await reloadPage.addInitScript(()=>{
+    window.__TAURI_INTERNALS__={invoke:(command,args)=>
+      window.__centerNativeSignedFixture(command,args)};
+  });
+  await reloadPage.goto('http://127.0.0.1:4173');
+  await reloadPage.getByTestId('d3-return-to-review').waitFor({state:'visible'});
+  assert.equal(nativeState.shows,0,'restoring visible child must not respawn it');
+  await reloadPage.reload();
+  await reloadPage.getByTestId('d3-return-to-review').waitFor({state:'visible'});
+  assert.equal(nativeState.shows,0,'main React reload must not reopen Kernel');
+  assert.equal(nativeState.closes,0,'main React reload must not release signer');
+  await reloadPage.getByTestId('d3-return-to-review').click();
+  await reloadPage.getByTestId('d3-show-signed-workspace').waitFor({state:'visible'});
+  assert.equal(nativeState.hides,1);
+  await reloadPage.reload();
+  await reloadPage.getByTestId('d3-show-signed-workspace').waitFor({state:'visible'});
+  assert.equal(nativeState.visible,false);
+  assert.equal(nativeState.closes,0);
+  await reloadPage.getByTestId('d3-show-signed-workspace').click();
+  await reloadPage.getByTestId('d3-return-to-review').waitFor({state:'visible'});
+  assert.equal(nativeState.shows,1);
+  await reloadPage.getByTestId('d3-close-signed-workspace').click();
+  await reloadPage.getByTestId('d3-return-to-review').waitFor({state:'detached'});
+  assert.equal(nativeState.open,false);
+  assert.equal(nativeState.closes,1);
+  await reloadPage.reload();
+  await reloadPage.getByTestId('d3-show-signed-workspace').waitFor({state:'detached'});
+  assert.equal(await reloadPage.getByTestId('d3-return-to-review').count(),0);
+  await reloadPage.close();
+  checks.push('d3-native-child-visible-and-hidden-react-reload-restores-review-without-owner-restart');
   writeFileSync('artifacts/ui-report.json',JSON.stringify({status:'PASS_BROWSER_DRAFT_SCOPE',browser:'Firefox',checks,errors,t3RuntimeIntegrated:false,installedWindowsGui:false},null,2));
   console.log('CENTER_DRAFT_UI_PASS',checks.length);
 }finally{await browser?.close();server.kill();}
