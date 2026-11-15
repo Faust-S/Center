@@ -36,7 +36,7 @@ const why=(e:unknown)=>{
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onOpenSignedWorkspace}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onOpenSignedWorkspace,signedWorkspaceGeneration=0}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
@@ -114,7 +114,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
       if(!cancelled&&seq===requestRef.current)ownerReadFailure(e);
     });
    return()=>{cancelled=true;requestRef.current++};
- },[invoke,organizationId]);
+ },[invoke,organizationId,signedWorkspaceGeneration]);
  const execute=async(operation:string,input:Record<string,unknown>={})=>{
    if(!ready||!invoke)throw Error('CEN_OWNER_NOT_CONNECTED');
    const context=owner.snapshot;
