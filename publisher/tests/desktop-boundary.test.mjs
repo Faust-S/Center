@@ -226,6 +226,9 @@ test('Publisher 0.3 diagnostics reuses native storage and Setup Core, without a 
  const native=read('publisher/src-tauri/src/main.rs');
  const app=read('publisher/ui/App.tsx');
  const browser=read('publisher/tests/browser-smoke.mjs');
+ const installed=read('publisher/tests/installed-windows-publisher.ps1');
+ assert.match(installed,/\$diagnosticReport\.licensing -ne 'TEST_AND_PERSON_T3_BRIDGE'/);
+ assert.doesNotMatch(installed,/\$diagnosticReport\.licensing -ne 'TEST_ONLY'/);
  assert.match(native,/fn publisher_diagnostics\(app: AppHandle, state: State<DraftLock>\)/);
  assert.match(native,/schema: "IWXA_DIAGNOSTICS\/1"/);
  assert.match(native,/licensing: "TEST_AND_PERSON_T3_BRIDGE"/);

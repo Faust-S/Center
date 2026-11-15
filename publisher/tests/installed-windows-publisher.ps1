@@ -515,7 +515,7 @@ try {
      $diagnosticReport.application -ne 'NATIVE_RUNNING' -or
      $diagnosticReport.localPreparation -ne 'READABLE' -or
      $diagnosticReport.setupCore -ne 'CHECK_IN_SETUP_CORE' -or
-     $diagnosticReport.licensing -ne 'TEST_ONLY' -or
+     $diagnosticReport.licensing -ne 'TEST_AND_PERSON_T3_BRIDGE' -or
      $diagnosticReport.productionActivation -ne $false -or
      $diagnosticReport.activeSeats -ne 0 -or
      $diagnosticText.Contains('PublisherInstalledTestOrg') -or
