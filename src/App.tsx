@@ -63,6 +63,17 @@ export default function App() {
   // UI-only presence of the original signed child WebView; signing state,
   // Control bearer and Kernel remain owned by the private installed Host.
   const [signedWorkspaceOrg,setSignedWorkspaceOrg] = useState<string|null>(null);
+  useEffect(()=>{
+    if(!nativeHost)return;
+    let live=true,unlisten:(()=>void)|null=null;
+    void import('@tauri-apps/api/event')
+      .then(({listen})=>listen('iwxa:d3-signed-workspace-closed',()=>{
+        if(live)setSignedWorkspaceOrg(null);
+      }))
+      .then(dispose=>{if(live)unlisten=dispose;else dispose();})
+      .catch(()=>{/* The native close still revokes the original session. */});
+    return ()=>{live=false;unlisten?.();};
+  },[nativeHost]);
   const [editor,setEditor] = useState<Editor|null>(null);
   const [creatingOrg,setCreatingOrg] = useState(false);
   const [menuOpen,setMenuOpen] = useState(false);
