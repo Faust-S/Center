@@ -522,6 +522,110 @@ fn private_owner_state(app:&AppHandle,organization_id:&str)->Result<Value,String
     let result=original_owner_call(app,organization_id,"state",Value::Null)?;
     supported_state(&result,organization_id,"D3_STATE")
 }
+// The original signed Workspace is a child WebView of Admin Center's ONE
+// desktop window. Never open an external browser, another Tauri window, or a
+// caller-supplied URL. The signed D3 owner supplies its two loopback origins.
+const SIGNED_WORKSPACE_WEBVIEW:&str="iwxa-t3-signed-workspace";
+fn original_signed_workspace_origins(view:&Value)
+    ->Result<(tauri::Url,String,String),String>{
+    let s=&view["snapshot"];
+    if s["product"]!="admin"||s["d3RecipientAvailable"]!=true||
+        s["T3_READY"]!=false||
+        !s["originalControlEpoch"].as_u64().is_some_and(|n|n>0) {
+        return Err("CEN_D3_ORIGINAL_CONTROL_NOT_CONNECTED".into());
+    }
+    let expected=s["originalControlOrigin"].as_str()
+        .ok_or("CEN_D3_ORIGINAL_CONTROL_NOT_CONNECTED")?;
+    let selected=s["originalIsolatedWorkspaceUrl"].as_str()
+        .ok_or("CEN_D3_ORIGINAL_CONTROL_NOT_CONNECTED")?;
+    let trusted=tauri::Url::parse(expected)
+        .map_err(|_|"CEN_D3_ORIGINAL_CONTROL_ORIGIN_INVALID")?;
+    let url=tauri::Url::parse(selected)
+        .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_URL_INVALID")?;
+    let local=|u:&tauri::Url|u.scheme()=="http"&&
+        u.host_str()==Some("127.0.0.1")&&
+        u.port().is_some()&&u.username().is_empty()&&
+        u.password().is_none()&&u.query().is_none();
+    if !local(&trusted)||!local(&url)||trusted.path()!="/"||
+        trusted.fragment().is_some()||
+        url.path()!="/workspace/isolated-signed-workspace.html"||
+        trusted.origin()==url.origin(){
+        return Err("CEN_D3_ORIGINAL_WORKSPACE_ORIGIN_INVALID".into());
+    }
+    let token=url.fragment().unwrap_or("");
+    if !(40..=128).contains(&token.len())||
+        !token.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'_'||b==b'-'){
+        return Err("CEN_D3_ORIGINAL_WORKSPACE_BEARER_INVALID".into());
+    }
+    let ui_origin=url.origin().ascii_serialization();
+    let kernel_origin=trusted.origin().ascii_serialization();
+    Ok((url,ui_origin,kernel_origin))
+}
+fn close_original_signed_workspace(app:&AppHandle)->Result<(),String>{
+    if let Some(webview)=app.get_webview(SIGNED_WORKSPACE_WEBVIEW){
+        webview.close()
+            .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_CLOSE_FAILED".to_owned())?;
+    }
+    Ok(())
+}
+#[tauri::command]
+pub async fn center_corporate_close_signed_workspace(
+    app:AppHandle
+)->Result<(),String>{
+    tauri::async_runtime::spawn_blocking(move||
+        close_original_signed_workspace(&app)
+    ).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
+}
+#[tauri::command]
+pub async fn center_corporate_open_signed_workspace(
+    app:AppHandle,organization_id:String
+)->Result<(),String>{
+    check_org(&organization_id)?;
+    tauri::async_runtime::spawn_blocking(move||{
+        if !t3::admin_d3_availability(&app,&organization_id){
+            return Err("CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED".into());
+        }
+        // The URL is taken ONLY from the same installed DPAPI/Ed25519 owner
+        // that Center uses for Task/Result. No WebView input can select a URL.
+        let view=private_owner_state(&app,&organization_id)?;
+        let (url,ui_origin,kernel_origin)=
+            original_signed_workspace_origins(&view)?;
+        // Keep a single WebView. The separate browser Kernel realm remains
+        // an iframe at the pinned Control origin, not a second native window.
+        if app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_some(){
+            return Err("CEN_D3_ORIGINAL_WORKSPACE_ALREADY_OPEN".into());
+        }
+        let window=app.get_window("main")
+            .ok_or("CEN_D3_ORIGINAL_MAIN_WINDOW_REQUIRED")?;
+        let physical=window.inner_size()
+            .map_err(|_|"CEN_D3_ORIGINAL_WINDOW_BOUNDS_REQUIRED")?;
+        let scale=window.scale_factor()
+            .map_err(|_|"CEN_D3_ORIGINAL_WINDOW_SCALE_REQUIRED")?;
+        let logical=physical.to_logical::<f64>(scale);
+        if logical.width<720.0||logical.height<500.0{
+            return Err("CEN_D3_ORIGINAL_WORKSPACE_WINDOW_TOO_SMALL".into());
+        }
+        // Preserve the existing 219px sidebar and main 45px toolbar for
+        // native close/navigation. The one-window child occupies only the
+        // content surface; native dpi/logical sizing follows Tauri.
+        let x=219.0;
+        let y=91.0;
+        let builder=tauri::webview::WebviewBuilder::new(
+            SIGNED_WORKSPACE_WEBVIEW,tauri::WebviewUrl::External(url)
+        ).auto_resize()
+        .on_navigation(move|candidate|{
+            let origin=candidate.origin().ascii_serialization();
+            origin==ui_origin||origin==kernel_origin
+        })
+        .on_new_window(|_,_|tauri::webview::NewWindowResponse::Deny);
+        window.add_child(builder,
+            tauri::LogicalPosition::new(x,y),
+            tauri::LogicalSize::new(logical.width-x,logical.height-y))
+            .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_CREATE_FAILED")?;
+        Ok(())
+    }).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
+}
+
 fn corporate_age_root(app:&AppHandle,organization_id:&str)->Result<PathBuf,String>{
     Ok(t3::admin_d3_root(app,organization_id)?.join("age"))
 }
