@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "f9e00ba9bcffd47f86f9d4fbf30f8b76394cd6ec"
+          test "$(git -C private-agent rev-parse HEAD)" = "98e6b62822cd40e098c7ce3c3d2283773ef57f4d"
           test "$(git -C public-brtest rev-parse HEAD)" = "cb804a846b9ac73014d6feb6faa4a3f9feaac46e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -163,7 +163,7 @@ jobs:
           fi
           # Require explicit execution of the full real Engine scenario.
           # A skipped native test must never be reported as PASS.
-          for milestone in ENGINE_T3_GUARD_PASS ENGINE_LIVE_SWITCH_PASS ENGINE_NONE_RESTART_PASS ENGINE_FIRECRAWL_RESTART_PASS; do
+          for milestone in ENGINE_T3_GUARD_PASS ENGINE_RECEIPT_TO_DRAFT_PASS ENGINE_TASK_REVIEW_PASS ENGINE_COLD_RESULT_PASS ENGINE_LIVE_SWITCH_PASS ENGINE_NONE_RESTART_PASS ENGINE_FIRECRAWL_RESTART_PASS; do
             if ! grep -Fq "AGENT06_NATIVE_STAGE_$milestone" "$RUNNER_TEMP/agent06-native-private.log"; then
               echo "AGENT06_NATIVE_QUALIFICATION_STAGE_MISSING"
               exit 7
