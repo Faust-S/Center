@@ -362,6 +362,8 @@ fn main() {
             t3_consumer::center_cen04_t3_import_age,
             cen03_native::center_corporate_state,
             cen03_native::center_corporate_open_signed_workspace,
+            cen03_native::center_corporate_hide_signed_workspace,
+            cen03_native::center_corporate_show_signed_workspace,
             cen03_native::center_corporate_close_signed_workspace,
             cen03_native::center_corporate_enroll,
             cen03_native::center_corporate_action,
