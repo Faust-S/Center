@@ -80,6 +80,51 @@ class BundleTests(unittest.TestCase):
         with self.assertRaisesRegex(SetupBundleError, "bundle_footer_invalid|bundle_layout_invalid"):
             inspect_bundle(self.out)
 
+    def test_qualified_one_dist_is_preserved_inside_the_original_setup_core(self):
+        """The Setup Core packages an existing original Kernel and signed UI.
+
+        These bytes are packaging fixtures, not a production Kernel proof.
+        Qualification of the real T2 artifact is performed by One Core
+        *before* the private installer stages this exact directory.
+        """
+        import hashlib
+
+        root = self.payload / "t3" / "one-dist"
+        entries = {
+            "_iwxa/loader.js": b"unchanged original t2 loader",
+            "_iwxa/runtime/0.3.6/runtime.js": b"unchanged original t2 kernel",
+            "_iwxa/domain.json": b'{"origin":"http://127.0.0.1:18883"}',
+            "_iwxa/service-catalog.json": b'{"count":1,"entries":[]}',
+            "workspace/workspace.config.json": b'{"workspace_service_id":"example"}',
+            "workspace/trusted-kernel-realm.html": b"<html>original trusted realm</html>",
+            "workspace/isolated-signed-workspace.html": b"<html>original signed UI</html>",
+            "workspace/assets/compiled-signed.js": b"compiled original One Core",
+        }
+        for name, content in entries.items():
+            target = root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        receipt = self.bundle()
+        self.assertEqual(receipt["status"], "VERIFIED")
+        self.assertEqual(receipt["file_count"], len(entries) + 2)
+        self.assertEqual(inspect_bundle(self.out, verify_files=True)["file_count"],
+                         len(entries) + 2)
+        packed = self.out.read_bytes()
+        _, stub_size, zip_size, meta_size, *_ = FOOTER.unpack(packed[-FOOTER.size:])
+        manifest = json.loads(packed[stub_size + zip_size:
+                                     stub_size + zip_size + meta_size])
+        index = {item["path"]: item for item in manifest["files"]}
+        for name, content in entries.items():
+            item = index["t3/one-dist/" + name]
+            self.assertEqual(item["bytes"], len(content))
+            self.assertEqual(item["sha256"], hashlib.sha256(content).hexdigest())
+        # The installer remains self-contained and independently verifiable
+        # even if the original staging folder disappears after publication.
+        import shutil
+        shutil.rmtree(root)
+        self.assertEqual(inspect_bundle(self.out, verify_files=True)["status"],
+                         "VERIFIED")
+
     def test_console_stub_rejected_without_publishing_output(self):
         pe = bytearray(self.stub.read_bytes())
         pe[0xDC:0xDE] = b"\x03\x00"
