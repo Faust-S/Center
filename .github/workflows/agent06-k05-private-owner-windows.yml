@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_EXACT_SHA: '8cb9d6573f5ba11f95ed7428ea9e7a460056e8d9'
+      AGENT_K05_EXACT_SHA: '8d902270b678eab5d6ec918165cec74ec2d22118'
     steps:
       - uses: actions/checkout@v4
         with:
