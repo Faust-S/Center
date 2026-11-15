@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_EXACT_SHA: '42c2afe6e305e239c3efe07f2172a4f96bd853aa'
+      AGENT_K05_EXACT_SHA: '70c0224ad2daa2410cfb270dcc18110cd2298113'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -170,4 +170,36 @@ jobs:
           Write-Host ('AGENT06_K05_TOTAL_TESTS='+$all)
           if($failed){throw 'AGENT06_K05_OWNER_TESTS_FAILED'}
           Write-Host 'AGENT06_K05_ORIGINAL_OWNER_SOURCE_QUALIFIED'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Qualify source-only K05 UI and TypeScript without publishing private logs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          Push-Location private-agent/desktop
+          try{
+            $log=Join-Path $env:RUNNER_TEMP 'k05-private-desktop-install.log'
+            & npm ci --no-audit --no-fund *> $log
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_K05_DESKTOP_NPM_CI_FAIL'}
+            Write-Host 'AGENT06_K05_DESKTOP_NPM_CI_PASS'
+            $testLog=Join-Path $env:RUNNER_TEMP 'k05-private-desktop-test.log'
+            & node --test tests/k05-executor-comparison-ui.test.mjs *> $testLog
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_K05_DESKTOP_UI_TEST_FAIL'}
+            Write-Host 'AGENT06_K05_DESKTOP_UI_TEST_PASS'
+            $buildLog=Join-Path $env:RUNNER_TEMP 'k05-private-desktop-build.log'
+            & npm run build *> $buildLog
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_K05_DESKTOP_TYPESCRIPT_BUILD_FAIL'}
+            Write-Host 'AGENT06_K05_DESKTOP_TYPESCRIPT_BUILD_PASS'
+          }finally{Pop-Location}
+      - name: Qualify build-time K05 source delivery
+        shell: pwsh
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'k05-public-source-preparation.log'
+          Push-Location private-agent
+          try{
+            & node scripts/prepare-public-modules.mjs --qualification --fetch *> $log
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_K05_QUALIFICATION_SOURCE_PREP_FAIL'}
+            Write-Host 'AGENT06_K05_QUALIFICATION_SOURCE_PREP_PASS'
+          }finally{Pop-Location}
       # Deliberately no cache, upload-artifact, installer or private log publication.
