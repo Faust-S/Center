@@ -56,6 +56,9 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
  const selectedEnrollmentWorkspace=organization.workspaces.some(w=>w.id===enrollWorkspace)
    ?enrollWorkspace:organization.workspaces[0]?.id??'';
  const requestRef=useRef(0),sessionRef=useRef<string|null>(null),actionRef=useRef(false);
+ // A signed context epoch change remounts the child. Retain attempted Apply
+ // selections in this existing parent UI lifetime (never a second Store).
+ const dispatchedD3Applications=useRef<Map<string,string[]>>(new Map());
  const legacyReady=ownerSessionFingerprint(owner,organizationId)!==null;
  const d3Ready=signedD3SessionFingerprint(owner,organizationId)!==null;
  const ready=legacyReady||d3Ready;
@@ -180,6 +183,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare}:{
     })}>Подключить организацию</button>
   </div>}
   {d3Ready&&invoke ? <CorporateD3Panel key={signedD3SessionFingerprint(owner,organizationId)??'unknown'} owner={owner} execute={execute}
+    dispatchedApplications={dispatchedD3Applications}
     run={act} busy={busy} invoke={invoke} organizationName={organization.name}
     assignmentDrafts={organization.assignments.filter(a=>
       a.workspaceId===owner.snapshot.workspaceId).map(a=>({

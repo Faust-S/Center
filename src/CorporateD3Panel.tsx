@@ -34,8 +34,9 @@ function requireAgeStatus(value:any):AgeStatus{
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName}:{
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications}:{
  owner:Owner;execute:Exec;run:Run;busy:boolean;organizationName:string;
+ dispatchedApplications:React.RefObject<Map<string,string[]>>;
  invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;
  assignmentDrafts:AssignmentDraft[];
 }){
@@ -68,7 +69,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [recoverPrevious,setRecoverPrevious]=useState(false);
  // Prevent a lost Apply acknowledgment from becoming a second Apply when
  // the manager switches packages and returns during the same signed session.
- const dispatchedApplications=useRef<Map<string,string[]>>(new Map());
+ // Kept by CorporatePanel across signed context-epoch remounts. Never
+ // infer previous Kernel state or issue another Apply from this local guard.
  const [lastReceiveState,setLastReceiveState]=useState<string|null>(null);
  const [orgAge,setOrgAge]=useState<AgeStatus|null>(null);
  const [ageUnavailable,setAgeUnavailable]=useState('');
@@ -76,6 +78,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    items:{packageSha256:string;status:string;acceptanceId:string|null;
      operationId:string|null}[]} | null>(null);
  const session=owner.snapshot;
+ const attemptKey=(acceptanceId:string)=>JSON.stringify([
+   session.organizationId,session.workspaceId,session.actorId,acceptanceId]);
  const sessionKey=JSON.stringify([session.organizationId,session.workspaceId,
    session.actorId,session.contextId,session.contextEpoch]);
  const previous=useRef(sessionKey);
@@ -111,7 +115,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  };
  useEffect(()=>{
    if(previous.current!==sessionKey){
-   previous.current=sessionKey;dispatchedApplications.current.clear();
+   previous.current=sessionKey;
    setHash('');setInbox(null);setTaskId('');
    setTaskText('');setTaskOperationId('');setTaskIdSaved(false);
    setTaskAttempted(false);setTaskReadback(null);
@@ -236,7 +240,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    receipt.receipt.operationId===operationId&&
    receipt.kernelApplication==='NOT_ATTESTED_BY_RECONCILIATION_RECEIPT';
  const applyPreviouslySent=accepted&&
-   dispatchedApplications.current.has(receipt.receipt.acceptanceId as string);
+   dispatchedApplications.current.has(attemptKey(receipt.receipt.acceptanceId as string));
  const receiveResult=(encrypted:boolean)=>run(
    'Оригинальный подписанный Result получен в Reconciliation. ACCEPT и Apply остаются отдельными действиями.',
    async()=>{
@@ -372,7 +376,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
    // Record the exact selection synchronously before sending to the owner.
    // React reset after switching a Result must not erase this no-replay gate.
-   dispatchedApplications.current.set(selection.acceptanceId,[...selection.revisionIds]);
+   dispatchedApplications.current.set(attemptKey(selection.acceptanceId),[...selection.revisionIds]);
    setApplySelection(selection);setApplyAttempted(true);
    setKernelResult(null);setKernelRecovery(null);
    let result:any;
@@ -384,7 +388,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      // Every other error may have occurred AFTER dispatch: preserve the
      // recorded attempt and require original read-only recovery instead.
      if(String(error).includes('CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED')){
-       dispatchedApplications.current.delete(selection.acceptanceId);
+       dispatchedApplications.current.delete(attemptKey(selection.acceptanceId));
        setApplySelection(null);setApplyAttempted(false);setApplyConsent(false);
      }
      throw error;
@@ -403,14 +407,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    // A live session reuses the actual previously dispatched selection.
    // After a cold restart the manager must explicitly mark the previous
    // attempt and reselect its original revisions before read-only recovery.
-   const saved=dispatchedApplications.current.get(acceptanceId);
+   const saved=dispatchedApplications.current.get(attemptKey(acceptanceId));
    const source=applySelection??(saved?{acceptanceId,revisionIds:[...saved]}:{
      acceptanceId,revisionIds:[...selectedRevisions]
    });
    if(!hex(source.acceptanceId)||source.revisionIds.length===0||
      source.revisionIds.length>32||!source.revisionIds.every(hex))
      throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
-   dispatchedApplications.current.set(source.acceptanceId,[...source.revisionIds]);
+   dispatchedApplications.current.set(attemptKey(source.acceptanceId),[...source.revisionIds]);
    setApplySelection(source);setApplyAttempted(true);
    const result=await execute('d3RecoverApplied',source);
    const confirmed=result?.status==='ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED';
