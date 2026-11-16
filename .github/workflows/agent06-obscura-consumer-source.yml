@@ -44,7 +44,7 @@ jobs:
           repository: Faust-S/iwxa-personal-agent
           # Immutable private source; later parallel commits must not change
           # the code being qualified by this specific Center run.
-          ref: 56c755551b0f9ab2dc1e7a588982464dcbda1bda
+          ref: 4d8f3b8cb5d9db53eff8f10e7e1d07edfc9c107e
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "56c755551b0f9ab2dc1e7a588982464dcbda1bda"
+          test "$(git -C private-agent rev-parse HEAD)" = "4d8f3b8cb5d9db53eff8f10e7e1d07edfc9c107e"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -184,7 +184,7 @@ jobs:
           echo "AGENT06_U01_PINNED_INSTALLED_IMPORT_PASS"
           if ! (cd private-agent && python -B -m pytest -q -p no:cacheprovider \
             tests/test_agent06_obscura_user_install.py \
-            -k 'not cold_restart and not origin_selection and not saved_source and not engine_uses') \
+            -k 'not manage_obscura and not cold_restart and not origin_selection and not saved_source and not engine_uses') \
             > "$RUNNER_TEMP/agent06-private-u01-install-contract.log" 2>&1; then
             # Report fixed test-category codes, never private failures/logs.
             if grep -Fq 'test_missing_obscura_worker_retains_prior_selection' "$RUNNER_TEMP/agent06-private-u01-install-contract.log"; then
@@ -221,6 +221,23 @@ jobs:
           export IWXA_AGENT06_U01_PREPARED="$GITHUB_WORKSPACE/private-agent/build/u01-owner-sources"
           if ! python -B -m pytest -q -s -p no:cacheprovider tests/test_agent06_obscura_user_install.py -k manage_obscura \
             > "$RUNNER_TEMP/agent06-obscura-consent-private.log" 2>&1; then
+            # These are fixed public error codes. Never print private
+            # traceback, Task, HTML, file paths or full pytest logs.
+            if grep -Fq 'test_manage_obscura_shrink_offline' "$RUNNER_TEMP/agent06-obscura-consent-private.log"; then
+              echo "AGENT06_OBSCURA_CONSENT_CASE_SHRINK_FAIL"
+            fi
+            if grep -Fq 'test_manage_obscura_offline_revoke' "$RUNNER_TEMP/agent06-obscura-consent-private.log"; then
+              echo "AGENT06_OBSCURA_CONSENT_CASE_REVOKE_FAIL"
+            fi
+            if grep -Fq 'test_manage_obscura_reenable' "$RUNNER_TEMP/agent06-obscura-consent-private.log"; then
+              echo "AGENT06_OBSCURA_CONSENT_CASE_REENABLE_FAIL"
+            fi
+            if grep -Fq 'test_manage_obscura_rejects_forgery' "$RUNNER_TEMP/agent06-obscura-consent-private.log"; then
+              echo "AGENT06_OBSCURA_CONSENT_CASE_TAMPER_FAIL"
+            fi
+            if grep -Fq 'test_manage_obscura_original_core_guard' "$RUNNER_TEMP/agent06-obscura-consent-private.log"; then
+              echo "AGENT06_OBSCURA_CONSENT_CASE_CORE_GUARD_FAIL"
+            fi
             echo "AGENT06_OBSCURA_CONSENT_REGRESSION_FAIL"
             exit 18
           fi
