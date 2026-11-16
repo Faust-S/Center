@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 30449036ea9d239148457014ee8de326ff55a9bb
+          ref: dd1fcab4bf99246e6fce79152ff5022a57db8dc6
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -48,13 +48,14 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '30449036ea9d239148457014ee8de326ff55a9bb'){
+          if($actual -cne 'dd1fcab4bf99246e6fce79152ff5022a57db8dc6'){
             throw 'AGENT06_NATIVE_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($f in @(
             'runtime/t3_original_result_owner.py',
             'runtime/t3_original_employee_worker.mjs',
             'runtime/t3_original_employee_cold_guard.mjs',
+            'runtime/t3_original_transfer_readback.mjs',
             'tests/test_agent06_original_t3_result_owner.py',
             'qualification/phase1/agent02_installed_gui_acceptance.ps1',
             'desktop/src-tauri/Cargo.toml')){
