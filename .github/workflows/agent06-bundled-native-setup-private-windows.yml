@@ -1,0 +1,91 @@
+# Only public Center workflow code is committed here. Private Agent is
+# checked out READ-ONLY to an ephemeral Windows runner and never uploaded.
+name: IWXA Agent06 bundled original Obscura Setup Core native qualification
+on:
+  push:
+    branches:
+      - work/2026-11-16-agent06-bundled-setup-qualification
+permissions:
+  contents: read
+jobs:
+  bundled-native-setup:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require permitted read-only Agent checkout
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){throw 'AGENT06_PRIVATE_READ_UNAVAILABLE'}
+          Write-Host 'AGENT06_BUNDLE_PRIVATE_READ_ONLY_PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: b416b9f81dd75da98a35e89501743892d22f6e04
+          path: private-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/Br-test
+          run-id: 43739318017
+          name: agent06-u01-unsigned-release-candidate
+          github-token: ${{ github.token }}
+          path: public-u01-candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Pin exact public native and private source
+        shell: pwsh
+        run: |
+          $sha=(& git -C private-agent rev-parse HEAD).Trim()
+          if($sha -cne 'b416b9f81dd75da98a35e89501743892d22f6e04'){throw 'AGENT06_SETUP_PRIVATE_SOURCE_MISMATCH'}
+          $native=Join-Path $env:GITHUB_WORKSPACE 'public-u01-candidate'
+          $manifest=Join-Path $native 'manifest.candidate.json'
+          $archive=Join-Path $native 'obscura-windows-x86_64.zip'
+          if(!(Test-Path -LiteralPath $manifest -PathType Leaf) -or !(Test-Path -LiteralPath $archive -PathType Leaf)){throw 'AGENT06_SETUP_PUBLIC_U01_CANDIDATE_MISSING'}
+          if((Get-FileHash -Algorithm SHA256 -LiteralPath $manifest).Hash.ToLowerInvariant() -cne 'd53a21682a174f34f9bbdfbb9214b45b0fec58f489ad12a7dd535e326baaaef5'){throw 'AGENT06_SETUP_U01_PUBLIC_MANIFEST_MISMATCH'}
+          if((Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant() -cne 'fa25e7b76800faad4f0ca5b8837d03311ff8cd7720f895c495f8c632969157a5'){throw 'AGENT06_SETUP_U01_NATIVE_ARCHIVE_MISMATCH'}
+          $dirty=@(& git -C private-agent status --porcelain --untracked-files=all)
+          if($LASTEXITCODE -ne 0 -or @($dirty | Where-Object {$_}).Count -ne 0){throw 'AGENT06_SETUP_PRIVATE_SOURCE_DIRTY'}
+          Write-Host 'AGENT06_SETUP_PUBLIC_U01_NATIVE_SHA_PASS'
+      - name: Build and install original Windows Setup Core with bundled U01 native worker
+        shell: pwsh
+        env:
+          IWXA_AGENT06_U01_CANDIDATE: ${{ github.workspace }}/public-u01-candidate
+        run: |
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
+          $center=$env:GITHUB_WORKSPACE
+          $centerSha=(& git -C $center rev-parse HEAD).Trim()
+          $out=Join-Path $env:RUNNER_TEMP 'agent06-bundled-setup-core'
+          $cache=Join-Path $env:RUNNER_TEMP 'agent06-bundled-release-cache'
+          $file=Join-Path $repo 'tools/build_setup_core_windows_candidate.ps1'
+          $log=Join-Path $env:RUNNER_TEMP 'agent06-bundled-setup-private.log'
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $file -CenterRoot $center -CenterCommit $centerSha -ReleaseCacheRoot $cache -OutputRoot $out -PublicObscuraCandidate $env:IWXA_AGENT06_U01_CANDIDATE *> $log
+          if($LASTEXITCODE -ne 0){
+            # No private logs, code, EXE, setup screenshots or installer bytes
+            # are printed or published by this public workflow.
+            Write-Host 'AGENT06_BUNDLED_NATIVE_SETUP_QUALIFICATION_FAIL'
+            if(Test-Path -LiteralPath (Join-Path $out 'logs/private-build-result.json')){
+              Write-Host 'AGENT06_BUNDLED_NATIVE_SETUP_BUILD_STAGE_REACHED'
+            }
+            throw 'AGENT06_BUNDLED_NATIVE_SETUP_FAILED'
+          }
+          $setup=Join-Path $out 'IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){throw 'AGENT06_BUNDLED_NATIVE_SETUP_EXE_NOT_CREATED'}
+          $artifact=(Get-Item -LiteralPath $setup)
+          if($artifact.Length -lt 100000){throw 'AGENT06_BUNDLED_NATIVE_SETUP_SIZE_INVALID'}
+          Write-Host 'AGENT06_BUNDLED_NATIVE_SETUP_INSTALLED_PASS'
+          Write-Host 'AGENT06_OBSCURA_NATIVE_INCLUDED_IN_SETUP_PASS'
+          Write-Host 'AGENT06_PRIVATE_ARTIFACTS_UPLOADED=0'
+      # No upload-artifact, cache, build log, EXE, private model/Task content.
