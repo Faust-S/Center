@@ -1,0 +1,96 @@
+# Public Center Windows runner, ephemeral read-only PRIVATE Agent source.
+# No private source, artifacts, file paths, logs, EXE or credentials uploaded.
+name: Agent06 D6 original signed Exchange receipt qualification
+on:
+  push:
+    branches:
+      - work/2026-11-17-agent06-d6-signed-receipt-source-ci
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-d6-receipt-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  agent-receipt:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require existing authorized private Agent read access
+        shell: pwsh
+        env:
+          SOURCE_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:SOURCE_READ_TOKEN)){
+            throw 'AGENT06_D6_PRIVATE_READ_GRANT_UNAVAILABLE'
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: a787b4fb6201ad57d6dbdf9035aa3dbb7ef1566d
+          path: private-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Confirm pinned owner and private file presence
+        shell: pwsh
+        run: |
+          $actual=(& git -C private-agent rev-parse HEAD).Trim()
+          if($actual -cne 'a787b4fb6201ad57d6dbdf9035aa3dbb7ef1566d'){
+            throw 'AGENT06_D6_PRIVATE_SOURCE_SHA_CHANGED'
+          }
+          foreach($path in @('runtime/t3_original_result_owner.py',
+            'runtime/t3_original_employee_port.py',
+            'runtime/t3_original_employee_worker.mjs',
+            'tests/test_agent06_original_t3_result_owner.py',
+            'requirements-ci.txt')){
+            if(!(Test-Path -LiteralPath (Join-Path private-agent $path) -PathType Leaf)){
+              throw 'AGENT06_D6_PRIVATE_SOURCE_MISSING'
+            }
+          }
+          Write-Host 'AGENT06_D6_PRIVATE_AGENT_SHA_VERIFIED'
+      - name: Install private Agent test dependencies silently
+        shell: pwsh
+        run: |
+          & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-pip-private.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_DEPS_FAILED'}
+      - name: Run complete original Agent Task Result and D6 proof regression
+        shell: pwsh
+        run: |
+          Push-Location private-agent
+          try {
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_original_t3_result_owner.py *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-result-private.log')
+            if($LASTEXITCODE -ne 0){
+              $log=Get-Content (Join-Path $env:RUNNER_TEMP 'agent06-d6-result-private.log') -Raw
+              $classes=@([regex]::Matches($log,'(AssertionError|AttributeError|TypeError|ValueError|OSError|CorporateT3Error|KeyError|ImportError)') | ForEach-Object { $_.Value } | Sort-Object -Unique)
+              Write-Host ('AGENT06_D6_FAILURE_CLASS='+($classes -join ','))
+              throw 'AGENT06_D6_RESULT_TEST_FAILED'
+            }
+            Write-Host 'AGENT06_D6_ORIGINAL_OWNER_FULL_RESULT_TEST_PASS'
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_corporate_t3_employee.py *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-employee-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_CORPORATE_BASELINE_FAILED'}
+            Write-Host 'AGENT06_D6_CORPORATE_EMPLOYEE_BASELINE_PASS'
+            & node --check runtime/t3_original_employee_worker.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-worker-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_ORIGINAL_WORKER_SYNTAX_FAILED'}
+            Write-Host 'AGENT06_D6_ORIGINAL_WORKER_SYNTAX_PASS'
+          } finally { Pop-Location }
+      - name: Remove all private sources and diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath private-agent -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent06-d6-*-private.log' -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          Write-Host 'AGENT06_D6_PRIVATE_SOURCE_CLEANUP_DONE'
+      # No upload-artifact, no source/log cache, no private workflow.
