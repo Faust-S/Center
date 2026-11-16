@@ -574,6 +574,18 @@ try{
   await employeePage.getByTestId('d3-employee-registry-initialize').click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
   assert.equal(employeeState.initializations,1);
+  // Real Center persists organization drafts through its existing native
+  // service. This fixture must provide the SAME saved draft when the main
+  // WebView reloads, or the organization disappears before registry recovery.
+  const employeeOrgId=await employeePage.locator('#active-organization').inputValue();
+  assert.ok(employeeOrgId);
+  employeeState.savedDraft=JSON.stringify({
+    format:'iwxa.admin-center.draft',version:1,
+    organizations:[{id:employeeOrgId,name:'Independent staff test',
+      kind:'ORGANIZATION',workspaces:[],participants:[],assignments:[]}],
+    activeOrganizationId:employeeOrgId,
+    updatedAt:'2026-11-16T12:00:00.000Z',
+  });
   // Simulate cold native owner without losing ORIGINAL persisted Kernel data.
   employeeState.ready=false;
   await employeePage.reload();
