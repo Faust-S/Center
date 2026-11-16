@@ -230,7 +230,9 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
       onClick={()=>void readCredential()}>Проверить исходный ключ</button>
    </div>
    {credentialChallenge&&<div>
-    <p>Передайте запрос сотруднику. Agent подписывает его собственным ключом.</p>
+    <p>Передайте запрос сотруднику. Agent подписывает его собственным
+    Ed25519-ключом. Подпись действует ограниченное время: при истечении срока
+    отмените только ещё не отправленный запрос и создайте новый.</p>
     <textarea data-testid="d3-employee-credential-challenge" readOnly rows={4}
       value={JSON.stringify({request:credentialChallenge.employeeRequest,
         challenge:credentialChallenge.employeeChallenge},null,2)}/>
@@ -242,6 +244,20 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
     <button data-testid="d3-employee-credential-admit" disabled={busy||credentialAttempted||
       !credentialProof.trim()} onClick={()=>void confirmCredential()}>
       Подтвердить ключ и перечитать Kernel</button>
+    <button className="secondary" data-testid="d3-employee-credential-cancel"
+      disabled={busy||credentialAttempted}
+      onClick={()=>void run('Неподписанный запрос отменён без Kernel-записи.',async()=>{
+        const result=await execute('d3EmployeeCredentialCancel',{
+          employeePersonId:personId,credentialKeyId:keyId,
+          admissionId:credentialChallenge.admissionId});
+        if(result?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_CREDENTIAL_CANCEL/1'||
+           result?.state!=='CHALLENGE_CANCELLED_NO_KERNEL_WRITE'||
+           result?.admissionId!==credentialChallenge.admissionId||
+           result?.kernelWriteAttempted!==false)
+          throw Error('CEN_D3_EMPLOYEE_CREDENTIAL_CANCEL_UNCONFIRMED');
+        setCredentialChallenge(null);
+        setCredentialProof('');
+      })}>Отменить запрос до отправки и получить новый</button>
    </div>}
    {credentialAttempted&&!credentialOk&&<p className="notice subdued">
       Исход подтверждения ключа неизвестен. Не отправляйте запись повторно.

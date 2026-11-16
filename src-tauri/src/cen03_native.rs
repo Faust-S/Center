@@ -64,6 +64,13 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               return Err("CEN_D3_EMPLOYEE_PUBLIC_CREDENTIAL_REQUIRED".into());
           }
       },
+      "d3EmployeeCredentialCancel"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["admissionId"].as_str().is_some_and(t3::valid_identifier) {
+              return Err("CEN_D3_EMPLOYEE_CREDENTIAL_CANCEL_ID_REQUIRED".into());
+          }
+      },
       "d3EmployeeCredentialAdmit"=>{
           if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
              !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
@@ -241,7 +248,8 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
         "d3EmployeeCreateTask"|"d3EmployeeTaskReadback"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true&&
             snapshot["d3EmployeeTaskIssueAvailable"]==true,
-        "d3EmployeeCredentialBegin"|"d3EmployeeCredentialAdmit"|
+        "d3EmployeeCredentialBegin"|"d3EmployeeCredentialCancel"|
+        "d3EmployeeCredentialAdmit"|
         "d3EmployeeCredentialRead"|"d3EmployeeBegin"|"d3EmployeeComplete"|
         "d3EmployeeRead"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true,
@@ -1515,6 +1523,12 @@ mod tests{
             "credentialKeyId":"key:worker","admissionId":"admission:one",
             "employeeProof":proof});
         assert!(check_bound_request(&admit,"d3EmployeeCredentialAdmit").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "credentialKeyId":"key:worker","admissionId":"admission:one"}),
+            "d3EmployeeCredentialCancel").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "credentialKeyId":"key:worker"}),
+            "d3EmployeeCredentialCancel").is_err());
         let mut wrong=admit.clone();
         wrong["employeeProof"]["keyId"]=json!("key:manager");
         assert!(check_bound_request(&wrong,"d3EmployeeCredentialAdmit").is_err());
