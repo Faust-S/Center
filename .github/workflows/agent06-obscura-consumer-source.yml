@@ -44,7 +44,7 @@ jobs:
           repository: Faust-S/iwxa-personal-agent
           # Immutable private source; later parallel commits must not change
           # the code being qualified by this specific Center run.
-          ref: 4d8f3b8cb5d9db53eff8f10e7e1d07edfc9c107e
+          ref: cd861584c622002af4c3edd55767a5ddde1cc6f5
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "4d8f3b8cb5d9db53eff8f10e7e1d07edfc9c107e"
+          test "$(git -C private-agent rev-parse HEAD)" = "cd861584c622002af4c3edd55767a5ddde1cc6f5"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -306,7 +306,7 @@ jobs:
               echo "AGENT06_FIRSTUSER_NATIVE_FLOW_FAILED"
               exit 16
             fi
-            for milestone in REAL_U01_INSTALL REAL_ORIGIN_CONSENT REAL_CORE_COLD_SELECTION REAL_HTTPS_READ REAL_RESULT_COLD MISSING_BINARY_CORE_RECOVERY; do
+            for milestone in REAL_U01_INSTALL REAL_ORIGIN_CONSENT REAL_CORE_COLD_SELECTION REAL_HTTPS_READ REAL_RESULT_COLD REAL_ORIGIN_CHANGE_COLD LIVE_REVOKE_BLOCKS_FETCH LIVE_REENABLE_VERIFIED MISSING_BINARY_CORE_RECOVERY REAL_OFFLINE_REVOKE_COLD; do
               if ! grep -Fq "AGENT06_FIRSTUSER_${milestone}_PASS" "$RUNNER_TEMP/agent06-firstuser-real-native-private.log"; then
                 echo "AGENT06_FIRSTUSER_NATIVE_MILESTONE_MISSING"
                 exit 17
