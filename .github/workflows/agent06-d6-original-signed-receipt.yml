@@ -72,7 +72,9 @@ jobs:
           try {
             $stages=@(
               @{ code='BASE'; expr='existing_core or real_core_durable_queue or lost_ack or foreign_work_revision or changed_original_signed_task' },
-              @{ code='RECEIPT'; expr='unaccepted_result or original_readback or original_exchange' },
+              @{ code='ACCEPTANCE'; expr='test_unaccepted_result_and_absent_original_kernel_owner_denied' },
+              @{ code='READBACK'; expr='test_original_readback_and_exchange_are_required_twice' },
+              @{ code='PROOF'; expr='test_original_exchange_cannot_confirm_weak_or_foreign_proofs' },
               @{ code='PUBLICATION'; expr='publication_uses or lost_original_export or prior_prepared or publication_requires or original_signed_denial' },
               @{ code='RECOVERY'; expr='no_original_publisher or corrupted_original_commit or no_foreign_kernel or real_agent_core_durable_job' }
             )
