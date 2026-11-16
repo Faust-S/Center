@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,truncateSync,
   existsSync,symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -107,4 +107,32 @@ test('no source symlink may substitute an externally pinned original T3 tool',as
     files:{...x.files,'age.exe':substitute},pins:x.pins
   }),/PUBLISHER_AGE_SETUP_SOURCE_FILE_INVALID/);
  }finally{x.cleanup();}
+});
+
+test('original age binaries larger than T3 native 64 MiB limit are rejected before copying',async()=>{
+ const x=fixture();
+ try{
+  truncateSync(x.files['age.exe'],64*1024*1024+1);
+  await assert.rejects(stagePinnedAgeResources({
+    directory:x.dest,files:x.files,pins:x.pins
+  }),/PUBLISHER_AGE_SETUP_SOURCE_FILE_INVALID/);
+  assert.ok(AGE_SETUP_FILES.every(n=>!existsSync(join(x.dest,n))));
+ }finally{x.cleanup();}
+});
+test('installed Setup Core contract supports both original owner and optional age toolchain',()=>{
+ const driver=readFileSync('publisher/tests/installed-setupcore-publisher.ps1','utf8');
+ const rust=readFileSync('native/t3_age_transport.rs','utf8');
+ assert.match(driver,/PUBLISHER_AGE_PARTIAL_RUNTIME_DENIED/);
+ assert.match(driver,/PUBLISHER_AGE_INDEPENDENT_RELEASE_SHA256_REQUIRED/);
+ assert.match(driver,/pinned-age-setup\.mjs/);
+ assert.match(driver,/\$expectedFiles=6/);
+ assert.match(driver,/Assert-InstalledAgeFiles \$payload/);
+ assert.equal((driver.match(/Assert-InstalledAgeFiles \$root/g)||[]).length,2);
+ assert.match(driver,/PUBLISHER_TWO_FILE_TRANSPORT_ONLY_PASS/);
+ assert.match(driver,/ageRuntimeQualified=\$false/);
+ for(const file of AGE_SETUP_FILES){
+  assert.ok(driver.includes(file),file);
+  assert.ok(rust.includes(file),file);
+ }
+ assert.doesNotMatch(driver,/generateVaultKey|importVaultKey|newSigner|PRIVATE KEY/);
 });

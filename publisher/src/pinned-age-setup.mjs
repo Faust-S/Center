@@ -36,8 +36,12 @@ export async function stagePinnedAgeResources({directory,files,pins}={}){
        typeof pin!=='string'||!HEX.test(pin))
       deny('PUBLISHER_AGE_SETUP_INDEPENDENT_SOURCE_PIN_REQUIRED');
     const meta=lstatSync(path,{throwIfNoEntry:false});
+    // The original T3 verified age toolchain limits each executable to
+    // 64 MiB; do not stage binaries it would reject at runtime.
+    const maxBytes=name==='age-toolchain.json'?4096:
+      (name==='age.exe'||name==='age-keygen.exe'?64*1024*1024:512*1024*1024);
     if(!meta?.isFile()||meta.isSymbolicLink()||meta.size<1||
-       meta.size>(name==='age-toolchain.json'?4096:512*1024*1024))
+       meta.size>maxBytes)
       deny('PUBLISHER_AGE_SETUP_SOURCE_FILE_INVALID');
     const target=join(directory,name);
     if(resolve(path)===resolve(target)||existsSync(target))
