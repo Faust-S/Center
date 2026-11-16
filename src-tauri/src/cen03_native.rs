@@ -59,7 +59,8 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
           if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
              !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
              !input["admissionId"].as_str().is_some_and(t3::valid_identifier)||
-             input["employeeProof"]["kind"]!="PROOF"||
+             input["employeeProof"]["schema"]!="IWXA_T3_ACCESS_SIGNED/1"||
+             input["employeeProof"]["payload"]["kind"]!="PROOF"||
              input["employeeProof"]["keyId"]!=input["credentialKeyId"] {
               return Err("CEN_D3_EMPLOYEE_ORIGINAL_PROOF_REQUIRED".into());
           }
@@ -72,7 +73,8 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
       },
       "d3EmployeeComplete"=>{
           if !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
-             input["employeeProof"]["kind"]!="PROOF"||
+             input["employeeProof"]["schema"]!="IWXA_T3_ACCESS_SIGNED/1"||
+             input["employeeProof"]["payload"]["kind"]!="PROOF"||
              !input["employeeProof"]["keyId"].as_str().is_some_and(t3::valid_identifier) {
               return Err("CEN_D3_EMPLOYEE_SIGNED_PROOF_REQUIRED".into());
           }

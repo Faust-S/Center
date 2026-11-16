@@ -19,9 +19,11 @@ function jsonObject(raw:string,code:string):Record<string,any>{
 }
 function proof(raw:string){
   const value=jsonObject(raw,'CEN_D3_EMPLOYEE_SIGNED_PROOF_REQUIRED');
-  if(value.kind!=='PROOF'||!ID.test(value.keyId)||
-    !value.payload||typeof value.payload!=='object'||
-    typeof value.signature!=='string'||value.signature.length<32)
+  // Original T3 makeProof returns an envelope. The kind is in its payload.
+  if(value.schema!=='IWXA_T3_ACCESS_SIGNED/1'||!ID.test(value.keyId)||
+    value.payload?.kind!=='PROOF'||typeof value.payload?.challenge!=='string'||
+    !HEX.test(value.payload?.requestDigest)||
+    typeof value.signature!=='string'||!/^[A-Za-z0-9_-]{86}$/.test(value.signature))
     throw Error('CEN_D3_EMPLOYEE_SIGNED_PROOF_REQUIRED');
   return value;
 }
