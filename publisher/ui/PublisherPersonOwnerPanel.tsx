@@ -655,6 +655,19 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         'Его устанавливают отдельно через официальный IWXA Setup Core, не из лицензии .iwxa.'};
     });
   }
+  // Compare two independently launched ORIGINAL T3 native Owner processes.
+  // These are read-only historical signed-envelope checks, never a holder
+  // admission, a new signature or an independent Publisher STATUS validator.
+  const signedEvidenceFields=[
+    'operation','source','licenseId','requestId','issuerAuthorityId',
+    'personId','productId','productVersion',
+    'licenseKeyId','licenseEnvelopeSha256','licenseSignatureVerifiedAtIssuance',
+    'statusKeyId','statusEnvelopeSha256',
+    'statusSignatureVerifiedAtIssuance','statusFloorVerified',
+    'status','sequence','statusIssuedAt','statusValidUntil',
+    'stateRevision','ledgerRevision','recipientConfirmed',
+    'activeSeats','productionActivation'
+  ] as const satisfies readonly (keyof SignedOwnerReadback)[];
   async function readOriginalSignedEvidence(){
     const selected=selectedLicense;
     if(!selected||!available||busy||needsRefresh||pendingMutation)return;
@@ -689,10 +702,20 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         setNeedsRefresh(true);
         throw Error('PERSON_OWNER_SIGNED_READBACK_MISMATCH');
       }
-      // A second ORIGINAL native inventory read guards against an issuer
-      // status change between the signature readback and this GUI display.
+      // Two separate native Owner invocations must reproduce exactly the
+      // same signed LICENSE/STATUS, issuer state revision and durable floor.
+      // A basic inventory alone cannot verify a second Ed25519 envelope.
+      const second=await invoke('publisher_t3_person_signed_readback',{
+        licenseId:selected.licenseId}) as SignedOwnerReadback;
+      if(!signedEvidenceFields.every(key=>
+         Object.hasOwn(receipt,key)&&Object.hasOwn(second??{},key)&&
+         second[key]===receipt[key])){
+        setNeedsRefresh(true);
+        throw Error('PERSON_OWNER_TWO_COLD_SIGNED_READBACK_DIVERGED');
+      }
+      // Refuse a status change between the two signed reads and the GUI.
       await currentPersonRecord(selected,'PERSON_OWNER_SIGNED_READBACK_STALE');
-      setSignedOwnerEvidence(receipt);
+      setSignedOwnerEvidence(second);
     }catch(e){
       setSignedOwnerEvidenceError('Оригинальное подтверждение подписанных документов T3 '+
         'не получено: '+err(e));
@@ -962,7 +985,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
           Перечитать подписанные LICENSE и STATUS в исходном T3
         </button>
         {signedOwnerEvidence&&<div data-testid="publisher-person-owner-signed-evidence">
-          <p>Исходный владелец T3 проверил подпись LICENSE при выдаче.
+          <p>Два независимых чтения исходного T3 подтвердили одинаковые
+            подписанные LICENSE и STATUS. Подпись LICENSE проверена при выдаче.
             {signedOwnerEvidence.statusFloorVerified?
               ' Последний подписанный STATUS совпадает с долговременной записью.':
               ' Подписанный STATUS ещё не создан.'}</p>
