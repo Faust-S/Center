@@ -1,0 +1,95 @@
+# Public ephemeral CI for ORIGINAL PRIVATE T3 signed Atlas source.
+# Never upload the private checkout, logs, signed .iwxa, credentials or executables.
+name: T3 original Atlas Exchange source qualification
+on:
+  push:
+    branches: [work/2026-11-17-t3-original-atlas-exchange-public-ci]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: t3-original-atlas-source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  original-t3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check existing temporary source grant
+        shell: bash
+        env:
+          SOURCE_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if [[ -z "$SOURCE_READ_TOKEN" ]]; then
+            echo 'T3_ATLAS_TEMPORARY_READ_GRANT_UNAVAILABLE'
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: c0e3e11357dcd2f4adf88e0ee79046d494028820
+          path: private-original-t3
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git -C private-original-t3 rev-parse HEAD)"
+          if [[ "$actual" != 'c0e3e11357dcd2f4adf88e0ee79046d494028820' ]]; then
+            echo 'T3_ATLAS_PRIVATE_SOURCE_PIN_INVALID'
+            exit 1
+          fi
+          echo 'T3_ATLAS_PINNED_ORIGINAL_SOURCE_PASS'
+      - name: Check private original source syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in reconciliation/atlas-source-publication-ledger.mjs interop/runtime.mjs interop/atlas-result-exchange.mjs tests/original-agent-atlas-publication-ledger.test.mjs tests/original-agent-atlas-signed-exchange.test.mjs tests/original-export-ledger-recovery.test.mjs; do
+            if ! node --check "private-original-t3/$file" > /tmp/t3-atlas-syntax-private.log 2>&1; then
+              echo 'T3_ATLAS_ORIGINAL_SYNTAX_FAIL'
+              exit 1
+            fi
+          done
+          echo 'T3_ATLAS_ORIGINAL_SYNTAX_PASS'
+      - name: Qualify real original ReconciliationLedger and recovery
+        shell: bash
+        run: |
+          if node --test private-original-t3/tests/original-agent-atlas-publication-ledger.test.mjs > /tmp/t3-atlas-ledger-private.log 2>&1; then
+            echo 'T3_ATLAS_ORIGINAL_DURABLE_LEDGER_PASS'
+          else
+            echo 'T3_ATLAS_ORIGINAL_DURABLE_LEDGER_FAIL'
+            exit 1
+          fi
+      - name: Qualify real original issuer grant and signed Atlas archive
+        shell: bash
+        run: |
+          if node --test private-original-t3/tests/original-agent-atlas-signed-exchange.test.mjs > /tmp/t3-atlas-exchange-private.log 2>&1; then
+            echo 'T3_ATLAS_ORIGINAL_SIGNED_EXCHANGE_PASS'
+          else
+            echo 'T3_ATLAS_ORIGINAL_SIGNED_EXCHANGE_FAIL'
+            exit 1
+          fi
+      - name: Original corporate signed export regression
+        shell: bash
+        run: |
+          if node --test private-original-t3/tests/original-export-ledger-recovery.test.mjs > /tmp/t3-atlas-baseline-private.log 2>&1; then
+            echo 'T3_ATLAS_ORIGINAL_CORPORATE_EXPORT_BASELINE_PASS'
+          else
+            echo 'T3_ATLAS_ORIGINAL_CORPORATE_EXPORT_BASELINE_FAIL'
+            exit 1
+          fi
+      - name: Remove private checkout and all private logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf private-original-t3
+          rm -f /tmp/t3-atlas-*-private.log
+          echo 'T3_ATLAS_PRIVATE_SOURCE_AND_LOGS_REMOVED'
+      # No upload-artifact or cache action.
