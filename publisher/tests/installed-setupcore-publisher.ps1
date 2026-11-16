@@ -1,6 +1,14 @@
 [CmdletBinding()]
 param(
   [string]$OwnerComponentPath = '',
+  [string]$AgeComponentPath = '',
+  [string]$AgeBinaryPath = '',
+  [string]$AgeKeygenPath = '',
+  [string]$AgeToolchainManifestPath = '',
+  [string]$ExpectedAgeComponentSha256 = '',
+  [string]$ExpectedAgeBinarySha256 = '',
+  [string]$ExpectedAgeKeygenSha256 = '',
+  [string]$ExpectedAgeToolchainManifestSha256 = '',
   [switch]$TransportOnly,
   [string]$InstalledPersonWitnessScript = ''
 )
@@ -24,6 +32,44 @@ if($InstalledPersonWitnessScript){
 }
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+# age files are independent optional original T3 native resources. Never
+# install partial toolchains or trust a SHA from an incoming .iwxa carrier.
+$ageInputs=@($AgeComponentPath,$AgeBinaryPath,$AgeKeygenPath,
+  $AgeToolchainManifestPath,$ExpectedAgeComponentSha256,
+  $ExpectedAgeBinarySha256,$ExpectedAgeKeygenSha256,
+  $ExpectedAgeToolchainManifestSha256)
+$ageSelected=@($ageInputs|Where-Object {$_ -ne ''}).Count -gt 0
+if($ageSelected){
+  if(!$OwnerComponentPath){
+    throw 'PUBLISHER_AGE_ORIGINAL_PERSON_OWNER_REQUIRED'
+  }
+  if(@($ageInputs|Where-Object {$_ -eq ''}).Count -ne 0){
+    throw 'PUBLISHER_AGE_PARTIAL_RUNTIME_DENIED'
+  }
+  foreach($hash in @($ExpectedAgeComponentSha256,$ExpectedAgeBinarySha256,
+    $ExpectedAgeKeygenSha256,$ExpectedAgeToolchainManifestSha256)){
+    if($hash -notmatch '^[0-9a-fA-F]{64}$'){
+      throw 'PUBLISHER_AGE_INDEPENDENT_RELEASE_SHA256_REQUIRED'
+    }
+  }
+}
+$agePins=[ordered]@{
+  'iwxa-t3-age-desktop.exe'=$ExpectedAgeComponentSha256
+  'age.exe'=$ExpectedAgeBinarySha256
+  'age-keygen.exe'=$ExpectedAgeKeygenSha256
+  'age-toolchain.json'=$ExpectedAgeToolchainManifestSha256
+}
+function Assert-InstalledAgeFiles([string]$folder){
+  if(-not $ageSelected){return}
+  foreach($name in @($agePins.Keys)){
+    $candidate=Join-Path (Join-Path $folder 't3') $name
+    if(-not (Test-Path -LiteralPath $candidate -PathType Leaf) -or
+       (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash -ine
+       [string]$agePins[$name]){
+      throw "PUBLISHER_AGE_INSTALLED_BYTES_MISMATCH $name"
+    }
+  }
+}
 $pin='6603a11764ff86853e5abf4d209d55f79fddd8b1'
 $vendor=(Resolve-Path -LiteralPath 'vendor/setupcore').Path
 $actualPin=(& git -C $vendor rev-parse HEAD).Trim()
@@ -61,6 +107,20 @@ if($componentSource){
   Copy-Item -LiteralPath $componentSource -Destination (Join-Path $directory 'iwxa-t3-product-owner.exe')
   if((Get-FileHash -LiteralPath (Join-Path $directory 'iwxa-t3-product-owner.exe') -Algorithm SHA256).Hash -ne $componentHash){
     throw 'PUBLISHER_EXTERNAL_COMPONENT_STAGE_READBACK_INVALID'
+  }
+  if($ageSelected){
+    # Build-time only: original native resources remain opaque; exact
+    # independent hashes are checked before and after staging.
+    $ageArgs=@($directory,$AgeComponentPath,$AgeBinaryPath,$AgeKeygenPath,
+      $AgeToolchainManifestPath,$ExpectedAgeComponentSha256.ToLowerInvariant(),
+      $ExpectedAgeBinarySha256.ToLowerInvariant(),
+      $ExpectedAgeKeygenSha256.ToLowerInvariant(),
+      $ExpectedAgeToolchainManifestSha256.ToLowerInvariant())
+    & node publisher/src/pinned-age-setup.mjs @ageArgs
+    if($LASTEXITCODE -ne 0){throw 'PUBLISHER_AGE_ORIGINAL_STAGE_FAILED'}
+    Assert-InstalledAgeFiles $payload
+    $expectedFiles=6
+    Write-Host 'PUBLISHER_ORIGINAL_AGE_PINNED_STAGE_PASS_RUNTIME_NOT_QUALIFIED'
   }
 }
 $stub=Join-Path $artifact 'setup-core-stub.exe'
@@ -150,6 +210,10 @@ try {
     }
     Write-Host 'PUBLISHER_EXTERNAL_COMPONENT_PACKAGED_BYTES_PASS (signature NOT validated)'
   }
+  if($ageSelected){
+    Assert-InstalledAgeFiles $root
+    Write-Host 'PUBLISHER_ORIGINAL_AGE_SETUP_CORE_BYTE_PINS_PASS'
+  }
   $registered=Get-ItemProperty -Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher'
   if($registered.InstallLocation -ne $root){throw 'PUBLISHER_SETUP_REGISTRY_BINDING_INVALID'}
   Write-Host "PUBLISHER_SETUP_INSTALLED_EXACT_BINARY_PASS sha256=$((Get-FileHash $app -Algorithm SHA256).Hash)"
@@ -194,6 +258,10 @@ try {
   if($componentSource -and
      (Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash -ne $componentHash){
     throw 'PUBLISHER_SETUP_REPAIR_CHANGED_ORIGINAL_OWNER'
+  }
+  if($ageSelected){
+    Assert-InstalledAgeFiles $root
+    Write-Host 'PUBLISHER_ORIGINAL_AGE_REPAIR_BYTE_PINS_PASS'
   }
   $repairRegistry=Get-ItemProperty -Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher'
   if([string]$repairRegistry.DataLocation -ne $selectedDataLocation -or
@@ -269,7 +337,7 @@ try {
     Write-Host 'PUBLISHER_SETUP_UNINSTALL_PRESERVES_USER_DATA_PASS'
   }
 }
-$reportStatus=if($TransportOnly){'PUBLISHER_TWO_FILE_TRANSPORT_ONLY_PASS'}else{'PUBLISHER_SETUP_CORE_INSTALLED_GUI_PASS'}
+$reportStatus=if($TransportOnly){if($ageSelected){'PUBLISHER_SIX_FILE_TRANSPORT_ONLY_PASS'}else{'PUBLISHER_TWO_FILE_TRANSPORT_ONLY_PASS'}}else{'PUBLISHER_SETUP_CORE_INSTALLED_GUI_PASS'}
 $report=[ordered]@{
   status=$reportStatus
   sourceHead=$head;sourceTree=$tree;setupCorePin=$pin
@@ -278,6 +346,9 @@ $report=[ordered]@{
   appSha256=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash
   fileCount=$expectedFiles
   externalComponentSha256=$componentHash
+  pinnedAgeFiles=if($ageSelected){4}else{0}
+  pinnedAgeManifestSha256=if($ageSelected){$ExpectedAgeToolchainManifestSha256.ToLowerInvariant()}else{$null}
+  ageRuntimeQualified=$false
   externalComponentFromPrivateSource=$false
   privateSignerVerified=$false
   signedLicenseIssued=$false
