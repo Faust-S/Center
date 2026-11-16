@@ -492,7 +492,8 @@ try{
   // UI-only native owner fixture: these checks DO NOT qualify cryptography,
   // the original installed T3, independent employee signature or Kernel.
   const employeeState={registered:false,ready:false,reads:0,
-    initializations:0,inviteExports:0,savedDraft:null,cancelFirstInit:true,loseFirstInitAck:true};
+    initializations:0,inviteExports:0,savedDraft:null,requiresCold:false,
+    cancelFirstInit:true,loseFirstInitAck:true};
   const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
   await employeePage.exposeFunction('__centerEmployeeFixture',
     async(command,args={})=>{
@@ -526,6 +527,8 @@ try{
         assert.equal(args.binding?.workspaceId,'workspace:employee-fixture');
         assert.equal(args.binding?.contextEpoch,1);
         if(args.operation==='d3EmployeeRegistryReadback'){
+          assert.equal(employeeState.requiresCold,false,
+            'after possibly committed graph, readback needs a cold owner');
           employeeState.reads++;
           employeeState.ready=employeeState.registered;
           return {
@@ -586,7 +589,7 @@ try{
           employeeState.registered=true;
           if(employeeState.loseFirstInitAck){
             employeeState.loseFirstInitAck=false;
-            employeeState.ready=false;
+            employeeState.ready=false;employeeState.requiresCold=true;
             throw Error('T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN');
           }
           employeeState.ready=true;
@@ -610,6 +613,16 @@ try{
   await employeePage.goto('http://127.0.0.1:4173');
   await employeePage.getByTestId('org-name').fill('Independent staff test');
   await employeePage.getByTestId('create-org').click();
+  // The installed Center already saved this exact draft for cold restore.
+  const employeeOrgId=await employeePage.locator('#active-organization').inputValue();
+  assert.ok(employeeOrgId);
+  employeeState.savedDraft=JSON.stringify({
+    format:'iwxa.admin-center.draft',version:1,
+    organizations:[{id:employeeOrgId,name:'Independent staff test',
+      kind:'ORGANIZATION',workspaces:[],participants:[],assignments:[]}],
+    activeOrganizationId:employeeOrgId,
+    updatedAt:'2026-11-17T00:00:00.000Z'
+  });
   await employeePage.getByTestId('nav-results').click();
   await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
   await employeePage.getByTestId('d3-employee-registry-readback').click();
@@ -634,24 +647,18 @@ try{
   assert.equal(employeeState.initializations,1);
   assert.equal(await originalInitButtons.isEnabled(),false,
     'original Kernel command cannot be replayed on uncertain ACK');
+  // The original native owner ended the uncertain session. A read-only
+  // Kernel readback is valid only after the signed Host has cold-reopened.
+  employeeState.requiresCold=false;
+  await employeePage.reload();
+  await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
   await employeePage.getByTestId('d3-employee-registry-readback').click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
   assert.equal(await employeePage.getByTestId('d3-independent-employee').count(),1);
   assert.equal(employeeState.initializations,1,
-    'the original cold readback never reissues the Kernel graph');
-  // Real Center persists organization drafts through its existing native
-  // service. This fixture must provide the SAME saved draft when the main
-  // WebView reloads, or the organization disappears before registry recovery.
-  const employeeOrgId=await employeePage.locator('#active-organization').inputValue();
-  assert.ok(employeeOrgId);
-  employeeState.savedDraft=JSON.stringify({
-    format:'iwxa.admin-center.draft',version:1,
-    organizations:[{id:employeeOrgId,name:'Independent staff test',
-      kind:'ORGANIZATION',workspaces:[],participants:[],assignments:[]}],
-    activeOrganizationId:employeeOrgId,
-    updatedAt:'2026-11-16T12:00:00.000Z',
-  });
-  // Simulate cold native owner without losing ORIGINAL persisted Kernel data.
+    'cold readback after lost ACK cannot dispatch a second graph');
+  // Cold-open the exact same signed Kernel a SECOND time and read again.
   employeeState.ready=false;
   await employeePage.reload();
   // Ordinary Center startup returns to its overview. Open the original
