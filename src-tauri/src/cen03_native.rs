@@ -43,6 +43,64 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
     let sha=input["packageSha256"].as_str();
     match operation {
       "d3Inbox"|"d3Receive"|"d3ReceiveAge"|"d3ExportInvitation"=>{},
+      "d3EmployeeCredentialBegin"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["keyRecord"].is_object()||
+             input["keyRecord"]["subjectId"]!=input["employeePersonId"]||
+             input["keyRecord"]["uses"]!=json!(["PROOF"])||
+             input["keyRecord"]["status"]!="ACTIVE"||
+             !input["keyRecord"]["publicKey"].as_str().is_some_and(|v|
+                 v.len()<8192&&v.contains("PUBLIC KEY")) {
+              return Err("CEN_D3_EMPLOYEE_PUBLIC_CREDENTIAL_REQUIRED".into());
+          }
+      },
+      "d3EmployeeCredentialAdmit"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["admissionId"].as_str().is_some_and(t3::valid_identifier)||
+             input["employeeProof"]["kind"]!="PROOF"||
+             input["employeeProof"]["keyId"]!=input["credentialKeyId"] {
+              return Err("CEN_D3_EMPLOYEE_ORIGINAL_PROOF_REQUIRED".into());
+          }
+      },
+      "d3EmployeeCredentialRead"|"d3EmployeeBegin"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier) {
+              return Err("CEN_D3_EMPLOYEE_KEY_IDENTIFIERS_REQUIRED".into());
+          }
+      },
+      "d3EmployeeComplete"=>{
+          if !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
+             input["employeeProof"]["kind"]!="PROOF"||
+             !input["employeeProof"]["keyId"].as_str().is_some_and(t3::valid_identifier) {
+              return Err("CEN_D3_EMPLOYEE_SIGNED_PROOF_REQUIRED".into());
+          }
+      },
+      "d3EmployeeRead"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier) {
+              return Err("CEN_D3_EMPLOYEE_ENROLLMENT_IDENTIFIERS_REQUIRED".into());
+          }
+      },
+      "d3EmployeeCreateTask"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["taskId"].as_str().is_some_and(|s|
+                s.len()>5&&s.len()<=105&&s.starts_with("task:")&&
+                s[5..].bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'))||
+             !input["task"].as_str().is_some_and(|s|
+                !s.trim().is_empty()&&original_text_len(s)<=10000) {
+              return Err("CEN_D3_EMPLOYEE_SIGNED_TASK_INVALID".into());
+          }
+      },
+      "d3EmployeeTaskReadback"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["taskId"].as_str().is_some_and(t3::valid_identifier) {
+              return Err("CEN_D3_EMPLOYEE_TASK_READBACK_INVALID".into());
+          }
+      },
       "d3CreateTask"=>{
           if !input["task"].as_str().is_some_and(|s|
               !s.trim().is_empty()&&original_text_len(s)<=10000) {
@@ -131,6 +189,8 @@ fn supported_state(result:&Value,organization_id:&str,
        (view["snapshot"]["d3ApplyRecoverAvailable"]==true&&
         view["snapshot"]["d3ApplyAvailable"]!=true)||
        !view["snapshot"]["d3TaskIssueAvailable"].is_boolean()||
+       (view["snapshot"]["d3EmployeeEnrollmentAvailable"]!=Value::Null&&
+        !view["snapshot"]["d3EmployeeEnrollmentAvailable"].is_boolean())||
        !view["snapshot"]["tasks"].is_array()||
        !view["snapshot"]["totalTasks"].as_u64().is_some_and(|n|n<=256){
 
@@ -142,11 +202,18 @@ fn supported_state(result:&Value,organization_id:&str,
     if projected["snapshot"]["d3ApplyRecoverAvailable"]==Value::Null {
         projected["snapshot"]["d3ApplyRecoverAvailable"]=Value::Bool(false);
     }
+    if projected["snapshot"]["d3EmployeeEnrollmentAvailable"]==Value::Null {
+        projected["snapshot"]["d3EmployeeEnrollmentAvailable"]=Value::Bool(false);
+    }
     Ok(projected)
 }
 fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
     let snapshot=&view["snapshot"];
     match operation{
+        "d3EmployeeCredentialBegin"|"d3EmployeeCredentialAdmit"|
+        "d3EmployeeCredentialRead"|"d3EmployeeBegin"|"d3EmployeeComplete"|
+        "d3EmployeeRead"|"d3EmployeeCreateTask"|"d3EmployeeTaskReadback"=>
+            snapshot["d3EmployeeEnrollmentAvailable"]==true,
         "d3ApplyAccepted"=>snapshot["d3ApplyAvailable"]==true,
         "d3RecoverApplied"=>snapshot["d3ApplyRecoverAvailable"]==true&&
             snapshot["d3ApplyAvailable"]==true,
@@ -881,6 +948,15 @@ pub async fn center_corporate_action(
     check_bound_request(&input,&operation)?;
     if !t3::admin_d3_availability(&app,&organization_id){
         return Err("CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED".into());
+    }
+    if operation.starts_with("d3Employee"){
+        // Exactly one live private original employee authority is required.
+        // Unsupported builds fail before any signed write reaches the owner.
+        let state=original_owner_call(&app,&organization_id,"state",Value::Null)?;
+        let current=supported_state(&state,&organization_id,"D3_STATE")?;
+        if !exact_kernel_apply_capability(&current,&operation){
+            return Err("CEN_D3_ORIGINAL_EMPLOYEE_OWNER_NOT_CONNECTED".into());
+        }
     }
     if matches!(operation.as_str(),"d3ApplyAccepted"|"d3RecoverApplied"){
         // The ORIGINAL T2 Kernel lives exclusively in the currently

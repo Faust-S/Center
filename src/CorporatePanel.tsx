@@ -1,12 +1,13 @@
 import React,{useEffect,useRef,useState} from 'react';
 import CorporateD3Panel from './CorporateD3Panel';
+import CorporateEmployeeEnrollment from './CorporateEmployeeEnrollment';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
 import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox,signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
 
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
 type Invoke=(command:string,args?:Record<string,unknown>)=>Promise<any>;
-type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;assignments:Array<{id:string;title:string;workspaceId?:string;assigneeId?:string|null;editNumber?:number;description?:string;criteria?:string;dueDate?:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
+type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;participants?:Array<{id:string;name:string}>;assignments:Array<{id:string;title:string;workspaceId?:string;assigneeId?:string|null;editNumber?:number;description?:string;criteria?:string;dueDate?:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
 const hex=/^[a-f0-9]{64}$/;
 const why=(e:unknown)=>{
  const message=e instanceof Error?e.message:String(e);
@@ -212,6 +213,9 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
         throw Error('CEN_D3_SIGNED_ENROLLMENT_UNCONFIRMED');
     })}>Подключить организацию</button>
   </div>}
+  {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={organizationId+'|'+owner.snapshot.workspaceId}
+    session={owner.snapshot} contacts={organization.participants??[]}
+    execute={execute} run={act} busy={busy}/>}
   {d3Ready&&invoke ? <CorporateD3Panel key={signedD3SessionFingerprint(owner,organizationId)??'unknown'} owner={owner} execute={execute}
     dispatchedApplications={dispatchedD3Applications}
     taskAttempts={attemptedD3Tasks}
