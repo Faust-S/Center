@@ -589,6 +589,9 @@ try{
   // Simulate cold native owner without losing ORIGINAL persisted Kernel data.
   employeeState.ready=false;
   await employeePage.reload();
+  // Ordinary Center startup returns to its overview. Open the original
+  // corporate workbench again; native signer state survives navigation.
+  await employeePage.getByTestId('nav-results').click();
   await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
   await employeePage.getByTestId('d3-employee-registry-readback').click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
