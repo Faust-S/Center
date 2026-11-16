@@ -282,33 +282,49 @@ jobs:
       - name: Verify six-file original age Setup Core transport without private T3
         shell: pwsh
         run: |
-          # This checks ACTUAL Setup Core installation, Repair and uninstall
-          # of four additional independently pinned opaque resource bytes.
-          # The fixture is the already PUBLIC Publisher EXE, NOT age or T3.
-          # It must never be described as a working runtime or signed issuer.
+          # Official FiloSottile/age v1.3.1 release, exact GitHub asset SHA.
+          # Native Owner and age-desktop EXE remain PUBLIC dummy resource
+          # fixtures: this only proves real standard age X25519 in Setup Core.
           Copy-Item -LiteralPath 'artifacts/publisher-setupcore-transport/result.json' -Destination 'artifacts/publisher-two-file-transport.json'
           Remove-Item -LiteralPath 'artifacts/publisher-setupcore-transport' -Recurse -Force
           $opaque=(Resolve-Path 'publisher/src-tauri/target/release/iwxa-publisher.exe').Path
           $digest=(Get-FileHash -LiteralPath $opaque -Algorithm SHA256).Hash.ToLowerInvariant()
           $fixture=(Join-Path (Resolve-Path 'artifacts').Path 'publisher-age-transport-opaque')
           New-Item -Path $fixture -ItemType Directory -Force|Out-Null
+          $archive=Join-Path $fixture 'age-v1.3.1-windows-amd64.zip'
+          $officialSha='c56e8ce22f7e80cb85ad946cc82d198767b056366201d3e1a2b93d865be38154'
+          $officialUrl='https://github.com/FiloSottile/age/releases/download/v1.3.1/age-v1.3.1-windows-amd64.zip'
+          Invoke-WebRequest -Uri $officialUrl -OutFile $archive
+          if((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+             $officialSha){throw 'PUBLISHER_PUBLIC_OFFICIAL_AGE_1_3_1_ARCHIVE_PIN_INVALID'}
+          Expand-Archive -LiteralPath $archive -DestinationPath $fixture
+          $ageExe=Join-Path $fixture 'age\age.exe'
+          $keygenExe=Join-Path $fixture 'age\age-keygen.exe'
+          foreach($exe in @($ageExe,$keygenExe)){
+            if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){
+              throw 'PUBLISHER_PUBLIC_OFFICIAL_AGE_WINDOWS_BINARY_MISSING'
+            }
+          }
+          $ageSha=(Get-FileHash -LiteralPath $ageExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $keygenSha=(Get-FileHash -LiteralPath $keygenExe -Algorithm SHA256).Hash.ToLowerInvariant()
           $manifestPath=Join-Path $fixture 'age-toolchain.json'
           [ordered]@{
             schema='IWXA_T3_AGE_PINNED_TOOLCHAIN/1'
-            ageSha256=$digest
-            ageKeygenSha256=$digest
+            ageSha256=$ageSha
+            ageKeygenSha256=$keygenSha
           } | ConvertTo-Json -Compress | Set-Content -LiteralPath $manifestPath -Encoding utf8 -NoNewline
           $manifestDigest=(Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
           $ageSetupParams=@{
             TransportOnly=$true
+            AgeStandardRoundtrip=$true
             OwnerComponentPath=$opaque
             AgeComponentPath=$opaque
-            AgeBinaryPath=$opaque
-            AgeKeygenPath=$opaque
+            AgeBinaryPath=$ageExe
+            AgeKeygenPath=$keygenExe
             AgeToolchainManifestPath=$manifestPath
             ExpectedAgeComponentSha256=$digest
-            ExpectedAgeBinarySha256=$digest
-            ExpectedAgeKeygenSha256=$digest
+            ExpectedAgeBinarySha256=$ageSha
+            ExpectedAgeKeygenSha256=$keygenSha
             ExpectedAgeToolchainManifestSha256=$manifestDigest
           }
           ./publisher/tests/installed-setupcore-publisher.ps1 @ageSetupParams
@@ -317,13 +333,14 @@ jobs:
              $receipt.fileCount -ne 6 -or $receipt.pinnedAgeFiles -ne 4 -or
              $receipt.pinnedAgeManifestSha256 -ine $manifestDigest -or
              $receipt.ageRuntimeQualified -ne $false -or
+             $receipt.upstreamAgeStandardRoundtripVerified -ne $true -or
              $receipt.privateSignerVerified -ne $false -or
              $receipt.signedLicenseIssued -ne $false -or
              $receipt.productionActivation -ne $false -or
              $receipt.activeSeats -ne 0){
             throw 'PUBLISHER_PUBLIC_SIX_FILE_ORIGINAL_AGE_TRANSPORT_GATE_FAILED'
           }
-          Write-Host 'PUBLISHER_SETUP_CORE_SIX_FILE_AGE_BYTE_EXACT_INSTALL_REPAIR_UNINSTALL_PASS_TRANSPORT_ONLY'
+          Write-Host 'PUBLISHER_SETUP_CORE_SIX_FILE_UPSTREAM_AGE_1_3_1_X25519_INSTALL_REPAIR_UNINSTALL_PASS_NO_T3_RUNTIME'
       - name: Preserve Publisher Setup Core evidence
         if: always()
         uses: actions/upload-artifact@v4

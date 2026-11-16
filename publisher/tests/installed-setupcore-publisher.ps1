@@ -9,6 +9,7 @@ param(
   [string]$ExpectedAgeBinarySha256 = '',
   [string]$ExpectedAgeKeygenSha256 = '',
   [string]$ExpectedAgeToolchainManifestSha256 = '',
+  [switch]$AgeStandardRoundtrip,
   [switch]$TransportOnly,
   [string]$InstalledPersonWitnessScript = ''
 )
@@ -39,6 +40,9 @@ $ageInputs=@($AgeComponentPath,$AgeBinaryPath,$AgeKeygenPath,
   $ExpectedAgeBinarySha256,$ExpectedAgeKeygenSha256,
   $ExpectedAgeToolchainManifestSha256)
 $ageSelected=@($ageInputs|Where-Object {$_ -ne ''}).Count -gt 0
+if($AgeStandardRoundtrip -and -not $ageSelected){
+  throw 'PUBLISHER_AGE_STANDARD_ROUNDTRIP_REQUIRES_TOOLCHAIN'
+}
 if($ageSelected){
   if(!$OwnerComponentPath){
     throw 'PUBLISHER_AGE_ORIGINAL_PERSON_OWNER_REQUIRED'
@@ -214,6 +218,9 @@ try {
     Assert-InstalledAgeFiles $root
     Write-Host 'PUBLISHER_ORIGINAL_AGE_SETUP_CORE_BYTE_PINS_PASS'
   }
+  if($AgeStandardRoundtrip){
+    & ./publisher/tests/installed-standard-age-v131.ps1 -InstallRoot $root
+  }
   $registered=Get-ItemProperty -Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher'
   if($registered.InstallLocation -ne $root){throw 'PUBLISHER_SETUP_REGISTRY_BINDING_INVALID'}
   Write-Host "PUBLISHER_SETUP_INSTALLED_EXACT_BINARY_PASS sha256=$((Get-FileHash $app -Algorithm SHA256).Hash)"
@@ -349,6 +356,7 @@ $report=[ordered]@{
   pinnedAgeFiles=if($ageSelected){4}else{0}
   pinnedAgeManifestSha256=if($ageSelected){$ExpectedAgeToolchainManifestSha256.ToLowerInvariant()}else{$null}
   ageRuntimeQualified=$false
+  upstreamAgeStandardRoundtripVerified=[bool]$AgeStandardRoundtrip
   externalComponentFromPrivateSource=$false
   privateSignerVerified=$false
   signedLicenseIssued=$false

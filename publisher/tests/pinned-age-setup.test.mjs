@@ -136,3 +136,19 @@ test('installed Setup Core contract supports both original owner and optional ag
  }
  assert.doesNotMatch(driver,/generateVaultKey|importVaultKey|newSigner|PRIVATE KEY/);
 });
+
+test('original age 1.3.1 is pinned upstream and tested from the installed Setup Core',()=>{
+ const driver=readFileSync('publisher/tests/installed-setupcore-publisher.ps1','utf8');
+ const runtime=readFileSync('publisher/tests/installed-standard-age-v131.ps1','utf8');
+ const workflow=readFileSync('.github/workflows/center.yml','utf8');
+ assert.match(driver,/\$AgeStandardRoundtrip/);
+ assert.match(driver,/installed-standard-age-v131\.ps1 -InstallRoot \$root/);
+ assert.match(driver,/upstreamAgeStandardRoundtripVerified=\[bool\]\$AgeStandardRoundtrip/);
+ assert.match(runtime,/PUBLISHER_INSTALLED_UPSTREAM_AGE_1_3_1_X25519_ROUNDTRIP_PASS/);
+ assert.match(runtime,/-d -i \$secret -o \$opened \$sealed/);
+ assert.match(workflow,/github\.com\/FiloSottile\/age\/releases\/download\/v1\.3\.1/);
+ assert.match(workflow,/c56e8ce22f7e80cb85ad946cc82d198767b056366201d3e1a2b93d865be38154/);
+ assert.match(workflow,/AgeStandardRoundtrip=\$true/);
+ assert.match(workflow,/upstreamAgeStandardRoundtripVerified -ne \$true/);
+ assert.doesNotMatch(workflow,/AGE-SECRET-KEY-1/);
+});
