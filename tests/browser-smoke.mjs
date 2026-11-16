@@ -591,6 +591,27 @@ try{
         rectWidth:row.getBoundingClientRect().width
       })));
     console.log('D3_EMPLOYEE_UI_BUTTONS',JSON.stringify(view));
+    const diagnostic=await employeePage.evaluate(()=>{
+      const roots=[...document.querySelectorAll('#root')];
+      const buttons=[...document.querySelectorAll(
+        '[data-testid="d3-employee-registry-initialize"]')];
+      return {
+        rootCount:roots.length,
+        directAppCount:document.querySelectorAll('#root > .app').length,
+        bodyChildCount:document.body.children.length,
+        bodyHtml:document.body.innerHTML.slice(0,1200),
+        buttons:buttons.map(node=>({
+          rootIndex:roots.indexOf(node.closest('#root')),
+          appIndex:[...document.querySelectorAll('#root > .app')]
+            .indexOf(node.closest('.app')),
+          parentIsConnected:node.isConnected
+        })),
+        scripts:[...document.scripts].map(s=>s.src),
+        navigations:performance.getEntriesByType('navigation')
+          .map(n=>n.type)
+      };
+    });
+    console.log('D3_EMPLOYEE_ROOT_COUNTS',JSON.stringify(diagnostic));
   }
   assert.equal(initialButtonsCount,1,
     'one organization signed owner must render one employee registry control');
