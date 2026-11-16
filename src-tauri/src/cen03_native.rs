@@ -43,6 +43,11 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
     let sha=input["packageSha256"].as_str();
     match operation {
       "d3Inbox"|"d3Receive"|"d3ReceiveAge"|"d3ExportInvitation"=>{},
+      "d3EmployeeRegistryInitialize"=>{
+          if input["confirmed"]!=true{
+              return Err("CEN_D3_EMPLOYEE_ORIGINAL_REGISTRY_CONFIRMATION_REQUIRED".into());
+          }
+      },
       "d3EmployeeCredentialBegin"=>{
           if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
              !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
@@ -196,6 +201,10 @@ fn supported_state(result:&Value,organization_id:&str,
        !view["snapshot"]["d3TaskIssueAvailable"].is_boolean()||
        (view["snapshot"]["d3EmployeeEnrollmentAvailable"]!=Value::Null&&
         !view["snapshot"]["d3EmployeeEnrollmentAvailable"].is_boolean())||
+       (view["snapshot"]["d3EmployeeRegistryBootstrapAvailable"]!=Value::Null&&
+        !view["snapshot"]["d3EmployeeRegistryBootstrapAvailable"].is_boolean())||
+       (view["snapshot"]["d3EmployeeTaskIssueAvailable"]!=Value::Null&&
+        !view["snapshot"]["d3EmployeeTaskIssueAvailable"].is_boolean())||
        !view["snapshot"]["tasks"].is_array()||
        !view["snapshot"]["totalTasks"].as_u64().is_some_and(|n|n<=256){
 
@@ -210,14 +219,25 @@ fn supported_state(result:&Value,organization_id:&str,
     if projected["snapshot"]["d3EmployeeEnrollmentAvailable"]==Value::Null {
         projected["snapshot"]["d3EmployeeEnrollmentAvailable"]=Value::Bool(false);
     }
+    for name in ["d3EmployeeRegistryBootstrapAvailable",
+                 "d3EmployeeTaskIssueAvailable"] {
+        if projected["snapshot"][name]==Value::Null {
+            projected["snapshot"][name]=Value::Bool(false);
+        }
+    }
     Ok(projected)
 }
 fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
     let snapshot=&view["snapshot"];
     match operation{
+        "d3EmployeeRegistryInitialize"=>
+            snapshot["d3EmployeeRegistryBootstrapAvailable"]==true,
+        "d3EmployeeCreateTask"|"d3EmployeeTaskReadback"=>
+            snapshot["d3EmployeeEnrollmentAvailable"]==true&&
+            snapshot["d3EmployeeTaskIssueAvailable"]==true,
         "d3EmployeeCredentialBegin"|"d3EmployeeCredentialAdmit"|
         "d3EmployeeCredentialRead"|"d3EmployeeBegin"|"d3EmployeeComplete"|
-        "d3EmployeeRead"|"d3EmployeeCreateTask"|"d3EmployeeTaskReadback"=>
+        "d3EmployeeRead"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true,
         "d3ApplyAccepted"=>snapshot["d3ApplyAvailable"]==true,
         "d3RecoverApplied"=>snapshot["d3ApplyRecoverAvailable"]==true&&
@@ -982,6 +1002,20 @@ pub async fn center_corporate_action(
         }
         if !exact_kernel_apply_capability(&verified,&operation){
             return Err("CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED".into());
+        }
+    }
+    if operation=="d3EmployeeRegistryInitialize"{
+        if app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_none() {
+            return Err("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING".into());
+        }
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: исходный корпоративный реестр")
+            .set_description("Инициализировать или перечитать оригинальный подписанный реестр организации в уже открытом T2 Kernel? Если запись началась, при потерянном подтверждении нельзя повторять её: используется только холодное чтение исходного Object/Event.")
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_REGISTRY_HUMAN_CANCELLED".into());
         }
     }
     if operation=="d3ApplyAccepted"{
