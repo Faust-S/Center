@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 9152fba7a340d9e31d6d4d5401ff2573554a57bb
+          ref: b3892aba024c87a5339edf17fb1bbf4e3a20e4a1
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -48,12 +48,13 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '9152fba7a340d9e31d6d4d5401ff2573554a57bb'){
+          if($actual -cne 'b3892aba024c87a5339edf17fb1bbf4e3a20e4a1'){
             throw 'AGENT06_NATIVE_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($f in @(
             'runtime/t3_original_result_owner.py',
             'runtime/t3_original_employee_worker.mjs',
+            'runtime/t3_original_employee_cold_guard.mjs',
             'tests/test_agent06_original_t3_result_owner.py',
             'qualification/phase1/agent02_installed_gui_acceptance.ps1',
             'desktop/src-tauri/Cargo.toml')){
@@ -128,7 +129,29 @@ jobs:
                   elseif($reason -match 'gui_draft|draft_http|draft_value'){$group='DRAFT_READBACK'}
                   Write-Host ('AGENT06_NATIVE_FAILURE_CATEGORY='+$group)
                 }catch{Write-Host 'AGENT06_NATIVE_FAILURE_CATEGORY=REPORT_UNREADABLE'}
-              }else{Write-Host 'AGENT06_NATIVE_FAILURE_CATEGORY=REPORT_ABSENT'}
+              }else{
+                # The installed witness writes its result.json only after
+                # package/runtime preflight. Classify this early failure from
+                # transient PRIVATE logs using fixed, non-secret reason codes.
+                $preflight='UNCLASSIFIED_PREFLIGHT'
+                $known=@(
+                  @('gui_managed_python_capsule_failed','MANAGED_PYTHON_CAPSULE'),
+                  @('gui_native_package_failed','NATIVE_PACKAGE'),
+                  @('gui_package_install_failed','NATIVE_PACKAGE_INSTALL'),
+                  @('gui_storage_authority_failed','STORAGE_AUTHORITY'),
+                  @('gui_native_executable_not_installed','NATIVE_EXE_NOT_INSTALLED'),
+                  @('BLOCKED_ENVIRONMENT','WINDOWS_ENVIRONMENT'),
+                  @('managed_runtime_capsule_invalid','MANAGED_CAPSULE_INVALID'),
+                  @('original_t3','ORIGINAL_T3_SOURCE'),
+                  @('u01_pinned_sources','U01_PACKAGE_INPUT_MISSING')
+                )
+                foreach($pair in $known){
+                  if(Select-String -LiteralPath $log -Pattern $pair[0] -SimpleMatch -Quiet -ErrorAction SilentlyContinue){
+                    $preflight=[string]$pair[1];break
+                  }
+                }
+                Write-Host ('AGENT06_NATIVE_FAILURE_CATEGORY=REPORT_ABSENT_'+$preflight)
+              }
               throw 'AGENT06_NATIVE_INSTALLED_GUI_UNVERIFIED'
             }
             Write-Host 'AGENT06_NATIVE_INSTALLED_GUI_AND_COLD_REOPEN_PASS'
