@@ -149,7 +149,12 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
   <div className="form-grid">
    <label>Контакт в черновике
     <select data-testid="d3-employee-contact" value={contact} disabled={busy}
-      onChange={e=>{setContact(e.target.value);reset();}}>
+      onChange={e=>{
+        // A draft contact has NO T3 identity. Never display the previously
+        // selected employee key as belonging to a different contact.
+        setContact(e.target.value);setPersonId('');setKeyId('');
+        setPublicRecord('');reset();
+      }}>
      <option value="">Выберите сотрудника</option>
      {contacts.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
     </select>

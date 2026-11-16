@@ -417,6 +417,14 @@ try{
   await d3Page.getByTestId('create-org').click();
   await d3Page.getByTestId('nav-results').click();
   await d3Page.getByTestId('d3-signed-task-workflow').waitFor();
+  // Installed independent employee authority cannot be inferred from the
+  // existing original reviewer alone. When the private owner does not
+  // advertise the genuine One Core enrollment port, no UI-issued grant,
+  // credential or second-employee Task command may be available.
+  await d3Page.getByTestId('d3-employee-owner-unavailable').waitFor();
+  assert.equal(await d3Page.getByTestId('d3-employee-steps').count(),0);
+  assert.equal(await d3Page.getByTestId('d3-employee-credential-begin').count(),0);
+  checks.push('d3-independent-employee-unavailable-without-original-kernel-owner');
   await d3Page.getByTestId('d3-task-text').fill('Check original supplier receipt');
   await d3Page.getByTestId('d3-task-prepare-id').click();
   const attemptedTaskId=await d3Page.getByTestId('d3-task-operation-id').inputValue();
