@@ -44,7 +44,7 @@ jobs:
           repository: Faust-S/iwxa-personal-agent
           # Immutable private source; later parallel commits must not change
           # the code being qualified by this specific Center run.
-          ref: b35f7fd8beb866cd5d96aad571ae3fe36aa473f9
+          ref: b416b9f81dd75da98a35e89501743892d22f6e04
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "b35f7fd8beb866cd5d96aad571ae3fe36aa473f9"
+          test "$(git -C private-agent rev-parse HEAD)" = "b416b9f81dd75da98a35e89501743892d22f6e04"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
