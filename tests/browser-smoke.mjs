@@ -493,6 +493,7 @@ try{
   // the original installed T3, independent employee signature or Kernel.
   const employeeState={registered:false,ready:false,reads:0,
     initializations:0,inviteExports:0,savedDraft:null,requiresCold:false,
+    wrongReadKey:true,
     cancelFirstInit:true,loseFirstInitAck:true};
   const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
   await employeePage.exposeFunction('__centerEmployeeFixture',
@@ -555,11 +556,26 @@ try{
         if(args.operation==='d3EmployeeRead'){
           assert.equal(args.input.employeePersonId,'person:independent');
           assert.equal(args.input.enrollmentId,'enrollment:verified');
+          const organizationId=args.organizationId,personId=args.input.employeePersonId;
+          const workspaceId='workspace:employee-fixture',credentialKeyId=
+            employeeState.wrongReadKey?'key:other-person':'key:independent';
           return {
             state:'ORIGINAL_GRANTS_ACTIVE',originalSigned:true,
             originalReadback:true,safeToReissue:false,
-            employeePersonId:args.input.employeePersonId,
-            enrollmentId:args.input.enrollmentId
+            organizationId,employeePersonId:personId,
+            enrollmentId:args.input.enrollmentId,statusSequence:3,
+            membership:{organizationId,personId,workspaceId},
+            credential:{holderPersonId:personId,publicKeyRef:credentialKeyId},
+            binding:{organizationId,holderPersonId:personId,grantId:'grant:work-fixture'},
+            workGrant:{payload:{id:'grant:work-fixture',holderId:personId,
+              rightClass:'ACTION',actions:['work.prepare'],resources:[workspaceId]}},
+            exportGrant:{payload:{holderId:personId,rightClass:'DATA',
+              actions:['package.export'],resources:[
+                'workspace:'+workspaceId,'subject:'+organizationId,
+                'recipient:'+organizationId,'field:result','operation:UPSERT'
+              ]}},
+            originalEnrollment:{payload:{personId,organizationId,workspaceId,
+              credentialPublicKeyRef:credentialKeyId}}
           };
         }
         if(args.operation==='d3EmployeeExportInvite'){
@@ -689,6 +705,12 @@ try{
   await employeePage.getByTestId('d3-employee-credential-read').click();
   await employeePage.getByTestId('d3-employee-key-admitted').waitFor();
   await employeePage.getByTestId('d3-employee-enrollment-id').fill('enrollment:verified');
+  await employeePage.getByTestId('d3-employee-read').click();
+  assert.equal(await employeePage.getByTestId('d3-employee-enrolled').count(),0,
+    'a signed ACTIVE claim for a different PROOF key cannot belong to selected employee');
+  assert.equal(employeeState.inviteExports,0,
+    'foreign credential may not export even a UI-only invitation');
+  employeeState.wrongReadKey=false;
   await employeePage.getByTestId('d3-employee-read').click();
   await employeePage.getByTestId('d3-employee-enrolled').waitFor();
   assert.equal(await employeePage.getByTestId('d3-employee-invitation-export').count(),1);

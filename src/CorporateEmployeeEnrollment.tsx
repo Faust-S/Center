@@ -75,10 +75,44 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    credentialReceipt.employeePersonId===personId&&
    credentialReceipt.credentialKeyId===keyId&&
    credentialReceipt.originalReadback===true;
- const enrolled=enrollmentReceipt?.state==='ORIGINAL_GRANTS_ACTIVE'&&
+ // A status flag alone must never display another employee's corporate
+ // rights as belonging to the currently selected identity. Original T3
+ // verifies every signed envelope; the UI binds its exact public readback.
+ const exportResources=[
+   'workspace:'+session.workspaceId,'subject:'+session.organizationId,
+   'recipient:'+session.organizationId,'field:result','operation:UPSERT'
+ ];
+ const enrolled=credentialOk&&personOk&&
+   enrollmentReceipt?.state==='ORIGINAL_GRANTS_ACTIVE'&&
    enrollmentReceipt.employeePersonId===personId&&
+   enrollmentReceipt.organizationId===session.organizationId&&
    enrollmentReceipt.originalReadback===true&&
-   enrollmentReceipt.originalSigned===true;
+   enrollmentReceipt.originalSigned===true&&
+   enrollmentReceipt.safeToReissue===false&&
+   enrollmentReceipt.membership?.personId===personId&&
+   enrollmentReceipt.membership?.organizationId===session.organizationId&&
+   enrollmentReceipt.membership?.workspaceId===session.workspaceId&&
+   enrollmentReceipt.credential?.holderPersonId===personId&&
+   enrollmentReceipt.credential?.publicKeyRef===keyId&&
+   enrollmentReceipt.binding?.holderPersonId===personId&&
+   enrollmentReceipt.binding?.organizationId===session.organizationId&&
+   enrollmentReceipt.binding?.grantId===enrollmentReceipt.workGrant?.payload?.id&&
+   enrollmentReceipt.workGrant?.payload?.holderId===personId&&
+   enrollmentReceipt.workGrant?.payload?.rightClass==='ACTION'&&
+   JSON.stringify(enrollmentReceipt.workGrant?.payload?.actions)==='["work.prepare"]'&&
+   JSON.stringify(enrollmentReceipt.workGrant?.payload?.resources)===
+     JSON.stringify([session.workspaceId])&&
+   enrollmentReceipt.exportGrant?.payload?.holderId===personId&&
+   enrollmentReceipt.exportGrant?.payload?.rightClass==='DATA'&&
+   JSON.stringify(enrollmentReceipt.exportGrant?.payload?.actions)==='["package.export"]'&&
+   JSON.stringify(enrollmentReceipt.exportGrant?.payload?.resources)===
+     JSON.stringify(exportResources)&&
+   enrollmentReceipt.originalEnrollment?.payload?.personId===personId&&
+   enrollmentReceipt.originalEnrollment?.payload?.organizationId===session.organizationId&&
+   enrollmentReceipt.originalEnrollment?.payload?.workspaceId===session.workspaceId&&
+   enrollmentReceipt.originalEnrollment?.payload?.credentialPublicKeyRef===keyId&&
+   Number.isSafeInteger(enrollmentReceipt.statusSequence)&&
+   enrollmentReceipt.statusSequence>0;
  const reset=()=>{
    setCredentialChallenge(null);setCredentialProof('');setCredentialAttempted(false);
    setCredentialReceipt(null);setEnrollmentChallenge(null);setRecoveryEnrollmentId('');
