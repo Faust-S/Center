@@ -572,21 +572,14 @@ try{
   assert.equal(employeeState.initializations,0,
     'readback NOT_FOUND must never create a signed registry');
   const originalInitButtons=employeePage.getByTestId('d3-employee-registry-initialize');
-  const initialButtonsCount=await originalInitButtons.count();
-  if(initialButtonsCount!==1){
-    const view=await employeePage.locator(
-      '[data-testid="d3-employee-registry-initialize"]').evaluateAll(rows=>
-      rows.map(row=>({
-        disabled:row.disabled,
-        root:row.closest('[data-testid="d3-independent-employee"]')?.outerHTML.slice(0,130),
-        ancestor:row.parentElement?.className,
-        display:getComputedStyle(row).display,
-        rectWidth:row.getBoundingClientRect().width
-      })));
-    console.log('D3_EMPLOYEE_UI_BUTTONS',JSON.stringify(view));
-  }
-  await originalInitButtons.first().click();
+  assert.equal(await employeePage.getByTestId('corporate-panel').count(),1);
+  assert.equal(await employeePage.getByTestId('d3-independent-employee').count(),1,
+    'React sibling keys must distinguish employee enrollment and D3 review');
+  assert.equal(await originalInitButtons.count(),1,
+    'one original Kernel bootstrap control after readback');
+  await originalInitButtons.click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-independent-employee').count(),1);
   assert.equal(employeeState.initializations,1);
   // Real Center persists organization drafts through its existing native
   // service. This fixture must provide the SAME saved draft when the main
@@ -607,8 +600,10 @@ try{
   // corporate workbench again; native signer state survives navigation.
   await employeePage.getByTestId('nav-results').click();
   await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-registry-readback').count(),1);
   await employeePage.getByTestId('d3-employee-registry-readback').click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-independent-employee').count(),1);
   assert.equal(employeeState.initializations,1,
     'cold readback does not send a second Kernel initialization');
   assert.equal(employeeState.reads,2);

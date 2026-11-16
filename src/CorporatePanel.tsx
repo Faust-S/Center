@@ -219,10 +219,10 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
         throw Error('CEN_D3_SIGNED_ENROLLMENT_UNCONFIRMED');
     })}>Подключить организацию</button>
   </div>}
-  {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={signedD3SessionFingerprint(owner,organizationId)??'unknown'}
+  {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={'employee|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')}
     session={owner.snapshot} contacts={organization.participants??[]}
     execute={execute} run={act} busy={busy}/>}
-  {d3Ready&&invoke ? <CorporateD3Panel key={signedD3SessionFingerprint(owner,organizationId)??'unknown'} owner={owner} execute={execute}
+  {d3Ready&&invoke ? <CorporateD3Panel key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
     dispatchedApplications={dispatchedD3Applications}
     taskAttempts={attemptedD3Tasks}
     decisionAttempts={attemptedD3Decisions}
