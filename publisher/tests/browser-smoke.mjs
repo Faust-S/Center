@@ -1048,6 +1048,27 @@ try {
           ...(args.lookupId?{lookupId:args.lookupId,matches:matches.length}:{}),
           activeSeats:0,productionActivation:false};
       }
+      if(command==='publisher_t3_person_signed_readback'){
+        window.__personMockSignedReadbackCalls=(window.__personMockSignedReadbackCalls||0)+1;
+        const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
+        const rec=ledger.find(x=>x.licenseId===args.licenseId);
+        if(!rec)throw Error('PERSON_OWNER_READBACK_UNIQUE_SIGNED_LICENSE_REQUIRED');
+        return {operation:'PERSON_SIGNED_READBACK',source:'ORIGINAL_T3_OWNER_STORE',
+          licenseId:rec.licenseId,requestId:rec.requestId,
+          issuerAuthorityId:rec.issuerAuthorityId,personId:rec.personId,
+          productId:rec.productId,productVersion:'0.5.0',
+          licenseKeyId:'publisher:mock:license:key',
+          licenseEnvelopeSha256:'a'.repeat(64),
+          licenseSignatureVerifiedAtIssuance:true,
+          statusKeyId:rec.sequence?'publisher:mock:status:key':null,
+          statusEnvelopeSha256:rec.sequence?'b'.repeat(64):null,
+          statusSignatureVerifiedAtIssuance:rec.sequence>0,
+          statusFloorVerified:rec.sequence>0,status:rec.status,
+          sequence:rec.sequence,statusIssuedAt:rec.statusIssuedAt??null,
+          statusValidUntil:rec.statusValidUntil??null,
+          stateRevision:rec.sequence+1,ledgerRevision:ledger.length,
+          recipientConfirmed:false,activeSeats:0,productionActivation:false};
+      }
       if(command==='publisher_t3_person_issue'){
         const latest=sessionStorage.getItem('iwxa-publisher-person-fixture');
         const hash=async raw=>Array.from(new Uint8Array(
@@ -1748,6 +1769,18 @@ try {
   assert.equal(received[1].sequence,1);
   assert.equal(received[1].renewalOfLicenseId,'license:person:mock:one');
   assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true);
+  const receiptsBefore=await personal.evaluate(()=>window.__personMockSignedReadbackCalls||0);
+  const statusBeforeOwnerReceipt=await personal.evaluate(()=>window.__personMockStatusCalls||0);
+  await personOwner.getByTestId('publisher-person-owner-signed-readback').click();
+  await personOwner.getByTestId('publisher-person-owner-signed-evidence').waitFor();
+  assert.match(await personOwner.getByTestId('publisher-person-owner-signed-evidence').innerText(),
+    /REVOKED|SHA-256 подписанного LICENSE|SHA-256 подписанного STATUS/);
+  assert.equal(await personal.evaluate(()=>window.__personMockSignedReadbackCalls||0),
+    receiptsBefore+1);
+  assert.equal(await personal.evaluate(()=>window.__personMockStatusCalls||0),
+    statusBeforeOwnerReceipt,
+    'Read-only owner inspection must never call the signing operation again');
+  checks.push('person-owner-exact-signed-envelope-readback-is-separate-from-holder-acceptance');
   checks.push('publisher-person-owner-mocked-signed-native-route');
   checks.push('person-original-and-renewal-selectors-show-distinct-native-license-ids');
   checks.push('person-and-test-license-selectors-distinct-accessibility-names');

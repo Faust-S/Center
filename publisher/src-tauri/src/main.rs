@@ -714,6 +714,7 @@ fn main() {
             t3_owner::publisher_t3_export_test_trust,
             t3_owner::publisher_t3_person_capabilities,
             t3_owner::publisher_t3_person_inventory,
+            t3_owner::publisher_t3_person_signed_readback,
             t3_owner::publisher_t3_person_issue,
             t3_owner::publisher_t3_person_change_status,
             t3_owner::publisher_t3_person_export,

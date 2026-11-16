@@ -17,6 +17,19 @@ type PersonRecord={
   sequence:number;activeSeats:0
 };
 type Inventory={entries:PersonRecord[];truncated:boolean;total:number;matches?:number};
+type SignedOwnerReadback={
+  operation:'PERSON_SIGNED_READBACK';source:'ORIGINAL_T3_OWNER_STORE';
+  licenseId:string;requestId:string;issuerAuthorityId:string;
+  personId:string;productId:string;productVersion:string;
+  licenseKeyId:string;licenseEnvelopeSha256:string;
+  licenseSignatureVerifiedAtIssuance:true;
+  statusKeyId:string|null;statusEnvelopeSha256:string|null;
+  statusSignatureVerifiedAtIssuance:boolean;statusFloorVerified:boolean;
+  status:'NOT_ACTIVATED'|'ACTIVE'|'SUSPENDED'|'REVOKED';sequence:number;
+  statusIssuedAt:string|null;statusValidUntil:string|null;
+  stateRevision:number;ledgerRevision:number;
+  recipientConfirmed:false;activeSeats:0;productionActivation:false
+};
 type PendingPersonMutation=
   |{kind:'ISSUE';request:any;issuerAuthorityId:string;requestDigest:string}
   |{kind:'STATUS';license:PersonRecord;state:'ACTIVE'|'SUSPENDED'|'REVOKED'};
@@ -99,6 +112,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
   const [message,setMessage]=useState('');
   const [failure,setFailure]=useState('');
   const [pendingMutation,setPendingMutation]=useState<PendingPersonMutation|null>(null);
+  const [signedOwnerEvidence,setSignedOwnerEvidence]=useState<SignedOwnerReadback|null>(null);
+  const [signedOwnerEvidenceError,setSignedOwnerEvidenceError]=useState('');
   const [selectedFingerprint,setSelectedFingerprint]=useState<{
     source:any;hash:string
   }|null>(null);
@@ -130,6 +145,10 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     !matchesSignedPersonScope(issuedSelected,selected.request,undefined,originalRequestHash));
   const signedSourcePending=Boolean(issuedSelected&&!originalRequestHash);
   const selectedLicense=licenses.find(l=>l.licenseId===licenseId);
+  useEffect(()=>{
+    setSignedOwnerEvidence(null);
+    setSignedOwnerEvidenceError('');
+  },[licenseId,selectedLicense?.sequence,selectedLicense?.status]);
   useEffect(()=>{
     let alive=true;
     const request=selected?.request;
@@ -636,6 +655,49 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         'Его устанавливают отдельно через официальный IWXA Setup Core, не из лицензии .iwxa.'};
     });
   }
+  async function readOriginalSignedEvidence(){
+    const selected=selectedLicense;
+    if(!selected||!available||busy||needsRefresh||pendingMutation)return;
+    setBusy(true);setSignedOwnerEvidence(null);setSignedOwnerEvidenceError('');
+    try{
+      const receipt=await invoke('publisher_t3_person_signed_readback',{
+        licenseId:selected.licenseId}) as SignedOwnerReadback;
+      if(receipt?.operation!=='PERSON_SIGNED_READBACK'||
+         receipt.source!=='ORIGINAL_T3_OWNER_STORE'||
+         receipt.licenseId!==selected.licenseId||
+         receipt.requestId!==selected.requestId||
+         receipt.issuerAuthorityId!==selected.issuerAuthorityId||
+         receipt.personId!==selected.personId||
+         receipt.productId!==selected.productId||
+         !id(receipt.licenseKeyId)||!digest(receipt.licenseEnvelopeSha256)||
+         receipt.licenseSignatureVerifiedAtIssuance!==true||
+         receipt.recipientConfirmed!==false||
+         receipt.activeSeats!==0||receipt.productionActivation!==false||
+         !Number.isSafeInteger(receipt.stateRevision)||receipt.stateRevision<0||
+         !Number.isSafeInteger(receipt.ledgerRevision)||receipt.ledgerRevision<0||
+         receipt.sequence!==selected.sequence||receipt.status!==selected.status||
+         (receipt.status==='NOT_ACTIVATED'?
+            receipt.sequence!==0||receipt.statusKeyId!==null||
+            receipt.statusEnvelopeSha256!==null||
+            receipt.statusSignatureVerifiedAtIssuance!==false||
+            receipt.statusFloorVerified!==false:
+            !id(receipt.statusKeyId)||!digest(receipt.statusEnvelopeSha256)||
+            receipt.statusSignatureVerifiedAtIssuance!==true||
+            receipt.statusFloorVerified!==true||
+            receipt.statusIssuedAt!==selected.statusIssuedAt||
+            receipt.statusValidUntil!==selected.statusValidUntil)){
+        setNeedsRefresh(true);
+        throw Error('PERSON_OWNER_SIGNED_READBACK_MISMATCH');
+      }
+      // A second ORIGINAL native inventory read guards against an issuer
+      // status change between the signature readback and this GUI display.
+      await currentPersonRecord(selected,'PERSON_OWNER_SIGNED_READBACK_STALE');
+      setSignedOwnerEvidence(receipt);
+    }catch(e){
+      setSignedOwnerEvidenceError('Оригинальное подтверждение подписанных документов T3 '+
+        'не получено: '+err(e));
+    }finally{setBusy(false);}
+  }
   async function exportIwxa(){
     const current=selectedLicense;
     if(!current||current.status==='NOT_ACTIVATED'||busy||needsRefresh)return;
@@ -891,6 +953,36 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
             Date.parse(selectedLicense.statusValidUntil)<=Date.now()}
           onClick={()=>void exportProtectedIwxa()}>Защищённая .iwxa.age</button>
       </div>
+      {selectedLicense&&<section className="publisher-offer-review"
+        data-testid="publisher-person-owner-signed-readback-panel">
+        <button type="button" className="secondary"
+          data-testid="publisher-person-owner-signed-readback"
+          disabled={busy||needsRefresh||!!pendingMutation}
+          onClick={()=>void readOriginalSignedEvidence()}>
+          Перечитать подписанные LICENSE и STATUS в исходном T3
+        </button>
+        {signedOwnerEvidence&&<div data-testid="publisher-person-owner-signed-evidence">
+          <p>Исходный владелец T3 проверил подпись LICENSE при выдаче.
+            {signedOwnerEvidence.statusFloorVerified?
+              ' Последний подписанный STATUS совпадает с долговременной записью.':
+              ' Подписанный STATUS ещё не создан.'}</p>
+          <p>Статус: <strong>{signedOwnerEvidence.status}</strong> ·
+            последовательность: {signedOwnerEvidence.sequence} ·
+            ревизия владельца: {signedOwnerEvidence.stateRevision}</p>
+          <p>Ed25519 LICENSE · ключ: {signedOwnerEvidence.licenseKeyId}</p>
+          <p style={{overflowWrap:'anywhere'}}>SHA-256 подписанного LICENSE:
+            <code> {signedOwnerEvidence.licenseEnvelopeSha256}</code></p>
+          {signedOwnerEvidence.statusEnvelopeSha256&&<>
+            <p>Ed25519 STATUS · ключ: {signedOwnerEvidence.statusKeyId}</p>
+            <p style={{overflowWrap:'anywhere'}}>SHA-256 подписанного STATUS:
+              <code> {signedOwnerEvidence.statusEnvelopeSha256}</code></p>
+          </>}
+          <p className="muted">Это повторное чтение журнала издателя.
+            Получение, проверка и применение лицензии установленным Atlas или
+            Agent отдельно не подтверждены. Прав на чужие данные нет.</p>
+        </div>}
+        {signedOwnerEvidenceError&&<p role="alert">{signedOwnerEvidenceError}</p>}
+      </section>}
       {selectedLicense&&<label>Публичный ключ получателя age1
         <textarea rows={2} spellCheck={false} value={ageRecipients}
           data-testid="publisher-person-age-recipients"

@@ -561,6 +561,52 @@ pub async fn publisher_t3_person_inventory(
     Ok(v)
 }
 #[tauri::command]
+pub async fn publisher_t3_person_signed_readback(
+    app:AppHandle,license_id:String
+)->Result<Value,String>{
+    if !t3::valid_identifier(&license_id) {
+        return Err("PUBLISHER_PERSON_SIGNED_READBACK_LICENSE_INVALID".into());
+    }
+    // Original T3 Owner performs all Ed25519 verification from its existing
+    // durable Store. This bridge has NO signer, STATUS engine, or local ledger.
+    let v=call_person(app,"person-readback",vec![license_id.clone()]).await?;
+    t3::validate_test_result(&v,"PERSON_SIGNED_READBACK")?;
+    let hex=|key:&str|v.get(key).and_then(Value::as_str)
+      .is_some_and(|s|s.len()==64&&s.bytes().all(|b|
+          b.is_ascii_digit()||(b'a'..=b'f').contains(&b)));
+    let valid_key=|key:&str|v.get(key).and_then(Value::as_str)
+        .is_some_and(t3::valid_identifier);
+    let current=v.get("status").and_then(Value::as_str);
+    let sequence=v.get("sequence").and_then(Value::as_u64);
+    if v.get("source").and_then(Value::as_str)!=Some("ORIGINAL_T3_OWNER_STORE") ||
+       v.get("licenseId").and_then(Value::as_str)!=Some(license_id.as_str()) ||
+       !valid_key("requestId")||!valid_key("issuerAuthorityId")||
+       !valid_key("personId")||!valid_key("productId")||
+       !valid_key("licenseKeyId")||!hex("licenseEnvelopeSha256")||
+       v.get("licenseSignatureVerifiedAtIssuance")!=Some(&Value::Bool(true))||
+       v.get("recipientConfirmed")!=Some(&Value::Bool(false))||
+       v.get("stateRevision").and_then(Value::as_u64).is_none()||
+       v.get("ledgerRevision").and_then(Value::as_u64).is_none() {
+        return Err("PUBLISHER_PERSON_ORIGINAL_READBACK_INVALID".into());
+    }
+    if match current {
+       Some("NOT_ACTIVATED") => sequence!=Some(0)||
+         !v.get("statusEnvelopeSha256").is_some_and(Value::is_null)||
+         !v.get("statusKeyId").is_some_and(Value::is_null)||
+         v.get("statusSignatureVerifiedAtIssuance")!=Some(&Value::Bool(false))||
+         v.get("statusFloorVerified")!=Some(&Value::Bool(false)),
+       Some("ACTIVE"|"SUSPENDED"|"REVOKED") => sequence.is_none_or(|n|
+         n<1||n>9_007_199_254_740_991)||
+         !hex("statusEnvelopeSha256")||!valid_key("statusKeyId")||
+         v.get("statusSignatureVerifiedAtIssuance")!=Some(&Value::Bool(true))||
+         v.get("statusFloorVerified")!=Some(&Value::Bool(true)),
+       _=>true,
+    }{
+        return Err("PUBLISHER_PERSON_ORIGINAL_STATUS_READBACK_INVALID".into());
+    }
+    Ok(v)
+}
+#[tauri::command]
 pub async fn publisher_t3_person_issue(
     app:AppHandle,request_json:String,issuer_authority_id:String,
     expected_draft_sha256:String

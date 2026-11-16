@@ -33,3 +33,16 @@ test('source adapter keeps TEST and PERSON owner roots independent',()=>{
  assert.match(native,/"master-secret\.dpapi\.json"/);
  assert.match(native,/"administrator\.dpapi\.json"/);
 });
+test('signed PERSON owner receipt remains a read-only original T3 command',()=>{
+  const native=readFileSync('publisher/src-tauri/src/t3_owner.rs','utf8');
+  const app=readFileSync('publisher/src-tauri/src/main.rs','utf8');
+  const start=native.indexOf('pub async fn publisher_t3_person_signed_readback(');
+  const end=native.indexOf('pub async fn publisher_t3_person_issue(',start);
+  assert.ok(start>0&&end>start);
+  const source=native.slice(start,end);
+  assert.match(source,/call_person\(app,"person-readback"/);
+  assert.match(source,/PERSON_SIGNED_READBACK/);
+  assert.match(source,/recipientConfirmed/);
+  assert.doesNotMatch(source,/person-issue|person-status|\.save\(|signRecord\(/);
+  assert.match(app,/t3_owner::publisher_t3_person_signed_readback/);
+});
