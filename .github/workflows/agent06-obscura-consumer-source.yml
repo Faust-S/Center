@@ -326,7 +326,19 @@ jobs:
           & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-private-npm-install.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_PRIVATE_NPM_INSTALL_FAILED'}
           & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-private-desktop-build.log')
-          if($LASTEXITCODE -ne 0){throw 'AGENT06_PRIVATE_DESKTOP_BUILD_FAILED'}
+          if($LASTEXITCODE -ne 0){
+            $log=Join-Path $env:RUNNER_TEMP 'agent06-private-desktop-build.log'
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            # Report only compiler diagnostic codes, never private lines or snippets.
+            $codes=@([regex]::Matches([string]$raw,'TS[0-9]{4}')) | ForEach-Object {$_.Value} | Sort-Object -Unique
+            foreach($code in $codes | Select-Object -First 12){Write-Host ("AGENT06_DESKTOP_TYPESCRIPT_CODE="+$code)}
+            if($raw -match 'error during build|vite build failed'){Write-Host 'AGENT06_DESKTOP_VITE_BUILD_FAILED'}
+            if($raw -match 'Cannot find module|Module not found'){Write-Host 'AGENT06_DESKTOP_DEPENDENCY_IMPORT_FAIL'}
+            if(@($codes).Count -eq 0 -and $raw -notmatch 'error during build|vite build failed|Cannot find module|Module not found'){
+              Write-Host 'AGENT06_DESKTOP_BUILD_FAILURE_UNCLASSIFIED'
+            }
+            throw 'AGENT06_PRIVATE_DESKTOP_BUILD_FAILED'
+          }
           Write-Host 'AGENT06_PRIVATE_DESKTOP_BUILD_PASS'
           & node.exe --test tests/agent05-owner-source-lock.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-private-u01-owner-lock-test.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_U01_DESKTOP_OWNER_LOCK_FAILED'}
