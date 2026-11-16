@@ -87,6 +87,12 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               return Err("CEN_D3_EMPLOYEE_KEY_IDENTIFIERS_REQUIRED".into());
           }
       },
+      "d3EmployeeCancel"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier) {
+              return Err("CEN_D3_EMPLOYEE_CANCEL_ID_REQUIRED".into());
+          }
+      },
       "d3EmployeeComplete"=>{
           if !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
              input["employeeProof"]["schema"]!="IWXA_T3_ACCESS_SIGNED/1"||
@@ -250,7 +256,8 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
             snapshot["d3EmployeeTaskIssueAvailable"]==true,
         "d3EmployeeCredentialBegin"|"d3EmployeeCredentialCancel"|
         "d3EmployeeCredentialAdmit"|
-        "d3EmployeeCredentialRead"|"d3EmployeeBegin"|"d3EmployeeComplete"|
+        "d3EmployeeCredentialRead"|"d3EmployeeBegin"|
+        "d3EmployeeCancel"|"d3EmployeeComplete"|
         "d3EmployeeRead"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true,
         "d3ApplyAccepted"=>snapshot["d3ApplyAvailable"]==true,
@@ -1536,6 +1543,10 @@ mod tests{
             "credentialKeyId":"key:worker"}),"d3EmployeeCredentialRead").is_ok());
         assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one",
             "employeeProof":proof}),"d3EmployeeComplete").is_ok());
+        assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one",
+            "employeePersonId":"person:worker"}),"d3EmployeeCancel").is_ok());
+        assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one"}),
+            "d3EmployeeCancel").is_err());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one"}),"d3EmployeeRead").is_ok());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",

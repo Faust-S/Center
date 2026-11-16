@@ -282,6 +282,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
     <button data-testid="d3-employee-read" disabled={busy||!ID.test(recoveryEnrollmentId)}
       onClick={()=>void readEnrollment()}>Восстановить исходную квитанцию</button>
     {enrollmentChallenge&&<div>
+     <p>Испытание ключа действует ограниченное время. Если сотрудник
+       ещё не отправил ответ, прежний вызов можно отменить без Kernel-записи.</p>
      <textarea data-testid="d3-employee-enrollment-challenge" readOnly rows={4}
        value={JSON.stringify({request:enrollmentChallenge.request,
          challenge:enrollmentChallenge.challenge},null,2)}/>
@@ -294,6 +296,21 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
       <button data-testid="d3-employee-complete" disabled={busy||enrollmentAttempted||
         !enrollmentProof.trim()} onClick={()=>void confirmEnrollment()}>
         Выдать ACTION/DATA и перечитать STATUS</button>
+      <button className="secondary" data-testid="d3-employee-cancel"
+        disabled={busy||enrollmentAttempted}
+        onClick={()=>void run('Неподписанное подключение отменено без выдачи грантов.',async()=>{
+          const result=await execute('d3EmployeeCancel',{
+            employeePersonId:personId,
+            enrollmentId:enrollmentChallenge.enrollmentId});
+          if(result?.state!=='UNSUBMITTED_EMPLOYEE_CHALLENGE_CANCELLED'||
+             result.enrollmentId!==enrollmentChallenge.enrollmentId||
+             result.employeePersonId!==personId||
+             result.originalKernelWriteAttempted!==false)
+            throw Error('CEN_D3_EMPLOYEE_CANCEL_UNCONFIRMED');
+          setEnrollmentChallenge(null);
+          setRecoveryEnrollmentId('');
+          setEnrollmentProof('');
+        })}>Отменить неподписанное подключение</button>
      </div>
     </div>}
     {enrollmentAttempted&&!enrolled&&<p className="notice subdued">
