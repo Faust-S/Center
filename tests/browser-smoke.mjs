@@ -492,7 +492,7 @@ try{
   // UI-only native owner fixture: these checks DO NOT qualify cryptography,
   // the original installed T3, independent employee signature or Kernel.
   const employeeState={registered:false,ready:false,reads:0,
-    initializations:0,savedDraft:null,cancelFirstInit:true,loseFirstInitAck:true};
+    initializations:0,inviteExports:0,savedDraft:null,cancelFirstInit:true,loseFirstInitAck:true};
   const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
   await employeePage.exposeFunction('__centerEmployeeFixture',
     async(command,args={})=>{
@@ -537,6 +537,43 @@ try{
             originalReadback:true,originalKernel:true,
             signatureVerified:employeeState.registered,
             automaticRetryAllowed:false
+          };
+        }
+        if(args.operation==='d3EmployeeCredentialRead'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.credentialKeyId,'key:independent');
+          return {
+            state:'ORIGINAL_PROOF_CREDENTIAL_ADMITTED',
+            employeePersonId:args.input.employeePersonId,
+            credentialKeyId:args.input.credentialKeyId,
+            originalReadback:true,safeToRetry:false
+          };
+        }
+        if(args.operation==='d3EmployeeRead'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          return {
+            state:'ORIGINAL_GRANTS_ACTIVE',originalSigned:true,
+            originalReadback:true,safeToReissue:false,
+            employeePersonId:args.input.employeePersonId,
+            enrollmentId:args.input.enrollmentId
+          };
+        }
+        if(args.operation==='d3EmployeeExportInvite'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(args.input.archivePath,undefined,
+            'a WebView cannot choose the signed employee package destination');
+          employeeState.inviteExports++;
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_INVITATION_EXPORT/1',
+            state:'SIGNED_INVITATION_EXPORTED_NOT_DELIVERED',
+            employeePersonId:args.input.employeePersonId,
+            enrollmentId:args.input.enrollmentId,
+            recipientId:'person:independent',
+            workspaceId:'workspace:employee-fixture',
+            originalSigned:true,originalKernelReadback:true,
+            invitationDelivered:false,packageSha256:'c'.repeat(64),bytes:2048
           };
         }
         if(args.operation==='d3EmployeeRegistryInitialize'){
@@ -632,8 +669,34 @@ try{
     'without original signed employee grants no invitation can be exported');
   assert.equal(await employeePage.getByTestId('d3-employee-task-create').count(),0,
     'registry alone cannot authorize independent employee Task');
+  // UI-only conditional fixture. The original Kernel/issuer produces no
+  // fabricated signature here: this proves only the manager's bounded
+  // action and signed receipt presentation after a SOURCE readEnrollment.
+  await employeePage.getByTestId('nav-people').click();
+  await employeePage.getByTestId('person-name').fill('Independent colleague');
+  await employeePage.getByTestId('add-person').click();
+  await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('d3-employee-contact').selectOption({index:1});
+  await employeePage.getByTestId('d3-employee-person').fill('person:independent');
+  await employeePage.getByTestId('d3-employee-key').fill('key:independent');
+  await employeePage.getByTestId('d3-employee-credential-read').click();
+  await employeePage.getByTestId('d3-employee-key-admitted').waitFor();
+  await employeePage.getByTestId('d3-employee-enrollment-id').fill('enrollment:verified');
+  await employeePage.getByTestId('d3-employee-read').click();
+  await employeePage.getByTestId('d3-employee-enrolled').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-invitation-export').count(),1);
+  await employeePage.getByTestId('d3-employee-invitation-export').click();
+  await employeePage.getByTestId('d3-employee-invitation-export-receipt').waitFor();
+  assert.match(await employeePage.getByTestId('d3-employee-invitation-export-receipt').innerText(),
+    /Подписанный .iwxa сохранён, доставка не подтверждена/);
+  assert.equal(employeeState.inviteExports,1);
+  assert.equal(employeeState.initializations,1,
+    'exporting a saved signed invitation never reissues Kernel grants');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),false,
+    'original employee invitation cannot authorize unsupported Task issuance');
   await employeePage.close();
   checks.push('d3-employee-original-kernel-bootstrap-human-cancel-unknown-ack-cold-readback-no-reissue');
+  checks.push('d3-employee-invitation-ui-only-signed-receipt-no-grant-reissue-no-unsupported-task');
   // React can reload while the REAL native signed WebView (and its Kernel)
   // survives. Model that lifetime using a separate Node-side host, NOT
   // localStorage/React state, so a browser reload cannot recreate its status.
