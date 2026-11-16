@@ -46,7 +46,10 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
       "d3EmployeeCredentialBegin"=>{
           if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
              !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
-             !input["keyRecord"].is_object()||
+             !input["keyRecord"].as_object().is_some_and(|record|
+                 record.len()==7&&
+                 ["subjectId","environment","publicKey","status",
+                  "uses","notBefore","expiresAt"].iter().all(|k|record.contains_key(*k)))||
              input["keyRecord"]["subjectId"]!=input["employeePersonId"]||
              input["keyRecord"]["uses"]!=json!(["PROOF"])||
              input["keyRecord"]["status"]!="ACTIVE"||
@@ -1445,6 +1448,50 @@ mod tests{
         assert!(check_bound_request(&json!({"acceptanceId":"c".repeat(64),
             "revisionIds":["d".repeat(64),"d".repeat(64)]}),
             "d3ApplyAccepted").is_err());
+    }
+    #[test]
+    fn independent_employee_commands_require_original_key_and_scope(){
+        let record=json!({"subjectId":"person:worker","environment":"PRODUCTION",
+          "publicKey":"-----BEGIN PUBLIC KEY-----known-----END PUBLIC KEY-----",
+          "status":"ACTIVE","uses":["PROOF"],"notBefore":"2026-11-16T00:00:00Z",
+          "expiresAt":"2026-12-16T00:00:00Z"});
+        let args=json!({"employeePersonId":"person:worker",
+            "credentialKeyId":"key:worker","keyRecord":record});
+        assert!(check_bound_request(&args,"d3EmployeeCredentialBegin").is_ok());
+        let mut poisoned=args.clone();
+        poisoned["keyRecord"]["privateKeyPem"]=json!("FORBIDDEN");
+        assert!(check_bound_request(&poisoned,"d3EmployeeCredentialBegin").is_err());
+        poisoned=args.clone();
+        poisoned["keyRecord"]["subjectId"]=json!("person:manager");
+        assert!(check_bound_request(&poisoned,"d3EmployeeCredentialBegin").is_err());
+        let proof=json!({"schema":"IWXA_T3_ACCESS_SIGNED/1",
+            "keyId":"key:worker","payload":{"kind":"PROOF"}});
+        let admit=json!({"employeePersonId":"person:worker",
+            "credentialKeyId":"key:worker","admissionId":"admission:one",
+            "employeeProof":proof});
+        assert!(check_bound_request(&admit,"d3EmployeeCredentialAdmit").is_ok());
+        let mut wrong=admit.clone();
+        wrong["employeeProof"]["keyId"]=json!("key:manager");
+        assert!(check_bound_request(&wrong,"d3EmployeeCredentialAdmit").is_err());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "credentialKeyId":"key:worker"}),"d3EmployeeCredentialRead").is_ok());
+        assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one",
+            "employeeProof":proof}),"d3EmployeeComplete").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one"}),"d3EmployeeRead").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:one",
+            "task":"Source supplier receipt"}),"d3EmployeeCreateTask").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:two"}),
+            "d3EmployeeTaskReadback").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:two",
+            "task":"  "}),"d3EmployeeCreateTask").is_err());
+        let mut absent=json!({"snapshot":{"d3EmployeeEnrollmentAvailable":false}});
+        assert!(!exact_kernel_apply_capability(&absent,"d3EmployeeBegin"));
+        absent["snapshot"]["d3EmployeeEnrollmentAvailable"]=Value::Bool(true);
+        assert!(exact_kernel_apply_capability(&absent,"d3EmployeeBegin"));
     }
     #[test]
     fn first_kernel_apply_requires_original_committed_object_event_and_result(){

@@ -50,6 +50,9 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
  const [credentialAttempted,setCredentialAttempted]=useState(false);
  const [credentialReceipt,setCredentialReceipt]=useState<any>(null);
  const [enrollmentChallenge,setEnrollmentChallenge]=useState<any>(null);
+ // Cold recovery reads the original Kernel using an ID saved by the manager,
+ // not a React cache or a second enrollment created after lost ACK.
+ const [recoveryEnrollmentId,setRecoveryEnrollmentId]=useState('');
  const [enrollmentProof,setEnrollmentProof]=useState('');
  const [enrollmentAttempted,setEnrollmentAttempted]=useState(false);
  const [enrollmentReceipt,setEnrollmentReceipt]=useState<any>(null);
@@ -69,7 +72,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    enrollmentReceipt.originalSigned===true;
  const reset=()=>{
    setCredentialChallenge(null);setCredentialProof('');setCredentialAttempted(false);
-   setCredentialReceipt(null);setEnrollmentChallenge(null);setEnrollmentProof('');
+   setCredentialReceipt(null);setEnrollmentChallenge(null);setRecoveryEnrollmentId('');
+   setEnrollmentProof('');
    setEnrollmentAttempted(false);setEnrollmentReceipt(null);
    setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);
  };
@@ -115,12 +119,12 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    setEnrollmentReceipt(cold);
  });
  const readEnrollment=()=>run('Прочитана исходная квитанция без повторной выдачи прав.',async()=>{
-   if(!ID.test(personId)||!ID.test(enrollmentChallenge?.enrollmentId??''))
+   if(!ID.test(personId)||!ID.test(recoveryEnrollmentId))
      throw Error('CEN_D3_EMPLOYEE_ENROLLMENT_RECOVERY_IDENTIFIERS_REQUIRED');
    const result=await execute('d3EmployeeRead',{
-     employeePersonId:personId,enrollmentId:enrollmentChallenge.enrollmentId});
+     employeePersonId:personId,enrollmentId:recoveryEnrollmentId});
    if(result?.employeePersonId!==personId||
-     result.enrollmentId!==enrollmentChallenge.enrollmentId||
+     result.enrollmentId!==recoveryEnrollmentId||
      result.originalReadback!==true||result.safeToReissue!==false)
      throw Error('CEN_D3_EMPLOYEE_ORIGINAL_ENROLLMENT_READBACK_HOLD');
    setEnrollmentReceipt(result);
@@ -167,7 +171,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    </label>
    <div className="actions">
     <button data-testid="d3-employee-credential-begin" disabled={busy||!contact||!personOk||
-      !ID.test(keyId)||!!credentialChallenge||credentialAttempted}
+      !ID.test(keyId)||!!credentialChallenge||credentialAttempted||credentialOk}
      onClick={()=>void run('Запрос оригинального подтверждения ключа создан.',async()=>{
        const result=await execute('d3EmployeeCredentialBegin',{
          employeePersonId:personId,credentialKeyId:keyId,
@@ -200,7 +204,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
       Используйте только «Проверить исходный ключ».</p>}
    {credentialOk&&<div className="nested-form" data-testid="d3-employee-key-admitted">
     <p>Публичный PROOF-ключ подтверждён оригинальным Kernel. Права ещё не выданы.</p>
-    <button data-testid="d3-employee-begin" disabled={busy||!!enrollmentChallenge||enrollmentAttempted}
+    <button data-testid="d3-employee-begin" disabled={busy||!!enrollmentChallenge||enrollmentAttempted||enrolled}
       onClick={()=>void run('Создана исходная проверка сотрудника без выдачи прав.',async()=>{
        const result=await execute('d3EmployeeBegin',{
          employeePersonId:personId,credentialKeyId:keyId});
@@ -209,7 +213,14 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
           result.signed!==false||result.member!==false)
          throw Error('CEN_D3_EMPLOYEE_ENROLLMENT_CHALLENGE_INVALID');
        setEnrollmentChallenge(result);
+       setRecoveryEnrollmentId(result.enrollmentId);
       })}>2. Запросить подтверждение сотрудника</button>
+    <label>Идентификатор исходного подключения для холодного чтения
+     <input data-testid="d3-employee-enrollment-id" value={recoveryEnrollmentId}
+       disabled={busy||enrollmentAttempted} onChange={e=>setRecoveryEnrollmentId(e.target.value.trim())}/>
+    </label>
+    <button data-testid="d3-employee-read" disabled={busy||!ID.test(recoveryEnrollmentId)}
+      onClick={()=>void readEnrollment()}>Восстановить исходную квитанцию</button>
     {enrollmentChallenge&&<div>
      <textarea data-testid="d3-employee-enrollment-challenge" readOnly rows={4}
        value={JSON.stringify({request:enrollmentChallenge.request,
@@ -223,8 +234,6 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
       <button data-testid="d3-employee-complete" disabled={busy||enrollmentAttempted||
         !enrollmentProof.trim()} onClick={()=>void confirmEnrollment()}>
         Выдать ACTION/DATA и перечитать STATUS</button>
-      <button data-testid="d3-employee-read" disabled={busy}
-        onClick={()=>void readEnrollment()}>Восстановить квитанцию по ID</button>
      </div>
     </div>}
     {enrollmentAttempted&&!enrolled&&<p className="notice subdued">
@@ -246,10 +255,10 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
      <button data-testid="d3-employee-task-create" disabled={busy||taskAttempted||
        !/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||!taskText.trim()}
        onClick={()=>void run('Оригинальная Task подписана адресату, доставка не подтверждена.',async()=>{
-        if(taskAttempted)throw Error('CEN_D3_EMPLOYEE_TASK_OUTCOME_UNKNOWN');
+        if(taskAttempted||!ID.test(recoveryEnrollmentId))throw Error('CEN_D3_EMPLOYEE_TASK_OUTCOME_UNKNOWN');
         setTaskAttempted(true);
         const result=await execute('d3EmployeeCreateTask',{
-          enrollmentId:enrollmentChallenge.enrollmentId,
+          enrollmentId:recoveryEnrollmentId,
           employeePersonId:personId,taskId,task:taskText.trim()});
         if(result?.status!=='SIGNED_TASK_CREATED_NOT_DELIVERED'||
            result.recipientId!==personId||result.taskId!==taskId||
@@ -257,17 +266,17 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
           throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_SIGNING_UNCONFIRMED');
         setTaskReceipt(result);
        })}>3. Подписать Task этому сотруднику</button>
-     <button data-testid="d3-employee-task-read" disabled={busy||!taskAttempted}
+     <button data-testid="d3-employee-task-read" disabled={busy||!/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)}
        onClick={()=>void run('Подписанная Task перечитана без повторного выпуска.',async()=>{
         const result=await execute('d3EmployeeTaskReadback',{
-          enrollmentId:enrollmentChallenge.enrollmentId,
+          enrollmentId:recoveryEnrollmentId,
           employeePersonId:personId,taskId});
         if(result?.found!==true||result?.recipientId!==personId||
            result?.taskId!==taskId||!HEX.test(result.taskRevisionId)||
            !HEX.test(result.packageSha256)||
            result?.status!=='SIGNED_TASK_PERSISTED_NOT_DELIVERED')
           throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_READBACK_HOLD');
-        setTaskReceipt(result);
+        setTaskReceipt(result);setTaskAttempted(true);
        })}>Перечитать подписанную Task</button>
      {taskAttempted&&!taskReceipt&&<p className="notice subdued">
        Task могла быть подписана до потери ACK. Повторный выпуск запрещён:
