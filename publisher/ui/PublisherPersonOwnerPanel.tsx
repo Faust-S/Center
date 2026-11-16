@@ -2,6 +2,8 @@ import React,{useEffect,useMemo,useState} from 'react';
 import {prepareUnsignedPersonLicenseRequest,preparePersonRenewalDraftCommand,
   validatePersonRenewalSource,fingerprintUnsignedPersonRequest}
   from '../src/person-license-request.mjs';
+import {inspectOriginalPersonMutationReadback,personOwnerOutcomeLookupId}
+  from '../src/person-owner-readback.mjs';
 
 type NativeInvoke=(name:string,args?:Record<string,unknown>)=>Promise<any>;
 type PersonRecord={
@@ -15,6 +17,9 @@ type PersonRecord={
   sequence:number;activeSeats:0
 };
 type Inventory={entries:PersonRecord[];truncated:boolean;total:number;matches?:number};
+type PendingPersonMutation=
+  |{kind:'ISSUE';request:any;issuerAuthorityId:string;requestDigest:string}
+  |{kind:'STATUS';license:PersonRecord;state:'ACTIVE'|'SUSPENDED'|'REVOKED'};
 type Props={draft:any;invoke:NativeInvoke;
  change:(command:Record<string,unknown>,message:string)=>Promise<{ok:boolean;message:string}>;
  focusRequestId?:string;ageReady:boolean;draftSourceSha256:string;
@@ -93,6 +98,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
   const [pendingRenewalSource,setPendingRenewalSource]=useState('');
   const [message,setMessage]=useState('');
   const [failure,setFailure]=useState('');
+  const [pendingMutation,setPendingMutation]=useState<PendingPersonMutation|null>(null);
   const [selectedFingerprint,setSelectedFingerprint]=useState<{
     source:any;hash:string
   }|null>(null);
@@ -262,8 +268,10 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
   async function refresh(search=lookupTarget){
     if(!available||busy)return;
     setBusy(true);setFailure('');setMessage('');
-    try{await inventory(search);setNeedsRefresh(false);
-      setMessage('Журнал персональных лицензий обновлён.');}
+    try{await inventory(search);setNeedsRefresh(Boolean(pendingMutation));
+      setMessage(pendingMutation?
+        'Журнал прочитан. Неизвестный результат подписи требует отдельной сверки ниже.':
+        'Журнал персональных лицензий обновлён.');}
     catch(e){setNeedsRefresh(true);
       setFailure('Не удалось прочитать журнал T3: '+err(e));}
     finally{setBusy(false);}
@@ -275,7 +283,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     setBusy(true);setFailure('');setMessage('');
     try{
       const result=await inventory(search);
-      setLookupTarget(search);setNeedsRefresh(false);
+      setLookupTarget(search);setNeedsRefresh(Boolean(pendingMutation));
       // A person can have an original and one or more signed renewals.
       // Exact native lookup is authoritative; never auto-select a random
       // record for a status change, revocation or delivery.
@@ -294,23 +302,30 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       setFailure('Поиск в журнале T3 не выполнен: '+err(e));}
     finally{setBusy(false);}
   }
-  async function operate(action:(mutationSent:()=>void)=>Promise<{
+  async function operate(action:(mutationSent:(intent:PendingPersonMutation)=>void)=>Promise<{
     message:string;confirm?:(value:Inventory)=>boolean;readbackLookupId?:string;
     selectLicenseId?:string
   }>,mutatesLedger=false){
-    if(busy||!available||needsRefresh)return;
+    if(busy||!available||needsRefresh||pendingMutation)return;
     setBusy(true);setFailure('');setMessage('');
     let nativeMutationStarted=false;
+    let attempted:PendingPersonMutation|null=null;
+    const unknown=()=>{
+      if(mutatesLedger&&nativeMutationStarted&&attempted){
+        setPendingMutation(attempted);
+        setNeedsRefresh(true);
+      }
+    };
     try{
-      const result=await action(()=>{nativeMutationStarted=true;});
+      const result=await action(intent=>{nativeMutationStarted=true;attempted=intent;});
       let readback:Inventory;
       const query=result.readbackLookupId??lookupTarget;
       try{readback=await inventory(query);}
-      catch(e){setNeedsRefresh(true);
+      catch(e){unknown();setNeedsRefresh(true);
         setFailure('Операция могла сохраниться, но журнал T3 не перечитан. '+
           'Обновите журнал перед повтором. '+err(e));return;}
       if(result.confirm&&!result.confirm(readback)){
-        setNeedsRefresh(true);
+        unknown();setNeedsRefresh(true);
         setFailure('Подписанная запись не подтверждена повторным чтением T3. '+
           'Обновите журнал перед повтором.');
         return;
@@ -321,7 +336,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       }
       if(result.selectLicenseId){
         if(!readback.entries.some(x=>x.licenseId===result.selectLicenseId)){
-          setNeedsRefresh(true);
+          unknown();setNeedsRefresh(true);
           setFailure('Подписанная лицензия не найдена в перечитанном журнале T3. '+
             'Обновите журнал перед дальнейшей работой.');
           return;
@@ -361,7 +376,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       // losing its IPC response. Never allow a second issue/status change
       // until an independently read owner ledger settles the ambiguity.
       if(mutatesLedger&&nativeMutationStarted){
-        setNeedsRefresh(true);
+        unknown();setNeedsRefresh(true);
         setFailure('Операция могла сохраниться в T3, но результат не подтверждён. '+
           'Обновите журнал перед повтором. '+err(e));
       }else if(mutatesLedger){
@@ -369,6 +384,60 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         // called. There cannot yet be a committed signing result to recover.
         setFailure('Предварительная проверка T3 не выполнена: '+err(e));
       }else setFailure(err(e));
+    }finally{setBusy(false);}
+  }
+  // This call only OBSERVES the original installed T3 durable ledger.
+  // It never resends a PERSON ISSUE/STATUS to the signer.
+  async function reconcilePendingMutation(){
+    const intent=pendingMutation;
+    if(!intent||busy||!available)return;
+    setBusy(true);setFailure('');setMessage('');
+    try{
+      const lookupId=personOwnerOutcomeLookupId(intent);
+      const first=await invoke('publisher_t3_person_inventory',{lookupId});
+      checkedInventory(first,lookupId);
+      const observed=inspectOriginalPersonMutationReadback(intent,first);
+      if(observed.status!=='COMMITTED'){
+        setNeedsRefresh(true);
+        setFailure(observed.status==='CONFLICT'?
+          'В исходном T3 обнаружена другая подписанная запись или редакция. '+
+          'Повторная подпись запрещена. Проверьте журнал владельца.':
+          'Исходный T3 пока не подтвердил результат. Повторная подпись запрещена. '+
+          'Повторите только сверку после завершения исходной операции.');
+        return;
+      }
+      // Require TWO fresh native reads. UI state and transport receipts
+      // are never evidence that a signing operation committed.
+      const second=await invoke('publisher_t3_person_inventory',{lookupId});
+      checkedInventory(second,lookupId);
+      const confirmed=inspectOriginalPersonMutationReadback(intent,second);
+      if(confirmed.status!=='COMMITTED'||
+         confirmed.licenseId!==observed.licenseId||
+         confirmed.sequence!==observed.sequence){
+        setNeedsRefresh(true);
+        setFailure('Повторное чтение исходного T3 не подтвердило ту же запись. '+
+          'Новое подписание запрещено.');
+        return;
+      }
+      const view=await inventory(lookupId);
+      if(!view.entries.some(x=>x.licenseId===confirmed.licenseId&&
+          x.sequence===confirmed.sequence)){
+        setNeedsRefresh(true);
+        setFailure('Запись исходного T3 изменилась после сверки. '+
+          'Повторное применение запрещено.');
+        return;
+      }
+      setLicenseId(confirmed.licenseId);
+      setLookupTarget(lookupId);setLookupText(lookupId);
+      setStatus('');setRevokePending('');setRenewalTariff('');
+      setPendingMutation(null);setNeedsRefresh(false);
+      setMessage('Оригинальный T3 подтвердил подписанную запись двумя независимыми '+
+        'чтениями журнала. Подписание повторно не выполнялось. '+
+        'Получение другим устройством этим не подтверждается.');
+    }catch(e){
+      setNeedsRefresh(true);
+      setFailure('Не удалось подтвердить результат оригинального T3: '+err(e)+
+        '. Повторное применение запрещено.');
     }finally{setBusy(false);}
   }
   async function issue(){
@@ -432,7 +501,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       // Renewal and duplicate checks can take time. Recheck the reviewed
       // source immediately before asking the original T3 to sign.
       await ensureSigningDraftCurrent(reviewedDraftSha256);
-      mutationSent();
+      mutationSent({kind:'ISSUE',request,issuerAuthorityId:authority,
+        requestDigest:sourceHash});
       let result;
       try{
         result=await invoke('publisher_t3_person_issue',{
@@ -518,7 +588,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       // Resolve it from the original owner before touching its sequence.
       await currentPersonRecord(
         current,'PERSON_STATUS_SIGNED_SOURCE_STALE_REFRESH_REQUIRED');
-      mutationSent();
+      mutationSent({kind:'STATUS',license:current,state:requested as
+        'ACTIVE'|'SUSPENDED'|'REVOKED'});
       const value=await invoke('publisher_t3_person_change_status',{
         licenseId:current.licenseId,nextStatus:requested,
         expectedSequence:current.sequence});
@@ -685,7 +756,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         </p>)}
       <div className="actions">
         <button type="button" className="primary" data-testid="publisher-person-issue"
-          disabled={busy||needsRefresh||!issuer||!selected||!termsConfirmed||!!issuedSelected}
+          disabled={busy||needsRefresh||!!pendingMutation||!issuer||!selected||!termsConfirmed||!!issuedSelected}
           onClick={()=>void issue()}>{issuedSelected?'Уже выпущена':'Подписать и записать в T3'}</button>
         <button type="button" className="secondary"
           data-testid="publisher-person-refresh" disabled={busy}
@@ -773,7 +844,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         </select>
         <button type="button" className="secondary"
           data-testid="publisher-person-status"
-          disabled={busy||needsRefresh||!personStatusAllowed(selectedLicense,status)}
+          disabled={busy||needsRefresh||!!pendingMutation||!personStatusAllowed(selectedLicense,status)}
           onClick={()=>status==='REVOKED'?setRevokePending(licenseId):
             void changeStatus()}>
           {status==='REVOKED'?'Подготовить отзыв PERSON':
@@ -781,7 +852,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         </button>
         <button type="button" className="secondary"
           data-testid="publisher-person-export"
-          disabled={busy||needsRefresh||!selectedLicense||
+          disabled={busy||needsRefresh||!!pendingMutation||!selectedLicense||
             selectedLicense.status==='NOT_ACTIVATED'||
             Date.parse(selectedLicense.expiresAt)<=Date.now()||
             !selectedLicense.statusValidUntil||
@@ -789,7 +860,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
           onClick={()=>void exportIwxa()}>Экспортировать .iwxa</button>
         <button type="button" className="secondary"
           data-testid="publisher-person-export-age"
-          disabled={busy||needsRefresh||!ageReady||!selectedLicense||!ageRecipients.trim()||
+          disabled={busy||needsRefresh||!!pendingMutation||!ageReady||!selectedLicense||!ageRecipients.trim()||
             selectedLicense.status==='NOT_ACTIVATED'||
             Date.parse(selectedLicense.expiresAt)<=Date.now()||
             !selectedLicense.statusValidUntil||
@@ -836,7 +907,18 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         </div>
       </div>}
     </>}
-    {failure&&<p role="alert">{failure}</p>}
+    {pendingMutation&&<div className="notice" role="group"
+        data-testid="publisher-person-unknown-outcome">
+        <p>Ответ исходного T3 потерян или подписанная запись не подтверждена.
+          Новая выдача или STATUS заблокированы до сверки исходной долговременной записи.
+          Получение лицензии другим устройством не подтверждено.</p>
+        <button type="button" className="secondary" disabled={busy}
+          data-testid="publisher-person-reconcile-original"
+          onClick={()=>void reconcilePendingMutation()}>
+          Сверить исходный журнал T3 без повторной подписи
+        </button>
+      </div>}
+      {failure&&<p role="alert">{failure}</p>}
     {message&&<p role="status">{message}</p>}
   </section>;
 }
