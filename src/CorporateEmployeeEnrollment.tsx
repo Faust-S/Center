@@ -7,7 +7,9 @@ type Exec=(operation:string,input?:Record<string,unknown>)=>Promise<any>;
 type Run=(message:string,task:()=>Promise<void|boolean>)=>Promise<void>;
 type Contact={id:string;name:string};
 type Session={organizationId:string;workspaceId:string;actorId:string;
-  d3EmployeeEnrollmentAvailable?:boolean};
+  d3EmployeeEnrollmentAvailable?:boolean;
+  d3EmployeeRegistryBootstrapAvailable?:boolean;
+  d3EmployeeTaskIssueAvailable?:boolean};
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 function jsonObject(raw:string,code:string):Record<string,any>{
@@ -61,6 +63,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
  const [taskAttempted,setTaskAttempted]=useState(false);
  const [taskReceipt,setTaskReceipt]=useState<any>(null);
  const available=session.d3EmployeeEnrollmentAvailable===true;
+ const bootstrap=session.d3EmployeeRegistryBootstrapAvailable===true;
+ const taskIssueAvailable=session.d3EmployeeTaskIssueAvailable===true;
  const personOk=ID.test(personId)&&personId!==session.actorId;
  const credentialOk=credentialReceipt?.state==='ORIGINAL_PROOF_CREDENTIAL_ADMITTED'&&
    credentialReceipt.employeePersonId===personId&&
@@ -143,9 +147,24 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
   <p className="muted">Подписывает только оригинальный T3 в доверенном Host. Сотрудник подтверждает
    собственный Ed25519-ключ в установленном Agent; руководитель никогда не получает закрытый ключ.
    Черновик контакта и лицензия Publisher не являются полномочиями.</p>
-  {!available?<p className="notice subdued" data-testid="d3-employee-owner-unavailable">
-     Оригинальный Kernel-backed владелец регистрации сотрудника ещё не подключён
-     к установленной сессии. Выдача полномочий и поручений заблокирована.</p>:
+  {!available?<div className="notice subdued" data-testid="d3-employee-owner-unavailable">
+     <p>Оригинальный Kernel-backed владелец регистрации сотрудника ещё не подтверждён
+     в установленной сессии. Выдача полномочий и поручений заблокирована.</p>
+     {bootstrap&&<div>
+      <p>Откройте оригинальную T3 Workspace, затем подтвердите подключение
+      исходного реестра в отдельном нативном окне Windows.
+      После записи будет выполнено чтение того же Kernel.</p>
+      <button data-testid="d3-employee-registry-initialize" disabled={busy}
+       onClick={()=>void run('Исходный реестр проверен в оригинальном Kernel.',async()=>{
+         const result=await execute('d3EmployeeRegistryInitialize',{confirmed:true});
+         if(result?.state!=='ORIGINAL_KERNEL_REGISTRY_CONFIRMED'||
+            result.organizationId!==session.organizationId||
+            result.workspaceId!==session.workspaceId||
+            result.originalReadback!==true||result.originalKernel!==true)
+           throw Error('CEN_D3_EMPLOYEE_REGISTRY_READBACK_UNCONFIRMED');
+       })}>Подключить исходный реестр T3</button>
+     </div>}
+    </div>:
   <div className="form-grid">
    <label>Контакт в черновике
     <select data-testid="d3-employee-contact" value={contact} disabled={busy}
@@ -248,6 +267,10 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
      <p>Подтверждены отдельные ACTION work.prepare и DATA package.export.
         Получатель не получает ключ issuer или полномочия руководителя.
         Доставка приглашения не подтверждена.</p>
+     {!taskIssueAvailable&&<p className="notice subdued" data-testid="d3-employee-task-owner-unavailable">
+       Подписанная регистрация сотрудника не является разрешением выдать ему
+       Task. Нужна оригинальная T3-операция выдачи конкретному адресату
+       с отдельным подтверждённым правом на экспорт такой Task.</p>}
      <label>Текст поручения
       <textarea data-testid="d3-employee-task-text" rows={3} maxLength={10000}
         value={taskText} disabled={busy||taskAttempted}
@@ -257,7 +280,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
       <input data-testid="d3-employee-task-id" value={taskId}
         disabled={busy||taskAttempted} onChange={e=>setTaskId(e.target.value)}/>
      </label>
-     <button data-testid="d3-employee-task-create" disabled={busy||taskAttempted||
+     <button data-testid="d3-employee-task-create" disabled={!taskIssueAvailable||busy||taskAttempted||
        !/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||!taskText.trim()}
        onClick={()=>void run('Оригинальная Task подписана адресату, доставка не подтверждена.',async()=>{
         if(taskAttempted||!ID.test(recoveryEnrollmentId))throw Error('CEN_D3_EMPLOYEE_TASK_OUTCOME_UNKNOWN');
@@ -271,7 +294,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
           throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_SIGNING_UNCONFIRMED');
         setTaskReceipt(result);
        })}>3. Подписать Task этому сотруднику</button>
-     <button data-testid="d3-employee-task-read" disabled={busy||!/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)}
+     <button data-testid="d3-employee-task-read" disabled={!taskIssueAvailable||busy||!/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)}
        onClick={()=>void run('Подписанная Task перечитана без повторного выпуска.',async()=>{
         const result=await execute('d3EmployeeTaskReadback',{
           enrollmentId:recoveryEnrollmentId,
