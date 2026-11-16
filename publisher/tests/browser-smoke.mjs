@@ -1053,7 +1053,7 @@ try {
         const ledger=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger')||'[]');
         const rec=ledger.find(x=>x.licenseId===args.licenseId);
         if(!rec)throw Error('PERSON_OWNER_READBACK_UNIQUE_SIGNED_LICENSE_REQUIRED');
-        return {operation:'PERSON_SIGNED_READBACK',source:'ORIGINAL_T3_OWNER_STORE',
+        const signedProof={operation:'PERSON_SIGNED_READBACK',source:'ORIGINAL_T3_OWNER_STORE',
           licenseId:rec.licenseId,requestId:rec.requestId,
           issuerAuthorityId:rec.issuerAuthorityId,personId:rec.personId,
           productId:rec.productId,productVersion:'0.5.0',
@@ -1068,6 +1068,12 @@ try {
           statusValidUntil:rec.statusValidUntil??null,
           stateRevision:rec.sequence+1,ledgerRevision:ledger.length,
           recipientConfirmed:false,activeSeats:0,productionActivation:false};
+        if(window.__personMockDivergeSignedReadbackAt===
+           window.__personMockSignedReadbackCalls){
+          window.__personMockDivergeSignedReadbackAt=null;
+          return {...signedProof,statusEnvelopeSha256:'c'.repeat(64)};
+        }
+        return signedProof;
       }
       if(command==='publisher_t3_person_issue'){
         const latest=sessionStorage.getItem('iwxa-publisher-person-fixture');
@@ -1776,11 +1782,37 @@ try {
   assert.match(await personOwner.getByTestId('publisher-person-owner-signed-evidence').innerText(),
     /REVOKED|SHA-256 подписанного LICENSE|SHA-256 подписанного STATUS/);
   assert.equal(await personal.evaluate(()=>window.__personMockSignedReadbackCalls||0),
-    receiptsBefore+1);
+    receiptsBefore+2,'Two independent original signed Owner reads are required');
   assert.equal(await personal.evaluate(()=>window.__personMockStatusCalls||0),
     statusBeforeOwnerReceipt,
     'Read-only owner inspection must never call the signing operation again');
   checks.push('person-owner-exact-signed-envelope-readback-is-separate-from-holder-acceptance');
+  // A changing signed STATUS/2 between the two original native processes
+  // must not be presented as a stable verified owner proof. This fixture
+  // emulates a concurrent issuer without producing a second signature.
+  const beforeDivergence=await personal.evaluate(()=>
+    window.__personMockSignedReadbackCalls||0);
+  await personal.evaluate(at=>{
+    window.__personMockDivergeSignedReadbackAt=at+2;
+  },beforeDivergence);
+  await personOwner.getByTestId('publisher-person-owner-signed-readback').click();
+  await personOwner.getByText('PERSON_OWNER_TWO_COLD_SIGNED_READBACK_DIVERGED',
+    {exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-owner-signed-evidence').count(),0,
+    'A divergent historical signed status cannot remain visible as verified');
+  assert.equal(await personOwner.getByTestId('publisher-person-owner-signed-readback').isDisabled(),true,
+    'Divergence must require refreshing the original owner inventory');
+  assert.equal(await personal.evaluate(()=>window.__personMockStatusCalls||0),
+    statusBeforeOwnerReceipt,
+    'A failed signed readback must never request another STATUS signature');
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  await personOwner.getByTestId('publisher-person-owner-signed-readback').click();
+  await personOwner.getByTestId('publisher-person-owner-signed-evidence').waitFor();
+  assert.equal(await personal.evaluate(()=>window.__personMockSignedReadbackCalls||0),
+    beforeDivergence+4,
+    'A recovered signed status needs another full two-process verification');
+  checks.push('person-owner-divergent-native-signed-status-requires-refresh-no-resign');
   checks.push('publisher-person-owner-mocked-signed-native-route');
   checks.push('person-original-and-renewal-selectors-show-distinct-native-license-ids');
   checks.push('person-and-test-license-selectors-distinct-accessibility-names');
