@@ -9,6 +9,7 @@ type Contact={id:string;name:string};
 type Session={organizationId:string;workspaceId:string;actorId:string;
   d3EmployeeEnrollmentAvailable?:boolean;
   d3EmployeeRegistryBootstrapAvailable?:boolean;
+  d3EmployeeRegistryReadbackAvailable?:boolean;
   d3EmployeeTaskIssueAvailable?:boolean};
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
@@ -64,6 +65,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
  const [taskReceipt,setTaskReceipt]=useState<any>(null);
  const available=session.d3EmployeeEnrollmentAvailable===true;
  const bootstrap=session.d3EmployeeRegistryBootstrapAvailable===true;
+ const registryRead=session.d3EmployeeRegistryReadbackAvailable===true;
  const taskIssueAvailable=session.d3EmployeeTaskIssueAvailable===true;
  const personOk=ID.test(personId)&&personId!==session.actorId;
  const credentialOk=credentialReceipt?.state==='ORIGINAL_PROOF_CREDENTIAL_ADMITTED'&&
@@ -150,6 +152,24 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
   {!available?<div className="notice subdued" data-testid="d3-employee-owner-unavailable">
      <p>Оригинальный Kernel-backed владелец регистрации сотрудника ещё не подтверждён
      в установленной сессии. Выдача полномочий и поручений заблокирована.</p>
+     {registryRead&&<div>
+      <p>После перезапуска сначала перечитайте исходный реестр. Эта операция
+      не создаёт гранты, не выполняет запись и не повторяет потерянную команду.</p>
+      <button data-testid="d3-employee-registry-readback" disabled={busy}
+       onClick={()=>void run('Исходный реестр перечитан без повторной записи.',async()=>{
+         const receipt=await execute('d3EmployeeRegistryReadback',{});
+         if(receipt?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1'||
+            receipt.organizationId!==session.organizationId||
+            receipt.workspaceId!==session.workspaceId||
+            receipt.originalReadback!==true||receipt.originalKernel!==true||
+            !['ORIGINAL_KERNEL_REGISTRY_CONFIRMED',
+              'ORIGINAL_KERNEL_REGISTRY_NOT_FOUND'].includes(receipt.state)||
+            receipt.automaticRetryAllowed!==false)
+           throw Error('CEN_D3_EMPLOYEE_REGISTRY_READBACK_INVALID');
+         if(receipt.state!=='ORIGINAL_KERNEL_REGISTRY_CONFIRMED')
+           throw Error('CEN_D3_EMPLOYEE_REGISTRY_NOT_PRESENT_USE_EXPLICIT_INITIALIZE');
+       })}>Проверить реестр без записи</button>
+     </div>}
      {bootstrap&&<div>
       <p>Откройте оригинальную T3 Workspace, затем подтвердите подключение
       исходного реестра в отдельном нативном окне Windows.

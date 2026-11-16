@@ -43,6 +43,7 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
     let sha=input["packageSha256"].as_str();
     match operation {
       "d3Inbox"|"d3Receive"|"d3ReceiveAge"|"d3ExportInvitation"=>{},
+      "d3EmployeeRegistryReadback"=>{},
       "d3EmployeeRegistryInitialize"=>{
           if input["confirmed"]!=true{
               return Err("CEN_D3_EMPLOYEE_ORIGINAL_REGISTRY_CONFIRMATION_REQUIRED".into());
@@ -203,6 +204,8 @@ fn supported_state(result:&Value,organization_id:&str,
         !view["snapshot"]["d3EmployeeEnrollmentAvailable"].is_boolean())||
        (view["snapshot"]["d3EmployeeRegistryBootstrapAvailable"]!=Value::Null&&
         !view["snapshot"]["d3EmployeeRegistryBootstrapAvailable"].is_boolean())||
+       (view["snapshot"]["d3EmployeeRegistryReadbackAvailable"]!=Value::Null&&
+        !view["snapshot"]["d3EmployeeRegistryReadbackAvailable"].is_boolean())||
        (view["snapshot"]["d3EmployeeTaskIssueAvailable"]!=Value::Null&&
         !view["snapshot"]["d3EmployeeTaskIssueAvailable"].is_boolean())||
        !view["snapshot"]["tasks"].is_array()||
@@ -220,6 +223,7 @@ fn supported_state(result:&Value,organization_id:&str,
         projected["snapshot"]["d3EmployeeEnrollmentAvailable"]=Value::Bool(false);
     }
     for name in ["d3EmployeeRegistryBootstrapAvailable",
+                 "d3EmployeeRegistryReadbackAvailable",
                  "d3EmployeeTaskIssueAvailable"] {
         if projected["snapshot"][name]==Value::Null {
             projected["snapshot"][name]=Value::Bool(false);
@@ -232,6 +236,8 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
     match operation{
         "d3EmployeeRegistryInitialize"=>
             snapshot["d3EmployeeRegistryBootstrapAvailable"]==true,
+        "d3EmployeeRegistryReadback"=>
+            snapshot["d3EmployeeRegistryReadbackAvailable"]==true,
         "d3EmployeeCreateTask"|"d3EmployeeTaskReadback"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true&&
             snapshot["d3EmployeeTaskIssueAvailable"]==true,
@@ -1489,6 +1495,11 @@ mod tests{
           "publicKey":"-----BEGIN PUBLIC KEY-----known-----END PUBLIC KEY-----",
           "status":"ACTIVE","uses":["PROOF"],"notBefore":"2026-11-16T00:00:00Z",
           "expiresAt":"2026-12-16T00:00:00Z"});
+        assert!(check_bound_request(&json!({}),"d3EmployeeRegistryReadback").is_ok());
+        assert!(check_bound_request(&json!({"confirmed":true}),
+            "d3EmployeeRegistryInitialize").is_ok());
+        assert!(check_bound_request(&json!({"confirmed":false}),
+            "d3EmployeeRegistryInitialize").is_err());
         let args=json!({"employeePersonId":"person:worker",
             "credentialKeyId":"key:worker","keyRecord":record});
         assert!(check_bound_request(&args,"d3EmployeeCredentialBegin").is_ok());
