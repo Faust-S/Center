@@ -580,6 +580,13 @@ try{
         disabled:row.disabled,
         root:row.closest('[data-testid="d3-independent-employee"]')?.outerHTML.slice(0,130),
         ancestor:row.parentElement?.className,
+        path:(()=>{const out=[];let node=row;while(node&&out.length<12){
+          out.push({tag:node.tagName,id:node.id||null,
+            testid:node.getAttribute('data-testid'),
+            cls:typeof node.className==='string'?node.className.slice(0,120):null,
+            hidden:node.getAttribute('aria-hidden'),
+            rectWidth:node.getBoundingClientRect().width
+          });node=node.parentElement;}return out;})(),
         display:getComputedStyle(row).display,
         rectWidth:row.getBoundingClientRect().width
       })));
