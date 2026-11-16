@@ -722,6 +722,21 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         <strong>Условия персональной лицензии</strong>
         <p>Получатель: {selected.request.subject.name} ·
           программа: {selected.request.product.id}</p>
+        <p data-testid="publisher-person-reviewed-identity">
+          Идентификатор получателя: <strong>{selected.request.subject.id}</strong> ·
+          программа: {selected.request.product.id} / {selected.request.product.version} ·
+          издатель: {issuer||'не выбран'} · запрос: {selected.request.requestId}
+        </p>
+        <p data-testid="publisher-person-reviewed-tariff">
+          Подготовленный тариф: {draft.proposals?.find((p:any)=>
+            p.id===selected.proposalId)?.tariffSnapshot?.name||'не указан'} ·
+          редакция {draft.proposals?.find((p:any)=>
+            p.id===selected.proposalId)?.tariffSnapshot?.revision??'не указана'} ·
+          код {draft.proposals?.find((p:any)=>
+            p.id===selected.proposalId)?.tariffSnapshot?.id||'не указан'}
+        </p>
+        <p className="muted">Цена, оплата и коммерческий договор не входят
+          в подписываемый контракт PERSON; их необходимо подтвердить отдельно.</p>
         <p>Функции: {selected.request.featureIds.join(', ')} ·
           срок: {selected.request.termDays} дн. ·
           устройств: {selected.request.deviceLimit}</p>

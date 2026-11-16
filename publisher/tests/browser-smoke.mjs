@@ -1029,6 +1029,7 @@ try {
           activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_person_inventory'){
+        window.__personMockInventoryCalls=(window.__personMockInventoryCalls||0)+1;
         if(window.__personMockFailNextInventory){
           window.__personMockFailNextInventory=false;
           throw Error('PERSON_T3_TEMPORARY_INVENTORY_UNAVAILABLE');
@@ -1124,6 +1125,10 @@ try {
         }
         if(args.expectedSequence!==one.sequence)
           throw Error('PERSON_OWNER_STATUS_SEQUENCE_STALE');
+        if(window.__personMockLoseBeforeStatusCommit){
+          window.__personMockLoseBeforeStatusCommit=false;
+          throw Error('PERSON_TEST_ACK_LOST_BEFORE_COMMIT');
+        }
         one.status=args.nextStatus;one.sequence+=1;
         one.statusIssuedAt=new Date().toISOString();
         one.statusValidUntil=new Date(Math.min(
@@ -1274,6 +1279,17 @@ try {
     .selectOption(directDraft.proposals[0].id);
   assert.match(await personOwner.getByTestId('publisher-person-issue-preview').innerText(),
     /Устройства|устройств: 3/);
+  const identity=await personOwner.getByTestId('publisher-person-reviewed-identity').innerText();
+  assert.match(identity,/Идентификатор получателя:/);
+  assert.match(identity,/IWXA_ATLAS/);
+  assert.match(identity,/publisher:person:mock/);
+  assert.match(identity,/proposal:/);
+  const reviewedTariff=await personOwner.getByTestId('publisher-person-reviewed-tariff').innerText();
+  assert.match(reviewedTariff,/Подготовленный тариф:/);
+  assert.match(reviewedTariff,/редакция 1/);
+  assert.match(await personOwner.getByTestId('publisher-person-issue-preview').innerText(),
+    /Цена, оплата и коммерческий договор не входят/);
+  checks.push('person-issuer-shows-original-receiver-tariff-and-request-before-signer');
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
   await personOwner.getByLabel('Подтверждаю выпуск на указанных условиях').check();
   // A preflight read failure is not an ambiguous signed mutation.
@@ -1727,15 +1743,27 @@ try {
     sessionStorage.getItem('publisher-person-mock-ledger')));
   assert.equal(committedWithoutReceipt[1].status,'SUSPENDED');
   assert.equal(committedWithoutReceipt[1].sequence,2);
+  const signerCallsBeforeRecovery=await personal.evaluate(()=>
+    window.__personMockStatusCalls||0);
+  const inventoryCallsBeforeRecovery=await personal.evaluate(()=>
+    window.__personMockInventoryCalls||0);
   await personOwner.getByTestId('publisher-person-refresh').click();
-  await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  await personOwner.getByText('Журнал прочитан. Неизвестный результат подписи',{exact:false}).waitFor();
   assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true,
-    'Selected new status already exists in original T3 after readback');
+    'A generic refresh must not unlock repeated STATUS signing');
+  await personOwner.getByTestId('publisher-person-unknown-outcome').waitFor();
+  await personOwner.getByTestId('publisher-person-reconcile-original').click();
+  await personOwner.getByText('Оригинальный T3 подтвердил подписанную запись',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-unknown-outcome').count(),0);
+  assert.ok((await personal.evaluate(()=>window.__personMockInventoryCalls||0))>=
+    inventoryCallsBeforeRecovery+4,'Recovery requires two fresh owner reads and inventory readback');
+  assert.equal(await personal.evaluate(()=>window.__personMockStatusCalls||0),
+    signerCallsBeforeRecovery,'Recovery must never sign another STATUS');
   const afterLostResponse=JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger')));
   assert.equal(afterLostResponse[1].sequence,2,
-    'Reading ledger must not create another signed native status');
-  checks.push('person-lost-native-status-response-blocks-retry-until-exact-ledger-refresh');
+    'Original readback must not create another signed native status');
+  checks.push('person-lost-status-ack-resolves-by-two-original-durable-readbacks-no-reapply');
   // An unexpired license may have a nearly expired signed STATUS. T3 Owner
   // supports a new monotonic status sequence without issuing a new LICENSE.
   await personal.evaluate(()=>{
@@ -1746,12 +1774,36 @@ try {
   });
   await personOwner.getByTestId('publisher-person-refresh').click();
   await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  await personOwner.getByRole('combobox',{name:'Новый статус PERSON'}).selectOption('SUSPENDED');
   assert.equal(await personOwner.getByTestId('publisher-person-status').isEnabled(),true,
     'Owner should be able to refresh an expiring SUSPENDED status without issuing a new license');
   assert.equal(await personOwner.getByTestId('publisher-person-status').innerText(),
     'Обновить подпись статуса');
+  await personal.evaluate(()=>{window.__personMockLoseBeforeStatusCommit=true;});
   await personOwner.getByTestId('publisher-person-status').click();
-  await personOwner.getByText('Подписанный статус сохранён.',{exact:false}).waitFor();
+  await personOwner.getByText('Операция могла сохраниться в T3',{exact:false}).waitFor();
+  const statusCallsAfterUnknown=await personal.evaluate(()=>window.__personMockStatusCalls||0);
+  await personOwner.getByTestId('publisher-person-reconcile-original').click();
+  await personOwner.getByText('Исходный T3 пока не подтвердил результат.',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-status').isDisabled(),true);
+  assert.equal((JSON.parse(await personal.evaluate(()=>
+    sessionStorage.getItem('publisher-person-mock-ledger'))))[1].sequence,2,
+    'Uncommitted original STATUS must not be reported as accepted');
+  // Model the original owner finishing an already-sent operation after the
+  // IPC answer is lost. This browser fixture is NOT a signed-consumer test.
+  await personal.evaluate(()=>{
+    const rows=JSON.parse(sessionStorage.getItem('publisher-person-mock-ledger'));
+    rows[1].status='SUSPENDED';rows[1].sequence+=1;
+    rows[1].statusIssuedAt=new Date().toISOString();
+    rows[1].statusValidUntil=new Date(Math.min(
+      Date.now()+24*3600000,Date.parse(rows[1].expiresAt))).toISOString();
+    sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(rows));
+  });
+  await personOwner.getByTestId('publisher-person-reconcile-original').click();
+  await personOwner.getByText('Оригинальный T3 подтвердил подписанную запись',{exact:false}).waitFor();
+  assert.equal(await personal.evaluate(()=>window.__personMockStatusCalls||0),
+    statusCallsAfterUnknown,'Unknown outcome recovery must never call original signer again');
+  checks.push('person-lost-status-ack-does-not-reissue-until-original-ledger-confirmation');
   const refreshedStatus=JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger')));
   assert.equal(refreshedStatus.length,2);
