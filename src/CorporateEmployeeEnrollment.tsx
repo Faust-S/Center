@@ -56,6 +56,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
  // Cold recovery reads the original Kernel using an ID saved by the manager,
  // not a React cache or a second enrollment created after lost ACK.
  const [recoveryEnrollmentId,setRecoveryEnrollmentId]=useState('');
+ // A lost native ACK can follow an ORIGINAL Kernel commit. Never re-dispatch.
+ const [registryInitAttempted,setRegistryInitAttempted]=useState(false);
  const [enrollmentProof,setEnrollmentProof]=useState('');
  const [enrollmentAttempted,setEnrollmentAttempted]=useState(false);
  const [enrollmentReceipt,setEnrollmentReceipt]=useState<any>(null);
@@ -194,14 +196,27 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
       <p>Откройте оригинальную T3 Workspace, затем подтвердите подключение
       исходного реестра в отдельном нативном окне Windows.
       После записи будет выполнено чтение того же Kernel.</p>
-      <button data-testid="d3-employee-registry-initialize" disabled={busy}
+      <button data-testid="d3-employee-registry-initialize"
+       disabled={busy||registryInitAttempted}
        onClick={()=>void run('Исходный реестр проверен в оригинальном Kernel.',async()=>{
-         const result=await execute('d3EmployeeRegistryInitialize',{confirmed:true});
-         if(result?.state!=='ORIGINAL_KERNEL_REGISTRY_CONFIRMED'||
-            result.organizationId!==session.organizationId||
-            result.workspaceId!==session.workspaceId||
-            result.originalReadback!==true||result.originalKernel!==true)
-           throw Error('CEN_D3_EMPLOYEE_REGISTRY_READBACK_UNCONFIRMED');
+         if(registryInitAttempted)
+           throw Error('CEN_D3_EMPLOYEE_REGISTRY_USE_READBACK');
+         setRegistryInitAttempted(true);
+         try{
+           const result=await execute('d3EmployeeRegistryInitialize',{confirmed:true});
+           if(result?.state!=='ORIGINAL_KERNEL_REGISTRY_CONFIRMED'||
+              result.organizationId!==session.organizationId||
+              result.workspaceId!==session.workspaceId||
+              result.originalReadback!==true||result.originalKernel!==true)
+             throw Error('CEN_D3_EMPLOYEE_REGISTRY_READBACK_UNCONFIRMED');
+         }catch(e){
+           // Only an exact Windows refusal BEFORE original dispatch permits
+           // manual confirmation again. All other outcomes require readback.
+           if(String(e).replace(/^Error:\s*/,'').trim()===
+             'CEN_D3_EMPLOYEE_REGISTRY_HUMAN_CANCELLED')
+             setRegistryInitAttempted(false);
+           throw e;
+         }
        })}>Подключить исходный реестр T3</button>
      </div>}
     </div>:

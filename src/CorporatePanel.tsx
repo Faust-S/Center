@@ -23,6 +23,10 @@ const why=(e:unknown)=>{
    return 'Выдача ACTION/DATA сотруднику отменена в Windows до отправки в Kernel. Права не выдавались.';
  if(message.includes('CEN_D3_EMPLOYEE_REGISTRY_HUMAN_CANCELLED'))
    return 'Подключение исходного корпоративного реестра отменено до записи.';
+ if(/T3_D3_ORIGINAL_EMPLOYEE_REGISTRY_EXISTS_USE_READBACK|CEN_D3_EMPLOYEE_REGISTRY_USE_READBACK/.test(message))
+   return 'Оригинальный реестр уже может существовать. Не повторяйте запись: используйте «Проверить реестр без записи».';
+ if(/T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN|T3_D3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK_HOLD/.test(message))
+   return 'Исход подключения реестра неизвестен. Не повторяйте запись: перечитайте оригинальный Kernel без записи.';
  if(message.includes('CEN_D3_HUMAN_REVIEW_CANCELLED'))
    return 'Решение отменено в системном окне Windows. Оно не отправлялось.';
  if(message.includes('CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED'))

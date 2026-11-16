@@ -492,7 +492,7 @@ try{
   // UI-only native owner fixture: these checks DO NOT qualify cryptography,
   // the original installed T3, independent employee signature or Kernel.
   const employeeState={registered:false,ready:false,reads:0,
-    initializations:0,savedDraft:null};
+    initializations:0,savedDraft:null,cancelFirstInit:true,loseFirstInitAck:true};
   const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
   await employeePage.exposeFunction('__centerEmployeeFixture',
     async(command,args={})=>{
@@ -541,8 +541,18 @@ try{
         }
         if(args.operation==='d3EmployeeRegistryInitialize'){
           assert.equal(args.input.confirmed,true);
+          if(employeeState.cancelFirstInit){
+            employeeState.cancelFirstInit=false;
+            throw Error('CEN_D3_EMPLOYEE_REGISTRY_HUMAN_CANCELLED');
+          }
           employeeState.initializations++;
-          employeeState.registered=true;employeeState.ready=true;
+          employeeState.registered=true;
+          if(employeeState.loseFirstInitAck){
+            employeeState.loseFirstInitAck=false;
+            employeeState.ready=false;
+            throw Error('T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN');
+          }
+          employeeState.ready=true;
           return {
             schema:'IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1',
             state:'ORIGINAL_KERNEL_REGISTRY_CONFIRMED',
@@ -577,10 +587,21 @@ try{
     'React sibling keys must distinguish employee enrollment and D3 review');
   assert.equal(await originalInitButtons.count(),1,
     'one original Kernel bootstrap control after readback');
-  await originalInitButtons.click();
+  await originalInitButtons.click(); // Simulated native Human CANCEL before dispatch.
+  await employeePage.getByRole('alert').waitFor();
+  assert.equal(employeeState.initializations,0);
+  assert.equal(await originalInitButtons.isEnabled(),true,
+    'exact pre-dispatch native refusal allows a new explicit human confirmation');
+  await originalInitButtons.click(); // Simulated committed graph, lost ACK.
+  await employeePage.getByRole('alert').waitFor();
+  assert.equal(employeeState.initializations,1);
+  assert.equal(await originalInitButtons.isEnabled(),false,
+    'original Kernel command cannot be replayed on uncertain ACK');
+  await employeePage.getByTestId('d3-employee-registry-readback').click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
   assert.equal(await employeePage.getByTestId('d3-independent-employee').count(),1);
-  assert.equal(employeeState.initializations,1);
+  assert.equal(employeeState.initializations,1,
+    'the original cold readback never reissues the Kernel graph');
   // Real Center persists organization drafts through its existing native
   // service. This fixture must provide the SAME saved draft when the main
   // WebView reloads, or the organization disappears before registry recovery.
@@ -606,11 +627,11 @@ try{
   assert.equal(await employeePage.getByTestId('d3-independent-employee').count(),1);
   assert.equal(employeeState.initializations,1,
     'cold readback does not send a second Kernel initialization');
-  assert.equal(employeeState.reads,2);
+  assert.equal(employeeState.reads,3);
   assert.equal(await employeePage.getByTestId('d3-employee-task-create').count(),0,
     'registry alone cannot authorize independent employee Task');
   await employeePage.close();
-  checks.push('d3-employee-original-registry-ui-cold-readback-no-reissue');
+  checks.push('d3-employee-original-kernel-bootstrap-human-cancel-unknown-ack-cold-readback-no-reissue');
   // React can reload while the REAL native signed WebView (and its Kernel)
   // survives. Model that lifetime using a separate Node-side host, NOT
   // localStorage/React state, so a browser reload cannot recreate its status.
