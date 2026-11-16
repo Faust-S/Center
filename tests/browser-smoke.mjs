@@ -565,8 +565,27 @@ try{
   await employeePage.getByTestId('create-org').click();
   await employeePage.getByTestId('nav-results').click();
   await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
+  const snapshot=async label=>{
+    const evidence=await employeePage.evaluate(()=>{
+      const main=document.querySelector('#root > .app > .main');
+      return {
+        panels:document.querySelectorAll('[data-testid="corporate-panel"]').length,
+        employeeSections:document.querySelectorAll('[data-testid="d3-independent-employee"]').length,
+        navs:document.querySelectorAll('[data-testid="nav-results"]').length,
+        rootChildren:document.querySelector('#root')?.children.length,
+        mainChildren:[...(main?.children??[])].map(node=>({
+          type:node.tagName,cl:typeof node.className==='string'?node.className:null,
+          testid:node.getAttribute('data-testid'),
+          ownText:node.textContent?.slice(0,55)
+        }))
+      };
+    });
+    console.log('D3_EMPLOYEE_PHASE_'+label,JSON.stringify(evidence));
+  };
+  await snapshot('BEFORE_READ');
   await employeePage.getByTestId('d3-employee-registry-readback').click();
   await employeePage.getByRole('alert').waitFor();
+  await snapshot('AFTER_READ');
   assert.match(await employeePage.getByRole('alert').innerText(),
     /CEN_D3_EMPLOYEE_REGISTRY_NOT_PRESENT_USE_EXPLICIT_INITIALIZE/);
   assert.equal(employeeState.initializations,0,
