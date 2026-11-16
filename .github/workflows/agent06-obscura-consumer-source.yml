@@ -183,6 +183,23 @@ jobs:
           if ! (cd private-agent && python -B -m pytest -q -s -p no:cacheprovider \
             tests/test_agent06_u01_public_sources.py -k PinnedU01SourceTests) \
             > "$RUNNER_TEMP/agent06-private-u01-unit.log" 2>&1; then
+            # Fixed diagnostic classes only. Never disclose private traces,
+            # source lines, archive members or full pytest output publicly.
+            if grep -Eq 'SyntaxError|IndentationError|TabError' "$RUNNER_TEMP/agent06-private-u01-unit.log"; then
+              echo "AGENT06_U01_SOURCE_SYNTAX_FAIL"
+            fi
+            if grep -Fq 'test_ordinary_package_manifest_includes_u01_once_by_hash' "$RUNNER_TEMP/agent06-private-u01-unit.log"; then
+              echo "AGENT06_U01_BASE_PACKAGE_MANIFEST_TEST_FAIL"
+            fi
+            if grep -Fq 'test_full_native_desktop_cannot_omit_pinned_u01_source' "$RUNNER_TEMP/agent06-private-u01-unit.log"; then
+              echo "AGENT06_U01_LEGACY_NATIVE_REQUIREMENT_TEST_FAIL"
+            fi
+            if grep -Fq 'test_valid_pinned_sources_map_to_standard_import_paths' "$RUNNER_TEMP/agent06-private-u01-unit.log"; then
+              echo "AGENT06_U01_SOURCE_RECEIPT_TEST_FAIL"
+            fi
+            if grep -Eq 'ImportError|ModuleNotFoundError|AttributeError' "$RUNNER_TEMP/agent06-private-u01-unit.log"; then
+              echo "AGENT06_U01_IMPORT_CONTRACT_FAIL"
+            fi
             echo "AGENT06_U01_RECEIPT_AND_PACKAGE_UNIT_FAIL"
             exit 11
           fi
