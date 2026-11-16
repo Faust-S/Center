@@ -1,0 +1,105 @@
+# PUBLIC Windows source check only. PRIVATE Agent checkout and its logs
+# exist exclusively on this short-lived runner. Never upload them as artifacts.
+name: Agent 0.6 original T3 Result owner and Atlas D6 source qualification
+on:
+  push:
+    branches: ['work/2026-11-16-agent06-original-result-owner-windows']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-original-result-owner-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  agent-original-owner:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require already authorized read-only private checkout
+        shell: pwsh
+        env:
+          SOURCE_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:SOURCE_READ_TOKEN)){
+            throw 'AGENT06_ORIGINAL_READ_ONLY_SOURCE_UNAVAILABLE'
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: dab58845f3e8050c7c470f3f075b2ed6d21438e5
+          path: private-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact Agent SHA and isolated T3 source presence
+        shell: pwsh
+        run: |
+          $sha=(& git -C private-agent rev-parse HEAD).Trim()
+          if($sha -cne 'dab58845f3e8050c7c470f3f075b2ed6d21438e5'){
+            throw 'AGENT06_ORIGINAL_SOURCE_PIN_MISMATCH'
+          }
+          foreach($path in @('runtime/t3_original_employee_worker.mjs',
+            'runtime/t3_original_employee_port.py',
+            'runtime/t3_original_result_owner.py',
+            'tests/test_agent06_original_t3_result_owner.py',
+            'tests/test_agent06_corporate_t3_employee.py',
+            'desktop/src/corporate-work-control.tsx')){
+            if(!(Test-Path -LiteralPath (Join-Path 'private-agent' $path))){
+              throw 'AGENT06_ORIGINAL_CONSUMER_SOURCE_MISSING'
+            }
+          }
+          Write-Host "AGENT06_ORIGINAL_SOURCE_SHA_VERIFIED=$sha"
+      - name: Install private Agent test dependencies without exposing logs
+        shell: pwsh
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'agent06-original-pip-private.log'
+          & python -m pip install -r private-agent/requirements-ci.txt *> $log
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_ORIGINAL_PYTHON_DEPENDENCIES_FAILED'}
+      - name: Validate original T3 and Atlas D6 installed Agent owner methods
+        shell: pwsh
+        run: |
+          & node --check private-agent/runtime/t3_original_employee_worker.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-original-node-private.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_ORIGINAL_NODE_SYNTAX_FAILED'}
+          Push-Location private-agent
+          try {
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_original_t3_result_owner.py tests/test_agent06_corporate_t3_employee.py tests/test_t3_result_projection.py tests/test_t3_mode.py *> (Join-Path $env:RUNNER_TEMP 'agent06-original-unit-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_ORIGINAL_ORIGINAL_CONSUMER_UNIT_FAILED'}
+          } finally {Pop-Location}
+          Write-Host 'AGENT06_ORIGINAL_PYTHON_UNIT_AND_NODE_SYNTAX_PASS'
+      - name: Compile full desktop with owner-bound corporate Task UI
+        shell: pwsh
+        run: |
+          Push-Location private-agent/desktop
+          try {
+            & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-original-npm-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_ORIGINAL_NPM_DEPENDENCIES_FAILED'}
+            $log=Join-Path $env:RUNNER_TEMP 'agent06-original-desktop-private.log'
+            & npm.cmd run build *> $log
+            if($LASTEXITCODE -ne 0){
+              $raw=Get-Content -LiteralPath $log -Raw
+              $codes=@([regex]::Matches($raw,'TS[0-9]{4}') | ForEach-Object { $_.Value } | Sort-Object -Unique)
+              Write-Host ("AGENT06_ORIGINAL_TYPESCRIPT_CODES="+($codes -join ','))
+              throw 'AGENT06_ORIGINAL_DESKTOP_BUILD_FAILED'
+            }
+            Write-Host 'AGENT06_ORIGINAL_DESKTOP_TYPESCRIPT_VITE_PASS'
+          } finally {Pop-Location}
+      - name: Remove private Agent checkout and transient private diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath 'private-agent' -Force -Recurse -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent06-original-*-private.log' -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          Write-Host 'AGENT06_ORIGINAL_PRIVATE_CLEANUP_FINISHED'
+      # No private EXE, source, credentials, model output, artifact or cache.
