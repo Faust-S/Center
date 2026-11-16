@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: dab58845f3e8050c7c470f3f075b2ed6d21438e5
+          ref: e0a6e247553f6101b9e3286af408ab3a99c5c076
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne 'dab58845f3e8050c7c470f3f075b2ed6d21438e5'){
+          if($sha -cne 'e0a6e247553f6101b9e3286af408ab3a99c5c076'){
             throw 'AGENT06_ORIGINAL_SOURCE_PIN_MISMATCH'
           }
           foreach($path in @('runtime/t3_original_employee_worker.mjs',
@@ -73,8 +73,31 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'AGENT06_ORIGINAL_NODE_SYNTAX_FAILED'}
           Push-Location private-agent
           try {
-            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_original_t3_result_owner.py tests/test_agent06_corporate_t3_employee.py tests/test_t3_result_projection.py tests/test_t3_mode.py *> (Join-Path $env:RUNNER_TEMP 'agent06-original-unit-private.log')
-            if($LASTEXITCODE -ne 0){throw 'AGENT06_ORIGINAL_ORIGINAL_CONSUMER_UNIT_FAILED'}
+            $stages=@(
+              @{code='OWNER_TASK';select='existing_core_task or lost_ack or foreign_work_revision or changed_original_signed_task'},
+              @{code='OWNER_RESULT';select='unaccepted_result or original_readback or no_foreign_kernel_object'}
+            )
+            foreach($stage in $stages){
+              $log=Join-Path $env:RUNNER_TEMP ('agent06-original-'+$stage.code+'-private.log')
+              & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_original_t3_result_owner.py -k $stage.select *> $log
+              if($LASTEXITCODE -ne 0){
+                $raw=Get-Content -LiteralPath $log -Raw
+                $classes=@([regex]::Matches($raw,'(AssertionError|AttributeError|TypeError|ValueError|OSError|CorporateT3Error|KeyError)') |
+                  ForEach-Object { $_.Value } | Sort-Object -Unique)
+                Write-Host ("AGENT06_ORIGINAL_FAILURE_CLASS="+($classes -join ','))
+                throw ('AGENT06_ORIGINAL_'+$stage.code+'_FAILED')
+              }
+              Write-Host ('AGENT06_ORIGINAL_'+$stage.code+'_PASS')
+            }
+            $log=Join-Path $env:RUNNER_TEMP 'agent06-original-other-private.log'
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_corporate_t3_employee.py tests/test_t3_result_projection.py tests/test_t3_mode.py *> $log
+            if($LASTEXITCODE -ne 0){
+              $raw=Get-Content -LiteralPath $log -Raw
+              $classes=@([regex]::Matches($raw,'(AssertionError|AttributeError|TypeError|ValueError|OSError|CorporateT3Error|KeyError)') |
+                ForEach-Object { $_.Value } | Sort-Object -Unique)
+              Write-Host ("AGENT06_ORIGINAL_FAILURE_CLASS="+($classes -join ','))
+              throw 'AGENT06_ORIGINAL_BASELINE_TEST_FAILED'
+            }
           } finally {Pop-Location}
           Write-Host 'AGENT06_ORIGINAL_PYTHON_UNIT_AND_NODE_SYNTAX_PASS'
       - name: Compile full desktop with owner-bound corporate Task UI
