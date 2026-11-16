@@ -75,10 +75,35 @@ jobs:
           if($LASTEXITCODE -ne 0){
             # No private logs, code, EXE, setup screenshots or installer bytes
             # are printed or published by this public workflow.
-            Write-Host 'AGENT06_BUNDLED_NATIVE_SETUP_QUALIFICATION_FAIL'
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            $reasonCodes=@(
+              'private_setup_windows_required',
+              'private_setup_core_revision_invalid',
+              'private_setup_output_must_be_empty',
+              'private_setup_git_identity_failed',
+              'private_setup_checkout_not_clean',
+              'private_setup_core_checkout_not_pinned_and_clean',
+              'private_setup_native_product_package_build_failed',
+              'native_candidate_stub_compile_failed',
+              'native_candidate_test_python_failed',
+              'native_candidate_u04_sources_failed',
+              'native_candidate_frontend_dependencies_failed',
+              'native_candidate_tauri_build_failed',
+              'native_candidate_rust_toolchain_missing',
+              'native_candidate_obscura_native_u01_bundle_missing_or_invalid',
+              'obscura_pinned_public_native_candidate_missing',
+              'U01 pinned owner source preparation failed',
+              'private_setup_core_package_build_failed',
+              'private_setup_core_local_acceptance_failed',
+              'private_setup_core_local_acceptance_not_confirmed'
+            )
+            foreach($name in $reasonCodes){
+              if(([string]$raw).Contains($name)){Write-Host ('AGENT06_BUNDLED_SETUP_REASON='+$name)}
+            }
             if(Test-Path -LiteralPath (Join-Path $out 'logs/private-build-result.json')){
               Write-Host 'AGENT06_BUNDLED_NATIVE_SETUP_BUILD_STAGE_REACHED'
             }
+            Write-Host 'AGENT06_BUNDLED_NATIVE_SETUP_QUALIFICATION_FAIL'
             throw 'AGENT06_BUNDLED_NATIVE_SETUP_FAILED'
           }
           $setup=Join-Path $out 'IWXA-Private-SetupCore-Candidate.exe'
