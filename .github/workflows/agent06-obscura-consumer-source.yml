@@ -5,7 +5,7 @@ name: Agent 0.6 Obscura source consumer qualification
 on:
   push:
     branches:
-      - work/2026-11-16-agent06-obscura-consent-qualification
+      - work/2026-11-16-agent06-obscura-native-bundle-qualification
   workflow_dispatch:
 permissions:
   contents: read
@@ -44,7 +44,7 @@ jobs:
           repository: Faust-S/iwxa-personal-agent
           # Immutable private source; later parallel commits must not change
           # the code being qualified by this specific Center run.
-          ref: cd861584c622002af4c3edd55767a5ddde1cc6f5
+          ref: a381fa3a8f08e4b8902895758a866b810d38aedf
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "cd861584c622002af4c3edd55767a5ddde1cc6f5"
+          test "$(git -C private-agent rev-parse HEAD)" = "a381fa3a8f08e4b8902895758a866b810d38aedf"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -89,6 +89,23 @@ jobs:
           test -s native-evidence/candidate/candidate-manifest.json
           test -s native-evidence/candidate/obscura-*.zip || test -s native-evidence/candidate/obscura-*.tar.gz
           echo "AGENT06_NATIVE_ARTIFACT_AVAILABLE"
+      - name: Download original public U01 native archive and manifest for product bundle
+        uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/Br-test
+          run-id: 43739318017
+          name: agent06-u01-unsigned-release-candidate
+          github-token: ${{ github.token }}
+          path: public-u01-candidate
+      - name: Require exact public U01 candidate files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s public-u01-candidate/manifest.candidate.json
+          test -s public-u01-candidate/obscura-windows-x86_64.zip
+          test -s public-u01-candidate/obscura-linux-x86_64.tar.gz
+          test -s public-u01-candidate/LICENSE-OBSCURA.txt
+          echo "AGENT06_OWNER_OPT_IN_PUBLIC_NATIVE_CANDIDATE_PRESENT"
       - name: Source module imports and PA port contract, no native worker
         shell: bash
         run: |
@@ -213,6 +230,37 @@ jobs:
           echo "AGENT06_U01_ORIGIN_CONNECTION_PASS"
           echo "AGENT06_U01_USER_INSTALL_CONTRACT_PASS"
 
+      - name: Qualify original U01 bundle in Agent package and true offline native Windows install
+        shell: bash
+        working-directory: private-agent
+        env:
+          IWXA_AGENT06_U01_CANDIDATE: ${{ github.workspace }}/public-u01-candidate
+          IWXA_AGENT06_U01_PREPARED: ${{ github.workspace }}/private-agent/build/u01-owner-sources
+        run: |
+          set -euo pipefail
+          if ! python -B -m pytest -q -s -p no:cacheprovider \
+            tests/test_agent06_obscura_bundled_native.py \
+            > "$RUNNER_TEMP/agent06-bundled-native-private.log" 2>&1; then
+            echo "AGENT06_BUNDLED_NATIVE_QUALIFICATION_FAIL"
+            exit 20
+          fi
+          for name in \
+            AGENT06_BUNDLED_ORIGINAL_U01_SHA_TAMPER_PASS \
+            AGENT06_BUNDLED_U01_NATIVE_AGENT_PACKAGE_PASS; do
+            if ! grep -Fq "$name" "$RUNNER_TEMP/agent06-bundled-native-private.log"; then
+              echo "AGENT06_BUNDLED_NATIVE_REQUIRED_STAGE_MISSING"
+              exit 21
+            fi
+          done
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            if ! grep -Fq "AGENT06_BUNDLED_NATIVE_ORIGINAL_U01_INSTALL_AND_COLD_PASS" \
+              "$RUNNER_TEMP/agent06-bundled-native-private.log"; then
+              echo "AGENT06_BUNDLED_ORIGINAL_U01_WINDOWS_INSTALL_MISSING"
+              exit 22
+            fi
+          fi
+          echo "AGENT06_BUNDLED_NATIVE_ZIP_AND_U01_PASS"
+          # No upload of private ZIP, EXE, model/user data or pytest logs.
       - name: Verify reviewed Obscura HTTPS changes, offline revoke and live Core authority
         shell: bash
         working-directory: private-agent
