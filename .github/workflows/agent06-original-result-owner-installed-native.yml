@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: b3892aba024c87a5339edf17fb1bbf4e3a20e4a1
+          ref: 30449036ea9d239148457014ee8de326ff55a9bb
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne 'b3892aba024c87a5339edf17fb1bbf4e3a20e4a1'){
+          if($actual -cne '30449036ea9d239148457014ee8de326ff55a9bb'){
             throw 'AGENT06_NATIVE_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($f in @(
@@ -137,6 +137,9 @@ jobs:
                 $known=@(
                   @('gui_managed_python_capsule_failed','MANAGED_PYTHON_CAPSULE'),
                   @('gui_native_package_failed','NATIVE_PACKAGE'),
+                  @('gui_original_u01_sources_failed','ORIGINAL_U01_STAGE'),
+                  @('gui_original_u01_receipt_missing','ORIGINAL_U01_RECEIPT'),
+                  @('u01_pinned_sources_required_for_installed_desktop','ORIGINAL_U01_PACKAGE_REQUIRED'),
                   @('gui_package_install_failed','NATIVE_PACKAGE_INSTALL'),
                   @('gui_storage_authority_failed','STORAGE_AUTHORITY'),
                   @('gui_native_executable_not_installed','NATIVE_EXE_NOT_INSTALLED'),
