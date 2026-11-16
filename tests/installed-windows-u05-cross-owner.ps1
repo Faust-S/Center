@@ -277,8 +277,7 @@ try {
           $kind=$candidate.Current.ControlType.ProgrammaticName
           $aid=[string]$candidate.Current.AutomationId
           $name=[string]$candidate.Current.Name
-          if(($aid -eq '1148' -or $name -match '^(File name|Имя файла):?
-$') -and
+          if(($aid -eq '1148' -or $name -match '^(File name|Имя файла):?$') -and
              $kind -in @('ControlType.Edit','ControlType.ComboBox')){
             $fileNameElement=$candidate;break
           }
