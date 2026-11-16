@@ -92,6 +92,28 @@ jobs:
             if(!(Test-Path -LiteralPath 'dist/index.html' -PathType Leaf)){
               throw 'AGENT06_NATIVE_REACT_ASSETS_MISSING'
             }
+            # U04 is a public, immutable build-time source. Vite has copied
+            # it byte-for-byte into dist; production packaging reads dist.
+            # Remove ONLY its generated checkout staging files to satisfy
+            # the original product's clean-tracked-HEAD packaging gate.
+            foreach($module in @('bridge.mjs','id.mjs','surface.mjs')){
+              if(!(Test-Path -LiteralPath (Join-Path 'dist/u04/u04-presentation' $module) -PathType Leaf)){
+                throw 'AGENT06_NATIVE_DIST_ORIGINAL_U04_MISSING'
+              }
+            }
+            $tracked=@(& git -C $root ls-files -- desktop/public/u04)
+            if($LASTEXITCODE -ne 0 -or @($tracked | Where-Object {$_}).Count -ne 0){
+              throw 'AGENT06_NATIVE_GENERATED_U04_STAGING_NOT_EXCLUSIVE'
+            }
+            $generated=Join-Path $root 'desktop/public/u04'
+            if(Test-Path -LiteralPath $generated){
+              Remove-Item -LiteralPath $generated -Force -Recurse -ErrorAction Stop
+            }
+            $dirty=@(& git -C $root status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or @($dirty | Where-Object {$_}).Count -ne 0){
+              throw 'AGENT06_NATIVE_PRIVATE_CHECKOUT_NOT_CLEAN'
+            }
+            Write-Host 'AGENT06_NATIVE_ORIGINAL_U04_DIST_AND_CLEAN_SOURCE_PASS'
             $binary=Get-Item -LiteralPath 'src-tauri/target/release/iwxa-personal.exe'
             if($binary.Length -lt 100000){throw 'AGENT06_NATIVE_EXE_INVALID_SIZE'}
             Write-Host 'AGENT06_NATIVE_REAL_WINDOWS_TAURI_EXE_PASS'
