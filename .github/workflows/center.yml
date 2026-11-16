@@ -279,6 +279,51 @@ jobs:
             throw 'PUBLISHER_PUBLIC_TWO_FILE_TRANSPORT_GATE_FAILED'
           }
           Write-Host 'PUBLISHER_CENTER_PUBLIC_TWO_FILE_SETUP_CORE_TRANSPORT_PASS_NO_PRIVATE_T3'
+      - name: Verify six-file original age Setup Core transport without private T3
+        shell: pwsh
+        run: |
+          # This checks ACTUAL Setup Core installation, Repair and uninstall
+          # of four additional independently pinned opaque resource bytes.
+          # The fixture is the already PUBLIC Publisher EXE, NOT age or T3.
+          # It must never be described as a working runtime or signed issuer.
+          Copy-Item -LiteralPath 'artifacts/publisher-setupcore-transport/result.json' -Destination 'artifacts/publisher-two-file-transport.json'
+          Remove-Item -LiteralPath 'artifacts/publisher-setupcore-transport' -Recurse -Force
+          $opaque=(Resolve-Path 'publisher/src-tauri/target/release/iwxa-publisher.exe').Path
+          $digest=(Get-FileHash -LiteralPath $opaque -Algorithm SHA256).Hash.ToLowerInvariant()
+          $fixture=(Join-Path (Resolve-Path 'artifacts').Path 'publisher-age-transport-opaque')
+          New-Item -Path $fixture -ItemType Directory -Force|Out-Null
+          $manifestPath=Join-Path $fixture 'age-toolchain.json'
+          [ordered]@{
+            schema='IWXA_T3_AGE_PINNED_TOOLCHAIN/1'
+            ageSha256=$digest
+            ageKeygenSha256=$digest
+          } | ConvertTo-Json -Compress | Set-Content -LiteralPath $manifestPath -Encoding utf8 -NoNewline
+          $manifestDigest=(Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $args=@{
+            TransportOnly=$true
+            OwnerComponentPath=$opaque
+            AgeComponentPath=$opaque
+            AgeBinaryPath=$opaque
+            AgeKeygenPath=$opaque
+            AgeToolchainManifestPath=$manifestPath
+            ExpectedAgeComponentSha256=$digest
+            ExpectedAgeBinarySha256=$digest
+            ExpectedAgeKeygenSha256=$digest
+            ExpectedAgeToolchainManifestSha256=$manifestDigest
+          }
+          ./publisher/tests/installed-setupcore-publisher.ps1 @args
+          $receipt=Get-Content 'artifacts/publisher-setupcore-transport/result.json' -Raw|ConvertFrom-Json
+          if($receipt.status -ne 'PUBLISHER_SIX_FILE_TRANSPORT_ONLY_PASS' -or
+             $receipt.fileCount -ne 6 -or $receipt.pinnedAgeFiles -ne 4 -or
+             $receipt.pinnedAgeManifestSha256 -ine $manifestDigest -or
+             $receipt.ageRuntimeQualified -ne $false -or
+             $receipt.privateSignerVerified -ne $false -or
+             $receipt.signedLicenseIssued -ne $false -or
+             $receipt.productionActivation -ne $false -or
+             $receipt.activeSeats -ne 0){
+            throw 'PUBLISHER_PUBLIC_SIX_FILE_ORIGINAL_AGE_TRANSPORT_GATE_FAILED'
+          }
+          Write-Host 'PUBLISHER_SETUP_CORE_SIX_FILE_AGE_BYTE_EXACT_INSTALL_REPAIR_UNINSTALL_PASS_TRANSPORT_ONLY'
       - name: Preserve Publisher Setup Core evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -288,6 +333,7 @@ jobs:
             artifacts/publisher-setupcore/*.json
             artifacts/publisher-setupcore/*.png
             artifacts/publisher-setupcore-transport/result.json
+            artifacts/publisher-two-file-transport.json
             artifacts/publisher-setupcore/*.exe
             publisher/src-tauri/target/release/iwxa-publisher.exe
             src-tauri/target/release/iwxa-admin-center.exe
