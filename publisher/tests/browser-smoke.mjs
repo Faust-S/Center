@@ -1105,6 +1105,12 @@ try {
           status:'NOT_ACTIVATED',sequence:0,activeSeats:0};
         ledger.push(one);
         sessionStorage.setItem('publisher-person-mock-ledger',JSON.stringify(ledger));
+        if(window.__personMockLoseNextIssueReceipt){
+          // Signed Owner durable issuance occurred; its IPC answer did not.
+          // Do NOT simulate a second issuance during publisher recovery.
+          window.__personMockLoseNextIssueReceipt=false;
+          throw Error('PERSON_TEST_ISSUE_ACK_LOST_AFTER_DURABLE_COMMIT');
+        }
         return {operation:'PERSON_ISSUE',outcome:'ISSUED_NEW',
           licenseId:one.licenseId,requestId:r.requestId,
           activeSeats:0,productionActivation:false};
@@ -1428,11 +1434,24 @@ try {
   });
   await personOwner.getByTestId('publisher-person-refresh').click();
   await personOwner.getByText('Журнал персональных лицензий обновлён.',{exact:false}).waitFor();
+  await personal.evaluate(()=>{window.__personMockLoseNextIssueReceipt=true;});
+  const issuerCallsBeforeLostIssue=await personal.evaluate(()=>window.__personMockIssueCalls||0);
   await personOwner.getByTestId('publisher-person-issue').click();
-  await personOwner.getByText('Подписанная лицензия сохранена в журнале издателя и выбрана.',{exact:false}).waitFor();
+  await personOwner.getByText('Операция могла сохраниться в T3',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
+  await personOwner.getByTestId('publisher-person-refresh').click();
+  await personOwner.getByText('Журнал прочитан. Неизвестный результат подписи',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true,
+    'A generic ledger refresh must not re-enable original ISSUE signing');
+  await personOwner.getByTestId('publisher-person-reconcile-original').click();
+  await personOwner.getByText('Оригинальный T3 подтвердил подписанную запись',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-unknown-outcome').count(),0);
+  assert.equal(await personal.evaluate(()=>window.__personMockIssueCalls||0),
+    issuerCallsBeforeLostIssue+1,'A recovered signed ISSUE must never call original issuer twice');
   await personOwner.getByTestId('publisher-person-already-issued').waitFor();
   assert.match(await personOwner.getByTestId('publisher-person-already-issued').innerText(),
     /license:person:mock:one/);
+  checks.push('person-lost-issue-ack-reconciled-from-original-owner-without-second-signature');
   assert.match(await personOwner.getByTestId('publisher-person-selected-license').innerText(),
     /license:person:mock:one/,
     'Publisher must select the just-issued PERSON license after original T3 readback');
@@ -1506,7 +1525,9 @@ try {
   await personal.evaluate(()=>{window.__personMockRaceNextStatus=true;});
   const signedCallsBeforeRace=await personal.evaluate(()=>window.__personMockStatusCalls||0);
   await personOwner.getByTestId('publisher-person-status').click();
-  await personOwner.getByText('PERSON_OWNER_STATUS_SEQUENCE_STALE',{exact:false}).waitFor();
+  await personOwner.getByText('последовательность статуса устарела',{exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-unknown-outcome').count(),0,
+    'Original T3 STATUS sequence CAS failure is a definite pre-sign rejection');
   const ownerRaceState=JSON.parse(await personal.evaluate(()=>
     sessionStorage.getItem('publisher-person-mock-ledger')))[0];
   assert.equal(ownerRaceState.status,'SUSPENDED');

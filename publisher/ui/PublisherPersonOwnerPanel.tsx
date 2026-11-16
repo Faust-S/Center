@@ -348,6 +348,15 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       }
       setMessage(result.message);
     }catch(e){
+      // The ORIGINAL Owner compares STATUS sequence before signing.
+      // Its definite CAS refusal is NOT a lost acknowledgement.
+      if(mutatesLedger&&nativeMutationStarted&&
+         err(e).includes('PERSON_OWNER_STATUS_SEQUENCE_STALE')){
+        setNeedsRefresh(true);
+        setFailure('Исходный T3 отклонил изменение: последовательность статуса '+
+          'устарела, подпись не создана. Обновите журнал перед следующим действием.');
+        return;
+      }
       // This error is raised while acquiring the EXISTING Windows draft
       // lock, before original T3 Owner is invoked. It is a definite refusal,
       // unlike a lost response after a signed native status or issue.
