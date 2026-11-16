@@ -571,7 +571,21 @@ try{
     /CEN_D3_EMPLOYEE_REGISTRY_NOT_PRESENT_USE_EXPLICIT_INITIALIZE/);
   assert.equal(employeeState.initializations,0,
     'readback NOT_FOUND must never create a signed registry');
-  await employeePage.getByTestId('d3-employee-registry-initialize').click();
+  const originalInitButtons=employeePage.getByTestId('d3-employee-registry-initialize');
+  const initialButtonsCount=await originalInitButtons.count();
+  if(initialButtonsCount!==1){
+    const view=await employeePage.locator(
+      '[data-testid="d3-employee-registry-initialize"]').evaluateAll(rows=>
+      rows.map(row=>({
+        disabled:row.disabled,
+        root:row.closest('[data-testid="d3-independent-employee"]')?.outerHTML.slice(0,130),
+        ancestor:row.parentElement?.className,
+        display:getComputedStyle(row).display,
+        rectWidth:row.getBoundingClientRect().width
+      })));
+    console.log('D3_EMPLOYEE_UI_BUTTONS',JSON.stringify(view));
+  }
+  await originalInitButtons.first().click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
   assert.equal(employeeState.initializations,1);
   // Real Center persists organization drafts through its existing native
