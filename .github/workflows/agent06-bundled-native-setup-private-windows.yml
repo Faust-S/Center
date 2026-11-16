@@ -18,6 +18,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Checkout full original public Setup Core owner
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: c10e193846a0ea4c73cabe3744aa7db82439d54e
+          path: center-owner
+          persist-credentials: false
       - name: Require permitted read-only Agent checkout
         shell: pwsh
         env:
@@ -28,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 7c43853aa779fcdf6de5c71562dcc9715550ac0e
+          ref: dbee477a574d9fa93149d7899c59b14959ad9050
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -49,7 +56,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '7c43853aa779fcdf6de5c71562dcc9715550ac0e'){throw 'AGENT06_SETUP_PRIVATE_SOURCE_MISMATCH'}
+          if($sha -cne 'dbee477a574d9fa93149d7899c59b14959ad9050'){throw 'AGENT06_SETUP_PRIVATE_SOURCE_MISMATCH'}
           $native=Join-Path $env:GITHUB_WORKSPACE 'public-u01-candidate'
           $manifest=Join-Path $native 'manifest.candidate.json'
           $archive=Join-Path $native 'obscura-windows-x86_64.zip'
@@ -65,21 +72,16 @@ jobs:
           IWXA_AGENT06_U01_CANDIDATE: ${{ github.workspace }}/public-u01-candidate
         run: |
           $repo=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
-          # The Center checkout also contains the private ephemeral checkout
-          # and downloaded public archive. Setup Core correctly requires its
-          # own checkout to be clean: clone the exact PUBLIC Center commit
-          # outside GITHUB_WORKSPACE rather than weakening that condition.
-          $center=Join-Path $env:RUNNER_TEMP 'clean-public-center'
-          & git clone --no-local --quiet --no-hardlinks $env:GITHUB_WORKSPACE $center 2>$null
-          if($LASTEXITCODE -ne 0){throw 'AGENT06_PUBLIC_CENTER_CLEAN_CLONE_FAILED'}
-          $centerSha=(& git -C $env:GITHUB_WORKSPACE rev-parse HEAD).Trim()
-          $cloneSha=(& git -C $center rev-parse HEAD).Trim()
-          if($centerSha -cne $cloneSha){throw 'AGENT06_PUBLIC_CENTER_CLONE_SHA_MISMATCH'}
-          $dirty=@(& git -C $center status --porcelain --untracked-files=all)
-          if($LASTEXITCODE -ne 0 -or @($dirty | Where-Object {$_}).Count -ne 0){
-            throw 'AGENT06_PUBLIC_CENTER_CLEAN_CLONE_DIRTY'
+          # Use the original PUBLIC product owner, never the CI-only harness.
+          $center=Join-Path $env:GITHUB_WORKSPACE 'center-owner'
+          $centerSha=(& git -C $center rev-parse HEAD).Trim()
+          if($centerSha -cne 'c10e193846a0ea4c73cabe3744aa7db82439d54e'){throw 'AGENT06_PUBLIC_SETUP_CORE_OWNER_REVISION_MISMATCH'}
+          foreach($path in @('installer/build_bundle.py','installer/windows/build-stub.ps1','installer/windows/qualify-local-bundle.ps1')){
+            if(!(Test-Path -LiteralPath (Join-Path $center $path) -PathType Leaf)){throw 'AGENT06_PUBLIC_SETUP_CORE_OWNER_FILE_MISSING'}
           }
-          Write-Host 'AGENT06_PUBLIC_CENTER_CLEAN_SOURCE_PASS'
+          $dirty=@(& git -C $center status --porcelain --untracked-files=all)
+          if($LASTEXITCODE -ne 0 -or @($dirty | Where-Object {$_}).Count -ne 0){throw 'AGENT06_PUBLIC_SETUP_CORE_OWNER_DIRTY'}
+          Write-Host 'AGENT06_PUBLIC_SETUP_CORE_OWNER_PINNED_CLEAN_PASS'
           $out=Join-Path $env:RUNNER_TEMP 'agent06-bundled-setup-core'
           $cache=Join-Path $env:RUNNER_TEMP 'agent06-bundled-release-cache'
           $file=Join-Path $repo 'tools/build_setup_core_windows_candidate.ps1'
