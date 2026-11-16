@@ -111,7 +111,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    if(employeeProof.keyId!==keyId)throw Error('CEN_D3_EMPLOYEE_PROOF_KEY_MISMATCH');
    setEnrollmentAttempted(true);
    const result=await execute('d3EmployeeComplete',{
-     enrollmentId:enrollmentChallenge.enrollmentId,employeeProof});
+     enrollmentId:enrollmentChallenge.enrollmentId,
+     employeePersonId:personId,credentialKeyId:keyId,employeeProof});
    if(result?.state!=='SIGNED_EMPLOYEE_ENROLLED_NOT_DELIVERED'||
       result.employeePersonId!==personId||result.enrollmentId!==enrollmentChallenge.enrollmentId||
       result.originalSigned!==true||result.invitationDelivered!==false)

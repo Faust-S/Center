@@ -95,9 +95,11 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
       },
       "d3EmployeeComplete"=>{
           if !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
              input["employeeProof"]["schema"]!="IWXA_T3_ACCESS_SIGNED/1"||
              input["employeeProof"]["payload"]["kind"]!="PROOF"||
-             !input["employeeProof"]["keyId"].as_str().is_some_and(t3::valid_identifier) {
+             input["employeeProof"]["keyId"]!=input["credentialKeyId"] {
               return Err("CEN_D3_EMPLOYEE_SIGNED_PROOF_REQUIRED".into());
           }
       },
@@ -1039,6 +1041,34 @@ pub async fn center_corporate_action(
             return Err("CEN_D3_EMPLOYEE_REGISTRY_HUMAN_CANCELLED".into());
         }
     }
+    if operation=="d3EmployeeCredentialAdmit"{
+        let who=input["employeePersonId"].as_str().unwrap_or("");
+        let key=input["credentialKeyId"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: подтвердить ключ сотрудника")
+            .set_description(&format!(
+                "Подтвердить публичный PROOF-ключ {} сотрудника {}? Закрытая часть ключа не передаётся. Запись выполняется только через оригинальный Kernel, при потерянном ответе повторять её нельзя.",key,who))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_CREDENTIAL_HUMAN_CANCELLED".into());
+        }
+    }
+    if operation=="d3EmployeeComplete"{
+        let who=input["employeePersonId"].as_str().unwrap_or("");
+        let key=input["credentialKeyId"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: выдать полномочия сотруднику")
+            .set_description(&format!(
+                "Выдать сотруднику {} (PROOF {}) отдельные оригинальные ACTION work.prepare и DATA package.export только для подписанной Workspace организации? Экспорт к iwxa.atlas, права руководителя и issuer не выдаются. Оригинальный Kernel сохраняет Object/Event и signed STATUS. После отправки повторная выдача запрещена.",who,key))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_GRANTS_HUMAN_CANCELLED".into());
+        }
+    }
     if operation=="d3ApplyAccepted"{
         let accepted=input["acceptanceId"].as_str().unwrap_or("");
         let count=input["revisionIds"].as_array().map(|v|v.len()).unwrap_or(0);
@@ -1542,7 +1572,11 @@ mod tests{
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "credentialKeyId":"key:worker"}),"d3EmployeeCredentialRead").is_ok());
         assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one",
+            "employeePersonId":"person:worker","credentialKeyId":"key:worker",
             "employeeProof":proof}),"d3EmployeeComplete").is_ok());
+        assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one",
+            "employeePersonId":"person:worker","credentialKeyId":"key:manager",
+            "employeeProof":proof}),"d3EmployeeComplete").is_err());
         assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one",
             "employeePersonId":"person:worker"}),"d3EmployeeCancel").is_ok());
         assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one"}),
