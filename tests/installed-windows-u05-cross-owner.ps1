@@ -265,14 +265,329 @@ try {
     Start-Sleep -Milliseconds 250
   }
   if(!$dialogFound){throw 'U05_IWXA_NATIVE_FILE_DIALOG_NOT_OBSERVED'}
-  if($archive -match '[+^%~{}()]'){throw 'U05_IWXA_TEST_PATH_UNSUPPORTED_BY_SENDKEYS'}
-  [System.Windows.Forms.SendKeys]::SendWait('%n')
-  Start-Sleep -Milliseconds 150
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  [System.Windows.Forms.SendKeys]::SendWait($archive)
-  Start-Sleep -Milliseconds 200
+  # Verify the native Windows file-name control before accepting. This is
+  # the same genuine RFD picker; no direct native import or synthetic data.
+  $fileNameElement=$null
+  for($fileFieldAttempt=0;$fileFieldAttempt -lt 12;$fileFieldAttempt++){
+    try {
+      $dialogItems=$element.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      foreach($candidate in $dialogItems){
+        try {
+          $kind=$candidate.Current.ControlType.ProgrammaticName
+          $aid=[string]$candidate.Current.AutomationId
+          $name=[string]$candidate.Current.Name
+          if(($aid -eq '1148' -or $name -match '^(File name|Имя файла):?
+  [void](Find-UI $projectTitle 'Button' $true)
+  Click $projectTitle $true
+  Click 'Связать с планом'
+  Click "Подготовить поручение: $workTitle" $true
+  Text 'Что нужно сделать' 'U05FileIwxaBinding'
+  Text 'Критерии приёмки' 'Exact installed Atlas archive work reference'
+  Click 'Сохранить черновик'
+  Click 'Сохранить на компьютере'
+  $fileAssignment=$null
+  for($attempt=0;$attempt -lt 75;$attempt++){
+    try{
+      $savedFileDraft=Get-Content -LiteralPath $centerDraft -Raw | ConvertFrom-Json -Depth 100
+      $found=@($savedFileDraft.organizations | ForEach-Object {$_.assignments} |
+        Where-Object {$_.title -eq 'U05FileIwxaBinding'})
+      if($found.Count -eq 1){$fileAssignment=$found[0];break}
+    }catch{}
+    Start-Sleep -Milliseconds 250
+  }
+  if($null -eq $fileAssignment){throw 'U05_CENTER_IWXA_WORK_REF_NOT_SAVED'}
+  $fileRef=$fileAssignment.atlasRef
+  if([string]$fileRef.projectId -ne $projectId -or
+     [string]$fileRef.workId -ne $workId -or
+     [string]$fileRef.revision -ne $revision){
+    throw 'U05_CENTER_IWXA_WORK_REF_MISMATCH'
+  }
+  if((Get-FileHash -LiteralPath $manifest -Algorithm SHA256).Hash -ne $beforeHash){
+    throw 'U05_CENTER_IWXA_IMPORT_MODIFIED_ATLAS_OWNER'
+  }
+  Shutdown
+  Start-Center
+  Click 'Поручения' $true
+  Click 'U05FileIwxaBinding' $true
+  [void](Find-UI-Text 'Источник Atlas не открыт')
+  Click 'Закрыть редактор'
+  $receipt=[ordered]@{status='U05_CENTER_INSTALLED_IWXA_PICKER_PASS';
+    archiveSha256=$archiveHash;sourceRevision=$revision;
+    projectId=$projectId;workId=$workId;centerDraftReadback=$true;
+    previewNotPromotedToAuthority=$true;ownerStoreUnmodified=$true}
+  $receipt | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (
+    Join-Path $env:GITHUB_WORKSPACE 'artifacts/atlas05-center-iwxa-result.json')
+  Write-Host "U05_CENTER_INSTALLED_IWXA_PICKER_PASS project=$projectId work=$workId revision=$revision"
+  Click 'Планы Atlas'
+  Click 'Открыть Atlas Desktop'
+  # The Windows WebView2 UIA tree can split a <p> across anonymous nodes.
+  # Matching its exact prose cannot prove a revision. The owner revision is
+  # instead asserted below against the saved Center work ref (and manifest).
+  $title=Find-UI $projectTitle 'Button' $true
+  if(!$title){throw 'U05_CANONICAL_PROJECT_NOT_RENDERED'}
+  Write-Host "U05_CANONICAL_PROJECT_VISIBLE_IN_CENTER project=$projectId ownerRevision=$revision"
+  Click $projectTitle $true
+  # Real installed Center -> pinned U01 discovery -> original native U04
+  # Windows port -> independent installed Atlas window -> return to Center.
+  # This is an actual WebView2 control route, not direct test IPC.
+
+  Click 'Открыть окно Atlas'
+  # Both original U04 states are valid: WINDOW_OBSERVED and
+  # LAUNCHED_NO_WINDOW. Verify the honest UI status, then separately verify
+  # the real installed process/HWND and native Windows foreground PID below.
+  [void](Find-UI-Text 'автоматически не выбирается')
+  $atlasProcesses=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
+      Where-Object { $_.ExecutablePath -eq $atlasExe })
+  if($atlasProcesses.Count -lt 1){throw 'U04_ORIGINAL_ATLAS_PROCESS_NOT_LAUNCHED'}
+  # GUI focus is an OS fact, not a text marker in the now-background
+  # Center WebView2 accessibility tree. Wait for the independent installed
+  # Atlas HWND, retry actual UI clicks if Windows denies foreground focus,
+  # and independently verify the foreground owner PID.
+  $atlasPids=@($atlasProcesses | ForEach-Object { [uint32]$_.ProcessId })
+  $atlasWindowReady=$false
+  for($windowAttempt=0;$windowAttempt -lt 45;$windowAttempt++){
+    foreach($pidValue in $atlasPids){
+      $targetProcess=Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+      if($null -ne $targetProcess -and $targetProcess.MainWindowHandle -ne [IntPtr]::Zero){
+        $atlasWindowReady=$true;break
+      }
+    }
+    if($atlasWindowReady){break}
+    Start-Sleep -Milliseconds 300
+  }
+  if(!$atlasWindowReady){throw 'U04_INSTALLED_ATLAS_VISIBLE_WINDOW_NOT_OBSERVED'}
+  $atlasFocused=$false
+  [uint32]$foregroundPid=0
+  for($focusAttempt=1;$focusAttempt -le 4;$focusAttempt++){
+    Click-Physical 'Фокус Atlas'
+    for($foregroundAttempt=0;$foregroundAttempt -lt 12;$foregroundAttempt++){
+      Start-Sleep -Milliseconds 250
+      $foreground=[U05Window]::GetForegroundWindow()
+      [uint32]$foregroundPid=0
+      [void][U05Window]::GetWindowThreadProcessId($foreground,[ref]$foregroundPid)
+      if($foregroundPid -in $atlasPids){$atlasFocused=$true;break}
+    }
+    if($atlasFocused){break}
+    Write-Host "U04_FOCUS_RETRY_REQUIRED attempt=$focusAttempt foreground_pid=$foregroundPid"
+  }
+  if(!$atlasFocused){
+    throw "U04_ATLAS_FOREGROUND_NOT_CONFIRMED foreground_pid=$foregroundPid atlas_pids=$($atlasPids -join ',')"
+  }
+  Write-Host "U04_NATIVE_ATLAS_FOREGROUND_PASS foreground_pid=$foregroundPid"
+  Click 'Вернуться в Center и проверить'
+  [void](Find-UI-Text 'Возврат в Center: редакция Atlas перепроверена')
+  $foreground=[U05Window]::GetForegroundWindow()
+  [uint32]$foregroundPid=0
+  [void][U05Window]::GetWindowThreadProcessId($foreground,[ref]$foregroundPid)
+  if($foregroundPid -ne [uint32]$proc.Id){throw "U04_CENTER_RETURN_FOCUS_MISMATCH pid=$foregroundPid"}
+  # WebView navigation unmounts NativeAtlasPanel, but the original U04 native
+  # binding is owned by Tauri. Reopen the same exact WorkRef without a second
+  # external process or silent new window binding.
+  $originalAtlasPids=@($atlasPids | Sort-Object)
+  Click 'Поручения' $true
+  Click 'Планы Atlas'
+  Click 'Открыть Atlas Desktop'
+  Click $projectTitle $true
+  Click 'Открыть окно Atlas'
+  [void](Find-UI-Text 'Прежняя связь с Atlas восстановлена без повторного запуска')
+  $afterReattachPids=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
+    Where-Object { $_.ExecutablePath -eq $atlasExe } |
+    ForEach-Object { [uint32]$_.ProcessId } | Sort-Object)
+  if(($afterReattachPids -join ',') -ne ($originalAtlasPids -join ',')){
+    throw "U04_REATTACH_SPAWNED_NEW_ATLAS_PROCESS before=$($originalAtlasPids -join ',') after=$($afterReattachPids -join ',')"
+  }
+  Write-Host "U04_NAVIGATION_REATTACH_SAME_PROCESS_PASS atlasPids=$($originalAtlasPids -join ',')"
+  # A different exact WorkRef in the same organization rebinds U04 without
+  # launching another installed Atlas process or selecting work in Atlas.
+  $workPicker=Find-UI 'Выбранная работа Atlas' 'ComboBox'
+  $workPicker.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('{END}')
+  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+  Start-Sleep -Milliseconds 350
+  [void](Find-UI-Text 'Выбрана другая работа или редакция Atlas')
+  Click 'Открыть окно Atlas'
+  [void](Find-UI-Text 'Прежняя связь с Atlas восстановлена без повторного запуска')
+  $afterWorkPids=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
+    Where-Object { $_.ExecutablePath -eq $atlasExe } |
+    ForEach-Object { [uint32]$_.ProcessId } | Sort-Object)
+  if(($afterWorkPids -join ',') -ne ($originalAtlasPids -join ',')){
+    throw 'U04_WORK_REF_SWITCH_SPAWNED_SECOND_ATLAS'
+  }
+  Write-Host "U04_WORK_REF_REBIND_SAME_PROCESS_PASS atlasPids=$($originalAtlasPids -join ',')"
+  # The installed Center already has two real organizations from its GUI test.
+  # Change only Center's context. The original U04 verified reattach must
+  # preserve the external PID without leaking the previous organization's ref.
+  $orgPicker=Find-UI 'Организация' 'ComboBox'
+  $orgPicker.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('{END}')
+  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+  Start-Sleep -Milliseconds 400
+  Click 'Планы Atlas'
+  Click 'Открыть Atlas Desktop'
+  Click $projectTitle $true
+  Click 'Открыть окно Atlas'
+  # Depending on timing, original U04 may observe the HWND immediately or
+  # report the verified process with its window still appearing.
+  [void](Find-UI-Text 'без повторного запуска')
+  $afterOrgPids=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
+    Where-Object { $_.ExecutablePath -eq $atlasExe } |
+    ForEach-Object { [uint32]$_.ProcessId } | Sort-Object)
+  if(($afterOrgPids -join ',') -ne ($originalAtlasPids -join ',')){
+    throw 'U04_ORGANIZATION_SWITCH_SPAWNED_SECOND_ATLAS'
+  }
+  Write-Host "U04_ORGANIZATION_REATTACH_SAME_PROCESS_PASS atlasPids=$($originalAtlasPids -join ',')"
+  Click 'Отсоединить окно'
+  [void](Find-UI-Text 'Atlas продолжает работать')
+  $orgPicker=Find-UI 'Организация' 'ComboBox'
+  $orgPicker.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+  Start-Sleep -Milliseconds 400
+  Click 'Планы Atlas'
+  Click 'Открыть Atlas Desktop'
+  Click $projectTitle $true
+  if(@(Get-Process -Name 'iwxa-atlas-desktop' -ErrorAction SilentlyContinue).Count -lt 1){
+    throw 'U04_DETACH_TERMINATED_ATLAS'
+  }
+  Write-Host "U04_CROSS_INSTALLED_OPEN_FOCUS_RETURN_PASS atlasPid=$($atlasProcesses[0].ProcessId) revision=$revision"
+  # Preparation requires linking the existing organization workspace to this
+  # exact canonical project revision. A free-floating work cannot be issued.
+  Click 'Связать с рабочей областью'
+  Click 'Подготовить поручение по работе'
+  Text 'Что нужно сделать' 'U05PublicAtlasLinked'
+  Text 'Критерии приёмки' 'Exact canonical work reference'
+  Click 'Сохранить черновик'
+  Click 'Сохранить на компьютере'
+  for($i=0;$i -lt 60 -and !(Test-Path -LiteralPath $centerDraft);$i++){
+    Start-Sleep -Milliseconds 300
+  }
+  $draft=Get-Content -LiteralPath $centerDraft -Raw | ConvertFrom-Json -Depth 100
+  $linked=@($draft.organizations | ForEach-Object {$_.assignments} |
+      Where-Object { $_.title -eq 'U05PublicAtlasLinked' })
+  if($linked.Count -ne 1){throw "U05_CENTER_DRAFT_LINK_MISSING found=$($linked.Count)"}
+  $ref=$linked[0].atlasRef
+  if([string]$ref.projectId -ne $projectId -or
+     [string]$ref.workId -ne $workId -or
+     [string]$ref.revision -ne $revision){throw 'U05_EXACT_CANONICAL_REF_MISMATCH'}
+  Shutdown
+  $afterHash=[Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([System.IO.File]::ReadAllBytes($manifest)))
+  if($beforeHash -ne $afterHash){throw 'U05_CENTER_ALTERED_ATLAS_OWNER_STORE'}
+  Start-Center
+  Click 'Поручения' $true
+  Click 'U05PublicAtlasLinked' $true
+  $status=Find-UI 'Источник Atlas не открыт' 'Text' $true
+  if(!$status){throw 'U05_RESTART_LINK_STATUS_MISSING'}
+  Click 'Закрыть редактор'
+  Click 'Планы Atlas'
+  Click 'Открыть Atlas Desktop'
+  [void](Find-UI $projectTitle 'Button' $true)
+  Click 'Поручения' $true
+  Click 'U05PublicAtlasLinked' $true
+  # The reopened editor must resolve the exact previously saved link against
+  # an independently reread canonical Atlas snapshot.
+  [void](Find-UI-Text 'Работа и редакция совпадают с открытым Atlas')
+  Click 'Закрыть редактор'
+  Write-Host "U05_RESTART_CANONICAL_REF_MATCH_PASS project=$projectId work=$workId revision=$revision"
+  Shutdown
+  $result=[ordered]@{status='U05_TWO_INSTALLED_SAME_CANONICAL_SOURCE_PASS';
+    atlasInstalledExe=$env:ATLAS_INSTALLED_EXE;centerInstalledExe=$center;
+    sourceGeneration=$generation;sourceRevision=$revision;
+    projectId=$projectId;workId=$workId;refRevision=[string]$ref.revision;
+    atlasStoreManifestSha256=$beforeHash;centerReadOnly=$true;
+    centerDraftSurvivedRestart=$true;agentHostAuthorized=$false;
+    note='Same-user installed binaries: source readback, exact work link, close/reopen; a later owner revision and T3 Apply not qualified'}
+  $result|ConvertTo-Json|Set-Content -LiteralPath $artifact
+  Write-Host "U05_TWO_INSTALLED_SAME_CANONICAL_SOURCE_PASS project=$projectId work=$workId revision=$revision"
+} finally {
+  if($null -ne $proc) {
+    $proc.Refresh()
+    if(!$proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue}
+  }
+}
+) -and
+             $kind -in @('ControlType.Edit','ControlType.ComboBox')){
+            $fileNameElement=$candidate;break
+          }
+        }catch{}
+      }
+    }catch{
+      if($_.Exception.ToString() -notmatch 'Could not open the process token|target element corresponds to UI that is no longer'){throw}
+    }
+    if($null -ne $fileNameElement){break}
+    Start-Sleep -Milliseconds 150
+  }
+  $nameSetWithUia=$false
+  if($null -ne $fileNameElement){
+    try {
+      if($fileNameElement.Current.ControlType.ProgrammaticName -eq 'ControlType.ComboBox'){
+        $edit=$fileNameElement.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+          [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Edit))
+        if($null -ne $edit){$fileNameElement=$edit}
+      }
+      $pattern=$fileNameElement.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+      if(!$pattern.Current.IsReadOnly){
+        $pattern.SetValue($archive)
+        $nameSetWithUia=[string]$pattern.Current.Value -eq $archive
+      }
+    }catch{
+      Write-Host 'U05_NATIVE_FILENAME_UIA_NOT_AVAILABLE'
+    }
+  }
+  if(!$nameSetWithUia){
+    if($archive -match '[+^%~{}()]'){throw 'U05_IWXA_TEST_PATH_UNSUPPORTED_BY_SENDKEYS'}
+    [System.Windows.Forms.SendKeys]::SendWait('%n')
+    Start-Sleep -Milliseconds 150
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait($archive)
+    Start-Sleep -Milliseconds 200
+    if($null -ne $fileNameElement){
+      try{
+        $pattern=$fileNameElement.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        if([string]$pattern.Current.Value -ne $archive){
+          throw 'U05_IWXA_NATIVE_FILENAME_READBACK_MISMATCH'
+        }
+        Write-Host 'U05_NATIVE_FILENAME_KEYBOARD_READBACK_PASS'
+      }catch{
+        if($_.Exception.Message -eq 'U05_IWXA_NATIVE_FILENAME_READBACK_MISMATCH'){throw}
+        Write-Host 'U05_NATIVE_FILENAME_READBACK_UNAVAILABLE'
+      }
+    }
+  }else{
+    Write-Host 'U05_NATIVE_FILENAME_UIA_READBACK_PASS'
+  }
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  [void](Find-UI-Text 'Архив .iwxa открыт для просмотра')
+  try{
+    [void](Find-UI-Text 'Архив .iwxa открыт для просмотра')
+  }catch{
+    # Distinguish a native dialog still open from a Center import failure.
+    # Both remain FAIL; do not bypass actual UI status or exact WorkRef checks.
+    $frontHwnd=[U05Window]::GetForegroundWindow()
+    $nativeDialogStillOpen=$false
+    if($frontHwnd -ne [IntPtr]::Zero -and $frontHwnd -ne $proc.MainWindowHandle){
+      try{
+        $front=[System.Windows.Automation.AutomationElement]::FromHandle($frontHwnd)
+        $nativeDialogStillOpen=$front.Current.ClassName -eq '#32770'
+      }catch{}
+    }
+    if($nativeDialogStillOpen){throw 'U05_IWXA_NATIVE_DIALOG_DID_NOT_CLOSE'}
+    $importErrorVisible=$false
+    try{
+      $remaining=(Root).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      foreach($control in $remaining){
+        try{
+          if(([string]$control.Current.Name).Contains('Не удалось прочитать выбранный файл Atlas')){
+            $importErrorVisible=$true;break
+          }
+        }catch{}
+      }
+    }catch{}
+    if($importErrorVisible){throw 'U05_IWXA_CENTER_PARSER_REPORTED_ERROR'}
+    throw 'U05_IWXA_CENTER_IMPORT_ACK_NOT_DISPLAYED'
+  }
   [void](Find-UI $projectTitle 'Button' $true)
   Click $projectTitle $true
   Click 'Связать с планом'
