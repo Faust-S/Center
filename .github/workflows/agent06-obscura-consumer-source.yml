@@ -5,7 +5,7 @@ name: Agent 0.6 Obscura source consumer qualification
 on:
   push:
     branches:
-      - work/2026-11-16-agent06-obscura-central-qualification
+      - work/2026-11-16-agent06-obscura-consent-qualification
   workflow_dispatch:
 permissions:
   contents: read
@@ -44,7 +44,7 @@ jobs:
           repository: Faust-S/iwxa-personal-agent
           # Immutable private source; later parallel commits must not change
           # the code being qualified by this specific Center run.
-          ref: 1d5bf496082e0dc1df8720e1e74d5126e23b4ac8
+          ref: 56c755551b0f9ab2dc1e7a588982464dcbda1bda
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -62,7 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C private-agent rev-parse HEAD)" = "1d5bf496082e0dc1df8720e1e74d5126e23b4ac8"
+          test "$(git -C private-agent rev-parse HEAD)" = "56c755551b0f9ab2dc1e7a588982464dcbda1bda"
           test "$(git -C public-brtest rev-parse HEAD)" = "afb49d5912b9f6ab8fc8054d8b554079a6bbda2e"
           echo "AGENT06_BOTH_SOURCES_EXACT_PASS"
       - name: Install private source test dependencies (no logs exported)
@@ -212,6 +212,30 @@ jobs:
           fi
           echo "AGENT06_U01_ORIGIN_CONNECTION_PASS"
           echo "AGENT06_U01_USER_INSTALL_CONTRACT_PASS"
+
+      - name: Verify reviewed Obscura HTTPS changes, offline revoke and live Core authority
+        shell: bash
+        working-directory: private-agent
+        run: |
+          set -euo pipefail
+          export IWXA_AGENT06_U01_PREPARED="$GITHUB_WORKSPACE/private-agent/build/u01-owner-sources"
+          if ! python -B -m pytest -q -s -p no:cacheprovider tests/test_agent06_obscura_user_install.py -k manage_obscura \
+            > "$RUNNER_TEMP/agent06-obscura-consent-private.log" 2>&1; then
+            echo "AGENT06_OBSCURA_CONSENT_REGRESSION_FAIL"
+            exit 18
+          fi
+          for milestone in \
+            AGENT06_OBSCURA_SHRINK_AND_STALE_REVIEW_PASS \
+            AGENT06_OBSCURA_OFFLINE_REVOKE_COLD_PASS \
+            AGENT06_OBSCURA_REENABLE_VERIFIED_PASS \
+            AGENT06_OBSCURA_TAMPERED_CONSENT_DENIED_PASS \
+            AGENT06_OBSCURA_LIVE_CORE_REVOKE_PASS; do
+            if ! grep -Fq "$milestone" "$RUNNER_TEMP/agent06-obscura-consent-private.log"; then
+              echo "AGENT06_OBSCURA_CONSENT_MILESTONE_MISSING"
+              exit 19
+            fi
+          done
+          echo "AGENT06_OBSCURA_CONSENT_LIVE_COLD_PASS"
       - name: TypeScript and Vite desktop build of exact private Agent source
         if: runner.os == 'Windows'
         working-directory: private-agent/desktop
