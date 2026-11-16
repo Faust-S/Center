@@ -118,6 +118,103 @@ jobs:
             if(Test-Path -LiteralPath (Join-Path $out 'logs/private-build-result.json')){
               Write-Host 'AGENT06_BUNDLED_NATIVE_SETUP_BUILD_STAGE_REACHED'
             }
+            # Only finite, whitelisted codes leave the ephemeral Windows runner.
+            # Never expose private application logs, source, paths, receipts, or model text.
+            $acceptLog=Join-Path $out 'logs/public-test-local-result.txt'
+            if(Test-Path -LiteralPath $acceptLog -PathType Leaf){
+              $safeAcceptanceCodes=@(
+                'SETUP_LOCAL_OPERATION_TIMEOUT',
+                'SETUP_LOCAL_WITNESS_TIMEOUT',
+                'SETUP_LOCAL_WITNESS_EXIT_FAILED',
+                'SETUP_LOCAL_WITNESS_RECEIPT_MISSING',
+                'SETUP_LOCAL_WITNESS_READBACK_INVALID',
+                'SETUP_LOCAL_REPAIR_NOT_ACTIVATED',
+                'SETUP_LOCAL_REPAIR_READBACK_INVALID',
+                'SETUP_LOCAL_REPAIR_CONFIRM_OR_USER_DATA_LOST',
+                'SETUP_LOCAL_UNINSTALL_OR_DATA_LOSS',
+                'SETUP_LOCAL_PRODUCT_IDENTITY_INVALID',
+                'SETUP_LOCAL_SOURCE_IDENTITY_INVALID',
+                'SETUP_LOCAL_ACTIVATION_INVALID',
+                'SETUP_LOCAL_ON_DISK_IDENTITY_INVALID',
+                'SETUP_LOCAL_LOCATION_READBACK_INVALID'
+              )
+              $localText=Get-Content -LiteralPath $acceptLog -Raw -ErrorAction SilentlyContinue
+              foreach($code in $safeAcceptanceCodes){
+                if(([string]$localText).Contains($code)){
+                  Write-Host ('AGENT06_BUNDLED_SETUP_ACCEPTANCE_CODE='+$code)
+                }
+              }
+            }
+            $witnessPath=Join-Path $out 'temporary-installed-fixture/installed-witness.json'
+            if(Test-Path -LiteralPath $witnessPath -PathType Leaf){
+              try {
+                $w=Get-Content -LiteralPath $witnessPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                if($w.status -ceq 'FAIL'){
+                  $safePhases=@(
+                    'SHORTCUT_READBACK','COLD_GUI_BOOT','FIRST_CORE','CORE_QUERIES',
+                    'DRAFT_CREATE','GUI_DRAFT_EDIT','GUI_DRAFT_READBACK','QWEN_EXECUTE',
+                    'COLD_RESTART','COLD_CORE_QUERIES','GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT',
+                    'GUI_RESULT','GUI_TASK_SUBMIT','GUI_TASK_RESULT','GUI_TASK_REVIEW',
+                    'GUI_TASK_REVIEW_READBACK','GUI_COLD_RESTART','GUI_COLD_IMPORT',
+                    'K03_TASK_EXECUTE','K03_TASK_COLD_RESTART','K03_TASK_COLD_READBACK',
+                    'CLEAN_STOP','WITNESS_RECEIPT'
+                  )
+                  $phase=[string]$w.phase
+                  if($phase -cin $safePhases){
+                    Write-Host ('AGENT06_BUNDLED_SETUP_WITNESS_PHASE='+$phase)
+                  }
+                  $safeCodes=@(
+                    'PROOF_EXISTS','DOWNLOAD_MODE','CORE_NOT_READY','PREFS_READBACK',
+                    'PREFS_NOT_CONFIRMED','RUNTIME_PLAN','MODEL_PLAN','MODEL_DOWNLOAD',
+                    'MODEL_NOT_READY','INFERENCE','TASK_SUBMIT','TASK_STOPPED',
+                    'TASK_TIMEOUT','RESULT_READBACK','REVIEW_READBACK','EXCHANGE_EXPORT',
+                    'MODEL_PROCESS_FAILED','MODEL_FINAL_OUTPUT_UNAVAILABLE',
+                    'MODEL_TIMED_OUT','MODEL_ALREADY_BUSY','MODEL_EFFORT_INVALID',
+                    'MODEL_START_FAILED','MODEL_TOKEN_LIMIT_INVALID','MODEL_BINARY_CHANGED',
+                    'MODEL_PROMPT_INVALID','OTHER_RUNTIME','OTHER_HTTP','OTHER_NETWORK',
+                    'OTHER_TIMEOUT','OTHER_VALUE','OTHER_KEY','OTHER_TYPE','OTHER_OS',
+                    'HTTP_400','HTTP_401','HTTP_403','HTTP_404','HTTP_409','HTTP_422',
+                    'HTTP_429','HTTP_500','HTTP_502','HTTP_503','HTTP_504','OTHER'
+                  )
+                  $code=[string]$w.failure_code
+                  if($code -cin $safeCodes){
+                    Write-Host ('AGENT06_BUNDLED_SETUP_WITNESS_CODE='+$code)
+                  }
+                  $safeOperations=@(
+                    'UI_PREFS_READ','UI_PREFS_SAVE','RUNTIME_PLAN','RUNTIME_INSTALL',
+                    'MODEL_PLAN','MODEL_DOWNLOAD','MODEL_SELECT','MODEL_CONTROL',
+                    'PROVIDER_SWITCH','MODEL_STATUS','MODEL_TRY','WORK_AREAS',
+                    'TASK_SUBMIT','TASK_POLL','TASK_READ','TASKS_READ','HUMAN_REVIEW',
+                    'EXCHANGE_PREVIEW','EXCHANGE_EXPORT','EXCHANGE_INSPECT','SNAPSHOT'
+                  )
+                  $op=[string]$w.last_operation
+                  if($op -cin $safeOperations){
+                    Write-Host ('AGENT06_BUNDLED_SETUP_WITNESS_OPERATION='+$op)
+                  }
+                  $safeCheckpoints=@(
+                    'NONE_OBSERVED','AGENT_REAL_QWEN_CORE_SESSION_READY',
+                    'AGENT_REAL_QWEN_DOWNLOAD_MODE_READY',
+                    'AGENT_REAL_QWEN_VERIFIED_RUNTIME_READY',
+                    'AGENT_REAL_QWEN_MODEL_PLAN_READY',
+                    'AGENT_REAL_QWEN_VERIFIED_WEIGHTS_READY',
+                    'AGENT_REAL_QWEN_MODEL_ACTIVE_READY',
+                    'AGENT_REAL_QWEN_INFERENCE_PASS',
+                    'AGENT_REAL_QWEN_TASK_ACCEPTED',
+                    'AGENT_REAL_QWEN_RESULT_IMPORTED',
+                    'AGENT_REAL_QWEN_TASK_HUMAN_REVIEW_PASS',
+                    'AGENT_REAL_QWEN_IWXA_EXPORT_INSPECT_PASS'
+                  )
+                  $checkpoint=[string]$w.last_checkpoint
+                  if($checkpoint -cin $safeCheckpoints){
+                    Write-Host ('AGENT06_BUNDLED_SETUP_WITNESS_CHECKPOINT='+$checkpoint)
+                  }
+                }
+              } catch {
+                Write-Host 'AGENT06_BUNDLED_SETUP_WITNESS_RECEIPT_UNREADABLE'
+              }
+            } else {
+              Write-Host 'AGENT06_BUNDLED_SETUP_WITNESS_RECEIPT_ABSENT'
+            }
             Write-Host 'AGENT06_BUNDLED_NATIVE_SETUP_QUALIFICATION_FAIL'
             throw 'AGENT06_BUNDLED_NATIVE_SETUP_FAILED'
           }
