@@ -628,6 +628,8 @@ try{
   assert.equal(employeeState.initializations,1,
     'cold readback does not send a second Kernel initialization');
   assert.equal(employeeState.reads,3);
+  assert.equal(await employeePage.getByTestId('d3-employee-invitation-export').count(),0,
+    'without original signed employee grants no invitation can be exported');
   assert.equal(await employeePage.getByTestId('d3-employee-task-create').count(),0,
     'registry alone cannot authorize independent employee Task');
   await employeePage.close();

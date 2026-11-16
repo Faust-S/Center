@@ -61,6 +61,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
  const [enrollmentProof,setEnrollmentProof]=useState('');
  const [enrollmentAttempted,setEnrollmentAttempted]=useState(false);
  const [enrollmentReceipt,setEnrollmentReceipt]=useState<any>(null);
+ const [employeeInviteReceipt,setEmployeeInviteReceipt]=useState<any>(null);
  const [taskText,setTaskText]=useState('');
  const [taskId,setTaskId]=useState('');
  const [taskAttempted,setTaskAttempted]=useState(false);
@@ -83,6 +84,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    setCredentialReceipt(null);setEnrollmentChallenge(null);setRecoveryEnrollmentId('');
    setEnrollmentProof('');
    setEnrollmentAttempted(false);setEnrollmentReceipt(null);
+   setEmployeeInviteReceipt(null);
    setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);
  };
  const confirmCredential=()=>run('Подлинность ключа перечитана из оригинального Kernel.',async()=>{
@@ -355,6 +357,35 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
      <p>Подтверждены отдельные ACTION work.prepare и DATA package.export.
         Получатель не получает ключ issuer или полномочия руководителя.
         Доставка приглашения не подтверждена.</p>
+     <p>Оригинальный T3 сохраняет ранее выданные этому сотруднику права
+       в персональное подписанное приглашение .iwxa. Выдача грантов
+       не повторяется. Приём файла в Agent ещё требуется подтвердить.</p>
+     <button data-testid="d3-employee-invitation-export" disabled={busy}
+       onClick={()=>void run('Подписанное приглашение сохранено, доставка не подтверждена.',async()=>{
+         const receipt=await execute('d3EmployeeExportInvite',{
+           employeePersonId:personId,
+           enrollmentId:enrollmentReceipt.enrollmentId
+         });
+         if(receipt?.status==='CANCELLED')return false;
+         if(receipt?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_INVITATION_EXPORT/1'||
+            receipt.state!=='SIGNED_INVITATION_EXPORTED_NOT_DELIVERED'||
+            receipt.employeePersonId!==personId||
+            receipt.enrollmentId!==enrollmentReceipt.enrollmentId||
+            receipt.recipientId!==personId||
+            receipt.workspaceId!==session.workspaceId||
+            receipt.originalSigned!==true||
+            receipt.originalKernelReadback!==true||
+            receipt.invitationDelivered!==false||
+            !HEX.test(receipt.packageSha256)||
+            !Number.isSafeInteger(receipt.bytes)||receipt.bytes<=0)
+           throw Error('CEN_D3_EMPLOYEE_INVITATION_ORIGINAL_EXPORT_HOLD');
+         setEmployeeInviteReceipt(receipt);
+       })}>Сохранить персональное приглашение .iwxa</button>
+     {employeeInviteReceipt?.originalSigned===true&&
+      <p data-testid="d3-employee-invitation-export-receipt">
+       Подписанный .iwxa сохранён, доставка не подтверждена. SHA-256:
+       <code>{employeeInviteReceipt.packageSha256}</code>
+      </p>}
      {!taskIssueAvailable&&<p className="notice subdued" data-testid="d3-employee-task-owner-unavailable">
        Подписанная регистрация сотрудника не является разрешением выдать ему
        Task. Нужна оригинальная T3-операция выдачи конкретному адресату

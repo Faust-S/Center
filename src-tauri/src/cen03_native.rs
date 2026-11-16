@@ -103,7 +103,7 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               return Err("CEN_D3_EMPLOYEE_SIGNED_PROOF_REQUIRED".into());
           }
       },
-      "d3EmployeeRead"=>{
+      "d3EmployeeRead"|"d3EmployeeExportInvite"=>{
           if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
              !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier) {
               return Err("CEN_D3_EMPLOYEE_ENROLLMENT_IDENTIFIERS_REQUIRED".into());
@@ -260,7 +260,7 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
         "d3EmployeeCredentialAdmit"|
         "d3EmployeeCredentialRead"|"d3EmployeeBegin"|
         "d3EmployeeCancel"|"d3EmployeeComplete"|
-        "d3EmployeeRead"=>
+        "d3EmployeeRead"|"d3EmployeeExportInvite"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true,
         "d3ApplyAccepted"=>snapshot["d3ApplyAvailable"]==true,
         "d3RecoverApplied"=>snapshot["d3ApplyRecoverAvailable"]==true&&
@@ -1117,15 +1117,19 @@ pub async fn center_corporate_action(
             return Ok(json!({"status":"CANCELLED"}));
         };
         Some(path)
-    }else if matches!(operation.as_str(),"d3ExportTask"|"d3ExportInvitation"){
+    }else if matches!(operation.as_str(),"d3ExportTask"|"d3ExportInvitation"|"d3EmployeeExportInvite"){
         // Native Windows Save dialog, not a WebView-supplied arbitrary path.
         // The original private owner writes & reads back exact signed bytes.
-        let title=if operation=="d3ExportTask"{
-            "Сохранить подписанную Task T3"
-        }else{"Сохранить подписанное приглашение T3"};
-        let name=if operation=="d3ExportTask"{
-            "iwxa-signed-task.iwxa"
-        }else{"iwxa-signed-invitation.iwxa"};
+        let title=match operation.as_str(){
+            "d3ExportTask"=>"Сохранить подписанную Task T3",
+            "d3EmployeeExportInvite"=>"Сохранить приглашение сотрудника T3",
+            _=>"Сохранить подписанное приглашение T3"
+        };
+        let name=match operation.as_str(){
+            "d3ExportTask"=>"iwxa-signed-task.iwxa",
+            "d3EmployeeExportInvite"=>"iwxa-employee-invitation.iwxa",
+            _=>"iwxa-signed-invitation.iwxa"
+        };
         let selection=rfd::FileDialog::new()
             .set_title(title).add_filter("IWXA",&["iwxa"])
             .set_file_name(name).save_file();
@@ -1583,6 +1587,10 @@ mod tests{
             "d3EmployeeCancel").is_err());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one"}),"d3EmployeeRead").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one"}),"d3EmployeeExportInvite").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker"}),
+            "d3EmployeeExportInvite").is_err());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one","taskId":"task:one",
             "task":"Source supplier receipt"}),"d3EmployeeCreateTask").is_ok());
