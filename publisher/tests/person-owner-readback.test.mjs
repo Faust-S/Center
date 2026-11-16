@@ -46,3 +46,18 @@ test('untrusted/ambiguous carrier, stale UI cache or TEST context cannot settle 
  assert.equal(inspect(issue,receipt(issue,[license],{matches:2})).status,
    'OUTCOME_UNKNOWN');
 });
+
+test('same-state STATUS refresh requires the next durable sequence and same signed holder',()=>{
+ const earlier={...license,sequence:4,status:'SUSPENDED'};
+ const intent={kind:'STATUS',license:earlier,state:'SUSPENDED'};
+ assert.deepEqual(inspect(intent,receipt(intent,[{...earlier,sequence:5}])),
+   {status:'COMMITTED',licenseId:'license:one',sequence:5});
+ assert.equal(inspect(intent,receipt(intent,[earlier])).status,'OUTCOME_UNKNOWN');
+ for(const patch of [{sequence:5,licenseId:'license:two'},
+   {sequence:5,personId:'person:other'},
+   {sequence:5,issuerAuthorityId:'issuer:forged'},
+   {sequence:6},{sequence:5,status:'REVOKED'}]){
+   assert.equal(inspect(intent,receipt(intent,[{...earlier,...patch}])).status,
+     'CONFLICT');
+ }
+});
