@@ -489,6 +489,104 @@ try{
     'cold panel receipt recovery must not dispatch another decision');
   checks.push('d3-cold-react-panel-receipt-prevents-duplicate-human-accept');
   await d3Page.close();
+  // UI-only native owner fixture: these checks DO NOT qualify cryptography,
+  // the original installed T3, independent employee signature or Kernel.
+  const employeeState={registered:false,ready:false,reads:0,
+    initializations:0,savedDraft:null};
+  const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
+  await employeePage.exposeFunction('__centerEmployeeFixture',
+    async(command,args={})=>{
+      if(command==='center_draft_read_local')return employeeState.savedDraft;
+      if(command==='center_draft_save_local'){
+        employeeState.savedDraft=args.content;return true;
+      }
+      if(command==='center_corporate_signed_workspace_status')
+        return {schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',
+          open:false,visible:false,foreignOrOrphaned:false};
+      if(command==='center_corporate_state')return {
+        status:'D3_OWNER_READY',snapshot:{
+          product:'admin',organizationId:args.organizationId,
+          workspaceId:'workspace:employee-fixture',
+          actorId:'person:manager-fixture',
+          contextId:'context:employee-fixture',contextEpoch:1,
+          d3RecipientAvailable:true,d3TaskIssueAvailable:false,
+          d3InspectAvailable:true,d3ApplyAvailable:false,
+          d3ApplyRecoverAvailable:false,
+          d3EmployeeRegistryBootstrapAvailable:true,
+          d3EmployeeRegistryReadbackAvailable:true,
+          d3EmployeeEnrollmentAvailable:employeeState.ready,
+          d3EmployeeTaskIssueAvailable:false,
+          productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
+        }};
+      if(command==='center_corporate_age_status')return {
+        operation:'AGE_STATUS',available:false,recipient:null,
+        toolchain:{ready:false},provider:'WINDOWS_TEST_UI',admitted:false};
+      if(command==='center_corporate_action'){
+        assert.equal(args.binding?.actorId,'person:manager-fixture');
+        assert.equal(args.binding?.workspaceId,'workspace:employee-fixture');
+        assert.equal(args.binding?.contextEpoch,1);
+        if(args.operation==='d3EmployeeRegistryReadback'){
+          employeeState.reads++;
+          employeeState.ready=employeeState.registered;
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1',
+            state:employeeState.registered?'ORIGINAL_KERNEL_REGISTRY_CONFIRMED':
+              'ORIGINAL_KERNEL_REGISTRY_NOT_FOUND',
+            organizationId:args.organizationId,
+            workspaceId:'workspace:employee-fixture',
+            originalReadback:true,originalKernel:true,
+            signatureVerified:employeeState.registered,
+            automaticRetryAllowed:false
+          };
+        }
+        if(args.operation==='d3EmployeeRegistryInitialize'){
+          assert.equal(args.input.confirmed,true);
+          employeeState.initializations++;
+          employeeState.registered=true;employeeState.ready=true;
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1',
+            state:'ORIGINAL_KERNEL_REGISTRY_CONFIRMED',
+            organizationId:args.organizationId,
+            workspaceId:'workspace:employee-fixture',
+            originalReadback:true,originalKernel:true,
+            signatureVerified:true,automaticRetryAllowed:false
+          };
+        }
+        throw Error('CEN_UI_EMPLOYEE_OPERATION_FORBIDDEN');
+      }
+      return null;
+    });
+  await employeePage.addInitScript(()=>{
+    window.__TAURI_INTERNALS__={invoke:(command,args)=>
+      window.__centerEmployeeFixture(command,args)};
+  });
+  await employeePage.goto('http://127.0.0.1:4173');
+  await employeePage.getByTestId('org-name').fill('Independent staff test');
+  await employeePage.getByTestId('create-org').click();
+  await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
+  await employeePage.getByTestId('d3-employee-registry-readback').click();
+  await employeePage.getByRole('alert').waitFor();
+  assert.match(await employeePage.getByRole('alert').innerText(),
+    /CEN_D3_EMPLOYEE_REGISTRY_NOT_PRESENT_USE_EXPLICIT_INITIALIZE/);
+  assert.equal(employeeState.initializations,0,
+    'readback NOT_FOUND must never create a signed registry');
+  await employeePage.getByTestId('d3-employee-registry-initialize').click();
+  await employeePage.getByTestId('d3-employee-steps').waitFor();
+  assert.equal(employeeState.initializations,1);
+  // Simulate cold native owner without losing ORIGINAL persisted Kernel data.
+  employeeState.ready=false;
+  await employeePage.reload();
+  await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
+  await employeePage.getByTestId('d3-employee-registry-readback').click();
+  await employeePage.getByTestId('d3-employee-steps').waitFor();
+  assert.equal(employeeState.initializations,1,
+    'cold readback does not send a second Kernel initialization');
+  assert.equal(employeeState.reads,2);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-create').count(),0,
+    'registry alone cannot authorize independent employee Task');
+  await employeePage.close();
+  checks.push('d3-employee-original-registry-ui-cold-readback-no-reissue');
   // React can reload while the REAL native signed WebView (and its Kernel)
   // survives. Model that lifetime using a separate Node-side host, NOT
   // localStorage/React state, so a browser reload cannot recreate its status.
