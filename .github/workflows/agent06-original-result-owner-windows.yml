@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 60e570ee3b3ec477c3c93bc9fa37189bf3f70ad1
+          ref: 712500cbbd3ca5a4e27ca84a56d614659b8b4515
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne '60e570ee3b3ec477c3c93bc9fa37189bf3f70ad1'){
+          if($sha -cne '712500cbbd3ca5a4e27ca84a56d614659b8b4515'){
             throw 'AGENT06_ORIGINAL_SOURCE_PIN_MISMATCH'
           }
           foreach($path in @('runtime/t3_original_employee_worker.mjs',
