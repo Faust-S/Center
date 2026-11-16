@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: dd1fcab4bf99246e6fce79152ff5022a57db8dc6
+          ref: 13ae8d0aed891791ce0e9d1c9505aaa8d5ef220f
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne 'dd1fcab4bf99246e6fce79152ff5022a57db8dc6'){
+          if($actual -cne '13ae8d0aed891791ce0e9d1c9505aaa8d5ef220f'){
             throw 'AGENT06_NATIVE_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($f in @(
