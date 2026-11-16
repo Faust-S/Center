@@ -93,8 +93,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           repository: Faust-S/Br-test
-          run-id: 43739318017
-          name: agent06-u01-unsigned-release-candidate
+          # Same archive and executable SHA, preserved in the 90-day public U01 artifact.
+          run-id: 43913122794
+          name: agent06-u01-owner-approved-unsigned-native-bundle
           github-token: ${{ github.token }}
           path: public-u01-candidate
       - name: Require exact public U01 candidate files
