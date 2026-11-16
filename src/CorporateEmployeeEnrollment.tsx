@@ -90,9 +90,20 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    const employeeProof=proof(credentialProof);
    if(employeeProof.keyId!==keyId)throw Error('CEN_D3_EMPLOYEE_PROOF_KEY_MISMATCH');
    setCredentialAttempted(true);
-   const result=await execute('d3EmployeeCredentialAdmit',{
-     employeePersonId:personId,credentialKeyId:keyId,
-     admissionId:credentialChallenge.admissionId,employeeProof});
+   let result:any;
+   try{
+     result=await execute('d3EmployeeCredentialAdmit',{
+       employeePersonId:personId,credentialKeyId:keyId,
+       admissionId:credentialChallenge.admissionId,employeeProof});
+   }catch(e){
+     // This exact Windows consent refusal is raised BEFORE reaching the
+     // private original Kernel. Only this definite pre-dispatch refusal
+     // can unlock the UI; unknown/post-dispatch outcomes remain blocked.
+     if(String(e).replace(/^Error:\s*/,'').trim()===
+       'CEN_D3_EMPLOYEE_CREDENTIAL_HUMAN_CANCELLED')
+       setCredentialAttempted(false);
+     throw e;
+   }
    if(result?.state!=='ORIGINAL_PROOF_CREDENTIAL_ADMITTED'||
       result.employeePersonId!==personId||result.credentialKeyId!==keyId||
       result.exactReadback!==true)
@@ -110,9 +121,17 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    const employeeProof=proof(enrollmentProof);
    if(employeeProof.keyId!==keyId)throw Error('CEN_D3_EMPLOYEE_PROOF_KEY_MISMATCH');
    setEnrollmentAttempted(true);
-   const result=await execute('d3EmployeeComplete',{
-     enrollmentId:enrollmentChallenge.enrollmentId,
-     employeePersonId:personId,credentialKeyId:keyId,employeeProof});
+   let result:any;
+   try{
+     result=await execute('d3EmployeeComplete',{
+       enrollmentId:enrollmentChallenge.enrollmentId,
+       employeePersonId:personId,credentialKeyId:keyId,employeeProof});
+   }catch(e){
+     if(String(e).replace(/^Error:\s*/,'').trim()===
+       'CEN_D3_EMPLOYEE_GRANTS_HUMAN_CANCELLED')
+       setEnrollmentAttempted(false);
+     throw e;
+   }
    if(result?.state!=='SIGNED_EMPLOYEE_ENROLLED_NOT_DELIVERED'||
       result.employeePersonId!==personId||result.enrollmentId!==enrollmentChallenge.enrollmentId||
       result.originalSigned!==true||result.invitationDelivered!==false)

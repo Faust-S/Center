@@ -17,6 +17,12 @@ const why=(e:unknown)=>{
    return 'Kernel Apply не подтверждён. Не отправляйте Apply повторно: после подключения исходного владельца используйте «Проверить Kernel без повторного Apply».';
  if(/OUTCOME_UNKNOWN|T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED/.test(message))
    return 'Исход операции неизвестен. Не повторяйте ACCEPT, REJECT или Apply. Откройте исходную квитанцию по сохранённому ID и SHA-256 пакета.';
+ if(message.includes('CEN_D3_EMPLOYEE_CREDENTIAL_HUMAN_CANCELLED'))
+   return 'Подтверждение публичного ключа сотрудника отменено в Windows до записи. Можно проверить или повторно подтвердить его.';
+ if(message.includes('CEN_D3_EMPLOYEE_GRANTS_HUMAN_CANCELLED'))
+   return 'Выдача ACTION/DATA сотруднику отменена в Windows до отправки в Kernel. Права не выдавались.';
+ if(message.includes('CEN_D3_EMPLOYEE_REGISTRY_HUMAN_CANCELLED'))
+   return 'Подключение исходного корпоративного реестра отменено до записи.';
  if(message.includes('CEN_D3_HUMAN_REVIEW_CANCELLED'))
    return 'Решение отменено в системном окне Windows. Оно не отправлялось.';
  if(message.includes('CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED'))
