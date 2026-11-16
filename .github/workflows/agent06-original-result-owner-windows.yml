@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: ae278fa2a193362ade01991a9421a5f4dbe4ffe9
+          ref: 60e570ee3b3ec477c3c93bc9fa37189bf3f70ad1
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
         run: |
           $sha=(& git -C private-agent rev-parse HEAD).Trim()
-          if($sha -cne 'ae278fa2a193362ade01991a9421a5f4dbe4ffe9'){
+          if($sha -cne '60e570ee3b3ec477c3c93bc9fa37189bf3f70ad1'){
             throw 'AGENT06_ORIGINAL_SOURCE_PIN_MISMATCH'
           }
           foreach($path in @('runtime/t3_original_employee_worker.mjs',
@@ -75,7 +75,8 @@ jobs:
           try {
             $stages=@(
               @{code='OWNER_TASK';select='existing_core_task or lost_ack or foreign_work_revision or changed_original_signed_task'},
-              @{code='OWNER_RESULT';select='unaccepted_result or original_readback or no_foreign_kernel_object'}
+              @{code='OWNER_RESULT';select='unaccepted_result or original_readback or no_foreign_kernel_object'},
+              @{code='OWNER_CORE_COLD';select='real_core_durable_job or real_core_durable_queue'}
             )
             foreach($stage in $stages){
               $log=Join-Path $env:RUNNER_TEMP ('agent06-original-'+$stage.code+'-private.log')
