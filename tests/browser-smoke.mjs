@@ -592,7 +592,9 @@ try{
       })));
     console.log('D3_EMPLOYEE_UI_BUTTONS',JSON.stringify(view));
   }
-  await originalInitButtons.first().click();
+  assert.equal(initialButtonsCount,1,
+    'one organization signed owner must render one employee registry control');
+  await originalInitButtons.click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
   assert.equal(employeeState.initializations,1);
   // Real Center persists organization drafts through its existing native
