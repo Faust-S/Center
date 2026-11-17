@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 4a6324af8a158093fa804a47ca8ee822dc4d565c
+          ref: 2d4ece9aa5b11bf5e1cbd4b60fcb85c6d3d03d6f
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -89,7 +89,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '4a6324af8a158093fa804a47ca8ee822dc4d565c'){
+          if($actual -cne '2d4ece9aa5b11bf5e1cbd4b60fcb85c6d3d03d6f'){
             throw 'AGENT06_D6_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($path in @('runtime/t3_original_result_owner.py',
@@ -162,6 +162,34 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_ATLAS_PUBLICATION_SURFACE_FAILED'}
             Write-Host 'AGENT06_D6_ATLAS_PUBLICATION_SURFACE_PASS'
           } finally { Pop-Location }
+      - name: Parse existing Agent Setup scripts and public T3 source lock
+        shell: pwsh
+        run: |
+          Push-Location private-agent
+          try {
+            foreach($path in @(
+                'tools/build_setup_core_windows_candidate.ps1',
+                'qualification/phase1/build_native_windows_setup_candidate.ps1',
+                'tools/qualify_explorer_windows_phase1_package.ps1')){
+              $tokens=$null
+              $errors=$null
+              $null=[System.Management.Automation.Language.Parser]::ParseFile(
+                (Resolve-Path $path),[ref]$tokens,[ref]$errors)
+              if(@($errors).Count -ne 0){throw 'AGENT06_D6_SETUP_SCRIPT_SYNTAX_INVALID'}
+            }
+            & node scripts/prepare-public-modules.mjs --only-u04 --check *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-optional-u04-check-private.log')
+            if($LASTEXITCODE -eq 0){
+              Write-Host 'AGENT06_D6_ORIGINAL_SOURCE_LOCK_U04_CHECK_PASS'
+            } else {
+              # The source step has no prepared U04 checkout in this job.
+              # Parse the lock through the same existing public source code,
+              # not by fetching an unneeded private/native artifact.
+              & node --input-type=module -e "import {readFileSync} from 'node:fs'; import {validateLock} from './scripts/prepare-public-modules.mjs'; validateLock(JSON.parse(readFileSync('./config/public-module-sources.json','utf8')));" *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-t3-lock-private.log')
+              if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_PUBLIC_T3_SOURCE_LOCK_INVALID'}
+              Write-Host 'AGENT06_D6_PUBLIC_T3_SOURCE_LOCK_PASS'
+            }
+            Write-Host 'AGENT06_D6_SETUP_SCRIPT_PARSE_PASS'
+          } finally {Pop-Location}
       - name: Compile installed Agent corporate UI with original Atlas D6 controls
         shell: pwsh
         run: |
