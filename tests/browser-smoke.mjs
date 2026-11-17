@@ -497,6 +497,7 @@ try{
     wrongTaskGrantRecipient:true,cancelFirstTaskGrant:true,
     loseFirstTaskGrantAck:true,taskIssueCalls:0,signedTaskSaved:false,
     cancelFirstTask:true,loseFirstTaskAck:true,taskExports:0,
+    taskOrphan:false,taskRecoveryCalls:0,cancelFirstTaskRecovery:true,
     cancelFirstInit:true,loseFirstInitAck:true};
   const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
   await employeePage.exposeFunction('__centerEmployeeFixture',
@@ -634,6 +635,9 @@ try{
           employeeState.taskIssueCalls++;
           employeeState.signedTaskSaved=true;
           if(employeeState.loseFirstTaskAck){
+            // Original archive exists, but process exited BEFORE the
+            // existing Task catalog write. Never issue a second signature.
+            employeeState.taskOrphan=true;
             employeeState.loseFirstTaskAck=false;
             throw Error('T3_D3_ORIGINAL_EMPLOYEE_TASK_OUTCOME_UNKNOWN');
           }
@@ -645,14 +649,43 @@ try{
           assert.equal(args.input.taskId,'task:independent-work');
           return {
             schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1',
-            found:employeeState.signedTaskSaved,
+            found:employeeState.signedTaskSaved&&!employeeState.taskOrphan,
             taskId:'task:independent-work',recipientId:'person:independent',
             enrollmentId:'enrollment:verified',taskRevisionId:'d'.repeat(64),
             packageSha256:'e'.repeat(64),
-            status:employeeState.signedTaskSaved?
+            status:employeeState.taskOrphan?
+              'ORIGINAL_SIGNED_CARRIER_WITHOUT_INVENTORY_HOLD':
+              employeeState.signedTaskSaved?
               'SIGNED_TASK_PERSISTED_NOT_DELIVERED':
               'NOT_IN_ORIGINAL_TASK_INVENTORY',
+            automaticReissueAllowed:false,
             originalKernelReadback:true,taskDelivered:false
+          };
+        }
+        if(args.operation==='d3EmployeeRecoverOrphanTask'){
+          assert.equal(args.input.confirmed,true);
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(args.input.taskId,'task:independent-work');
+          assert.equal(employeeState.signedTaskSaved,true);
+          assert.equal(employeeState.taskOrphan,true);
+          if(employeeState.cancelFirstTaskRecovery){
+            employeeState.cancelFirstTaskRecovery=false;
+            throw Error('CEN_D3_EMPLOYEE_TASK_RECOVERY_HUMAN_CANCELLED');
+          }
+          employeeState.taskRecoveryCalls++;
+          employeeState.taskOrphan=false;
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_RECOVERY/1',
+            found:true,taskId:'task:independent-work',
+            taskRevisionId:'d'.repeat(64),
+            packageSha256:'e'.repeat(64),
+            recipientId:'person:independent',
+            enrollmentId:'enrollment:verified',
+            status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED',
+            recoveredOriginalCarrier:true,originalKernelReadback:true,
+            signatureReissued:false,taskDelivered:false,
+            automaticReissueAllowed:false,statusSequence:6
           };
         }
         if(args.operation==='d3EmployeeExportTask'){
@@ -859,9 +892,24 @@ try{
   assert.equal(await newEmployeeTask.isEnabled(),false,
     'lost Task ACK forbids creating a second signed revision');
   await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.getByTestId('d3-employee-task-orphan-recovery').waitFor();
+  assert.equal(employeeState.taskRecoveryCalls,0);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-receipt').count(),0,
+    'an orphaned signed Task is never represented as a confirmed catalog row');
+  const repair=employeePage.getByTestId('d3-employee-task-recover');
+  assert.equal(await repair.isEnabled(),true);
+  await repair.click();
+  assert.equal(employeeState.taskRecoveryCalls,0,
+    'native Human cancellation cannot repair the catalog');
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-recover"]')?.disabled===false);
+  await repair.click();
   await employeePage.getByTestId('d3-employee-task-receipt').waitFor();
+  assert.equal(employeeState.taskRecoveryCalls,1);
+  assert.equal(employeeState.taskIssueCalls,1,
+    'recovery reconstructed the ORIGINAL Task without any second signing');
   assert.equal(await employeePage.getByTestId('d3-employee-task-export').isEnabled(),
-    true,'exact original readback enables export without re-signing');
+    true,'verified original archive recovery allows export of identical bytes');
   await employeePage.getByTestId('d3-employee-task-export').click();
   assert.equal(employeeState.taskExports,1);
   assert.equal(employeeState.taskIssueCalls,1,
@@ -875,6 +923,7 @@ try{
   checks.push('d3-employee-invitation-ui-only-signed-receipt-no-grant-reissue-no-unsupported-task');
   checks.push('d3-employee-manager-task-data-human-cancel-lost-ack-foreign-recipient-readback');
   checks.push('d3-employee-task-native-human-cancel-lost-ack-exact-readback-single-export-ui-only');
+  checks.push('d3-employee-task-orphan-human-recovery-from-original-signed-bytes-no-reissue-ui-only');
   // React can reload while the REAL native signed WebView (and its Kernel)
   // survives. Model that lifetime using a separate Node-side host, NOT
   // localStorage/React state, so a browser reload cannot recreate its status.
