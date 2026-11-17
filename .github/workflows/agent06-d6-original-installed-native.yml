@@ -157,7 +157,7 @@ jobs:
           if(!(Test-Path -LiteralPath $profile -PathType Leaf)){
             throw 'AGENT06_G4_OWNING_PRODUCT_PROFILE_MISSING'
           }
-          & node (Join-Path $core 'scripts/build-original-agent-one-dist.mjs') --qualified-kernel-dist $qualified --agent-profile $profile --t3-build (Join-Path $core 'dist') --output $dist --receipt $receipt *> (Join-Path $env:RUNNER_TEMP 'agent06-g4-one-dist-private.log')
+          & node (Join-Path $core 'scripts/build-original-agent-one-dist.mjs') --qualified-kernel-dist $qualified --agent-profile $profile --t3-build (Join-Path $core 'dist') --output $dist --receipt $receipt --desktop-agent-control *> (Join-Path $env:RUNNER_TEMP 'agent06-g4-one-dist-private.log')
           if($LASTEXITCODE -ne 0 -or
              !(Test-Path -LiteralPath $dist -PathType Container) -or
              !(Test-Path -LiteralPath $receipt -PathType Leaf)){
