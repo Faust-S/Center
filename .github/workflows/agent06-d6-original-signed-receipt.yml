@@ -152,9 +152,26 @@ jobs:
             & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_corporate_t3_employee.py *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-employee-private.log')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_CORPORATE_BASELINE_FAILED'}
             Write-Host 'AGENT06_D6_CORPORATE_EMPLOYEE_BASELINE_PASS'
-            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_t3_installed_kernel_origin.py tests/test_agent06_t3_setup_payload.py *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-pinned-kernel-private.log')
-            if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_T2_ONE_DIST_ORIGIN_MISMATCH'}
-            Write-Host 'AGENT06_D6_T2_ORIGINAL_PINNED_KERNEL_ORIGIN_PASS'
+            # Address the two newly changed, independent package owners
+            # separately. Never expose private tracebacks, source paths,
+            # credentials or installed artifacts in public output.
+            foreach($probe in @(
+              @{name='T2_ORIGINAL_PINNED_KERNEL_ORIGIN'; file='tests/test_agent06_t3_installed_kernel_origin.py'},
+              @{name='T2_ORIGINAL_ONE_DIST_PACKAGE'; file='tests/test_agent06_t3_setup_payload.py'}
+            )){
+              $log=Join-Path $env:RUNNER_TEMP ('agent06-d6-'+$probe.name+'-private.log')
+              & python -B -m pytest -q -p no:cacheprovider $probe.file *> $log
+              if($LASTEXITCODE -ne 0){
+                $text=Get-Content -LiteralPath $log -Raw
+                # Only standard exception class, never assertion body.
+                $safe=@([regex]::Matches($text,
+                  '(?:AssertionError|AttributeError|TypeError|ValueError|InstalledT3PayloadError|FileNotFoundError|ModuleNotFoundError|KeyError|PermissionError)') |
+                  ForEach-Object {$_.Value} | Sort-Object -Unique)
+                Write-Host ('AGENT06_D6_'+$probe.name+'_FAIL_CLASS='+($safe -join ','))
+                throw ('AGENT06_D6_'+$probe.name+'_FAILED')
+              }
+              Write-Host ('AGENT06_D6_'+$probe.name+'_PASS')
+            }
             & node --check runtime/t3_original_employee_worker.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-worker-private.log')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_ORIGINAL_WORKER_SYNTAX_FAILED'}
             Write-Host 'AGENT06_D6_ORIGINAL_WORKER_SYNTAX_PASS'
