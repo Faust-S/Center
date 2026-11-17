@@ -68,6 +68,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
  const [taskId,setTaskId]=useState('');
  const [taskAttempted,setTaskAttempted]=useState(false);
  const [taskReceipt,setTaskReceipt]=useState<any>(null);
+ const [taskRecoveryHold,setTaskRecoveryHold]=useState(false);
+ const [taskRecoveryAttempted,setTaskRecoveryAttempted]=useState(false);
  const available=session.d3EmployeeEnrollmentAvailable===true;
  const bootstrap=session.d3EmployeeRegistryBootstrapAvailable===true;
  const registryRead=session.d3EmployeeRegistryReadbackAvailable===true;
@@ -155,6 +157,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    setEmployeeInviteReceipt(null);
    setTaskGrantAttempted(false);setTaskGrantReceipt(null);
    setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);
+   setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);
  };
  const confirmCredential=()=>run('Подлинность ключа перечитана из оригинального Kernel.',async()=>{
    if(!credentialChallenge)throw Error('CEN_D3_EMPLOYEE_KEY_PROOF_NOT_PREPARED');
@@ -559,10 +562,18 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
         setTaskReceipt(result);
        })}>3. Подписать Task этому сотруднику</button>
      <button data-testid="d3-employee-task-read" disabled={!taskIssueAvailable||busy||!/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)}
-       onClick={()=>void run('Подписанная Task перечитана без повторного выпуска.',async()=>{
+       onClick={()=>void run('Состояние исходной подписанной Task проверено без повторного выпуска.',async()=>{
         const result=await execute('d3EmployeeTaskReadback',{
           enrollmentId:enrollmentReceipt.enrollmentId,
            employeePersonId:personId,taskId});
+         if(result?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1'&&
+            result.found===false&&result.taskId===taskId&&
+            result.status==='ORIGINAL_SIGNED_CARRIER_WITHOUT_INVENTORY_HOLD'&&
+            result.automaticReissueAllowed===false){
+           setTaskAttempted(true);setTaskReceipt(null);
+           setTaskRecoveryHold(true);
+           return;
+         }
          if(result?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1'||
             result.found!==true||result.recipientId!==personId||
             result.enrollmentId!==enrollmentReceipt.enrollmentId||
@@ -571,10 +582,52 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
            !HEX.test(result.packageSha256)||
            result?.status!=='SIGNED_TASK_PERSISTED_NOT_DELIVERED')
           throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_READBACK_HOLD');
-        setTaskReceipt(result);setTaskAttempted(true);
+        setTaskRecoveryHold(false);setTaskReceipt(result);setTaskAttempted(true);
        })}>Перечитать подписанную Task</button>
+     {taskRecoveryHold&&<div data-testid="d3-employee-task-orphan-recovery">
+       <p className="notice subdued">Исходный подписанный .iwxa найден, но
+         запись Task в каталоге отсутствует после прерванной операции.
+         Новая подпись запрещена. Можно проверить существующий архив
+         и восстановить каталог после отдельного согласия.</p>
+       <button data-testid="d3-employee-task-recover" disabled={busy||
+         !taskIssueAvailable||!invitationCurrentForTask||taskRecoveryAttempted}
+         onClick={()=>void run('Каталог Task восстановлен из исходных подписанных байтов.',async()=>{
+          setTaskRecoveryAttempted(true);
+          let result:any;
+          try{
+            result=await execute('d3EmployeeRecoverOrphanTask',{
+              employeePersonId:personId,
+              enrollmentId:enrollmentReceipt.enrollmentId,taskId,
+              confirmed:true
+            });
+          }catch(e){
+            if(String(e).replace(/^Error:\s*/,'').trim()===
+              'CEN_D3_EMPLOYEE_TASK_RECOVERY_HUMAN_CANCELLED')
+              setTaskRecoveryAttempted(false);
+            throw e;
+          }
+          if(result?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_RECOVERY/1'||
+             result.found!==true||result.taskId!==taskId||
+             result.recipientId!==personId||
+             result.enrollmentId!==enrollmentReceipt.enrollmentId||
+             result.status!=='SIGNED_TASK_PERSISTED_NOT_DELIVERED'||
+             result.recoveredOriginalCarrier!==true||
+             result.originalKernelReadback!==true||
+             result.signatureReissued!==false||
+             result.automaticReissueAllowed!==false||
+             result.taskDelivered!==false||
+             !HEX.test(result.packageSha256)||
+             !HEX.test(result.taskRevisionId))
+            throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_RECOVERY_HOLD');
+          setTaskReceipt(result);setTaskRecoveryHold(false);setTaskAttempted(true);
+         })}>Восстановить каталог без новой подписи</button>
+       {taskRecoveryAttempted&&<p className="notice subdued">
+         Если ответ потерян, не запускайте восстановление повторно.
+         Перезапустите подписанную Workspace и перечитайте Task.</p>}
+     </div>}
      <button className="secondary" data-testid="d3-employee-task-export"
-        disabled={busy||taskReceipt?.originalKernelReadback!==true||
+        disabled={busy||!taskIssueAvailable||
+          taskReceipt?.originalKernelReadback!==true||
           taskReceipt?.taskId!==taskId||taskReceipt?.recipientId!==personId}
         onClick={()=>void run('Оригинальный подписанный .iwxa сохранён, доставка не подтверждена.',async()=>{
          const result=await execute('d3EmployeeExportTask',{
