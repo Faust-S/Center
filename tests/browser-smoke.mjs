@@ -498,6 +498,7 @@ try{
     loseFirstTaskGrantAck:true,taskIssueCalls:0,signedTaskSaved:false,
     cancelFirstTask:true,loseFirstTaskAck:true,taskExports:0,
     taskOrphan:false,taskRecoveryCalls:0,cancelFirstTaskRecovery:true,
+    contextEpoch:1,
     cancelFirstInit:true,loseFirstInitAck:true};
   const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
   await employeePage.exposeFunction('__centerEmployeeFixture',
@@ -514,7 +515,7 @@ try{
           product:'admin',organizationId:args.organizationId,
           workspaceId:'workspace:employee-fixture',
           actorId:'person:manager-fixture',
-          contextId:'context:employee-fixture',contextEpoch:1,
+          contextId:'context:employee-fixture',contextEpoch:employeeState.contextEpoch,
           d3RecipientAvailable:true,d3TaskIssueAvailable:false,
           d3InspectAvailable:true,d3ApplyAvailable:false,
           d3ApplyRecoverAvailable:false,
@@ -530,7 +531,8 @@ try{
       if(command==='center_corporate_action'){
         assert.equal(args.binding?.actorId,'person:manager-fixture');
         assert.equal(args.binding?.workspaceId,'workspace:employee-fixture');
-        assert.equal(args.binding?.contextEpoch,1);
+        assert.equal(args.binding?.contextEpoch,employeeState.contextEpoch,
+          'requests must use the latest original signed native owner epoch');
         if(args.operation==='d3EmployeeRegistryReadback'){
           assert.equal(employeeState.requiresCold,false,
             'after possibly committed graph, readback needs a cold owner');
@@ -675,6 +677,7 @@ try{
           }
           employeeState.taskRecoveryCalls++;
           employeeState.taskOrphan=false;
+          employeeState.contextEpoch++;
           return {
             schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_RECOVERY/1',
             found:true,taskId:'task:independent-work',
@@ -909,6 +912,13 @@ try{
   assert.equal(employeeState.taskIssueCalls,1,
     'recovery reconstructed the ORIGINAL Task without any second signing');
   await employeePage.getByTestId('d3-employee-task-recovery-rebind').waitFor();
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-id"]')?.value===
+      'task:independent-work'&&
+    document.querySelector('[data-testid="d3-employee-task-text"]')?.value===
+      'Review verified supplier statement');
+  assert.equal(employeeState.contextEpoch,2,
+    'native Task repair advanced the signed owner context epoch exactly once');
   assert.equal(await employeePage.getByTestId('d3-employee-task-export').isEnabled(),
     false,'catalog repair advances native signed D1 epoch: no immediate export');
   await employeePage.getByTestId('d3-employee-task-read').click();
@@ -932,6 +942,7 @@ try{
   checks.push('d3-employee-manager-task-data-human-cancel-lost-ack-foreign-recipient-readback');
   checks.push('d3-employee-task-native-human-cancel-lost-ack-exact-readback-single-export-ui-only');
   checks.push('d3-employee-task-orphan-human-recovery-from-original-signed-bytes-no-reissue-ui-only');
+  checks.push('d3-employee-form-keeps-task-recovery-across-new-native-context-epoch');
   // React can reload while the REAL native signed WebView (and its Kernel)
   // survives. Model that lifetime using a separate Node-side host, NOT
   // localStorage/React state, so a browser reload cannot recreate its status.
