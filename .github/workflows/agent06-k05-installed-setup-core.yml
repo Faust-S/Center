@@ -25,7 +25,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_NATIVE_EXACT_SHA: '6b9be4704c5e3d7a79fc0561cb7df830ce71576e'
+      AGENT_K05_NATIVE_EXACT_SHA: '22d36bb2060d05afe9653f4703fe0af723f9da7d'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -247,10 +247,49 @@ jobs:
                     'ollama_graph_model_catalog_changed',
                     'ollama_private_endpoint_binding_changed',
                     'ollama_model_binding_changed',
+                    'PORT_UNAVAILABLE',
+                    'PORT_PROTOCOL_ERROR',
+                    'basic_runtime_timeout',
+                    'basic_runtime_busy',
+                    'basic_runtime_start_failed',
+                    'basic_runtime_generation_failed',
+                    'basic_runtime_output_invalid',
+                    'basic_runtime_prompt_required',
+                    'basic_runtime_prompt_too_large',
+                    'basic_runtime_token_limit_invalid',
+                    'basic_runtime_timeout_invalid',
+                    'basic_runtime_context_window_insufficient',
+                    'basic_runtime_context_budget_too_large',
+                    'warm_engine_busy',
+                    'warm_engine_generation_failed',
+                    'warm_engine_start_timeout',
+                    'warm_engine_exited_before_ready',
+                    'warm_engine_http_rejected',
+                    'warm_engine_response_invalid',
+                    'warm_engine_response_too_large',
+                    'warm_engine_stopped',
+                    'warm_engine_port_not_listening',
+                    'warm_engine_output_invalid',
+                    'warm_engine_prompt_invalid',
+                    'warm_engine_prompt_too_large',
+                    'warm_engine_token_limit_invalid',
+                    'warm_engine_timeout_invalid',
+                    'local_dialogue_response_empty',
+                    'local_document_analysis_empty',
+                    'model_output_token_budget_invalid',
+                    'local_document_task_sources_missing',
+                    'task_result_readback_unverified',
                     'OTHER_REDACTED','NOT_REPORTED'
                   )
                   if($schedulerError -cin $schedulerCodes){
                     Write-Host ('K05_NATIVE_K03_SCHEDULER_ERROR='+$schedulerError)
+                  }
+                  $schedulerFamily=[string]$receipt.k03_scheduler_error_family
+                  if($schedulerFamily -cin @('UNCLASSIFIED','MODEL_PORT',
+                      'BASIC_RUNTIME','WARM_RUNTIME','MODEL_BINDING',
+                      'MODEL_RESULT','MODEL_ROUTE','SCHEDULER',
+                      'TASK_OR_WORKSPACE','NOT_REPORTED')){
+                    Write-Host ('K05_NATIVE_K03_SCHEDULER_FAMILY='+$schedulerFamily)
                   }
                 }
               }catch{}
