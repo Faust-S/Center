@@ -424,10 +424,12 @@ jobs:
               }catch{$category='RESULT_UNREADABLE'}
             }
             # Classify the LATEST exact Setup Core internal stage from its
-            # private, ephemeral native installer log. Only this finite enum
-            # is public; no raw error message or path is ever printed.
+            # private, ephemeral native installer log. Only a fixed finite
+            # category may enter the public workflow; never print raw paths,
+            # model names, installer errors, private JSON or call arguments.
             $nativeLogRoot=Join-Path $qualification 'LocalAppData/IWXA/InstallerLogs'
             $stage='BEFORE_NATIVE_LOG'
+            $packageFailure='UNCLASSIFIED'
             if(Test-Path -LiteralPath $nativeLogRoot -PathType Container){
               $logEntry=Get-ChildItem -LiteralPath $nativeLogRoot -Filter 'native-setup-*.log' -File -ErrorAction SilentlyContinue |
                 Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
@@ -440,10 +442,43 @@ jobs:
                   }
                 }
                 if($logText -match 'SETUP_FINALIZED'){$stage='SETUP_FINALIZED'}
+                if($stage -eq 'PACKAGE_INSTALL'){
+                  # Python's existing install_explorer.py already emits a
+                  # private machine error or a traceback to this log. Keep
+                  # its contents private and publish ONLY the first matching
+                  # allowlisted stage family, never the untrusted message.
+                  $packageFamilies=@(
+                    @('primary_agent_','PRIMARY_AGENT_STAGE'),
+                    @('specialist_agent_','SPECIALIST_AGENT_STAGE'),
+                    @('local_inference_','LOCAL_INFERENCE_STAGE'),
+                    @('managed_runtime_','MANAGED_RUNTIME_STAGE'),
+                    @('host_blocked:','HOST_PREFLIGHT'),
+                    @('install_unclassified_content:','UNCLASSIFIED_INSTALL_CONTENT'),
+                    @('fresh_install_root_not_empty','INSTALL_ROOT_NOT_EMPTY'),
+                    @('install_destination_','INSTALL_DESTINATION'),
+                    @('package_','PACKAGE_PAYLOAD'),
+                    @('source_digest_mismatch','SOURCE_DIGEST'),
+                    @('external_runtime_','EXTERNAL_RUNTIME_STAGE'),
+                    @('No module named','PYTHON_MODULE_MISSING'),
+                    @('FileNotFoundError','PYTHON_FILE_MISSING'),
+                    @('PermissionError','PYTHON_ACCESS_DENIED'),
+                    @('Traceback','PYTHON_UNHANDLED'),
+                    @('explorer_installer_','INSTALLER_CONTRACT'),
+                    @('installed_product_payload_','PRODUCT_RUNTIME_PAYLOAD')
+                  )
+                  foreach($family in $packageFamilies){
+                    if($logText.IndexOf([string]$family[0],[StringComparison]::OrdinalIgnoreCase) -ge 0){
+                      $packageFailure=[string]$family[1];break
+                    }
+                  }
+                }
               }
             }
             Write-Host ('AGENT06_G4_NATIVE_SETUP_INSTALL_SAFE_REASON='+$category)
             Write-Host ('AGENT06_G4_NATIVE_SETUP_LAST_STAGE='+$stage)
+            if($stage -eq 'PACKAGE_INSTALL'){
+              Write-Host ('AGENT06_G4_NATIVE_SETUP_PACKAGE_SAFE_FAMILY='+$packageFailure)
+            }
             throw 'AGENT06_G4_NATIVE_SETUP_EXE_INSTALL_FAILED'
           }
           $witness=Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
