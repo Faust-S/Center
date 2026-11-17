@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: d4169c0f889f18825a0b33742d2fc87b87a227dc
+          ref: 9ab35b584fe9b0ff50c96c7a52b043e28c67d623
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -54,7 +54,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne 'd4169c0f889f18825a0b33742d2fc87b87a227dc'){
+          if($actual -cne '9ab35b584fe9b0ff50c96c7a52b043e28c67d623'){
             throw 'AGENT06_NATIVE_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($f in @(
@@ -209,7 +209,22 @@ jobs:
                   elseif($reason -match 'react_page_not_visible|ui_automation_root_missing|control_unavailable'){$group='UIA_UNAVAILABLE'}
                   elseif($reason -match 'install|storage_authority'){$group='INSTALLATION'}
                   elseif($reason -match 'gui_draft|draft_http|draft_value'){$group='DRAFT_READBACK'}
+                  # Only finite, non-sensitive UIA failure codes leave the
+                  # private Windows profile. No draft text, screenshots or
+                  # raw exception strings are printed to public logs.
+                  $sub='UNCLASSIFIED'
+                  switch -Exact ($reason){
+                    'gui_draft_value_change_not_observed' {$sub='UIA_VALUE_NOT_UPDATED'}
+                    'BLOCKED_ENVIRONMENT:draft_value_pattern_unavailable' {$sub='UIA_VALUE_PATTERN_UNAVAILABLE'}
+                    'BLOCKED_ENVIRONMENT:draft_keyboard_input_unavailable' {$sub='UIA_KEYBOARD_INPUT_UNAVAILABLE'}
+                    'test_profile_not_empty' {$sub='QA_PROFILE_NOT_EMPTY'}
+                    'gui_core_draft_http_readback_failed' {$sub='CORE_READBACK_NOT_AVAILABLE'}
+                    'gui_core_draft_http_response_invalid' {$sub='CORE_READBACK_INVALID'}
+                    'gui_draft_lost_before_close' {$sub='DRAFT_NAVIGATION_NOT_PERSISTED'}
+                    'gui_draft_not_restored_after_restart' {$sub='DRAFT_COLD_RESTART_NOT_PERSISTED'}
+                  }
                   Write-Host ('AGENT06_NATIVE_FAILURE_CATEGORY='+$group)
+                  Write-Host ('AGENT06_NATIVE_FAILURE_SUBCODE='+$sub)
                 }catch{Write-Host 'AGENT06_NATIVE_FAILURE_CATEGORY=REPORT_UNREADABLE'}
               }else{
                 # The installed witness writes its result.json only after
