@@ -190,3 +190,15 @@ export function signedD3SessionFingerprint(view,organizationId){
  return JSON.stringify([s.organizationId,s.workspaceId,s.actorId,
    s.contextId,s.contextEpoch,'ORIGINAL_D3_ONLY']);
 }
+
+// Preserve employee enrollment/Task recovery drafts across the original
+// signed owner's scope_revision increments. A revision bump is NOT a new
+// person, organization or Workspace. Every native operation still checks
+// the full fresh contextEpoch; only this React component key is stable.
+// Changing the signed subject or contextId still remounts the form.
+export function signedD3EmployeeScopeFingerprint(view,organizationId){
+ if(signedD3SessionFingerprint(view,organizationId)===null)return null;
+ const s=view.snapshot;
+ return JSON.stringify([s.organizationId,s.workspaceId,s.actorId,
+   s.contextId,'ORIGINAL_D3_EMPLOYEE_SCOPE']);
+}
