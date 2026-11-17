@@ -94,6 +94,28 @@ jobs:
           & cargo.exe build --manifest-path (Join-Path $probe 'Cargo.toml') --release --quiet *> (Join-Path $env:RUNNER_TEMP 'agent06-u04-cargo-build-private.txt')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_U04_ORIGINAL_NATIVE_BUILD_FAIL'}
           Write-Host 'AGENT06_U04_ORIGINAL_NATIVE_MSCV_PASS'
+      - name: Create reviewed Task and read-only original Personal Files witnesses
+        shell: pwsh
+        run: |
+          $qa=Join-Path $env:RUNNER_TEMP ('agent06-u04-selected-docx-'+$env:GITHUB_RUN_ID)
+          $qaAbsolute=[IO.Path]::GetFullPath($qa)
+          Push-Location private-agent
+          try{
+            & python -B qualification/agent06/office/real_u04_selected_docx.py prepare $qaAbsolute *> (Join-Path $env:RUNNER_TEMP 'agent06-u04-fixture-private.txt')
+            if($LASTEXITCODE -ne 0){
+              $private=Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'agent06-u04-fixture-private.txt') -Raw
+              foreach($code in @('U04_REAL_TASK_NOT_ACCEPTED','U04_REAL_ACCEPTED_DIGEST_MISSING',
+                  'U04_REAL_TASK_FILE_STAT_PREPARED','AssertionError','ValueError',
+                  'FileExistsError','FileNotFoundError','ModuleNotFoundError',
+                  'ImportError','KeyError','AttributeError','TypeError',
+                  'OSError','PermissionError','LocalFileError','ProviderBindingError')){
+                if($private.Contains($code)){Write-Host ('AGENT06_U04_FIXTURE_FAILURE_CLASS='+$code)}
+              }
+              throw 'AGENT06_U04_REAL_CORE_FILE_RECEIPT_PREPARE_FAIL'
+            }
+          }finally{Pop-Location}
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('AGENT06_U04_QA_ROOT='+$qaAbsolute)
+          Write-Host 'AGENT06_U04_REAL_REVIEWED_TASK_FILE_WITNESS_PASS'
       - name: Install real LibreOffice Writer on disposable Windows runner
         shell: pwsh
         timeout-minutes: 28
@@ -104,18 +126,6 @@ jobs:
             throw 'AGENT06_U04_LIBREOFFICE_EXECUTABLE_MISSING'
           }
           Write-Host 'AGENT06_U04_REAL_LIBREOFFICE_INSTALLED_PASS'
-      - name: Create reviewed Task and read-only original Personal Files witnesses
-        shell: pwsh
-        run: |
-          $qa=Join-Path $env:RUNNER_TEMP ('agent06-u04-selected-docx-'+$env:GITHUB_RUN_ID)
-          $qaAbsolute=[IO.Path]::GetFullPath($qa)
-          Push-Location private-agent
-          try{
-            & python -B qualification/agent06/office/real_u04_selected_docx.py prepare $qaAbsolute *> (Join-Path $env:RUNNER_TEMP 'agent06-u04-fixture-private.txt')
-            if($LASTEXITCODE -ne 0){throw 'AGENT06_U04_REAL_CORE_FILE_RECEIPT_PREPARE_FAIL'}
-          }finally{Pop-Location}
-          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('AGENT06_U04_QA_ROOT='+$qaAbsolute)
-          Write-Host 'AGENT06_U04_REAL_REVIEWED_TASK_FILE_WITNESS_PASS'
       - name: Invoke original U04 owner through compiled native host and require Office window
         shell: pwsh
         timeout-minutes: 6
