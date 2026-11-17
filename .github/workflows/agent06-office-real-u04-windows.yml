@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '6e9b220e4dbe90748ca74188ac1ce72669843be1'
+      AGENT_OFFICE_SHA: 'd33c9819d6bb50db135a27f9c711cfdaa23ef690'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,6 +47,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - name: Parse QA PowerShell syntax before expensive setup
+        shell: pwsh
+        run: |
+          $source='private-agent/qualification/agent06/office/real_u04_office_gui.ps1'
+          $tokens=$null
+          $parseErrors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            [IO.Path]::GetFullPath($source),[ref]$tokens,[ref]$parseErrors)
+          if(@($parseErrors).Count -ne 0){
+            foreach($item in @($parseErrors)){
+              $line=[int]$item.Extent.StartLineNumber
+              if($line -gt 0 -and $line -lt 500){
+                Write-Host ('AGENT06_U04_QA_PWSH_PARSER_LINE='+$line)
+              }
+            }
+            throw 'AGENT06_U04_QA_PWSH_PARSER_FAIL'
+          }
+          Write-Host 'AGENT06_U04_QA_PWSH_PARSER_PASS'
       - name: Verify private exact source and prepare original dependencies
         shell: pwsh
         timeout-minutes: 12
