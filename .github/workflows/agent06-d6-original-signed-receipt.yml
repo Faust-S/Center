@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 190b750c041a79d1376900e3a6b9ab6ceddb1de5
+          ref: 6bdf1c06e7d3bba4766cef41b1e5a04865bb7f20
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -47,7 +47,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '190b750c041a79d1376900e3a6b9ab6ceddb1de5'){
+          if($actual -cne '6bdf1c06e7d3bba4766cef41b1e5a04865bb7f20'){
             throw 'AGENT06_D6_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($path in @('runtime/t3_original_result_owner.py',
@@ -88,6 +88,10 @@ jobs:
                 $classes=@([regex]::Matches($raw,'(AssertionError|AttributeError|TypeError|ValueError|OSError|CorporateT3Error|KeyError|ImportError)') |
                   ForEach-Object { $_.Value } | Sort-Object -Unique)
                 Write-Host ('AGENT06_D6_'+$stage.code+'_FAIL_CLASS='+($classes -join ','))
+                if($stage.code -eq 'PROOF'){
+                  $safe=[regex]::Match($raw,'T3_AGENT_D6_PROOF_CASE_[0-9]{2}_(WRONG_CODE|ACCEPTED)')
+                  Write-Host ('AGENT06_D6_PROOF_SAFE_REASON='+$(if($safe.Success){$safe.Value}else{'NO_SAFE_CASE'}))
+                }
               }else{
                 Write-Host ('AGENT06_D6_'+$stage.code+'_PASS')
               }
