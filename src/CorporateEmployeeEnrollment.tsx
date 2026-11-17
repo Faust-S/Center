@@ -62,6 +62,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
  const [enrollmentAttempted,setEnrollmentAttempted]=useState(false);
  const [enrollmentReceipt,setEnrollmentReceipt]=useState<any>(null);
  const [employeeInviteReceipt,setEmployeeInviteReceipt]=useState<any>(null);
+ const [taskGrantAttempted,setTaskGrantAttempted]=useState(false);
+ const [taskGrantReceipt,setTaskGrantReceipt]=useState<any>(null);
  const [taskText,setTaskText]=useState('');
  const [taskId,setTaskId]=useState('');
  const [taskAttempted,setTaskAttempted]=useState(false);
@@ -113,12 +115,36 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    enrollmentReceipt.originalEnrollment?.payload?.credentialPublicKeyRef===keyId&&
    Number.isSafeInteger(enrollmentReceipt.statusSequence)&&
    enrollmentReceipt.statusSequence>0;
+ // A second signed DATA grant belongs to the manager, not the worker.
+ const managerTaskResources=[
+   'workspace:'+session.workspaceId,'subject:'+session.organizationId,
+   'recipient:'+personId,'field:task','operation:UPSERT'
+ ];
+ const managerTaskGrantOk=enrolled&&
+   taskGrantReceipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1'&&
+   taskGrantReceipt.state==='ORIGINAL_MANAGER_TASK_DATA_ACTIVE'&&
+   taskGrantReceipt.organizationId===session.organizationId&&
+   taskGrantReceipt.workspaceId===session.workspaceId&&
+   taskGrantReceipt.recipientId===personId&&
+   taskGrantReceipt.employeePersonId===personId&&
+   taskGrantReceipt.managerPersonId===session.actorId&&
+   taskGrantReceipt.enrollmentId===enrollmentReceipt.enrollmentId&&
+   taskGrantReceipt.originalReadback===true&&
+   taskGrantReceipt.safeToReissue===false&&
+   taskGrantReceipt.grant?.payload?.holderId===session.actorId&&
+   taskGrantReceipt.grant?.payload?.roleId==='assigner'&&
+   taskGrantReceipt.grant?.payload?.rightClass==='DATA'&&
+   JSON.stringify(taskGrantReceipt.grant?.payload?.actions)==='["package.export"]'&&
+   JSON.stringify(taskGrantReceipt.grant?.payload?.purposes)==='["assignment"]'&&
+   JSON.stringify(taskGrantReceipt.grant?.payload?.resources)===
+     JSON.stringify(managerTaskResources);
  const reset=()=>{
    setCredentialChallenge(null);setCredentialProof('');setCredentialAttempted(false);
    setCredentialReceipt(null);setEnrollmentChallenge(null);setRecoveryEnrollmentId('');
    setEnrollmentProof('');
    setEnrollmentAttempted(false);setEnrollmentReceipt(null);
    setEmployeeInviteReceipt(null);
+   setTaskGrantAttempted(false);setTaskGrantReceipt(null);
    setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);
  };
  const confirmCredential=()=>run('Подлинность ключа перечитана из оригинального Kernel.',async()=>{
@@ -420,6 +446,62 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
        Подписанный .iwxa сохранён, доставка не подтверждена. SHA-256:
        <code>{employeeInviteReceipt.packageSha256}</code>
       </p>}
+     <div data-testid="d3-employee-manager-task-data">
+      <p>Руководитель отдельно получает DATA package.export только для
+         этого сотрудника. Это не создаёт Task и не доставляет файл.</p>
+      <div className="actions">
+       <button data-testid="d3-employee-task-grant-issue"
+        disabled={busy||taskGrantAttempted||managerTaskGrantOk}
+        onClick={()=>void run('Оригинальный Kernel подтвердил адресный DATA-грант.',async()=>{
+          if(taskGrantAttempted)throw Error('CEN_D3_EMPLOYEE_TASK_DATA_USE_READBACK');
+          setTaskGrantAttempted(true);
+          let result:any;
+          try{
+            result=await execute('d3EmployeeTaskGrantIssue',{
+              employeePersonId:personId,
+              enrollmentId:enrollmentReceipt.enrollmentId,confirmed:true
+            });
+          }catch(e){
+            if(String(e).replace(/^Error:\s*/,'').trim()===
+              'CEN_D3_EMPLOYEE_TASK_DATA_HUMAN_CANCELLED')
+              setTaskGrantAttempted(false);
+            throw e;
+          }
+          if(result?.state!=='ORIGINAL_MANAGER_TASK_DATA_ACTIVE'||
+             result.originalReadback!==true||result.safeToReissue!==false||
+             result.recipientId!==personId||result.taskSigned!==false||
+             result.taskDelivered!==false)
+            throw Error('CEN_D3_EMPLOYEE_TASK_DATA_UNKNOWN_READBACK_REQUIRED');
+          const cold=await execute('d3EmployeeTaskGrantReadback',{
+            employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
+          });
+          setTaskGrantReceipt(cold);
+          if(cold?.state!=='ORIGINAL_MANAGER_TASK_DATA_ACTIVE')
+            throw Error('CEN_D3_EMPLOYEE_TASK_DATA_UNKNOWN_READBACK_REQUIRED');
+        })}>Выдать адресное право на Task</button>
+       <button className="secondary" data-testid="d3-employee-task-grant-read"
+        disabled={busy} onClick={()=>void run('Адресный DATA-грант перечитан без записи.',async()=>{
+          const cold=await execute('d3EmployeeTaskGrantReadback',{
+            employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
+          });
+          if(cold?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1'||
+             cold.originalReadback!==true||cold.safeToReissue!==false||
+             cold.organizationId!==session.organizationId||
+             cold.workspaceId!==session.workspaceId||
+             cold.employeePersonId!==personId||cold.recipientId!==personId||
+             cold.managerPersonId!==session.actorId||
+             cold.enrollmentId!==enrollmentReceipt.enrollmentId)
+            throw Error('CEN_D3_EMPLOYEE_TASK_DATA_READBACK_HOLD');
+          setTaskGrantReceipt(cold);
+        })}>Перечитать исходный DATA-грант</button>
+      </div>
+      {taskGrantAttempted&&!managerTaskGrantOk&&<p className="notice subdued">
+         После отправки запись могла завершиться без ответа. Повторное
+         подтверждение запрещено; только оригинальный readback.</p>}
+      {managerTaskGrantOk&&<p data-testid="d3-employee-task-grant-confirmed">
+         Подтверждено отдельное DATA-право руководителя для {personId}.
+         Task ещё не подписана и не доставлена.</p>}
+     </div>
      {!taskIssueAvailable&&<p className="notice subdued" data-testid="d3-employee-task-owner-unavailable">
        Подписанная регистрация сотрудника не является разрешением выдать ему
        Task. Нужна оригинальная T3-операция выдачи конкретному адресату
