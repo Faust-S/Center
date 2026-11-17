@@ -378,11 +378,45 @@ jobs:
             '--models-root',('"'+$models+'"'),
             '--cache-root',('"'+$cache+'"'),
             '--result',('"'+$result+'"'))
+          # All extracted native Setup temp files must stay under this
+          # runner-owned QA tree and be removed by the unconditional cleanup.
+          $setupTemp=Join-Path $qa 'setup-exe-temp'
+          New-Item -ItemType Directory -Force -Path $setupTemp | Out-Null
+          $env:TEMP=$setupTemp;$env:TMP=$setupTemp
           $stdout=Join-Path $qa 'logs/setup-exe-process-private.log'
           $stderr=Join-Path $qa 'logs/setup-exe-error-private.log'
           $process=Start-Process -FilePath $setup -ArgumentList $args -PassThru -Wait -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           if($null -eq $process.ExitCode -or $process.ExitCode -ne 0 -or
              !(Test-Path -LiteralPath $result -PathType Leaf)){
+            # Original Setup writes its private failure text only into the
+            # temporary profile. Publish exactly one FIXED category; never
+            # publish error details, file paths, tokens or installer logs.
+            $category='RESULT_MISSING_OR_NONZERO'
+            if(Test-Path -LiteralPath $result -PathType Leaf){
+              try{
+                $reported=Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
+                $reason=[string]$reported.error
+                $rules=@(
+                  @('STORAGE_PREFLIGHT','STORAGE_PREFLIGHT'),
+                  @('PACKAGE_INSTALL','PACKAGE_INSTALL'),
+                  @('AUTHORITY_FINALIZE','AUTHORITY_FINALIZE'),
+                  @('native_setup_','NATIVE_SETUP_CONTRACT'),
+                  @('setup_payload_','NATIVE_SETUP_PAYLOAD'),
+                  @('qualification_','QUALIFICATION_REGISTRATION'),
+                  @('registered_install','OTHER_REGISTERED_INSTALL'),
+                  @('Папки приложения','PATHS_OVERLAP'),
+                  @('установленный runtime неполон','INSTALLED_RUNTIME_MISSING'),
+                  @('IWXA Personal уже зарегистрирован','OTHER_INSTALL_PRESENT')
+                )
+                $category='OTHER_NATIVE_INSTALLER_FAILURE'
+                foreach($pair in $rules){
+                  if($reason.IndexOf([string]$pair[0],[StringComparison]::OrdinalIgnoreCase) -ge 0){
+                    $category=[string]$pair[1];break
+                  }
+                }
+              }catch{$category='RESULT_UNREADABLE'}
+            }
+            Write-Host ('AGENT06_G4_NATIVE_SETUP_INSTALL_SAFE_REASON='+$category)
             throw 'AGENT06_G4_NATIVE_SETUP_EXE_INSTALL_FAILED'
           }
           $witness=Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
