@@ -493,7 +493,9 @@ try{
   // the original installed T3, independent employee signature or Kernel.
   const employeeState={registered:false,ready:false,reads:0,
     initializations:0,inviteExports:0,savedDraft:null,requiresCold:false,
-    wrongReadKey:true,
+    wrongReadKey:true,taskGrantCalls:0,taskGrantSaved:false,
+    wrongTaskGrantRecipient:true,cancelFirstTaskGrant:true,
+    loseFirstTaskGrantAck:true,
     cancelFirstInit:true,loseFirstInitAck:true};
   const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
   await employeePage.exposeFunction('__centerEmployeeFixture',
@@ -577,6 +579,44 @@ try{
             originalEnrollment:{payload:{personId,organizationId,workspaceId,
               credentialPublicKeyRef:credentialKeyId}}
           };
+        }
+        if(args.operation==='d3EmployeeTaskGrantReadback'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          const organizationId=args.organizationId,workspaceId='workspace:employee-fixture',
+            personId=employeeState.wrongTaskGrantRecipient?'person:other':'person:independent';
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1',
+            state:employeeState.taskGrantSaved?'ORIGINAL_MANAGER_TASK_DATA_ACTIVE':
+              'ORIGINAL_MANAGER_TASK_DATA_NOT_FOUND',
+            employeePersonId:'person:independent',
+            recipientId:personId,managerPersonId:'person:manager-fixture',
+            organizationId,workspaceId,enrollmentId:'enrollment:verified',
+            originalReadback:true,safeToReissue:false,
+            grant:{payload:{
+              id:'grant:manager-task-fixture',
+              holderId:'person:manager-fixture',roleId:'assigner',rightClass:'DATA',
+              actions:['package.export'],purposes:['assignment'],
+              resources:['workspace:'+workspaceId,'subject:'+organizationId,
+                'recipient:'+personId,'field:task','operation:UPSERT']
+            }}
+          };
+        }
+        if(args.operation==='d3EmployeeTaskGrantIssue'){
+          assert.equal(args.input.confirmed,true);
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          if(employeeState.cancelFirstTaskGrant){
+            employeeState.cancelFirstTaskGrant=false;
+            throw Error('CEN_D3_EMPLOYEE_TASK_DATA_HUMAN_CANCELLED');
+          }
+          employeeState.taskGrantCalls++;
+          employeeState.taskGrantSaved=true;
+          if(employeeState.loseFirstTaskGrantAck){
+            employeeState.loseFirstTaskGrantAck=false;
+            throw Error('T3_D3_EMPLOYEE_TASK_DATA_OUTCOME_UNKNOWN');
+          }
+          throw Error('CEN_UI_UNEXPECTED_TASK_DATA_GRANT_REISSUE');
         }
         if(args.operation==='d3EmployeeExportInvite'){
           assert.equal(args.input.employeePersonId,'person:independent');
@@ -714,6 +754,27 @@ try{
   await employeePage.getByTestId('d3-employee-read').click();
   await employeePage.getByTestId('d3-employee-enrolled').waitFor();
   assert.equal(await employeePage.getByTestId('d3-employee-invitation-export').count(),1);
+  const taskDataIssue=employeePage.getByTestId('d3-employee-task-grant-issue');
+  assert.equal(await taskDataIssue.isEnabled(),true);
+  await taskDataIssue.click();
+  assert.equal(employeeState.taskGrantCalls,0,
+    'a native Human cancellation cannot enter original Kernel');
+  assert.equal(await taskDataIssue.isEnabled(),true,
+    'a definite pre-dispatch refusal can be confirmed anew');
+  await taskDataIssue.click();
+  assert.equal(employeeState.taskGrantCalls,1);
+  assert.equal(await taskDataIssue.isEnabled(),false,
+    'lost ACK must block a second original Kernel DATA grant');
+  await employeePage.getByTestId('d3-employee-task-grant-read').click();
+  assert.equal(await employeePage.getByTestId('d3-employee-task-grant-confirmed').count(),0,
+    'wrong signed recipient cannot grant task issuance');
+  employeeState.wrongTaskGrantRecipient=false;
+  await employeePage.getByTestId('d3-employee-task-grant-read').click();
+  await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
+  assert.equal(employeeState.taskGrantCalls,1,
+    'original readback after lost ACK never re-issues the manager DATA grant');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),false,
+    'manager DATA grant alone does not fabricate a signed employee Task owner');
   await employeePage.getByTestId('d3-employee-invitation-export').click();
   await employeePage.getByTestId('d3-employee-invitation-export-receipt').waitFor();
   assert.match(await employeePage.getByTestId('d3-employee-invitation-export-receipt').innerText(),
@@ -726,6 +787,7 @@ try{
   await employeePage.close();
   checks.push('d3-employee-original-kernel-bootstrap-human-cancel-unknown-ack-cold-readback-no-reissue');
   checks.push('d3-employee-invitation-ui-only-signed-receipt-no-grant-reissue-no-unsupported-task');
+  checks.push('d3-employee-manager-task-data-human-cancel-lost-ack-foreign-recipient-readback');
   // React can reload while the REAL native signed WebView (and its Kernel)
   // survives. Model that lifetime using a separate Node-side host, NOT
   // localStorage/React state, so a browser reload cannot recreate its status.
