@@ -43,6 +43,107 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
     let sha=input["packageSha256"].as_str();
     match operation {
       "d3Inbox"|"d3Receive"|"d3ReceiveAge"|"d3ExportInvitation"=>{},
+      "d3EmployeeRegistryReadback"=>{},
+      "d3EmployeeRegistryInitialize"=>{
+          if input["confirmed"]!=true{
+              return Err("CEN_D3_EMPLOYEE_ORIGINAL_REGISTRY_CONFIRMATION_REQUIRED".into());
+          }
+      },
+      "d3EmployeeCredentialBegin"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["keyRecord"].as_object().is_some_and(|record|
+                 record.len()==7&&
+                 ["subjectId","environment","publicKey","status",
+                  "uses","notBefore","expiresAt"].iter().all(|k|record.contains_key(*k)))||
+             input["keyRecord"]["subjectId"]!=input["employeePersonId"]||
+             input["keyRecord"]["uses"]!=json!(["PROOF"])||
+             input["keyRecord"]["status"]!="ACTIVE"||
+             !input["keyRecord"]["publicKey"].as_str().is_some_and(|v|
+                 v.len()<8192&&v.contains("PUBLIC KEY")) {
+              return Err("CEN_D3_EMPLOYEE_PUBLIC_CREDENTIAL_REQUIRED".into());
+          }
+      },
+      "d3EmployeeCredentialCancel"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["admissionId"].as_str().is_some_and(t3::valid_identifier) {
+              return Err("CEN_D3_EMPLOYEE_CREDENTIAL_CANCEL_ID_REQUIRED".into());
+          }
+      },
+      "d3EmployeeCredentialAdmit"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["admissionId"].as_str().is_some_and(t3::valid_identifier)||
+             input["employeeProof"]["schema"]!="IWXA_T3_ACCESS_SIGNED/1"||
+             input["employeeProof"]["payload"]["kind"]!="PROOF"||
+             input["employeeProof"]["keyId"]!=input["credentialKeyId"] {
+              return Err("CEN_D3_EMPLOYEE_ORIGINAL_PROOF_REQUIRED".into());
+          }
+      },
+      "d3EmployeeCredentialRead"|"d3EmployeeBegin"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier) {
+              return Err("CEN_D3_EMPLOYEE_KEY_IDENTIFIERS_REQUIRED".into());
+          }
+      },
+      "d3EmployeeCancel"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier) {
+              return Err("CEN_D3_EMPLOYEE_CANCEL_ID_REQUIRED".into());
+          }
+      },
+      "d3EmployeeComplete"=>{
+          if !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["credentialKeyId"].as_str().is_some_and(t3::valid_identifier)||
+             input["employeeProof"]["schema"]!="IWXA_T3_ACCESS_SIGNED/1"||
+             input["employeeProof"]["payload"]["kind"]!="PROOF"||
+             input["employeeProof"]["keyId"]!=input["credentialKeyId"] {
+              return Err("CEN_D3_EMPLOYEE_SIGNED_PROOF_REQUIRED".into());
+          }
+      },
+      "d3EmployeeRead"|"d3EmployeeExportInvite"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier) {
+              return Err("CEN_D3_EMPLOYEE_ENROLLMENT_IDENTIFIERS_REQUIRED".into());
+          }
+      },
+      "d3EmployeeTaskGrantIssue"|"d3EmployeeTaskGrantReadback"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier){
+              return Err("CEN_D3_EMPLOYEE_TASK_DATA_SCOPE_REQUIRED".into());
+          }
+          if operation=="d3EmployeeTaskGrantIssue"&&input["confirmed"]!=true{
+              return Err("CEN_D3_EMPLOYEE_TASK_DATA_CONFIRMATION_REQUIRED".into());
+          }
+      },
+      "d3EmployeeCreateTask"=>{
+          if input["confirmed"]!=true||
+             !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["taskId"].as_str().is_some_and(|s|
+                s.len()>5&&s.len()<=105&&s.starts_with("task:")&&
+                s[5..].bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'))||
+             !input["task"].as_str().is_some_and(|s|
+                !s.trim().is_empty()&&original_text_len(s)<=10000) {
+              return Err("CEN_D3_EMPLOYEE_SIGNED_TASK_INVALID".into());
+          }
+      },
+      "d3EmployeeTaskReadback"|"d3EmployeeExportTask"|
+      "d3EmployeeRecoverOrphanTask"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["taskId"].as_str().is_some_and(|id|
+                id.len()>5&&id.len()<=105&&id.starts_with("task:")&&
+                id[5..].bytes().all(|b|
+                    b.is_ascii_alphanumeric()||b==b'-')) {
+              return Err("CEN_D3_EMPLOYEE_TASK_READBACK_INVALID".into());
+          }
+          if operation=="d3EmployeeRecoverOrphanTask"&&input["confirmed"]!=true{
+              return Err("CEN_D3_EMPLOYEE_TASK_RECOVERY_CONFIRMATION_REQUIRED".into());
+          }
+      },
       "d3CreateTask"=>{
           if !input["task"].as_str().is_some_and(|s|
               !s.trim().is_empty()&&original_text_len(s)<=10000) {
@@ -131,6 +232,14 @@ fn supported_state(result:&Value,organization_id:&str,
        (view["snapshot"]["d3ApplyRecoverAvailable"]==true&&
         view["snapshot"]["d3ApplyAvailable"]!=true)||
        !view["snapshot"]["d3TaskIssueAvailable"].is_boolean()||
+       (view["snapshot"]["d3EmployeeEnrollmentAvailable"]!=Value::Null&&
+        !view["snapshot"]["d3EmployeeEnrollmentAvailable"].is_boolean())||
+       (view["snapshot"]["d3EmployeeRegistryBootstrapAvailable"]!=Value::Null&&
+        !view["snapshot"]["d3EmployeeRegistryBootstrapAvailable"].is_boolean())||
+       (view["snapshot"]["d3EmployeeRegistryReadbackAvailable"]!=Value::Null&&
+        !view["snapshot"]["d3EmployeeRegistryReadbackAvailable"].is_boolean())||
+       (view["snapshot"]["d3EmployeeTaskIssueAvailable"]!=Value::Null&&
+        !view["snapshot"]["d3EmployeeTaskIssueAvailable"].is_boolean())||
        !view["snapshot"]["tasks"].is_array()||
        !view["snapshot"]["totalTasks"].as_u64().is_some_and(|n|n<=256){
 
@@ -142,11 +251,37 @@ fn supported_state(result:&Value,organization_id:&str,
     if projected["snapshot"]["d3ApplyRecoverAvailable"]==Value::Null {
         projected["snapshot"]["d3ApplyRecoverAvailable"]=Value::Bool(false);
     }
+    if projected["snapshot"]["d3EmployeeEnrollmentAvailable"]==Value::Null {
+        projected["snapshot"]["d3EmployeeEnrollmentAvailable"]=Value::Bool(false);
+    }
+    for name in ["d3EmployeeRegistryBootstrapAvailable",
+                 "d3EmployeeRegistryReadbackAvailable",
+                 "d3EmployeeTaskIssueAvailable"] {
+        if projected["snapshot"][name]==Value::Null {
+            projected["snapshot"][name]=Value::Bool(false);
+        }
+    }
     Ok(projected)
 }
 fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
     let snapshot=&view["snapshot"];
     match operation{
+        "d3EmployeeRegistryInitialize"=>
+            snapshot["d3EmployeeRegistryBootstrapAvailable"]==true,
+        "d3EmployeeRegistryReadback"=>
+            snapshot["d3EmployeeRegistryReadbackAvailable"]==true,
+        "d3EmployeeCreateTask"|"d3EmployeeTaskReadback"|
+        "d3EmployeeExportTask"|"d3EmployeeRecoverOrphanTask"=>
+            snapshot["d3EmployeeEnrollmentAvailable"]==true&&
+            snapshot["d3EmployeeTaskIssueAvailable"]==true,
+        "d3EmployeeTaskGrantIssue"|"d3EmployeeTaskGrantReadback"=>
+            snapshot["d3EmployeeEnrollmentAvailable"]==true,
+        "d3EmployeeCredentialBegin"|"d3EmployeeCredentialCancel"|
+        "d3EmployeeCredentialAdmit"|
+        "d3EmployeeCredentialRead"|"d3EmployeeBegin"|
+        "d3EmployeeCancel"|"d3EmployeeComplete"|
+        "d3EmployeeRead"|"d3EmployeeExportInvite"=>
+            snapshot["d3EmployeeEnrollmentAvailable"]==true,
         "d3ApplyAccepted"=>snapshot["d3ApplyAvailable"]==true,
         "d3RecoverApplied"=>snapshot["d3ApplyRecoverAvailable"]==true&&
             snapshot["d3ApplyAvailable"]==true,
@@ -373,7 +508,7 @@ fn store_request(app:&AppHandle,data:&Value)->Result<EphemeralRequest,String>{
 const D3_HOST_CALL:&str="IWXA_T3_D3_NATIVE_OWNER_CALL/1";
 const D3_HOST_REPLY:&str="IWXA_T3_D3_NATIVE_OWNER_REPLY/1";
 #[derive(Default)]
-pub struct Session{owner:Option<OriginalOwner>}
+pub struct Session{owner:Option<OriginalOwner>,signed_workspace_visible:bool}
 struct OriginalOwner{
     organization_id:String,
     child:Child,
@@ -491,6 +626,21 @@ impl OriginalOwner{
         host_reply(&reply,id)
     }
 }
+// These errors originate ONLY in the existing One Core D3 read-only
+// Workspace preflight, before Human APPLY and before commitObjectGraph.
+// The installed owner keeps its signed Context and browser Kernel alive so
+// the manager can provision the same original Workspace and retry a NEW
+// explicit Human decision. All unknown/post-dispatch failures still close
+// this native owner and require original cold readback.
+fn definite_d3_pre_apply_workspace_refusal(
+    verb:&str,body:&Value,result:&Result<Value,String>
+)->bool{
+    verb=="action"&&body["operation"]=="d3ApplyAccepted"&&
+    matches!(result,Err(code) if matches!(code.as_str(),
+        "T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED"|
+        "T3_D3_ORIGINAL_WORKSPACE_DELETED"|
+        "T3_D3_ORIGINAL_WORKSPACE_READ_ONLY"))
+}
 fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
     body:Value)->Result<Value,String>{
     let state=app.state::<Mutex<Session>>();
@@ -502,16 +652,19 @@ fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
         // organization while the old DPAPI owner is released.
         close_original_signed_workspace(app)?;
         guard.owner.take();
+        guard.signed_workspace_visible=false;
         guard.owner=Some(OriginalOwner::open(app,organization_id)?);
     }
     let result=guard.owner.as_mut()
         .ok_or("CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?
         .call(verb,&body);
-    if result.is_err(){
-        // One failed command may have committed to original T3 before ACK
-        // was lost. Revoke the browser session and do not redispatch.
+    if result.is_err()&&
+        !definite_d3_pre_apply_workspace_refusal(verb,&body,&result){
+        // Unknown or post-dispatch error: original T2 may have committed
+        // before ACK was lost. Revoke the browser and require cold readback.
         let _=close_original_signed_workspace(app);
         guard.owner.take();
+        guard.signed_workspace_visible=false;
     }
     result
 }
@@ -521,6 +674,7 @@ fn close_original_owner(app:&AppHandle)->Result<(),String>{
         .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
     close_original_signed_workspace(app)?;
     guard.owner.take();
+    guard.signed_workspace_visible=false;
     Ok(())
 }
 fn private_owner_state(app:&AppHandle,organization_id:&str)->Result<Value,String>{
@@ -531,6 +685,25 @@ fn private_owner_state(app:&AppHandle,organization_id:&str)->Result<Value,String
 // desktop window. Never open an external browser, another Tauri window, or a
 // caller-supplied URL. The signed D3 owner supplies its two loopback origins.
 const SIGNED_WORKSPACE_WEBVIEW:&str="iwxa-t3-signed-workspace";
+// These are ONLY UI-navigation bits about the existing child, never signed
+// authority, persisted rights, a Kernel capability or a bearer projection.
+fn signed_workspace_ui_state(
+    owner_org:Option<&str>,exists:bool,visible:bool,selected:&str
+)->Value{
+    let current=exists&&owner_org==Some(selected);
+    json!({"schema":"IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1",
+        "open":current,"visible":current&&visible,
+        "foreignOrOrphaned":exists&&!current})
+}
+fn record_signed_workspace_visible(
+    app:&AppHandle,visible:bool
+)->Result<(),String>{
+    let state=app.state::<Mutex<Session>>();
+    let mut guard=state.lock()
+        .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
+    guard.signed_workspace_visible=visible;
+    Ok(())
+}
 fn original_signed_workspace_origins(view:&Value)
     ->Result<(tauri::Url,String,String),String>{
     let s=&view["snapshot"];
@@ -608,6 +781,25 @@ fn close_original_signed_workspace(app:&AppHandle)->Result<(),String>{
     }
     Ok(())
 }
+// A React reload discards its UI-only state without closing the original
+// signed native child. Read its exact presence/visibility from the SAME
+// Tauri process so the manager can return to Review rather than being
+// stranded behind an overlay without navigation.
+#[tauri::command]
+pub async fn center_corporate_signed_workspace_status(
+    app:AppHandle,organization_id:String
+)->Result<Value,String>{
+    check_org(&organization_id)?;
+    tauri::async_runtime::spawn_blocking(move||{
+        let exists=app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_some();
+        let state=app.state::<Mutex<Session>>();
+        let guard=state.lock()
+            .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
+        Ok(signed_workspace_ui_state(
+            guard.owner.as_ref().map(|o|o.organization_id.as_str()),
+            exists,guard.signed_workspace_visible,&organization_id))
+    }).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
+}
 #[tauri::command]
 pub async fn center_corporate_close_signed_workspace(
     app:AppHandle
@@ -634,6 +826,7 @@ pub async fn center_corporate_hide_signed_workspace(
             .ok_or("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING")?;
         webview.hide()
             .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_HIDE_FAILED".to_owned())?;
+        record_signed_workspace_visible(&app,false)?;
         // The native Review controls live in the original main WebView.
         // Recover keyboard focus after hiding the child; focus failure
         // cannot turn a successful hide into a misleading UI error.
@@ -657,6 +850,7 @@ pub async fn center_corporate_show_signed_workspace(
             .ok_or("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING")?;
         webview.show()
             .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_SHOW_FAILED".to_owned())?;
+        record_signed_workspace_visible(&app,true)?;
         let _=webview.set_focus();
         Ok(())
     }).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
@@ -684,6 +878,7 @@ pub async fn center_corporate_open_signed_workspace(
             // of marooning the user behind an ALREADY_OPEN error.
             existing.show()
                 .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_SHOW_FAILED".to_owned())?;
+            record_signed_workspace_visible(&app,true)?;
             let _=existing.set_focus();
             return Ok(());
         }
@@ -713,6 +908,7 @@ pub async fn center_corporate_open_signed_workspace(
             tauri::LogicalPosition::new(x,y),
             tauri::LogicalSize::new(logical.width-x,logical.height-y))
             .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_CREATE_FAILED")?;
+        record_signed_workspace_visible(&app,true)?;
         Ok(())
     }).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
 }
@@ -821,6 +1017,15 @@ pub async fn center_corporate_action(
     if !t3::admin_d3_availability(&app,&organization_id){
         return Err("CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED".into());
     }
+    if operation.starts_with("d3Employee"){
+        // Exactly one live private original employee authority is required.
+        // Unsupported builds fail before any signed write reaches the owner.
+        let state=original_owner_call(&app,&organization_id,"state",Value::Null)?;
+        let current=supported_state(&state,&organization_id,"D3_STATE")?;
+        if !exact_kernel_apply_capability(&current,&operation){
+            return Err("CEN_D3_ORIGINAL_EMPLOYEE_OWNER_NOT_CONNECTED".into());
+        }
+    }
     if matches!(operation.as_str(),"d3ApplyAccepted"|"d3RecoverApplied"){
         // The ORIGINAL T2 Kernel lives exclusively in the currently
         // mounted trusted child WebView. A stale native APPLY capability
@@ -840,6 +1045,91 @@ pub async fn center_corporate_action(
         }
         if !exact_kernel_apply_capability(&verified,&operation){
             return Err("CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED".into());
+        }
+    }
+    if operation=="d3EmployeeRegistryInitialize"{
+        if app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_none() {
+            return Err("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING".into());
+        }
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: исходный корпоративный реестр")
+            .set_description("Инициализировать или перечитать оригинальный подписанный реестр организации в уже открытом T2 Kernel? Если запись началась, при потерянном подтверждении нельзя повторять её: используется только холодное чтение исходного Object/Event.")
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_REGISTRY_HUMAN_CANCELLED".into());
+        }
+    }
+    if operation=="d3EmployeeCredentialAdmit"{
+        let who=input["employeePersonId"].as_str().unwrap_or("");
+        let key=input["credentialKeyId"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: подтвердить ключ сотрудника")
+            .set_description(&format!(
+                "Подтвердить публичный PROOF-ключ {} сотрудника {}? Закрытая часть ключа не передаётся. Запись выполняется только через оригинальный Kernel, при потерянном ответе повторять её нельзя.",key,who))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_CREDENTIAL_HUMAN_CANCELLED".into());
+        }
+    }
+    if operation=="d3EmployeeComplete"{
+        let who=input["employeePersonId"].as_str().unwrap_or("");
+        let key=input["credentialKeyId"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: выдать полномочия сотруднику")
+            .set_description(&format!(
+                "Выдать сотруднику {} (PROOF {}) отдельные оригинальные ACTION work.prepare и DATA package.export только для подписанной Workspace организации? Экспорт к iwxa.atlas, права руководителя и issuer не выдаются. Оригинальный Kernel сохраняет Object/Event и signed STATUS. После отправки повторная выдача запрещена.",who,key))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_GRANTS_HUMAN_CANCELLED".into());
+        }
+    }
+    if operation=="d3EmployeeRecoverOrphanTask"{
+        let who=input["employeePersonId"].as_str().unwrap_or("");
+        let task=input["taskId"].as_str().unwrap_or("");
+        let enrollment=input["enrollmentId"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: восстановить исходную подписанную Task")
+            .set_description(&format!(
+                "Восстановить каталог для существующей подписанной Task {} сотрудника {} (подключение {})? Проверяются оригинальный .iwxa, подпись и действующий Kernel. Новая подпись, новый grant и доставка не выполняются. Если подтверждение потеряется, восстановление не повторяется до холодного readback.",task,who,enrollment))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_TASK_RECOVERY_HUMAN_CANCELLED".into());
+        }
+    }
+    if operation=="d3EmployeeCreateTask"{
+        let who=input["employeePersonId"].as_str().unwrap_or("");
+        let task=input["taskId"].as_str().unwrap_or("");
+        let enrollment=input["enrollmentId"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: подписать поручение независимому сотруднику")
+            .set_description(&format!(
+                "Подписать оригинальное поручение {} для сотрудника {} (подключение {})? Используются отдельные действующие ACTION task.assign и DATA package.export из оригинального Kernel. Поручение сохраняется для передачи, но не считается доставленным. При потерянном ответе не подписывать его повторно.",task,who,enrollment))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning).show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_TASK_HUMAN_CANCELLED".into());
+        }
+    }
+    if operation=="d3EmployeeTaskGrantIssue"{
+        let who=input["employeePersonId"].as_str().unwrap_or("");
+        let enrollment=input["enrollmentId"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: право выдачи поручений сотруднику")
+            .set_description(&format!(
+                "Выдать руководителю отдельный исходный подписанный DATA grant для экспорта Task только сотруднику {} (подключение {})? Это отдельная запись в оригинальный Kernel, не сама Task и не доставка файла. После потери подтверждения повторять выдачу нельзя.",who,enrollment))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_TASK_DATA_HUMAN_CANCELLED".into());
         }
     }
     if operation=="d3ApplyAccepted"{
@@ -890,15 +1180,22 @@ pub async fn center_corporate_action(
             return Ok(json!({"status":"CANCELLED"}));
         };
         Some(path)
-    }else if matches!(operation.as_str(),"d3ExportTask"|"d3ExportInvitation"){
+    }else if matches!(operation.as_str(),"d3ExportTask"|"d3ExportInvitation"|"d3EmployeeExportInvite"|
+        "d3EmployeeExportTask"){
         // Native Windows Save dialog, not a WebView-supplied arbitrary path.
         // The original private owner writes & reads back exact signed bytes.
-        let title=if operation=="d3ExportTask"{
-            "Сохранить подписанную Task T3"
-        }else{"Сохранить подписанное приглашение T3"};
-        let name=if operation=="d3ExportTask"{
-            "iwxa-signed-task.iwxa"
-        }else{"iwxa-signed-invitation.iwxa"};
+        let title=match operation.as_str(){
+            "d3ExportTask"=>"Сохранить подписанную Task T3",
+            "d3EmployeeExportTask"=>"Сохранить Task независимому сотруднику T3",
+            "d3EmployeeExportInvite"=>"Сохранить приглашение сотрудника T3",
+            _=>"Сохранить подписанное приглашение T3"
+        };
+        let name=match operation.as_str(){
+            "d3ExportTask"=>"iwxa-signed-task.iwxa",
+            "d3EmployeeExportTask"=>"iwxa-employee-task.iwxa",
+            "d3EmployeeExportInvite"=>"iwxa-employee-invitation.iwxa",
+            _=>"iwxa-signed-invitation.iwxa"
+        };
         let selection=rfd::FileDialog::new()
             .set_title(title).add_filter("IWXA",&["iwxa"])
             .set_file_name(name).save_file();
@@ -1009,7 +1306,8 @@ pub async fn center_corporate_action(
         // issuance. A view-close failure cannot turn an already completed
         // signed operation into a retryable failure.
         if matches!(operation.as_str(),
-            "d3CreateTask"|"d3ExportTask"|"d3ExportInvitation"){
+            "d3CreateTask"|"d3ExportTask"|"d3ExportInvitation"|
+            "d3EmployeeCreateTask"|"d3EmployeeRecoverOrphanTask"){
             let _=close_original_signed_workspace(&app);
         }
         // No implicit ACCEPT or Kernel Apply.
@@ -1020,7 +1318,50 @@ pub async fn center_corporate_action(
 mod tests{
     use super::*;
     #[test]
-    fn signed_workspace_comes_only_from_original_two_loopback_origins(){
+    fn pre_apply_workspace_refusal_keeps_original_native_owner_live(){
+        let apply=json!({"operation":"d3ApplyAccepted"});
+        for code in [
+            "T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED",
+            "T3_D3_ORIGINAL_WORKSPACE_DELETED",
+            "T3_D3_ORIGINAL_WORKSPACE_READ_ONLY",
+        ]{
+            let refusal=Err(code.to_string());
+            assert!(definite_d3_pre_apply_workspace_refusal(
+                "action",&apply,&refusal));
+            assert!(!definite_d3_pre_apply_workspace_refusal(
+                "state",&apply,&refusal));
+            assert!(!definite_d3_pre_apply_workspace_refusal(
+                "action",&json!({"operation":"d3Decide"}),&refusal));
+        }
+        for code in [
+            "T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN",
+            "T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED",
+            "WORKSPACE_NOT_FOUND","PERMISSION_DENIED",
+            "CEN_D3_ORIGINAL_HOST_OUTCOME_UNKNOWN",
+        ]{
+            assert!(!definite_d3_pre_apply_workspace_refusal(
+                "action",&apply,&Err(code.to_string())));
+        }
+        assert!(!definite_d3_pre_apply_workspace_refusal(
+            "action",&apply,&Ok(json!({"status":"CONFIRMED"}))));
+    }
+    #[test]
+    fn native_child_ui_status_restores_only_the_same_signed_owner(){
+        let hidden=signed_workspace_ui_state(Some("org:a"),true,false,"org:a");
+        assert_eq!(hidden["open"],true);
+        assert_eq!(hidden["visible"],false);
+        assert_eq!(hidden["foreignOrOrphaned"],false);
+        let shown=signed_workspace_ui_state(Some("org:a"),true,true,"org:a");
+        assert_eq!(shown["visible"],true);
+        let foreign=signed_workspace_ui_state(Some("org:a"),true,true,"org:b");
+        assert_eq!(foreign["open"],false);
+        assert_eq!(foreign["foreignOrOrphaned"],true);
+        let missing=signed_workspace_ui_state(Some("org:a"),false,true,"org:a");
+        assert_eq!(missing["open"],false);
+        assert_eq!(missing["visible"],false);
+    }
+    #[test]
+        fn signed_workspace_comes_only_from_original_two_loopback_origins(){
         let original=json!({"snapshot":{
             "product":"admin","d3RecipientAvailable":true,"T3_READY":false,
             "originalControlEpoch":8,
@@ -1263,6 +1604,91 @@ mod tests{
         assert!(check_bound_request(&json!({"acceptanceId":"c".repeat(64),
             "revisionIds":["d".repeat(64),"d".repeat(64)]}),
             "d3ApplyAccepted").is_err());
+    }
+    #[test]
+    fn independent_employee_commands_require_original_key_and_scope(){
+        let record=json!({"subjectId":"person:worker","environment":"PRODUCTION",
+          "publicKey":"-----BEGIN PUBLIC KEY-----known-----END PUBLIC KEY-----",
+          "status":"ACTIVE","uses":["PROOF"],"notBefore":"2026-11-16T00:00:00Z",
+          "expiresAt":"2026-12-16T00:00:00Z"});
+        assert!(check_bound_request(&json!({}),"d3EmployeeRegistryReadback").is_ok());
+        assert!(check_bound_request(&json!({"confirmed":true}),
+            "d3EmployeeRegistryInitialize").is_ok());
+        assert!(check_bound_request(&json!({"confirmed":false}),
+            "d3EmployeeRegistryInitialize").is_err());
+        let args=json!({"employeePersonId":"person:worker",
+            "credentialKeyId":"key:worker","keyRecord":record});
+        assert!(check_bound_request(&args,"d3EmployeeCredentialBegin").is_ok());
+        let mut poisoned=args.clone();
+        poisoned["keyRecord"]["privateKeyPem"]=json!("FORBIDDEN");
+        assert!(check_bound_request(&poisoned,"d3EmployeeCredentialBegin").is_err());
+        poisoned=args.clone();
+        poisoned["keyRecord"]["subjectId"]=json!("person:manager");
+        assert!(check_bound_request(&poisoned,"d3EmployeeCredentialBegin").is_err());
+        let proof=json!({"schema":"IWXA_T3_ACCESS_SIGNED/1",
+            "keyId":"key:worker","payload":{"kind":"PROOF"}});
+        let admit=json!({"employeePersonId":"person:worker",
+            "credentialKeyId":"key:worker","admissionId":"admission:one",
+            "employeeProof":proof});
+        assert!(check_bound_request(&admit,"d3EmployeeCredentialAdmit").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "credentialKeyId":"key:worker","admissionId":"admission:one"}),
+            "d3EmployeeCredentialCancel").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "credentialKeyId":"key:worker"}),
+            "d3EmployeeCredentialCancel").is_err());
+        let mut wrong=admit.clone();
+        wrong["employeeProof"]["keyId"]=json!("key:manager");
+        assert!(check_bound_request(&wrong,"d3EmployeeCredentialAdmit").is_err());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "credentialKeyId":"key:worker"}),"d3EmployeeCredentialRead").is_ok());
+        assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one",
+            "employeePersonId":"person:worker","credentialKeyId":"key:worker",
+            "employeeProof":proof}),"d3EmployeeComplete").is_ok());
+        assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one",
+            "employeePersonId":"person:worker","credentialKeyId":"key:manager",
+            "employeeProof":proof}),"d3EmployeeComplete").is_err());
+        assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one",
+            "employeePersonId":"person:worker"}),"d3EmployeeCancel").is_ok());
+        assert!(check_bound_request(&json!({"enrollmentId":"enrollment:one"}),
+            "d3EmployeeCancel").is_err());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one"}),"d3EmployeeRead").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one"}),"d3EmployeeExportInvite").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","confirmed":true}),
+            "d3EmployeeTaskGrantIssue").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","confirmed":false}),
+            "d3EmployeeTaskGrantIssue").is_err());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one"}),
+            "d3EmployeeTaskGrantReadback").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker"}),
+            "d3EmployeeExportInvite").is_err());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:one",
+            "task":"Source supplier receipt","confirmed":true}),"d3EmployeeCreateTask").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:two"}),
+            "d3EmployeeTaskReadback").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:two",
+            "confirmed":true}),"d3EmployeeRecoverOrphanTask").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:two"}),
+            "d3EmployeeRecoverOrphanTask").is_err());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:two/foreign",
+            "confirmed":true}),"d3EmployeeRecoverOrphanTask").is_err());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:two",
+            "task":"  "}),"d3EmployeeCreateTask").is_err());
+        let mut absent=json!({"snapshot":{"d3EmployeeEnrollmentAvailable":false}});
+        assert!(!exact_kernel_apply_capability(&absent,"d3EmployeeBegin"));
+        absent["snapshot"]["d3EmployeeEnrollmentAvailable"]=Value::Bool(true);
+        assert!(exact_kernel_apply_capability(&absent,"d3EmployeeBegin"));
     }
     #[test]
     fn first_kernel_apply_requires_original_committed_object_event_and_result(){

@@ -224,13 +224,114 @@ try{
   await page.setViewportSize({width:320,height:800});assert.ok(await page.locator('.menu-button').isVisible());await page.locator('.menu-button').click();await page.getByTestId('nav-work').click();
   const sizes=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert.ok(sizes.scroll<=sizes.width+1,JSON.stringify(sizes));checks.push('navigation-and-no-overflow-320');
   await page.screenshot({path:'artifacts/work-320.png',fullPage:true});assert.deepEqual(errors,[]);checks.push('no-page-errors');
+  // First-use UI with an available ORIGINAL native owner but no local
+  // Workspace: manager must be able to create the missing draft Workspace
+  // and then return to the ONE signed enrollment command. The native
+  // owner below is a UI fixture; it is not original DPAPI qualification.
+  const onboardPage=await browser.newPage({viewport:{width:1366,height:900}});
+  await onboardPage.addInitScript(()=>{
+    const fixture={enrolled:false,workspaceId:null,enrollmentCalls:0,
+      draftSaves:0,failSave:true,savedContent:null};
+    window.__onboardD3Fixture=fixture;
+    window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
+      if(command==='center_draft_read_local')return fixture.savedContent;
+      if(command==='center_draft_save_local'){
+        fixture.draftSaves++;
+        if(fixture.failSave)throw Error('CEN_D3_UI_FIXTURE_DRAFT_DISK_UNAVAILABLE');
+        fixture.savedContent=args.content;
+        return true;
+      }
+      if(command==='center_corporate_signed_workspace_status')return {
+        schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',
+        open:false,visible:false,foreignOrOrphaned:false};
+      if(command==='center_corporate_state'){
+        if(!fixture.enrolled)return {status:'NOT_CONNECTED',enrollmentAvailable:true};
+        return {status:'D3_OWNER_READY',snapshot:{
+          product:'admin',organizationId:args.organizationId,
+          workspaceId:fixture.workspaceId,actorId:'person:local-manager',
+          contextId:'context:enrolled',contextEpoch:1,
+          d3RecipientAvailable:true,d3TaskIssueAvailable:false,
+          d3InspectAvailable:true,d3ApplyAvailable:false,
+          d3ApplyRecoverAvailable:false,
+          productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
+        }};
+      }
+      if(command==='center_corporate_enroll'){
+        if(!args.workspaceId||args.organizationName!=='First use workshop'||
+           !fixture.savedContent)
+          throw Error('CEN_D3_UI_FIXTURE_ENROLLMENT_ARGUMENTS_INVALID');
+        const saved=JSON.parse(fixture.savedContent);
+        if(saved.activeOrganizationId!==args.organizationId||
+           !saved.organizations?.some(o=>o.id===args.organizationId&&
+             o.workspaces.some(w=>w.id===args.workspaceId)))
+          throw Error('CEN_D3_UI_FIXTURE_ENROLLMENT_DRAFT_NOT_SAVED');
+        fixture.enrollmentCalls++;
+        fixture.workspaceId=args.workspaceId;
+        fixture.enrolled=true;
+        return {status:'D3_OWNER_READY',snapshot:{
+          organizationId:args.organizationId,workspaceId:args.workspaceId}};
+      }
+      if(command==='center_corporate_age_status')return {
+        operation:'AGE_STATUS',available:false,recipient:null,
+        toolchain:{ready:false},provider:'WINDOWS_UI_FIXTURE',admitted:false};
+      return null;
+    }};
+  });
+  await onboardPage.goto('http://127.0.0.1:4173');
+  await onboardPage.getByTestId('org-name').fill('First use workshop');
+  await onboardPage.getByTestId('create-org').click();
+  await onboardPage.getByTestId('nav-results').click();
+  await onboardPage.getByTestId('d3-enrollment-no-workspace').waitFor();
+  assert.equal(await onboardPage.getByTestId('d3-enroll').isEnabled(),false);
+  assert.equal(await onboardPage.getByTestId('d3-enrollment-workspace').count(),0);
+  await onboardPage.getByTestId('d3-enrollment-create-workspace').click();
+  await onboardPage.getByTestId('workspace-name').fill('Purchasing team');
+  await onboardPage.getByTestId('add-workspace').click();
+  await onboardPage.getByTestId('nav-results').click();
+  await onboardPage.getByTestId('d3-enrollment-workspace').waitFor();
+  const signedWorkspaceSelect=onboardPage.getByTestId('d3-enrollment-workspace');
+  assert.ok((await signedWorkspaceSelect.locator('option').allTextContents()).includes('Purchasing team'),
+    'new Workspace appears as an original enrollment choice');
+  const localWorkspaceId=await signedWorkspaceSelect.inputValue();
+  assert.ok(localWorkspaceId.length>0,'new Workspace has an explicit local ID');
+  assert.equal(await onboardPage.getByTestId('d3-enroll').isEnabled(),true);
+  // The first disk save deliberately fails. No signed owner enrollment may
+  // occur until the same native draft is actually persisted and reread.
+  await onboardPage.getByTestId('d3-enroll').click();
+  await onboardPage.getByRole('alert').waitFor({state:'visible'});
+  assert.equal((await onboardPage.evaluate(()=>window.__onboardD3Fixture)).enrollmentCalls,0,
+    'failed local saving must precede any original T3 enrollment');
+  await onboardPage.evaluate(()=>{window.__onboardD3Fixture.failSave=false;});
+  await onboardPage.getByTestId('d3-enroll').click();
+  try{
+    await onboardPage.getByTestId('cen03-d3-original').waitFor({timeout:8000});
+  }catch(e){
+    // Preserve the precise original owner response and React UI state:
+    // a fixture error must never be mislabeled as native signed D3 failure.
+    const diagnostic={
+      fixture:await onboardPage.evaluate(()=>window.__onboardD3Fixture),
+      native:await onboardPage.evaluate(()=>window.__TAURI_INTERNALS__.invoke(
+        'center_corporate_state',{organizationId:document.querySelector('#active-organization')?.value})),
+      status:await onboardPage.getByTestId('corporate-owner-status').allInnerTexts(),
+      alerts:await onboardPage.getByRole('alert').allInnerTexts(),
+      panelCount:await onboardPage.getByTestId('cen03-d3-original').count()
+    };
+    console.error('CEN_D3_FIRST_USE_DIAGNOSTIC',JSON.stringify(diagnostic));
+    throw e;
+  }
+  const firstUse=await onboardPage.evaluate(()=>window.__onboardD3Fixture);
+  assert.equal(firstUse.enrollmentCalls,1);
+  assert.equal(firstUse.draftSaves,2,'one failed and one verified local save');
+  assert.ok(firstUse.savedContent?.includes('Purchasing team'));
+  await onboardPage.close();
+  checks.push('d3-first-use-no-workspace-persists-and-rereads-before-signed-enrollment');
   // UI-only mock of the EXISTING native signed owner: this does not
   // assert Ed25519, original Kernel or installed T3 integration. It checks
   // that the manager does not lose an attempted Task ID when the signed
   // owner changes its epoch after a write and the ACK disappears.
   const d3Page=await browser.newPage({viewport:{width:1366,height:900}});
   await d3Page.addInitScript(()=>{
-    const held={epoch:7,task:null,writes:0};
+    const held={epoch:7,task:null,writes:0,decisionWrites:0,decision:null};
     window.__d3UiFixture=held;
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(command==='center_draft_read_local')return null;
@@ -269,6 +370,44 @@ try{
             taskRevisionId:'a'.repeat(64),packageSha256:'b'.repeat(64),
             recipientId:'person:reviewer',
             status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED'};
+        if(args.operation==='d3Preview'){
+          const sha='c'.repeat(64),digest='d'.repeat(64),revision='e'.repeat(64);
+          const resultText='Результат выполнен';
+          return {schema:'IWXA_T3_RECONCILIATION_PREVIEW/1',
+            packageSha256:sha,previewDigest:digest,allowedAction:'EXPLICIT_ACCEPT_ONLY',
+            classification:'NEW',entries:[{revisionId:revision}],
+            resultInspection:{
+              schema:'IWXA_T3_ORIGINAL_SIGNED_RESULT_REVIEW/1',
+              packageSha256:sha,previewDigest:digest,
+              taskId:'task:employee',taskRevisionId:'a'.repeat(64),
+              resultRevisionId:revision,executorId:'person:employee',
+              organizationId:args.organizationId,workspaceId:'workspace:ui-smoke',
+              signatureVerified:true,taskBindingProven:true,
+              taskCatalogVerified:true,assignmentText:'Проверить исходный документ',
+              resultLength:resultText.length,offset:0,resultText,
+              nextOffset:resultText.length,hasMore:false
+            }};
+        }
+        if(args.operation==='d3Decide'){
+          held.decisionWrites++;
+          held.decision={operationId:args.input.operationId,
+            packageSha256:args.input.packageSha256};
+          held.epoch++;
+          // Model the original owner recording ACCEPT before losing native ACK.
+          throw Error('T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED');
+        }
+        if(args.operation==='d3Receipt'){
+          const found=held.decision?.operationId===args.input.operationId&&
+            held.decision?.packageSha256===args.input.packageSha256;
+          return {kernelApplication:'NOT_ATTESTED_BY_RECONCILIATION_RECEIPT',
+            found,receipt:found?{
+              schema:'IWXA_T3_ACCEPTANCE_RECEIPT/1',
+              operationId:held.decision.operationId,
+              packageSha256:held.decision.packageSha256,
+              decisionBy:'person:reviewer',acceptanceState:'ACCEPTED',
+              acceptanceId:'f'.repeat(64)
+            }:null};
+        }
       }
       return null;
     }};
@@ -278,6 +417,14 @@ try{
   await d3Page.getByTestId('create-org').click();
   await d3Page.getByTestId('nav-results').click();
   await d3Page.getByTestId('d3-signed-task-workflow').waitFor();
+  // Installed independent employee authority cannot be inferred from the
+  // existing original reviewer alone. When the private owner does not
+  // advertise the genuine One Core enrollment port, no UI-issued grant,
+  // credential or second-employee Task command may be available.
+  await d3Page.getByTestId('d3-employee-owner-unavailable').waitFor();
+  assert.equal(await d3Page.getByTestId('d3-employee-steps').count(),0);
+  assert.equal(await d3Page.getByTestId('d3-employee-credential-begin').count(),0);
+  checks.push('d3-independent-employee-unavailable-without-original-kernel-owner');
   await d3Page.getByTestId('d3-task-text').fill('Check original supplier receipt');
   await d3Page.getByTestId('d3-task-prepare-id').click();
   const attemptedTaskId=await d3Page.getByTestId('d3-task-operation-id').inputValue();
@@ -295,8 +442,576 @@ try{
     /Оригинальная Task сохранена/);
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).writes,1,
     'read-only Task recovery must not reissue signed Task');
-  await d3Page.close();
   checks.push('d3-task-id-and-no-replay-survive-unknown-ack-and-signed-epoch-remount');
+  // UI-only owner fixture: ACCEPT commits, native ACK is lost and owner epoch
+  // advances. A React remount must retain the original ID for receipt recovery.
+  const decisionSha='c'.repeat(64);
+  await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
+  await d3Page.getByTestId('d3-review').click();
+  await d3Page.getByTestId('d3-original-signed-review').waitFor();
+  await d3Page.getByLabel('Я просмотрел этот пакет и подтверждаю отдельное решение').check();
+  await d3Page.getByTestId('d3-prepare-id').click();
+  const pendingDecisionId=await d3Page.getByTestId('d3-operation-id').inputValue();
+  await d3Page.getByLabel('Я сохранил ID для восстановления при потере ответа').check();
+  await d3Page.getByTestId('d3-accept').click();
+  await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
+  await d3Page.getByTestId('d3-decision-already-sent').waitFor();
+  assert.equal(await d3Page.getByTestId('d3-operation-id').inputValue(),
+    pendingDecisionId,'sent Human decision ID must survive signed epoch remount');
+  await d3Page.getByTestId('d3-review').click();
+  assert.equal(await d3Page.getByTestId('d3-prepare-id').isEnabled(),false,
+    'unknown ACCEPT ACK cannot prepare another decision');
+  assert.equal(await d3Page.getByTestId('d3-accept').isEnabled(),false);
+  await d3Page.getByTestId('d3-recover').click();
+  await d3Page.getByTestId('d3-recovered-receipt').waitFor();
+  assert.match(await d3Page.getByTestId('d3-recovered-receipt').innerText(),
+    /Оригинальная квитанция/);
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
+    'read-only decision recovery must not send a second ACCEPT');
+  checks.push('d3-human-decision-no-replay-survives-unknown-ack-and-signed-epoch-remount');
+  // A navigation away fully unmounts CorporatePanel, losing every React
+  // decision guard. The original receipt alone must prevent a new ACCEPT.
+  // This UI fixture keeps native owner state independent of the React panel.
+  await d3Page.getByTestId('nav-overview').click();
+  await d3Page.getByTestId('nav-results').click();
+  await d3Page.getByTestId('d3-signed-task-workflow').waitFor();
+  await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
+  await d3Page.getByTestId('d3-operation-id').fill(pendingDecisionId);
+  await d3Page.getByTestId('d3-recover').click();
+  await d3Page.getByTestId('d3-recovered-receipt').waitFor();
+  await d3Page.getByTestId('d3-review').click();
+  await d3Page.getByTestId('d3-original-signed-review').waitFor();
+  assert.equal(await d3Page.getByTestId('d3-prepare-id').isEnabled(),false,
+    'accepted original receipt blocks preparing another decision after cold panel reopen');
+  assert.equal(await d3Page.getByTestId('d3-accept').isEnabled(),false,
+    'accepted original receipt blocks Human ACCEPT after cold panel reopen');
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
+    'cold panel receipt recovery must not dispatch another decision');
+  checks.push('d3-cold-react-panel-receipt-prevents-duplicate-human-accept');
+  await d3Page.close();
+  // UI-only native owner fixture: these checks DO NOT qualify cryptography,
+  // the original installed T3, independent employee signature or Kernel.
+  const employeeState={registered:false,ready:false,reads:0,
+    initializations:0,inviteExports:0,savedDraft:null,requiresCold:false,
+    wrongReadKey:true,taskGrantCalls:0,taskGrantSaved:false,
+    wrongTaskGrantRecipient:true,cancelFirstTaskGrant:true,
+    loseFirstTaskGrantAck:true,taskIssueCalls:0,signedTaskSaved:false,
+    cancelFirstTask:true,loseFirstTaskAck:true,taskExports:0,
+    taskOrphan:false,taskRecoveryCalls:0,cancelFirstTaskRecovery:true,
+    cancelFirstInit:true,loseFirstInitAck:true};
+  const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
+  await employeePage.exposeFunction('__centerEmployeeFixture',
+    async(command,args={})=>{
+      if(command==='center_draft_read_local')return employeeState.savedDraft;
+      if(command==='center_draft_save_local'){
+        employeeState.savedDraft=args.content;return true;
+      }
+      if(command==='center_corporate_signed_workspace_status')
+        return {schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',
+          open:false,visible:false,foreignOrOrphaned:false};
+      if(command==='center_corporate_state')return {
+        status:'D3_OWNER_READY',snapshot:{
+          product:'admin',organizationId:args.organizationId,
+          workspaceId:'workspace:employee-fixture',
+          actorId:'person:manager-fixture',
+          contextId:'context:employee-fixture',contextEpoch:1,
+          d3RecipientAvailable:true,d3TaskIssueAvailable:false,
+          d3InspectAvailable:true,d3ApplyAvailable:false,
+          d3ApplyRecoverAvailable:false,
+          d3EmployeeRegistryBootstrapAvailable:true,
+          d3EmployeeRegistryReadbackAvailable:true,
+          d3EmployeeEnrollmentAvailable:employeeState.ready,
+          d3EmployeeTaskIssueAvailable:employeeState.ready,
+          productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
+        }};
+      if(command==='center_corporate_age_status')return {
+        operation:'AGE_STATUS',available:false,recipient:null,
+        toolchain:{ready:false},provider:'WINDOWS_TEST_UI',admitted:false};
+      if(command==='center_corporate_action'){
+        assert.equal(args.binding?.actorId,'person:manager-fixture');
+        assert.equal(args.binding?.workspaceId,'workspace:employee-fixture');
+        assert.equal(args.binding?.contextEpoch,1);
+        if(args.operation==='d3EmployeeRegistryReadback'){
+          assert.equal(employeeState.requiresCold,false,
+            'after possibly committed graph, readback needs a cold owner');
+          employeeState.reads++;
+          employeeState.ready=employeeState.registered;
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1',
+            state:employeeState.registered?'ORIGINAL_KERNEL_REGISTRY_CONFIRMED':
+              'ORIGINAL_KERNEL_REGISTRY_NOT_FOUND',
+            organizationId:args.organizationId,
+            workspaceId:'workspace:employee-fixture',
+            originalReadback:true,originalKernel:true,
+            signatureVerified:employeeState.registered,
+            automaticRetryAllowed:false
+          };
+        }
+        if(args.operation==='d3EmployeeCredentialRead'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.credentialKeyId,'key:independent');
+          return {
+            state:'ORIGINAL_PROOF_CREDENTIAL_ADMITTED',
+            employeePersonId:args.input.employeePersonId,
+            credentialKeyId:args.input.credentialKeyId,
+            originalReadback:true,safeToRetry:false
+          };
+        }
+        if(args.operation==='d3EmployeeRead'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          const organizationId=args.organizationId,personId=args.input.employeePersonId;
+          const workspaceId='workspace:employee-fixture',credentialKeyId=
+            employeeState.wrongReadKey?'key:other-person':'key:independent';
+          return {
+            state:'ORIGINAL_GRANTS_ACTIVE',originalSigned:true,
+            originalReadback:true,safeToReissue:false,
+            organizationId,employeePersonId:personId,
+            enrollmentId:args.input.enrollmentId,statusSequence:3,
+            membership:{organizationId,personId,workspaceId},
+            credential:{holderPersonId:personId,publicKeyRef:credentialKeyId},
+            binding:{organizationId,holderPersonId:personId,grantId:'grant:work-fixture'},
+            workGrant:{payload:{id:'grant:work-fixture',holderId:personId,
+              rightClass:'ACTION',actions:['work.prepare'],resources:[workspaceId]}},
+            exportGrant:{payload:{holderId:personId,rightClass:'DATA',
+              actions:['package.export'],resources:[
+                'workspace:'+workspaceId,'subject:'+organizationId,
+                'recipient:'+organizationId,'field:result','operation:UPSERT'
+              ]}},
+            originalEnrollment:{payload:{personId,organizationId,workspaceId,
+              credentialPublicKeyRef:credentialKeyId}}
+          };
+        }
+        if(args.operation==='d3EmployeeTaskGrantReadback'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          const organizationId=args.organizationId,workspaceId='workspace:employee-fixture',
+            personId=employeeState.wrongTaskGrantRecipient?'person:other':'person:independent';
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1',
+            state:employeeState.taskGrantSaved?'ORIGINAL_MANAGER_TASK_DATA_ACTIVE':
+              'ORIGINAL_MANAGER_TASK_DATA_NOT_FOUND',
+            employeePersonId:'person:independent',
+            recipientId:personId,managerPersonId:'person:manager-fixture',
+            organizationId,workspaceId,enrollmentId:'enrollment:verified',
+            originalReadback:true,safeToReissue:false,statusSequence:6,
+             grant:{payload:{
+              id:'grant:manager-task-fixture',
+              holderId:'person:manager-fixture',roleId:'assigner',rightClass:'DATA',
+              actions:['package.export'],purposes:['assignment'],
+              resources:['workspace:'+workspaceId,'subject:'+organizationId,
+                'recipient:'+personId,'field:task','operation:UPSERT']
+            }}
+          };
+        }
+        if(args.operation==='d3EmployeeTaskGrantIssue'){
+          assert.equal(args.input.confirmed,true);
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          if(employeeState.cancelFirstTaskGrant){
+            employeeState.cancelFirstTaskGrant=false;
+            throw Error('CEN_D3_EMPLOYEE_TASK_DATA_HUMAN_CANCELLED');
+          }
+          employeeState.taskGrantCalls++;
+          employeeState.taskGrantSaved=true;
+          if(employeeState.loseFirstTaskGrantAck){
+            employeeState.loseFirstTaskGrantAck=false;
+            throw Error('T3_D3_EMPLOYEE_TASK_DATA_OUTCOME_UNKNOWN');
+          }
+          throw Error('CEN_UI_UNEXPECTED_TASK_DATA_GRANT_REISSUE');
+        }
+        if(args.operation==='d3EmployeeCreateTask'){
+          assert.equal(args.input.confirmed,true);
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(args.input.taskId,'task:independent-work');
+          assert.equal(args.input.task,'Review verified supplier statement');
+          assert.equal(employeeState.taskGrantSaved,true);
+          assert.equal(employeeState.wrongTaskGrantRecipient,false);
+          if(employeeState.cancelFirstTask){
+            employeeState.cancelFirstTask=false;
+            throw Error('CEN_D3_EMPLOYEE_TASK_HUMAN_CANCELLED');
+          }
+          employeeState.taskIssueCalls++;
+          employeeState.signedTaskSaved=true;
+          if(employeeState.loseFirstTaskAck){
+            // Original archive exists, but process exited BEFORE the
+            // existing Task catalog write. Never issue a second signature.
+            employeeState.taskOrphan=true;
+            employeeState.loseFirstTaskAck=false;
+            throw Error('T3_D3_ORIGINAL_EMPLOYEE_TASK_OUTCOME_UNKNOWN');
+          }
+          throw Error('CEN_UI_ORIGINAL_TASK_REISSUE_FORBIDDEN');
+        }
+        if(args.operation==='d3EmployeeTaskReadback'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(args.input.taskId,'task:independent-work');
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1',
+            found:employeeState.signedTaskSaved&&!employeeState.taskOrphan,
+            taskId:'task:independent-work',recipientId:'person:independent',
+            enrollmentId:'enrollment:verified',taskRevisionId:'d'.repeat(64),
+            packageSha256:'e'.repeat(64),
+            status:employeeState.taskOrphan?
+              'ORIGINAL_SIGNED_CARRIER_WITHOUT_INVENTORY_HOLD':
+              employeeState.signedTaskSaved?
+              'SIGNED_TASK_PERSISTED_NOT_DELIVERED':
+              'NOT_IN_ORIGINAL_TASK_INVENTORY',
+            automaticReissueAllowed:false,
+            originalKernelReadback:true,taskDelivered:false
+          };
+        }
+        if(args.operation==='d3EmployeeRecoverOrphanTask'){
+          assert.equal(args.input.confirmed,true);
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(args.input.taskId,'task:independent-work');
+          assert.equal(employeeState.signedTaskSaved,true);
+          assert.equal(employeeState.taskOrphan,true);
+          if(employeeState.cancelFirstTaskRecovery){
+            employeeState.cancelFirstTaskRecovery=false;
+            throw Error('CEN_D3_EMPLOYEE_TASK_RECOVERY_HUMAN_CANCELLED');
+          }
+          employeeState.taskRecoveryCalls++;
+          employeeState.taskOrphan=false;
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_RECOVERY/1',
+            found:true,taskId:'task:independent-work',
+            taskRevisionId:'d'.repeat(64),
+            packageSha256:'e'.repeat(64),
+            recipientId:'person:independent',
+            enrollmentId:'enrollment:verified',
+            status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED',
+            recoveredOriginalCarrier:true,originalKernelReadback:true,
+            signatureReissued:false,taskDelivered:false,
+            automaticReissueAllowed:false,statusSequence:6
+          };
+        }
+        if(args.operation==='d3EmployeeExportTask'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(args.input.taskId,'task:independent-work');
+          assert.equal(args.input.archivePath,undefined);
+          assert.equal(employeeState.signedTaskSaved,true);
+          employeeState.taskExports++;
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_EXPORT/1',
+            status:'EXPORTED_UNDELIVERED',originalSigned:true,
+            taskId:'task:independent-work',
+            taskRevisionId:'d'.repeat(64),
+            recipientId:'person:independent',
+            packageSha256:'e'.repeat(64),bytes:2048,
+            taskDelivered:false
+          };
+        }
+        if(args.operation==='d3EmployeeExportInvite'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(args.input.archivePath,undefined,
+            'a WebView cannot choose the signed employee package destination');
+          employeeState.inviteExports++;
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_INVITATION_EXPORT/1',
+            state:'SIGNED_INVITATION_EXPORTED_NOT_DELIVERED',
+            employeePersonId:args.input.employeePersonId,
+            enrollmentId:args.input.enrollmentId,
+            recipientId:'person:independent',
+            workspaceId:'workspace:employee-fixture',
+            originalSigned:true,originalKernelReadback:true,
+             statusSequence:employeeState.taskGrantSaved?6:3,
+             invitationDelivered:false,packageSha256:'c'.repeat(64),bytes:2048
+          };
+        }
+        if(args.operation==='d3EmployeeRegistryInitialize'){
+          assert.equal(args.input.confirmed,true);
+          if(employeeState.cancelFirstInit){
+            employeeState.cancelFirstInit=false;
+            throw Error('CEN_D3_EMPLOYEE_REGISTRY_HUMAN_CANCELLED');
+          }
+          employeeState.initializations++;
+          employeeState.registered=true;
+          if(employeeState.loseFirstInitAck){
+            employeeState.loseFirstInitAck=false;
+            employeeState.ready=false;employeeState.requiresCold=true;
+            throw Error('T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN');
+          }
+          employeeState.ready=true;
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1',
+            state:'ORIGINAL_KERNEL_REGISTRY_CONFIRMED',
+            organizationId:args.organizationId,
+            workspaceId:'workspace:employee-fixture',
+            originalReadback:true,originalKernel:true,
+            signatureVerified:true,automaticRetryAllowed:false
+          };
+        }
+        throw Error('CEN_UI_EMPLOYEE_OPERATION_FORBIDDEN');
+      }
+      return null;
+    });
+  await employeePage.addInitScript(()=>{
+    window.__TAURI_INTERNALS__={invoke:(command,args)=>
+      window.__centerEmployeeFixture(command,args)};
+  });
+  await employeePage.goto('http://127.0.0.1:4173');
+  await employeePage.getByTestId('org-name').fill('Independent staff test');
+  await employeePage.getByTestId('create-org').click();
+  // The installed Center already saved this exact draft for cold restore.
+  const employeeOrgId=await employeePage.locator('#active-organization').inputValue();
+  assert.ok(employeeOrgId);
+  employeeState.savedDraft=JSON.stringify({
+    format:'iwxa.admin-center.draft',version:1,
+    organizations:[{id:employeeOrgId,name:'Independent staff test',
+      kind:'ORGANIZATION',workspaces:[],participants:[],assignments:[]}],
+    activeOrganizationId:employeeOrgId,
+    updatedAt:'2026-11-17T00:00:00.000Z'
+  });
+  await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
+  await employeePage.getByTestId('d3-employee-registry-readback').click();
+  await employeePage.getByRole('alert').waitFor();
+  assert.match(await employeePage.getByRole('alert').innerText(),
+    /CEN_D3_EMPLOYEE_REGISTRY_NOT_PRESENT_USE_EXPLICIT_INITIALIZE/);
+  assert.equal(employeeState.initializations,0,
+    'readback NOT_FOUND must never create a signed registry');
+  const originalInitButtons=employeePage.getByTestId('d3-employee-registry-initialize');
+  assert.equal(await employeePage.getByTestId('corporate-panel').count(),1);
+  assert.equal(await employeePage.getByTestId('d3-independent-employee').count(),1,
+    'React sibling keys must distinguish employee enrollment and D3 review');
+  assert.equal(await originalInitButtons.count(),1,
+    'one original Kernel bootstrap control after readback');
+  await originalInitButtons.click(); // Simulated native Human CANCEL before dispatch.
+  await employeePage.getByRole('alert').waitFor();
+  assert.equal(employeeState.initializations,0);
+  assert.equal(await originalInitButtons.isEnabled(),true,
+    'exact pre-dispatch native refusal allows a new explicit human confirmation');
+  await originalInitButtons.click(); // Simulated committed graph, lost ACK.
+  await employeePage.getByRole('alert').waitFor();
+  assert.equal(employeeState.initializations,1);
+  assert.equal(await originalInitButtons.isEnabled(),false,
+    'original Kernel command cannot be replayed on uncertain ACK');
+  // The original native owner ended the uncertain session. A read-only
+  // Kernel readback is valid only after the signed Host has cold-reopened.
+  employeeState.requiresCold=false;
+  await employeePage.reload();
+  await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
+  await employeePage.getByTestId('d3-employee-registry-readback').click();
+  await employeePage.getByTestId('d3-employee-steps').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-independent-employee').count(),1);
+  assert.equal(employeeState.initializations,1,
+    'cold readback after lost ACK cannot dispatch a second graph');
+  // Cold-open the exact same signed Kernel a SECOND time and read again.
+  employeeState.ready=false;
+  await employeePage.reload();
+  // Ordinary Center startup returns to its overview. Open the original
+  // corporate workbench again; native signer state survives navigation.
+  await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-registry-readback').count(),1);
+  await employeePage.getByTestId('d3-employee-registry-readback').click();
+  await employeePage.getByTestId('d3-employee-steps').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-independent-employee').count(),1);
+  assert.equal(employeeState.initializations,1,
+    'cold readback does not send a second Kernel initialization');
+  assert.equal(employeeState.reads,3);
+  assert.equal(await employeePage.getByTestId('d3-employee-invitation-export').count(),0,
+    'without original signed employee grants no invitation can be exported');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-create').count(),0,
+    'registry alone cannot authorize independent employee Task');
+  // UI-only conditional fixture. The original Kernel/issuer produces no
+  // fabricated signature here: this proves only the manager's bounded
+  // action and signed receipt presentation after a SOURCE readEnrollment.
+  await employeePage.getByTestId('nav-people').click();
+  await employeePage.getByTestId('person-name').fill('Independent colleague');
+  await employeePage.getByTestId('add-person').click();
+  await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('d3-employee-contact').selectOption({index:1});
+  await employeePage.getByTestId('d3-employee-person').fill('person:independent');
+  await employeePage.getByTestId('d3-employee-key').fill('key:independent');
+  await employeePage.getByTestId('d3-employee-credential-read').click();
+  await employeePage.getByTestId('d3-employee-key-admitted').waitFor();
+  await employeePage.getByTestId('d3-employee-enrollment-id').fill('enrollment:verified');
+  await employeePage.getByTestId('d3-employee-read').click();
+  assert.equal(await employeePage.getByTestId('d3-employee-enrolled').count(),0,
+    'a signed ACTIVE claim for a different PROOF key cannot belong to selected employee');
+  assert.equal(employeeState.inviteExports,0,
+    'foreign credential may not export even a UI-only invitation');
+  employeeState.wrongReadKey=false;
+  await employeePage.getByTestId('d3-employee-read').click();
+  await employeePage.getByTestId('d3-employee-enrolled').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-invitation-export').count(),1);
+  const taskDataIssue=employeePage.getByTestId('d3-employee-task-grant-issue');
+  assert.equal(await taskDataIssue.isEnabled(),true);
+  await taskDataIssue.click();
+  assert.equal(employeeState.taskGrantCalls,0,
+    'a native Human cancellation cannot enter original Kernel');
+  // The native refusal settles asynchronously through React's run() busy
+  // state; Playwright click completion alone is not the consent callback.
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-grant-issue"]')?.disabled===false);
+  assert.equal(await taskDataIssue.isEnabled(),true,
+    'a definite pre-dispatch refusal can be confirmed anew');
+  await taskDataIssue.click();
+  assert.equal(employeeState.taskGrantCalls,1);
+  assert.equal(await taskDataIssue.isEnabled(),false,
+    'lost ACK must block a second original Kernel DATA grant');
+  await employeePage.getByTestId('d3-employee-task-grant-read').click();
+  assert.equal(await employeePage.getByTestId('d3-employee-task-grant-confirmed').count(),0,
+    'wrong signed recipient cannot grant task issuance');
+  employeeState.wrongTaskGrantRecipient=false;
+  await employeePage.getByTestId('d3-employee-task-grant-read').click();
+  await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
+  assert.equal(employeeState.taskGrantCalls,1,
+    'original readback after lost ACK never re-issues the manager DATA grant');
+  const newEmployeeTask=employeePage.getByTestId('d3-employee-task-create');
+  assert.equal(await newEmployeeTask.isEnabled(),false,
+    'no Task may be signed until its exact text and taskId are supplied');
+  await employeePage.getByTestId('d3-employee-task-id').fill('task:independent-work');
+  await employeePage.getByTestId('d3-employee-task-text').fill(
+    'Review verified supplier statement');
+  assert.equal(await newEmployeeTask.isEnabled(),false,
+    'an outdated signed invitation cannot authorize employee Task reception');
+  await employeePage.getByTestId('d3-employee-task-invite-stale').waitFor();
+  await employeePage.getByTestId('d3-employee-invitation-export').click();
+  await employeePage.getByTestId('d3-employee-invitation-export-receipt').waitFor();
+  assert.match(await employeePage.getByTestId('d3-employee-invitation-export-receipt').innerText(),
+    /Подписанный .iwxa сохранён, доставка не подтверждена/);
+  assert.equal(employeeState.inviteExports,1);
+  assert.equal(await newEmployeeTask.isEnabled(),true,
+    'original invitation status includes the new exact manager DATA grant');
+  await newEmployeeTask.click();
+  assert.equal(employeeState.taskIssueCalls,0,
+    'definite native Human cancellation cannot create an original Task');
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-create"]')?.disabled===false);
+  assert.equal(await newEmployeeTask.isEnabled(),true);
+  await newEmployeeTask.click();
+  assert.equal(employeeState.taskIssueCalls,1);
+  assert.equal(await newEmployeeTask.isEnabled(),false,
+    'lost Task ACK forbids creating a second signed revision');
+  await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.getByTestId('d3-employee-task-orphan-recovery').waitFor();
+  assert.equal(employeeState.taskRecoveryCalls,0);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-receipt').count(),0,
+    'an orphaned signed Task is never represented as a confirmed catalog row');
+  const repair=employeePage.getByTestId('d3-employee-task-recover');
+  assert.equal(await repair.isEnabled(),true);
+  await repair.click();
+  assert.equal(employeeState.taskRecoveryCalls,0,
+    'native Human cancellation cannot repair the catalog');
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-recover"]')?.disabled===false);
+  await repair.click();
+  await employeePage.getByTestId('d3-employee-task-receipt').waitFor();
+  assert.equal(employeeState.taskRecoveryCalls,1);
+  assert.equal(employeeState.taskIssueCalls,1,
+    'recovery reconstructed the ORIGINAL Task without any second signing');
+  await employeePage.getByTestId('d3-employee-task-recovery-rebind').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-task-export').isEnabled(),
+    false,'catalog repair advances native signed D1 epoch: no immediate export');
+  await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.waitForFunction(()=>
+    !document.querySelector('[data-testid="d3-employee-task-recovery-rebind"]'));
+  assert.equal(await employeePage.getByTestId('d3-employee-task-export').isEnabled(),
+    true,'a fresh original Kernel readback enables export of identical bytes');
+  assert.equal(employeeState.taskIssueCalls,1,
+    'fresh readback did not create another signed Task');
+  await employeePage.getByTestId('d3-employee-task-export').click();
+  assert.equal(employeeState.taskExports,1);
+  assert.equal(employeeState.taskIssueCalls,1,
+    'exporting already signed bytes must never reissue original Task');
+    assert.equal(employeeState.initializations,1,
+    'exporting a saved signed invitation never reissues Kernel grants');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),false,
+    'original invitation cannot reissue an already signed Task');
+  await employeePage.close();
+  checks.push('d3-employee-original-kernel-bootstrap-human-cancel-unknown-ack-cold-readback-no-reissue');
+  checks.push('d3-employee-invitation-ui-only-signed-receipt-no-grant-reissue-no-unsupported-task');
+  checks.push('d3-employee-manager-task-data-human-cancel-lost-ack-foreign-recipient-readback');
+  checks.push('d3-employee-task-native-human-cancel-lost-ack-exact-readback-single-export-ui-only');
+  checks.push('d3-employee-task-orphan-human-recovery-from-original-signed-bytes-no-reissue-ui-only');
+  // React can reload while the REAL native signed WebView (and its Kernel)
+  // survives. Model that lifetime using a separate Node-side host, NOT
+  // localStorage/React state, so a browser reload cannot recreate its status.
+  const nativeState={organizationId:'org:reload-owner',open:true,visible:true,
+    shows:0,hides:0,closes:0};
+  const restoredDraft=JSON.stringify({
+    format:'iwxa.admin-center.draft',version:1,
+    organizations:[{id:nativeState.organizationId,name:'D3 recovery factory',
+      kind:'ORGANIZATION',workspaces:[],participants:[],assignments:[]}],
+    activeOrganizationId:nativeState.organizationId,
+    updatedAt:'2026-11-15T12:00:00.000Z',
+  });
+  const reloadPage=await browser.newPage({viewport:{width:1366,height:900}});
+  await reloadPage.exposeFunction('__centerNativeSignedFixture',
+    async(command,args={})=>{
+      if(command==='center_draft_read_local')return restoredDraft;
+      if(command==='center_corporate_signed_workspace_status'){
+        const same=nativeState.open&&args.organizationId===nativeState.organizationId;
+        return {schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',
+          open:same,visible:same&&nativeState.visible,
+          foreignOrOrphaned:nativeState.open&&!same};
+      }
+      if(command==='center_corporate_close_signed_workspace'){
+        nativeState.open=false;nativeState.visible=false;nativeState.closes++;return null;
+      }
+      if(command==='center_corporate_hide_signed_workspace'){
+        assert.equal(nativeState.open,true);
+        nativeState.visible=false;nativeState.hides++;return null;
+      }
+      if(command==='center_corporate_show_signed_workspace'){
+        assert.equal(args.organizationId,nativeState.organizationId);
+        assert.equal(nativeState.open,true);
+        nativeState.visible=true;nativeState.shows++;return null;
+      }
+      if(command==='center_corporate_state')return {
+        status:'D3_OWNER_READY',snapshot:{
+          product:'admin',organizationId:args.organizationId,
+          workspaceId:'workspace:reload-owner',actorId:'person:reviewer',
+          contextId:'context:reload-owner',contextEpoch:4,
+          originalSignedWorkspaceAvailable:true,
+          d3RecipientAvailable:true,d3TaskIssueAvailable:false,
+          d3InspectAvailable:true,d3ApplyAvailable:false,
+          d3ApplyRecoverAvailable:false,
+          productionActivation:false,T3_READY:false,tasks:[],totalTasks:0,
+        }};
+      if(command==='center_corporate_age_status')
+        return {operation:'AGE_STATUS',available:false,recipient:null,
+          toolchain:{ready:false},provider:'WINDOWS_TEST_UI',admitted:false};
+      return null;
+    });
+  await reloadPage.addInitScript(()=>{
+    window.__TAURI_INTERNALS__={invoke:(command,args)=>
+      window.__centerNativeSignedFixture(command,args)};
+  });
+  await reloadPage.goto('http://127.0.0.1:4173');
+  await reloadPage.getByTestId('d3-return-to-review').waitFor({state:'visible'});
+  assert.equal(nativeState.shows,0,'restoring visible child must not respawn it');
+  await reloadPage.reload();
+  await reloadPage.getByTestId('d3-return-to-review').waitFor({state:'visible'});
+  assert.equal(nativeState.shows,0,'main React reload must not reopen Kernel');
+  assert.equal(nativeState.closes,0,'main React reload must not release signer');
+  await reloadPage.getByTestId('d3-return-to-review').click();
+  await reloadPage.getByTestId('d3-show-signed-workspace').waitFor({state:'visible'});
+  assert.equal(nativeState.hides,1);
+  await reloadPage.reload();
+  await reloadPage.getByTestId('d3-show-signed-workspace').waitFor({state:'visible'});
+  assert.equal(nativeState.visible,false);
+  assert.equal(nativeState.closes,0);
+  await reloadPage.getByTestId('d3-show-signed-workspace').click();
+  await reloadPage.getByTestId('d3-return-to-review').waitFor({state:'visible'});
+  assert.equal(nativeState.shows,1);
+  await reloadPage.getByTestId('d3-close-signed-workspace').click();
+  await reloadPage.getByTestId('d3-return-to-review').waitFor({state:'detached'});
+  assert.equal(nativeState.open,false);
+  assert.equal(nativeState.closes,1);
+  await reloadPage.reload();
+  await reloadPage.getByTestId('d3-show-signed-workspace').waitFor({state:'detached'});
+  assert.equal(await reloadPage.getByTestId('d3-return-to-review').count(),0);
+  await reloadPage.close();
+  checks.push('d3-native-child-visible-and-hidden-react-reload-restores-review-without-owner-restart');
   writeFileSync('artifacts/ui-report.json',JSON.stringify({status:'PASS_BROWSER_DRAFT_SCOPE',browser:'Firefox',checks,errors,t3RuntimeIntegrated:false,installedWindowsGui:false},null,2));
   console.log('CENTER_DRAFT_UI_PASS',checks.length);
 }finally{await browser?.close();server.kill();}

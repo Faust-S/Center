@@ -57,7 +57,7 @@ function Root {
   return [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
 }
 function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false) {
-  $tokenUnavailable=0
+  $transientUnavailable=0
   for($i=0;$i -lt 75;$i++){
     $element=Root
     try {
@@ -65,10 +65,15 @@ function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false) {
          [System.Windows.Automation.Condition]::TrueCondition)
     } catch {
       # WebView2 may rotate its accessibility process while a native file
-      # dialog closes. Retry only this known transient UIA token error.
+      # dialog closes. The resulting token / detached-element errors are
+      # transient; never count a failed enumeration as a successful lookup.
       # Never count a failed enumeration as evidence that a control exists.
-      if($_.Exception.ToString() -notmatch 'Could not open the process token'){throw}
-      $tokenUnavailable++
+      # WebView2 may also replace its UIA subtree during navigation. The old
+      # AutomationElement becomes unavailable before the next enumeration;
+      # retry the freshly obtained root, never treat it as a successful read.
+      if($_.Exception.ToString() -notmatch
+          'Could not open the process token|target element corresponds to UI that is no longer'){throw}
+      $transientUnavailable++
       Start-Sleep -Milliseconds 300
       continue
     }
@@ -82,19 +87,23 @@ function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false) {
     }
     Start-Sleep -Milliseconds 300
   }
-  if($tokenUnavailable -eq 75){throw "U05_CENTER_UIA_TOKEN_UNAVAILABLE $type $name"}
+  if($transientUnavailable -eq 75){throw "U05_CENTER_UIA_TRANSIENT_UNAVAILABLE $type $name"}
   throw "U05_CENTER_UI_CONTROL_MISSING $type $name"
 }
 function Find-UI-Text([string]$needle) {
-  $tokenUnavailable=0
+  $transientUnavailable=0
   for($attempt=0;$attempt -lt 75;$attempt++){
     $root=Root
     try {
       $controls=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
         [System.Windows.Automation.Condition]::TrueCondition)
     } catch {
-      if($_.Exception.ToString() -notmatch 'Could not open the process token'){throw}
-      $tokenUnavailable++
+      # WebView2 may also replace its UIA subtree during navigation. The old
+      # AutomationElement becomes unavailable before the next enumeration;
+      # retry the freshly obtained root, never treat it as a successful read.
+      if($_.Exception.ToString() -notmatch
+          'Could not open the process token|target element corresponds to UI that is no longer'){throw}
+      $transientUnavailable++
       Start-Sleep -Milliseconds 300
       continue
     }
@@ -105,7 +114,7 @@ function Find-UI-Text([string]$needle) {
     }
     Start-Sleep -Milliseconds 300
   }
-  if($tokenUnavailable -eq 75){throw "U05_CENTER_UIA_TOKEN_UNAVAILABLE Text $needle"}
+  if($transientUnavailable -eq 75){throw "U05_CENTER_UIA_TRANSIENT_UNAVAILABLE Text $needle"}
   throw "U05_UI_TEXT_NOT_FOUND $needle"
 }
 function Click([string]$name,[bool]$contains=$false) {
@@ -256,14 +265,101 @@ try {
     Start-Sleep -Milliseconds 250
   }
   if(!$dialogFound){throw 'U05_IWXA_NATIVE_FILE_DIALOG_NOT_OBSERVED'}
-  if($archive -match '[+^%~{}()]'){throw 'U05_IWXA_TEST_PATH_UNSUPPORTED_BY_SENDKEYS'}
-  [System.Windows.Forms.SendKeys]::SendWait('%n')
-  Start-Sleep -Milliseconds 150
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  [System.Windows.Forms.SendKeys]::SendWait($archive)
-  Start-Sleep -Milliseconds 200
+  # Verify the native Windows file-name control before accepting. This is
+  # the same genuine RFD picker; no direct native import or synthetic data.
+  $fileNameElement=$null
+  for($fileFieldAttempt=0;$fileFieldAttempt -lt 12;$fileFieldAttempt++){
+    try {
+      $dialogItems=$element.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      foreach($candidate in $dialogItems){
+        try {
+          $kind=$candidate.Current.ControlType.ProgrammaticName
+          $aid=[string]$candidate.Current.AutomationId
+          $name=[string]$candidate.Current.Name
+          if(($aid -eq '1148' -or $name -match '^(File name|Имя файла):?$') -and
+             $kind -in @('ControlType.Edit','ControlType.ComboBox')){
+            $fileNameElement=$candidate;break
+          }
+        }catch{}
+      }
+    }catch{
+      if($_.Exception.ToString() -notmatch 'Could not open the process token|target element corresponds to UI that is no longer'){throw}
+    }
+    if($null -ne $fileNameElement){break}
+    Start-Sleep -Milliseconds 150
+  }
+  $nameSetWithUia=$false
+  if($null -ne $fileNameElement){
+    try {
+      if($fileNameElement.Current.ControlType.ProgrammaticName -eq 'ControlType.ComboBox'){
+        $edit=$fileNameElement.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+          [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Edit))
+        if($null -ne $edit){$fileNameElement=$edit}
+      }
+      $pattern=$fileNameElement.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+      if(!$pattern.Current.IsReadOnly){
+        $pattern.SetValue($archive)
+        $nameSetWithUia=[string]$pattern.Current.Value -eq $archive
+      }
+    }catch{
+      Write-Host 'U05_NATIVE_FILENAME_UIA_NOT_AVAILABLE'
+    }
+  }
+  if(!$nameSetWithUia){
+    if($archive -match '[+^%~{}()]'){throw 'U05_IWXA_TEST_PATH_UNSUPPORTED_BY_SENDKEYS'}
+    [System.Windows.Forms.SendKeys]::SendWait('%n')
+    Start-Sleep -Milliseconds 150
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait($archive)
+    Start-Sleep -Milliseconds 200
+    if($null -ne $fileNameElement){
+      try{
+        $pattern=$fileNameElement.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        if([string]$pattern.Current.Value -ne $archive){
+          throw 'U05_IWXA_NATIVE_FILENAME_READBACK_MISMATCH'
+        }
+        Write-Host 'U05_NATIVE_FILENAME_KEYBOARD_READBACK_PASS'
+      }catch{
+        if($_.Exception.Message -eq 'U05_IWXA_NATIVE_FILENAME_READBACK_MISMATCH'){throw}
+        Write-Host 'U05_NATIVE_FILENAME_READBACK_UNAVAILABLE'
+      }
+    }
+  }else{
+    Write-Host 'U05_NATIVE_FILENAME_UIA_READBACK_PASS'
+  }
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  [void](Find-UI-Text 'Архив .iwxa открыт для просмотра')
+  try{
+    [void](Find-UI-Text 'Архив .iwxa открыт для просмотра')
+  }catch{
+    # Distinguish a native dialog still open from a Center import failure.
+    # Both remain FAIL; do not bypass actual UI status or exact WorkRef checks.
+    $frontHwnd=[U05Window]::GetForegroundWindow()
+    $nativeDialogStillOpen=$false
+    if($frontHwnd -ne [IntPtr]::Zero -and $frontHwnd -ne $proc.MainWindowHandle){
+      try{
+        $front=[System.Windows.Automation.AutomationElement]::FromHandle($frontHwnd)
+        $nativeDialogStillOpen=$front.Current.ClassName -eq '#32770'
+      }catch{}
+    }
+    if($nativeDialogStillOpen){throw 'U05_IWXA_NATIVE_DIALOG_DID_NOT_CLOSE'}
+    $importErrorVisible=$false
+    try{
+      $remaining=(Root).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      foreach($control in $remaining){
+        try{
+          if(([string]$control.Current.Name).Contains('Не удалось прочитать выбранный файл Atlas')){
+            $importErrorVisible=$true;break
+          }
+        }catch{}
+      }
+    }catch{}
+    if($importErrorVisible){throw 'U05_IWXA_CENTER_PARSER_REPORTED_ERROR'}
+    throw 'U05_IWXA_CENTER_IMPORT_ACK_NOT_DISPLAYED'
+  }
   [void](Find-UI $projectTitle 'Button' $true)
   Click $projectTitle $true
   Click 'Связать с планом'

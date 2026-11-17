@@ -36,10 +36,11 @@ function requireAgeStatus(value:any):AgeStatus{
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts}:{
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts}:{
  owner:Owner;execute:Exec;run:Run;busy:boolean;organizationName:string;
  dispatchedApplications:React.RefObject<Map<string,string[]>>;
  taskAttempts:React.RefObject<Map<string,{taskId:string;attempted:boolean}>>;
+ decisionAttempts:React.RefObject<Map<string,{operationId:string;decision:'ACCEPT'|'REJECT'}>>;
  invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;
  assignmentDrafts:AssignmentDraft[];
  }){
@@ -75,6 +76,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [applySelection,setApplySelection]=useState<{acceptanceId:string;revisionIds:string[]}|null>(null);
  const [kernelRecovery,setKernelRecovery]=useState<any>(null);
  const [recoverPrevious,setRecoverPrevious]=useState(false);
+ // Only a definite refusal before the original Kernel write can unlock a
+ // new separate Human APPLY after the manager repairs the SAME Workspace.
+ const [workspacePreflight,setWorkspacePreflight]=useState<
+   'missing'|'deleted'|'read_only'|null>(null);
  // Prevent a lost Apply acknowledgment from becoming a second Apply when
  // the manager switches packages and returns during the same signed session.
  // Kept by CorporatePanel across signed context-epoch remounts. Never
@@ -91,6 +96,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  };
  const attemptKey=(acceptanceId:string)=>JSON.stringify([
    session.organizationId,session.workspaceId,session.actorId,acceptanceId]);
+ const decisionKey=(packageSha256:string)=>JSON.stringify([
+   session.organizationId,session.workspaceId,session.actorId,packageSha256]);
  const sessionKey=JSON.stringify([session.organizationId,session.workspaceId,
    session.actorId,session.contextId,session.contextEpoch]);
  const previous=useRef(sessionKey),previousTaskIdentity=useRef(taskAttemptKey);
@@ -123,6 +130,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setSelectedRevisions([]);setApplication(null);setApplyConsent(false);
    setApplyAttempted(false);setKernelResult(null);
    setApplySelection(null);setKernelRecovery(null);setRecoverPrevious(false);
+   setWorkspacePreflight(null);
  };
  useEffect(()=>{
    if(previous.current!==sessionKey){
@@ -141,7 +149,16 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setLastReceiveState(null);setDraftId('');setDraftSnapshot('');reset();
  }
  },[sessionKey]);
- const choose=(value:string)=>{setHash(value);setLastReceiveState(null);reset();};
+ const choose=(value:string)=>{
+   setHash(value);setLastReceiveState(null);reset();
+   // A remounted panel restores the ID of a previously dispatched decision,
+   // rather than accidentally allowing a second ACCEPT/REJECT for this .iwxa.
+   const pending=decisionAttempts.current.get(decisionKey(value));
+   if(pending){
+     setOperationId(pending.operationId);
+     setDecisionAttempted(true);setDecisionType(pending.decision);
+   }
+ };
  const signedTasks=Array.isArray(session.tasks)?session.tasks.filter(t=>
    opPattern.test(t.taskId)&&hex(t.taskRevisionId)&&hex(t.packageSha256)):[];
  const selectedTask=signedTasks.find(t=>t.taskId===taskId)??signedTasks.at(-1);
@@ -251,7 +268,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    reviewedResult.nextOffset===reviewedResult.resultLength;
  const originalDecisionRecorded=
    ['ACCEPTED','REJECTED'].includes(selectedInboxItem?.status??'')||
-   ['ACCEPTED','REJECTED'].includes(lastReceiveState??'');
+   ['ACCEPTED','REJECTED'].includes(lastReceiveState??'')||
+   // The read-only original receipt is authoritative after a full React
+   // unmount/cold UI reopen. Do not offer another Human ACCEPT or REJECT.
+   (receipt?.found===true&&
+     ['ACCEPTED','REJECTED'].includes(receipt.receipt?.acceptanceState)&&
+     receipt.receipt?.operationId===operationId&&
+     receipt.receipt?.packageSha256===hash)||
+   decisionAttempts.current.has(decisionKey(hash));
  const refreshInbox=()=>run('Полученные пакеты перечитаны из оригинального Reconciliation.',async()=>{
    const result=await execute('d3Inbox');
    if(result?.schema!=='IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1'||
@@ -324,8 +348,21 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    const result=await execute('d3Receipt',{operationId:id,packageSha256:hash});
    if(result?.kernelApplication!=='NOT_ATTESTED_BY_RECONCILIATION_RECEIPT'||
      typeof result.found!=='boolean'||result.found&&(
-       result.receipt?.operationId!==id||result.receipt?.packageSha256!==hash))
+       result.receipt?.operationId!==id||
+       result.receipt?.packageSha256!==hash||
+       result.receipt?.decisionBy!==session.actorId||
+       !['ACCEPTED','REJECTED'].includes(result.receipt?.acceptanceState)||
+       result.receipt?.schema!==(result.receipt.acceptanceState==='ACCEPTED'
+         ?'IWXA_T3_ACCEPTANCE_RECEIPT/1':'IWXA_T3_REJECTION_RECEIPT/1')))
      throw Error('CEN_D3_RECEIPT_INVALID');
+   if(result.found){
+     const decision=result.receipt.acceptanceState==='ACCEPTED'?'ACCEPT':'REJECT';
+     const pending=decisionAttempts.current.get(decisionKey(hash));
+     if(pending&&pending.operationId!==id)
+       throw Error('CEN_D3_ORIGINAL_DECISION_RECEIPT_CONFLICT');
+     decisionAttempts.current.set(decisionKey(hash),{operationId:id,decision});
+     setDecisionAttempted(true);setDecisionType(decision);
+   }
    setReceipt(result);setApplication(null);
    if(!result.found)setSelectedRevisions([]);
  });
@@ -341,6 +378,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      // The ID was visible and explicitly saved BEFORE dispatch. On a lost
      // acknowledgment, restoring the original receipt never retries the write.
      const id=preparedId;
+     decisionAttempts.current.set(decisionKey(hash),{operationId:id,decision:kind});
      setDecisionAttempted(true);setDecisionType(kind);
      setReceipt(null);setApplication(null);
      let outcome:any;
@@ -351,7 +389,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      }catch(e){
       // If the Windows confirmation was cancelled, no signed decision
       // was sent and the original preview can still be confirmed.
-      if(String(e).includes('CEN_D3_HUMAN_REVIEW_CANCELLED')){
+      if(String(e)==='Error: CEN_D3_HUMAN_REVIEW_CANCELLED'||
+         String(e)==='CEN_D3_HUMAN_REVIEW_CANCELLED'){
+        const pending=decisionAttempts.current.get(decisionKey(hash));
+        if(pending?.operationId===id)decisionAttempts.current.delete(decisionKey(hash));
         setDecisionAttempted(false);setDecisionType(null);
       }
       throw e;
@@ -413,6 +454,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        session.organizationId,session.workspaceId)};
    if(!hex(selection.acceptanceId)||selection.revisionIds.length===0)
      throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
+   setWorkspacePreflight(null);
    // Record the exact selection synchronously before sending to the owner.
    // React reset after switching a Result must not erase this no-replay gate.
    dispatchedApplications.current.set(attemptKey(selection.acceptanceId),[...selection.revisionIds]);
@@ -428,6 +470,13 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      if(isDefiniteUndispatchedD3Failure(error,'d3ApplyAccepted')){
        dispatchedApplications.current.delete(attemptKey(selection.acceptanceId));
        setApplySelection(null);setApplyAttempted(false);setApplyConsent(false);
+       const raw=error instanceof Error?error.message:
+         typeof error==='string'?error:'';
+       const code=raw.trim().replace(/^Error:\s*/,'');
+       setWorkspacePreflight(
+         code==='T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED'?'missing':
+         code==='T3_D3_ORIGINAL_WORKSPACE_DELETED'?'deleted':
+         code==='T3_D3_ORIGINAL_WORKSPACE_READ_ONLY'?'read_only':null);
      }
      throw error;
    }
@@ -750,6 +799,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     ID можно сохранить отдельно для восстановления после перезапуска.</p>
    <label>ID операции
     <input data-testid="d3-operation-id" value={operationId} maxLength={160}
+     disabled={busy||decisionAttempted}
      onChange={e=>{setOperationId(e.target.value.trim());setPreparedId('');
       setIdSaved(false);setReceipt(null);setApplication(null)}}
      placeholder="decision:..." />
@@ -761,7 +811,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       onClick={()=>navigator.clipboard.writeText(operationId)}>
       Скопировать ID</button>}
    </div>
-   {decisionAttempted&&!receipt&&<p className="notice subdued">
+   {decisionAttempted&&!receipt&&<p className="notice subdued"
+     data-testid="d3-decision-already-sent">
     Решение отправлялось. До подтверждения исходного владельца результат неизвестен.
     Не отправляйте его повторно.
    </p>}
@@ -776,6 +827,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
   </div>
   {accepted&&<div className="nested-form" data-testid="d3-apply">
    <h3>Отдельное применение в оригинальный Kernel</h3>
+   {workspacePreflight&&<p role="status"
+     data-testid="d3-apply-workspace-preflight" className="notice subdued">
+     {workspacePreflight==='missing'
+       ?'Исходная Workspace ещё не создана. Откройте «Workspace T3», создайте выбранную рабочую область, затем вернитесь «К приёмке» и отдельно подтвердите Apply.'
+       :workspacePreflight==='deleted'
+         ?'Исходная Workspace удалена. Не создавайте другую с новым ID. Восстановите исходную Workspace разрешённым способом и повторите проверку.'
+         :'Исходная Workspace доступна только для чтения. Восстановите право записи в этой же Workspace и отдельно подтвердите Apply.'}
+   </p>}
    <p className="muted">ACCEPT подтверждён только в Reconciliation.
     Применение требует отдельного Human APPLY и подписанного D1 JIT.
     Неизвестный результат не повторяется автоматически.</p>

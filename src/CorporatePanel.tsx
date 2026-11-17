@@ -1,12 +1,13 @@
 import React,{useEffect,useRef,useState} from 'react';
 import CorporateD3Panel from './CorporateD3Panel';
+import CorporateEmployeeEnrollment from './CorporateEmployeeEnrollment';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
 import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox,signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
 
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
 type Invoke=(command:string,args?:Record<string,unknown>)=>Promise<any>;
-type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;assignments:Array<{id:string;title:string;workspaceId?:string;assigneeId?:string|null;editNumber?:number;description?:string;criteria?:string;dueDate?:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
+type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;participants?:Array<{id:string;name:string}>;assignments:Array<{id:string;title:string;workspaceId?:string;assigneeId?:string|null;editNumber?:number;description?:string;criteria?:string;dueDate?:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
 const hex=/^[a-f0-9]{64}$/;
 const why=(e:unknown)=>{
  const message=e instanceof Error?e.message:String(e);
@@ -16,6 +17,16 @@ const why=(e:unknown)=>{
    return 'Kernel Apply не подтверждён. Не отправляйте Apply повторно: после подключения исходного владельца используйте «Проверить Kernel без повторного Apply».';
  if(/OUTCOME_UNKNOWN|T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED/.test(message))
    return 'Исход операции неизвестен. Не повторяйте ACCEPT, REJECT или Apply. Откройте исходную квитанцию по сохранённому ID и SHA-256 пакета.';
+ if(message.includes('CEN_D3_EMPLOYEE_CREDENTIAL_HUMAN_CANCELLED'))
+   return 'Подтверждение публичного ключа сотрудника отменено в Windows до записи. Можно проверить или повторно подтвердить его.';
+ if(message.includes('CEN_D3_EMPLOYEE_GRANTS_HUMAN_CANCELLED'))
+   return 'Выдача ACTION/DATA сотруднику отменена в Windows до отправки в Kernel. Права не выдавались.';
+ if(message.includes('CEN_D3_EMPLOYEE_REGISTRY_HUMAN_CANCELLED'))
+   return 'Подключение исходного корпоративного реестра отменено до записи.';
+ if(/T3_D3_ORIGINAL_EMPLOYEE_REGISTRY_EXISTS_USE_READBACK|CEN_D3_EMPLOYEE_REGISTRY_USE_READBACK/.test(message))
+   return 'Оригинальный реестр уже может существовать. Не повторяйте запись: используйте «Проверить реестр без записи».';
+ if(/T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN|T3_D3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK_HOLD/.test(message))
+   return 'Исход подключения реестра неизвестен. Не повторяйте запись: перечитайте оригинальный Kernel без записи.';
  if(message.includes('CEN_D3_HUMAN_REVIEW_CANCELLED'))
    return 'Решение отменено в системном окне Windows. Оно не отправлялось.';
  if(message.includes('CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED'))
@@ -32,13 +43,15 @@ const why=(e:unknown)=>{
    return 'Исходный план Atlas изменён или работа отсутствует. Обновите связь поручения с актуальной редакцией до подписания Task.';
  if(message.includes('CEN_D3_ORIGINAL_TASK_INVENTORY_READBACK_HOLD'))
    return 'Список поручений изменился. Обновите корпоративную сессию и прочитайте оригинальную Task ещё раз, не подписывая её повторно.';
+ if(/CEN_D3_SIGNED_ENROLLMENT_DRAFT_(?:NOT_READY|SAVE_UNCONFIRMED|READBACK_MISMATCH|CHANGED)/.test(message))
+   return 'Подключение T3 не началось: не удалось подтвердить сохранение рабочей области организации на этом компьютере. Проверьте данные и повторите.';
  if(message.includes('CEN_D3_ORIGINAL_TASK_ALREADY_ISSUED'))
    return 'У этого поручения уже есть подписанный ID. Откройте сохранённую Task или подготовьте новый ID.';
  if(/CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN|T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN/.test(message))
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onOpenSignedWorkspace,signedWorkspaceGeneration=0}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
@@ -66,6 +79,9 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  // Original signed Task IDs must survive the child remount when the T3
  // contextEpoch changes. This parent UI ref is not another Task store.
  const attemptedD3Tasks=useRef<Map<string,{taskId:string;attempted:boolean}>>(new Map());
+ // Keep an already sent Human decision available for receipt-only recovery
+ // across signed owner epoch changes, without another Store or journal.
+ const attemptedD3Decisions=useRef<Map<string,{operationId:string;decision:'ACCEPT'|'REJECT'}>>(new Map());
  const legacyReady=ownerSessionFingerprint(owner,organizationId)!==null;
  const d3Ready=signedD3SessionFingerprint(owner,organizationId)!==null;
  const ready=legacyReady||d3Ready;
@@ -180,14 +196,25 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    <p className="muted">Создать собственный подписанный организационный контур
     с оригинальным AccessRegistry, ключами Ed25519 и Windows DPAPI.
     Это отдельное подтверждаемое действие, а не преобразование черновиков в права.</p>
-   <label>Первая рабочая область
-    <select data-testid="d3-enrollment-workspace" value={selectedEnrollmentWorkspace}
-     onChange={e=>setEnrollWorkspace(e.target.value)}>
-     {organization.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
-    </select>
-   </label>
+   {organization.workspaces.length===0
+     ? <div className="notice subdued" data-testid="d3-enrollment-no-workspace">
+        <p>Перед подписанным подключением создайте рабочую область этой организации.
+         Это подготовительный шаг: он не выдаёт права и не создаёт T3 Workspace.</p>
+        <button type="button" className="secondary" data-testid="d3-enrollment-create-workspace"
+         disabled={busy} onClick={onSetupWorkspace}>Создать рабочую область</button>
+       </div>
+     : <label>Первая рабочая область
+        <select data-testid="d3-enrollment-workspace" value={selectedEnrollmentWorkspace}
+         disabled={busy} onChange={e=>setEnrollWorkspace(e.target.value)}>
+         {organization.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+        </select>
+       </label>}
    <button className="primary" data-testid="d3-enroll" disabled={busy||!selectedEnrollmentWorkspace}
     onClick={()=>act('Оригинальный подписанный T3-владелец организации подключён.',async()=>{
+      // The original signed organization binds immutable organization and
+      // Workspace IDs. Ensure Center has durably stored and read back the
+      // exact current local draft BEFORE any irreversible T3 enrollment.
+      await onEnsureDraftSaved(organizationId,selectedEnrollmentWorkspace);
       const result=await invoke('center_corporate_enroll',{
         organizationId,workspaceId:selectedEnrollmentWorkspace,
         organizationName:organization.name});
@@ -196,9 +223,13 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
         throw Error('CEN_D3_SIGNED_ENROLLMENT_UNCONFIRMED');
     })}>Подключить организацию</button>
   </div>}
-  {d3Ready&&invoke ? <CorporateD3Panel key={signedD3SessionFingerprint(owner,organizationId)??'unknown'} owner={owner} execute={execute}
+  {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={'employee|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')}
+    session={owner.snapshot} contacts={organization.participants??[]}
+    execute={execute} run={act} busy={busy}/>}
+  {d3Ready&&invoke ? <CorporateD3Panel key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
     dispatchedApplications={dispatchedD3Applications}
     taskAttempts={attemptedD3Tasks}
+    decisionAttempts={attemptedD3Decisions}
     run={act} busy={busy} invoke={invoke} organizationName={organization.name}
     assignmentDrafts={organization.assignments.filter(a=>
       a.workspaceId===owner.snapshot.workspaceId).map(a=>({

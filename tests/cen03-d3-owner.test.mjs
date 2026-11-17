@@ -16,7 +16,10 @@ test('D3 native definite pre-dispatch failures permit a deliberate retry, never 
      'CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED',
      'CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING',
      'CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED',
-     'CEN_D3_ACCEPTED_SOURCE_INVALID'
+     'CEN_D3_ACCEPTED_SOURCE_INVALID',
+     'T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED',
+     'T3_D3_ORIGINAL_WORKSPACE_DELETED',
+     'T3_D3_ORIGINAL_WORKSPACE_READ_ONLY'
    ],
    d3CreateTask:[
      'CEN_D3_CONTEXT_CHANGED','CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED',
@@ -34,6 +37,8 @@ test('D3 native definite pre-dispatch failures permit a deliberate retry, never 
    'CEN_D3_OUTCOME_UNKNOWN','T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED',
    'CEN_D3_NATIVE_WORKER_FAILED','CEN_D3_ORIGINAL_TASK_ALREADY_ISSUED',
    'T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN',
+   'T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN',
+   'WORKSPACE_NOT_FOUND','PERMISSION_DENIED',
    'CEN_D3_KERNEL_COMMIT_OUTCOME_UNKNOWN',
    'CEN_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED',
    'CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED additional text'
@@ -45,6 +50,8 @@ test('D3 native definite pre-dispatch failures permit a deliberate retry, never 
    'd3CreateTask'),false);
  assert.equal(isDefiniteUndispatchedD3Failure('CEN_D3_SIGNED_TASK_TEXT_REQUIRED',
    'd3ApplyAccepted'),false);
+ assert.equal(isDefiniteUndispatchedD3Failure(
+   'T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED','d3CreateTask'),false);
  assert.equal(isDefiniteUndispatchedD3Failure('CEN_D3_CONTEXT_CHANGED',
    'd3Decide'),false);
  assert.equal(isDefiniteUndispatchedD3Failure(null,'d3CreateTask'),false);
