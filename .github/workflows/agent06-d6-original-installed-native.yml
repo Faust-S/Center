@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 6f2dd119c2b537533ad220c627ed9e927e4ba506
+          ref: 2d1209eae8aa0e1e99beb831e8994d33efdcd2c7
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -44,11 +44,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: ca853642d1918157e6a91cfb386fffd6e3d71726
+          path: public-one-core
+          persist-credentials: false
       - name: Verify exact private owner and Windows toolchain
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '6f2dd119c2b537533ad220c627ed9e927e4ba506'){
+          if($actual -cne '2d1209eae8aa0e1e99beb831e8994d33efdcd2c7'){
             throw 'AGENT06_NATIVE_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($f in @(
@@ -119,6 +125,57 @@ jobs:
             Write-Host 'AGENT06_NATIVE_REAL_WINDOWS_TAURI_EXE_PASS'
             Write-Host 'AGENT06_NATIVE_PRIVATE_EXE_ARTIFACTS_UPLOADED=0'
           } finally { Pop-Location }
+      - name: Build actual qualified original T2 Agent product One Dist for SAME installed GUI
+        shell: pwsh
+        run: |
+          $core=Join-Path $env:GITHUB_WORKSPACE 'public-one-core/packages/t3-core'
+          $agent=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
+          $sha=(& git -C $core rev-parse HEAD).Trim()
+          if($sha -cne 'ca853642d1918157e6a91cfb386fffd6e3d71726'){throw 'AGENT06_G4_PUBLIC_ONE_CORE_SHA_MISMATCH'}
+          $archive=Join-Path $core 'qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip'
+          if(!(Test-Path -LiteralPath $archive -PathType Leaf) -or
+             (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+               '7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68'){
+            throw 'AGENT06_G4_GENUINE_QUALIFIED_T2_ARCHIVE_MISSING'
+          }
+          $qualified=Join-Path $env:RUNNER_TEMP 'agent06-g4-qualified-t2'
+          $dist=Join-Path $env:RUNNER_TEMP 'agent06-g4-one-dist'
+          $receipt=Join-Path $env:RUNNER_TEMP 'agent06-g4-original-receipt.json'
+          New-Item -ItemType Directory -Force -Path $qualified | Out-Null
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::ExtractToDirectory($archive,$qualified)
+          Push-Location $core
+          try{
+            & npm.cmd ci --ignore-scripts --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-g4-core-npm-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_G4_ONE_CORE_DEPENDENCIES_FAILED'}
+            & node scripts/qualify-bli-inherited-host.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-g4-compiled-host-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_G4_COMPILED_T3_WORKSPACE_FAILED'}
+          }finally{Pop-Location}
+          $profile=Join-Path $agent 'config/original-t2-agent-product.json'
+          if(!(Test-Path -LiteralPath $profile -PathType Leaf)){
+            throw 'AGENT06_G4_OWNING_PRODUCT_PROFILE_MISSING'
+          }
+          & node (Join-Path $core 'scripts/build-original-agent-one-dist.mjs') --qualified-kernel-dist $qualified --agent-profile $profile --t3-build (Join-Path $core 'dist') --output $dist --receipt $receipt *> (Join-Path $env:RUNNER_TEMP 'agent06-g4-one-dist-private.log')
+          if($LASTEXITCODE -ne 0 -or
+             !(Test-Path -LiteralPath $dist -PathType Container) -or
+             !(Test-Path -LiteralPath $receipt -PathType Leaf)){
+            throw 'AGENT06_G4_ORIGINAL_AGENT_ONE_DIST_NOT_BUILT'
+          }
+          $witness=Get-Content -LiteralPath $receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($witness.original_qualified_artifact -cne
+             'iwxa-kernel-k036-same-store-history-20261019-qualified.1' -or
+             $witness.original_agent_d6_schema_registered -ne $true -or
+             $witness.original_runtime_unchanged -ne $true -or
+             $witness.workspace_service_id -cne 'iwxa.personal-agent.workspace'){
+            throw 'AGENT06_G4_ORIGINAL_ONE_DIST_PRODUCT_OR_RECEIPT_INVALID'
+          }
+          foreach($var in @(
+            ('IWXA_G4_PUBLIC_T3_CORE_ROOT='+$core),
+            ('IWXA_G4_ORIGINAL_ONE_DIST_ROOT='+$dist),
+            ('IWXA_G4_ORIGINAL_ONE_DIST_RECEIPT='+$receipt))){
+            Add-Content -LiteralPath $env:GITHUB_ENV -Value $var -Encoding UTF8
+          }
+          Write-Host 'AGENT06_G4_REAL_ORIGINAL_T2_AGENT_ONE_DIST_BUILD_PASS'
       - name: Install and exercise existing Agent native UIA acceptance
         shell: pwsh
         run: |
@@ -186,6 +243,12 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item -LiteralPath 'private-agent' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath 'public-one-core' -Recurse -Force -ErrorAction SilentlyContinue
+          foreach($item in @('agent06-g4-qualified-t2','agent06-g4-one-dist')){
+            Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP $item) -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'agent06-g4-original-receipt.json') -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent06-g4-*-private.log' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
           $qa=Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
           Remove-Item -LiteralPath $qa -Recurse -Force -ErrorAction SilentlyContinue
           Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent06-native-*-private.log' -ErrorAction SilentlyContinue |
