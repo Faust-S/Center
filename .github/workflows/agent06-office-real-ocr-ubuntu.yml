@@ -1,0 +1,86 @@
+# Public runner only: temporary read-only access to the exact private Office test.
+# No private Actions, uploads, caches, debug traces, generated binaries, or files.
+name: Agent 0.6 Office real OCR ToolRuntime qualification
+on:
+  push:
+    branches: ['work/2026-11-15-agent06-office-source-qualification']
+    paths: ['.github/workflows/agent06-office-real-ocr-ubuntu.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-office-real-ocr-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-ocr-owner-result:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PIP_NO_CACHE_DIR: '1'
+      AGENT_OFFICE_SHA: '18ba67861e71ca4eac03a330a36441cb9bb8f237'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require scoped read-only private source
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if [ -z "${PRIVATE_SOURCE_TOKEN}" ]; then
+            echo 'AGENT06_REAL_OCR_PRIVATE_SOURCE_UNAVAILABLE'
+            exit 1
+          fi
+          echo 'AGENT06_REAL_OCR_PRIVATE_SOURCE_AVAILABLE'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_OFFICE_SHA }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - name: Verify private source pin
+        run: |
+          observed="$(git -C private-agent rev-parse HEAD)"
+          test "$observed" = "$AGENT_OFFICE_SHA" || {
+            echo 'AGENT06_REAL_OCR_SOURCE_MISMATCH'; exit 1;
+          }
+          echo 'AGENT06_REAL_OCR_SOURCE_PIN_PASS'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install real OCR executors and exact runtime
+        run: |
+          set -eu
+          sudo apt-get update -qq > "$RUNNER_TEMP/agent06-real-ocr-apt-private.txt" 2>&1 || {
+            echo 'AGENT06_REAL_OCR_APT_UPDATE_FAIL'; exit 1;
+          }
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ocrmypdf tesseract-ocr tesseract-ocr-eng ghostscript > "$RUNNER_TEMP/agent06-real-ocr-install-private.txt" 2>&1 || {
+            echo 'AGENT06_REAL_OCR_APT_INSTALL_FAIL'; exit 1;
+          }
+          python -m pip install -r private-agent/requirements.txt pytest > "$RUNNER_TEMP/agent06-real-ocr-pip-private.txt" 2>&1 || {
+            echo 'AGENT06_REAL_OCR_PYTHON_DEPENDENCY_FAIL'; exit 1;
+          }
+          command -v ocrmypdf > /dev/null && command -v gs > /dev/null && command -v tesseract > /dev/null || {
+            echo 'AGENT06_REAL_OCR_EXECUTABLE_MISSING'; exit 1;
+          }
+          echo 'AGENT06_REAL_OCR_DEPENDENCIES_PASS'
+      - name: Execute original U01 OCR with approved Task and two cold Core reads
+        run: |
+          set -eu
+          cd private-agent
+          if python -B -m pytest -q -p no:cacheprovider tests/test_agent06_pdf_ocr_real_e2e.py > "$RUNNER_TEMP/agent06-real-ocr-test-private.txt" 2>&1; then
+            echo 'AGENT06_REAL_OCR_TOOLRUNTIME_DUAL_COLD_PASS'
+          else
+            echo 'AGENT06_REAL_OCR_TOOLRUNTIME_DUAL_COLD_FAIL'
+            # Report only predeclared, non-sensitive error category names.
+            for code in REAL_OCR_COLD_READBACK_FAILED REAL_OCR_EXECUTABLE_MISSING               REAL_OCR_GHOSTSCRIPT_MISSING REAL_OCR_TESSERACT_MISSING               OCR_NOT_INDICATED_OR_UNVERIFIED U01_OCR_NOT_ACKNOWLEDGED               OCR_OUTPUT_MISSING_OR_LARGE OCR_TEXT_READBACK_FAILED               ocr_output_coverage_invalid ocr_u01_connection_unavailable               ocr_u01_outcome_unconfirmed; do
+              if grep -Fq "$code" "$RUNNER_TEMP/agent06-real-ocr-test-private.txt"; then
+                echo "AGENT06_REAL_OCR_FAILURE_CLASS=$code"
+              fi
+            done
+            exit 1
+          fi
+      # Never upload private source, test logs, executable, PDF, artifact or cache.
