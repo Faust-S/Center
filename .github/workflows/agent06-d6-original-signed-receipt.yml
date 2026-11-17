@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: c3cd3938f6286f76de575f16cb0077c83bae077f
+          ref: ffab19a8ad4dc0a5ce1f93b5014fe387684811c6
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -47,7 +47,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne 'c3cd3938f6286f76de575f16cb0077c83bae077f'){
+          if($actual -cne 'ffab19a8ad4dc0a5ce1f93b5014fe387684811c6'){
             throw 'AGENT06_D6_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($path in @('runtime/t3_original_result_owner.py',
@@ -73,6 +73,7 @@ jobs:
             $stages=@(
               @{ code='BASE'; expr='existing_core or real_core_durable_queue or lost_ack or foreign_work_revision or changed_original_signed_task' },
               @{ code='PREPUBLICATION'; expr='prepublication or trusted_lazy_source_owner' },
+              @{ code='RECOVER_PREPARED'; expr='cold_prepared_original or prepared_unverified_original or prepared_to_unissued or original_prepared_recovery' },
               @{ code='ACCEPTANCE'; expr='test_unaccepted_result_and_absent_original_kernel_owner_denied' },
               @{ code='READBACK'; expr='test_original_readback_and_exchange_are_required_twice' },
               @{ code='PROOF'; expr='test_original_exchange_cannot_confirm_weak_or_foreign_proofs' },
