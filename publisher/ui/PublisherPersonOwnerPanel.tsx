@@ -228,6 +228,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     return entries;
   }
   async function inventory(search=lookupTarget):Promise<Inventory>{
+    // A historical issuer proof must not survive a failed or changed read.
+    setSignedOwnerEvidence(null);setSignedOwnerEvidenceError('');
     const recent=await invoke('publisher_t3_person_inventory');
     const latest=checkedInventory(recent);
     let entries=latest, matches: number|undefined;
@@ -448,13 +450,18 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         return;
       }
       const view=await inventory(lookupId);
-      if(!view.entries.some(x=>x.licenseId===confirmed.licenseId&&
-          x.sequence===confirmed.sequence)){
+      const signedRecord=view.entries.find(x=>
+        x.licenseId===confirmed.licenseId&&x.sequence===confirmed.sequence);
+      if(!signedRecord){
         setNeedsRefresh(true);
         setFailure('Запись исходного T3 изменилась после сверки. '+
           'Повторное применение запрещено.');
         return;
       }
+      // An inventory row is not an original signed LICENSE/STATUS envelope.
+      // Two cold original native Owner checks must agree on exact SHA-256,
+      // signature-verification receipts and durable status sequence.
+      await twoColdOriginalSignedReadbacks(signedRecord);
       setLicenseId(confirmed.licenseId);
       setLookupTarget(lookupId);setLookupText(lookupId);
       setStatus('');setRevokePending('');setRenewalTariff('');
@@ -668,27 +675,27 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
     'stateRevision','ledgerRevision','recipientConfirmed',
     'activeSeats','productionActivation'
   ] as const satisfies readonly (keyof SignedOwnerReadback)[];
-  async function readOriginalSignedEvidence(){
-    const selected=selectedLicense;
-    if(!selected||!available||busy||needsRefresh||pendingMutation)return;
-    setBusy(true);setSignedOwnerEvidence(null);setSignedOwnerEvidenceError('');
-    try{
+  // Existing ORIGINAL native T3 Owner signature checks, shared by the
+  // interactive readback and by recovery of a lost ISSUE/STATUS response.
+  // This is issuer-side proof only; it cannot attest installed-holder receipt.
+  async function twoColdOriginalSignedReadbacks(record:PersonRecord):
+    Promise<SignedOwnerReadback>{
       const receipt=await invoke('publisher_t3_person_signed_readback',{
-        licenseId:selected.licenseId}) as SignedOwnerReadback;
+        licenseId:record.licenseId}) as SignedOwnerReadback;
       if(receipt?.operation!=='PERSON_SIGNED_READBACK'||
          receipt.source!=='ORIGINAL_T3_OWNER_STORE'||
-         receipt.licenseId!==selected.licenseId||
-         receipt.requestId!==selected.requestId||
-         receipt.issuerAuthorityId!==selected.issuerAuthorityId||
-         receipt.personId!==selected.personId||
-         receipt.productId!==selected.productId||
+         receipt.licenseId!==record.licenseId||
+         receipt.requestId!==record.requestId||
+         receipt.issuerAuthorityId!==record.issuerAuthorityId||
+         receipt.personId!==record.personId||
+         receipt.productId!==record.productId||
          !id(receipt.licenseKeyId)||!digest(receipt.licenseEnvelopeSha256)||
          receipt.licenseSignatureVerifiedAtIssuance!==true||
          receipt.recipientConfirmed!==false||
          receipt.activeSeats!==0||receipt.productionActivation!==false||
          !Number.isSafeInteger(receipt.stateRevision)||receipt.stateRevision<0||
          !Number.isSafeInteger(receipt.ledgerRevision)||receipt.ledgerRevision<0||
-         receipt.sequence!==selected.sequence||receipt.status!==selected.status||
+         receipt.sequence!==record.sequence||receipt.status!==record.status||
          (receipt.status==='NOT_ACTIVATED'?
             receipt.sequence!==0||receipt.statusKeyId!==null||
             receipt.statusEnvelopeSha256!==null||
@@ -697,8 +704,8 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
             !id(receipt.statusKeyId)||!digest(receipt.statusEnvelopeSha256)||
             receipt.statusSignatureVerifiedAtIssuance!==true||
             receipt.statusFloorVerified!==true||
-            receipt.statusIssuedAt!==selected.statusIssuedAt||
-            receipt.statusValidUntil!==selected.statusValidUntil)){
+            receipt.statusIssuedAt!==record.statusIssuedAt||
+            receipt.statusValidUntil!==record.statusValidUntil)){
         setNeedsRefresh(true);
         throw Error('PERSON_OWNER_SIGNED_READBACK_MISMATCH');
       }
@@ -706,7 +713,7 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
       // same signed LICENSE/STATUS, issuer state revision and durable floor.
       // A basic inventory alone cannot verify a second Ed25519 envelope.
       const second=await invoke('publisher_t3_person_signed_readback',{
-        licenseId:selected.licenseId}) as SignedOwnerReadback;
+        licenseId:record.licenseId}) as SignedOwnerReadback;
       if(!signedEvidenceFields.every(key=>
          Object.hasOwn(receipt,key)&&Object.hasOwn(second??{},key)&&
          second[key]===receipt[key])){
@@ -714,7 +721,15 @@ export default function PublisherPersonOwnerPanel({draft,invoke,change,focusRequ
         throw Error('PERSON_OWNER_TWO_COLD_SIGNED_READBACK_DIVERGED');
       }
       // Refuse a status change between the two signed reads and the GUI.
-      await currentPersonRecord(selected,'PERSON_OWNER_SIGNED_READBACK_STALE');
+      await currentPersonRecord(record,'PERSON_OWNER_SIGNED_READBACK_STALE');
+      return second;
+  }
+  async function readOriginalSignedEvidence(){
+    const selected=selectedLicense;
+    if(!selected||!available||busy||needsRefresh||pendingMutation)return;
+    setBusy(true);setSignedOwnerEvidence(null);setSignedOwnerEvidenceError('');
+    try{
+      const second=await twoColdOriginalSignedReadbacks(selected);
       setSignedOwnerEvidence(second);
     }catch(e){
       setSignedOwnerEvidenceError('Оригинальное подтверждение подписанных документов T3 '+

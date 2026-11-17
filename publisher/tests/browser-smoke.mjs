@@ -1470,6 +1470,21 @@ try {
   await personOwner.getByText('Журнал прочитан. Неизвестный результат подписи',{exact:false}).waitFor();
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true,
     'A generic ledger refresh must not re-enable original ISSUE signing');
+  // The original inventory can say COMMITTED while independent cold
+  // signed STATUS readback disagrees. Never clear OUTCOME_UNKNOWN or re-sign.
+  const signedBefore=await personal.evaluate(()=>
+    window.__personMockSignedReadbackCalls||0);
+  await personal.evaluate(at=>{
+    window.__personMockDivergeSignedReadbackAt=at+2;
+  },signedBefore);
+  await personOwner.getByTestId('publisher-person-reconcile-original').click();
+  await personOwner.getByText('PERSON_OWNER_TWO_COLD_SIGNED_READBACK_DIVERGED',
+    {exact:false}).waitFor();
+  assert.equal(await personOwner.getByTestId('publisher-person-unknown-outcome').count(),1);
+  assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
+  assert.equal(await personal.evaluate(()=>window.__personMockIssueCalls||0),
+    issuerCallsBeforeLostIssue+1,'Divergent native proof must not resend ISSUE');
+  checks.push('person-unknown-issue-needs-two-cold-signed-envelopes');
   await personOwner.getByTestId('publisher-person-reconcile-original').click();
   await personOwner.getByText('Оригинальный T3 подтвердил подписанную запись',{exact:false}).waitFor();
   assert.equal(await personOwner.getByTestId('publisher-person-unknown-outcome').count(),0);
