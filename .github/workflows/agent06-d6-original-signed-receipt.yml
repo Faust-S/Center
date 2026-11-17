@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 6bdf1c06e7d3bba4766cef41b1e5a04865bb7f20
+          ref: 85daccd9a6c03c1610bcd3f6a41c57a6c923bf14
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -47,7 +47,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '6bdf1c06e7d3bba4766cef41b1e5a04865bb7f20'){
+          if($actual -cne '85daccd9a6c03c1610bcd3f6a41c57a6c923bf14'){
             throw 'AGENT06_D6_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($path in @('runtime/t3_original_result_owner.py',
@@ -107,6 +107,25 @@ jobs:
             & node --check runtime/t3_original_employee_worker.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-worker-private.log')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_ORIGINAL_WORKER_SYNTAX_FAILED'}
             Write-Host 'AGENT06_D6_ORIGINAL_WORKER_SYNTAX_PASS'
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_t3_atlas_publication_surface.py *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-atlas-surface-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_ATLAS_PUBLICATION_SURFACE_FAILED'}
+            Write-Host 'AGENT06_D6_ATLAS_PUBLICATION_SURFACE_PASS'
+          } finally { Pop-Location }
+      - name: Compile installed Agent corporate UI with original Atlas D6 controls
+        shell: pwsh
+        run: |
+          Push-Location private-agent/desktop
+          try {
+            & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-npm-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_NPM_FAILED'}
+            & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-desktop-private.log')
+            if($LASTEXITCODE -ne 0){
+              $raw=Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'agent06-d6-desktop-private.log') -Raw
+              $codes=@([regex]::Matches($raw,'TS[0-9]{4}') | ForEach-Object { $_.Value } | Sort-Object -Unique)
+              Write-Host ('AGENT06_D6_TYPESCRIPT_CODES='+($codes -join ','))
+              throw 'AGENT06_D6_DESKTOP_BUILD_FAILED'
+            }
+            Write-Host 'AGENT06_D6_DESKTOP_TYPESCRIPT_VITE_PASS'
           } finally { Pop-Location }
       - name: Remove all private sources and diagnostics
         if: always()
