@@ -2,7 +2,8 @@ import React,{useEffect,useRef,useState} from 'react';
 import CorporateD3Panel from './CorporateD3Panel';
 import CorporateEmployeeEnrollment from './CorporateEmployeeEnrollment';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
-import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox,signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
+import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox,signedD3SessionFingerprint,
+ signedD3EmployeeScopeFingerprint} from '../runtime/cen03-review.mjs';
 
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
@@ -223,7 +224,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
         throw Error('CEN_D3_SIGNED_ENROLLMENT_UNCONFIRMED');
     })}>Подключить организацию</button>
   </div>}
-  {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={'employee|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')}
+  {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={'employee|'+(signedD3EmployeeScopeFingerprint(owner,organizationId)??'unknown')}
     session={owner.snapshot} contacts={organization.participants??[]}
     execute={execute} run={act} busy={busy}/>}
   {d3Ready&&invoke ? <CorporateD3Panel key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
