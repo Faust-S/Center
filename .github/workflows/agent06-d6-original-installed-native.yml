@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 369ae2e03e2fc8ba0b34c00abebc22b69a9d7de2
+          ref: a0dc9b3423c3388f111194a7bedd1af37077f096
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -47,14 +47,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 40dc328172ea1403ca43ced53e4c539832f34d47
+          ref: 3f91b60c56e34a21ea919a4a2004e31bb5071c60
           path: public-one-core
           persist-credentials: false
       - name: Verify exact private owner and Windows toolchain
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '369ae2e03e2fc8ba0b34c00abebc22b69a9d7de2'){
+          if($actual -cne 'a0dc9b3423c3388f111194a7bedd1af37077f096'){
             throw 'AGENT06_NATIVE_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($f in @(
@@ -131,7 +131,7 @@ jobs:
           $core=Join-Path $env:GITHUB_WORKSPACE 'public-one-core/packages/t3-core'
           $agent=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
           $sha=(& git -C $core rev-parse HEAD).Trim()
-          if($sha -cne '40dc328172ea1403ca43ced53e4c539832f34d47'){throw 'AGENT06_G4_PUBLIC_ONE_CORE_SHA_MISMATCH'}
+          if($sha -cne '3f91b60c56e34a21ea919a4a2004e31bb5071c60'){throw 'AGENT06_G4_PUBLIC_ONE_CORE_SHA_MISMATCH'}
           $archive=Join-Path $core 'qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip'
           if(!(Test-Path -LiteralPath $archive -PathType Leaf) -or
              (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne
