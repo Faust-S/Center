@@ -46,33 +46,35 @@ jobs:
           node-version: '22.16.0'
       # Joint source boundary, one Windows runner, exact public owners.
       # This DOES NOT checkout private T3 or claim native signed G4 E2E.
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/knowledge
-          ref: 8a161538cb041d023dcdb0527893cd0bcebad549
-          path: t3-original
-          persist-credentials: false
+      # Atlas sender-contract tests import ../t3-original from tests/,
+      # so check out public T3 within Atlas (not as its workspace sibling).
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
           ref: dbb6606667cf0b2f6189ebb6f2fd1f70da197db6
           path: public-atlas
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 8a161538cb041d023dcdb0527893cd0bcebad549
+          path: public-atlas/t3-original
+          persist-credentials: false
       - name: Verify one real original T3 + Agent + Atlas source contract
         shell: pwsh
         run: |
-          $t3=(& git -C t3-original rev-parse HEAD).Trim()
+          $t3=(& git -C public-atlas/t3-original rev-parse HEAD).Trim()
           $atlas=(& git -C public-atlas rev-parse HEAD).Trim()
           if($t3 -cne '8a161538cb041d023dcdb0527893cd0bcebad549' -or
              $atlas -cne 'dbb6606667cf0b2f6189ebb6f2fd1f70da197db6'){
             throw 'T3_ATLAS_CROSS_PRODUCT_SHA_MISMATCH'
           }
           $tests=@(
-            @{code='T3_ORIGINAL_D6_SENDER'; path='t3-original/packages/t3-core/tests/t3-d6-native-agent-source-publisher.test.mjs'},
+            @{code='T3_ORIGINAL_D6_SENDER'; path='public-atlas/t3-original/packages/t3-core/tests/t3-d6-native-agent-source-publisher.test.mjs'},
             @{code='ATLAS_T3_SENDER_CONTRACT'; path='public-atlas/tests/atlas09-original-t3-sender-contract.mjs'},
             @{code='ATLAS_T3_NATIVE_RECIPIENT'; path='public-atlas/tests/atlas-t3-original-d6-qualification.mjs'}
           )
-          $env:ATLAS_T3_ORIGINAL_D6_MODULE=(Join-Path $env:GITHUB_WORKSPACE 't3-original/packages/t3-core/src/t3/native-result-continuation.mjs')
+          $env:ATLAS_T3_ORIGINAL_D6_MODULE=(Join-Path $env:GITHUB_WORKSPACE 'public-atlas/t3-original/packages/t3-core/src/t3/native-result-continuation.mjs')
           foreach($case in $tests){
             $log=Join-Path $env:RUNNER_TEMP ('t3-atlas-joint-'+$case.code+'-public.log')
             & node --test $case.path *> $log
@@ -178,7 +180,7 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item -LiteralPath private-agent -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath t3-original -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath 'public-atlas/t3-original' -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -LiteralPath public-atlas -Recurse -Force -ErrorAction SilentlyContinue
           Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 't3-atlas-joint-*-public.log' -ErrorAction SilentlyContinue |
             Remove-Item -Force -ErrorAction SilentlyContinue
