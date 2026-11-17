@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 12eec9793daf927da0811fd3f05bb7f66b65bdc1
+          ref: 09e74db666397b7476b7986602a5fc511b6a4c51
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -54,7 +54,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '12eec9793daf927da0811fd3f05bb7f66b65bdc1'){
+          if($actual -cne '09e74db666397b7476b7986602a5fc511b6a4c51'){
             throw 'AGENT06_NATIVE_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($f in @(
@@ -148,7 +148,9 @@ jobs:
           try{
             & npm.cmd ci --ignore-scripts --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-g4-core-npm-private.log')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_G4_ONE_CORE_DEPENDENCIES_FAILED'}
-            & node scripts/qualify-bli-inherited-host.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-g4-compiled-host-private.log')
+            # Agent is a native desktop with its own model runtime. D5 WebGPU
+            # BLI remains in the browser-domain build, not in Agent D6.
+            & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-g4-compiled-host-private.log')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_G4_COMPILED_T3_WORKSPACE_FAILED'}
           }finally{Pop-Location}
           $profile=Join-Path $agent 'config/original-t2-agent-product.json'
@@ -166,7 +168,8 @@ jobs:
              'iwxa-kernel-k036-same-store-history-20261019-qualified.1' -or
              $witness.original_agent_d6_schema_registered -ne $true -or
              $witness.original_runtime_unchanged -ne $true -or
-             $witness.workspace_service_id -cne 'iwxa.personal-agent.workspace'){
+             $witness.workspace_service_id -cne 'iwxa.personal-agent.workspace' -or
+             $witness.local_inference_registered -ne $false){
             throw 'AGENT06_G4_ORIGINAL_ONE_DIST_PRODUCT_OR_RECEIPT_INVALID'
           }
           foreach($var in @(
