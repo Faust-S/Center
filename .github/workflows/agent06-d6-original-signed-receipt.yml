@@ -1,4 +1,5 @@
 # Public Center Windows runner, ephemeral read-only PRIVATE Agent source.
+# Agent pin f9264b00: verify reentrant original prepublication Core IPC.
 # No private source, artifacts, file paths, logs, EXE or credentials uploaded.
 name: Agent06 D6 original signed Exchange receipt qualification
 on:
