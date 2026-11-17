@@ -908,8 +908,16 @@ try{
   assert.equal(employeeState.taskRecoveryCalls,1);
   assert.equal(employeeState.taskIssueCalls,1,
     'recovery reconstructed the ORIGINAL Task without any second signing');
+  await employeePage.getByTestId('d3-employee-task-recovery-rebind').waitFor();
   assert.equal(await employeePage.getByTestId('d3-employee-task-export').isEnabled(),
-    true,'verified original archive recovery allows export of identical bytes');
+    false,'catalog repair advances native signed D1 epoch: no immediate export');
+  await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.waitForFunction(()=>
+    !document.querySelector('[data-testid="d3-employee-task-recovery-rebind"]'));
+  assert.equal(await employeePage.getByTestId('d3-employee-task-export').isEnabled(),
+    true,'a fresh original Kernel readback enables export of identical bytes');
+  assert.equal(employeeState.taskIssueCalls,1,
+    'fresh readback did not create another signed Task');
   await employeePage.getByTestId('d3-employee-task-export').click();
   assert.equal(employeeState.taskExports,1);
   assert.equal(employeeState.taskIssueCalls,1,
