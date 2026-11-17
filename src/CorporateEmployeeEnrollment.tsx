@@ -70,6 +70,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
  const [taskReceipt,setTaskReceipt]=useState<any>(null);
  const [taskRecoveryHold,setTaskRecoveryHold]=useState(false);
  const [taskRecoveryAttempted,setTaskRecoveryAttempted]=useState(false);
+ const [taskNeedsRebind,setTaskNeedsRebind]=useState(false);
  const available=session.d3EmployeeEnrollmentAvailable===true;
  const bootstrap=session.d3EmployeeRegistryBootstrapAvailable===true;
  const registryRead=session.d3EmployeeRegistryReadbackAvailable===true;
@@ -158,6 +159,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    setTaskGrantAttempted(false);setTaskGrantReceipt(null);
    setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);
+   setTaskNeedsRebind(false);
  };
  const confirmCredential=()=>run('Подлинность ключа перечитана из оригинального Kernel.',async()=>{
    if(!credentialChallenge)throw Error('CEN_D3_EMPLOYEE_KEY_PROOF_NOT_PREPARED');
@@ -583,6 +585,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
            result?.status!=='SIGNED_TASK_PERSISTED_NOT_DELIVERED')
           throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_READBACK_HOLD');
         setTaskRecoveryHold(false);setTaskReceipt(result);setTaskAttempted(true);
+        setTaskNeedsRebind(false);
        })}>Перечитать подписанную Task</button>
      {taskRecoveryHold&&<div data-testid="d3-employee-task-orphan-recovery">
        <p className="notice subdued">Исходный подписанный .iwxa найден, но
@@ -620,13 +623,21 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
              !HEX.test(result.taskRevisionId))
             throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_RECOVERY_HOLD');
           setTaskReceipt(result);setTaskRecoveryHold(false);setTaskAttempted(true);
+          // The original native owner advanced its signed D1 epoch. A
+          // separate cold readback in the reattached Kernel is required
+          // before the archive can be exported again.
+          setTaskNeedsRebind(true);
          })}>Восстановить каталог без новой подписи</button>
        {taskRecoveryAttempted&&<p className="notice subdued">
          Если ответ потерян, не запускайте восстановление повторно.
          Перезапустите подписанную Workspace и перечитайте Task.</p>}
      </div>}
+     {taskNeedsRebind&&<p className="notice subdued"
+        data-testid="d3-employee-task-recovery-rebind">
+        Каталог восстановлен без новой подписи. Откройте доверенную
+        Workspace заново и перечитайте Task перед сохранением .iwxa.</p>}
      <button className="secondary" data-testid="d3-employee-task-export"
-        disabled={busy||!taskIssueAvailable||
+        disabled={busy||taskNeedsRebind||!taskIssueAvailable||
           taskReceipt?.originalKernelReadback!==true||
           taskReceipt?.taskId!==taskId||taskReceipt?.recipientId!==personId}
         onClick={()=>void run('Оригинальный подписанный .iwxa сохранён, доставка не подтверждена.',async()=>{
