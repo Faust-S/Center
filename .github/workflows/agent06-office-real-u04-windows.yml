@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '299280fd518df3d0e8e6d910fc4068822344b2fa'
+      AGENT_OFFICE_SHA: 'cbd400c35f39ce2ed952ac5eff709cae82099fa8'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -144,10 +144,20 @@ jobs:
           & pwsh -NoProfile -NonInteractive -File private-agent/qualification/agent06/office/real_u04_office_gui.ps1 $env:AGENT06_U04_QA_ROOT *> (Join-Path $env:RUNNER_TEMP 'agent06-u04-window-save-private.txt')
           if($LASTEXITCODE -ne 0){
             $private=Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'agent06-u04-window-save-private.txt') -Raw
-            foreach($code in @('U04_QA_SELECTED_DOCX_WINDOW_NOT_VISIBLE','U04_QA_LIBREOFFICE_FOCUS_DENIED',
+            foreach($code in @('U04_QA_ARGUMENTS_PASS','U04_QA_PRIVATE_CONTEXT_PASS',
+                'U04_QA_SOURCE_SHA_PASS','U04_QA_UI_AUTOMATION_READY_PASS',
+                'U04_QA_SELECTED_DOCX_WINDOW_VISIBLE_PASS','U04_QA_LIBREOFFICE_FOREGROUND_PASS',
+                'U04_QA_GUI_SAVE_COMMAND_SENT','U04_QA_DIRECTORY_REQUIRED',
+                'U04_QA_SELECTED_DOCX_MISSING','U04_QA_SELECTED_DOCX_WINDOW_NOT_VISIBLE','U04_QA_LIBREOFFICE_FOCUS_DENIED',
                 'U04_QA_LIBREOFFICE_NOT_FOREGROUND','U04_QA_GUI_EDIT_NOT_SAVED',
                 'U04_QA_SOURCE_REVISION_CHANGED')){
               if($private.Contains($code)){Write-Host ('AGENT06_U04_GUI_FAILURE_CLASS='+$code)}
+            }
+            foreach($errorClass in @('ParserError','MethodInvocationException','MethodException',
+                'ParameterBindingException','RuntimeException','InvalidOperationException',
+                'TypeNotFound','FileNotFoundException','ArgumentException',
+                'NullReferenceException','TypeInitializationException')){
+              if($private.Contains($errorClass)){Write-Host ('AGENT06_U04_GUI_EXCEPTION_CLASS='+$errorClass)}
             }
             throw 'AGENT06_U04_REAL_DOCX_GUI_SAVE_HOLD'
           }
