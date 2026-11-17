@@ -346,6 +346,80 @@ jobs:
           # the real build/identity, not installed use of THIS setup EXE.
           Write-Host 'AGENT06_G4_SINGLE_WINDOWS_SETUP_CORE_EXE_BUILT_PASS'
           Write-Host 'AGENT06_G4_SINGLE_WINDOWS_SETUP_CORE_EXE_INSTALL_NOT_RUN'
+      - name: Independently install real G4 Setup Core EXE in isolated Windows qualification profile
+        shell: pwsh
+        run: |
+          # This invokes the EXISTING genuine Windows GUI-subsystem Setup Core
+          # EXE from the previous step using its own --install-silent
+          # qualification mode, not the Python installer called by GUI smoke.
+          # Isolate installation, registry, user folders and local port.
+          $root=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
+          $qa=Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+          $setup=Join-Path $qa 'IWXA-Personal-Agent-0.6-G4-Setup.exe'
+          $qualification=Join-Path $qa 'setup-isolated-qualification'
+          $installed=Join-Path $qa 'setup-exe-installed'
+          $data=Join-Path $qa 'setup-exe-data'
+          $software=Join-Path $qa 'setup-exe-software'
+          $models=Join-Path $qa 'setup-exe-models'
+          $cache=Join-Path $qa 'setup-exe-cache'
+          $result=Join-Path $qa 'logs/setup-exe-install-private.json'
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){
+            throw 'AGENT06_G4_NATIVE_SETUP_EXE_NOT_AVAILABLE'
+          }
+          foreach($p in @($qualification,$installed,$data,$software,$models,$cache)){
+            if($p.Contains('"')){throw 'AGENT06_G4_NATIVE_SETUP_QA_PATH_INVALID'}
+          }
+          $args=@('--install-silent',
+            '--qualification-root',('"'+$qualification+'"'),
+            '--qualification-port','18802',
+            '--install-root',('"'+$installed+'"'),
+            '--data-root',('"'+$data+'"'),
+            '--software-root',('"'+$software+'"'),
+            '--models-root',('"'+$models+'"'),
+            '--cache-root',('"'+$cache+'"'),
+            '--result',('"'+$result+'"'))
+          $stdout=Join-Path $qa 'logs/setup-exe-process-private.log'
+          $stderr=Join-Path $qa 'logs/setup-exe-error-private.log'
+          $process=Start-Process -FilePath $setup -ArgumentList $args -PassThru -Wait -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if($null -eq $process.ExitCode -or $process.ExitCode -ne 0 -or
+             !(Test-Path -LiteralPath $result -PathType Leaf)){
+            throw 'AGENT06_G4_NATIVE_SETUP_EXE_INSTALL_FAILED'
+          }
+          $witness=Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($witness.status -cne 'PASS' -or
+             [IO.Path]::GetFullPath([string]$witness.install_root) -cne
+             [IO.Path]::GetFullPath($installed)){
+            throw 'AGENT06_G4_NATIVE_SETUP_EXE_INSTALL_RECEIPT_INVALID'
+          }
+          $receiptPath=Join-Path $installed 'explorer-install-receipt.json'
+          $manifestPath=Join-Path $installed 'package-manifest.json'
+          $installedExe=Join-Path $installed 'desktop/bin/IWXA Personal.exe'
+          $originalT2=Join-Path $installed 't3-one-dist/_iwxa/domain.json'
+          foreach($f in @($receiptPath,$manifestPath,$installedExe,$originalT2)){
+            if(!(Test-Path -LiteralPath $f -PathType Leaf)){
+              throw 'AGENT06_G4_NATIVE_SETUP_EXE_INSTALLED_PAYLOAD_MISSING'
+            }
+          }
+          $receipt=Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($receipt.schema -cne 'IWXA_EXPLORER_INSTALL_RECEIPT/1.1.0' -or
+             $receipt.status -cne 'INSTALLED_GENERIC_STATE_READY' -or
+             $manifest.source_commit -cne '1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58' -or
+             $manifest.t3_original_one_dist_included -ne $true -or
+             $manifest.t3_original_signer_included -ne $false -or
+             $manifest.desktop_native_included -ne $true){
+            throw 'AGENT06_G4_NATIVE_SETUP_EXE_INSTALLED_ORIGINAL_IDENTITY_INVALID'
+          }
+          $expectedExe=Join-Path $root 'desktop/src-tauri/target/release/iwxa-personal.exe'
+          if((Get-FileHash -LiteralPath $installedExe -Algorithm SHA256).Hash -cne
+             (Get-FileHash -LiteralPath $expectedExe -Algorithm SHA256).Hash){
+            throw 'AGENT06_G4_NATIVE_SETUP_EXE_INSTALLED_TAURI_CHANGED'
+          }
+          # This proves a TRUE Setup Core EXE installation. It does NOT
+          # qualify Repair/Rollback, actual original private Ed25519 signing,
+          # a model-generated Task or independent Atlas acceptance.
+          Write-Host 'AGENT06_G4_NATIVE_SETUP_CORE_EXE_INSTALLED_PASS'
+          Write-Host 'AGENT06_G4_NATIVE_SETUP_CORE_REPAIR_ROLLBACK_NOT_RUN'
       - name: Remove all private source and native installed artifacts
         if: always()
         shell: pwsh
