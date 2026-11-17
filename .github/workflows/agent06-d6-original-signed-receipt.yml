@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58
+          ref: 1bf0847ed069c86fe6a11380537535f0ce6c0b8e
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -89,7 +89,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58'){
+          if($actual -cne '1bf0847ed069c86fe6a11380537535f0ce6c0b8e'){
             throw 'AGENT06_D6_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($path in @('runtime/t3_original_result_owner.py',
@@ -160,6 +160,11 @@ jobs:
             & python -B -m pytest -q -p no:cacheprovider tests/test_agent02_core_draft_readback.py *> (Join-Path $env:RUNNER_TEMP 'agent06-core-readonly-private.log')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_DRAFT_READONLY_SOURCE_TEST_FAILED'}
             Write-Host 'AGENT06_DRAFT_READONLY_AUTOSAVE_SOURCE_PASS'
+            # Current native Setup Core and original Windows CPython receipt
+            # must agree before exercising the real installed Setup EXE.
+            & python -B -m pytest -q -p no:cacheprovider tests/test_windows_native_setup_contract.py tests/test_agent06_setup_core_script_integrity.py *> (Join-Path $env:RUNNER_TEMP 'agent06-setup-native-contract-private.log')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_SETUP_CORE_NATIVE_CONTRACT_TEST_FAILED'}
+            Write-Host 'AGENT06_SETUP_CORE_NATIVE_VERSION_AND_CPYTHON_SOURCE_PASS'
             # Address the two newly changed, independent package owners
             # separately. Never expose private tracebacks, source paths,
             # credentials or installed artifacts in public output.

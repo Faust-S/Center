@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58
+          ref: 1bf0847ed069c86fe6a11380537535f0ce6c0b8e
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -54,7 +54,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58'){
+          if($actual -cne '1bf0847ed069c86fe6a11380537535f0ce6c0b8e'){
             throw 'AGENT06_NATIVE_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($f in @(
@@ -317,7 +317,7 @@ jobs:
              $report.manifest.external_program_payloads_embedded -ne $false -or
              $report.manifest.program_delivery -cne 'POST_INSTALL_PROGRAM_CENTER' -or
              $report.manifest.package_version -cne 'explorer-0.1.0' -or
-             $report.manifest.source_commit -cne '1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58' -or
+             $report.manifest.source_commit -cne '1bf0847ed069c86fe6a11380537535f0ce6c0b8e' -or
              (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$report.setup_sha256 -or
              (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$report.inner_package_sha256){
             throw 'AGENT06_G4_NATIVE_SETUP_EXACT_BINDING_FAILED'
@@ -333,7 +333,7 @@ jobs:
             finally{$reader.Dispose()}
             if($inner.t3_original_one_dist_included -ne $true -or
                $inner.t3_original_signer_included -ne $false -or
-               [string]$inner.source_commit -cne '1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58'){
+               [string]$inner.source_commit -cne '1bf0847ed069c86fe6a11380537535f0ce6c0b8e'){
               throw 'AGENT06_G4_SETUP_ONE_DIST_IDENTITY_INVALID'
             }
           }finally{$archive.Dispose()}
@@ -344,6 +344,13 @@ jobs:
           # The actual setup EXE stays PRIVATE in the ephemeral runner and is
           # removed by the unconditional cleanup below. This verifies only
           # the real build/identity, not installed use of THIS setup EXE.
+          # Check the REAL native WINEXE version, not only Tauri or inner ZIP.
+          $winExeVersion=[Diagnostics.FileVersionInfo]::GetVersionInfo($setup)
+          if($winExeVersion.FileVersion -cne '0.6.0.0' -or
+             $winExeVersion.ProductVersion -cne '0.6.0'){
+            throw 'AGENT06_G4_NATIVE_SETUP_CORE_ASSEMBLY_VERSION_MISMATCH'
+          }
+          Write-Host 'AGENT06_G4_NATIVE_SETUP_CORE_ASSEMBLY_06_PASS'
           Write-Host 'AGENT06_G4_SINGLE_WINDOWS_SETUP_CORE_EXE_BUILT_PASS'
           Write-Host 'AGENT06_G4_SINGLE_WINDOWS_SETUP_CORE_EXE_INSTALL_NOT_RUN'
       - name: Independently install real G4 Setup Core EXE in isolated Windows qualification profile
@@ -500,7 +507,7 @@ jobs:
           $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
           if($receipt.schema -cne 'IWXA_EXPLORER_INSTALL_RECEIPT/1.1.0' -or
              $receipt.status -cne 'INSTALLED_GENERIC_STATE_READY' -or
-             $manifest.source_commit -cne '1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58' -or
+             $manifest.source_commit -cne '1bf0847ed069c86fe6a11380537535f0ce6c0b8e' -or
              $manifest.t3_original_one_dist_included -ne $true -or
              $manifest.t3_original_signer_included -ne $false -or
              $manifest.desktop_native_included -ne $true){
