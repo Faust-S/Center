@@ -305,12 +305,18 @@ jobs:
             throw 'AGENT06_G4_NATIVE_SETUP_BUNDLE_FAILED'
           }
           $report=Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          # 'explorer-0.1.0' is the existing inner package contract, not
+          # Personal Agent's Windows product version. Verify both owners.
+          $desktop=Get-Content -LiteralPath (Join-Path $root 'desktop/src-tauri/tauri.conf.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($desktop.version -cne '0.6.0'){
+            throw 'AGENT06_G4_NATIVE_SETUP_PRODUCT_VERSION_MISMATCH'
+          }
           if($report.status -cne 'BUILT' -or
              $report.manifest.single_executable_setup -ne $true -or
              $report.manifest.installation_launches_runtime -ne $false -or
              $report.manifest.external_program_payloads_embedded -ne $false -or
              $report.manifest.program_delivery -cne 'POST_INSTALL_PROGRAM_CENTER' -or
-             $report.manifest.package_version -cne '0.6.0' -or
+             $report.manifest.package_version -cne 'explorer-0.1.0' -or
              $report.manifest.source_commit -cne '1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58' -or
              (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$report.setup_sha256 -or
              (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$report.inner_package_sha256){
