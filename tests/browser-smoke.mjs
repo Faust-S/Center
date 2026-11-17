@@ -593,8 +593,8 @@ try{
             employeePersonId:'person:independent',
             recipientId:personId,managerPersonId:'person:manager-fixture',
             organizationId,workspaceId,enrollmentId:'enrollment:verified',
-            originalReadback:true,safeToReissue:false,
-            grant:{payload:{
+            originalReadback:true,safeToReissue:false,statusSequence:6,
+             grant:{payload:{
               id:'grant:manager-task-fixture',
               holderId:'person:manager-fixture',roleId:'assigner',rightClass:'DATA',
               actions:['package.export'],purposes:['assignment'],
@@ -686,7 +686,8 @@ try{
             recipientId:'person:independent',
             workspaceId:'workspace:employee-fixture',
             originalSigned:true,originalKernelReadback:true,
-            invitationDelivered:false,packageSha256:'c'.repeat(64),bytes:2048
+             statusSequence:employeeState.taskGrantSaved?6:3,
+             invitationDelivered:false,packageSha256:'c'.repeat(64),bytes:2048
           };
         }
         if(args.operation==='d3EmployeeRegistryInitialize'){
@@ -833,8 +834,16 @@ try{
   await employeePage.getByTestId('d3-employee-task-id').fill('task:independent-work');
   await employeePage.getByTestId('d3-employee-task-text').fill(
     'Review verified supplier statement');
+  assert.equal(await newEmployeeTask.isEnabled(),false,
+    'an outdated signed invitation cannot authorize employee Task reception');
+  await employeePage.getByTestId('d3-employee-task-invite-stale').waitFor();
+  await employeePage.getByTestId('d3-employee-invitation-export').click();
+  await employeePage.getByTestId('d3-employee-invitation-export-receipt').waitFor();
+  assert.match(await employeePage.getByTestId('d3-employee-invitation-export-receipt').innerText(),
+    /Подписанный .iwxa сохранён, доставка не подтверждена/);
+  assert.equal(employeeState.inviteExports,1);
   assert.equal(await newEmployeeTask.isEnabled(),true,
-    'active exact manager DATA grant enables original native Task issue');
+    'original invitation status includes the new exact manager DATA grant');
   await newEmployeeTask.click();
   assert.equal(employeeState.taskIssueCalls,0,
     'definite native Human cancellation cannot create an original Task');
@@ -851,12 +860,7 @@ try{
   assert.equal(employeeState.taskExports,1);
   assert.equal(employeeState.taskIssueCalls,1,
     'exporting already signed bytes must never reissue original Task');
-  await employeePage.getByTestId('d3-employee-invitation-export').click();
-  await employeePage.getByTestId('d3-employee-invitation-export-receipt').waitFor();
-  assert.match(await employeePage.getByTestId('d3-employee-invitation-export-receipt').innerText(),
-    /Подписанный .iwxa сохранён, доставка не подтверждена/);
-  assert.equal(employeeState.inviteExports,1);
-  assert.equal(employeeState.initializations,1,
+    assert.equal(employeeState.initializations,1,
     'exporting a saved signed invitation never reissues Kernel grants');
   assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),false,
     'original invitation cannot reissue an already signed Task');
