@@ -503,9 +503,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
          Task ещё не подписана и не доставлена.</p>}
      </div>
      {!taskIssueAvailable&&<p className="notice subdued" data-testid="d3-employee-task-owner-unavailable">
-       Подписанная регистрация сотрудника не является разрешением выдать ему
-       Task. Нужна оригинальная T3-операция выдачи конкретному адресату
-       с отдельным подтверждённым правом на экспорт такой Task.</p>}
+       Оригинальный Kernel сейчас не подключён к владельцу Task.
+        Откройте доверенную Workspace и перечитайте адресный DATA-грант.</p>}
      <label>Текст поручения
       <textarea data-testid="d3-employee-task-text" rows={3} maxLength={10000}
         value={taskText} disabled={busy||taskAttempted}
@@ -515,16 +514,31 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
       <input data-testid="d3-employee-task-id" value={taskId}
         disabled={busy||taskAttempted} onChange={e=>setTaskId(e.target.value)}/>
      </label>
-     <button data-testid="d3-employee-task-create" disabled={!taskIssueAvailable||busy||taskAttempted||
+     <button data-testid="d3-employee-task-create" disabled={!taskIssueAvailable||
+        !managerTaskGrantOk||busy||taskAttempted||
        !/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||!taskText.trim()}
        onClick={()=>void run('Оригинальная Task подписана адресату, доставка не подтверждена.',async()=>{
-        if(taskAttempted||!ID.test(recoveryEnrollmentId))throw Error('CEN_D3_EMPLOYEE_TASK_OUTCOME_UNKNOWN');
-        setTaskAttempted(true);
-        const result=await execute('d3EmployeeCreateTask',{
-          enrollmentId:recoveryEnrollmentId,
-          employeePersonId:personId,taskId,task:taskText.trim()});
-        if(result?.status!=='SIGNED_TASK_CREATED_NOT_DELIVERED'||
-           result.recipientId!==personId||result.taskId!==taskId||
+        if(taskAttempted||!managerTaskGrantOk||
+            !ID.test(enrollmentReceipt.enrollmentId))
+           throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_DATA_GRANT_REQUIRED');
+         setTaskAttempted(true);
+         let result:any;
+         try{
+           result=await execute('d3EmployeeCreateTask',{
+             enrollmentId:enrollmentReceipt.enrollmentId,
+             employeePersonId:personId,taskId,task:taskText.trim(),confirmed:true
+           });
+         }catch(e){
+           if(String(e).replace(/^Error:\s*/,'').trim()===
+             'CEN_D3_EMPLOYEE_TASK_HUMAN_CANCELLED')setTaskAttempted(false);
+           throw e;
+         }
+        if(result?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_SIGNED_TASK/1'||
+            result.status!=='SIGNED_TASK_CREATED_NOT_DELIVERED'||
+            result.originalSigned!==true||result.taskDelivered!==false||
+            result.recipientId!==personId||
+            result.enrollmentId!==enrollmentReceipt.enrollmentId||
+            result.taskId!==taskId||
            !HEX.test(result.packageSha256)||!HEX.test(result.taskRevisionId))
           throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_SIGNING_UNCONFIRMED');
         setTaskReceipt(result);
@@ -532,16 +546,37 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
      <button data-testid="d3-employee-task-read" disabled={!taskIssueAvailable||busy||!/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)}
        onClick={()=>void run('Подписанная Task перечитана без повторного выпуска.',async()=>{
         const result=await execute('d3EmployeeTaskReadback',{
-          enrollmentId:recoveryEnrollmentId,
-          employeePersonId:personId,taskId});
-        if(result?.found!==true||result?.recipientId!==personId||
-           result?.taskId!==taskId||!HEX.test(result.taskRevisionId)||
+          enrollmentId:enrollmentReceipt.enrollmentId,
+           employeePersonId:personId,taskId});
+         if(result?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1'||
+            result.found!==true||result.recipientId!==personId||
+            result.enrollmentId!==enrollmentReceipt.enrollmentId||
+            result.originalKernelReadback!==true||result.taskDelivered!==false||
+            result.taskId!==taskId||!HEX.test(result.taskRevisionId)||
            !HEX.test(result.packageSha256)||
            result?.status!=='SIGNED_TASK_PERSISTED_NOT_DELIVERED')
           throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_READBACK_HOLD');
         setTaskReceipt(result);setTaskAttempted(true);
        })}>Перечитать подписанную Task</button>
-     {taskAttempted&&!taskReceipt&&<p className="notice subdued">
+     <button className="secondary" data-testid="d3-employee-task-export"
+        disabled={busy||taskReceipt?.originalKernelReadback!==true||
+          taskReceipt?.taskId!==taskId||taskReceipt?.recipientId!==personId}
+        onClick={()=>void run('Оригинальный подписанный .iwxa сохранён, доставка не подтверждена.',async()=>{
+         const result=await execute('d3EmployeeExportTask',{
+           employeePersonId:personId,
+           enrollmentId:enrollmentReceipt.enrollmentId,taskId
+         });
+         if(result?.status==='CANCELLED')return false;
+         if(result?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_EXPORT/1'||
+            result.status!=='EXPORTED_UNDELIVERED'||
+            result.originalSigned!==true||result.taskDelivered!==false||
+            result.taskId!==taskId||result.recipientId!==personId||
+            result.taskRevisionId!==taskReceipt.taskRevisionId||
+            result.packageSha256!==taskReceipt.packageSha256||
+            !Number.isSafeInteger(result.bytes)||result.bytes<=0)
+           throw Error('CEN_D3_EMPLOYEE_TASK_EXPORT_READBACK_HOLD');
+        })}>Сохранить подписанную Task .iwxa</button>
+      {taskAttempted&&!taskReceipt&&<p className="notice subdued">
        Task могла быть подписана до потери ACK. Повторный выпуск запрещён:
        используйте только исходный readback.</p>}
      {taskReceipt&&<p data-testid="d3-employee-task-receipt">
