@@ -137,7 +137,16 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
    JSON.stringify(taskGrantReceipt.grant?.payload?.actions)==='["package.export"]'&&
    JSON.stringify(taskGrantReceipt.grant?.payload?.purposes)==='["assignment"]'&&
    JSON.stringify(taskGrantReceipt.grant?.payload?.resources)===
-     JSON.stringify(managerTaskResources);
+     JSON.stringify(managerTaskResources)&&
+   Number.isSafeInteger(taskGrantReceipt.statusSequence)&&
+   taskGrantReceipt.statusSequence>0;
+ // The employee must import the current signed manager DATA + STATUS.
+ const invitationCurrentForTask=managerTaskGrantOk&&
+   employeeInviteReceipt?.originalSigned===true&&
+   employeeInviteReceipt.originalKernelReadback===true&&
+   employeeInviteReceipt.enrollmentId===enrollmentReceipt.enrollmentId&&
+   Number.isSafeInteger(employeeInviteReceipt.statusSequence)&&
+   employeeInviteReceipt.statusSequence>=taskGrantReceipt.statusSequence;
  const reset=()=>{
    setCredentialChallenge(null);setCredentialProof('');setCredentialAttempted(false);
    setCredentialReceipt(null);setEnrollmentChallenge(null);setRecoveryEnrollmentId('');
@@ -436,7 +445,9 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
             receipt.originalSigned!==true||
             receipt.originalKernelReadback!==true||
             receipt.invitationDelivered!==false||
-            !HEX.test(receipt.packageSha256)||
+             !Number.isSafeInteger(receipt.statusSequence)||
+             receipt.statusSequence<=0||
+             !HEX.test(receipt.packageSha256)||
             !Number.isSafeInteger(receipt.bytes)||receipt.bytes<=0)
            throw Error('CEN_D3_EMPLOYEE_INVITATION_ORIGINAL_EXPORT_HOLD');
          setEmployeeInviteReceipt(receipt);
@@ -501,6 +512,10 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
       {managerTaskGrantOk&&<p data-testid="d3-employee-task-grant-confirmed">
          Подтверждено отдельное DATA-право руководителя для {personId}.
          Task ещё не подписана и не доставлена.</p>}
+      {managerTaskGrantOk&&!invitationCurrentForTask&&
+       <p className="notice subdued" data-testid="d3-employee-task-invite-stale">
+        После выдачи DATA-гранта сохраните персональное приглашение .iwxa
+        с новым подписанным STATUS. Ранее сохранённый файл устарел.</p>}
      </div>
      {!taskIssueAvailable&&<p className="notice subdued" data-testid="d3-employee-task-owner-unavailable">
        Оригинальный Kernel сейчас не подключён к владельцу Task.
@@ -515,7 +530,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
         disabled={busy||taskAttempted} onChange={e=>setTaskId(e.target.value)}/>
      </label>
      <button data-testid="d3-employee-task-create" disabled={!taskIssueAvailable||
-        !managerTaskGrantOk||busy||taskAttempted||
+        !invitationCurrentForTask||busy||taskAttempted||
        !/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||!taskText.trim()}
        onClick={()=>void run('Оригинальная Task подписана адресату, доставка не подтверждена.',async()=>{
         if(taskAttempted||!managerTaskGrantOk||
