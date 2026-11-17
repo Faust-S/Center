@@ -119,7 +119,8 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
           }
       },
       "d3EmployeeCreateTask"=>{
-          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+          if input["confirmed"]!=true||
+             !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
              !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
              !input["taskId"].as_str().is_some_and(|s|
                 s.len()>5&&s.len()<=105&&s.starts_with("task:")&&
@@ -129,7 +130,7 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               return Err("CEN_D3_EMPLOYEE_SIGNED_TASK_INVALID".into());
           }
       },
-      "d3EmployeeTaskReadback"=>{
+      "d3EmployeeTaskReadback"|"d3EmployeeExportTask"=>{
           if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
              !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
              !input["taskId"].as_str().is_some_and(t3::valid_identifier) {
@@ -262,7 +263,8 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
             snapshot["d3EmployeeRegistryBootstrapAvailable"]==true,
         "d3EmployeeRegistryReadback"=>
             snapshot["d3EmployeeRegistryReadbackAvailable"]==true,
-        "d3EmployeeCreateTask"|"d3EmployeeTaskReadback"=>
+        "d3EmployeeCreateTask"|"d3EmployeeTaskReadback"|
+        "d3EmployeeExportTask"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true&&
             snapshot["d3EmployeeTaskIssueAvailable"]==true,
         "d3EmployeeTaskGrantIssue"|"d3EmployeeTaskGrantReadback"=>
@@ -1080,6 +1082,20 @@ pub async fn center_corporate_action(
             return Err("CEN_D3_EMPLOYEE_GRANTS_HUMAN_CANCELLED".into());
         }
     }
+    if operation=="d3EmployeeCreateTask"{
+        let who=input["employeePersonId"].as_str().unwrap_or("");
+        let task=input["taskId"].as_str().unwrap_or("");
+        let enrollment=input["enrollmentId"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: подписать поручение независимому сотруднику")
+            .set_description(&format!(
+                "Подписать оригинальное поручение {} для сотрудника {} (подключение {})? Используются отдельные действующие ACTION task.assign и DATA package.export из оригинального Kernel. Поручение сохраняется для передачи, но не считается доставленным. При потерянном ответе не подписывать его повторно.",task,who,enrollment))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning).show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_TASK_HUMAN_CANCELLED".into());
+        }
+    }
     if operation=="d3EmployeeTaskGrantIssue"{
         let who=input["employeePersonId"].as_str().unwrap_or("");
         let enrollment=input["enrollmentId"].as_str().unwrap_or("");
@@ -1142,16 +1158,19 @@ pub async fn center_corporate_action(
             return Ok(json!({"status":"CANCELLED"}));
         };
         Some(path)
-    }else if matches!(operation.as_str(),"d3ExportTask"|"d3ExportInvitation"|"d3EmployeeExportInvite"){
+    }else if matches!(operation.as_str(),"d3ExportTask"|"d3ExportInvitation"|"d3EmployeeExportInvite"|
+        "d3EmployeeExportTask"){
         // Native Windows Save dialog, not a WebView-supplied arbitrary path.
         // The original private owner writes & reads back exact signed bytes.
         let title=match operation.as_str(){
             "d3ExportTask"=>"Сохранить подписанную Task T3",
+            "d3EmployeeExportTask"=>"Сохранить Task независимому сотруднику T3",
             "d3EmployeeExportInvite"=>"Сохранить приглашение сотрудника T3",
             _=>"Сохранить подписанное приглашение T3"
         };
         let name=match operation.as_str(){
             "d3ExportTask"=>"iwxa-signed-task.iwxa",
+            "d3EmployeeExportTask"=>"iwxa-employee-task.iwxa",
             "d3EmployeeExportInvite"=>"iwxa-employee-invitation.iwxa",
             _=>"iwxa-signed-invitation.iwxa"
         };
@@ -1265,7 +1284,8 @@ pub async fn center_corporate_action(
         // issuance. A view-close failure cannot turn an already completed
         // signed operation into a retryable failure.
         if matches!(operation.as_str(),
-            "d3CreateTask"|"d3ExportTask"|"d3ExportInvitation"){
+            "d3CreateTask"|"d3ExportTask"|"d3ExportInvitation"|
+            "d3EmployeeCreateTask"){
             let _=close_original_signed_workspace(&app);
         }
         // No implicit ACCEPT or Kernel Apply.
@@ -1627,7 +1647,7 @@ mod tests{
             "d3EmployeeExportInvite").is_err());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one","taskId":"task:one",
-            "task":"Source supplier receipt"}),"d3EmployeeCreateTask").is_ok());
+            "task":"Source supplier receipt","confirmed":true}),"d3EmployeeCreateTask").is_ok());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one","taskId":"task:two"}),
             "d3EmployeeTaskReadback").is_ok());
