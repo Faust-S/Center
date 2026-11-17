@@ -1,0 +1,103 @@
+# Scope: pinned private Office source on a temporary public Windows runner.
+# Do not expose private source, tests, logs, EXE, user data or generated PDF.
+name: Agent 0.6 Office real OCR Windows qualification
+on:
+  push:
+    branches: ['work/2026-11-15-agent06-office-source-qualification']
+    paths: ['.github/workflows/agent06-office-real-ocr-windows.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-office-real-ocr-win-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows-real-ocr:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PIP_NO_CACHE_DIR: '1'
+      AGENT_OFFICE_SHA: '834803eebf83e4a9b073a70f81a0b6204262e9f2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require scoped read-only private source
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'AGENT06_WINDOWS_REAL_OCR_SOURCE_NOT_AVAILABLE'
+          }
+          Write-Host 'AGENT06_WINDOWS_REAL_OCR_READ_ONLY_AVAILABLE'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_OFFICE_SHA }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact private source
+        shell: pwsh
+        run: |
+          $actual=(& git -C private-agent rev-parse HEAD).Trim()
+          if($actual -cne $env:AGENT_OFFICE_SHA){throw 'AGENT06_WINDOWS_REAL_OCR_SOURCE_SHA_MISMATCH'}
+          Write-Host 'AGENT06_WINDOWS_REAL_OCR_SOURCE_PIN_PASS'
+      - name: Provision real native OCR executors
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          $ErrorActionPreference='Stop'
+          & choco.exe install tesseract ghostscript --yes --no-progress *> (Join-Path $env:RUNNER_TEMP 'agent06-win-ocr-choco-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_WINDOWS_REAL_OCR_NATIVE_INSTALL_FAIL'}
+          $gs=Get-ChildItem -LiteralPath 'C:\Program Files\gs' -Filter 'gswin64c.exe' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if($null -eq $gs){throw 'AGENT06_WINDOWS_REAL_OCR_GHOSTSCRIPT_MISSING'}
+          $tesseract=Join-Path $env:ProgramFiles 'Tesseract-OCR'
+          if(!(Test-Path -LiteralPath (Join-Path $tesseract 'tesseract.exe') -PathType Leaf)){
+            throw 'AGENT06_WINDOWS_REAL_OCR_TESSERACT_MISSING'
+          }
+          $gsFolder=$gs.DirectoryName
+          $env:PATH=$gsFolder+';'+$tesseract+';'+$env:PATH
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $gsFolder
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $tesseract
+          Write-Host 'AGENT06_WINDOWS_REAL_OCR_NATIVE_PROGRAMS_PASS'
+      - name: Install pinned Agent runtime and original OCRmyPDF
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          & python -m pip install -r private-agent/requirements.txt 'pytest' 'ocrmypdf==17.14.2' *> (Join-Path $env:RUNNER_TEMP 'agent06-win-ocr-pip-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_WINDOWS_REAL_OCR_PYTHON_DEPENDENCIES_FAIL'}
+          & ocrmypdf.exe --version *> (Join-Path $env:RUNNER_TEMP 'agent06-win-ocr-version-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_WINDOWS_REAL_OCR_EXECUTABLE_UNAVAILABLE'}
+          Write-Host 'AGENT06_WINDOWS_REAL_OCR_EXECUTOR_READY'
+      - name: Execute original U01, ToolRuntime receipt and two cold Python Core processes
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          Push-Location private-agent
+          try{
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_pdf_ocr_real_e2e.py *> (Join-Path $env:RUNNER_TEMP 'agent06-win-real-ocr-test-private.txt')
+            if($LASTEXITCODE -ne 0){
+              $private=Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'agent06-win-real-ocr-test-private.txt') -Raw
+              $allowed=@(
+                'REAL_OCRMY_PDF_EXECUTABLE_MISSING','REAL_OCR_GHOSTSCRIPT_MISSING',
+                'REAL_OCR_TESSERACT_MISSING','REAL_OCR_COLD_READBACK_FAILED',
+                'ocr_u01_connection_unavailable','ocr_u01_outcome_unconfirmed',
+                'ocr_output_coverage_invalid','OCR_NOT_INDICATED_OR_UNVERIFIED',
+                'U01_OCR_NOT_ACKNOWLEDGED','OCR_TEXT_READBACK_FAILED',
+                'OCR_OUTPUT_MISSING_OR_LARGE','ocr_executable_revision_changed')
+              foreach($code in $allowed){
+                if($private.Contains($code)){Write-Host ('AGENT06_WINDOWS_REAL_OCR_ERROR_CLASS='+$code)}
+              }
+              throw 'AGENT06_WINDOWS_REAL_OCR_U01_TOOLRUNTIME_DUAL_COLD_FAIL'
+            }
+            Write-Host 'AGENT06_WINDOWS_REAL_OCR_U01_TOOLRUNTIME_DUAL_COLD_PASS'
+          }finally{Pop-Location}
+      # Deliberately no upload-artifact, cache, logs, PDF or executable publication.
