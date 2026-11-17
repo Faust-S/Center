@@ -109,6 +109,15 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               return Err("CEN_D3_EMPLOYEE_ENROLLMENT_IDENTIFIERS_REQUIRED".into());
           }
       },
+      "d3EmployeeTaskGrantIssue"|"d3EmployeeTaskGrantReadback"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier){
+              return Err("CEN_D3_EMPLOYEE_TASK_DATA_SCOPE_REQUIRED".into());
+          }
+          if operation=="d3EmployeeTaskGrantIssue"&&input["confirmed"]!=true{
+              return Err("CEN_D3_EMPLOYEE_TASK_DATA_CONFIRMATION_REQUIRED".into());
+          }
+      },
       "d3EmployeeCreateTask"=>{
           if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
              !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
@@ -256,6 +265,8 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
         "d3EmployeeCreateTask"|"d3EmployeeTaskReadback"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true&&
             snapshot["d3EmployeeTaskIssueAvailable"]==true,
+        "d3EmployeeTaskGrantIssue"|"d3EmployeeTaskGrantReadback"=>
+            snapshot["d3EmployeeEnrollmentAvailable"]==true,
         "d3EmployeeCredentialBegin"|"d3EmployeeCredentialCancel"|
         "d3EmployeeCredentialAdmit"|
         "d3EmployeeCredentialRead"|"d3EmployeeBegin"|
@@ -1069,6 +1080,20 @@ pub async fn center_corporate_action(
             return Err("CEN_D3_EMPLOYEE_GRANTS_HUMAN_CANCELLED".into());
         }
     }
+    if operation=="d3EmployeeTaskGrantIssue"{
+        let who=input["employeePersonId"].as_str().unwrap_or("");
+        let enrollment=input["enrollmentId"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: право выдачи поручений сотруднику")
+            .set_description(&format!(
+                "Выдать руководителю отдельный исходный подписанный DATA grant для экспорта Task только сотруднику {} (подключение {})? Это отдельная запись в оригинальный Kernel, не сама Task и не доставка файла. После потери подтверждения повторять выдачу нельзя.",who,enrollment))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_TASK_DATA_HUMAN_CANCELLED".into());
+        }
+    }
     if operation=="d3ApplyAccepted"{
         let accepted=input["acceptanceId"].as_str().unwrap_or("");
         let count=input["revisionIds"].as_array().map(|v|v.len()).unwrap_or(0);
@@ -1589,6 +1614,15 @@ mod tests{
             "enrollmentId":"enrollment:one"}),"d3EmployeeRead").is_ok());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one"}),"d3EmployeeExportInvite").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","confirmed":true}),
+            "d3EmployeeTaskGrantIssue").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","confirmed":false}),
+            "d3EmployeeTaskGrantIssue").is_err());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one"}),
+            "d3EmployeeTaskGrantReadback").is_ok());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker"}),
             "d3EmployeeExportInvite").is_err());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
