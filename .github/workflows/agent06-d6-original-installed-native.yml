@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 9ab35b584fe9b0ff50c96c7a52b043e28c67d623
+          ref: 1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -54,7 +54,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '9ab35b584fe9b0ff50c96c7a52b043e28c67d623'){
+          if($actual -cne '1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58'){
             throw 'AGENT06_NATIVE_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($f in @(
@@ -187,6 +187,9 @@ jobs:
           try {
             & python -m pip install -r requirements.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-native-pip-private.log')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_PYTHON_DEPS_FAILED'}
+            # A finite failure code is emitted from the original installed
+            # QA helper; no private draft, token or HTTP body leaves CI.
+            $env:IWXA_AGENT02_SAFE_CORE_PROBE_FILE=Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID+'/logs/core-draft-safe-code.txt')
             & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'qualification/phase1/agent02_installed_gui_acceptance.ps1' *> $log
             if($LASTEXITCODE -ne 0){
               $result=Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
@@ -222,6 +225,25 @@ jobs:
                     'gui_core_draft_http_response_invalid' {$sub='CORE_READBACK_INVALID'}
                     'gui_draft_lost_before_close' {$sub='DRAFT_NAVIGATION_NOT_PERSISTED'}
                     'gui_draft_not_restored_after_restart' {$sub='DRAFT_COLD_RESTART_NOT_PERSISTED'}
+                  }
+                  # Only finite codes from the original private Core
+                  # readback helper, NEVER raw private logs or draft text.
+                  $knownCore=@(
+                    'qa_core_envelope_invalid','qa_core_draft_not_saved',
+                    'qa_core_draft_text_mismatch',
+                    'qa_core_draft_digest_invalid','qa_core_draft_context_changed',
+                    'qa_core_session_unavailable','qa_isolated_profile_missing',
+                    'qa_core_readback_window_invalid',
+                    'qa_core_http_400','qa_core_http_401','qa_core_http_403',
+                    'qa_core_http_404','qa_core_http_500','qa_core_http_other',
+                    'qa_core_transport_unavailable','qa_core_readback_unavailable'
+                  )
+                  $reasonFile=$env:IWXA_AGENT02_SAFE_CORE_PROBE_FILE
+                  if(Test-Path -LiteralPath $reasonFile -PathType Leaf){
+                    $finite=([string](Get-Content -LiteralPath $reasonFile -Raw -Encoding ASCII)).Trim()
+                    if($finite -in $knownCore){
+                      Write-Host ('AGENT06_NATIVE_CORE_READBACK_REASON='+$finite)
+                    }
                   }
                   Write-Host ('AGENT06_NATIVE_FAILURE_CATEGORY='+$group)
                   Write-Host ('AGENT06_NATIVE_FAILURE_SUBCODE='+$sub)
