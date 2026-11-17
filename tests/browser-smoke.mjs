@@ -495,7 +495,8 @@ try{
     initializations:0,inviteExports:0,savedDraft:null,requiresCold:false,
     wrongReadKey:true,taskGrantCalls:0,taskGrantSaved:false,
     wrongTaskGrantRecipient:true,cancelFirstTaskGrant:true,
-    loseFirstTaskGrantAck:true,
+    loseFirstTaskGrantAck:true,taskIssueCalls:0,signedTaskSaved:false,
+    cancelFirstTask:true,loseFirstTaskAck:true,taskExports:0,
     cancelFirstInit:true,loseFirstInitAck:true};
   const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
   await employeePage.exposeFunction('__centerEmployeeFixture',
@@ -519,7 +520,7 @@ try{
           d3EmployeeRegistryBootstrapAvailable:true,
           d3EmployeeRegistryReadbackAvailable:true,
           d3EmployeeEnrollmentAvailable:employeeState.ready,
-          d3EmployeeTaskIssueAvailable:false,
+          d3EmployeeTaskIssueAvailable:employeeState.ready,
           productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
         }};
       if(command==='center_corporate_age_status')return {
@@ -617,6 +618,59 @@ try{
             throw Error('T3_D3_EMPLOYEE_TASK_DATA_OUTCOME_UNKNOWN');
           }
           throw Error('CEN_UI_UNEXPECTED_TASK_DATA_GRANT_REISSUE');
+        }
+        if(args.operation==='d3EmployeeCreateTask'){
+          assert.equal(args.input.confirmed,true);
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(args.input.taskId,'task:independent-work');
+          assert.equal(args.input.task,'Review verified supplier statement');
+          assert.equal(employeeState.taskGrantSaved,true);
+          assert.equal(employeeState.wrongTaskGrantRecipient,false);
+          if(employeeState.cancelFirstTask){
+            employeeState.cancelFirstTask=false;
+            throw Error('CEN_D3_EMPLOYEE_TASK_HUMAN_CANCELLED');
+          }
+          employeeState.taskIssueCalls++;
+          employeeState.signedTaskSaved=true;
+          if(employeeState.loseFirstTaskAck){
+            employeeState.loseFirstTaskAck=false;
+            throw Error('T3_D3_ORIGINAL_EMPLOYEE_TASK_OUTCOME_UNKNOWN');
+          }
+          throw Error('CEN_UI_ORIGINAL_TASK_REISSUE_FORBIDDEN');
+        }
+        if(args.operation==='d3EmployeeTaskReadback'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(args.input.taskId,'task:independent-work');
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1',
+            found:employeeState.signedTaskSaved,
+            taskId:'task:independent-work',recipientId:'person:independent',
+            enrollmentId:'enrollment:verified',taskRevisionId:'d'.repeat(64),
+            packageSha256:'e'.repeat(64),
+            status:employeeState.signedTaskSaved?
+              'SIGNED_TASK_PERSISTED_NOT_DELIVERED':
+              'NOT_IN_ORIGINAL_TASK_INVENTORY',
+            originalKernelReadback:true,taskDelivered:false
+          };
+        }
+        if(args.operation==='d3EmployeeExportTask'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(args.input.taskId,'task:independent-work');
+          assert.equal(args.input.archivePath,undefined);
+          assert.equal(employeeState.signedTaskSaved,true);
+          employeeState.taskExports++;
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_EXPORT/1',
+            status:'EXPORTED_UNDELIVERED',originalSigned:true,
+            taskId:'task:independent-work',
+            taskRevisionId:'d'.repeat(64),
+            recipientId:'person:independent',
+            packageSha256:'e'.repeat(64),bytes:2048,
+            taskDelivered:false
+          };
         }
         if(args.operation==='d3EmployeeExportInvite'){
           assert.equal(args.input.employeePersonId,'person:independent');
@@ -773,8 +827,30 @@ try{
   await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
   assert.equal(employeeState.taskGrantCalls,1,
     'original readback after lost ACK never re-issues the manager DATA grant');
-  assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),false,
-    'manager DATA grant alone does not fabricate a signed employee Task owner');
+  const newEmployeeTask=employeePage.getByTestId('d3-employee-task-create');
+  assert.equal(await newEmployeeTask.isEnabled(),false,
+    'no Task may be signed until its exact text and taskId are supplied');
+  await employeePage.getByTestId('d3-employee-task-id').fill('task:independent-work');
+  await employeePage.getByTestId('d3-employee-task-text').fill(
+    'Review verified supplier statement');
+  assert.equal(await newEmployeeTask.isEnabled(),true,
+    'active exact manager DATA grant enables original native Task issue');
+  await newEmployeeTask.click();
+  assert.equal(employeeState.taskIssueCalls,0,
+    'definite native Human cancellation cannot create an original Task');
+  assert.equal(await newEmployeeTask.isEnabled(),true);
+  await newEmployeeTask.click();
+  assert.equal(employeeState.taskIssueCalls,1);
+  assert.equal(await newEmployeeTask.isEnabled(),false,
+    'lost Task ACK forbids creating a second signed revision');
+  await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.getByTestId('d3-employee-task-receipt').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-task-export').isEnabled(),
+    true,'exact original readback enables export without re-signing');
+  await employeePage.getByTestId('d3-employee-task-export').click();
+  assert.equal(employeeState.taskExports,1);
+  assert.equal(employeeState.taskIssueCalls,1,
+    'exporting already signed bytes must never reissue original Task');
   await employeePage.getByTestId('d3-employee-invitation-export').click();
   await employeePage.getByTestId('d3-employee-invitation-export-receipt').waitFor();
   assert.match(await employeePage.getByTestId('d3-employee-invitation-export-receipt').innerText(),
@@ -783,11 +859,12 @@ try{
   assert.equal(employeeState.initializations,1,
     'exporting a saved signed invitation never reissues Kernel grants');
   assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),false,
-    'original employee invitation cannot authorize unsupported Task issuance');
+    'original invitation cannot reissue an already signed Task');
   await employeePage.close();
   checks.push('d3-employee-original-kernel-bootstrap-human-cancel-unknown-ack-cold-readback-no-reissue');
   checks.push('d3-employee-invitation-ui-only-signed-receipt-no-grant-reissue-no-unsupported-task');
   checks.push('d3-employee-manager-task-data-human-cancel-lost-ack-foreign-recipient-readback');
+  checks.push('d3-employee-task-native-human-cancel-lost-ack-exact-readback-single-export-ui-only');
   // React can reload while the REAL native signed WebView (and its Kernel)
   // survives. Model that lifetime using a separate Node-side host, NOT
   // localStorage/React state, so a browser reload cannot recreate its status.
