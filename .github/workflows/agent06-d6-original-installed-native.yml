@@ -278,6 +278,68 @@ jobs:
             }
             Write-Host 'AGENT06_NATIVE_INSTALLED_GUI_AND_COLD_REOPEN_PASS'
           } finally { Pop-Location }
+      - name: Build genuine Agent 0.6 G4 Setup Core EXE from the SAME qualified installed One Dist
+        shell: pwsh
+        run: |
+          # Reuse the EXACT original One Dist package that just passed native
+          # installation/GUI. Compile the existing setup stub and append those
+          # exact package bytes. No second installer, Store or T3 runtime.
+          $root=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
+          $qa=Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+          $package=Join-Path $qa 'package.zip'
+          $stub=Join-Path $qa 'IWXA-Personal-Agent-Setup.stub.exe'
+          $setup=Join-Path $qa 'IWXA-Personal-Agent-0.6-G4-Setup.exe'
+          if(!(Test-Path -LiteralPath $package -PathType Leaf)){
+            throw 'AGENT06_G4_NATIVE_SETUP_ORIGINAL_PACKAGE_MISSING'
+          }
+          $buildLog=Join-Path $qa 'logs/setup-stub-private.log'
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $root 'tools/build_iwxa_windows_setup_exe.ps1') -Output $stub *> $buildLog
+          if($LASTEXITCODE -ne 0 -or
+             !(Test-Path -LiteralPath $stub -PathType Leaf)){
+            throw 'AGENT06_G4_NATIVE_SETUP_STUB_BUILD_FAILED'
+          }
+          $reportPath=Join-Path $qa 'logs/setup-bundle-private.json'
+          & python -B (Join-Path $root 'tools/build_windows_setup_bundle.py') --package $package --setup-exe $stub --output $setup --json *> $reportPath
+          if($LASTEXITCODE -ne 0 -or
+             !(Test-Path -LiteralPath $setup -PathType Leaf)){
+            throw 'AGENT06_G4_NATIVE_SETUP_BUNDLE_FAILED'
+          }
+          $report=Get-Content -LiteralPath $reportPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($report.status -cne 'BUILT' -or
+             $report.manifest.single_executable_setup -ne $true -or
+             $report.manifest.installation_launches_runtime -ne $false -or
+             $report.manifest.external_program_payloads_embedded -ne $false -or
+             $report.manifest.program_delivery -cne 'POST_INSTALL_PROGRAM_CENTER' -or
+             $report.manifest.package_version -cne '0.6.0' -or
+             $report.manifest.source_commit -cne '1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58' -or
+             (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$report.setup_sha256 -or
+             (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$report.inner_package_sha256){
+            throw 'AGENT06_G4_NATIVE_SETUP_EXACT_BINDING_FAILED'
+          }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive=[IO.Compression.ZipFile]::OpenRead($package)
+          try{
+            $entry=$archive.GetEntry('IWXA_EXPLORER/package-manifest.json')
+            if($null -eq $entry){throw 'AGENT06_G4_SETUP_PACKAGE_MANIFEST_MISSING'}
+            $stream=$entry.Open()
+            $reader=New-Object IO.StreamReader($stream)
+            try{$inner=($reader.ReadToEnd()|ConvertFrom-Json)}
+            finally{$reader.Dispose()}
+            if($inner.t3_original_one_dist_included -ne $true -or
+               $inner.t3_original_signer_included -ne $false -or
+               [string]$inner.source_commit -cne '1d9d2b7e9b9e204f4658c10c63d9f29d3277fc58'){
+              throw 'AGENT06_G4_SETUP_ONE_DIST_IDENTITY_INVALID'
+            }
+          }finally{$archive.Dispose()}
+          if((Get-Item -LiteralPath $setup).Length -le
+             (Get-Item -LiteralPath $package).Length){
+            throw 'AGENT06_G4_SETUP_SINGLE_EXE_INCOMPLETE'
+          }
+          # The actual setup EXE stays PRIVATE in the ephemeral runner and is
+          # removed by the unconditional cleanup below. This verifies only
+          # the real build/identity, not installed use of THIS setup EXE.
+          Write-Host 'AGENT06_G4_SINGLE_WINDOWS_SETUP_CORE_EXE_BUILT_PASS'
+          Write-Host 'AGENT06_G4_SINGLE_WINDOWS_SETUP_CORE_EXE_INSTALL_NOT_RUN'
       - name: Remove all private source and native installed artifacts
         if: always()
         shell: pwsh
