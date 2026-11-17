@@ -814,6 +814,10 @@ try{
   await taskDataIssue.click();
   assert.equal(employeeState.taskGrantCalls,0,
     'a native Human cancellation cannot enter original Kernel');
+  // The native refusal settles asynchronously through React's run() busy
+  // state; Playwright click completion alone is not the consent callback.
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-grant-issue"]')?.disabled===false);
   assert.equal(await taskDataIssue.isEnabled(),true,
     'a definite pre-dispatch refusal can be confirmed anew');
   await taskDataIssue.click();
@@ -847,6 +851,8 @@ try{
   await newEmployeeTask.click();
   assert.equal(employeeState.taskIssueCalls,0,
     'definite native Human cancellation cannot create an original Task');
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-create"]')?.disabled===false);
   assert.equal(await newEmployeeTask.isEnabled(),true);
   await newEmployeeTask.click();
   assert.equal(employeeState.taskIssueCalls,1);
