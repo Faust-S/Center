@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCorporateOwnerHost} from '../runtime/cen-corporate-owner-host.mjs';
-import {signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
+import {signedD3SessionFingerprint,
+ signedD3EmployeeScopeFingerprint} from '../runtime/cen03-review.mjs';
 import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
  appendOriginalResultReview,readCompleteOriginalResult,
  validateOriginalSignedTaskReadback,isDefiniteUndispatchedD3Failure,
@@ -520,4 +521,33 @@ test('D3: one explicit click shows complete original Result without ACCEPT',asyn
      resultInspection:{...page(4096).resultInspection,
        assignmentText:'Другое поручение'}})),
    /CEN_D3_SIGNED_RESULT_REVIEW_STALE/);
+});
+
+test('same-employee original Task epoch retains enrollment recovery form but a foreign subject remounts',()=>{
+ const view={status:'D3_OWNER_READY',snapshot:{
+   product:'admin',organizationId:'org:north',workspaceId:'workspace:north',
+   actorId:'person:manager',contextId:'admin:pinned-signed-owner',
+   contextEpoch:17,d3RecipientAvailable:true,productionActivation:false,
+   T3_READY:false
+ }};
+ const first=signedD3EmployeeScopeFingerprint(view,'org:north');
+ const full=signedD3SessionFingerprint(view,'org:north');
+ assert.equal(typeof first,'string');
+ assert.equal(typeof full,'string');
+ const clone=()=>structuredClone(view);
+ for(const nextEpoch of [18,19,200]){
+   const next=clone();next.snapshot.contextEpoch=nextEpoch;
+   assert.notEqual(signedD3SessionFingerprint(next,'org:north'),full,
+     'native D3 binding always changes after a committed Task');
+   assert.equal(signedD3EmployeeScopeFingerprint(next,'org:north'),first,
+     'only React form survives the same signed owner epoch');
+ }
+ for(const field of ['organizationId','workspaceId','actorId','contextId']){
+   const next=clone();next.snapshot[field]+='-other';
+   assert.notEqual(signedD3EmployeeScopeFingerprint(next,next.snapshot.organizationId),
+     first,field+' must remount form, not retain an unrelated credential');
+ }
+ assert.equal(signedD3EmployeeScopeFingerprint(view,'org:foreign'),null);
+ const unsigned=clone();unsigned.snapshot.d3RecipientAvailable=false;
+ assert.equal(signedD3EmployeeScopeFingerprint(unsigned,'org:north'),null);
 });
