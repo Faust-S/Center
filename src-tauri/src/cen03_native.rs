@@ -130,11 +130,18 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               return Err("CEN_D3_EMPLOYEE_SIGNED_TASK_INVALID".into());
           }
       },
-      "d3EmployeeTaskReadback"|"d3EmployeeExportTask"=>{
+      "d3EmployeeTaskReadback"|"d3EmployeeExportTask"|
+      "d3EmployeeRecoverOrphanTask"=>{
           if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
              !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier)||
-             !input["taskId"].as_str().is_some_and(t3::valid_identifier) {
+             !input["taskId"].as_str().is_some_and(|id|
+                id.len()>5&&id.len()<=105&&id.starts_with("task:")&&
+                id[5..].bytes().all(|b|
+                    b.is_ascii_alphanumeric()||b==b'-')) {
               return Err("CEN_D3_EMPLOYEE_TASK_READBACK_INVALID".into());
+          }
+          if operation=="d3EmployeeRecoverOrphanTask"&&input["confirmed"]!=true{
+              return Err("CEN_D3_EMPLOYEE_TASK_RECOVERY_CONFIRMATION_REQUIRED".into());
           }
       },
       "d3CreateTask"=>{
@@ -264,7 +271,7 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
         "d3EmployeeRegistryReadback"=>
             snapshot["d3EmployeeRegistryReadbackAvailable"]==true,
         "d3EmployeeCreateTask"|"d3EmployeeTaskReadback"|
-        "d3EmployeeExportTask"=>
+        "d3EmployeeExportTask"|"d3EmployeeRecoverOrphanTask"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true&&
             snapshot["d3EmployeeTaskIssueAvailable"]==true,
         "d3EmployeeTaskGrantIssue"|"d3EmployeeTaskGrantReadback"=>
@@ -1082,6 +1089,21 @@ pub async fn center_corporate_action(
             return Err("CEN_D3_EMPLOYEE_GRANTS_HUMAN_CANCELLED".into());
         }
     }
+    if operation=="d3EmployeeRecoverOrphanTask"{
+        let who=input["employeePersonId"].as_str().unwrap_or("");
+        let task=input["taskId"].as_str().unwrap_or("");
+        let enrollment=input["enrollmentId"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: восстановить исходную подписанную Task")
+            .set_description(&format!(
+                "Восстановить каталог для существующей подписанной Task {} сотрудника {} (подключение {})? Проверяются оригинальный .iwxa, подпись и действующий Kernel. Новая подпись, новый grant и доставка не выполняются. Если подтверждение потеряется, восстановление не повторяется до холодного readback.",task,who,enrollment))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_TASK_RECOVERY_HUMAN_CANCELLED".into());
+        }
+    }
     if operation=="d3EmployeeCreateTask"{
         let who=input["employeePersonId"].as_str().unwrap_or("");
         let task=input["taskId"].as_str().unwrap_or("");
@@ -1285,7 +1307,7 @@ pub async fn center_corporate_action(
         // signed operation into a retryable failure.
         if matches!(operation.as_str(),
             "d3CreateTask"|"d3ExportTask"|"d3ExportInvitation"|
-            "d3EmployeeCreateTask"){
+            "d3EmployeeCreateTask"|"d3EmployeeRecoverOrphanTask"){
             let _=close_original_signed_workspace(&app);
         }
         // No implicit ACCEPT or Kernel Apply.
@@ -1651,6 +1673,15 @@ mod tests{
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one","taskId":"task:two"}),
             "d3EmployeeTaskReadback").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:two",
+            "confirmed":true}),"d3EmployeeRecoverOrphanTask").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:two"}),
+            "d3EmployeeRecoverOrphanTask").is_err());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","taskId":"task:two/foreign",
+            "confirmed":true}),"d3EmployeeRecoverOrphanTask").is_err());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one","taskId":"task:two",
             "task":"  "}),"d3EmployeeCreateTask").is_err());
