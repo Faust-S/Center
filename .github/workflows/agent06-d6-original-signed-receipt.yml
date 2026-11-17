@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 459f77f720b1c664cd7c32ad874841a978682bba
+          ref: 4a6324af8a158093fa804a47ca8ee822dc4d565c
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -89,7 +89,7 @@ jobs:
         shell: pwsh
         run: |
           $actual=(& git -C private-agent rev-parse HEAD).Trim()
-          if($actual -cne '459f77f720b1c664cd7c32ad874841a978682bba'){
+          if($actual -cne '4a6324af8a158093fa804a47ca8ee822dc4d565c'){
             throw 'AGENT06_D6_PRIVATE_SOURCE_SHA_CHANGED'
           }
           foreach($path in @('runtime/t3_original_result_owner.py',
@@ -152,7 +152,7 @@ jobs:
             & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_corporate_t3_employee.py *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-employee-private.log')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_CORPORATE_BASELINE_FAILED'}
             Write-Host 'AGENT06_D6_CORPORATE_EMPLOYEE_BASELINE_PASS'
-            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_t3_installed_kernel_origin.py *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-pinned-kernel-private.log')
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_t3_installed_kernel_origin.py tests/test_agent06_t3_setup_payload.py *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-pinned-kernel-private.log')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_D6_T2_ONE_DIST_ORIGIN_MISMATCH'}
             Write-Host 'AGENT06_D6_T2_ORIGINAL_PINNED_KERNEL_ORIGIN_PASS'
             & node --check runtime/t3_original_employee_worker.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-d6-worker-private.log')
