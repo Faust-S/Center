@@ -65,7 +65,25 @@ jobs:
           try{
             & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_installed_office_fixture.py *> $privateLog
             if($LASTEXITCODE -ne 0){
-              Write-Host 'AGENT06_INSTALLED_FIXTURE_CONTRACT_FAIL'
+              $private=Get-Content -LiteralPath $privateLog -Raw
+              $known=@(
+                @('test_installed_office_provider_failure_classifications_never_leak_private_details','PROVIDER_ERROR_CLASSIFICATION'),
+                @('test_installed_office_http_error_classified_without_content','HTTP_ERROR_BASELINE'),
+                @('test_installed_office_fixture_creates_valid_standalone_word_package','DOCX_FIXTURE'),
+                @('test_installed_office_fixture_uses_only_stdlib_for_docx','DOCX_STDLIB'),
+                @('test_installed_office_qa_resolves_existing_runtime_from_isolated_cwd','RUNTIME_IMPORT'),
+                @('test_installed_office_acceptance_uses_two_existing_task_routes','TASK_ROUTE'),
+                @('test_installed_office_qa_preserves_original_failure_on_gui_close','GUI_CLOSE'),
+                @('test_installed_ocr_qualification_uses_genuine_raster_and_one_gui_draft','OCR_FIXTURE')
+              )
+              $matched=$false
+              foreach($row in $known){
+                if($private.Contains('FAILED tests/test_agent06_installed_office_fixture.py::'+$row[0])){
+                  Write-Host ('AGENT06_INSTALLED_FIXTURE_FAILURE_CLASS='+$row[1])
+                  $matched=$true
+                }
+              }
+              if(!$matched){Write-Host 'AGENT06_INSTALLED_FIXTURE_FAILURE_CLASS=OTHER'}
               throw 'AGENT06_INSTALLED_FIXTURE_CONTRACT_HOLD'
             }
             Write-Host 'AGENT06_INSTALLED_FIXTURE_CONTRACT_PASS'
