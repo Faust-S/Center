@@ -1,6 +1,4 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {createNativeAtlasPort} from './atlas-native.mjs';
-import {atlasLinkReadback,atlasWorkReadback} from './atlas-integration.mjs';
 import {readOriginalResultReview,readCompleteOriginalResult,
  validateOriginalSignedTaskReadback,
  isDefiniteUndispatchedD3Failure,
@@ -180,6 +178,13 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    // existing fixed-path READ_ONLY mode, never a cached/selected file copy.
    const source=assignmentDrafts.find(a=>a.id===draftId)?.atlasRef;
    if(source){
+     // Original corporate Task requires no Atlas modules until this exact
+     // draft explicitly carries a native project/work reference.
+     const [{createNativeAtlasPort},{atlasLinkReadback,atlasWorkReadback}]=
+       await Promise.all([
+         import('./atlas-native.mjs'),
+         import('./atlas-integration.mjs')
+       ]).catch(()=>{throw Error('CEN_D3_ATLAS_OWNER_NOT_AVAILABLE');});
      const port=createNativeAtlasPort(invoke);
      let sessionFromInstalled;
      try{
