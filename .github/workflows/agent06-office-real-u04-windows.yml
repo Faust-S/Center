@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '22a85c8ccc898590060ef04d418305fccad12f78'
+      AGENT_OFFICE_SHA: '059e55a92b23abc836796055c80608d21068371a'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -187,11 +187,17 @@ jobs:
                 'U04_QA_LIBREOFFICE_FOCUS_ROOT_UNAVAILABLE','U04_QA_LIBREOFFICE_CLICK_OUTSIDE_VIEWPORT',
                 'U04_QA_LIBREOFFICE_FOCUS_DENIED',
                 'U04_QA_LIBREOFFICE_NOT_FOREGROUND','U04_QA_GUI_EDIT_NOT_SAVED','U04_QA_FOCUS_LOST_BEFORE_SAVE',
+                'U04_QA_CANVAS_TARGET_LOST_FOREGROUND',
+                'U04_QA_CANVAS_TARGET_NOT_SELECTED_DOC',
+                'U04_QA_CANVAS_INPUT_ATTACH_DENIED',
+                'U04_QA_CANVAS_FOCUS_NOT_CONFIRMED',
+                'U04_QA_CANVAS_FOCUS_LOST_FOREGROUND',
+                'U04_QA_CANVAS_WIN32_FOCUS_CONFIRMED',
                 'U04_QA_FOCUS_LOST_BEFORE_CANVAS_SHORTCUT','U04_QA_FOCUS_LOST_AFTER_CANVAS_SHORTCUT',
                 'U04_QA_SOURCE_REVISION_CHANGED')){
               if($private.Contains($code)){Write-Host ('AGENT06_U04_GUI_FAILURE_CLASS='+$code)}
             }
-            foreach($phase in @('BEFORE_EDIT','AFTER_CANVAS_SHORTCUT','AFTER_EDIT')){
+            foreach($phase in @('BEFORE_EDIT','AFTER_CANVAS_SHORTCUT','AFTER_TARGET','AFTER_EDIT')){
               foreach($focus in @('DOCUMENT','EDIT','PANE','WRITER_OTHER',
                   'WRITER_CUSTOM','WRITER_WINDOW','WRITER_BUTTON',
                   'WRITER_MENU','WRITER_MENUITEM','WRITER_TOOLBAR',
@@ -205,12 +211,13 @@ jobs:
                 }
               }
             }
-            foreach($phase in @('BEFORE_EDIT','AFTER_CANVAS_SHORTCUT','AFTER_EDIT')){
+            foreach($phase in @('BEFORE_EDIT','AFTER_CANVAS_SHORTCUT','AFTER_TARGET','AFTER_EDIT')){
               foreach($focus in @('ROOT_SAL','ROOT_EDIT','ROOT_OTHER',
                   'CHILD_SAL','CHILD_EDIT','CHILD_OTHER',
                   'OWNED_SAL','OWNED_EDIT','OWNED_OTHER',
                   'OTHER_SAL','OTHER_EDIT','OTHER_OTHER',
-                  'NONE','FOREIGN','UNAVAILABLE')){
+                  'NONE','FOREIGN','UNAVAILABLE','NO_THREAD',
+                  'PID_MISMATCH','NO_INFO','EXCEPTION')){
                 if($private.Contains('U04_QA_WIN32_FOCUS_'+$phase+'='+$focus)){
                   Write-Host ('AGENT06_U04_WIN32_FOCUS_'+$phase+'='+$focus)
                 }
