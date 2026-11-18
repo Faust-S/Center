@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'c6c39df74c5298c4171b0cc86ce022a8fdcd7408'
+      AGENT_OFFICE_SHA: 'cd7c4b1db95ac03a693e1cb46ac088e6961f13b3'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -193,10 +193,21 @@ jobs:
             }
             foreach($phase in @('BEFORE_EDIT','AFTER_CANVAS_SHORTCUT','AFTER_EDIT')){
               foreach($focus in @('DOCUMENT','EDIT','PANE','WRITER_OTHER',
+                  'WRITER_CUSTOM','WRITER_WINDOW','WRITER_BUTTON',
+                  'WRITER_MENU','WRITER_MENUITEM','WRITER_TOOLBAR',
+                  'WRITER_TEXT','WRITER_GROUP','WRITER_LIST',
+                  'WRITER_LISTITEM','WRITER_SCROLLBAR','WRITER_TABITEM',
+                  'WRITER_TAB','WRITER_COMBOBOX','WRITER_TITLEBAR',
+                  'WRITER_TREEITEM','WRITER_STATUSBAR',
                   'FOREIGN_PROCESS','UNAVAILABLE')){
                 if($private.Contains('U04_QA_FOCUS_'+$phase+'='+$focus)){
                   Write-Host ('AGENT06_U04_FOCUS_'+$phase+'='+$focus)
                 }
+              }
+            }
+            foreach($element in @('FOUND','MISSING')){
+              if($private.Contains('U04_QA_DOCUMENT_UIA_ELEMENT='+$element)){
+                Write-Host ('AGENT06_U04_DOCUMENT_UIA_ELEMENT='+$element)
               }
             }
             foreach($readback in @('CHANGED','UNCHANGED','UNAVAILABLE')){
