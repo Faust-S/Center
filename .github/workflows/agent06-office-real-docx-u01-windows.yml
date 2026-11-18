@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'b9ae3416cdbff49ccbb33317bb88bf9bc37e8354'
+      AGENT_OFFICE_SHA: 'd39e36a66668070e13617dd1c937777e62031c83'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -83,7 +83,11 @@ jobs:
               foreach($code in @('U01_PROBE_CONNECT_FAILED','U01_PROBE_NO_ACK',
                   'U01_PROBE_ACK_WITHOUT_PDF_AFTER_12S',
                   'U01_PROBE_PDF_WRITTEN_BESIDE_SOURCE','U01_PROBE_PDF_WRITTEN_IN_CWD',
-                  'U01_PROBE_OUTPUT_NOT_PDF','U01_PROBE_PDF_TEXT_MISSING')){
+                  'U01_PROBE_OUTPUT_NOT_PDF','U01_PROBE_PDF_TEXT_MISSING',
+                  'U01_PROBE_CONVERTER_STYLE_CONNECT_FAILED',
+                  'U01_PROBE_CONVERTER_STYLE_NO_ACK',
+                  'U01_PROBE_CONVERTER_STYLE_PDF_MISSING_12S',
+                  'U01_PROBE_CONVERTER_STYLE_PDF_TEXT_MISSING')){
                 if($log.Contains($code)){Write-Host ('AGENT06_REAL_DOCX_U01_PROBE_CLASS='+$code)}
               }
               throw 'AGENT06_REAL_DOCX_U01_PROBE_HOLD'
@@ -94,6 +98,13 @@ jobs:
               Write-Host 'AGENT06_REAL_DOCX_U01_PROBE_OUTPUT_DELAYED_PASS'
             }else{
               throw 'AGENT06_REAL_DOCX_U01_PROBE_EVIDENCE_MISSING'
+            }
+            if($log.Contains('U01_PROBE_CONVERTER_STYLE_IMMEDIATE')){
+              Write-Host 'AGENT06_REAL_DOCX_U01_CONVERTER_PROFILE_IMMEDIATE_PASS'
+            }elseif($log.Contains('U01_PROBE_CONVERTER_STYLE_DELAYED')){
+              Write-Host 'AGENT06_REAL_DOCX_U01_CONVERTER_PROFILE_DELAYED_PASS'
+            }else{
+              throw 'AGENT06_REAL_DOCX_U01_CONVERTER_PROFILE_EVIDENCE_MISSING'
             }
           }finally{Pop-Location}
       - name: Original Core ToolRuntime DOCX review and real U01 LibreOffice readback
