@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '027a64ac3fc2a9b712c221c62f6f776ab2a1d5a1'
+      AGENT_OFFICE_SHA: '701b65bfe76fcfa109aeb7cbac363b388de19177'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -80,6 +80,24 @@ jobs:
             throw 'AGENT06_REAL_DOCX_LIBREOFFICE_CLI_MISSING'
           }
           Write-Host 'AGENT06_REAL_DOCX_LIBREOFFICE_CLI_INSTALLED_PASS'
+      - name: Observe one original U01 PDF conversion output location
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          Push-Location private-agent
+          try{
+            $private=Join-Path $env:RUNNER_TEMP 'agent06-u01-converter-observe-private.txt'
+            & python -B -m pytest -q -s -p no:cacheprovider -k test_original_u01_converter_actual_output_location_once tests/test_agent06_office_u01_cli_probe.py *> $private
+            $log=Get-Content -LiteralPath $private -Raw
+            foreach($outcome in @('IMMEDIATE','DELAYED','NO_ACK','OUTDIR_WRONG_NAME',
+                'PARENT_DIR','SOURCE_DIR','CWD','NO_PDF_12S')){
+              if($log.Contains('AGENT06_U01_CONVERTER_LOCATION='+$outcome)){
+                Write-Host ('AGENT06_REAL_DOCX_CONVERTER_LOCATION='+$outcome)
+              }
+            }
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_REAL_DOCX_U01_LOCATION_PROBE_HOLD'}
+            Write-Host 'AGENT06_REAL_DOCX_U01_LOCATION_PROBE_PASS'
+          }finally{Pop-Location}
       - name: Original Core ToolRuntime DOCX review and real U01 LibreOffice readback
         shell: pwsh
         timeout-minutes: 9
