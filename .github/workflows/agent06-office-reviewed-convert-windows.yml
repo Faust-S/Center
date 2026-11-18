@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '5487fdbc65a99549e18e551ad4db449158939bbe'
+      AGENT_OFFICE_SHA: '7a33d059646980019bcde96ee0fba815466803aa'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,7 +67,7 @@ jobs:
           Push-Location private-agent
           try{
             $logPath=Join-Path $env:RUNNER_TEMP 'agent06-real-convert-review-private.txt'
-            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_office_convert_review.py *> $logPath
+            & python -B -m pytest -q -s -p no:cacheprovider tests/test_agent06_office_convert_review.py *> $logPath
             if($LASTEXITCODE -ne 0){
               $private=Get-Content -LiteralPath $logPath -Raw
               foreach($case in @('test_convert_pdf_review_draft_stays_small_and_does_not_call_u01',
@@ -75,6 +75,12 @@ jobs:
                   'test_convert_adapter_rejects_unreviewed_plan_without_invoking_u01')){
                 if($private.Contains('FAILED tests/test_agent06_office_convert_review.py::'+$case)){
                   Write-Host ('AGENT06_REAL_CONVERT_REVIEW_FAILURE_CASE='+$case)
+                }
+              }
+              foreach($stage in @('PROVIDER_CAPABILITY_PASS','PRODUCT_POLICY_PASS',
+                  'PLAN_PREPARED','APPROVAL_RECORDED')){
+                if($private.Contains('IWXA_PDF_REVIEW_GUARD='+$stage)){
+                  Write-Host ('AGENT06_REAL_CONVERT_REVIEW_STAGE='+$stage)
                 }
               }
               foreach($code in @('AssertionError','KeyError','ValueError','IndexError',
