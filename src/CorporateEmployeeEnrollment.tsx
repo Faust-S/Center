@@ -1,4 +1,6 @@
 import React,{useState} from 'react';
+import {validateOriginalEmployeeTaskIssueReceipt}
+ from '../runtime/cen03-d3-owner.mjs';
 
 // This is a manager's view of the ORIGINAL installed T3 employee enrollment.
 // It does not generate signatures, enroll keys, issue grants or persist status.
@@ -553,15 +555,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
              'CEN_D3_EMPLOYEE_TASK_HUMAN_CANCELLED')setTaskAttempted(false);
            throw e;
          }
-        if(result?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_SIGNED_TASK/1'||
-            result.status!=='SIGNED_TASK_CREATED_NOT_DELIVERED'||
-            result.originalSigned!==true||result.taskDelivered!==false||
-            result.recipientId!==personId||
-            result.enrollmentId!==enrollmentReceipt.enrollmentId||
-            result.taskId!==taskId||
-           !HEX.test(result.packageSha256)||!HEX.test(result.taskRevisionId))
-          throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_SIGNING_UNCONFIRMED');
-        setTaskReceipt(result);
+        const confirmed=validateOriginalEmployeeTaskIssueReceipt(result,{
+          employeePersonId:personId,
+          enrollmentId:enrollmentReceipt.enrollmentId,taskId
+        });
+        setTaskReceipt(confirmed);
        })}>3. Подписать Task этому сотруднику</button>
      <button data-testid="d3-employee-task-read" disabled={!taskIssueAvailable||busy||!/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)}
        onClick={()=>void run('Состояние исходной подписанной Task проверено без повторного выпуска.',async()=>{
