@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '2918e031cf1bd8e93f5cd98077801c7874757e3f'
+      AGENT_OFFICE_SHA: 'c6c39df74c5298c4171b0cc86ce022a8fdcd7408'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -187,10 +187,11 @@ jobs:
                 'U04_QA_LIBREOFFICE_FOCUS_ROOT_UNAVAILABLE','U04_QA_LIBREOFFICE_CLICK_OUTSIDE_VIEWPORT',
                 'U04_QA_LIBREOFFICE_FOCUS_DENIED',
                 'U04_QA_LIBREOFFICE_NOT_FOREGROUND','U04_QA_GUI_EDIT_NOT_SAVED','U04_QA_FOCUS_LOST_BEFORE_SAVE',
+                'U04_QA_FOCUS_LOST_BEFORE_CANVAS_SHORTCUT','U04_QA_FOCUS_LOST_AFTER_CANVAS_SHORTCUT',
                 'U04_QA_SOURCE_REVISION_CHANGED')){
               if($private.Contains($code)){Write-Host ('AGENT06_U04_GUI_FAILURE_CLASS='+$code)}
             }
-            foreach($phase in @('BEFORE_EDIT','AFTER_EDIT')){
+            foreach($phase in @('BEFORE_EDIT','AFTER_CANVAS_SHORTCUT','AFTER_EDIT')){
               foreach($focus in @('DOCUMENT','EDIT','PANE','WRITER_OTHER',
                   'FOREIGN_PROCESS','UNAVAILABLE')){
                 if($private.Contains('U04_QA_FOCUS_'+$phase+'='+$focus)){
