@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '69bd38383ce4f88b78ec27970354f036df876d2d'
+      AGENT_OFFICE_SHA: '82d7524775dfae6aabd8a1852926cf580d0fa9d2'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -141,8 +141,10 @@ jobs:
             if($LASTEXITCODE -ne 0){
               $private=Get-Content -LiteralPath $log -Raw
               foreach($stage in @('DOCX_ACCEPTED','U01_ORIGINAL_RENDER',
-                  'U01_REVISED_RENDER','U01_PDF_TEXT','PDF_TOOLRUNTIME_ACK',
-                  'TWO_COLD_CORE')){
+                  'U01_REVISED_RENDER','U01_PDF_TEXT','PDF_ACTION_BUILT',
+                  'PDF_TASK_ACCEPTED','PDF_PLAN_PREPARED','PDF_PLAN_APPROVED',
+                  'PDF_EXECUTION_RETURNED','PDF_ACK_CONFIRMED',
+                  'PDF_DISK_READBACK','PDF_TOOLRUNTIME_ACK','TWO_COLD_CORE')){
                 if($private.Contains('IWXA_REAL_DOCX_STAGE='+$stage)){
                   Write-Host ('AGENT06_REAL_DOCX_VERIFIED_STAGE='+$stage)
                 }
