@@ -193,7 +193,7 @@ jobs:
             if($testsExit -ne 0 -and (Test-Path -LiteralPath $nodeTests -PathType Leaf)){
               # Only stable anonymized identities from TAP test titles are public.
               # Never print the private failing assertions, stack traces or code.
-              $failed=@([regex]::Matches($safe,'(?m)^not ok\\s+\\d+\\s+-\\s+([^\\r\\n]+)'))
+              $failed=@([regex]::Matches($safe,'(?m)^not ok\s+\d+\s+-\s+([^\r\n]+)'))
               Write-Host ('AGENT06_DESKTOP_NODE_FAILURE_IDENTITIES='+$failed.Count)
               foreach($entry in @($failed|Select-Object -First 12)){
                 $name=[string]$entry.Groups[1].Value
