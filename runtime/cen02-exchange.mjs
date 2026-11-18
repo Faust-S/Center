@@ -1,8 +1,5 @@
 import {assignmentText} from '../src/organization.mjs';
 import {readAppliedResults} from './cen03-applied-results.mjs';
-import {readAtlasPortfolio} from '../src/atlas-integration.mjs';
-import {serialize as serializeAtlas} from '../vendor/atlas/src/core.mjs';
-import {createAtlasSavedRef} from '../vendor/atlas/src/project-host-port.mjs';
 const requireValue=(ok,code)=>{if(!ok)throw Error(code);};
 
 // CEN02: bounded adapter, not a package issuer or delivery/receipt database.
@@ -64,6 +61,22 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
         requireValue(ref && typeof ref.workId==='string' && ref.workId.length>0,
           'T3_ATLAS_WORK_BINDING_REQUIRED');
         requireValue(typeof openAtlas==='function','T3_ATLAS_OWNER_READER_REQUIRED');
+        // CEN02 is a usable original T3 Task issuer even when the Atlas
+        // product model has not been bundled. Only a linked WorkRef needs
+        // the canonical Atlas project authority and saved revision.
+        const [
+          {readAtlasPortfolio},
+          {serialize:serializeAtlas},
+          {createAtlasSavedRef}
+        ]=await Promise.all([
+          import('../src/atlas-integration.mjs'),
+          import('../vendor/atlas/src/core.mjs'),
+          import('../vendor/atlas/src/project-host-port.mjs')
+        ]);
+        // The original signed organizational context may change while
+        // optional product modules are loaded. The owner checks it again
+        // before a linked project read AND before final Task issuance.
+        bind(binding);
         const observed=await openAtlas(organization.id);
         // Do not sign after a context switch while source data was being loaded.
         bind(binding);
