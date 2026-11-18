@@ -216,7 +216,7 @@ jobs:
                 # raw path, test name or stack in public CI.
                 $portion=$safe.Substring($entry.Index,[Math]::Min(3500,$safe.Length-$entry.Index))
                 $frame=[regex]::Match($portion,
-                  '(?i)desktop[/\\]tests[/\\]([a-z0-9_.-]+\\.test\\.mjs):(\\d{1,4})')
+                  '(?i)desktop[/\\]tests[/\\]([a-z0-9_.-]+\.test\.mjs):(\d{1,4})')
                 if($frame.Success){
                   $sourceDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                     [Text.Encoding]::UTF8.GetBytes($frame.Groups[1].Value))).Substring(0,12)
