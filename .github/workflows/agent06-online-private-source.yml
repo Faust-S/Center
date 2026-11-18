@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT06_PRIVATE_PIN: '3aaa4903a26daac94174f7587075ace0eb7b4d7b'
+      AGENT06_PRIVATE_PIN: '71f7d29f43139c73983234904d91dc644ada5e47'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -178,7 +178,21 @@ jobs:
             $buildExit=$LASTEXITCODE
             if($buildExit -ne 0){Write-Host 'AGENT06_DESKTOP_BUILD_FAIL'}
             else{Write-Host 'AGENT06_DESKTOP_BUILD_PASS'}
-            if($tsExit -ne 0 -or $buildExit -ne 0){
+            $nodeTests=Join-Path $env:RUNNER_TEMP 'agent06-private-desktop-node-tests.log'
+            & npm test *> $nodeTests
+            $testsExit=$LASTEXITCODE
+            if(Test-Path -LiteralPath $nodeTests -PathType Leaf){
+              $safe=Get-Content -LiteralPath $nodeTests -Raw
+              foreach($key in @('tests','pass','fail','cancelled','skipped')){
+                $count=[regex]::Match($safe,('(?m)^# '+$key+'\\s+(\\d+)'))
+                if($count.Success){
+                  Write-Host ('AGENT06_DESKTOP_NODE_'+$key.ToUpper()+'='+$count.Groups[1].Value)
+                }
+              }
+            }
+            if($testsExit -eq 0){Write-Host 'AGENT06_DESKTOP_NODE_TEST_PASS'}
+            else{Write-Host 'AGENT06_DESKTOP_NODE_TEST_FAIL'}
+            if($tsExit -ne 0 -or $buildExit -ne 0 -or $testsExit -ne 0){
               "AGENT06_DESKTOP_GATE=FAIL" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
               exit 1
             }
