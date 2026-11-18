@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '77e470d6ace1073d10f64155cfde12181fd71a56'
+      AGENT_OFFICE_SHA: '2918e031cf1bd8e93f5cd98077801c7874757e3f'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -186,9 +186,22 @@ jobs:
                 'U04_QA_SELECTED_DOCX_MISSING','U04_QA_SELECTED_DOCX_WINDOW_NOT_VISIBLE',
                 'U04_QA_LIBREOFFICE_FOCUS_ROOT_UNAVAILABLE','U04_QA_LIBREOFFICE_CLICK_OUTSIDE_VIEWPORT',
                 'U04_QA_LIBREOFFICE_FOCUS_DENIED',
-                'U04_QA_LIBREOFFICE_NOT_FOREGROUND','U04_QA_GUI_EDIT_NOT_SAVED',
+                'U04_QA_LIBREOFFICE_NOT_FOREGROUND','U04_QA_GUI_EDIT_NOT_SAVED','U04_QA_FOCUS_LOST_BEFORE_SAVE',
                 'U04_QA_SOURCE_REVISION_CHANGED')){
               if($private.Contains($code)){Write-Host ('AGENT06_U04_GUI_FAILURE_CLASS='+$code)}
+            }
+            foreach($phase in @('BEFORE_EDIT','AFTER_EDIT')){
+              foreach($focus in @('DOCUMENT','EDIT','PANE','WRITER_OTHER',
+                  'FOREIGN_PROCESS','UNAVAILABLE')){
+                if($private.Contains('U04_QA_FOCUS_'+$phase+'='+$focus)){
+                  Write-Host ('AGENT06_U04_FOCUS_'+$phase+'='+$focus)
+                }
+              }
+            }
+            foreach($readback in @('CHANGED','UNCHANGED','UNAVAILABLE')){
+              if($private.Contains('U04_QA_SAVE_IMMEDIATE_READBACK='+$readback)){
+                Write-Host ('AGENT06_U04_SAVE_IMMEDIATE_READBACK='+$readback)
+              }
             }
             foreach($errorClass in @('ParserError','MethodInvocationException','MethodException',
                 'ParameterBindingException','RuntimeException','InvalidOperationException',
