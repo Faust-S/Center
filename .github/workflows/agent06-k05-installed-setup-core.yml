@@ -2,6 +2,7 @@
 # Uses original Setup Core, original Task/Core and real native UIA witness.
 # K03 error code sidecar is allowlisted and never exports user/source/model text.
 # No upload-artifact, cache or private output in public logs.
+# This run independently probes Task-bound accepted Result visibility after K03.
 name: Agent 0.6 K05 installed native Setup Core Windows acceptance
 on:
   push:
