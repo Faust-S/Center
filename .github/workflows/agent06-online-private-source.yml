@@ -184,7 +184,7 @@ jobs:
             if(Test-Path -LiteralPath $nodeTests -PathType Leaf){
               $safe=Get-Content -LiteralPath $nodeTests -Raw
               foreach($key in @('tests','pass','fail','cancelled','skipped')){
-                $count=[regex]::Match($safe,('(?m)^# '+$key+'\\s+(\\d+)'))
+                $count=[regex]::Match($safe,('(?m)^# '+$key+'\s+(\d+)'))
                 if($count.Success){
                   Write-Host ('AGENT06_DESKTOP_NODE_'+$key.ToUpper()+'='+$count.Groups[1].Value)
                 }
