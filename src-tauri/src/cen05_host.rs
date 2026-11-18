@@ -90,7 +90,7 @@ fn installed_atlas(app: &AppHandle) -> Result<PathBuf, String> {
     if local.file_name().and_then(|x|x.to_str()) != Some("ru.iwxa.admin-center") {
         return Err("ATLAS_HOST_SCOPE_INVALID".into());
     }
-    // Atlas 0.6 is installed by the original Setup Core and may use a
+    // Atlas 0.9 is installed by the original Setup Core and may use a
     // user-selected program directory. Keep the old local path only when no
     // Setup Core installation is registered; no path arrives from WebView.
     let fallback=local.parent().ok_or("ATLAS_HOST_PATH_UNAVAILABLE")?
@@ -113,7 +113,7 @@ fn discover_with_original_u01(path: &Path) -> Result<(), String> {
     // and never misrepresent a CLI version check as an Atlas entitlement.
     let manifest=json!({"schema":"IWXA_CLI_PROGRAM/1",
         "program_id":"IWXA_ATLAS_DESKTOP","executable_name":"iwxa-atlas-desktop.exe",
-        "version_args":["--version"],"version_contains":"0.6.0",
+        "version_args":["--version"],"version_contains":"0.9.0-dev.1",
         "operations":{"version":["--version"]}});
     let port=u01::CliPort::from_manifest(&manifest,path.to_path_buf())
         .map_err(|_| "U01_ATLAS_MANIFEST_INVALID")?;
