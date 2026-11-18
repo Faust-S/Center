@@ -272,7 +272,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    <label>Черновик<select value={selected} onChange={e=>setSelected(e.target.value)} data-testid="corporate-assignment"><option value="">Выберите поручение</option>{organization.assignments.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}</select></label>
    <div className="actions">
     <button className="secondary" onClick={onPrepare}>Подготовить поручение</button>
-    <button className="primary" data-testid="corporate-issue" disabled={!ready||busy||!organization.assignments.find(a=>a.id===selected)?.atlasRef?.workId}
+    <button className="primary" data-testid="corporate-issue" disabled={!ready||busy||!organization.assignments.some(a=>a.id===selected)}
      onClick={()=>act('Подписанная редакция создана владельцем. Доставка сотруднику не подтверждена.',async()=>{
        const out=await execute('issue',{assignmentId:selected});
        if(!out.taskId||!hex.test(out.taskRevisionId)||out.deliveryState!=='NOT_CONFIRMED')throw Error('T3_ISSUE_READBACK_REQUIRED');

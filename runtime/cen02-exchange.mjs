@@ -1,8 +1,5 @@
 import {assignmentText} from '../src/organization.mjs';
 import {readAppliedResults} from './cen03-applied-results.mjs';
-import {readAtlasPortfolio} from '../src/atlas-integration.mjs';
-import {serialize as serializeAtlas} from '../vendor/atlas/src/core.mjs';
-import {createAtlasSavedRef} from '../vendor/atlas/src/project-host-port.mjs';
 const requireValue=(ok,code)=>{if(!ok)throw Error(code);};
 
 // CEN02: bounded adapter, not a package issuer or delivery/receipt database.
@@ -56,43 +53,63 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
         binding.draftAssigneeId===assignment.assigneeId &&
         binding.draftReviewerId===assignment.reviewerId,'T3_DRAFT_BINDING_CHANGED');
       requireValue(binding.recipientId===current.personId,'T3_RECIPIENT_CHANGED');
-      const ref=assignment.atlasRef;
-      requireValue(ref && typeof ref.workId==='string' && ref.workId.length>0,
-        'T3_ATLAS_WORK_BINDING_REQUIRED');
-      requireValue(typeof openAtlas==='function','T3_ATLAS_OWNER_READER_REQUIRED');
+      // A corporate Task is valid without a project. Atlas is only the
+      // original owner of an explicitly selected project/work binding.
+      const ref=assignment.atlasRef??null;
       const text=assignmentText(organization,assignment);
-      const observed=await openAtlas(organization.id);
-      // Do not sign after a context switch while source data was being loaded.
-      bind(binding);
-      requireValue(observed && observed.organizationId===organization.id &&
-        typeof observed.generation==='string' && observed.generation!=='none',
-        'T3_ATLAS_ORGANIZATION_MISMATCH');
-      // Validate the source projection, then use the canonical Atlas
-      // WorkRef gate. This does not provide T3 organizational authority.
-      readAtlasPortfolio(serializeAtlas(observed.snapshot));
-      try {
-        // The current canonical Atlas module owns saved ProjectRef/WorkRef.
-        // Verify the selected revision before any T3 issuance; never trust
-        // a stale link simply because the project/work still exists.
-        if(typeof ref.revision!=='string'||!/^(0|[1-9][0-9]*)$/.test(ref.revision))
-          throw Object.assign(new Error('ATLAS_WORK_REFERENCE_INVALID'),{code:'ATLAS_WORK_REFERENCE_INVALID'});
-        const currentRef=createAtlasSavedRef(observed.snapshot,
-          {projectId:ref.projectId,workId:ref.workId},{persisted:true,dirty:false});
-        if(currentRef.revision!==ref.revision)
-          throw Object.assign(new Error('ATLAS_SOURCE_REVISION_CHANGED'),{code:'ATLAS_SOURCE_REVISION_CHANGED'});
-      }
-      catch(error) {
-        const codes={
-          ATLAS_SOURCE_REVISION_CHANGED:'T3_ATLAS_REVISION_CHANGED',
-          ATLAS_PROJECT_NOT_IN_SOURCE:'T3_ATLAS_PROJECT_NOT_IN_SOURCE',
-          ATLAS_WORK_NOT_IN_SOURCE:'T3_ATLAS_WORK_NOT_IN_SOURCE',
-          ATLAS_PROJECT_NOT_FOUND:'T3_ATLAS_PROJECT_NOT_IN_SOURCE',
-          ATLAS_WORK_NOT_FOUND:'T3_ATLAS_WORK_NOT_IN_SOURCE',
-          ATLAS_PROJECT_ID_INVALID:'T3_ATLAS_WORK_BINDING_REQUIRED',
-          ATLAS_WORK_ID_INVALID:'T3_ATLAS_WORK_BINDING_REQUIRED',
-          ATLAS_WORK_REFERENCE_INVALID:'T3_ATLAS_WORK_BINDING_REQUIRED'
-        };
-        throw Error(codes[error?.code]||'T3_ATLAS_SNAPSHOT_INVALID');
+      if(ref!==null){
+        requireValue(ref && typeof ref.workId==='string' && ref.workId.length>0,
+          'T3_ATLAS_WORK_BINDING_REQUIRED');
+        requireValue(typeof openAtlas==='function','T3_ATLAS_OWNER_READER_REQUIRED');
+        // CEN02 is a usable original T3 Task issuer even when the Atlas
+        // product model has not been bundled. Only a linked WorkRef needs
+        // the canonical Atlas project authority and saved revision.
+        const [
+          {readAtlasPortfolio},
+          {serialize:serializeAtlas},
+          {createAtlasSavedRef}
+        ]=await Promise.all([
+          import('../src/atlas-integration.mjs'),
+          import('../vendor/atlas/src/core.mjs'),
+          import('../vendor/atlas/src/project-host-port.mjs')
+        ]);
+        // The original signed organizational context may change while
+        // optional product modules are loaded. The owner checks it again
+        // before a linked project read AND before final Task issuance.
+        bind(binding);
+        const observed=await openAtlas(organization.id);
+        // Do not sign after a context switch while source data was being loaded.
+        bind(binding);
+        requireValue(observed && observed.organizationId===organization.id &&
+          typeof observed.generation==='string' && observed.generation!=='none',
+          'T3_ATLAS_ORGANIZATION_MISMATCH');
+        // Validate the source projection, then use the canonical Atlas
+        // WorkRef gate. This does not provide T3 organizational authority.
+        readAtlasPortfolio(serializeAtlas(observed.snapshot));
+        try {
+          // The current canonical Atlas module owns saved ProjectRef/WorkRef.
+          // Verify the selected revision before any T3 issuance; never trust
+          // a stale link simply because the project/work still exists.
+          if(typeof ref.revision!=='string'||!/^(0|[1-9][0-9]*)$/.test(ref.revision))
+            throw Object.assign(new Error('ATLAS_WORK_REFERENCE_INVALID'),{code:'ATLAS_WORK_REFERENCE_INVALID'});
+          const currentRef=createAtlasSavedRef(observed.snapshot,
+            {projectId:ref.projectId,workId:ref.workId},{persisted:true,dirty:false});
+          if(currentRef.revision!==ref.revision)
+            throw Object.assign(new Error('ATLAS_SOURCE_REVISION_CHANGED'),{code:'ATLAS_SOURCE_REVISION_CHANGED'});
+        }
+        catch(error) {
+          const codes={
+            ATLAS_SOURCE_REVISION_CHANGED:'T3_ATLAS_REVISION_CHANGED',
+            ATLAS_PROJECT_NOT_IN_SOURCE:'T3_ATLAS_PROJECT_NOT_IN_SOURCE',
+            ATLAS_WORK_NOT_IN_SOURCE:'T3_ATLAS_WORK_NOT_IN_SOURCE',
+            ATLAS_PROJECT_NOT_FOUND:'T3_ATLAS_PROJECT_NOT_IN_SOURCE',
+            ATLAS_WORK_NOT_FOUND:'T3_ATLAS_WORK_NOT_IN_SOURCE',
+            ATLAS_PROJECT_ID_INVALID:'T3_ATLAS_WORK_BINDING_REQUIRED',
+            ATLAS_WORK_ID_INVALID:'T3_ATLAS_WORK_BINDING_REQUIRED',
+            ATLAS_WORK_REFERENCE_INVALID:'T3_ATLAS_WORK_BINDING_REQUIRED'
+          };
+          throw Error(codes[error?.code]||'T3_ATLAS_SNAPSHOT_INVALID');
+        }
       }
       if(assignment.sourceResultRef){
         // An unsigned draft reference alone is not evidence of prior application.
@@ -109,6 +126,9 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
           'T3_REUSED_RESULT_NOT_IN_DURABLE_STORE');
         bind(binding);
       }
+      // Revalidate signed organization/actor/recipient immediately before
+      // the original T3 issuer, whether or not an Atlas source was read.
+      bind(binding);
       requireValue(typeof runtime.createTask==='function','T3_TASK_ISSUER_NOT_CONNECTED');
       const bytes=runtime.createTask(text);
       requireValue(bytes instanceof Uint8Array && bytes.byteLength>0,
@@ -122,7 +142,7 @@ export function createCen02Exchange({runtime,snapshot,bind,openAtlas}) {
         after.personId===current.personId,
         'T3_ISSUE_READBACK_REQUIRED');
       return {bytes,taskId:after.task.id,taskRevisionId:after.task.taskRevisionId,
-        atlasRef:{projectId:ref.projectId,workId:ref.workId,revision:ref.revision},
+        atlasRef:ref===null?null:{projectId:ref.projectId,workId:ref.workId,revision:ref.revision},
         deliveryState:'NOT_CONFIRMED'};
     },
     // Original T3 interop/runtime.mjs:taskBytes reads the previously signed
