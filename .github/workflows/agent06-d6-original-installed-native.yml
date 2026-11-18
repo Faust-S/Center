@@ -578,6 +578,7 @@ jobs:
           $marker=Join-Path $data 'g4-setup-repair-preserved.fixture'
           $markerBytes=[Text.Encoding]::UTF8.GetBytes('iwxa-g4-user-data-preserved')
           [IO.File]::WriteAllBytes($marker,$markerBytes)
+          $markerSha=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash
           $common=@('--qualification-root',('"'+$qualification+'"'),
             '--qualification-port','18802',
             '--install-root',('"'+$installed+'"'),
@@ -602,7 +603,7 @@ jobs:
              [string]$after.package.package_sha256 -cne $packageSha -or
              (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -cne $beforeExe -or
              (Get-FileHash -LiteralPath $t2 -Algorithm SHA256).Hash -cne $beforeT2 -or
-             ![Linq.Enumerable]::SequenceEqual[byte]([byte[]][IO.File]::ReadAllBytes($marker),[byte[]]$markerBytes)){
+             (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $markerSha){
             throw 'AGENT06_G4_NATIVE_SETUP_REPAIR_READBACK_CHANGED'
           }
           Write-Host 'AGENT06_G4_NATIVE_SETUP_06_SAME_VERSION_REPAIR_USER_DATA_PASS'
@@ -617,11 +618,12 @@ jobs:
             throw 'AGENT06_G4_NATIVE_SETUP_INVALID_ROOT_NOT_REJECTED'
           }
           $negative=Get-Content -LiteralPath $failure -Raw -Encoding UTF8 | ConvertFrom-Json
+          $finalReceipt=Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
           if($negative.status -cne 'FAIL' -or
              (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -cne $beforeExe -or
              (Get-FileHash -LiteralPath $t2 -Algorithm SHA256).Hash -cne $beforeT2 -or
-             [string](Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json).package.package_sha256 -cne $packageSha -or
-             ![Linq.Enumerable]::SequenceEqual[byte]([byte[]][IO.File]::ReadAllBytes($marker),[byte[]]$markerBytes)){
+             [string]$finalReceipt.package.package_sha256 -cne $packageSha -or
+             (Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash -cne $markerSha){
             throw 'AGENT06_G4_NATIVE_SETUP_INVALID_ROOT_CHANGED_INSTALLED_STATE'
           }
           Write-Host 'AGENT06_G4_NATIVE_SETUP_06_INVALID_ROOT_FAIL_CLOSED_PASS'
