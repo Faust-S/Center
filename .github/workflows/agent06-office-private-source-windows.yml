@@ -20,9 +20,9 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'a2efb81075537c1810d7beeb35db74378ce7615f'
+      AGENT_OFFICE_SHA: '8c73fcda52cfb3dba8501a19203778e1bb916c19'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
-      AGENT_OFFICE_INSTALLED_ONLY: 'false'
+      AGENT_OFFICE_INSTALLED_ONLY: 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -496,6 +496,7 @@ jobs:
               'EXACT_STALE_REVISION_RECOVERY_PASS',
               'REAL_INSTALLED_CORE_TASK_PASS','SOURCE_WORKSPACE_LINK_PASS',
               'REAL_REACT_TASK_PAGE_PASS',
+              'GENERAL_ACCEPTED_OFFICE_ENTRY_VISIBLE_PASS',
               'REAL_TASK_ROW_INVOKED','REAL_U04_PANEL_VISIBLE_PASS',
               'REAL_CORE_TASK_AND_UI_PANEL_PASS',
               'DERIVED_WORKSPACE_LINK_PASS','COLD_WORKSPACE_LINKS_PASS',
@@ -545,6 +546,12 @@ jobs:
                   $found=$true
                 }
               }
+              foreach($missing in @('WORK','TASKS','U04_SUMMARY','OTHER')){
+                if($private.Contains('installed_office_qa_control_missing:'+$missing)){
+                  Write-Host ('AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS=MISSING_'+$missing)
+                  $found=$true
+                }
+              }
               foreach($cat in @('TASK','OFFICE','OTHER')){
                 if($private.Contains('installed_office_qa_control_not_visible:'+$cat)){
                   Write-Host ('AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS=CONTROL_'+$cat)
@@ -553,6 +560,12 @@ jobs:
               }
               if($private.Contains('installed_office_qa_fixture_seed_failed')){
                 Write-Host 'AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS=FIXTURE_SEED'
+                $found=$true
+              }
+              $writerReason=[regex]::Match($private,
+                'INSTALLED_OFFICE_QA_WRITER_FAILURE_CODE=(U04_QA_[A-Z0-9_]{1,90}|OTHER)')
+              if($writerReason.Success){
+                Write-Host ('AGENT06_OFFICE_INSTALLED_U04_WRITER_CLASS='+$writerReason.Groups[1].Value)
                 $found=$true
               }
               $inner=[regex]::Matches($private,
