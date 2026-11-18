@@ -590,10 +590,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,execute,ru
      {taskRecoveryHold&&<div data-testid="d3-employee-task-orphan-recovery">
        <p className="notice subdued">Исходный подписанный .iwxa найден, но
          запись Task в каталоге отсутствует после прерванной операции.
-         Новая подпись запрещена. Можно проверить существующий архив
-         и восстановить каталог после отдельного согласия.</p>
+         Новая подпись запрещена. Перечитайте исходный DATA-грант
+         и восстановите каталог с отдельным согласием. Повторное
+         сохранение персонального приглашения здесь не требуется.</p>
        <button data-testid="d3-employee-task-recover" disabled={busy||
-         !taskIssueAvailable||!invitationCurrentForTask||taskRecoveryAttempted}
+         !taskIssueAvailable||!managerTaskGrantOk||taskRecoveryAttempted}
          onClick={()=>void run('Каталог Task восстановлен из исходных подписанных байтов.',async()=>{
           setTaskRecoveryAttempted(true);
           let result:any;
