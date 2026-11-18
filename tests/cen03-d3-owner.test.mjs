@@ -5,11 +5,41 @@ import {signedD3SessionFingerprint,
  signedD3EmployeeScopeFingerprint} from '../runtime/cen03-review.mjs';
 import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
  appendOriginalResultReview,readCompleteOriginalResult,
- validateOriginalSignedTaskReadback,isDefiniteUndispatchedD3Failure,
+ validateOriginalSignedTaskReadback,validateOriginalEmployeeTaskIssueReceipt,
+ isDefiniteUndispatchedD3Failure,
  readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64);
+test('independent employee signed Task accepts original native state, never first-person status',()=>{
+ const scope={taskId:'task:work-verified',employeePersonId:'person:employee',
+   enrollmentId:'enrollment:employee'};
+ const real={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_SIGNED_TASK/1',
+   state:'SIGNED_TASK_CREATED_NOT_DELIVERED',taskId:scope.taskId,
+   taskRevisionId:B,packageSha256:A,recipientId:scope.employeePersonId,
+   enrollmentId:scope.enrollmentId,originalKernelStatusSequence:7,
+   originalSigned:true,taskDelivered:false};
+ assert.deepEqual(validateOriginalEmployeeTaskIssueReceipt(real,scope),real,
+   'genuine signed independent employee Task must reach the UI as confirmed');
+ const bads=[
+  {state:undefined,status:'SIGNED_TASK_CREATED_NOT_DELIVERED'},
+  {schema:'IWXA_T3_ORIGINAL_SIGNED_TASK/1'},
+  {recipientId:'person:foreign'},
+  {enrollmentId:'enrollment:foreign'},
+  {taskId:'task:foreign'},
+  {packageSha256:'c'.repeat(63)},
+  {taskRevisionId:'f'.repeat(64)+'f'},
+  {originalKernelStatusSequence:0},
+  {originalKernelStatusSequence:'7'},
+  {originalSigned:false},
+  {taskDelivered:true}
+ ];
+ for(const changed of bads)assert.throws(
+   ()=>validateOriginalEmployeeTaskIssueReceipt({...real,...changed},scope),
+   /CEN_D3_EMPLOYEE_TASK_ORIGINAL_SIGNING_UNCONFIRMED/,
+   'the public UI cannot accept a foreign/unsigned/legacy Task receipt');
+});
+
 test('D3 native definite pre-dispatch failures permit a deliberate retry, never lost ACK',()=>{
  const safe={
    d3ApplyAccepted:[
