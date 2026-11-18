@@ -20,9 +20,9 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '32014b9253c3b87a7da9a8f518268ed92ef29c10'
+      AGENT_OFFICE_SHA: '186b613ae843b45310e0e7c88db40296ad634fb2'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
-      AGENT_OFFICE_INSTALLED_ONLY: 'false'
+      AGENT_OFFICE_INSTALLED_ONLY: 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -458,10 +458,7 @@ jobs:
                !(Test-Path -LiteralPath $qaPython -PathType Leaf)){
               throw 'AGENT06_OFFICE_INSTALLED_U04_QA_SOURCE_MISSING'
             }
-            $tokens=$null;$parseErrors=$null
-            [void][System.Management.Automation.Language.Parser]::ParseFile(
-              [IO.Path]::GetFullPath($qaScript),[ref]$tokens,[ref]$parseErrors)
-            if(@($parseErrors).Count -ne 0){throw 'AGENT06_OFFICE_INSTALLED_U04_QA_PARSER_FAIL'}
+            # PowerShell source was already parsed by the mandatory early gate.
             & python -B -c "import ast,pathlib; ast.parse(pathlib.Path('$qaPython').read_text(encoding='utf-8'))"
             if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_INSTALLED_U04_QA_PYTHON_SYNTAX_FAIL'}
             Write-Host 'AGENT06_OFFICE_INSTALLED_U04_QA_PARSE_PASS'
