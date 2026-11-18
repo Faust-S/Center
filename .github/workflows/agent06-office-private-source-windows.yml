@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '484e3766852ce245588d70eada2a7d9dc01a4bfe'
+      AGENT_OFFICE_SHA: '7a8203dcf3269984e3f76008fda968b3d6432323'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
       AGENT_OFFICE_INSTALLED_ONLY: 'true'
     steps:
@@ -481,11 +481,19 @@ jobs:
             foreach($stage in @(
               'SYNTHETIC_MODEL_SELECTED_PASS',
               'EXACT_STALE_REVISION_RECOVERY_PASS',
-              'REAL_INSTALLED_CORE_TASK_PASS','REAL_REACT_TASK_PAGE_PASS',
+              'REAL_INSTALLED_CORE_TASK_PASS','SOURCE_WORKSPACE_LINK_PASS',
+              'REAL_REACT_TASK_PAGE_PASS',
               'REAL_TASK_ROW_INVOKED','REAL_U04_PANEL_VISIBLE_PASS',
               'REAL_CORE_TASK_AND_UI_PANEL_PASS')){
               if($private.Contains('INSTALLED_OFFICE_QA_'+$stage)){
                 Write-Host ('AGENT06_OFFICE_INSTALLED_U04_'+$stage)
+              }
+            }
+            foreach($projection in @(
+              'SECTION_NOT_RENDERED','SOURCE_VISIBLE','SOURCE_OFFSCREEN',
+              'DERIVED_ONLY','NO_QA_ROW')){
+              if($private.Contains('INSTALLED_OFFICE_QA_TASK_PROJECTION='+$projection)){
+                Write-Host ('AGENT06_OFFICE_INSTALLED_U04_TASK_PROJECTION='+$projection)
               }
             }
             if($qaExit -ne 0){
@@ -502,6 +510,8 @@ jobs:
                 'source_task_missing','source_not_accepted',
                 'revision_missing','draft_not_verified','reviewed_candidate_unverified',
                 'unapproved_copy_created','saved_task_identity_missing',
+                'source_workspace_link_missing','main_scroll_window_too_small',
+                'main_scroll_target_invalid',
                 'uia_action_unavailable','textbox_unavailable',
                 'input_not_accepted','task_not_durable','provider_binding_changed')
               $found=$false
