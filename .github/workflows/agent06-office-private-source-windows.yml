@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '7a58505c09bf9960ef7391311b96914cf1ad277d'
+      AGENT_OFFICE_SHA: '484e3766852ce245588d70eada2a7d9dc01a4bfe'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
       AGENT_OFFICE_INSTALLED_ONLY: 'true'
     steps:
@@ -480,6 +480,7 @@ jobs:
             }
             foreach($stage in @(
               'SYNTHETIC_MODEL_SELECTED_PASS',
+              'EXACT_STALE_REVISION_RECOVERY_PASS',
               'REAL_INSTALLED_CORE_TASK_PASS','REAL_REACT_TASK_PAGE_PASS',
               'REAL_TASK_ROW_INVOKED','REAL_U04_PANEL_VISIBLE_PASS',
               'REAL_CORE_TASK_AND_UI_PANEL_PASS')){
@@ -495,6 +496,9 @@ jobs:
                 'native_close_denied','native_close_timeout','native_close_unconfirmed',
                 'core_not_ready','source_changed','files_connection_failed',
                 'files_stat_unverified','demo_model_binding_invalid',
+                'snapshot_revision_changed','document_source_work_area_changed',
+                'document_source_work_area_ambiguous','t3_external_execution_disabled',
+                'retry_source_changed',
                 'source_task_missing','source_not_accepted',
                 'revision_missing','draft_not_verified','reviewed_candidate_unverified',
                 'unapproved_copy_created','saved_task_identity_missing',
