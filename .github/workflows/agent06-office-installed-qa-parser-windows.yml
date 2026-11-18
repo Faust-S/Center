@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 6
     env:
-      AGENT_OFFICE_SHA: '5500ca4ecfb13536a61bcbe30fb5af28c87d5e47'
+      AGENT_OFFICE_SHA: 'a2efb81075537c1810d7beeb35db74378ce7615f'
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
@@ -53,4 +53,21 @@ jobs:
           & python -B -c "import ast,pathlib; ast.parse(pathlib.Path('private-agent/qualification/agent06/office/installed_office_ui_fixture.py').read_text(encoding='utf-8'))"
           if($LASTEXITCODE -ne 0){throw 'AGENT06_INSTALLED_QA_PYTHON_SYNTAX_HOLD'}
           Write-Host 'AGENT06_INSTALLED_QA_PRIVATE_SOURCE_SYNTAX_PASS'
+      - name: Verify installed Office fixture contract without publishing source
+        shell: pwsh
+        timeout-minutes: 6
+        run: |
+          $ErrorActionPreference='Stop'
+          $privateLog=Join-Path $env:RUNNER_TEMP 'agent06-installed-fixture-private.txt'
+          & python -m pip install --disable-pip-version-check --quiet pytest *> $privateLog
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_INSTALLED_FIXTURE_PYTEST_INSTALL_HOLD'}
+          Push-Location private-agent
+          try{
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_installed_office_fixture.py *> $privateLog
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'AGENT06_INSTALLED_FIXTURE_CONTRACT_FAIL'
+              throw 'AGENT06_INSTALLED_FIXTURE_CONTRACT_HOLD'
+            }
+            Write-Host 'AGENT06_INSTALLED_FIXTURE_CONTRACT_PASS'
+          }finally{Pop-Location}
       # No artifacts, test documents, screenshots, EXE, source, or logs are published.
