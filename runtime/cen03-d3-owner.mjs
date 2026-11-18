@@ -207,6 +207,26 @@ export function validateOriginalSignedTaskReadback(result,taskId,actorId,observe
  return copy(result,code);
 }
 
+// The independent employee signed Task response belongs to the ORIGINAL
+// private T3 owner, not the older first-person d3CreateTask path. That owner
+// returns state, NOT status. Verify the exact native shape before showing a
+// saved signature as successful. Validation is UI-only, never an authority.
+export function validateOriginalEmployeeTaskIssueReceipt(
+ receipt,{taskId,employeePersonId,enrollmentId}={}){
+ const code='CEN_D3_EMPLOYEE_TASK_ORIGINAL_SIGNING_UNCONFIRMED';
+ need(typeof taskId==='string'&&/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)&&
+   validId(employeePersonId)&&validId(enrollmentId)&&
+   receipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_SIGNED_TASK/1'&&
+   receipt.state==='SIGNED_TASK_CREATED_NOT_DELIVERED'&&
+   receipt.originalSigned===true&&receipt.taskDelivered===false&&
+   receipt.recipientId===employeePersonId&&
+   receipt.enrollmentId===enrollmentId&&receipt.taskId===taskId&&
+   validSha(receipt.packageSha256)&&validSha(receipt.taskRevisionId)&&
+   Number.isSafeInteger(receipt.originalKernelStatusSequence)&&
+   receipt.originalKernelStatusSequence>0,code);
+ return copy(receipt,code);
+}
+
 export function appendOriginalResultReview(previous,preview,organizationId,
  workspaceId){
  const bad='CEN_D3_SIGNED_RESULT_REVIEW_STALE';
