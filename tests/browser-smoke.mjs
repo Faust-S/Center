@@ -230,7 +230,7 @@ try{
   assert.match(await page.getByTestId('assignment-atlas-binding').innerText(),/Без связи с Atlas/);
   await page.getByTestId('task-title').fill('Independent HR coordination');
   await page.getByTestId('save-assignment').click();
-  await page.getByTestId('assignment-row').first().click();
+  await page.getByTestId('assignment-row').last().click();
   assert.match(await page.getByTestId('assignment-atlas-binding').innerText(),/Без связи с Atlas/);
   await page.getByRole('button',{name:'Закрыть редактор'}).click();
   await page.getByTestId('nav-resources').click();
