@@ -84,22 +84,31 @@ fn observe_atlas(app: &AppHandle, project_id: &str, work_id: &str, revision: &st
     let readback=crate::center_public_atlas_open_root(&root)?;
     exact_work(&readback.snapshot,project_id,work_id,revision)
 }
+// U01 only discovers the Windows GUI program. The exact product version
+// comes from the original Setup Core installation receipt, never from a
+// caller-controlled path, a synthetic CLI --version, or a React flag.
+fn atlas09_version_qualified(value:Option<&str>)->bool{
+    value==Some("0.9.0-dev.1")
+}
 fn installed_atlas(app: &AppHandle) -> Result<PathBuf, String> {
     if !cfg!(windows) {return Err("PLATFORM_UNSUPPORTED".into());}
     let local=app.path().app_local_data_dir().map_err(|_| "ATLAS_HOST_PATH_UNAVAILABLE")?;
     if local.file_name().and_then(|x|x.to_str()) != Some("ru.iwxa.admin-center") {
         return Err("ATLAS_HOST_SCOPE_INVALID".into());
     }
-    // Atlas 0.9 is installed by the original Setup Core and may use a
-    // user-selected program directory. Keep the old local path only when no
-    // Setup Core installation is registered; no path arrives from WebView.
-    let fallback=local.parent().ok_or("ATLAS_HOST_PATH_UNAVAILABLE")?
-        .join("IWXA Atlas");
+    // Do not silently activate an older Atlas 0.6 binary through the same
+    // U04 launch and WorkRef UI. Version and program path must BOTH belong
+    // to the same installed original Setup Core Atlas 0.9 candidate.
+    #[cfg(windows)]
+    if !atlas09_version_qualified(crate::setup_core_atlas_version()?.as_deref()){
+        return Err("CEN05_ATLAS09_SETUP_CORE_VERSION_REQUIRED".into());
+    }
     #[cfg(windows)]
     let folder=crate::setup_core_registered_path("iwxa.atlas","InstallLocation")?
-        .unwrap_or(fallback);
+        .ok_or("CEN05_ATLAS09_SETUP_CORE_INSTALL_REQUIRED")?;
     #[cfg(not(windows))]
-    let folder=fallback;
+    let folder=local.parent().ok_or("ATLAS_HOST_PATH_UNAVAILABLE")?
+        .join("IWXA Atlas");
     let path=folder.join("iwxa-atlas-desktop.exe");
     let info=fs::symlink_metadata(&path).map_err(|_| "ATLAS_INSTALL_NOT_FOUND")?;
     if !info.file_type().is_file() || info.file_type().is_symlink() {
@@ -276,6 +285,15 @@ fn return_receipt(revision_check: Result<(),String>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn exact_installed_atlas09_version_only_from_setup_core(){
+        assert!(atlas09_version_qualified(Some("0.9.0-dev.1")));
+        for forbidden in [None,Some("0.6.0"),Some("0.8.0"),
+            Some("0.9.0"),Some("0.9.0-dev.2"),Some("0.9.0-dev.1 "),
+            Some("1.0.0")]{
+            assert!(!atlas09_version_qualified(forbidden));
+        }
+    }
     #[test]
     fn exact_atlas_work_and_revision_are_required() {
         let source=json!({"schema":"atlas.project/1","revision":3,
