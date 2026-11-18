@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'ae017ee88b25c8a450fb14347347bfdf860fcd27'
+      AGENT_OFFICE_SHA: 'b0880ffe6be24cb0ee5eda315d7ae2add67e9dd3'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -151,17 +151,6 @@ jobs:
                 if($log.Contains('IWXA_REAL_CONVERT_EXTERNAL_EFFECT_STATE='+$state)){
                   Write-Host ('AGENT06_REAL_CONVERT_EXTERNAL_EFFECT_STATE='+$state)
                 }
-              }
-              foreach($code in @('office_libreoffice_not_installed',
-                  'office_libreoffice_executable_unavailable',
-                  'office_pdf_u01_connection_unavailable',
-                  'office_pdf_u01_outcome_unconfirmed',
-                  'office_pdf_output_invalid','office_pdf_source_revision_changed',
-                  'office_pdf_destination_exists','office_pdf_reviewed_plan_invalid',
-                  'REAL_CONVERT_TWO_COLD_CORE_READBACK_FAILED',
-                  'AssertionError','ValueError','ToolDenied','ToolExecutionError',
-                  'LocalFileError','OfficeConvertError','IndexError')){
-                if($log.Contains($code)){Write-Host ('AGENT06_REAL_CONVERT_ERROR_CLASS='+$code)}
               }
               throw 'AGENT06_REAL_CONVERT_TOOLRUNTIME_DUAL_COLD_HOLD'
             }
