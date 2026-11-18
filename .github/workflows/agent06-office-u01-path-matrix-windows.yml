@@ -1,0 +1,95 @@
+# Disposable Windows experiment on original U01, not an installed Agent release gate.
+# No private source, executable, output PDF or logs are uploaded.
+name: Agent 0.6 Office U01 LibreOffice Windows path matrix
+on:
+  push:
+    branches: ['work/2026-11-15-agent06-office-source-qualification']
+    paths: ['.github/workflows/agent06-office-u01-path-matrix-windows.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-office-u01-path-matrix-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  isolated-original-u01-profile-matrix:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PIP_NO_CACHE_DIR: '1'
+      AGENT_OFFICE_SHA: 'c6faed79a704ac46abddff9665abdbc74d417179'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require scoped read-only private checkout
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'AGENT06_U01_MATRIX_SOURCE_UNAVAILABLE'
+          }
+          Write-Host 'AGENT06_U01_MATRIX_READ_ONLY_SCOPE_PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_OFFICE_SHA }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact pinned source and syntax
+        shell: pwsh
+        run: |
+          if((& git -C private-agent rev-parse HEAD).Trim() -cne $env:AGENT_OFFICE_SHA){
+            throw 'AGENT06_U01_MATRIX_SHA_MISMATCH'
+          }
+          & python -B -c "import ast,pathlib; ast.parse(pathlib.Path('private-agent/tests/test_agent06_u01_profile_path_matrix_windows.py').read_text(encoding='utf-8'))"
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_U01_MATRIX_SYNTAX_FAIL'}
+          Write-Host 'AGENT06_U01_MATRIX_SOURCE_SYNTAX_PASS'
+      - name: Prepare exact Agent Python runtime
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          & python -m pip install -r private-agent/requirements.txt python-docx pypdf pytest *> (Join-Path $env:RUNNER_TEMP 'agent06-u01-matrix-python-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_U01_MATRIX_DEPENDENCIES_FAIL'}
+          Write-Host 'AGENT06_U01_MATRIX_DEPENDENCIES_PASS'
+      - name: Install real LibreOffice for original Windows U01
+        shell: pwsh
+        timeout-minutes: 23
+        run: |
+          & choco.exe install libreoffice-fresh --yes --no-progress *> (Join-Path $env:RUNNER_TEMP 'agent06-u01-matrix-office-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_U01_MATRIX_OFFICE_INSTALL_FAIL'}
+          if(!(Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'LibreOffice/program/soffice.com') -PathType Leaf)){
+            throw 'AGENT06_U01_MATRIX_OFFICE_CLI_MISSING'
+          }
+          Write-Host 'AGENT06_U01_MATRIX_ORIGINAL_CLI_AVAILABLE_PASS'
+      - name: Compare six independent original U01 profile and output combinations
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          Push-Location private-agent
+          try{
+            $private=Join-Path $env:RUNNER_TEMP 'agent06-u01-matrix-execution-private.txt'
+            & python -B -m pytest -q -s -p no:cacheprovider tests/test_agent06_u01_profile_path_matrix_windows.py *> $private
+            $log=Get-Content -LiteralPath $private -Raw
+            foreach($variant in @('A','B','C','D','E','F')){
+              $reported=$false
+              foreach($status in @('PASS','NO_ACK','NO_PDF','INVALID')){
+                if($log.Contains('AGENT06_U01_PATH_MATRIX_'+$variant+'='+$status)){
+                  Write-Host ('AGENT06_U01_MATRIX_'+$variant+'='+$status)
+                  $reported=$true
+                }
+              }
+              if(-not $reported){Write-Host ('AGENT06_U01_MATRIX_'+$variant+'=NOT_OBSERVED')}
+            }
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_U01_MATRIX_REAL_EXECUTION_HOLD'}
+            Write-Host 'AGENT06_U01_MATRIX_DIAGNOSTIC_COMPLETE'
+          }finally{Pop-Location}
+      # Deliberately no cache, artifacts, screenshots, documents, private stdout.
