@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'd39e36a66668070e13617dd1c937777e62031c83'
+      AGENT_OFFICE_SHA: 'c91d214a05548eb47727d1f6624dc9d0daa1e026'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,41 +70,29 @@ jobs:
             throw 'AGENT06_REAL_DOCX_LIBREOFFICE_CLI_MISSING'
           }
           Write-Host 'AGENT06_REAL_DOCX_LIBREOFFICE_CLI_INSTALLED_PASS'
-      - name: Diagnose exact original U01 single invocation and PDF timing
+      - name: Diagnose converter-style U01 PDF with a clean first invocation
         shell: pwsh
         timeout-minutes: 4
         run: |
           Push-Location private-agent
           try{
-            $private=Join-Path $env:RUNNER_TEMP 'agent06-u01-probe-private.txt'
-            & python -B -m pytest -q -s -p no:cacheprovider tests/test_agent06_office_u01_cli_probe.py *> $private
+            $private=Join-Path $env:RUNNER_TEMP 'agent06-u01-style-probe-private.txt'
+            & python -B -m pytest -q -s -p no:cacheprovider -k converter_style tests/test_agent06_office_u01_cli_probe.py *> $private
             $log=Get-Content -LiteralPath $private -Raw
             if($LASTEXITCODE -ne 0){
-              foreach($code in @('U01_PROBE_CONNECT_FAILED','U01_PROBE_NO_ACK',
-                  'U01_PROBE_ACK_WITHOUT_PDF_AFTER_12S',
-                  'U01_PROBE_PDF_WRITTEN_BESIDE_SOURCE','U01_PROBE_PDF_WRITTEN_IN_CWD',
-                  'U01_PROBE_OUTPUT_NOT_PDF','U01_PROBE_PDF_TEXT_MISSING',
-                  'U01_PROBE_CONVERTER_STYLE_CONNECT_FAILED',
-                  'U01_PROBE_CONVERTER_STYLE_NO_ACK',
-                  'U01_PROBE_CONVERTER_STYLE_PDF_MISSING_12S',
-                  'U01_PROBE_CONVERTER_STYLE_PDF_TEXT_MISSING')){
-                if($log.Contains($code)){Write-Host ('AGENT06_REAL_DOCX_U01_PROBE_CLASS='+$code)}
+              foreach($code in @('CONNECT_FAILED','NO_ACK','NO_PDF_12S','TEXT_MISSING')){
+                if($log.Contains('AGENT06_U01_STYLE_OUTCOME='+$code)){
+                  Write-Host ('AGENT06_REAL_DOCX_FIRST_U01_STYLE_OUTCOME='+$code)
+                }
               }
-              throw 'AGENT06_REAL_DOCX_U01_PROBE_HOLD'
+              throw 'AGENT06_REAL_DOCX_FIRST_U01_STYLE_HOLD'
             }
-            if($log.Contains('U01_PROBE_OUTPUT_IMMEDIATE')){
-              Write-Host 'AGENT06_REAL_DOCX_U01_PROBE_OUTPUT_IMMEDIATE_PASS'
-            }elseif($log.Contains('U01_PROBE_OUTPUT_DELAYED')){
-              Write-Host 'AGENT06_REAL_DOCX_U01_PROBE_OUTPUT_DELAYED_PASS'
+            if($log.Contains('AGENT06_U01_STYLE_OUTCOME=IMMEDIATE_PASS')){
+              Write-Host 'AGENT06_REAL_DOCX_FIRST_U01_STYLE_IMMEDIATE_PASS'
+            }elseif($log.Contains('AGENT06_U01_STYLE_OUTCOME=DELAYED_PASS')){
+              Write-Host 'AGENT06_REAL_DOCX_FIRST_U01_STYLE_DELAYED_PASS'
             }else{
-              throw 'AGENT06_REAL_DOCX_U01_PROBE_EVIDENCE_MISSING'
-            }
-            if($log.Contains('U01_PROBE_CONVERTER_STYLE_IMMEDIATE')){
-              Write-Host 'AGENT06_REAL_DOCX_U01_CONVERTER_PROFILE_IMMEDIATE_PASS'
-            }elseif($log.Contains('U01_PROBE_CONVERTER_STYLE_DELAYED')){
-              Write-Host 'AGENT06_REAL_DOCX_U01_CONVERTER_PROFILE_DELAYED_PASS'
-            }else{
-              throw 'AGENT06_REAL_DOCX_U01_CONVERTER_PROFILE_EVIDENCE_MISSING'
+              throw 'AGENT06_REAL_DOCX_FIRST_U01_STYLE_EVIDENCE_MISSING'
             }
           }finally{Pop-Location}
       - name: Original Core ToolRuntime DOCX review and real U01 LibreOffice readback
