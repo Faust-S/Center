@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT06_PRIVATE_PIN: 'dbf9e70511a4f32b3f5a1e027bc4ec3988f053d3'
+      AGENT06_PRIVATE_PIN: '9edbb86e9928d7965317f5dd1e5300541b5fb101'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,6 +102,17 @@ jobs:
                 if($type -notin $allow){$type='OTHER'}
                 Write-Host ('AGENT06_PY_FAILED_CLASS='+$type)
                 $trace=[string]$fail.InnerText
+                foreach($category in @('SyntaxError','IndentationError','ModuleNotFoundError',
+                    'ImportError','NameError','TypeError','AttributeError','ValueError',
+                    'KeyError','CollectError','ImportPathMismatchError','RuntimeError')){
+                  if($trace.Contains($category)){
+                    Write-Host ('AGENT06_PY_SAFE_CATEGORY='+$category)
+                  }
+                }
+                $locationMatches=[regex]::Matches($trace,'test_agent06_account_remove\\.py:(\\d+)')
+                foreach($line in @($locationMatches|Select-Object -First 5)){
+                  Write-Host ('AGENT06_PY_ACCOUNT_REMOVE_LINE='+$line.Groups[1].Value)
+                }
                 $locations=[regex]::Matches($trace,
                   'test_(?:agent06_online_interaction_surface|google_oauth_user_ready)\.py:(\d+)')
                 if($locations.Count -gt 0){
