@@ -4,6 +4,7 @@ name: Agent 0.6 Office private source qualification
 on:
   push:
     branches: ['work/2026-11-15-agent06-office-source-qualification']
+    paths: ['.github/workflows/agent06-office-private-source-windows.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,9 +20,9 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '22a85c8ccc898590060ef04d418305fccad12f78'
+      AGENT_OFFICE_SHA: '2571ceb8015643e7dcc5d5f7db398cc9d226321e'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
-      AGENT_OFFICE_INSTALLED_ONLY: 'true'
+      AGENT_OFFICE_INSTALLED_ONLY: 'false'
     steps:
       - uses: actions/checkout@v4
         with:
