@@ -554,24 +554,7 @@ jobs:
           $beforeT2=(Get-FileHash -LiteralPath $t2 -Algorithm SHA256).Hash
           $packageSha=[string]$before.package.package_sha256
           if($before.status -cne 'INSTALLED_GENERIC_STATE_READY' -or
-             $packageSha -notmatch '^[a-f0-9]{64}      - name: Remove all private source and native installed artifacts
-        if: always()
-        shell: pwsh
-        run: |
-          Remove-Item -LiteralPath 'private-agent' -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item -LiteralPath 'public-one-core' -Recurse -Force -ErrorAction SilentlyContinue
-          foreach($item in @('agent06-g4-qualified-t2','agent06-g4-one-dist')){
-            Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP $item) -Recurse -Force -ErrorAction SilentlyContinue
-          }
-          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'agent06-g4-original-receipt.json') -Force -ErrorAction SilentlyContinue
-          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent06-g4-*-private.log' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-          $qa=Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
-          Remove-Item -LiteralPath $qa -Recurse -Force -ErrorAction SilentlyContinue
-          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent06-native-*-private.log' -ErrorAction SilentlyContinue |
-            Remove-Item -Force -ErrorAction SilentlyContinue
-          Write-Host 'AGENT06_NATIVE_EPHEMERAL_PRIVATE_CLEANUP_FINISHED'
-      # No actions/upload-artifact, cache or public source/binary logs.
-){
+             $packageSha -notmatch '^[a-f0-9]{64}$'){
             throw 'AGENT06_G4_REPAIR_BASELINE_RECEIPT_INVALID'
           }
           New-Item -ItemType Directory -Force -Path $data | Out-Null
@@ -610,8 +593,14 @@ jobs:
           # A rejected overlapping data root must not touch the installed
           # product, original T2 profile or user data. This is a preflight
           # denial, NOT a substitute for post-write rollback qualification.
-          $negativeArgs=@('--install-silent')+$common+@('--data-root',('"'+(Join-Path $installed 'invalid-data')+'"'),
-            '--result',('"'+$failure+'"'))
+          $negativeCommon=@('--qualification-root',('"'+$qualification+'"'),
+            '--qualification-port','18802',
+            '--install-root',('"'+$installed+'"'),
+            '--data-root',('"'+(Join-Path $installed 'invalid-data')+'"'),
+            '--software-root',('"'+$software+'"'),
+            '--models-root',('"'+$models+'"'),
+            '--cache-root',('"'+$cache+'"'))
+          $negativeArgs=@('--install-silent')+$negativeCommon+@('--result',('"'+$failure+'"'))
           $bad=Start-Process -FilePath $setup -ArgumentList $negativeArgs -PassThru -Wait -RedirectStandardOutput (Join-Path $qa 'logs/setup-negative-out-private.log') -RedirectStandardError (Join-Path $qa 'logs/setup-negative-err-private.log')
           if($null -eq $bad.ExitCode -or $bad.ExitCode -eq 0 -or
              !(Test-Path -LiteralPath $failure -PathType Leaf)){
