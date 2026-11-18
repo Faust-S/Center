@@ -76,7 +76,14 @@ jobs:
           if(@($parseErrors).Count -ne 0){
             foreach($issue in @($parseErrors)){
               Write-Host ('AGENT06_OFFICE_INSTALLED_QA_PARSER_LINE='+$issue.Extent.StartLineNumber)
-              if($issue.ErrorId -match '^[A-Za-z0-9_]{1,70}      - name: Dependencies stay in runner temp
+              if($issue.ErrorId -match '^[A-Za-z0-9_]{1,70}$'){
+                Write-Host ('AGENT06_OFFICE_INSTALLED_QA_PARSER_CLASS='+$issue.ErrorId)
+              }
+            }
+            throw 'AGENT06_OFFICE_INSTALLED_QA_PARSER_FAIL'
+          }
+          Write-Host 'AGENT06_OFFICE_INSTALLED_QA_PARSER_PASS'
+      - name: Dependencies stay in runner temp
         shell: pwsh
         run: |
           & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-office-pip-private.txt')
