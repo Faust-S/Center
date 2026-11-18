@@ -312,6 +312,47 @@ test('T3 task issue requires native Atlas work and exact plan revision',async()=
   assert.deepEqual(issued.atlasRef,f.assignment.atlasRef);
   assert.equal(issued.deliveryState,'NOT_CONFIRMED');
 });
+
+test('CEN02 signs an independent corporate Task without Atlas in an Atlas-linked Workspace',async()=>{
+  const fixture=issueFixture(),runtime=issuingRuntime();
+  const independent={...fixture.assignment,atlasRef:null};
+  let atlasCalls=0;
+  const port=createT3AdminPort(runtime,{openAtlas:async()=>{
+    atlasCalls++;
+    throw Error('ATLAS_SHOULD_NOT_BE_READ_FOR_INDEPENDENT_TASK');
+  }});
+  const signed=await port.issue({...fixture,assignment:independent});
+  assert.equal(signed.taskId,'task:owner');
+  assert.equal(signed.taskRevisionId,TASK_REVISION);
+  assert.equal(signed.atlasRef,null);
+  assert.equal(signed.deliveryState,'NOT_CONFIRMED');
+  assert.ok(signed.bytes instanceof Uint8Array);
+  assert.equal(atlasCalls,0);
+  assert.equal(runtime.calls.length,1);
+  assert.equal(runtime.calls[0].type,'createTask');
+  assert.doesNotMatch(runtime.calls[0].text,/Atlas project:|Atlas work:/);
+  assert.match(runtime.calls[0].text,/Acceptance criteria:/);
+  // Parent Workspace still retains its original project reference.
+  assert.equal(fixture.organization.workspaces[0].atlasRef.projectId,
+    fixture.assignment.atlasRef.projectId);
+  assert.equal(fixture.assignment.atlasRef.workId!=null,true);
+});
+
+test('CEN02 no-Atlas Task still requires original actor/recipient and a real signer',async()=>{
+  const fixture=issueFixture(),runtime=issuingRuntime();
+  const independent={...fixture.assignment,atlasRef:null};
+  const port=createT3AdminPort(runtime);
+  await assert.rejects(()=>port.issue({...fixture,assignment:independent,
+    binding:{...fixture.binding,recipientId:'foreign-person'}}),/T3_RECIPIENT_CHANGED/);
+  await assert.rejects(()=>port.issue({...fixture,assignment:independent,
+    binding:{...fixture.binding,draftAssigneeId:'foreign-assignee'}}),/T3_DRAFT_BINDING_CHANGED/);
+  assert.equal(runtime.calls.length,0);
+  delete runtime.createTask;
+  await assert.rejects(()=>port.issue({...fixture,assignment:independent}),
+    /T3_TASK_ISSUER_NOT_CONNECTED/);
+  assert.equal(runtime.calls.length,0);
+});
+
 test('T3 task issue fails closed without native source or when organization changes',async()=>{
   const f=issueFixture(),r=issuingRuntime();
   await assert.rejects(()=>createT3AdminPort(r).issue(f),/T3_ATLAS_OWNER_READER_REQUIRED/);
