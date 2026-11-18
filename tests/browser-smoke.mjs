@@ -220,6 +220,23 @@ try{
   assert.equal(await page.getByTestId('corporate-issue').isEnabled(),false);
   assert.equal(await page.getByTestId('corporate-accept').count(),0);
   checks.push('corporate-workbench-fail-closed-without-private-owner');
+  // An Atlas-linked Workspace must not force an unrelated corporate Task to
+  // inherit a stale/absent Atlas owner. Only the individual draft is detached.
+  await page.locator('#active-organization').selectOption({label:'North workshop'});
+  await page.getByTestId('nav-work').click();
+  await page.getByRole('button',{name:/Новое поручение/}).click();
+  assert.ok((await page.getByTestId('assignment-atlas-binding').innerText()).includes(first.id));
+  await page.getByTestId('remove-assignment-atlas').click();
+  assert.match(await page.getByTestId('assignment-atlas-binding').innerText(),/Без связи с Atlas/);
+  await page.getByTestId('task-title').fill('Independent HR coordination');
+  await page.getByTestId('save-assignment').click();
+  await page.getByTestId('assignment-row').first().click();
+  assert.match(await page.getByTestId('assignment-atlas-binding').innerText(),/Без связи с Atlas/);
+  await page.getByRole('button',{name:'Закрыть редактор'}).click();
+  await page.getByTestId('nav-resources').click();
+  assert.match(await page.getByText(/Связанный план Atlas:/).first().innerText(),/Связанный план Atlas:/);
+  checks.push('independent-task-detaches-atlas-without-modifying-workspace');
+  await page.locator('#active-organization').selectOption({label:'South workshop'});
   await page.getByTestId('nav-overview').click();await page.screenshot({path:'artifacts/overview-1366.png',fullPage:true});
   await page.setViewportSize({width:320,height:800});assert.ok(await page.locator('.menu-button').isVisible());await page.locator('.menu-button').click();await page.getByTestId('nav-work').click();
   const sizes=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert.ok(sizes.scroll<=sizes.width+1,JSON.stringify(sizes));checks.push('navigation-and-no-overflow-320');
