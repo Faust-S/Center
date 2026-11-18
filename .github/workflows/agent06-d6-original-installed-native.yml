@@ -523,6 +523,109 @@ jobs:
           # a model-generated Task or independent Atlas acceptance.
           Write-Host 'AGENT06_G4_NATIVE_SETUP_CORE_EXE_INSTALLED_PASS'
           Write-Host 'AGENT06_G4_NATIVE_SETUP_CORE_REPAIR_ROLLBACK_NOT_RUN'
+      - name: Verify same-version Setup Core 0.6 repair and fail-closed preflight on the installed Windows product
+        shell: pwsh
+        run: |
+          # Re-execute the SAME native 0.6 Setup EXE against the SAME
+          # isolated install. This is a real product repair, not a source
+          # simulator or the historical SetupCore --repair-file CLI.
+          # A rollback across releases is deliberately NOT claimed here.
+          $qa=Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+          $setup=Join-Path $qa 'IWXA-Personal-Agent-0.6-G4-Setup.exe'
+          $qualification=Join-Path $qa 'setup-isolated-qualification'
+          $installed=Join-Path $qa 'setup-exe-installed'
+          $data=Join-Path $qa 'setup-exe-data'
+          $software=Join-Path $qa 'setup-exe-software'
+          $models=Join-Path $qa 'setup-exe-models'
+          $cache=Join-Path $qa 'setup-exe-cache'
+          $result=Join-Path $qa 'logs/setup-exe-repair-private.json'
+          $failure=Join-Path $qa 'logs/setup-exe-negative-private.json'
+          $receiptPath=Join-Path $installed 'explorer-install-receipt.json'
+          $manifestPath=Join-Path $installed 'package-manifest.json'
+          $exe=Join-Path $installed 'desktop/bin/IWXA Personal.exe'
+          $t2=Join-Path $installed 't3-one-dist/_iwxa/domain.json'
+          foreach($path in @($setup,$receiptPath,$manifestPath,$exe,$t2)){
+            if(!(Test-Path -LiteralPath $path -PathType Leaf)){
+              throw 'AGENT06_G4_REPAIR_INITIAL_INSTALLED_PAYLOAD_MISSING'
+            }
+          }
+          $before=Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $beforeExe=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+          $beforeT2=(Get-FileHash -LiteralPath $t2 -Algorithm SHA256).Hash
+          $packageSha=[string]$before.package.package_sha256
+          if($before.status -cne 'INSTALLED_GENERIC_STATE_READY' -or
+             $packageSha -notmatch '^[a-f0-9]{64}      - name: Remove all private source and native installed artifacts
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath 'private-agent' -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath 'public-one-core' -Recurse -Force -ErrorAction SilentlyContinue
+          foreach($item in @('agent06-g4-qualified-t2','agent06-g4-one-dist')){
+            Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP $item) -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'agent06-g4-original-receipt.json') -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent06-g4-*-private.log' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+          $qa=Join-Path $env:RUNNER_TEMP ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+          Remove-Item -LiteralPath $qa -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent06-native-*-private.log' -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          Write-Host 'AGENT06_NATIVE_EPHEMERAL_PRIVATE_CLEANUP_FINISHED'
+      # No actions/upload-artifact, cache or public source/binary logs.
+){
+            throw 'AGENT06_G4_REPAIR_BASELINE_RECEIPT_INVALID'
+          }
+          New-Item -ItemType Directory -Force -Path $data | Out-Null
+          $marker=Join-Path $data 'g4-setup-repair-preserved.fixture'
+          $markerBytes=[Text.Encoding]::UTF8.GetBytes('iwxa-g4-user-data-preserved')
+          [IO.File]::WriteAllBytes($marker,$markerBytes)
+          $common=@('--qualification-root',('"'+$qualification+'"'),
+            '--qualification-port','18802',
+            '--install-root',('"'+$installed+'"'),
+            '--data-root',('"'+$data+'"'),
+            '--software-root',('"'+$software+'"'),
+            '--models-root',('"'+$models+'"'),
+            '--cache-root',('"'+$cache+'"'))
+          $setupTemp=Join-Path $qa 'setup-exe-temp'
+          New-Item -ItemType Directory -Force -Path $setupTemp | Out-Null
+          $env:TEMP=$setupTemp;$env:TMP=$setupTemp
+          $repairArgs=@('--install-silent')+$common+@('--result',('"'+$result+'"'))
+          $process=Start-Process -FilePath $setup -ArgumentList $repairArgs -PassThru -Wait -RedirectStandardOutput (Join-Path $qa 'logs/setup-repair-out-private.log') -RedirectStandardError (Join-Path $qa 'logs/setup-repair-err-private.log')
+          if($null -eq $process.ExitCode -or $process.ExitCode -ne 0 -or
+             !(Test-Path -LiteralPath $result -PathType Leaf)){
+            throw 'AGENT06_G4_NATIVE_SETUP_SAME_VERSION_REPAIR_FAILED'
+          }
+          $repair=Get-Content -LiteralPath $result -Raw -Encoding UTF8 | ConvertFrom-Json
+          $after=Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($repair.status -cne 'PASS' -or
+             [IO.Path]::GetFullPath([string]$repair.install_root) -cne [IO.Path]::GetFullPath($installed) -or
+             $after.status -cne 'INSTALLED_GENERIC_STATE_READY' -or
+             [string]$after.package.package_sha256 -cne $packageSha -or
+             (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -cne $beforeExe -or
+             (Get-FileHash -LiteralPath $t2 -Algorithm SHA256).Hash -cne $beforeT2 -or
+             ![Linq.Enumerable]::SequenceEqual[byte]([byte[]][IO.File]::ReadAllBytes($marker),[byte[]]$markerBytes)){
+            throw 'AGENT06_G4_NATIVE_SETUP_REPAIR_READBACK_CHANGED'
+          }
+          Write-Host 'AGENT06_G4_NATIVE_SETUP_06_SAME_VERSION_REPAIR_USER_DATA_PASS'
+          # A rejected overlapping data root must not touch the installed
+          # product, original T2 profile or user data. This is a preflight
+          # denial, NOT a substitute for post-write rollback qualification.
+          $negativeArgs=@('--install-silent')+$common+@('--data-root',('"'+(Join-Path $installed 'invalid-data')+'"'),
+            '--result',('"'+$failure+'"'))
+          $bad=Start-Process -FilePath $setup -ArgumentList $negativeArgs -PassThru -Wait -RedirectStandardOutput (Join-Path $qa 'logs/setup-negative-out-private.log') -RedirectStandardError (Join-Path $qa 'logs/setup-negative-err-private.log')
+          if($null -eq $bad.ExitCode -or $bad.ExitCode -eq 0 -or
+             !(Test-Path -LiteralPath $failure -PathType Leaf)){
+            throw 'AGENT06_G4_NATIVE_SETUP_INVALID_ROOT_NOT_REJECTED'
+          }
+          $negative=Get-Content -LiteralPath $failure -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($negative.status -cne 'FAIL' -or
+             (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -cne $beforeExe -or
+             (Get-FileHash -LiteralPath $t2 -Algorithm SHA256).Hash -cne $beforeT2 -or
+             [string](Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json).package.package_sha256 -cne $packageSha -or
+             ![Linq.Enumerable]::SequenceEqual[byte]([byte[]][IO.File]::ReadAllBytes($marker),[byte[]]$markerBytes)){
+            throw 'AGENT06_G4_NATIVE_SETUP_INVALID_ROOT_CHANGED_INSTALLED_STATE'
+          }
+          Write-Host 'AGENT06_G4_NATIVE_SETUP_06_INVALID_ROOT_FAIL_CLOSED_PASS'
+          Write-Host 'AGENT06_G4_NATIVE_SETUP_06_POST_WRITE_ROLLBACK_NOT_RUN'
       - name: Remove all private source and native installed artifacts
         if: always()
         shell: pwsh
