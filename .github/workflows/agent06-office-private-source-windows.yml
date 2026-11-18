@@ -471,6 +471,13 @@ jobs:
               $qaExit=$LASTEXITCODE
             }finally{$env:RUNNER_TEMP=$originalRunnerTemp}
             $private=Get-Content -LiteralPath $log -Raw
+            # Only a fixed, safe classification is made public; never emit
+            # the private Core response, token, URL, traceback or UIA dump.
+            $reason=[regex]::Match($private,
+              'INSTALLED_OFFICE_QA_CORE_READY_CLASS=(AUTHORITY_UNAVAILABLE|TOKEN_UNREADABLE|TOKEN_MISSING|AUTHENTICATED_ENDPOINT_NOT_READY|OTHER)')
+            if($reason.Success){
+              Write-Host ('AGENT06_OFFICE_INSTALLED_U04_CORE_READY_CLASS='+$reason.Groups[1].Value)
+            }
             foreach($stage in @(
               'REAL_INSTALLED_CORE_TASK_PASS','REAL_REACT_TASK_PAGE_PASS',
               'REAL_TASK_ROW_INVOKED','REAL_U04_PANEL_VISIBLE_PASS',
