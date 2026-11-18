@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'cd7c4b1db95ac03a693e1cb46ac088e6961f13b3'
+      AGENT_OFFICE_SHA: '22a85c8ccc898590060ef04d418305fccad12f78'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -202,6 +202,17 @@ jobs:
                   'FOREIGN_PROCESS','UNAVAILABLE')){
                 if($private.Contains('U04_QA_FOCUS_'+$phase+'='+$focus)){
                   Write-Host ('AGENT06_U04_FOCUS_'+$phase+'='+$focus)
+                }
+              }
+            }
+            foreach($phase in @('BEFORE_EDIT','AFTER_CANVAS_SHORTCUT','AFTER_EDIT')){
+              foreach($focus in @('ROOT_SAL','ROOT_EDIT','ROOT_OTHER',
+                  'CHILD_SAL','CHILD_EDIT','CHILD_OTHER',
+                  'OWNED_SAL','OWNED_EDIT','OWNED_OTHER',
+                  'OTHER_SAL','OTHER_EDIT','OTHER_OTHER',
+                  'NONE','FOREIGN','UNAVAILABLE')){
+                if($private.Contains('U04_QA_WIN32_FOCUS_'+$phase+'='+$focus)){
+                  Write-Host ('AGENT06_U04_WIN32_FOCUS_'+$phase+'='+$focus)
                 }
               }
             }
