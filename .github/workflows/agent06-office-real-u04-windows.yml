@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'fb1ce795ff2ae0e86d628ea77757139d3467012a'
+      AGENT_OFFICE_SHA: '0a10257b8bb90bcdfa1da47c1554150a4d93d389'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -144,6 +144,40 @@ jobs:
             throw 'AGENT06_U04_LIBREOFFICE_EXECUTABLE_MISSING'
           }
           Write-Host 'AGENT06_U04_REAL_LIBREOFFICE_INSTALLED_PASS'
+      - name: Configure disposable Writer profile to isolate DOCX format warning
+        shell: pwsh
+        run: |
+          # Experiment only: isolate whether the standard non-ODF warning is
+          # blocking physical Save. Do not change U04 or the user's settings.
+          if(@(Get-Process -Name 'soffice','soffice.bin' -ErrorAction SilentlyContinue).Count -gt 0){
+            throw 'AGENT06_U04_QA_PROFILE_OFFICE_ALREADY_RUNNING'
+          }
+          $roaming=[Environment]::GetFolderPath([Environment+SpecialFolder]::ApplicationData)
+          if([string]::IsNullOrWhiteSpace($roaming)){
+            throw 'AGENT06_U04_QA_PROFILE_LOCATION_UNAVAILABLE'
+          }
+          $folder=Join-Path $roaming 'LibreOffice/4/user'
+          $config=Join-Path $folder 'registrymodifications.xcu'
+          if(Test-Path -LiteralPath $config){
+            throw 'AGENT06_U04_QA_PROFILE_ALREADY_CONFIGURED'
+          }
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          $setting=@'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <oor:items xmlns:oor="http://openoffice.org/2001/registry">
+            <item oor:path="/org.openoffice.Office.Common/Save/Document">
+              <prop oor:name="WarnAlienFormat" oor:op="fuse">
+                <value>false</value>
+              </prop>
+            </item>
+          </oor:items>
+          '@
+          [IO.File]::WriteAllText($config,$setting,[Text.UTF8Encoding]::new($false))
+          [xml]$validated=[IO.File]::ReadAllText($config)
+          if($validated.DocumentElement.LocalName -cne 'items'){
+            throw 'AGENT06_U04_QA_PROFILE_CONFIGURATION_INVALID'
+          }
+          Write-Host 'AGENT06_U04_QA_PROFILE_WARN_ALIEN_FORMAT_DISABLED_PASS'
       - name: Invoke original U04 owner through compiled native host and require Office window
         shell: pwsh
         timeout-minutes: 6
