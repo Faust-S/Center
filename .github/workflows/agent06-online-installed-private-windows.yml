@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '9a642b22f693b20636a2f534ec4fdbaf91dd0a63'
-      PRIVATE_TREE_PIN: '33f82bafcb89dffb34acc6efaab4ae5d605fac29'
+      PRIVATE_SOURCE_PIN: '239de3dbc66a3d550759ba41efeec8524d1fc019'
+      PRIVATE_TREE_PIN: '4f08d6a91cd47ee789b94edad8358f456bb326cf'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
