@@ -1,0 +1,56 @@
+name: Agent 0.6 Office installed QA syntax Windows
+on:
+  push:
+    branches: ['work/2026-11-15-agent06-office-source-qualification']
+    paths: ['.github/workflows/agent06-office-installed-qa-parser-windows.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-office-installed-parser-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qa-source-parser:
+    runs-on: windows-2022
+    timeout-minutes: 6
+    env:
+      AGENT_OFFICE_SHA: '32014b9253c3b87a7da9a8f518268ed92ef29c10'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Private source remains read-only
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'AGENT06_INSTALLED_QA_PRIVATE_READ_UNAVAILABLE'
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_OFFICE_SHA }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - name: Parse installed GUI QA syntax without exposing source
+        shell: pwsh
+        run: |
+          if((& git -C private-agent rev-parse HEAD).Trim() -cne $env:AGENT_OFFICE_SHA){
+            throw 'AGENT06_INSTALLED_QA_PRIVATE_SOURCE_SHA_MISMATCH'
+          }
+          $source='private-agent/qualification/agent06/office/installed_office_gui_acceptance.ps1'
+          $tokens=$null;$errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            [IO.Path]::GetFullPath($source),[ref]$tokens,[ref]$errors)
+          foreach($issue in @($errors)){
+            Write-Host ('AGENT06_INSTALLED_QA_PARSER_LINE='+$issue.Extent.StartLineNumber)
+            Write-Host ('AGENT06_INSTALLED_QA_PARSER_ERROR_ID='+$issue.ErrorId)
+          }
+          if(@($errors).Count -ne 0){throw 'AGENT06_INSTALLED_QA_PWSH_PARSER_HOLD'}
+          & python -B -c "import ast,pathlib; ast.parse(pathlib.Path('private-agent/qualification/agent06/office/installed_office_ui_fixture.py').read_text(encoding='utf-8'))"
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_INSTALLED_QA_PYTHON_SYNTAX_HOLD'}
+          Write-Host 'AGENT06_INSTALLED_QA_PRIVATE_SOURCE_SYNTAX_PASS'
+      # No artifacts, test documents, screenshots, EXE, source, or logs are published.
