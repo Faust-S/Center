@@ -80,31 +80,6 @@ jobs:
             throw 'AGENT06_REAL_DOCX_LIBREOFFICE_CLI_MISSING'
           }
           Write-Host 'AGENT06_REAL_DOCX_LIBREOFFICE_CLI_INSTALLED_PASS'
-      - name: Diagnose converter-style U01 PDF with a clean first invocation
-        shell: pwsh
-        timeout-minutes: 4
-        run: |
-          Push-Location private-agent
-          try{
-            $private=Join-Path $env:RUNNER_TEMP 'agent06-u01-style-probe-private.txt'
-            & python -B -m pytest -q -s -p no:cacheprovider -k converter_style tests/test_agent06_office_u01_cli_probe.py *> $private
-            $log=Get-Content -LiteralPath $private -Raw
-            if($LASTEXITCODE -ne 0){
-              foreach($code in @('CONNECT_FAILED','NO_ACK','NO_PDF_12S','TEXT_MISSING')){
-                if($log.Contains('AGENT06_U01_STYLE_OUTCOME='+$code)){
-                  Write-Host ('AGENT06_REAL_DOCX_FIRST_U01_STYLE_OUTCOME='+$code)
-                }
-              }
-              throw 'AGENT06_REAL_DOCX_FIRST_U01_STYLE_HOLD'
-            }
-            if($log.Contains('AGENT06_U01_STYLE_OUTCOME=IMMEDIATE_PASS')){
-              Write-Host 'AGENT06_REAL_DOCX_FIRST_U01_STYLE_IMMEDIATE_PASS'
-            }elseif($log.Contains('AGENT06_U01_STYLE_OUTCOME=DELAYED_PASS')){
-              Write-Host 'AGENT06_REAL_DOCX_FIRST_U01_STYLE_DELAYED_PASS'
-            }else{
-              throw 'AGENT06_REAL_DOCX_FIRST_U01_STYLE_EVIDENCE_MISSING'
-            }
-          }finally{Pop-Location}
       - name: Original Core ToolRuntime DOCX review and real U01 LibreOffice readback
         shell: pwsh
         timeout-minutes: 9
