@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT06_PRIVATE_PIN: '71f7d29f43139c73983234904d91dc644ada5e47'
+      AGENT06_PRIVATE_PIN: '29e82f11316f1efd9c9b488d59e6d98652a971f5'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -188,6 +188,23 @@ jobs:
                 if($count.Success){
                   Write-Host ('AGENT06_DESKTOP_NODE_'+$key.ToUpper()+'='+$count.Groups[1].Value)
                 }
+              }
+            }
+            if($testsExit -ne 0 -and (Test-Path -LiteralPath $nodeTests -PathType Leaf)){
+              # Only stable anonymized identities from TAP test titles are public.
+              # Never print the private failing assertions, stack traces or code.
+              $failed=@([regex]::Matches($safe,'(?m)^not ok\\s+\\d+\\s+-\\s+([^\\r\\n]+)'))
+              Write-Host ('AGENT06_DESKTOP_NODE_FAILURE_IDENTITIES='+$failed.Count)
+              foreach($entry in @($failed|Select-Object -First 12)){
+                $name=[string]$entry.Groups[1].Value
+                $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                  [Text.Encoding]::UTF8.GetBytes($name))).Substring(0,12)
+                $category='OTHER'
+                if($name -match '(?i)online|google|oauth|account|provider'){$category='ONLINE_PROVIDER'}
+                elseif($name -match '(?i)u01|native.program|module.source'){$category='U01'}
+                elseif($name -match '(?i)t3|one.core'){$category='T3'}
+                elseif($name -match '(?i)setup|install|package'){$category='SETUP'}
+                Write-Host ('AGENT06_DESKTOP_NODE_FAILED_SHA='+$digest+':'+$category)
               }
             }
             if($testsExit -eq 0){Write-Host 'AGENT06_DESKTOP_NODE_TEST_PASS'}
