@@ -315,6 +315,12 @@ jobs:
             $shortQa='C:\i6'
             if(Test-Path -LiteralPath $shortQa){throw 'AGENT06_OFFICE_ISOLATED_QA_ROOT_OCCUPIED'}
             New-Item -ItemType Directory -Path $shortQa -Force | Out-Null
+            # The original installed supervisor persists after the GUI closes.
+            # Supply a disposable Files root BEFORE the first Core bootstrap,
+            # not merely when the subsequent UI qualification attaches.
+            $env:IWXA_PERSONAL_FILES_ROOT=Join-Path (
+              Join-Path $shortQa ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+            ) 'personal'
             try{
               $env:RUNNER_TEMP=$shortQa
               & pwsh -NoProfile -NonInteractive -File qualification/phase1/agent02_installed_gui_acceptance.ps1 *> $privateNativeLog
