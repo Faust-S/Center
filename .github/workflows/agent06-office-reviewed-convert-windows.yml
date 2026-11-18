@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'c7f1780db5bfb6a785a363b81421f6b8cc32e70e'
+      AGENT_OFFICE_SHA: 'ae017ee88b25c8a450fb14347347bfdf860fcd27'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -119,6 +119,15 @@ jobs:
               }
             }
             if($LASTEXITCODE -ne 0){
+              foreach($code in @('SOURCE_REVISION_CHANGED','PDF_SOURCE_FORMAT_UNSUPPORTED',
+                  'HUMAN_APPROVAL_REQUIRED','U01_CONNECTION_REQUIRED',
+                  'STAGING_ROOT_UNAVAILABLE','U01_CONVERSION_NOT_ACKNOWLEDGED',
+                  'PDF_OUTPUT_MISSING_OR_LARGE','PDF_OUTPUT_INVALID',
+                  'SOURCE_CHANGED_DURING_CONVERSION','OTHER')){
+                if($log.Contains('IWXA_REAL_CONVERT_ORIGINAL_U01_FAILURE='+$code)){
+                  Write-Host ('AGENT06_REAL_CONVERT_ORIGINAL_U01_FAILURE='+$code)
+                }
+              }
               foreach($outcome in @('office_libreoffice_not_installed',
                   'office_libreoffice_executable_unavailable',
                   'office_libreoffice_executable_unreadable',
