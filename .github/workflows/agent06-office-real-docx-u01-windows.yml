@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '701b65bfe76fcfa109aeb7cbac363b388de19177'
+      AGENT_OFFICE_SHA: '1e41db490e0036e309b41a2c04c399bb3e212531'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,6 +89,12 @@ jobs:
             $private=Join-Path $env:RUNNER_TEMP 'agent06-u01-converter-observe-private.txt'
             & python -B -m pytest -q -s -p no:cacheprovider -k test_original_u01_converter_actual_output_location_once tests/test_agent06_office_u01_cli_probe.py *> $private
             $log=Get-Content -LiteralPath $private -Raw
+            foreach($cls in @('SOURCE_LOAD_ERROR','PARAMETERS_ERROR',
+                'OTHER_ERROR','CONVERSION_REPORTED','EMPTY','OTHER')){
+              if($log.Contains('AGENT06_U01_CONVERTER_STDOUT_CLASS='+$cls)){
+                Write-Host ('AGENT06_REAL_DOCX_CONVERTER_STDOUT_CLASS='+$cls)
+              }
+            }
             foreach($outcome in @('IMMEDIATE','DELAYED','NO_ACK','OUTDIR_WRONG_NAME',
                 'PARENT_DIR','SOURCE_DIR','CWD','NO_PDF_12S')){
               if($log.Contains('AGENT06_U01_CONVERTER_LOCATION='+$outcome)){
