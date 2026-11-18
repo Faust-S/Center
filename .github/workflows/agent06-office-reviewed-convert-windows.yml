@@ -1,0 +1,108 @@
+# Synthetic real Word file -> approved Agent ToolRuntime -> ORIGINAL U01.
+# Read-only pinned private checkout; never upload source, EXE, DOCX, PDF, cache or private logs.
+name: Agent 0.6 Office reviewed real U01 PDF ToolRuntime Windows
+on:
+  push:
+    branches: ['work/2026-11-15-agent06-office-source-qualification']
+    paths: ['.github/workflows/agent06-office-reviewed-convert-windows.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-real-reviewed-convert-win-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  approved-docx-pdf:
+    runs-on: windows-2022
+    timeout-minutes: 48
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PIP_NO_CACHE_DIR: '1'
+      AGENT_OFFICE_SHA: '4ce97a647e3172bc9efb3e9f811ba810858703d4'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require scoped private read-only source
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'AGENT06_REAL_CONVERT_PRIVATE_SOURCE_UNAVAILABLE'
+          }
+          Write-Host 'AGENT06_REAL_CONVERT_SOURCE_READ_ONLY_PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_OFFICE_SHA }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify pinned source and parse original integration files
+        shell: pwsh
+        run: |
+          if((& git -C private-agent rev-parse HEAD).Trim() -cne $env:AGENT_OFFICE_SHA){
+            throw 'AGENT06_REAL_CONVERT_SOURCE_SHA_MISMATCH'
+          }
+          & python -B -c "import ast,pathlib; root=pathlib.Path('private-agent'); paths=('adapters/local_office_convert_v1.py','adapters/local_files_v1.py','runtime/tool_runtime.py','runtime/daily_driver_engine.py','cells/interaction_surface.py','tests/test_agent06_office_real_convert_toolruntime_e2e.py'); [ast.parse((root / p).read_text(encoding='utf-8')) for p in paths]"
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_REAL_CONVERT_PYTHON_SYNTAX_FAIL'}
+          Write-Host 'AGENT06_REAL_CONVERT_PIN_AND_PYTHON_SYNTAX_PASS'
+      - name: Install original Agent Python dependencies
+        shell: pwsh
+        timeout-minutes: 11
+        run: |
+          & python -m pip install -r private-agent/requirements.txt python-docx pypdf pytest *> (Join-Path $env:RUNNER_TEMP 'agent06-real-convert-python-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_REAL_CONVERT_CORE_DEPENDENCIES_FAIL'}
+          Write-Host 'AGENT06_REAL_CONVERT_CORE_DEPENDENCIES_PASS'
+      - name: Install installed Windows LibreOffice executable
+        shell: pwsh
+        timeout-minutes: 24
+        run: |
+          & choco.exe install libreoffice-fresh --yes --no-progress *> (Join-Path $env:RUNNER_TEMP 'agent06-real-convert-libreoffice-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_REAL_CONVERT_LIBREOFFICE_INSTALL_FAIL'}
+          if(!(Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'LibreOffice/program/soffice.com') -PathType Leaf)){
+            throw 'AGENT06_REAL_CONVERT_LIBREOFFICE_MISSING'
+          }
+          Write-Host 'AGENT06_REAL_CONVERT_LIBREOFFICE_INSTALLED_PASS'
+      - name: Execute real approved Task and U01 and two independent cold Core reads
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          Push-Location private-agent
+          try{
+            $private=Join-Path $env:RUNNER_TEMP 'agent06-real-convert-e2e-private.txt'
+            & python -B -m pytest -q -s -p no:cacheprovider tests/test_agent06_office_real_convert_toolruntime_e2e.py *> $private
+            $log=Get-Content -LiteralPath $private -Raw
+            foreach($stage in @('DOCX_ACCEPTED','MODEL_FREE_TASK',
+                'TOOL_APPROVED_NOT_EXECUTED','PDF_ACK_AND_TEXT_PASS',
+                'TWO_COLD_CORES_PASS')){
+              if($log.Contains('IWXA_REAL_CONVERT_STAGE='+$stage)){
+                Write-Host ('AGENT06_REAL_CONVERT_VERIFIED_STAGE='+$stage)
+              }
+            }
+            if($LASTEXITCODE -ne 0){
+              foreach($code in @('office_libreoffice_not_installed',
+                  'office_libreoffice_executable_unavailable',
+                  'office_pdf_u01_connection_unavailable',
+                  'office_pdf_u01_outcome_unconfirmed',
+                  'office_pdf_output_invalid','office_pdf_source_revision_changed',
+                  'office_pdf_destination_exists','office_pdf_reviewed_plan_invalid',
+                  'REAL_CONVERT_TWO_COLD_CORE_READBACK_FAILED',
+                  'AssertionError','ValueError','ToolDenied','ToolExecutionError',
+                  'LocalFileError','OfficeConvertError','IndexError')){
+                if($log.Contains($code)){Write-Host ('AGENT06_REAL_CONVERT_ERROR_CLASS='+$code)}
+              }
+              throw 'AGENT06_REAL_CONVERT_TOOLRUNTIME_DUAL_COLD_HOLD'
+            }
+            if(-not $log.Contains('IWXA_REAL_CONVERT_STAGE=TWO_COLD_CORES_PASS')){
+              throw 'AGENT06_REAL_CONVERT_COLD_EVIDENCE_MISSING'
+            }
+            Write-Host 'AGENT06_REAL_CONVERT_ORIGINAL_U01_TOOLRUNTIME_TWO_COLD_PASS'
+          }finally{Pop-Location}
+      # No upload-artifact, cache, screenshots, source, PDF, DOCX, EXE, private logs.
