@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '2571ceb8015643e7dcc5d5f7db398cc9d226321e'
+      AGENT_OFFICE_SHA: '5926e290a07232e43ad7e0ff2065e6303b2bb04a'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
       AGENT_OFFICE_INSTALLED_ONLY: 'false'
     steps:
@@ -55,6 +55,20 @@ jobs:
           $source=(& git -C private-agent rev-parse HEAD).Trim()
           if($source -cne $env:AGENT_OFFICE_SHA){throw 'AGENT06_OFFICE_SOURCE_SHA_MISMATCH'}
           Write-Host ('AGENT06_OFFICE_PINNED_SHA='+$source)
+      - name: Parse exact installed native GUI acceptance before expensive build
+        shell: pwsh
+        run: |
+          $file=[IO.Path]::GetFullPath('private-agent/qualification/phase1/agent02_installed_gui_acceptance.ps1')
+          $tokens=$null;$parseErrors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            $file,[ref]$tokens,[ref]$parseErrors)
+          if(@($parseErrors).Count -ne 0){
+            foreach($issue in @($parseErrors)){
+              Write-Host ('AGENT06_OFFICE_GUI_PWSH_PARSER_LINE='+$issue.Extent.StartLineNumber)
+            }
+            throw 'AGENT06_OFFICE_GUI_PWSH_PARSER_FAIL'
+          }
+          Write-Host 'AGENT06_OFFICE_GUI_PWSH_PARSER_PASS'
       - name: Dependencies stay in runner temp
         shell: pwsh
         run: |
