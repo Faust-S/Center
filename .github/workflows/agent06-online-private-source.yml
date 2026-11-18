@@ -13,13 +13,13 @@ concurrency:
 jobs:
   source-qualification:
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT06_PRIVATE_PIN: 'd2642a27689f48a7c5a2a16cba0de60d71672b00'
+      AGENT06_PRIVATE_PIN: '270c3f9d10fc0e985d8bc1136b0d6627ff513aa9'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -184,14 +184,53 @@ jobs:
             }
             "AGENT06_DESKTOP_GATE=PASS" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           }finally{Pop-Location}
+      - name: Compile and test exact original native Windows Tauri host
+        shell: pwsh
+        continue-on-error: true
+        env:
+          CARGO_INCREMENTAL: '0'
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          $ErrorActionPreference='Continue'
+          $env:CARGO_TARGET_DIR=Join-Path $env:RUNNER_TEMP 'agent06-private-rust-target'
+          $cargo=Get-Command cargo -ErrorAction SilentlyContinue
+          if(-not $cargo){
+            Write-Host 'AGENT06_NATIVE_RUST_TOOLCHAIN_MISSING'
+            "AGENT06_RUST_GATE=FAIL" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+            exit 1
+          }
+          $log=Join-Path $env:RUNNER_TEMP 'agent06-private-rust.log'
+          & cargo test --locked --manifest-path private-agent/desktop/src-tauri/Cargo.toml *> $log
+          $exitCode=$LASTEXITCODE
+          if($exitCode -ne 0){
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            [regex]::Matches([string]$raw,'error\\[E[0-9]{4}\\]') |
+              ForEach-Object Value | Sort-Object -Unique |
+              ForEach-Object {Write-Host ('AGENT06_NATIVE_RUST_ERROR_CODE='+$_)}
+            $safe=@('google_oauth_authorization_url_invalid','valid_google_oauth_browser_url',
+              'browser_handoff_accepts_only_google_oauth_pkce_for_local_callback',
+              'close_permission_is_scoped_to_verified_core_window')
+            foreach($kind in $safe){
+              if(([string]$raw).Contains($kind)){
+                Write-Host ('AGENT06_NATIVE_RUST_FAILURE_CATEGORY='+$kind)
+              }
+            }
+            Write-Host 'AGENT06_NATIVE_RUST_FAIL'
+            "AGENT06_RUST_GATE=FAIL" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+            exit 1
+          }
+          Write-Host 'AGENT06_NATIVE_RUST_PASS'
+          "AGENT06_RUST_GATE=PASS" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
       - name: Report final private source qualification gate only
         if: always()
         shell: pwsh
         run: |
           Write-Host ('AGENT06_PRIVATE_PY_GATE='+$env:AGENT06_PY_GATE)
           Write-Host ('AGENT06_PRIVATE_DESKTOP_GATE='+$env:AGENT06_DESKTOP_GATE)
+          Write-Host ('AGENT06_PRIVATE_RUST_GATE='+$env:AGENT06_RUST_GATE)
           if($env:AGENT06_PY_GATE -ne 'PASS' -or
-             $env:AGENT06_DESKTOP_GATE -ne 'PASS'){
+             $env:AGENT06_DESKTOP_GATE -ne 'PASS' -or
+             $env:AGENT06_RUST_GATE -ne 'PASS'){
             throw 'AGENT06_ONLINE_PRIVATE_SOURCE_NOT_QUALIFIED'
           }
           Write-Host 'AGENT06_ONLINE_PRIVATE_SOURCE_QUALIFIED'
