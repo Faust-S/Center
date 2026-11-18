@@ -20,9 +20,9 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '186b613ae843b45310e0e7c88db40296ad634fb2'
+      AGENT_OFFICE_SHA: '7930bcdd973c602450c38770b8726ee997ff6c71'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
-      AGENT_OFFICE_INSTALLED_ONLY: 'true'
+      AGENT_OFFICE_INSTALLED_ONLY: 'false'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,6 +108,7 @@ jobs:
             @('INTERACTIVE_CLAIM', 'tests/test_interactive_task_retry_claim.py'),
             @('TOOL_RUNTIME', 'tests/test_tool_provider_layer.py'),
             @('DOCUMENT_TEXT', 'tests/test_local_document_text_v3.py'),
+            @('INSTALLED_FIXTURE', 'tests/test_agent06_installed_office_fixture.py'),
             @('INSTALLED_SOFTWARE', 'tests/test_existing_software_discovery.py')
           )
           $failed=$false
@@ -505,6 +506,12 @@ jobs:
               }
               if($private.Contains('installed_office_qa_fixture_seed_failed')){
                 Write-Host 'AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS=FIXTURE_SEED'
+                $found=$true
+              }
+              $inner=[regex]::Matches($private,
+                'INSTALLED_OFFICE_QA_FAIL_CLASS=([A-Za-z0-9_]{1,90})')
+              foreach($match in $inner){
+                Write-Host ('AGENT06_OFFICE_INSTALLED_U04_INNER_CLASS='+$match.Groups[1].Value)
                 $found=$true
               }
               if(!$found){Write-Host 'AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS=OTHER'}
