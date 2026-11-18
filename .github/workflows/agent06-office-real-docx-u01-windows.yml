@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '4d4618bfa6639ba8a433603b9d21e5d9c776cc82'
+      AGENT_OFFICE_SHA: '17bb423e81e667d6972498547109ebcebea40052'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -85,6 +85,15 @@ jobs:
                   'EXECUTION_FAILED','EXECUTION_TIMEOUT','OTHER_STATUS')){
                 if($private.Contains('REAL_U01_LIBREOFFICE_CONNECT_STATUS_'+$status)){
                   Write-Host ('AGENT06_REAL_DOCX_U01_CONNECTION_OUTCOME='+$status)
+                }
+              }
+              foreach($status in @('U01_CONVERSION_NOT_ACKNOWLEDGED',
+                  'PDF_OUTPUT_MISSING_OR_LARGE','PDF_OUTPUT_INVALID',
+                  'SOURCE_CHANGED_DURING_CONVERSION','SOURCE_REVISION_CHANGED',
+                  'STAGING_ROOT_UNAVAILABLE','U01_CONNECTION_REQUIRED',
+                  'PDF_SOURCE_FORMAT_UNSUPPORTED','OTHER')){
+                if($private.Contains('REAL_U01_PDF_CONVERSION_STATUS_'+$status)){
+                  Write-Host ('AGENT06_REAL_DOCX_U01_PDF_CONVERSION_OUTCOME='+$status)
                 }
               }
               foreach($code in @('REAL_U01_LIBREOFFICE_NOT_INSTALLED',
