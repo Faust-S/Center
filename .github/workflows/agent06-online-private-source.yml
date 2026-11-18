@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT06_PRIVATE_PIN: '29e82f11316f1efd9c9b488d59e6d98652a971f5'
+      AGENT06_PRIVATE_PIN: 'c9a449c56b7ccde3bd00bb3e039b3e0673e3f05e'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,6 +91,13 @@ jobs:
                 $hash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
                   [Text.Encoding]::UTF8.GetBytes([string]$case.classname+':'+[string]$case.name))).Substring(0,12)
                 Write-Host ('AGENT06_PY_FAILED_CASE_SHA='+$hash)
+                $category='OTHER'
+                if([string]$case.classname -eq 'tests.test_agent06_setup_core_script_integrity'){
+                  $category='SETUP_CORE_OWNER_SOURCE'
+                }elseif([string]$case.classname -match 'agent06_(?:online|account|google|telegram|saved|dav|carddav|loopback)'){
+                  $category='ONLINE_FUNCTIONAL'
+                }
+                Write-Host ('AGENT06_PY_FAILED_AREA='+$category)
                 $type=[string]$fail.GetAttribute('type')
                 if($type.Contains('.')){$type=$type.Split('.')[-1]}
                 $allow=@('AssertionError','TypeError','ValueError','AttributeError',
@@ -205,6 +212,16 @@ jobs:
                 elseif($name -match '(?i)t3|one.core'){$category='T3'}
                 elseif($name -match '(?i)setup|install|package'){$category='SETUP'}
                 Write-Host ('AGENT06_DESKTOP_NODE_FAILED_SHA='+$digest+':'+$category)
+                # Identify the failing test's source frame without revealing code,
+                # raw path, test name or stack in public CI.
+                $portion=$safe.Substring($entry.Index,[Math]::Min(3500,$safe.Length-$entry.Index))
+                $frame=[regex]::Match($portion,
+                  '(?i)desktop[/\\]tests[/\\]([a-z0-9_.-]+\\.test\\.mjs):(\\d{1,4})')
+                if($frame.Success){
+                  $sourceDigest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+                    [Text.Encoding]::UTF8.GetBytes($frame.Groups[1].Value))).Substring(0,12)
+                  Write-Host ('AGENT06_DESKTOP_NODE_SOURCE_SHA='+$sourceDigest+':'+$frame.Groups[2].Value)
+                }else{Write-Host 'AGENT06_DESKTOP_NODE_SOURCE_FRAME_MISSING'}
               }
             }
             if($testsExit -eq 0){Write-Host 'AGENT06_DESKTOP_NODE_TEST_PASS'}
