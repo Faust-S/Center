@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '855feb2bccc93a1c9466b11545e4a6a3cf8e8db5'
+      AGENT_OFFICE_SHA: 'c7f1780db5bfb6a785a363b81421f6b8cc32e70e'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -112,13 +112,37 @@ jobs:
             & python -B -m pytest -q -s -p no:cacheprovider tests/test_agent06_office_real_convert_toolruntime_e2e.py *> $private
             $log=Get-Content -LiteralPath $private -Raw
             foreach($stage in @('DOCX_ACCEPTED','MODEL_FREE_TASK',
-                'TOOL_APPROVED_NOT_EXECUTED','PDF_ACK_AND_TEXT_PASS',
+                'TOOL_APPROVED_NOT_EXECUTED','TOOL_EXECUTE_ENTERED','PDF_ACK_AND_TEXT_PASS',
                 'TWO_COLD_CORES_PASS')){
               if($log.Contains('IWXA_REAL_CONVERT_STAGE='+$stage)){
                 Write-Host ('AGENT06_REAL_CONVERT_VERIFIED_STAGE='+$stage)
               }
             }
             if($LASTEXITCODE -ne 0){
+              foreach($outcome in @('office_libreoffice_not_installed',
+                  'office_libreoffice_executable_unavailable',
+                  'office_libreoffice_executable_unreadable',
+                  'office_pdf_source_input_invalid',
+                  'office_pdf_source_size_unsupported',
+                  'office_pdf_source_unavailable','office_pdf_source_revision_changed',
+                  'office_pdf_reviewed_plan_invalid','office_pdf_source_overwrite_forbidden',
+                  'office_pdf_destination_exists','office_pdf_executable_revision_changed',
+                  'office_pdf_u01_connection_unavailable','office_pdf_output_invalid',
+                  'office_pdf_scope_changed','office_pdf_source_changed_after_u01',
+                  'office_pdf_destination_created_after_u01',
+                  'office_pdf_destination_exists_after_u01',
+                  'office_pdf_published_readback_mismatch',
+                  'office_pdf_published_readback_unavailable',
+                  'office_pdf_u01_outcome_unconfirmed','TOOL_DENIED','OTHER')){
+                if($log.Contains('IWXA_REAL_CONVERT_EXECUTION_OUTCOME='+$outcome)){
+                  Write-Host ('AGENT06_REAL_CONVERT_EXECUTION_OUTCOME='+$outcome)
+                }
+              }
+              foreach($state in @('NONE','UNKNOWN','ACKNOWLEDGED','DENIED')){
+                if($log.Contains('IWXA_REAL_CONVERT_EXTERNAL_EFFECT_STATE='+$state)){
+                  Write-Host ('AGENT06_REAL_CONVERT_EXTERNAL_EFFECT_STATE='+$state)
+                }
+              }
               foreach($code in @('office_libreoffice_not_installed',
                   'office_libreoffice_executable_unavailable',
                   'office_pdf_u01_connection_unavailable',
