@@ -896,11 +896,36 @@ try{
     'lost Task ACK forbids creating a second signed revision');
   await employeePage.getByTestId('d3-employee-task-read').click();
   await employeePage.getByTestId('d3-employee-task-orphan-recovery').waitFor();
+  // The app is really reloaded after the original signed carrier was
+  // persisted, but before its Task inventory entry was saved. React no
+  // longer has an invitation export receipt, and must NOT sign one again.
+  await employeePage.reload();
+  await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('d3-employee-steps').waitFor();
+  await employeePage.getByTestId('d3-employee-person').fill('person:independent');
+  await employeePage.getByTestId('d3-employee-key').fill('key:independent');
+  await employeePage.getByTestId('d3-employee-credential-read').click();
+  await employeePage.getByTestId('d3-employee-key-admitted').waitFor();
+  await employeePage.getByTestId('d3-employee-enrollment-id').fill('enrollment:verified');
+  await employeePage.getByTestId('d3-employee-read').click();
+  await employeePage.getByTestId('d3-employee-enrolled').waitFor();
+  await employeePage.getByTestId('d3-employee-task-grant-read').click();
+  await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
+  await employeePage.getByTestId('d3-employee-task-id').fill('task:independent-work');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),
+    false,'after cold restart, new Task still requires fresh signed invitation');
+  assert.equal(await employeePage.getByTestId('d3-employee-invitation-export-receipt').count(),
+    0,'React has no cached invitation receipt after cold process readback');
+  await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.getByTestId('d3-employee-task-orphan-recovery').waitFor();
+  assert.equal(employeeState.inviteExports,1,
+    'cold Task recovery must never export a new signed invitation');
   assert.equal(employeeState.taskRecoveryCalls,0);
   assert.equal(await employeePage.getByTestId('d3-employee-task-receipt').count(),0,
     'an orphaned signed Task is never represented as a confirmed catalog row');
   const repair=employeePage.getByTestId('d3-employee-task-recover');
-  assert.equal(await repair.isEnabled(),true);
+  assert.equal(await repair.isEnabled(),true,
+    'fresh original Kernel DATA grant permits orphan recovery without invitation re-export');
   await repair.click();
   assert.equal(employeeState.taskRecoveryCalls,0,
     'native Human cancellation cannot repair the catalog');
@@ -943,6 +968,7 @@ try{
   checks.push('d3-employee-task-native-human-cancel-lost-ack-exact-readback-single-export-ui-only');
   checks.push('d3-employee-task-orphan-human-recovery-from-original-signed-bytes-no-reissue-ui-only');
   checks.push('d3-employee-form-keeps-task-recovery-across-new-native-context-epoch');
+  checks.push('d3-employee-cold-orphan-task-recovery-without-resigning-invitation');
   // React can reload while the REAL native signed WebView (and its Kernel)
   // survives. Model that lifetime using a separate Node-side host, NOT
   // localStorage/React state, so a browser reload cannot recreate its status.
