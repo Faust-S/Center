@@ -20,9 +20,9 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'd0c1ca7176e314e8b5cb5aa9ed5c06666be1c2c7'
+      AGENT_OFFICE_SHA: '7a58505c09bf9960ef7391311b96914cf1ad277d'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
-      AGENT_OFFICE_INSTALLED_ONLY: 'false'
+      AGENT_OFFICE_INSTALLED_ONLY: 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -479,6 +479,7 @@ jobs:
               Write-Host ('AGENT06_OFFICE_INSTALLED_U04_CORE_READY_CLASS='+$reason.Groups[1].Value)
             }
             foreach($stage in @(
+              'SYNTHETIC_MODEL_SELECTED_PASS',
               'REAL_INSTALLED_CORE_TASK_PASS','REAL_REACT_TASK_PAGE_PASS',
               'REAL_TASK_ROW_INVOKED','REAL_U04_PANEL_VISIBLE_PASS',
               'REAL_CORE_TASK_AND_UI_PANEL_PASS')){
@@ -493,7 +494,8 @@ jobs:
                 'native_exited','native_window_missing','uia_root_missing',
                 'native_close_denied','native_close_timeout','native_close_unconfirmed',
                 'core_not_ready','source_changed','files_connection_failed',
-                'files_stat_unverified','source_task_missing','source_not_accepted',
+                'files_stat_unverified','demo_model_binding_invalid',
+                'source_task_missing','source_not_accepted',
                 'revision_missing','draft_not_verified','reviewed_candidate_unverified',
                 'unapproved_copy_created','saved_task_identity_missing',
                 'uia_action_unavailable','textbox_unavailable',
