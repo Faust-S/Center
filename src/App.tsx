@@ -516,7 +516,7 @@ export default function App() {
         </section>
       </>}
 
-      {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает общую картину проектов и зависимостей. Здесь руководитель связывает рабочую область с конкретной редакцией плана. Пока это только черновая ссылка - подключение Atlas ещё не проверено.</p>
+      {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает проекты и зависимости. Привязка к работе необязательна. Только проектные поручения требуют проверки точной редакции установленного Atlas перед подписанием. Обычные поручения работают через T3 без Atlas.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span></div>)}
         <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
@@ -567,7 +567,7 @@ export default function App() {
           </> : <Empty title="Откройте портфель Atlas" text="Когда вы выберете файл экспорта Atlas, здесь появятся проекты, прогресс и зависимости."/>}
           {org.workspaces.some(w=>w.atlasRef)&&<div className="atlas-link-readback">{org.workspaces.filter(w=>w.atlasRef).map(w=><p key={w.id}><strong>{w.name}:</strong> {w.atlasRef?.projectId} · {atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_MATCHES'?'Редакция совпадает':atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_CHANGED'?'Редакция плана изменилась':atlasView?'Проект отсутствует в открытом файле':'Файл Atlas не открыт'}</p>)}</div>}
         </div>
-        <div className="notice subdued">Для эксплуатационного выпуска связь с Atlas обязательна. Дублировать проекты, зависимости и портфели в Admin Center не будем.</div>
+        <div className="notice subdued">Atlas подключается для проектных работ. Обычное поручение и приёмка Result не требуют Atlas. Проекты, зависимости и портфели остаются у Atlas.</div>
       </section>}
 
       {org && page==='people' && <section className="card padded"><h2>Сотрудники и их обязанности</h2><p className="muted">Руководитель определяет участников и их обязанности. Подписанные полномочия появятся после подключения действующих организационных механизмов.</p>
