@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 6
     env:
-      AGENT_OFFICE_SHA: 'a2efb81075537c1810d7beeb35db74378ce7615f'
+      AGENT_OFFICE_SHA: '696d1bb606c3cb0d6d44ae1df23a0715499cdb19'
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
@@ -69,5 +69,22 @@ jobs:
               throw 'AGENT06_INSTALLED_FIXTURE_CONTRACT_HOLD'
             }
             Write-Host 'AGENT06_INSTALLED_FIXTURE_CONTRACT_PASS'
+          }finally{Pop-Location}
+      - name: Verify operation-specific Office navigation and TypeScript build
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location private-agent/desktop
+          try{
+            $log=Join-Path $env:RUNNER_TEMP 'agent06-office-nav-private.txt'
+            & npm.cmd ci --no-audit --no-fund *> $log
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_NAV_DEPENDENCIES_HOLD'}
+            & node.exe --test tests/office-task-entry.test.mjs *> $log
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_NAV_EXACT_OPERATION_TEST_HOLD'}
+            Write-Host 'AGENT06_OFFICE_NAV_EXACT_OPERATION_TEST_PASS'
+            & npm.cmd run build *> $log
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_NAV_TYPESCRIPT_BUILD_HOLD'}
+            Write-Host 'AGENT06_OFFICE_NAV_TYPESCRIPT_BUILD_PASS'
           }finally{Pop-Location}
       # No artifacts, test documents, screenshots, EXE, source, or logs are published.
