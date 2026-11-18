@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '0a7673d3b99964d4061106be52dacc09caeac4a8'
+      AGENT_OFFICE_SHA: 'fb1ce795ff2ae0e86d628ea77757139d3467012a'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -240,6 +240,19 @@ jobs:
                 'FORMAT_CONFIRM','SAVE_AS','OWNED_WRITER_WINDOW','WRITER_OTHER_WINDOW')){
               if($private.Contains('U04_QA_POST_SAVE_FOREGROUND='+$foreground)){
                 Write-Host ('AGENT06_U04_POST_SAVE_FOREGROUND='+$foreground)
+              }
+            }
+            foreach($surface in @('WORD_AND_ODF','WORD_ONLY','ODF_ONLY',
+                'SAVE_AS','CONTROLS_UNLABELED','NO_CONTROLS','UNAVAILABLE')){
+              if($private.Contains('U04_QA_SAVE_SURFACE_UIA='+$surface)){
+                Write-Host ('AGENT06_U04_SAVE_SURFACE_UIA='+$surface)
+              }
+            }
+            foreach($native in @('WORD_AND_ODF','WORD_ONLY','ODF_ONLY',
+                'SAVE_AS','BUTTONS_NO_FORMAT','CHILDREN_UNLABELED',
+                'NO_CHILDREN','UNAVAILABLE')){
+              if($private.Contains('U04_QA_SAVE_SURFACE_WIN32='+$native)){
+                Write-Host ('AGENT06_U04_SAVE_SURFACE_WIN32='+$native)
               }
             }
             foreach($buttons in @('NO_BUTTONS','WORD_AND_ODF','WORD_ONLY',
