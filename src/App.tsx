@@ -485,7 +485,7 @@ export default function App() {
         <button className="sidebar-add" onClick={()=>{if(editor){setError('Сначала сохраните открытый редактор.');return;}setCreatingOrg(true);go('overview');}}>＋ Добавить организацию</button>
       </div>
       <nav>{pages.map(([id,label,icon])=><button key={id} className={`nav-link ${page===id?'active':''}`} aria-current={page===id?'page':undefined} onClick={()=>go(id)} data-testid={`nav-${id}`}><span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span>{id==='work' && !!stats.drafts && <em>{stats.drafts}</em>}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="local-label"><span className="dot" />Рабочее место руководителя</div><p>Atlas и Personal Agent обязательны для полного маршрута. Подключение пока не завершено.</p></div>
+      <div className="sidebar-bottom"><div className="local-label"><span className="dot" />Рабочее место руководителя</div><p>Atlas 0.9 нужен для проектных работ, Agent 0.6 для выполнения поручений. Подписание и приёмка выполняются через T3.</p></div>
     </aside>
 
     <main className="main">
@@ -602,7 +602,12 @@ export default function App() {
           <label>Критерии приёмки<textarea rows={3} maxLength={2000} value={editor.criteria} onChange={e=>editorField('criteria',e.target.value)} placeholder="Как понять, что работа выполнена?" data-testid="task-criteria"/></label>
           <p className="muted" data-testid="assignment-atlas-binding">{editor.atlasRef
             ? `Черновая связь: проект ${editor.atlasRef.projectId}, редакция ${editor.atlasRef.revision}${editor.atlasRef.workId?', работа '+editor.atlasRef.workId:''}. При редактировании редакция не меняется автоматически.`
-            : 'Для полного маршрута свяжите рабочую область с проектом Atlas.'}</p>
+            : 'Без связи с Atlas. Поручение можно подготовить и подписать через T3 независимо от проектного плана.'}</p>
+          {editor.atlasRef&&<button type="button" className="quiet"
+            data-testid="remove-assignment-atlas"
+            onClick={()=>setEditor(old=>old?{...old,atlasRef:null}:old)}>
+            Убрать связь с Atlas только у этого поручения
+          </button>}
           <p className="muted" data-testid="assignment-atlas-source">{observedAtlas?.mode==='NATIVE_ATLAS_PUBLIC_READ_ONLY'
             ? 'Проверка по последнему чтению установленного Atlas. Это не подтверждение прав или выполнения работы.'
             : observedAtlas?.mode==='READ_ONLY_USER_SELECTED_FILE'
