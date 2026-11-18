@@ -550,6 +550,7 @@ jobs:
             }
           }
           $before=Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
           $beforeExe=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
           $beforeT2=(Get-FileHash -LiteralPath $t2 -Algorithm SHA256).Hash
           $packageSha=[string]$before.package.package_sha256
@@ -562,6 +563,22 @@ jobs:
           $markerBytes=[Text.Encoding]::UTF8.GetBytes('iwxa-g4-user-data-preserved')
           [IO.File]::WriteAllBytes($marker,$markerBytes)
           $markerSha=(Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash
+          # A repeat install of already healthy bits is NOT a genuine
+          # repair witness. Damage one listed product-owned original T2 file
+          # in this disposable Windows profile. The SAME Setup EXE must
+          # physically restore the original SHA, while user data stays intact.
+          $managed=@($manifest.files | Where-Object {
+            $_.path -ceq 't3-one-dist/_iwxa/domain.json'
+          })
+          if($managed.Count -ne 1 -or
+             [string]$managed[0].sha256 -cne $beforeT2.ToLowerInvariant()){
+            throw 'AGENT06_G4_REPAIR_ORIGINAL_T2_MANAGED_IDENTITY_INVALID'
+          }
+          [IO.File]::WriteAllBytes($t2,[Text.Encoding]::UTF8.GetBytes('{"damaged":true}'))
+          if((Get-FileHash -LiteralPath $t2 -Algorithm SHA256).Hash -ceq $beforeT2){
+            throw 'AGENT06_G4_REPAIR_MANAGED_FILE_DAMAGE_NOT_APPLIED'
+          }
+          Write-Host 'AGENT06_G4_REPAIR_GENUINE_T2_MANAGED_FILE_DAMAGE_PREPARED'
           $common=@('--qualification-root',('"'+$qualification+'"'),
             '--qualification-port','18802',
             '--install-root',('"'+$installed+'"'),
@@ -609,6 +626,7 @@ jobs:
           $negative=Get-Content -LiteralPath $failure -Raw -Encoding UTF8 | ConvertFrom-Json
           $finalReceipt=Get-Content -LiteralPath $receiptPath -Raw -Encoding UTF8 | ConvertFrom-Json
           if($negative.status -cne 'FAIL' -or
+             [string]$negative.error -cne 'Папки приложения, данных, компонентов, моделей и кэша должны быть раздельными.' -or
              (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -cne $beforeExe -or
              (Get-FileHash -LiteralPath $t2 -Algorithm SHA256).Hash -cne $beforeT2 -or
              [string]$finalReceipt.package.package_sha256 -cne $packageSha -or
