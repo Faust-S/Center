@@ -13,6 +13,13 @@ import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mj
 
 const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64);
 
+test('corporate UI states that Atlas is optional for an ordinary T3 Task',()=>{
+  const ui=readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8');
+  assert.doesNotMatch(ui,/Для эксплуатационного выпуска связь с Atlas обязательна/);
+  assert.match(ui,/Обычное поручение и приёмка Result не требуют Atlas/);
+  assert.match(ui,/Только проектные поручения требуют проверки точной редакции установленного Atlas/);
+});
+
 test('D3 generic signed Task UI does not eagerly import Atlas product modules',()=>{
   const source=readFileSync(new URL('../src/CorporateD3Panel.tsx',import.meta.url),'utf8');
   const head=source.slice(0,source.indexOf('export default function CorporateD3Panel'));
