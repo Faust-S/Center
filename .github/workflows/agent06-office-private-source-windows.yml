@@ -420,5 +420,82 @@ jobs:
             }
             Write-Host 'AGENT06_OFFICE_INSTALLED_NATIVE_GUI_PASS'
           }finally{Pop-Location}
+      - name: Installed Agent real Core Task to React U04 panel qualification
+        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true'
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location private-agent
+          try{
+            # This is NOT the original U04 host probe. It uses the exact
+            # installed EXE and authenticated installed Core. Only disposable
+            # data created under the former short QA installation are used.
+            $qaScript='qualification/agent06/office/installed_office_gui_acceptance.ps1'
+            $qaPython='qualification/agent06/office/installed_office_ui_fixture.py'
+            if(!(Test-Path -LiteralPath $qaScript -PathType Leaf) -or
+               !(Test-Path -LiteralPath $qaPython -PathType Leaf)){
+              throw 'AGENT06_OFFICE_INSTALLED_U04_QA_SOURCE_MISSING'
+            }
+            $tokens=$null;$parseErrors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              [IO.Path]::GetFullPath($qaScript),[ref]$tokens,[ref]$parseErrors)
+            if(@($parseErrors).Count -ne 0){throw 'AGENT06_OFFICE_INSTALLED_U04_QA_PARSER_FAIL'}
+            & python -B -c "import ast,pathlib; ast.parse(pathlib.Path('$qaPython').read_text(encoding='utf-8'))"
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_INSTALLED_U04_QA_PYTHON_SYNTAX_FAIL'}
+            Write-Host 'AGENT06_OFFICE_INSTALLED_U04_QA_PARSE_PASS'
+            $log=Join-Path $env:RUNNER_TEMP 'agent06-office-installed-u04-qa-private.txt'
+            $originalRunnerTemp=$env:RUNNER_TEMP
+            try{
+              $env:RUNNER_TEMP='C:\i6'
+              & pwsh -NoProfile -NonInteractive -File $qaScript *> $log
+              $qaExit=$LASTEXITCODE
+            }finally{$env:RUNNER_TEMP=$originalRunnerTemp}
+            $private=Get-Content -LiteralPath $log -Raw
+            foreach($stage in @(
+              'REAL_INSTALLED_CORE_TASK_PASS','REAL_REACT_TASK_PAGE_PASS',
+              'REAL_TASK_ROW_INVOKED','REAL_U04_PANEL_VISIBLE_PASS',
+              'REAL_CORE_TASK_AND_UI_PANEL_PASS')){
+              if($private.Contains('INSTALLED_OFFICE_QA_'+$stage)){
+                Write-Host ('AGENT06_OFFICE_INSTALLED_U04_'+$stage)
+              }
+            }
+            if($qaExit -ne 0){
+              $categories=@(
+                'baseline_install_missing','executable_missing','fixture_missing',
+                'profile_not_fresh','root_mismatch','install_not_disposable',
+                'native_exited','native_window_missing','uia_root_missing',
+                'native_close_denied','native_close_timeout','native_close_unconfirmed',
+                'core_not_ready','source_changed','files_connection_failed',
+                'files_stat_unverified','source_task_missing','source_not_accepted',
+                'revision_missing','draft_not_verified','reviewed_candidate_unverified',
+                'unapproved_copy_created','saved_task_identity_missing',
+                'uia_action_unavailable','textbox_unavailable',
+                'input_not_accepted','task_not_durable','provider_binding_changed')
+              $found=$false
+              foreach($category in $categories){
+                if($private.Contains('installed_office_qa_'+$category)){
+                  Write-Host ('AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS='+$category.ToUpper())
+                  $found=$true
+                }
+              }
+              foreach($cat in @('TASK','OFFICE','OTHER')){
+                if($private.Contains('installed_office_qa_control_not_visible:'+$cat)){
+                  Write-Host ('AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS=CONTROL_'+$cat)
+                  $found=$true
+                }
+              }
+              if($private.Contains('installed_office_qa_fixture_seed_failed')){
+                Write-Host 'AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS=FIXTURE_SEED'
+                $found=$true
+              }
+              if(!$found){Write-Host 'AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS=OTHER'}
+              throw 'AGENT06_OFFICE_INSTALLED_U04_GUI_ACCEPTANCE_HOLD'
+            }
+            if(-not $private.Contains('INSTALLED_OFFICE_QA_REAL_CORE_TASK_AND_UI_PANEL_PASS')){
+              throw 'AGENT06_OFFICE_INSTALLED_U04_GUI_EVIDENCE_MISSING'
+            }
+            Write-Host 'AGENT06_OFFICE_INSTALLED_U04_CORE_TASK_REACT_PANEL_PASS'
+          }finally{Pop-Location}
       # There is intentionally no upload-artifact, upload-pages-artifact,
       # cache, commit, log upload, EXE publication or secret persistence.
