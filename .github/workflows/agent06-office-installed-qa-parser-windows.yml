@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 6
     env:
-      AGENT_OFFICE_SHA: 'da64063b7cd1dcf9c898617cf20b7002e6e07e2a'
+      AGENT_OFFICE_SHA: '802e0e323bdaf527be9bc39a4b64936ad76370c4'
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
