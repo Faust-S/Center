@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'fc8b8aa8c4cbf0672ae15e2102ff1cfb07ae7355'
+      AGENT_OFFICE_SHA: '32014b9253c3b87a7da9a8f518268ed92ef29c10'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
       AGENT_OFFICE_INSTALLED_ONLY: 'false'
     steps:
@@ -69,6 +69,457 @@ jobs:
             throw 'AGENT06_OFFICE_GUI_PWSH_PARSER_FAIL'
           }
           Write-Host 'AGENT06_OFFICE_GUI_PWSH_PARSER_PASS'
+          $officeQa=[IO.Path]::GetFullPath('private-agent/qualification/agent06/office/installed_office_gui_acceptance.ps1')
+          $tokens=$null;$parseErrors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            $officeQa,[ref]$tokens,[ref]$parseErrors)
+          if(@($parseErrors).Count -ne 0){
+            foreach($issue in @($parseErrors)){
+              Write-Host ('AGENT06_OFFICE_INSTALLED_QA_PARSER_LINE='+$issue.Extent.StartLineNumber)
+              if($issue.ErrorId -match '^[A-Za-z0-9_]{1,70}      - name: Dependencies stay in runner temp
+        shell: pwsh
+        run: |
+          & python -m pip install -r private-agent/requirements-ci.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-office-pip-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_PYTHON_DEPENDENCIES_FAIL'}
+          Write-Host 'AGENT06_OFFICE_DEPENDENCIES_PASS'
+          # The managed Python capsule is built from this same interpreter.
+          # Test requirements use >=, but the actual product runtime declares
+          # exact == identities. Apply the canonical pins before packaging,
+          # rather than weakening or bypassing the installed equality gate.
+          & python -m pip install -r private-agent/requirements.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-office-runtime-pins-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_RUNTIME_PINNED_DEPENDENCIES_FAIL'}
+          Write-Host 'AGENT06_OFFICE_RUNTIME_PINNED_REQUIREMENTS_PASS'
+      - name: Python original Agent office and surrounding regression suites
+        if: env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $cases=@(
+            @('BINARY_E2E', 'tests/test_agent06_office_binary.py'),
+            @('OFFICE_READ', 'tests/test_agent06_office_read.py'),
+            @('PDF_OCR', 'tests/test_agent06_pdf_ocr.py'),
+            @('INTERACTIVE_CLAIM', 'tests/test_interactive_task_retry_claim.py'),
+            @('TOOL_RUNTIME', 'tests/test_tool_provider_layer.py'),
+            @('DOCUMENT_TEXT', 'tests/test_local_document_text_v3.py'),
+            @('INSTALLED_SOFTWARE', 'tests/test_existing_software_discovery.py')
+          )
+          $failed=$false
+          foreach($pair in $cases) {
+            $label=$pair[0];$file=$pair[1]
+            Push-Location private-agent
+            try {
+              & python -B -m pytest -q -p no:cacheprovider $file ('--junitxml='+(Join-Path $env:RUNNER_TEMP ('agent06-office-'+$label+'-private.xml'))) *> (Join-Path $env:RUNNER_TEMP ('agent06-office-'+$label+'-private.txt'))
+              if($LASTEXITCODE -eq 0){Write-Host ('AGENT06_OFFICE_'+$label+'_PASS')}
+              else{Write-Host ('AGENT06_OFFICE_'+$label+'_FAIL');$failed=$true}
+            } finally {Pop-Location}
+          }
+          if($failed) {
+            Set-Content -Path (Join-Path $env:RUNNER_TEMP 'agent06-office-python-failed') -Value 'FAIL'
+            $knownTypes=@('AssertionError','ValueError','TypeError','KeyError','ToolDenied','ToolExecutionError','LocalFileError','DocumentOperationError','ImportError','ModuleNotFoundError','AttributeError','RuntimeError','IndexError','FileNotFoundError','OSError','PermissionError')
+            foreach($pair in $cases) {
+              $label=$pair[0]
+              $xmlPath=Join-Path $env:RUNNER_TEMP ('agent06-office-'+$label+'-private.xml')
+              if(!(Test-Path -LiteralPath $xmlPath)){continue}
+              [xml]$result=Get-Content -LiteralPath $xmlPath -Raw
+              foreach($case in $result.SelectNodes('//testcase')){
+                $failure=$case.SelectSingleNode('failure')
+                if($null -eq $failure){$failure=$case.SelectSingleNode('error')}
+                if($null -eq $failure){continue}
+                Write-Host ('AGENT06_OFFICE_FAILED_SUITE='+$label)
+                $hash=[System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$case.name))
+                Write-Host ('AGENT06_OFFICE_FAILED_TEST_HASH='+[Convert]::ToHexString($hash).Substring(0,12))
+                $kind=[string]$failure.Attributes['type'].Value
+                if($kind -in $knownTypes){Write-Host ('AGENT06_OFFICE_FAILURE_TYPE='+$kind)}
+                elseif($kind -match '^[A-Za-z0-9_.]{1,80}$'){
+                  Write-Host ('AGENT06_OFFICE_FAILURE_TYPE_CLASS='+($kind.Split('.')[-1]))
+                }else{Write-Host 'AGENT06_OFFICE_FAILURE_TYPE=OTHER'}
+                if($label -eq 'PDF_OCR'){
+                  $body=[string]$failure.InnerText
+                  foreach($code in @('ocr_destination_created_during_processing','ocr_file_scope_changed_after_processing','ocr_u01_outcome_unconfirmed','ocr_source_changed_after_processing','ocr_destination_exists','ocr_original_overwrite_forbidden','ocr_output_coverage_invalid','ocr_executable_revision_changed','DID NOT RAISE','AssertionError','FileExistsError','PermissionError','OSError')){
+                    if($body.Contains($code)){Write-Host ('AGENT06_OFFICE_PDF_ERROR_MARKER='+$code)}
+                  }
+                }
+                $lines=[regex]::Matches([string]$failure.InnerText,'test_[A-Za-z0-9_]+\.py:(\d+)')
+                if($lines.Count -gt 0){
+                  Write-Host ('AGENT06_OFFICE_FAILURE_TEST_LINE='+$lines[$lines.Count-1].Groups[1].Value)
+                }
+              }
+            }
+          }
+      - name: Desktop full-fidelity review and complete TypeScript Vite build
+        if: env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
+        shell: pwsh
+        run: |
+          Push-Location private-agent/desktop
+          try {
+            & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-office-npm-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_DESKTOP_DEPENDENCIES_FAIL'}
+            $tests=@(
+              'tests/task-review-file-candidate.test.mjs',
+              'tests/office-docx-proposal.test.mjs',
+              'tests/office-docx-launch.test.mjs',
+              'tests/office-task-entry.test.mjs',
+              'tests/office-pdf-ocr-proposal.test.mjs',
+              'tests/office-pdf-ocr-readback.test.mjs',
+              'tests/office-personal-file-picker.test.mjs',
+              'tests/office-personal-file-picker-ui.test.mjs',
+              'tests/recovery-observation.test.mjs',
+              'tests/native-program-link.test.mjs',
+              'tests/u04-native-host.test.mjs',
+              'tests/u04-rust-host-contract.test.mjs',
+              'tests/u04-native-build-manifest.test.mjs'
+            )
+            & node --test $tests *> (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-tests-private.txt')
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'AGENT06_OFFICE_DOCUMENT_REVIEW_FAIL'
+              Set-Content (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-failed') 'FAIL'
+              $private=Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'agent06-office-ui-tests-private.txt') -Raw
+              $matches=[regex]::Matches($private,'(?m)^not ok\s+\d+\s+-\s+([^\r\n]+)')
+              Write-Host ('AGENT06_OFFICE_NODE_FAILURE_COUNT='+$matches.Count)
+              foreach($entry in $matches){
+                $name=$entry.Groups[1].Value
+                $hash=[System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($name))
+                Write-Host ('AGENT06_OFFICE_NODE_FAILED_HASH='+[Convert]::ToHexString($hash).Substring(0,12))
+                foreach($testFile in $tests){
+                  $basename=[IO.Path]::GetFileName([string]$testFile)
+                  if($name.EndsWith($basename,[StringComparison]::OrdinalIgnoreCase)){
+                    $category=switch($basename){
+                      'office-personal-file-picker-ui.test.mjs' {'PICKER_INTERACTION'}
+                      'office-personal-file-picker.test.mjs' {'PICKER_CONTRACT'}
+                      'office-docx-launch.test.mjs' {'OFFICE_DOCX_LAUNCH'}
+                      'office-docx-proposal.test.mjs' {'OFFICE_DOCX_PROPOSAL'}
+                      'office-pdf-ocr-readback.test.mjs' {'PDF_OCR_READBACK'}
+                      'office-pdf-ocr-proposal.test.mjs' {'PDF_OCR_PROPOSAL'}
+                      'native-program-link.test.mjs' {'U04_PRESENTATION'}
+                      'u04-native-host.test.mjs' {'U04_HOST'}
+                      'task-review-file-candidate.test.mjs' {'TASK_REVIEW'}
+                      default {'OTHER_OFFICE_NODE'}
+                    }
+                    Write-Host ('AGENT06_OFFICE_NODE_FAIL_CATEGORY='+$category)
+                  }
+                }
+              }
+              foreach($code in @('ERR_ASSERTION','ERR_MODULE_NOT_FOUND','MODULE_NOT_FOUND','ERR_TEST_FAILURE','SyntaxError','TypeError','ReferenceError','RangeError','Unexpected token','Unexpected identifier','Unexpected end of input','Cannot use import statement outside a module')){
+                if($private.Contains($code)){Write-Host ('AGENT06_OFFICE_NODE_ERROR_CLASS='+$code)}
+              }
+            } else { Write-Host 'AGENT06_OFFICE_DOCUMENT_REVIEW_PASS' }
+            & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-office-desktop-build-private.txt')
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'AGENT06_OFFICE_DESKTOP_BUILD_FAIL'
+              $buildPrivate=Join-Path $env:RUNNER_TEMP 'agent06-office-desktop-build-private.txt'
+              $codes=[regex]::Matches((Get-Content -Raw $buildPrivate),'TS[0-9]{4}') | ForEach-Object {$_.Value} | Select-Object -Unique
+              foreach($code in $codes){Write-Host ('AGENT06_OFFICE_TYPESCRIPT_ERROR_CODE='+$code)}
+              $errors=[regex]::Matches((Get-Content -Raw $buildPrivate),'(?m)(?:src[\\/])([A-Za-z0-9._-]+)\.tsx?\(([0-9]+),([0-9]+)\): error (TS[0-9]{4})')
+              foreach($item in $errors){
+                $source=[string]$item.Groups[1].Value
+                $label=switch($source){'office-docx-proposal'{'OFFICE_UI'} 'document-workflow'{'DOCUMENT_WORKFLOW'} 'office-docx-review'{'OFFICE_REVIEW_HELPER'} default{'OTHER'}}
+                if($label -ne 'OTHER'){
+                  Write-Host ('AGENT06_OFFICE_TS_LOCATION='+$label+':'+$item.Groups[2].Value+':'+$item.Groups[3].Value+':'+$item.Groups[4].Value)
+                }else{Write-Host 'AGENT06_OFFICE_TS_LOCATION=OTHER'}
+              }
+              Set-Content (Join-Path $env:RUNNER_TEMP 'agent06-office-build-failed') 'FAIL'
+            } else { Write-Host 'AGENT06_OFFICE_DESKTOP_BUILD_PASS' }
+          } finally {Pop-Location}
+      - name: Original U04 native-window host regression (not Office qualification)
+        if: env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
+        shell: pwsh
+        run: |
+          Push-Location private-agent/desktop
+          try {
+            & node --test tests/u04-native-host.test.mjs tests/u04-rust-host-contract.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-office-u04-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_EXISTING_U04_BASELINE_FAIL'}
+            Write-Host 'AGENT06_EXISTING_U04_BASELINE_PASS'
+          } finally {Pop-Location}
+      - name: Windows MSVC compile and run the actual native U04 module
+        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true' && env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
+        shell: pwsh
+        run: |
+          $probe=Join-Path $env:RUNNER_TEMP 'agent06-u04-native-qualification'
+          $src=Join-Path $probe 'src'
+          New-Item -ItemType Directory -Path $src -Force | Out-Null
+          @('[package]','name = "agent06_u04_qualification"','version = "0.0.1"','edition = "2021"','[dependencies]','serde_json = "1"','sha2 = "0.10.9"') |
+            Set-Content -Path (Join-Path $probe 'Cargo.toml') -Encoding utf8
+          Copy-Item -LiteralPath 'private-agent/desktop/src-tauri/src/u04_windows_host.rs' -Destination (Join-Path $src 'u04_windows_host.rs')
+          @('mod u04_windows_host;','fn main() {}') |
+            Set-Content -Path (Join-Path $src 'main.rs') -Encoding utf8
+          $env:CARGO_TARGET_DIR=Join-Path $env:RUNNER_TEMP 'agent06-office-u04-msvc-target'
+          & cargo.exe test --manifest-path (Join-Path $probe 'Cargo.toml') --quiet *> (Join-Path $env:RUNNER_TEMP 'agent06-office-u04-msvc-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_U04_NATIVE_MSCV_TEST_FAIL'}
+          Write-Host 'AGENT06_OFFICE_U04_NATIVE_MSCV_TEST_PASS'
+      - name: Full Agent native Tauri Cargo source checks
+        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true' && env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $env:CARGO_TARGET_DIR=Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-target'
+          Push-Location private-agent/desktop/src-tauri
+          try {
+            & cargo.exe test --locked --quiet *> (Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-tests-private.txt')
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'AGENT06_OFFICE_TAURI_TEST_FAIL'
+              Set-Content -Path (Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-failed') -Value 'FAIL'
+            } else {Write-Host 'AGENT06_OFFICE_TAURI_TEST_PASS'}
+            & cargo.exe check --locked --quiet *> (Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-check-private.txt')
+            if($LASTEXITCODE -ne 0){
+              Write-Host 'AGENT06_OFFICE_TAURI_CHECK_FAIL'
+              Set-Content -Path (Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-failed') -Value 'FAIL'
+            } else {Write-Host 'AGENT06_OFFICE_TAURI_CHECK_PASS'}
+          } finally {Pop-Location}
+      - name: Final source qualification gate
+        if: env.AGENT_OFFICE_INSTALLED_ONLY != 'true'
+        shell: pwsh
+        run: |
+          $failures=@('python','ui','build','tauri')
+          foreach($name in $failures){
+            if(Test-Path (Join-Path $env:RUNNER_TEMP ('agent06-office-'+$name+'-failed'))){
+              throw ('AGENT06_OFFICE_'+$name.ToUpper()+'_QUALIFICATION_HOLD')
+            }
+          }
+          Write-Host ('AGENT06_OFFICE_SOURCE_QUALIFIED_SHA='+$env:AGENT_OFFICE_SHA)
+          Write-Host 'AGENT06_OFFICE_SOURCE_QUALIFIED'
+      - name: Installed Windows Agent native GUI baseline (not Office/OCR E2E)
+        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true'
+        shell: pwsh
+        timeout-minutes: 30
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location private-agent/desktop
+          try{
+            if($env:AGENT_OFFICE_INSTALLED_ONLY -eq 'true'){
+              & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-office-native-npm-private.txt')
+              if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_NATIVE_DEPENDENCIES_FAIL'}
+              Write-Host 'AGENT06_OFFICE_NATIVE_DEPENDENCIES_PASS'
+            }
+            & npm.cmd run tauri:build *> (Join-Path $env:RUNNER_TEMP 'agent06-office-tauri-release-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_NATIVE_EXE_BUILD_FAIL'}
+            if(!(Test-Path -LiteralPath 'src-tauri/target/release/iwxa-personal.exe' -PathType Leaf)){
+              throw 'AGENT06_OFFICE_NATIVE_EXE_NOT_FOUND'
+            }
+            Write-Host 'AGENT06_OFFICE_NATIVE_EXE_BUILD_PASS'
+          }finally{Pop-Location}
+          Push-Location private-agent
+          try{
+            # Installed Office uses the unchanged, pinned original U04 owner.
+            # The source is prepared only from the public Br-test commit in
+            # config/public-module-sources.json. It stays under ignored build/.
+            & node.exe scripts/prepare-public-modules.mjs --only-u04 --fetch *> (Join-Path $env:RUNNER_TEMP 'agent06-office-u04-source-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_U04_OWNER_PREPARE_FAIL'}
+            # Stage only the three verified U04 ESM modules into ignored
+            # desktop/dist. Never add untracked files to the source checkout.
+            & node.exe scripts/stage-u04-desktop.mjs build/u04-owner-sources desktop/dist/u04 *> (Join-Path $env:RUNNER_TEMP 'agent06-office-u04-stage-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_U04_OWNER_STAGE_FAIL'}
+            foreach($name in @('bridge.mjs','id.mjs','surface.mjs')){
+              $path=Join-Path 'desktop/dist/u04/u04-presentation' $name
+              if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw 'AGENT06_OFFICE_U04_OWNER_MODULE_MISSING'}
+            }
+            Write-Host 'AGENT06_OFFICE_U04_OWNER_STAGED_PASS'
+            # Reuse the existing native GUI + isolated data install acceptance.
+            # Never print its UI text, private paths, screenshots or raw logs.
+            # Keep installed CPython metadata paths below legacy Win32 limits.
+            # The original smoke script is unchanged and uses RUNNER_TEMP for
+            # disposable isolated install/profile roots. Never touch user state.
+            $privateNativeLog=Join-Path $env:RUNNER_TEMP 'agent06-office-installed-native-private.txt'
+            $originalRunnerTemp=$env:RUNNER_TEMP
+            $shortQa='C:\i6'
+            if(Test-Path -LiteralPath $shortQa){throw 'AGENT06_OFFICE_ISOLATED_QA_ROOT_OCCUPIED'}
+            New-Item -ItemType Directory -Path $shortQa -Force | Out-Null
+            # The original installed supervisor persists after the GUI closes.
+            # Supply a disposable Files root BEFORE the first Core bootstrap,
+            # not merely when the subsequent UI qualification attaches.
+            $env:IWXA_PERSONAL_FILES_ROOT=Join-Path (
+              Join-Path $shortQa ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+            ) 'personal'
+            try{
+              $env:RUNNER_TEMP=$shortQa
+              & pwsh -NoProfile -NonInteractive -File qualification/phase1/agent02_installed_gui_acceptance.ps1 *> $privateNativeLog
+              $installedExit=$LASTEXITCODE
+            }finally{
+              $env:RUNNER_TEMP=$originalRunnerTemp
+            }
+            if($installedExit -ne 0){
+              Write-Host 'AGENT06_OFFICE_INSTALLED_NATIVE_GUI_FAIL'
+              $privateLog=Join-Path $env:RUNNER_TEMP 'agent06-office-installed-native-private.txt'
+              if(Test-Path -LiteralPath $privateLog){
+                $text=Get-Content -LiteralPath $privateLog -Raw
+                $allowed=@(
+                  'gui_managed_python_capsule_failed','gui_native_package_failed',
+                  'gui_package_install_failed','gui_storage_authority_failed',
+                  'gui_native_executable_not_installed','gui_window_automation_root_missing',
+                  'BLOCKED_ENVIRONMENT:ui_automation_root_missing',
+                  'BLOCKED_ENVIRONMENT:uia_invoke_unavailable_and_control_not_visible',
+                  'BLOCKED_ENVIRONMENT:draft_value_pattern_unavailable',
+                  'BLOCKED_ENVIRONMENT:draft_keyboard_input_unavailable',
+                  'gui_draft_value_change_not_observed','gui_core_draft_http_readback_failed',
+                  'gui_core_draft_http_response_invalid','gui_native_process_exited_before_window',
+                  'BLOCKED_ENVIRONMENT:gui_native_window_missing',
+                  'BLOCKED_ENVIRONMENT:gui_window_in_other_session',
+                  'gui_wrong_product_window','test_profile_not_empty',
+                  'gui_draft_lost_before_close','gui_draft_not_restored_after_restart',
+                  'gui_core_draft_changed_after_restart','gui_native_close_unconfirmed',
+                  'gui_first_launch_blank_recovered_but_qualification_failed'
+                )
+                $found=$false
+                foreach($code in $allowed){
+                  if($text.Contains($code)){
+                    $found=$true
+                    Write-Host ('AGENT06_OFFICE_INSTALLED_GUI_FAILURE_CODE='+$code)
+                  }
+                }
+                if(!$found){Write-Host 'AGENT06_OFFICE_INSTALLED_GUI_FAILURE_CODE=OTHER'}
+                if($text.Contains('control_unavailable:')){
+                  Write-Host 'AGENT06_OFFICE_INSTALLED_GUI_FAILURE_CLASS=CONTROL_UNAVAILABLE'
+                }
+                if($text.Contains('gui_package_install_failed')){
+                  # The installed script captures the private installer's
+                  # error JSON. Emit only an explicit fixed-code allowlist,
+                  # never paths, exception messages, stdout, or stderr.
+                  $installCodes=@(
+                    'package_unreadable','archive_manifest_invalid','archive_manifest_mismatch',
+                    'managed_runtime_capsule_mismatch','managed_runtime_capsule_invalid',
+                    'managed_runtime_descriptor_capsule_identity_mismatch',
+                    'managed_runtime_expanded_size_mismatch','payload_digest_mismatch',
+                    'source_digest_mismatch','host_blocked','insufficient_disk_space',
+                    'install_disk_probe_failed','fresh_install_root_not_empty',
+                    'install_writer_busy_or_stale','install_destination_symlink_forbidden',
+                    'install_destination_parent_not_directory','install_destination_not_file',
+                    'example_config_missing','installed_payload_verification_failed',
+                    'managed_runtime_qualification_inputs_missing',
+                    'managed_runtime_dependency_check_failed',
+                    'managed_runtime_dependency_check_invalid',
+                    'managed_runtime_dependency_check_not_ready',
+                    'managed_runtime_core_import_not_verified',
+                    'managed_runtime_root_not_directory','managed_runtime_undeclared_dependency_cleanup_failed',
+                    'managed_cpython_not_staged','managed_runtime_dependency_manifest_missing',
+                    'product_managed_runtime_not_staged','package_missing',
+                    'managed_runtime_python_missing','python_executable_unavailable'
+                  )
+                  $diagnosed=$false
+                  foreach($code in $installCodes){
+                    if($text.Contains(('"error": "'+$code))){
+                      $diagnosed=$true
+                      Write-Host ('AGENT06_OFFICE_INSTALLER_ERROR_CODE='+$code)
+                    }
+                  }
+                  if(!$diagnosed){Write-Host 'AGENT06_OFFICE_INSTALLER_ERROR_CODE=OTHER'}
+                  # Only public, predeclared error taxonomy is revealed.
+                  # No trace, Python path, dynamic exception text or identity.
+                  $inner=@(
+                    'runtime_requirements_missing','runtime_requirement_must_be_exact',
+                    'runtime_requirement_manifest_mismatch','runtime_dependencies_not_ready',
+                    'runtime_core_import_source_missing','runtime_core_import_source_mismatch',
+                    'runtime_core_import_failed','runtime_core_import_api_incomplete',
+                    'runtime_dependency_manifest_missing','runtime_dependency_manifest_invalid',
+                    'runtime_dependency_manifest_duplicate','schema_registry_unreadable',
+                    'jsonschema-specifications','ModuleNotFoundError','ImportError',
+                    'OSError','FileNotFoundError','PermissionError','WinError 206'
+                  )
+                  foreach($code in $inner){
+                    if($text.Contains($code)){
+                      $codeName=switch($code){
+                        'jsonschema-specifications' {'JSONSCHEMA_SPECIFICATIONS'}
+                        'WinError 206' {'WIN32_NAME_TOO_LONG'}
+                        default {($code -replace '[^A-Za-z0-9_]','_').ToUpperInvariant()}
+                      }
+                      Write-Host ('AGENT06_OFFICE_INSTALL_INNER_CLASS='+$codeName)
+                    }
+                  }
+                  $qa=Join-Path $shortQa ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+                  $receipt=Join-Path $qa 'install/explorer-install-receipt.json'
+                  if(Test-Path -LiteralPath $receipt -PathType Leaf){
+                    Write-Host 'AGENT06_OFFICE_INSTALL_RECEIPT_PRESENT=YES'
+                  }else{Write-Host 'AGENT06_OFFICE_INSTALL_RECEIPT_PRESENT=NO'}
+                }
+              }
+              throw 'AGENT06_OFFICE_INSTALLED_NATIVE_GUI_HOLD'
+            }
+            Write-Host 'AGENT06_OFFICE_INSTALLED_NATIVE_GUI_PASS'
+          }finally{Pop-Location}
+      - name: Installed Agent real Core Task to React U04 panel qualification
+        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true'
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location private-agent
+          try{
+            # This is NOT the original U04 host probe. It uses the exact
+            # installed EXE and authenticated installed Core. Only disposable
+            # data created under the former short QA installation are used.
+            $qaScript='qualification/agent06/office/installed_office_gui_acceptance.ps1'
+            $qaPython='qualification/agent06/office/installed_office_ui_fixture.py'
+            if(!(Test-Path -LiteralPath $qaScript -PathType Leaf) -or
+               !(Test-Path -LiteralPath $qaPython -PathType Leaf)){
+              throw 'AGENT06_OFFICE_INSTALLED_U04_QA_SOURCE_MISSING'
+            }
+            $tokens=$null;$parseErrors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              [IO.Path]::GetFullPath($qaScript),[ref]$tokens,[ref]$parseErrors)
+            if(@($parseErrors).Count -ne 0){throw 'AGENT06_OFFICE_INSTALLED_U04_QA_PARSER_FAIL'}
+            & python -B -c "import ast,pathlib; ast.parse(pathlib.Path('$qaPython').read_text(encoding='utf-8'))"
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_INSTALLED_U04_QA_PYTHON_SYNTAX_FAIL'}
+            Write-Host 'AGENT06_OFFICE_INSTALLED_U04_QA_PARSE_PASS'
+            $log=Join-Path $env:RUNNER_TEMP 'agent06-office-installed-u04-qa-private.txt'
+            $originalRunnerTemp=$env:RUNNER_TEMP
+            try{
+              $env:RUNNER_TEMP='C:\i6'
+              & pwsh -NoProfile -NonInteractive -File $qaScript *> $log
+              $qaExit=$LASTEXITCODE
+            }finally{$env:RUNNER_TEMP=$originalRunnerTemp}
+            $private=Get-Content -LiteralPath $log -Raw
+            foreach($stage in @(
+              'REAL_INSTALLED_CORE_TASK_PASS','REAL_REACT_TASK_PAGE_PASS',
+              'REAL_TASK_ROW_INVOKED','REAL_U04_PANEL_VISIBLE_PASS',
+              'REAL_CORE_TASK_AND_UI_PANEL_PASS')){
+              if($private.Contains('INSTALLED_OFFICE_QA_'+$stage)){
+                Write-Host ('AGENT06_OFFICE_INSTALLED_U04_'+$stage)
+              }
+            }
+            if($qaExit -ne 0){
+              $categories=@(
+                'baseline_install_missing','executable_missing','fixture_missing',
+                'profile_not_fresh','root_mismatch','install_not_disposable',
+                'native_exited','native_window_missing','uia_root_missing',
+                'native_close_denied','native_close_timeout','native_close_unconfirmed',
+                'core_not_ready','source_changed','files_connection_failed',
+                'files_stat_unverified','source_task_missing','source_not_accepted',
+                'revision_missing','draft_not_verified','reviewed_candidate_unverified',
+                'unapproved_copy_created','saved_task_identity_missing',
+                'uia_action_unavailable','textbox_unavailable',
+                'input_not_accepted','task_not_durable','provider_binding_changed')
+              $found=$false
+              foreach($category in $categories){
+                if($private.Contains('installed_office_qa_'+$category)){
+                  Write-Host ('AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS='+$category.ToUpper())
+                  $found=$true
+                }
+              }
+              foreach($cat in @('TASK','OFFICE','OTHER')){
+                if($private.Contains('installed_office_qa_control_not_visible:'+$cat)){
+                  Write-Host ('AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS=CONTROL_'+$cat)
+                  $found=$true
+                }
+              }
+              if($private.Contains('installed_office_qa_fixture_seed_failed')){
+                Write-Host 'AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS=FIXTURE_SEED'
+                $found=$true
+              }
+              if(!$found){Write-Host 'AGENT06_OFFICE_INSTALLED_U04_FAILURE_CLASS=OTHER'}
+              throw 'AGENT06_OFFICE_INSTALLED_U04_GUI_ACCEPTANCE_HOLD'
+            }
+            if(-not $private.Contains('INSTALLED_OFFICE_QA_REAL_CORE_TASK_AND_UI_PANEL_PASS')){
+              throw 'AGENT06_OFFICE_INSTALLED_U04_GUI_EVIDENCE_MISSING'
+            }
+            Write-Host 'AGENT06_OFFICE_INSTALLED_U04_CORE_TASK_REACT_PANEL_PASS'
+          }finally{Pop-Location}
+      # There is intentionally no upload-artifact, upload-pages-artifact,
+      # cache, commit, log upload, EXE publication or secret persistence.
+){
+                Write-Host ('AGENT06_OFFICE_INSTALLED_QA_PARSER_CLASS='+$issue.ErrorId)
+              }
+            }
+            throw 'AGENT06_OFFICE_INSTALLED_QA_PARSER_FAIL'
+          }
+          Write-Host 'AGENT06_OFFICE_INSTALLED_QA_PARSER_PASS'
       - name: Dependencies stay in runner temp
         shell: pwsh
         run: |
