@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '2571ceb8015643e7dcc5d5f7db398cc9d226321e'
+      AGENT_OFFICE_SHA: '019148a6adfc2cb7c22e880daf133b4ec7e207b3'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -233,6 +233,18 @@ jobs:
                 'MARKER_ONLY','NO_DOCUMENT_TEXT','UNAVAILABLE')){
               if($private.Contains('U04_QA_EDITOR_CLIPBOARD_READBACK='+$copy)){
                 Write-Host ('AGENT06_U04_EDITOR_CLIPBOARD_READBACK='+$copy)
+              }
+            }
+            foreach($foreground in @('NONE','SELECTED_DOC','OTHER_PROCESS',
+                'FORMAT_CONFIRM','SAVE_AS','OWNED_WRITER_WINDOW','WRITER_OTHER_WINDOW')){
+              if($private.Contains('U04_QA_POST_SAVE_FOREGROUND='+$foreground)){
+                Write-Host ('AGENT06_U04_POST_SAVE_FOREGROUND='+$foreground)
+              }
+            }
+            foreach($buttons in @('NO_BUTTONS','WORD_AND_ODF','WORD_ONLY',
+                'ODF_ONLY','OTHER_BUTTONS')){
+              if($private.Contains('U04_QA_SAVE_DIALOG_BUTTON_COVERAGE='+$buttons)){
+                Write-Host ('AGENT06_U04_SAVE_DIALOG_BUTTON_COVERAGE='+$buttons)
               }
             }
             foreach($readback in @('CHANGED','UNCHANGED','UNAVAILABLE')){
