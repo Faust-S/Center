@@ -204,7 +204,7 @@ jobs:
           $exitCode=$LASTEXITCODE
           if($exitCode -ne 0){
             $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
-            [regex]::Matches([string]$raw,'error\\[E[0-9]{4}\\]') |
+            [regex]::Matches([string]$raw,'error\[E[0-9]{4}\]') |
               ForEach-Object Value | Sort-Object -Unique |
               ForEach-Object {Write-Host ('AGENT06_NATIVE_RUST_ERROR_CODE='+$_)}
             $safe=@('google_oauth_authorization_url_invalid','valid_google_oauth_browser_url',
@@ -213,6 +213,34 @@ jobs:
             foreach($kind in $safe){
               if(([string]$raw).Contains($kind)){
                 Write-Host ('AGENT06_NATIVE_RUST_FAILURE_CATEGORY='+$kind)
+              }
+            }
+            # Only finite classifications and line numbers. Private compiler output
+            # is confined to the runner; no private code or source excerpts.
+            foreach($candidate in @('COMPILE_ERROR','RUST_TEST_FAILED','CARGO_BUILD_FAILED',
+                'RUST_LINKER_FAILED','RUST_PANIC','RUST_TEST_FAILURE','RUST_TOOLCHAIN_UNAVAILABLE')){
+              $needle=switch($candidate){
+                'COMPILE_ERROR' {'error: could not compile'}
+                'RUST_TEST_FAILED' {'test result: FAILED'}
+                'CARGO_BUILD_FAILED' {'failed to run custom build command'}
+                'RUST_LINKER_FAILED' {'linking with'}
+                'RUST_PANIC' {'panicked at'}
+                'RUST_TEST_FAILURE' {'test tests::browser_handoff_accepts_only_google_oauth_pkce_for_local_callback'}
+                'RUST_TOOLCHAIN_UNAVAILABLE' {'not recognized as the name'}
+              }
+              if(([string]$raw).Contains($needle)){
+                Write-Host ('AGENT06_NATIVE_RUST_DIAGNOSTIC='+$candidate)
+              }
+            }
+            $compiledLines=[regex]::Matches([string]$raw,'(?:desktop[/\\]src-tauri[/\\]src[/\\])?main\.rs:(\d{1,4}):(\d{1,4})')
+            foreach($item in @($compiledLines|Select-Object -First 8)){
+              Write-Host ('AGENT06_NATIVE_RUST_SOURCE_LINE='+$item.Groups[1].Value)
+            }
+            $tests=@('browser_handoff_accepts_only_google_oauth_pkce_for_local_callback',
+                     'close_permission_is_scoped_to_verified_core_window')
+            foreach($test in $tests){
+              if(([string]$raw).Contains('test tests::'+$test+' ... FAILED')){
+                Write-Host ('AGENT06_NATIVE_RUST_TEST_FAIL='+$test)
               }
             }
             Write-Host 'AGENT06_NATIVE_RUST_FAIL'
