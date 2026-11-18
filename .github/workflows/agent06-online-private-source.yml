@@ -19,7 +19,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT06_PRIVATE_PIN: '9edbb86e9928d7965317f5dd1e5300541b5fb101'
+      AGENT06_PRIVATE_PIN: 'd2642a27689f48a7c5a2a16cba0de60d71672b00'
     steps:
       - uses: actions/checkout@v4
         with:
