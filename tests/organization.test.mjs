@@ -57,6 +57,21 @@ test('Atlas plan link follows exact project revision and survives manager draft 
   assert.throws(()=>f.run({type:'LINK_ATLAS_WORKSPACE',organizationId:f.orgId,workspaceId:workspace.id,atlasRef:{projectId:'',revision:'revision-3'}}),/ATLAS_REFERENCE_INVALID/);
 });
 
+test('independent corporate Task can omit Atlas while Workspace retains canonical project link', () => {
+  const f=fixture(),workspace=f.state.organizations[0].workspaces[0];
+  const linked={projectId:'atlas:original',workId:'atlas:work-1',revision:'9'};
+  f.run({type:'LINK_ATLAS_WORKSPACE',organizationId:f.orgId,workspaceId:workspace.id,atlasRef:linked});
+  f.run({...f.assignment,atlasRef:null});
+  const task=f.state.organizations[0].assignments[0];
+  assert.equal(task.atlasRef,null);
+  assert.deepEqual(f.state.organizations[0].workspaces[0].atlasRef,linked);
+  assert.doesNotMatch(assignmentText(f.state.organizations[0],task),/Atlas project:/);
+  assert.deepEqual(decodeDraft(encodeDraft(f.state)).organizations[0].assignments[0].atlasRef,null);
+  f.run({...f.assignment,assignmentId:task.id,expectedEditNumber:1,atlasRef:null,title:'Still independent'});
+  assert.equal(f.state.organizations[0].assignments[0].atlasRef,null);
+  assert.deepEqual(f.state.organizations[0].workspaces[0].atlasRef,linked);
+});
+
 test('Atlas and license plans cannot be edited across organizational contexts', () => {
   const f=fixture(),org=f.state.organizations[0],person=org.participants[0],workspace=org.workspaces[0];
   f.run({type:'CREATE_ORGANIZATION',name:'Second'});
