@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'f6459fca18246e728da4f08fe4eb6e5f42b15276'
+      AGENT_OFFICE_SHA: '4d4618bfa6639ba8a433603b9d21e5d9c776cc82'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -80,6 +80,13 @@ jobs:
             & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_office_real_docx_u01_e2e.py *> $log
             if($LASTEXITCODE -ne 0){
               $private=Get-Content -LiteralPath $log -Raw
+              foreach($status in @('VERSION_UNVERIFIED','INSTALLATION_MISMATCH',
+                  'NOT_FOUND','DISCOVERED','NOT_CONNECTED','CONNECTION_LOST',
+                  'EXECUTION_FAILED','EXECUTION_TIMEOUT','OTHER_STATUS')){
+                if($private.Contains('REAL_U01_LIBREOFFICE_CONNECT_STATUS_'+$status)){
+                  Write-Host ('AGENT06_REAL_DOCX_U01_CONNECTION_OUTCOME='+$status)
+                }
+              }
               foreach($code in @('REAL_U01_LIBREOFFICE_NOT_INSTALLED',
                   'REAL_U01_LIBREOFFICE_CONNECT_FAILED',
                   'U01_CONVERSION_NOT_ACKNOWLEDGED','PDF_OUTPUT_MISSING_OR_LARGE',
