@@ -25,7 +25,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_NATIVE_EXACT_SHA: '59ea5616c21965ceae65c485f4f2c95c109696f5'
+      AGENT_K05_NATIVE_EXACT_SHA: '54050a0821f340f2efd83ac17b2ebb934ccd5797'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -173,6 +173,19 @@ jobs:
                   if($checkpoint -match '^AGENT_REAL_QWEN_[A-Z_]{3,75}$' -or
                      $checkpoint -ceq 'NONE_OBSERVED'){
                     Write-Host ('K05_NATIVE_QWEN_LAST_CHECKPOINT='+$checkpoint)
+                  }
+                  # GUI_RESULT is the earlier, independently installed
+                  # baseline Qwen Task readback, not the later K05 comparison.
+                  # Only bounded original UIA classes leave the private job.
+                  if($stage -ceq 'GUI_RESULT'){
+                    $origStage=[string]$receipt.gui_result_stage
+                    $origReason=[string]$receipt.gui_result_reason
+                    if($origStage -match '^(NOT_REPORTED|NOT_STARTED|TASK_NAVIGATION|TASK_SELECTION|ACCEPTED_READBACK|RECEIPT_WRITE)$'){
+                      Write-Host ('K05_NATIVE_GUI_RESULT_STAGE='+$origStage)
+                    }
+                    if($origReason -match '^(NOT_REPORTED|UNKNOWN|WORK_BUTTON_UNAVAILABLE|TASK_BUTTON_UNAVAILABLE|TASK_ID_BUTTON_MISSING|TASK_TITLE_DIGEST_UNVERIFIED|RESULT_TITLE_DIGEST_UNVERIFIED|ACCEPTED_STATUS_NOT_VISIBLE|RESULT_READBACK_NOT_COINCIDENT)$'){
+                      Write-Host ('K05_NATIVE_GUI_RESULT_REASON='+$origReason)
+                    }
                   }
                   $k05Stage=[string]$receipt.k05_gui_stage
                   $k05Reason=[string]$receipt.k05_gui_reason
