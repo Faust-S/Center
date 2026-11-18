@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync,cpSync,mkdirSync,mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {createDraftRepository} from '../runtime/t3-draft-repository.mjs';
 import {createT3AdminPort} from '../runtime/t3-admin-port.mjs';
 import {emptyDraft,applyDraftCommand} from '../src/organization.mjs';
@@ -346,6 +349,36 @@ test('CEN02 UI issue control does not require a work link for independent Task',
  assert.match(source,/!organization\.assignments\.some\(a=>a\.id===selected\)/);
  assert.doesNotMatch(source,/atlasRef|workId|projectId/,
   'Any Atlas binding required by the UI would hide valid generic T3 Task');
+});
+
+
+test('CEN02 generic corporate signing loads with NO Atlas source model installed',async()=>{
+  // A genuine isolated source tree without vendor/atlas. This prevents
+  // regression to static imports of Atlas from universal T3 Admin ports.
+  const root=mkdtempSync(join(tmpdir(),'iwxa-cen02-no-atlas-'));
+  try{
+    for(const source of [
+      'runtime/t3-admin-port.mjs','runtime/cen02-exchange.mjs',
+      'runtime/cen03-review.mjs','runtime/cen03-applied-results.mjs',
+      'src/organization.mjs']){
+      const destination=join(root,source);
+      mkdirSync(join(destination,'..'),{recursive:true});
+      cpSync(fileURLToPath(new URL('../'+source,import.meta.url)),destination);
+    }
+    const standalone=await import(pathToFileURL(
+      join(root,'runtime/t3-admin-port.mjs')).href);
+    const draft=issueFixture(),owner=issuingRuntime();
+    const port=standalone.createT3AdminPort(owner);
+    const signed=await port.issue({
+      ...draft,assignment:{...draft.assignment,atlasRef:null}
+    });
+    assert.equal(signed.atlasRef,null);
+    assert.equal(signed.taskId,'task:owner');
+    assert.equal(signed.deliveryState,'NOT_CONFIRMED');
+    assert.equal(owner.calls.filter(x=>x.type==='createTask').length,1);
+  }finally{
+    rmSync(root,{recursive:true,force:true});
+  }
 });
 
 test('CEN02 no-Atlas Task still requires original actor/recipient and a real signer',async()=>{
