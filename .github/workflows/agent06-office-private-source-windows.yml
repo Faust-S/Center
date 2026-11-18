@@ -20,9 +20,9 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: 'da64063b7cd1dcf9c898617cf20b7002e6e07e2a'
+      AGENT_OFFICE_SHA: '62be5cecabee290aeff228da006e3acbe6e7a444'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
-      AGENT_OFFICE_INSTALLED_ONLY: 'true'
+      AGENT_OFFICE_INSTALLED_ONLY: 'false'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -167,6 +167,7 @@ jobs:
               'tests/office-docx-proposal.test.mjs',
               'tests/office-docx-launch.test.mjs',
               'tests/office-task-entry.test.mjs',
+              'tests/work-area-flow.test.mjs',
               'tests/office-pdf-ocr-proposal.test.mjs',
               'tests/office-pdf-ocr-readback.test.mjs',
               'tests/office-personal-file-picker.test.mjs',
@@ -442,6 +443,18 @@ jobs:
             }
             Write-Host 'AGENT06_OFFICE_INSTALLED_NATIVE_GUI_PASS'
           }finally{Pop-Location}
+      - name: Install real LibreOffice Writer for Agent-initiated DOCX Save
+        if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true'
+        shell: pwsh
+        timeout-minutes: 28
+        run: |
+          # Reuse the proven original U04 Writer Windows installation.
+          & choco.exe install libreoffice-fresh --yes --no-progress *> (Join-Path $env:RUNNER_TEMP 'agent06-office-installed-libreoffice-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_OFFICE_INSTALLED_LIBREOFFICE_INSTALL_FAIL'}
+          if(!(Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'LibreOffice/program/soffice.exe') -PathType Leaf)){
+            throw 'AGENT06_OFFICE_INSTALLED_LIBREOFFICE_EXE_MISSING'
+          }
+          Write-Host 'AGENT06_OFFICE_REAL_LIBREOFFICE_READY_PASS'
       - name: Installed Agent real Core Task to React U04 panel qualification
         if: env.AGENT_OFFICE_DIAGNOSTICS_ONLY != 'true'
         shell: pwsh
@@ -467,7 +480,7 @@ jobs:
             $originalRunnerTemp=$env:RUNNER_TEMP
             try{
               $env:RUNNER_TEMP='C:\i6'
-              & pwsh -NoProfile -NonInteractive -File $qaScript *> $log
+              & pwsh -NoProfile -NonInteractive -File $qaScript -LaunchU04 *> $log
               $qaExit=$LASTEXITCODE
             }finally{$env:RUNNER_TEMP=$originalRunnerTemp}
             $private=Get-Content -LiteralPath $log -Raw
@@ -484,7 +497,12 @@ jobs:
               'REAL_INSTALLED_CORE_TASK_PASS','SOURCE_WORKSPACE_LINK_PASS',
               'REAL_REACT_TASK_PAGE_PASS',
               'REAL_TASK_ROW_INVOKED','REAL_U04_PANEL_VISIBLE_PASS',
-              'REAL_CORE_TASK_AND_UI_PANEL_PASS')){
+              'REAL_CORE_TASK_AND_UI_PANEL_PASS',
+              'DERIVED_WORKSPACE_LINK_PASS','COLD_WORKSPACE_LINKS_PASS',
+              'POST_RESTART_CORE_AND_WORKSPACE_PASS',
+              'REAL_U04_AGENT_LAUNCH_CLICKED',
+              'REAL_U04_WRITER_SAVE_AND_CORE_RECEIPTS_PASS',
+              'REAL_AGENT_SAVED_TEXT_UIA_PASS')){
               if($private.Contains('INSTALLED_OFFICE_QA_'+$stage)){
                 Write-Host ('AGENT06_OFFICE_INSTALLED_U04_'+$stage)
               }
@@ -512,6 +530,12 @@ jobs:
                 'unapproved_copy_created','saved_task_identity_missing',
                 'source_workspace_link_missing','main_scroll_window_too_small',
                 'main_scroll_target_invalid',
+                'post_restart_core_not_ready','cold_link_invalid','cold_link_missing',
+                'derived_workspace_link_missing','writer_real_gui_edit_save_failed',
+                'writer_save_unchanged','writer_save_marker_missing',
+                'writer_stat_receipt_invalid','writer_text_receipt_invalid',
+                'libreoffice_missing','other_writer_already_running',
+                'writer_profile_preexisting','writer_profile_invalid',
                 'uia_action_unavailable','textbox_unavailable',
                 'input_not_accepted','task_not_durable','provider_binding_changed')
               $found=$false
@@ -544,6 +568,11 @@ jobs:
               throw 'AGENT06_OFFICE_INSTALLED_U04_GUI_EVIDENCE_MISSING'
             }
             Write-Host 'AGENT06_OFFICE_INSTALLED_U04_CORE_TASK_REACT_PANEL_PASS'
+            if(-not $private.Contains('INSTALLED_OFFICE_QA_REAL_AGENT_SAVED_TEXT_UIA_PASS') -or
+               -not $private.Contains('INSTALLED_OFFICE_QA_REAL_U04_WRITER_SAVE_AND_CORE_RECEIPTS_PASS')){
+              throw 'AGENT06_OFFICE_INSTALLED_U04_WRITER_E2E_EVIDENCE_MISSING'
+            }
+            Write-Host 'AGENT06_OFFICE_INSTALLED_U04_AGENT_WRITER_SAVE_TEXT_PASS'
           }finally{Pop-Location}
       # There is intentionally no upload-artifact, upload-pages-artifact,
       # cache, commit, log upload, EXE publication or secret persistence.
