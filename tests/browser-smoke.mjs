@@ -939,9 +939,9 @@ try{
   await employeePage.getByTestId('d3-employee-task-recovery-rebind').waitFor();
   await employeePage.waitForFunction(()=>
     document.querySelector('[data-testid="d3-employee-task-id"]')?.value===
-      'task:independent-work'&&
-    document.querySelector('[data-testid="d3-employee-task-text"]')?.value===
-      'Review verified supplier statement');
+      'task:independent-work');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-text').inputValue(),
+    '','cold React restart cannot fabricate the original signed Task text');
   assert.equal(employeeState.contextEpoch,2,
     'native Task repair advanced the signed owner context epoch exactly once');
   assert.equal(await employeePage.getByTestId('d3-employee-task-export').isEnabled(),
