@@ -20,9 +20,9 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '0ae0025848023e719306acc0cbdffa1ae737dda8'
+      AGENT_OFFICE_SHA: '316cb013940fa557d7fb568957d382fa08be4431'
       AGENT_OFFICE_DIAGNOSTICS_ONLY: 'false'
-      AGENT_OFFICE_INSTALLED_ONLY: 'true'
+      AGENT_OFFICE_INSTALLED_ONLY: 'false'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -474,7 +474,7 @@ jobs:
             # Only a fixed, safe classification is made public; never emit
             # the private Core response, token, URL, traceback or UIA dump.
             $reason=[regex]::Match($private,
-              'INSTALLED_OFFICE_QA_CORE_READY_CLASS=(AUTHORITY_UNAVAILABLE|TOKEN_UNREADABLE|TOKEN_MISSING|AUTHENTICATED_ENDPOINT_NOT_READY|OTHER)')
+              'INSTALLED_OFFICE_QA_CORE_READY_CLASS=(AUTHORITY_UNAVAILABLE|TOKEN_UNREADABLE|TOKEN_MISSING|AUTHENTICATED_ENDPOINT_NOT_READY|QA_MODULENOTFOUNDERROR|QA_IMPORTERROR|QA_FILENOTFOUNDERROR|QA_PERMISSIONERROR|QA_WINDOWSUSERCONTROLERROR|QA_HTTPERROR|QA_URLERROR|OTHER)')
             if($reason.Success){
               Write-Host ('AGENT06_OFFICE_INSTALLED_U04_CORE_READY_CLASS='+$reason.Groups[1].Value)
             }
