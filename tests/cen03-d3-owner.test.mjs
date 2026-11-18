@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {createCorporateOwnerHost} from '../runtime/cen-corporate-owner-host.mjs';
 import {signedD3SessionFingerprint,
  signedD3EmployeeScopeFingerprint} from '../runtime/cen03-review.mjs';
@@ -11,6 +12,34 @@ import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64);
+
+test('corporate UI states that Atlas is optional for an ordinary T3 Task',()=>{
+  const ui=readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8');
+  assert.doesNotMatch(ui,/Для эксплуатационного выпуска связь с Atlas обязательна/);
+  assert.match(ui,/Обычное поручение и приёмка Result не требуют Atlas/);
+  assert.match(ui,/Только проектные поручения требуют проверки точной редакции установленного Atlas/);
+});
+
+test('D3 generic signed Task UI does not eagerly import Atlas product modules',()=>{
+  const source=readFileSync(new URL('../src/CorporateD3Panel.tsx',import.meta.url),'utf8');
+  const head=source.slice(0,source.indexOf('export default function CorporateD3Panel'));
+  assert.doesNotMatch(head,/from ['"]\.\/atlas-(?:native|integration)\.mjs['"]/,
+    'a generic signed Task cannot depend on Atlas UI module startup');
+  const begin=source.indexOf('const createSignedTask=');
+  const end=source.indexOf('const recoverTaskById=',begin);
+  assert.ok(begin>0&&end>begin,'original independent Task UI must still exist');
+  const issue=source.slice(begin,end);
+  const sourceSelection=issue.indexOf('const source=assignmentDrafts.find');
+  const linkedOnly=issue.indexOf('if(source){',sourceSelection);
+  const imports=issue.indexOf("import('./atlas-native.mjs')",linkedOnly);
+  const strictRead=issue.indexOf("current!=='SOURCE_REVISION_MATCHES'",imports);
+  const originalSigner=issue.indexOf("execute('d3CreateTask'",strictRead);
+  assert.ok(sourceSelection>=0&&linkedOnly>sourceSelection&&imports>linkedOnly&&
+    strictRead>imports&&originalSigner>strictRead,
+    'only an explicit AtlasRef may load native Atlas and must preserve the currentness gate');
+  assert.match(issue,/import\('\.\/atlas-integration\.mjs'\)/);
+  assert.match(issue,/throw Error\('CEN_D3_ATLAS_SOURCE_REVISION_STALE'\)/);
+});
 test('independent employee signed Task accepts original native state, never first-person status',()=>{
  const scope={taskId:'task:work-verified',employeePersonId:'person:employee',
    enrollmentId:'enrollment:employee'};
