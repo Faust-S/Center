@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '9c20c920f96ddfd6fcc58cd77dc85053e98d6029'
+      AGENT_OFFICE_SHA: '69bd38383ce4f88b78ec27970354f036df876d2d'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -137,9 +137,16 @@ jobs:
           Push-Location private-agent
           try{
             $log=Join-Path $env:RUNNER_TEMP 'agent06-real-docx-test-private.txt'
-            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_office_real_docx_u01_e2e.py *> $log
+            & python -B -m pytest -q -s -p no:cacheprovider tests/test_agent06_office_real_docx_u01_e2e.py *> $log
             if($LASTEXITCODE -ne 0){
               $private=Get-Content -LiteralPath $log -Raw
+              foreach($stage in @('DOCX_ACCEPTED','U01_ORIGINAL_RENDER',
+                  'U01_REVISED_RENDER','U01_PDF_TEXT','PDF_TOOLRUNTIME_ACK',
+                  'TWO_COLD_CORE')){
+                if($private.Contains('IWXA_REAL_DOCX_STAGE='+$stage)){
+                  Write-Host ('AGENT06_REAL_DOCX_VERIFIED_STAGE='+$stage)
+                }
+              }
               foreach($status in @('VERSION_UNVERIFIED','INSTALLATION_MISMATCH',
                   'NOT_FOUND','DISCOVERED','NOT_CONNECTED','CONNECTION_LOST',
                   'EXECUTION_FAILED','EXECUTION_TIMEOUT','OTHER_STATUS')){
