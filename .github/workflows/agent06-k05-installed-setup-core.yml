@@ -25,7 +25,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_K05_NATIVE_EXACT_SHA: '22d36bb2060d05afe9653f4703fe0af723f9da7d'
+      AGENT_K05_NATIVE_EXACT_SHA: 'cbeb33d344f1fc6f1f52b9e0fbe35dab2ea1eff0'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -279,6 +279,14 @@ jobs:
                     'model_output_token_budget_invalid',
                     'local_document_task_sources_missing',
                     'task_result_readback_unverified',
+                    'basic_runtime_turn_prefix_unverified',
+                    'basic_runtime_reasoning_malformed',
+                    'basic_runtime_reasoning_unclosed',
+                    'basic_runtime_visible_answer_missing',
+                    'basic_runtime_transcript_missing',
+                    'basic_runtime_transcript_oversize',
+                    'basic_runtime_transcript_unreadable',
+                    'basic_runtime_transcript_read_failed',
                     'OTHER_REDACTED','NOT_REPORTED'
                   )
                   if($schedulerError -cin $schedulerCodes){
