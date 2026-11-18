@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '82d7524775dfae6aabd8a1852926cf580d0fa9d2'
+      AGENT_OFFICE_SHA: '0b7584f7a423ae65d3d7ec4547858bdc73beab8a'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -147,6 +147,12 @@ jobs:
                   'PDF_DISK_READBACK','PDF_TOOLRUNTIME_ACK','TWO_COLD_CORE')){
                 if($private.Contains('IWXA_REAL_DOCX_STAGE='+$stage)){
                   Write-Host ('AGENT06_REAL_DOCX_VERIFIED_STAGE='+$stage)
+                }
+              }
+              foreach($kind in @('IndexError','ValueError','TypeError',
+                  'KeyError','AssertionError','RuntimeError','OverflowError','OTHER')){
+                if($private.Contains('IWXA_REAL_DOCX_PDF_TASK_ERROR_CLASS='+$kind)){
+                  Write-Host ('AGENT06_REAL_DOCX_PDF_TASK_ERROR_CLASS='+$kind)
                 }
               }
               foreach($status in @('VERSION_UNVERIFIED','INSTALLATION_MISMATCH',
