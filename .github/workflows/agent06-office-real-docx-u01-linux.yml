@@ -1,0 +1,93 @@
+# Public disposable Linux qualification with pinned read-only private source.
+# Real LibreOffice U01 is used as an independent reader, not a GUI acceptance.
+name: Agent 0.6 Office real DOCX U01 readback Linux
+on:
+  push:
+    branches: ['work/2026-11-15-agent06-office-source-qualification']
+    paths: ['.github/workflows/agent06-office-real-docx-u01-linux.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-real-docx-u01-linux-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-docx-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PIP_NO_CACHE_DIR: '1'
+      AGENT_OFFICE_SHA: '17bb423e81e667d6972498547109ebcebea40052'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require narrowly scoped original source
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if [ -z "$PRIVATE_SOURCE_TOKEN" ]; then
+            echo 'AGENT06_REAL_DOCX_LINUX_SOURCE_NOT_AVAILABLE'
+            exit 1
+          fi
+          echo 'AGENT06_REAL_DOCX_LINUX_READ_ONLY_AVAILABLE'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_OFFICE_SHA }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check original SHA and real test syntax
+        run: |
+          set -eu
+          test "$(git -C private-agent rev-parse HEAD)" = "$AGENT_OFFICE_SHA" || {
+            echo 'AGENT06_REAL_DOCX_LINUX_SHA_MISMATCH'; exit 1;
+          }
+          python -B -c "import ast,pathlib; ast.parse(pathlib.Path('private-agent/tests/test_agent06_office_real_docx_u01_e2e.py').read_text(encoding='utf-8'))" || {
+            echo 'AGENT06_REAL_DOCX_LINUX_SYNTAX_INVALID'; exit 1;
+          }
+          echo 'AGENT06_REAL_DOCX_LINUX_SOURCE_PASS'
+      - name: Install original Core dependencies and real LibreOffice CLI
+        run: |
+          set -eu
+          sudo apt-get update -qq > "$RUNNER_TEMP/real-docx-linux-apt-update-private.txt" 2>&1 || {
+            echo 'AGENT06_REAL_DOCX_LINUX_APT_UPDATE_FAIL'; exit 1;
+          }
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libreoffice-writer > "$RUNNER_TEMP/real-docx-linux-libreoffice-private.txt" 2>&1 || {
+            echo 'AGENT06_REAL_DOCX_LINUX_LIBREOFFICE_INSTALL_FAIL'; exit 1;
+          }
+          python -m pip install -r private-agent/requirements.txt python-docx pypdf pytest > "$RUNNER_TEMP/real-docx-linux-pip-private.txt" 2>&1 || {
+            echo 'AGENT06_REAL_DOCX_LINUX_CORE_DEPS_FAIL'; exit 1;
+          }
+          command -v soffice >/dev/null || {
+            echo 'AGENT06_REAL_DOCX_LINUX_PROGRAM_MISSING'; exit 1;
+          }
+          echo 'AGENT06_REAL_DOCX_LINUX_NATIVE_EXECUTOR_PASS'
+      - name: Review DOCX new copy, original U01 PDF and dual cold Core readback
+        run: |
+          set -eu
+          cd private-agent
+          private="$RUNNER_TEMP/real-docx-linux-test-private.txt"
+          if python -B -m pytest -q -p no:cacheprovider tests/test_agent06_office_real_docx_u01_e2e.py > "$private" 2>&1; then
+            echo 'AGENT06_REAL_DOCX_LINUX_TOOLRUNTIME_U01_TWO_COLD_PASS'
+          else
+            for code in REAL_U01_LIBREOFFICE_CONNECT_STATUS_VERSION_UNVERIFIED REAL_U01_LIBREOFFICE_CONNECT_STATUS_OTHER_STATUS \
+              REAL_U01_PDF_CONVERSION_STATUS_U01_CONVERSION_NOT_ACKNOWLEDGED \
+              REAL_U01_PDF_CONVERSION_STATUS_PDF_OUTPUT_MISSING_OR_LARGE \
+              REAL_U01_PDF_CONVERSION_STATUS_PDF_OUTPUT_INVALID \
+              REAL_OFFICE_TWO_COLD_CORE_READBACK_FAILED; do
+              if grep -Fq "$code" "$private"; then
+                echo "AGENT06_REAL_DOCX_LINUX_FAILURE_CLASS=$code"
+              fi
+            done
+            echo 'AGENT06_REAL_DOCX_LINUX_TOOLRUNTIME_U01_E2E_HOLD'
+            exit 1
+          fi
+      # Never upload private code, generated Office files, EXEs, logs or cache.
