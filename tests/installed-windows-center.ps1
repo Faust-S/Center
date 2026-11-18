@@ -110,6 +110,7 @@ function Find-Control([string]$name,[string]$kind='Button',[int]$attempts=65){
 function Click-VisibleUiButton($control,[string]$name){
   # UIA's InvokePattern and focus can intermittently fail in installed WebView2.
   # Fall back to an actual native desktop mouse click at the visible element.
+  if(-not $control.Current.IsEnabled){throw "CENTER_UIA_BUTTON_DISABLED: $name"}
   $bounds=$control.Current.BoundingRectangle
   if($control.Current.IsOffscreen -or $bounds.IsEmpty -or
      $bounds.Width -lt 2 -or $bounds.Height -lt 2){
@@ -363,8 +364,15 @@ try {
      $saved.organizationId -ne $projectOnly.organizationId){
     throw 'Native Atlas project identity changed while creating a work item'
   }
-  Click-Control 'Связать с рабочей областью'
-  Click-Control 'Подготовить поручение по работе'
+  # WebView2 UIA InvokePattern can focus a React button without delivering
+  # its click. Exercise the REAL installed window with a physical Windows
+  # mouse click and require the resulting editor to become accessible.
+  # Both actions only change the local manager draft, not signed T3 owners.
+  Click-VisibleUiButton (Find-Control 'Связать с рабочей областью') 'Связать с рабочей областью'
+  Start-Sleep -Milliseconds 350
+  Click-VisibleUiButton (Find-Control 'Подготовить поручение по работе') 'Подготовить поручение по работе'
+  [void](Find-Control 'Что нужно сделать' 'Edit')
+  Write-Host 'CENTER_INSTALLED_GUI_ATLAS_WORK_EDITOR_OPEN_PASS'
   Type-Control 'Что нужно сделать' $expectedAssignment
   Type-Control 'Критерии приёмки' 'Verified delivery report'
   Click-Control 'Сохранить черновик'
