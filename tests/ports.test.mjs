@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {createDraftRepository} from '../runtime/t3-draft-repository.mjs';
 import {createT3AdminPort} from '../runtime/t3-admin-port.mjs';
 import {emptyDraft,applyDraftCommand} from '../src/organization.mjs';
@@ -336,6 +337,15 @@ test('CEN02 signs an independent corporate Task without Atlas in an Atlas-linked
   assert.equal(fixture.organization.workspaces[0].atlasRef.projectId,
     fixture.assignment.atlasRef.projectId);
   assert.equal(fixture.assignment.atlasRef.workId!=null,true);
+});
+
+
+test('CEN02 UI issue control does not require a work link for independent Task',()=>{
+ const ui=readFileSync(new URL('../src/CorporatePanel.tsx',import.meta.url),'utf8');
+ const source=ui.match(/data-testid="corporate-issue" disabled=\{([^}]+)\}/)?.[1]??'';
+ assert.match(source,/!organization\.assignments\.some\(a=>a\.id===selected\)/);
+ assert.doesNotMatch(source,/atlasRef|workId|projectId/,
+  'Any Atlas binding required by the UI would hide valid generic T3 Task');
 });
 
 test('CEN02 no-Atlas Task still requires original actor/recipient and a real signer',async()=>{
