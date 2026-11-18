@@ -20,7 +20,7 @@ jobs:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      AGENT_OFFICE_SHA: '019148a6adfc2cb7c22e880daf133b4ec7e207b3'
+      AGENT_OFFICE_SHA: '0a7673d3b99964d4061106be52dacc09caeac4a8'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -192,6 +192,7 @@ jobs:
                 'U04_QA_CANVAS_INPUT_ATTACH_DENIED',
                 'U04_QA_CANVAS_FOCUS_NOT_CONFIRMED',
                 'U04_QA_CANVAS_FOCUS_LOST_FOREGROUND',
+                'U04_QA_SAVE_MODAL_CHANGED_BEFORE_CONFIRM',
                 'U04_QA_CANVAS_WIN32_FOCUS_CONFIRMED',
                 'U04_QA_FOCUS_LOST_BEFORE_CANVAS_SHORTCUT','U04_QA_FOCUS_LOST_AFTER_CANVAS_SHORTCUT',
                 'U04_QA_SOURCE_REVISION_CHANGED')){
@@ -245,6 +246,11 @@ jobs:
                 'ODF_ONLY','OTHER_BUTTONS')){
               if($private.Contains('U04_QA_SAVE_DIALOG_BUTTON_COVERAGE='+$buttons)){
                 Write-Host ('AGENT06_U04_SAVE_DIALOG_BUTTON_COVERAGE='+$buttons)
+              }
+            }
+            foreach($modal in @('MODAL','OWNER_DISABLED','NOT_VERIFIED')){
+              if($private.Contains('U04_QA_SAVE_MODAL_DEFAULT_ACTION='+$modal)){
+                Write-Host ('AGENT06_U04_SAVE_MODAL_DEFAULT_ACTION='+$modal)
               }
             }
             foreach($readback in @('CHANGED','UNCHANGED','UNAVAILABLE')){
