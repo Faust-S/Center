@@ -141,3 +141,66 @@ jobs:
           rm -f "$RUNNER_TEMP/t3-d1-d2-private-cross-owner.log"
           echo 'T3_D1_PRIVATE_STAGING_DISCARDED'
 # No private code, logs, keys, packed data, screenshots or artifacts are uploaded.
+
+  d3-original-signed-context:
+    name: Original private D3 signed native context source regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Require existing scoped private source grant
+        shell: bash
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "$PRIVATE_SOURCE_TOKEN" ]; then
+            echo 'T3_D3_PRIVATE_SOURCE_READ_TOKEN_UNAVAILABLE'
+            exit 1
+          fi
+          echo 'T3_D3_PRIVATE_SOURCE_GRANT_PRESENT'
+      - name: Checkout exact original private T3 owner without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 75c8188e28cf3fc2df2f253b1705006fe172c138
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private/t3
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Independently verify native D3 owner source and receipt regression
+        shell: bash
+        run: |
+          set -eu
+          test "$(git -C private/t3 rev-parse HEAD)" = "75c8188e28cf3fc2df2f253b1705006fe172c138"
+          node --check private/t3/interop/native-admin-d3.mjs
+          node --check private/t3/tests/admin-original-host-port.test.mjs
+          output="$RUNNER_TEMP/t3-private-d3-context.tap"
+          if ! node --test private/t3/tests/admin-original-host-port.test.mjs > "$output" 2>&1; then
+            echo 'T3_D3_ORIGINAL_NATIVE_CONTEXT_SOURCE_FAILED'
+            exit 1
+          fi
+          grep -Fq 'native D3 compares every signed field independent of original JSON key order' "$output" || {
+            echo 'T3_D3_CANONICAL_OWNER_REGRESSION_NOT_EXECUTED'
+            exit 1
+          }
+          grep -Eq '^# tests [1-9][0-9]*$' "$output" || {
+            echo 'T3_D3_NATIVE_OWNER_TESTS_NOT_EXECUTED'
+            exit 1
+          }
+          grep -Eq '^# fail 0$' "$output" || {
+            echo 'T3_D3_NATIVE_OWNER_TESTS_FAILED'
+            exit 1
+          }
+          grep -E '^# (tests|pass|fail) ' "$output" || true
+          echo 'T3_D3_PRIVATE_ORIGINAL_OWNER_SOURCE_PASS_NOT_INSTALLED_NATIVE'
+      - name: Discard original private T3 owner and tests
+        if: always()
+        shell: bash
+        run: |
+          rm -rf private/t3
+          rm -f "$RUNNER_TEMP/t3-private-d3-context.tap"
+          echo 'T3_D3_PRIVATE_SOURCE_DISCARDED'
+# No original private source, credentials, signer material, task contents,
+# raw test traces or artifacts are published by this D3 qualification.
