@@ -1,0 +1,12 @@
+{
+  "product": "Admin Center 0.3 Windows",
+  "owner_source": "2628c4bc1b20b4393c485d12513f029fdea8b082",
+  "new_run": 44613210749,
+  "png_sha256": "770bd7f39f2ccc3ec4d9ad9e9f4dfa404bde620399c0664b25ddb5da84af031b",
+  "webp_sha256": "eac497db00b5af9baf1f61f47eef889a467a62c2f29e8bbf43663032a2e64257",
+  "dimensions": [
+    1016,
+    720
+  ],
+  "origin": "verified installed Tauri UIA; real screenshot crop only"
+}
