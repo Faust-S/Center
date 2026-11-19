@@ -319,6 +319,18 @@ mod tests {
     assert!(!valid_identifier("../relative"));
     assert!(!valid_identifier("bad name"));
     assert!(simple_code("T3_PRODUCT_NOT_ENROLLED"));
+    assert_eq!(bounded_original_failure(b"T3_D3_ORIGINAL_SCOPE_INVALID\r\n"),
+      "T3_D3_ORIGINAL_SCOPE_INVALID");
+    assert_eq!(bounded_original_failure(b"Error: T3_D3_ORIGINAL_SCOPE_INVALID\n"),
+      "T3_D3_ORIGINAL_SCOPE_INVALID");
+    assert_eq!(bounded_original_failure(b"ENOENT: private path /file\n"),
+      "T3_PRODUCT_COMPONENT_ORIGINAL_FILE_NOT_FOUND");
+    assert_eq!(bounded_original_failure(b"TypeError: private details\n"),
+      "T3_PRODUCT_COMPONENT_ORIGINAL_RUNTIME_TYPE_ERROR");
+    assert_eq!(bounded_original_failure(b"private contents\n"),
+      "T3_PRODUCT_COMPONENT_OPERATION_FAILED");
+    assert_eq!(bounded_original_failure(b"\n"),
+      "T3_PRODUCT_COMPONENT_ORIGINAL_EMPTY_STDERR");
     assert!(!simple_code("C:\\private\\owner.pem"));
     assert!(validate_test_result(&serde_json::json!({
       "operation":"TEST_ISSUE","productionActivation":false,"activeSeats":0
