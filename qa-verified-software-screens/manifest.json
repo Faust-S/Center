@@ -1,0 +1,13 @@
+{
+  "status": "NATIVE_GUI_PASS_TEST_ONLY",
+  "release": "NOT_PRODUCTION",
+  "owner": "3397d4d7e599760a07662e766ed3e4cf6ecc2a23",
+  "ciHead": "5d5595b7cc13b79685aee5c3a06cc7d1826abbf9",
+  "run": 44613831781,
+  "original_png_sha256": "173223b0372541e6f02e751777e933dbff86ecfff6ff836f1319680ebca59491",
+  "webp_sha256": "fc6c741e4f33244cfd747de2061d51441b39e4ff75f53eb0c9dba61a9d38874a",
+  "dimensions": [
+    1016,
+    671
+  ]
+}
