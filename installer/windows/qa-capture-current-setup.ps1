@@ -42,8 +42,8 @@ try{
     foreach($node in $labels){
       try {
         $name=[string]$node.Current.Name
-        if($name -in @('Ready to install','Готово к установке')){$hasStatus=$true}
-        if($name -in @('Install','Установить') -and $node.Current.IsEnabled -and
+        if($name -ceq 'Ready to install'){$hasStatus=$true}
+        if($name -ceq 'Install' -and $node.Current.IsEnabled -and
            $node.Current.ControlType -eq [Windows.Automation.ControlType]::Button){
           $hasButton=$true
         }
