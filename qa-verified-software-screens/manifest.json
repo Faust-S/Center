@@ -1,0 +1,13 @@
+{
+  "status": "NATIVE_SETUP_CORE_1_0_UI_PASS",
+  "owner_setup_source": "0ef7544e2a6fd5fab5994f7f25abbb960063908c",
+  "real_admin_payload_sha256": "5008cd5270f09c5daf2456cb17c6fd8948d64ed630a3dc5c79588708f31e0bba",
+  "native_bundle_commit": "1412dce78cc251feee5c9826380a173edab6b5e3",
+  "native_run": 44618796916,
+  "original_png_sha256": "cfb6c92f166034fa1e5b65b6883f11f459327602400942fd80005047a606c841",
+  "webp_sha256": "885ef484c4e65a0873763fd69b0a2d788e8df36484863eb16ed966affae8ba61",
+  "width": 1009,
+  "height": 704,
+  "source": "current native Setup Core 1.0 + actual Admin Center EXE, verified ready, no fake UI",
+  "user_data": "empty fresh Windows CI"
+}
