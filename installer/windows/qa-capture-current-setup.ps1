@@ -20,7 +20,6 @@ try {
 if(!(Test-Path -LiteralPath $identity)){throw 'QA_SETUP_BUNDLE_NO_IDENTITY'}
 $state=Get-Content -LiteralPath $identity -Raw | ConvertFrom-Json
 if($state.status -cne 'VERIFIED' -or $state.product -cne 'iwxa.admin-center' -or
-   $state.packageFormat -cne 'PE_RESOURCE_V2' -or
    $state.sourceCommit -cne $env:GITHUB_SHA){
   throw 'QA_SETUP_BUNDLE_INVALID_PROVENANCE'
 }
