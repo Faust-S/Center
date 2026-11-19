@@ -1,7 +1,7 @@
 name: Center source and desktop
 on:
   push:
-    branches: ['work/**']
+    branches: ['work/**','qa/2026-11-19-software-setup-current']
   workflow_dispatch:
 permissions:
   contents: read
