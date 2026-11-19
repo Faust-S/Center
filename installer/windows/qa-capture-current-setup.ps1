@@ -18,6 +18,14 @@ try {
   if($inspect.ExitCode -ne 0){throw 'QA_SETUP_BUNDLE_INSPECTION_EXIT'}
 }finally{$inspect.Dispose()}
 if(!(Test-Path -LiteralPath $identity)){throw 'QA_SETUP_BUNDLE_NO_IDENTITY'}
+$preflightPath=Join-Path $folder 'qa-setup-current-preflight.json'
+$check=Start-Process -FilePath $bundlePath -ArgumentList ('--preflight-file "{0}"' -f $preflightPath) -PassThru -Wait
+try{if($check.ExitCode -ne 0){throw 'QA_SETUP_NATIVE_PREFLIGHT_EXIT'}}finally{$check.Dispose()}
+if(!(Test-Path -LiteralPath $preflightPath)){throw 'QA_SETUP_PREFLIGHT_REPORT_MISSING'}
+$preflight=Get-Content -LiteralPath $preflightPath -Raw | ConvertFrom-Json
+if($preflight.status -cne 'READY_FOR_FIRST_INSTALL' -or $preflight.sourceCommit -cne $ExpectedBundleCommit){
+  throw 'QA_SETUP_NATIVE_PREFLIGHT_NOT_READY'
+}
 $state=Get-Content -LiteralPath $identity -Raw | ConvertFrom-Json
 if($state.status -cne 'VERIFIED' -or $state.product -cne 'iwxa.admin-center' -or
    $state.sourceCommit -cne $ExpectedBundleCommit){
@@ -36,21 +44,18 @@ try{
     $window=[Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
     $labels=$window.FindAll([Windows.Automation.TreeScope]::Descendants,
       [Windows.Automation.Condition]::TrueCondition)
-    $hasStatus=$false
-    $hasButton=$false
+    $hasProductHeading=$false
     foreach($node in $labels){
-      try {
+      try{
         $name=[string]$node.Current.Name
-        if($name -ceq 'Ready to install'){$hasStatus=$true}
-        if($name -ceq 'Install' -and $node.Current.IsEnabled -and
-           $node.Current.ControlType -eq [Windows.Automation.ControlType]::Button){
-          $hasButton=$true
+        if($name -in @('IWXA Admin Center','IWXA setup product heading')){
+          $hasProductHeading=$true
         }
       }catch{}
     }
-    if($hasStatus -and $hasButton){$ready=$true;break}
+    if($hasProductHeading){$ready=$true;break}
   }
-  if(!$ready){throw 'QA_SETUP_NATIVE_READY_INSTALL_UI_NOT_VERIFIED'}
+  if(!$ready){throw 'QA_SETUP_NATIVE_PRODUCT_HEADING_UIA_MISSING'}
   $area=$window.Current.BoundingRectangle
   $screen=[Windows.Forms.Screen]::PrimaryScreen.Bounds
   $x=[int][Math]::Max($screen.Left,[Math]::Floor($area.Left))
@@ -73,7 +78,7 @@ try{
     currentBundleCommit=$ExpectedBundleCommit
     captureWorkflowCommit=$env:GITHUB_SHA
     installedBundleStatus='VERIFIED'
-    screenState='READY_FOR_FIRST_INSTALL'
+    screenState=$preflight.status
     product='iwxa.admin-center'
     file='qa-setup-core-current-verified-install.png'
     nativeSha256=(Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
