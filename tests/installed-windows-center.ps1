@@ -47,6 +47,44 @@ function Capture-CenterFailure {
     } finally {$gfx.Dispose();$bmp.Dispose()}
   } catch {Write-Warning "Screenshot failed: $($_.Exception.Message)"}
 }
+function Capture-CenterVerifiedUI {
+  $proc.Refresh()
+  if ($proc.HasExited -or $proc.MainWindowHandle -eq [IntPtr]::Zero) {
+    throw 'ADMIN_NATIVE_SCREENSHOT_WINDOW_MISSING'
+  }
+  $root=[System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
+  $bounds=$root.Current.BoundingRectangle
+  $monitor=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+  $left=[int][Math]::Max($monitor.Left,[Math]::Floor($bounds.Left))
+  $top=[int][Math]::Max($monitor.Top,[Math]::Floor($bounds.Top))
+  $right=[int][Math]::Min($monitor.Right,[Math]::Ceiling($bounds.Right))
+  $bottom=[int][Math]::Min($monitor.Bottom,[Math]::Ceiling($bounds.Bottom))
+  $width=$right-$left
+  $height=$bottom-$top
+  if ($width -lt 500 -or $height -lt 350) { throw 'ADMIN_NATIVE_SCREENSHOT_BOUNDS_INVALID' }
+  $output=Join-Path $artifactDir 'admin-center-current-native.png'
+  $bitmap=[System.Drawing.Bitmap]::new($width,$height)
+  $graphics=[System.Drawing.Graphics]::FromImage($bitmap)
+  try {
+    $graphics.CopyFromScreen([System.Drawing.Point]::new($left,$top),
+      [System.Drawing.Point]::Empty,[System.Drawing.Size]::new($width,$height))
+    $bitmap.Save($output,[System.Drawing.Imaging.ImageFormat]::Png)
+  } finally {$graphics.Dispose();$bitmap.Dispose()}
+  if ((Get-Item -LiteralPath $output).Length -lt 6000) { throw 'ADMIN_NATIVE_SCREENSHOT_NOT_VALID' }
+  $manifest=[ordered]@{
+    program='IWXA Admin Center'
+    originalSourceCommit='2628c4bc1b20b4393c485d12513f029fdea8b082'
+    ciCommit=$env:GITHUB_SHA
+    desktopTitle=$proc.MainWindowTitle
+    nativeExeSha256=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+    screenshotSha256=(Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
+    screenshot='admin-center-current-native.png'
+    verified='CENTER_INSTALLED_GUI_PROJECT_WORK_AND_DRAFT_SAVED_PASS'
+    data='generated test project; no production identifiers'
+  }
+  $manifest | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $artifactDir 'admin-center-current-native.json') -Encoding utf8
+  Write-Host "ADMIN_CENTER_CURRENT_NATIVE_SCREENSHOT_PASS sha256=$($manifest.screenshotSha256)"
+}
 function Start-Center {
   $script:proc=Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
   for($i=0;$i -lt 90;$i++){
@@ -396,6 +434,7 @@ try {
   }
   Write-Host "CENTER_INSTALLED_GUI_ATLAS_WORK_ASSIGNMENT_LINK_PASS assignment=$($task.id) project=$projectId work=$workId revision=$($saved.revision)"
   Write-Host "CENTER_INSTALLED_GUI_PROJECT_WORK_AND_DRAFT_SAVED_PASS revision=$($saved.revision)"
+  Capture-CenterVerifiedUI
   # Qualify the ordinary manager journey in the installed GUI, not just
   # creating one assignment. Planning a seat must NOT issue any license.
   Click-Control 'Сотрудники и роли'

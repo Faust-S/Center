@@ -1,7 +1,7 @@
 name: Center source and desktop
 on:
   push:
-    branches: ['work/**']
+    branches: ['work/**','qa/2026-11-19-software-admin-current']
   workflow_dispatch:
 permissions:
   contents: read
@@ -243,6 +243,8 @@ jobs:
             artifacts/center-component-transport/result.json
             artifacts/installer-sha256.txt
             artifacts/installed-gui-result.json
+            artifacts/admin-center-current-native.png
+            artifacts/admin-center-current-native.json
             artifacts/installed-gui-failure.png
             artifacts/u05-two-installed-result.json
             artifacts/atlas05-center-iwxa-result.json
