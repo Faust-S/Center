@@ -1,0 +1,40 @@
+name: Setup Core independently verified fresh native screen
+on:
+  push:
+    branches:
+      - qa/2026-11-19-setup-fast-native-capture
+    paths:
+      - .github/workflows/qa-setup-current-capture.yml
+      - installer/windows/qa-capture-current-setup.ps1
+permissions:
+  contents: read
+  actions: read
+jobs:
+  current-setup-win32:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Obtain exact verified 19 November Setup Core from fresh installed Admin CI
+        uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/Center
+          run-id: 44613210749
+          name: center-windows-preparation-shell
+          path: .qa/current-package
+          github-token: ${{ github.token }}
+      - name: Launch verified real Setup Core and capture Ready to install via native UIA
+        shell: powershell
+        timeout-minutes: 5
+        run: |
+          ./installer/windows/qa-capture-current-setup.ps1 -Bundle '.qa/current-package/artifacts/iwxa-setup-core-center-0.3-preview.exe' -ExpectedBundleCommit '847d69bf85bf0d9676515088e4331a68ec607cf6'
+      - name: Retain only current verified native screenshot and provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: setup-core-current-ready-native
+          path: |
+            artifacts/qa-setup-core-current-verified-install.png
+            artifacts/qa-setup-core-current-verified-install.json
+          if-no-files-found: ignore
+          retention-days: 7
