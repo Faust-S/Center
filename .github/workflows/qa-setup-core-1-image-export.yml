@@ -1,0 +1,60 @@
+name: Portable current Setup Core 1.0 verified site image
+on:
+  push:
+    branches:
+      - qa/2026-11-19-setup-core-1-current-capture
+    paths:
+      - .github/workflows/qa-setup-core-1-image-export.yml
+permissions:
+  actions: read
+  contents: write
+jobs:
+  package-verified-native-screenshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/Center
+          run-id: 44618796916
+          name: setup-core-one-current-native
+          path: ${{ runner.temp }}/native-setup
+          github-token: ${{ github.token }}
+      - name: Verify new Windows screenshot and embed provenance
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check --quiet Pillow==11.3.0
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          import base64,hashlib,json,os
+          base=Path(os.environ['RUNNER_TEMP'])/'native-setup'
+          original=base/"qa-setup-core-current-verified-install.png"
+          proof=json.loads((base/'qa-setup-core-current-verified-install.json').read_text(encoding='utf-8-sig'))
+          sha=hashlib.sha256(original.read_bytes()).hexdigest()
+          assert sha=="cfb6c92f166034fa1e5b65b6883f11f459327602400942fd80005047a606c841" and proof['screenshotSha256']==sha, 'SETUP_1_SOURCE_IMAGE_MISMATCH'
+          assert proof['originalSourceCommit']=="0ef7544e2a6fd5fab5994f7f25abbb960063908c" and proof['currentBundleCommit']=="1412dce78cc251feee5c9826380a173edab6b5e3", 'SETUP_1_OWNER_MISMATCH'
+          assert proof['screenState']=='READY_FOR_FIRST_INSTALL' and proof['installedBundleStatus']=='VERIFIED' and proof['product']=='iwxa.admin-center', 'SETUP_1_NOT_READY'
+          im=Image.open(original).convert('RGB')
+          assert im.size==(1024,711),'SETUP_1_IMAGE_DIMENSIONS_CHANGED'
+          im=im.crop((8,0,1017,704))
+          out=Path('qa-verified-software-screens/setup-core-1-current-verified.webp')
+          out.parent.mkdir(parents=True,exist_ok=True)
+          im.save(out,format='WEBP',quality=80,method=6)
+          (Path(str(out)+'.b64.txt')).write_text(base64.b64encode(out.read_bytes()).decode('ascii')+'\n',encoding='ascii')
+          receipt={'status':'NATIVE_SETUP_CORE_1_0_UI_PASS','owner_setup_source':"0ef7544e2a6fd5fab5994f7f25abbb960063908c",'real_admin_payload_sha256':'5008cd5270f09c5daf2456cb17c6fd8948d64ed630a3dc5c79588708f31e0bba','native_bundle_commit':"1412dce78cc251feee5c9826380a173edab6b5e3",'native_run':44618796916,'original_png_sha256':sha,'webp_sha256':hashlib.sha256(out.read_bytes()).hexdigest(),'width':im.width,'height':im.height,'source':'current native Setup Core 1.0 + actual Admin Center EXE, verified ready, no fake UI','user_data':'empty fresh Windows CI'}
+          Path('qa-verified-software-screens/manifest.json').write_text(json.dumps(receipt,indent=2)+'\n',encoding='utf-8')
+          print('SETUP_CORE_1_0_CURRENT_NATIVE_WEBP_SHA256',receipt['webp_sha256'])
+          PY
+      - name: Save verified WebP and base64 on isolated QA branch
+        shell: bash
+        run: |
+          git config user.name 'IWXA QA'
+          git config user.email 'iwxa-qa@users.noreply.github.com'
+          git add qa-verified-software-screens
+          git commit -m 'evidence: current real Setup Core 1.0 GUI and exact source hash [skip ci]'
+          git push origin HEAD:qa/2026-11-19-setup-core-1-current-capture
