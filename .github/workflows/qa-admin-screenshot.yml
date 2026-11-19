@@ -1,0 +1,57 @@
+name: Verified current Admin Center screenshot for IWXA site
+on:
+  push:
+    branches:
+      - qa/2026-11-19-site-verified-admin
+    paths:
+      - .github/workflows/qa-admin-screenshot.yml
+permissions:
+  contents: write
+  actions: read
+jobs:
+  native-admin-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/Center
+          run-id: 44613210749
+          name: center-windows-preparation-shell
+          path: ${{ runner.temp }}/windows
+          github-token: ${{ github.token }}
+      - name: Verify native proof and generate screenshot for site
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check --quiet Pillow==11.3.0
+          python - <<'PY'
+          import base64,hashlib,json,os
+          from pathlib import Path
+          from PIL import Image
+          src=Path(os.environ['RUNNER_TEMP'])/'windows'/"artifacts/admin-center-current-native.png"
+          actual=hashlib.sha256(src.read_bytes()).hexdigest()
+          assert actual=="770bd7f39f2ccc3ec4d9ad9e9f4dfa404bde620399c0664b25ddb5da84af031b", 'ADMIN_NATIVE_SCREENSHOT_SOURCE_HASH_CHANGED'
+          proof=json.loads((Path(os.environ['RUNNER_TEMP'])/'windows'/'artifacts/admin-center-current-native.json').read_text(encoding='utf-8-sig'))
+          assert proof['screenshotSha256']==actual and proof['originalSourceCommit']=="2628c4bc1b20b4393c485d12513f029fdea8b082", 'ADMIN_NATIVE_PROOF_INVALID'
+          img=Image.open(src).convert('RGB')
+          assert img.size==(1024,768),'ADMIN_SCREEN_DIMENSIONS_CHANGED'
+          img=img.crop((8,0,1024,720))
+          out=Path('qa-verified-software-screens')/"admin03-current-verified.webp"
+          out.parent.mkdir(parents=True,exist_ok=True)
+          img.save(out,format='WEBP',quality=79,method=6)
+          Path(str(out)+'.b64.txt').write_text(base64.b64encode(out.read_bytes()).decode('ascii')+'\n',encoding='ascii')
+          manifest={'product':'Admin Center 0.3 Windows','owner_source':"2628c4bc1b20b4393c485d12513f029fdea8b082",'new_run':44613210749,'png_sha256':actual,'webp_sha256':hashlib.sha256(out.read_bytes()).hexdigest(),'dimensions':list(img.size),'origin':'verified installed Tauri UIA; real screenshot crop only'}
+          Path('qa-verified-software-screens/manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
+          print('ADMIN_NATIVE_SITE_IMAGE_VERIFIED',manifest['webp_sha256'])
+          PY
+      - name: Persist exact screenshot bytes on public QA branch
+        shell: bash
+        run: |
+          git config user.name 'IWXA QA'
+          git config user.email 'iwxa-qa@users.noreply.github.com'
+          git add qa-verified-software-screens/
+          git commit -m 'evidence: fresh Admin Center installed Windows screenshot [skip ci]'
+          git push origin HEAD:qa/2026-11-19-site-verified-admin
