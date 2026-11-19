@@ -152,12 +152,18 @@ fn drain_pipe<R: std::io::Read>(mut stream:R,cap:usize)->Result<Vec<u8>,String>{
     Ok(output)
 }
 
+// The production corporate first-use command is "d3-enroll": ASCII
+// digits in a fixed native action must not be rejected before the original
+// signed Owner is launched. Keep strict no-shell, bounded argv validation.
+fn valid_product_action(action:&str)->bool{
+    !action.is_empty() && action.len()<=24 &&
+    action.bytes().enumerate().all(|(i,b)|
+        b.is_ascii_lowercase() || (i>0 && (b.is_ascii_digit()||b==b'-')))
+}
 pub fn run(app:&AppHandle,role:&str,action:&str,details:&[String]) -> Result<Value,String> {
-    // Explicit first-use trust enrollment only needs the ORIGINAL installed
-    // consumer binary. All license operations still require preinstalled
-    // public trust and a Windows CurrentUser DPAPI vault.
-    if !action.bytes().all(|b|b.is_ascii_lowercase()||b==b'-') ||
-       action.len()>24 || details.len()>4 ||
+    // Allow digits AFTER the first lowercase letter, not spaces, shell
+    // syntax, path separators or arbitrary Unicode commands.
+    if !valid_product_action(action) || details.len()>4 ||
        details.iter().any(|s|s.is_empty() || s.len()>4096 ||
          s.chars().any(|c|c.is_control())) {
         return Err("T3_PRODUCT_COMPONENT_ARGUMENTS_INVALID".into());
@@ -257,6 +263,15 @@ mod tests {
  use super::*;
  #[test]
  fn native_component_adapter_does_not_trust_strings_or_commercial_seats() {
+    assert!(valid_product_action("d3-enroll"));
+    assert!(valid_product_action("test-enroll"));
+    assert!(!valid_product_action(""));
+    assert!(!valid_product_action("3d-enroll"));
+    assert!(!valid_product_action("D3-enroll"));
+    assert!(!valid_product_action("d3/enroll"));
+    assert!(!valid_product_action("d3 enroll"));
+    assert!(!valid_product_action("d3;enroll"));
+    assert!(!valid_product_action("d3-enroll-abcdefghijklmnop"));
     // A simulated stdout larger than the Windows pipe capacity is drained
     // without buffering unbounded data or deadlocking the child.
     let payload=vec![b'X';2*MAX_OUTPUT];
