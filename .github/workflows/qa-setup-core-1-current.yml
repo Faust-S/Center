@@ -1,0 +1,66 @@
+name: Setup Core 1.0 current code + real Admin native payload GUI
+on:
+  push:
+    branches:
+      - qa/2026-11-19-setup-core-1-current-capture
+    paths:
+      - .github/workflows/qa-setup-core-1-current.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compile-current-setup-core-and-capture:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Obtain real Admin Center EXE from new verified installed GUI run
+        uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/Center
+          run-id: 44613210749
+          name: center-windows-preparation-shell
+          path: .qa/admin-real
+          github-token: ${{ github.token }}
+      - name: Compile current Setup Core 1.0 and embed exact real application
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe = '.qa/admin-real/src-tauri/target/release/iwxa-admin-center.exe'
+          if (!(Test-Path -LiteralPath $exe)) { throw 'QA_SETUP_REAL_PAYLOAD_MISSING' }
+          $actual = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -cne '5008cd5270f09c5daf2456cb17c6fd8948d64ed630a3dc5c79588708f31e0bba') { throw 'QA_SETUP_REAL_PAYLOAD_CHANGED' }
+          $payload = Join-Path $env:GITHUB_WORKSPACE 'artifacts/qa-modern-payload'
+          New-Item -ItemType Directory -Force -Path $payload | Out-Null
+          Copy-Item -LiteralPath $exe -Destination (Join-Path $payload 'iwxa-admin-center.exe') -Force
+          ./installer/windows/build-stub.ps1 -Output artifacts/qa-modern-setup-core-stub.exe
+          if ($LASTEXITCODE -ne 0) { throw 'QA_SETUP_CURRENT_CSC_FAIL' }
+          $head=(& git rev-parse HEAD).Trim()
+          $tree=(& git rev-parse 'HEAD^{tree}').Trim()
+          if ($head -cnotmatch '^[0-9a-f]{40}$' -or $tree -cnotmatch '^[0-9a-f]{40}$') { throw 'QA_SETUP_SOURCE_REF_FAIL' }
+          python -m installer.build_bundle build-resource --product installer/products/center.json --payload $payload --stub artifacts/qa-modern-setup-core-stub.exe --output artifacts/qa-setup-core-current-v1-real-admin.exe --source-commit $head --source-tree $tree > artifacts/qa-modern-setup-build-result.json
+          if ($LASTEXITCODE -ne 0) { throw 'QA_SETUP_CURRENT_RESOURCE_BUNDLE_FAIL' }
+          $file = Get-Content -LiteralPath artifacts/qa-modern-setup-build-result.json -Raw | ConvertFrom-Json
+          if ($file.format -cne 'PE_RESOURCE_V2' -or $file.product -cne 'iwxa.admin-center') { throw 'QA_SETUP_MODERN_BUNDLE_UNVERIFIED' }
+          Write-Host 'QA_SETUP_CURRENT_1_0_NATIVE_BUNDLE_VERIFIED'
+      - name: Run current native Setup Core 1.0 and independently capture real installed-app package
+        shell: powershell
+        timeout-minutes: 6
+        run: |
+          ./installer/windows/qa-capture-current-setup.ps1 -Bundle 'artifacts/qa-setup-core-current-v1-real-admin.exe' -ExpectedBundleCommit '${{ github.sha }}'
+      - name: Retain current verified 1.0 native screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: setup-core-one-current-native
+          path: |
+            artifacts/qa-setup-core-current-verified-install.png
+            artifacts/qa-setup-core-current-verified-install.json
+            artifacts/qa-setup-current-preflight.json
+          if-no-files-found: ignore
+          retention-days: 7
