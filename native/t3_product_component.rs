@@ -118,12 +118,50 @@ fn simple_code(s:&str) -> bool {
     !s.is_empty() && s.len()<160 &&
     s.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_')
 }
+// The original signed owner is an independently SHA-256-pinned executable.
+// Raw stderr may contain a filesystem path or private diagnostic. Never
+// forward it to WebView or public CI; retain only exact bounded machine codes
+// or a deliberately coarse category. No raw stderr is logged.
+fn bounded_original_failure(stderr:&[u8])->String {
+    let message=String::from_utf8_lossy(stderr);
+    let code=message.trim();
+    if simple_code(code){return code.to_owned();}
+    for line in message.lines() {
+        let line=line.trim().strip_prefix("Error: ")
+            .unwrap_or_else(||line.trim());
+        if simple_code(line) &&
+           (line.starts_with("T3_D3_")||line.starts_with("CEN_D3_")||
+            line.starts_with("WINDOWS_")||line.starts_with("DPAPI_")) {
+            return line.to_owned();
+        }
+    }
+    let category=if message.contains("ENOENT")||
+                    message.contains("FileNotFound")||
+                    message.contains("No such file or directory") {
+        "T3_PRODUCT_COMPONENT_ORIGINAL_FILE_NOT_FOUND"
+    }else if message.contains("EACCES")||
+             message.contains("EPERM")||
+             message.contains("Access is denied") {
+        "T3_PRODUCT_COMPONENT_ORIGINAL_ACCESS_DENIED"
+    }else if message.contains("Cannot find module")||
+             message.contains("MODULE_NOT_FOUND") {
+        "T3_PRODUCT_COMPONENT_ORIGINAL_MODULE_NOT_FOUND"
+    }else if message.contains("TypeError:") {
+        "T3_PRODUCT_COMPONENT_ORIGINAL_RUNTIME_TYPE_ERROR"
+    }else if message.contains("ReferenceError:") {
+        "T3_PRODUCT_COMPONENT_ORIGINAL_RUNTIME_REFERENCE_ERROR"
+    }else if message.contains("SyntaxError:") {
+        "T3_PRODUCT_COMPONENT_ORIGINAL_RUNTIME_SYNTAX_ERROR"
+    }else if message.trim().is_empty() {
+        "T3_PRODUCT_COMPONENT_ORIGINAL_EMPTY_STDERR"
+    }else{
+        "T3_PRODUCT_COMPONENT_OPERATION_FAILED"
+    };
+    category.to_owned()
+}
 fn checked_output(output:std::process::Output) -> Result<Value,String> {
     if !output.status.success() {
-        let message = String::from_utf8_lossy(&output.stderr);
-        let code = message.trim();
-        return Err(if simple_code(code){code.to_string()}
-                   else {"T3_PRODUCT_COMPONENT_OPERATION_FAILED".into()});
+        return Err(bounded_original_failure(&output.stderr));
     }
     if output.stdout.is_empty() || output.stdout.len()>MAX_OUTPUT {
         return Err("T3_PRODUCT_COMPONENT_OUTPUT_SIZE_INVALID".into());
