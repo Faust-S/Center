@@ -668,13 +668,29 @@ fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
     }
     result
 }
+fn release_original_owner_in_session(session:&mut Session){
+    // The existing OriginalOwner Drop kills/waits for the ONE original
+    // native signer and its product.lock. No lock-file unlink or new owner.
+    session.owner.take();
+    session.signed_workspace_visible=false;
+}
+pub fn release_original_owner_on_native_exit(app:&AppHandle){
+    // Tauri's default RunEvent::Exit did not guarantee a managed Session
+    // Drop before an independent original-owner cold read. Release here.
+    // Even a previously poisoned mutex must not orphan the signed child.
+    let state=app.state::<Mutex<Session>>();
+    let mut guard=match state.lock(){
+        Ok(guard)=>guard,
+        Err(poisoned)=>poisoned.into_inner(),
+    };
+    release_original_owner_in_session(&mut guard);
+}
 fn close_original_owner(app:&AppHandle)->Result<(),String>{
     let state=app.state::<Mutex<Session>>();
     let mut guard=state.lock()
         .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
     close_original_signed_workspace(app)?;
-    guard.owner.take();
-    guard.signed_workspace_visible=false;
+    release_original_owner_in_session(&mut guard);
     Ok(())
 }
 fn private_owner_state(app:&AppHandle,organization_id:&str)->Result<Value,String>{
@@ -1463,6 +1479,28 @@ mod tests{
         assert!(owner.child.try_wait().unwrap().is_none(),
             "owner stays alive between requests");
         drop(owner); // same original lifecycle kills the child on detach
+    }
+    #[cfg(windows)]
+    #[test]
+    fn native_exit_releases_original_owner_child_before_cold_reopen(){
+        use std::process::{Command,Stdio};
+        // Physical Windows OS child, not a second signer or mock T2 Store.
+        // The same Session cleanup is wired to Tauri RunEvent::Exit.
+        let child=Command::new("powershell.exe")
+            .args(["-NoProfile","-NonInteractive","-Command",
+                "Start-Sleep -Seconds 30"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped())
+            .stderr(Stdio::null()).spawn().expect("Windows child");
+        let mut session=Session{
+            owner:Some(OriginalOwner::from_child(child,"org:test").unwrap()),
+            signed_workspace_visible:true,
+        };
+        assert!(session.owner.as_mut().unwrap().child.try_wait().unwrap().is_none());
+        release_original_owner_in_session(&mut session);
+        assert!(session.owner.is_none(),
+            "native exit must drop original signed child immediately");
+        assert!(!session.signed_workspace_visible,
+            "signed UI cannot remain visible after native owner exit");
     }
     #[cfg(windows)]
     #[test]

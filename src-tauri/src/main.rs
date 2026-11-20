@@ -406,8 +406,17 @@ fn main() {
             center_age_status,center_age_create_recipient,center_age_inspect,
             center_age_encrypt,center_age_decrypt
         ])
-        .run(tauri::generate_context!())
-        .expect("Admin Center could not start");
+        .build(tauri::generate_context!())
+        .expect("Admin Center could not start")
+        .run(|app,event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                // Tauri-managed state may outlive the event-loop teardown.
+                // Explicitly release the ORIGINAL signed T3 child before
+                // returning so a cold user session cannot inherit a live
+                // product.lock. Never delete lock files or bypass access.
+                cen03_native::release_original_owner_on_native_exit(app);
+            }
+        });
 }
 
 #[cfg(test)]
