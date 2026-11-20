@@ -1,0 +1,63 @@
+name: D01 real Learn Workspace screenshots
+on:
+  push:
+    branches: [work/2026-11-20-d01-real-ui]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-learn:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/learn.iwxa.ru
+          ref: 77c08889108be6c95af530f343056b0de39a4f7d
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: private/site
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/learn
+          ref: ffe0a8916ff6a6bda313ee730d096a21099faf25
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: private/domain
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: 9c64951cd78411283e8a416641c36d71e169fc1d
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: private/t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Confirm exact subject model
+        shell: bash
+        run: |
+          set -eu
+          cmp private/domain/learning-journey/projection.ts private/site/t2/domain-modules/learn-results/learning-journey.ts
+          cmp private/domain/learning-journey/today.ts private/site/t2/domain-modules/learn-results/learning-today.ts
+          node --experimental-strip-types --test private/domain/learning-journey/*.test.mjs
+      - name: Build original T2 and capture REAL browser PNG
+        shell: bash
+        env:
+          D01_T2_CHECKOUT: ${{ github.workspace }}/private/t2
+          D01_EXPECTED_T2_HEAD: 9c64951cd78411283e8a416641c36d71e169fc1d
+          D01_EXPECTED_SITE_HEAD: 77c08889108be6c95af530f343056b0de39a4f7d
+          D01_SCREENSHOT_OUTPUT: ${{ runner.temp }}/d01-real-screens
+          D01_QUALIFIED_KERNEL_BASE_URL: ${{ vars.IWXA_D01_KERNEL_ORIGIN }}
+        run: node private/site/qa/d01-product-witness-2026-10-26/ci-real-screens.mjs
+      - name: Upload ONLY actual screenshots and hashes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d01-real-workspace-screenshots
+          path: |
+            ${{ runner.temp }}/d01-real-screens/learn-workspace-*.png
+            ${{ runner.temp }}/d01-real-screens/learn-workspace-screenshots.json
+          if-no-files-found: ignore
+          retention-days: 7
+# Private source, dist, browser state and user data stay on the runner.
