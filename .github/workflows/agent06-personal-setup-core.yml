@@ -58,6 +58,40 @@ jobs:
           if((& git -C private-agent status --porcelain)){throw 'AGENT06_PERSONAL_AGENT_DIRTY'}
           if((& git -C setup-owner status --porcelain)){throw 'AGENT06_PERSONAL_SETUP_OWNER_DIRTY'}
           Write-Host 'AGENT06_PERSONAL_EXACT_OWNERS_PASS'
+      - name: Parse original Agent Setup Core scripts with real Windows PowerShell 5.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $content=@'
+          param([string]$Root)
+          $scripts=@(
+            'tools/build_setup_core_windows_candidate.ps1',
+            'qualification/phase1/build_native_windows_setup_candidate.ps1',
+            'tools/build_iwxa_windows_setup_exe.ps1',
+            'tools/qualify_setup_core_runtime.ps1'
+          )
+          $failed=0
+          foreach($relative in $scripts){
+            $target=Join-Path $Root $relative
+            $tokens=$null
+            $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($target,[ref]$tokens,[ref]$errors)
+            if(@($errors).Count -gt 0){
+              $failed++
+              foreach($e in @($errors | Select-Object -First 4)){
+                Write-Output ('AGENT06_PS51_PARSER_ERROR_ID='+[string]$e.ErrorId)
+                Write-Output ('AGENT06_PS51_PARSER_LINE='+[int]$e.Extent.StartLineNumber)
+              }
+            }
+          }
+          if($failed -gt 0){exit 21}
+          Write-Output 'AGENT06_PS51_SETUP_SCRIPTS_PARSE_PASS'
+          '@
+          $file=Join-Path $env:RUNNER_TEMP 'agent06-ps51-parse-only.ps1'
+          Set-Content -LiteralPath $file -Encoding UTF8 -Value $content
+          $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          & $ps -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $file -Root (Resolve-Path 'private-agent').Path
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_PERSONAL_PS51_SYNTAX_INVALID'}
       - name: Build original Setup Core release and qualify real Qwen, Review, Repair and Rollback
         shell: pwsh
         timeout-minutes: 85
