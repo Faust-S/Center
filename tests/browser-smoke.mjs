@@ -92,8 +92,8 @@ try{
   assert.equal(await page.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
   await page.getByTestId('overview-hits').getByTestId('manager-search-hit').click();
   assert.equal(await page.getByTestId('task-title').inputValue(),'Compare three suppliers');
-  await page.getByTestId('save-assignment').click();
-  checks.push('manager-search-opens-original-assignment-editor');
+  await page.getByRole('button',{name:'Закрыть редактор'}).click();
+  checks.push('manager-search-opens-original-assignment-editor-without-mutating-draft');
 
   await page.getByTestId('assignment-row').click();await page.getByTestId('task-title').fill('Compare four suppliers');await page.getByTestId('save-assignment').click();checks.push('edit-draft');
   const later=createItem(work.state,first.id,{title:'Verify new supplier'});
