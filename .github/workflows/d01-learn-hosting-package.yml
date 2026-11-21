@@ -1,0 +1,132 @@
+name: D01 Learn pinned hosting package qualification
+on:
+  push:
+    branches: [qa/2026-11-21-d01-hosting-package]
+    paths: [.github/workflows/d01-learn-hosting-package.yml]
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - name: Checkout pinned private Learn site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/learn.iwxa.ru
+          ref: 5b95b49d2065074d4e557b18feaddde0dcb9f6da
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: private/site
+      - name: Checkout normative T2 main
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: main
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: private/t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Verify immutable sources and qualified Kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C private/site rev-parse HEAD)" = "5b95b49d2065074d4e557b18feaddde0dcb9f6da"
+          test "$(git -C private/t2 rev-parse HEAD)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
+          test -z "$(git -C private/site status --porcelain)"
+          test -z "$(git -C private/t2 status --porcelain)"
+          test "$(node --version)" = "v24.18.1"
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const p=JSON.parse(readFileSync('private/site/package.json','utf8'));
+          if (Object.keys(p.dependencies??{}).length || Object.keys(p.devDependencies??{}).length ||
+              Object.keys(p.optionalDependencies??{}).length) throw Error('D01_SITE_DEPENDENCIES_REQUIRE_LOCK');
+          console.log('D01_SITE_ZERO_NPM_DEPENDENCIES_VERIFIED');
+          NODE
+          t2="$GITHUB_WORKSPACE/private/t2/t2/current/final-successor/canonical-source"
+          test -f "$t2/package-lock.json"
+          test "$(git -C "$t2" rev-parse --verify refs/remotes/origin/main)" = "9c64951cd78411283e8a416641c36d71e169fc1d"
+          zip="$GITHUB_WORKSPACE/private/t2/t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip"
+          echo "7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68  $zip" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/d01-kernel"
+          unzip -q "$zip" -d "$RUNNER_TEMP/d01-kernel"
+          echo "D01_PINNED_SOURCES_AND_KERNEL_VERIFIED"
+      - name: Repair catalog hash only in isolated release build tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -a "$GITHUB_WORKSPACE/private/site" "$RUNNER_TEMP/d01-site-build"
+          cp -a "$GITHUB_WORKSPACE/private/t2/t2/current/final-successor/canonical-source" "$RUNNER_TEMP/d01-host-source"
+          node --input-type=module <<'NODE'
+          import {createHash} from 'node:crypto';
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const src=join(process.env.GITHUB_WORKSPACE,'private/site');
+          const copy=join(process.env.RUNNER_TEMP,'d01-site-build');
+          const catalogPath='_iwxa/service-catalog.json';
+          const passportPath='_iwxa/services/ru.iwxa.learn.workspace.json';
+          const srcBytes=readFileSync(join(src,catalogPath));
+          const catalog=JSON.parse(srcBytes.toString('utf8'));
+          const pass=readFileSync(join(src,passportPath));
+          const actual=createHash('sha256').update(pass).digest('hex');
+          const record=catalog.entries.find(e=>e.service_id==='ru.iwxa.learn.workspace');
+          const obsolete='1160038f73881490c2371ac122e0ed068486df77bb33ddbdf64c5ce6c1f0abce';
+          const repaired='31859802bc261b1242787df8a2c990abdccde47857237b4d5997ee8d0b5f2d79';
+          if (actual!==repaired || record?.sha256!==obsolete ||
+              record?.file!==passportPath) throw Error('D01_CATALOG_REPAIR_PRECONDITION_FAILED');
+          record.sha256=actual;
+          writeFileSync(join(copy,catalogPath),JSON.stringify(catalog,null,2)+'\n');
+          if (!readFileSync(join(src,catalogPath)).equals(srcBytes) ||
+              !readFileSync(join(copy,passportPath)).equals(pass)) throw Error('D01_PINNED_SOURCE_TOUCHED');
+          console.log('D01_TEMPORARY_CATALOG_INTEGRITY_REPAIRED', actual);
+          NODE
+          test -z "$(git -C private/site status --porcelain)"
+          test -z "$(git -C private/t2 status --porcelain)"
+      - name: Execute normative integrated T2 full site build
+        shell: bash
+        env:
+          D01_T2_HOST_WORKTREE: ${{ runner.temp }}/d01-host-source
+          D01_T2_SOURCE: ${{ github.workspace }}/private/t2/t2/current/final-successor/canonical-source
+          D01_QUALIFIED_KERNEL: ${{ runner.temp }}/d01-kernel
+          D01_T2_ORIGIN: https://learn.iwxa.ru
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/d01-site-build"
+          npm run build
+          echo "D01_NORMATIVE_BUILD_PASS"
+      - name: Verify entire archive content on private runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/d01-site-build"
+          node --input-type=module <<'NODE'
+          import {createHash} from 'node:crypto';
+          import {readFileSync,readdirSync,statSync} from 'node:fs';
+          import {join} from 'node:path';
+          const d='dist';
+          const m=JSON.parse(readFileSync(join(d,'D01_SITE_BUILD_MANIFEST.json'),'utf8'));
+          if(m.origin!=='https://learn.iwxa.ru'||m.t2Head!=='9c64951cd78411283e8a416641c36d71e169fc1d'||m.productionActivation!==false||m.pages<400)
+            throw Error('D01_RELEASE_MANIFEST_INVALID');
+          const catalog=JSON.parse(readFileSync(join(d,'_iwxa/service-catalog.json'),'utf8'));
+          for(const item of catalog.entries){
+            const bytes=readFileSync(join(d,item.file));
+            if(createHash('sha256').update(bytes).digest('hex')!==item.sha256)
+              throw Error('D01_RELEASE_PASSPORT_DIGEST_INVALID:'+item.service_id);
+          }
+          const assets=readdirSync(join(d,'workspace/assets'));
+          if(assets.some(a=>/^studio-[a-z0-9_-]+\.(?:js|css)$/i.test(a))||statSync(join(d,'index.html')).size===0)
+            throw Error('D01_PRIVATE_STUDIO_OR_EMPTY_SITE');
+          console.log('D01_RELEASE_TREE_INTEGRITY_PASS pages='+m.pages+' passports='+catalog.entries.length);
+          NODE
+          ( cd dist && zip -q -r -X "$RUNNER_TEMP/d01-learn-hosting.zip" . )
+          unzip -tq "$RUNNER_TEMP/d01-learn-hosting.zip" >/dev/null
+          echo "D01_ARCHIVE_ASSEMBLED_ON_PRIVATE_RUNNER_ONLY"
+          sha256sum "$RUNNER_TEMP/d01-learn-hosting.zip"
+          du -h "$RUNNER_TEMP/d01-learn-hosting.zip"
+          test -z "$(git -C "$GITHUB_WORKSPACE/private/site" status --porcelain)"
+          test -z "$(git -C "$GITHUB_WORKSPACE/private/t2" status --porcelain)"
+          echo "D01_SOURCE_UNCHANGED_PASS"
+# Private site bytes are NEVER uploaded to public Center artifacts.
+# Actual owner-deliverable ZIP is assembled on the private/local workstation.
