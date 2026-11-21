@@ -21,6 +21,9 @@ try{
   await page.goto('http://127.0.0.1:4173');
   await page.getByTestId('org-name').fill('North workshop');await page.getByTestId('create-org').click();
   await page.getByTestId('manager-context-overview').waitFor();
+  assert.equal(await page.getByTestId('manager-read-signed').isEnabled(),false);
+  assert.equal(await page.getByTestId('manager-signed-summary').count(),0);
+  checks.push('manager-context-native-only-original-t3-readback');
   assert.equal(await page.getByTestId('manager-attention-item').count(),1);
   await page.getByTestId('open-context-map').click();
   await page.getByTestId('corporate-interactive-map').waitFor();

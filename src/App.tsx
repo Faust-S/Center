@@ -278,7 +278,8 @@ export default function App() {
     }
     const destination:Record<string,Page>={
       organization:'overview',workspace:'resources',person:'people',
-      'atlas-project':'resources','atlas-work':'resources'
+      'atlas-project':'resources','atlas-work':'resources',
+      'signed-task':'results','signed-result-package':'results'
     };
     go(destination[entry.kind]??'context');
   };
@@ -535,6 +536,7 @@ export default function App() {
       {org && !creatingOrg && page==='overview' && <>
         <ManagerContextPanel key={'home|'+org.id} organization={org} atlasView={observedAtlas}
           view="overview" atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
+          invoke={nativeHost?nativeInvoke:null}
           onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}/>
         <section className="hero"><div className="eyebrow">РАБОТА РУКОВОДИТЕЛЯ</div><h2>Видеть работу целиком и принимать решения</h2><p>План находится в Atlas. Сотрудник выполняет поручение в Personal Agent. Здесь вы управляете работой и принимаете результат.</p><div className="actions"><button className="primary" onClick={()=>startAssignment()} disabled={!org.workspaces.length}>＋ Новое поручение</button><button className="secondary" onClick={()=>go(org.workspaces.length?'people':'resources')}>{org.workspaces.length?'Добавить участника':'Создать рабочую область'}</button></div></section>
         <div className="metrics">
@@ -547,6 +549,7 @@ export default function App() {
 
       {org && page==='context' && <ManagerContextPanel key={'context|'+org.id} organization={org}
         atlasView={observedAtlas} view="context" atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
+        invoke={nativeHost?nativeInvoke:null}
         onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}/>}
 
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает проекты и зависимости. Привязка к работе необязательна. Только проектные поручения требуют проверки точной редакции установленного Atlas перед подписанием. Обычные поручения работают через T3 без Atlas.</p>

@@ -4,13 +4,18 @@
 const fold = value => String(value ?? '').normalize('NFKC').toLocaleLowerCase('ru')
   .replaceAll('ё','е').replace(/\s+/g,' ').trim();
 
+// Indexed rows are ephemeral read-only pointers, never a source of access rights.
+export function managerSearchRow(kind,id,title,summary,source,fields='') {
+ return {kind,id,title,summary,source,
+   searchText:fold([title,summary,fields,id].join(' '))};
+}
+
 export function buildManagerContext(organization, atlasView = null) {
   if (!organization || typeof organization.id !== 'string') return [];
   const rows = [];
   const add = (kind, id, title, summary, source, fields = '') => {
     if (typeof id !== 'string' || !id || typeof title !== 'string' || !title) return;
-    rows.push({kind, id, title, summary, source,
-      searchText: fold([title, summary, fields, id].join(' '))});
+    rows.push(managerSearchRow(kind,id,title,summary,source,fields));
   };
   add('organization', organization.id, organization.name,
     'Выбранная организация. Сведения о составе пока являются локальными черновиками.',
