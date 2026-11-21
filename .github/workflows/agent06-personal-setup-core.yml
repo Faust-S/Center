@@ -73,6 +73,7 @@ jobs:
           $code=$LASTEXITCODE
           if($code -ne 0){
             $private=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            if($null -eq $private){$private=''}
             $safe=@(
               'private_setup_native_product_package_build_failed',
               'private_setup_core_package_build_failed',
@@ -86,6 +87,43 @@ jobs:
               'native_candidate_frontend_dependencies_failed',
               'native_candidate_rust_test_compile_failed'
             )
+            # Identify exactly which original native Windows build phase failed.
+            # Read private files only locally and report finite error CODES.
+            $stages=@{
+              STUB_EXE=(Join-Path $out 'build/IWXA Personal Setup.stub.exe')
+              NATIVE_STAGE_LOG=(Join-Path $out 'logs/native-setup-build.json')
+              PYTHON_STAGE_LOG=(Join-Path $out 'logs/test-python-bootstrap.log')
+              NATIVE_STAGE_RESULT=(Join-Path $out 'logs/private-build-result.json')
+              MANAGED_PYTHON=(Join-Path $out 'build/test-python/current-python.txt')
+            }
+            foreach($key in @('STUB_EXE','NATIVE_STAGE_LOG','PYTHON_STAGE_LOG','NATIVE_STAGE_RESULT','MANAGED_PYTHON')){
+              Write-Host ('AGENT06_SETUP_STAGE_'+$key+'='+([int](Test-Path -LiteralPath $stages[$key] -PathType Leaf)))
+            }
+            $nativeCodes=@(
+              'native_setup_source_root_missing','native_setup_sources_incomplete',
+              'native_setup_csc_missing','native_setup_icon_missing',
+              'native_setup_reference_missing','native_setup_compile_failed',
+              'native_candidate_stub_compile_failed','native_candidate_test_python_failed',
+              'native_candidate_test_python_missing','native_candidate_npm_missing',
+              'native_candidate_rust_toolchain_missing','native_candidate_frontend_dependencies_failed',
+              'native_candidate_tauri_build_failed','native_candidate_rust_test_compile_failed',
+              'native_candidate_powershell_missing','private_setup_git_identity_failed',
+              'private_setup_native_product_package_build_failed'
+            )
+            $scan=@($log,$stages['NATIVE_STAGE_LOG'],$stages['PYTHON_STAGE_LOG'],$stages['NATIVE_STAGE_RESULT'])
+            foreach($file in $scan){
+              $raw=Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue
+              if([string]::IsNullOrEmpty($raw)){continue}
+              foreach($code in $nativeCodes){
+                if($raw.Contains($code)){
+                  Write-Host ('AGENT06_SETUP_NATIVE_CODE='+$code.ToUpperInvariant())
+                }
+              }
+              foreach($errorId in @([regex]::Matches($raw,'(?i)(?<![A-Z0-9])(?:error CS|error TS)\d{4}(?!\d)') |
+                  Select-Object -First 6)){
+                Write-Host ('AGENT06_SETUP_COMPILER_CODE='+$errorId.Value.Replace(' ','_').ToUpperInvariant())
+              }
+            }
             $observed=0
             foreach($key in $safe){
               if($private.Contains($key)){
