@@ -1,5 +1,10 @@
 name: Qualified Agent 0.6.0 Windows binary
 on:
+  push:
+    branches:
+      - work/2026-11-21-agent06-060-binary-publish
+    paths:
+      - .github/workflows/agent06-personal-release-060.yml
   workflow_dispatch:
 permissions:
   contents: write
@@ -59,10 +64,20 @@ jobs:
             throw 'AGENT06_RELEASE_SOURCE_DIRTY'
           }
           foreach($id in @($env:PERSONAL_CI,$env:REGRESSION_CI)){
-            $run=& gh api ('repos/Faust-S/Center/actions/runs/'+$id) | ConvertFrom-Json
-            if($LASTEXITCODE -ne 0 -or $run.conclusion -cne 'success'){
-              throw 'AGENT06_RELEASE_QUALIFICATION_NOT_SUCCESS'
+            $accepted=$false
+            for($attempt=0;$attempt -lt 100;$attempt++){
+              $run=& gh api ('repos/Faust-S/Center/actions/runs/'+$id) | ConvertFrom-Json
+              if($LASTEXITCODE -ne 0){throw 'AGENT06_RELEASE_QUALIFICATION_READ_FAILED'}
+              if($run.status -ceq 'completed'){
+                if($run.conclusion -cne 'success'){
+                  throw 'AGENT06_RELEASE_QUALIFICATION_NOT_SUCCESS'
+                }
+                $accepted=$true
+                break
+              }
+              Start-Sleep -Seconds 10
             }
+            if(-not $accepted){throw 'AGENT06_RELEASE_QUALIFICATION_TIMEOUT'}
           }
           Write-Host 'AGENT06_RELEASE_EXACT_SOURCE_AND_CI_PASS'
       - name: Rebuild and independently qualify distributable Setup Core
