@@ -395,6 +395,50 @@ jobs:
               }
             }
             if(!$match){Write-Host 'AGENT06_INSTALLED_GUI_FAILURE_CLASS=OTHER'}
+            # A failed first GUI launch needs a finite, privacy-safe diagnosis.
+            # Run the installed ORIGINAL bootstrap only AFTER the failed acceptance:
+            # its behavior is diagnostic and can never turn this failed run green.
+            if($private.Contains('gui_native_process_exited_before_window')){
+              $qa=Join-Path 'C:\i6' ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+              $profile=Join-Path $qa 'profile'
+              $logs=Join-Path $profile 'AppData/Local/IWXA/Logs'
+              $supervisorLogs=@(Get-ChildItem -LiteralPath $logs -Filter 'runtime-*.log' -File -ErrorAction SilentlyContinue)
+              $status=if($supervisorLogs.Count){'PRESENT'}else{'ABSENT'}
+              Write-Host ('AGENT06_NATIVE_SUPERVISOR_LOG='+$status)
+              $diagnostic='NOT_RUN'
+              $keys=@('USERPROFILE','HOME','APPDATA','LOCALAPPDATA','TEMP','TMP','TMPDIR','IWXA_STORAGE_AUTHORITY')
+              $prior=@{}
+              foreach($key in $keys){$prior[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
+              try {
+                $env:USERPROFILE=$profile; $env:HOME=$profile
+                $env:APPDATA=Join-Path $profile 'AppData/Roaming'
+                $env:LOCALAPPDATA=Join-Path $profile 'AppData/Local'
+                $env:TEMP=Join-Path $qa 'temp'; $env:TMP=$env:TEMP; $env:TMPDIR=$env:TEMP
+                $env:IWXA_STORAGE_AUTHORITY=Join-Path $env:LOCALAPPDATA 'IWXA/storage-authority.json'
+                $receipt=Join-Path $qa 'install/explorer-install-receipt.json'
+                if(!(Test-Path -LiteralPath $receipt -PathType Leaf)){throw 'PROBE_RECEIPT_MISSING'}
+                $record=Get-Content -LiteralPath $receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+                $python=Join-Path (Join-Path $qa 'install') ([string]$record.managed_runtime.python_executable)
+                if(!(Test-Path -LiteralPath $python -PathType Leaf)){throw 'PROBE_PYTHON_MISSING'}
+                $helper=Join-Path $qa 'install/tools/iwxa_desktop_bootstrap.py'
+                if(!(Test-Path -LiteralPath $helper -PathType Leaf)){throw 'PROBE_HELPER_MISSING'}
+                $probeOutput=@(& $python -B $helper --install-root (Join-Path $qa 'install') --port 18789 2>$null)
+                $probeExit=$LASTEXITCODE
+                $last=if($probeOutput.Count){[string]$probeOutput[-1]}else{''}
+                $probe=$last | ConvertFrom-Json -ErrorAction Stop
+                $allowed=@('PORT_OCCUPIED','CORE_TIMEOUT','CORE_EXITED','CORE_DEPENDENCY','CORE_DATA_ACCESS','CORE_POWERSHELL','LOCAL_STATE_UNAVAILABLE','INSTANCE_UNVERIFIED','INSTALL_SETTINGS','UNKNOWN')
+                if($probeExit -eq 0 -and [string]$probe.url -match '^http://127\.0\.0\.1:18789/desktop/#iwxa_bootstrap='){
+                  $diagnostic='BOOTSTRAP_RETRY_SUCCEEDED'
+                }elseif($probeExit -ne 0 -and $allowed -contains [string]$probe.error_code){
+                  $diagnostic='BOOTSTRAP_'+[string]$probe.error_code
+                }else{$diagnostic='BOOTSTRAP_RESPONSE_INVALID'}
+              }catch{
+                $diagnostic='PROBE_UNAVAILABLE'
+              }finally{
+                foreach($key in $keys){[Environment]::SetEnvironmentVariable($key,$prior[$key],'Process')}
+              }
+              Write-Host ('AGENT06_NATIVE_POSTFAIL_DIAGNOSTIC='+$diagnostic)
+            }
             throw 'AGENT06_INSTALLED_NATIVE_GUI_FAIL'
           }
           Write-Host 'AGENT06_INSTALLED_NATIVE_GUI_COLD_PASS'
