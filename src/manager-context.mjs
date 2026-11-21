@@ -78,6 +78,10 @@ export function searchManagerContext(rows, query, limit = 16) {
     .map(hit => hit.row);
 }
 
+/**
+ * @param {any} organization
+ * @param {{today?: string, atlasStatus?: ((reference: any) => string) | null}} [options]
+ */
 export function managerAttention(organization, {today = '', atlasStatus = null} = {}) {
   if (!organization) return [];
   const items = [];
