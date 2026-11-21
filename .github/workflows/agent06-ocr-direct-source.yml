@@ -293,7 +293,6 @@ jobs:
       # Private source, sample PDFs, logs and EXE are never uploaded.
 
   windows-installed-native:
-    needs: windows-core-and-desktop
     runs-on: windows-2022
     timeout-minutes: 75
     env:
@@ -377,6 +376,52 @@ jobs:
           }
           if($exit -ne 0){
             $private=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            if($null -eq $private){$private=''}
+            # Publish only finite stage/failure identifiers, never the private
+            # GUI log, accessibility tree, token, screenshot, or user paths.
+            $trace=@(
+              @('BUTTON_INVOKED=PASS','BUTTON_INVOKED'),
+              @('REACT_PAGE_CHANGED=PASS','REACT_NAVIGATION'),
+              @('TASK_INPUT_VISIBLE=PASS','TASK_INPUT_VISIBLE'),
+              @('TASK_INPUT_EDITABLE=PASS','TASK_INPUT_EDITABLE'),
+              @('CORE_DRAFT_BEFORE_CLOSE=PASS','CORE_DRAFT_BEFORE_CLOSE'),
+              @('CORE_DRAFT_AFTER_REOPEN=PASS','CORE_DRAFT_AFTER_REOPEN'),
+              @('GUI_NATIVE_WINDOW_1=PASS','FIRST_NATIVE_WINDOW'),
+              @('GUI_NATIVE_WINDOW_2=PASS','SECOND_NATIVE_WINDOW'),
+              @('GUI_FIRST_LAUNCH_BLANK=YES','FIRST_LAUNCH_BLANK'),
+              @('GUI_NATIVE_SCREENSHOT_CAPTURED=YES','SCREENSHOT_CAPTURED'),
+              @('GUI_UIA_VISIBLE_NODES=','UIA_VISIBLE_NODES_RECORDED'),
+              @('GUI_DESKTOP_HTTP_STATUS=200','DESKTOP_HTTP_200'),
+              @('GUI_WEBVIEW_PROCESS_COUNT=','WEBVIEW_PROCESS_COUNT_RECORDED')
+            )
+            foreach($entry in $trace){
+              if($private.Contains([string]$entry[0])){
+                Write-Host ('AGENT06_INSTALLED_TRACE='+[string]$entry[1])
+              }
+            }
+            $failures=@(
+              @('BLOCKED_ENVIRONMENT:control_unavailable:Новый запрос','CONTROL_NEW_REQUEST_UNAVAILABLE'),
+              @('BLOCKED_ENVIRONMENT:control_unavailable:New request','CONTROL_NEW_REQUEST_UNAVAILABLE'),
+              @('BLOCKED_ENVIRONMENT:control_unavailable:Текст задачи','CONTROL_TASK_EDITOR_UNAVAILABLE'),
+              @('BLOCKED_ENVIRONMENT:control_unavailable:Task text','CONTROL_TASK_EDITOR_UNAVAILABLE'),
+              @('BLOCKED_ENVIRONMENT:control_unavailable:Работа','CONTROL_WORK_UNAVAILABLE'),
+              @('BLOCKED_ENVIRONMENT:control_unavailable:Work','CONTROL_WORK_UNAVAILABLE'),
+              @('BLOCKED_ENVIRONMENT:control_unavailable:Диалоги','CONTROL_DIALOGUES_UNAVAILABLE'),
+              @('BLOCKED_ENVIRONMENT:control_unavailable:Dialogs','CONTROL_DIALOGUES_UNAVAILABLE'),
+              @('BLOCKED_ENVIRONMENT:control_unavailable:','CONTROL_OTHER_UNAVAILABLE'),
+              @('BLOCKED_ENVIRONMENT:react_page_not_visible:','REACT_PAGE_NOT_VISIBLE'),
+              @('BLOCKED_ENVIRONMENT:draft_value_pattern_unavailable','DRAFT_VALUE_PATTERN_UNAVAILABLE'),
+              @('gui_draft_value_change_not_observed','DRAFT_VALUE_CHANGE_NOT_OBSERVED'),
+              @('gui_native_close_unconfirmed','NATIVE_CLOSE_UNCONFIRMED'),
+              @('gui_first_launch_blank_recovered_but_qualification_failed','FIRST_LAUNCH_BLANK_RECOVERED'),
+              @('BLOCKED_ENVIRONMENT:gui_window_in_other_session','WINDOW_OTHER_SESSION'),
+              @('test_profile_not_empty','PROFILE_NOT_EMPTY')
+            )
+            foreach($entry in $failures){
+              if($private.Contains([string]$entry[0])){
+                Write-Host ('AGENT06_INSTALLED_FAILURE_DETAIL='+[string]$entry[1])
+              }
+            }
             $known=@(
               'gui_managed_python_capsule_failed','gui_original_u01_sources_failed',
               'gui_native_package_failed','gui_package_install_failed',
