@@ -1,0 +1,61 @@
+name: D01 canonical LF contract on Linux and Windows
+on:
+  push:
+    branches: [qa/2026-11-21-d01-hosting-package]
+    paths: [.github/workflows/d01-learn-lf-qualification.yml]
+permissions:
+  contents: read
+jobs:
+  canonical-eol:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Reproduce Windows checkout conversion and prove canonical LF
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          const {execFileSync}=require('node:child_process');
+          const {mkdtempSync,mkdirSync,writeFileSync,readFileSync}=require('node:fs');
+          const {tmpdir}=require('node:os');
+          const {join}=require('node:path');
+          const {createHash}=require('node:crypto');
+          const root=mkdtempSync(join(tmpdir(),'d01-eol-repro-'));
+          const source=join(root,'src');
+          const checkout=join(root,'checkout');
+          const git=(...args)=>execFileSync('git',args,{stdio:'pipe',encoding:'utf8'});
+          mkdirSync(source);
+          git('init','--quiet',source);
+          git('-C',source,'config','user.email','d01@example.invalid');
+          git('-C',source,'config','user.name','D01 CI');
+          mkdirSync(join(source,'_iwxa','services'),{recursive:true});
+          writeFileSync(join(source,'.gitattributes'),
+            '/_iwxa/service-catalog.json text eol=lf\n'+
+            '/_iwxa/services/*.json text eol=lf\n'+
+            '/t2/service-passports/*.json text eol=lf\n'+
+            '/scripts/t2-candidates/services/*.json text eol=lf\n');
+          const passport='{\n  "service_id": "ru.iwxa.learn.workspace"\n}\n';
+          const hash=b=>createHash('sha256').update(b).digest('hex');
+          writeFileSync(join(source,'_iwxa','services','ru.iwxa.learn.workspace.json'),passport);
+          writeFileSync(join(source,'control.json'),passport);
+          git('-C',source,'add','.');
+          git('-C',source,'commit','-qm','fixture');
+          git('-c','core.autocrlf=true','clone','--quiet',source,checkout);
+          const passportOnDisk=readFileSync(join(checkout,'_iwxa','services','ru.iwxa.learn.workspace.json'));
+          const controlOnDisk=readFileSync(join(checkout,'control.json'));
+          if(!passportOnDisk.equals(Buffer.from(passport,'utf8')))
+            throw Error('D01_LF_ATTR_FAILED');
+          if(!controlOnDisk.includes(13)||controlOnDisk.equals(Buffer.from(passport,'utf8')))
+            throw Error('D01_CRLF_REPRODUCTION_FAILED');
+          if(hash(passportOnDisk)!==hash(Buffer.from(passport,'utf8')))
+            throw Error('D01_LF_CHECKSUM_CHANGED');
+          console.log('D01_WINDOWS_LINUX_EOL_FIXTURE=PASS');
+          console.log('D01_CONTROL_CRLF=YES D01_PASSPORT_LF=YES');
+          '@ | Set-Content -Encoding utf8 -Path "$env:RUNNER_TEMP/d01-eol-repro.cjs"
+          node "$env:RUNNER_TEMP/d01-eol-repro.cjs"
