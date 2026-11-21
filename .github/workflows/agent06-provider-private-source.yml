@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 35
     env:
-      AGENT06_PRIVATE_PIN: '305cdec655f917ffb9dd17b66120f2fb4c78e8b7'
+      AGENT06_PRIVATE_PIN: '6d8e6fe31d4e9c6f662d4cbf721d3d5b06048811'
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
