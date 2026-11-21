@@ -16,7 +16,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 100
     env:
-      AGENT_PIN: f1c5322e58230dc8f577f5bc447f9bb5dd042eef
+      AGENT_PIN: 267fc7ce2e6e4dbe46b81b11398d257d94c853ca
       SETUP_PIN: c10e193846a0ea4c73cabe3744aa7db82439d54e
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
@@ -97,7 +97,7 @@ jobs:
         run: |
           Push-Location private-agent/desktop
           try {
-            & node.exe --test tests/native-setup-optional-args.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-option-test-private.txt')
+            & node.exe --test tests/native-setup-optional-args.test.mjs tests/native-gui-qa-labels.test.mjs tests/native-acl-manifest.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-option-test-private.txt')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_OPTIONAL_POWERSHELL_ARG_TEST_FAIL'}
             Write-Host 'AGENT06_OPTIONAL_POWERSHELL_ARG_TEST_PASS'
           } finally {Pop-Location}
@@ -149,6 +149,112 @@ jobs:
             foreach($item in $diagnosis){
               if($private.Contains([string]$item[0])){
                 Write-Host ('AGENT06_SETUP_ERROR_SHAPE='+[string]$item[1])
+              }
+            }
+            # Original Setup Core writes a finite installation witness under
+            # the isolated fixture even when its exit code is nonzero.
+            # Report ONLY strictly enumerated phases/codes, not raw private log.
+            $acceptLog=Join-Path $out 'logs/public-test-local-result.txt'
+            $accept=Get-Content -LiteralPath $acceptLog -Raw -ErrorAction SilentlyContinue
+            if($accept){
+              $markers=@('IWXA_SETUP_LOCAL_RUNTIME_WITNESS_PASS',
+                'IWXA_SETUP_LOCAL_NATIVE_INSTALL_AND_PRESERVE_PASS',
+                'IWXA_SETUP_LOCAL_REPAIR_AND_CONFIRM_PASS')
+              foreach($marker in $markers){
+                if($accept.Contains($marker)){Write-Host ('AGENT06_SETUP_ACCEPT_STAGE='+$marker)}
+              }
+            }
+            $witnessPath=Join-Path $out 'temporary-installed-fixture/installed-witness.json'
+            Write-Host ('AGENT06_SETUP_WITNESS_PRESENT='+[int](Test-Path -LiteralPath $witnessPath -PathType Leaf))
+            if(Test-Path -LiteralPath $witnessPath -PathType Leaf){
+              try {
+                $receipt=Get-Content -LiteralPath $witnessPath -Raw -Encoding UTF8|ConvertFrom-Json -ErrorAction Stop
+                $allowedPhases=@('SHORTCUT_READBACK','COLD_GUI_BOOT','FIRST_CORE','CORE_QUERIES',
+                  'DRAFT_CREATE','GUI_DRAFT_EDIT','GUI_DRAFT_READBACK','QWEN_EXECUTE',
+                  'COLD_RESTART','COLD_CORE_QUERIES','GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT',
+                  'GUI_RESULT','GUI_TASK_SUBMIT','GUI_TASK_RESULT','GUI_TASK_REVIEW',
+                  'GUI_TASK_REVIEW_READBACK','GUI_COLD_RESTART','GUI_COLD_IMPORT',
+                  'K03_TASK_EXECUTE','K03_TASK_COLD_RESTART','K03_TASK_COLD_READBACK',
+                  'CLEAN_STOP','WITNESS_RECEIPT')
+                if([string]$receipt.status -in @('PASS','FAIL')){
+                  Write-Host ('AGENT06_SETUP_WITNESS_STATUS='+[string]$receipt.status)
+                }
+                if([string]$receipt.phase -cin $allowedPhases){
+                  Write-Host ('AGENT06_SETUP_WITNESS_PHASE='+[string]$receipt.phase)
+                }
+                # The private owner restricts failure_code to a finite enum.
+                # Only programmatic enum tokens may be published.
+                foreach($field in @('failure_code','last_operation','last_checkpoint',
+                    'background_state','background_error_class')){
+                  $value=[string]$receipt.$field
+                  if($value -cmatch '^[A-Z][A-Z0-9_]{2,95}              STUB_EXE=(Join-Path $out 'build/IWXA Personal Setup.stub.exe')
+              NATIVE_STAGE_LOG=(Join-Path $out 'logs/native-setup-build.json')
+              PYTHON_STAGE_LOG=(Join-Path $out 'logs/test-python-bootstrap.log')
+              NATIVE_STAGE_RESULT=(Join-Path $out 'logs/private-build-result.json')
+              MANAGED_PYTHON=(Join-Path $out 'build/test-python/current-python.txt')
+            }
+            foreach($key in @('STUB_EXE','NATIVE_STAGE_LOG','PYTHON_STAGE_LOG','NATIVE_STAGE_RESULT','MANAGED_PYTHON')){
+              Write-Host ('AGENT06_SETUP_STAGE_'+$key+'='+([int](Test-Path -LiteralPath $stages[$key] -PathType Leaf)))
+            }
+            $nativeCodes=@(
+              'native_setup_source_root_missing','native_setup_sources_incomplete',
+              'native_setup_csc_missing','native_setup_icon_missing',
+              'native_setup_reference_missing','native_setup_compile_failed',
+              'native_candidate_stub_compile_failed','native_candidate_test_python_failed',
+              'native_candidate_test_python_missing','native_candidate_npm_missing',
+              'native_candidate_rust_toolchain_missing','native_candidate_frontend_dependencies_failed',
+              'native_candidate_tauri_build_failed','native_candidate_rust_test_compile_failed',
+              'native_candidate_powershell_missing','private_setup_git_identity_failed',
+              'private_setup_native_product_package_build_failed'
+            )
+            $scan=@($log,$stages['NATIVE_STAGE_LOG'],$stages['PYTHON_STAGE_LOG'],$stages['NATIVE_STAGE_RESULT'])
+            foreach($file in $scan){
+              $raw=Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue
+              if([string]::IsNullOrEmpty($raw)){continue}
+              foreach($code in $nativeCodes){
+                if($raw.Contains($code)){
+                  Write-Host ('AGENT06_SETUP_NATIVE_CODE='+$code.ToUpperInvariant())
+                }
+              }
+              foreach($errorId in @([regex]::Matches($raw,'(?i)(?<![A-Z0-9])(?:error CS|error TS)\d{4}(?!\d)') |
+                  Select-Object -First 6)){
+                Write-Host ('AGENT06_SETUP_COMPILER_CODE='+$errorId.Value.Replace(' ','_').ToUpperInvariant())
+              }
+            }
+            $observed=0
+            foreach($key in $safe){
+              if($private.Contains($key)){
+                Write-Host ('AGENT06_PERSONAL_SETUP_FAILURE_CLASS='+$key.ToUpperInvariant())
+                $observed++
+              }
+            }
+            if($observed -eq 0){Write-Host 'AGENT06_PERSONAL_SETUP_FAILURE_CLASS=OTHER'}
+            throw 'AGENT06_PERSONAL_SETUP_FULL_ACCEPTANCE_FAIL'
+          }
+          $setupExe=Join-Path $out 'IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $setupExe -PathType Leaf)){throw 'AGENT06_PERSONAL_SETUP_EXE_NOT_BUILT'}
+          Write-Host 'AGENT06_PERSONAL_SETUP_REAL_QWEN_REVIEW_COLD_REPAIR_ROLLBACK_PASS'
+      # Exact private sources, user data, model logs, executable and Qwen results
+      # stay on the disposable Windows runner. Do not upload artifacts.
+){
+                    Write-Host ('AGENT06_SETUP_WITNESS_'+$field.ToUpperInvariant()+'='+$value)
+                  }
+                }
+              } catch {
+                Write-Host 'AGENT06_SETUP_WITNESS_UNREADABLE'
+              }
+            }
+            $knownAcceptCodes=@('SETUP_LOCAL_WITNESS_EXIT_FAILED',
+                'SETUP_LOCAL_WITNESS_TIMEOUT','SETUP_LOCAL_WITNESS_RECEIPT_MISSING',
+                'SETUP_LOCAL_WITNESS_READBACK_INVALID',
+                'SETUP_LOCAL_ACTIVATION_INVALID','SETUP_LOCAL_ON_DISK_IDENTITY_INVALID',
+                'SETUP_LOCAL_NATIVE_FAILED_INSTALL','SETUP_LOCAL_NATIVE_FAILED_REPAIR',
+                'SETUP_LOCAL_REPAIR_NOT_ACTIVATED','SETUP_LOCAL_REPAIR_READBACK_INVALID',
+                'SETUP_LOCAL_REPAIR_CONFIRM_OR_USER_DATA_LOST',
+                'SETUP_LOCAL_UNINSTALL_OR_DATA_LOSS')
+            foreach($code in $knownAcceptCodes){
+              if($private.Contains($code)){
+                Write-Host ('AGENT06_SETUP_ACCEPT_FAILURE_CLASS='+$code)
               }
             }
             $stages=@{
