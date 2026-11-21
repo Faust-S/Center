@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      AGENT_PIN: 65200a372bf6f6d0af19b210d9b4ac17f7767f27
+      AGENT_PIN: ff251c62ed7b5c27896114f2b2283e25b0394f00
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -137,6 +137,7 @@ jobs:
             tests/office-personal-file-picker-ui.test.mjs \
             tests/native-acl-manifest.test.mjs \
             tests/native-gui-qa-labels.test.mjs \
+            tests/native-setup-optional-args.test.mjs \
             >"$RUNNER_TEMP/agent06-node-private.txt" 2>&1
           node_status=$?
           if [ "$node_status" -eq 0 ]; then
@@ -176,7 +177,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 40
     env:
-      AGENT_PIN: 65200a372bf6f6d0af19b210d9b4ac17f7767f27
+      AGENT_PIN: ff251c62ed7b5c27896114f2b2283e25b0394f00
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -220,7 +221,7 @@ jobs:
           try{
             & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-win-npm-private.txt')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_WINDOWS_NPM_INSTALL_FAIL'}
-            & node --test tests/agent06-files-to-ocr-task.test.mjs tests/pdf-ocr-readback.test.mjs tests/office-pdf-ocr-readback.test.mjs tests/office-pdf-ocr-proposal.test.mjs tests/office-task-entry.test.mjs tests/native-acl-manifest.test.mjs tests/native-gui-qa-labels.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-win-node-private.txt')
+            & node --test tests/agent06-files-to-ocr-task.test.mjs tests/pdf-ocr-readback.test.mjs tests/office-pdf-ocr-readback.test.mjs tests/office-pdf-ocr-proposal.test.mjs tests/office-task-entry.test.mjs tests/native-acl-manifest.test.mjs tests/native-gui-qa-labels.test.mjs tests/native-setup-optional-args.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-win-node-private.txt')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_WINDOWS_NODE_OCR_FAIL'}
             Write-Host 'AGENT06_WINDOWS_NODE_OCR_PASS'
             & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-win-build-private.txt')
@@ -233,7 +234,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      AGENT_PIN: 65200a372bf6f6d0af19b210d9b4ac17f7767f27
+      AGENT_PIN: ff251c62ed7b5c27896114f2b2283e25b0394f00
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -297,7 +298,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 75
     env:
-      AGENT_PIN: 65200a372bf6f6d0af19b210d9b4ac17f7767f27
+      AGENT_PIN: ff251c62ed7b5c27896114f2b2283e25b0394f00
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
