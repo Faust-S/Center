@@ -146,7 +146,7 @@ jobs:
           if(-not [string]::IsNullOrWhiteSpace($env:PRIVATE_RELEASE_TOKEN)){
             $env:GH_TOKEN=$env:PRIVATE_RELEASE_TOKEN
             $ErrorActionPreference='Continue'
-            & gh release create $tag $exe $sum -R $repo --target $env:AGENT_PIN --title 'IWXA Personal Agent 0.6.0' --notes-file $notes --latest=false *> (Join-Path $env:RUNNER_TEMP 'agent06-private-publish.txt')
+            & gh release create $tag $exe $sum -R $repo --target $env:AGENT_PIN --title 'IWXA Personal Agent 0.6.0' --notes-file $notes *> (Join-Path $env:RUNNER_TEMP 'agent06-private-publish.txt')
             $code=$LASTEXITCODE
             $ErrorActionPreference='Stop'
             if($code -eq 0){$privatePublished=$true}
