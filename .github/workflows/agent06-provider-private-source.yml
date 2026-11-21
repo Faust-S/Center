@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 35
     env:
-      AGENT06_PRIVATE_PIN: '3873881e423117bb75f27781b0fc1b11428930c4'
+      AGENT06_PRIVATE_PIN: 'e89befc29f8879b211b98ac5132192464aba4765'
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -61,7 +61,7 @@ jobs:
           try{
             $log = Join-Path $env:RUNNER_TEMP 'agent06-provider-tests-private.log'
             $xml = Join-Path $env:RUNNER_TEMP 'agent06-provider-tests-private.xml'
-            & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) tests/test_agent06_remote_api_provider_profiles.py tests/test_model_limit_enforcement.py tests/test_model_provider_registry.py tests/test_agent06_yandex_mailru_tool_provider.py tests/test_agent06_dav_multistatus.py tests/test_agent06_dav_original_tool_provider.py tests/test_agent06_account_binding_port.py tests/test_agent06_saved_online_accounts.py *> $log
+            & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) tests/test_agent06_remote_api_provider_profiles.py tests/test_model_limit_enforcement.py tests/test_model_provider_registry.py tests/test_agent06_yandex_mailru_tool_provider.py tests/test_agent06_dav_multistatus.py tests/test_agent06_dav_original_tool_provider.py tests/test_agent06_account_binding_port.py tests/test_agent06_saved_online_accounts.py tests/test_agent06_current_online_surface.py *> $log
             $exitCode = $LASTEXITCODE
             if(Test-Path -LiteralPath $xml){
               [xml]$doc = Get-Content -LiteralPath $xml -Raw
@@ -83,5 +83,27 @@ jobs:
             }
             if($exitCode -ne 0){throw 'AGENT06_PROVIDER_SOURCE_TESTS_FAILED'}
             Write-Host 'AGENT06_PROVIDER_SOURCE_TESTS_PASS'
+          }finally{Pop-Location}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check current online account UI using original Desktop build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location private-agent/desktop
+          try{
+            $deps = Join-Path $env:RUNNER_TEMP 'agent06-online-ui-deps-private.log'
+            & npm ci --no-audit --no-fund *> $deps
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_ONLINE_UI_DEPENDENCIES_FAILED'}
+            Write-Host 'AGENT06_ONLINE_UI_DEPENDENCIES_PASS'
+            $testLog = Join-Path $env:RUNNER_TEMP 'agent06-online-ui-node-private.log'
+            & node --test tests/agent06-current-online-accounts.test.mjs *> $testLog
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_ONLINE_UI_NODE_FAILED'}
+            Write-Host 'AGENT06_ONLINE_UI_NODE_PASS'
+            $buildLog = Join-Path $env:RUNNER_TEMP 'agent06-online-ui-build-private.log'
+            & npm run build *> $buildLog
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_ONLINE_UI_BUILD_FAILED'}
+            Write-Host 'AGENT06_ONLINE_UI_TYPESCRIPT_VITE_PASS'
           }finally{Pop-Location}
       # No private artifacts, cache, raw test traces or compiled app upload.
