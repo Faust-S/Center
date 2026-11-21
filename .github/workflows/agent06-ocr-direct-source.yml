@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      AGENT_PIN: 0a99bd8e5fa428fd3439f9f3d835a39e0cc24bcf
+      AGENT_PIN: 78a5ec291f0123c90b5491a0d49965700170fe98
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -125,7 +125,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 40
     env:
-      AGENT_PIN: 0a99bd8e5fa428fd3439f9f3d835a39e0cc24bcf
+      AGENT_PIN: 78a5ec291f0123c90b5491a0d49965700170fe98
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -177,3 +177,51 @@ jobs:
             Write-Host 'AGENT06_WINDOWS_TYPESCRIPT_VITE_PASS'
           } finally {Pop-Location}
       # Intentionally no artifacts, private source, user data, logs or PDF uploads.
+
+  linux-real-ocr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      AGENT_PIN: 78a5ec291f0123c90b5491a0d49965700170fe98
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_NO_CACHE_DIR: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_PIN }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install native OCR and original runtime
+        run: |
+          test "$(git -C private-agent rev-parse HEAD)" = "$AGENT_PIN" || exit 1
+          sudo apt-get update >"$RUNNER_TEMP/ocr-apt-private.txt" 2>&1
+          sudo apt-get install -y ghostscript tesseract-ocr >>"$RUNNER_TEMP/ocr-apt-private.txt" 2>&1 || {
+            echo "AGENT06_REAL_OCR_NATIVE_DEPENDENCY_FAIL"; exit 1;
+          }
+          python -m pip install -r private-agent/requirements-ci.txt -r private-agent/requirements.txt ocrmypdf==17.14.2 >"$RUNNER_TEMP/ocr-pip-private.txt" 2>&1 || {
+            echo "AGENT06_REAL_OCR_PYTHON_DEPENDENCY_FAIL"; exit 1;
+          }
+          echo "AGENT06_REAL_OCR_EXECUTOR_READY"
+      - name: Execute actual OCRmyPDF through original Agent U01 and two cold processes
+        working-directory: private-agent
+        run: |
+          python -B -m pytest -q -p no:cacheprovider tests/test_agent06_pdf_ocr_direct_real_e2e.py >"$RUNNER_TEMP/ocr-real-test-private.txt" 2>&1 || {
+            echo "AGENT06_REAL_DIRECT_OCR_U01_COLD_FAIL"
+            for marker in REAL_OCR_MY_PDF_EXECUTABLE_MISSING REAL_OCR_GHOSTSCRIPT_MISSING REAL_OCR_TESSERACT_MISSING REAL_DIRECT_OCR_COLD_READBACK_FAILED ocr_source_not_full_scan ocr_u01_outcome_unconfirmed ocr_output_coverage_invalid; do
+              if grep -q "$marker" "$RUNNER_TEMP/ocr-real-test-private.txt"; then
+                echo "AGENT06_REAL_OCR_ERROR_CLASS=$marker"
+              fi
+            done
+            exit 1
+          }
+          echo "AGENT06_REAL_DIRECT_OCR_U01_COLD_PASS"
+      # Private source, sample PDFs, logs and EXE are never uploaded.
