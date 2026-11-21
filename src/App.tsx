@@ -19,7 +19,7 @@ type AtlasPortfolioView = {source:string;revision:string;authorization:string;mo
 type AtlasCopyDelta={previousRevision:string;revision:string;sharedProjects:number;addedProjects:number;removedProjects:number;changedProjects:number;addedWorks:number;removedWorks:number;changedWorks:number;changedDependencies:number;revisionRelation:string;contentChanged:boolean};
 type Editor = {sourceResultRef:SourceResultRef|null;assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
 type Page = 'overview'|'context'|'work'|'results'|'resources'|'people'|'programs'|'data';
-const pages: [Page, string, string][] = [['overview','Главная','◫'],['context','Контекст организации','◎'],['work','Поручения','☷'],['results','Результаты и решения','▤'],['people','Сотрудники и роли','♧'],['resources','Планы и области','◇'],['programs','Personal Agent и лицензии','▦'],['data','Данные и настройки','⚙']];
+const pages: [Page, string, string][] = [['overview','Обзор','◫'],['context','Контекст организации','◎'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['resources','Планы Atlas','◇'],['programs','Personal Agent и лицензии','▦'],['data','Данные и настройки','⚙']];
 const workStatusLabels:Record<string,string>={
   NOT_OBSERVED:'Источник Atlas не открыт - редакция не проверена.',
   WORK_NOT_LINKED:'В поручении пока не выбрана работа Atlas.',
