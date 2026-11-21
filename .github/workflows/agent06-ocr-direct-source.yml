@@ -1,0 +1,445 @@
+name: Agent 0.6 direct PDF OCR integration qualification
+on:
+  push:
+    branches:
+      - work/2026-11-21-agent06-ocr-direct-source-qualification
+    paths:
+      - .github/workflows/agent06-ocr-direct-source.yml
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/agent06-ocr-direct-source.yml
+permissions:
+  contents: read
+concurrency:
+  group: agent06-ocr-direct-source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  linux-core-and-desktop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      AGENT_PIN: 32bc9e09227f80862db3f58b16aa7610ae2412e6
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_NO_CACHE_DIR: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check read-only private access
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if [ -z "$PRIVATE_SOURCE_TOKEN" ]; then
+            echo "AGENT06_PRIVATE_SOURCE_TOKEN_MISSING"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_PIN }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact source revision
+        run: |
+          test "$(git -C private-agent rev-parse HEAD)" = "$AGENT_PIN" || exit 1
+          echo "AGENT06_PINNED_SOURCE_CONFIRMED"
+      - name: Install exact dependencies privately
+        run: |
+          python -m pip install -r private-agent/requirements-ci.txt -r private-agent/requirements.txt >"$RUNNER_TEMP/agent-pip-private.txt" 2>&1 || {
+            echo "AGENT06_DEPENDENCIES_FAIL"; exit 1;
+          }
+          echo "AGENT06_DEPENDENCIES_PASS"
+      - name: Run real Python OCR integration and original Task ToolRuntime tests
+        working-directory: private-agent
+        run: |
+          set +e
+          python -B -m pytest -q -p no:cacheprovider \
+            tests/test_agent06_pdf_ocr_combined_e2e.py \
+            tests/test_agent06_pdf_ocr_local_files_integration.py \
+            tests/test_agent06_pdf_ocr_policy_binding.py \
+            tests/test_agent06_local_files_move_no_clobber.py \
+            tests/test_local_document_text_v3.py \
+            --junitxml="$RUNNER_TEMP/agent06-py-private.xml" \
+            >"$RUNNER_TEMP/agent06-py-private.txt" 2>&1
+          code=$?
+          if [ "$code" -eq 0 ]; then
+            echo "AGENT06_PYTHON_OCR_INTEGRATION_PASS"
+          else
+            echo "AGENT06_PYTHON_OCR_INTEGRATION_FAIL"
+            python - <<'PY'
+          import hashlib, os, xml.etree.ElementTree as ET
+          path=os.environ.get("RUNNER_TEMP", "")+"/agent06-py-private.xml"
+          if os.path.isfile(path):
+              for case in ET.parse(path).iter("testcase"):
+                  failure=case.find("failure")
+                  if failure is None: failure=case.find("error")
+                  if failure is None: continue
+                  code=hashlib.sha256((case.get("name") or "").encode()).hexdigest()[:10]
+                  message=(failure.get("message") or "")
+                  text=(message+" "+(failure.text or "")[-700:])
+                  accepted=("AssertionError","ValueError","KeyError","TypeError",
+                      "ToolDenied","ToolExecutionError","AttributeError",
+                      "OfficeOcrError","LocalFileError","FileNotFoundError",
+                      "ModuleNotFoundError","RuntimeError","SyntaxError")
+                  kind=next((name for name in accepted if name in message),None)
+                  if not kind:
+                      import re
+                      kind=next((name for name in accepted
+                                 if re.search(r"(?m)^E\s+(?:\w+\.)?"+name+r"\b",text)),"OTHER")
+                  markers=("office_ocr_source_work_area_changed",
+                      "office_ocr_source_task_invalid",
+                      "office_ocr_existing_task_conflict",
+                      "ocr_u01_outcome_unconfirmed",
+                      "ocr_source_not_full_scan",
+                      "ocr_executable_unavailable",
+                      "ocr_published_readback_mismatch")
+                  marker=next((m for m in markers if m in message),"UNSPECIFIED")
+                  if marker=="UNSPECIFIED":
+                      import re
+                      candidates=re.findall(r"\bocr_[a-z0-9_]{3,75}\b",(failure.text or "")[-2600:])
+                      marker=candidates[-1] if candidates else "UNSPECIFIED"
+                  print("AGENT06_FAILED_TEST_HASH="+code)
+                  print("AGENT06_FAILURE_CLASS="+kind)
+                  print("AGENT06_FAILURE_MARKER="+marker)
+                  evidence=(failure.text or "")
+                  safe=re.findall(r"ToolExecutionError:\s*([a-zA-Z0-9_]{3,100})",evidence)
+                  if safe: print("AGENT06_PROVIDER_CODE="+safe[-1])
+                  elif kind=="ToolExecutionError": print("AGENT06_PROVIDER_CODE=NOT_EXTRACTED")
+          PY
+          fi
+          if [ "$code" -ne 0 ]; then touch "$RUNNER_TEMP/agent06-py-failed"; fi
+          exit 0
+      - name: Run real Node OCR tests and full desktop TypeScript/Vite build
+        working-directory: private-agent/desktop
+        run: |
+          set +e
+          npm ci --no-audit --no-fund >"$RUNNER_TEMP/agent06-npm-private.txt" 2>&1 || {
+            echo "AGENT06_NPM_INSTALL_FAIL"; exit 1;
+          }
+          node --test \
+            tests/agent06-files-to-ocr-task.test.mjs \
+            tests/pdf-ocr-readback.test.mjs \
+            tests/office-pdf-ocr-readback.test.mjs \
+            tests/office-pdf-ocr-proposal.test.mjs \
+            tests/office-task-entry.test.mjs \
+            tests/office-personal-file-picker.test.mjs \
+            tests/office-personal-file-picker-ui.test.mjs \
+            >"$RUNNER_TEMP/agent06-node-private.txt" 2>&1
+          node_status=$?
+          if [ "$node_status" -eq 0 ]; then
+            echo "AGENT06_NODE_OCR_UI_PASS"
+          else
+            echo "AGENT06_NODE_OCR_UI_FAIL"
+            echo "AGENT06_NODE_FAIL_COUNT=$(grep -c '^not ok ' "$RUNNER_TEMP/agent06-node-private.txt" || true)"
+            python - <<'PY'
+          import os,re,hashlib
+          data=open(os.path.join(os.environ["RUNNER_TEMP"],"agent06-node-private.txt"),encoding="utf-8",errors="replace").read()
+          for name in re.findall(r"(?m)^not ok\s+\d+\s+-\s+([^\r\n]+)",data):
+              print("AGENT06_NODE_FAILED_TEST_HASH="+hashlib.sha256(name.encode()).hexdigest()[:10])
+          PY
+          fi
+          npm run build >"$RUNNER_TEMP/agent06-typescript-private.txt" 2>&1
+          build_status=$?
+          if [ "$build_status" -eq 0 ]; then
+            echo "AGENT06_TYPESCRIPT_VITE_PASS"
+          else
+            echo "AGENT06_TYPESCRIPT_VITE_FAIL"
+            python - <<'PY'
+          import os,re
+          log=open(os.path.join(os.environ["RUNNER_TEMP"],"agent06-typescript-private.txt"),encoding="utf-8",errors="replace").read()
+          for path,line,col,code in re.findall(r"(?m)([^\n()]+)\((\d+),(\d+)\): error (TS\d{4,5})",log)[:15]:
+              base=path.split("/")[-1].split("\\\\")[-1]
+              labels={"workbench.tsx":"WORKBENCH","document-workflow.tsx":"DOCUMENT_WORKFLOW",
+                      "office-pdf-ocr-proposal.tsx":"OCR_PROPOSAL","office-pdf-ocr-task.tsx":"OCR_TASK",
+                      "task-actions-panel.tsx":"TASK_ACTIONS","files-control.tsx":"FILES"}
+              print("AGENT06_TS_LOCATION="+labels.get(base,"OTHER")+":"+line+":"+code)
+          PY
+          fi
+          test "$node_status" -eq 0 && test "$build_status" -eq 0 && test ! -f "$RUNNER_TEMP/agent06-py-failed"
+
+  windows-core-and-desktop:
+    needs: linux-core-and-desktop
+    if: ${{ always() }}
+    runs-on: windows-2022
+    timeout-minutes: 40
+    env:
+      AGENT_PIN: 32bc9e09227f80862db3f58b16aa7610ae2412e6
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_NO_CACHE_DIR: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_PIN }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify source and install dependencies
+        shell: pwsh
+        run: |
+          if(((& git -C private-agent rev-parse HEAD).Trim()) -cne $env:AGENT_PIN){throw 'AGENT06_WINDOWS_SOURCE_MISMATCH'}
+          & python -m pip install -r private-agent/requirements-ci.txt -r private-agent/requirements.txt *> (Join-Path $env:RUNNER_TEMP 'agent06-win-pip-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_WINDOWS_PY_DEPENDENCIES_FAIL'}
+          Write-Host 'AGENT06_WINDOWS_DEPENDENCIES_PASS'
+      - name: Real Windows Python original OCR and ToolRuntime regression
+        shell: pwsh
+        run: |
+          Push-Location private-agent
+          try{
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_pdf_ocr_combined_e2e.py tests/test_agent06_pdf_ocr_local_files_integration.py tests/test_agent06_pdf_ocr_policy_binding.py tests/test_agent06_local_files_move_no_clobber.py *> (Join-Path $env:RUNNER_TEMP 'agent06-win-py-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_WINDOWS_PYTHON_OCR_FAIL'}
+            Write-Host 'AGENT06_WINDOWS_PYTHON_OCR_PASS'
+          } finally {Pop-Location}
+      - name: Real Windows desktop OCR Node and TypeScript/Vite
+        shell: pwsh
+        run: |
+          Push-Location private-agent/desktop
+          try{
+            & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'agent06-win-npm-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_WINDOWS_NPM_INSTALL_FAIL'}
+            & node --test tests/agent06-files-to-ocr-task.test.mjs tests/pdf-ocr-readback.test.mjs tests/office-pdf-ocr-readback.test.mjs tests/office-pdf-ocr-proposal.test.mjs tests/office-task-entry.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-win-node-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_WINDOWS_NODE_OCR_FAIL'}
+            Write-Host 'AGENT06_WINDOWS_NODE_OCR_PASS'
+            & npm.cmd run build *> (Join-Path $env:RUNNER_TEMP 'agent06-win-build-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_WINDOWS_TYPESCRIPT_VITE_FAIL'}
+            Write-Host 'AGENT06_WINDOWS_TYPESCRIPT_VITE_PASS'
+          } finally {Pop-Location}
+      # Intentionally no artifacts, private source, user data, logs or PDF uploads.
+
+  linux-real-ocr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      AGENT_PIN: 32bc9e09227f80862db3f58b16aa7610ae2412e6
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_NO_CACHE_DIR: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_PIN }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install native OCR and original runtime
+        run: |
+          test "$(git -C private-agent rev-parse HEAD)" = "$AGENT_PIN" || exit 1
+          sudo apt-get update >"$RUNNER_TEMP/ocr-apt-private.txt" 2>&1
+          sudo apt-get install -y ghostscript tesseract-ocr >>"$RUNNER_TEMP/ocr-apt-private.txt" 2>&1 || {
+            echo "AGENT06_REAL_OCR_NATIVE_DEPENDENCY_FAIL"; exit 1;
+          }
+          python -m pip install -r private-agent/requirements-ci.txt -r private-agent/requirements.txt ocrmypdf==17.14.2 >"$RUNNER_TEMP/ocr-pip-private.txt" 2>&1 || {
+            echo "AGENT06_REAL_OCR_PYTHON_DEPENDENCY_FAIL"; exit 1;
+          }
+          echo "AGENT06_REAL_OCR_EXECUTOR_READY"
+      - name: Execute actual OCRmyPDF through original Agent U01 and two cold processes
+        working-directory: private-agent
+        run: |
+          python -B -m pytest -q -p no:cacheprovider tests/test_agent06_pdf_ocr_direct_real_e2e.py >"$RUNNER_TEMP/ocr-real-test-private.txt" 2>&1 || {
+            echo "AGENT06_REAL_DIRECT_OCR_U01_COLD_FAIL"
+            python - <<'PY'
+          import os,re
+          text=open(os.path.join(os.environ["RUNNER_TEMP"],"ocr-real-test-private.txt"),encoding="utf-8",errors="replace").read()
+          matches=re.findall(r"(?m)^E\s+([^\n]+)",text)
+          tail=matches[-1] if matches else ""
+          allowed=("AssertionError","ValueError","KeyError","TypeError",
+                   "ToolDenied","ToolExecutionError","OfficeOcrError",
+                   "LocalFileError","DocumentOperationError","AttributeError")
+          kind=next((name for name in allowed if name in tail),"OTHER")
+          markers=("REAL_OCR_MY_PDF_EXECUTABLE_MISSING","REAL_OCR_GHOSTSCRIPT_MISSING",
+                   "REAL_OCR_TESSERACT_MISSING","REAL_DIRECT_OCR_COLD_READBACK_FAILED",
+                   "ocr_source_not_full_scan","ocr_u01_outcome_unconfirmed",
+                   "ocr_output_coverage_invalid","U01_OCR_NOT_ACKNOWLEDGED")
+          code=next((m for m in markers if m in tail),"UNSPECIFIED")
+          print("AGENT06_REAL_OCR_FAILURE_CLASS="+kind)
+          print("AGENT06_REAL_OCR_FAILURE_MARKER="+code)
+          tokens=re.findall(r"\bocr_[a-z0-9_]{3,80}\b",text[-2600:])
+          if tokens: print("AGENT06_REAL_OCR_CODE="+tokens[-1])
+          status=re.findall(r"ToolExecutionError:\s*([a-zA-Z0-9_]{3,100})",text)
+          if status: print("AGENT06_REAL_PROVIDER_CODE="+status[-1])
+          PY
+            exit 1
+          }
+          echo "AGENT06_REAL_DIRECT_OCR_U01_COLD_PASS"
+      # Private source, sample PDFs, logs and EXE are never uploaded.
+
+  windows-installed-native:
+    needs: windows-core-and-desktop
+    runs-on: windows-2022
+    timeout-minutes: 75
+    env:
+      AGENT_PIN: 32bc9e09227f80862db3f58b16aa7610ae2412e6
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_NO_CACHE_DIR: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_PIN }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify original Agent source and installed Python requirements
+        shell: pwsh
+        run: |
+          $actual=(& git -C private-agent rev-parse HEAD).Trim()
+          if($actual -cne $env:AGENT_PIN){throw 'AGENT06_INSTALLED_SOURCE_MISMATCH'}
+          & python -m pip install -r private-agent/requirements-ci.txt -r private-agent/requirements.txt *> (Join-Path $env:RUNNER_TEMP 'installed-pip-private.txt')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_INSTALLED_PYTHON_DEPENDENCIES_FAIL'}
+          Write-Host 'AGENT06_INSTALLED_PYTHON_DEPENDENCIES_PASS'
+      - name: Build original Tauri Windows desktop
+        shell: pwsh
+        timeout-minutes: 35
+        run: |
+          Push-Location private-agent/desktop
+          try {
+            & npm.cmd ci --no-audit --no-fund *> (Join-Path $env:RUNNER_TEMP 'installed-npm-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_INSTALLED_NPM_FAIL'}
+            & npm.cmd run tauri:build *> (Join-Path $env:RUNNER_TEMP 'installed-tauri-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_INSTALLED_TAURI_BUILD_FAIL'}
+            if(!(Test-Path -LiteralPath 'src-tauri/target/release/iwxa-personal.exe' -PathType Leaf)){
+              throw 'AGENT06_INSTALLED_TAURI_EXE_MISSING'
+            }
+            Write-Host 'AGENT06_INSTALLED_TAURI_EXE_PASS'
+          } finally {Pop-Location}
+      - name: Stage original pinned U04 owner into desktop dist
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          Push-Location private-agent
+          try {
+            & node.exe scripts/prepare-public-modules.mjs --only-u04 --fetch *> (Join-Path $env:RUNNER_TEMP 'installed-u04-prepare-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_INSTALLED_U04_PREPARE_FAIL'}
+            & node.exe scripts/stage-u04-desktop.mjs build/u04-owner-sources desktop/dist/u04 *> (Join-Path $env:RUNNER_TEMP 'installed-u04-stage-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_INSTALLED_U04_STAGE_FAIL'}
+            Write-Host 'AGENT06_INSTALLED_U04_STAGED_PASS'
+          } finally {Pop-Location}
+      - name: Original Setup Core installed Windows UI and cold restart acceptance
+        shell: pwsh
+        timeout-minutes: 30
+        run: |
+          $ErrorActionPreference='Stop'
+          $qaRoot='C:\i6'
+          if(Test-Path -LiteralPath $qaRoot){throw 'AGENT06_INSTALLED_QA_ROOT_OCCUPIED'}
+          New-Item -ItemType Directory -Force -Path $qaRoot | Out-Null
+          $log=Join-Path $env:RUNNER_TEMP 'installed-gui-private.txt'
+          $oldTemp=$env:RUNNER_TEMP
+          $env:IWXA_PERSONAL_FILES_ROOT=Join-Path (
+              Join-Path $qaRoot ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+          ) 'personal'
+          Push-Location private-agent
+          try {
+            $env:RUNNER_TEMP=$qaRoot
+            & pwsh -NoProfile -NonInteractive -File qualification/phase1/agent02_installed_gui_acceptance.ps1 *> $log
+            $exit=$LASTEXITCODE
+          } finally {
+            $env:RUNNER_TEMP=$oldTemp
+            Pop-Location
+          }
+          if($exit -ne 0){
+            $private=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            $known=@(
+              'gui_managed_python_capsule_failed','gui_original_u01_sources_failed',
+              'gui_native_package_failed','gui_package_install_failed',
+              'gui_storage_authority_failed','gui_native_executable_not_installed',
+              'gui_native_process_exited_before_window','gui_wrong_product_window',
+              'gui_draft_lost_before_close','gui_draft_not_restored_after_restart',
+              'gui_core_draft_changed_after_restart','BLOCKED_ENVIRONMENT:gui_native_window_missing',
+              'BLOCKED_ENVIRONMENT:ui_automation_root_missing',
+              'BLOCKED_ENVIRONMENT:uia_invoke_unavailable_and_control_not_visible',
+              'BLOCKED_ENVIRONMENT:draft_keyboard_input_unavailable'
+            )
+            $match=$false
+            foreach($code in $known){
+              if($private.Contains($code)){
+                Write-Host ('AGENT06_INSTALLED_GUI_FAILURE_CLASS='+($code -replace '[^A-Za-z0-9_]','_'))
+                $match=$true
+              }
+            }
+            if(!$match){Write-Host 'AGENT06_INSTALLED_GUI_FAILURE_CLASS=OTHER'}
+            # A failed first GUI launch needs a finite, privacy-safe diagnosis.
+            # Run the installed ORIGINAL bootstrap only AFTER the failed acceptance:
+            # its behavior is diagnostic and can never turn this failed run green.
+            if($private.Contains('gui_native_process_exited_before_window')){
+              $qa=Join-Path 'C:\i6' ('agent02-installed-gui-'+$env:GITHUB_RUN_ID)
+              $profile=Join-Path $qa 'profile'
+              $logs=Join-Path $profile 'AppData/Local/IWXA/Logs'
+              $supervisorLogs=@(Get-ChildItem -LiteralPath $logs -Filter 'runtime-*.log' -File -ErrorAction SilentlyContinue)
+              $status=if($supervisorLogs.Count){'PRESENT'}else{'ABSENT'}
+              Write-Host ('AGENT06_NATIVE_SUPERVISOR_LOG='+$status)
+              $diagnostic='NOT_RUN'
+              $keys=@('USERPROFILE','HOME','APPDATA','LOCALAPPDATA','TEMP','TMP','TMPDIR','IWXA_STORAGE_AUTHORITY')
+              $prior=@{}
+              foreach($key in $keys){$prior[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
+              try {
+                $env:USERPROFILE=$profile; $env:HOME=$profile
+                $env:APPDATA=Join-Path $profile 'AppData/Roaming'
+                $env:LOCALAPPDATA=Join-Path $profile 'AppData/Local'
+                $env:TEMP=Join-Path $qa 'temp'; $env:TMP=$env:TEMP; $env:TMPDIR=$env:TEMP
+                $env:IWXA_STORAGE_AUTHORITY=Join-Path $env:LOCALAPPDATA 'IWXA/storage-authority.json'
+                $receipt=Join-Path $qa 'install/explorer-install-receipt.json'
+                if(!(Test-Path -LiteralPath $receipt -PathType Leaf)){throw 'PROBE_RECEIPT_MISSING'}
+                $record=Get-Content -LiteralPath $receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+                $python=Join-Path (Join-Path $qa 'install') ([string]$record.managed_runtime.python_executable)
+                if(!(Test-Path -LiteralPath $python -PathType Leaf)){throw 'PROBE_PYTHON_MISSING'}
+                $helper=Join-Path $qa 'install/tools/iwxa_desktop_bootstrap.py'
+                if(!(Test-Path -LiteralPath $helper -PathType Leaf)){throw 'PROBE_HELPER_MISSING'}
+                $probeOutput=@(& $python -B $helper --install-root (Join-Path $qa 'install') --port 18789 2>$null)
+                $probeExit=$LASTEXITCODE
+                $last=if($probeOutput.Count){[string]$probeOutput[-1]}else{''}
+                $probe=$last | ConvertFrom-Json -ErrorAction Stop
+                $allowed=@('PORT_OCCUPIED','CORE_TIMEOUT','CORE_EXITED','CORE_DEPENDENCY','CORE_DATA_ACCESS','CORE_POWERSHELL','LOCAL_STATE_UNAVAILABLE','INSTANCE_UNVERIFIED','INSTALL_SETTINGS','UNKNOWN')
+                if($probeExit -eq 0 -and [string]$probe.url -match '^http://127\.0\.0\.1:18789/desktop/#iwxa_bootstrap='){
+                  $diagnostic='BOOTSTRAP_RETRY_SUCCEEDED'
+                }elseif($probeExit -ne 0 -and $allowed -contains [string]$probe.error_code){
+                  $diagnostic='BOOTSTRAP_'+[string]$probe.error_code
+                }else{$diagnostic='BOOTSTRAP_RESPONSE_INVALID'}
+              }catch{
+                $diagnostic='PROBE_UNAVAILABLE'
+              }finally{
+                foreach($key in $keys){[Environment]::SetEnvironmentVariable($key,$prior[$key],'Process')}
+              }
+              Write-Host ('AGENT06_NATIVE_POSTFAIL_DIAGNOSTIC='+$diagnostic)
+            }
+            throw 'AGENT06_INSTALLED_NATIVE_GUI_FAIL'
+          }
+          Write-Host 'AGENT06_INSTALLED_NATIVE_GUI_COLD_PASS'
+      # Private binaries, screenshots, logs, PDF fixtures and user files stay on the disposable runner.
