@@ -13,3 +13,44 @@
 .atlas-file-review strong{display:block;font-size:12px;overflow-wrap:anywhere}
 .atlas-file-review p{margin:6px 0;font-size:12px}
 .atlas-file-review .muted{font-size:11px}
+
+
+/* Manager-first context is a read-only projection, never an authority UI. */
+.manager-context{display:grid;gap:14px;margin:0 0 16px}
+.manager-search-label{display:block;color:#395474;font-size:12px;margin-bottom:7px}
+.manager-context-note{font-size:11px;line-height:1.6;margin:9px 0 0}
+.manager-results{margin-top:10px;display:grid;gap:5px;max-height:340px;overflow:auto}
+.manager-hit,.manager-attention-item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:1px solid #dce6f2;background:#f9fbff;color:#213b5b;padding:12px;border-radius:9px}
+.manager-hit:hover,.manager-attention-item:hover{background:#e9f2ff;border-color:#acc8e7}
+.manager-hit-name,.manager-attention-item>span:first-child{flex:1;min-width:0}
+.manager-hit-name strong,.manager-attention-item strong{display:block;overflow-wrap:anywhere}
+.manager-hit-name small,.manager-attention-item small{display:block;margin-top:4px;color:#637891;line-height:1.5}
+.manager-hit-description{font-size:11px;color:#687c95;max-width:48%;overflow-wrap:anywhere}
+.manager-attention-item{margin:7px 0}
+.manager-attention .quiet{margin-top:10px}
+.manager-map{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:18px 0;position:relative}
+.manager-map-node{position:relative;text-align:left;min-height:96px;background:#f5f9ff;border:1px solid #cfdfee;border-radius:11px;padding:13px;color:#29476a;transition:background .15s,border-color .15s}
+.manager-map-node strong{display:block;font-size:14px}
+.manager-map-node small{display:block;color:#617890;line-height:1.5;margin-top:6px}
+.manager-map-node.selected{background:#e4eeff;border-color:#356cd0;box-shadow:0 0 0 1px #356cd055}
+.manager-map-organization{grid-column:2}
+.manager-map-people{grid-column:1;grid-row:2}
+.manager-map-work{grid-column:2;grid-row:2}
+.manager-map-agent{grid-column:3;grid-row:2}
+.manager-map-t3{grid-column:2;grid-row:3;border-color:#7695be}
+.manager-map-atlas{grid-column:1;grid-row:3}
+.manager-map-results{grid-column:3;grid-row:3}
+.manager-map-detail{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px;background:#edf3fc;border-radius:10px}
+.manager-map-detail p{margin:7px 0 0;font-size:12px;color:#47617e}
+.manager-map-detail>div{min-width:0}
+.manager-map-detail button{flex-shrink:0}
+.manager-agent-paths{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.manager-agent-paths>div{padding:13px;border:1px solid #dfe8f3;border-radius:10px;background:#f8fbff}
+.manager-agent-paths p{font-size:12px;color:#607690;line-height:1.6;margin-bottom:0}
+@media(max-width:700px){
+.manager-map{grid-template-columns:repeat(2,minmax(0,1fr))}
+.manager-map-node{grid-column:auto!important;grid-row:auto!important}
+.manager-agent-paths{grid-template-columns:1fr}
+.manager-map-detail{align-items:flex-start;flex-direction:column}
+.manager-hit-description{display:none}
+}
