@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 35
     env:
-      AGENT06_PRIVATE_PIN: '3f650750e887db00d1d5fb593e45efa6c3769506'
+      AGENT06_PRIVATE_PIN: 'dc758a210d7b03dabd8b12abe1a3187f59f9e933'
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -61,7 +61,7 @@ jobs:
           try{
             $log = Join-Path $env:RUNNER_TEMP 'agent06-provider-tests-private.log'
             $xml = Join-Path $env:RUNNER_TEMP 'agent06-provider-tests-private.xml'
-            & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) tests/test_agent06_remote_api_provider_profiles.py tests/test_model_limit_enforcement.py tests/test_model_provider_registry.py tests/test_agent06_yandex_mailru_tool_provider.py tests/test_agent06_dav_multistatus.py tests/test_agent06_dav_original_tool_provider.py *> $log
+            & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) tests/test_agent06_remote_api_provider_profiles.py tests/test_model_limit_enforcement.py tests/test_model_provider_registry.py tests/test_agent06_yandex_mailru_tool_provider.py tests/test_agent06_dav_multistatus.py tests/test_agent06_dav_original_tool_provider.py tests/test_agent06_account_binding_port.py *> $log
             $exitCode = $LASTEXITCODE
             if(Test-Path -LiteralPath $xml){
               [xml]$doc = Get-Content -LiteralPath $xml -Raw
