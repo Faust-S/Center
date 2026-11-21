@@ -123,6 +123,25 @@ jobs:
             )
             # Identify exactly which original native Windows build phase failed.
             # Read private files only locally and report finite error CODES.
+            $diagnosis=@(
+              @('MissingArgument','NATIVE_ARGUMENT_MISSING'),
+              @('Missing an argument for parameter','NATIVE_PARAMETER_ARGUMENT_OMITTED'),
+              @('ParameterBindingException','PS_PARAMETER_BINDING'),
+              @('CommandNotFoundException','PS_COMMAND_UNAVAILABLE'),
+              @('Cannot bind argument','PS_NULL_OR_EMPTY_ARGUMENT'),
+              @('ParserError','PS_PARSER_RUNTIME'),
+              @('native_candidate_powershell_missing','PS51_BINARY_MISSING'),
+              @('Join-Path','PS_JOIN_PATH_MENTIONED'),
+              @('PublicObscuraCandidate','OPTIONAL_OBSCURA_PARAMETER_MENTIONED'),
+              @('Cannot find path','PS_PATH_MISSING'),
+              @('The term','PS_COMMAND_NOT_RECOGNIZED'),
+              @('PSModulePath','PS_MODULE_PATH_MENTIONED')
+            )
+            foreach($item in $diagnosis){
+              if($private.Contains([string]$item[0])){
+                Write-Host ('AGENT06_SETUP_ERROR_SHAPE='+[string]$item[1])
+              }
+            }
             $stages=@{
               STUB_EXE=(Join-Path $out 'build/IWXA Personal Setup.stub.exe')
               NATIVE_STAGE_LOG=(Join-Path $out 'logs/native-setup-build.json')
