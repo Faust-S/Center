@@ -1,8 +1,6 @@
 name: D01 Learn pinned hosting package qualification
 on:
-  push:
-    branches: [qa/2026-11-21-d01-hosting-package]
-    paths: [.github/workflows/d01-learn-hosting-package.yml]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -53,7 +51,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/d01-kernel"
           unzip -q "$zip" -d "$RUNNER_TEMP/d01-kernel"
           echo "D01_PINNED_SOURCES_AND_KERNEL_VERIFIED"
-      - name: Repair catalog hash only in isolated release build tree
+      - name: Normalize only the private build copy to canonical LF bytes
         shell: bash
         run: |
           set -euo pipefail
@@ -70,17 +68,16 @@ jobs:
           const srcBytes=readFileSync(join(src,catalogPath));
           const catalog=JSON.parse(srcBytes.toString('utf8'));
           const pass=readFileSync(join(src,passportPath));
-          const actual=createHash('sha256').update(pass).digest('hex');
+          const normalized=Buffer.from(pass.toString('utf8').replaceAll('\r\n','\n'),'utf8');
+          const digest=createHash('sha256').update(normalized).digest('hex');
           const record=catalog.entries.find(e=>e.service_id==='ru.iwxa.learn.workspace');
-          const obsolete='1160038f73881490c2371ac122e0ed068486df77bb33ddbdf64c5ce6c1f0abce';
-          const repaired='31859802bc261b1242787df8a2c990abdccde47857237b4d5997ee8d0b5f2d79';
-          if (actual!==repaired || record?.sha256!==obsolete ||
-              record?.file!==passportPath) throw Error('D01_CATALOG_REPAIR_PRECONDITION_FAILED');
-          record.sha256=actual;
-          writeFileSync(join(copy,catalogPath),JSON.stringify(catalog,null,2)+'\n');
+          const expectedLF='1160038f73881490c2371ac122e0ed068486df77bb33ddbdf64c5ce6c1f0abce';
+          if(digest!==expectedLF || record?.sha256!==digest ||
+              record?.file!==passportPath) throw Error('D01_CANONICAL_LF_PASSPORT_HASH_MISMATCH');
+          writeFileSync(join(copy,passportPath),normalized);
           if (!readFileSync(join(src,catalogPath)).equals(srcBytes) ||
-              !readFileSync(join(copy,passportPath)).equals(pass)) throw Error('D01_PINNED_SOURCE_TOUCHED');
-          console.log('D01_TEMPORARY_CATALOG_INTEGRITY_REPAIRED', actual);
+              !readFileSync(join(src,passportPath)).equals(pass)) throw Error('D01_PINNED_SOURCE_TOUCHED');
+          console.log('D01_TEMPORARY_LF_NORMALIZATION_VERIFIED', digest);
           NODE
           test -z "$(git -C private/site status --porcelain)"
           test -z "$(git -C private/t2 status --porcelain)"
