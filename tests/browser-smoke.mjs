@@ -88,7 +88,7 @@ try{
   assert.ok((await page.getByTestId('assignment-atlas-status').textContent()).includes('совпадают'));
   checks.push('organization-workspace-two-participants-assignment');
   await page.getByTestId('nav-overview').click();
-  await page.getByTestId('overview-search').fill('Compare suppliers');
+  await page.getByTestId('overview-search').fill('Compare three suppliers');
   assert.equal(await page.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
   await page.getByTestId('overview-hits').getByTestId('manager-search-hit').click();
   assert.equal(await page.getByTestId('task-title').inputValue(),'Compare three suppliers');
