@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 35
     env:
-      AGENT06_PRIVATE_PIN: '6d8e6fe31d4e9c6f662d4cbf721d3d5b06048811'
+      AGENT06_PRIVATE_PIN: '062ace390d76360e7f2d9d03e6243fc877a0f4e8'
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -98,7 +98,7 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'AGENT06_ONLINE_UI_DEPENDENCIES_FAILED'}
             Write-Host 'AGENT06_ONLINE_UI_DEPENDENCIES_PASS'
             $testLog = Join-Path $env:RUNNER_TEMP 'agent06-online-ui-node-private.log'
-            & node --test tests/agent06-current-online-accounts.test.mjs *> $testLog
+            & node --test tests/agent06-current-online-accounts.test.mjs tests/tools-read-execution-route.test.mjs tests/tools-read-catalog-latency.test.mjs *> $testLog
             if($LASTEXITCODE -ne 0){throw 'AGENT06_ONLINE_UI_NODE_FAILED'}
             Write-Host 'AGENT06_ONLINE_UI_NODE_PASS'
             $buildLog = Join-Path $env:RUNNER_TEMP 'agent06-online-ui-build-private.log'
