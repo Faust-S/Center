@@ -1,0 +1,171 @@
+name: Qualified Agent 0.6.0 Windows binary
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: agent06-0-6-0-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: windows-2022
+    timeout-minutes: 110
+    env:
+      AGENT_PIN: cdb29d416c03eb842d217b5376de397e52d37324
+      SETUP_PIN: c10e193846a0ea4c73cabe3744aa7db82439d54e
+      PERSONAL_CI: '44945847781'
+      REGRESSION_CI: '44945967232'
+      IWXA_AGENT06_QUALIFICATION_SCOPE: PERSONAL_RELEASE
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_NO_CACHE_DIR: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_PIN }}
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private-agent
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: ${{ env.SETUP_PIN }}
+          path: setup-owner
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify exact source and both prior successful acceptance runs
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if((& git -C private-agent rev-parse HEAD).Trim() -cne $env:AGENT_PIN -or
+             (& git -C setup-owner rev-parse HEAD).Trim() -cne $env:SETUP_PIN){
+            throw 'AGENT06_RELEASE_SOURCE_MISMATCH'
+          }
+          if((& git -C private-agent status --porcelain) -or
+             (& git -C setup-owner status --porcelain)){
+            throw 'AGENT06_RELEASE_SOURCE_DIRTY'
+          }
+          foreach($id in @($env:PERSONAL_CI,$env:REGRESSION_CI)){
+            $run=& gh api ('repos/Faust-S/Center/actions/runs/'+$id) | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $run.conclusion -cne 'success'){
+              throw 'AGENT06_RELEASE_QUALIFICATION_NOT_SUCCESS'
+            }
+          }
+          Write-Host 'AGENT06_RELEASE_EXACT_SOURCE_AND_CI_PASS'
+      - name: Rebuild and independently qualify distributable Setup Core
+        shell: pwsh
+        timeout-minutes: 95
+        run: |
+          $ErrorActionPreference='Stop'
+          $agent=(Resolve-Path 'private-agent').Path
+          $center=(Resolve-Path 'setup-owner').Path
+          $out=Join-Path $env:RUNNER_TEMP 'agent06-release-output'
+          $cache=Join-Path $env:RUNNER_TEMP 'agent06-release-cache'
+          $log=Join-Path $env:RUNNER_TEMP 'agent06-release-private-build.log'
+          $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $agent 'tools/build_setup_core_windows_candidate.ps1') -CenterRoot $center -CenterCommit $env:SETUP_PIN -ReleaseCacheRoot $cache -OutputRoot $out *> $log
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_RELEASE_FULL_SETUP_QUALIFICATION_FAIL'}
+          $proof=Get-Content -LiteralPath (Join-Path $out 'temporary-installed-fixture/installed-witness.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          if($proof.status -cne 'PASS' -or
+             $proof.qualification_scope -cne 'PERSONAL_RELEASE' -or
+             $proof.extended_k03_qualification_executed -ne $false -or
+             $proof.installed_k03_real_source_task_result_restart_verified -ne $false){
+            throw 'AGENT06_RELEASE_SCOPE_INVALID'
+          }
+          foreach($key in @('core_ready_first','installed_native_cold_launch_verified',
+              'installed_real_qwen_task_review_verified',
+              'installed_real_qwen_result_restart_verified',
+              'installed_real_qwen_independent_import_verified',
+              'installed_real_qwen_native_gui_result_verified',
+              'installed_real_qwen_native_gui_submit_review_verified',
+              'installed_real_qwen_native_gui_cold_import_verified',
+              'core_ready_after_restart','clean_stop','isolated_runtime_profile')){
+            if($proof.$key -ne $true){throw 'AGENT06_RELEASE_USER_ROUTE_UNPROVEN'}
+          }
+          $rollback=Get-Content -LiteralPath (Join-Path $out 'temporary-rollback-fixture/rollback-witness.json') -Raw -Encoding UTF8|ConvertFrom-Json
+          if($rollback.status -cne 'PASS' -or
+             $rollback.source_commit -cne $env:AGENT_PIN -or
+             $rollback.rollback_restored_previous -ne $true -or
+             $rollback.installed_file_identity_after_rollback -ne $true -or
+             $rollback.uninstall_preserved_user_data -ne $true){
+            throw 'AGENT06_RELEASE_ROLLBACK_UNPROVEN'
+          }
+          $candidate=Join-Path $out 'IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $candidate -PathType Leaf)){
+            throw 'AGENT06_RELEASE_EXE_MISSING'
+          }
+          $dir=Join-Path $env:RUNNER_TEMP 'agent06-release-files'
+          New-Item -Path $dir -ItemType Directory -Force|Out-Null
+          $name='IWXA-Personal-Agent-0.6.0-Setup.exe'
+          $exe=Join-Path $dir $name
+          Copy-Item -LiteralPath $candidate -Destination $exe
+          if((Get-Item -LiteralPath $exe).Length -lt 1000000){
+            throw 'AGENT06_RELEASE_EXE_SIZE_INVALID'
+          }
+          $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $dir 'SHA256SUMS.txt'),($hash+'  '+$name+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          $notes='IWXA Personal Agent 0.6.0 for Windows x64.'+[Environment]::NewLine+
+                 'Agent source: '+$env:AGENT_PIN+[Environment]::NewLine+
+                 'Setup Core source: '+$env:SETUP_PIN+[Environment]::NewLine+
+                 'Verified: Qwen, installed Windows GUI, Task, Human Review, Result, independent IWXA import, cold Core, Repair, Rollback, user data preservation.'+[Environment]::NewLine+
+                 'Extended K03 qualification remains separate. Local model weights are user-installed.'+[Environment]::NewLine
+          [IO.File]::WriteAllText((Join-Path $dir 'RELEASE_NOTES.txt'),$notes,[Text.UTF8Encoding]::new($false))
+          Write-Host 'AGENT06_RELEASE_REPEAT_REAL_SETUP_QWEN_GUI_ROLLBACK_PASS'
+          Write-Host ('AGENT06_RELEASE_EXE_SIZE='+[long](Get-Item -LiteralPath $exe).Length)
+          Write-Host ('AGENT06_RELEASE_SHA256='+$hash)
+      - name: Publish binary only and verify direct download URL
+        shell: pwsh
+        env:
+          PRIVATE_RELEASE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          PUBLIC_RELEASE_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'agent06-release-files'
+          $exe=Join-Path $dir 'IWXA-Personal-Agent-0.6.0-Setup.exe'
+          $sum=Join-Path $dir 'SHA256SUMS.txt'
+          $notes=Join-Path $dir 'RELEASE_NOTES.txt'
+          if(!(Test-Path -LiteralPath $exe) -or !(Test-Path -LiteralPath $sum)){
+            throw 'AGENT06_RELEASE_BINARY_MISSING'
+          }
+          $repo='Faust-S/iwxa-personal-agent'
+          $tag='v0.6.0'
+          $privatePublished=$false
+          if(-not [string]::IsNullOrWhiteSpace($env:PRIVATE_RELEASE_TOKEN)){
+            $env:GH_TOKEN=$env:PRIVATE_RELEASE_TOKEN
+            $ErrorActionPreference='Continue'
+            & gh release create $tag $exe $sum -R $repo --target $env:AGENT_PIN --title 'IWXA Personal Agent 0.6.0' --notes-file $notes --latest=false *> (Join-Path $env:RUNNER_TEMP 'agent06-private-publish.txt')
+            $code=$LASTEXITCODE
+            $ErrorActionPreference='Stop'
+            if($code -eq 0){$privatePublished=$true}
+          }
+          if(-not $privatePublished){
+            $repo='Faust-S/Center'
+            $tag='personal-agent-v0.6.0'
+            $env:GH_TOKEN=$env:PUBLIC_RELEASE_TOKEN
+            & gh release create $tag $exe $sum -R $repo --target $env:GITHUB_SHA --title 'IWXA Personal Agent 0.6.0' --notes-file $notes --latest=false *> (Join-Path $env:RUNNER_TEMP 'agent06-public-publish.txt')
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_RELEASE_PUBLISH_FAILED'}
+          }
+          $release=& gh api ('repos/'+$repo+'/releases/tags/'+$tag) | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $release.draft -ne $false){throw 'AGENT06_RELEASE_UNPUBLISHED'}
+          $asset=@($release.assets|Where-Object {$_.name -ceq 'IWXA-Personal-Agent-0.6.0-Setup.exe'})
+          $checksum=@($release.assets|Where-Object {$_.name -ceq 'SHA256SUMS.txt'})
+          if($asset.Count -ne 1 -or $checksum.Count -ne 1 -or
+             [long]$asset[0].size -ne [long](Get-Item -LiteralPath $exe).Length){
+            throw 'AGENT06_RELEASE_ASSET_MISMATCH'
+          }
+          Write-Host ('AGENT06_RELEASE_CHANNEL='+$repo)
+          Write-Host ('AGENT06_RELEASE_DIRECT_URL='+[string]$asset[0].browser_download_url)
+          Write-Host 'AGENT06_RELEASE_DOWNLOAD_PUBLISHED_PASS'
