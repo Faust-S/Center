@@ -1,0 +1,103 @@
+name: Agent 0.6 exact personal Setup Core and real Qwen qualification
+on:
+  push:
+    branches:
+      - work/2026-11-21-agent06-personal-setup-qualification
+    paths:
+      - .github/workflows/agent06-personal-setup-core.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent06-personal-setup-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  personal-native-setup:
+    runs-on: windows-2022
+    timeout-minutes: 100
+    env:
+      AGENT_PIN: 65200a372bf6f6d0af19b210d9b4ac17f7767f27
+      SETUP_PIN: c10e193846a0ea4c73cabe3744aa7db82439d54e
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PIP_NO_CACHE_DIR: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_PIN }}
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private-agent
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: ${{ env.SETUP_PIN }}
+          path: setup-owner
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify exact private Agent and existing public Setup Core owners
+        shell: pwsh
+        run: |
+          $actual=(& git -C private-agent rev-parse HEAD).Trim()
+          $setup=(& git -C setup-owner rev-parse HEAD).Trim()
+          if($actual -cne $env:AGENT_PIN){throw 'AGENT06_PERSONAL_AGENT_SOURCE_MISMATCH'}
+          if($setup -cne $env:SETUP_PIN){throw 'AGENT06_PERSONAL_SETUP_OWNER_SOURCE_MISMATCH'}
+          if((& git -C private-agent status --porcelain)){throw 'AGENT06_PERSONAL_AGENT_DIRTY'}
+          if((& git -C setup-owner status --porcelain)){throw 'AGENT06_PERSONAL_SETUP_OWNER_DIRTY'}
+          Write-Host 'AGENT06_PERSONAL_EXACT_OWNERS_PASS'
+      - name: Build original Setup Core release and qualify real Qwen, Review, Repair and Rollback
+        shell: pwsh
+        timeout-minutes: 85
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'agent06-personal-setup-private.txt'
+          $out=Join-Path $env:RUNNER_TEMP 'agent06-personal-setup-output'
+          $cache=Join-Path $env:RUNNER_TEMP 'agent06-personal-setup-cache'
+          $ps=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+          $agent=(Resolve-Path -LiteralPath 'private-agent').Path
+          $center=(Resolve-Path -LiteralPath 'setup-owner').Path
+          & $ps -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $agent 'tools/build_setup_core_windows_candidate.ps1') -CenterRoot $center -CenterCommit $env:SETUP_PIN -ReleaseCacheRoot $cache -OutputRoot $out *> $log
+          $code=$LASTEXITCODE
+          if($code -ne 0){
+            $private=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            $safe=@(
+              'private_setup_native_product_package_build_failed',
+              'private_setup_core_package_build_failed',
+              'private_setup_core_local_acceptance_failed',
+              'private_setup_core_installed_runtime_not_verified',
+              'private_setup_core_rollback_failed',
+              'private_setup_core_rollback_proof_invalid',
+              'private_setup_core_native_package_identity_invalid',
+              'native_candidate_tauri_build_failed',
+              'native_candidate_test_python_failed',
+              'native_candidate_frontend_dependencies_failed',
+              'native_candidate_rust_test_compile_failed'
+            )
+            $observed=0
+            foreach($key in $safe){
+              if($private.Contains($key)){
+                Write-Host ('AGENT06_PERSONAL_SETUP_FAILURE_CLASS='+$key.ToUpperInvariant())
+                $observed++
+              }
+            }
+            if($observed -eq 0){Write-Host 'AGENT06_PERSONAL_SETUP_FAILURE_CLASS=OTHER'}
+            throw 'AGENT06_PERSONAL_SETUP_FULL_ACCEPTANCE_FAIL'
+          }
+          $setupExe=Join-Path $out 'IWXA-Private-SetupCore-Candidate.exe'
+          if(!(Test-Path -LiteralPath $setupExe -PathType Leaf)){throw 'AGENT06_PERSONAL_SETUP_EXE_NOT_BUILT'}
+          Write-Host 'AGENT06_PERSONAL_SETUP_REAL_QWEN_REVIEW_COLD_REPAIR_ROLLBACK_PASS'
+      # Exact private sources, user data, model logs, executable and Qwen results
+      # stay on the disposable Windows runner. Do not upload artifacts.
