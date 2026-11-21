@@ -16,7 +16,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 100
     env:
-      AGENT_PIN: 267fc7ce2e6e4dbe46b81b11398d257d94c853ca
+      AGENT_PIN: 8b15d279bd125a5d553131527e9651d122c624ba
       SETUP_PIN: c10e193846a0ea4c73cabe3744aa7db82439d54e
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
