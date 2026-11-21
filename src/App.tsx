@@ -4,6 +4,7 @@ import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkRea
 import {readAtlasSourceFile} from './atlas-file-import.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
+import ManagerContextPanel from './ManagerContextPanel';
 import Cen04LicensePanel from './Cen04LicensePanel';
 import AgeExchangePanel from './AgeExchangePanel';
 import './style.css';
@@ -17,8 +18,8 @@ type Draft = {format: string; version: number; organizations: Organization[]; ac
 type AtlasPortfolioView = {source:string;revision:string;authorization:string;mode:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
 type AtlasCopyDelta={previousRevision:string;revision:string;sharedProjects:number;addedProjects:number;removedProjects:number;changedProjects:number;addedWorks:number;removedWorks:number;changedWorks:number;changedDependencies:number;revisionRelation:string;contentChanged:boolean};
 type Editor = {sourceResultRef:SourceResultRef|null;assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
-type Page = 'overview'|'work'|'results'|'resources'|'people'|'programs'|'data';
-const pages: [Page, string, string][] = [['overview','Обзор','◫'],['resources','Планы Atlas','◇'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['programs','Personal Agent и лицензии','▦'],['data','Данные и настройки','⚙']];
+type Page = 'overview'|'context'|'work'|'results'|'resources'|'people'|'programs'|'data';
+const pages: [Page, string, string][] = [['overview','Главная','◫'],['context','Контекст организации','◎'],['work','Поручения','☷'],['results','Результаты и решения','▤'],['people','Сотрудники и роли','♧'],['resources','Планы и области','◇'],['programs','Personal Agent и лицензии','▦'],['data','Данные и настройки','⚙']];
 const workStatusLabels:Record<string,string>={
   NOT_OBSERVED:'Источник Atlas не открыт - редакция не проверена.',
   WORK_NOT_LINKED:'В поручении пока не выбрана работа Atlas.',
@@ -268,6 +269,31 @@ export default function App() {
     setSignedWorkspaceGeneration(value=>value+1);
   };
   const go = (next: Page) => {setPage(next); setMenuOpen(false);};
+  const openContextEntry = (entry:{kind:string;id:string}) => {
+    if(!org)return;
+    if(entry.kind==='assignment'){
+      const item=org.assignments.find(a=>a.id===entry.id);
+      if(item)startAssignment(item);
+      return;
+    }
+    const destination:Record<string,Page>={
+      organization:'overview',workspace:'resources',person:'people',
+      'atlas-project':'resources','atlas-work':'resources'
+    };
+    go(destination[entry.kind]??'context');
+  };
+  const openContextAttention = (item:{destination:string;assignmentId:string|null}) => {
+    if(!org)return;
+    if(item.assignmentId&&item.destination==='work'){
+      const task=org.assignments.find(a=>a.id===item.assignmentId);
+      if(task){startAssignment(task);return;}
+    }
+    if(item.destination==='work'&&org.workspaces.length&&org.participants.length){
+      startAssignment();return;
+    }
+    const next=item.destination as Page;
+    if(pages.some(([name])=>name===next))go(next);
+  };
   const reuseAppliedResult = ({description,source}:{description:string;source:SourceResultRef}) => {
     if(!org)return;
     if(editor){setError('Сначала сохраните или закройте редактор поручения.');return;}
@@ -507,6 +533,9 @@ export default function App() {
       {(!org || creatingOrg) && organizationForm}
 
       {org && !creatingOrg && page==='overview' && <>
+        <ManagerContextPanel key={'home|'+org.id} organization={org} atlasView={observedAtlas}
+          view="overview" atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
+          onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}/>
         <section className="hero"><div className="eyebrow">РАБОТА РУКОВОДИТЕЛЯ</div><h2>Видеть работу целиком и принимать решения</h2><p>План находится в Atlas. Сотрудник выполняет поручение в Personal Agent. Здесь вы управляете работой и принимаете результат.</p><div className="actions"><button className="primary" onClick={()=>startAssignment()} disabled={!org.workspaces.length}>＋ Новое поручение</button><button className="secondary" onClick={()=>go(org.workspaces.length?'people':'resources')}>{org.workspaces.length?'Добавить участника':'Создать рабочую область'}</button></div></section>
         <div className="metrics">
           {[['Рабочие области',stats.workspaces],['Участники',stats.participants],['Черновики поручений',stats.drafts]].map(([label,value])=><div className="card metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}
@@ -515,6 +544,10 @@ export default function App() {
           {!org.assignments.length ? <Empty title="Пока нет поручений" text="Создайте рабочую область и подготовьте первое поручение с критериями результата."/> : org.assignments.slice(-4).reverse().map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}
         </section>
       </>}
+
+      {org && page==='context' && <ManagerContextPanel key={'context|'+org.id} organization={org}
+        atlasView={observedAtlas} view="context" atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
+        onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}/>}
 
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает проекты и зависимости. Привязка к работе необязательна. Только проектные поручения требуют проверки точной редакции установленного Atlas перед подписанием. Обычные поручения работают через T3 без Atlas.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
