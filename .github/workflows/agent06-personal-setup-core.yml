@@ -2,7 +2,7 @@ name: Agent 0.6 exact personal Setup Core and real Qwen qualification
 on:
   push:
     branches:
-      - work/2026-11-21-agent06-personal-setup-qualification
+      - work/2026-11-21-agent06-qwen-gui-result-releasegate
     paths:
       - .github/workflows/agent06-personal-setup-core.yml
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 100
     env:
-      AGENT_PIN: 8b15d279bd125a5d553131527e9651d122c624ba
+      AGENT_PIN: c516069ce3c4f43722324f043fde0c654e19ce0a
       SETUP_PIN: c10e193846a0ea4c73cabe3744aa7db82439d54e
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
@@ -68,7 +68,8 @@ jobs:
             'tools/build_setup_core_windows_candidate.ps1',
             'qualification/phase1/build_native_windows_setup_candidate.ps1',
             'tools/build_iwxa_windows_setup_exe.ps1',
-            'tools/qualify_setup_core_runtime.ps1'
+            'tools/qualify_setup_core_runtime.ps1',
+            'tools/qualify_setup_core_native_gui.ps1'
           )
           $failed=0
           foreach($relative in $scripts){
