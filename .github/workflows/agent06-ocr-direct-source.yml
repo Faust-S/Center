@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      AGENT_PIN: 533077728271daeb82d1ee2a86254ca83896a2b8
+      AGENT_PIN: 5e1cccc064e40c6e6a2f1e668f3090357f33224e
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -112,6 +112,10 @@ jobs:
                   print("AGENT06_FAILED_TEST_HASH="+code)
                   print("AGENT06_FAILURE_CLASS="+kind)
                   print("AGENT06_FAILURE_MARKER="+marker)
+                  evidence=(failure.text or "")
+                  safe=re.findall(r"ToolExecutionError:\s*([a-zA-Z0-9_]{3,100})",evidence)
+                  if safe: print("AGENT06_PROVIDER_CODE="+safe[-1])
+                  elif kind=="ToolExecutionError": print("AGENT06_PROVIDER_CODE=NOT_EXTRACTED")
           PY
           fi
           if [ "$code" -ne 0 ]; then touch "$RUNNER_TEMP/agent06-py-failed"; fi
@@ -170,7 +174,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 40
     env:
-      AGENT_PIN: 533077728271daeb82d1ee2a86254ca83896a2b8
+      AGENT_PIN: 5e1cccc064e40c6e6a2f1e668f3090357f33224e
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -227,7 +231,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      AGENT_PIN: 533077728271daeb82d1ee2a86254ca83896a2b8
+      AGENT_PIN: 5e1cccc064e40c6e6a2f1e668f3090357f33224e
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -279,6 +283,8 @@ jobs:
           print("AGENT06_REAL_OCR_FAILURE_MARKER="+code)
           tokens=re.findall(r"\bocr_[a-z0-9_]{3,80}\b",text[-2600:])
           if tokens: print("AGENT06_REAL_OCR_CODE="+tokens[-1])
+          status=re.findall(r"ToolExecutionError:\s*([a-zA-Z0-9_]{3,100})",text)
+          if status: print("AGENT06_REAL_PROVIDER_CODE="+status[-1])
           PY
             exit 1
           }
