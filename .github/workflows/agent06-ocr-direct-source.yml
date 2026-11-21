@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      AGENT_PIN: 2b94cbce4b83995559a2f40677a8dddb69e62b70
+      AGENT_PIN: 533077728271daeb82d1ee2a86254ca83896a2b8
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -86,16 +86,36 @@ jobs:
                   if failure is None: failure=case.find("error")
                   if failure is None: continue
                   code=hashlib.sha256((case.get("name") or "").encode()).hexdigest()[:10]
-                  kind=(failure.get("type") or "").split(".")[-1]
-                  if not kind.isidentifier(): kind="OTHER"
+                  message=(failure.get("message") or "")
+                  text=(message+" "+(failure.text or "")[-700:])
+                  accepted=("AssertionError","ValueError","KeyError","TypeError",
+                      "ToolDenied","ToolExecutionError","AttributeError",
+                      "OfficeOcrError","LocalFileError","FileNotFoundError",
+                      "ModuleNotFoundError","RuntimeError","SyntaxError")
+                  kind=next((name for name in accepted if name in message),None)
+                  if not kind:
+                      import re
+                      kind=next((name for name in accepted
+                                 if re.search(r"(?m)^E\\s+(?:\\w+\\.)?"+name+r"\\b",text)),"OTHER")
+                  markers=("office_ocr_source_work_area_changed",
+                      "office_ocr_source_task_invalid",
+                      "office_ocr_existing_task_conflict",
+                      "ocr_u01_outcome_unconfirmed",
+                      "ocr_source_not_full_scan",
+                      "ocr_executable_unavailable",
+                      "ocr_published_readback_mismatch")
+                  marker=next((m for m in markers if m in message),"UNSPECIFIED")
                   print("AGENT06_FAILED_TEST_HASH="+code)
-                  print("AGENT06_FAILURE_CLASS="+kind[:60])
+                  print("AGENT06_FAILURE_CLASS="+kind)
+                  print("AGENT06_FAILURE_MARKER="+marker)
           PY
           fi
-          exit "$code"
+          if [ "$code" -ne 0 ]; then touch "$RUNNER_TEMP/agent06-py-failed"; fi
+          exit 0
       - name: Run real Node OCR tests and full desktop TypeScript/Vite build
         working-directory: private-agent/desktop
         run: |
+          set +e
           npm ci --no-audit --no-fund >"$RUNNER_TEMP/agent06-npm-private.txt" 2>&1 || {
             echo "AGENT06_NPM_INSTALL_FAIL"; exit 1;
           }
@@ -123,14 +143,15 @@ jobs:
             echo "AGENT06_TYPESCRIPT_VITE_FAIL"
             grep -oE 'TS[0-9]{4}' "$RUNNER_TEMP/agent06-typescript-private.txt" | sort -u | sed 's/^/AGENT06_TS_CODE=/' || true
           fi
-          test "$node_status" -eq 0 && test "$build_status" -eq 0
+          test "$node_status" -eq 0 && test "$build_status" -eq 0 && test ! -f "$RUNNER_TEMP/agent06-py-failed"
 
   windows-core-and-desktop:
     needs: linux-core-and-desktop
+    if: ${{ always() }}
     runs-on: windows-2022
     timeout-minutes: 40
     env:
-      AGENT_PIN: 2b94cbce4b83995559a2f40677a8dddb69e62b70
+      AGENT_PIN: 533077728271daeb82d1ee2a86254ca83896a2b8
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -187,7 +208,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      AGENT_PIN: 2b94cbce4b83995559a2f40677a8dddb69e62b70
+      AGENT_PIN: 533077728271daeb82d1ee2a86254ca83896a2b8
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -221,11 +242,23 @@ jobs:
         run: |
           python -B -m pytest -q -p no:cacheprovider tests/test_agent06_pdf_ocr_direct_real_e2e.py >"$RUNNER_TEMP/ocr-real-test-private.txt" 2>&1 || {
             echo "AGENT06_REAL_DIRECT_OCR_U01_COLD_FAIL"
-            for marker in REAL_OCR_MY_PDF_EXECUTABLE_MISSING REAL_OCR_GHOSTSCRIPT_MISSING REAL_OCR_TESSERACT_MISSING REAL_DIRECT_OCR_COLD_READBACK_FAILED ocr_source_not_full_scan ocr_u01_outcome_unconfirmed ocr_output_coverage_invalid; do
-              if grep -q "$marker" "$RUNNER_TEMP/ocr-real-test-private.txt"; then
-                echo "AGENT06_REAL_OCR_ERROR_CLASS=$marker"
-              fi
-            done
+            python - <<'PY'
+          import os,re
+          text=open(os.path.join(os.environ["RUNNER_TEMP"],"ocr-real-test-private.txt"),encoding="utf-8",errors="replace").read()
+          matches=re.findall(r"(?m)^E\\s+([^\\n]+)",text)
+          tail=matches[-1] if matches else ""
+          allowed=("AssertionError","ValueError","KeyError","TypeError",
+                   "ToolDenied","ToolExecutionError","OfficeOcrError",
+                   "LocalFileError","DocumentOperationError","AttributeError")
+          kind=next((name for name in allowed if name in tail),"OTHER")
+          markers=("REAL_OCR_MY_PDF_EXECUTABLE_MISSING","REAL_OCR_GHOSTSCRIPT_MISSING",
+                   "REAL_OCR_TESSERACT_MISSING","REAL_DIRECT_OCR_COLD_READBACK_FAILED",
+                   "ocr_source_not_full_scan","ocr_u01_outcome_unconfirmed",
+                   "ocr_output_coverage_invalid","U01_OCR_NOT_ACKNOWLEDGED")
+          code=next((m for m in markers if m in tail),"UNSPECIFIED")
+          print("AGENT06_REAL_OCR_FAILURE_CLASS="+kind)
+          print("AGENT06_REAL_OCR_FAILURE_MARKER="+code)
+          PY
             exit 1
           }
           echo "AGENT06_REAL_DIRECT_OCR_U01_COLD_PASS"
