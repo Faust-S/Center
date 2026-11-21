@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      AGENT_PIN: 5e1cccc064e40c6e6a2f1e668f3090357f33224e
+      AGENT_PIN: 32bc9e09227f80862db3f58b16aa7610ae2412e6
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -174,7 +174,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 40
     env:
-      AGENT_PIN: 5e1cccc064e40c6e6a2f1e668f3090357f33224e
+      AGENT_PIN: 32bc9e09227f80862db3f58b16aa7610ae2412e6
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -231,7 +231,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      AGENT_PIN: 5e1cccc064e40c6e6a2f1e668f3090357f33224e
+      AGENT_PIN: 32bc9e09227f80862db3f58b16aa7610ae2412e6
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
