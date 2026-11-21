@@ -20,6 +20,18 @@ try{
   });
   await page.goto('http://127.0.0.1:4173');
   await page.getByTestId('org-name').fill('North workshop');await page.getByTestId('create-org').click();
+  await page.getByTestId('manager-context-overview').waitFor();
+  assert.equal(await page.getByTestId('manager-attention-item').count(),1);
+  await page.getByTestId('open-context-map').click();
+  await page.getByTestId('corporate-interactive-map').waitFor();
+  await page.getByTestId('context-map-agent').click();
+  assert.match(await page.getByTestId('context-map-detail').innerText(),/Личная информация не становится корпоративной/);
+  await page.getByTestId('context-map-organization').click();
+  await page.getByTestId('context-map-open').click();
+  await page.getByTestId('overview-search').fill('North workshop');
+  assert.equal(await page.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
+  await page.getByTestId('overview-hits').getByTestId('manager-search-hit').click();
+  checks.push('manager-context-map-personal-agent-boundary-and-scope-search');
   await page.getByTestId('nav-data').click();
   await page.getByTestId('center-age-exchange').waitFor();
   assert.equal(await page.getByTestId('center-age-encrypt').isEnabled(),false);
@@ -75,6 +87,14 @@ try{
   assert.equal(await page.getByTestId('assignment-row').count(),1);
   assert.ok((await page.getByTestId('assignment-atlas-status').textContent()).includes('совпадают'));
   checks.push('organization-workspace-two-participants-assignment');
+  await page.getByTestId('nav-overview').click();
+  await page.getByTestId('overview-search').fill('Compare suppliers');
+  assert.equal(await page.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
+  await page.getByTestId('overview-hits').getByTestId('manager-search-hit').click();
+  assert.equal(await page.getByTestId('task-title').inputValue(),'Compare three suppliers');
+  await page.getByTestId('save-assignment').click();
+  checks.push('manager-search-opens-original-assignment-editor');
+
   await page.getByTestId('assignment-row').click();await page.getByTestId('task-title').fill('Compare four suppliers');await page.getByTestId('save-assignment').click();checks.push('edit-draft');
   const later=createItem(work.state,first.id,{title:'Verify new supplier'});
   await page.getByTestId('nav-resources').click();
