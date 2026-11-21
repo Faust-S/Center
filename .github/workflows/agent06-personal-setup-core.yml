@@ -2,7 +2,7 @@ name: Agent 0.6 exact personal Setup Core and real Qwen qualification
 on:
   push:
     branches:
-      - work/2026-11-21-agent06-qwen-gui-result-releasegate
+      - work/2026-11-21-agent06-personal-product-release-gate
     paths:
       - .github/workflows/agent06-personal-setup-core.yml
   workflow_dispatch:
@@ -16,7 +16,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 100
     env:
-      AGENT_PIN: c516069ce3c4f43722324f043fde0c654e19ce0a
+      AGENT_PIN: 1f1e48237833775fecae5520fce1f22d18a652b8
+      IWXA_AGENT06_QUALIFICATION_SCOPE: PERSONAL_RELEASE
       SETUP_PIN: c10e193846a0ea4c73cabe3744aa7db82439d54e
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
@@ -98,7 +99,7 @@ jobs:
         run: |
           Push-Location private-agent/desktop
           try {
-            & node.exe --test tests/native-setup-optional-args.test.mjs tests/native-gui-qa-labels.test.mjs tests/native-acl-manifest.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-option-test-private.txt')
+            & node.exe --test tests/native-setup-optional-args.test.mjs tests/native-gui-qa-labels.test.mjs tests/native-acl-manifest.test.mjs tests/native-setup-personal-release-scope.test.mjs *> (Join-Path $env:RUNNER_TEMP 'agent06-option-test-private.txt')
             if($LASTEXITCODE -ne 0){throw 'AGENT06_OPTIONAL_POWERSHELL_ARG_TEST_FAIL'}
             Write-Host 'AGENT06_OPTIONAL_POWERSHELL_ARG_TEST_PASS'
           } finally {Pop-Location}
@@ -242,6 +243,32 @@ jobs:
           }
           $setupExe=Join-Path $out 'IWXA-Private-SetupCore-Candidate.exe'
           if(!(Test-Path -LiteralPath $setupExe -PathType Leaf)){throw 'AGENT06_PERSONAL_SETUP_EXE_NOT_BUILT'}
+          # The installer checks status=PASS; the personal release must
+          # verify its explicit scope and every essential user-facing result.
+          $witnessPath=Join-Path $out 'temporary-installed-fixture/installed-witness.json'
+          if(!(Test-Path -LiteralPath $witnessPath -PathType Leaf)){
+            throw 'AGENT06_PERSONAL_RELEASE_WITNESS_MISSING'
+          }
+          $proof=Get-Content -LiteralPath $witnessPath -Raw -Encoding UTF8|ConvertFrom-Json
+          if($proof.status -cne 'PASS' -or
+             $proof.qualification_scope -cne 'PERSONAL_RELEASE' -or
+             $proof.extended_k03_qualification_executed -ne $false -or
+             $proof.installed_k03_real_source_task_result_restart_verified -ne $false){
+            throw 'AGENT06_PERSONAL_RELEASE_SCOPE_READBACK_INVALID'
+          }
+          foreach($key in @('core_ready_first','installed_native_cold_launch_verified',
+              'installed_real_qwen_task_review_verified',
+              'installed_real_qwen_result_restart_verified',
+              'installed_real_qwen_independent_import_verified',
+              'installed_real_qwen_native_gui_result_verified',
+              'installed_real_qwen_native_gui_submit_review_verified',
+              'installed_real_qwen_native_gui_cold_import_verified',
+              'core_ready_after_restart','clean_stop','isolated_runtime_profile')){
+            if($proof.$key -ne $true){
+              throw 'AGENT06_PERSONAL_RELEASE_REQUIRED_RESULT_MISSING'
+            }
+          }
+          Write-Host 'AGENT06_PERSONAL_SCOPE_EXPLICIT_REAL_QWEN_GUI_COLD_PASS'
           Write-Host 'AGENT06_PERSONAL_SETUP_REAL_QWEN_REVIEW_COLD_REPAIR_ROLLBACK_PASS'
       # Exact private sources, user data, model logs, executable and Qwen results
       # stay on the disposable Windows runner. Do not upload artifacts.
