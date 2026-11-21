@@ -1,0 +1,86 @@
+# Qualify exact private Agent's original Desktop and native Tauri WITHOUT publishing its source.
+name: Agent06 online private native Windows qualification
+on:
+  push:
+    branches:
+      - work/2026-11-21-agent06-online-native-ci
+permissions:
+  contents: read
+concurrency:
+  group: agent06-online-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-source:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      AGENT06_PRIVATE_PIN: '16a951ce99b296a81a5ba512887a0837bfefc69b'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_NO_CACHE_DIR: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm authorized read-only Agent access
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_TOKEN)){
+            throw 'AGENT06_NATIVE_PRIVATE_ACCESS_NOT_AVAILABLE'
+          }
+          Write-Host 'AGENT06_NATIVE_READ_PERMISSION_PRESENT'
+      - name: Checkout exact private Agent source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT06_PRIVATE_PIN }}
+          path: private-agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - name: Check exact revision
+        shell: pwsh
+        run: |
+          $sha=(& git -C private-agent rev-parse HEAD).Trim()
+          if($sha -cne $env:AGENT06_PRIVATE_PIN){throw 'AGENT06_NATIVE_SOURCE_REVISION_MISMATCH'}
+          Write-Host ('AGENT06_NATIVE_SOURCE_SHA='+$sha)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Qualify all original Desktop node tests and TypeScript/Vite build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location private-agent/desktop
+          try{
+            $dep=Join-Path $env:RUNNER_TEMP 'agent06-native-dependencies-private.log'
+            & npm ci --no-audit --no-fund *> $dep
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_NPM_DEPENDENCIES_FAILED'}
+            Write-Host 'AGENT06_NATIVE_NPM_DEPENDENCIES_PASS'
+            $node=Join-Path $env:RUNNER_TEMP 'agent06-native-node-tests-private.log'
+            & npm test *> $node
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_NODE_SUITE_FAILED'}
+            Write-Host 'AGENT06_NATIVE_NODE_FULL_SUITE_PASS'
+            $build=Join-Path $env:RUNNER_TEMP 'agent06-native-desktop-build-private.log'
+            & npm run build *> $build
+            if($LASTEXITCODE -ne 0){throw 'AGENT06_NATIVE_TYPESCRIPT_VITE_FAILED'}
+            Write-Host 'AGENT06_NATIVE_TYPESCRIPT_VITE_PASS'
+          }finally{Pop-Location}
+      - name: Compile and test actual Windows Tauri Rust host
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $cargo=Get-Command cargo -ErrorAction SilentlyContinue
+          if(-not $cargo){throw 'AGENT06_NATIVE_RUST_TOOLCHAIN_MISSING'}
+          $log=Join-Path $env:RUNNER_TEMP 'agent06-native-rust-private.log'
+          & cargo test --locked --manifest-path private-agent/desktop/src-tauri/Cargo.toml *> $log
+          if($LASTEXITCODE -ne 0){
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            [regex]::Matches([string]$raw,'error\[E[0-9]{4}\]') |
+              ForEach-Object Value | Sort-Object -Unique |
+              ForEach-Object {Write-Host ('AGENT06_NATIVE_RUST_ERROR='+$_)}
+            throw 'AGENT06_NATIVE_RUST_TESTS_FAILED'
+          }
+          Write-Host 'AGENT06_NATIVE_TAURI_RUST_PASS'
+      # No upload-artifact, cache, private logs, code, screenshots or compiled EXE.
