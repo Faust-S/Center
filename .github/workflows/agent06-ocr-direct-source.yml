@@ -6,6 +6,11 @@ on:
     paths:
       - .github/workflows/agent06-ocr-direct-source.yml
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/agent06-ocr-direct-source.yml
 permissions:
   contents: read
 concurrency:
@@ -16,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      AGENT_PIN: 78a5ec291f0123c90b5491a0d49965700170fe98
+      AGENT_PIN: 2b94cbce4b83995559a2f40677a8dddb69e62b70
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -125,7 +130,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 40
     env:
-      AGENT_PIN: 78a5ec291f0123c90b5491a0d49965700170fe98
+      AGENT_PIN: 2b94cbce4b83995559a2f40677a8dddb69e62b70
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -182,7 +187,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      AGENT_PIN: 78a5ec291f0123c90b5491a0d49965700170fe98
+      AGENT_PIN: 2b94cbce4b83995559a2f40677a8dddb69e62b70
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
