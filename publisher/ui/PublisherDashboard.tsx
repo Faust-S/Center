@@ -98,7 +98,7 @@ function details(id:WidgetId,d:Draft,attention:Attention,diagnostics:Diagnostics
    'Корпоративных тарифов Admin Center: '+d.tariffs.filter(t=>t.productId==='IWXA_ADMIN_CENTER'&&t.holderType==='ORGANIZATION').length,
    corporateIssuerCount===null?'Исходный корпоративный T3 ещё не проверен':
     corporateIssuerCount===0?'Корпоративный издатель не зарегистрирован':
-    'Зарегистрировано издателей T3: '+corporateIssuerCount
+    'При последней проверке издателей T3: '+corporateIssuerCount
   ];
   case 'person':return attention?[
     'Прочитано: '+attention.shown+' из '+attention.total,
