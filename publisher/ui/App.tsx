@@ -597,6 +597,11 @@ export default function App(){
        </section>{page==='overview'&&diagnosticPanel}</>:<>
        {page==='overview'&&<>
          <PublisherDashboard draft={state} attention={personAttention}
+           diagnostics={diagnostics}
+           attentionBusy={personAttentionBusy} attentionError={personAttentionError}
+           onCheckAttention={()=>void checkPersonAttention()}
+           diagnosticsBusy={diagnosticsBusy} diagnosticsError={diagnosticsMessage}
+           onCheckDiagnostics={()=>void checkDiagnostics()}
            layout={visualPrefs.widgets} editing={dashboardEdit}
            onEditing={setDashboardEdit} onChange={setWidgetLayout}
            onLibrary={openWidgetLibrary} onNavigate={go}/>
