@@ -121,7 +121,12 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
        throw Error('CEN_D2_ORIGINAL_SIGNED_CONTEXT_CHANGED');
      if(seq===request.current)setActivity(readback);
    }catch(error){
-     if(seq===request.current)setActivityIssue('Исходные Object/Event не прочитаны. Проверьте открытую Workspace T3 и отдельное подписанное право activity.read. Данные других источников не подставляются. Код: '+managerActivityFailureCode(error)+'.');
+     if(seq===request.current){
+       const code=managerActivityFailureCode(error);
+       setActivityIssue(code==='WORKSPACE_NOT_ACTIVE'
+         ?'В исходном T2 Kernel пока нет действующей корпоративной Workspace. Откройте «Результаты» → «Открыть Workspace T3» и дождитесь её подтверждения. Если исходный T3 предлагает «Создать выбранную Workspace», подтвердите создание отдельным подписанным правом workspace.create. Затем перечитайте данные здесь. Код: '+code+'.'
+         :'Исходные Object/Event не прочитаны. Проверьте открытую Workspace T3 и отдельное подписанное право activity.read. Данные других источников не подставляются. Код: '+code+'.');
+     }
    }finally{if(seq===request.current)setActivityLoading(false);}
  };
  const [selection,setSelection]=useState('organization');
@@ -232,7 +237,12 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
              без предметной привязки: {activity.counts.unmappedObjects} Object и {activity.counts.unmappedEvents} Event.</span>
            <small>Это метаданные исходных записей, не доказательство выполнения хозяйственных действий.</small>
          </div>}
-       {activityIssue&&<small role="alert" className="muted" data-testid="manager-activity-issue">{activityIssue}</small>}
+       {activityIssue&&<div role="alert" className="muted" data-testid="manager-activity-issue">
+         <small>{activityIssue}</small>
+         {activityIssue.includes('Код: WORKSPACE_NOT_ACTIVE')&&
+           <button className="secondary" type="button" data-testid="manager-open-workspace-remedy"
+             onClick={()=>onNavigate('results')}>Открыть подписанную Workspace в «Результатах»</button>}
+       </div>}
        {inboxIssue&&<small role="status" className="muted" data-testid="manager-inbox-issue">{inboxIssue}</small>}
        {ownerIssue&&<small role="alert" className="muted" data-testid="manager-owner-error">{ownerIssue}</small>}
      </div>
