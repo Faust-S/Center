@@ -1,5 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {Plus,GripVertical,LayoutDashboard,Settings2,ArrowUp,ArrowDown,X,RotateCcw,FolderOpen,CheckSquare,MessageCircle,Boxes,ExternalLink} from 'lucide-react';
+import {Plus,GripVertical,LayoutDashboard,Settings2,ArrowUp,ArrowDown,X,RotateCcw,FolderOpen,CheckSquare,MessageCircle,ExternalLink} from 'lucide-react';
 import {useUiSettings} from './ui-preferences';
 import {runtime} from './runtime-client/interaction';
 import {readHomeLive,type HomeLive,type HomeLiveNeed} from './home-dashboard-live';
@@ -245,14 +245,6 @@ export function HomeDashboard({areaId,areaName,taskComposer,tasks,taskSources,se
    'Continue conversations in their saved context.')}</p>
    <button type="button" className="mini-button" onClick={()=>open('Диалоги')}>
     <MessageCircle size={14}/>{tr('Открыть разговоры','Open conversations')}</button></>;
-  if(widget.kind==='programs')return <><p>{tr('Запускайте и настраивайте установленные программы в их штатном разделе.',
-   'Open and configure installed programs from their original workspace.')}</p>
-    <button type="button" className="mini-button" onClick={()=>open('Программы')}>
-     <Boxes size={14}/>{tr('Программы','Programs')}</button></>;
-  if(widget.kind==='connections')return <><p>{tr('Подключённые возможности управляются в разделе подключений. Новое подключение требует вашего действия.',
-   'Connections are managed in Connections. New connections require your action.')}</p>
-    <button type="button" className="mini-button" onClick={()=>open('Интеграции')}>
-     {tr('Настроить подключения','Configure connections')}</button></>;
   if(widget.kind==='company')return <><p>{tr('Поручения организации доступны только в соответствующей рабочей области и с подтверждёнными правами.',
    'Company assignments require a verified company Workspace and permissions.')}</p>
    <button type="button" className="mini-button" onClick={()=>open('Работа в организации')}>
