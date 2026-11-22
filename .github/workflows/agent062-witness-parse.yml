@@ -21,7 +21,13 @@ jobs:
           $file=Join-Path $env:GITHUB_WORKSPACE 'qa/agent062_dashboard/installed-gui-witness-source.ps1'
           $tokens=$null; $errors=$null
           [System.Management.Automation.Language.Parser]::ParseFile($file,[ref]$tokens,[ref]$errors) | Out-Null
-          if(@($errors).Count -ne 0){throw 'AGENT062_DASHBOARD_WITNESS_PARSE_FAILED'}
+          if(@($errors).Count -ne 0){
+            Write-Host ('PARSE_ERRORS='+@($errors).Count)
+            foreach($err in @($errors)){
+              Write-Host ('PARSE_AT_LINE='+$err.Extent.StartLineNumber+';COLUMN='+$err.Extent.StartColumnNumber+';MESSAGE='+$err.Message)
+            }
+            throw 'AGENT062_DASHBOARD_WITNESS_PARSE_FAILED'
+          }
           $raw=Get-Content -LiteralPath $file -Raw -Encoding UTF8
           foreach($mark in @('CheckDashboard -AfterCold','DASHBOARD_FIRST','dashboard_restored_after_cold_restart')){
             if(!$raw.Contains($mark)){throw 'AGENT062_DASHBOARD_WITNESS_INCOMPLETE'}
