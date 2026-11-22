@@ -1,0 +1,67 @@
+# Public qualification controller. Original private Agent sources are checked out
+# read-only onto a disposable Windows runner; nothing is uploaded.
+name: Agent062 original groups drafts and model pins Windows
+on:
+  push:
+    branches:
+      - work/2026-11-22-agent-062-integrated-windows-frontend
+    paths:
+      - .github/workflows/agent062-original-groups-extended.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-session-runtime:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PRIVATE_SOURCE_PIN: 'fa316852e6ab8245250fa3e522ee4b98701d6e11'
+      PRIVATE_TREE_PIN: 'a5116a9cdfe005cba0d8590c75e993abfa9f8986'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify pre-authorized private source access
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_READ_TOKEN)){
+            throw 'AGENT062_ORIGINAL_GROUPS_PRIVATE_ACCESS_MISSING'
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.PRIVATE_SOURCE_PIN }}
+          path: private-agent
+          persist-credentials: false
+          show-progress: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify exact original owner, source tree and immutable checkout
+        shell: pwsh
+        run: |
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
+          $head=(& git -C $repo rev-parse HEAD).Trim()
+          $tree=(& git -C $repo rev-parse 'HEAD^{tree}').Trim()
+          $dirty=@(& git -C $repo status --porcelain --untracked-files=all)
+          if($head -cne $env:PRIVATE_SOURCE_PIN -or
+             $tree -cne $env:PRIVATE_TREE_PIN -or
+             @($dirty|Where-Object {$_}).Count -ne 0){
+            throw 'AGENT062_ORIGINAL_GROUPS_SOURCE_MISMATCH'
+          }
+          Write-Host 'AGENT062_ORIGINAL_GROUPS_SOURCE_PIN_PASS'
+      - name: Install isolated test-only dependencies
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check -q pytest jsonschema referencing
+      - name: Run original SessionRuntime group and draft preservation tests
+        working-directory: private-agent
+        shell: pwsh
+        run: |
+          python -B -m pytest -q tests/cells/test_conversation_groups_062.py
+          if($LASTEXITCODE -ne 0){throw 'AGENT062_ORIGINAL_GROUPS_TESTS_FAILED'}
+          Write-Host 'AGENT062_ORIGINAL_GROUPS_DRAFTS_MODELS_RESTART_PASS'
+      # Do not publish private source, files, test artifacts or screenshots.
