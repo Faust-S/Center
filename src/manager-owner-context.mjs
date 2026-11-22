@@ -92,3 +92,34 @@ export function managerSignedInboxArgs(view,organizationId){
    binding:{organizationId:s.organizationId,workspaceId:s.workspaceId,
      contextEpoch:s.contextEpoch,actorId:s.actorId,contextId:s.contextId}};
 }
+
+// A link from search to the original Reconciliation is not a capability.
+const ORIGINAL_KINDS=new Set(['signed-task','signed-result-package']);
+export function prepareManagerOriginalSelection(owner,organizationId,kind,id){
+ if(owner?.status!=='SIGNED_D3_READBACK'||owner.organizationId!==organizationId||
+   !ORIGINAL_KINDS.has(kind)||typeof id!=='string'||
+   !owner.entries?.some(row=>row.kind===kind&&row.id===id)||
+   typeof owner.workspaceId!=='string'||!ID.test(owner.workspaceId)||
+   typeof owner.actorId!=='string'||!ID.test(owner.actorId)||
+   typeof owner.contextId!=='string'||!ID.test(owner.contextId)||
+   !Number.isSafeInteger(owner.contextEpoch)||owner.contextEpoch<=0)return null;
+ if(kind==='signed-result-package'&&!HEX.test(id))return null;
+ if(kind==='signed-task'&&!ID.test(id))return null;
+ return {kind,id,organizationId,workspaceId:owner.workspaceId,
+   actorId:owner.actorId,contextId:owner.contextId,contextEpoch:owner.contextEpoch};
+}
+export function managerOriginalSelectionMatches(selection,session){
+ return !!(selection&&session&&ORIGINAL_KINDS.has(selection.kind)&&
+   typeof selection.organizationId==='string'&&
+   typeof selection.workspaceId==='string'&&
+   typeof selection.actorId==='string'&&
+   typeof selection.contextId==='string'&&
+   Number.isSafeInteger(selection.contextEpoch)&&selection.contextEpoch>0&&
+   selection.organizationId===session.organizationId&&
+   selection.workspaceId===session.workspaceId&&
+   selection.actorId===session.actorId&&
+   selection.contextId===session.contextId&&
+   selection.contextEpoch===session.contextEpoch&&
+   typeof selection.id==='string'&&
+   (selection.kind==='signed-result-package'?HEX.test(selection.id):ID.test(selection.id)));
+}

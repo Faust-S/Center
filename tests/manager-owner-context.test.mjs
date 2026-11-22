@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readManagerSignedContext,managerSignedInboxArgs} from '../src/manager-owner-context.mjs';
+import {readManagerSignedContext,managerSignedInboxArgs,
+ prepareManagerOriginalSelection,managerOriginalSelectionMatches} from '../src/manager-owner-context.mjs';
 import {searchManagerContext} from '../src/manager-context.mjs';
 
 const hex=(c)=>c.repeat(64);
@@ -70,4 +71,25 @@ test('read-only original D3 inbox binding is exact current signed context',()=>{
  const changed=view();changed.snapshot.contextEpoch=24;
  assert.notEqual(managerSignedInboxArgs(changed,'org:north').binding.contextEpoch,
    managerSignedInboxArgs(signed,'org:north').binding.contextEpoch);
+});
+
+test('navigation locator permits only exact signed source and expires on epoch change',()=>{
+ const original=view();
+ const read=readManagerSignedContext(original,'org:north',inbox());
+ const focus=prepareManagerOriginalSelection(read,'org:north','signed-result-package',hex('c'));
+ assert.equal(focus.kind,'signed-result-package');
+ assert.equal(managerOriginalSelectionMatches(focus,original.snapshot),true);
+ const changed=structuredClone(original.snapshot);changed.contextEpoch++;
+ assert.equal(managerOriginalSelectionMatches(focus,changed),false);
+ for(const field of ['organizationId','workspaceId','actorId','contextId']){
+  const other=structuredClone(original.snapshot);other[field]+='-other';
+  assert.equal(managerOriginalSelectionMatches(focus,other),false,field);
+ }
+ assert.equal(prepareManagerOriginalSelection(read,'org:south','signed-result-package',hex('c')),null);
+ assert.equal(prepareManagerOriginalSelection(read,'org:north','signed-result-package',hex('1')),null);
+ assert.equal(prepareManagerOriginalSelection(read,'org:north','signed-result-package','not-sha'),null);
+ assert.equal(prepareManagerOriginalSelection(read,'org:north','assignment','task:actual'),null);
+ const task=prepareManagerOriginalSelection(read,'org:north','signed-task','task:actual');
+ assert.equal(managerOriginalSelectionMatches(task,original.snapshot),true);
+ assert.equal(managerOriginalSelectionMatches({...task,kind:'signed-result-package'},original.snapshot),false);
 });
