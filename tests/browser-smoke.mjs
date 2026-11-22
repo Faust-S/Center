@@ -1255,6 +1255,20 @@ try{
   await v8Page.getByTestId('add-person').click();
   assert.match(await v8Page.getByTestId('admin-v8-company-structure').innerText(),
     /Сотрудник V8/);
+  await v8Page.locator('[data-testid^="company-person-"]').first().click();
+  assert.match(await v8Page.getByTestId('company-selection-detail').innerText(),/Сотрудник V8/);
+  assert.equal(await v8Page.locator('[data-testid^="company-person-"]').first().getAttribute('aria-pressed'),'true');
+  await v8Page.getByRole('button',{name:'Сбросить выбор'}).click();
+  assert.equal(await v8Page.getByTestId('company-selection-detail').count(),0);
+  await v8Page.getByTestId('nav-resources').click();
+  await v8Page.getByTestId('workspace-name').fill('Цех упаковки');
+  await v8Page.getByTestId('add-workspace').click();
+  await v8Page.getByTestId('nav-people').click();
+  await v8Page.locator('[data-testid^="company-workspace-"]').first().click();
+  assert.match(await v8Page.getByTestId('company-selection-detail').innerText(),/Цех упаковки/);
+  assert.match(await v8Page.getByTestId('company-selection-detail').innerText(),/Связанных поручений пока нет/);
+  checks.push('v8-interactive-company-structure-draft-backed-workspace-person-links');
+
   await v8Page.getByTestId('nav-data').click();
   await v8Page.getByTestId('admin-profile-settings').waitFor();
   assert.match(await v8Page.getByTestId('admin-profile-settings').innerText(),/0\.3\.0-dev\.1/);
