@@ -550,6 +550,7 @@ export default function App() {
       {org && !creatingOrg && page==='overview' && <>
         <ManagerContextPanel key={'home|'+org.id} organization={org} atlasView={observedAtlas}
           view="overview" atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
+          sourceGeneration={signedWorkspaceGeneration}
           invoke={nativeHost?nativeInvoke:null}
           onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}
           onOpenOriginal={openManagerOriginal}/>
@@ -564,6 +565,7 @@ export default function App() {
 
       {org && page==='context' && <ManagerContextPanel key={'context|'+org.id} organization={org}
         atlasView={observedAtlas} view="context" atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
+        sourceGeneration={signedWorkspaceGeneration}
         invoke={nativeHost?nativeInvoke:null}
         onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}
         onOpenOriginal={openManagerOriginal}/>}
