@@ -260,12 +260,12 @@
 .publisher-app .pub-side-context nav{padding:8px 10px 16px}
 .publisher-app .pub-side-caption{font-size:10px;letter-spacing:1.1px;text-transform:uppercase;
  color:#b5cce6;margin:5px 10px 13px}
-.publisher-app .pub-side-context nav button{display:block;width:100%;
+.publisher-app .pub-side-context nav a{display:block;width:100%;
  text-align:left;background:transparent;color:#eaf2ff;min-height:37px;
  padding:9px 10px;margin:3px 0;border:0;border-radius:9px;
  font-size:12px;line-height:1.5}
-.publisher-app .pub-side-context nav button:hover,
-.publisher-app .pub-side-context nav button:focus-visible{background:#ffffff24}
+.publisher-app .pub-side-context nav a:hover,
+.publisher-app .pub-side-context nav a:focus-visible{background:#ffffff24}
 .publisher-app .pub-side-context-foot{margin-top:auto;padding:15px 17px;
  border-top:1px solid #ffffff29}
 .publisher-app .pub-side-context-foot strong{font-size:11px}
@@ -281,3 +281,5 @@
  .publisher-app .pub-left-container .publisher-brand-logo{width:32px;height:32px}
  .publisher-app .pub-left-container .nav-link{min-height:37px;padding:7px}
 }
+
+.publisher-app .pub-side-context nav a{text-decoration:none;cursor:pointer}
