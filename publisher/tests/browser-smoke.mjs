@@ -260,7 +260,8 @@ try {
   checks.push('corporate-dashboard-explicit-original-issuer-readback-fail-closed-no-ui-persistence');
   await page.getByTestId('publisher-home-corporate-owner').click();
   await page.getByTestId('publisher-corporate-native-owner').waitFor();
-  assert.equal(await page.getByRole('heading',{name:'Доверие и ключи',exact:true}).count(),1);
+  assert.equal(await page.locator('.publisher-app .main h1').innerText(),'Доверие и ключи',
+    'Navigation must land on the central T3 page, not merely show the side menu');
   await page.getByRole('button',{name:'Обзор',exact:true}).click();
   await dashboard.waitFor();
   checks.push('v2-home-opens-original-corporate-owner-without-duplicate-license-engine');
