@@ -40,3 +40,26 @@ jobs:
           } else {
             Write-Host 'AGENT062_EXISTING_PRIVATE_TOKEN_CAN_PUBLISH=NO'
           }
+          $body=@{
+            tag_name='v0.6.2'
+            target_commitish='39a4f49ed9a5c0781c4a4769e9603ca8fb1e8d23'
+            name='IWXA Personal Agent 0.6.2'
+            body='Verified native Windows package pending release asset upload.'
+            draft=$true
+            prerelease=$false
+          } | ConvertTo-Json -Depth 3
+          try {
+            $created=Invoke-RestMethod -Method Post -Uri 'https://api.github.com/repos/Faust-S/iwxa-personal-agent/releases' -Headers $headers -ContentType 'application/json' -Body $body
+            if($created.draft -eq $true -and $created.tag_name -ceq 'v0.6.2'){
+              Write-Host 'AGENT062_RELEASE_CREATE_DRAFT_HTTP=201'
+            } else {
+              Write-Host 'AGENT062_RELEASE_CREATE_DRAFT_REPLY_UNEXPECTED'
+            }
+          } catch {
+            $status=0
+            try {
+              $status=[int]$_.Exception.Response.StatusCode
+            } catch {}
+            if($status -lt 100 -or $status -gt 599){$status=0}
+            Write-Host ('AGENT062_RELEASE_CREATE_DRAFT_HTTP='+$status)
+          }
