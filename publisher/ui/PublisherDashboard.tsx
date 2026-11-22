@@ -73,7 +73,8 @@ function metric(id:WidgetId,d:Draft,attention:Attention){
 }
 export function PublisherDashboard({draft,attention,layout,editing,onChange,onEditing,onLibrary,onNavigate}:DashboardProps){
  const [dragged,setDragged]=React.useState<WidgetId|null>(null);
- const move=(id:WidgetId,target:WidgetId)=>{
+ const move=(id:WidgetId,target:WidgetId|undefined)=>{
+  if(!target)return;
   const a=layout.findIndex(x=>x.id===id),b=layout.findIndex(x=>x.id===target);
   if(a<0||b<0||a===b)return;
   const next=layout.map(w=>({...w})),[item]=next.splice(a,1);next.splice(b,0,item);onChange(next);
