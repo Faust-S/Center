@@ -43,6 +43,14 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
     let sha=input["packageSha256"].as_str();
     match operation {
       "d3Inbox"|"d3Receive"|"d3ReceiveAge"|"d3ExportInvitation"=>{},
+      "d2ActivityReadback"=>{
+          // Only original Host-selected workspace and original D1 DATA
+          // authorization may determine the scope. Never accept a public
+          // caller's schema bindings, workspace list or resource selector.
+          if !input.as_object().is_some_and(|map|map.is_empty()){
+              return Err("CEN_D2_ORIGINAL_READ_ONLY_INPUT_REQUIRED".into());
+          }
+      },
       "d3EmployeeRegistryReadback"=>{},
       "d3EmployeeRegistryInitialize"=>{
           if input["confirmed"]!=true{
@@ -282,6 +290,7 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
         "d3EmployeeCancel"|"d3EmployeeComplete"|
         "d3EmployeeRead"|"d3EmployeeExportInvite"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true,
+        "d2ActivityReadback"=>snapshot["d2ActivityReaderConnected"]==true,
         "d3ApplyAccepted"=>snapshot["d3ApplyAvailable"]==true,
         "d3RecoverApplied"=>snapshot["d3ApplyRecoverAvailable"]==true&&
             snapshot["d3ApplyAvailable"]==true,
@@ -1042,6 +1051,10 @@ pub async fn center_corporate_action(
             return Err("CEN_D3_ORIGINAL_EMPLOYEE_OWNER_NOT_CONNECTED".into());
         }
     }
+    if operation=="d2ActivityReadback" &&
+       app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_none(){
+        return Err("CEN_D2_ORIGINAL_SIGNED_WORKSPACE_NOT_RUNNING".into());
+    }
     if matches!(operation.as_str(),"d3ApplyAccepted"|"d3RecoverApplied"){
         // The ORIGINAL T2 Kernel lives exclusively in the currently
         // mounted trusted child WebView. A stale native APPLY capability
@@ -1234,6 +1247,10 @@ pub async fn center_corporate_action(
         if !exact_kernel_apply_capability(&observed,&operation){
             return Err("CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED".into());
         }
+        if operation=="d2ActivityReadback" &&
+           app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_none(){
+            return Err("CEN_D2_ORIGINAL_SIGNED_WORKSPACE_NOT_RUNNING".into());
+        }
         // The manager may have closed the child while the separate Windows
         // Human APPLY dialog was visible. This check still precedes the
         // private owner's first Kernel dispatch and cannot cause a replay.
@@ -1281,6 +1298,28 @@ pub async fn center_corporate_action(
         // Age decryption is NOT admission. The original T3 recipient must
         // prove it received the same signed archive as the age tool verified.
         let mut result=output["result"].clone();
+        if operation=="d2ActivityReadback"{
+            // The source stays the ORIGINAL trusted T2 Kernel and private
+            // D1 signed DATA owner. Center receives only a bounded sanitized
+            // D2 projection, never private keys or arbitrary Object.data.
+            let view=&result["view"];
+            let bounded=|key:&str,max:usize|->
+                bool{view[key].as_array().is_some_and(|items|items.len()<=max)};
+            if result["schema"]!="IWXA_T3_ORIGINAL_ADMIN_ACTIVITY_READBACK/1"||
+               result["organizationId"]!=organization_id||
+               result["workspaceId"]!=observed["snapshot"]["workspaceId"]||
+               result["actorId"]!=observed["snapshot"]["actorId"]||
+               result["source"]!="ORIGINAL_T2_KERNEL_D1_ACTIVITY_DATA"||
+               result["evidenceScope"]!="METADATA_ONLY_NOT_BUSINESS_COMPLETION_PROOF"||
+               view["workspace_id"]!=observed["snapshot"]["workspaceId"]||
+               !bounded("nodes",256)||!bounded("events",2000)||
+               !bounded("relations",10000)||!bounded("unresolved",10000)||
+               !view["unmapped"]["object_ids"].is_array()||
+               !view["unmapped"]["event_ids"].is_array()||
+               !view["unmapped"]["relation_ids"].is_array(){
+                return Err("CEN_D2_ORIGINAL_ACTIVITY_READBACK_INVALID".into());
+            }
+        }
         if operation=="d3ApplyAccepted"{
             if let Err(error)=verify_kernel_apply(&result,&input,&observed){
                 // The ORIGINAL Kernel may already have written an Object and
