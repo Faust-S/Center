@@ -1,0 +1,29 @@
+name: Agent 0.6.2 SessionRuntime Groups Windows
+on:
+  push:
+    branches:
+      - work/2026-11-22-agent-062-integrated-windows-frontend
+    paths:
+      - qa/agent062_integrated/python/**
+      - .github/workflows/agent-062-python-groups.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-groups:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: qa/agent062_integrated/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test requirements
+        run: python -m pip install pytest jsonschema referencing
+      - name: Check actual Python owner modules
+        run: python -m py_compile runtime/session_runtime.py runtime/daily_driver_engine.py cells/interaction_surface.py runtime/state_bundle_journal.py
+      - name: Run real SessionRuntime group persistence and recovery tests
+        run: python -m pytest -q tests/cells/test_conversation_groups_062.py
