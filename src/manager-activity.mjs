@@ -8,6 +8,17 @@ const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const fail=code=>{throw Error(code);};
 const need=(yes,code)=>{if(!yes)fail(code);};
 const same=(a,b)=>a===b;
+// Native T3 failures can arrive as Error, Tauri string or typed error.
+// Expose ONLY one bounded uppercase machine code to the user and Windows UIA,
+// never exception messages, stack traces, file paths or source material.
+const SAFE_SOURCE_CODE=/^(?:CEN_D2|CEN_D3|T3_D1|T3_D2|T3_D3|T3_OWNER|T3_SUBJECT|WORKSPACE|SOURCE|OPERATION)_[A-Z0-9_]{4,90}$/;
+export function managerActivityFailureCode(error){
+ const raw=typeof error==='string'?error:
+   typeof error?.code==='string'?error.code:
+   typeof error?.message==='string'?error.message:'';
+ const code=raw.startsWith('Error: ')?raw.slice(7):raw;
+ return SAFE_SOURCE_CODE.test(code)?code:'CEN_D2_SOURCE_READ_FAILED';
+}
 export function managerActivityArgs(view,organizationId){
  need(signedD3SessionFingerprint(view,organizationId)!==null&&
    view?.snapshot?.d2ActivityReaderConnected===true,

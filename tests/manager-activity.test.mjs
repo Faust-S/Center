@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {managerActivityArgs,readManagerActivity,managerActivityMatchesSignedOwner}
+import {managerActivityArgs,readManagerActivity,managerActivityMatchesSignedOwner,managerActivityFailureCode}
  from '../src/manager-activity.mjs';
 import {readManagerSignedContext} from '../src/manager-owner-context.mjs';
 const view=(org='org:north',ws='workspace:north')=>({
@@ -84,4 +84,22 @@ test('absent signed original D2 read capability never authorizes a call',()=>{
  assert.throws(()=>managerActivityArgs(disconnected,'org:north'),/SIGNED_READER_REQUIRED/);
  assert.throws(()=>readManagerActivity(disconnected,'org:north',response()),
   /SIGNED_READER_REQUIRED/);
+});
+
+test('manager D2 error exposes only trusted machine code, never sensitive message',()=>{
+ assert.equal(managerActivityFailureCode('CEN_D2_ORIGINAL_SIGNED_READER_REQUIRED'),
+   'CEN_D2_ORIGINAL_SIGNED_READER_REQUIRED');
+ assert.equal(managerActivityFailureCode(Error('T3_D2_ORIGINAL_ACTIVITY_READER_NOT_CONNECTED')),
+   'T3_D2_ORIGINAL_ACTIVITY_READER_NOT_CONNECTED');
+ assert.equal(managerActivityFailureCode({code:'T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED',message:'local secret'}),
+   'T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED');
+ assert.equal(managerActivityFailureCode('Error: T3_D2_ORIGINAL_DATA_GRANT_REQUIRED'),
+   'T3_D2_ORIGINAL_DATA_GRANT_REQUIRED');
+ assert.equal(managerActivityFailureCode('C:\\Users\\alice\\secret\\private-key.json'),
+   'CEN_D2_SOURCE_READ_FAILED');
+ assert.equal(managerActivityFailureCode('Error: T3_D2_INVALID C:\\private\\credentials'),
+   'CEN_D2_SOURCE_READ_FAILED');
+ assert.equal(managerActivityFailureCode({message:'TypeError: data payload value'}),
+   'CEN_D2_SOURCE_READ_FAILED');
+ assert.equal(managerActivityFailureCode(null),'CEN_D2_SOURCE_READ_FAILED');
 });

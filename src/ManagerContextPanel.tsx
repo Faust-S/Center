@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {readManagerSignedContext,managerSignedInboxArgs,prepareManagerOriginalSelection} from './manager-owner-context.mjs';
-import {managerActivityArgs,readManagerActivity,managerActivityMatchesSignedOwner} from './manager-activity.mjs';
+import {managerActivityArgs,readManagerActivity,managerActivityMatchesSignedOwner,managerActivityFailureCode} from './manager-activity.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {buildManagerContext, searchManagerContext, managerAttention} from './manager-context.mjs';
 import {answerManagerQuestion,MANAGER_QUESTIONS} from './manager-answers.mjs';
@@ -120,8 +120,8 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
      if(!managerActivityMatchesSignedOwner(readback,owner))
        throw Error('CEN_D2_ORIGINAL_SIGNED_CONTEXT_CHANGED');
      if(seq===request.current)setActivity(readback);
-   }catch{
-     if(seq===request.current)setActivityIssue('Исходные Object/Event не прочитаны. Проверьте открытую Workspace T3 и отдельное подписанное право activity.read. Данные других источников не подставляются.');
+   }catch(error){
+     if(seq===request.current)setActivityIssue('Исходные Object/Event не прочитаны. Проверьте открытую Workspace T3 и отдельное подписанное право activity.read. Данные других источников не подставляются. Код: '+managerActivityFailureCode(error)+'.');
    }finally{if(seq===request.current)setActivityLoading(false);}
  };
  const [selection,setSelection]=useState('organization');
