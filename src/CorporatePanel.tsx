@@ -57,7 +57,7 @@ const why=(e:unknown)=>{
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
@@ -231,6 +231,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   </div>}
   {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={'employee|'+(signedD3EmployeeScopeFingerprint(owner,organizationId)??'unknown')}
     session={owner.snapshot} contacts={organization.participants??[]}
+    preferredContactId={preferredEmployeeContactId}
     execute={execute} run={act} busy={busy}/>}
   {d3Ready&&invoke ? <CorporateD3Panel key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
     dispatchedApplications={dispatchedD3Applications}
