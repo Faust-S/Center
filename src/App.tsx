@@ -655,7 +655,7 @@ export default function App() {
       <div className="sidebar-bottom">
         <div className="organization-select">
           <label htmlFor="active-organization">Текущая организация</label>
-          <select id="active-organization" value={state.activeOrganizationId??''} onChange={e=>selectOrg(e.target.value)}>
+          <select id="active-organization" aria-label="Организация" value={state.activeOrganizationId??''} onChange={e=>selectOrg(e.target.value)}>
             {!org&&<option value="">Организация не выбрана</option>}
             {state.organizations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
