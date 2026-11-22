@@ -34,6 +34,453 @@ jobs:
           path: center-owner
           persist-credentials: false
           show-progress: false
+      - name: Parse private release publication script before attempting authorization
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $path=Join-Path $env:GITHUB_WORKSPACE '.github/workflows/agent062-installed-private-windows.yml'
+          $lines=@(Get-Content -LiteralPath $path -Encoding UTF8)
+          $marker='      - name: Publish accepted installer only to private GitHub Releases'
+          $idx=-1
+          for($i=0;$i -lt $lines.Length;$i++){
+            if($lines[$i] -ceq $marker){$idx=$i;break}
+          }
+          if($idx -lt 0){throw 'AGENT062_PUBLISH_SCRIPT_NOT_FOUND'}
+          $runLine=-1
+          for($i=$idx+1;$i -lt $lines.Length;$i++){
+            if($lines[$i] -ceq '        run: |'){$runLine=$i;break}
+          }
+          if($runLine -lt 0){throw 'AGENT062_PUBLISH_SCRIPT_BODY_MISSING'}
+          $code=New-Object System.Collections.Generic.List[string]
+          for($i=$runLine+1;$i -lt $lines.Length;$i++){
+            $line=[string]$lines[$i]
+            if($line -match '^          '){$code.Add($line.Substring(10));continue}
+            if($line -match '^\\s*
+        shell: pwsh
+        env:
+          IWXA_PRIVATE_RELEASE_WRITE_TOKEN: ${{ secrets.IWXA_PRIVATE_RELEASE_WRITE_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:IWXA_PRIVATE_RELEASE_WRITE_TOKEN)){
+            throw 'AGENT062_PRIVATE_RELEASE_WRITE_TOKEN_NOT_CONFIGURED'
+          }
+          Write-Host 'AGENT062_PRIVATE_RELEASE_CREDENTIAL_PRESENT'
+      - name: Verify pre-authorized read-only private source access
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_READ_TOKEN)){
+            throw 'AGENT06_ONLINE_PRIVATE_CHECKOUT_PERMISSION_MISSING'
+          }
+          Write-Host 'AGENT06_ONLINE_PRIVATE_READ_ONLY_PERMISSION_PRESENT'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.PRIVATE_SOURCE_PIN }}
+          path: private-agent
+          persist-credentials: false
+          show-progress: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Pin private Agent, original public Setup Core and parse witness scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
+          $center=Join-Path $env:GITHUB_WORKSPACE 'center-owner'
+          $head=(& git -C $repo rev-parse HEAD).Trim()
+          $tree=(& git -C $repo rev-parse 'HEAD^{tree}').Trim()
+          $centerSha=(& git -C $center rev-parse HEAD).Trim()
+          if($head -cne $env:PRIVATE_SOURCE_PIN -or
+             $tree -cne $env:PRIVATE_TREE_PIN -or
+             $centerSha -cne $env:CENTER_OWNER_PIN){
+            throw 'AGENT06_ONLINE_INSTALLED_SOURCE_PIN_MISMATCH'
+          }
+          foreach($dir in @($repo,$center)){
+            $dirty=@(& git -C $dir status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or @($dirty|Where-Object {$_}).Count -ne 0){
+              throw 'AGENT06_ONLINE_INSTALLED_SOURCE_NOT_CLEAN'
+            }
+          }
+          $script=Join-Path $repo 'qualification/agent062/qualify_dashboard_installed.ps1'
+          $python=Join-Path $repo 'qualification/agent061/qualify_online_services_installed.py'
+          $installer=Join-Path $repo 'qualification/phase1/build_native_windows_setup_candidate.ps1'
+          $builder=Join-Path $repo 'tools/build_setup_core_release.py'
+          if(!(Test-Path -LiteralPath $script -PathType Leaf) -or
+             !(Test-Path -LiteralPath $python -PathType Leaf) -or
+             !(Test-Path -LiteralPath $installer -PathType Leaf) -or
+             !(Test-Path -LiteralPath $builder -PathType Leaf)){
+             throw 'AGENT06_ONLINE_INSTALLED_TEST_OWNER_FILE_MISSING'
+          }
+          $parsedTokens=$null;$parseErrors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($script,
+              [ref]$parsedTokens,[ref]$parseErrors) | Out-Null
+          if(@($parseErrors).Count -ne 0){
+            Write-Host ('AGENT06_ONLINE_PS_PARSE_ERRORS='+@($parseErrors).Count)
+            throw 'AGENT06_ONLINE_PS_PARSE_FAIL'
+          }
+          & python -B -c 'import ast,pathlib,sys;ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))' $python *> (Join-Path $env:RUNNER_TEMP 'agent06-private-parse.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT06_ONLINE_PY_PARSE_FAIL'}
+          Write-Host ('AGENT06_ONLINE_PRIVATE_PIN='+$head)
+          Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_PARSE_PASS'
+      - name: Verify Agent 0.6.2 dashboard and conversation groups in pinned private source
+        shell: pwsh
+        run: |
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
+          foreach($path in @('desktop/src/home-dashboard.tsx',
+            'desktop/src/home-dashboard-live.ts',
+            'desktop/src/home-dashboard-model.ts',
+            'tests/cells/test_conversation_groups_062.py')){
+            if(!(Test-Path -LiteralPath (Join-Path $repo $path) -PathType Leaf)){
+              throw 'AGENT062_REQUIRED_UX_SOURCE_MISSING'
+            }
+          }
+          $package=Get-Content -LiteralPath (Join-Path $repo 'desktop/package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          if($package.version -cne '0.6.2'){
+            throw 'AGENT062_RELEASE_VERSION_MISMATCH'
+          }
+          Write-Host 'AGENT062_RELEASE061_BASE_AND_UX_SOURCE_PRESENT'
+      - name: Build native Agent 0.6.2 candidate using original product pipeline
+        shell: pwsh
+        timeout-minutes: 47
+        run: |
+          $ErrorActionPreference='Continue'
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
+          $privateRoot=Join-Path $env:RUNNER_TEMP 'agent06-installed-private'
+          $build=Join-Path $privateRoot 'build'
+          $logs=Join-Path $privateRoot 'logs'
+          $cache=Join-Path $privateRoot 'release-cache'
+          New-Item -ItemType Directory -Path $build,$logs,$cache -Force | Out-Null
+          $builder=Join-Path $repo 'qualification/phase1/build_native_windows_setup_candidate.ps1'
+          $nativeLog=Join-Path $logs 'native-private-build.log'
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $builder -RepoRoot $repo -BuildRoot $build -LogsRoot $logs -ReleaseCache $cache -SourceCommit $env:PRIVATE_SOURCE_PIN -SourceTree $env:PRIVATE_TREE_PIN *> $nativeLog
+          if($LASTEXITCODE -ne 0){
+            $raw=Get-Content -LiteralPath $nativeLog -Raw -ErrorAction SilentlyContinue
+            $allow=@(
+              'native_candidate_rust_toolchain_missing',
+              'native_candidate_tauri_build_failed',
+              'native_candidate_frontend_dependencies_failed',
+              'native_candidate_u04_sources_failed',
+              'native_candidate_test_python_failed',
+              'native_candidate_stub_compile_failed',
+              'native_candidate_rc_icon_conversion_failed',
+              'native_candidate_product_package_build_failed',
+              'phase1_package_release_manifest_invalid',
+              'K03 pinned owner source preparation failed',
+              'U01 pinned owner source preparation failed'
+            )
+            foreach($code in $allow){
+              if(([string]$raw).Contains($code)){
+                Write-Host ('AGENT06_ONLINE_BUILD_SAFE_REASON='+$code)
+              }
+            }
+            throw 'AGENT06_ONLINE_ORIGINAL_NATIVE_BUILD_FAILED'
+          }
+          $pythonPathFile=Join-Path $build 'test-python/current-python.txt'
+          $package=Join-Path $build 'package/IWXA-Personal-Agent-Windows-Explorer-Prototype.zip'
+          if(!(Test-Path -LiteralPath $pythonPathFile -PathType Leaf) -or
+             !(Test-Path -LiteralPath $package -PathType Leaf)){
+            throw 'AGENT06_ONLINE_NATIVE_PACKAGE_MISSING'
+          }
+          $python=(Get-Content -LiteralPath $pythonPathFile -Raw).Trim()
+          if(!(Test-Path -LiteralPath $python -PathType Leaf)){
+            throw 'AGENT06_ONLINE_MANAGED_PYTHON_MISSING'
+          }
+          $setup=Join-Path $privateRoot 'IWXA-Private-Online-SetupCore.exe'
+          $buildReceipt=Join-Path $logs 'private-setup-core.json'
+          & $python -B (Join-Path $repo 'tools/build_setup_core_release.py') --product-package $package --center-root (Join-Path $env:GITHUB_WORKSPACE 'center-owner') --center-commit $env:CENTER_OWNER_PIN --output $setup --python $python *> $buildReceipt
+          if($LASTEXITCODE -ne 0){
+            throw 'AGENT06_ONLINE_ORIGINAL_SETUP_CORE_BUILD_FAILED'
+          }
+          try{$manifest=Get-Content -LiteralPath $buildReceipt -Raw -Encoding UTF8|ConvertFrom-Json}
+          catch{throw 'AGENT06_ONLINE_ORIGINAL_SETUP_CORE_RECEIPT_INVALID'}
+          if($manifest.status -ne 'BUILT_UNQUALIFIED' -or
+             $manifest.private_source_commit -cne $env:PRIVATE_SOURCE_PIN -or
+             $manifest.private_source_tree -cne $env:PRIVATE_TREE_PIN -or
+             $manifest.public_setup_core_commit -cne $env:CENTER_OWNER_PIN -or
+             !(Test-Path -LiteralPath $setup -PathType Leaf) -or
+             (Get-Item -LiteralPath $setup).Length -lt 100000){
+             throw 'AGENT06_ONLINE_ORIGINAL_SETUP_CORE_IDENTITY_INVALID'
+          }
+          Write-Host 'AGENT06_ONLINE_ORIGINAL_NATIVE_SETUP_BUILT'
+      - name: Install actual Setup Core, exercise GUI accounts and cold restart, repair and uninstall
+        shell: pwsh
+        timeout-minutes: 24
+        run: |
+          $ErrorActionPreference='Continue'
+          $privateRoot=Join-Path $env:RUNNER_TEMP 'agent06-installed-private'
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
+          $center=Join-Path $env:GITHUB_WORKSPACE 'center-owner'
+          $setup=Join-Path $privateRoot 'IWXA-Private-Online-SetupCore.exe'
+          $test=Join-Path $center 'installer/windows/qualify-local-bundle.ps1'
+          $witness=Join-Path $repo 'qualification/agent062/qualify_dashboard_installed.ps1'
+          $sandbox=Join-Path $privateRoot 'temporary-installed'
+          $log=Join-Path $privateRoot 'local-online-acceptance.private.log'
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Setup $setup -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit $env:PRIVATE_SOURCE_PIN -WitnessScript $witness -WitnessTimeoutSeconds 1100 *> $log
+          $exit=$LASTEXITCODE
+          $witnessReceipt=Join-Path $sandbox 'installed-witness.json'
+          $agent062WitnessAccepted=$false
+          if(Test-Path -LiteralPath $witnessReceipt -PathType Leaf){
+            try{
+              $w=Get-Content -LiteralPath $witnessReceipt -Raw -Encoding UTF8|ConvertFrom-Json
+              if($w.status -ceq 'PASS' -and
+                 $w.schema -ceq 'IWXA_AGENT062_INSTALLED_GUI_AND_HOME_WITNESS/1' -and
+                 $w.dashboard_added_via_gui -eq $true -and
+                 $w.dashboard_restored_after_cold_restart -eq $true -and
+                 $w.dashboard_reordered_via_gui -eq $true -and
+                 $w.dashboard_order_restored_after_cold_restart -eq $true -and
+                 $w.groups_created_and_renamed_via_gui -eq $true -and
+                 $w.groups_restored_after_cold_restart -eq $true -and
+                 $w.groups_chat_preserved_after_delete -eq $true -and
+                 $w.native_window_first_opened -eq $true -and
+                 $w.original_core_connected -eq $true -and
+                 $w.online_account_create_confirmed -eq $true -and
+                 $w.online_gui_accounts_visible -eq $true -and
+                 $w.online_cold_profile_readback -eq $true -and
+                 $w.online_multiaccount_removal_confirmed -eq $true -and
+                 $w.online_cold_removal_readback -eq $true -and
+                 $w.online_gui_deletion_visible -eq $true -and
+                 $w.real_external_effects_performed -eq $false){
+                $agent062WitnessAccepted=$true
+                Write-Host 'AGENT062_PRIVATE_RELEASE_GUI_GROUPS_DASHBOARD_PASS'
+              }elseif($w.status -ceq 'FAIL'){
+                $phases=@('VALIDATE','NATIVE_FIRST','CREATE','GUI_FIRST','DASHBOARD_FIRST',
+                  'NATIVE_COLD_REOPEN','COLD_READBACK','DASHBOARD_COLD','REMOVE',
+                  'NATIVE_COLD_REMOVE_REOPEN','COLD_REMOVE_READBACK',
+                  'GUI_COLD_REMOVE','RESULT')
+                if([string]$w.phase -cin $phases){
+                  Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_PHASE='+[string]$w.phase)
+                }
+                $safeReasons=@(
+                  'agent062_dashboard_native_window_closed',
+                  'agent062_dashboard_home_navigation_missing',
+                  'agent062_dashboard_home_missing',
+                  'agent062_dashboard_customize_missing',
+                  'agent062_dashboard_add_missing',
+                  'agent062_dashboard_catalog_widget_missing',
+                  'agent062_dashboard_finish_missing',
+                  'agent062_dashboard_widget_missing',
+                  'agent062_dashboard_drag_native_window_missing',
+                  'agent062_dashboard_drag_handle_order_missing',
+                  'agent062_dashboard_drag_default_order_invalid',
+                  'agent062_dashboard_drag_handles_not_visible',
+                  'agent062_dashboard_drag_handles_offscreen',
+                  'agent062_dashboard_drag_reorder_missing',
+                  'agent062_dashboard_cold_customize_missing',
+                  'agent062_dashboard_drag_cold_order_changed',
+                  'agent062_dashboard_cold_finish_missing',
+                  'agent06_online_ui_button_missing',
+                  'agent06_online_native_core_unavailable',
+                  'agent06_online_native_exited_before_ready',
+                  'agent06_online_native_window_closed',
+                  'agent06_online_gui_section_unavailable',
+                  'agent06_online_gui_remaining_account_absent',
+                  'agent06_online_gui_first_account_absent',
+                  'agent06_online_gui_deleted_account_still_present',
+                  'agent06_online_phase_create_failed',
+                  'agent06_online_phase_create_receipt_invalid',
+                  'agent06_online_phase_readback_failed',
+                  'agent06_online_phase_readback_receipt_invalid',
+                  'agent06_online_phase_remove_failed',
+                  'agent06_online_phase_remove_receipt_invalid',
+                  'agent06_online_phase_postremove_failed',
+                  'agent06_online_phase_postremove_receipt_invalid',
+                  'other'
+                )
+                if([string]$w.failure_code -cin $safeReasons){
+                  Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_CODE='+[string]$w.failure_code)
+                }
+                $safeExceptions=@('ParameterBindingException','MethodInvocationException',
+                  'RuntimeException','PropertyNotFoundException','NullReferenceException',
+                  'ArgumentException','InvalidOperationException','COMException',
+                  'ElementNotAvailableException','MethodException','ItemNotFoundException',
+                  'IndexOutOfRangeException','InvalidCastException','other')
+                if([string]$w.exception_class -cin $safeExceptions -or
+                   ([string]$w.exception_class -match 'Exception' -and
+                    ([string]$w.exception_class).Length -le 64)){
+                  Write-Host ('AGENT062_WITNESS_SAFE_EXCEPTION='+[string]$w.exception_class)
+                }
+                $safeLine=0
+                if([int]::TryParse([string]$w.exception_line,[ref]$safeLine) -and
+                   $safeLine -ge 1 -and $safeLine -le 2000){
+                  Write-Host ('AGENT062_WITNESS_SAFE_LINE='+$safeLine)
+                }
+                $safeCheckpoints=@(
+                  'DASHBOARD_HOME','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD',
+                  'DASHBOARD_DONE','DASHBOARD_WIDGET',
+                  'DASHBOARD_DRAG','DASHBOARD_COLD_DRAG',
+                  'NOT_STARTED','LOOKUP_INITIAL_TITLE',
+                  'LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON',
+                  'CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE',
+                  'LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE'
+                )
+                if([string]$w.ui_checkpoint -cin $safeCheckpoints){
+                  Write-Host ('AGENT06_ONLINE_INSTALLED_GUI_CHECKPOINT='+[string]$w.ui_checkpoint)
+                }
+              }
+            }catch{
+              Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_RECEIPT_UNREADABLE'
+            }
+          }else{
+            Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_RECEIPT_MISSING'
+          }
+          if($exit -eq 0 -and -not $agent062WitnessAccepted){
+            throw 'AGENT062_PRIVATE_RELEASE_GUI_WITNESS_NOT_ACCEPTED'
+          }
+          if($exit -ne 0){
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            foreach($code in @('SETUP_LOCAL_WITNESS_EXIT_FAILED',
+              'SETUP_LOCAL_WITNESS_TIMEOUT','SETUP_LOCAL_WITNESS_RECEIPT_MISSING',
+              'SETUP_LOCAL_WITNESS_READBACK_INVALID',
+              'SETUP_LOCAL_PRODUCT_IDENTITY_INVALID',
+              'SETUP_LOCAL_SOURCE_IDENTITY_INVALID',
+              'SETUP_LOCAL_ACTIVATION_INVALID',
+              'SETUP_LOCAL_ON_DISK_IDENTITY_INVALID',
+              'SETUP_LOCAL_REPAIR_NOT_ACTIVATED',
+              'SETUP_LOCAL_REPAIR_READBACK_INVALID',
+              'SETUP_LOCAL_UNINSTALL_OR_DATA_LOSS',
+              'SETUP_LOCAL_PRODUCT_ID_INVALID')){
+              if(([string]$raw).Contains($code)){
+                Write-Host ('AGENT06_ONLINE_INSTALLED_SAFE_SETUP_REASON='+$code)
+              }
+            }
+            throw 'AGENT06_ONLINE_INSTALLED_QUALIFICATION_FAILED'
+          }
+          foreach($marker in @('IWXA_SETUP_LOCAL_NATIVE_INSTALL_AND_PRESERVE_PASS',
+              'IWXA_SETUP_LOCAL_REPAIR_AND_CONFIRM_PASS',
+              'IWXA_SETUP_LOCAL_RUNTIME_WITNESS_PASS')){
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            if(-not ([string]$raw).Contains($marker)){
+              throw 'AGENT06_ONLINE_INSTALLED_EXPECTED_PUBLIC_WITNESS_MISSING'
+            }
+          }
+          Write-Host 'AGENT06_ONLINE_SETUP_REPAIR_UNINSTALL_PASS'
+          Write-Host 'AGENT06_PRIVATE_ARTIFACTS_UPLOADED=0'
+      - name: Publish accepted installer only to private GitHub Releases
+        shell: pwsh
+        env:
+          IWXA_PRIVATE_RELEASE_WRITE_TOKEN: ${{ secrets.IWXA_PRIVATE_RELEASE_WRITE_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='Faust-S/iwxa-personal-agent'
+          $api='https://api.github.com/repos/'+$repo
+          $tag='v0.6.2'
+          $sha=$env:PRIVATE_SOURCE_PIN
+          $fileName='IWXA-Personal-Agent-0.6.2-Windows-Setup.exe'
+          $root=Join-Path $env:RUNNER_TEMP 'agent06-installed-private'
+          $setup=Join-Path $root 'IWXA-Private-Online-SetupCore.exe'
+          if([string]::IsNullOrWhiteSpace($env:IWXA_PRIVATE_RELEASE_WRITE_TOKEN)){
+            throw 'AGENT062_PRIVATE_RELEASE_WRITE_TOKEN_NOT_CONFIGURED'
+          }
+          if(-not(Test-Path -LiteralPath $setup -PathType Leaf)){
+            throw 'AGENT062_ACCEPTED_INSTALLER_NOT_FOUND'
+          }
+          $length=(Get-Item -LiteralPath $setup).Length
+          if($length -lt 1000000){throw 'AGENT062_ACCEPTED_INSTALLER_TOO_SMALL'}
+          $hash=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          $headers=@{
+            Authorization='Bearer '+$env:IWXA_PRIVATE_RELEASE_WRITE_TOKEN
+            Accept='application/vnd.github+json'
+            'X-GitHub-Api-Version'='2022-11-28'
+            'User-Agent'='IWXA-Agent062-Release'
+          }
+          $description=@(
+            'IWXA Personal Agent 0.6.2 for Windows',
+            'Original Tauri application and Python Core, installed via IWXA Setup Core.',
+            'Accepted dashboard customization and native drag and drop, conversation groups,',
+            'cold restart, Core readback, repair and uninstall.',
+            'Source revision: '+$sha,
+            'Installed Windows qualification: https://github.com/Faust-S/Center/actions/runs/45057690193',
+            'Conversation history qualification: https://github.com/Faust-S/Center/actions/runs/45057983706'
+          ) -join [Environment]::NewLine
+          $payload=@{
+            tag_name=$tag
+            target_commitish=$sha
+            name='IWXA Personal Agent 0.6.2'
+            body=$description
+            draft=$true
+            prerelease=$false
+            generate_release_notes=$false
+          } | ConvertTo-Json -Depth 4
+          try {
+            $release=Invoke-RestMethod -Method Post -Uri ($api+'/releases') -Headers $headers -ContentType 'application/json' -Body $payload
+          } catch {
+            throw 'AGENT062_PRIVATE_RELEASE_CREATE_DRAFT_FAILED'
+          }
+          if(-not $release.id -or $release.tag_name -cne $tag -or $release.draft -ne $true){
+            throw 'AGENT062_PRIVATE_RELEASE_DRAFT_INVALID'
+          }
+          $upload='https://uploads.github.com/repos/'+$repo+'/releases/'+[string]$release.id+'/assets?name='
+          try {
+            $binary=Invoke-RestMethod -Method Post -Uri ($upload+[Uri]::EscapeDataString($fileName)) -Headers $headers -InFile $setup -ContentType 'application/octet-stream'
+          } catch {
+            throw 'AGENT062_PRIVATE_RELEASE_BINARY_UPLOAD_FAILED'
+          }
+          if($binary.name -cne $fileName -or $binary.state -cne 'uploaded' -or [long]$binary.size -ne $length){
+            throw 'AGENT062_PRIVATE_RELEASE_BINARY_RECEIPT_INVALID'
+          }
+          if($binary.digest -and [string]$binary.digest -cne ('sha256:'+$hash)){
+            throw 'AGENT062_PRIVATE_RELEASE_BINARY_DIGEST_INVALID'
+          }
+          $sums=Join-Path $root 'SHA256SUMS.txt'
+          [IO.File]::WriteAllText($sums,($hash+'  '+$fileName+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          try {
+            $checksum=Invoke-RestMethod -Method Post -Uri ($upload+'SHA256SUMS.txt') -Headers $headers -InFile $sums -ContentType 'text/plain'
+          } catch {
+            throw 'AGENT062_PRIVATE_RELEASE_CHECKSUM_UPLOAD_FAILED'
+          }
+          if($checksum.state -cne 'uploaded' -or $checksum.name -cne 'SHA256SUMS.txt'){
+            throw 'AGENT062_PRIVATE_RELEASE_CHECKSUM_RECEIPT_INVALID'
+          }
+          try {
+            $ref=Invoke-RestMethod -Method Get -Uri ($api+'/git/ref/tags/'+$tag) -Headers $headers
+          } catch {
+            throw 'AGENT062_PRIVATE_RELEASE_TAG_READBACK_FAILED'
+          }
+          if($ref.object.sha -cne $sha -or $ref.object.type -cne 'commit'){
+            throw 'AGENT062_PRIVATE_RELEASE_WRONG_SOURCE_TAG'
+          }
+          try {
+            $published=Invoke-RestMethod -Method Patch -Uri ($api+'/releases/'+[string]$release.id) -Headers $headers -ContentType 'application/json' -Body '{"draft":false,"prerelease":false}'
+          } catch {
+            throw 'AGENT062_PRIVATE_RELEASE_PUBLISH_FAILED'
+          }
+          if($published.draft -ne $false -or $published.tag_name -cne $tag){
+            throw 'AGENT062_PRIVATE_RELEASE_PUBLICATION_INVALID'
+          }
+          try {
+            $final=Invoke-RestMethod -Method Get -Uri ($api+'/releases/tags/'+$tag) -Headers $headers
+          } catch {
+            throw 'AGENT062_PRIVATE_RELEASE_FINAL_READBACK_FAILED'
+          }
+          $exe=@($final.assets | Where-Object { $_.name -ceq $fileName -and $_.state -ceq 'uploaded' })
+          $sum=@($final.assets | Where-Object { $_.name -ceq 'SHA256SUMS.txt' -and $_.state -ceq 'uploaded' })
+          if($final.draft -ne $false -or $exe.Count -ne 1 -or $sum.Count -ne 1 -or
+             [long]$exe[0].size -ne $length -or -not [string]$exe[0].browser_download_url){
+            throw 'AGENT062_PRIVATE_RELEASE_FINAL_ASSETS_INVALID'
+          }
+          Write-Host 'AGENT062_PRIVATE_RELEASE_PUBLISHED'
+          Write-Host ('AGENT062_PRIVATE_RELEASE_SHA256='+$hash)
+          Write-Host ('AGENT062_PRIVATE_RELEASE_DIRECT_URL='+[string]$exe[0].browser_download_url)
+          Write-Host 'AGENT062_PUBLIC_CENTER_BINARY_ARTIFACT_UPLOADS=0'
+      # No publication of private source, logs, screenshots or binaries to public Center.
+
+){$code.Add('');continue}
+            break
+          }
+          $tokens=$null;$errors=$null
+          [System.Management.Automation.Language.Parser]::ParseInput(
+            ($code -join [Environment]::NewLine),[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -ne 0){
+            Write-Host ('AGENT062_PUBLISH_SCRIPT_PARSE_ERROR_COUNT='+@($errors).Count)
+            throw 'AGENT062_PUBLISH_SCRIPT_PARSE_FAILED'
+          }
+          Write-Host 'AGENT062_PUBLISH_SCRIPT_SYNTAX_PASS'
       - name: Confirm explicitly authorized private release credentials
         shell: pwsh
         env:
