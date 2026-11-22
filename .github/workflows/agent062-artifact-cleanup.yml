@@ -1,0 +1,41 @@
+name: Agent062 remove staged public download after handoff
+on:
+  push:
+    branches:
+      - work/2026-11-22-agent-062-artifact-cleanup
+    paths:
+      - .github/workflows/agent062-artifact-cleanup.yml
+permissions:
+  actions: write
+  contents: read
+jobs:
+  cleanup:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - name: Remove temporary staged Windows installer artifact
+        shell: pwsh
+        env:
+          CENTER_ACTION_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $id='14771211058'
+          $uri='https://api.github.com/repos/Faust-S/Center/actions/artifacts/'+$id
+          $headers=@{
+            Authorization='Bearer '+$env:CENTER_ACTION_TOKEN
+            Accept='application/vnd.github+json'
+            'X-GitHub-Api-Version'='2022-11-28'
+            'User-Agent'='IWXA-Agent062-Artifact-Cleanup'
+          }
+          if([string]::IsNullOrWhiteSpace($env:CENTER_ACTION_TOKEN)){
+            throw 'AGENT062_CENTER_ARTIFACT_CLEANUP_TOKEN_MISSING'
+          }
+          try {
+            $resp=Invoke-WebRequest -Uri $uri -Method Delete -Headers $headers
+            if([int]$resp.StatusCode -ne 204){
+              throw 'AGENT062_CENTER_ARTIFACT_CLEANUP_WRONG_HTTP'
+            }
+            Write-Host 'AGENT062_CENTER_ARTIFACT_REMOVED_PASS'
+          } catch {
+            throw 'AGENT062_CENTER_ARTIFACT_REMOVAL_FAILED'
+          }
