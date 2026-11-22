@@ -15,6 +15,7 @@ type Product = {id:string;name:string;version:string};
 type Holder = {id:string;name:string;type:'PERSON'|'ORGANIZATION'};
 type Tariff={id:string;productId:string;name:string;holderType:'ORGANIZATION'|'PERSON';revision:number;features:string[];termDays:number;productSeats:number;employeeLimit:number;deviceLimit:number;quotas:{metric:string;service:'LOCAL'|'CLOUD';unit:string;period:string;max:number}[]};
 type Proposal = {id:string;productId:string;holderId:string;features:string[];termDays:number;createdAt:string;status:'DRAFT_NOT_ISSUED';productVersion?:string;tariffSnapshot?:Tariff;previousProposalId?:string};
+type CorporateOfferRow={proposalId:string;organization:{name:string};product:{id:string};tariff:{id:string;name:string;revision:number};termDays:number;featureIds:string[];limits:{adminCenterProductSeats:number;employeeLimit:number;quotas:unknown[]};assignablePersonalAgentSeats:number};
 type Artifact = {id:string;productId:string;version:string;platform:string;sourceRepository:string;sourceCommit:string;sourceTree:string;name:string;size:number;sha256:string;createdAt:string;status:'BYTES_INSPECTED_NOT_APPROVED'};
 type Draft = {format:string;version:number;products:Product[];holders:Holder[];tariffs:Tariff[];proposals:Proposal[];artifacts:Artifact[];updatedAt:string};
 type Inspection = {name:string;size:number;sha256:string};
@@ -679,7 +680,7 @@ export default function App(){
              <p className="muted">Это подготовленные условия для Admin Center, а не подписанная лицензия.
                Подпись TEST не включает коммерческий тариф, лимит сотрудников, квоты и отдельное
                право назначать места Personal Agent. Производственный выпуск требует исходного T3.</p>
-             {corporateOfferReviews.items.map(offer=>
+             {corporateOfferReviews.items.map((offer:CorporateOfferRow)=>
                <div className="simple-row" key={offer.proposalId}>
                  <div>
                    <strong>{offer.organization.name} · {offer.product.id}</strong>
