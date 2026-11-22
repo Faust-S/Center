@@ -1204,6 +1204,22 @@ try {
     }};
   });
   await personal.goto('http://127.0.0.1:4175');
+  // The landing view reads no owner ledger without a deliberate request.
+  await personal.getByTestId('publisher-person-attention-check').waitFor();
+  assert.equal(await personal.evaluate(()=>window.__personMockInventoryCalls||0),0);
+  await personal.getByTestId('publisher-person-attention-check').click();
+  await personal.getByTestId('publisher-person-attention-result').waitFor();
+  assert.match(await personal.getByTestId('publisher-person-attention-result').innerText(),
+    /Подтверждено записей издателя: 0 из 0/);
+  assert.match(await personal.getByTestId('publisher-person-attention-result').innerText(),
+    /Получение лицензий клиентами не проверялось/);
+  assert.equal(await personal.evaluate(()=>window.__personMockInventoryCalls||0),1);
+  // An unavailable owner ledger is never represented as zero attention.
+  await personal.evaluate(()=>{window.__personMockFailNextInventory=true;});
+  await personal.getByTestId('publisher-person-attention-check').click();
+  await personal.getByTestId('publisher-person-attention-error').waitFor();
+  assert.equal(await personal.getByTestId('publisher-person-attention-result').count(),0);
+  checks.push('person-overview-reads-original-owner-on-demand-and-fails-closed');
   await personal.getByRole('button',{name:'Продукты',exact:true}).click();
   await personal.getByLabel('Идентификатор продукта').fill('IWXA_ATLAS');
   await personal.getByLabel('Название').fill('IWXA Atlas');
