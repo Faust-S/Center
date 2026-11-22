@@ -552,7 +552,12 @@ try{
   // The original signed child must be opened on Results and remain alive
   // while the manager visits Overview/Corporate Context for D2 evidence.
   // A UI fixture tests navigation only, not Ed25519/DPAPI/original T2.
-  await d3Page.getByTestId('d3-open-signed-workspace').click();
+  await d3Page.getByTestId('v8-workspace-entry').waitFor();
+  assert.equal(await d3Page.getByTestId('v8-workspace-open').isEnabled(),true,
+    'installed host must use the original signed Workspace opening command');
+  assert.equal(await d3Page.getByTestId('d3-open-signed-workspace').count(),1,
+    'original signed T3 controls must remain available');
+  await d3Page.getByTestId('v8-workspace-open').click();
   await d3Page.getByTestId('d3-return-to-review').waitFor();
   await d3Page.getByTestId('d3-return-to-review').click();
   await d3Page.getByTestId('d3-show-signed-workspace').waitFor();
@@ -570,6 +575,8 @@ try{
   await d3Page.getByTestId('manager-signed-summary').waitFor();
   await d3Page.getByTestId('manager-read-activity').click();
   await d3Page.getByTestId('manager-activity-summary').waitFor();
+  assert.match(await d3Page.getByTestId('manager-data-read-timing').innerText(),
+    /Время ожидания интерфейса.*Kernel/);
   await d3Page.getByTestId('manager-question-events').click();
   assert.match(await d3Page.getByTestId('manager-answer').innerText(),/Kernel зарегистрировано событий/);
   assert.equal(await d3Page.getByTestId('manager-answer-sources').locator('button').count(),1);
@@ -1292,6 +1299,14 @@ try{
 
   await v8Page.getByTestId('nav-results').click();
   await v8Page.getByTestId('v8-results-journey').waitFor();
+  assert.match(await v8Page.getByTestId('v8-workspace-entry').innerText(),
+    /Одна Workspace\. Вся работа организации/);
+  assert.match(await v8Page.getByTestId('v8-workspace-entry').innerText(),
+    /V8 Рабочее предприятие/);
+  assert.equal(await v8Page.getByTestId('v8-workspace-open').isDisabled(),true,
+    'browser view must not invent the native signed Workspace owner');
+  assert.equal(await v8Page.getByTestId('corporate-panel').count(),1,
+    'the same original corporate operations remain mounted below the new workspace entry');
   assert.equal(await v8Page.locator('[data-testid^="v8-result-step-"]').count(),7);
   await v8Page.getByTestId('v8-result-step-employees').click();
   assert.match(await v8Page.getByTestId('v8-results-journey').innerText(),/Контакт в черновике не выдаёт права/);
