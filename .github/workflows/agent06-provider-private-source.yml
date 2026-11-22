@@ -45,6 +45,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test focused online account and OAuth contracts
+        id: contracts
+        continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -79,6 +81,13 @@ jobs:
                     [Text.Encoding]::UTF8.GetBytes([string]$case.classname+':'+[string]$case.name)
                 )).Substring(0,12)
                 Write-Host ('AGENT06_PROVIDER_FAILURE_SHA='+$fingerprint)
+                $family='OTHER'
+                if([string]$case.classname -match 'google_multi_account'){$family='GOOGLE_MULTI_ACCOUNT'}
+                elseif([string]$case.classname -match 'google_oauth_user_ready'){$family='GOOGLE_OAUTH'}
+                elseif([string]$case.classname -match 'online_services'){$family='STANDARD_ONLINE'}
+                elseif([string]$case.classname -match 'account_binding'){$family='ACCOUNT_BINDING'}
+                elseif([string]$case.classname -match 'yandex_mailru'){$family='MAIL_PROVIDER'}
+                Write-Host ('AGENT06_PROVIDER_FAILURE_FAMILY='+$family)
               }
             }
             if($exitCode -ne 0){throw 'AGENT06_PROVIDER_SOURCE_TESTS_FAILED'}
@@ -86,6 +95,8 @@ jobs:
           }finally{Pop-Location}
 
       - name: Live two-account Ethereal SMTP IMAP qualification
+        id: ethereal
+        continue-on-error: true
         shell: pwsh
         env:
           IWXA_RUN_ETHEREAL_LIVE: '1'
@@ -126,10 +137,44 @@ jobs:
             Pop-Location
             if(Test-Path -LiteralPath $log){Remove-Item -LiteralPath $log -Force}
           }
+      - name: Public provider TLS and Google OIDC metadata (no login)
+        id: transport
+        continue-on-error: true
+        shell: pwsh
+        env:
+          IWXA_RUN_PROVIDER_TRANSPORT_LIVE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $log = Join-Path $env:RUNNER_TEMP 'agent061-public-protocols-private.log'
+          Push-Location private-agent
+          try{
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_provider_public_tls_live.py *> $log
+            if($LASTEXITCODE -ne 0){
+              $content = Get-Content -LiteralPath $log -Raw
+              $status='OTHER'
+              foreach($code in @('vendor_YANDEX_imap_tls_unavailable',
+                                  'vendor_YANDEX_smtp_tls_unavailable',
+                                  'vendor_MAILRU_imap_tls_unavailable',
+                                  'vendor_MAILRU_smtp_tls_unavailable',
+                                  'google_oidc_public_metadata_unavailable',
+                                  'google_oidc_public_contract_changed')){
+                if($content.Contains($code)){$status=$code;break}
+              }
+              Write-Host ('AGENT061_PUBLIC_TRANSPORT_FAILURE_CODE='+$status)
+              throw 'AGENT061_PUBLIC_TRANSPORT_FAILED'
+            }
+            Write-Host 'AGENT061_PUBLIC_TRANSPORT_PASS'
+          }finally{
+            Pop-Location
+            if(Test-Path -LiteralPath $log){Remove-Item -LiteralPath $log -Force}
+          }
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Check current online account UI using original Desktop build
+        id: desktop
+        continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -148,4 +193,22 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'AGENT06_ONLINE_UI_BUILD_FAILED'}
             Write-Host 'AGENT06_ONLINE_UI_TYPESCRIPT_VITE_PASS'
           }finally{Pop-Location}
+      - name: Enforce all independent qualification outcomes
+        if: always()
+        shell: pwsh
+        env:
+          CONTRACT_OUTCOME: ${{ steps.contracts.outcome }}
+          ETHEREAL_OUTCOME: ${{ steps.ethereal.outcome }}
+          TRANSPORT_OUTCOME: ${{ steps.transport.outcome }}
+          DESKTOP_OUTCOME: ${{ steps.desktop.outcome }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach($gate in @('CONTRACT','ETHEREAL','TRANSPORT','DESKTOP')){
+            $value = [string]([Environment]::GetEnvironmentVariable($gate+'_OUTCOME'))
+            if($value -notin @('success','failure','skipped','cancelled')){$value='unknown'}
+            Write-Host ('AGENT061_GATE_'+$gate+'='+$value)
+            if($value -ne 'success'){$script:failed=$true}
+          }
+          if($script:failed){throw 'AGENT061_INDEPENDENT_GATES_NOT_ALL_PASS'}
+          Write-Host 'AGENT061_ALL_SOURCE_GATES_PASS'
       # No private artifacts, cache, raw test traces or compiled app upload.
