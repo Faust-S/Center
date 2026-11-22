@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '9bb506752801a322f04e94b0eb8cba64d9ea6569'
-      PRIVATE_TREE_PIN: '54bce044e13d3664a06b7f326c44321234226fae'
+      PRIVATE_SOURCE_PIN: 'ded96fdfd7d8b1ff4c8d20929e48492b06280e06'
+      PRIVATE_TREE_PIN: '98bee4f25a8f2f8f02959f0e84351d237ab7625f'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -77,8 +77,8 @@ jobs:
               throw 'AGENT06_ONLINE_INSTALLED_SOURCE_NOT_CLEAN'
             }
           }
-          $script=Join-Path $repo 'tools/qualify_online_services_installed.ps1'
-          $python=Join-Path $repo 'tools/qualify_online_services_installed.py'
+          $script=Join-Path $repo 'qualification/agent061/qualify_online_services_installed.ps1'
+          $python=Join-Path $repo 'qualification/agent061/qualify_online_services_installed.py'
           $installer=Join-Path $repo 'qualification/phase1/build_native_windows_setup_candidate.ps1'
           $builder=Join-Path $repo 'tools/build_setup_core_release.py'
           if(!(Test-Path -LiteralPath $script -PathType Leaf) -or
@@ -171,7 +171,7 @@ jobs:
           $center=Join-Path $env:GITHUB_WORKSPACE 'center-owner'
           $setup=Join-Path $privateRoot 'IWXA-Private-Online-SetupCore.exe'
           $test=Join-Path $center 'installer/windows/qualify-local-bundle.ps1'
-          $witness=Join-Path $repo 'tools/qualify_online_services_installed.ps1'
+          $witness=Join-Path $repo 'qualification/agent061/qualify_online_services_installed.ps1'
           $sandbox=Join-Path $privateRoot 'temporary-installed'
           $log=Join-Path $privateRoot 'local-online-acceptance.private.log'
           & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Setup $setup -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit $env:PRIVATE_SOURCE_PIN -WitnessScript $witness -WitnessTimeoutSeconds 1100 *> $log
