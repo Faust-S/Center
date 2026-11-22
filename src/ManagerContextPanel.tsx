@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {readManagerSignedContext,managerSignedInboxArgs,prepareManagerOriginalSelection} from './manager-owner-context.mjs';
+import {managerActivityArgs,readManagerActivity,managerActivityMatchesSignedOwner} from './manager-activity.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {buildManagerContext, searchManagerContext, managerAttention} from './manager-context.mjs';
 import {answerManagerQuestion,MANAGER_QUESTIONS} from './manager-answers.mjs';
@@ -34,7 +35,9 @@ const names:Record<string,string>={
  assignment:'Поручение (черновик)','atlas-project':'Проект Atlas (наблюдение)',
  'atlas-work':'Работа Atlas (наблюдение)',
  'signed-task':'Подписанная Task T3',
- 'signed-result-package':'Пакет оригинального Reconciliation'
+ 'signed-result-package':'Пакет оригинального Reconciliation',
+ 'd2-object':'Объект оригинального Kernel',
+ 'd2-event':'Событие оригинального Kernel'
 };
 const links=[
  {id:'organization',label:'Организация',detail:'Выбранный корпоративный контекст',target:'overview' as Destination},
@@ -65,15 +68,21 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
  const [ownerIssue,setOwnerIssue]=useState('');
  const [inboxIssue,setInboxIssue]=useState('');
  const [loading,setLoading]=useState(false);
+ const [activity,setActivity]=useState<any>(null);
+ const [activityLoading,setActivityLoading]=useState(false);
+ const [activityIssue,setActivityIssue]=useState('');
+ const [selectedEvidence,setSelectedEvidence]=useState<Entry|null>(null);
  useEffect(()=>{
    request.current++;
    setOwner(null);setOwnerIssue('');setInboxIssue('');setLoading(false);
+   setActivity(null);setActivityLoading(false);setActivityIssue('');setSelectedEvidence(null);
    return()=>{request.current++};
  },[organization.id]);
  const refreshSigned=async()=>{
-   if(!invoke||loading)return;
+   if(!invoke||loading||activityLoading)return;
    const selectedId=organization.id,seq=++request.current;
    setOwner(null);setOwnerIssue('');setInboxIssue('');setLoading(true);
+   setActivity(null);setActivityIssue('');setSelectedEvidence(null);
    try {
      const snapshot=await invoke('center_corporate_state',{organizationId:selectedId});
      let readback=readManagerSignedContext(snapshot,selectedId);
@@ -91,12 +100,38 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
      if(seq===request.current)setOwnerIssue('Оригинальный T3 не подтвердил чтение корпоративного контекста. Данные не показаны.');
    }finally{if(seq===request.current)setLoading(false);}
  };
+ const refreshActivity=async()=>{
+   if(!invoke||loading||activityLoading||owner?.status!=='SIGNED_D3_READBACK'||
+      owner.organizationId!==organization.id)return;
+   const seq=++request.current,orgId=organization.id;
+   setActivity(null);setActivityIssue('');setSelectedEvidence(null);setActivityLoading(true);
+   try {
+     const fresh=await invoke('center_corporate_state',{organizationId:orgId});
+     const current=readManagerSignedContext(fresh,orgId);
+     if(current.status!=='SIGNED_D3_READBACK'||
+       current.organizationId!==owner.organizationId||
+       current.workspaceId!==owner.workspaceId||
+       current.actorId!==owner.actorId||
+       current.contextId!==owner.contextId||
+       current.contextEpoch!==owner.contextEpoch)
+       throw Error('CEN_D2_ORIGINAL_SIGNED_CONTEXT_CHANGED');
+     const original=await invoke('center_corporate_action',managerActivityArgs(fresh,orgId));
+     const readback=readManagerActivity(fresh,orgId,original);
+     if(!managerActivityMatchesSignedOwner(readback,owner))
+       throw Error('CEN_D2_ORIGINAL_SIGNED_CONTEXT_CHANGED');
+     if(seq===request.current)setActivity(readback);
+   }catch{
+     if(seq===request.current)setActivityIssue('Исходные Object/Event не прочитаны. Проверьте открытую Workspace T3 и отдельное подписанное право activity.read. Данные других источников не подставляются.');
+   }finally{if(seq===request.current)setActivityLoading(false);}
+ };
  const [selection,setSelection]=useState('organization');
  const rows=useMemo(()=>[
      ...buildManagerContext(organization,atlasView),
      ...(owner?.status==='SIGNED_D3_READBACK'&&owner.organizationId===organization.id
-       ?owner.entries:[])
-   ] as Entry[],[organization,atlasView,owner]);
+       ?owner.entries:[]),
+     ...(managerActivityMatchesSignedOwner(activity,owner)
+       ?activity.entries:[])
+   ] as Entry[],[organization,atlasView,owner,activity]);
  const alerts=useMemo(()=>[
    ...(owner?.status==='SIGNED_D3_READBACK'&&owner.organizationId===organization.id
      ?owner.attention:[]),
@@ -114,12 +149,16 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
    if(selection)onOpenOriginal(selection);
  };
  const openHit=(hit:Entry)=>{
-   if(hit.kind==='signed-task'||hit.kind==='signed-result-package')openOriginal(hit.kind,hit.id);
+   if(hit.kind==='signed-task'||hit.kind==='signed-result-package')
+     openOriginal(hit.kind,hit.id);
+   else if(hit.kind==='d2-object'||hit.kind==='d2-event')
+     setSelectedEvidence(hit);
    else onOpenEntry(hit);
  };
  const answer=useMemo(()=>selectedQuestion
-   ?answerManagerQuestion(selectedQuestion,{organization,owner,atlasView,rows,alerts})
-   :null,[selectedQuestion,organization,owner,atlasView,rows,alerts]);
+   ?answerManagerQuestion(selectedQuestion,{organization,owner,atlasView,rows,alerts,
+      activity:managerActivityMatchesSignedOwner(activity,owner)?activity:null})
+   :null,[selectedQuestion,organization,owner,atlasView,rows,alerts,activity]);
  const openAnswerItem=(item:any)=>{
    if(item.kind==='attention'){
      const alert=alerts.find(a=>a.key===item.id);
@@ -140,8 +179,10 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
    people:(organization.participants?.length??0)+' контактов в черновике',
    work:(organization.assignments?.length??0)+' черновиков поручений',
    agent:'Личный Agent отделён от данных компании',
-   t3:owner?.status==='SIGNED_D3_READBACK'&&owner.organizationId===organization.id
-     ?'Прочитано: '+owner.totalTasks+' Task':'Подписанные сведения не прочитаны',
+   t3:managerActivityMatchesSignedOwner(activity,owner)
+     ?'Оригинал: '+activity.counts.objects+' Object / '+activity.counts.events+' Event'
+     :owner?.status==='SIGNED_D3_READBACK'&&owner.organizationId===organization.id
+       ?'Прочитано: '+owner.totalTasks+' Task':'Подписанные сведения не прочитаны',
    atlas:available>0?'Открыто проектов: '+available:'Источник необязателен',
    results:owner?.inboxLoaded&&owner.organizationId===organization.id
      ?'Пакетов: '+owner.inboxTotal:'Журнал Reconciliation не прочитан'
@@ -158,10 +199,11 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
        autoComplete="off"/>
      <p className="muted manager-context-note">Черновики текущей организации и явно открытый Atlas доступны отдельно.
        После ручного чтения T3 добавляются подписанные Task и полученные пакеты исходного Reconciliation.
-       Это снимок на момент запроса, не сквозной поиск по всем Object/Event/Result. Личные данные Agent не читаются.</p>
+       Оригинальные Object/Event доступны после отдельного подписанного права DATA и ручного чтения.
+       Снимки не являются сквозным семантическим поиском. Личные данные Agent не читаются.</p>
      <div className="manager-owner-readback" data-testid="manager-owner-readback">
        <button className="secondary" type="button" data-testid="manager-read-signed"
-         disabled={!invoke||loading} onClick={()=>{void refreshSigned()}}>
+         disabled={!invoke||loading||activityLoading} onClick={()=>{void refreshSigned()}}>
          {loading?'Читаем T3...':'Обновить подписанные сведения T3'}
        </button>
        {!invoke&&<small className="muted">Нативный T3 недоступен в браузере. Пробные права не создаются.</small>}
@@ -175,6 +217,22 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
                :' Журнал Result ещё не подтверждён.'}
              {' '}Доставка Task и Kernel Apply не подтверждаются этим обзором.</span>
          </div>}
+       {owner?.status==='SIGNED_D3_READBACK'&&owner.organizationId===organization.id&&<>
+         <button className="secondary" type="button" data-testid="manager-read-activity"
+           disabled={!invoke||loading||activityLoading} onClick={()=>{void refreshActivity()}}>
+           {activityLoading?'Читаем исходный Kernel...':'Перечитать Object/Event через T3 DATA'}
+         </button>
+         {!activity?.status&&<small className="muted">Для оригинального чтения нужна открытая подписанная Workspace T3 и отдельное право activity.read.</small>}
+       </>}
+       {managerActivityMatchesSignedOwner(activity,owner)&&
+         <div className="manager-signed-summary" data-testid="manager-activity-summary" role="status">
+           <strong>Оригинальный T2 Kernel · Workspace {activity.workspaceId}</strong>
+           <span>Object: {activity.counts.objects}; Event: {activity.counts.events};
+             связей: {activity.counts.relations}; неразрешённых ссылок: {activity.counts.unresolved};
+             без предметной привязки: {activity.counts.unmappedObjects} Object и {activity.counts.unmappedEvents} Event.</span>
+           <small>Это метаданные исходных записей, не доказательство выполнения хозяйственных действий.</small>
+         </div>}
+       {activityIssue&&<small role="alert" className="muted" data-testid="manager-activity-issue">{activityIssue}</small>}
        {inboxIssue&&<small role="status" className="muted" data-testid="manager-inbox-issue">{inboxIssue}</small>}
        {ownerIssue&&<small role="alert" className="muted" data-testid="manager-owner-error">{ownerIssue}</small>}
      </div>
@@ -186,6 +244,16 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
          <span aria-hidden="true">›</span>
        </button>):<p className="muted">В доступных источниках совпадений нет. Это не поиск по всем данным T3 или Personal Agent.</p>}
      </div>}
+     {selectedEvidence&&managerActivityMatchesSignedOwner(activity,owner)&&
+       activity.entries.some((row:any)=>row.kind===selectedEvidence.kind&&row.id===selectedEvidence.id)&&
+       <div className="manager-evidence-detail" data-testid="manager-original-evidence-detail">
+         <div className="section-head"><strong>Источник · оригинальный T2 Kernel</strong>
+           <button className="quiet" type="button" onClick={()=>setSelectedEvidence(null)}>Закрыть</button></div>
+         <strong>{selectedEvidence.title}</strong>
+         <p>{selectedEvidence.summary}</p>
+         <small>{selectedEvidence.source}. ID: {selectedEvidence.id}.
+           Это read-only чтение, а не Kernel Apply.</small>
+       </div>}
    </div>
    <section className="card padded manager-question-card" data-testid="manager-questions">
      <div className="section-head"><h2>Вопросы руководителя</h2><small className="muted">Ответы по источникам, без ИИ-генерации</small></div>
@@ -267,7 +335,10 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
              : 'Проектный источник не открыт. Для обычных поручений Atlas необязателен.'}</p>}
            {selection==='t3'&&<p>Оригинальный T3 является владельцем подписанных полномочий и действий. Показанные здесь черновики не дают такого допуска.
              {owner?.status==='SIGNED_D3_READBACK'
-               ?' Последнее чтение: '+owner.totalTasks+' подписанных Task; контекст '+owner.workspaceId+'.'
+               ?' Последнее чтение: '+owner.totalTasks+' подписанных Task; контекст '+owner.workspaceId+
+                 (managerActivityMatchesSignedOwner(activity,owner)
+                   ?'; Kernel Object '+activity.counts.objects+', Event '+activity.counts.events+'.'
+                   :'; чтение Object/Event не выполнено.')
                :' Подписанное состояние не прочитано в этом разделе.'}</p>}
            {selection==='agent'&&<p>Руководитель также работает в собственном Personal Agent. Личная информация не становится корпоративной автоматически; подписанное поручение передаётся существующим маршрутом T3.</p>}
            {selection==='results'&&<p>{owner?.inboxLoaded
