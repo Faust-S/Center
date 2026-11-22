@@ -10,6 +10,8 @@ public static class PublisherWindow {
   [DllImport("user32.dll", SetLastError=true)]
   public static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")]
+  public static extern bool SetForegroundWindow(IntPtr hwnd);
+  [DllImport("user32.dll")]
   public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extraInfo);
 }
 '@
@@ -279,15 +281,53 @@ function Use-Json-Through-Publisher-Dialog([string]$buttonName,[string]$destinat
   }
   if(!$dialog){throw "PUBLISHER_NATIVE_SAVE_DIALOG_MISSING button=$buttonName"}
   Write-Host "PUBLISHER_NATIVE_SAVE_DIALOG_PASS button=$buttonName"
-  # The native Save As dialog is already foreground and its filename input
-  # is selected. Window.SetFocus() fails for this COM-owned dialog on CI.
-  # Use the filename mnemonic, not focus on the dialog/root AutomationElement.
+  # Native Win32 pick_file() may reopen behind the WebView after a previous
+  # cancellation. Deliver filename keystrokes to the EXACT picker HWND, not
+  # whichever app happened to have keyboard focus after the first import.
+  $dialogHandle=[IntPtr]$dialog.Current.NativeWindowHandle
+  if($dialogHandle -eq [IntPtr]::Zero){
+    throw "PUBLISHER_NATIVE_FILE_DIALOG_HANDLE_MISSING button=$buttonName"
+  }
+  $foreground=[PublisherWindow]::SetForegroundWindow($dialogHandle)
+  Write-Host "PUBLISHER_NATIVE_FILE_DIALOG_FOREGROUND button=$buttonName accepted=$foreground"
+  Start-Sleep -Milliseconds 180
   [System.Windows.Forms.SendKeys]::SendWait('%n')
   Start-Sleep -Milliseconds 150
   [System.Windows.Forms.SendKeys]::SendWait('^a')
   [System.Windows.Forms.SendKeys]::SendWait($destination)
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  if($existing){return}
+  # A selected existing JSON is not a successful import until the native
+  # picker really closed. Previously we returned immediately and 27 seconds
+  # later misclassified a still-open picker as a missing React button.
+  if($existing){
+    $closed=$false
+    for($attempt=0;$attempt -lt 64;$attempt++){
+      Start-Sleep -Milliseconds 200
+      $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+        [System.Windows.Automation.TreeScope]::Children,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      $present=$false
+      foreach($window in $windows){
+        try{
+          if($window.Current.NativeWindowHandle -eq $dialogHandle -and
+             $window.Current.ProcessId -eq $proc.Id){$present=$true;break}
+        }catch{}
+      }
+      if(-not $present){$closed=$true;break}
+      # A file chooser that didn't accept its first Enter can be retried,
+      # but only while the SAME HWND is still present. Never reapply backup.
+      if($attempt -eq 12){
+        [void][PublisherWindow]::SetForegroundWindow($dialogHandle)
+        Start-Sleep -Milliseconds 120
+        [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+      }
+    }
+    if(-not $closed){
+      throw "PUBLISHER_NATIVE_EXISTING_JSON_DIALOG_STILL_OPEN button=$buttonName"
+    }
+    Write-Host "PUBLISHER_NATIVE_EXISTING_JSON_DIALOG_CLOSED_PASS button=$buttonName"
+    return
+  }
   for($i=0;$i -lt 60;$i++){
     if(Test-Path -LiteralPath $destination -PathType Leaf){return}
     Start-Sleep -Milliseconds 250
