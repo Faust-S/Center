@@ -84,6 +84,7 @@ export default function App() {
   const [state,setState] = useState<Draft>(() => emptyDraft() as Draft);
   const [page,setPage] = useState<Page>('overview');
   const [managerOriginal,setManagerOriginal]=useState<ManagerOriginalSelection|null>(null);
+  const [focusedEmployeeContact,setFocusedEmployeeContact]=useState<string|null>(null);
   // UI-only presence of the original signed child WebView; signing state,
   // Control bearer and Kernel remain owned by the private installed Host.
   const [signedWorkspaceOrg,setSignedWorkspaceOrg] = useState<string|null>(null);
@@ -325,7 +326,7 @@ export default function App() {
     setSignedWorkspaceGeneration(value=>value+1);
   };
   const go = (next: Page) => {
-    if(next!=='results')setManagerOriginal(null);
+    if(next!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);}
     const history=navigationHistory.current;
     if(history[navigationCursor.current]!==next){
       navigationHistory.current=[...history.slice(0,navigationCursor.current+1),next];
@@ -334,16 +335,25 @@ export default function App() {
     }
     setPage(next);setMenuOpen(false);setV8Menu('');
   };
+  const openEmployeeConnection=(contactId:string)=>{
+    // Draft roster selection is only navigation; T3 grants, PROOF and native
+    // Human confirmation are still handled by the existing signed owner.
+    if(!org||!org.participants.some(person=>person.id===contactId))return;
+    setFocusedEmployeeContact(contactId);
+    setManagerOriginal(null);
+    go('results');
+  };
   const goHistory=(delta:number)=>{
     const target=navigationCursor.current+delta;
     if(target<0||target>=navigationHistory.current.length)return;
     navigationCursor.current=target;
     const next=navigationHistory.current[target];
-    if(next!=='results')setManagerOriginal(null);
+    if(next!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);}
     setPage(next);setNavigationVersion(value=>value+1);setV8Menu('');
   };
   const openManagerOriginal=(selection:ManagerOriginalSelection)=>{
     if(!org||selection.organizationId!==org.id)return;
+    setFocusedEmployeeContact(null);
     setManagerOriginal(selection);
     go('results');
   };
@@ -477,7 +487,7 @@ export default function App() {
   const selectOrg = (organizationId: string) => {
     if (editor) {setError('Сохраните или закройте открытый редактор поручения перед сменой организации.'); return;}
     if(command({type:'SELECT_ORGANIZATION',organizationId})){
-      setManagerOriginal(null);
+      setManagerOriginal(null);setFocusedEmployeeContact(null);
       atlasFileRequest.current++;
       setAtlasFile(null);setAtlasSelected('');setAtlasWorkspace('');setNativeAtlas(null);
       setAtlasObservationMode('file');
@@ -555,7 +565,7 @@ export default function App() {
       if(pendingCloseRef.current&&!window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.'))return;
       revisionRef.current++;
       editorBaselineRef.current=null;
-      setState(next);setDirty(nativeHost);atlasFileRequest.current++;setAtlasFile(null);setNativeAtlas(null);setAtlasObservationMode('file');setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
+      setState(next);setFocusedEmployeeContact(null);setDirty(nativeHost);atlasFileRequest.current++;setAtlasFile(null);setNativeAtlas(null);setAtlasObservationMode('file');setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
     } catch(e) {problem(e);}
   }
   async function openFile() {
@@ -697,6 +707,7 @@ export default function App() {
           requestAnimationFrame(()=>document.querySelector<HTMLInputElement>('[data-testid="org-name"]')?.focus());
         }}
         onNewAssignment={()=>{if(org)startAssignment();else setCreatingOrg(true);}}
+        onEnrollEmployee={openEmployeeConnection}
         onOpenAssignment={id=>{const found=org?.assignments.find(t=>t.id===id);if(found)startAssignment(found);}}
       />}
       {(!org || creatingOrg) && organizationForm}
@@ -767,6 +778,7 @@ export default function App() {
           <div className="section-head"><h2>Структура компании</h2><span className="status neutral">Рабочие области · роли · ответственность</span></div>
           <p className="muted">Состав организации строится из сохранённых рабочих областей и сотрудников. Подписанные полномочия T3 проверяются отдельно.</p>
           <AdminCompanyStructure key={org.id} organization={org} onNavigate={go}
+             onEnrollEmployee={openEmployeeConnection}
              onOpenAssignment={id=>{const task=org.assignments.find(item=>item.id===id);if(task)startAssignment(task);}}/>
         </section>
         <section className="card v8-people-structure"><h2>Матрица сотрудников и подключений</h2>
@@ -844,11 +856,13 @@ export default function App() {
 
        {org && page==='results' && <AdminResultRoute organizationName={org.name} nativeHost={nativeHost}
           signedWorkspaceOpen={signedWorkspaceOrg===org.id} signedWorkspaceVisible={signedWorkspaceOrg===org.id&&signedWorkspaceVisible}
-          onOpenWorkspace={()=>openSignedWorkspace(org.id)}/>}
-       {org && page==='results' && <CorporatePanel key={org.id} organization={org} managerOriginal={managerOriginal} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace}/>} 
+          onOpenWorkspace={()=>openSignedWorkspace(org.id)}
+          focusedEmployeeName={org.participants.find(person=>person.id===focusedEmployeeContact)?.name??null}/> }
+       {org && page==='results' && <CorporatePanel key={org.id} organization={org} managerOriginal={managerOriginal}
+          preferredEmployeeContactId={focusedEmployeeContact} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace}/>} 
       {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
         <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
-        {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button></div>)}
+        {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><div className="actions"><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button><button className="secondary" type="button" data-testid={'open-employee-t3-'+person.id} onClick={()=>openEmployeeConnection(person.id)}>Подключение T3</button></div></div>)}
         {!org.participants.length && <Empty title="Сначала добавьте сотрудников" text="Для каждого сотрудника можно подготовить план доступа к Personal Agent."/>}
         <div className="notice subdued">Разделение ответственности: Publisher выпускает программные лицензии и издательские статусы; Admin Center распределяет подтверждённые места организации и управляет организационными полномочиями. Ни одна кнопка здесь пока не активирует программу.</div>
         <AgeExchangePanel invoke={nativeHost?nativeInvoke:null} prefix="center" recipientOnly/>
