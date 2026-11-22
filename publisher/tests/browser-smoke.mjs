@@ -1144,7 +1144,7 @@ try {
   assert.equal(await parallel.getByRole('button',{name:'Сохранить продукт'}).count(),0,
     'Stale draft must not expose editing controls');
   await parallel.getByTestId('publisher-draft-reload').click();
-  await parallel.getByText('Updated by Other Publisher Window').waitFor();
+  await parallel.locator('.pub-product-list').getByText('Updated by Other Publisher Window',{exact:true}).waitFor();
   await parallel.getByRole('button',{name:'Сохранить продукт'}).click();
   await parallel.getByText('Продукты (2)').waitFor();
   assert.equal(JSON.parse(await parallel.evaluate(()=>
