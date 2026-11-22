@@ -1,5 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import CorporateD3Panel from './CorporateD3Panel';
+import type {ManagerOriginalSelection} from './manager-original-selection';
 import CorporateEmployeeEnrollment from './CorporateEmployeeEnrollment';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
 import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox,signedD3SessionFingerprint,
@@ -46,13 +47,17 @@ const why=(e:unknown)=>{
    return 'Список поручений изменился. Обновите корпоративную сессию и прочитайте оригинальную Task ещё раз, не подписывая её повторно.';
  if(/CEN_D3_SIGNED_ENROLLMENT_DRAFT_(?:NOT_READY|SAVE_UNCONFIRMED|READBACK_MISMATCH|CHANGED)/.test(message))
    return 'Подключение T3 не началось: не удалось подтвердить сохранение рабочей области организации на этом компьютере. Проверьте данные и повторите.';
+ if(message.includes('CEN_D3_MANAGER_SOURCE_NOT_IN_INBOX'))
+   return 'Пакет не найден в свежем оригинальном Reconciliation. Вернитесь к поиску и перечитайте источник. Решение не отправлялось.';
+ if(message.includes('CEN_D3_MANAGER_SOURCE_CONTEXT_CHANGED'))
+   return 'Подписанный контекст T3 изменился. Перечитайте корпоративные сведения и выберите источник заново.';
  if(message.includes('CEN_D3_ORIGINAL_TASK_ALREADY_ISSUED'))
    return 'У этого поручения уже есть подписанный ID. Откройте сохранённую Task или подготовьте новый ID.';
  if(/CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN|T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN/.test(message))
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
@@ -231,7 +236,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
     dispatchedApplications={dispatchedD3Applications}
     taskAttempts={attemptedD3Tasks}
     decisionAttempts={attemptedD3Decisions}
-    run={act} busy={busy} invoke={invoke} organizationName={organization.name}
+    run={act} busy={busy} invoke={invoke} managerOriginal={managerOriginal} organizationName={organization.name}
     assignmentDrafts={organization.assignments.filter(a=>
       a.workspaceId===owner.snapshot.workspaceId).map(a=>({
         id:a.id,title:a.title,assigneeId:a.assigneeId??'',

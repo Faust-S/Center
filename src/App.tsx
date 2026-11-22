@@ -270,7 +270,7 @@ export default function App() {
     // No native event is emitted if an already-destroyed child was absent.
     setSignedWorkspaceGeneration(value=>value+1);
   };
-  const go = (next: Page) => {setPage(next); setMenuOpen(false);};
+  const go = (next: Page) => {if(next!=='results')setManagerOriginal(null);setPage(next); setMenuOpen(false);};
   const openManagerOriginal=(selection:ManagerOriginalSelection)=>{
     if(!org||selection.organizationId!==org.id)return;
     setManagerOriginal(selection);

@@ -1,4 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
+import type {ManagerOriginalSelection} from './manager-original-selection';
+import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
 import {readOriginalResultReview,readCompleteOriginalResult,
  validateOriginalSignedTaskReadback,
  isDefiniteUndispatchedD3Failure,
@@ -34,22 +36,24 @@ function requireAgeStatus(value:any):AgeStatus{
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts}:{
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts,managerOriginal=null}:{
  owner:Owner;execute:Exec;run:Run;busy:boolean;organizationName:string;
  dispatchedApplications:React.RefObject<Map<string,string[]>>;
  taskAttempts:React.RefObject<Map<string,{taskId:string;attempted:boolean}>>;
  decisionAttempts:React.RefObject<Map<string,{operationId:string;decision:'ACCEPT'|'REJECT'}>>;
  invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;
  assignmentDrafts:AssignmentDraft[];
+ managerOriginal?:ManagerOriginalSelection|null;
  }){
  const session=owner.snapshot;
+ const exactFocus=managerOriginalSelectionMatches(managerOriginal,session)?managerOriginal:null;
  const taskAttemptKey=JSON.stringify([
    session.organizationId,session.workspaceId,session.actorId]);
  const [hash,setHash]=useState('');
  const [taskText,setTaskText]=useState('');
  const [draftId,setDraftId]=useState('');
  const [draftSnapshot,setDraftSnapshot]=useState('');
- const [taskId,setTaskId]=useState('');
+ const [taskId,setTaskId]=useState(()=>exactFocus?.kind==='signed-task'?exactFocus.id:'');
  const [taskOperationId,setTaskOperationId]=useState(
    ()=>taskAttempts.current.get(taskAttemptKey)?.taskId??'');
  const [taskIdSaved,setTaskIdSaved]=useState(false);
@@ -281,7 +285,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      receipt.receipt?.operationId===operationId&&
      receipt.receipt?.packageSha256===hash)||
    decisionAttempts.current.has(decisionKey(hash));
- const refreshInbox=()=>run('Полученные пакеты перечитаны из оригинального Reconciliation.',async()=>{
+ const refreshInbox=(requestedPackage:string|null=null)=>run('Полученные пакеты перечитаны из оригинального Reconciliation.',async()=>{
    const result=await execute('d3Inbox');
    if(result?.schema!=='IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1'||
      result.organizationId!==session.organizationId||
@@ -292,6 +296,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        ['REVIEW_REQUIRED','ACCEPTED','REJECTED','RECEIPT_CONFLICT'].includes(x.status)&&
        (x.operationId==null||opPattern.test(x.operationId))))
      throw Error('CEN_D3_ORIGINAL_INBOX_INVALID');
+   if(requestedPackage!==null){
+     if(!exactFocus||exactFocus.kind!=='signed-result-package'||exactFocus.id!==requestedPackage)
+       throw Error('CEN_D3_MANAGER_SOURCE_CONTEXT_CHANGED');
+     const original=result.items.find((x:any)=>x.packageSha256===requestedPackage);
+     if(!original){setInbox(result);throw Error('CEN_D3_MANAGER_SOURCE_NOT_IN_INBOX');}
+     choose(original.packageSha256);
+     if(original.operationId)setOperationId(original.operationId);
+   }
    setInbox(result);
  });
  const revisions=Array.isArray(preview?.entries)?
@@ -533,6 +545,18 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  });
  return <div className="nested-form" data-testid="cen03-d3-original">
   <h3>Подписанный T3: получение и принятие Result</h3>
+  {managerOriginal&&<div className="notice subdued" data-testid="d3-manager-original-link">
+    {exactFocus?<>
+      <strong>Переход из корпоративного поиска</strong>
+      <p>Исходный {exactFocus.kind==='signed-task'?'Task':'пакет Result'}: {exactFocus.id}.
+        Подписанный владелец проверит источник заново перед действием.
+        Этот переход ничего не подписывает, не принимает и не применяет.</p>
+      {exactFocus.kind==='signed-result-package'&&<button className="secondary"
+        type="button" data-testid="d3-manager-recheck-package" disabled={busy}
+        onClick={()=>{void refreshInbox(exactFocus.id)}}>Перечитать Reconciliation и выбрать точный пакет</button>}
+    </>:<p>Контекст подписанного T3 изменился. Ранее найденный источник не выбран.
+      Вернитесь к поиску и обновите данные организации.</p>}
+  </div>}
   <p className="muted">Подтверждённый субъект: {session.actorId} · Workspace: {session.workspaceId}.
    Оригинальный получатель проверяет подпись и полномочия. Приём не означает ACCEPT;
    ACCEPT не означает запись в Kernel.</p>
@@ -708,7 +732,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    <button className="secondary" data-testid="d3-review" disabled={busy||!hex(hash)}
     onClick={review}>Review</button>
    <button className="secondary" data-testid="d3-inbox-refresh" disabled={busy}
-    onClick={refreshInbox}>Открыть полученные</button>
+    onClick={()=>{void refreshInbox()}}>Открыть полученные</button>
   </div>
   {inbox&&<div data-testid="d3-original-inbox">
    <p>Оригинальный журнал получателя: {inbox.total} пакетов.
