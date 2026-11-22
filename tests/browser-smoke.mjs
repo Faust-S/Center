@@ -21,6 +21,11 @@ try{
   await page.goto('http://127.0.0.1:4173');
   await page.getByTestId('org-name').fill('North workshop');await page.getByTestId('create-org').click();
   await page.getByTestId('manager-context-overview').waitFor();
+  await page.getByTestId('manager-question-review').click();
+  assert.match(await page.getByTestId('manager-answer').innerText(),/вручную прочитать подписанный корпоративный T3/);
+  assert.equal(await page.getByTestId('manager-answer-sources').count(),0);
+  await page.getByTestId('manager-question-review').click();
+  checks.push('manager-source-grounded-question-no-invented-result');
   assert.equal(await page.getByTestId('manager-read-signed').isEnabled(),false);
   assert.equal(await page.getByTestId('manager-signed-summary').count(),0);
   checks.push('manager-context-native-only-original-t3-readback');

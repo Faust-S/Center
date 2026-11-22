@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {readManagerSignedContext,managerSignedInboxArgs,prepareManagerOriginalSelection} from './manager-owner-context.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {buildManagerContext, searchManagerContext, managerAttention} from './manager-context.mjs';
+import {answerManagerQuestion,MANAGER_QUESTIONS} from './manager-answers.mjs';
 
 type View = 'overview'|'context';
 type Destination = 'overview'|'context'|'resources'|'work'|'results'|'people'|'programs'|'data';
@@ -56,6 +57,7 @@ const mapRelations=[
 ];
 export default function ManagerContextPanel({organization,atlasView,view,atlasStatus,onNavigate,onOpenEntry,onOpenAttention,onOpenOriginal,invoke=null}:Props) {
  const [query,setQuery]=useState('');
+ const [selectedQuestion,setSelectedQuestion]=useState<string|null>(null);
  // Explicit read only: no background signer initialization or repeating
  // requests whenever React renders. Clear on a changed organization/unmount.
  const request=useRef(0);
@@ -115,6 +117,18 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
    if(hit.kind==='signed-task'||hit.kind==='signed-result-package')openOriginal(hit.kind,hit.id);
    else onOpenEntry(hit);
  };
+ const answer=useMemo(()=>selectedQuestion
+   ?answerManagerQuestion(selectedQuestion,{organization,owner,atlasView,rows,alerts})
+   :null,[selectedQuestion,organization,owner,atlasView,rows,alerts]);
+ const openAnswerItem=(item:any)=>{
+   if(item.kind==='attention'){
+     const alert=alerts.find(a=>a.key===item.id);
+     if(alert)openAlert(alert);
+     return;
+   }
+   const entry=rows.find(row=>row.kind===item.kind&&row.id===item.id);
+   if(entry)openHit(entry);
+ };
  const openAlert=(item:Alert)=>{
    if(item.key.startsWith('signed-inbox:'))openOriginal('signed-result-package',item.key.slice('signed-inbox:'.length));
    else onOpenAttention(item);
@@ -173,6 +187,32 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
        </button>):<p className="muted">В доступных источниках совпадений нет. Это не поиск по всем данным T3 или Personal Agent.</p>}
      </div>}
    </div>
+   <section className="card padded manager-question-card" data-testid="manager-questions">
+     <div className="section-head"><h2>Вопросы руководителя</h2><small className="muted">Ответы по источникам, без ИИ-генерации</small></div>
+     <div className="manager-question-choices">
+       {MANAGER_QUESTIONS.map(question=><button key={question.id} type="button"
+         className={selectedQuestion===question.id?'secondary manager-question-active':'quiet'}
+         data-testid={'manager-question-'+question.id}
+         aria-pressed={selectedQuestion===question.id}
+         onClick={()=>setSelectedQuestion(old=>old===question.id?null:question.id)}>
+         {question.label}
+       </button>)}
+     </div>
+     {answer&&<div className="manager-answer" data-testid="manager-answer" aria-live="polite">
+       <strong>{answer.title}</strong>
+       <p>{answer.summary}</p>
+       <small className="muted">{answer.scope}</small>
+       {answer.status==='SOURCE_REQUIRED'&&invoke&&
+         <button className="secondary" type="button" disabled={loading}
+           onClick={()=>{void refreshSigned()}}>Перечитать оригинальный T3</button>}
+       {answer.items.length>0&&<div className="manager-answer-sources" data-testid="manager-answer-sources">
+         {answer.items.map(item=><button className="manager-answer-source" type="button" key={item.key}
+           onClick={()=>openAnswerItem(item)}>
+           <strong>{item.title}</strong><small>{item.source}</small><span>{item.detail}</span>
+         </button>)}
+       </div>}
+     </div>}
+   </section>
    <div className="card padded manager-attention" data-testid="manager-attention">
      <div className="section-head"><h2>Требует внимания</h2><small className="muted">Черновики{owner?.inboxLoaded?' и оригинальный T3':''}</small></div>
      {alerts.length?alerts.slice(0,full?12:4).map(a=><button type="button" key={a.key}
