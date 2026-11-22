@@ -1,7 +1,7 @@
 // Read-only issuer-side attention summary. The ORIGINAL T3 owns all signed
 // licenses, statuses and durable receipts. This projection grants no rights,
 // cannot verify a recipient and never persists a second license inventory.
-const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
+const ID=/^[A-Za-z0-9][A-Za-z0-9._:\/@-]{0,159}$/;
 const SHA=/^[a-f0-9]{64}$/;
 const instant=value=>typeof value==='string'&&
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)&&
