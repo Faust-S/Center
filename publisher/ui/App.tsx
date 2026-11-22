@@ -544,8 +544,31 @@ export default function App(){
            <div className="card metric publisher-metric"><span>Клиенты</span><strong>{state.holders.length}</strong><small>Привязанные идентификаторы</small></div>
            <div className="card metric publisher-metric"><span>Черновики запросов</span><strong>{state.proposals.length}</strong><small>Статус выдачи — в журнале T3</small></div>
          </div>
+         <section className="card padded" data-testid="publisher-corporate-primary">
+           <div className="eyebrow">ОСНОВНОЙ МАРШРУТ</div>
+           <h2>Корпоративная лицензия IWXA Admin Center</h2>
+           <p>Publisher выдаёт лицензию организации. Admin Center принимает её через исходный T3
+             и распределяет только подтверждённые организационные возможности
+             между сотрудниками и их Personal Agent.</p>
+           <p className="muted">
+             Организаций в подготовке: {state.holders.filter(h=>h.type==='ORGANIZATION').length}.
+             Корпоративных тарифов Admin Center: {state.tariffs.filter(t=>t.holderType==='ORGANIZATION'&&t.productId==='IWXA_ADMIN_CENTER').length}.
+             Запросов организаций: {state.proposals.filter(p=>p.productId==='IWXA_ADMIN_CENTER'&&state.holders.some(h=>h.id===p.holderId&&h.type==='ORGANIZATION')).length}.
+           </p>
+           <p className="muted">Сейчас подписывается только TEST-лицензия Admin Center.
+             Оригинальная коммерческая лицензия организации и распределение действительных мест
+             Personal Agent ещё не включены. Доступных для назначения мест: 0.</p>
+           <div className="actions">
+             <button type="button" className="primary" onClick={()=>go('proposals')}>
+               Подготовить корпоративную лицензию
+             </button>
+             <button type="button" className="secondary" onClick={()=>go('holders')}>
+               Открыть организации
+             </button>
+           </div>
+         </section>
          <section className="card padded" data-testid="publisher-person-attention">
-           <h2>Лицензии PERSON: что требует внимания</h2>
+           <h2>Дополнительные лицензии PERSON: что требует внимания</h2>
            <p className="muted">Состояние у издателя запрашивается из исходного T3 по вашему действию.
              Это не проверка доставки пакета, получения или применения лицензии в Atlas и Agent.</p>
            <div className="actions">
