@@ -28,6 +28,8 @@ try{
   checks.push('manager-source-grounded-question-no-invented-result');
   assert.equal(await page.getByTestId('manager-read-signed').isEnabled(),false);
   assert.equal(await page.getByTestId('manager-signed-summary').count(),0);
+  assert.equal(await page.getByTestId('manager-activity-summary').count(),0);
+  assert.equal(await page.getByTestId('manager-read-activity').count(),0);
   checks.push('manager-context-native-only-original-t3-readback');
   assert.equal(await page.getByTestId('manager-attention-item').count(),1);
   await page.getByTestId('open-context-map').click();
