@@ -448,6 +448,15 @@ jobs:
           if($checksum.state -cne 'uploaded' -or $checksum.name -cne 'SHA256SUMS.txt'){
             throw 'AGENT062_PRIVATE_RELEASE_CHECKSUM_RECEIPT_INVALID'
           }
+          # GitHub does not create a tag ref for an unpublished draft.
+          # Seal the source commit explicitly before publishing this draft.
+          $refBody=@{ref='refs/tags/'+$tag;sha=$sha} | ConvertTo-Json -Depth 3
+          try {
+            $createdRef=Invoke-RestMethod -Method Post -Uri ($api+'/git/refs') -Headers $headers -ContentType 'application/json' -Body $refBody
+          } catch {
+            # An existing tag is acceptable only when it points to this
+            # exact release/0.6.2 commit. Do not move an existing tag.
+          }
           try {
             $ref=Invoke-RestMethod -Method Get -Uri ($api+'/git/ref/tags/'+$tag) -Headers $headers
           } catch {
