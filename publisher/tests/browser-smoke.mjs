@@ -297,6 +297,23 @@ try {
   assert.ok(await page.getByRole('button',{name:'Продукты',exact:true}).isVisible());
   assert.ok(await page.getByRole('button',{name:'Настройки',exact:true}).isVisible());
   checks.push('compact-desktop-icon-navigation-remains-accessible-without-duplicate-controls');
+  // A saved wide inspector must shrink with the window and report its actual
+  // keyboard-accessible width. Widening the window restores the chosen width.
+  await page.getByTestId('publisher-dock-toggle').click();
+  const compactSplitter=page.getByTestId('publisher-splitter');
+  await compactSplitter.focus();
+  await compactSplitter.press('End');
+  assert.equal(Number(await compactSplitter.getAttribute('aria-valuenow')),524);
+  await page.setViewportSize({width:800,height:640});
+  assert.equal(Number(await compactSplitter.getAttribute('aria-valuenow')),435);
+  assert.equal(Number(await compactSplitter.getAttribute('aria-valuemax')),435);
+  const actualCompactWidth=await page.getByTestId('publisher-split-dock')
+    .evaluate(el=>Math.round(el.getBoundingClientRect().width));
+  assert.equal(actualCompactWidth,435);
+  await page.setViewportSize({width:1024,height:640});
+  assert.equal(Number(await compactSplitter.getAttribute('aria-valuenow')),524);
+  await page.getByTestId('publisher-dock-close').click();
+  checks.push('v2-compact-dock-width-clamps-to-viewport-and-restores-user-preference');
   // The native 680px window can be constrained further by Windows taskbars
   // and display scaling. Its whole navigation and footer must fit together.
   await page.setViewportSize({width:1024,height:520});
