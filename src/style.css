@@ -79,3 +79,9 @@
 .manager-answer-source span{font-size:12px;line-height:1.5}
 @media(max-width:700px){.manager-question-choices{display:grid;grid-template-columns:1fr 1fr}}
 @media(max-width:380px){.manager-question-choices{grid-template-columns:1fr}}
+
+.manager-owner-readback{display:flex;align-items:flex-start;flex-wrap:wrap;gap:10px}
+.manager-owner-readback>.manager-signed-summary{flex:1 1 100%}
+.manager-evidence-detail{margin-top:14px;padding:12px;border:1px solid #9bb9dd;border-radius:9px;background:#f1f6fe;color:#28466b}
+.manager-evidence-detail p{font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.manager-evidence-detail small{font-size:11px;color:#59718f;overflow-wrap:anywhere}
