@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: 'ded96fdfd7d8b1ff4c8d20929e48492b06280e06'
-      PRIVATE_TREE_PIN: '98bee4f25a8f2f8f02959f0e84351d237ab7625f'
+      PRIVATE_SOURCE_PIN: '4a0faefd530855dc3797bfcd755e29622f433ae8'
+      PRIVATE_TREE_PIN: '0d2038b0bb8b123ba16f6efd7df7dec3dc69f85b'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -199,6 +199,28 @@ jobs:
                   'GUI_COLD_REMOVE','RESULT')
                 if([string]$w.phase -cin $phases){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_PHASE='+[string]$w.phase)
+                }
+                $safeReasons=@(
+                  'agent06_online_ui_button_missing',
+                  'agent06_online_native_core_unavailable',
+                  'agent06_online_native_exited_before_ready',
+                  'agent06_online_native_window_closed',
+                  'agent06_online_gui_section_unavailable',
+                  'agent06_online_gui_remaining_account_absent',
+                  'agent06_online_gui_first_account_absent',
+                  'agent06_online_gui_deleted_account_still_present',
+                  'agent06_online_phase_create_failed',
+                  'agent06_online_phase_create_receipt_invalid',
+                  'agent06_online_phase_readback_failed',
+                  'agent06_online_phase_readback_receipt_invalid',
+                  'agent06_online_phase_remove_failed',
+                  'agent06_online_phase_remove_receipt_invalid',
+                  'agent06_online_phase_postremove_failed',
+                  'agent06_online_phase_postremove_receipt_invalid',
+                  'other'
+                )
+                if([string]$w.failure_code -cin $safeReasons){
+                  Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_CODE='+[string]$w.failure_code)
                 }
               }
             }catch{
