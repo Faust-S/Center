@@ -198,6 +198,56 @@ pub async fn publisher_t3_export_test_trust(app:AppHandle)->Result<Option<Value>
     Ok(Some(result))
 }
 
+#[tauri::command]
+pub async fn publisher_t3_corporate_export(
+    app:AppHandle,license_id:String
+)->Result<Option<Value>,String>{
+    if !t3::valid_identifier(&license_id){
+        return Err("PUBLISHER_CORPORATE_EXPORT_LICENSE_INVALID".into());
+    }
+    if !t3::availability(&app,"owner-corporate"){
+        return Err("PUBLISHER_CORPORATE_ORIGINAL_OWNER_NOT_ENROLLED".into());
+    }
+    // The original Owner alone verifies its current signed STATUS and
+    // creates the original iwxa.package/1 archive. This public dialog only
+    // selects a destination and verifies bytes after original export.
+    let selected=rfd::FileDialog::new()
+        .set_title("Publisher: корпоративная лицензия IWXA Admin Center")
+        .add_filter("IWXA",&["iwxa"])
+        .set_file_name("iwxa-corporate-admin-center-license.iwxa").save_file();
+    let Some(path)=selected else{return Ok(None)};
+    if !crate::is_iwxa_path(&path)||path.exists(){
+        return Err("PUBLISHER_CORPORATE_EXPORT_DESTINATION_DENIED".into());
+    }
+    let file=path.to_string_lossy().into_owned();
+    let v=call_corporate(app,"corporate-export",
+        vec![license_id.clone(),file.clone()]).await?;
+    t3::validate_test_result(&v,"CORPORATE_IWXA_EXPORTED")?;
+    let len=v.get("bytes").and_then(Value::as_u64)
+        .ok_or("PUBLISHER_CORPORATE_EXPORT_SIZE_REQUIRED")?;
+    let digest=v.get("packageSha256").and_then(Value::as_str)
+        .ok_or("PUBLISHER_CORPORATE_EXPORT_DIGEST_REQUIRED")?;
+    if v.get("licenseId").and_then(Value::as_str)!=Some(license_id.as_str())||
+       v.get("path").and_then(Value::as_str)!=Some(file.as_str())||
+       len==0||len>4*1024*1024||digest.len()!=64||
+       !digest.bytes().all(|b|
+           b.is_ascii_digit()||(b'a'..=b'f').contains(&b)){
+        return Err("PUBLISHER_CORPORATE_EXPORT_RECEIPT_INVALID".into());
+    }
+    let meta=fs::metadata(&path)
+        .map_err(|_|"PUBLISHER_CORPORATE_EXPORT_FILE_MISSING")?;
+    if !meta.is_file()||meta.len()!=len{
+        return Err("PUBLISHER_CORPORATE_EXPORT_SIZE_MISMATCH".into());
+    }
+    let bytes=fs::read(&path)
+        .map_err(|_|"PUBLISHER_CORPORATE_EXPORT_READBACK_MISSING")?;
+    if bytes.len() as u64!=len||
+       format!("{:x}",Sha256::digest(&bytes))!=digest{
+        return Err("PUBLISHER_CORPORATE_EXPORT_DIGEST_MISMATCH".into());
+    }
+    Ok(Some(v))
+}
+
 // PERSON uses the original private T3 owner binary, but only the separately
 // pre-enrolled production root. The public bridge never signs or imports trust.
 // ORGANIZATION: a thin production bridge to the SAME pre-enrolled original
