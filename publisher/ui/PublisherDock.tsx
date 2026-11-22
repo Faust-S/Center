@@ -21,6 +21,19 @@ export function PublisherDock({page,draft,selectedProductId,onSelectProduct,mode
   open,width,onWidth,onClose,widgets,onWidgets,onNavigate}:Props){
  const [tab,setTab]=useState<'details'|'tariffs'|'licenses'|'releases'|'t3'>('details');
  const gesture=React.useRef<{startX:number;startWidth:number}|null>(null);
+ const [viewportWidth,setViewportWidth]=React.useState(
+   typeof window==='undefined'?1280:window.innerWidth);
+ React.useEffect(()=>{
+   const onResize=()=>setViewportWidth(window.innerWidth);
+   window.addEventListener('resize',onResize);
+   return ()=>window.removeEventListener('resize',onResize);
+ },[]);
+ // Keep the accessible splitter value identical to the width actually
+ // rendered on a compact native window, without discarding the larger
+ // user preference when the window is temporarily resized.
+ const allowedMax=Math.max(MIN,Math.min(MAX,
+   viewportWidth-(viewportWidth<980?365:500)));
+ const visibleWidth=Math.max(MIN,Math.min(width,allowedMax));
  if(!open)return null;
  const product=draft.products.find(p=>p.id===selectedProductId)||draft.products[0];
  const tariffs=product?draft.tariffs.filter(t=>t.productId===product.id):[];
@@ -29,18 +42,16 @@ export function PublisherDock({page,draft,selectedProductId,onSelectProduct,mode
  const link=(label:string,target:Page)=><button type="button" className="secondary"
    onClick={()=>onNavigate(target)}>{label}</button>;
  const bound=(size:number)=>{
-   const max=typeof window==='undefined'?MAX:Math.max(MIN,
-     Math.min(MAX,window.innerWidth-(window.innerWidth<980?365:500)));
-   onWidth(Math.max(MIN,Math.min(max,Math.round(size))));
+   onWidth(Math.max(MIN,Math.min(allowedMax,Math.round(size))));
  };
  return <aside className="pub-dock" aria-label="Контекстная панель Publisher"
-   data-testid="publisher-split-dock" style={{width:width,flexBasis:width}}>
+   data-testid="publisher-split-dock" style={{width:visibleWidth,flexBasis:visibleWidth}}>
    <div className="pub-dock-splitter" role="separator" tabIndex={0}
      aria-label="Изменить ширину просмотра"
-     aria-orientation="vertical" aria-valuemin={MIN} aria-valuemax={MAX}
-     aria-valuenow={width} data-testid="publisher-splitter"
+     aria-orientation="vertical" aria-valuemin={MIN} aria-valuemax={allowedMax}
+     aria-valuenow={visibleWidth} data-testid="publisher-splitter"
      onPointerDown={e=>{
-       gesture.current={startX:e.clientX,startWidth:width};
+       gesture.current={startX:e.clientX,startWidth:visibleWidth};
        e.currentTarget.setPointerCapture(e.pointerId);
      }}
      onPointerMove={e=>{if(gesture.current)bound(gesture.current.startWidth+gesture.current.startX-e.clientX);}}
@@ -49,7 +60,8 @@ export function PublisherDock({page,draft,selectedProductId,onSelectProduct,mode
      onKeyDown={e=>{
        if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
        e.preventDefault();
-       bound(e.key==='Home'?MIN:e.key==='End'?MAX:width+(e.key==='ArrowLeft'?24:-24));
+       bound(e.key==='Home'?MIN:e.key==='End'?allowedMax:
+         visibleWidth+(e.key==='ArrowLeft'?24:-24));
      }}/>
    <div className="pub-dock-head">
      <div><strong>{mode==='widgets'?'Библиотека виджетов':'Просмотр'}</strong>
