@@ -196,7 +196,7 @@ export function PublisherDashboard({draft,attention,diagnostics,attentionBusy,at
         <button type="button" className="secondary" disabled={diagnosticsBusy}
           onClick={onCheckDiagnostics}>{diagnosticsBusy?'Проверяем…':'Проверить состояние Publisher'}</button>
         {diagnosticsError&&<small role="alert">{diagnosticsError}</small>}
-      </div>
+      </div>}
      </div>
      <footer className="pub-widget-footer"><small>{spec.source}</small><button className="secondary" onClick={jump}>Открыть</button></footer>
     </article>;
