@@ -3,6 +3,7 @@ import { emptyPublisherDraft, decodePublisherDraft, encodePublisherDraft, applyP
 import { prepareTestLicenseRequest, encodeTestLicenseRequest, suggestedTestRequestFileName, inspectTestIssuerRequestScopes } from '../src/test-license-request.mjs';
 import {simulateIssuerEvent} from '../src/issuer-simulation.mjs';
 import {prepareUnsignedPersonLicenseRequest} from '../src/person-license-request.mjs';
+import {projectCorporateOfferReviews} from '../src/corporate-offer-review.mjs';
 import {projectPublisherPersonAttention} from '../src/person-attention.mjs';
 import PublisherT3OwnerPanel from './PublisherT3OwnerPanel';
 import AgeExchangePanel from '../../src/AgeExchangePanel';
@@ -137,6 +138,7 @@ export default function App(){
  const draftSourceSha256=React.useRef(ABSENT_DRAFT);
  const [draftChangedExternally,setDraftChangedExternally]=useState(false);
  const [page,setPage]=useState<Page>('overview');
+ const corporateOfferReviews=useMemo(()=>projectCorporateOfferReviews(state),[state]);
  const [personRequestId,setPersonRequestId]=useState('');
  const [personAttention,setPersonAttention]=useState<ReturnType<typeof projectPublisherPersonAttention>|null>(null);
  const [personAttentionBusy,setPersonAttentionBusy]=useState(false);
@@ -671,6 +673,32 @@ export default function App(){
             <button type="button" className="secondary" aria-expanded={legacyOpen} onClick={()=>setLegacyOpen(value=>!value)}>{legacyOpen?'Скрыть TEST-запрос':'Открыть TEST-запрос'}</button>
           </div>
           <TariffPanel draft={state} busy={busy} change={change} mode="offer"/>
+         {corporateOfferReviews.total>0&&
+           <section className="card padded" data-testid="publisher-corporate-offer-reviews">
+             <h2>Корпоративная лицензия: проверка условий ({corporateOfferReviews.total})</h2>
+             <p className="muted">Это подготовленные условия для Admin Center, а не подписанная лицензия.
+               Подпись TEST не включает коммерческий тариф, лимит сотрудников, квоты и отдельное
+               право назначать места Personal Agent. Производственный выпуск требует исходного T3.</p>
+             {corporateOfferReviews.items.map(offer=>
+               <div className="simple-row" key={offer.proposalId}>
+                 <div>
+                   <strong>{offer.organization.name} · {offer.product.id}</strong>
+                   <small>Предложение {offer.proposalId}. Тариф: {offer.tariff.name},
+                     редакция {offer.tariff.revision}; срок {offer.termDays} дней.</small>
+                   <small>Места Admin Center в подготовке: {offer.limits.adminCenterProductSeats}.
+                     Лимит сотрудников: {offer.limits.employeeLimit}.
+                     Мест Personal Agent к назначению: {offer.assignablePersonalAgentSeats}.</small>
+                   <small>Условия для отдельного пула мест Personal Agent
+                     не заданы и не подписаны оригинальным T3.
+                     Число сотрудников не является числом лицензий агента.</small>
+                   <small>Функции: {offer.featureIds.join(', ')||'не выбраны'};
+                     квоты: {offer.limits.quotas.length}. Получение Admin Center не подтверждено.</small>
+                 </div><span className="status neutral">Подготовка</span>
+               </div>)}
+             {corporateOfferReviews.truncated&&<p className="muted">
+               Показаны последние {corporateOfferReviews.shown} предложений.
+               Ранее подготовленные условия доступны в списке запросов.</p>}
+           </section>}
          {legacyOpen&&<section ref={legacyTestRef} className="card form-panel"><h2>Простой TEST-запрос (совместимость)</h2><p className="muted">Создание запроса не создаёт подписанной лицензии и не меняет права получателя.</p>
          {state.products.length===0||state.holders.length===0?<div className="notice">Для запроса необходимо сначала создать продукт и клиента.</div>:<form onSubmit={e=>void saveLegacyRequest(e)} onChangeCapture={()=>setLegacyFeedback(null)}>
            <div className="form-grid"><label>Продукт<select value={activeProduct} onChange={e=>setProposalProduct(e.target.value)}><option value="">Выберите продукт</option>{state.products.map(p=><option key={p.id} value={p.id}>{p.name} ({p.version})</option>)}</select></label>

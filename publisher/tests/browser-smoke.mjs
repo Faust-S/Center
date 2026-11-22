@@ -419,6 +419,17 @@ try {
   await page.getByRole('button',{name:'Лицензии'}).click();
   await page.getByText('Подготовленные запросы (1)').waitFor();
   checks.push('tariff-proposal-unsigned-snapshot');
+  const corporateReview=page.getByTestId('publisher-corporate-offer-reviews');
+  await corporateReview.waitFor();
+  assert.match(await corporateReview.innerText(),/Test Corporation/);
+  assert.match(await corporateReview.innerText(),/Тариф: TEAM/);
+  assert.match(await corporateReview.innerText(),/Места Admin Center в подготовке: 5/);
+  assert.match(await corporateReview.innerText(),/Лимит сотрудников: 10/);
+  assert.match(await corporateReview.innerText(),/Мест Personal Agent к назначению: 0/);
+  assert.match(await corporateReview.innerText(),/Число сотрудников не является числом лицензий агента/);
+  assert.match(await corporateReview.innerText(),/Получение Admin Center не подтверждено/);
+  checks.push('corporate-offer-keeps-tariff-source-and-does-not-invent-agent-seat-entitlement');
+
   await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
   await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
     .selectOption('IWXA_ADMIN_CENTER:ORGANIZATION:TEAM:1');
