@@ -142,7 +142,7 @@ export function PublisherDashboard({draft,attention,diagnostics,attentionBusy,at
  };
  return <section className="publisher-dashboard" data-testid="publisher-dashboard">
   <header className="pub-dashboard-header">
-   <div><h2>Моя главная</h2><p>Добавляйте нужные блоки и располагайте их в удобном порядке.</p></div>
+   <div><h1>Моя главная</h1><p>Добавляйте нужные блоки и располагайте их в удобном порядке.</p></div>
    <div className="pub-dashboard-actions">
     <button className="secondary" type="button" data-testid="publisher-dashboard-edit"
      onClick={()=>onEditing(!editing)}>{editing?'Завершить настройку':'Настроить дашборд'}</button>
