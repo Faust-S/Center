@@ -19,9 +19,9 @@ type IssuerReadback={operation:string;licenseId:string;requestId:string;
 type Props={draft:any;invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;
   expectedDraftSha256:string;
   ensureSigningDraftCurrent:(sha:string)=>Promise<void>};
-const error=e=>e instanceof Error?e.message:String(e);
+const error=(e:unknown)=>e instanceof Error?e.message:String(e);
 const HEX=/^[a-f0-9]{64}$/;
-const seatsInput=s=>/^(0|[1-9][0-9]*)$/.test(s);
+const seatsInput=(s:string)=>/^(0|[1-9][0-9]*)$/.test(s);
 
 export default function PublisherCorporateOwnerPanel({
   draft,invoke,expectedDraftSha256,ensureSigningDraftCurrent
