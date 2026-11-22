@@ -14,6 +14,7 @@ import TariffPanel from './TariffPanel';
 import {PublisherDashboard,readPreferences,savePreferences} from './PublisherDashboard';
 import type {Widget} from './PublisherDashboard';
 import {PublisherDock} from './PublisherDock';
+import {PublisherSideNav} from './PublisherSideNav';
 import '../../src/style.css';
 import './style.css';
 import './workspace-v2.css';
@@ -553,6 +554,7 @@ export default function App(){
    </main>;
  }
  return <div className={'app publisher-app'+(mobileNav?' menu-open':'')}>
+   <div className="pub-left-container">
    <aside className="sidebar">
      <header className="brand publisher-brand">
        <div className="publisher-brand-lockup">
@@ -567,6 +569,8 @@ export default function App(){
      </nav>
      <div className="sidebar-bottom"><p className="local-label"><span className="dot"></span>Локальная программа</p><p>Черновики — не лицензии и не права.</p></div>
    </aside>
+   <PublisherSideNav page={page} onNavigate={go} onLibrary={openWidgetLibrary}/>
+   </div>
    <main className="main" ref={mainScrollRef}>
      <header className="top pub-desktop-top">
        <button className="menu-button secondary" type="button" onClick={()=>setMobileNav(!mobileNav)} aria-label="Открыть навигацию">☰</button>
