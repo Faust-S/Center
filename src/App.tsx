@@ -5,11 +5,13 @@ import {readAtlasSourceFile} from './atlas-file-import.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
 import ManagerContextPanel from './ManagerContextPanel';
+import AdminDashboard, {AdminCompanyStructure} from './AdminDashboard';
 import {retainSignedWorkspaceForPage,mayOpenSignedWorkspaceOnPage} from './signed-workspace-navigation.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import Cen04LicensePanel from './Cen04LicensePanel';
 import AgeExchangePanel from './AgeExchangePanel';
 import './style.css';
+import './admin-v8.css';
 
 type Participant = {id: string; name: string; roleLabel: string; credentialState: string; personalAgentPlan?: 'NONE'|'PLANNED'};
 type AtlasRef = {projectId:string;revision:string;workId?:string};
@@ -21,7 +23,7 @@ type AtlasPortfolioView = {source:string;revision:string;authorization:string;mo
 type AtlasCopyDelta={previousRevision:string;revision:string;sharedProjects:number;addedProjects:number;removedProjects:number;changedProjects:number;addedWorks:number;removedWorks:number;changedWorks:number;changedDependencies:number;revisionRelation:string;contentChanged:boolean};
 type Editor = {sourceResultRef:SourceResultRef|null;assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
 type Page = 'overview'|'context'|'work'|'results'|'resources'|'people'|'programs'|'data';
-const pages: [Page, string, string][] = [['overview','Обзор','◫'],['context','Контекст организации','◎'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['resources','Планы Atlas','◇'],['programs','Personal Agent и лицензии','▦'],['data','Данные и настройки','⚙']];
+const pages: [Page, string, string][] = [['overview','Главная','⌂'],['context','Контекст организации','◎'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['resources','Планы Atlas','◇'],['programs','Personal Agent и лицензии','▦'],['data','Профиль и данные','◈']];
 const workStatusLabels:Record<string,string>={
   NOT_OBSERVED:'Источник Atlas не открыт - редакция не проверена.',
   WORK_NOT_LINKED:'В поручении пока не выбрана работа Atlas.',
@@ -91,6 +93,18 @@ export default function App() {
   const [editor,setEditor] = useState<Editor|null>(null);
   const [creatingOrg,setCreatingOrg] = useState(false);
   const [menuOpen,setMenuOpen] = useState(false);
+  const [navQuery,setNavQuery]=useState('');
+  const [v8Menu,setV8Menu]=useState('');
+  const [inspectorVisible,setInspectorVisible]=useState(false);
+  const [inspectorWidth,setInspectorWidth]=useState(()=>{
+    try{const width=Number(localStorage.getItem('iwxa.admin-center.v8.inspector.width'));
+      return Number.isFinite(width)&&width>=310&&width<=680?width:355;}
+    catch{return 355;}
+  });
+  const inspectorPointer=useRef<{x:number;width:number}|null>(null);
+  const navigationHistory=useRef<Page[]>(['overview']);
+  const navigationCursor=useRef(0);
+  const [navigationVersion,setNavigationVersion]=useState(0);
   const [dirty,setDirty] = useState(false);
   const [saving,setSaving] = useState(false);
   const revisionRef = useRef(0);
@@ -276,7 +290,24 @@ export default function App() {
     // No native event is emitted if an already-destroyed child was absent.
     setSignedWorkspaceGeneration(value=>value+1);
   };
-  const go = (next: Page) => {if(next!=='results')setManagerOriginal(null);setPage(next); setMenuOpen(false);};
+  const go = (next: Page) => {
+    if(next!=='results')setManagerOriginal(null);
+    const history=navigationHistory.current;
+    if(history[navigationCursor.current]!==next){
+      navigationHistory.current=[...history.slice(0,navigationCursor.current+1),next];
+      navigationCursor.current=navigationHistory.current.length-1;
+      setNavigationVersion(value=>value+1);
+    }
+    setPage(next);setMenuOpen(false);setV8Menu('');
+  };
+  const goHistory=(delta:number)=>{
+    const target=navigationCursor.current+delta;
+    if(target<0||target>=navigationHistory.current.length)return;
+    navigationCursor.current=target;
+    const next=navigationHistory.current[target];
+    if(next!=='results')setManagerOriginal(null);
+    setPage(next);setNavigationVersion(value=>value+1);setV8Menu('');
+  };
   const openManagerOriginal=(selection:ManagerOriginalSelection)=>{
     if(!org||selection.organizationId!==org.id)return;
     setManagerOriginal(selection);
@@ -508,29 +539,91 @@ export default function App() {
     <div className="section-head"><h2>Новая организация</h2>{org && <button type="button" className="quiet" onClick={()=>setCreatingOrg(false)}>Отмена</button>}</div>
     <p className="muted">Начните с названия. Юридический статус и права не возникают из создания черновика.</p>
     <div className="form-grid">
-      <label>Название<input name="name" data-testid="org-name" maxLength={160} required autoFocus placeholder="Например, рабочая группа" /></label>
+      <label>Название<input name="name" data-testid="org-name" maxLength={160} required autoFocus={creatingOrg} placeholder="Например, рабочая группа" /></label>
       <label>Тип<select name="kind"><option value="GROUP">Группа или команда</option><option value="ORGANIZATION">Организация</option></select></label>
     </div>
     <button className="primary" data-testid="create-org">Создать черновик организации</button>
   </form>;
 
   if(nativeRestoring)return <div className="app"><main className="main"><div className="card padded" role="status">Открываем сохранённую работу...</div></main></div>;
-  return <div className={`app ${menuOpen?'menu-open':''}`}>
-    <aside className="sidebar" aria-label="Основная навигация">
-      <div className="brand"><div><strong>IWXA</strong><small>Admin Center</small></div><span className="version">0.3</span></div>
-      <div className="organization-select">
-        <label htmlFor="active-organization">Организация</label>
-        <select id="active-organization" value={state.activeOrganizationId??''} onChange={e=>selectOrg(e.target.value)}>
-          {!org && <option value="">Не выбрана</option>}{state.organizations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
-        <button className="sidebar-add" onClick={()=>{if(editor){setError('Сначала сохраните открытый редактор.');return;}setCreatingOrg(true);go('overview');}}>＋ Добавить организацию</button>
+  return <div className={`app v8-app ${menuOpen?'menu-open':''} ${inspectorVisible?'with-inspector':''}`}
+      style={{'--v8-inspector-width':inspectorWidth+'px'} as React.CSSProperties}>
+    <header className="v8-titlebar" aria-label="IWXA Admin Center">
+      <svg className="v8-logo" viewBox="0 0 64 64" role="img" aria-label="IWXA">
+        <rect width="64" height="64" rx="10" fill="#eb4e58"/>
+        <rect x="13" y="13" width="7" height="38" fill="#05070d"/>
+        <path d="M29 14 L51 50 M51 14 L29 50" stroke="#05070d" strokeWidth="7"/>
+      </svg>
+      <button type="button" className="v8-topicon" title="Назад" disabled={navigationCursor.current===0} onClick={()=>goHistory(-1)} aria-label="Назад">‹</button>
+      <button type="button" className="v8-topicon" title="Вперёд" disabled={navigationCursor.current>=navigationHistory.current.length-1} onClick={()=>goHistory(1)} aria-label="Вперёд">›</button>
+      <button type="button" className="v8-topicon" title="Показать или скрыть разделы" onClick={()=>setMenuOpen(value=>!value)} aria-label="Разделы">◫</button>
+      <span className="v8-title-divider"/>
+      <strong className="v8-title">IWXA Admin Center</strong>
+      {(['file','edit','view','help'] as const).map(kind=><div key={kind} className="v8-menubox">
+        <button type="button" aria-expanded={v8Menu===kind} onClick={()=>setV8Menu(value=>value===kind?'':kind)}>{({file:'Файл',edit:'Правка',view:'Вид',help:'Справка'} as const)[kind]}</button>
+        {v8Menu===kind&&<div className="v8-menu-pop" role="menu">
+          <span className="v8-menu-label">{({file:'ФАЙЛЫ И РАБОТА',edit:'ДЕЙСТВИЯ',view:'ОКНО',help:'НАВИГАЦИЯ'} as const)[kind]}</span>
+          {kind==='file'&&<>
+            <button onClick={()=>{setV8Menu('');void saveFile();}}>Сохранить черновики</button>
+            <button onClick={()=>{setV8Menu('');void openFile();}}>Открыть файл</button>
+            <button onClick={()=>{setV8Menu('');void exportFile();}}>Экспортировать JSON</button>
+          </>}
+          {kind==='edit'&&<>
+            <button onClick={()=>{setV8Menu('');if(org)startAssignment();else {setCreatingOrg(true);go('overview');}}}>Новое поручение</button>
+            <button onClick={()=>go('people')}>Сотрудники и роли</button>
+            <button onClick={()=>go('resources')}>Рабочие области</button>
+          </>}
+          {kind==='view'&&<>
+            <button onClick={()=>go('overview')}>Главная</button>
+            <button onClick={()=>go('context')}>Контекст организации</button>
+            <button onClick={()=>{setV8Menu('');setInspectorVisible(value=>!value);}}>Показать / скрыть просмотр справа</button>
+          </>}
+          {kind==='help'&&<>
+            <button onClick={()=>go('context')}>Структура и связи IWXA</button>
+            <button onClick={()=>go('results')}>Корпоративный T3</button>
+            <button onClick={()=>go('data')}>О программе и настройки</button>
+          </>}
+        </div>}
+      </div>)}
+      <div className="v8-headspacer"/>
+      <button type="button" className="v8-topicon" title="Панель просмотра" aria-label="Панель просмотра" onClick={()=>setInspectorVisible(value=>!value)}>◧</button>
+    </header>
+    <nav className="v8-rail" aria-label="Основные разделы">
+      {pages.filter(([id])=>id!=='data').map(([id,label])=><button key={id} type="button"
+        className={page===id?'active':''} aria-label={label} title={label} onClick={()=>go(id)}>
+        <V8RailIcon name={id}/>
+      </button>)}
+      <div className="v8-rail-space"/>
+      <div className="v8-rail-rule"/>
+      <button type="button" title="Выбрать организацию" aria-label="Выбрать организацию" onClick={()=>go('overview')}><V8RailIcon name="context"/></button>
+      <button type="button" className="v8-rail-profile" data-testid="nav-data" aria-label="Профиль и настройки" title="Профиль и настройки" onClick={()=>go('data')}>
+        <svg viewBox="0 0 64 64" role="img" aria-label="IWXA"><rect width="64" height="64" rx="10" fill="#eb4e58"/><rect x="13" y="13" width="7" height="38" fill="#05070d"/><path d="M29 14 L51 50 M51 14 L29 50" stroke="#05070d" strokeWidth="7"/></svg>
+      </button>
+    </nav>
+    <aside className="sidebar" aria-label="Навигация по разделам">
+      <div className="v8-nav-search"><span aria-hidden="true">⌕</span><input type="search"
+        value={navQuery} onChange={e=>setNavQuery(e.target.value)} aria-label="Найти раздел"
+        placeholder="Найти работу или команду"/></div>
+      <div className="v8-nav-caption">РАЗДЕЛЫ</div>
+      <nav>{pages.filter(([id,label])=>id!=='data'&&label.toLocaleLowerCase('ru').includes(navQuery.toLocaleLowerCase('ru'))).map(([id,label,icon])=>
+        <button key={id} className={`nav-link ${page===id?'active':''}`} aria-current={page===id?'page':undefined}
+          aria-label={id==='overview'?'Обзор · Admin Center':undefined} onClick={()=>go(id)}
+          data-testid={`nav-${id}`}><span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span>{id==='work'&&!!stats.drafts&&<em>{stats.drafts}</em>}</button>)}</nav>
+      <div className="sidebar-bottom">
+        <div className="organization-select">
+          <label htmlFor="active-organization">Текущая организация</label>
+          <select id="active-organization" value={state.activeOrganizationId??''} onChange={e=>selectOrg(e.target.value)}>
+            {!org&&<option value="">Организация не выбрана</option>}
+            {state.organizations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+          <p className="v8-footer-hint">{org?`${org.workspaces.length} областей · ${org.participants.length} сотрудников`:'Сначала создайте организацию'}</p>
+          <button className="sidebar-add" onClick={()=>{if(editor){setError('Сначала сохраните открытый редактор.');return;}setCreatingOrg(true);go('overview');}}>＋ Добавить организацию</button>
+        </div>
       </div>
-      <nav>{pages.map(([id,label,icon])=><button key={id} className={`nav-link ${page===id?'active':''}`} aria-current={page===id?'page':undefined} aria-label={id==='overview'?'Обзор · Admin Center':undefined} onClick={()=>go(id)} data-testid={`nav-${id}`}><span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span>{id==='work' && !!stats.drafts && <em>{stats.drafts}</em>}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="local-label"><span className="dot" />Рабочее место руководителя</div><p>Atlas 0.9 нужен для проектных работ, Agent 0.6 для выполнения поручений. Подписание и приёмка выполняются через T3.</p></div>
     </aside>
 
     <main className="main">
-      <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb">{org?.name??'Начало работы'} <span>/ {title}</span></div>
+      <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb"><strong>{title}</strong><small>{org?.name??'IWXA Admin Center · рабочее место руководителя'}</small></div>
        {signedWorkspaceOrg&&<>
         {signedWorkspaceVisible
           ? <button className="secondary" data-testid="d3-return-to-review"
@@ -541,27 +634,28 @@ export default function App() {
           aria-label="Завершить подписанную Workspace T3" title="Завершить сеанс Workspace T3"
           onClick={()=>{void closeSignedWorkspace().catch(()=>setError('Не удалось завершить Workspace T3.'));}}>×</button>
        </>}
+       <button type="button" className="v8-dock-toggle" onClick={()=>setInspectorVisible(value=>!value)}>{inspectorVisible?'Скрыть просмотр':'Открыть просмотр'}</button>
        <button className="secondary top-save" onClick={saveFile} disabled={!org||saving}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
-      <div className="page-heading"><div><div className="eyebrow">УПРАВЛЕНИЕ ОРГАНИЗАЦИЕЙ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>
+      {page!=='overview'&&<div className="page-heading"><div><div className="eyebrow">РАБОЧЕЕ МЕСТО РУКОВОДИТЕЛЯ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>}
       {error && <div className="notice error" role="alert">{error}</div>}
       {message && <div className="notice" role="status">{message}</div>}
-      {(!org || creatingOrg) && organizationForm}
-
-      {org && !creatingOrg && page==='overview' && <>
-        <ManagerContextPanel key={'home|'+org.id} organization={org} atlasView={observedAtlas}
-          view="overview" atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
-          sourceGeneration={signedWorkspaceGeneration}
-          invoke={nativeHost?nativeInvoke:null}
+      {page==='overview'&&<AdminDashboard key={org?.id??'_start'} organization={org}
+        nativeHost={nativeHost} atlasView={observedAtlas}
+        managerContext={org?<ManagerContextPanel key={'home|'+org.id}
+          organization={org} atlasView={observedAtlas} view="overview"
+          atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
+          sourceGeneration={signedWorkspaceGeneration} invoke={nativeHost?nativeInvoke:null}
           onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}
-          onOpenOriginal={openManagerOriginal}/>
-        <section className="hero"><div className="eyebrow">РАБОТА РУКОВОДИТЕЛЯ</div><h2>Видеть работу целиком и принимать решения</h2><p>План находится в Atlas. Сотрудник выполняет поручение в Personal Agent. Здесь вы управляете работой и принимаете результат.</p><div className="actions"><button className="primary" onClick={()=>startAssignment()} disabled={!org.workspaces.length}>＋ Новое поручение</button><button className="secondary" onClick={()=>go(org.workspaces.length?'people':'resources')}>{org.workspaces.length?'Добавить участника':'Создать рабочую область'}</button></div></section>
-        <div className="metrics">
-          {[['Рабочие области',stats.workspaces],['Участники',stats.participants],['Черновики поручений',stats.drafts]].map(([label,value])=><div className="card metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}
-        </div>
-        <section className="card padded"><div className="section-head"><h2>Продолжить работу</h2><button className="quiet" onClick={()=>go('work')}>Все поручения →</button></div>
-          {!org.assignments.length ? <Empty title="Пока нет поручений" text="Создайте рабочую область и подготовьте первое поручение с критериями результата."/> : org.assignments.slice(-4).reverse().map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}
-        </section>
-      </>}
+          onOpenOriginal={openManagerOriginal}/>:null}
+        onNavigate={go}
+        onCreateOrganization={()=>{
+          setCreatingOrg(true);
+          requestAnimationFrame(()=>document.querySelector<HTMLInputElement>('[data-testid="org-name"]')?.focus());
+        }}
+        onNewAssignment={()=>{if(org)startAssignment();else setCreatingOrg(true);}}
+        onOpenAssignment={id=>{const found=org?.assignments.find(t=>t.id===id);if(found)startAssignment(found);}}
+      />}
+      {(!org || creatingOrg) && organizationForm}
 
       {org && page==='context' && <ManagerContextPanel key={'context|'+org.id} organization={org}
         atlasView={observedAtlas} view="context" atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
@@ -624,13 +718,32 @@ export default function App() {
         <div className="notice subdued">Atlas подключается для проектных работ. Обычное поручение и приёмка Result не требуют Atlas. Проекты, зависимости и портфели остаются у Atlas.</div>
       </section>}
 
-      {org && page==='people' && <section className="card padded"><h2>Сотрудники и их обязанности</h2><p className="muted">Руководитель определяет участников и их обязанности. Подписанные полномочия появятся после подключения действующих организационных механизмов.</p>
+      {org && page==='people' && <>
+        <section className="card v8-people-structure">
+          <div className="section-head"><h2>Структура компании</h2><span className="status neutral">Рабочие области · роли · ответственность</span></div>
+          <p className="muted">Состав организации строится из сохранённых рабочих областей и сотрудников. Подписанные полномочия T3 проверяются отдельно.</p>
+          <AdminCompanyStructure organization={org} onNavigate={go}/>
+        </section>
+        <section className="card v8-people-structure"><h2>Матрица сотрудников и подключений</h2>
+          <div className="v8-role-grid">
+            <div className="v8-role-head">Сотрудник / функция</div>
+            <div className="v8-role-head">Personal Agent</div>
+            <div className="v8-role-head">Подписанное подключение</div>
+            {org.participants.map(person=><React.Fragment key={person.id}>
+              <div><strong>{person.name}</strong><small>{person.roleLabel||'Функция не указана'}</small></div>
+              <div>{person.personalAgentPlan==='PLANNED'?'Место запланировано':'Место не запланировано'}</div>
+              <div>По этому черновику не подтверждено</div>
+            </React.Fragment>)}
+            {!org.participants.length&&<p className="muted">Добавьте сотрудников, чтобы появилась матрица ролей.</p>}
+          </div>
+        </section>
+        <section className="card padded"><h2>Сотрудники и их обязанности</h2><p className="muted">Руководитель определяет участников и их обязанности. Подписанные полномочия появятся после подключения действующих организационных механизмов.</p>
         <form className="form-grid member-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;const data=new FormData(form);if(command({type:'ADD_PARTICIPANT',organizationId:org.id,name:data.get('name'),roleLabel:data.get('role')}))form.reset();}}>
           <label>Имя<input name="name" required maxLength={160} data-testid="person-name"/></label><label>Функция в команде<input name="role" maxLength={160} placeholder="Например, руководитель"/></label><button className="primary" data-testid="add-person">Добавить участника</button>
         </form>
         {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.roleLabel||'Функция не указана'} · {person.personalAgentPlan==='PLANNED'?'Доступ к Personal Agent запланирован':'Место Personal Agent не запланировано'}</small></div><span className="status neutral">Нет подтверждённого допуска</span></div>)}
         {!org.participants.length && <Empty title="Добавьте первого участника" text="Организация может начинать работу с одного человека. Тестовые участники автоматически не создаются."/>}
-      </section>}
+      </section></>}
 
       {org && page==='work' && <>
         <div className="section-head"><p className="muted">Черновик не считается выданным поручением.</p>
@@ -694,12 +807,38 @@ export default function App() {
          <Cen04LicensePanel key={org.id} organizationId={org.id} invoke={nativeHost?nativeInvoke:null}/>
       </section>}
       {org && page==='data' && <section className="card padded"><h2>Черновики и защищённый обмен</h2><p>Сохраните рабочие черновики перед закрытием. Для поручений и результатов в полном выпуске используется существующий подписанный обмен IWXA с шифрованием age для выбранных получателей.</p><div className="actions"><button className="primary" disabled={saving} onClick={saveFile}>{nativeHost?'Сохранить локально':'Сохранить файл черновиков'}</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button>{nativeHost&&<button className="secondary" onClick={exportFile}>Экспортировать JSON</button>}</div><div className="notice subdued">Локальное сохранение и экспорт содержат только подготовительные черновики. Это не .iwxa и не .iwxa.age, в них нет ключей или принятых решений. Защищённый файловый обмен доступен ниже при установленном компоненте T3. Расшифровка не означает корпоративного принятия; оригинальный T3 отдельно проверяет и применяет полученный пакет.</div></section>}
-      {page==='data'&&<AgeExchangePanel invoke={nativeHost?nativeInvoke:null} prefix="center"/>}
+      {page==='data'&&<>
+        <section className="card padded" data-testid="admin-profile-settings">
+          <h2>Профиль, настройки и сведения о программе</h2>
+          <div className="v8-profile-details"><strong>IWXA Admin Center</strong>
+            <p>Версия программы: 0.3.0-dev.1</p>
+            <p>Источник: действующая ветка Center. Управленческие данные и подписанные права остаются в оригинальных T2/T3 и связанных приложениях.</p>
+          </div>
+        </section>
+        <AgeExchangePanel invoke={nativeHost?nativeInvoke:null} prefix="center"/>
+      </>}
       {!org && <div className="landing-actions"><button className="secondary" onClick={openFile}>Открыть файл черновиков</button><p className="muted">Работа руководителя связана с Atlas и Personal Agent сотрудников. Сейчас доступна подготовка структуры, без реальной отправки поручений.</p></div>}
       <input ref={fileInput} type="file" accept=".json,application/json" hidden data-testid="open-draft" onChange={async e=>{const file=e.target.files?.[0];if(file)await readDraft(await file.text());e.target.value='';}}/>
-      <footer className="footer"><span>IWXA Admin Center · 0.3.0-dev.1</span><span>{saving?'Сохранение выполняется':dirty||editorChanged?'Есть несохранённые изменения':nativeHost?'Локальный черновик открыт':'Черновик в текущем окне'}</span></footer>
+      <footer className="footer"><span>IWXA Admin Center</span><span>{saving?'Сохранение выполняется':dirty||editorChanged?'Есть несохранённые изменения':nativeHost?'Локальный черновик открыт':'Черновик в текущем окне'}</span></footer>
     </main>
-    <aside className="inspector" aria-label="Контекст работы руководителя"><div className="eyebrow">КОНТЕКСТ РУКОВОДИТЕЛЯ</div><h2>{org?.name??'Ваша организация'}</h2><p className="muted">{org?'Работа относится только к выбранной организации.':'Создайте группу или организацию и подготовьте первые поручения.'}</p><div className="inspector-card"><strong>Следующий шаг</strong><p>{!org?'Укажите название организации.':!org.workspaces.length?'Добавьте рабочую область и свяжите план Atlas.':!org.participants.length?'Добавьте сотрудников и запланируйте доступ к Personal Agent.':!org.assignments.length?'Подготовьте поручение для сотрудника.':'Проверьте связь с планом и критерии результата.'}</p></div><div className="inspector-card"><strong>Текущий этап</strong><p>Подготовка структуры и поручений.</p><small>В полном выпуске Admin Center управляет корпоративными правами, пакетами и приёмкой через существующие механизмы уровня T3.</small></div></aside>
+    <aside className="inspector" aria-label="Панель просмотра">
+      <div className="v8-inspector-grip" role="separator" tabIndex={0} aria-label="Изменить ширину панели"
+        aria-valuenow={inspectorWidth} aria-valuemin={310} aria-valuemax={680}
+        onPointerDown={event=>{inspectorPointer.current={x:event.clientX,width:inspectorWidth};event.currentTarget.setPointerCapture(event.pointerId);}}
+        onPointerMove={event=>{const origin=inspectorPointer.current;if(origin)setInspectorWidth(Math.max(310,Math.min(680,origin.width+origin.x-event.clientX)));}}
+        onPointerUp={event=>{if(!inspectorPointer.current)return;inspectorPointer.current=null;
+          try{localStorage.setItem('iwxa.admin-center.v8.inspector.width',String(inspectorWidth));}catch{}event.currentTarget.releasePointerCapture(event.pointerId);}}
+        onKeyDown={event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();setInspectorWidth(v=>Math.max(310,Math.min(680,v+(event.key==='ArrowLeft'?18:-18))));}}}
+      />
+      <div className="v8-inspector-header"><strong>Просмотр</strong><button type="button" aria-label="Закрыть панель" onClick={()=>setInspectorVisible(false)}>×</button></div>
+      <div className="v8-inspector-content">
+        <div className="eyebrow">КОНТЕКСТ РУКОВОДИТЕЛЯ</div><h2>{org?.name??'Ваша организация'}</h2>
+        <p className="muted">{org?'Работа относится только к выбранной организации.':'Создайте группу или организацию и подготовьте первые поручения.'}</p>
+        <div className="inspector-card"><strong>Следующий шаг</strong><p>{!org?'Укажите название организации.':!org.workspaces.length?'Добавьте рабочую область.':!org.participants.length?'Добавьте сотрудников и определите роли.':!org.assignments.length?'Подготовьте поручение для сотрудника.':'Проверьте критерии результата, источник Atlas и подписанный T3.'}</p></div>
+        <div className="inspector-card"><strong>Корпоративные источники</strong><p>Оригинальный T3 Owner, T2 Kernel и защищённый обмен читаются только через действующие подписанные маршруты.</p>
+          <button className="secondary" type="button" onClick={()=>go('results')}>Открыть Result / Review</button></div>
+      </div>
+    </aside>
   </div>;
 }
 function Empty({title,text}:{title:string;text:string}) {return <div className="empty"><span className="empty-icon" aria-hidden="true">◇</span><h3>{title}</h3><p>{text}</p></div>;}
