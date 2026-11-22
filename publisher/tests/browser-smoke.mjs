@@ -311,7 +311,7 @@ try {
   checks.push('compact-height-native-sidebar-all-sections-and-footer-visible');
   checks.push('compact-height-native-footer-clears-windows-taskbar-safe-inset');
   await page.setViewportSize({width:1366,height:900});
-  await page.getByRole('button',{name:'Доверие и ключи'}).click();
+  await page.getByRole('button',{name:'Доверие и ключи',exact:true}).click();
   await page.getByTestId('publisher-age-exchange').waitFor();
   await page.getByTestId('publisher-t3-export-age').waitFor();
   assert.equal(await page.getByTestId('publisher-t3-export-age').isEnabled(),false);
@@ -344,7 +344,7 @@ try {
   await exportButton.click();
   assert.match(await page.locator('main').innerText(),/Файл .iwxa скопирован без изменения байтов/);
   checks.push('publisher-canonical-iwxa-native-transport-unverified-zero-seats');
-  await page.getByRole('button',{name:'Обзор'}).click();
+  await page.getByRole('button',{name:'Обзор',exact:true}).click();
 
   const mark=page.locator('.publisher-brand-logo');
   assert.equal(await mark.getAttribute('src'),'/favicon.svg');
@@ -479,7 +479,7 @@ try {
   assert.equal(persistedTariff.tariffs[0].quotas[0].service,'CLOUD');
   assert.equal(persistedTariff.tariffs[0].quotas[0].max,150000);
   checks.push('versioned-offline-tariff-and-cloud-quota-draft');
-  await page.getByRole('button',{name:'Клиенты'}).click();
+  await page.getByRole('button',{name:'Клиенты',exact:true}).click();
   await page.getByLabel('Идентификатор клиента').fill('11111111-1111-4111-8111-111111111111');
   await page.getByLabel('Название / имя').fill('Test Corporation');
   await page.evaluate(()=>{window.__publisherMockFailNextSave=true;});
@@ -499,7 +499,7 @@ try {
   checks.push('client-native-save-failure-retains-form-and-success-is-inline');
   checks.push('create-organization-holder');
 
-  await page.getByRole('button',{name:'Лицензии'}).click();
+  await page.getByRole('button',{name:'Лицензии',exact:true}).click();
   const licenseChoice=page.getByTestId('publisher-tariff-proposal');
   await licenseChoice.waitFor();
   const prepareLicense=page.getByRole('button',{name:'Сохранить подготовку по тарифу'});
@@ -525,7 +525,7 @@ try {
   });
   assert.ok(proposalOnScreen,'License preparation result must stay beside its action');
   checks.push('proposal-native-save-failure-and-success-visible-beside-action');
-  await page.getByRole('button',{name:'Лицензии'}).click();
+  await page.getByRole('button',{name:'Лицензии',exact:true}).click();
   await page.getByText('Подготовленные запросы (1)').waitFor();
   checks.push('tariff-proposal-unsigned-snapshot');
   const corporateReview=page.getByTestId('publisher-corporate-offer-reviews');
@@ -568,7 +568,7 @@ try {
   assert.match(await offerReview.innerText(),/Сотрудники: 10/);
   assert.match(await offerReview.innerText(),/CLOUD_TOKENS/);
   assert.match(await offerReview.innerText(),/Неподписанная подготовка/);
-  await page.getByRole('button',{name:'Лицензии'}).click();
+  await page.getByRole('button',{name:'Лицензии',exact:true}).click();
   checks.push('tariff-review-shows-quotas-and-no-effective-license');
   // The long license section must not carry its scroll offset to the next
   // section. This was observed in a real Windows Publisher screenshot.
@@ -653,7 +653,7 @@ try {
   // A temporary owner-ledger read error at first opening must not hide
   // an already enrolled issuer or force a desktop restart.
   await page.evaluate(()=>{window.__publisherMockFailNextInventory=true;});
-  await page.getByRole('button',{name:'Доверие и ключи'}).click();
+  await page.getByRole('button',{name:'Доверие и ключи',exact:true}).click();
   const corp=page.getByTestId('publisher-corporate-native-owner');
   await corp.waitFor();
   assert.match(await corp.innerText(),
@@ -917,18 +917,18 @@ try {
       JSON.stringify(entries.filter(x=>!ids.has(x.licenseId))));
     window.__publisherMockRecentCap=null;
   },[historicalTest,historicalOther]);
-  await page.getByRole('button',{name:'Лицензии'}).click();
+  await page.getByRole('button',{name:'Лицензии',exact:true}).click();
 
   await page.reload();
-  await page.getByRole('button',{name:'Лицензии'}).click();
+  await page.getByRole('button',{name:'Лицензии',exact:true}).click();
   assert.equal(await page.getByTestId('publisher-test-simulation-result').count(),0,'simulation was incorrectly persisted');
   await page.getByText('Подготовленные запросы (2)').waitFor();
   assert.match(await page.locator('main').innerText(),/Test Corporation/);
   checks.push('same-origin-restart-persistence');
 
-  await page.getByRole('button',{name:'Доверие и ключи'}).click();
+  await page.getByRole('button',{name:'Доверие и ключи',exact:true}).click();
   assert.match(await page.locator('main').innerText(),/TEST-подпись доступна только через ранее зарегистрированного владельца/);
-  await page.getByRole('button',{name:'Релизы'}).click();
+  await page.getByRole('button',{name:'Релизы',exact:true}).click();
   assert.equal(await page.getByRole('button',{name:'Выбрать и проверить файл'}).isEnabled(),true);
   // Inspecting an EXE is not publication. Its product must be explicitly
   // chosen and the evidence must survive a failed native save.
@@ -993,17 +993,17 @@ try {
 
   await page.setViewportSize({width:700,height:650});
   await page.getByRole('button',{name:'Открыть навигацию'}).click();
-  await page.getByRole('button',{name:'Обзор'}).click();
+  await page.getByRole('button',{name:'Обзор',exact:true}).click();
   const dimensions=await page.evaluate(()=>({viewport:window.innerWidth,body:document.body.scrollWidth,doc:document.documentElement.scrollWidth}));
   assert.ok(dimensions.body<=dimensions.viewport && dimensions.doc<=dimensions.viewport,JSON.stringify(dimensions));
   checks.push('compact-desktop-navigation-no-horizontal-overflow');
   await page.getByRole('button',{name:'Открыть навигацию'}).click();
-  await page.getByRole('button',{name:'Лицензии'}).click();
+  await page.getByRole('button',{name:'Лицензии',exact:true}).click();
   const requestWidth=await page.evaluate(()=>Math.max(document.body.scrollWidth,document.documentElement.scrollWidth));
   assert.ok(requestWidth<=700,'TEST request interface overflows desktop minimum 700px: '+requestWidth);
   checks.push('compact-desktop-test-license-request-no-horizontal-overflow');
   await page.getByRole('button',{name:'Открыть навигацию'}).click();
-  await page.getByRole('button',{name:'Обзор'}).click();
+  await page.getByRole('button',{name:'Обзор',exact:true}).click();
 
   await page.getByRole('button',{name:'Открыть навигацию'}).click();
   await page.screenshot({path:'artifacts/publisher/navigation-desktop-700.png',fullPage:true});
@@ -1453,7 +1453,7 @@ try {
   assert.match(await personal.locator('main').innerText(),/Напрямую в продукт/);
   assert.equal(await personal.getByTestId('publisher-person-proposal-reference').innerText(),
     'ID запроса: '+directDraft.proposals[0].id);
-  await personal.getByRole('button',{name:'Доверие и ключи'}).click();
+  await personal.getByRole('button',{name:'Доверие и ключи',exact:true}).click();
   await personal.getByTestId('publisher-person-issuer-unavailable').waitFor();
   assert.equal(await personal.getByTestId('publisher-t3-issue').isDisabled(),true);
   assert.equal(await personal.getByRole('combobox',{name:'Подготовленный запрос'}).locator('option:not([value=""])').count(),0);
@@ -1466,7 +1466,7 @@ try {
     window.__personMockLegacyStatusCas=true;
   });
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
-  await personal.getByRole('button',{name:'Доверие и ключи'}).click();
+  await personal.getByRole('button',{name:'Доверие и ключи',exact:true}).click();
   const personOwner=personal.getByTestId('publisher-person-owner');
   await personOwner.getByTestId('publisher-person-owner-unavailable').waitFor();
   assert.match(await personOwner.getByTestId('publisher-person-owner-unavailable').innerText(),
@@ -1480,7 +1480,7 @@ try {
     window.__personMockLegacyExportCas=true;
   });
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
-  await personal.getByRole('button',{name:'Доверие и ключи'}).click();
+  await personal.getByRole('button',{name:'Доверие и ключи',exact:true}).click();
   await personal.getByTestId('publisher-person-owner-unavailable').waitFor();
   assert.match(await personal.getByTestId('publisher-person-owner-unavailable').innerText(),
     /экспортируемых пакетов/);
@@ -1491,7 +1491,7 @@ try {
     window.__personMockFailNextInventory=true;
   });
   await personal.getByRole('button',{name:'Лицензии',exact:true}).click();
-  await personal.getByRole('button',{name:'Доверие и ключи'}).click();
+  await personal.getByRole('button',{name:'Доверие и ключи',exact:true}).click();
   await personOwner.getByText('Журнал персональных лицензий T3 недоступен при запуске.',{exact:false}).waitFor();
   assert.equal(await personOwner.getByTestId('publisher-person-issue').isDisabled(),true);
   assert.equal(await personOwner.getByTestId('publisher-person-refresh').isEnabled(),true);
