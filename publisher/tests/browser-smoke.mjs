@@ -253,8 +253,14 @@ try {
   assert.match(await corporateWidget.innerText(),/Исходный корпоративный T3 ещё не проверен/);
   await page.evaluate(()=>{window.__publisherMockCorporateEnrolled=true;});
   await corporateWidget.getByTestId('publisher-dashboard-corporate-check').click();
-  await corporateWidget.getByText('Зарегистрировано издателей T3: 1').waitFor();
+  await corporateWidget.getByText('При последней проверке издателей T3: 1').waitFor();
   await page.evaluate(()=>{window.__publisherMockCorporateEnrolled=false;});
+  await corporateWidget.getByTestId('publisher-dashboard-corporate-check').click();
+  await corporateWidget.getByRole('alert').waitFor();
+  assert.match(await corporateWidget.innerText(),/Исходный корпоративный T3 ещё не проверен/,
+    'Failed new T3 readback must clear a previously available issuer count');
+  assert.doesNotMatch(await corporateWidget.innerText(),/При последней проверке издателей T3: 1/,
+    'A stale corporate issuer cannot remain presented after source failure');
   assert.equal(await page.evaluate(()=>
     JSON.stringify(localStorage.getItem('iwxa.publisher.ui.v2')||'').includes('issuer:corporate:fixture')),false);
   checks.push('corporate-dashboard-explicit-original-issuer-readback-fail-closed-no-ui-persistence');
