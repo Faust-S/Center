@@ -4,6 +4,8 @@ import { prepareTestLicenseRequest, encodeTestLicenseRequest, suggestedTestReque
 import {simulateIssuerEvent} from '../src/issuer-simulation.mjs';
 import {prepareUnsignedPersonLicenseRequest} from '../src/person-license-request.mjs';
 import {projectCorporateOfferReviews} from '../src/corporate-offer-review.mjs';
+import {prepareCorporateLicenseRequest,encodeCorporateLicenseRequest,
+  suggestedCorporateLicenseRequestFileName} from '../src/corporate-license-request.mjs';
 import {projectPublisherPersonAttention} from '../src/person-attention.mjs';
 import PublisherT3OwnerPanel from './PublisherT3OwnerPanel';
 import AgeExchangePanel from '../../src/AgeExchangePanel';
@@ -140,6 +142,7 @@ export default function App(){
  const [draftChangedExternally,setDraftChangedExternally]=useState(false);
  const [page,setPage]=useState<Page>('overview');
  const corporateOfferReviews=useMemo(()=>projectCorporateOfferReviews(state),[state]);
+ const [corporateSeatInputs,setCorporateSeatInputs]=useState<Record<string,string>>({});
  const [personRequestId,setPersonRequestId]=useState('');
  const [personAttention,setPersonAttention]=useState<ReturnType<typeof projectPublisherPersonAttention>|null>(null);
  const [personAttentionBusy,setPersonAttentionBusy]=useState(false);
@@ -367,6 +370,27 @@ export default function App(){
  }
  function cancelPreparationRestore(){
    setPendingRestore(null);setMessage('Восстановление отменено. Текущие черновики сохранены.');
+ }
+ async function exportCorporateRequest(proposalId:string){
+   if(busy||!loaded||!nativeHost)return;
+   setBusy(true);setError('');setMessage('');
+   try{
+     const entered=corporateSeatInputs[proposalId]??'';
+     if(!/^(0|[1-9][0-9]*)$/.test(entered))
+       throw Error('Укажите точное число корпоративных мест Personal Agent.');
+     const request=prepareCorporateLicenseRequest(state,{
+       proposalId,personalAgentSeats:Number(entered)
+     });
+     await ensureSigningDraftCurrent(draftSourceSha256.current);
+     const saved=await invoke('publisher_save_corporate_request',{
+       content:encodeCorporateLicenseRequest(request),
+       suggestedFileName:suggestedCorporateLicenseRequestFileName(request)
+     });
+     setMessage(saved
+       ?'Неподписанный корпоративный запрос сохранён. Исходный T3 должен самостоятельно подтвердить издателя и подписать условия. Места сотрудников не активированы.'
+       :'Экспорт корпоративного запроса отменён.');
+   }catch(e){setError('Невозможно экспортировать корпоративный запрос: '+getError(e));}
+   finally{setBusy(false);}
  }
  async function exportTestRequest(proposalId:string) {
    if(busy||!loaded)return;
@@ -694,6 +718,24 @@ export default function App(){
                      Число сотрудников не является числом лицензий агента.</small>
                    <small>Функции: {offer.featureIds.join(', ')||'не выбраны'};
                      квоты: {offer.limits.quotas.length}. Получение Admin Center не подтверждено.</small>
+                   <label>Места Personal Agent для корпоративного запроса
+                     <input type="number" min={0} max={offer.limits.employeeLimit}
+                       value={corporateSeatInputs[offer.proposalId]??''}
+                       data-testid="publisher-corporate-agent-seats"
+                       placeholder="Укажите число"
+                       onChange={e=>setCorporateSeatInputs(previous=>({
+                         ...previous,[offer.proposalId]:e.target.value
+                       }))}/>
+                   </label>
+                   <button type="button" className="secondary"
+                     data-testid="publisher-export-corporate-request"
+                     disabled={busy||!nativeHost||
+                       !/^(0|[1-9][0-9]*)$/.test(corporateSeatInputs[offer.proposalId]??'')}
+                     onClick={()=>void exportCorporateRequest(offer.proposalId)}>
+                     Сохранить запрос для оригинального T3
+                   </button>
+                   <small>Это отдельный неподписанный запрос. Полномочия издателя,
+                     подписанный статус и права сотрудников здесь не создаются.</small>
                  </div><span className="status neutral">Подготовка</span>
                </div>)}
              {corporateOfferReviews.truncated&&<p className="muted">

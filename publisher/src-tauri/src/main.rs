@@ -548,6 +548,147 @@ fn publisher_save_test_request(content: String, suggested_file_name: String) -> 
     }
 }
 
+
+// A corporate request is an UNSIGNED preparation. The original T3 Owner is
+// the only license signer, verifier and durable issuer. Never accept it as a
+// signed .iwxa or as a source of employee seat assignments.
+const CORPORATE_REQUEST_LIMIT: usize = 32 * 1024;
+fn validate_corporate_request(content:&str)->Result<(),String>{
+    if content.is_empty()||content.len()>CORPORATE_REQUEST_LIMIT {
+        return Err("CORPORATE_REQUEST_SIZE_INVALID".into());
+    }
+    let value:Value=serde_json::from_str(content)
+        .map_err(|_|"CORPORATE_REQUEST_JSON_INVALID".to_string())?;
+    let fields=value.as_object().ok_or("CORPORATE_REQUEST_FIELDS_INVALID")?;
+    let required=["schema","kind","requestId","requestedAt","environment",
+        "subject","product","tariff","featureIds","limits","termDays","status"];
+    if fields.len()!=required.len()||required.iter().any(|key|!fields.contains_key(*key)){
+        return Err("CORPORATE_REQUEST_FIELDS_INVALID".into());
+    }
+    if value["schema"]!="IWXA_T3_CORPORATE_LICENSE_REQUEST/1"
+        ||value["kind"]!="CORPORATE_LICENSE_REQUEST"
+        ||value["environment"]!="PRODUCTION"
+        ||value["status"]!="UNSIGNED_REQUEST"{
+        return Err("CORPORATE_REQUEST_UNSIGNED_PROFILE_REQUIRED".into());
+    }
+    let id=value["requestId"].as_str().ok_or("CORPORATE_REQUEST_ID_INVALID")?;
+    if id.is_empty()||id.len()>160||
+       !id.bytes().all(|b|b.is_ascii_alphanumeric()||b"._:/@-".contains(&b)){
+        return Err("CORPORATE_REQUEST_ID_INVALID".into());
+    }
+    let date=value["requestedAt"].as_str().ok_or("CORPORATE_REQUEST_DATE_INVALID")?;
+    if date.len()!=24||!date.ends_with('Z'){return Err("CORPORATE_REQUEST_DATE_INVALID".into());}
+    let subject=value["subject"].as_object().ok_or("CORPORATE_REQUEST_SUBJECT_INVALID")?;
+    let product=value["product"].as_object().ok_or("CORPORATE_REQUEST_PRODUCT_INVALID")?;
+    let tariff=value["tariff"].as_object().ok_or("CORPORATE_REQUEST_TARIFF_INVALID")?;
+    let limits=value["limits"].as_object().ok_or("CORPORATE_REQUEST_LIMITS_INVALID")?;
+    if subject.len()!=2||subject["type"]!="ORGANIZATION"||
+        subject["id"].as_str().is_none_or(str::is_empty)||
+        subject["id"].as_str().is_some_and(|v|v.starts_with("holder:"))||
+        product.len()!=2||product["id"]!="IWXA_ADMIN_CENTER"||
+        product["version"].as_str().is_none_or(str::is_empty)||
+        tariff.len()!=2||tariff["id"].as_str().is_none_or(str::is_empty)||
+        tariff["revision"].as_u64().is_none_or(|v|v<1||v>1000) {
+        return Err("CORPORATE_REQUEST_PROFILE_INVALID".into());
+    }
+    let features=value["featureIds"].as_array().ok_or("CORPORATE_REQUEST_FEATURES_INVALID")?;
+    if features.len()>30{return Err("CORPORATE_REQUEST_FEATURES_INVALID".into());}
+    let mut seen=std::collections::HashSet::new();
+    for feature in features {
+        let id=feature.as_str().ok_or("CORPORATE_REQUEST_FEATURES_INVALID")?;
+        if id.is_empty()||!seen.insert(id){return Err("CORPORATE_REQUEST_FEATURES_INVALID".into());}
+    }
+    if limits.len()!=4||!["adminCenterSeats","employeeLimit","personalAgentSeats","quotas"]
+        .iter().all(|v|limits.contains_key(*v)){
+        return Err("CORPORATE_REQUEST_LIMITS_INVALID".into());
+    }
+    let admin=limits["adminCenterSeats"].as_u64().ok_or("CORPORATE_REQUEST_LIMITS_INVALID")?;
+    let employees=limits["employeeLimit"].as_u64().ok_or("CORPORATE_REQUEST_LIMITS_INVALID")?;
+    let agents=limits["personalAgentSeats"].as_u64().ok_or("CORPORATE_REQUEST_LIMITS_INVALID")?;
+    if !(1..=10000).contains(&admin)||!(1..=100000).contains(&employees)
+        ||agents>employees||agents>100000||
+        (agents>0&&!seen.contains("PERSONAL_AGENT_CORPORATE")) {
+        return Err("CORPORATE_REQUEST_SEATS_INVALID".into());
+    }
+    let quotas=limits["quotas"].as_array().ok_or("CORPORATE_REQUEST_QUOTAS_INVALID")?;
+    if quotas.len()>32{return Err("CORPORATE_REQUEST_QUOTAS_INVALID".into());}
+    for quota in quotas{
+        let q=quota.as_object().ok_or("CORPORATE_REQUEST_QUOTA_INVALID")?;
+        if q.len()!=5||!["metric","service","unit","period","max"]
+            .iter().all(|k|q.contains_key(*k))||
+            q["metric"].as_str().is_none_or(str::is_empty)||
+            !matches!(q["service"].as_str(),Some("LOCAL"|"CLOUD"))||
+            !matches!(q["unit"].as_str(),Some("COUNT"|"TOKENS"|"MINUTES"|"GIB"|"CREDITS"))||
+            !matches!(q["period"].as_str(),Some("TOTAL"|"DAY"|"MONTH"))||
+            q["max"].as_u64().is_none_or(|v|v<1||v>1_000_000_000){
+            return Err("CORPORATE_REQUEST_QUOTA_INVALID".into());
+        }
+    }
+    if value["termDays"].as_u64().is_none_or(|v|v<1||v>3650){
+        return Err("CORPORATE_REQUEST_TERM_INVALID".into());
+    }
+    Ok(())
+}
+fn write_corporate_request(path:&Path,content:&str)->Result<(),String>{
+    validate_corporate_request(content)?;
+    if path.extension().and_then(|v|v.to_str())!=Some("json")||path.exists(){
+        return Err("CORPORATE_REQUEST_DESTINATION_INVALID".into());
+    }
+    let folder=path.parent().ok_or("CORPORATE_REQUEST_DESTINATION_INVALID")?;
+    if !folder.is_dir(){return Err("CORPORATE_REQUEST_DESTINATION_INVALID".into());}
+    let now=SystemTime::now().duration_since(UNIX_EPOCH)
+        .map_err(|e|e.to_string())?.as_nanos();
+    let tmp=folder.join(format!(".iwxa-corporate-request-{}-{now}.tmp",std::process::id()));
+    let result=(||->Result<(),String>{
+        let mut f=OpenOptions::new().write(true).create_new(true).open(&tmp)
+            .map_err(|e|e.to_string())?;
+        f.write_all(content.as_bytes()).map_err(|e|e.to_string())?;
+        f.sync_all().map_err(|e|e.to_string())?;
+        fs::rename(&tmp,path).map_err(|e|e.to_string())?;
+        if fs::read_to_string(path).map_err(|e|e.to_string())?!=content{
+            return Err("CORPORATE_REQUEST_READBACK_MISMATCH".into());
+        }
+        Ok(())
+    })();
+    if result.is_err(){let _=fs::remove_file(&tmp);}
+    result
+}
+#[tauri::command]
+fn publisher_save_corporate_request(content:String,suggested_file_name:String)->Result<bool,String>{
+    if !suggested_file_name.starts_with("iwxa-corporate-license-request-")||
+       !suggested_file_name.ends_with(".json")||
+       suggested_file_name.len()>120||
+       suggested_file_name.bytes().any(|b|
+           !b.is_ascii_alphanumeric()&&b!=b'-'&&b!=b'.'){
+        return Err("CORPORATE_REQUEST_FILENAME_INVALID".into());
+    }
+    validate_corporate_request(&content)?;
+    let chosen=rfd::FileDialog::new().add_filter("JSON",&["json"])
+        .set_file_name(&suggested_file_name).save_file();
+    match chosen{
+        Some(path)=>write_corporate_request(&path,&content).map(|_|true),
+        None=>Ok(false)
+    }
+}
+#[cfg(test)]
+mod corporate_request_native_tests{
+    use super::*;
+    const GOOD:&str=r#"{"schema":"IWXA_T3_CORPORATE_LICENSE_REQUEST/1","kind":"CORPORATE_LICENSE_REQUEST","requestId":"proposal:company:1","requestedAt":"2026-11-22T12:00:00.000Z","environment":"PRODUCTION","subject":{"type":"ORGANIZATION","id":"org:company"},"product":{"id":"IWXA_ADMIN_CENTER","version":"0.5.0"},"tariff":{"id":"TEAM","revision":1},"featureIds":["PERSONAL_AGENT_CORPORATE"],"limits":{"adminCenterSeats":2,"employeeLimit":10,"personalAgentSeats":3,"quotas":[]},"termDays":365,"status":"UNSIGNED_REQUEST"}"#;
+    #[test]
+    fn original_corporate_request_is_unsigned_and_not_a_person_license(){
+        assert!(validate_corporate_request(GOOD).is_ok());
+        for (old,new) in [
+            ("CORPORATE_LICENSE_REQUEST","LICENSE"),
+            ("PRODUCTION","TEST"),
+            ("UNSIGNED_REQUEST","ACTIVE"),
+            ("IWXA_ADMIN_CENTER","IWXA_ATLAS"),
+            ("\"personalAgentSeats\":3","\"personalAgentSeats\":11")
+        ]{
+            assert!(validate_corporate_request(&GOOD.replace(old,new)).is_err());
+        }
+    }
+}
+
 // Open an UNSIGNED request prepared by the independent Admin Center app.
 // The original T3 Owner remains the ONLY signer, and will independently
 // validate the complete request/profile and issuer policy at issuance.
@@ -703,7 +844,7 @@ fn main() {
         .manage(DraftLock(Mutex::new(())))
         .manage(DeliveryLock(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
-            publisher_draft_read, publisher_draft_save, publisher_diagnostics, publisher_inspect_artifact, publisher_save_test_request,
+            publisher_draft_read, publisher_draft_save, publisher_diagnostics, publisher_inspect_artifact, publisher_save_test_request, publisher_save_corporate_request,
             publisher_pick_unsigned_admin_request,
             publisher_export_preparation_backup, publisher_pick_preparation_backup,
             publisher_compare_offline_copies,

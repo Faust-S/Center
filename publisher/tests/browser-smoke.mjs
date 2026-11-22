@@ -53,6 +53,10 @@ try {
         sessionStorage.setItem('iwxa-publisher-test-native-draft',args.content);return true;
       }
       if(command==='publisher_save_test_request'){sessionStorage.setItem('iwxa-publisher-test-native-request',args.content);return true;}
+      if(command==='publisher_save_corporate_request'){
+        sessionStorage.setItem('iwxa-publisher-corporate-unsigned-request',args.content);
+        return true;
+      }
       if(command==='publisher_pick_unsigned_admin_request')
         return window.__publisherMockAdminUnsignedRequest??null;
       if(command==='publisher_export_preparation_backup')return false;
@@ -429,6 +433,25 @@ try {
   assert.match(await corporateReview.innerText(),/Число сотрудников не является числом лицензий агента/);
   assert.match(await corporateReview.innerText(),/Получение Admin Center не подтверждено/);
   checks.push('corporate-offer-keeps-tariff-source-and-does-not-invent-agent-seat-entitlement');
+  const corporateRequestButton=corporateReview.getByTestId('publisher-export-corporate-request');
+  assert.equal(await corporateRequestButton.isDisabled(),true,
+    'A corporate employee seat count must be explicitly entered');
+  await corporateReview.getByTestId('publisher-corporate-agent-seats').fill('0');
+  await corporateRequestButton.click();
+  const corporateRequest=JSON.parse(await page.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-corporate-unsigned-request')));
+  assert.equal(corporateRequest.schema,'IWXA_T3_CORPORATE_LICENSE_REQUEST/1');
+  assert.equal(corporateRequest.kind,'CORPORATE_LICENSE_REQUEST');
+  assert.equal(corporateRequest.environment,'PRODUCTION');
+  assert.equal(corporateRequest.subject.id,'11111111-1111-4111-8111-111111111111');
+  assert.equal(corporateRequest.tariff.id,'TEAM');
+  assert.equal(corporateRequest.tariff.revision,1);
+  assert.equal(corporateRequest.limits.adminCenterSeats,5);
+  assert.equal(corporateRequest.limits.employeeLimit,10);
+  assert.equal(corporateRequest.limits.personalAgentSeats,0);
+  assert.equal(corporateRequest.status,'UNSIGNED_REQUEST');
+  assert.equal(Object.hasOwn(corporateRequest,'signature'),false);
+  checks.push('native-corporate-request-export-exact-unsigned-t3-profile-no-agent-authority');
 
   await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
   await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
