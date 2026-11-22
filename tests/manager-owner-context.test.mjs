@@ -35,6 +35,19 @@ test('signed owner shows original tasks and never assumes delivery or Apply',()=
  assert.equal(searchManagerContext(all.entries,'поставку').length,1);
  assert.equal(searchManagerContext(all.entries,hex('d')).length,1);
 });
+test('native D2 source readiness never becomes an inferred grant or cached Kernel proof',()=>{
+ const absent=readManagerSignedContext(view(),'org:north');
+ assert.equal(absent.d2ReaderConnected,false);
+ const observed=view();
+ observed.snapshot.d2ActivityReaderConnected=true;
+ assert.equal(readManagerSignedContext(observed,'org:north').d2ReaderConnected,true);
+ assert.equal(readManagerSignedContext(observed,'org:south').d2ReaderConnected,false);
+ observed.snapshot.d2ActivityReaderConnected='true';
+ assert.equal(readManagerSignedContext(observed,'org:north').d2ReaderConnected,false);
+ const inactive={status:'NOT_CONNECTED',snapshot:observed.snapshot};
+ assert.equal(readManagerSignedContext(inactive,'org:north').d2ReaderConnected,false);
+});
+
 test('corporate source is isolated by original D3 signed session and Workspace',()=>{
  assert.equal(readManagerSignedContext(view(),'org:south').entries.length,0);
  assert.equal(readManagerSignedContext({status:'NOT_CONNECTED'},'org:north').entries.length,0);
