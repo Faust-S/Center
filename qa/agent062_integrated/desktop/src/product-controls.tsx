@@ -76,7 +76,7 @@ export function DialogControl({readbackEpoch,onOpenTask,onOpenModels,onOpenTools
     menuTriggerRef.current?.focus();
    }else if((event.key==='ArrowDown'||event.key==='ArrowUp')&&menuRef.current?.contains(document.activeElement)
      &&!(document.activeElement instanceof HTMLInputElement)){
-    const choices=[...menuRef.current.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+    const choices=Array.from(menuRef.current.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
     const current=choices.indexOf(document.activeElement as HTMLButtonElement);
     if(choices.length){
      event.preventDefault();
