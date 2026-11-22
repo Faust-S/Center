@@ -61,10 +61,33 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'AGENT061_DEPENDENCY_INSTALL_FAILED'}
             Write-Host 'AGENT061_DEPENDENCIES_PASS'
             $offline=Join-Path $env:RUNNER_TEMP 'agent061-imap-unit.private.log'
+            $offlineXml=Join-Path $env:RUNNER_TEMP 'agent061-imap-unit.private.xml'
             Push-Location private-agent
             try{
-              & python -B -m pytest -q -p no:cacheprovider tests/test_agent061_imap_search_confirmation.py *> $offline
-              if($LASTEXITCODE -ne 0){throw 'AGENT061_IMAP_CONFIRMED_SEARCH_UNIT_FAILED'}
+              & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$offlineXml) tests/test_agent061_imap_search_confirmation.py *> $offline
+              $unitRc=$LASTEXITCODE
+              if(Test-Path -LiteralPath $offlineXml){
+                [xml]$unit=Get-Content -LiteralPath $offlineXml -Raw
+                $usuite=$unit.testsuites.testsuite
+                if($null -eq $usuite){$usuite=$unit.testsuite}
+                Write-Host ('AGENT061_IMAP_SOURCE_TESTS='+[int]$usuite.tests)
+                Write-Host ('AGENT061_IMAP_SOURCE_FAILURES='+[int]$usuite.failures)
+                $allow=@(
+                  'test_search_does_not_return_remote_false_positive',
+                  'test_negative_search_returns_no_message_even_when_server_returns_all',
+                  'test_unverifiable_oversize_candidate_is_never_returned',
+                  'test_search_rejects_malformed_server_uid',
+                  'test_unfiltered_search_remains_available_without_fetching_mail_bodies'
+                )
+                foreach($case in @($unit.SelectNodes('//testcase'))){
+                  if($case.SelectSingleNode('failure') -or $case.SelectSingleNode('error')){
+                    if([string]$case.name -cin $allow){
+                      Write-Host ('AGENT061_IMAP_SOURCE_FAILED_CASE='+[string]$case.name)
+                    }
+                  }
+                }
+              }
+              if($unitRc -ne 0){throw 'AGENT061_IMAP_CONFIRMED_SEARCH_UNIT_FAILED'}
               Write-Host 'AGENT061_IMAP_CONFIRMED_SEARCH_UNIT_PASS'
             }finally{Pop-Location}
             Push-Location private-agent
@@ -110,7 +133,7 @@ jobs:
             if($rc -ne 0){throw 'AGENT061_REAL_IMAP_READ_FAILED'}
             Write-Host 'AGENT061_REAL_IMAP_READ_PASS'
           }finally{
-            foreach($p in @($deps,$log,$xml,$offline)){
+            foreach($p in @($deps,$log,$xml,$offline,$offlineXml)){
               if(Test-Path -LiteralPath $p){Remove-Item -LiteralPath $p -Force}
             }
           }
