@@ -1,0 +1,47 @@
+name: Agent 0.6.2 Native Windows Host Check
+on:
+  push:
+    branches:
+      - work/2026-11-22-agent-062-integrated-windows-frontend
+    paths:
+      - qa/agent062_integrated/desktop/src-tauri/**
+      - qa/agent062_integrated/desktop/package.json
+      - qa/agent062_integrated/desktop/package-lock.json
+      - .github/workflows/agent-062-native-host.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-native-source:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: qa/agent062_integrated/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install JavaScript dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build real Agent UI
+        run: npm run build
+      - name: Supply CI-only temporary Windows resource icon
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "src-tauri/icons" | Out-Null
+          Add-Type -AssemblyName System.Drawing
+          $bmp = New-Object System.Drawing.Bitmap(32, 32)
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.Clear([System.Drawing.Color]::Transparent)
+          $ico = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+          $fs = [System.IO.File]::Create("src-tauri/icons/icon.ico")
+          try { $ico.Save($fs) } finally { $fs.Dispose(); $g.Dispose(); $bmp.Dispose() }
+          if (-not (Test-Path "src-tauri/icons/icon.ico")) { throw "ci_test_icon_missing" }
+      - name: Compile original Tauri Windows Host
+        shell: pwsh
+        run: |
+          cargo check --locked --manifest-path src-tauri/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { throw "native_host_check_failed" }
