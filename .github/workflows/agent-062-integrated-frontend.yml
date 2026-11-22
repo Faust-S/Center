@@ -1,0 +1,44 @@
+name: Agent 0.6.2 Integrated Desktop Windows
+on:
+  push:
+    branches:
+      - work/2026-11-22-agent-062-integrated-windows-frontend
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: qa/agent062_integrated/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: qa/agent062_integrated/desktop/package-lock.json
+      - name: Check transferred source completeness
+        shell: pwsh
+        run: |
+          $sources = @(Get-ChildItem -Path src -File -Recurse)
+          Write-Host "Desktop source files: $($sources.Count)"
+          if ($sources.Count -lt 100) { throw "incomplete_desktop_source" }
+          foreach ($p in @("src/workbench.tsx","src/home-dashboard.tsx","src/home-dashboard-live.ts","src/product-controls.tsx","src/dialog-conversation.ts")) {
+            if (-not (Test-Path $p)) { throw "missing_source_$p" }
+          }
+      - name: Install desktop dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Full real frontend typecheck and Vite build
+        run: npm run build
+      - name: Run integrated desktop targeted regressions
+        run: npm test
+      - name: Verify built application entry point
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/index.html")) { throw "missing_built_entry" }
+          $bundles = @(Get-ChildItem -Path dist/assets -File -ErrorAction Stop)
+          if ($bundles.Count -eq 0) { throw "missing_built_assets" }
+          Write-Host "Integrated dist files: $($bundles.Count)"
