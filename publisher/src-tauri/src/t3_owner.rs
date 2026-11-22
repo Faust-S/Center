@@ -579,7 +579,9 @@ mod corporate_native_bridge_tests{
         let digest=format!("{:x}",Sha256::digest(
           fs::read(root.join("publisher-preparation-v1.json")).unwrap()));
         verify_person_draft_source(&root,&digest).unwrap();
-        fs::write(root.join("publisher-preparation-v1.json"),"{}").unwrap();
+        let mut changed=draft.clone();
+        changed["updatedAt"]=Value::from("2026-11-22T12:00:01.000Z");
+        crate::write_preparation(&root,&changed.to_string()).unwrap();
         assert_eq!(verify_person_draft_source(&root,&digest).unwrap_err(),
           "PUBLISHER_DRAFT_CHANGED_ON_DISK");
         let _=fs::remove_dir_all(root);
