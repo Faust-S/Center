@@ -303,7 +303,7 @@ try{
           contextId:'context:enrolled',contextEpoch:1,
           d3RecipientAvailable:true,d3TaskIssueAvailable:false,
           d3InspectAvailable:true,d3ApplyAvailable:false,
-          d3ApplyRecoverAvailable:false,
+          d3ApplyRecoverAvailable:false,d2ActivityReaderConnected:true,
           productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
         }};
       }
@@ -382,7 +382,7 @@ try{
   // owner changes its epoch after a write and the ACK disappears.
   const d3Page=await browser.newPage({viewport:{width:1366,height:900}});
   await d3Page.addInitScript(()=>{
-    const held={epoch:7,task:null,writes:0,decisionWrites:0,decision:null};
+    const held={epoch:7,task:null,writes:0,decisionWrites:0,decision:null,d2ReadCount:0};
     window.__d3UiFixture=held;
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(command==='center_draft_read_local')return null;
@@ -421,6 +421,26 @@ try{
             taskRevisionId:'a'.repeat(64),packageSha256:'b'.repeat(64),
             recipientId:'person:reviewer',
             status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED'};
+        if(args.operation==='d2ActivityReadback'){
+          held.d2ReadCount++;
+          return {schema:'IWXA_T3_ORIGINAL_ADMIN_ACTIVITY_READBACK/1',
+            organizationId:args.organizationId,workspaceId:'workspace:ui-smoke',
+            actorId:'person:reviewer',
+            source:'ORIGINAL_T2_KERNEL_D1_ACTIVITY_DATA',
+            evidenceScope:'METADATA_ONLY_NOT_BUSINESS_COMPLETION_PROOF',
+            view:{workspace_id:'workspace:ui-smoke',
+              nodes:[{object_id:'iwxa.admin.applied-results',
+                schema_id:'iwxa.admin.applied-results',schema_version:'1.0.0',
+                semantic_kind:'Result',revision:1,
+                data:{personal:'must not be rendered'}}],
+              events:[{event_id:'event:kernel',event_type:'iwxa.admin.result.applied',
+                semantic_kind:'Event',epistemic_status:'reported',
+                occurred_at:'2026-11-22T08:00:00.000Z',
+                payload:{secret:'never render'}}],
+              relations:[],unresolved:[],
+              unmapped:{object_ids:[],event_ids:[],relation_ids:[]}
+            }};
+        }
         if(args.operation==='d3Inbox'){
           return {schema:'IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1',
             organizationId:args.organizationId,workspaceId:'workspace:ui-smoke',
@@ -508,6 +528,17 @@ try{
   await d3Page.getByTestId('nav-overview').click();
   await d3Page.getByTestId('manager-read-signed').click();
   await d3Page.getByTestId('manager-signed-summary').waitFor();
+  await d3Page.getByTestId('manager-read-activity').click();
+  await d3Page.getByTestId('manager-activity-summary').waitFor();
+  await d3Page.getByTestId('manager-question-events').click();
+  assert.match(await d3Page.getByTestId('manager-answer').innerText(),/Kernel зарегистрировано событий/);
+  assert.equal(await d3Page.getByTestId('manager-answer-sources').locator('button').count(),1);
+  await d3Page.getByTestId('manager-answer-sources').locator('button').first().click();
+  assert.match(await d3Page.getByTestId('manager-original-evidence-detail').innerText(),/event:kernel/);
+  assert.doesNotMatch(await d3Page.getByTestId('manager-original-evidence-detail').innerText(),/never render|must not be rendered/);
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).d2ReadCount,1);
+  await d3Page.getByTestId('manager-question-events').click();
+  checks.push('manager-source-grounded-original-D2-read-only-ui-no-private-payload');
   await d3Page.getByTestId('overview-search').fill('UI recovery task');
   assert.equal(await d3Page.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
   await d3Page.getByTestId('manager-search-hit').click();
