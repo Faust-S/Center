@@ -63,7 +63,7 @@ try{
     Require (Test-Path -LiteralPath $exe -PathType Leaf) 'agent06_online_installed_native_exe_missing'
     $control=Join-Path $program 'tools\iwxa_windows_user_control.py'
     Require (Test-Path -LiteralPath $control -PathType Leaf) 'agent06_online_installed_control_missing'
-    $probe=Join-Path $PSScriptRoot 'qualify_online_services_installed.py'
+    $probe=Join-Path (Join-Path $PSScriptRoot '..\agent061') 'qualify_online_services_installed.py'
     Require (Test-Path -LiteralPath $probe -PathType Leaf) 'agent06_online_installed_probe_missing'
     $profile=Join-Path $sandbox 'online-isolated-profile'
     foreach($key in @('LOCALAPPDATA','APPDATA','USERPROFILE','TEMP','TMP')){
