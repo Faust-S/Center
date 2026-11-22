@@ -182,11 +182,30 @@ function Click-Physical([string]$name) {
   Start-Sleep -Milliseconds 350
 }
 function Text([string]$name,[string]$value) {
-  $field=Find-UI $name 'Edit'
-  $field.SetFocus();Start-Sleep -Milliseconds 130
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  [System.Windows.Forms.SendKeys]::SendWait($value)
-  Start-Sleep -Milliseconds 200
+  # A physical keyboard event is NOT proof that WebView2 committed the
+  # controlled React value. Read the native ValuePattern before submitting.
+  for($attempt=0;$attempt -lt 3;$attempt++){
+    $field=Find-UI $name 'Edit'
+    $field.SetFocus()
+    Start-Sleep -Milliseconds 140
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait($value)
+    for($poll=0;$poll -lt 16;$poll++){
+      try{
+        $pattern=$null
+        if($field.TryGetCurrentPattern(
+            [System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern) -and
+          [string]$pattern.Current.Value -ceq $value){
+          Write-Host 'U05_NATIVE_EDITOR_VALUE_READBACK_PASS'
+          return
+        }
+      }catch{
+        # React may replace its UIA element; reacquire on the next attempt.
+      }
+      Start-Sleep -Milliseconds 180
+    }
+  }
+  throw 'U05_NATIVE_EDITOR_VALUE_NOT_ACKNOWLEDGED'
 }
 function Shutdown {
   if($null -eq $proc){return}
@@ -407,7 +426,13 @@ try {
   Text 'Что нужно сделать' 'U05FileIwxaBinding'
   Text 'Критерии приёмки' 'Exact installed Atlas archive work reference'
   Click 'Сохранить черновик'
+  # Confirm the actual existing assignment row has been committed to the
+  # React draft before telling the native owner to persist the draft file.
+  [void](Find-UI 'U05FileIwxaBinding' 'Button' $true)
+  Write-Host 'U05_NATIVE_ASSIGNMENT_ROW_READBACK_PASS'
   Click 'Сохранить на компьютере'
+  [void](Find-UI-Text 'Черновики сохранены на этом компьютере')
+  Write-Host 'U05_NATIVE_DRAFT_SAVE_UI_ACK_PASS'
   $fileAssignment=$null
   for($attempt=0;$attempt -lt 75;$attempt++){
     try{
