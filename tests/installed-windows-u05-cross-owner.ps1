@@ -148,12 +148,33 @@ function Read-U04FocusDiagnostic {
 }
 function Click-Physical([string]$name) {
   $button=Find-UI $name 'Button'
-  $bounds=$button.Current.BoundingRectangle
-  if($bounds.IsEmpty -or $bounds.Width -lt 6 -or $bounds.Height -lt 6){
-    throw "U04_GUI_BUTTON_NOT_VISIBLE $name"
+  if(-not $button.Current.IsEnabled){
+    throw "U04_NATIVE_ACTIVATE_BUTTON_DISABLED $name"
   }
+  # A programmatic UIA Invoke is not a physical click. First move the
+  # button into the visible scroll viewport using only accessibility APIs,
+  # then send genuine mouse input to the verified button rectangle.
+  try {
+    $button.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()
+  }catch {
+    try{$button.SetFocus()}catch{}
+  }
+  Start-Sleep -Milliseconds 250
+  $button=Find-UI $name 'Button'
+  if(-not $button.Current.IsEnabled){throw "U04_NATIVE_ACTIVATE_BUTTON_BECAME_DISABLED $name"}
+  $bounds=$button.Current.BoundingRectangle
+  if($bounds.IsEmpty -or $bounds.Width -lt 6 -or $bounds.Height -lt 6 -or
+     $button.Current.IsOffscreen){
+    throw "U04_NATIVE_ACTIVATE_BUTTON_NOT_ONSCREEN $name"
+  }
+  $window=(Root).Current.BoundingRectangle
   $x=[int]($bounds.Left + $bounds.Width / 2)
   $y=[int]($bounds.Top + $bounds.Height / 2)
+  if($x -lt $window.Left -or $y -lt $window.Top -or
+     $x -ge $window.Right -or $y -ge $window.Bottom){
+    throw "U04_NATIVE_ACTIVATE_BUTTON_OUTSIDE_CENTER_VIEWPORT $name"
+  }
+  Write-Host 'U04_NATIVE_ACTIVATE_VISIBLE_PHYSICAL_BUTTON_READY'
   [System.Windows.Forms.Cursor]::Position=[System.Drawing.Point]::new($x,$y)
   Start-Sleep -Milliseconds 100
   [U05Window]::mouse_event([uint32]0x0002,0,0,0,[UIntPtr]::Zero)
