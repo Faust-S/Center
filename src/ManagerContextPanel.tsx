@@ -107,7 +107,7 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
    setActivity(null);setActivityIssue('');setSelectedEvidence(null);setActivityLoading(true);
    try {
      const fresh=await invoke('center_corporate_state',{organizationId:orgId});
-     const current=readManagerSignedContext(fresh,orgId);
+     const current:any=readManagerSignedContext(fresh,orgId);
      if(current.status!=='SIGNED_D3_READBACK'||
        current.organizationId!==owner.organizationId||
        current.workspaceId!==owner.workspaceId||
