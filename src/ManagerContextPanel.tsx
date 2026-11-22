@@ -44,6 +44,16 @@ const links=[
  {id:'atlas',label:'Atlas',detail:'Необязательный план проектов и работ',target:'resources' as Destination},
  {id:'results',label:'Результаты',detail:'Human Review, приёмка и разрешённое применение',target:'results' as Destination}
 ];
+// Architectural connections, never inferred grants or observed deliveries.
+const mapRelations=[
+ {from:'organization',to:'people',label:'Состав и ответственность'},
+ {from:'organization',to:'work',label:'Организация работы'},
+ {from:'people',to:'agent',label:'Личный инструмент участника'},
+ {from:'work',to:'t3',label:'Подписанные операции и история'},
+ {from:'agent',to:'t3',label:'Только разрешённая корпоративная Workspace'},
+ {from:'work',to:'atlas',label:'План проекта, необязательно'},
+ {from:'t3',to:'results',label:'Review, затем отдельный Apply'}
+];
 export default function ManagerContextPanel({organization,atlasView,view,atlasStatus,onNavigate,onOpenEntry,onOpenAttention,onOpenOriginal,invoke=null}:Props) {
  const [query,setQuery]=useState('');
  // Explicit read only: no background signer initialization or repeating
@@ -109,6 +119,8 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
    if(item.key.startsWith('signed-inbox:'))openOriginal('signed-result-package',item.key.slice('signed-inbox:'.length));
    else onOpenAttention(item);
  };
+ const mapRelationsForNode=mapRelations.filter(relation=>relation.from===selection||relation.to===selection)
+   .map(relation=>({...relation,neighbor:relation.from===selection?relation.to:relation.from}));
  const mapFacts:Record<string,string>={
    organization:'Выбрана: '+organization.name,
    people:(organization.participants?.length??0)+' контактов в черновике',
@@ -175,12 +187,36 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
        <p className="muted">Выберите элемент карты для пояснения и перехода к действительной области работы.
          Связи показывают устройство продукта, а не подтверждают наличие доступа или доставку данных.</p>
        <div className="manager-map" role="group" aria-label="Интерактивная карта организации">
+         <svg className="manager-map-edges" viewBox="0 0 900 600" preserveAspectRatio="none" aria-hidden="true">
+           <defs><marker id="manager-flow-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3"
+             orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#96b0cc"/></marker></defs>
+           <g fill="none" stroke="#96b0cc" strokeWidth="2" markerEnd="url(#manager-flow-arrow)">
+             <path d="M425 140 L230 258"/><path d="M450 145 L450 248"/>
+             <path d="M280 255 C400 185 600 185 645 255" strokeDasharray="6 6"/>
+             <path d="M450 352 L450 445"/>
+             <path d="M395 354 L250 449" strokeDasharray="6 6"/>
+             <path d="M650 352 L510 445" strokeDasharray="6 6"/>
+             <path d="M550 500 L635 500"/>
+           </g>
+         </svg>
          {links.map(node=><button type="button" key={node.id}
            className={'manager-map-node '+(selection===node.id?'selected ':'')+'manager-map-'+node.id}
            aria-pressed={selection===node.id} data-testid={'context-map-'+node.id}
            onClick={()=>setSelection(node.id)}>
            <strong>{node.label}</strong><small>{node.detail}</small><span className="manager-map-fact">{mapFacts[node.id]}</span>
          </button>)}
+       </div>
+       <div className="manager-map-relations" data-testid="manager-map-relations" aria-label="Связи выбранного узла">
+         <strong>Связанные элементы</strong>
+         <div>{mapRelationsForNode.map(relation=>{
+           const neighbor=links.find(node=>node.id===relation.neighbor);
+           return <button key={relation.from+'-'+relation.to} type="button" className="secondary"
+             data-testid={'manager-relation-'+relation.neighbor}
+             onClick={()=>setSelection(relation.neighbor)}>
+             {neighbor?.label}: {relation.label}
+           </button>;
+         })}</div>
+         <small className="muted">Сплошные связи обозначают основной маршрут; пунктирные показывают возможное или необязательное взаимодействие. Это схема устройства, не доказательство выдачи прав или доставки.</small>
        </div>
        <div className="manager-map-detail" data-testid="context-map-detail">
          <div><strong>{selected.label}</strong><p>{selected.detail}.</p>

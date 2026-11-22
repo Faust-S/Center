@@ -30,6 +30,10 @@ try{
   await page.getByTestId('context-map-agent').click();
   assert.match(await page.getByTestId('context-map-detail').innerText(),/Личная информация не становится корпоративной/);
   await page.getByTestId('context-map-organization').click();
+  await page.getByTestId('manager-relation-work').click();
+  assert.equal(await page.getByTestId('context-map-work').getAttribute('aria-pressed'),'true');
+  assert.match(await page.getByTestId('context-map-detail').innerText(),/Поручения, задачи/);
+  await page.getByTestId('context-map-organization').click();
   await page.getByTestId('context-map-open').click();
   await page.getByTestId('overview-search').fill('North workshop');
   assert.equal(await page.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);

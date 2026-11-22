@@ -56,3 +56,12 @@
 }
 
 .manager-map-fact{display:block;margin-top:10px;padding-top:8px;border-top:1px solid #dfe8f3;font-size:11px;color:#4b6c94;overflow-wrap:anywhere}
+
+/* Architectural edges are explanatory and never grant access. */
+.manager-map-edges{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.manager-map-node{z-index:1}
+.manager-map-relations{display:grid;gap:8px;padding:10px 0 16px}
+.manager-map-relations>div{display:flex;flex-wrap:wrap;gap:8px}
+.manager-map-relations button{white-space:normal;text-align:left;font-size:12px;min-width:0;overflow-wrap:anywhere}
+.manager-map-relations small{font-size:11px;line-height:1.5}
+@media(max-width:700px){.manager-map-edges{display:none}.manager-map-relations>div{display:grid;grid-template-columns:1fr;}}
