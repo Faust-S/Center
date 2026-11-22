@@ -1,0 +1,29 @@
+name: Agent 0.6.2 Installed Dashboard UIA Witness Source
+on:
+  push:
+    branches:
+      - work/2026-11-22-agent-062-dashboard-source-ci
+    paths:
+      - qa/agent062_dashboard/installed-gui-witness-source.ps1
+      - .github/workflows/agent062-witness-parse.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  parse:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse native Windows UIAutomation witness
+        shell: powershell
+        run: |
+          $file=Join-Path $env:GITHUB_WORKSPACE 'qa/agent062_dashboard/installed-gui-witness-source.ps1'
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($file,[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -ne 0){throw 'AGENT062_DASHBOARD_WITNESS_PARSE_FAILED'}
+          $raw=Get-Content -LiteralPath $file -Raw -Encoding UTF8
+          foreach($mark in @('CheckDashboard -AfterCold','DASHBOARD_FIRST','dashboard_restored_after_cold_restart')){
+            if(!$raw.Contains($mark)){throw 'AGENT062_DASHBOARD_WITNESS_INCOMPLETE'}
+          }
+          Write-Host 'AGENT062_INSTALLED_DASHBOARD_WITNESS_PARSE_PASS'
