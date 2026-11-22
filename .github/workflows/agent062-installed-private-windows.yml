@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '2afeed5f1cf484e727cc5010b27062fad1b63cc3'
-      PRIVATE_TREE_PIN: '5f59e059e61d0f1308ef84c48a8f2a760dd7c7ce'
+      PRIVATE_SOURCE_PIN: '4fe665d14c1a2feb397ad055ae51d204358d75e7'
+      PRIVATE_TREE_PIN: '10a0baa00b6612db98290ae2084779aaf27dd42e'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -77,7 +77,7 @@ jobs:
               throw 'AGENT06_ONLINE_INSTALLED_SOURCE_NOT_CLEAN'
             }
           }
-          $script=Join-Path $repo 'qualification/agent061/qualify_online_services_installed.ps1'
+          $script=Join-Path $repo 'qualification/agent062/qualify_dashboard_installed.ps1'
           $python=Join-Path $repo 'qualification/agent061/qualify_online_services_installed.py'
           $installer=Join-Path $repo 'qualification/phase1/build_native_windows_setup_candidate.ps1'
           $builder=Join-Path $repo 'tools/build_setup_core_release.py'
@@ -188,7 +188,7 @@ jobs:
           $center=Join-Path $env:GITHUB_WORKSPACE 'center-owner'
           $setup=Join-Path $privateRoot 'IWXA-Private-Online-SetupCore.exe'
           $test=Join-Path $center 'installer/windows/qualify-local-bundle.ps1'
-          $witness=Join-Path $repo 'qualification/agent061/qualify_online_services_installed.ps1'
+          $witness=Join-Path $repo 'qualification/agent062/qualify_dashboard_installed.ps1'
           $sandbox=Join-Path $privateRoot 'temporary-installed'
           $log=Join-Path $privateRoot 'local-online-acceptance.private.log'
           & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Setup $setup -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit $env:PRIVATE_SOURCE_PIN -WitnessScript $witness -WitnessTimeoutSeconds 1100 *> $log
@@ -198,7 +198,9 @@ jobs:
             try{
               $w=Get-Content -LiteralPath $witnessReceipt -Raw -Encoding UTF8|ConvertFrom-Json
               if($w.status -ceq 'PASS' -and
-                 $w.schema -ceq 'IWXA_AGENT06_ONLINE_INSTALLED_GUI_WITNESS/1' -and
+                 $w.schema -ceq 'IWXA_AGENT062_INSTALLED_GUI_AND_HOME_WITNESS/1' -and
+                 $w.dashboard_added_via_gui -eq $true -and
+                 $w.dashboard_restored_after_cold_restart -eq $true -and
                  $w.native_window_first_opened -eq $true -and
                  $w.original_core_connected -eq $true -and
                  $w.online_account_create_confirmed -eq $true -and
@@ -210,14 +212,22 @@ jobs:
                  $w.real_external_effects_performed -eq $false){
                 Write-Host 'AGENT06_ONLINE_INSTALLED_GUI_AND_COLD_READBACK_PASS'
               }elseif($w.status -ceq 'FAIL'){
-                $phases=@('VALIDATE','NATIVE_FIRST','CREATE','GUI_FIRST',
-                  'NATIVE_COLD_REOPEN','COLD_READBACK','REMOVE',
+                $phases=@('VALIDATE','NATIVE_FIRST','CREATE','GUI_FIRST','DASHBOARD_FIRST',
+                  'NATIVE_COLD_REOPEN','COLD_READBACK','DASHBOARD_COLD','REMOVE',
                   'NATIVE_COLD_REMOVE_REOPEN','COLD_REMOVE_READBACK',
                   'GUI_COLD_REMOVE','RESULT')
                 if([string]$w.phase -cin $phases){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_PHASE='+[string]$w.phase)
                 }
                 $safeReasons=@(
+                  'agent062_dashboard_native_window_closed',
+                  'agent062_dashboard_home_navigation_missing',
+                  'agent062_dashboard_home_missing',
+                  'agent062_dashboard_customize_missing',
+                  'agent062_dashboard_add_missing',
+                  'agent062_dashboard_catalog_widget_missing',
+                  'agent062_dashboard_finish_missing',
+                  'agent062_dashboard_widget_missing',
                   'agent06_online_ui_button_missing',
                   'agent06_online_native_core_unavailable',
                   'agent06_online_native_exited_before_ready',
@@ -240,6 +250,8 @@ jobs:
                   Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_CODE='+[string]$w.failure_code)
                 }
                 $safeCheckpoints=@(
+                  'DASHBOARD_HOME','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD',
+                  'DASHBOARD_DONE','DASHBOARD_WIDGET',
                   'NOT_STARTED','LOOKUP_INITIAL_TITLE',
                   'LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON',
                   'CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE',
