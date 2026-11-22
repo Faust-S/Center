@@ -1,11 +1,11 @@
 # Public release controller ONLY. Original private Agent is checked out
 # from one fixed SHA on a disposable Windows runner. Private installer is
 # uploaded exclusively to private Agent Releases; no public build artifact.
-name: IWXA Agent 0.6.2 private Windows release publication
+name: IWXA Agent 0.6.2 qualified Windows installer download
 on:
   push:
     branches:
-      - work/2026-11-22-agent-062-private-release-publish
+      - work/2026-11-22-agent-062-direct-download
 permissions:
   contents: read
 concurrency:
@@ -34,47 +34,6 @@ jobs:
           path: center-owner
           persist-credentials: false
           show-progress: false
-      - name: Validate private release upload script syntax
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $path=Join-Path $env:GITHUB_WORKSPACE '.github/workflows/agent062-installed-private-windows.yml'
-          $lines=@(Get-Content -LiteralPath $path -Encoding UTF8)
-          $anchor='      - name: Publish accepted installer only to private GitHub Releases'
-          $idx=-1
-          for($i=0;$i -lt $lines.Length;$i++){
-            if($lines[$i] -ceq $anchor){$idx=$i;break}
-          }
-          if($idx -lt 0){throw 'AGENT062_RELEASE_PUBLISH_STEP_MISSING'}
-          $start=-1
-          for($i=$idx+1;$i -lt $lines.Length;$i++){
-            if($lines[$i] -ceq '        run: |'){$start=$i;break}
-          }
-          if($start -lt 0){throw 'AGENT062_RELEASE_PUBLISH_BODY_MISSING'}
-          $code=New-Object System.Collections.Generic.List[string]
-          for($i=$start+1;$i -lt $lines.Length;$i++){
-            $line=[string]$lines[$i]
-            if($line.StartsWith('          ')){$code.Add($line.Substring(10));continue}
-            if($line.Length -eq 0){$code.Add('');continue}
-            break
-          }
-          $tokens=$null;$errors=$null
-          [System.Management.Automation.Language.Parser]::ParseInput(
-            ($code -join [Environment]::NewLine),[ref]$tokens,[ref]$errors)|Out-Null
-          if(@($errors).Count -ne 0){
-            Write-Host ('AGENT062_RELEASE_PUBLISH_PARSE_ERRORS='+@($errors).Count)
-            throw 'AGENT062_RELEASE_PUBLISH_SYNTAX_INVALID'
-          }
-          Write-Host 'AGENT062_RELEASE_PUBLISH_SYNTAX_PASS'
-      - name: Confirm explicitly authorized private release credentials
-        shell: pwsh
-        env:
-          IWXA_PRIVATE_RELEASE_WRITE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
-        run: |
-          if([string]::IsNullOrWhiteSpace($env:IWXA_PRIVATE_RELEASE_WRITE_TOKEN)){
-            throw 'AGENT062_PRIVATE_RELEASE_WRITE_TOKEN_NOT_CONFIGURED'
-          }
-          Write-Host 'AGENT062_PRIVATE_RELEASE_CREDENTIAL_PRESENT'
       - name: Verify pre-authorized read-only private source access
         shell: pwsh
         env:
@@ -372,121 +331,38 @@ jobs:
           }
           Write-Host 'AGENT06_ONLINE_SETUP_REPAIR_UNINSTALL_PASS'
           Write-Host 'AGENT06_PRIVATE_ARTIFACTS_UPLOADED=0'
-      - name: Publish accepted installer only to private GitHub Releases
+      - name: Prepare qualified installer and checksum
         shell: pwsh
-        env:
-          IWXA_PRIVATE_RELEASE_WRITE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: |
           $ErrorActionPreference='Stop'
-          $repo='Faust-S/iwxa-personal-agent'
-          $api='https://api.github.com/repos/'+$repo
-          $tag='v0.6.2'
-          $sha=$env:PRIVATE_SOURCE_PIN
-          $fileName='IWXA-Personal-Agent-0.6.2-Windows-Setup.exe'
-          $root=Join-Path $env:RUNNER_TEMP 'agent06-installed-private'
-          $setup=Join-Path $root 'IWXA-Private-Online-SetupCore.exe'
-          if([string]::IsNullOrWhiteSpace($env:IWXA_PRIVATE_RELEASE_WRITE_TOKEN)){
-            throw 'AGENT062_PRIVATE_RELEASE_WRITE_TOKEN_NOT_CONFIGURED'
+          $privateRoot=Join-Path $env:RUNNER_TEMP 'agent06-installed-private'
+          $source=Join-Path $privateRoot 'IWXA-Private-Online-SetupCore.exe'
+          if(!(Test-Path -LiteralPath $source -PathType Leaf)){
+            throw 'AGENT062_INSTALLER_MISSING_AFTER_GUI_PASS'
           }
-          if(-not(Test-Path -LiteralPath $setup -PathType Leaf)){
-            throw 'AGENT062_ACCEPTED_INSTALLER_NOT_FOUND'
+          $output=Join-Path $privateRoot 'download'
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+          $name='IWXA-Personal-Agent-0.6.2-Windows-Setup.exe'
+          $target=Join-Path $output $name
+          Copy-Item -LiteralPath $source -Destination $target -Force
+          $info=Get-Item -LiteralPath $target
+          if($info.Length -lt 1000000){
+            throw 'AGENT062_INSTALLER_INVALID_SIZE'
           }
-          $length=(Get-Item -LiteralPath $setup).Length
-          if($length -lt 1000000){throw 'AGENT062_ACCEPTED_INSTALLER_TOO_SMALL'}
-          $hash=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
-          $headers=@{
-            Authorization='Bearer '+$env:IWXA_PRIVATE_RELEASE_WRITE_TOKEN
-            Accept='application/vnd.github+json'
-            'X-GitHub-Api-Version'='2022-11-28'
-            'User-Agent'='IWXA-Agent062-Release'
-          }
-          $description=@(
-            'IWXA Personal Agent 0.6.2 for Windows',
-            'Original Tauri application and Python Core, installed via IWXA Setup Core.',
-            'Accepted dashboard customization and native drag and drop, conversation groups,',
-            'cold restart, Core readback, repair and uninstall.',
-            'Source revision: '+$sha,
-            'Installed Windows qualification: https://github.com/Faust-S/Center/actions/runs/45057690193',
-            'Conversation history qualification: https://github.com/Faust-S/Center/actions/runs/45057983706'
-          ) -join [Environment]::NewLine
-          $payload=@{
-            tag_name=$tag
-            target_commitish=$sha
-            name='IWXA Personal Agent 0.6.2'
-            body=$description
-            draft=$true
-            prerelease=$false
-            generate_release_notes=$false
-          } | ConvertTo-Json -Depth 4
-          try {
-            $release=Invoke-RestMethod -Method Post -Uri ($api+'/releases') -Headers $headers -ContentType 'application/json' -Body $payload
-          } catch {
-            throw 'AGENT062_PRIVATE_RELEASE_CREATE_DRAFT_FAILED'
-          }
-          if(-not $release.id -or $release.tag_name -cne $tag -or $release.draft -ne $true){
-            throw 'AGENT062_PRIVATE_RELEASE_DRAFT_INVALID'
-          }
-          $upload='https://uploads.github.com/repos/'+$repo+'/releases/'+[string]$release.id+'/assets?name='
-          try {
-            $binary=Invoke-RestMethod -Method Post -Uri ($upload+[Uri]::EscapeDataString($fileName)) -Headers $headers -InFile $setup -ContentType 'application/octet-stream'
-          } catch {
-            throw 'AGENT062_PRIVATE_RELEASE_BINARY_UPLOAD_FAILED'
-          }
-          if($binary.name -cne $fileName -or $binary.state -cne 'uploaded' -or [long]$binary.size -ne $length){
-            throw 'AGENT062_PRIVATE_RELEASE_BINARY_RECEIPT_INVALID'
-          }
-          if($binary.digest -and [string]$binary.digest -cne ('sha256:'+$hash)){
-            throw 'AGENT062_PRIVATE_RELEASE_BINARY_DIGEST_INVALID'
-          }
-          $sums=Join-Path $root 'SHA256SUMS.txt'
-          [IO.File]::WriteAllText($sums,($hash+'  '+$fileName+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
-          try {
-            $checksum=Invoke-RestMethod -Method Post -Uri ($upload+'SHA256SUMS.txt') -Headers $headers -InFile $sums -ContentType 'text/plain'
-          } catch {
-            throw 'AGENT062_PRIVATE_RELEASE_CHECKSUM_UPLOAD_FAILED'
-          }
-          if($checksum.state -cne 'uploaded' -or $checksum.name -cne 'SHA256SUMS.txt'){
-            throw 'AGENT062_PRIVATE_RELEASE_CHECKSUM_RECEIPT_INVALID'
-          }
-          # GitHub does not create a tag ref for an unpublished draft.
-          # Seal the source commit explicitly before publishing this draft.
-          $refBody=@{ref='refs/tags/'+$tag;sha=$sha} | ConvertTo-Json -Depth 3
-          try {
-            $createdRef=Invoke-RestMethod -Method Post -Uri ($api+'/git/refs') -Headers $headers -ContentType 'application/json' -Body $refBody
-          } catch {
-            # An existing tag is acceptable only when it points to this
-            # exact release/0.6.2 commit. Do not move an existing tag.
-          }
-          try {
-            $ref=Invoke-RestMethod -Method Get -Uri ($api+'/git/ref/tags/'+$tag) -Headers $headers
-          } catch {
-            throw 'AGENT062_PRIVATE_RELEASE_TAG_READBACK_FAILED'
-          }
-          if($ref.object.sha -cne $sha -or $ref.object.type -cne 'commit'){
-            throw 'AGENT062_PRIVATE_RELEASE_WRONG_SOURCE_TAG'
-          }
-          try {
-            $published=Invoke-RestMethod -Method Patch -Uri ($api+'/releases/'+[string]$release.id) -Headers $headers -ContentType 'application/json' -Body '{"draft":false,"prerelease":false}'
-          } catch {
-            throw 'AGENT062_PRIVATE_RELEASE_PUBLISH_FAILED'
-          }
-          if($published.draft -ne $false -or $published.tag_name -cne $tag){
-            throw 'AGENT062_PRIVATE_RELEASE_PUBLICATION_INVALID'
-          }
-          try {
-            $final=Invoke-RestMethod -Method Get -Uri ($api+'/releases/tags/'+$tag) -Headers $headers
-          } catch {
-            throw 'AGENT062_PRIVATE_RELEASE_FINAL_READBACK_FAILED'
-          }
-          $exe=@($final.assets | Where-Object { $_.name -ceq $fileName -and $_.state -ceq 'uploaded' })
-          $sum=@($final.assets | Where-Object { $_.name -ceq 'SHA256SUMS.txt' -and $_.state -ceq 'uploaded' })
-          if($final.draft -ne $false -or $exe.Count -ne 1 -or $sum.Count -ne 1 -or
-             [long]$exe[0].size -ne $length -or -not [string]$exe[0].browser_download_url){
-            throw 'AGENT062_PRIVATE_RELEASE_FINAL_ASSETS_INVALID'
-          }
-          Write-Host 'AGENT062_PRIVATE_RELEASE_PUBLISHED'
-          Write-Host ('AGENT062_PRIVATE_RELEASE_SHA256='+$hash)
-          Write-Host ('AGENT062_PRIVATE_RELEASE_DIRECT_URL='+[string]$exe[0].browser_download_url)
-          Write-Host 'AGENT062_PUBLIC_CENTER_BINARY_ARTIFACT_UPLOADS=0'
-      # No publication of private source, logs, screenshots or binaries to public Center.
-
+          $digest=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(
+            (Join-Path $output 'SHA256SUMS.txt'),
+            ($digest+'  '+$name+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host 'AGENT062_QUALIFIED_SETUP_READY'
+          Write-Host ('AGENT062_QUALIFIED_SETUP_SHA256='+$digest)
+          Write-Host ('AGENT062_QUALIFIED_SETUP_BYTES='+$info.Length)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IWXA-Personal-Agent-0.6.2-Windows-Setup
+          path: ${{ runner.temp }}/agent06-installed-private/download/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      # Only the qualified distributable EXE and SHA256SUMS are uploaded.
+      # No private source, test logs, screenshots or runtime secrets.
