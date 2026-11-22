@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '2dc93e8b92ecdb2d5109e0d443c8b0924750ae23'
-      PRIVATE_TREE_PIN: '7ef4ba3a7734250028dc1f7c8a38aa2ffb1c14d7'
+      PRIVATE_SOURCE_PIN: '10cb56e65ffdf4797d93bd31aeeaaf6645c8ee5a'
+      PRIVATE_TREE_PIN: 'a259ec549a3beb67c7dad621b4a8fdbc2f006e86'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -266,7 +266,8 @@ jobs:
                   'ElementNotAvailableException','MethodException','ItemNotFoundException',
                   'IndexOutOfRangeException','InvalidCastException','other')
                 if([string]$w.exception_class -cin $safeExceptions -or
-                   [string]$w.exception_class -cmatch '^[A-Za-z]{3,64}(Exception|Error)
+                   ([string]$w.exception_class -match 'Exception' -and
+                    ([string]$w.exception_class).Length -le 64)){
                   Write-Host ('AGENT062_WITNESS_SAFE_EXCEPTION='+[string]$w.exception_class)
                 }
                 $safeLine=0
@@ -278,62 +279,6 @@ jobs:
                   'DASHBOARD_HOME','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD',
                   'DASHBOARD_DONE','DASHBOARD_WIDGET',
                   'DASHBOARD_DRAG','DASHBOARD_COLD_DRAG',
-                  'NOT_STARTED','LOOKUP_INITIAL_TITLE',
-                  'LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON',
-                  'CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE',
-                  'LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE'
-                )
-                if([string]$w.ui_checkpoint -cin $safeCheckpoints){
-                  Write-Host ('AGENT06_ONLINE_INSTALLED_GUI_CHECKPOINT='+[string]$w.ui_checkpoint)
-                }
-              }
-            }catch{
-              Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_RECEIPT_UNREADABLE'
-            }
-          }else{
-            Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_RECEIPT_MISSING'
-          }
-          if($exit -ne 0){
-            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
-            foreach($code in @('SETUP_LOCAL_WITNESS_EXIT_FAILED',
-              'SETUP_LOCAL_WITNESS_TIMEOUT','SETUP_LOCAL_WITNESS_RECEIPT_MISSING',
-              'SETUP_LOCAL_WITNESS_READBACK_INVALID',
-              'SETUP_LOCAL_PRODUCT_IDENTITY_INVALID',
-              'SETUP_LOCAL_SOURCE_IDENTITY_INVALID',
-              'SETUP_LOCAL_ACTIVATION_INVALID',
-              'SETUP_LOCAL_ON_DISK_IDENTITY_INVALID',
-              'SETUP_LOCAL_REPAIR_NOT_ACTIVATED',
-              'SETUP_LOCAL_REPAIR_READBACK_INVALID',
-              'SETUP_LOCAL_UNINSTALL_OR_DATA_LOSS',
-              'SETUP_LOCAL_PRODUCT_ID_INVALID')){
-              if(([string]$raw).Contains($code)){
-                Write-Host ('AGENT06_ONLINE_INSTALLED_SAFE_SETUP_REASON='+$code)
-              }
-            }
-            throw 'AGENT06_ONLINE_INSTALLED_QUALIFICATION_FAILED'
-          }
-          foreach($marker in @('IWXA_SETUP_LOCAL_NATIVE_INSTALL_AND_PRESERVE_PASS',
-              'IWXA_SETUP_LOCAL_REPAIR_AND_CONFIRM_PASS',
-              'IWXA_SETUP_LOCAL_RUNTIME_WITNESS_PASS')){
-            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
-            if(-not ([string]$raw).Contains($marker)){
-              throw 'AGENT06_ONLINE_INSTALLED_EXPECTED_PUBLIC_WITNESS_MISSING'
-            }
-          }
-          Write-Host 'AGENT06_ONLINE_SETUP_REPAIR_UNINSTALL_PASS'
-          Write-Host 'AGENT06_PRIVATE_ARTIFACTS_UPLOADED=0'
-      # Intentionally no upload-artifact, cache, screenshot, EXE or private logs.
-){
-                  Write-Host ('AGENT062_WITNESS_SAFE_EXCEPTION='+[string]$w.exception_class)
-                }
-                $safeLine=0
-                if([int]::TryParse([string]$w.exception_line,[ref]$safeLine) -and
-                   $safeLine -ge 1 -and $safeLine -le 2000){
-                  Write-Host ('AGENT062_WITNESS_SAFE_LINE='+$safeLine)
-                }
-                $safeCheckpoints=@(
-                  'DASHBOARD_HOME','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD',
-                  'DASHBOARD_DONE','DASHBOARD_WIDGET',
                   'NOT_STARTED','LOOKUP_INITIAL_TITLE',
                   'LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON',
                   'CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE',
