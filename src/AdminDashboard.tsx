@@ -70,7 +70,7 @@ type DashboardProps={
 const action=(title:string,onClick:()=>void,kind='secondary')=>
  <button className={kind} type="button" onClick={onClick}>{title}</button>;
 
-export function AdminCompanyStructure({organization,onNavigate,compact=false}:{organization:DashboardOrganization;onNavigate:(page:PageId)=>void;compact?:boolean}) {
+export function AdminCompanyStructure({organization,onNavigate,onOpenAssignment,compact=false}:{organization:DashboardOrganization;onNavigate:(page:PageId)=>void;onOpenAssignment?:(assignmentId:string)=>void;compact?:boolean}) {
  const {workspaces,participants,assignments}=organization;
  const lead=participants.find(p=>/руковод|директор|начальник|owner|chief/i.test(p.roleLabel||''))??null;
  // An assignment establishes a working association, NEVER a reporting line
@@ -119,8 +119,10 @@ export function AdminCompanyStructure({organization,onNavigate,compact=false}:{o
       {activeWorkspace?(members.length?members.map(p=><p key={p.id}>{p.name} <small>· {p.roleLabel||'роль не указана'}</small></p>):<p>Связанных сотрудников пока нет</p>):
         units.length?units.map(w=><p key={w.id}>{w.name}</p>):<p>Поручения с сотрудником ещё не созданы</p>}
     </div><div><strong>Поручения и ответственность</strong>
-      {relevant.length?relevant.slice(0,compact?4:12).map(t=><p key={t.id}>{t.title}
-        <small> · {t.assigneeId===activePerson?.id?'исполнитель':t.reviewerId===activePerson?.id?'принимает':participants.find(p=>p.id===t.assigneeId)?.name||'исполнитель не выбран'}</small></p>):
+      {relevant.length?relevant.slice(0,compact?4:12).map(t=><button key={t.id} type="button" className="v8-company-task"
+        data-testid={'company-assignment-'+t.id}
+        onClick={()=>onOpenAssignment?onOpenAssignment(t.id):onNavigate('work')}>
+        <span>{t.title}</span><small> · {t.assigneeId===activePerson?.id?'исполнитель':t.reviewerId===activePerson?.id?'принимает':participants.find(p=>p.id===t.assigneeId)?.name||'исполнитель не выбран'}</small><span aria-hidden="true"> ›</span></button>):
         <p>Связанных поручений пока нет</p>}
     </div></div>
     <div className="v8-company-selection-actions">
@@ -134,16 +136,17 @@ export function AdminCompanyStructure({organization,onNavigate,compact=false}:{o
    {!compact&&action('Контекст и связи T3',()=>onNavigate('context'))}</div>
  </div>;
 }
-function attention(org:DashboardOrganization|null) {
+type DashboardAttention={id:string;title:string;detail:string;page:PageId;assignmentId?:string};
+function attention(org:DashboardOrganization|null):DashboardAttention[] {
  if(!org)return [{id:'org',title:'Организация ещё не создана',detail:'Создайте компанию, чтобы начать работу.',page:'overview' as PageId}];
- const rows:{id:string;title:string;detail:string;page:PageId}[]=[];
+ const rows:DashboardAttention[]=[];
  if(!org.workspaces.length)rows.push({id:'ws',title:'Нет рабочей области',detail:'Для первого поручения нужна рабочая область.',page:'resources'});
  if(!org.participants.length)rows.push({id:'people',title:'Нет сотрудников',detail:'Укажите участников и их роли.',page:'people'});
  for(const task of org.assignments){
-  if(!task.assigneeId)rows.push({id:task.id+'a',title:task.title,detail:'Исполнитель не выбран.',page:'work'});
-  if(!task.reviewerId)rows.push({id:task.id+'r',title:task.title,detail:'Не указан принимающий Result.',page:'work'});
+  if(!task.assigneeId)rows.push({id:task.id+'a',title:task.title,detail:'Исполнитель не выбран.',page:'work',assignmentId:task.id});
+  if(!task.reviewerId)rows.push({id:task.id+'r',title:task.title,detail:'Не указан принимающий Result.',page:'work',assignmentId:task.id});
   if(task.dueDate&&task.dueDate<new Date().toISOString().slice(0,10))
-   rows.push({id:task.id+'d',title:task.title,detail:'Срок черновика уже прошёл.',page:'work'});
+   rows.push({id:task.id+'d',title:task.title,detail:'Срок черновика уже прошёл.',page:'work',assignmentId:task.id});
  }
  return rows.slice(0,8);
 }
@@ -178,8 +181,8 @@ export default function AdminDashboard({organization,nativeHost,atlasView,manage
    ].map(([name,count,sub])=><div className="v8-summary-stat" key={String(name)}><span>{name}</span><strong>{count}</strong><small>{sub}</small></div>)}
    </div>;
   if(id==='attention')return <div className="v8-widget-rows">
-   {(attention(org).length?attention(org):[{id:'clear',title:'По черновикам вопросов нет',detail:'Подписанный T3 отдельно не прочитан.',page:'results' as PageId}]).map(a=>
-    <button type="button" key={a.id} className="v8-attention" onClick={()=>go(a.page)}>
+   {(attention(org).length?attention(org):[{id:'clear',title:'По черновикам вопросов нет',detail:'Подписанный T3 отдельно не прочитан.',page:'results' as PageId,assignmentId:undefined}]).map(a=>
+    <button type="button" key={a.id} className="v8-attention" onClick={()=>{if(a.id==='org'&&!organization){onCreateOrganization();return;}if(a.assignmentId){openAssignment(a.assignmentId);return;}go(a.page);}}>
      <span className="v8-attention-dot" aria-hidden="true"/><span><strong>{a.title}</strong><small>{a.detail}</small></span><span aria-hidden="true">›</span>
     </button>)}</div>;
   if(id==='quick')return <div className="v8-quick-grid">
@@ -195,7 +198,7 @@ export default function AdminDashboard({organization,nativeHost,atlasView,manage
     </button>):
     <div className="v8-empty-line">Поручений ещё нет. Создайте первое и назначьте исполнителя.</div>}
     <div className="v8-card-actions">{action('Поручения',()=>go('work'))}</div></div>;
-  if(id==='structure')return org?<AdminCompanyStructure organization={org} onNavigate={go} compact/>:<div className="v8-empty-line">Структура компании появится после создания организации.</div>;
+  if(id==='structure')return org?<AdminCompanyStructure organization={org} onNavigate={go} onOpenAssignment={openAssignment} compact/>:<div className="v8-empty-line">Структура компании появится после создания организации.</div>;
   if(id==='context')return original?managerContext:<div className="v8-empty-line">Поиск, вопросы руководителя и чтение T3 появятся после создания организации.</div>;
   if(id==='workspaces')return <div className="v8-widget-rows">{org?.workspaces.length?org.workspaces.slice(0,8).map(w=>
     <button key={w.id} className="v8-task-row" type="button" onClick={()=>go('resources')}><strong>{w.name}</strong><small>{org.assignments.filter(t=>t.workspaceId===w.id).length} поручений{w.atlasRef?' · связан Atlas':''}</small></button>):
