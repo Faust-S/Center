@@ -683,7 +683,7 @@ export default function App(){
                <div className="simple-row" key={offer.proposalId}>
                  <div>
                    <strong>{offer.organization.name} · {offer.product.id}</strong>
-                   <small>Предложение {offer.proposalId}. Тариф: {offer.tariff.name},
+                   <small>Предложение {offer.proposalId}. Тариф: {offer.tariff.name} ({offer.tariff.id}),
                      редакция {offer.tariff.revision}; срок {offer.termDays} дней.</small>
                    <small>Места Admin Center в подготовке: {offer.limits.adminCenterProductSeats}.
                      Лимит сотрудников: {offer.limits.employeeLimit}.

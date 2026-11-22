@@ -422,7 +422,7 @@ try {
   const corporateReview=page.getByTestId('publisher-corporate-offer-reviews');
   await corporateReview.waitFor();
   assert.match(await corporateReview.innerText(),/Test Corporation/);
-  assert.match(await corporateReview.innerText(),/Тариф: TEAM/);
+  assert.match(await corporateReview.innerText(),/Тариф: Команда \(TEAM\)/);
   assert.match(await corporateReview.innerText(),/Места Admin Center в подготовке: 5/);
   assert.match(await corporateReview.innerText(),/Лимит сотрудников: 10/);
   assert.match(await corporateReview.innerText(),/Мест Personal Agent к назначению: 0/);
