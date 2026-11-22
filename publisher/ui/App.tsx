@@ -16,6 +16,7 @@ import type {Widget} from './PublisherDashboard';
 import {PublisherDock} from './PublisherDock';
 import '../../src/style.css';
 import './style.css';
+import './workspace-v2.css';
 
 type Product = {id:string;name:string;version:string};
 type Holder = {id:string;name:string;type:'PERSON'|'ORGANIZATION'};
@@ -562,7 +563,7 @@ export default function App(){
      </header>
      <div className="publisher-nav-caption">Разделы</div>
      <nav aria-label="Разделы Publisher">
-       {navigation.map(([key,label])=><button key={key} type="button" className={'nav-link'+(page===key?' active':'')} onClick={()=>go(key)} aria-current={page===key?'page':undefined}><span className="nav-icon"><PublisherNavIcon section={key}/></span><span>{label}</span></button>)}
+       {navigation.map(([key,label])=><button key={key} type="button" className={'nav-link'+(page===key?' active':'')} onClick={()=>go(key)} aria-current={page===key?'page':undefined} aria-label={label} title={label}><span className="nav-icon"><PublisherNavIcon section={key}/></span><span>{label}</span></button>)}
      </nav>
      <div className="sidebar-bottom"><p className="local-label"><span className="dot"></span>Локальная программа</p><p>Черновики — не лицензии и не права.</p></div>
    </aside>
