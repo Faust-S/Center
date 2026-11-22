@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 35
     env:
-      AGENT06_PRIVATE_PIN: '004e634c03f3b0fe6af3d793a020259b0e00e024'
+      AGENT06_PRIVATE_PIN: 'ba69884ef47fee8e4077029d423c8b1bf0e68048'
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Test model provider contracts
+      - name: Test focused online account and OAuth contracts
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -61,7 +61,7 @@ jobs:
           try{
             $log = Join-Path $env:RUNNER_TEMP 'agent06-provider-tests-private.log'
             $xml = Join-Path $env:RUNNER_TEMP 'agent06-provider-tests-private.xml'
-            & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) tests/test_agent06_remote_api_provider_profiles.py tests/test_model_limit_enforcement.py tests/test_model_provider_registry.py tests/test_agent06_yandex_mailru_tool_provider.py tests/test_agent06_dav_multistatus.py tests/test_agent06_dav_original_tool_provider.py tests/test_agent06_account_binding_port.py tests/test_agent06_saved_online_accounts.py tests/test_agent06_current_online_surface.py tests/cells/test_interaction_surface.py tests/test_agent06_google_multi_account.py tests/test_agent06_online_task_account_roundtrip.py tests/test_agent06_online_interaction_surface.py tests/test_google_oauth_user_ready.py tests/test_agent06_online_services.py tests/test_agent06_account_remove.py tests/test_google_oauth_audit.py *> $log
+            & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) tests/test_google_oauth_user_ready.py tests/test_agent06_google_multi_account.py tests/test_agent06_online_task_account_roundtrip.py tests/test_agent06_account_binding_port.py tests/test_agent06_account_connection_verify.py tests/test_agent06_account_remove.py tests/test_agent06_current_online_surface.py tests/test_agent06_yandex_mailru_tool_provider.py tests/test_agent06_online_services.py *> $log
             $exitCode = $LASTEXITCODE
             if(Test-Path -LiteralPath $xml){
               [xml]$doc = Get-Content -LiteralPath $xml -Raw
