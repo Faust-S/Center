@@ -732,7 +732,7 @@ export default function App(){
                      disabled={busy||!nativeHost||
                        !/^(0|[1-9][0-9]*)$/.test(corporateSeatInputs[offer.proposalId]??'')}
                      onClick={()=>void exportCorporateRequest(offer.proposalId)}>
-                     Сохранить запрос для оригинального T3
+                     Экспортировать корпоративный запрос T3
                    </button>
                    <small>Это отдельный неподписанный запрос. Полномочия издателя,
                      подписанный статус и права сотрудников здесь не создаются.</small>
