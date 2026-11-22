@@ -36,7 +36,7 @@ function normalized(raw:unknown):Widget[] {
   if(typeof id!=='string'||!specOf(id)||unique.has(id))continue;
   unique.add(id);rows.push({id,size:['third','half','wide'].includes(size)?size:specOf(id)!.size});
  }
- return rows.length?rows:initial();
+ return rows; // A deliberately empty dashboard is a valid saved preference.
 }
 function read(id:string):Widget[]{
  try{

@@ -1213,6 +1213,53 @@ try{
   assert.equal(await reloadPage.getByTestId('d3-return-to-review').count(),0);
   await reloadPage.close();
   checks.push('d3-native-child-visible-and-hidden-react-reload-restores-review-without-owner-restart');
+  // Approved native V8: configure widgets without mutating signed operations.
+  const v8Page=await browser.newPage({viewport:{width:1440,height:960}});
+  v8Page.on('pageerror',error=>errors.push('v8:'+error.message));
+  await v8Page.goto('http://127.0.0.1:4173');
+  await v8Page.getByTestId('admin-v8-dashboard').waitFor();
+  assert.doesNotMatch(await v8Page.locator('.v8-titlebar').innerText(),/0\.3/,
+    'the product version belongs only inside profile, not the titlebar');
+  assert.equal(await v8Page.getByTestId('dashboard-widget-summary').count(),1);
+  assert.equal(await v8Page.getByTestId('dashboard-widget-context').count(),1);
+  await v8Page.getByTestId('dashboard-add-widget').click();
+  await v8Page.getByTestId('dashboard-widget-catalog').getByRole('button',{name:/Рабочие области/}).click();
+  await v8Page.getByTestId('dashboard-widget-workspaces').waitFor();
+  await v8Page.getByTestId('dashboard-edit').click();
+  await v8Page.getByRole('button',{name:'Изменить ширину Рабочие области'}).click();
+  assert.ok((await v8Page.getByTestId('dashboard-widget-workspaces').getAttribute('class')).includes('wide'));
+  const orderBefore=await v8Page.locator('.v8-widget').evaluateAll(nodes=>
+    nodes.map(n=>n.getAttribute('data-testid')));
+  await v8Page.getByTestId('dashboard-widget-workspaces').dragTo(v8Page.getByTestId('dashboard-widget-summary'));
+  const orderAfter=await v8Page.locator('.v8-widget').evaluateAll(nodes=>
+    nodes.map(n=>n.getAttribute('data-testid')));
+  assert.notDeepEqual(orderAfter,orderBefore,'dragged widgets must reorder');
+  await v8Page.reload();
+  await v8Page.getByTestId('admin-v8-dashboard').waitFor();
+  assert.equal(await v8Page.getByTestId('dashboard-widget-workspaces').count(),1,
+    'widget selection survives a real browser restart');
+  assert.ok((await v8Page.getByTestId('dashboard-widget-workspaces').getAttribute('class')).includes('wide'),
+    'widget width survives a reload');
+  assert.deepEqual(await v8Page.locator('.v8-widget').evaluateAll(nodes=>
+    nodes.map(n=>n.getAttribute('data-testid'))),orderAfter,
+    'widget order survives a reload');
+  checks.push('v8-native-shell-no-version-and-drag-resize-persistent-dashboard');
+  await v8Page.getByTestId('org-name').fill('V8 Рабочее предприятие');
+  await v8Page.getByTestId('create-org').click();
+  await v8Page.getByTestId('admin-v8-dashboard').waitFor();
+  assert.equal(await v8Page.getByTestId('dashboard-widget-workspaces').count(),0,
+    'a new organization must not inherit another organization dashboard');
+  await v8Page.getByTestId('manager-context-overview').waitFor();
+  await v8Page.getByTestId('nav-people').click();
+  await v8Page.getByTestId('person-name').fill('Сотрудник V8');
+  await v8Page.getByTestId('add-person').click();
+  assert.match(await v8Page.getByTestId('admin-v8-company-structure').innerText(),
+    /Сотрудник V8/);
+  await v8Page.getByTestId('nav-data').click();
+  await v8Page.getByTestId('admin-profile-settings').waitFor();
+  assert.match(await v8Page.getByTestId('admin-profile-settings').innerText(),/0\.3\.0-dev\.1/);
+  checks.push('v8-real-draft-company-structure-and-version-only-inside-profile');
+  await v8Page.close();
   writeFileSync('artifacts/ui-report.json',JSON.stringify({status:'PASS_BROWSER_DRAFT_SCOPE',browser:'Firefox',checks,errors,t3RuntimeIntegrated:false,installedWindowsGui:false},null,2));
   console.log('CENTER_DRAFT_UI_PASS',checks.length);
 }finally{await browser?.close();server.kill();}

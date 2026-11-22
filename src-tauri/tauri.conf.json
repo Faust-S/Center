@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "IWXA Admin Center 0.3",
+        "title": "IWXA Admin Center",
         "width": 1366,
         "height": 900,
         "minWidth": 720,
