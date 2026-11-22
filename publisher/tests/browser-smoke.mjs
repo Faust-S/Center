@@ -992,20 +992,22 @@ try {
   checks.push('preview-harness-cannot-issue-or-sign-product-license');
 
   await page.setViewportSize({width:700,height:650});
-  await page.getByRole('button',{name:'Открыть навигацию'}).click();
+  assert.equal(await page.getByRole('button',{name:'Обзор',exact:true}).isVisible(),true,
+    'V2 icon rail remains available at 700px without the old overlay menu');
+
   await page.getByRole('button',{name:'Обзор',exact:true}).click();
   const dimensions=await page.evaluate(()=>({viewport:window.innerWidth,body:document.body.scrollWidth,doc:document.documentElement.scrollWidth}));
   assert.ok(dimensions.body<=dimensions.viewport && dimensions.doc<=dimensions.viewport,JSON.stringify(dimensions));
   checks.push('compact-desktop-navigation-no-horizontal-overflow');
-  await page.getByRole('button',{name:'Открыть навигацию'}).click();
+
   await page.getByRole('button',{name:'Лицензии',exact:true}).click();
   const requestWidth=await page.evaluate(()=>Math.max(document.body.scrollWidth,document.documentElement.scrollWidth));
   assert.ok(requestWidth<=700,'TEST request interface overflows desktop minimum 700px: '+requestWidth);
   checks.push('compact-desktop-test-license-request-no-horizontal-overflow');
-  await page.getByRole('button',{name:'Открыть навигацию'}).click();
+
   await page.getByRole('button',{name:'Обзор',exact:true}).click();
 
-  await page.getByRole('button',{name:'Открыть навигацию'}).click();
+
   await page.screenshot({path:'artifacts/publisher/navigation-desktop-700.png',fullPage:true});
   await page.getByRole('button',{name:'Обзор',exact:true}).click();
   await page.screenshot({path:'artifacts/publisher/overview-desktop-700.png',fullPage:true});
