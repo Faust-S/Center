@@ -16,7 +16,7 @@ type Diagnostics={localPreparation:'READABLE'|'EMPTY'|'NEEDS_ATTENTION';
  webviewProfile:'FOLDER_PRESENT'|'FOLDER_NOT_OBSERVED';attentionRequired:boolean}|null;
 type Spec={label:string;category:string;summary:string;source:string;page:Page};
 export const WIDGETS:Record<WidgetId,Spec>={
- corporate:{label:'Лицензия организации',category:'Лицензии',summary:'Admin Center и назначаемый пул корпоративных Personal Agent.',source:'Подготовка; подтверждённые места: 0',page:'proposals'},
+ corporate:{label:'Лицензия организации',category:'Лицензии',summary:'Admin Center и назначаемый пул корпоративных Personal Agent.',source:'Черновики Publisher и исходный T3',page:'proposals'},
  person:{label:'Лицензии PERSON',category:'Лицензии',summary:'Подпись, STATUS, продление и контроль получателя.',source:'Только проверенный оригинальный T3',page:'trust'},
  products:{label:'Продукты',category:'Каталог',summary:'Программы и связь с лицензиями, тарифами и релизами.',source:'Нативные черновики Publisher',page:'products'},
  tariffs:{label:'Тарифы и квоты',category:'Каталог',summary:'Редакции, тарифные места, функции и квоты.',source:'Нативные черновики Publisher',page:'tariffs'},
@@ -61,6 +61,8 @@ export function savePreferences(p:Preferences){
  }));}catch{/* cosmetic setting only, never blocks native store */}
 }
 export type DashboardProps={draft:Draft;attention:Attention;diagnostics:Diagnostics;
+ corporateIssuerCount:number|null;corporateIssuerBusy:boolean;
+ corporateIssuerError:string;onCheckCorporateIssuer:()=>void;
  attentionBusy:boolean;attentionError:string;onCheckAttention:()=>void;
  diagnosticsBusy:boolean;diagnosticsError:string;onCheckDiagnostics:()=>void;
  layout:Widget[];editing:boolean;onChange:(next:Widget[])=>void;
@@ -86,13 +88,17 @@ function metric(id:WidgetId,d:Draft,attention:Attention,diagnostics:Diagnostics)
 }
 // Only locally persisted unsigned drafts or explicit native readbacks feed
 // these details. A blank or partial issuer journal is never zero licenses.
-function details(id:WidgetId,d:Draft,attention:Attention,diagnostics:Diagnostics):string[]{
+function details(id:WidgetId,d:Draft,attention:Attention,diagnostics:Diagnostics,
+ corporateIssuerCount:number|null):string[]{
  const orgs=d.holders.filter(h=>h.type==='ORGANIZATION').length;
  const people=d.holders.filter(h=>h.type==='PERSON').length;
  switch(id){
   case 'corporate':return [
    'Организаций в подготовке: '+orgs,
-   'Корпоративных тарифов Admin Center: '+d.tariffs.filter(t=>t.productId==='IWXA_ADMIN_CENTER'&&t.holderType==='ORGANIZATION').length
+   'Корпоративных тарифов Admin Center: '+d.tariffs.filter(t=>t.productId==='IWXA_ADMIN_CENTER'&&t.holderType==='ORGANIZATION').length,
+   corporateIssuerCount===null?'Исходный корпоративный T3 ещё не проверен':
+    corporateIssuerCount===0?'Корпоративный издатель не зарегистрирован':
+    'Зарегистрировано издателей T3: '+corporateIssuerCount
   ];
   case 'person':return attention?[
     'Прочитано: '+attention.shown+' из '+attention.total,
@@ -131,6 +137,7 @@ function details(id:WidgetId,d:Draft,attention:Attention,diagnostics:Diagnostics
  }
 }
 export function PublisherDashboard({draft,attention,diagnostics,attentionBusy,attentionError,
+ corporateIssuerCount,corporateIssuerBusy,corporateIssuerError,onCheckCorporateIssuer,
  onCheckAttention,diagnosticsBusy,diagnosticsError,onCheckDiagnostics,
  layout,editing,onChange,onEditing,onLibrary,onNavigate}:DashboardProps){
  const [dragged,setDragged]=React.useState<WidgetId|null>(null);
@@ -156,7 +163,7 @@ export function PublisherDashboard({draft,attention,diagnostics,attentionBusy,at
    {layout.length===0&&<div className="card pub-dashboard-empty"><h3>Здесь пока нет виджетов</h3><p>Подключите только те, которые нужны вам.</p><button className="primary" onClick={onLibrary}>Добавить виджеты</button></div>}
    {layout.map((w,i)=>{
     const spec=WIDGETS[w.id],value=metric(w.id,draft,attention,diagnostics);
-    const facts=details(w.id,draft,attention,diagnostics);
+    const facts=details(w.id,draft,attention,diagnostics,corporateIssuerCount);
     const jump=()=>onNavigate(spec.page,w.id==='backups'?'publisher-preparation-backup':w.id==='diagnostics'?'publisher-diagnostics':undefined);
     return <article key={w.id} role="listitem" className={'card pub-widget'+(w.wide?' wide':'')+(editing?' editing':'')+(dragged===w.id?' moving':'')}
       data-widget-id={w.id} draggable={editing}
@@ -186,7 +193,21 @@ export function PublisherDashboard({draft,attention,diagnostics,attentionBusy,at
       {facts.length>0&&<ul className="pub-widget-facts" aria-label={'Данные: '+spec.label}>
         {facts.map((fact,i)=><li key={i}>{fact}</li>)}
       </ul>}
-      {w.id==='corporate'&&<small>Подтверждённых к назначению мест без независимого приёма: 0</small>}
+      {w.id==='corporate'&&<>
+        <small>Назначаемых без независимого приёма мест: 0</small>
+        <div className="pub-widget-check">
+          <button type="button" className="secondary" disabled={corporateIssuerBusy}
+            data-testid="publisher-dashboard-corporate-check" onClick={onCheckCorporateIssuer}>
+            {corporateIssuerBusy?'Проверяем T3…':'Проверить корпоративного издателя'}
+          </button>
+          {corporateIssuerError&&<small role="alert">{corporateIssuerError}</small>}
+          <button type="button" className="secondary"
+            data-testid="publisher-dashboard-corporate-open"
+            onClick={()=>onNavigate('trust','publisher-corporate-native-owner')}>
+            Открыть подпись и STATUS
+          </button>
+        </div>
+      </>}
       {(w.id==='person'||w.id==='ledger')&&<div className="pub-widget-check">
         <button type="button" className="secondary" disabled={attentionBusy}
           onClick={onCheckAttention}>{attentionBusy?'Читаем T3…':'Прочитать PERSON в T3'}</button>
