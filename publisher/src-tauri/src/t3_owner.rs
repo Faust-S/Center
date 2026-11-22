@@ -199,6 +199,51 @@ pub async fn publisher_t3_export_test_trust(app:AppHandle)->Result<Option<Value>
 }
 
 #[tauri::command]
+pub async fn publisher_t3_corporate_export_public_trust(
+    app:AppHandle
+)->Result<Option<Value>,String>{
+    if !t3::availability(&app,"owner-corporate"){
+        return Err("PUBLISHER_CORPORATE_ORIGINAL_OWNER_NOT_ENROLLED".into());
+    }
+    let selected=rfd::FileDialog::new()
+        .set_title("Publisher: публичное доверие корпоративного издателя")
+        .add_filter("T3 Public Trust",&["json"])
+        .set_file_name("publisher-corporate-trust.json").save_file();
+    let Some(path)=selected else{return Ok(None)};
+    if path.file_name().and_then(|f|f.to_str())!=Some("publisher-corporate-trust.json")||
+       path.exists(){
+        return Err("PUBLISHER_CORPORATE_TRUST_DESTINATION_DENIED".into());
+    }
+    let value=call_corporate(app,"corporate-trust-export",
+        vec![path.to_string_lossy().into_owned()]).await?;
+    t3::validate_test_result(&value,"CORPORATE_TRUST_EXPORTED")?;
+    let size=value.get("bytes").and_then(Value::as_u64)
+        .ok_or("PUBLISHER_CORPORATE_TRUST_SIZE_REQUIRED")?;
+    let digest=value.get("sha256").and_then(Value::as_str)
+        .ok_or("PUBLISHER_CORPORATE_TRUST_DIGEST_REQUIRED")?;
+    if value.get("publicOnly")!=Some(&Value::Bool(true))||
+       value.get("recipientProvisioned")!=Some(&Value::Bool(false))||
+       size<3||size>1024*1024||digest.len()!=64||
+       !digest.bytes().all(|b|
+         b.is_ascii_digit()||(b'a'..=b'f').contains(&b)){
+        return Err("PUBLISHER_CORPORATE_TRUST_RECEIPT_INVALID".into());
+    }
+    let meta=fs::symlink_metadata(&path)
+        .map_err(|_|"PUBLISHER_CORPORATE_TRUST_READBACK_MISSING")?;
+    if !meta.is_file()||meta.file_type().is_symlink()||meta.len()!=size{
+        return Err("PUBLISHER_CORPORATE_TRUST_FILE_INVALID".into());
+    }
+    let bytes=fs::read(&path)
+        .map_err(|_|"PUBLISHER_CORPORATE_TRUST_READBACK_UNAVAILABLE")?;
+    if bytes.len() as u64!=size||
+       format!("{:x}",Sha256::digest(&bytes))!=digest||
+       bytes.windows(11).any(|w|w==b"PRIVATE KEY"){
+        return Err("PUBLISHER_CORPORATE_TRUST_READBACK_INVALID".into());
+    }
+    Ok(Some(value))
+}
+
+#[tauri::command]
 pub async fn publisher_t3_corporate_export(
     app:AppHandle,license_id:String
 )->Result<Option<Value>,String>{
