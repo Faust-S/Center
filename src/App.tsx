@@ -525,7 +525,7 @@ export default function App() {
         </select>
         <button className="sidebar-add" onClick={()=>{if(editor){setError('Сначала сохраните открытый редактор.');return;}setCreatingOrg(true);go('overview');}}>＋ Добавить организацию</button>
       </div>
-      <nav>{pages.map(([id,label,icon])=><button key={id} className={`nav-link ${page===id?'active':''}`} aria-current={page===id?'page':undefined} onClick={()=>go(id)} data-testid={`nav-${id}`}><span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span>{id==='work' && !!stats.drafts && <em>{stats.drafts}</em>}</button>)}</nav>
+      <nav>{pages.map(([id,label,icon])=><button key={id} className={`nav-link ${page===id?'active':''}`} aria-current={page===id?'page':undefined} aria-label={id==='overview'?'Обзор · Admin Center':undefined} onClick={()=>go(id)} data-testid={`nav-${id}`}><span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span>{id==='work' && !!stats.drafts && <em>{stats.drafts}</em>}</button>)}</nav>
       <div className="sidebar-bottom"><div className="local-label"><span className="dot" />Рабочее место руководителя</div><p>Atlas 0.9 нужен для проектных работ, Agent 0.6 для выполнения поручений. Подписание и приёмка выполняются через T3.</p></div>
     </aside>
 
