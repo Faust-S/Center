@@ -8,6 +8,7 @@ import {prepareCorporateLicenseRequest,encodeCorporateLicenseRequest,
   suggestedCorporateLicenseRequestFileName} from '../src/corporate-license-request.mjs';
 import {projectPublisherPersonAttention} from '../src/person-attention.mjs';
 import PublisherT3OwnerPanel from './PublisherT3OwnerPanel';
+import PublisherCorporateOwnerPanel from './PublisherCorporateOwnerPanel';
 import AgeExchangePanel from '../../src/AgeExchangePanel';
 import TariffPanel from './TariffPanel';
 import '../../src/style.css';
@@ -826,6 +827,10 @@ export default function App(){
        </>}
        {page==='trust'&&<section className="card padded"><h2>Издательские полномочия</h2>
            <p className="muted">TEST-подпись доступна только через ранее зарегистрированного владельца и оригинальный нативный компонент T3. Подписанный выпуск PERSON требует отдельно зарегистрированного издателя. Закрытые ключи не передаются в интерфейс. Действие лицензии подтверждается установленным продуктом, а не фактом её выдачи.</p>
+           <PublisherCorporateOwnerPanel draft={state} invoke={invoke}
+             expectedDraftSha256={draftSourceSha256.current}
+             ensureSigningDraftCurrent={ensureSigningDraftCurrent}/>
+           <div className="divider"></div>
            <PublisherT3OwnerPanel draft={state} invoke={invoke} change={change}
              personRequestId={personRequestId} ageReady={ageReady}
              draftSourceSha256={draftSourceSha256.current}
