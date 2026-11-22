@@ -410,6 +410,15 @@ try{
             taskRevisionId:'a'.repeat(64),packageSha256:'b'.repeat(64),
             recipientId:'person:reviewer',
             status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED'};
+        if(args.operation==='d3Inbox'){
+          return {schema:'IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1',
+            organizationId:args.organizationId,workspaceId:'workspace:ui-smoke',
+            total:1,truncated:false,
+            items:[{packageSha256:'c'.repeat(64),
+              status:held.decision?'ACCEPTED':'REVIEW_REQUIRED',
+              acceptanceId:held.decision?'f'.repeat(64):null,
+              operationId:held.decision?.operationId??null}]};
+        }
         if(args.operation==='d3Preview'){
           const sha='c'.repeat(64),digest='d'.repeat(64),revision='e'.repeat(64);
           const resultText='Результат выполнен';
@@ -483,6 +492,29 @@ try{
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).writes,1,
     'read-only Task recovery must not reissue signed Task');
   checks.push('d3-task-id-and-no-replay-survive-unknown-ack-and-signed-epoch-remount');
+  // UI-only signed-owner fixture. Navigation is source-bound but must reread
+  // original inbox before choosing a package; this is not native qualification.
+  await d3Page.getByTestId('nav-overview').click();
+  await d3Page.getByTestId('manager-read-signed').click();
+  await d3Page.getByTestId('manager-signed-summary').waitFor();
+  await d3Page.getByTestId('overview-search').fill('UI recovery task');
+  assert.equal(await d3Page.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
+  await d3Page.getByTestId('manager-search-hit').click();
+  await d3Page.getByTestId('d3-manager-original-link').waitFor();
+  assert.equal(await d3Page.getByTestId('d3-signed-task-select').inputValue(),attemptedTaskId);
+  await d3Page.getByTestId('nav-overview').click();
+  await d3Page.getByTestId('manager-read-signed').click();
+  await d3Page.getByTestId('manager-signed-summary').waitFor();
+  await d3Page.getByTestId('overview-search').fill('Пакет Result');
+  assert.equal(await d3Page.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
+  await d3Page.getByTestId('manager-search-hit').click();
+  await d3Page.getByTestId('d3-manager-recheck-package').waitFor();
+  await d3Page.getByTestId('d3-manager-recheck-package').click();
+  await d3Page.getByTestId('d3-original-inbox').waitFor();
+  assert.equal(await d3Page.getByTestId('d3-package-sha').inputValue(),'c'.repeat(64));
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).writes,1);
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,0);
+  checks.push('manager-signed-task-and-result-open-exact-original-with-read-only-revalidation');
   // UI-only owner fixture: ACCEPT commits, native ACK is lost and owner epoch
   // advances. A React remount must retain the original ID for receipt recovery.
   const decisionSha='c'.repeat(64);
