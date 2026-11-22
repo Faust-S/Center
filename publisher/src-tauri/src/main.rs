@@ -553,7 +553,7 @@ fn publisher_save_test_request(content: String, suggested_file_name: String) -> 
 // the only license signer, verifier and durable issuer. Never accept it as a
 // signed .iwxa or as a source of employee seat assignments.
 const CORPORATE_REQUEST_LIMIT: usize = 32 * 1024;
-fn validate_corporate_request(content:&str)->Result<(),String>{
+pub(crate) fn validate_corporate_request(content:&str)->Result<(),String>{
     if content.is_empty()||content.len()>CORPORATE_REQUEST_LIMIT {
         return Err("CORPORATE_REQUEST_SIZE_INVALID".into());
     }
@@ -853,6 +853,11 @@ fn main() {
             t3_owner::publisher_t3_issue, t3_owner::publisher_t3_change_status,
             t3_owner::publisher_t3_export, t3_owner::publisher_t3_export_age,
             t3_owner::publisher_t3_export_test_trust,
+            t3_owner::publisher_t3_corporate_capabilities,
+            t3_owner::publisher_t3_corporate_inventory,
+            t3_owner::publisher_t3_corporate_signed_readback,
+            t3_owner::publisher_t3_corporate_issue,
+            t3_owner::publisher_t3_corporate_change_status,
             t3_owner::publisher_t3_person_capabilities,
             t3_owner::publisher_t3_person_inventory,
             t3_owner::publisher_t3_person_signed_readback,
