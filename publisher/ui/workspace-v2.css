@@ -218,3 +218,66 @@
 @media(prefers-reduced-motion:reduce){
  .publisher-app .pub-widget,.publisher-app .pub-dock{transition:none}
 }
+
+/* Approved V2 two-stage navigation: narrow icon rail plus the functional
+ * context navigator. The right inspection dock remains a separate sibling
+ * of main and NEVER overlays either region. */
+.publisher-app .pub-left-container{display:flex;flex:0 0 269px;width:269px;
+ min-width:0;min-height:0;overflow:hidden;
+ background:linear-gradient(160deg,#26344a 0%,#34445f 75%,#35536a)}
+.publisher-app .pub-left-container .sidebar{flex:0 0 62px;width:62px;
+ min-width:62px;overflow-y:auto;overflow-x:hidden;
+ border-right:1px solid #6c85a3;background:linear-gradient(167deg,#1e2b3e,#314660)}
+.publisher-app .pub-left-container .publisher-brand{padding:14px 7px 10px;
+ justify-content:center}
+.publisher-app .pub-left-container .publisher-brand-lockup{justify-content:center}
+.publisher-app .pub-left-container .publisher-brand-logo{width:37px;height:37px}
+.publisher-app .pub-left-container .publisher-brand-copy,
+.publisher-app .pub-left-container .publisher-nav-caption,
+.publisher-app .pub-left-container .sidebar-bottom p{display:none}
+.publisher-app .pub-left-container .sidebar nav{padding:8px 7px;border:0}
+.publisher-app .pub-left-container .nav-link{position:relative;display:flex;
+ justify-content:center;min-height:42px;padding:9px 7px;margin:4px 0;
+ border-radius:11px}
+.publisher-app .pub-left-container .nav-link>span:last-child{display:none}
+.publisher-app .pub-left-container .nav-link .nav-icon{min-width:21px;width:21px}
+.publisher-app .pub-left-container .nav-link .nav-icon svg{width:21px;height:21px}
+.publisher-app .pub-left-container .nav-link:hover::after,
+.publisher-app .pub-left-container .nav-link:focus-visible::after{
+ content:attr(aria-label);position:absolute;left:51px;top:5px;z-index:20;
+ background:#203852;color:#fff;border:1px solid #7e9ac1;
+ font-size:11px;font-weight:400;white-space:nowrap;
+ padding:7px 9px;border-radius:7px;pointer-events:none}
+.publisher-app .pub-left-container .sidebar-bottom{padding:11px;
+ margin-top:auto;display:flex;justify-content:center}
+.publisher-app .pub-left-container .sidebar-bottom .dot{display:block}
+.publisher-app .pub-side-context{flex:1;min-width:0;display:flex;
+ flex-direction:column;color:#eaf3ff;overflow-y:auto;scrollbar-width:thin;
+ scrollbar-color:#7390ae transparent}
+.publisher-app .pub-side-context-head{padding:24px 17px 10px}
+.publisher-app .pub-side-context-head h2{font-size:18px;color:#f5f9ff;margin:0}
+.publisher-app .pub-side-context-head p{font-size:11px;color:#c2d4e9;line-height:1.5;margin:7px 0 0}
+.publisher-app .pub-side-context nav{padding:8px 10px 16px}
+.publisher-app .pub-side-caption{font-size:10px;letter-spacing:1.1px;text-transform:uppercase;
+ color:#b5cce6;margin:5px 10px 13px}
+.publisher-app .pub-side-context nav button{display:block;width:100%;
+ text-align:left;background:transparent;color:#eaf2ff;min-height:37px;
+ padding:9px 10px;margin:3px 0;border:0;border-radius:9px;
+ font-size:12px;line-height:1.5}
+.publisher-app .pub-side-context nav button:hover,
+.publisher-app .pub-side-context nav button:focus-visible{background:#ffffff24}
+.publisher-app .pub-side-context-foot{margin-top:auto;padding:15px 17px;
+ border-top:1px solid #ffffff29}
+.publisher-app .pub-side-context-foot strong{font-size:11px}
+.publisher-app .pub-side-context-foot p{font-size:10px;line-height:1.5;color:#c5d7e7;margin:7px 0 0}
+@media(max-width:1190px){
+ .publisher-app .pub-left-container{flex-basis:67px;width:67px}
+ .publisher-app .pub-left-container .sidebar{flex:0 0 67px;width:67px}
+ .publisher-app .pub-side-context{display:none}
+}
+@media(max-width:700px){
+ .publisher-app .pub-left-container{flex-basis:55px;width:55px}
+ .publisher-app .pub-left-container .sidebar{flex:0 0 55px;width:55px;display:flex}
+ .publisher-app .pub-left-container .publisher-brand-logo{width:32px;height:32px}
+ .publisher-app .pub-left-container .nav-link{min-height:37px;padding:7px}
+}
