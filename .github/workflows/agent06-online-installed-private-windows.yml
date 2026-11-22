@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '4a0faefd530855dc3797bfcd755e29622f433ae8'
-      PRIVATE_TREE_PIN: '0d2038b0bb8b123ba16f6efd7df7dec3dc69f85b'
+      PRIVATE_SOURCE_PIN: 'c9052670b206a852fa0cdafc96d0c1188dbb7c36'
+      PRIVATE_TREE_PIN: '267b0f59d845b4f6f07e7ca15f80978077f8daf0'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -221,6 +221,15 @@ jobs:
                 )
                 if([string]$w.failure_code -cin $safeReasons){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_CODE='+[string]$w.failure_code)
+                }
+                $safeCheckpoints=@(
+                  'NOT_STARTED','LOOKUP_INITIAL_TITLE',
+                  'LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON',
+                  'CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE',
+                  'LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE'
+                )
+                if([string]$w.ui_checkpoint -cin $safeCheckpoints){
+                  Write-Host ('AGENT06_ONLINE_INSTALLED_GUI_CHECKPOINT='+[string]$w.ui_checkpoint)
                 }
               }
             }catch{
