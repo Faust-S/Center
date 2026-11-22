@@ -186,6 +186,28 @@ export default function PublisherCorporateOwnerPanel({
     }finally{setBusy(false);}
   }
 
+  async function exportSignedIwxa(){
+    if(!signed||signed.status==='NOT_ACTIVATED'||unknown||busy)return;
+    setBusy(true);setProblem('');setFeedback('');
+    try{
+      const result=await invoke('publisher_t3_corporate_export',{
+        licenseId:signed.licenseId
+      });
+      if(result===null){
+        setFeedback('Выбор места сохранения .iwxa отменён.');return;
+      }
+      if(result.operation!=='CORPORATE_IWXA_EXPORTED'||
+         result.licenseId!==signed.licenseId||
+         !HEX.test(result.packageSha256)||
+         !Number.isSafeInteger(result.bytes)||result.bytes<1||
+         result.productionActivation!==false||result.activeSeats!==0)
+        throw Error('CORPORATE_OWNER_IWXA_NOT_VERIFIED');
+      setFeedback('Оригинальный T3 записал подписанный .iwxa. Целостность файла проверена. Доставка, принятие Admin Center и места Personal Agent ещё не подтверждены.');
+    }catch(e){
+      setProblem('Нельзя подтвердить экспорт исходного .iwxa: '+error(e));
+    }finally{setBusy(false);}
+  }
+
   return <section className="publisher-test-owner" data-testid="publisher-corporate-native-owner">
     <h3>Корпоративная лицензия организации: исходный T3</h3>
     <p className="muted">Только зарегистрированный исходный T3 Owner подписывает
@@ -263,6 +285,13 @@ export default function PublisherCorporateOwnerPanel({
       <p>STATUS: {signed.status}, последовательность {signed.sequence}.
         SHA-256 LICENSE: {signed.licenseEnvelopeSha256}.</p>
       <p>Получение Admin Center: не подтверждено. Назначаемых мест: 0.</p>
+      {signed.status!=='NOT_ACTIVATED'&&
+        <button type="button" className="secondary"
+          data-testid="publisher-corporate-native-export"
+          disabled={busy||unknown}
+          onClick={()=>void exportSignedIwxa()}>
+          Экспортировать подписанный .iwxa через исходный T3
+        </button>}
       {signed.status!=='REVOKED'&&<div>
         <label>Действие STATUS
           <select value={statusAction} disabled={busy}
