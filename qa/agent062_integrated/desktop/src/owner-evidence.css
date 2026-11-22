@@ -1,0 +1,17 @@
+/* Existing IWXA palette and typography; disclosure only, not another theme. */
+.owner-evidence{display:block;width:100%;min-width:0;margin-top:8px}
+.owner-evidence-toggle{display:inline-flex;gap:7px;align-items:center;padding:7px 10px;border:1px solid #c7d8ed;border-radius:8px;background:#f1f6ff;color:#29466a;text-align:left;cursor:pointer}
+.owner-evidence-toggle:focus-visible{outline:3px solid #538dff;outline-offset:2px}
+.owner-evidence-body{display:block;margin-top:8px;padding:12px;border:1px solid #d8e4f4;border-radius:9px;max-height:440px;overflow:auto;background:#fff}
+.owner-evidence-body[hidden]{display:none}
+.owner-evidence-note{display:block;margin-bottom:9px;font-size:12px;line-height:1.5;color:#516684}
+.owner-evidence-fields{display:grid;gap:8px}
+.owner-evidence-field{display:grid;grid-template-columns:minmax(110px,1fr) minmax(0,3fr);gap:10px;border-bottom:1px solid #dce6f2;padding-bottom:7px}
+.owner-evidence-label{font-weight:600;overflow-wrap:anywhere;min-width:0}
+.owner-evidence-value{min-width:0;overflow-wrap:anywhere}
+.owner-evidence-value code{font-size:12px;white-space:pre-wrap;word-break:break-word}
+html[data-theme="dark"] .owner-evidence-toggle{background:#243d59;color:#edf5ff;border-color:#547293}
+html[data-theme="dark"] .owner-evidence-body{background:#20334a;color:#f2f7ff;border-color:#51718f}
+html[data-theme="dark"] .owner-evidence-note{color:#cbdff4}
+html[data-theme="dark"] .owner-evidence-field{border-color:#49627e}
+@media(max-width:1120px){.owner-evidence-field{grid-template-columns:minmax(0,1fr)}}
