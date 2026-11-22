@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 15
     env:
-      AGENT061_SOURCE_PIN: '854f5cd5d6d841792dbd1837d0fc48a33b9b8aed'
+      AGENT061_SOURCE_PIN: '3d7312ac5341753ed614b04b2681c1a1b16e5524'
       IWXA_RUN_ETHEREAL_LIVE: '1'
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
@@ -77,6 +77,12 @@ jobs:
                 'ethereal_full_READ_SEARCH_ALPHA_failed','ethereal_full_READ_SEARCH_BETA_failed',
                 'ethereal_full_READ_FULL_ALPHA_failed','ethereal_full_READ_FULL_BETA_failed',
                 'ethereal_full_READ_ISOLATION_ALPHA_failed','ethereal_full_READ_ISOLATION_BETA_failed',
+                'ethereal_full_READ_ISOLATION_QUERY_ALPHA_failed','ethereal_full_READ_ISOLATION_QUERY_BETA_failed',
+                'ethereal_full_READ_ISOLATION_RESULT_ALPHA_failed','ethereal_full_READ_ISOLATION_RESULT_BETA_failed',
+                'ethereal_agent_search_exclusion_disagrees_with_direct_imap',
+                'ethereal_direct_imap_other_marker_present','ethereal_remote_imap_text_search_overmatches',
+                'ethereal_direct_imap_select_failed','ethereal_direct_imap_search_failed',
+                'ethereal_direct_imap_fetch_failed','ethereal_direct_imap_isolation_probe_failed',
                 'ethereal_full_COLD_failed','ethereal_full_SECRETS_failed',
                 'ethereal_sent_message_missing_from_own_mailbox',
                 'ethereal_imap_tls_or_connect_failed','ethereal_imap_login_failed',
