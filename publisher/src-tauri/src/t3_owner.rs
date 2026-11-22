@@ -200,6 +200,297 @@ pub async fn publisher_t3_export_test_trust(app:AppHandle)->Result<Option<Value>
 
 // PERSON uses the original private T3 owner binary, but only the separately
 // pre-enrolled production root. The public bridge never signs or imports trust.
+// ORGANIZATION: a thin production bridge to the SAME pre-enrolled original
+// T3 owner process and durable production ledger used by PERSON. All actual
+// Ed25519 signing, T3 trust and rights are in that original compiled Owner.
+// The public bridge MUST NOT infer a Personal Agent entitlement from draft.
+const CORPORATE_DRAFT_BINDING_ERROR:&str="PUBLISHER_CORPORATE_REQUEST_DRAFT_MISMATCH";
+fn verify_corporate_request_matches_preparation(root:&Path,request:&Value)
+ ->Result<(),String>{
+    let raw=crate::read_preparation(root)
+        .map_err(|_|"PUBLISHER_CORPORATE_DRAFT_SOURCE_UNAVAILABLE")?
+        .ok_or("PUBLISHER_CORPORATE_DRAFT_SOURCE_UNAVAILABLE")?;
+    let draft:Value=serde_json::from_str(&raw)
+        .map_err(|_|"PUBLISHER_CORPORATE_DRAFT_SOURCE_UNAVAILABLE")?;
+    let proposal=person_draft_record(&draft,"proposals",&request["requestId"])
+        .map_err(|_|CORPORATE_DRAFT_BINDING_ERROR.to_string())?;
+    let holder=person_draft_record(&draft,"holders",&proposal["holderId"])
+        .map_err(|_|CORPORATE_DRAFT_BINDING_ERROR.to_string())?;
+    let product=person_draft_record(&draft,"products",&proposal["productId"])
+        .map_err(|_|CORPORATE_DRAFT_BINDING_ERROR.to_string())?;
+    let tariff=proposal.get("tariffSnapshot")
+        .ok_or(CORPORATE_DRAFT_BINDING_ERROR)?;
+    let registered=draft.get("tariffs").and_then(Value::as_array)
+        .is_some_and(|rows|rows.iter().any(|t|t==tariff));
+    let seats=request["limits"]["personalAgentSeats"].as_u64()
+        .ok_or(CORPORATE_DRAFT_BINDING_ERROR)?;
+    let limit=tariff["employeeLimit"].as_u64()
+        .ok_or(CORPORATE_DRAFT_BINDING_ERROR)?;
+    let features=tariff["features"].as_array()
+        .ok_or(CORPORATE_DRAFT_BINDING_ERROR)?;
+    if !registered||proposal["status"]!="DRAFT_NOT_ISSUED"||
+       holder["type"]!="ORGANIZATION"||
+       product["id"]!="IWXA_ADMIN_CENTER"||
+       tariff["holderType"]!="ORGANIZATION"||
+       tariff["productId"]!=proposal["productId"]||
+       tariff["termDays"]!=proposal["termDays"]||
+       tariff["features"]!=proposal["features"]||
+       seats>limit||
+       (seats>0&&!features.iter().any(|v|v=="PERSONAL_AGENT_CORPORATE")){
+        return Err(CORPORATE_DRAFT_BINDING_ERROR.into());
+    }
+    let expected=serde_json::json!({
+        "schema":"IWXA_T3_CORPORATE_LICENSE_REQUEST/1",
+        "kind":"CORPORATE_LICENSE_REQUEST",
+        "requestId":proposal["id"],
+        "requestedAt":proposal["createdAt"],
+        "environment":"PRODUCTION",
+        "subject":{"type":"ORGANIZATION","id":holder["id"]},
+        "product":{"id":product["id"],"version":proposal["productVersion"]},
+        "tariff":{"id":tariff["id"],"revision":tariff["revision"]},
+        "featureIds":proposal["features"],
+        "limits":{"adminCenterSeats":tariff["productSeats"],
+          "employeeLimit":tariff["employeeLimit"],
+          "personalAgentSeats":seats,
+          "quotas":tariff["quotas"]},
+        "termDays":proposal["termDays"],
+        "status":"UNSIGNED_REQUEST"
+    });
+    if &expected!=request{return Err(CORPORATE_DRAFT_BINDING_ERROR.into());}
+    Ok(())
+}
+
+async fn call_corporate(app:AppHandle,action:&'static str,values:Vec<String>)
+ ->Result<Value,String>{
+    tauri::async_runtime::spawn_blocking(move||
+        t3::run(&app,"owner-corporate",action,&values))
+      .await.map_err(|_|"PUBLISHER_CORPORATE_WORKER_FAILED".to_string())?
+}
+#[tauri::command]
+pub async fn publisher_t3_corporate_capabilities(app:AppHandle)
+ ->Result<Value,String>{
+    let v=call_corporate(app,"corporate-capabilities",vec![]).await?;
+    t3::validate_test_result(&v,"CORPORATE_CAPABILITIES")?;
+    if v.get("environment").and_then(Value::as_str)!=Some("PRODUCTION")||
+       !v.get("issuers").is_some_and(Value::is_array)||
+       v.get("commercialAuthorityProven")!=Some(&Value::Bool(false)){
+        return Err("PUBLISHER_CORPORATE_ORIGINAL_ISSUER_REQUIRED".into());
+    }
+    Ok(v)
+}
+#[tauri::command]
+pub async fn publisher_t3_corporate_inventory(
+    app:AppHandle,lookup_id:Option<String>
+)->Result<Value,String>{
+    if lookup_id.as_deref().is_some_and(|v|!t3::valid_identifier(v)){
+        return Err("PUBLISHER_CORPORATE_LOOKUP_INVALID".into());
+    }
+    let v=call_corporate(app,"corporate-inventory",
+        lookup_id.iter().cloned().collect()).await?;
+    t3::validate_test_result(&v,"CORPORATE_INVENTORY")?;
+    if !v.get("licenses").is_some_and(Value::is_array)||
+       v.get("total").and_then(Value::as_u64).is_none()||
+       v.get("truncated").and_then(Value::as_bool).is_none(){
+        return Err("PUBLISHER_CORPORATE_INVENTORY_INVALID".into());
+    }
+    if let Some(lookup)=lookup_id.as_deref(){
+        if v.get("lookupId").and_then(Value::as_str)!=Some(lookup)||
+           v.get("matches").and_then(Value::as_u64).is_none(){
+            return Err("PUBLISHER_CORPORATE_LOOKUP_MISMATCH".into());
+        }
+    }
+    Ok(v)
+}
+#[tauri::command]
+pub async fn publisher_t3_corporate_signed_readback(
+    app:AppHandle,license_id:String
+)->Result<Value,String>{
+    if !t3::valid_identifier(&license_id){
+        return Err("PUBLISHER_CORPORATE_READBACK_LICENSE_INVALID".into());
+    }
+    let v=call_corporate(app,"corporate-signed-readback",
+        vec![license_id.clone()]).await?;
+    t3::validate_test_result(&v,"CORPORATE_SIGNED_READBACK")?;
+    let hex=|name:&str|v.get(name).and_then(Value::as_str)
+        .is_some_and(|s|s.len()==64&&s.bytes().all(|b|
+          b.is_ascii_digit()||(b'a'..=b'f').contains(&b)));
+    if v.get("source").and_then(Value::as_str)!=
+          Some("ORIGINAL_T3_PRODUCT_ISSUE_LEDGER")||
+       v.get("licenseId").and_then(Value::as_str)!=Some(license_id.as_str())||
+       !v.get("organizationId").and_then(Value::as_str)
+          .is_some_and(t3::valid_identifier)||
+       v.get("productId").and_then(Value::as_str)!=Some("IWXA_ADMIN_CENTER")||
+       !hex("licenseEnvelopeSha256")||
+       v.get("licenseSignatureVerifiedAtIssuance")!=Some(&Value::Bool(true))||
+       v.get("recipientConfirmed")!=Some(&Value::Bool(false))||
+       v.get("assignablePersonalAgentSeats")!=Some(&Value::from(0))||
+       v.get("stateRevision").and_then(Value::as_u64).is_none()||
+       v.get("ledgerRevision").and_then(Value::as_u64).is_none(){
+        return Err("PUBLISHER_CORPORATE_READBACK_SOURCE_INVALID".into());
+    }
+    let seq=v.get("sequence").and_then(Value::as_u64)
+        .ok_or("PUBLISHER_CORPORATE_STATUS_SEQUENCE_REQUIRED")?;
+    match v.get("status").and_then(Value::as_str){
+        Some("NOT_ACTIVATED") if seq==0&&
+          v.get("statusEnvelopeSha256").is_some_and(Value::is_null)&&
+          v.get("statusFloorVerified")==Some(&Value::Bool(false))=>{},
+        Some("ACTIVE"|"SUSPENDED"|"REVOKED") if seq>=1&&
+          hex("statusEnvelopeSha256")&&
+          v.get("statusFloorVerified")==Some(&Value::Bool(true))&&
+          v.get("statusSignatureVerifiedAtIssuance")==Some(&Value::Bool(true))=>{},
+        _=>return Err("PUBLISHER_CORPORATE_STATUS_READBACK_INVALID".into())
+    }
+    Ok(v)
+}
+#[tauri::command]
+pub async fn publisher_t3_corporate_issue(
+    app:AppHandle,request_json:String,issuer_authority_id:String,
+    expected_draft_sha256:String
+)->Result<Value,String>{
+    crate::validate_corporate_request(&request_json)?;
+    let request:Value=serde_json::from_str(&request_json)
+        .map_err(|_|"PUBLISHER_CORPORATE_REQUEST_JSON_INVALID")?;
+    let request_id=request["requestId"].as_str()
+        .ok_or("PUBLISHER_CORPORATE_REQUEST_ID_REQUIRED")?.to_owned();
+    if !t3::valid_identifier(&issuer_authority_id){
+        return Err("PUBLISHER_CORPORATE_ISSUER_ID_INVALID".into());
+    }
+    let root=crate::publisher_root(&app)?;
+    verify_person_draft_source(&root,&expected_draft_sha256)?;
+    verify_corporate_request_matches_preparation(&root,&request)?;
+    if !t3::availability(&app,"owner-corporate"){
+        return Err("PUBLISHER_CORPORATE_ORIGINAL_OWNER_NOT_ENROLLED".into());
+    }
+    let nonce=SystemTime::now().duration_since(UNIX_EPOCH)
+        .map_err(|_|"PUBLISHER_CORPORATE_REQUEST_TIME_INVALID")?.as_nanos();
+    let file=std::env::temp_dir().join(format!(
+        "iwxa-corporate-owner-request-{}-{nonce}.json",std::process::id()));
+    {
+      let mut fd=OpenOptions::new().write(true).create_new(true)
+          .open(&file).map_err(|_|"PUBLISHER_CORPORATE_REQUEST_TEMP_DENIED")?;
+      fd.write_all(request_json.as_bytes())
+          .map_err(|_|"PUBLISHER_CORPORATE_REQUEST_TEMP_DENIED")?;
+      fd.sync_all().map_err(|_|"PUBLISHER_CORPORATE_REQUEST_TEMP_DENIED")?;
+    }
+    let cleanup=TransientRequest(file.clone());
+    let v=tauri::async_runtime::spawn_blocking(move||{
+        let _cleanup=cleanup;
+        let actual_root=crate::publisher_root(&app)?;
+        with_stable_person_draft_source(
+          &actual_root,&expected_draft_sha256,||{
+            verify_corporate_request_matches_preparation(&actual_root,&request)?;
+            t3::run(&app,"owner-corporate","corporate-issue", &[
+              file.to_string_lossy().into_owned(),issuer_authority_id
+            ])
+          })
+    }).await.map_err(|_|"PUBLISHER_CORPORATE_WORKER_FAILED".to_string())??;
+    t3::validate_test_result(&v,"CORPORATE_ISSUE")?;
+    if v.get("requestId").and_then(Value::as_str)!=Some(request_id.as_str())||
+       !v.get("licenseId").and_then(Value::as_str)
+         .is_some_and(t3::valid_identifier)||
+       !matches!(v.get("outcome").and_then(Value::as_str),
+         Some("ISSUED_NEW"|"ALREADY_ISSUED")){
+        return Err("PUBLISHER_CORPORATE_ORIGINAL_ISSUE_RECEIPT_MISMATCH".into());
+    }
+    Ok(v)
+}
+#[tauri::command]
+pub async fn publisher_t3_corporate_change_status(
+    app:AppHandle,license_id:String,next_status:String,
+    expected_sequence:u64,valid_until:String
+)->Result<Value,String>{
+    if !t3::valid_identifier(&license_id)||
+       !["ACTIVE","SUSPENDED","REVOKED"].contains(&next_status.as_str())||
+       expected_sequence>2147483646||
+       valid_until.len()!=24||!valid_until.ends_with('Z'){
+        return Err("PUBLISHER_CORPORATE_STATUS_INPUT_INVALID".into());
+    }
+    let v=call_corporate(app,"corporate-status",vec![
+        license_id.clone(),next_status.clone(),expected_sequence.to_string(),
+        valid_until
+    ]).await?;
+    t3::validate_test_result(&v,"CORPORATE_STATUS")?;
+    if v.get("licenseId").and_then(Value::as_str)!=Some(license_id.as_str())||
+       v.get("state").and_then(Value::as_str)!=Some(next_status.as_str())||
+       v.get("sequence").and_then(Value::as_u64)!=Some(expected_sequence+1){
+        return Err("PUBLISHER_CORPORATE_ORIGINAL_STATUS_RECEIPT_MISMATCH".into());
+    }
+    Ok(v)
+}
+#[cfg(test)]
+mod corporate_native_bridge_tests{
+    use super::*;
+    #[test]
+    fn corporate_issue_is_bound_to_exact_saved_organization_tariff(){
+        let root=std::env::temp_dir().join(format!("publisher-corp-native-{}-{}",
+          std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH)
+            .unwrap().as_nanos()));
+        fs::create_dir_all(&root).unwrap();
+        let draft=serde_json::json!({
+          "format":"iwxa.publisher.preparation","version":2,
+          "updatedAt":"2026-11-22T12:00:00.000Z",
+          "products":[{"id":"IWXA_ADMIN_CENTER","name":"Admin","version":"0.5.0"}],
+          "holders":[{"id":"org:factory","name":"Factory","type":"ORGANIZATION"}],
+          "tariffs":[{
+            "id":"TEAM","productId":"IWXA_ADMIN_CENTER","name":"Team",
+            "holderType":"ORGANIZATION","revision":2,
+            "features":["PERSONAL_AGENT_CORPORATE"],"termDays":30,
+            "productSeats":2,"employeeLimit":10,"deviceLimit":0,"quotas":[]
+          }],
+          "proposals":[{
+            "id":"proposal:factory","productId":"IWXA_ADMIN_CENTER",
+            "holderId":"org:factory","features":["PERSONAL_AGENT_CORPORATE"],
+            "termDays":30,"createdAt":"2026-11-22T12:00:00.000Z",
+            "status":"DRAFT_NOT_ISSUED","productVersion":"0.5.0",
+            "tariffSnapshot":{
+              "id":"TEAM","productId":"IWXA_ADMIN_CENTER","name":"Team",
+              "holderType":"ORGANIZATION","revision":2,
+              "features":["PERSONAL_AGENT_CORPORATE"],"termDays":30,
+              "productSeats":2,"employeeLimit":10,"deviceLimit":0,"quotas":[]
+            }
+          }],
+          "artifacts":[]
+        });
+        fs::write(root.join("publisher-preparation-v1.json"),draft.to_string()).unwrap();
+        let request=serde_json::json!({
+            "schema":"IWXA_T3_CORPORATE_LICENSE_REQUEST/1",
+            "kind":"CORPORATE_LICENSE_REQUEST",
+            "requestId":"proposal:factory",
+            "requestedAt":"2026-11-22T12:00:00.000Z",
+            "environment":"PRODUCTION",
+            "subject":{"type":"ORGANIZATION","id":"org:factory"},
+            "product":{"id":"IWXA_ADMIN_CENTER","version":"0.5.0"},
+            "tariff":{"id":"TEAM","revision":2},
+            "featureIds":["PERSONAL_AGENT_CORPORATE"],
+            "limits":{"adminCenterSeats":2,"employeeLimit":10,
+              "personalAgentSeats":3,"quotas":[]},
+            "termDays":30,"status":"UNSIGNED_REQUEST"
+        });
+        crate::validate_corporate_request(&request.to_string()).unwrap();
+        verify_corporate_request_matches_preparation(&root,&request).unwrap();
+        let mut forged=request.clone();
+        forged["tariff"]["revision"]=Value::from(3);
+        assert_eq!(verify_corporate_request_matches_preparation(&root,&forged)
+          .unwrap_err(),CORPORATE_DRAFT_BINDING_ERROR);
+        forged=request.clone();
+        forged["limits"]["personalAgentSeats"]=Value::from(11);
+        assert!(verify_corporate_request_matches_preparation(&root,&forged).is_err());
+        forged=request.clone();
+        forged["subject"]["id"]=Value::from("org:competitor");
+        assert!(verify_corporate_request_matches_preparation(&root,&forged).is_err());
+        forged=request.clone();
+        forged["limits"]["adminCenterSeats"]=Value::from(9);
+        assert!(verify_corporate_request_matches_preparation(&root,&forged).is_err());
+        let digest=format!("{:x}",Sha256::digest(
+          fs::read(root.join("publisher-preparation-v1.json")).unwrap()));
+        verify_person_draft_source(&root,&digest).unwrap();
+        fs::write(root.join("publisher-preparation-v1.json"),"{}").unwrap();
+        assert_eq!(verify_person_draft_source(&root,&digest).unwrap_err(),
+          "PUBLISHER_DRAFT_CHANGED_ON_DISK");
+        let _=fs::remove_dir_all(root);
+    }
+}
+
 const PERSON_REQUEST_LIMIT: usize = 32 * 1024;
 // Checking only inside React leaves a second-window edit possible between
 // the user preflight and the irreversible owner CLI invocation.
