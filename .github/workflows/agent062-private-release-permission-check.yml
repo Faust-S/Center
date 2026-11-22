@@ -1,0 +1,42 @@
+name: Agent062 check existing private release permission
+on:
+  push:
+    branches:
+      - work/2026-11-22-agent-062-check-private-publish-permission
+    paths:
+      - .github/workflows/agent062-private-release-permission-check.yml
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - name: Inspect existing source-token permission without exposing credentials
+        shell: pwsh
+        env:
+          IWXA_PRIVATE_SOURCE_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if([string]::IsNullOrWhiteSpace($env:IWXA_PRIVATE_SOURCE_READ_TOKEN)){
+            throw 'AGENT062_PRIVATE_SOURCE_TOKEN_MISSING'
+          }
+          $headers=@{
+            Authorization='Bearer '+$env:IWXA_PRIVATE_SOURCE_READ_TOKEN
+            Accept='application/vnd.github+json'
+            'X-GitHub-Api-Version'='2022-11-28'
+            'User-Agent'='IWXA-Agent062-Release-Permission-Check'
+          }
+          try {
+            $data=Invoke-RestMethod -Uri 'https://api.github.com/repos/Faust-S/iwxa-personal-agent' -Headers $headers -Method Get
+          } catch {
+            throw 'AGENT062_PRIVATE_PERMISSION_CHECK_API_FAILED'
+          }
+          if($data.full_name -cne 'Faust-S/iwxa-personal-agent'){
+            throw 'AGENT062_PRIVATE_PERMISSION_WRONG_REPOSITORY'
+          }
+          if($data.permissions.push -eq $true){
+            Write-Host 'AGENT062_EXISTING_PRIVATE_TOKEN_CAN_PUBLISH=YES'
+          } else {
+            Write-Host 'AGENT062_EXISTING_PRIVATE_TOKEN_CAN_PUBLISH=NO'
+          }
