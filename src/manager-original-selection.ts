@@ -3,4 +3,5 @@ export type ManagerOriginalSelection={
   kind:'signed-task'|'signed-result-package';id:string;
   organizationId:string;workspaceId:string;
   actorId:string;contextId:string;contextEpoch:number;
+  taskRevisionId?:string;packageSha256?:string;
 };

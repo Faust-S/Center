@@ -90,6 +90,12 @@ test('navigation locator permits only exact signed source and expires on epoch c
  assert.equal(prepareManagerOriginalSelection(read,'org:north','signed-result-package','not-sha'),null);
  assert.equal(prepareManagerOriginalSelection(read,'org:north','assignment','task:actual'),null);
  const task=prepareManagerOriginalSelection(read,'org:north','signed-task','task:actual');
+ assert.equal(task.taskRevisionId,hex('a'));
+ assert.equal(task.packageSha256,hex('b'));
  assert.equal(managerOriginalSelectionMatches(task,original.snapshot),true);
+ const revised=structuredClone(original.snapshot);revised.tasks[0].taskRevisionId=hex('f');
+ assert.equal(managerOriginalSelectionMatches(task,revised),false,
+   'same Task ID with another original revision must not be selected');
+ assert.equal(managerOriginalSelectionMatches({...task,packageSha256:hex('f')},original.snapshot),false);
  assert.equal(managerOriginalSelectionMatches({...task,kind:'signed-result-package'},original.snapshot),false);
 });
