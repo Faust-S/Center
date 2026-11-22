@@ -20,7 +20,7 @@ const inbox={
 const organization={id:'org:north',name:'Производство',workspaces:[],assignments:[],participants:[]};
 const owner=readManagerSignedContext(signed,'org:north',inbox);
 test('questions are bounded known management inquiries',()=>{
- assert.equal(MANAGER_QUESTIONS.length,4);
+ assert.equal(MANAGER_QUESTIONS.length,5);
  assert.throws(()=>answerManagerQuestion('rewrite-grants',{}),/QUESTION_UNKNOWN/);
 });
 test('source absence is unknown, not zero or accepted Result',()=>{
@@ -65,4 +65,21 @@ test('attention distinguishes draft observations and signed Review',()=>{
  assert.equal(a.items.length,2);
  assert.equal(a.items[0].source,'Оригинальный T3 Reconciliation');
  assert.equal(a.items[1].source,'Локальный черновик');
+});
+
+test('original Kernel question refuses invented event from signed Task/ACCEPT alone',()=>{
+ const missing=answerManagerQuestion('events',{organization,owner});
+ assert.equal(missing.status,'SOURCE_REQUIRED');
+ assert.equal(missing.items.length,0);
+ const activity={status:'ORIGINAL_T2_D2_METADATA',organizationId:'org:north',
+  counts:{events:1,unmappedEvents:2},
+  entries:[{kind:'d2-event',id:'event:original',title:'Оригинальный Event',
+    summary:'Kernel записал Event. Бизнес-исполнение неизвестно.',
+    source:'Оригинальный T2'}]};
+ const yes=answerManagerQuestion('events',{organization,owner,activity});
+ assert.equal(yes.status,'SOURCE_SUMMARY');
+ assert.equal(yes.items[0].id,'event:original');
+ assert.match(yes.scope,/не доказывает хозяйственное исполнение/);
+ assert.equal(answerManagerQuestion('events',{
+   organization:{...organization,id:'org:other'},owner,activity}).status,'SOURCE_REQUIRED');
 });
