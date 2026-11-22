@@ -7,6 +7,7 @@ export const PERSON_REQUEST_SCHEMA='IWXA_PUBLISHER_PERSON_LICENSE_REQUEST/1';
 export const PERSON_REQUEST_PRODUCTS=Object.freeze(['IWXA_PERSONAL_AGENT','IWXA_ATLAS']);
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const VERSION=/^\d+\.\d+\.\d+(?:-[A-Za-z0-9][A-Za-z0-9.-]{0,63})?$/;
+const validId=value=>typeof value==='string'&&ID.test(value);
 export class PersonLicenseRequestError extends Error{
   constructor(code){super(code);this.name='PersonLicenseRequestError';this.code=code;}
 }
@@ -24,16 +25,16 @@ export function validateUnsignedPersonLicenseRequest(input){
   exact(input,['schema','kind','requestId','requestedAt','environment','subject',
     'product','featureIds','termDays','seats','deviceLimit','quotas','status',
     ...(renewing?['renewalOfRequestId']:[])],'PERSON_REQUEST_FIELDS_INVALID');
-  if(renewing&&(!ID.test(input.renewalOfRequestId)||
+  if(renewing&&(!validId(input.renewalOfRequestId)||
      input.renewalOfRequestId===input.requestId))
     reject('PERSON_RENEWAL_SOURCE_REQUEST_INVALID');
   if(input.schema!==PERSON_REQUEST_SCHEMA||input.kind!=='PERSON_LICENSE_REQUEST'||
      input.environment!=='PRODUCTION'||input.status!=='UNSIGNED_REQUEST')
     reject('PERSON_REQUEST_NOT_UNSIGNED');
-  if(!ID.test(input.requestId)||!validIso(input.requestedAt))
+  if(!validId(input.requestId)||!validIso(input.requestedAt))
     reject('PERSON_REQUEST_ID_OR_TIME_INVALID');
   exact(input.subject,['type','id','name'],'PERSON_REQUEST_SUBJECT_FIELDS_INVALID');
-  if(input.subject.type!=='PERSON'||!ID.test(input.subject.id)||
+  if(input.subject.type!=='PERSON'||!validId(input.subject.id)||
      input.subject.id.startsWith('holder:')||
      typeof input.subject.name!=='string'||
      input.subject.name.length<1||input.subject.name.length>130||
@@ -41,6 +42,7 @@ export function validateUnsignedPersonLicenseRequest(input){
     reject('PERSON_REQUEST_SUBJECT_INVALID');
   exact(input.product,['id','version'],'PERSON_REQUEST_PRODUCT_FIELDS_INVALID');
   if(!PERSON_REQUEST_PRODUCTS.includes(input.product.id)||
+     typeof input.product.version!=='string'||
      !VERSION.test(input.product.version))reject('PERSON_REQUEST_PRODUCT_INVALID');
   if(!Array.isArray(input.featureIds)||input.featureIds.length<1||
      input.featureIds.length>30||
