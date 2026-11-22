@@ -1269,6 +1269,16 @@ try{
   assert.match(await v8Page.getByTestId('company-selection-detail').innerText(),/Связанных поручений пока нет/);
   checks.push('v8-interactive-company-structure-draft-backed-workspace-person-links');
 
+  await v8Page.getByTestId('nav-results').click();
+  await v8Page.getByTestId('v8-results-journey').waitFor();
+  assert.equal(await v8Page.locator('[data-testid^="v8-result-step-"]').count(),7);
+  await v8Page.getByTestId('v8-result-step-employees').click();
+  assert.match(await v8Page.getByTestId('v8-results-journey').innerText(),/Контакт в черновике не выдаёт права/);
+  await v8Page.getByTestId('v8-result-step-apply').click();
+  assert.match(await v8Page.getByTestId('v8-results-journey').innerText(),/ACCEPT|APPLY/i);
+  assert.equal(await v8Page.getByTestId('corporate-panel').count(),1,
+    'the original T3 corporate component must remain mounted');
+  checks.push('v8-guided-result-workflow-original-T3-actions-preserved');
   await v8Page.getByTestId('nav-data').click();
   await v8Page.getByTestId('admin-profile-settings').waitFor();
   assert.match(await v8Page.getByTestId('admin-profile-settings').innerText(),/0\.3\.0-dev\.1/);
