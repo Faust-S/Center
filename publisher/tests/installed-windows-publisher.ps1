@@ -311,23 +311,63 @@ function Use-Json-Through-Publisher-Dialog([string]$buttonName,[string]$destinat
     }
     Start-Sleep -Milliseconds 210
     $actual=$null
+    # The Win32 Save As field is normally a descendant ComboBox/Edit, but
+    # AutomationElement.FocusedElement can report the enclosing dialog window.
+    # Inspect the exact picker descendants; never depend on global UIA focus.
     try {
-      $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
-      if($focused.Current.ProcessId -eq $proc.Id -and
-         ($focused.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit -or
-          $focused.Current.ControlType -eq [System.Windows.Automation.ControlType]::ComboBox)){
-        $value=$focused.GetCurrentPattern(
-          [System.Windows.Automation.ValuePattern]::Pattern)
-        $actual=$value.Current.Value
-        if($actual -cne $destination -and $attempt -ge 2){
-          # UI Automation can set the actual filename field atomically.
-          # Read it back before the irreversible dialog confirmation.
-          $value.SetValue($destination)
-          $actual=$value.Current.Value
-        }
+      $inputs=$dialog.FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      foreach($input in $inputs){
+        try {
+          if($input.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit -and
+             $input.Current.ControlType -ne [System.Windows.Automation.ControlType]::ComboBox){
+            continue
+          }
+          $value=$input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+          if($value.Current.Value -ceq $destination){
+            $actual=$value.Current.Value
+            break
+          }
+        }catch {}
       }
     }catch {
-      Write-Host "PUBLISHER_NATIVE_FILE_DIALOG_READBACK_RETRY button=$buttonName attempt=$attempt"
+      Write-Host "PUBLISHER_NATIVE_FILE_DIALOG_UIA_READ_RETRY button=$buttonName attempt=$attempt"
+    }
+    # Some WebView2/Windows picker combinations expose no ValuePattern at all.
+    # Read back the actual filename from the focused edit through Ctrl+C,
+    # restoring the previous clipboard afterwards. Never accept typed input
+    # without an exact comparison.
+    if($actual -cne $destination){
+      $previousClipboard=$null
+      try {
+        $previousClipboard=[System.Windows.Forms.Clipboard]::GetDataObject()
+        [void][PublisherWindow]::SetForegroundWindow($dialogHandle)
+        Start-Sleep -Milliseconds 130
+        [System.Windows.Forms.SendKeys]::SendWait('%n')
+        Start-Sleep -Milliseconds 100
+        [System.Windows.Forms.Clipboard]::Clear()
+        [System.Windows.Forms.SendKeys]::SendWait('^a')
+        Start-Sleep -Milliseconds 80
+        [System.Windows.Forms.SendKeys]::SendWait('^c')
+        for($clipAttempt=0;$clipAttempt -lt 6;$clipAttempt++){
+          Start-Sleep -Milliseconds 100
+          if([System.Windows.Forms.Clipboard]::ContainsText()){
+            $actual=[System.Windows.Forms.Clipboard]::GetText()
+            break
+          }
+        }
+      }catch {
+        Write-Host "PUBLISHER_NATIVE_FILE_DIALOG_CLIPBOARD_READ_RETRY button=$buttonName attempt=$attempt"
+      }finally{
+        try {
+          if($null -ne $previousClipboard){
+            [System.Windows.Forms.Clipboard]::SetDataObject($previousClipboard,$true)
+          }else{
+            [System.Windows.Forms.Clipboard]::Clear()
+          }
+        }catch {}
+      }
     }
     if($null -ne $actual -and $actual -ceq $destination){
       $exactPathEntered=$true
