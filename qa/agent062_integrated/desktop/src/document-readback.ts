@@ -308,9 +308,13 @@ export function documentTextAttachment(value:unknown):
     ||typeof source.text_bytes!=='number'
     ||new TextEncoder().encode(content).length!==source.text_bytes)return null;
  const originalName=path.split('/').pop()||'';
- const match=/\.(txt|md|markdown|csv|json|pdf|docx)$/i.exec(originalName);
+ const match=/\.(txt|md|markdown|csv|json|pdf|docx|xlsx|pptx)$/i.exec(originalName);
  if(!match)return null;
- const ext=match[1].toLowerCase(),converted=ext==='pdf'||ext==='docx';
+ const ext=match[1].toLowerCase();
+ // The existing file reader is the only source of Office projections.
+ // Never relabel an unrelated read as a workbook or presentation.
+ if((ext==='xlsx'||ext==='pptx')&&source.format.toLowerCase()!==ext)return null;
+ const converted=['pdf','docx','xlsx','pptx'].includes(ext);
  const suffix=converted?'.'+ext+'.txt':ext==='markdown'?'.md':'.'+ext;
  let stem=originalName.slice(0,-match[0].length).normalize('NFC')
   .replace(/[^\p{L}\p{N}_ .()-]/gu,'_')
@@ -328,6 +332,12 @@ export function documentTextAttachment(value:unknown):
   'Source format: '+ext.toUpperCase(),
   'Text characters: '+(offset+1)+'-'+(offset+contentChars)+' / '+total,
   'Scope: '+(partial?'EXCERPT_ONLY':'EXTRACTED_TEXT'),
+  ...(ext==='xlsx'?[
+   'Projection limits: raw cells; formulas not evaluated and date formatting not applied.',
+  ]:[]),
+  ...(ext==='pptx'?[
+   'Projection limits: slide text only; charts, notes and images not interpreted.',
+  ]:[]),
   ...(missingPdfPages>0?[
    'PDF text coverage warning: '+missingPdfPages+
    ' page(s) have no extractable text (blank/scanned; OCR unavailable).',

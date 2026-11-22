@@ -62,9 +62,10 @@ const presetSteps=(p:typeof PRESETS[number]):Step[]=>p.id==='meeting-followup-bu
  {...makeStep('result'),operation:'CONCAT_TEXT',depends_on:['join'],concat_inputs:['view_a','view_b']},
 ]:p.id==='specialist'?[
  {...makeStep('input'),text:''},
- {...makeStep('specialist'),node_type:'AGENT_RUNTIME',depends_on:['input'],agent_role:'WORKER',
+ // The terminal Graph artifact retains the exact external runtime identity.
+ // Keep old saved graphs intact; new presets no longer insert a lossy CONCAT.
+ {...makeStep('result'),node_type:'AGENT_RUNTIME',depends_on:['input'],agent_role:'WORKER',
   agent_privacy:'PUBLIC',agent_confirm_hosted:false,system:p.system,text:p.prompt},
- {...makeStep('result'),operation:'CONCAT_TEXT',depends_on:['specialist'],concat_inputs:['specialist']},
 ]:[
  {...makeStep('input'),text:''},
  {...makeStep('result'),node_type:'MODEL_INVOCATION',depends_on:['input'],system:p.system,text:p.prompt},
@@ -140,7 +141,7 @@ function savedSteps(graph:Row,configs:Row[]):Step[]|null{
   }result.push(step);
  }return result;
 }
-export function ChainBuilder({onNavigate,initialHandoff,onHandoffConsumed,initialExecutionId,onExecutionFocusConsumed}:{onNavigate?:(page:string)=>void;initialHandoff?:WorkHandoff;onHandoffConsumed?:()=>void;initialExecutionId?:string;onExecutionFocusConsumed?:()=>void}){
+export function ChainBuilder({onNavigate,initialHandoff,onHandoffConsumed,initialExecutionId,onExecutionFocusConsumed,onTransferProgramResult}:{onNavigate?:(page:string)=>void;initialHandoff?:WorkHandoff;onHandoffConsumed?:()=>void;initialExecutionId?:string;onExecutionFocusConsumed?:()=>void;onTransferProgramResult?:(executionId:string,graphDigest:string,artifactDigest:string)=>Promise<void>}){
  const transferred=useRef(initialHandoff||null);
  // Preserve the verified accepted Result byte-for-byte when used as a
  // Graph input. Ordinary draft objectives still receive whitespace trimming.
@@ -172,7 +173,9 @@ export function ChainBuilder({onNavigate,initialHandoff,onHandoffConsumed,initia
  const [proposal,setProposal]=useState(''),[error,setError]=useState(''),[preparing,setPreparing]=useState(false),[lastResult,setLastResult]=useState<Row|null>(null);
  const [proposalDraft,setProposalDraft]=useState('');
  const [preparedReadback,setPreparedReadback]=useState<{digest:string;k02K04:boolean}|null>(null);
- const [fullGraphResult,setFullGraphResult]=useState<{scope:string;text:string}|null>(null);
+ const [fullGraphResult,setFullGraphResult]=useState<{scope:string;text:string;sourceRuntimeId:string;sourcePrivacyClass:string;sourceNodeType:string}|null>(null);
+ const [programTransferBusy,setProgramTransferBusy]=useState(false);
+ const programTransferInFlight=useRef(false);
  const [fullGraphResultBusy,setFullGraphResultBusy]=useState(false);
  const [fullGraphResultError,setFullGraphResultError]=useState('');
  const fullGraphResultInFlight=useRef(false);
@@ -876,7 +879,10 @@ export function ChainBuilder({onNavigate,initialHandoff,onHandoffConsumed,initia
       ||typeof result.text!=='string'||!result.text.trim()
       ||result.text.length>2_000_000)
     throw Error('graph_full_result_readback_mismatch');
-   setFullGraphResult({scope,text:result.text});
+   setFullGraphResult({scope,text:result.text,
+    sourceRuntimeId:str(result.source_runtime_id),
+    sourcePrivacyClass:str(result.source_privacy_class),
+    sourceNodeType:str(result.source_node_type)});
   }catch(e){
    if(currentFullResultScope.current===scope)setFullGraphResultError(
     tr('Не удалось подтвердить полный результат. Обновите сведения о процессе. ',
@@ -885,6 +891,32 @@ export function ChainBuilder({onNavigate,initialHandoff,onHandoffConsumed,initia
    fullGraphResultInFlight.current=false;
    setFullGraphResultBusy(false);
   }
+ }
+ // One explicitly approved transfer of the committed Graph Result.
+ // The runtime is never rerun, no file write or Task submission occurs here.
+ async function transferProgramResult(){
+  const result=fullGraphResult;
+  if(!onTransferProgramResult||programTransferInFlight.current||busy||loading||
+     !canReadFullResult||!result||result.scope!==fullResultScope||
+     result.sourceNodeType!=='AGENT_RUNTIME'||
+     !['CODEX_CHATGPT_CLI_V1','CLAUDE_CODE_SPECIALIST_V1','GOOGLE_ANTIGRAVITY_SPECIALIST_V1'].includes(result.sourceRuntimeId)||
+     !['PUBLIC','SYNTHETIC'].includes(result.sourcePrivacyClass)||
+     new TextEncoder().encode(result.text).length>7000||
+     result.text.trim().split(/\s+/).length>1600)return;
+  if(!window.confirm(tr(
+   'Добавить сохранённый результат во вложения черновика задачи? Файлы не изменяются, исполнитель не запускается снова.',
+   'Attach this saved Result to the Task draft? Files are unchanged and the program is not rerun.'
+  )))return;
+  const scope=fullResultScope;
+  programTransferInFlight.current=true;setProgramTransferBusy(true);setFullGraphResultError('');
+  try{
+   await onTransferProgramResult(str(snapshot.execution_id),
+     str(snapshot.graph_digest),str(finalPreview.artifact_digest));
+  }catch(e){
+   if(scope===currentFullResultScope.current)setFullGraphResultError(tr(
+    'Перенос не подтверждён. Прочитайте сохранённый черновик перед повтором. ',
+    'Transfer unconfirmed. Inspect the saved Task draft before retry. ')+failure(e));
+  }finally{programTransferInFlight.current=false;setProgramTransferBusy(false);}
  }
  async function advance(maxSteps:1|32=1){
   if(!execution||!snapshot.snapshot_digest||busy||graphAdvanceInFlight.current)return;
@@ -989,6 +1021,18 @@ export function ChainBuilder({onNavigate,initialHandoff,onHandoffConsumed,initia
      {tr('Результат прочитан без нового запуска модели. Принятие результата человеком выполняется отдельно.',
       'Result readback did not invoke the model. Human acceptance is a separate action.')}
     </small>}
+    {fullGraphResult?.scope===fullResultScope&&onTransferProgramResult&&
+     fullGraphResult.sourceNodeType==='AGENT_RUNTIME'&&
+     ['CODEX_CHATGPT_CLI_V1','CLAUDE_CODE_SPECIALIST_V1','GOOGLE_ANTIGRAVITY_SPECIALIST_V1'].includes(fullGraphResult.sourceRuntimeId)&&
+     <button type="button" className="secondary-button"
+       disabled={programTransferBusy||fullGraphResultBusy||busy||loading||
+        !['PUBLIC','SYNTHETIC'].includes(fullGraphResult.sourcePrivacyClass)||
+        new TextEncoder().encode(fullGraphResult.text).length>7000||
+        fullGraphResult.text.trim().split(/\s+/).length>1600}
+       onClick={()=>void transferProgramResult()}>
+       {programTransferBusy?tr('Проверяем черновик…','Checking draft…'):
+        tr('Передать результат в задачу','Attach Result to Task')}
+     </button>}
     {fullGraphResultError&&<p role="alert">{fullGraphResultError}</p>}
    </div>}
    {meetingReview&&<div className="advanced-form" role="status" aria-label={tr('Проверка цитат протокола','Meeting citation review')}>

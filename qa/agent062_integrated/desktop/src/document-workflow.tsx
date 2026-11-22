@@ -5,6 +5,7 @@ import {useUiSettings,HelpTip} from './ui-preferences';
 import {verifiedPersonalFolder,type PersonalFolderRoot} from './files-root-readback';
 import {documentReadbackOutcome,documentEditorReadbackMatches,verifiedDocumentOrigin,verifiedPlanApproval,verifiedDocumentExecutionAdmission,documentJourneyState,documentWriteCandidateProgress,documentEditorConsentKey,documentActionTaskMatches,documentMutationReady,type DocumentReadbackOutcome} from './document-readback';
 import {readTaskInActiveWorkArea,readWorkAreas,readDocumentSourceInActiveWorkArea} from './work-area-flow';
+import {OfficePdfOcrTask} from './office-pdf-ocr-task';
 
 type Attachment={origin?:string;path?:string;sha256?:string;bytes?:number};
 type Snapshot={snapshot_id?:string;source_items?:Attachment[]};
@@ -50,13 +51,16 @@ function activeApproval(row:Row){return row.decision==='approve'&&row.active===t
 function planApprovalId(a:Row){return str(a.plan_id)||str(record(a.plan_ref).ref_id);}
 function readPlanState(states:Row,id:string){return record(states[id]);}
 
-export function DocumentWorkflow({task,workspaceId,verified=true,focusRequest=0,readbackEpoch=0,onOpenTask,onOpenSourceTask,onRefreshTasks,onReviewCandidate,onOpenConnections,onOpenRecovery,onRegisterLeaveGuard,onRegisterCloseFlush}:{
+export function DocumentWorkflow({task,workspaceId,verified=true,suggestedOcrPath='',focusRequest=0,readbackEpoch=0,onOpenTask,onOpenSourceTask,onRefreshTasks,onReviewCandidate,onPrepareCandidate,onOpenPlans,onOpenConnections,onOpenRecovery,onRegisterLeaveGuard,onRegisterCloseFlush}:{
  task:DocTask|null;
  workspaceId:string;
  verified?:boolean;
+ suggestedOcrPath?:string;
  focusRequest?:number;
  readbackEpoch?:number;
- onOpenTask:(id:string)=>Promise<void>;
+ onOpenTask:(id:string,operation?:'files.write_text'|'files.ocr_pdf')=>Promise<void>;
+ onPrepareCandidate:(id:string)=>void;
+ onOpenPlans:()=>void;
  onOpenSourceTask:(id:string)=>Promise<void>;
  onRefreshTasks:(currentTaskId?:string)=>Promise<void>;
  onReviewCandidate:(candidateId:string)=>void;
@@ -67,6 +71,11 @@ export function DocumentWorkflow({task,workspaceId,verified=true,focusRequest=0,
 }){
  const {tr}=useUiSettings();
  const taskId=str(task?.task_id);
+ // An accepted generic Task alone is not a reason to show the OCR panel.
+ // Open this route only for a PDF explicitly selected in Files or an existing
+ // OCR action, keeping ordinary Task/document navigation uncluttered.
+ const officeOcrEntry=Boolean(suggestedOcrPath)||
+  Boolean(task?.action_candidates?.some(c=>c.operation==='files.ocr_pdf'));
  const acceptedSource=!!task?.local_document_mode&&task?.status==='closed'
   &&!!task?.accepted_artifact_digest
   &&['OLLAMA_LOCAL_V1','IWXA_BASIC_RUNTIME_V1'].includes(task?.provider?.id||'');
@@ -797,7 +806,17 @@ export function DocumentWorkflow({task,workspaceId,verified=true,focusRequest=0,
    try{await onRefreshTasks(requested)}catch{/* Keep the verified local history visible. */}
   });
  }
- if(!task||!applicable)return null;
+ const ocrPanel=officeOcrEntry?<OfficePdfOcrTask task={task} workspaceId={workspaceId}
+  initialSourcePath={suggestedOcrPath}
+  verified={verified} onOpenTask={onOpenTask} onRefreshTasks={onRefreshTasks}
+  onReviewCandidate={onReviewCandidate} onPrepareCandidate={onPrepareCandidate}
+  onOpenPlans={onOpenPlans} onOpenConnections={onOpenConnections}/>:null;
+ // An OCR shortcut may exist before a source Task is selected. Do not
+ // dereference that absent Task in the standard document editor below.
+ if(!task)return suggestedOcrPath?<section className="subpage card advanced"
+  aria-label={tr('Документы и OCR','Documents and OCR')}>{ocrPanel}</section>:null;
+ if(!applicable)return officeOcrEntry?<section className="subpage card advanced"
+  aria-label={tr('Документы и OCR','Documents and OCR')}>{ocrPanel}</section>:null;
  return <section ref={sectionRef} className="subpage card advanced" aria-label={tr('Создание и изменение документов','Create and edit documents')}>
   <div className="advanced-head"><div><h2>{tr('Создание и изменение документов','Create and edit documents')} <HelpTip topic="files"/></h2>
    <p>{visibleSaved&&ready
@@ -806,6 +825,7 @@ export function DocumentWorkflow({task,workspaceId,verified=true,focusRequest=0,
     :tr('Проверьте результат анализа, подготовьте текст и отдельно разрешите создание или изменение файла.',
      'Review the analysis, prepare the content and separately approve creating or updating a file.')}</p></div>
    <button className="secondary-button" disabled={!!busy||loading} onClick={()=>void load()}>{tr('Обновить историю','Refresh history')}</button></div>
+  {ocrPanel}
   {!verified&&<p role="status" className="advanced-notice">{tr(
    'Обновляем результат задачи. Черновик остаётся открытым, действия с файлами временно недоступны.',
    'Refreshing the task result. Your draft stays open; file actions are temporarily unavailable.'

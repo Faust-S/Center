@@ -4,6 +4,7 @@ import {record,records,str,failure,OwnerDetails,type Row} from './owner-ui';
 import {HelpTip,useUiSettings} from './ui-preferences';
 import {verifiedPersonalFolder,type PersonalFolderRoot} from './files-root-readback';
 import {documentTextAttachment,wholeDocumentTextAttachment,documentHistoryAfterRead} from './document-readback';
+import {verifiedPdfOcrOffer} from './pdf-ocr-readback';
 import {readWorkAreas} from './work-area-flow';
 
 // Navigation-only pointer, not a document store: re-read the actual file through
@@ -11,7 +12,7 @@ import {readWorkAreas} from './work-area-flow';
 type RecentDocument={path:string;sha256:string;offsetChars:number;workspaceId:string};
 let recentDocument:RecentDocument|null=null;
 
-export function FilesControl({onConfigure,onOpenTask,onAnalyze}:{onConfigure:()=>void;onOpenTask:()=>void;onAnalyze:(file:{name:string;text:string;sourcePath:string})=>void}){
+export function FilesControl({onConfigure,onOpenTask,onAnalyze,onStartOcr}:{onConfigure:()=>void;onOpenTask:()=>void;onAnalyze:(file:{name:string;text:string;sourcePath:string})=>void;onStartOcr:(selection:{path:string;sha256:string;pagesTotal:number})=>void}){
  const {tr}=useUiSettings();
  const [catalog,setCatalog]=useState<Row>({}),[receipts,setReceipts]=useState<Row[]>([]),[error,setError]=useState('');
  const [path,setPath]=useState(''),[readBusy,setReadBusy]=useState(false),[file,setFile]=useState<Row|null>(null);
@@ -162,13 +163,17 @@ export function FilesControl({onConfigure,onOpenTask,onAnalyze}:{onConfigure:()=
   }catch(e){if(seq===readEpoch.current){
    const reason=failure(e);
    const label=/pdf_no_text_layer_ocr_unavailable/.test(reason)
-    ?tr('В PDF нет извлекаемого текстового слоя. OCR пока не поддерживается.','This PDF has no extractable text layer. OCR is not available yet.')
+    ?tr('Текстовый слой PDF не удалось подтвердить. Распознавание доступно только для проверенного скана через отдельную задачу.','The PDF text layer could not be verified. OCR requires an independently checked scan and a separate approved Task.')
     :/pdf_reader_dependency_unavailable/.test(reason)
     ?tr('Для чтения PDF в установленном Agent отсутствует модуль pypdf.','The installed Agent lacks the pypdf reader required for PDF.')
     :/docx_no_text_content/.test(reason)
     ?tr('В DOCX нет извлекаемого текста.','No extractable text was found in the DOCX.')
+    :/\b(xlsx_no_text_content|pptx_no_text_content)\b/.test(reason)
+    ?tr('В таблице нет заполненных ячеек или в презентации нет извлекаемого текста. Изображения не распознавались.',
+      'No populated spreadsheet cells or extractable presentation text. Images were not recognized.')
     :/(utf8_text_required|document_format_not_supported)/.test(reason)
-    ?tr('Этот формат нельзя прочитать как текст. Выберите TXT, Markdown, CSV, JSON, PDF или DOCX.','This format cannot be read as text. Choose TXT, Markdown, CSV, JSON, PDF or DOCX.')
+    ?tr('Для чтения доступны TXT, Markdown, CSV, JSON, PDF, DOCX, XLSX и PPTX.',
+      'You can read TXT, Markdown, CSV, JSON, PDF, DOCX, XLSX and PPTX.')
     :/file_too_large/.test(reason)
     ?tr('Файл превышает лимит чтения подключённой папки.','The file exceeds the connected folder read limit.')
     :reason;
@@ -221,6 +226,7 @@ export function FilesControl({onConfigure,onOpenTask,onAnalyze}:{onConfigure:()=
   }
  }
  const attachment=file?documentTextAttachment(record(file.data)):null;
+ const ocrOffer=file?verifiedPdfOcrOffer(record(file.data)):null;
  return <section className="subpage card advanced">
   <div className="advanced-head"><div><h2>{tr('Личные файлы','Personal files')} <HelpTip topic="Файлы"/></h2>
    <p>{tr('Откройте файл из подключённой папки. Чтобы изменить его, сначала подготовьте результат в задаче и подтвердите запись.','Open files from your connected folder. To change a file, prepare the result in a task and approve the write.')}</p></div>
@@ -279,10 +285,22 @@ export function FilesControl({onConfigure,onOpenTask,onAnalyze}:{onConfigure:()=
    {file&&<><div className="owner-row"><strong>{str(record(file.data).path)}</strong>
      <small>{str(record(file.data).format).toUpperCase()} · {str(record(file.data).bytes)} {tr('байт исходного файла','source bytes')}</small></div>
     <p role="status">{Number(record(file.data).total_chars)===0
-      ?tr('Документ пуст. Текста для анализа нет.','Document is empty. There is no text to analyze.')
+      ?ocrOffer?tr('Это сканированный PDF без текстового слоя. Для работы с содержимым требуется распознавание.',
+       'This PDF has no text layer. OCR is required to work with its content.')
+       :tr('Документ пуст. Текста для анализа нет.','Document is empty. There is no text to analyze.')
       :<>{tr('Текст документа: символы','Document text: characters')} {Number(record(file.data).offset_chars)+1}–{Number(record(file.data).offset_chars)+Array.from(str(record(file.data).text)).length}
        {' / '}{str(record(file.data).total_chars)}
        {record(file.data).partial===true?' · '+tr('Показан фрагмент','Excerpt shown'):''}</>}</p>
+    {ocrOffer&&<div className="advanced-form" role="group"
+     aria-label={tr('Распознать сканированный PDF','Recognize scanned PDF')}>
+     <p>{tr('На всех страницах нет извлекаемого текста. OCR создаёт новую копию через установленный OCRmyPDF после решения человека. Оригинал не изменяется.',
+       'All pages lack extractable text. OCR makes a new copy with installed OCRmyPDF after human approval; the original stays unchanged.')}</p>
+     <p>{tr('Страниц','Pages')}: {ocrOffer.pagesTotal} · SHA-256: {ocrOffer.sourceSha256}</p>
+     <button type="button" disabled={readBusy}
+      onClick={()=>onStartOcr({path:str(record(file.data).path),
+       sha256:ocrOffer.sourceSha256,pagesTotal:ocrOffer.pagesTotal})}>
+      {tr('Распознать PDF в задаче','Recognize PDF in Task')}</button>
+    </div>}
     {record(file.data).format==='pdf'&&Number(record(file.data).missing_pdf_pages)>0&&
      <p role="status" className="advanced-notice">{tr(
       'В PDF есть страницы без извлекаемого текста: '+str(record(file.data).missing_pdf_pages)+

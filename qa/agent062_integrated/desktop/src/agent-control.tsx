@@ -6,7 +6,12 @@ import {HelpTip,useUiSettings} from './ui-preferences';
 const ROLE_IDS=['COORDINATOR','WORKER','REVIEWER'] as const;
 const roleName=(role:string,tr:(ru:string,en:string)=>string)=>role==='COORDINATOR'?tr('Организует работу','Coordinator'):role==='WORKER'?tr('Выполняет задачи','Worker'):role==='REVIEWER'?tr('Проверяет результат','Reviewer'):role;
 type RoleId=typeof ROLE_IDS[number];
-const ACCOUNT_RUNTIMES=['CODEX_CHATGPT_CLI_V1','GOOGLE_ANTIGRAVITY_SPECIALIST_V1'];
+const ACCOUNT_RUNTIMES=['CODEX_CHATGPT_CLI_V1','CLAUDE_CODE_SPECIALIST_V1','GOOGLE_ANTIGRAVITY_SPECIALIST_V1'];
+// Program trial admission is a user decision, NOT historical FC2 qualification
+// or evidence that any model task has already succeeded.
+const PROGRAM_TRIAL_RUNTIMES=new Set(ACCOUNT_RUNTIMES);
+const userAccountTrial=(row:Row)=>PROGRAM_TRIAL_RUNTIMES.has(str(row.runtime_id))
+ &&record(row.health).authentication_verified===true;
 const lines=(value:string)=>value.split('\n').map(x=>x.trim()).filter(Boolean);
 const qualified=(row:Row)=>str(row.qualification_state).startsWith('QUALIFIED_');
 const ready=(row:Row)=>record(row.health).ready===true&&row.route_admissible===true;
@@ -112,7 +117,7 @@ export function AgentControl({onOpenPrograms,onOpenModels,onOpenConnections,onOp
  const configured=records(roles.runtimes),portfolio=records(roles.portfolio_runtimes);
  const options:(Row & {portfolio:Row})[]=configured.map(row=>({...row,portfolio:portfolio.find(p=>p.runtime_id===row.runtime_id)||{}}));
  const candidate=options.find(row=>row.runtime_id===runtimeId);
- const candidateQual=qualified(record(candidate?.portfolio));
+ const candidateQual=qualified(record(candidate?.portfolio))||userAccountTrial(candidate||{});
  const currentTarget=str(current.target_id);
  const same=runtimeId===currentTarget;
  const canSwitch=roles.enabled===true&&!!candidate&&ready(candidate)&&candidateQual&&allowed.length>0&&!same;
@@ -120,7 +125,7 @@ export function AgentControl({onOpenPrograms,onOpenModels,onOpenConnections,onOp
   const binding=record(currentRoles[id]);
   const profile=options.find(row=>row.runtime_id===binding.target_id);
   const rule=record(persistedRoles[id]);
-  return !!profile&&ready(profile)&&qualified(record(profile.portfolio))&&Array.isArray(rule.allowed_privacy_classes)&&rule.allowed_privacy_classes.includes(privacy);
+  return !!profile&&ready(profile)&&(qualified(record(profile.portfolio))||userAccountTrial(profile))&&Array.isArray(rule.allowed_privacy_classes)&&rule.allowed_privacy_classes.includes(privacy);
  });
  const tickets=records(review?.ticket_results),criteriaRows=records(review?.goal_criteria);
  const evidence=records(review?.ticket_evidence),synthesis=record(review?.synthesis),finalization=record(review?.finalization);
@@ -332,18 +337,23 @@ export function AgentControl({onOpenPrograms,onOpenModels,onOpenConnections,onOp
     </div>;})}
    <p>{tr('Назначения сохраняются после перезапуска. Если помощник недоступен, выберите другого из проверенных.','Assignments survive restarts. If an assistant becomes unavailable, choose another verified one.')}</p>
   </div>
-  <div className="advanced-form"><h3>{tr('Выбрать проверенного исполнителя','Select a verified runtime')}</h3>
+  <div className="advanced-form"><h3>{tr('Выбрать исполнителя','Select a runtime')}</h3>
    <label className="advanced-field">{tr('Роль','Role')}<select value={role} onChange={e=>{const next=e.target.value as RoleId;setRole(next);setRuntimeId(str(record(currentRoles[next]).target_id));setAccountReadback(null);}}>
     {ROLE_IDS.map(x=><option key={x} value={x}>{roleName(x,tr)}</option>)}</select></label>
    <label className="advanced-field">{tr('Программа исполнителя','Assistant program')}<select value={runtimeId} onChange={e=>{setRuntimeId(e.target.value);setAccountReadback(null);}}>
     <option value="">{tr('Выберите исполнителя','Choose runtime')}</option>
-    {options.map(x=><option key={str(x.runtime_id)} value={str(x.runtime_id)}>{str(x.display_name)||str(x.runtime_id)} · {ready(x)&&qualified(record(x.portfolio))?tr('доступен','eligible'):tr('не готов','unavailable')}</option>)}
+    {options.map(x=><option key={str(x.runtime_id)} value={str(x.runtime_id)}>{str(x.display_name)||str(x.runtime_id)} · {ready(x)&&qualified(record(x.portfolio))?tr('подтверждён','qualified'):ready(x)&&userAccountTrial(x)?tr('пробный','trial'):tr('не готов','unavailable')}</option>)}
    </select></label>
-   {candidate&&<><p>{ready(candidate)&&candidateQual?tr('Помощник проверен и отвечает.','Assistant verified and responding.'):tr('Помощник пока не готов к назначению. Проверьте подключение.','Assistant is not ready for assignment. Check its connection.')}</p>
+   {candidate&&<><p>{ready(candidate)&&qualified(record(candidate.portfolio))
+      ?tr('Помощник квалифицирован для назначения.','Runtime qualified for assignment.')
+      :ready(candidate)&&userAccountTrial(candidate)
+      ?tr('Аккаунт готов к пробному заданию. Выполнение и Result ещё не подтверждены.',
+        'Account ready for a trial. Task execution and Result are not yet verified.')
+      :tr('Помощник пока не готов к назначению. Проверьте подключение.','Assistant is not ready for assignment. Check its connection.')}</p>
     <OwnerDetails title={tr('Условия работы','Execution details')} value={{portfolio:candidate.portfolio,health:candidate.health,runtime_class:candidate.runtime_class,adapter:candidate.adapter,auth_mode:candidate.auth_mode,allowed_privacy_classes:allowed}}/></>}
    <p>{blockedReason||tr('Помощник доступен для выбранной роли. Подтвердите назначение.','This assistant is eligible for the chosen role. Confirm the assignment.')}</p>
    <div className="advanced-actions">
-    {onOpenPrograms&&<button type="button" className="secondary-button" onClick={onOpenPrograms}>{tr('Найти и подключить Goose','Find and connect Goose')}</button>}
+    {onOpenPrograms&&<button type="button" className="secondary-button" onClick={onOpenPrograms}>{tr('Найти и подключить программу','Find and connect a program')}</button>}
     {onOpenModels&&<button type="button" className="secondary-button" onClick={onOpenModels}>{tr('Проверить локальную модель','Check local model')}</button>}
    </div>
    <div className="advanced-actions">
@@ -359,14 +369,14 @@ export function AgentControl({onOpenPrograms,onOpenModels,onOpenConnections,onOp
    <div className="owner-rows">{portfolio.map(p=>{const configuredRow=options.find(x=>x.runtime_id===p.runtime_id);
     return <div className="owner-row" key={str(p.runtime_id)}>
      <strong>{str(p.display_name)||str(p.runtime_id)}</strong>
-     <span>{configuredRow&&ready(configuredRow)&&qualified(p)?tr('Доступен для назначения','Available for assignment'):tr('Требуется проверка или подключение','Check or connect before use')}</span>
+     <span>{configuredRow&&ready(configuredRow)&&(qualified(p)||userAccountTrial(configuredRow))?tr('Можно назначить','Can be assigned'):tr('Требуется проверка или подключение','Check or connect before use')}</span>
      <small>{configuredRow?(configuredRow.route_admissible===false
        ?tr('Исполнение заблокировано текущим режимом','Execution blocked by current mode')
        :configuredRow.execution_verified_for_current_identity===true
        ?tr('Получен проверенный ответ','Verified response received')
        :ready(configuredRow)?tr('Готов к пробному заданию','Ready for a sample task')
        :tr('Программа не готова','Program not ready')):tr('Пока не подключён','Not connected yet')}</small>
-     {configuredRow&&ready(configuredRow)&&qualified(p)&&<button disabled={busy} onClick={()=>setRuntimeId(str(p.runtime_id))}>{tr('Выбрать для роли','Select for role')}</button>}
+     {configuredRow&&ready(configuredRow)&&(qualified(p)||userAccountTrial(configuredRow))&&<button disabled={busy} onClick={()=>setRuntimeId(str(p.runtime_id))}>{tr('Выбрать для роли','Select for role')}</button>}
     </div>;})}</div>
   </div>
   <div className="advanced-form"><h3>{tr('Задание группе','Group task')}</h3>
