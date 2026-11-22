@@ -290,11 +290,56 @@ function Use-Json-Through-Publisher-Dialog([string]$buttonName,[string]$destinat
   }
   $foreground=[PublisherWindow]::SetForegroundWindow($dialogHandle)
   Write-Host "PUBLISHER_NATIVE_FILE_DIALOG_FOREGROUND button=$buttonName accepted=$foreground"
-  Start-Sleep -Milliseconds 180
-  [System.Windows.Forms.SendKeys]::SendWait('%n')
-  Start-Sleep -Milliseconds 150
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  [System.Windows.Forms.SendKeys]::SendWait($destination)
+  # SendKeys may silently drop a character while the native picker is
+  # taking focus (observed: "artifacts" became "rtifacts"). Never submit
+  # an unverified destination and misclassify this as a Publisher export bug.
+  $exactPathEntered=$false
+  for($attempt=1;$attempt -le 4;$attempt++){
+    [void][PublisherWindow]::SetForegroundWindow($dialogHandle)
+    Start-Sleep -Milliseconds 180
+    [System.Windows.Forms.SendKeys]::SendWait('%n')
+    Start-Sleep -Milliseconds 160
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    Start-Sleep -Milliseconds 120
+    if($attempt -eq 1){
+      [System.Windows.Forms.SendKeys]::SendWait($destination)
+    }else{
+      foreach($character in $destination.ToCharArray()){
+        [System.Windows.Forms.SendKeys]::SendWait([string]$character)
+        Start-Sleep -Milliseconds 25
+      }
+    }
+    Start-Sleep -Milliseconds 210
+    $actual=$null
+    try {
+      $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+      if($focused.Current.ProcessId -eq $proc.Id -and
+         ($focused.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit -or
+          $focused.Current.ControlType -eq [System.Windows.Automation.ControlType]::ComboBox)){
+        $value=$focused.GetCurrentPattern(
+          [System.Windows.Automation.ValuePattern]::Pattern)
+        $actual=$value.Current.Value
+        if($actual -cne $destination -and $attempt -ge 2){
+          # UI Automation can set the actual filename field atomically.
+          # Read it back before the irreversible dialog confirmation.
+          $value.SetValue($destination)
+          $actual=$value.Current.Value
+        }
+      }
+    }catch {
+      Write-Host "PUBLISHER_NATIVE_FILE_DIALOG_READBACK_RETRY button=$buttonName attempt=$attempt"
+    }
+    if($null -ne $actual -and $actual -ceq $destination){
+      $exactPathEntered=$true
+      Write-Host "PUBLISHER_NATIVE_FILE_DIALOG_EXACT_PATH_PASS button=$buttonName attempt=$attempt"
+      break
+    }
+    $length=if($null -eq $actual){-1}else{$actual.Length}
+    Write-Host "PUBLISHER_NATIVE_FILE_DIALOG_PATH_MISMATCH button=$buttonName attempt=$attempt actualLength=$length expectedLength=$($destination.Length)"
+  }
+  if(-not $exactPathEntered){
+    throw "PUBLISHER_NATIVE_FILE_DIALOG_PATH_READBACK_MISMATCH button=$buttonName"
+  }
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   # A selected existing JSON is not a successful import until the native
   # picker really closed. Previously we returned immediately and 27 seconds
