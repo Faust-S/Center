@@ -258,15 +258,45 @@ function Wait-FirstOrganizationQualification([string]$orgId){
   }
   throw 'Installed GUI did not persist participant/seat plan and edited assignment'
 }
-function Select-OrganizationByKeyboard([string]$movement){
-  # React's native organization select is the only selected corporate context.
-  # WebView2 exposes the labeled <select> as a ComboBox to Windows UIA.
-  $picker=Find-Control 'Организация' 'ComboBox'
-  $picker.SetFocus()
-  Start-Sleep -Milliseconds 150
-  [System.Windows.Forms.SendKeys]::SendWait($movement)
-  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
-  Start-Sleep -Milliseconds 450
+function Read-SelectedOrganization([System.Windows.Automation.AutomationElement]$picker){
+  # UIA readback of the ACTUAL selected option, not the text of an unrelated
+  # organization card or the on-disk draft's last saved active context.
+  try{
+    $selection=$picker.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern)
+    $chosen=@($selection.Current.GetSelection())
+    if($chosen.Count -eq 1){return [string]$chosen[0].Current.Name}
+  }catch{}
+  try{
+    $value=$picker.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+    if(-not [string]::IsNullOrWhiteSpace([string]$value.Current.Value)){
+      return [string]$value.Current.Value
+    }
+  }catch{}
+  return ''
+}
+function Select-OrganizationByKeyboard([string]$movement,[string]$expectedName){
+  # React's native organization select remains the single selected context.
+  # A SendKeys command alone does not prove that WebView2 dispatched change.
+  # Explicitly observe the selected option after the real keyboard action.
+  for($attempt=1;$attempt -le 3;$attempt++){
+    $picker=Find-Control 'Организация' 'ComboBox'
+    $picker.SetFocus()
+    Start-Sleep -Milliseconds 150
+    [System.Windows.Forms.SendKeys]::SendWait($movement)
+    [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+    for($poll=0;$poll -lt 20;$poll++){
+      Start-Sleep -Milliseconds 120
+      $current=Read-SelectedOrganization (Find-Control 'Организация' 'ComboBox' 1)
+      if($current -eq $expectedName){
+        Write-Host "CENTER_INSTALLED_ORGANIZATION_UIA_SELECTION_PASS attempt=$attempt"
+        return
+      }
+      if($poll -eq 19){
+        Write-Host "CENTER_INSTALLED_ORGANIZATION_UIA_SELECTION_RETRY attempt=$attempt observed=$current"
+      }
+    }
+  }
+  throw 'CENTER_INSTALLED_ORGANIZATION_UIA_SELECTION_NOT_CONFIRMED'
 }
 function Find-TextContaining([string]$value){
   # Reads WebView2's real UIA text nodes; not a DOM/browser mock.
@@ -542,7 +572,7 @@ try {
      $secondReopened.generation -ne $secondSaved.generation){
     throw 'Second Atlas organization lost identity or revision after restart'
   }
-  Select-OrganizationByKeyboard '{HOME}'
+  Select-OrganizationByKeyboard '{HOME}' 'CenterGUIOrganization'
   Click-Control 'Планы Atlas'
   Click-Control 'Открыть локальный Atlas'
   if(!(Find-ProjectButton $expectedProject)){throw 'First organization was not restored after context switch'}
