@@ -288,33 +288,33 @@ public static class Agent06OnlineClick {
     }
     function CheckDashboard([switch]$AfterCold){
         $script:uiCheckpoint='DASHBOARD_HOME'
-        $home=FindDashboardUI @('Моё рабочее место','My workspace') 'any' 5
+        $home=FindDashboardUI @((-join ([char[]]@(0x41c,0x43e,0x451,0x20,0x440,0x430,0x431,0x43e,0x447,0x435,0x435,0x20,0x43c,0x435,0x441,0x442,0x43e))),'My workspace') 'any' 5
         if($null -eq $home){
-            $go=FindDashboardUI @('Главная','Home') 'button' 50
+            $go=FindDashboardUI @((-join ([char[]]@(0x413,0x43b,0x430,0x432,0x43d,0x430,0x44f))),'Home') 'button' 50
             Require ($null -ne $go) 'agent062_dashboard_home_navigation_missing'
             ClickUI $go
         }
-        $home=FindDashboardUI @('Моё рабочее место','My workspace') 'any' 60
+        $home=FindDashboardUI @((-join ([char[]]@(0x41c,0x43e,0x451,0x20,0x440,0x430,0x431,0x43e,0x447,0x435,0x435,0x20,0x43c,0x435,0x441,0x442,0x43e))),'My workspace') 'any' 60
         Require ($null -ne $home) 'agent062_dashboard_home_missing'
         if(!$AfterCold){
             $script:uiCheckpoint='DASHBOARD_CUSTOMIZE'
-            $edit=FindDashboardUI @('Настроить','Customize') 'button' 50
+            $edit=FindDashboardUI @((-join ([char[]]@(0x41d,0x430,0x441,0x442,0x440,0x43e,0x438,0x442,0x44c))),'Customize') 'button' 50
             Require ($null -ne $edit) 'agent062_dashboard_customize_missing'
             ClickUI $edit
             $script:uiCheckpoint='DASHBOARD_ADD'
-            $add=FindDashboardUI @('Добавить блок','Add widget') 'button' 40
+            $add=FindDashboardUI @((-join ([char[]]@(0x414,0x43e,0x431,0x430,0x432,0x438,0x442,0x44c,0x20,0x431,0x43b,0x43e,0x43a))),'Add widget') 'button' 40
             Require ($null -ne $add) 'agent062_dashboard_add_missing'
             ClickUI $add
-            $choice=FindDashboardUI @('Состояние работ','Work overview') 'button' 45
+            $choice=FindDashboardUI @((-join ([char[]]@(0x421,0x43e,0x441,0x442,0x43e,0x44f,0x43d,0x438,0x435,0x20,0x440,0x430,0x431,0x43e,0x442))),'Work overview') 'button' 45
             Require ($null -ne $choice) 'agent062_dashboard_catalog_widget_missing'
             ClickUI $choice
             $script:uiCheckpoint='DASHBOARD_DONE'
-            $done=FindDashboardUI @('Готово','Done') 'button' 45
+            $done=FindDashboardUI @((-join ([char[]]@(0x413,0x43e,0x442,0x43e,0x432,0x43e))),'Done') 'button' 45
             Require ($null -ne $done) 'agent062_dashboard_finish_missing'
             ClickUI $done
         }
         $script:uiCheckpoint='DASHBOARD_WIDGET'
-        $widget=FindDashboardUI @('Состояние работ','Work overview') 'any' 55
+        $widget=FindDashboardUI @((-join ([char[]]@(0x421,0x43e,0x441,0x442,0x43e,0x44f,0x43d,0x438,0x435,0x20,0x440,0x430,0x431,0x43e,0x442))),'Work overview') 'any' 55
         Require ($null -ne $widget) 'agent062_dashboard_widget_missing'
         $script:uiCheckpoint='COMPLETE'
     }
