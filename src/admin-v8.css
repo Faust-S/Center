@@ -230,6 +230,24 @@ body{padding:11px;background:#172238}
 @media(max-width:750px){.v8-company-selection-grid{grid-template-columns:1fr}}
 
 /* Compact navigator: does not hide or replace any original T3 controls. */
+.v8-result-layout{display:grid;gap:12px;min-width:0}
+.v8-workspace-entry{padding:18px 20px;border-radius:13px;border:1px solid #d7e4f0;border-left:3px solid #e65364;background:#fff;min-width:0}
+.v8-workspace-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;min-width:0}
+.v8-workspace-heading>div:first-child{flex:1;min-width:0}
+.v8-workspace-heading small{display:block;font-size:10px;color:#d24a60;letter-spacing:1px;font-weight:700}
+.v8-workspace-heading h2{font-size:20px;font-weight:700;color:#223e5c;margin:5px 0 8px}
+.v8-workspace-heading p{font-size:12px;line-height:1.6;color:#607c99;margin:0;max-width:690px}
+.v8-workspace-actions{display:flex;flex-direction:column;gap:7px;flex:0 0 235px}
+.v8-workspace-actions button{font-size:11px;min-height:35px;text-align:center}
+.v8-workspace-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:15px 0}
+.v8-workspace-facts>div{display:flex;flex-direction:column;gap:5px;padding:11px 13px;border:1px solid #dce8f2;border-radius:10px;background:#f8fbff;min-width:0;overflow-wrap:anywhere}
+.v8-workspace-facts strong{font-size:10px;color:#7c92aa}
+.v8-workspace-facts span{font-size:11px;font-weight:650;color:#2b4a6e}
+.v8-workspace-status{margin:0;padding:8px 10px;font-size:11px;color:#375d82;background:#edf4fd;border-radius:8px}
+.v8-workspace-error{font-size:11px;color:#9d3044;padding:8px 10px;background:#fff1f3;border-radius:8px;margin-top:8px}
+.v8-workspace-boundary{font-size:10px;line-height:1.5;color:#758da6;margin:10px 0 0}
+@media(max-width:1050px){.v8-workspace-heading{flex-wrap:wrap}.v8-workspace-actions{flex:1 1 100%;flex-direction:row}.v8-workspace-actions button{flex:1}}
+@media(max-width:710px){.v8-workspace-entry{padding:14px}.v8-workspace-facts{grid-template-columns:1fr}.v8-workspace-actions{flex-direction:column}}
 .v8-result-journey{margin:2px 0 12px;min-width:0;border:1px solid #d9e5f0;background:#fff;border-radius:12px;padding:9px 11px}
 .v8-result-journey-head{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#294a6d;font-size:12px}
 .v8-result-journey-head small{color:#8498ad;font-size:10px}
