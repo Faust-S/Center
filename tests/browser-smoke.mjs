@@ -1269,6 +1269,27 @@ try{
   assert.match(await v8Page.getByTestId('company-selection-detail').innerText(),/Связанных поручений пока нет/);
   checks.push('v8-interactive-company-structure-draft-backed-workspace-person-links');
 
+  // A leader must act on the exact local assignment from both the company
+  // diagram and the attention dashboard, not hunt through a generic list.
+  // The editor is the existing one: no duplicate Task or new storage.
+  await v8Page.getByTestId('nav-work').click();
+  await v8Page.getByRole('button',{name:/Новое поручение/}).click();
+  await v8Page.getByTestId('task-title').fill('Согласовать поставку V8');
+  await v8Page.getByTestId('assignment-form').getByLabel('Исполнитель').selectOption('');
+  await v8Page.getByTestId('save-assignment').click();
+  await v8Page.getByTestId('nav-people').click();
+  await v8Page.locator('[data-testid^="company-workspace-"]').first().click();
+  assert.match(await v8Page.getByTestId('company-selection-detail').innerText(),/Согласовать поставку V8/);
+  await v8Page.locator('[data-testid^="company-assignment-"]').first().click();
+  assert.equal(await v8Page.getByTestId('task-title').inputValue(),'Согласовать поставку V8');
+  await v8Page.getByRole('button',{name:'Закрыть редактор'}).click();
+  await v8Page.getByTestId('nav-overview').click();
+  await v8Page.getByTestId('dashboard-widget-attention')
+    .getByRole('button',{name:/Согласовать поставку V8/}).first().click();
+  assert.equal(await v8Page.getByTestId('task-title').inputValue(),'Согласовать поставку V8');
+  await v8Page.getByRole('button',{name:'Закрыть редактор'}).click();
+  checks.push('v8-exact-assignment-action-from-company-structure-and-attention');
+
   await v8Page.getByTestId('nav-results').click();
   await v8Page.getByTestId('v8-results-journey').waitFor();
   assert.equal(await v8Page.locator('[data-testid^="v8-result-step-"]').count(),7);
