@@ -66,11 +66,12 @@ type DashboardProps={
  onCreateOrganization:()=>void;
  onNewAssignment:()=>void;
  onOpenAssignment:(id:string)=>void;
+ onEnrollEmployee:(id:string)=>void;
 };
 const action=(title:string,onClick:()=>void,kind='secondary')=>
  <button className={kind} type="button" onClick={onClick}>{title}</button>;
 
-export function AdminCompanyStructure({organization,onNavigate,onOpenAssignment,compact=false}:{organization:DashboardOrganization;onNavigate:(page:PageId)=>void;onOpenAssignment?:(assignmentId:string)=>void;compact?:boolean}) {
+export function AdminCompanyStructure({organization,onNavigate,onOpenAssignment,onEnrollEmployee,compact=false}:{organization:DashboardOrganization;onNavigate:(page:PageId)=>void;onOpenAssignment?:(assignmentId:string)=>void;onEnrollEmployee?:(contactId:string)=>void;compact?:boolean}) {
  const {workspaces,participants,assignments}=organization;
  const lead=participants.find(p=>/руковод|директор|начальник|owner|chief/i.test(p.roleLabel||''))??null;
  // An assignment establishes a working association, NEVER a reporting line
@@ -128,6 +129,7 @@ export function AdminCompanyStructure({organization,onNavigate,onOpenAssignment,
     <div className="v8-company-selection-actions">
       {action('Поручения',()=>onNavigate('work'))}
       {action(activeWorkspace?'Планы Atlas':'Сотрудники и роли',()=>onNavigate(activeWorkspace?'resources':'people'))}
+      {activePerson&&onEnrollEmployee&&action('Подключение сотрудника T3',()=>onEnrollEmployee(activePerson.id))}
       {action('Контекст T3',()=>onNavigate('context'))}
     </div>
   </section>}
@@ -151,7 +153,7 @@ function attention(org:DashboardOrganization|null):DashboardAttention[] {
  return rows.slice(0,8);
 }
 function asDate(value:string):string{if(!value)return 'Без срока';const d=new Date(value+'T00:00:00');return Number.isFinite(d.valueOf())?d.toLocaleDateString('ru-RU'):'Без срока';}
-export default function AdminDashboard({organization,nativeHost,atlasView,managerContext,onNavigate,onCreateOrganization,onNewAssignment,onOpenAssignment}:DashboardProps){
+export default function AdminDashboard({organization,nativeHost,atlasView,managerContext,onNavigate,onCreateOrganization,onNewAssignment,onOpenAssignment,onEnrollEmployee}:DashboardProps){
  const id=organization?.id??'_start';
  const [widgets,setWidgets]=useState<Widget[]>(()=>read(id));
  const [edit,setEdit]=useState(false),[catalog,setCatalog]=useState(false),[demo,setDemo]=useState(false);
@@ -198,7 +200,7 @@ export default function AdminDashboard({organization,nativeHost,atlasView,manage
     </button>):
     <div className="v8-empty-line">Поручений ещё нет. Создайте первое и назначьте исполнителя.</div>}
     <div className="v8-card-actions">{action('Поручения',()=>go('work'))}</div></div>;
-  if(id==='structure')return org?<AdminCompanyStructure organization={org} onNavigate={go} onOpenAssignment={openAssignment} compact/>:<div className="v8-empty-line">Структура компании появится после создания организации.</div>;
+  if(id==='structure')return org?<AdminCompanyStructure organization={org} onNavigate={go} onOpenAssignment={openAssignment} onEnrollEmployee={isDemo?undefined:onEnrollEmployee} compact/>:<div className="v8-empty-line">Структура компании появится после создания организации.</div>;
   if(id==='context')return original?managerContext:<div className="v8-empty-line">Поиск, вопросы руководителя и чтение T3 появятся после создания организации.</div>;
   if(id==='workspaces')return <div className="v8-widget-rows">{org?.workspaces.length?org.workspaces.slice(0,8).map(w=>
     <button key={w.id} className="v8-task-row" type="button" onClick={()=>go('resources')}><strong>{w.name}</strong><small>{org.assignments.filter(t=>t.workspaceId===w.id).length} поручений{w.atlasRef?' · связан Atlas':''}</small></button>):
