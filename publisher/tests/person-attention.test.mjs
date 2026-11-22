@@ -36,7 +36,7 @@ test('PERSON issuer overview reads original owner ledger without claiming delive
 test('PERSON attention prioritizes expiry, unactivated, suspended, revoked and stale STATUS',()=>{
   const cases=[
     {status:'REVOKED',priority:1, title:/Отзыв/},
-    {expiresAt:'2026-11-22T10:00:00.000Z',priority:2,title:/Срок лицензии завершился/},
+    {expiresAt:'2026-11-22T10:00:00.000Z',statusValidUntil:'2026-11-22T09:00:00.000Z',priority:2,title:/Срок лицензии завершился/},
     {status:'NOT_ACTIVATED',statusIssuedAt:undefined,statusValidUntil:undefined,priority:3,title:/без подписанного STATUS/},
     {status:'SUSPENDED',priority:4,title:/Приостановление/},
     {statusValidUntil:'2026-11-22T11:00:00.000Z',priority:5,title:/STATUS устарел/},
