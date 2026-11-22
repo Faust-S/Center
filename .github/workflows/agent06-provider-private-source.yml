@@ -117,6 +117,37 @@ jobs:
               if($null -eq $suite){$suite = $d.testsuite}
               Write-Host ('AGENT061_ETHEREAL_TESTS='+[int]$suite.tests)
               Write-Host ('AGENT061_ETHEREAL_FAILURES='+[int]$suite.failures)
+              foreach($case in @($d.SelectNodes('//testcase'))){
+                $failed = $case.SelectSingleNode('failure')
+                if($null -eq $failed){$failed = $case.SelectSingleNode('error')}
+                if($null -eq $failed){continue}
+                $family='OTHER'
+                $name=[string]$case.name
+                if($name -eq 'test_real_ethereal_two_accounts_review_and_cold_readback'){$family='FULL_IMAP_AND_SMTP'}
+                elseif($name -eq 'test_real_ethereal_smtp_reviewed_task_receipt_without_imap_readback'){$family='SMTP_ACTION'}
+                elseif($name -eq 'test_real_ethereal_smtp_only_reviewed_send_and_cold_receipt'){$family='SMTP_COLD'}
+                Write-Host ('AGENT061_ETHEREAL_FAILED_TEST='+$family)
+                $message=[string]$failed.GetAttribute('message')
+                $whitelist=@(
+                  'ethereal_imap_tls_or_connect_failed',
+                  'ethereal_imap_login_failed',
+                  'ethereal_imap_noop_failed',
+                  'ethereal_imap_noop_not_ok',
+                  'ethereal_original_account_verify_disagrees_with_imap_probe',
+                  'ethereal_original_account_verify_raised',
+                  'ethereal_verify_imap_verification_failed',
+                  'ethereal_verify_smtp_verification_failed',
+                  'ethereal_smtp_tool_send_failed',
+                  'ethereal_sent_message_missing_from_own_mailbox',
+                  'ethereal_account_creation_unavailable',
+                  'ethereal_account_creation_rejected'
+                )
+                $code='OTHER'
+                foreach($allowed in $whitelist){
+                  if($message.Contains($allowed)){$code=$allowed;break}
+                }
+                Write-Host ('AGENT061_ETHEREAL_JUNIT_FAILURE_CODE='+$code)
+              }
               $sendOnly = @($d.SelectNodes('//testcase[contains(@name,"test_real_ethereal_smtp_only_reviewed_send_and_cold_receipt")]'))
               if($sendOnly.Count -eq 1 -and
                   $null -eq $sendOnly[0].SelectSingleNode('failure') -and
