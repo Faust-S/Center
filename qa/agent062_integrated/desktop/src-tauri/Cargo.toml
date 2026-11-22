@@ -1,0 +1,13 @@
+[package]
+name = "iwxa-personal"
+version = "0.6.2"
+description = "IWXA Personal native Windows window, existing Python runtime"
+authors = ["IWXA"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde_json = "1"

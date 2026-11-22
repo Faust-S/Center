@@ -1,0 +1,11 @@
+{
+  "identifier": "main",
+  "description": "Minimal local workbench window. No shell/file/process APIs exposed to page.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-destroy"
+  ]
+}
