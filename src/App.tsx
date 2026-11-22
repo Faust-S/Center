@@ -60,6 +60,23 @@ async function nativeInvoke(command: string, args?: Record<string, unknown>): Pr
   if (!internal) throw Error('NATIVE_HOST_UNAVAILABLE');
   return internal.invoke(command, args);
 }
+function V8RailIcon({name}:{name:Page}) {
+ const paths:Record<Page,string>={
+  overview:'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
+  context:'M12 3 2.7 8.4 12 13.8l9.3-5.4L12 3z M3 13l9 5.3 9-5.3 M3 17.3 12 22l9-4.7',
+  work:'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M7.5 12l3 3 6-6',
+  results:'M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M14 2v6h6 M8 12h8 M8 16h8',
+  people:'M12 21a9 9 0 1 0-9-9c0 1.7.5 3.1 1.2 4.3L3 21l4.7-1.2A9 9 0 0 0 12 21z',
+  resources:'M3 6h7l2.3 2H21v11H3V6z',
+  programs:'M12 3v3 M4 10h16v10H4V10z M9 14v2 M15 14v2 M8 6h8a4 4 0 0 1 4 4H4a4 4 0 0 1 4-4z',
+  data:'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z'
+ };
+ return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <path d={paths[name]}/>
+ </svg>;
+}
+
 export default function App() {
   const nativeHost = Boolean((window as any).__TAURI_INTERNALS__);
   const [nativeRestoring,setNativeRestoring] = useState(nativeHost);
