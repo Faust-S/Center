@@ -858,6 +858,7 @@ fn main() {
             t3_owner::publisher_t3_corporate_signed_readback,
             t3_owner::publisher_t3_corporate_issue,
             t3_owner::publisher_t3_corporate_change_status,
+            t3_owner::publisher_t3_corporate_export,
             t3_owner::publisher_t3_person_capabilities,
             t3_owner::publisher_t3_person_inventory,
             t3_owner::publisher_t3_person_signed_readback,
