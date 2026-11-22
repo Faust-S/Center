@@ -7,6 +7,7 @@
 .publisher-app .sidebar{flex:0 0 217px;width:217px;min-width:0;
  overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#66809e transparent}
 .publisher-app .main{flex:1 1 0;min-width:0;min-height:0;overflow-y:auto;
+ container-type:inline-size;
  padding:0 27px 24px;scrollbar-color:#bed0e4 transparent}
 .publisher-app .publisher-brand{padding:20px 16px 14px}
 .publisher-app .publisher-brand-logo{width:36px;height:36px}
@@ -39,7 +40,7 @@
 .publisher-app .publisher-dashboard{max-width:1460px;margin:0 auto}
 .publisher-app .pub-dashboard-header{display:flex;align-items:flex-start;
  justify-content:space-between;gap:20px;margin-bottom:18px;flex-wrap:wrap}
-.publisher-app .pub-dashboard-header h2{font-size:22px;margin:0 0 4px}
+.publisher-app .pub-dashboard-header h1{font-size:22px;margin:0 0 4px}
 .publisher-app .pub-dashboard-header p{margin:0;color:#657f9b;font-size:12px}
 .publisher-app .pub-dashboard-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
 .publisher-app .pub-dashboard-intro{margin:0 0 18px;padding:15px 17px;
@@ -184,7 +185,9 @@
 .publisher-app .pub-settings-row button{width:auto}
 
 /* Compact native laptop remains a single window. All panes share width. */
-@media(max-width:1250px){
+/* Adapt to the central work area, not the outer window: opening the
+ * side-by-side inspector should reflow cards without shrinking type. */
+@container (max-width:780px){
  .publisher-app .pub-dashboard-grid{grid-template-columns:1fr}
  .publisher-app .pub-widget.wide{grid-column:span 1}
  .publisher-app .pub-product-master{grid-template-columns:1fr}
@@ -222,7 +225,7 @@
  .publisher-app .pub-widget{padding:16px}
  .publisher-app .pub-widget-head h3{font-size:13px}
  .publisher-app .pub-widget-value strong{font-size:26px}
- .publisher-app .pub-dashboard-header h2{font-size:19px}
+ .publisher-app .pub-dashboard-header h1{font-size:19px}
  .publisher-app .pub-dashboard-actions button{font-size:11px}
 }
 @media(prefers-reduced-motion:reduce){
