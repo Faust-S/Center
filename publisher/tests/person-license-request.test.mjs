@@ -31,6 +31,21 @@ test('PERSON proposal preserves device, quota, source version, subject and ident
  assert.ok(!('privateKey' in r)&&!('issuerAuthorityId' in r)&&!('signature' in r));
  assert.deepEqual(validateUnsignedPersonLicenseRequest(r),r);
 });
+test('PERSON rejects non-string identity and version before the native issuer',()=>{
+ const draft=fixture(),valid=prepareUnsignedPersonLicenseRequest(draft,{
+   proposalId:draft.proposals[0].id});
+ for(const candidate of [
+   {...valid,requestId:123},
+   {...valid,requestId:new String(valid.requestId)},
+   {...valid,subject:{...valid.subject,id:123}},
+   {...valid,subject:{...valid.subject,id:new String(valid.subject.id)}},
+   {...valid,product:{...valid.product,version:new String(valid.product.version)}},
+   {...valid,renewalOfRequestId:123}
+ ]){
+   assert.throws(()=>validateUnsignedPersonLicenseRequest(candidate),
+     {name:'PersonLicenseRequestError'});
+ }
+});
 test('PERSON contract also supports Personal Agent without altering Atlas scope',()=>{
  const draft=fixture('IWXA_PERSONAL_AGENT');
  const request=prepareUnsignedPersonLicenseRequest(draft,{proposalId:draft.proposals[0].id});
