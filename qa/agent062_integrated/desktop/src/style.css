@@ -521,6 +521,44 @@ html[data-theme="dark"] .k03-progress,html[data-theme="dark"] .task-wait-status{
 html[data-theme="dark"] .k03-progress small,html[data-theme="dark"] .task-wait-status small{color:#b8d2ee}
 @media(max-width:680px){.task-reasoning-control label{flex-wrap:wrap}.task-reasoning-control select{max-width:100%}.k03-progress .mini-button{margin-left:0}}
 
+/* 0.6 personal navigation: compact icon rail using the existing IWXA palette.
+   The original brand mark, page routes, right inspector and Workspace remain. */
+@media (min-width:1121px){
+ .app.sidebar-collapsed{grid-template-columns:64px minmax(0,1fr) 286px}
+ .app.sidebar-collapsed.inspector-closed{grid-template-columns:64px minmax(0,1fr)}
+}
+@media (min-width:681px) and (max-width:1120px){
+ .app.sidebar-collapsed{grid-template-columns:64px minmax(0,1fr)}
+}
+@media (min-width:681px){
+ .sidebar-collapsed .sidebar{overflow-x:hidden}
+ .sidebar-collapsed .brand{padding:14px 4px 10px;flex-direction:column;align-items:center;gap:5px}
+ .sidebar-collapsed .brand-identity>div{display:none}
+ .sidebar-collapsed .brand-mark{width:31px;height:31px}
+ .sidebar-collapsed .sidebar-collapse-button{min-height:29px;min-width:34px}
+ .sidebar-collapsed .nav-group{padding:0 7px 9px}
+ .sidebar-collapsed .nav-product-group{grid-template-columns:minmax(0,1fr);position:relative;gap:0}
+ .sidebar-collapsed .nav-product-group>.nav-primary{justify-content:center;padding:0;min-height:41px;margin:2px 0}
+ .sidebar-collapsed .nav-product-group>.nav-primary svg{flex:none}
+ .sidebar-collapsed .nav-primary span,.sidebar-collapsed .nav-primary em,.sidebar-collapsed .nav-children{display:none}
+ .sidebar-collapsed .nav-product-group>.nav-disclosure{position:absolute;right:-2px;bottom:1px;min-width:17px;width:17px;min-height:17px;height:17px;border-radius:6px}
+ .sidebar-collapsed .nav-product-group>.nav-disclosure svg{width:12px;height:12px}
+ .sidebar-collapsed .space-list{padding:0 7px}
+ .sidebar-collapsed .space-list .nav-caption,.sidebar-collapsed .space-list .workspace-switcher,.sidebar-collapsed .space-list .space-note{display:none}
+ .sidebar-collapsed .space-list .workspace-manage{margin:4px 0;padding:0;min-height:41px;justify-content:center}
+ .sidebar-collapsed .space-list .workspace-manage span,.sidebar-collapsed .space-list .workspace-manage svg:last-child{display:none}
+ .sidebar-collapsed .sidebar-bottom{padding:6px 7px 14px}
+ .sidebar-collapsed .sidebar-bottom .sovereign{display:none}
+ .sidebar-collapsed .person{justify-content:center;padding:9px 0;border-top:1px solid #ffffff2a;margin:5px 0 0}
+ .sidebar-collapsed .person span,.sidebar-collapsed .person svg{display:none}
+ .sidebar-collapsed .person img{width:31px;height:31px}
+ .sidebar-collapsed .nav-settings-detail{display:none}
+}
+@media (max-width:680px){
+ /* Keep mobile navigation and Workspace as in the original responsive design. */
+ .sidebar-collapse-button{display:none}
+}
+
 
 /* Agent 0.6.2: compact conversation folders in the existing blue UI. */
 .iwxa-chat-with-folders{display:flex;flex:1;min-height:0;min-width:0}

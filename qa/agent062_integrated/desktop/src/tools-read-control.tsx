@@ -3,12 +3,54 @@ import {runtime} from './runtime-client/interaction';
 import {record,records,str,failure,OwnerDetails,OwnerError,OwnerMessage,useOwnerActions,type Row} from './owner-ui';
 import {HelpTip,useUiSettings} from './ui-preferences';
 
+
+function onlineReadSlot(toolId:string):'mail'|'calendar'|'contacts'|''{
+ if(toolId.startsWith('mail.'))return 'mail';
+ if(toolId.startsWith('calendar.'))return 'calendar';
+ if(toolId.startsWith('contacts.'))return 'contacts';
+ return '';
+}
+
+/** Read-only projection of the existing Core account catalogue, never a second registry. */
+function readyOnlineReadAccounts(snapshot:Row,toolId:string):Row[]{
+ const slot=onlineReadSlot(toolId);
+ if(!slot)return [];
+ return records(snapshot.accounts).filter(account=>
+  str(account.service)===slot&&account.can_select_for_task===true
+  &&account.connection_state==='CONFIGURED_UNVERIFIED'
+  &&Array.isArray(account.operations)&&account.operations.includes(toolId)
+  &&/^[A-Z][A-Z0-9_]{2,79}$/.test(str(account.provider_id)));
+}
+
 export function ToolsReadControl({onConnections,focusToolId='',onAttachToDraft,inlineDestination=null}:{onConnections:()=>void;focusToolId?:string;onAttachToDraft?:(destination:'task'|'dialogue',receiptId:string,data:unknown)=>Promise<void>;inlineDestination?:'task'|'dialogue'|null}){
  const {tr}=useUiSettings();
  const [catalog,setCatalog]=useState<Row>({}),[mcp,setMcp]=useState<Row>({}),[error,setError]=useState('');
  const [mcpStatusIssue,setMcpStatusIssue]=useState('');
  const [toolId,setToolId]=useState(focusToolId),[filePath,setFilePath]=useState(''),[argumentsText,setArgumentsText]=useState('{}'),[lastResult,setLastResult]=useState<Row|null>(null);
  const [fieldValues,setFieldValues]=useState<Record<string,string>>({});
+ const [onlineAccounts,setOnlineAccounts]=useState<Row>({});
+ const [onlineAccountState,setOnlineAccountState]=useState<'idle'|'loading'|'ready'|'unavailable'>('idle');
+ const [accountRefresh,setAccountRefresh]=useState(0);
+ const accountReadEpoch=useRef(0);
+ const onlineService=onlineReadSlot(toolId);
+ // The local account list is optional for unrelated read tools. A stale
+ // response must never overwrite a later account or tool selection.
+ useEffect(()=>{
+  const epoch=++accountReadEpoch.current;
+  if(!onlineService){setOnlineAccounts({});setOnlineAccountState('idle');return;}
+  setOnlineAccounts({});setOnlineAccountState('loading');
+  void runtime.query<Row>('online_accounts').then(data=>{
+   if(epoch!==accountReadEpoch.current)return;
+   const snapshot=record(data);
+   if(snapshot.schema!=='IWXA_AGENT06_ONLINE_ACCOUNTS/1'
+      ||!Array.isArray(snapshot.accounts))throw Error('online_accounts_contract_changed');
+   setOnlineAccounts(snapshot);setOnlineAccountState('ready');
+  }).catch(()=>{
+   if(epoch!==accountReadEpoch.current)return;
+   setOnlineAccounts({});setOnlineAccountState('unavailable');
+  });
+  return()=>{accountReadEpoch.current++};
+ },[onlineService,accountRefresh]);
  // Changing the selected source or its arguments invalidates a pending read
  // result. A slow previous tool must never appear as the current tool's answer.
  const resultEpoch=useRef(0),catalogLoadEpoch=useRef(0);
@@ -122,6 +164,11 @@ export function ToolsReadControl({onConnections,focusToolId='',onAttachToDraft,i
     &&policy.approval_requirement==='NOT_REQUIRED'&&!!str(descriptor.tool_id);
  });
  const chosen=readTools.find(row=>str(record(row.descriptor).tool_id)===toolId);
+ const readyReadAccounts=readyOnlineReadAccounts(onlineAccounts,toolId);
+ const remoteReadDenied=!!onlineService&&onlineAccounts.remote_execution_available===false;
+ const explicitReadAccount=str(fieldValues.account_id);
+ const effectiveReadAccount=explicitReadAccount||
+  (readyReadAccounts.length===1?str(readyReadAccounts[0].provider_id):'');
  const personalFileRead=toolId==='files.read';
  const inputSchema=record(record(chosen?.descriptor).input_schema);
  const properties=record(inputSchema.properties);
@@ -148,8 +195,40 @@ export function ToolsReadControl({onConnections,focusToolId='',onAttachToDraft,i
    args={root_id:'personal',path:filePath.trim()};
   }else if(simpleForm){
    args={};
+   if(onlineService){
+    if(remoteReadDenied){
+     setError(tr('В режиме T3 внешние аккаунты недоступны. Измените режим в настройках Agent.',
+       'External accounts are unavailable in T3 mode. Change the mode in Agent settings.'));return;
+    }
+    if(onlineAccountState==='idle'||onlineAccountState==='loading'){
+     setError(tr('Список аккаунтов ещё загружается.','The account list is still loading.'));return;
+    }
+    if(onlineAccountState==='unavailable'&&
+       (chosen?.account_selection_required===true||!!explicitReadAccount)){
+     setError(tr('Не удалось проверить выбранный аккаунт. Обновите подключения.',
+       'The selected account cannot be verified. Refresh connections.'));return;
+    }
+    if(onlineAccountState==='ready'){
+     if(explicitReadAccount&&!readyReadAccounts.some(a=>str(a.provider_id)===explicitReadAccount)){
+      setError(tr('Выбранный аккаунт изменился. Выберите его заново.',
+       'The selected account changed. Select it again.'));return;
+     }
+     if(readyReadAccounts.length>1&&!explicitReadAccount){
+      setError(tr('Выберите аккаунт, из которого нужно прочитать данные.',
+       'Choose the account to read from.'));return;
+     }
+     if(chosen?.account_selection_required===true&&!effectiveReadAccount){
+      setError(tr('Сначала настройте доступный аккаунт в разделе «Подключения».',
+       'Configure an available account under Connections first.'));return;
+     }
+    }
+   }
    const required=Array.isArray(inputSchema.required)?inputSchema.required:[];
    for(const name of fieldNames){
+    if(name==='account_id'&&onlineService){
+     if(effectiveReadAccount)args.account_id=effectiveReadAccount;
+     continue;
+    }
     const spec=record(properties[name]),value=fieldValues[name]??'';
     if(value.trim()===''){
      if(required.includes(name)){setError(tr('Заполните поле: ','Complete the field: ')+name);return;}
@@ -188,7 +267,9 @@ export function ToolsReadControl({onConnections,focusToolId='',onAttachToDraft,i
   // the unchanged request, never after user edits or focus navigation.
   if(answer&&requestEpoch===resultEpoch.current){
    const receipt=record(record(answer).receipt);
-   if(str(receipt.tool_id)!==toolId||!['SUCCEEDED','INPUT_REQUIRED'].includes(str(receipt.status))){
+   if(str(receipt.tool_id)!==toolId
+      ||(str(args.account_id)&&str(receipt.provider_id)!==str(args.account_id))
+      ||!['SUCCEEDED','INPUT_REQUIRED'].includes(str(receipt.status))){
     setError(tr('Ответ чтения не совпадает с выбранным инструментом. Проверьте квитанцию перед новым действием.',
       'The read response does not match the selected tool. Inspect the receipt before another action.'));
    }else setLastResult(record(answer));
@@ -200,7 +281,9 @@ export function ToolsReadControl({onConnections,focusToolId='',onAttachToDraft,i
     :<h2>{tr('Инструменты чтения','Read tools')} <HelpTip topic="Инструменты"/></h2>}
    <p>{tr('Доступны только разрешённые действия чтения. Результат можно добавить в текущий черновик.',
     'Only permitted read actions are available. Their results can be added to the current draft.')}</p></div>
-   <button className="secondary-button" disabled={busy} onClick={()=>void load()}>{tr('Обновить','Refresh')}</button>
+   <button className="secondary-button" disabled={busy} onClick={()=>{
+    invalidateRead();setAccountRefresh(n=>n+1);void load();
+   }}>{tr('Обновить','Refresh')}</button>
   </div>
   {error&&<OwnerError error={error}/>}
   {message&&<OwnerMessage diagnostic={diagnostic}>{message}</OwnerMessage>}
@@ -262,6 +345,34 @@ export function ToolsReadControl({onConnections,focusToolId='',onAttachToDraft,i
        const spec=record(properties[name]),type=str(spec.type),required=Array.isArray(inputSchema.required)&&inputSchema.required.includes(name);
        const labelText=str(spec.title)||name;
        const choices=Array.isArray(spec.enum)?spec.enum.filter(value=>typeof value==='string') as string[]:[];
+       if(name==='account_id'&&onlineService)return <label className="advanced-field" key={name}>
+        {tr('Аккаунт для чтения','Account to read from')}
+        <select value={effectiveReadAccount} disabled={busy||onlineAccountState!=='ready'}
+         onChange={e=>{invalidateRead();setFieldValues(v=>({...v,account_id:e.target.value}));}}>
+         <option value="">{onlineAccountState==='loading'
+          ?tr('Читаем аккаунты…','Reading accounts…')
+          :tr('Выберите аккаунт','Choose an account')}</option>
+         {readyReadAccounts.map(account=><option key={str(account.provider_id)} value={str(account.provider_id)}>
+          {str(account.label)||str(account.provider_id)} · {str(account.vendor)} · {str(account.provider_id)}
+         </option>)}
+        </select>
+        {remoteReadDenied&&<small role="status">{tr(
+         'T3 включён: внешние запросы отключены. Для чтения этого аккаунта измените режим в настройках Agent.',
+         'T3 is enabled: external requests are disabled. Change the mode in Agent settings to read this account.')}</small>}
+        {onlineAccountState==='unavailable'&&<small role="status">{tr(
+         chosen?.account_selection_required===true
+          ?'Список аккаунтов недоступен. Обновите подключения, чтобы выбрать аккаунт.'
+          :'Список аккаунтов недоступен. Возможно чтение только из текущего подключения по умолчанию.',
+         chosen?.account_selection_required===true
+          ?'The account list is unavailable. Refresh connections to choose an account.'
+          :'The account list is unavailable. Only the current default connection may be used.')}</small>}
+        {onlineAccountState==='ready'&&readyReadAccounts.length===0&&<small role="status">{tr(
+         'Нет настроенных аккаунтов для этого действия. Проверьте подключения.',
+         'No configured account is available for this action. Check Connections.')}</small>}
+        {onlineAccountState==='ready'&&readyReadAccounts.length>1&&!explicitReadAccount&&<small>{tr(
+         'Выберите конкретный аккаунт. Глобальное подключение изменять не нужно.',
+         'Choose an account. The global connection will not change.')}</small>}
+       </label>;
        return <label className="advanced-field" key={name}>
         {labelText}{required?' *':''}
         {type==='boolean'?<select value={fieldValues[name]??''}
@@ -285,7 +396,12 @@ export function ToolsReadControl({onConnections,focusToolId='',onAttachToDraft,i
      <textarea rows={5} aria-label={tr('Параметры инструмента','Tool parameters')}
       value={argumentsText} onChange={e=>{invalidateRead();setArgumentsText(e.target.value)}}/>
     </details>}
-    <button type="button" disabled={busy||!permitted||(personalFileRead&&!filePath.trim())} onClick={()=>void executeRead()}>
+    <button type="button" disabled={busy||!permitted||(personalFileRead&&!filePath.trim())
+     ||(!!onlineService&&(onlineAccountState==='idle'||onlineAccountState==='loading'))
+     ||remoteReadDenied
+     ||(!!onlineService&&chosen?.account_selection_required===true&&!effectiveReadAccount)
+     ||(!!onlineService&&onlineAccountState==='ready'&&readyReadAccounts.length>1&&!explicitReadAccount)}
+     onClick={()=>void executeRead()}>
      {tr('Прочитать источник','Read source')}</button>
     {!inlineDestination&&<OwnerDetails title={tr('Проверки доступа','Access checks')} value={chosen}/>}
    </>}

@@ -12,6 +12,7 @@ import {CorporateWorkControl} from './corporate-work-control';
 import {TaskGoalsPanel} from './task-goals-panel';
 import {meetingTranscriptFromTask,reviewMeetingTaskSummary} from './meeting-followup-review';
 import {TaskActionsPanel} from './task-actions-panel';
+import {reviewedPdfOcrPlan} from './office-pdf-ocr-review';
 import {OwnerError} from './owner-ui';
 import {DialogControl,IntegrationsControl,SettingsControl} from './product-controls';
 import {HomeDashboard} from './home-dashboard';
@@ -52,7 +53,7 @@ import {SafeMarkdown} from './safe-markdown';
 import {observedCoreConnection,coreConnectionLabel,type CoreConnectionState} from './core-connection';
 import {verifiedTaskComposerReadback} from './task-composer-readback';
 import {composerEditableMatches,composerDigestVerified} from './task-composer-revision';
-import {ArrowLeft,Home,CheckSquare,MessageCircle,Folder,BookOpen,Boxes,Blocks,FileText,Brain,SlidersHorizontal,ShieldCheck,CloudOff,Settings,Plus,FolderOpen,PanelRightClose,PanelRightOpen,ChevronRight,Play,Save,ListChecks,ClipboardCheck,FilePlus2,RefreshCcw,Globe,PenLine,FileSearch,History,Network,SquareStack,Sparkles} from 'lucide-react';
+import {ArrowLeft,Home,CheckSquare,MessageCircle,Folder,BookOpen,Boxes,Blocks,FileText,Brain,SlidersHorizontal,ShieldCheck,CloudOff,Settings,Plus,FolderOpen,PanelRightClose,PanelRightOpen,PanelLeftClose,PanelLeftOpen,ChevronRight,Play,Save,ListChecks,ClipboardCheck,FilePlus2,RefreshCcw,Globe,PenLine,FileSearch,History,Network,SquareStack,Sparkles} from 'lucide-react';
 import{runtime,RuntimeRequestError}from './runtime-client/interaction';
 type Task={id:string;title?:string;status?:string;summary?:string;linked_atlas_work?:boolean};
 type Claim={text?:string;basis?:string};
@@ -148,6 +149,15 @@ export function App(){
  selectedSkillCurrent.current=skill;
  const[useMemory,setUseMemory]=useState(true),[useObsidian,setUseObsidian]=useState(false),[useWeb,setUseWeb]=useState(false);
  const[k03Open,setK03Open]=useState(false);
+ // Presentation-only preference. It must not alter Task, Workspace or Core state.
+ const[sidebarCollapsed,setSidebarCollapsed]=useState(()=>{
+  try{return window.localStorage.getItem('iwxa.desktop.sidebar-collapsed.v1')==='1';}
+  catch{return false;}
+ });
+ useEffect(()=>{
+  try{window.localStorage.setItem('iwxa.desktop.sidebar-collapsed.v1',sidebarCollapsed?'1':'0');}
+  catch{/* The sidebar remains usable without WebView storage. */}
+ },[sidebarCollapsed]);
  const k03TaskInput=useRef<HTMLTextAreaElement|null>(null);
  const k03ApplyInFlight=useRef(false);
  const[k03DraftBusy,setK03DraftBusy]=useState(false);
@@ -339,9 +349,12 @@ export function App(){
  const[workAreas,setWorkAreas]=useState<WorkArea[]>([]),[activeArea,setActiveArea]=useState<WorkArea|null>(null);
  const[areaLoaded,setAreaLoaded]=useState(false),[areaError,setAreaError]=useState('');
  const workAreaReadEpoch=useRef(0);
- // Retry at most one initial read-only Workspace observation if Core
- // answered status while the parallel Workspace read was unavailable.
- const initialWorkspaceReadRetried=useRef(false);
+ // Recover an initial Workspace that started before the installed Core.
+ // Retry read-only observations with bounded backoff, even if status failed.
+ const initialWorkspaceRetryAttempts=useRef(0);
+ const initialWorkspaceRetryTimer=useRef<number|null>(null);
+ useEffect(()=>()=>{if(initialWorkspaceRetryTimer.current!==null)
+  window.clearTimeout(initialWorkspaceRetryTimer.current);},[]);
  // Wait for the existing initial read before deciding whether a quick close
  // can use the verified Workspace; never infer admission from Core status.
  const startupWorkspaceRead=useRef<Promise<boolean>|null>(null);
@@ -469,6 +482,7 @@ export function App(){
   lastSavedView.current=signature;
  }
  const[documentFocus,setDocumentFocus]=useState(0);
+ const[ocrLaunch,setOcrLaunch]=useState<{workspaceId:string;path:string;sha256:string;pagesTotal:number}|null>(null);
  const[recoveryFocusCase,setRecoveryFocusCase]=useState('');
  const[programFocus,setProgramFocus]=useState('');
  const[agentRunFocus,setAgentRunFocus]=useState('');
@@ -736,6 +750,91 @@ export function App(){
  }
 
 
+ async function transferGraphProgramResultToTask(executionId:string,graphDigest:string,artifactDigest:string){
+  if(acceptedEvidenceTransfer.current||!draftLoaded||composerSaveBlocked.current||
+     submitInFlight.current||reviewInFlight.current||conversationTaskTransferInFlight.current||
+     workspaceSwitchInFlight.current||!activeArea||!areaLoaded||taskDispatchUnknown.current)
+   throw Error('program_result_task_draft_not_ready');
+  acceptedEvidenceTransfer.current=true;
+  const areaId=activeArea.id;
+  try{
+   draftSaveEpoch.current++;
+   await draftWriteQueue.current.catch(()=>undefined);
+   const before=currentComposer.current;
+   const beforeSignature=JSON.stringify(before);
+   if(committedWorkAreaId.current!==areaId||composerWorkspace.current!==areaId)
+    throw Error('program_result_task_workspace_changed');
+   const snapshot={text:before.text,attachments:before.files,
+    knowledge_sources:before.knowledgeSources,local_model:before.localPin};
+   let current=verifiedTaskComposerReadback(await runtime.query<unknown>('composer_draft'));
+   if(pendingTaskIntent(current.pending_submission))
+    throw Error('program_result_task_submission_pending');
+   if(!composerEditableMatches(current,snapshot)){
+    await persistComposer(snapshot);
+    current=verifiedTaskComposerReadback(await runtime.query<unknown>('composer_draft'));
+   }
+   if(!composerEditableMatches(current,snapshot)
+       ||pendingTaskIntent(current.pending_submission)
+       ||beforeSignature!==JSON.stringify(currentComposer.current)
+       ||committedWorkAreaId.current!==areaId)
+    throw Error('program_result_task_draft_changed_before_transfer');
+   await runtime.refreshRevision();
+   const reply=await runtime.command<{schema?:string;source_execution_id?:string;
+    source_graph_digest?:string;source_artifact_digest?:string;
+    source_runtime_id?:string;workspace_id?:string;attachment_name?:string;
+    draft?:{draft_digest?:string;attachments?:{name:string;text:string}[]}}>(
+     'graph_result_task_seed',
+     {execution_id:executionId,expected_graph_digest:graphDigest,
+      expected_artifact_digest:artifactDigest,
+      expected_draft_digest:current.draft_digest,
+      expected_workspace_id:areaId,confirmed:true},
+     {kind:'graph_execution',id:executionId});
+   const saved=verifiedTaskComposerReadback(await runtime.query<unknown>('composer_draft'));
+   if(reply.schema!=='IWXA_AGENT_PROGRAM_RESULT_TASK_SEED/1'
+      ||reply.source_execution_id!==executionId
+      ||reply.source_graph_digest!==graphDigest
+      ||reply.source_artifact_digest!==artifactDigest
+      ||reply.workspace_id!==areaId
+      ||saved.workspace_id!==areaId
+      ||!['CODEX_CHATGPT_CLI_V1','CLAUDE_CODE_SPECIALIST_V1','GOOGLE_ANTIGRAVITY_SPECIALIST_V1']
+        .includes(String(reply.source_runtime_id||''))
+      ||!reply.attachment_name?.startsWith('Program-result-')
+      ||!saved.attachments.some(row=>row.name===reply.attachment_name)
+      ||reply.draft?.draft_digest!==saved.draft_digest
+      ||JSON.stringify(reply.draft?.attachments)!==JSON.stringify(saved.attachments)
+      ||!composerEditableMatches({...saved,attachments:before.files},snapshot)
+      ||beforeSignature!==JSON.stringify(currentComposer.current)
+      ||committedWorkAreaId.current!==areaId){
+    throw Error('program_result_task_draft_readback_unconfirmed');
+   }
+   composerDraftRevision.current=saved.draft_digest;
+   savedComposerSignature.current=JSON.stringify([
+    saved.text,saved.knowledge_sources,saved.attachments,readLocalModelPin(saved.local_model)
+   ]);
+   initialRestoredComposerSnapshot.current=savedComposerSignature.current;
+   draftSaveEpoch.current++;
+   currentComposer.current={...before,files:[...saved.attachments]};
+   setFiles([...saved.attachments]);
+   // A blank editor must remain actionable after importing a valid Result.
+   // This is an ordinary unsent Task draft suggestion, not auto-submission.
+   if(!saved.text.trim())
+    setText(tr('Проверь результат внешнего исполнителя во вложении и предложи дальнейшие действия.',
+      'Review the external program Result in the attachment and propose next actions.'));
+   setError('');
+   setPage('Главная');
+  }catch(e){
+   if(e instanceof RuntimeRequestError&&
+      ['ACTION_OUTCOME_UNCONFIRMED','UNCONFIRMED_COMMAND'].includes(e.code)){
+    composerSaveBlocked.current=true;
+    setComposerSaveFailure(tr(
+     'Исход переноса Result неизвестен. Прочитайте сохранённый черновик перед новым действием.',
+     'The Result transfer outcome is unknown. Inspect the saved draft before another action.'));
+   }
+   throw e;
+  }finally{
+   acceptedEvidenceTransfer.current=false;
+  }
+ }
  // A deliberate import of one T2 result into the existing Task editor.
  // All current Task materials are preserved; no second Workspace/store.
  const domainResultInFlight=useRef(false);
@@ -1144,15 +1243,17 @@ export function App(){
    setAreaLoaded(false);setDetailFresh(false);
    const reason=message(areaRead.reason);
    setAreaError(reason);setError(reason);
-   if(statusRead.status==='fulfilled'&&!committedWorkAreaId.current
-      &&!initialWorkspaceReadRetried.current){
-    initialWorkspaceReadRetried.current=true;
-    // A late-starting Core can already serve status but not the initial
-    // Workspace projection. One short, read-only retry, no commands.
-    window.setTimeout(()=>{
-     if(workAreaReadEpoch.current===epoch&&!committedWorkAreaId.current)
-      void refresh();
-    },1000);
+   if(!committedWorkAreaId.current&&!workspaceSwitchInFlight.current
+      &&initialWorkspaceRetryAttempts.current<6){
+    // WebView can start before Python Core serves either endpoint. No
+    // command, model execution or Task replay is permitted on retry.
+    const retry=++initialWorkspaceRetryAttempts.current;
+    const delay=Math.min(8000,500*2**(retry-1));
+    initialWorkspaceRetryTimer.current=window.setTimeout(()=>{
+     initialWorkspaceRetryTimer.current=null;
+     if(workAreaReadEpoch.current===epoch&&!committedWorkAreaId.current
+        &&!workspaceSwitchInFlight.current)void refresh();
+    },delay);
    }
    return false;
   }
@@ -1226,7 +1327,7 @@ export function App(){
   const [local,ops,user]=await Promise.all([runtime.query<Record<string,unknown>>('local_ai_setup'),runtime.query<Record<string,unknown>>('operational_control'),runtime.query<Record<string,unknown>>('user_setup')]);
   setLocalSetup(local);setOperational(ops);setSetup(user);await refresh();
  }catch(e){setError(message(e));}}
- async function openTask(id:string,navigate=true,verifiedDocumentStage=false){
+ async function openTask(id:string,navigate=true,verifiedDocumentStage:false|true|'files.ocr_pdf'=false){
   if(workspaceSwitchInFlight.current)return;
   const actionAtStart=navigationActionEpoch.current;
   const areaAtStart=committedWorkAreaId.current;
@@ -1251,7 +1352,8 @@ export function App(){
    if(verifiedDocumentStage){
     // The source editor must remain selected until the exact derived Task
     // and its file-write proposal have passed independent Core readback.
-    if(!d.action_candidates?.some(c=>c.operation==='files.write_text'))
+    const expectedOperation=verifiedDocumentStage===true?'files.write_text':verifiedDocumentStage;
+    if(!d.action_candidates?.some(c=>c.operation===expectedOperation))
      throw Error('document_write_task_readback_invalid');
    }
    if(id!==selected){
@@ -2190,6 +2292,10 @@ export function App(){
  const candidates=(detail?.action_candidates||[]).map(c=>({c,id:String(c.candidate_id||c.ref_id||'')})).filter(x=>x.id);
  const selectedFileCandidates=decision==='approve'?candidates.filter(({id,c})=>
   c.operation==='files.write_text'&&selectedCandidates.includes(id)):[];
+ const selectedOcrCandidates=decision==='approve'?candidates.filter(({id,c})=>
+  c.operation==='files.ocr_pdf'&&selectedCandidates.includes(id)):[];
+ const ocrReviewReady=selectedOcrCandidates.every(({c})=>
+  reviewedPdfOcrPlan(c.target,c.arguments)!==null);
  const currentReviewStamp=fileWriteReviewStamp(detail?.task_id||'',selectedFileCandidates);
  const fileReviewReady=selectedFileCandidates.length===0||
   (!!currentReviewStamp&&fileReviewConfirmed===currentReviewStamp);
@@ -2301,9 +2407,15 @@ export function App(){
        onClick={()=>void refresh()}>{tr('Обновить состояние','Refresh status')}</button>}
    </div>}
   <div className="composer-footer"><label className="upload-label"><Plus size={15}/>{tr('Файлы','Files')}<input id="upload" type="file" disabled={!draftLoaded} multiple accept=".txt,.md,.csv,.json" onChange={e=>{const input=e.currentTarget;void upload(input.files).catch(error=>setError(message(error))).finally(()=>{input.value='';});}}/></label><span className="composer-files">{files.map(f=>f.name).join(' · ')||tr('Текстовые файлы: TXT, MD, CSV, JSON','Text files: TXT, MD, CSV, JSON')}</span>{files.length>0&&<button type="button" className="mini-button" onClick={()=>setFiles([])}>{tr('Убрать вложения','Remove attachments')}</button>}{files.length>0&&!localReady&&<button type="button" className="mini-button" onClick={()=>setPage('Модели')}>{tr('Подключить модель для документов','Connect model for documents')}</button>}<button className="primary-button" disabled={!draftLoaded||k03DraftBusy||taskReasoningPending||taskReasoningSaving||!!composerSaveFailure||!text.trim()||!!busy||!status||!areaLoaded||!!pendingTask||taskDispatchUnknown.current} onClick={()=>void submit()}><Play size={15}/>{tr('Отправить','Send')}</button></div></section>);
- return <div className={'app'+(!inspector||page!=='Задачи'?' inspector-closed':'')}>
- <aside className="sidebar">
-  <div className="brand"><div className="brand-identity"><img src="/desktop/favicon.svg" className="brand-mark" alt=""/><div><strong>IWXA</strong><small>{tr('Персональный помощник','Personal assistant')}</small></div></div><button className="icon-button" aria-label={tr('Свернуть панель сведений','Collapse details panel')} onClick={()=>setInspector(!inspector)}><ChevronRight size={16}/></button></div>
+ return <div className={'app'+(!inspector||page!=='Задачи'?' inspector-closed':'')+(sidebarCollapsed?' sidebar-collapsed':'')}>
+ <aside id="iwxa-primary-sidebar" className="sidebar">
+  <div className="brand"><div className="brand-identity"><img src="/desktop/favicon.svg" className="brand-mark" alt=""/><div><strong>IWXA</strong><small>{tr('Персональный помощник','Personal assistant')}</small></div></div><button type="button" className="icon-button sidebar-collapse-button"
+   aria-controls="iwxa-primary-sidebar" aria-expanded={!sidebarCollapsed}
+   aria-label={sidebarCollapsed?tr('Развернуть боковую панель','Expand sidebar'):tr('Свернуть боковую панель','Collapse sidebar')}
+   title={sidebarCollapsed?tr('Развернуть меню','Expand menu'):tr('Свернуть меню','Collapse menu')}
+   onClick={()=>setSidebarCollapsed(value=>!value)}>
+   {sidebarCollapsed?<PanelLeftOpen size={17}/>:<PanelLeftClose size={17}/>}
+  </button></div>
   <nav className="nav-group" aria-label={tr('Разделы приложения','Application sections')}>
     {navigationGroups.map(group=>{
      const Icon=pageIcons[group.root],name=group.names[language==='ru'?0:1];
@@ -2313,6 +2425,8 @@ export function App(){
      return <div className="nav-product-group" key={group.id}>
       <button type="button" className={'nav-link nav-primary'+(active?' active':'')}
        aria-current={page===group.root?'page':undefined}
+       aria-label={name+' · '+pageName(group.root,language)}
+       title={sidebarCollapsed?name+' · '+pageName(group.root,language):undefined}
        onClick={()=>setPage(group.root)}>
        <Icon size={18}/><span>{name}</span>
        {group.root==='Задачи'&&tasks.length>0&&<em>{tasks.length}</em>}
@@ -2320,7 +2434,9 @@ export function App(){
       {group.children.length>0&&<button type="button" className="nav-disclosure"
        aria-label={(expanded?tr('Свернуть подразделы','Collapse subsections'):tr('Показать подразделы','Show subsections'))+' '+name}
        aria-expanded={expanded} aria-controls={'nav-children-'+group.id}
-       onClick={()=>setExpandedNavigation(expanded?'':group.id)}>
+       title={sidebarCollapsed?tr('Раскрыть раздел','Expand group')+' '+name:undefined}
+       onClick={()=>{if(sidebarCollapsed){setSidebarCollapsed(false);setExpandedNavigation(group.id);}
+        else setExpandedNavigation(expanded?'':group.id);}}>
        <ChevronRight size={15} className={expanded?'chevron-expanded':''} aria-hidden="true"/>
       </button>}
       {expanded&&<div id={'nav-children-'+group.id} className="nav-children" aria-label={name}>
@@ -2343,7 +2459,9 @@ export function App(){
     {workAreas.map(area=><option key={area.id} value={area.id}>{area.name}</option>)}
    </select>
    <button type="button" className={'nav-link workspace-manage'+(page==='Рабочие области'?' active':'')}
-    aria-label={tr('Управление рабочими областями','Manage workspaces')} onClick={()=>setPage('Рабочие области')}>
+    aria-label={tr('Управление рабочими областями','Manage workspaces')}
+    title={sidebarCollapsed?tr('Рабочая область','Workspace')+': '+(activeArea?.name||tr('Не выбрана','Not selected')):undefined}
+    onClick={()=>setPage('Рабочие области')}>
     <Folder size={16}/><span>{tr('Создать и настроить области','Create and manage workspaces')}</span><ChevronRight size={16}/></button>
    {workspaceSwitching&&<small className="space-note" role="status">{tr('Проверяем сохранение и переключаем область…','Verifying saved work and switching Workspace…')}</small>}
    {areaError&&<small className="space-note" role="alert">{areaError} <button type="button" className="workspace-reload" onClick={()=>void refresh()}>{tr('Обновить','Refresh')}</button></small>}
@@ -2382,7 +2500,9 @@ export function App(){
    </div>
    <div className="mode-row cloud-row"><CloudOff size={18} aria-hidden="true"/><div className="mode-copy"><b>{tr('Модель для новых ответов','Model for new responses')}</b><small>{operational?.active_model_provider_id==='IWXA_BASIC_RUNTIME_V1'?tr('Выбран IWXA LLM Engine на компьютере','Local IWXA LLM Engine selected'):operational?.active_model_provider_id==='OLLAMA_LOCAL_V1'?tr('Выбрана Ollama на компьютере','Local Ollama selected'):operational?.active_model_provider_id&&!['NONE','OLLAMA_LOCAL_V1'].includes(String(operational.active_model_provider_id))?tr('Выбран внешний источник. Проверьте передачу данных.','External source selected. Check data sharing.'):tr('Модель не выбрана','No model selected')}</small></div></div>
    <button type="button" className="sovereign-link" onClick={()=>setPage('Настройки')}>{tr('Режим работы и подключения','Work mode and connections')} <ChevronRight size={14} aria-hidden="true"/></button>
-  </div><button type="button" className="person" onClick={()=>setPage('Настройки')} aria-label={tr('Открыть настройки приложения','Open app settings')}>
+  </div><button type="button" className="person" onClick={()=>setPage('Настройки')}
+   aria-label={tr('Открыть настройки приложения','Open app settings')}
+   title={sidebarCollapsed?tr('Настройки приложения','Application settings'):undefined}>
    <img src="/desktop/favicon.svg" className="avatar-mark" alt=""/><span><b>{tr('Настройки IWXA','IWXA settings')}</b><small>{coreConnectionLabel(coreConnection,language)}</small></span><Settings size={16}/>
   </button></div>
  {(page==='Настройки'||page==='Домены')&&<button type="button"
@@ -2529,7 +2649,7 @@ export function App(){
 
  {page==='Работа в организации'&&<CorporateWorkControl onOpenAgentTask={id=>{setPage('Задачи');void openTask(id);}}/>}
  {['Главная','Задачи'].includes(page)&&<>
- {page==='Задачи'&&!selected&&taskComposer}
+{page==='Задачи'&&!selected&&taskComposer}
  {page==='Задачи'&&selected&&<section className="document-work"><div className="document-tabs">
   <div className="document-tablist" role="tablist" aria-label={tr('Разделы выбранной задачи','Selected Task sections')}
    onKeyDown={e=>{
@@ -2791,12 +2911,17 @@ export function App(){
  {page==='Задачи'&&activeArea?.id&&<IwxaExchangeControl
   key={activeArea.id+':'+(selected||'none')}
   workspaceId={activeArea.id}
-  taskId={detailFresh&&detail?.task_id===selected&&detail.status==='closed'&&detail.accepted_artifact_digest?selected:null}
+  taskId={detailFresh&&!!detail&&detail.task_id===selected&&detail.status==='closed'&&detail.accepted_artifact_digest?selected:null}
   onImported={id=>{void (async()=>{try{
     if(await refresh())await openTask(id);
   }catch(e){setError(message(e));}})();}}/>}
- {page==='Задачи'&&<DocumentWorkflow focusRequest={documentFocus} readbackEpoch={sessionReadbackEpoch} task={detail} workspaceId={activeArea?.id||''} verified={detailFresh} onRegisterLeaveGuard={registerDocumentLeaveGuard} onRegisterCloseFlush={registerDocumentCloseFlush} onOpenTask={async id=>{await openTask(id,true,true);}} onOpenSourceTask={async id=>{await openTask(id);}}
+ {page==='Задачи'&&<DocumentWorkflow focusRequest={documentFocus} readbackEpoch={sessionReadbackEpoch}
+   suggestedOcrPath={!!ocrLaunch&&ocrLaunch.workspaceId===activeArea?.id?ocrLaunch.path:undefined}
+   task={!!ocrLaunch&&ocrLaunch.workspaceId===activeArea?.id?null:detail}
+   workspaceId={activeArea?.id||''}
+   verified={!!ocrLaunch&&ocrLaunch.workspaceId===activeArea?.id?areaLoaded:detailFresh} onRegisterLeaveGuard={registerDocumentLeaveGuard} onRegisterCloseFlush={registerDocumentCloseFlush} onOpenTask={async(id,operation)=>{await openTask(id,true,operation==='files.ocr_pdf'?'files.ocr_pdf':true);setOcrLaunch(null);}} onOpenSourceTask={async id=>{await openTask(id);}}
    onRefreshTasks={refreshDocumentTask} onReviewCandidate={id=>{setSelectedCandidates([id]);setDecision('approve');setNotes('');setReview(true);}}
+   onPrepareCandidate={id=>void prepareCandidate(id)} onOpenPlans={()=>{setDocumentTab('plan');setPlanFocusRequest(v=>v+1);}}
    onOpenConnections={()=>{setConnectionFocus('file_workspace');setPage('Интеграции');}}
    onOpenRecovery={id=>{setRecoveryFocusCase(id);setPage('Восстановление');}}/>}
   {page==='Задачи'&&<section className="subpage card"><h2>{tr('Сохранённые задачи','Saved tasks')}</h2>
@@ -2961,14 +3086,15 @@ export function App(){
  {page==='Интеграции'&&<><ProviderConnections initialSlot={connectionFocus}/><IntegrationsControl/></>}
  {page==='Инструменты'&&<ToolsReadControl focusToolId={toolFocus} onAttachToDraft={attachToolReadToDraft} onConnections={()=>{setConnectionFocus('mcp_tools');setPage('Интеграции');}}/>}
  {page==='Восстановление'&&<RecoveryControl readbackEpoch={sessionReadbackEpoch} initialCaseId={recoveryFocusCase} onOpenTask={id=>void openTask(id)}/>}
- {page==='Файлы'&&<FilesControl onConfigure={()=>{setConnectionFocus('file_workspace');setPage('Интеграции');}} onOpenTask={()=>setPage('Задачи')} onAnalyze={file=>{void preparePersonalFileAnalysis(file);}}/>}
+ {page==='Файлы'&&<FilesControl onConfigure={()=>{setConnectionFocus('file_workspace');setPage('Интеграции');}} onOpenTask={()=>setPage('Задачи')} onAnalyze={file=>{void preparePersonalFileAnalysis(file);}}
+   onStartOcr={scan=>{if(!activeArea?.id)return;setOcrLaunch({workspaceId:activeArea.id,...scan});setDocumentTab('result');setPage('Задачи');setDocumentFocus(v=>v+1);}}/>}
  {page==='Модели'&&<ModelsControl onReturnToWork={()=>setPage('Главная')} onNavigate={setPage} onOpenProgram={openProgram} onChanged={()=>void runtime.query<Record<string,unknown>>('operational_control').then(setOperational).catch(()=>setOperational(null))}/>}
  {page==='Настройки'&&<SettingsControl onNavigate={setPage}/>}
  {page==='Программы'&&<ProgramsCenter onReturnToWork={()=>setPage('Главная')} onNavigate={next=>{if(next==='Интеграции')setConnectionFocus('workflow_execution');setPage(next)}}
    onOpenMcpConnections={()=>{setConnectionFocus('mcp_tools');setPage('Интеграции')}}
    onOpenMcpTools={()=>setPage('Инструменты')}
    nativeHostRef={activeArea?.id} focusProgram={programFocus} onOpenTask={id=>void openTask(id)} onOpenGooseReview={id=>{setAgentRunFocus(id);setPage('Агенты');}}/>} 
- {page==='Цепочки'&&<ChainBuilder onReturnToWork={()=>setPage('Главная')} onNavigate={setPage}
+ {page==='Цепочки'&&<ChainBuilder onReturnToWork={()=>setPage('Главная')} onNavigate={setPage} onTransferProgramResult={transferGraphProgramResultToTask}
  initialExecutionId={graphExecutionFocus} onExecutionFocusConsumed={()=>setGraphExecutionFocus('')}
  initialHandoff={workHandoff?.destination==='Цепочки'?workHandoff:undefined} onHandoffConsumed={()=>setWorkHandoff(null)}/>}
  {!['Главная','Задачи','Диалоги','Домены','Согласования','Программы','Цепочки','Агенты','Навыки','Интеграции','Настройки','Модели','Проекты','Автоматизации','Знания','Память','Инструменты','Восстановление','Файлы','Рабочие области'].includes(page)&&<Advanced page={page} initialRecoveryCaseId={recoveryFocusCase}/>}
@@ -2996,6 +3122,20 @@ export function App(){
     <p role="status" className="advanced-notice">{tr('Предложенная запись файла не выбрана. Если сохранить такое решение, результат задачи будет принят, но подготовка записи останется недоступной. Выберите нужный кандидат, если хотите продолжить запись.','No file-write candidate is selected. Saving this decision accepts the result but does not authorize preparing the write. Select the exact candidate if you intend to continue.')}</p>}
    {decision==='approve'&&candidates.map(({id,c})=><label key={id}><input type="checkbox" checked={selectedCandidates.includes(id)} disabled={!!busy}
     onChange={e=>{setFileReviewConfirmed(null);setSelectedCandidates(items=>e.target.checked?[...items,id]:items.filter(x=>x!==id))}}/>{c.description||c.tool_id||tr('Предложенное действие','Proposed action')}</label>)}
+   {decision==='approve'&&selectedOcrCandidates.map(({id,c})=>{
+    const plan=reviewedPdfOcrPlan(c.target,c.arguments);
+    return <section className="review-file-proposal" key={id}>
+     {plan?<><h3>{tr('Распознавание PDF: новая копия','PDF OCR: new copy')}</h3>
+      <p>{tr('Принятие кандидата не запускает OCR. Исполнение только после отдельного разрешения ToolRuntime.',
+       'Accepting the candidate does not run OCR. Execution requires separate ToolRuntime approval.')}</p>
+      <dl><dt>{tr('Исходный PDF','Source PDF')}</dt><dd>{plan.sourcePath}</dd>
+       <dt>{tr('Новая копия','New copy')}</dt><dd>{plan.path}</dd>
+       <dt>{tr('Исполнитель','Executor')}</dt><dd>OCRmyPDF</dd></dl>
+      <p>SHA-256: {plan.sourceSha256}</p><small>{tr('Проверенная программа','Pinned executable')}: {plan.executableSha256}</small>
+     </>:<p role="alert">{tr('Параметры OCR не прошли проверку. Нельзя принять этот кандидат.',
+       'Invalid OCR arguments. Do not accept this candidate.')}</p>}
+    </section>;
+   })}
    {decision==='approve'&&selectedFileCandidates.map(({id,c})=>{
     const exact=readFileWriteReview(c);
     return <section className="review-file-proposal" key={id} aria-label={tr('Полное предложение изменения файла','Complete file modification proposal')}>
@@ -3025,7 +3165,7 @@ export function App(){
    </p>}
    <label>{tr('Замечания','Notes')}<textarea value={notes} onChange={e=>setNotes(e.target.value)}/></label>
    <div className="modal-actions"><button className="secondary-button" disabled={!!busy} onClick={()=>setReview(false)}>{tr('Отмена','Cancel')}</button>
-    <button className="primary-button" disabled={!decision||!detailFresh||!!busy||!fileReviewReady||(decision==='revise'&&!notes.trim())} onClick={()=>void doReview()}>{tr('Сохранить решение','Save decision')}</button>
+    <button className="primary-button" disabled={!decision||!detailFresh||!!busy||!fileReviewReady||!ocrReviewReady||(decision==='revise'&&!notes.trim())} onClick={()=>void doReview()}>{tr('Сохранить решение','Save decision')}</button>
    </div>
   </div>
  </div>}

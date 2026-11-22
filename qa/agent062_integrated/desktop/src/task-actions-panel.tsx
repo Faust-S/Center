@@ -3,6 +3,9 @@ import {runtime} from './runtime-client/interaction';
 import {record,records,str,OwnerError,type Row} from './owner-ui';
 import {useUiSettings} from './ui-preferences';
 import {programResultMatchesTask} from './program-result-readback';
+import {readWorkAreas} from './work-area-flow';
+import {reviewedPdfOcrPlan,receiptBoundPdfOcrReadbackMatches,
+ pdfOcrFileObservationsStable} from './office-pdf-ocr-review';
 
 /** Task-scoped view of the existing ToolRuntime. No local plan, approval or
  * execution authority is created; every state comes from Python Core. */
@@ -31,8 +34,21 @@ const stateText=(value:string,tr:(ru:string,en:string)=>string)=>{
   default:return tr('Состояние требует проверки','State needs review');
  }
 };
+// The existing ToolRuntime plan remains the sole authority. This helper
+// resolves only the readable account identity of its saved provider.
+const onlinePlanSlot=(p:Row):'mail'|'calendar'|'contacts'|''=>{
+ const slot=str(p.provider_slot);
+ return slot==='mail'||slot==='calendar'||slot==='contacts'?slot:'';
+};
+const plannedOnlineAccount=(plan:Row,accounts:Row[]):Row|null=>{
+ const providerId=str(plan.provider_id),slot=onlinePlanSlot(plan);
+ if(!slot||!providerId)return null;
+ return accounts.find(account=>str(account.provider_id)===providerId
+  &&str(account.service)===slot)||null;
+};
 const actionTitle=(p:Row,tr:(ru:string,en:string)=>string)=>{
  if(p.tool_id==='files.write_text')return tr('Изменение документа','Change a document');
+ if(p.tool_id==='files.ocr_pdf')return tr('Распознавание PDF','Recognize PDF');
  if(p.tool_id==='n8n.workflow')return tr('Запуск процесса','Run a workflow');
  if(p.tool_id==='program.invoke')return tr('Запуск программы','Run a program');
  return tr('Предложенное действие','Proposed action');
@@ -46,11 +62,15 @@ export function TaskActionsPanel({taskId,acceptedDigest,fresh,focusPlanId,focusR
  const [confirmed,setConfirmed]=useState(false);
  const [proof,setProof]=useState<Row|null>(null);
  const [programOutput,setProgramOutput]=useState<{planId:string;receiptId:string;text:string}|null>(null);
+ const [ocrReadback,setOcrReadback]=useState<{planId:string;receiptId:string;path:string}|null>(null);
  const [outputPage,setOutputPage]=useState(0),[readingOutput,setReadingOutput]=useState(false);
  const [error,setError]=useState<unknown>(null),[notice,setNotice]=useState('');
  const [readError,setReadError]=useState<unknown>(null);
  const [loading,setLoading]=useState(false),[acting,setActing]=useState(false);
  const [recoveryCase,setRecoveryCase]=useState('');
+ const [accountView,setAccountView]=useState<{planId:string;providerId:string;row:Row|null}|null>(null);
+ const [accountRefresh,setAccountRefresh]=useState(0);
+ const accountViewEpoch=useRef(0);
  const sequence=useRef(0),inFlight=useRef(false),attempted=useRef(new Set<string>()),focused=useRef('');
  const outputToken=useRef(0);
  const readScoped=useCallback(async()=>{
@@ -63,7 +83,7 @@ export function TaskActionsPanel({taskId,acceptedDigest,fresh,focusPlanId,focusR
  },[taskId]);
  const load=useCallback(async()=>{
   const id=++sequence.current;
-  outputToken.current++;setProgramOutput(null);setReadingOutput(false);setOutputPage(0);
+  outputToken.current++;setProgramOutput(null);setOcrReadback(null);setReadingOutput(false);setOutputPage(0);
   setLoading(true);setError(null);setReadError(null);
   try{
    const next=await readScoped();
@@ -79,7 +99,7 @@ export function TaskActionsPanel({taskId,acceptedDigest,fresh,focusPlanId,focusR
   attempted.current.clear();focused.current='';setRecoveryCase('');setNotice('');
   void load();return()=>{sequence.current+=1;outputToken.current+=1;};
  },[taskId,load]);
- useEffect(()=>{outputToken.current++;setProgramOutput(null);setReadingOutput(false);setOutputPage(0);
+ useEffect(()=>{outputToken.current++;setProgramOutput(null);setOcrReadback(null);setReadingOutput(false);setOutputPage(0);
   setReadError(null);},[taskId,selected]);
  const plans=records(snapshot?.plans),approvals=records(snapshot?.approvals),states=record(snapshot?.execution_by_plan);
  useEffect(()=>{
@@ -91,6 +111,31 @@ export function TaskActionsPanel({taskId,acceptedDigest,fresh,focusPlanId,focusR
   }
  },[focusPlanId,focusRequest,plans,snapshot]);
  const chosen=plans.find(p=>planId(p)===selected);
+ const onlineSlot=chosen?onlinePlanSlot(chosen):'';
+ const plannedProviderId=str(chosen?.provider_id);
+ useEffect(()=>{
+  const epoch=++accountViewEpoch.current;
+  setAccountView(null);
+  if(!onlineSlot||!plannedProviderId||!selected)return;
+  // Optional, read-only projection. The plan cannot be changed here and
+  // a slow result for another Task or plan cannot replace this account.
+  void runtime.query<Row>('online_accounts').then(data=>{
+   if(epoch!==accountViewEpoch.current)return;
+   const snapshot=record(data);
+   if(snapshot.schema!=='IWXA_AGENT06_ONLINE_ACCOUNTS/1'
+     ||!Array.isArray(snapshot.accounts))return;
+   setAccountView({planId:selected,providerId:plannedProviderId,
+    row:plannedOnlineAccount({provider_id:plannedProviderId,provider_slot:onlineSlot},
+     records(snapshot.accounts))});
+  }).catch(()=>{/* Preserve the plan's exact provider ID as fallback. */});
+  return()=>{accountViewEpoch.current++};
+ },[taskId,selected,onlineSlot,plannedProviderId,accountRefresh]);
+ const account=accountView?.planId===selected&&accountView.providerId===plannedProviderId
+  ?accountView.row:null;
+ const explicitAccountId=str(record(chosen?.arguments).account_id);
+ const accountMismatch=!!onlineSlot&&!!explicitAccountId&&explicitAccountId!==plannedProviderId;
+ const accountBindingChanged=!!onlineSlot&&!!explicitAccountId&&!!account
+  &&str(account.verification_binding_digest)!==str(chosen?.provider_binding_digest);
  const state=record(states[selected]),currentState=str(state.state),receiptId=str(state.receipt_id);
  const decisions=approvals.filter(a=>approvalPlanId(a)===selected);
  const activeApproval=decisions.find(approved);
@@ -98,11 +143,15 @@ export function TaskActionsPanel({taskId,acceptedDigest,fresh,focusPlanId,focusR
  const expired=!future(chosen?.expires_at);
  const valid=!!chosen&&validPlan(chosen,taskId,str(acceptedDigest));
  const isFile=chosen?.tool_id==='files.write_text';
+ const ocrPlan=chosen?.tool_id==='files.ocr_pdf'?reviewedPdfOcrPlan(chosen.target,chosen.arguments):null;
+ const ocrPlanValid=chosen?.tool_id!=='files.ocr_pdf'||ocrPlan!==null;
  const hasArgs=!!chosen&&JSON.stringify(chosen.arguments||{}).length<=64000;
  const canDecide=!!snapshot&&!loading&&!acting&&!error&&fresh&&valid&&!expired
-  &&currentState==='NOT_STARTED'&&!rejected&&!activeApproval&&!isFile&&hasArgs;
+  &&currentState==='NOT_STARTED'&&!rejected&&!activeApproval&&!isFile&&hasArgs
+  &&!accountMismatch&&!accountBindingChanged&&ocrPlanValid;
  const canExecute=!!snapshot&&!loading&&!acting&&!error&&fresh&&valid&&!expired
-  &&currentState==='NOT_STARTED'&&!rejected&&!!activeApproval&&!isFile&&hasArgs&&!attempted.current.has(selected);
+  &&currentState==='NOT_STARTED'&&!rejected&&!!activeApproval&&!isFile&&hasArgs&&!attempted.current.has(selected)
+  &&!accountMismatch&&!accountBindingChanged&&ocrPlanValid;
 
  async function verifiedCurrent(p:Row){
   const source=record(await runtime.query<Row>('task',{task_id:taskId}));
@@ -167,6 +216,58 @@ export function TaskActionsPanel({taskId,acceptedDigest,fresh,focusPlanId,focusR
    setProof(result);
    setNotice(tr('Квитанция прочитана из сохранённой истории.','Receipt read from saved history.'));
   }catch(e){if(token===outputToken.current){setProof(null);setReadError(e);}}
+ }
+ async function verifyOcrCopy(){
+  if(!chosen||chosen.tool_id!=='files.ocr_pdf'||!receiptId
+     ||currentState!=='SUCCEEDED'||loading||acting||readingOutput)return;
+  const p=chosen,id=planId(p),savedId=receiptId;
+  const reviewed=reviewedPdfOcrPlan(p.target,p.arguments);
+  if(!reviewed){setReadError(Error('ocr_tool_plan_invalid'));return;}
+  const token=++outputToken.current;
+  setOcrReadback(null);setReadingOutput(true);setReadError(null);setNotice('');
+  try{
+   // Never rerun OCR from a readback. Verify the original Task/plan, immutable
+   // receipt, current Workspace and both file revisions independently.
+   const before=await verifiedCurrent(p);
+   if(str(before.view.state)!=='SUCCEEDED'
+       ||str(before.view.receipt_id)!==savedId)throw Error('ocr_plan_receipt_changed');
+   const area=await readWorkAreas(runtime);
+   if(!area.active_id)throw Error('ocr_workspace_not_selected');
+   const original=await proofFor(p,savedId);
+   if(record(original.receipt).status!=='SUCCEEDED'
+       ||record(original.receipt).external_effect_state!=='ACKNOWLEDGED')
+    throw Error('ocr_receipt_not_acknowledged');
+   const observe=async(tool:'files.stat'|'files.read',path:string):Promise<Row>=>{
+    const argumentsValue:Row={root_id:'personal',path};
+    if(tool==='files.read'){argumentsValue.offset_chars=0;argumentsValue.max_text_bytes=32000;}
+    const reply=record(await runtime.command<Row>('tool_read',
+      {arguments:argumentsValue},{kind:'tool',id:tool}));
+    const receipt=record(reply.receipt),data=record(reply.data);
+    if(reply.input_required===true||receipt.status!=='SUCCEEDED'
+       ||receipt.tool_id!==tool||receipt.provider_id!=='LOCAL_FILES_V1'
+       ||receipt.provider_binding_digest!==p.provider_binding_digest
+       ||data.root_id!=='personal'||data.path!==path)
+     throw Error('ocr_file_observation_unverified');
+    return data;
+   };
+   const sourceBefore=await observe('files.stat',reviewed.sourcePath);
+   const outputBefore=await observe('files.stat',reviewed.path);
+   const preview=await observe('files.read',reviewed.path);
+   const sourceAfter=await observe('files.stat',reviewed.sourcePath);
+   const outputAfter=await observe('files.stat',reviewed.path);
+   const after=await readWorkAreas(runtime);
+   if(token!==outputToken.current||after.active_id!==area.active_id)
+    throw Error('ocr_workspace_changed_during_readback');
+   if(!pdfOcrFileObservationsStable(sourceBefore,sourceAfter,outputBefore,outputAfter)
+      ||!receiptBoundPdfOcrReadbackMatches(reviewed,original.ocr_output,
+        sourceAfter,outputAfter,preview))
+    throw Error('ocr_pdf_current_bytes_do_not_match_receipt');
+   setOcrReadback({planId:id,receiptId:savedId,path:reviewed.path});
+   setProof(original);
+   setNotice(tr('OCR-копия и исходный PDF сверены с сохранённой квитанцией.',
+    'OCR copy and source PDF match the saved receipt.'));
+  }catch(e){if(token===outputToken.current){setOcrReadback(null);setReadError(e);}}
+  finally{if(token===outputToken.current)setReadingOutput(false);}
  }
  async function act(choice:'approve'|'reject'|'execute'|'recover'){
   if(!chosen||inFlight.current||!fresh||!snapshot||loading||acting||error)return;
@@ -266,7 +367,7 @@ export function TaskActionsPanel({taskId,acceptedDigest,fresh,focusPlanId,focusR
   <div className="advanced-head"><div><h3>{tr('Планы и результаты действий','Action plans and outcomes')}</h3>
    <p>{tr('Каждое действие требует отдельного решения. Выполнение подтверждается сохранённой квитанцией.',
       'Each action requires a separate decision. Saved receipts confirm execution.')}</p></div>
-   <button type="button" className="secondary-button" disabled={loading||acting} onClick={()=>void load()}>
+   <button type="button" className="secondary-button" disabled={loading||acting} onClick={()=>{setAccountRefresh(n=>n+1);void load();}}>
     {tr('Обновить','Refresh')}</button></div>
   {loading&&<p role="status">{tr('Читаю сохранённые планы…','Reading saved plans…')}</p>}
   {Boolean(error)&&<OwnerError error={error}/>}
@@ -285,8 +386,35 @@ export function TaskActionsPanel({taskId,acceptedDigest,fresh,focusPlanId,focusR
   {chosen&&<div className="owner-row">
    <strong>{actionTitle(chosen,tr)} - {str(chosen.target)}</strong>
    <span>{stateText(currentState,tr)}{expired?' · '+tr('срок плана истёк','plan expired'):''}</span>
+   {!!onlineSlot&&<div className="advanced-form">
+    <p>{tr('Аккаунт для этого действия','Account for this action')}: <strong>{
+     account?(str(account.label)||plannedProviderId):plannedProviderId
+    }</strong> · {plannedProviderId} · {explicitAccountId
+      ?tr('Выбран в предложении задачи','Selected in the Task proposal')
+      :tr('Подключение по умолчанию на момент подготовки плана','Default connection when the plan was prepared')}</p>
+    {accountMismatch&&<p role="alert">{tr(
+     'Указанный в предложении аккаунт отличается от провайдера плана. Откройте задачу и подготовьте действие заново.',
+     'The proposal account differs from the saved plan provider. Reopen the Task and prepare the action again.')}</p>}
+    {accountBindingChanged&&<p role="alert">{tr(
+     'Учётные данные этого аккаунта изменились после подготовки плана. Подготовьте новое действие.',
+     'This account changed after the plan was prepared. Prepare a new action.')}</p>}
+    {account&&str(account.connection_state)!=='CONFIGURED_UNVERIFIED'&&<p role="status">{tr(
+     'Аккаунт не готов к работе. Проверьте его в разделе «Подключения».',
+     'This account is not configured for use. Check Connections.')}</p>}
+   </div>}
    {!valid&&<p role="alert">{tr('Связь плана с принятым результатом больше не подтверждается. Исполнение недоступно.',
      'The plan is no longer verified against the accepted result. Execution is unavailable.')}</p>}
+   {chosen.tool_id==='files.ocr_pdf'&&<div className="advanced-form">
+    {ocrPlan?<><h4>{tr('Проверка OCR перед разрешением','OCR review before approval')}</h4>
+     <p>{tr('Создаётся только новая копия PDF. Исходный файл не заменяется. OCR запускается отдельно после разрешения.',
+       'Only a new PDF copy will be created. The original is preserved; OCR runs only after a separate approval.')}</p>
+     <dl><dt>{tr('Исходный PDF','Source PDF')}</dt><dd>{ocrPlan.sourcePath}</dd>
+      <dt>{tr('Новая копия','New copy')}</dt><dd>{ocrPlan.path}</dd></dl>
+     <small>{tr('Исходный SHA-256','Source SHA-256')}: {ocrPlan.sourceSha256}</small>
+     <small>{tr('OCRmyPDF SHA-256','OCRmyPDF SHA-256')}: {ocrPlan.executableSha256}</small>
+    </>:<p role="alert">{tr('Параметры OCR не соответствуют проверенному плану. Разрешение и запуск отключены.',
+       'OCR arguments do not match the reviewed plan. Approval and execution are disabled.')}</p>}
+   </div>}
    {isFile?<div className="advanced-actions">
     <p>{tr('Изменение файла выполняется в документном сценарии с проверкой полного текста и текущей версии.',
       'File changes use document review, including full text and the current file version.')}</p>
@@ -326,6 +454,13 @@ export function TaskActionsPanel({taskId,acceptedDigest,fresh,focusPlanId,focusR
    {recoveryCase&&<button type="button" onClick={onOpenRecovery}>{tr('Проверить восстановление','Review recovery')}</button>}
    {receiptId&&<button type="button" disabled={acting||loading||readingOutput} onClick={()=>void inspectReceipt()}>
     {tr('Прочитать квитанцию исполнения','Read execution receipt')}</button>}
+   {chosen.tool_id==='files.ocr_pdf'&&receiptId&&currentState==='SUCCEEDED'&&
+    <button type="button" disabled={acting||loading||readingOutput}
+     onClick={()=>void verifyOcrCopy()}>
+     {readingOutput?tr('Сверяем PDF…','Checking PDFs…'):
+      tr('Проверить OCR-копию и исходный PDF','Verify OCR copy and original')}</button>}
+   {ocrReadback&&ocrReadback.planId===selected&&ocrReadback.receiptId===receiptId&&
+    <p role="status">{tr('Подтверждена текущая OCR-копия','Verified current OCR copy')}: {ocrReadback.path}</p>}
    {chosen.tool_id==='program.invoke'&&receiptId&&currentState==='SUCCEEDED'&&<button type="button"
     disabled={acting||loading||readingOutput} onClick={()=>void readProgramOutput()}>
     {readingOutput?tr('Читаю сохранённый вывод…','Reading saved output…'):
