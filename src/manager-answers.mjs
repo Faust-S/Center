@@ -4,7 +4,8 @@ export const MANAGER_QUESTIONS=Object.freeze([
  {id:'attention',label:'Что требует моего внимания?'},
  {id:'review',label:'Какие Result ждут решения?'},
  {id:'signed',label:'Какие поручения подписаны?'},
- {id:'atlas',label:'Что известно о проектах?'}
+ {id:'atlas',label:'Что известно о проектах?'},
+ {id:'events',label:'Какие события записал Kernel?'}
 ]);
 const SOURCE_REQUIRED='SOURCE_REQUIRED';
 const rows=(source)=>Array.isArray(source)?source:[];
@@ -12,12 +13,12 @@ const linked=(item)=>({key:item.kind+':'+item.id,kind:item.kind,id:item.id,
  title:item.title,detail:item.summary,source:item.source});
 /**
  * @param {string} question
- * @param {{organization?:any,owner?:any,atlasView?:any,rows?:any[],alerts?:any[]}} [sources]
+ * @param {{organization?:any,owner?:any,atlasView?:any,rows?:any[],alerts?:any[],activity?:any}} [sources]
  * @returns {{question:string,title:string,status:string,summary:string,
  *  items:Array<{key:string,kind:string,id:string,title:string,detail:string,source:string}>,scope:string}}
  */
 export function answerManagerQuestion(question,{organization=null,owner=null,atlasView=null,
-  rows:availableRows=[],alerts=[]}={}){
+  rows:availableRows=[],alerts=[],activity=null}={}){
  const orgId=organization?.id;
  const signed=typeof orgId==='string'&&owner?.status==='SIGNED_D3_READBACK'&&
    owner.organizationId===orgId;
@@ -26,7 +27,8 @@ export function answerManagerQuestion(question,{organization=null,owner=null,atl
   attention:'Требует внимания',
   review:'Результаты для решения',
   signed:'Подписанные поручения',
-  atlas:'Проекты и работы'
+  atlas:'Проекты и работы',
+  events:'События оригинального Kernel'
  };
  if(!Object.hasOwn(messages,question))throw Error('CEN_MANAGER_QUESTION_UNKNOWN');
  const make=(status,summary,items,scope)=>({question,title:messages[question],
@@ -67,6 +69,17 @@ export function answerManagerQuestion(question,{organization=null,owner=null,atl
      list,list.length<owner.totalTasks
        ?'Показана часть исходного списка Task.'
        :'Подписанный список Task текущей Workspace; не доказательство исполнения.');
+ }
+ if(question==='events'){
+   if(!orgId||activity?.status!=='ORIGINAL_T2_D2_METADATA'||
+     activity.organizationId!==orgId)return make(SOURCE_REQUIRED,
+       'Оригинальные Object/Event ещё не прочитаны через подписанный DATA-допуск.',[],
+       'Наличие подписанной Task или решения ACCEPT не доказывает запись Kernel Event.');
+   const list=rows(activity.entries).filter(r=>r.kind==='d2-event').map(linked);
+   return make('SOURCE_SUMMARY',
+     'В оригинальном T2 Kernel зарегистрировано событий по известным предметным привязкам: '+
+       activity.counts.events+'. Иные схемы не интерпретированы: '+activity.counts.unmappedEvents+'.',
+     list,'Прочитаны метаданные текущей Workspace. Событие Kernel не доказывает хозяйственное исполнение.');
  }
  if(!atlasView||!Array.isArray(atlasView.projects))
    return make(SOURCE_REQUIRED,'Источник Atlas не открыт для выбранной организации.',[],
