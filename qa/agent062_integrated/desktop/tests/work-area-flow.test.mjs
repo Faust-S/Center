@@ -462,3 +462,23 @@ test('known Workspace Task list skips redundant initial catalog read',async()=>{
  assert.equal(snapshot.tasks.length,1);
  assert.deepEqual(calls,['work_area_tasks','work_areas']);
 });
+
+
+test('native Agent recovers initial Workspace when both Core startup reads fail',()=>{
+ const ui=readFileSync(new URL('../src/workbench.tsx',import.meta.url),'utf8');
+ const start=ui.indexOf(' async function refresh(){');
+ const end=ui.indexOf(' async function refreshDocumentTask(',start);
+ assert.ok(start>=0&&end>start);
+ const refresh=ui.slice(start,end);
+ const failed=refresh.slice(refresh.indexOf("if(areaRead.status==='rejected'){"),
+  refresh.indexOf('const snapshot=areaRead.value;'));
+ assert.match(failed,/initialWorkspaceRetryAttempts\.current<6/);
+ assert.match(failed,/Math\.min\(8000,500\*2\*\*\(retry-1\)\)/);
+ assert.match(failed,/workAreaReadEpoch\.current===epoch/);
+ assert.match(failed,/!committedWorkAreaId\.current/);
+ assert.match(failed,/!workspaceSwitchInFlight\.current/);
+ assert.match(failed,/window\.setTimeout/);
+ assert.doesNotMatch(failed,/statusRead\.status==='fulfilled'&&/);
+ assert.doesNotMatch(failed,/runtime\.command|tool_execute|create_task|local_office_pdf_ocr_draft/);
+ assert.match(ui,/window\.clearTimeout\(initialWorkspaceRetryTimer\.current\)/);
+});
