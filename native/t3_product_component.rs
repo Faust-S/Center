@@ -14,6 +14,9 @@ fn kind_spec(role: &str) -> Result<(&'static str, &'static str), String> {
     match role {
         "owner" => Ok(("iwxa-t3-product-owner.exe", "t3-owner-test")),
         "owner-person" => Ok(("iwxa-t3-product-owner.exe", "t3-owner-person")),
+        // Same ORIGINAL PRODUCTION Owner Store and executable as PERSON.
+        // Corporate is a different signed profile, not a second issuer root.
+        "owner-corporate" => Ok(("iwxa-t3-product-owner.exe", "t3-owner-person")),
         "consumer" => Ok(("iwxa-t3-product-consumer.exe", "t3-consumer-test")),
         _ => Err("T3_PRODUCT_COMPONENT_ROLE_INVALID".into())
     }
@@ -41,7 +44,7 @@ pub fn availability(app:&AppHandle,role:&str) -> bool {
     let exe = match binary(app,role) { Ok(v)=>v, Err(_)=>return false };
     let root = match data_root(app,role) { Ok(v)=>v, Err(_)=>return false };
     let required: &[&str] = match role {
-        "owner" | "owner-person" => &["registry.iwxa","anchor.json","keys.vault.json",
+        "owner" | "owner-person" | "owner-corporate" => &["registry.iwxa","anchor.json","keys.vault.json",
             "master-secret.dpapi.json","administrator.dpapi.json"],
         "consumer" => &["publisher-test-trust.json","master-secret.dpapi.json"],
         _ => return false
@@ -89,7 +92,7 @@ fn drain_pipe<R: std::io::Read>(mut stream:R,cap:usize)->Result<Vec<u8>,String>{
 pub fn run(app:&AppHandle,role:&str,action:&str,details:&[String]) -> Result<Value,String> {
     if !availability(app,role){return Err("T3_PRODUCT_NATIVE_COMPONENT_NOT_CONFIGURED".into());}
     if !action.bytes().all(|b|b.is_ascii_lowercase()||b==b'-') ||
-       action.len()>24 || details.len()>4 ||
+       action.len()>32 || details.len()>4 ||
        details.iter().any(|s|s.is_empty() || s.len()>4096 ||
          s.chars().any(|c|c.is_control())) {
         return Err("T3_PRODUCT_COMPONENT_ARGUMENTS_INVALID".into());
@@ -159,6 +162,8 @@ mod tests {
     assert_eq!(kind_spec("owner-person").unwrap(),
       ("iwxa-t3-product-owner.exe", "t3-owner-person"));
     assert_eq!(kind_spec("owner").unwrap().1,"t3-owner-test");
+    assert_eq!(kind_spec("owner-corporate").unwrap(),
+      kind_spec("owner-person").unwrap());
     assert!(!valid_identifier("../relative"));
     assert!(!valid_identifier("bad name"));
     assert!(simple_code("T3_PRODUCT_NOT_ENROLLED"));
