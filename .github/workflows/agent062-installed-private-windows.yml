@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: 'cf7f2fbd6f41e0e73c664a1ced3969fe3aca6c1d'
-      PRIVATE_TREE_PIN: '79d48582606fc987b810659c30c948ff631aaa86'
+      PRIVATE_SOURCE_PIN: '2dc93e8b92ecdb2d5109e0d443c8b0924750ae23'
+      PRIVATE_TREE_PIN: '7ef4ba3a7734250028dc1f7c8a38aa2ffb1c14d7'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -201,6 +201,8 @@ jobs:
                  $w.schema -ceq 'IWXA_AGENT062_INSTALLED_GUI_AND_HOME_WITNESS/1' -and
                  $w.dashboard_added_via_gui -eq $true -and
                  $w.dashboard_restored_after_cold_restart -eq $true -and
+                 $w.dashboard_reordered_via_gui -eq $true -and
+                 $w.dashboard_order_restored_after_cold_restart -eq $true -and
                  $w.native_window_first_opened -eq $true -and
                  $w.original_core_connected -eq $true -and
                  $w.online_account_create_confirmed -eq $true -and
@@ -228,6 +230,15 @@ jobs:
                   'agent062_dashboard_catalog_widget_missing',
                   'agent062_dashboard_finish_missing',
                   'agent062_dashboard_widget_missing',
+                  'agent062_dashboard_drag_native_window_missing',
+                  'agent062_dashboard_drag_handle_order_missing',
+                  'agent062_dashboard_drag_default_order_invalid',
+                  'agent062_dashboard_drag_handles_not_visible',
+                  'agent062_dashboard_drag_handles_offscreen',
+                  'agent062_dashboard_drag_reorder_missing',
+                  'agent062_dashboard_cold_customize_missing',
+                  'agent062_dashboard_drag_cold_order_changed',
+                  'agent062_dashboard_cold_finish_missing',
                   'agent06_online_ui_button_missing',
                   'agent06_online_native_core_unavailable',
                   'agent06_online_native_exited_before_ready',
@@ -254,7 +265,65 @@ jobs:
                   'ArgumentException','InvalidOperationException','COMException',
                   'ElementNotAvailableException','MethodException','ItemNotFoundException',
                   'IndexOutOfRangeException','InvalidCastException','other')
-                if([string]$w.exception_class -cin $safeExceptions){
+                if([string]$w.exception_class -cin $safeExceptions -or
+                   [string]$w.exception_class -cmatch '^[A-Za-z]{3,64}(Exception|Error)
+                  Write-Host ('AGENT062_WITNESS_SAFE_EXCEPTION='+[string]$w.exception_class)
+                }
+                $safeLine=0
+                if([int]::TryParse([string]$w.exception_line,[ref]$safeLine) -and
+                   $safeLine -ge 1 -and $safeLine -le 2000){
+                  Write-Host ('AGENT062_WITNESS_SAFE_LINE='+$safeLine)
+                }
+                $safeCheckpoints=@(
+                  'DASHBOARD_HOME','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD',
+                  'DASHBOARD_DONE','DASHBOARD_WIDGET',
+                  'DASHBOARD_DRAG','DASHBOARD_COLD_DRAG',
+                  'NOT_STARTED','LOOKUP_INITIAL_TITLE',
+                  'LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON',
+                  'CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE',
+                  'LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE'
+                )
+                if([string]$w.ui_checkpoint -cin $safeCheckpoints){
+                  Write-Host ('AGENT06_ONLINE_INSTALLED_GUI_CHECKPOINT='+[string]$w.ui_checkpoint)
+                }
+              }
+            }catch{
+              Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_RECEIPT_UNREADABLE'
+            }
+          }else{
+            Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_RECEIPT_MISSING'
+          }
+          if($exit -ne 0){
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            foreach($code in @('SETUP_LOCAL_WITNESS_EXIT_FAILED',
+              'SETUP_LOCAL_WITNESS_TIMEOUT','SETUP_LOCAL_WITNESS_RECEIPT_MISSING',
+              'SETUP_LOCAL_WITNESS_READBACK_INVALID',
+              'SETUP_LOCAL_PRODUCT_IDENTITY_INVALID',
+              'SETUP_LOCAL_SOURCE_IDENTITY_INVALID',
+              'SETUP_LOCAL_ACTIVATION_INVALID',
+              'SETUP_LOCAL_ON_DISK_IDENTITY_INVALID',
+              'SETUP_LOCAL_REPAIR_NOT_ACTIVATED',
+              'SETUP_LOCAL_REPAIR_READBACK_INVALID',
+              'SETUP_LOCAL_UNINSTALL_OR_DATA_LOSS',
+              'SETUP_LOCAL_PRODUCT_ID_INVALID')){
+              if(([string]$raw).Contains($code)){
+                Write-Host ('AGENT06_ONLINE_INSTALLED_SAFE_SETUP_REASON='+$code)
+              }
+            }
+            throw 'AGENT06_ONLINE_INSTALLED_QUALIFICATION_FAILED'
+          }
+          foreach($marker in @('IWXA_SETUP_LOCAL_NATIVE_INSTALL_AND_PRESERVE_PASS',
+              'IWXA_SETUP_LOCAL_REPAIR_AND_CONFIRM_PASS',
+              'IWXA_SETUP_LOCAL_RUNTIME_WITNESS_PASS')){
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            if(-not ([string]$raw).Contains($marker)){
+              throw 'AGENT06_ONLINE_INSTALLED_EXPECTED_PUBLIC_WITNESS_MISSING'
+            }
+          }
+          Write-Host 'AGENT06_ONLINE_SETUP_REPAIR_UNINSTALL_PASS'
+          Write-Host 'AGENT06_PRIVATE_ARTIFACTS_UPLOADED=0'
+      # Intentionally no upload-artifact, cache, screenshot, EXE or private logs.
+){
                   Write-Host ('AGENT062_WITNESS_SAFE_EXCEPTION='+[string]$w.exception_class)
                 }
                 $safeLine=0
