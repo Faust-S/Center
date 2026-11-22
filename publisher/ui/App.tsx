@@ -11,6 +11,9 @@ import PublisherT3OwnerPanel from './PublisherT3OwnerPanel';
 import PublisherCorporateOwnerPanel from './PublisherCorporateOwnerPanel';
 import AgeExchangePanel from '../../src/AgeExchangePanel';
 import TariffPanel from './TariffPanel';
+import {PublisherDashboard,readPreferences,savePreferences} from './PublisherDashboard';
+import type {Widget} from './PublisherDashboard';
+import {PublisherDock} from './PublisherDock';
 import '../../src/style.css';
 import './style.css';
 
@@ -33,10 +36,10 @@ type PublisherDiagnosticsReport={schema:'IWXA_DIAGNOSTICS/1';productId:'iwxa.pub
  application:'NATIVE_RUNNING';localPreparation:'READABLE'|'EMPTY'|'NEEDS_ATTENTION';
  webviewProfile:'FOLDER_PRESENT'|'FOLDER_NOT_OBSERVED';setupCore:'CHECK_IN_SETUP_CORE';
  licensing:'TEST_AND_PERSON_T3_BRIDGE';activeSeats:0;productionActivation:false;attentionRequired:boolean};
-type Page = 'overview'|'products'|'tariffs'|'holders'|'proposals'|'releases'|'trust';
+type Page = 'overview'|'products'|'tariffs'|'holders'|'proposals'|'releases'|'trust'|'settings';
 const navigation: [Page,string][] = [
  ['overview','Обзор'],['products','Продукты'],['tariffs','Тарифы и лимиты'],['holders','Клиенты'],
- ['proposals','Лицензии'],['releases','Релизы'],['trust','Доверие и ключи']
+ ['proposals','Лицензии'],['releases','Релизы'],['trust','Доверие и ключи'],['settings','Настройки']
 ];
 function PublisherNavIcon({section}:{section:Page}){
  return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -47,6 +50,7 @@ function PublisherNavIcon({section}:{section:Page}){
    {section==='proposals'&&<><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></>}
    {section==='releases'&&<><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 15v5h16v-5"/></>}
    {section==='trust'&&<><path d="M12 2 20 6v6c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6Z"/><path d="m9 12 2 2 4-4"/></>}
+   {section==='settings'&&<><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></>}
  </svg>;
 }
 const publisherDraftMessages:Record<string,string>={
@@ -142,6 +146,18 @@ export default function App(){
  const draftSourceSha256=React.useRef(ABSENT_DRAFT);
  const [draftChangedExternally,setDraftChangedExternally]=useState(false);
  const [page,setPage]=useState<Page>('overview');
+ const [visualPrefs,setVisualPrefs]=useState(readPreferences);
+ const [dashboardEdit,setDashboardEdit]=useState(false);
+ const [dockMode,setDockMode]=useState<'context'|'widgets'>('context');
+ const [selectedProductId,setSelectedProductId]=useState('');
+ const [productQuery,setProductQuery]=useState('');
+ useEffect(()=>{savePreferences(visualPrefs);},[visualPrefs]);
+ const setWidgetLayout=(widgets:Widget[])=>setVisualPrefs(v=>({...v,widgets}));
+ const setDockVisible=(dockOpen:boolean)=>setVisualPrefs(v=>({...v,dockOpen}));
+ const setDockWidth=(dockWidth:number)=>setVisualPrefs(v=>({...v,dockWidth}));
+ function openWidgetLibrary(){
+   setDashboardEdit(true);setDockMode('widgets');setDockVisible(true);
+ }
  const corporateOfferReviews=useMemo(()=>projectCorporateOfferReviews(state),[state]);
  const [corporateSeatInputs,setCorporateSeatInputs]=useState<Record<string,string>>({});
  const [personRequestId,setPersonRequestId]=useState('');
@@ -491,7 +507,7 @@ export default function App(){
      setDiagnosticsMessage('Автоматическое копирование недоступно. Выделите сведения ниже и нажмите Ctrl+C.');
    }
  }
- function go(p:Page){
+ function go(p:Page,anchor?:string){
    // Reset the native desktop work area's scroll when changing sections.
    // Compact layouts scroll the document instead of the work area.
    if(mainScrollRef.current)mainScrollRef.current.scrollTop=0;
@@ -499,6 +515,9 @@ export default function App(){
    if(p!=='proposals')setLegacyOpen(false);
    if(p!=='trust')setPersonRequestId('');
    setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);setOfflineCopies(null);
+   if(anchor)window.setTimeout(()=>{
+     document.querySelector('[data-testid="'+anchor+'"]')?.scrollIntoView({block:'start'});
+   },0);
  }
  const diagnosticPanel=(
 <section className="card padded" data-testid="publisher-diagnostics">
@@ -539,22 +558,27 @@ export default function App(){
          <img className="publisher-brand-logo" src="/favicon.svg" alt="IWXA" width="43" height="43"/>
          <div className="publisher-brand-copy"><strong>IWXA</strong><small>Publisher</small></div>
        </div>
-       <span className="version publisher-version">0.5</span>
+
      </header>
-     <div className="publisher-nav-caption">ИЗДАТЕЛЬ И ЛИЦЕНЗИИ</div>
+     <div className="publisher-nav-caption">Разделы</div>
      <nav aria-label="Разделы Publisher">
        {navigation.map(([key,label])=><button key={key} type="button" className={'nav-link'+(page===key?' active':'')} onClick={()=>go(key)} aria-current={page===key?'page':undefined}><span className="nav-icon"><PublisherNavIcon section={key}/></span><span>{label}</span></button>)}
      </nav>
      <div className="sidebar-bottom"><p className="local-label"><span className="dot"></span>Локальная программа</p><p>Черновики — не лицензии и не права.</p></div>
    </aside>
    <main className="main" ref={mainScrollRef}>
-     <header className="top">
+     <header className="top pub-desktop-top">
        <button className="menu-button secondary" type="button" onClick={()=>setMobileNav(!mobileNav)} aria-label="Открыть навигацию">☰</button>
-       <div className="breadcrumb"><span>IWXA</span> / Publisher / {navigation.find(v=>v[0]===page)?.[1]}</div>
+       <span className="pub-app-name">IWXA Publisher</span>
+       <span className="pub-top-spacer"></span>
        <span className="status neutral publisher-top-status"><span className="publisher-top-status-dot" aria-hidden="true"></span>{loaded?'Локально сохранено':'Состояние не загружено'}</span>
+       <button type="button" className="secondary pub-toggle-dock"
+         aria-expanded={visualPrefs.dockOpen} data-testid="publisher-dock-toggle"
+         onClick={()=>{setDockMode('context');setDockVisible(!visualPrefs.dockOpen);}}>
+         {visualPrefs.dockOpen?'Скрыть просмотр':'Открыть просмотр'}
+       </button>
      </header>
-     <div className="page-heading"><div><div className="eyebrow publisher-section-eyebrow">IWXA / РАБОЧЕЕ МЕСТО ИЗДАТЕЛЯ</div><h1>{navigation.find(v=>v[0]===page)?.[1]}</h1></div></div>
-     <div className="notice">Publisher 0.5.0-dev.1 · Черновики хранятся отдельно от Admin Center. Лицензии TEST и PERSON подписывает исходный T3 при заранее зарегистрированном издателе. Подписанный пакет сам по себе не открывает функции получателя. Коммерческая активация мест и выпуск релизов отключены.</div>
+     <div className="page-heading"><h1>{page==='overview'?'Главная':navigation.find(v=>v[0]===page)?.[1]}</h1></div>
      {error&&<div className="notice error" role="alert">{error}</div>}
      {message&&<div className="notice" role="status">{message}</div>}
      {!loaded?<><section className="card padded" role="status">
@@ -567,6 +591,12 @@ export default function App(){
          </>:'Открываем локальные черновики… При ошибке сохранённые данные не перезаписываются.'}
        </section>{page==='overview'&&diagnosticPanel}</>:<>
        {page==='overview'&&<>
+         <PublisherDashboard draft={state} attention={personAttention}
+           layout={visualPrefs.widgets} editing={dashboardEdit}
+           onEditing={setDashboardEdit} onChange={setWidgetLayout}
+           onLibrary={openWidgetLibrary} onNavigate={go}/>
+         <div className="pub-detail-section-title"><h2>Рабочие действия</h2>
+           <p>Проверки, резервные копии и исходные подписанные данные доступны ниже.</p></div>
          <div className="metrics">
            <div className="card metric publisher-metric"><span>Продукты</span><strong>{state.products.length}</strong><small>Каталог в подготовке</small></div>
            <div className="card metric publisher-metric"><span>Клиенты</span><strong>{state.holders.length}</strong><small>Привязанные идентификаторы</small></div>
@@ -665,6 +695,44 @@ export default function App(){
          </section>
        </>}
        {page==='products'&&<>
+         <section className="pub-product-master" data-testid="publisher-product-workspace">
+           <div className="card pub-product-list">
+             <div className="pub-product-list-top">
+               <h2>Каталог продуктов</h2>
+               <input type="search" aria-label="Поиск продуктов"
+                 placeholder="Поиск продуктов…" value={productQuery}
+                 onChange={e=>setProductQuery(e.target.value)}/>
+             </div>
+             <div className="pub-product-entries">
+               {state.products.filter(p=>(p.name+' '+p.id).toLocaleLowerCase('ru')
+                 .includes(productQuery.toLocaleLowerCase('ru'))).map(p=>
+                 <button type="button" key={p.id}
+                   className={'pub-product-entry'+(p.id===(selectedProductId||state.products[0]?.id)?' selected':'')}
+                   aria-label={'Выбрать продукт '+p.name}
+                   onClick={()=>{setSelectedProductId(p.id);setDockMode('context');setDockVisible(true);}}>
+                   <strong>{p.name}</strong><small>{p.id}</small>
+                   <span>Тарифов: {state.tariffs.filter(t=>t.productId===p.id).length} ·
+                     Предложений: {state.proposals.filter(o=>o.productId===p.id).length}</span>
+                 </button>)}
+               {state.products.length===0&&<p className="muted">Каталог пуст. Создайте первый продукт.</p>}
+             </div>
+           </div>
+           <div className="card pub-product-summary">
+             <h2>{state.products.find(p=>p.id===(selectedProductId||state.products[0]?.id))?.name||'Новый продукт'}</h2>
+             <p className="muted">Связанные процессы открываются в каталоге и пристыкованной панели справа.</p>
+             <div className="pub-product-summary-metrics">
+               <span><strong>{state.tariffs.filter(t=>t.productId===(selectedProductId||state.products[0]?.id)).length}</strong>Тарифы</span>
+               <span><strong>{state.proposals.filter(p=>p.productId===(selectedProductId||state.products[0]?.id)).length}</strong>Предложения</span>
+               <span><strong>{state.artifacts.filter(a=>a.productId===(selectedProductId||state.products[0]?.id)).length}</strong>Файлы релиза</span>
+             </div>
+             <div className="actions">
+               <button type="button" className="secondary" onClick={()=>go('tariffs')}>Открыть тарифы</button>
+               <button type="button" className="secondary" onClick={()=>go('proposals')}>Лицензии</button>
+               <button type="button" className="secondary" onClick={()=>go('releases')}>Релизы</button>
+             </div>
+             <p className="muted">Продукт в локальном каталоге не означает выпущенную лицензию.</p>
+           </div>
+         </section>
          <section className="card form-panel"><h2>Новый продукт в локальном черновике каталога</h2>
            <form onSubmit={e=>void saveProduct(e)} onChangeCapture={()=>setProductFeedback(null)}>
              <div className="form-grid">
@@ -850,13 +918,35 @@ export default function App(){
              <p className="muted">SHA-256: <code>{selectedIwxa.sha256}</code></p>
            </div>}
            </section>}
+       {page==='settings'&&<section className="card padded" data-testid="publisher-settings">
+         <h2>Настройки Publisher</h2>
+         <p className="muted">Настройки рабочего пространства сохраняются в профиле программы.
+           Рабочие документы, лицензионные данные и ключи здесь не хранятся.</p>
+         <div className="pub-settings-row"><span>Версия программы</span><strong>0.5.0-dev.1</strong></div>
+         <div className="pub-settings-row"><span>Окно просмотра</span>
+           <button type="button" className="secondary"
+             onClick={()=>setDockVisible(!visualPrefs.dockOpen)}>
+             {visualPrefs.dockOpen?'Закрыть':'Открыть'}</button></div>
+         <div className="pub-settings-row"><span>Расположение виджетов</span>
+           <button type="button" className="secondary" onClick={()=>{
+             go('overview');openWidgetLibrary();
+           }}>Настроить главную</button></div>
+         <div className="pub-settings-row"><span>Состояние программы</span>
+           <button type="button" className="secondary" onClick={()=>go('overview','publisher-diagnostics')}>
+             Диагностика и Setup Core</button></div>
+         <p className="muted">Функции T3, выдача лицензий и контроль доступа
+           осуществляются исходными нативными компонентами, не настройками интерфейса.</p>
+       </section>}
      </>}
      <footer className="footer"><span>IWXA Publisher · отдельная owner-side программа</span><span>Локальные подготовительные данные · не лицензия и не release authority</span></footer>
    </main>
-   <aside className="inspector"><div className="eyebrow">ИЗДАТЕЛЬСКАЯ ПАНЕЛЬ</div><h2>TEST и подготовка</h2>
-     <div className="inspector-card"><strong>Подписанные лицензии</strong><p>Журнал T3</p><small>Состояние PERSON и TEST определяется исходным издателем. Коммерческих TEST-мест: 0.</small></div>
-     <div className="inspector-card"><strong>Подтверждённые релизы</strong><p>0</p><small>SHA-256 сам по себе не является решением о публикации.</small></div>
-     <div className="inspector-card"><strong>Разделение полномочий</strong><small>Publisher выдаёт лицензии. Admin Center только потребляет подтверждённые права и распределяет места.</small></div>
-   </aside>
+   <PublisherDock page={page} draft={state}
+     selectedProductId={selectedProductId||state.products[0]?.id||''}
+     onSelectProduct={setSelectedProductId}
+     mode={dockMode} onMode={setDockMode}
+     open={visualPrefs.dockOpen} width={visualPrefs.dockWidth}
+     onWidth={setDockWidth} onClose={()=>setDockVisible(false)}
+     widgets={visualPrefs.widgets} onWidgets={setWidgetLayout}
+     onNavigate={go}/>
  </div>;
 }
