@@ -235,6 +235,8 @@ try {
     'Legacy duplicate read-only inspector is replaced by a contextual dock');
   const dashboard=page.getByTestId('publisher-dashboard');
   await dashboard.waitFor();
+  assert.equal(await page.locator('.publisher-app h1').count(),1);
+  assert.equal(await page.locator('.publisher-app h1').innerText(),'Моя главная');
   assert.equal(await dashboard.locator('[data-widget-id]').count(),9);
   assert.match(await dashboard.locator('[data-widget-id="person"]').innerText(),
     /журнал PERSON ещё не запрошен/,
@@ -303,6 +305,10 @@ try {
   checks.push('empty-owner-first-run-no-synthetic-license');
   checks.push('publisher-overview-reports-original-T3-as-license-owner');
   await page.setViewportSize({width:1024,height:640});
+  const dashboardColumns=()=>dashboard.locator('.pub-dashboard-grid').evaluate(el=>
+    getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).length);
+  assert.equal(await dashboardColumns(),2,
+    'Closed inspector must preserve two dashboard columns on a 1024px laptop');
   assert.equal(await page.locator('.publisher-app .sidebar .nav-link').count(),8);
   assert.ok(await page.getByRole('button',{name:'Продукты',exact:true}).isVisible());
   assert.ok(await page.getByRole('button',{name:'Настройки',exact:true}).isVisible());
@@ -314,6 +320,8 @@ try {
   await compactSplitter.focus();
   await compactSplitter.press('End');
   assert.equal(Number(await compactSplitter.getAttribute('aria-valuenow')),524);
+  assert.equal(await dashboardColumns(),1,
+    'Opening the inspector must reflow the narrow central work area');
   await page.setViewportSize({width:800,height:640});
   assert.equal(Number(await compactSplitter.getAttribute('aria-valuenow')),435);
   assert.equal(Number(await compactSplitter.getAttribute('aria-valuemax')),435);
@@ -323,7 +331,10 @@ try {
   await page.setViewportSize({width:1024,height:640});
   assert.equal(Number(await compactSplitter.getAttribute('aria-valuenow')),524);
   await page.getByTestId('publisher-dock-close').click();
+  assert.equal(await dashboardColumns(),2,
+    'Closing inspector must restore two columns without a desktop restart');
   checks.push('v2-compact-dock-width-clamps-to-viewport-and-restores-user-preference');
+  checks.push('v2-responsive-container-grid-and-single-native-home-heading');
   // The native 680px window can be constrained further by Windows taskbars
   // and display scaling. Its whole navigation and footer must fit together.
   await page.setViewportSize({width:1024,height:520});
