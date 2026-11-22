@@ -583,7 +583,7 @@ export default function App(){
          {visualPrefs.dockOpen?'Скрыть просмотр':'Открыть просмотр'}
        </button>
      </header>
-     <div className="page-heading"><h1>{page==='overview'?'Главная':navigation.find(v=>v[0]===page)?.[1]}</h1></div>
+     {page!=='overview'&&<div className="page-heading"><h1>{navigation.find(v=>v[0]===page)?.[1]}</h1></div>}
      {error&&<div className="notice error" role="alert">{error}</div>}
      {message&&<div className="notice" role="status">{message}</div>}
      {!loaded?<><section className="card padded" role="status">
