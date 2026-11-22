@@ -64,6 +64,8 @@ test('Publisher development 0.5.0-dev.1 identity matches Rust, Tauri, Setup Core
  assert.match(cargo,/^version\s*=\s*"0\.5\.0-dev\.1"$/m);
  assert.ok(ui.includes('<strong>'+m.version+'</strong>'),'Version must appear in Settings');
  assert.ok(ui.includes("page==='settings'"),'Publisher version belongs to Settings only');
+ assert.equal(app.app.windows[0].title,'IWXA Publisher',
+   'The native window caption must not expose the development version');
  assert.ok(!ui.includes('Publisher '+m.version+' ·'),'No version banner on the main desktop view');
  assert.ok(installed.includes("version='"+m.version+"'"));
  assert.doesNotMatch([ui,cargo,installed].join('\n'),/0\.2\.0-dev\.2/);
