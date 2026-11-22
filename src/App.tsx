@@ -6,6 +6,7 @@ import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
 import ManagerContextPanel from './ManagerContextPanel';
 import AdminDashboard, {AdminCompanyStructure} from './AdminDashboard';
+import AdminResultRoute from './AdminResultRoute';
 import {retainSignedWorkspaceForPage,mayOpenSignedWorkspaceOnPage} from './signed-workspace-navigation.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import Cen04LicensePanel from './Cen04LicensePanel';
@@ -679,7 +680,7 @@ export default function App() {
        </>}
        <button type="button" className="v8-dock-toggle" onClick={()=>setInspectorVisible(value=>!value)}>{inspectorVisible?'Скрыть просмотр':'Открыть просмотр'}</button>
        <button className="secondary top-save" onClick={saveFile} disabled={!org||saving}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
-      {page!=='overview'&&<div className="page-heading"><div><div className="eyebrow">РАБОЧЕЕ МЕСТО РУКОВОДИТЕЛЯ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>}
+      {page!=='overview'&&page!=='results'&&<div className="page-heading"><div><div className="eyebrow">РАБОЧЕЕ МЕСТО РУКОВОДИТЕЛЯ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>}
       {error && <div className="notice error" role="alert">{error}</div>}
       {message && <div className="notice" role="status">{message}</div>}
       {page==='overview'&&<AdminDashboard key={org?.id??'_start'} organization={org}
@@ -840,6 +841,7 @@ export default function App() {
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 
+       {org && page==='results' && <AdminResultRoute/>}
        {org && page==='results' && <CorporatePanel key={org.id} organization={org} managerOriginal={managerOriginal} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace}/>} 
       {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
         <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
