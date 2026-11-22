@@ -348,7 +348,7 @@ test('terminal history reconciliation requires exact saved completion',()=>{
 });
 
 test('dialogue startup never mounts an unverified conversation and permits read-only retry',()=>{
- const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8');
+ const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  const parsed=ts.createSourceFile('product-controls.tsx',ui,ts.ScriptTarget.ES2022,true,ts.ScriptKind.TSX);
  assert.deepEqual(parsed.parseDiagnostics.map(d=>ts.flattenDiagnosticMessageText(d.messageText,' ')),[]);
  assert.match(ui,/!loading&&catalogReady&&<ConversationWorkspace/);
@@ -391,7 +391,7 @@ test('bounded quick read never hides linked Tasks and older displayed messages',
  assert.throws(()=>api.mergeConversationTurns(rows,{}),/chat_history_merge_invalid/);
 });
 test('automatic restart settlement persists edits before releasing a saved chat marker',()=>{
- const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8');
+ const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  const start=ui.indexOf('const stored=await readConversationQuick(runtime,conversationKey);');
  const save=ui.indexOf('await saveNow();',start);
  const before=ui.indexOf('const before=await readConversationDraft(runtime,conversationKey);',start);
@@ -501,7 +501,7 @@ test('J1 reconnect refuses history belonging to an earlier Session identity',asy
  assert.equal(commands,0);
 });
 test('J1 clears stale composer reservation after Core owns an unreserved running turn',()=>{
- const view=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8');
+ const view=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  const start=view.indexOf("}else if(result.pendingId&&result.pendingState==='RUNNING'){");
  const end=view.indexOf("}else if(result.pendingId){",start);
  assert.ok(start>=0&&end>start);
@@ -534,7 +534,7 @@ test('reconnect blocks changed conversation and missing durable terminal evidenc
 });
 test('J1 React reconnect passes authenticated epoch and keeps unsent draft',()=>{
  const app=readFileSync(new URL('../src/workbench.tsx',import.meta.url),'utf8');
- const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8');
+ const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  assert.match(app,/<DialogControl readbackEpoch=\{sessionReadbackEpoch\}/);
  assert.match(ui,/readConversationAfterCoreReconnect\(runtime,conversationKey,previousId\)/);
  assert.match(ui,/acceptHistory\(result.history.status,result.history.turns\)/);
@@ -645,7 +645,7 @@ test('J1 first unsent dialogue write is compare-and-saved and read back',async()
  assert.deepEqual(reopened,read);
 });
 test('J1 editor updates Core draft revision after chat and tool write paths',()=>{
- const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8');
+ const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  assert.match(ui,/saveCheckedConversationDraft\(runtime,conversationKey,draftRevision\.current/);
  assert.match(ui,/draftSaveBlocked\.current=true/);
  assert.match(ui,/draftRevision\.current=str\(after\.draft_digest\)/);
@@ -703,7 +703,7 @@ test('J1 lost write acknowledgment reconciles without a duplicate command',async
 });
 
 test('J1 conflict UI blocks autosave, inference and leaving until user resolves revisions',()=>{
- const view=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8');
+ const view=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  assert.match(view,/conversationReconnectDraftDifferences\(result\.draft,local\)/);
  assert.match(view,/resolveConversationReconnectDraft\(/);
  assert.match(view,/reconnectConflict\|\|reconnectResolving\)return/);
@@ -714,7 +714,7 @@ test('J1 conflict UI blocks autosave, inference and leaving until user resolves 
 
 
 test('J1 history enrichment and search never apply an obsolete Core response',()=>{
- const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8');
+ const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  const startup=ui.slice(ui.indexOf('const bootHistoryRevision=revision.current;'),
   ui.indexOf('},[conversationKey,initialLoadAttempt]);'));
  assert.match(startup,/if\(active&&bootHistoryRevision===revision\.current\)/);
@@ -778,7 +778,7 @@ test('J1 search rejects generation change during late search',async()=>{
 });
 
 test('J1 context reset is blocked while inference or a prepared draft is pending',()=>{
- const view=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8');
+ const view=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  const modify=view.slice(view.indexOf(' async function modify(action:string,input:Row){'),
   view.indexOf(' async function updateOptions(',view.indexOf(' async function modify(action:string,input:Row){')));
  assert.match(modify,/sendingRef\.current\|\|quickPending\|\|recoveredPending\.current/);
@@ -789,7 +789,7 @@ test('J1 context reset is blocked while inference or a prepared draft is pending
  assert.match(view,/onOpenModels=\{onOpenModels\}/);
 });
 test('J1 React history projections reset session scope without replaying messages',()=>{
- const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8');
+ const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  assert.match(ui,/const historyStatus=useRef<Row>\(\{\}\)/);
  assert.match(ui,/mergeScopedConversationHistory\(previous,current,observed,rows,replace\)/);
  assert.match(ui,/previousIdentity&&previousIdentity!==nextIdentity/);
@@ -806,7 +806,7 @@ test('Failed local Qwen dialogue explains only known, actionable failure states'
  assert.match(api.chatFailureMessage('basic_runtime_generation_failed',tr),/did not produce a completed reply/);
  assert.match(api.chatFailureMessage('basic_runtime_model_not_active',tr),/stopped or its component changed/);
  assert.match(api.chatFailureMessage('C:/private/model.gguf',tr),/No reply was received/);
- const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8');
+ const ui=readFileSync(new URL('../src/product-controls.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  assert.ok(ui.includes('chatFailureMessage(entry.error_code,tr)'));
  assert.ok(!ui.includes('SafeMarkdown text={entry.error_code'));
 });
