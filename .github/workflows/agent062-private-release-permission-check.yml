@@ -63,3 +63,22 @@ jobs:
             if($status -lt 100 -or $status -gt 599){$status=0}
             Write-Host ('AGENT062_RELEASE_CREATE_DRAFT_HTTP='+$status)
           }
+          $probe='agent062-asset-write-permission-check'
+          $putBody=@{
+            branch='work/2026-11-22-agent-062-release-download'
+            message='ci(agent062): verify original private release asset write permission'
+            content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($probe))
+          } | ConvertTo-Json -Depth 3
+          try {
+            $put=Invoke-RestMethod -Method Put -Uri 'https://api.github.com/repos/Faust-S/iwxa-personal-agent/contents/release-download/_access-probe.txt' -Headers $headers -ContentType 'application/json' -Body $putBody
+            if($put.content.path -ceq 'release-download/_access-probe.txt' -and $put.commit.sha){
+              Write-Host 'AGENT062_PRIVATE_BINARY_BRANCH_WRITE_HTTP=201'
+            } else {
+              Write-Host 'AGENT062_PRIVATE_BINARY_BRANCH_WRITE_RESPONSE_UNEXPECTED'
+            }
+          } catch {
+            $code=0
+            try{$code=[int]$_.Exception.Response.StatusCode}catch{}
+            if($code -lt 100 -or $code -gt 599){$code=0}
+            Write-Host ('AGENT062_PRIVATE_BINARY_BRANCH_WRITE_HTTP='+$code)
+          }
