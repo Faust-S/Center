@@ -127,6 +127,25 @@ function Click([string]$name,[bool]$contains=$false) {
 # UIA InvokePattern triggers a button programmatically but does not establish
 # recent user input for the Center process. Do not call SetForegroundWindow
 # from the acceptance script: the original U04 must actually do the focus.
+# Native product status as observed through the installed WebView2 UIA tree.
+# Never infer success from InvokePattern or from the existence of the Atlas PID.
+function Read-U04FocusDiagnostic {
+  try {
+    $nodes=(Root).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+      [System.Windows.Automation.Condition]::TrueCondition)
+    foreach($node in $nodes){
+      try {
+        $value=[string]$node.Current.Name
+        if($value -match '(WINDOW_FOCUS_DENIED|WINDOW_NOT_FOUND|PROCESS_IDENTITY_CHANGED|CEN05_BINDING_CONTEXT_CHANGED|BINDING_NOT_FOUND|PRESENTATION_ACTIVATION_UNCONFIRMED)'){
+          return [string]$matches[1]
+        }
+        if($value.Contains('Окно Atlas получило фокус')){return 'UI_WINDOW_FOCUSED'}
+        if($value.Contains('Окно Atlas открыто')){return 'UI_ATLAS_WINDOW_OBSERVED'}
+      }catch{}
+    }
+  }catch{}
+  return 'UI_NO_ACTIVATION_STATUS'
+}
 function Click-Physical([string]$name) {
   $button=Find-UI $name 'Button'
   $bounds=$button.Current.BoundingRectangle
@@ -451,9 +470,19 @@ try {
       if($foregroundPid -in $atlasPids){$atlasFocused=$true;break}
     }
     if($atlasFocused){break}
-    Write-Host "U04_FOCUS_RETRY_REQUIRED attempt=$focusAttempt foreground_pid=$foregroundPid"
+    $nativeState=Read-U04FocusDiagnostic
+    Write-Host "U04_FOCUS_RETRY_REQUIRED attempt=$focusAttempt foreground_pid=$foregroundPid native_ui=$nativeState"
   }
   if(!$atlasFocused){
+    $nativeState=Read-U04FocusDiagnostic
+    $targetHwnd=0
+    foreach($candidate in $atlasPids){
+      $target=Get-Process -Id $candidate -ErrorAction SilentlyContinue
+      if($target -and $target.MainWindowHandle -ne [IntPtr]::Zero){
+        $targetHwnd=[long]$target.MainWindowHandle;break
+      }
+    }
+    Write-Host "U04_ORIGINAL_NATIVE_FOCUS_FAILURE_DIAG UI=$nativeState target_hwnd=$targetHwnd"
     throw "U04_ATLAS_FOREGROUND_NOT_CONFIRMED foreground_pid=$foregroundPid atlas_pids=$($atlasPids -join ',')"
   }
   Write-Host "U04_NATIVE_ATLAS_FOREGROUND_PASS foreground_pid=$foregroundPid"
