@@ -3,6 +3,7 @@ import { emptyPublisherDraft, decodePublisherDraft, encodePublisherDraft, applyP
 import { prepareTestLicenseRequest, encodeTestLicenseRequest, suggestedTestRequestFileName, inspectTestIssuerRequestScopes } from '../src/test-license-request.mjs';
 import {simulateIssuerEvent} from '../src/issuer-simulation.mjs';
 import {prepareUnsignedPersonLicenseRequest} from '../src/person-license-request.mjs';
+import {projectPublisherPersonAttention} from '../src/person-attention.mjs';
 import PublisherT3OwnerPanel from './PublisherT3OwnerPanel';
 import AgeExchangePanel from '../../src/AgeExchangePanel';
 import TariffPanel from './TariffPanel';
@@ -137,6 +138,19 @@ export default function App(){
  const [draftChangedExternally,setDraftChangedExternally]=useState(false);
  const [page,setPage]=useState<Page>('overview');
  const [personRequestId,setPersonRequestId]=useState('');
+ const [personAttention,setPersonAttention]=useState<ReturnType<typeof projectPublisherPersonAttention>|null>(null);
+ const [personAttentionBusy,setPersonAttentionBusy]=useState(false);
+ const [personAttentionError,setPersonAttentionError]=useState('');
+ async function checkPersonAttention(){
+   if(personAttentionBusy)return;
+   setPersonAttention(null);setPersonAttentionError('');setPersonAttentionBusy(true);
+   try{
+     const original=await invoke('publisher_t3_person_inventory');
+     setPersonAttention(projectPublisherPersonAttention(original));
+   }catch(e){
+     setPersonAttentionError('Не удалось подтвердить состояние исходного журнала T3: '+getError(e));
+   }finally{setPersonAttentionBusy(false);}
+ }
  const [ageReady,setAgeReady]=useState(false);
  const [mobileNav,setMobileNav]=useState(false);
  const [legacyOpen,setLegacyOpen]=useState(false);
@@ -530,6 +544,38 @@ export default function App(){
            <div className="card metric publisher-metric"><span>Клиенты</span><strong>{state.holders.length}</strong><small>Привязанные идентификаторы</small></div>
            <div className="card metric publisher-metric"><span>Черновики запросов</span><strong>{state.proposals.length}</strong><small>Статус выдачи — в журнале T3</small></div>
          </div>
+         <section className="card padded" data-testid="publisher-person-attention">
+           <h2>Лицензии PERSON: что требует внимания</h2>
+           <p className="muted">Состояние у издателя запрашивается из исходного T3 по вашему действию.
+             Это не проверка доставки пакета, получения или применения лицензии в Atlas и Agent.</p>
+           <div className="actions">
+             <button type="button" className="secondary"
+               data-testid="publisher-person-attention-check"
+               disabled={personAttentionBusy||busy}
+               onClick={()=>void checkPersonAttention()}>
+               {personAttentionBusy?'Читаем журнал…':'Проверить журнал T3'}
+             </button>
+           </div>
+           {personAttentionError&&<p role="alert" data-testid="publisher-person-attention-error">{personAttentionError}</p>}
+           {personAttention&&<div data-testid="publisher-person-attention-result" role="status">
+             <p>Подтверждено записей издателя: {personAttention.shown} из {personAttention.total}.
+               Требуют внимания среди показанных: <strong>{personAttention.attentionInShown}</strong>.</p>
+             {(personAttention.truncated||personAttention.shown<personAttention.total)&&
+               <p className="notice subdued">Журнал показан не полностью. Эта сводка не подтверждает отсутствие других проблем.
+                 Для конкретной лицензии используйте точный поиск в разделе «Доверие и ключи».</p>}
+             {personAttention.items.length===0?
+               <p className="muted">В прочитанных записях нет срочных состояний. Получение лицензий клиентами не проверялось.</p>:
+               <ul>{personAttention.items.map(item=><li key={item.licenseId}>
+                 <strong>{item.title}</strong> · {item.productId} · {item.personId}
+                 <small> · {item.licenseId} · Срок: {item.expiresAt}</small>
+               </li>)}</ul>}
+             <p className="muted">Действительные права и статус на устройстве получателя
+               подтверждает только установленный продукт. Коммерческих TEST-мест: 0.</p>
+             <button className="secondary" type="button" onClick={()=>go('trust')}>
+               Открыть издателя и точный поиск
+             </button>
+           </div>}
+         </section>
          <section className="card padded"><strong>Тарифы и лимиты ({state.tariffs.length})</strong><p className="muted">Организации и физические лица получают разные маршруты выдачи. Сохранённые тарифы пока не являются лицензиями.</p><button className="secondary" type="button" onClick={()=>go('tariffs')}>Открыть тарифы</button></section>
           <section className="hero publisher-hero">
            <div className="publisher-hero-body">
