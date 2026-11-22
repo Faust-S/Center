@@ -80,6 +80,57 @@ try {
       if(command==='publisher_age_decrypt')return {
         operation:'AGE_DECRYPTED',sourceSha256:'a'.repeat(64),
         state:'DECRYPTED_INTEGRITY_VERIFIED_NOT_ADMITTED',admitted:false};
+      if(command==='publisher_t3_corporate_capabilities'){
+        if(window.__publisherMockCorporateEnrolled!==true)
+          throw Error('CORPORATE_ORIGINAL_OWNER_NOT_ENROLLED');
+        return {operation:'CORPORATE_CAPABILITIES',
+          environment:'PRODUCTION',issuers:['issuer:corporate:fixture'],
+          commercialAuthorityProven:false,activeSeats:0,productionActivation:false};
+      }
+      if(command==='publisher_t3_corporate_issue'){
+        if(window.__publisherMockCorporateEnrolled!==true||
+          args.issuerAuthorityId!=='issuer:corporate:fixture')
+          throw Error('CORPORATE_ORIGINAL_ISSUER_DENIED');
+        const request=JSON.parse(args.requestJson);
+        if(request.kind!=='CORPORATE_LICENSE_REQUEST'||
+          request.environment!=='PRODUCTION'||
+          request.subject.type!=='ORGANIZATION')
+          throw Error('CORPORATE_ORIGINAL_REQUEST_REJECTED');
+        window.__publisherMockCorporateSignCount=
+          (window.__publisherMockCorporateSignCount||0)+1;
+        const entry={licenseId:'license:corporate:fixture',requestId:request.requestId,
+          organizationId:request.subject.id,productId:'IWXA_ADMIN_CENTER',
+          status:'NOT_ACTIVATED',sequence:0};
+        sessionStorage.setItem('publisher-corporate-mock-signed',JSON.stringify(entry));
+        return {operation:'CORPORATE_ISSUE',outcome:'ISSUED_NEW',
+          licenseId:entry.licenseId,requestId:entry.requestId,
+          productionActivation:false,activeSeats:0};
+      }
+      if(command==='publisher_t3_corporate_signed_readback'){
+        const entry=JSON.parse(sessionStorage.getItem('publisher-corporate-mock-signed')||'null');
+        if(!entry||entry.licenseId!==args.licenseId)
+          throw Error('CORPORATE_ORIGINAL_SIGNED_ENTRY_MISSING');
+        return {operation:'CORPORATE_SIGNED_READBACK',
+          source:'ORIGINAL_T3_PRODUCT_ISSUE_LEDGER',
+          ...entry,issuerAuthorityId:'issuer:corporate:fixture',
+          tariffId:'TEAM',tariffRevision:1,productVersion:'0.5.0',
+          licenseEnvelopeSha256:'e'.repeat(64),
+          licenseSignatureVerifiedAtIssuance:true,
+          statusEnvelopeSha256:null,statusSignatureVerifiedAtIssuance:false,
+          statusFloorVerified:false,stateRevision:1,ledgerRevision:1,
+          recipientConfirmed:false,activeSeats:0,
+          assignablePersonalAgentSeats:0,productionActivation:false};
+      }
+      if(command==='publisher_t3_corporate_inventory'){
+        const entry=JSON.parse(sessionStorage.getItem('publisher-corporate-mock-signed')||'null');
+        const matches=entry&&
+          [entry.licenseId,entry.requestId,entry.organizationId].includes(args.lookupId)
+          ?[entry]:[];
+        return {operation:'CORPORATE_INVENTORY',
+          lookupId:args.lookupId,matches:matches.length,licenses:matches,
+          total:entry?1:0,truncated:false,
+          productionActivation:false,activeSeats:0};
+      }
       if(command==='publisher_t3_export_test_trust')return {
         operation:'TEST_TRUST_EXPORTED',bytes:2048,sha256:'c'.repeat(64),
         publicOnly:true,activeSeats:0,productionActivation:false};
@@ -549,6 +600,34 @@ try {
   // an already enrolled issuer or force a desktop restart.
   await page.evaluate(()=>{window.__publisherMockFailNextInventory=true;});
   await page.getByRole('button',{name:'Доверие и ключи'}).click();
+  const corp=page.getByTestId('publisher-corporate-native-owner');
+  await corp.waitFor();
+  assert.match(await corp.innerText(),
+    /Коммерческих мест без независимого приёма в Admin Center: 0/);
+  assert.equal(await corp.getByTestId('publisher-corporate-native-issue').count(),0);
+  await corp.getByTestId('publisher-corporate-owner-check').click();
+  await corp.getByRole('alert').waitFor();
+  assert.match(await corp.getByRole('alert').innerText(),/NOT_ENROLLED/);
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),0);
+  checks.push('corporate-owner-not-enrolled-no-signing-and-no-fake-entitlement');
+  // UI-only qualified-host mock; real Ed25519 is checked in the One Core CI.
+  await page.evaluate(()=>{window.__publisherMockCorporateEnrolled=true;});
+  await corp.getByTestId('publisher-corporate-owner-check').click();
+  await corp.getByLabel('Подготовленное предложение организации').selectOption({index:1});
+  await corp.getByTestId('publisher-corporate-native-seats').fill('0');
+  await corp.getByRole('button',{name:'Проверить условия перед подписью'}).click();
+  await corp.getByTestId('publisher-corporate-signing-preview').waitFor();
+  assert.equal(await corp.getByTestId('publisher-corporate-native-issue').isDisabled(),true);
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),0);
+  await corp.getByRole('checkbox',{name:'Подтверждаю выдачу организации по этим условиям'}).check();
+  await corp.getByTestId('publisher-corporate-native-issue').click();
+  await corp.getByTestId('publisher-corporate-native-readback').waitFor();
+  assert.match(await corp.getByTestId('publisher-corporate-native-readback').innerText(),
+    /Подписано издателем T3, не принято получателем/);
+  assert.match(await corp.getByTestId('publisher-corporate-native-readback').innerText(),
+    /Назначаемых мест: 0/);
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);
+  checks.push('corporate-owner-ui-human-consent-cold-signed-readback-no-recipient-grant');
   const ownerPanel=page.getByTestId('publisher-t3-owner-panel');
   await ownerPanel.getByText('Журнал T3 недоступен при запуске.',{exact:false}).waitFor();
   assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
