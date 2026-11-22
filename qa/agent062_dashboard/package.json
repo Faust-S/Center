@@ -1,0 +1,18 @@
+{
+  "name": "agent-062-dashboard-source-ci",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:types": "tsc -p tsconfig.json --noEmit",
+    "check:tests": "node --test tests/home-dashboard-062.test.mjs tests/home-dashboard-live-062.test.mjs"
+  },
+  "dependencies": {
+    "react": "19.0.0",
+    "lucide-react": "0.468.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/react": "19.0.12",
+    "@types/node": "22.15.30"
+  }
+}
