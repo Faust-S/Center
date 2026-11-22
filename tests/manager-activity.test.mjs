@@ -93,6 +93,14 @@ test('manager D2 error exposes only trusted machine code, never sensitive messag
    'T3_D2_ORIGINAL_ACTIVITY_READER_NOT_CONNECTED');
  assert.equal(managerActivityFailureCode({code:'T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED',message:'local secret'}),
    'T3_D3_ORIGINAL_KERNEL_SESSION_CHANGED');
+ assert.equal(managerActivityFailureCode({code:'T3_ACCESS_NOT_PERMITTED',message:'C:\\\\Users\\\\private\\\\vault.json'}),
+   'T3_ACCESS_NOT_PERMITTED');
+ assert.equal(managerActivityFailureCode('Error: T3_KERNEL_OPERATION_NOT_GRANTED'),
+   'T3_KERNEL_OPERATION_NOT_GRANTED');
+ assert.equal(managerActivityFailureCode({code:'T3_HOST_DISPOSED'}),
+   'T3_HOST_DISPOSED');
+ assert.equal(managerActivityFailureCode('T3_ACCESS_NOT_PERMITTED private key file'),
+   'CEN_D2_SOURCE_READ_FAILED');
  assert.equal(managerActivityFailureCode('Error: T3_D2_ORIGINAL_DATA_GRANT_REQUIRED'),
    'T3_D2_ORIGINAL_DATA_GRANT_REQUIRED');
  assert.equal(managerActivityFailureCode('C:\\Users\\alice\\secret\\private-key.json'),
