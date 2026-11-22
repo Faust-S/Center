@@ -73,6 +73,17 @@ const action=(title:string,onClick:()=>void,kind='secondary')=>
 export function AdminCompanyStructure({organization,onNavigate,compact=false}:{organization:DashboardOrganization;onNavigate:(page:PageId)=>void;compact?:boolean}) {
  const {workspaces,participants,assignments}=organization;
  const lead=participants.find(p=>/руковод|директор|начальник|owner|chief/i.test(p.roleLabel||''))??null;
+ // An assignment establishes a working association, NEVER a reporting line
+ // or signed corporate grant. Every edge below is derived from this draft.
+ const [focused,setFocused]=useState<{kind:'workspace'|'person';id:string}|null>(null);
+ const activeWorkspace=focused?.kind==='workspace'?workspaces.find(w=>w.id===focused.id):null;
+ const activePerson=focused?.kind==='person'?participants.find(p=>p.id===focused.id):null;
+ const relevant=activeWorkspace?assignments.filter(t=>t.workspaceId===activeWorkspace.id):
+  activePerson?assignments.filter(t=>t.assigneeId===activePerson.id||t.reviewerId===activePerson.id):[];
+ const memberIds=new Set(relevant.flatMap(t=>[t.assigneeId,t.reviewerId]).filter((id):id is string=>!!id));
+ const members=participants.filter(p=>memberIds.has(p.id));
+ const unitIds=new Set(relevant.map(t=>t.workspaceId));
+ const units=workspaces.filter(w=>unitIds.has(w.id));
  return <div className={'v8-company-structure'+(compact?' compact':'')} data-testid="admin-v8-company-structure">
   <div className="v8-company-hub"><span className="v8-hub-label">ОРГАНИЗАЦИЯ</span><strong>{organization.name}</strong>
    <small>{workspaces.length} рабочих областей · {participants.length} сотрудников · {assignments.length} поручений</small>
@@ -80,18 +91,47 @@ export function AdminCompanyStructure({organization,onNavigate,compact=false}:{o
   </div>
   <div className="v8-company-columns">
    <div className="v8-company-column"><div className="v8-column-heading">Рабочие области <button type="button" onClick={()=>onNavigate('resources')}>Открыть</button></div>
-    {workspaces.length?workspaces.slice(0,compact?4:12).map(w=><button type="button" className="v8-company-item" key={w.id} onClick={()=>onNavigate('resources')}>
+    {workspaces.length?workspaces.slice(0,compact?4:12).map(w=><button type="button"
+      className={'v8-company-item '+(activeWorkspace?.id===w.id?'selected':'')}
+      data-testid={'company-workspace-'+w.id} aria-pressed={activeWorkspace?.id===w.id}
+      key={w.id} onClick={()=>setFocused(old=>old?.kind==='workspace'&&old.id===w.id?null:{kind:'workspace',id:w.id})}>
       <strong>{w.name}</strong><small>{assignments.filter(t=>t.workspaceId===w.id).length} поручений{w.atlasRef?' · Atlas '+w.atlasRef.projectId:''}</small>
      </button>):<p className="v8-empty-line">Области ещё не созданы</p>}
    </div>
    <div className="v8-company-column"><div className="v8-column-heading">Команда и ответственность <button type="button" onClick={()=>onNavigate('people')}>Открыть</button></div>
-    {participants.length?participants.slice(0,compact?4:12).map(p=><button type="button" className="v8-company-item" key={p.id} onClick={()=>onNavigate('people')}>
+    {participants.length?participants.slice(0,compact?4:12).map(p=><button type="button"
+      className={'v8-company-item '+(activePerson?.id===p.id?'selected':'')}
+      data-testid={'company-person-'+p.id} aria-pressed={activePerson?.id===p.id}
+      key={p.id} onClick={()=>setFocused(old=>old?.kind==='person'&&old.id===p.id?null:{kind:'person',id:p.id})}>
       <strong>{p.name}</strong><small>{p.roleLabel||'Роль не указана'}{p.personalAgentPlan==='PLANNED'?' · Agent запланирован':''}</small>
      </button>):<p className="v8-empty-line">Добавьте сотрудников и определите роли</p>}
    </div>
   </div>
-  {!compact&&<div className="v8-company-links"><div><strong>Связи</strong><small>Организация → сотрудники → Task → Result → Review / APPLY</small></div>
-   {action('Контекст и связи T3',()=>onNavigate('context'))}</div>}
+  {(activeWorkspace||activePerson)&&<section className="v8-company-selection" data-testid="company-selection-detail" aria-live="polite">
+    <div className="v8-company-selection-head"><div>
+      <small>{activeWorkspace?'РАБОЧАЯ ОБЛАСТЬ':'СОТРУДНИК'}</small>
+      <strong>{activeWorkspace?.name??activePerson?.name}</strong>
+      {activePerson&&<span>{activePerson.roleLabel||'Функция не указана'} · {activePerson.personalAgentPlan==='PLANNED'?'Agent запланирован':'Agent не запланирован'}</span>}
+      {activeWorkspace?.atlasRef&&<span>Черновая связь Atlas: {activeWorkspace.atlasRef.projectId}, редакция {activeWorkspace.atlasRef.revision}</span>}
+    </div><button type="button" className="quiet" aria-label="Сбросить выбор" onClick={()=>setFocused(null)}>×</button></div>
+    <div className="v8-company-selection-grid"><div>
+      <strong>{activeWorkspace?'Связанные сотрудники':'Связанные рабочие области'}</strong>
+      {activeWorkspace?(members.length?members.map(p=><p key={p.id}>{p.name} <small>· {p.roleLabel||'роль не указана'}</small></p>):<p>Связанных сотрудников пока нет</p>):
+        units.length?units.map(w=><p key={w.id}>{w.name}</p>):<p>Поручения с сотрудником ещё не созданы</p>}
+    </div><div><strong>Поручения и ответственность</strong>
+      {relevant.length?relevant.slice(0,compact?4:12).map(t=><p key={t.id}>{t.title}
+        <small> · {t.assigneeId===activePerson?.id?'исполнитель':t.reviewerId===activePerson?.id?'принимает':participants.find(p=>p.id===t.assigneeId)?.name||'исполнитель не выбран'}</small></p>):
+        <p>Связанных поручений пока нет</p>}
+    </div></div>
+    <div className="v8-company-selection-actions">
+      {action('Поручения',()=>onNavigate('work'))}
+      {action(activeWorkspace?'Планы Atlas':'Сотрудники и роли',()=>onNavigate(activeWorkspace?'resources':'people'))}
+      {action('Контекст T3',()=>onNavigate('context'))}
+    </div>
+  </section>}
+  <div className="v8-company-links"><div><strong>Рабочие связи</strong>
+    <small>Выберите область или сотрудника. Связи выведены из черновиков поручений, а не из подписанных полномочий.</small></div>
+   {!compact&&action('Контекст и связи T3',()=>onNavigate('context'))}</div>
  </div>;
 }
 function attention(org:DashboardOrganization|null) {
