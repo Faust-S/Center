@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 35
     env:
-      AGENT06_PRIVATE_PIN: '479a8a2ff672261a72f6db04fd73770f23dac6e3'
+      AGENT06_PRIVATE_PIN: 'b4105d472b440b82ceb3997fadf4cc0015e11e31'
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -103,16 +103,35 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $log = Join-Path $env:RUNNER_TEMP 'agent061-ethereal-private.log'
+          $xml = Join-Path $env:RUNNER_TEMP 'agent061-ethereal-private.xml'
           Push-Location private-agent
           try{
             # Test creates two owned disposable sandbox accounts via official API.
             # SMTP delivery is trapped at Ethereal. No username/password, real
             # recipients, private code, mailbox content or preview URL printed.
-            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_ethereal_live.py *> $log
+            & python -B -m pytest -q -p no:cacheprovider ('--junitxml='+$xml) tests/test_agent06_ethereal_live.py *> $log
             $rc = $LASTEXITCODE
+            if(Test-Path -LiteralPath $xml){
+              [xml]$d = Get-Content -LiteralPath $xml -Raw
+              $suite = $d.testsuites.testsuite
+              if($null -eq $suite){$suite = $d.testsuite}
+              Write-Host ('AGENT061_ETHEREAL_TESTS='+[int]$suite.tests)
+              Write-Host ('AGENT061_ETHEREAL_FAILURES='+[int]$suite.failures)
+              $sendOnly = @($d.SelectNodes('//testcase[contains(@name,"test_real_ethereal_smtp_only_reviewed_send_and_cold_receipt")]'))
+              if($sendOnly.Count -eq 1 -and
+                  $null -eq $sendOnly[0].SelectSingleNode('failure') -and
+                  $null -eq $sendOnly[0].SelectSingleNode('error') -and
+                  $null -eq $sendOnly[0].SelectSingleNode('skipped')){
+                Write-Host 'AGENT061_ETHEREAL_SMTP_ONLY_PASS'
+              }else{Write-Host 'AGENT061_ETHEREAL_SMTP_ONLY_NOT_PROVEN'}
+            }
             if($rc -ne 0){
               $raw = Get-Content -LiteralPath $log -Raw
-              $codes = @(
+              # Pick only an explicit pytest exception code from the terminal
+              # E AssertionError line, not a string from the source traceback.
+              $found = [regex]::Matches([string]$raw,
+                  '(?m)^\s*E\s+AssertionError:\s+(ethereal_[a-z0-9_]+)\s*$')
+              $allowed = @(
                 'ethereal_account_creation_unavailable',
                 'ethereal_account_creation_rejected',
                 'ethereal_account_transport_contract_changed',
@@ -123,17 +142,14 @@ jobs:
                 'ethereal_imap_noop_not_ok',
                 'ethereal_original_account_verify_disagrees_with_imap_probe',
                 'ethereal_verify_imap_verification_failed',
-                'imap_verification_failed',
-                'smtp_verification_failed',
-                'smtp_send_failed',
-                'imap_read_failed',
-                'ethereal_sent_message_missing_from_own_mailbox',
-                'online_account_slot_capabilities_incompatible',
-                'tool_provider_binding_mismatch'
+                'ethereal_verify_smtp_verification_failed',
+                'ethereal_smtp_tool_send_failed',
+                'ethereal_sent_message_missing_from_own_mailbox'
               )
               $code='OTHER'
-              foreach($candidate in $codes){
-                if($raw.Contains($candidate)){$code=$candidate;break}
+              foreach($item in $found){
+                $candidate=[string]$item.Groups[1].Value
+                if($candidate -cin $allowed){$code=$candidate;break}
               }
               Write-Host ('AGENT061_ETHEREAL_LIVE_FAILURE_CODE='+$code)
               throw 'AGENT061_ETHEREAL_LIVE_FAILED'
@@ -142,6 +158,7 @@ jobs:
           }finally{
             Pop-Location
             if(Test-Path -LiteralPath $log){Remove-Item -LiteralPath $log -Force}
+            if(Test-Path -LiteralPath $xml){Remove-Item -LiteralPath $xml -Force}
           }
       - name: Public provider TLS and Google OIDC metadata (no login)
         id: transport
