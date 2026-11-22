@@ -74,18 +74,28 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
  const [activity,setActivity]=useState<any>(null);
  const [activityLoading,setActivityLoading]=useState(false);
  const [activityIssue,setActivityIssue]=useState('');
+ const [activityPhase,setActivityPhase]=useState<'session'|'kernel'|'verify'|null>(null);
+ const [activitySlow,setActivitySlow]=useState(false);
+ const [activityTiming,setActivityTiming]=useState<{totalMs:number;kernelMs:number}|null>(null);
+ useEffect(()=>{
+   setActivitySlow(false);
+   if(!activityLoading||activityPhase!=='kernel')return;
+   const timeout=window.setTimeout(()=>setActivitySlow(true),15000);
+   return()=>window.clearTimeout(timeout);
+ },[activityLoading,activityPhase]);
  const [selectedEvidence,setSelectedEvidence]=useState<Entry|null>(null);
  useEffect(()=>{
    request.current++;
    setOwner(null);setOwnerIssue('');setInboxIssue('');setLoading(false);
    setActivity(null);setActivityLoading(false);setActivityIssue('');setSelectedEvidence(null);
+   setActivityPhase(null);setActivitySlow(false);setActivityTiming(null);
    return()=>{request.current++};
  },[organization.id,sourceGeneration]);
  const refreshSigned=async()=>{
    if(!invoke||loading||activityLoading)return;
    const selectedId=organization.id,seq=++request.current;
    setOwner(null);setOwnerIssue('');setInboxIssue('');setLoading(true);
-   setActivity(null);setActivityIssue('');setSelectedEvidence(null);
+   setActivity(null);setActivityIssue('');setSelectedEvidence(null);setActivityTiming(null);
    try {
      const snapshot=await invoke('center_corporate_state',{organizationId:selectedId});
      let readback=readManagerSignedContext(snapshot,selectedId);
@@ -107,7 +117,9 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
    if(!invoke||loading||activityLoading||owner?.status!=='SIGNED_D3_READBACK'||
       owner.organizationId!==organization.id)return;
    const seq=++request.current,orgId=organization.id;
+   const started=Date.now();let kernelStarted=0;
    setActivity(null);setActivityIssue('');setSelectedEvidence(null);setActivityLoading(true);
+   setActivityTiming(null);setActivityPhase('session');
    try {
      const fresh=await invoke('center_corporate_state',{organizationId:orgId});
      const current:any=readManagerSignedContext(fresh,orgId);
@@ -118,11 +130,16 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
        current.contextId!==owner.contextId||
        current.contextEpoch!==owner.contextEpoch)
        throw Error('CEN_D2_ORIGINAL_SIGNED_CONTEXT_CHANGED');
+     kernelStarted=Date.now();if(seq===request.current)setActivityPhase('kernel');
      const original=await invoke('center_corporate_action',managerActivityArgs(fresh,orgId));
+     if(seq===request.current)setActivityPhase('verify');
      const readback=readManagerActivity(fresh,orgId,original);
      if(!managerActivityMatchesSignedOwner(readback,owner))
        throw Error('CEN_D2_ORIGINAL_SIGNED_CONTEXT_CHANGED');
-     if(seq===request.current)setActivity(readback);
+     if(seq===request.current){
+       setActivity(readback);
+       setActivityTiming({totalMs:Date.now()-started,kernelMs:Date.now()-kernelStarted});
+     }
    }catch(error){
      if(seq===request.current){
        const code=managerActivityFailureCode(error);
@@ -130,7 +147,7 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
          ?'В исходном T2 Kernel пока нет действующей корпоративной Workspace. Откройте «Результаты» → «Открыть Workspace T3» и дождитесь её подтверждения. Если исходный T3 предлагает «Создать выбранную Workspace», подтвердите создание отдельным подписанным правом workspace.create. Затем перечитайте данные здесь. Код: '+code+'.'
          :'Исходные Object/Event не прочитаны. Проверьте открытую Workspace T3 и отдельное подписанное право activity.read. Данные других источников не подставляются. Код: '+code+'.');
      }
-   }finally{if(seq===request.current)setActivityLoading(false);}
+   }finally{if(seq===request.current){setActivityLoading(false);setActivityPhase(null);}}
  };
  const [selection,setSelection]=useState('organization');
  const rows=useMemo(()=>[
@@ -233,9 +250,15 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
          </p>
          <button className="secondary" type="button" data-testid="manager-read-activity"
            disabled={!invoke||loading||activityLoading} onClick={()=>{void refreshActivity()}}>
-           {activityLoading?'Читаем исходный Kernel...':'Перечитать Object/Event через T3 DATA'}
+           {activityLoading?'Читаем Object/Event...':'Перечитать Object/Event через T3 DATA'}
          </button>
-         {!activity?.status&&<small className="muted">Откройте «Результаты» → «Открыть Workspace T3», затем «К приёмке» и вернитесь сюда. Для чтения требуется отдельное подписанное право activity.read.</small>}
+         {activityLoading&&<p className="manager-data-read-progress" data-testid="manager-data-read-progress" role="status">
+           {activityPhase==='session'?'Проверяю выбранную организацию и актуальность подписанного сеанса.':
+            activityPhase==='kernel'?'Ожидаю адресное чтение Object/Event из исходного T2 Kernel.':
+            'Проверяю исходные записи и их принадлежность выбранной Workspace.'}
+           {activitySlow&&<small>Чтение исходного Kernel продолжается. Повторный запрос до получения ответа не нужен.</small>}
+         </p>}
+         {!activityLoading&&!activity?.status&&<small className="muted">Откройте «Результаты» → «Открыть Workspace T3», затем «К приёмке» и вернитесь сюда. Для чтения требуется отдельное подписанное право activity.read.</small>}
        </>}
        {managerActivityMatchesSignedOwner(activity,owner)&&
          <div className="manager-signed-summary" data-testid="manager-activity-summary" role="status">
@@ -244,6 +267,7 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
              связей: {activity.counts.relations}; неразрешённых ссылок: {activity.counts.unresolved};
              без предметной привязки: {activity.counts.unmappedObjects} Object и {activity.counts.unmappedEvents} Event.</span>
            <small>Это метаданные исходных записей, не доказательство выполнения хозяйственных действий.</small>
+           {activityTiming&&<small data-testid="manager-data-read-timing">Время ожидания интерфейса: {Math.round(activityTiming.totalMs/1000)} с, из них чтение исходного Kernel: {Math.round(activityTiming.kernelMs/1000)} с.</small>}
          </div>}
        {activityIssue&&<div role="alert" className="muted" data-testid="manager-activity-issue">
          <small>{activityIssue}</small>
