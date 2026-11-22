@@ -5,6 +5,7 @@ import {readAtlasSourceFile} from './atlas-file-import.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
 import ManagerContextPanel from './ManagerContextPanel';
+import {retainSignedWorkspaceForPage,mayOpenSignedWorkspaceOnPage} from './signed-workspace-navigation.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import Cen04LicensePanel from './Cen04LicensePanel';
 import AgeExchangePanel from './AgeExchangePanel';
@@ -236,7 +237,11 @@ export default function App() {
   };
   useEffect(()=>{
     if(!signedWorkspaceOrg||!nativeHost)return;
-    if(page==='results'&&state.activeOrganizationId===signedWorkspaceOrg)return;
+    // D2 manager search lives on Overview/Corporate Context. Closing the
+    // ORIGINAL Kernel when moving there makes signed Object/Event reads
+    // impossible. Keep the SAME signed child alive, hidden, only for the
+    // same organization; other sections or a context change still close it.
+    if(retainSignedWorkspaceForPage(page,state.activeOrganizationId,signedWorkspaceOrg))return;
     let active=true;
     void nativeInvoke('center_corporate_close_signed_workspace')
       .then(()=>{if(active){setSignedWorkspaceOrg(null);setSignedWorkspaceVisible(false)}})
@@ -244,7 +249,8 @@ export default function App() {
     return ()=>{active=false};
   },[signedWorkspaceOrg,page,state.activeOrganizationId,nativeHost]);
   const openSignedWorkspace=async(organizationId:string)=>{
-    if(!nativeHost||page!=='results'||state.activeOrganizationId!==organizationId)
+    if(!nativeHost||!mayOpenSignedWorkspaceOnPage(
+      page,state.activeOrganizationId,organizationId,signedWorkspaceOrg))
       throw Error('CEN_D3_ORIGINAL_WORKSPACE_CONTEXT_CHANGED');
     if(signedWorkspaceOrg===organizationId){
       // The previously opened trusted T2 Kernel remains alive when its
