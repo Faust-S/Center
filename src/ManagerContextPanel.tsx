@@ -222,7 +222,7 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
            disabled={!invoke||loading||activityLoading} onClick={()=>{void refreshActivity()}}>
            {activityLoading?'Читаем исходный Kernel...':'Перечитать Object/Event через T3 DATA'}
          </button>
-         {!activity?.status&&<small className="muted">Для оригинального чтения нужна открытая подписанная Workspace T3 и отдельное право activity.read.</small>}
+         {!activity?.status&&<small className="muted">Откройте «Результаты» → «Открыть Workspace T3», затем «К приёмке» и вернитесь сюда. Для чтения требуется отдельное подписанное право activity.read.</small>}
        </>}
        {managerActivityMatchesSignedOwner(activity,owner)&&
          <div className="manager-signed-summary" data-testid="manager-activity-summary" role="status">

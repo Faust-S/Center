@@ -382,10 +382,31 @@ try{
   // owner changes its epoch after a write and the ACK disappears.
   const d3Page=await browser.newPage({viewport:{width:1366,height:900}});
   await d3Page.addInitScript(()=>{
-    const held={epoch:7,task:null,writes:0,decisionWrites:0,decision:null,d2ReadCount:0};
+    const held={epoch:7,task:null,writes:0,decisionWrites:0,decision:null,d2ReadCount:0,
+      signedOpen:false,signedVisible:false,signedCloses:0};
     window.__d3UiFixture=held;
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(command==='center_draft_read_local')return null;
+      if(command==='center_corporate_signed_workspace_status')return {
+        schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',
+        open:held.signedOpen,visible:held.signedVisible,
+        foreignOrOrphaned:false};
+      if(command==='center_corporate_open_signed_workspace'){
+        if(held.signedOpen)throw Error('TEST_ORIGINAL_SIGNED_OWNER_REOPENED');
+        held.signedOpen=true;held.signedVisible=true;return true;
+      }
+      if(command==='center_corporate_hide_signed_workspace'){
+        if(!held.signedOpen)throw Error('TEST_ORIGINAL_SIGNED_OWNER_NOT_OPEN');
+        held.signedVisible=false;return true;
+      }
+      if(command==='center_corporate_show_signed_workspace'){
+        if(!held.signedOpen)throw Error('TEST_ORIGINAL_SIGNED_OWNER_NOT_OPEN');
+        held.signedVisible=true;return true;
+      }
+      if(command==='center_corporate_close_signed_workspace'){
+        if(held.signedOpen){held.signedCloses++;held.signedOpen=false;held.signedVisible=false;}
+        return true;
+      }
       if(command==='center_corporate_state'){
         const tasks=held.task?[{
           taskId:held.task.taskId,taskRevisionId:'a'.repeat(64),
@@ -398,7 +419,8 @@ try{
           contextId:'context:ui-smoke',contextEpoch:held.epoch,
           d3RecipientAvailable:true,d3TaskIssueAvailable:true,
           d3InspectAvailable:true,d3ApplyAvailable:false,
-          d3ApplyRecoverAvailable:false,d2ActivityReaderConnected:true,
+          d3ApplyRecoverAvailable:false,d2ActivityReaderConnected:held.signedOpen,
+          originalSignedWorkspaceAvailable:true,
           productionActivation:false,T3_READY:false,
           tasks,totalTasks:tasks.length
         }};
@@ -422,6 +444,7 @@ try{
             recipientId:'person:reviewer',
             status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED'};
         if(args.operation==='d2ActivityReadback'){
+          if(!held.signedOpen)throw Error('TEST_D2_REQUIRES_LIVE_ORIGINAL_KERNEL');
           held.d2ReadCount++;
           return {schema:'IWXA_T3_ORIGINAL_ADMIN_ACTIVITY_READBACK/1',
             organizationId:args.organizationId,workspaceId:'workspace:ui-smoke',
@@ -523,9 +546,23 @@ try{
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).writes,1,
     'read-only Task recovery must not reissue signed Task');
   checks.push('d3-task-id-and-no-replay-survive-unknown-ack-and-signed-epoch-remount');
-  // UI-only signed-owner fixture. Navigation is source-bound but must reread
-  // original inbox before choosing a package; this is not native qualification.
+  // The original signed child must be opened on Results and remain alive
+  // while the manager visits Overview/Corporate Context for D2 evidence.
+  // A UI fixture tests navigation only, not Ed25519/DPAPI/original T2.
+  await d3Page.getByTestId('d3-open-signed-workspace').click();
+  await d3Page.getByTestId('d3-return-to-review').waitFor();
+  await d3Page.getByTestId('d3-return-to-review').click();
+  await d3Page.getByTestId('d3-show-signed-workspace').waitFor();
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).signedOpen,true);
   await d3Page.getByTestId('nav-overview').click();
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).signedCloses,0,
+    'manager Overview must preserve the signed original Host');
+  await d3Page.getByTestId('nav-context').click();
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).signedCloses,0,
+    'manager Context must preserve the same signed original Host');
+  await d3Page.getByTestId('nav-overview').click();
+  // This is NOT installed qualification: source readback itself is mocked.
+  // The real Windows run must additionally prove the signed data authorization.
   await d3Page.getByTestId('manager-read-signed').click();
   await d3Page.getByTestId('manager-signed-summary').waitFor();
   await d3Page.getByTestId('manager-read-activity').click();
@@ -537,6 +574,8 @@ try{
   assert.match(await d3Page.getByTestId('manager-original-evidence-detail').innerText(),/event:kernel/);
   assert.doesNotMatch(await d3Page.getByTestId('manager-original-evidence-detail').innerText(),/never render|must not be rendered/);
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).d2ReadCount,1);
+  assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).signedCloses,0,
+    'original Kernel must still be running after authorized D2 metadata read');
   await d3Page.getByTestId('manager-question-events').click();
   checks.push('manager-source-grounded-original-D2-read-only-ui-no-private-payload');
   await d3Page.getByTestId('overview-search').fill('UI recovery task');
@@ -602,6 +641,14 @@ try{
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
     'cold panel receipt recovery must not dispatch another decision');
   checks.push('d3-cold-react-panel-receipt-prevents-duplicate-human-accept');
+  // Moving to an unrelated page must close the ORIGINAL signed child. No
+  // React page may silently preserve credentials in another work domain.
+  await d3Page.getByTestId('nav-people').click();
+  await d3Page.waitForFunction(()=>window.__d3UiFixture?.signedCloses===1);
+  const finalSession=await d3Page.evaluate(()=>window.__d3UiFixture);
+  assert.equal(finalSession.signedOpen,false);
+  assert.equal(finalSession.signedCloses,1);
+  checks.push('original-kernel-same-org-manager-navigation-and-unrelated-page-close');
   await d3Page.close();
   // UI-only native owner fixture: these checks DO NOT qualify cryptography,
   // the original installed T3, independent employee signature or Kernel.
