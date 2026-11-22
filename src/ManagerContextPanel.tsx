@@ -226,6 +226,11 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
              {' '}Доставка Task и Kernel Apply не подтверждаются этим обзором.</span>
          </div>}
        {owner?.status==='SIGNED_D3_READBACK'&&owner.organizationId===organization.id&&<>
+         <p role="status" data-testid="manager-native-d2-readiness" className="muted">
+           {owner.d2ReaderConnected
+             ?'T3 DATA: исходный Kernel подключён к нативному читателю. Подписанное activity.read проверяется при каждом чтении.'
+             :'T3 DATA: нативный читатель Object/Event ещё не подключён. Откройте Workspace T3 в «Результатах», дождитесь ядра и обновите подписанные сведения. Данные не подменяются.'}
+         </p>
          <button className="secondary" type="button" data-testid="manager-read-activity"
            disabled={!invoke||loading||activityLoading} onClick={()=>{void refreshActivity()}}>
            {activityLoading?'Читаем исходный Kernel...':'Перечитать Object/Event через T3 DATA'}
