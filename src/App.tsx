@@ -766,7 +766,8 @@ export default function App() {
         <section className="card v8-people-structure">
           <div className="section-head"><h2>Структура компании</h2><span className="status neutral">Рабочие области · роли · ответственность</span></div>
           <p className="muted">Состав организации строится из сохранённых рабочих областей и сотрудников. Подписанные полномочия T3 проверяются отдельно.</p>
-          <AdminCompanyStructure organization={org} onNavigate={go}/>
+          <AdminCompanyStructure key={org.id} organization={org} onNavigate={go}
+             onOpenAssignment={id=>{const task=org.assignments.find(item=>item.id===id);if(task)startAssignment(task);}}/>
         </section>
         <section className="card v8-people-structure"><h2>Матрица сотрудников и подключений</h2>
           <div className="v8-role-grid">
