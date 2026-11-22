@@ -68,6 +68,26 @@ export default function PublisherCorporateOwnerPanel({
     }finally{setBusy(false);}
   }
 
+  async function exportCorporateTrust(){
+    if(busy||issuers.length===0)return;
+    setBusy(true);setProblem('');setFeedback('');
+    try{
+      const result=await invoke('publisher_t3_corporate_export_public_trust');
+      if(result===null){
+        setFeedback('Экспорт публичного доверия отменён.');return;
+      }
+      if(result.operation!=='CORPORATE_TRUST_EXPORTED'||
+        result.publicOnly!==true||result.recipientProvisioned!==false||
+        result.activeSeats!==0||result.productionActivation!==false||
+        !HEX.test(result.sha256))
+        throw Error('CORPORATE_ORIGINAL_PUBLIC_TRUST_RECEIPT_INVALID');
+      setFeedback('Публичное доверие оригинального издателя сохранено. SHA-256: '+
+        result.sha256+'. Его нужно независимо установить и проверить в Admin Center ДО получения лицензии; права не созданы.');
+    }catch(e){
+      setProblem('Не удалось подтвердить исходный публичный trust: '+error(e));
+    }finally{setBusy(false);}
+  }
+
   function prepare(){
     if(!selected||!issuer||!seatsInput(seatInput))return;
     setProblem('');setFeedback('');setSigned(null);setUnknown(false);
@@ -217,6 +237,11 @@ export default function PublisherCorporateOwnerPanel({
     <button className="secondary" type="button" disabled={busy}
       data-testid="publisher-corporate-owner-check"
       onClick={()=>void loadCapabilities()}>Проверить зарегистрированного издателя T3</button>
+    {issuers.length>0&&<button type="button" className="secondary"
+      disabled={busy} data-testid="publisher-corporate-trust-export"
+      onClick={()=>void exportCorporateTrust()}>
+      Экспортировать публичное доверие для независимого Admin Center
+    </button>}
     {issuers.length>0&&<div className="publisher-offer-review">
       <label>Зарегистрированный издатель
         <select value={issuer} disabled={busy}
