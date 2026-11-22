@@ -5,7 +5,7 @@ name: Agent062 installed Windows Setup Core and Core continuation qualification
 on:
   push:
     branches:
-      - work/2026-11-22-agent-062-integrated-windows-frontend
+      - work/2026-11-22-agent-062-installed-groups-qualification
 permissions:
   contents: read
 concurrency:
@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: 'c4302892e2fd788825111293487f99436fedbbee'
-      PRIVATE_TREE_PIN: '862a107419551dc4336a324aedc0a3993b43bf7b'
+      PRIVATE_SOURCE_PIN: '9a97de64ea6292f3a179055a99243859eabfaa04'
+      PRIVATE_TREE_PIN: 'bc77295c1e2bfe8601b392236010a6f8f5933a9a'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
