@@ -162,6 +162,20 @@ try {
   assert.match(await page.locator('main').innerText(),/Подтверждённых релизов: 0/);
   assert.match(await page.locator('main').innerText(),/Подписанные лицензии PERSON учитывает отдельный журнал T3/);
   assert.match(await page.locator('main').innerText(),/Статус выдачи — в журнале T3/);
+  const corporatePrimary=page.getByTestId('publisher-corporate-primary');
+  await corporatePrimary.waitFor();
+  assert.match(await corporatePrimary.innerText(),/Корпоративная лицензия IWXA Admin Center/);
+  assert.match(await corporatePrimary.innerText(),/только TEST-лицензия Admin Center/);
+  assert.match(await corporatePrimary.innerText(),/Доступных для назначения мест: 0/);
+  assert.equal(await corporatePrimary.getByRole('button',{name:'Подготовить корпоративную лицензию'}).count(),1);
+  assert.equal(await page.evaluate(()=>{
+    const first=document.querySelector('[data-testid="publisher-corporate-primary"]');
+    const optional=document.querySelector('[data-testid="publisher-person-attention"]');
+    return Boolean(first&&optional&&
+      first.compareDocumentPosition(optional)&Node.DOCUMENT_POSITION_FOLLOWING);
+  }),true,'Main corporate route must precede optional PERSON attention');
+  checks.push('publisher-home-prioritizes-corporate-admin-center-license-and-zero-real-seats');
+
   assert.match(await page.locator('.publisher-app .inspector').textContent(),/Подписанные лицензии[\s\S]*Журнал T3/);
   assert.equal(await page.getByText('Действительные лицензии',{exact:true}).count(),0,
     'Local unsigned preparations cannot assert that original T3 has issued no licenses');
