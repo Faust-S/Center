@@ -1000,8 +1000,19 @@ try{
   await employeePage.getByTestId('nav-people').click();
   await employeePage.getByTestId('person-name').fill('Independent colleague');
   await employeePage.getByTestId('add-person').click();
-  await employeePage.getByTestId('nav-results').click();
-  await employeePage.getByTestId('d3-employee-contact').selectOption({index:1});
+  const employeeMapButton=employeePage.locator('[data-testid^="company-person-"]').first();
+  const employeeContactId=(await employeeMapButton.getAttribute('data-testid')).slice('company-person-'.length);
+  await employeeMapButton.click();
+  await employeePage.getByRole('button',{name:'Подключение сотрудника T3'}).click();
+  assert.match(await employeePage.getByTestId('v8-employee-focus').innerText(),
+    /Independent colleague/);
+  assert.equal(await employeePage.getByTestId('d3-employee-contact').inputValue(),
+    employeeContactId,'the existing original T3 employee form must select the exact draft contact');
+  assert.equal(await employeePage.getByTestId('d3-employee-person').inputValue(),'',
+    'an ordinary contact cannot become a signed T3 person by navigation');
+  assert.equal(await employeePage.getByTestId('d3-employee-key').inputValue(),'',
+    'navigation must never invent the employee PROOF key');
+  checks.push('v8-selected-company-employee-opens-exact-original-T3-form-without-automatic-identity');
   await employeePage.getByTestId('d3-employee-person').fill('person:independent');
   await employeePage.getByTestId('d3-employee-key').fill('key:independent');
   await employeePage.getByTestId('d3-employee-credential-read').click();

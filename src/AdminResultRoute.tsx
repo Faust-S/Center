@@ -24,9 +24,10 @@ type Props={
  signedWorkspaceOpen:boolean;
  signedWorkspaceVisible:boolean;
  onOpenWorkspace:()=>Promise<void>;
+ focusedEmployeeName?:string|null;
 };
-export default function AdminResultRoute({organizationName,nativeHost,signedWorkspaceOpen,signedWorkspaceVisible,onOpenWorkspace}:Props){
- const [selected,setSelected]=useState<string>('');
+export default function AdminResultRoute({organizationName,nativeHost,signedWorkspaceOpen,signedWorkspaceVisible,onOpenWorkspace,focusedEmployeeName}:Props){
+ const [selected,setSelected]=useState<string>(focusedEmployeeName?'employees':'');
  const [opening,setOpening]=useState(false);
  const [openIssue,setOpenIssue]=useState('');
  const openWorkspace=async()=>{
@@ -46,6 +47,11 @@ export default function AdminResultRoute({organizationName,nativeHost,signedWork
   // A rendered section never proves the operation is authorized.
  };
  return <div className="v8-result-layout">
+  {focusedEmployeeName&&<div className="v8-employee-target" data-testid="v8-employee-focus">
+    <strong>Подключение сотрудника: {focusedEmployeeName}</strong>
+    <span>Выбран контакт организации. Подписанный T3 отдельно проверяет личность, ключ и полномочия. Никакие права при переходе не выдаются.</span>
+    <button type="button" className="secondary" onClick={()=>open(STEPS[1])}>К подключению T3</button>
+   </div>}
   <section className="v8-workspace-entry" data-testid="v8-workspace-entry">
    <div className="v8-workspace-heading">
     <div><small>КОРПОРАТИВНАЯ РАБОТА IWXA</small><h2>Одна Workspace. Вся работа организации.</h2>
