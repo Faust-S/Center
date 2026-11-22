@@ -1,0 +1,71 @@
+# Parse the original private Agent native witness on Windows PowerShell 5.1.
+# Only fixed pass/fail markers are exposed; source never leaves the runner.
+name: Agent062 original GUI witness syntax Windows
+on:
+  push:
+    branches:
+      - work/2026-11-22-agent-062-ui-qualification-parse
+    paths:
+      - .github/workflows/agent062-original-gui-witness-parse.yml
+permissions:
+  contents: read
+jobs:
+  original-private-witness:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    env:
+      PRIVATE_SOURCE_PIN: '895fb5d6ed8e29bb3f96fca81fb095c1b5854e21'
+      PRIVATE_TREE_PIN: '38cbccc64787de0818d227d6356218f7d164ae6b'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check read-only private checkout permission
+        shell: pwsh
+        env:
+          PRIVATE_SOURCE_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:PRIVATE_SOURCE_READ_TOKEN)){
+            throw 'AGENT062_UIA_PRIVATE_ACCESS_MISSING'
+          }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.PRIVATE_SOURCE_PIN }}
+          path: private-agent
+          persist-credentials: false
+          show-progress: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - name: Verify original source commit and tree
+        shell: pwsh
+        run: |
+          $repo=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
+          $head=(& git -C $repo rev-parse HEAD).Trim()
+          $tree=(& git -C $repo rev-parse 'HEAD^{tree}').Trim()
+          if($head -cne $env:PRIVATE_SOURCE_PIN -or $tree -cne $env:PRIVATE_TREE_PIN){
+            throw 'AGENT062_UIA_SOURCE_PIN_MISMATCH'
+          }
+          Write-Host 'AGENT062_UIA_PRIVATE_SOURCE_PIN_PASS'
+      - name: Parse original Windows UIAutomation witness with PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $file=Join-Path $env:GITHUB_WORKSPACE 'private-agent\qualification\agent062\qualify_dashboard_installed.ps1'
+          if(!(Test-Path -LiteralPath $file -PathType Leaf)){throw 'AGENT062_UIA_WITNESS_MISSING'}
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($file,[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -ne 0){
+            Write-Host ('AGENT062_UIA_PARSE_ERRORS='+@($errors).Count)
+            foreach($item in @($errors)){Write-Host ('AGENT062_UIA_PARSE_AT_LINE='+$item.Extent.StartLineNumber)}
+            throw 'AGENT062_UIA_PARSE_FAILED'
+          }
+          $source=Get-Content -LiteralPath $file -Raw -Encoding UTF8
+          foreach($marker in @('CheckDashboard -AfterCold','CheckGroups -AfterCold',
+              'DragDashboardPair','dashboard_order_restored_after_cold_restart=$true',
+              'groups_chat_preserved_after_delete=$true')){
+            if(!$source.Contains($marker)){throw 'AGENT062_UIA_REQUIRED_ROUTE_MISSING'}
+          }
+          if($source.Contains('$home')){throw 'AGENT062_UIA_READ_ONLY_HOME_COLLISION'}
+          Write-Host 'AGENT062_UIA_ORIGINAL_WINDOWS_WITNESS_PARSE_PASS'
+      # No artifact or private log uploads.
