@@ -230,7 +230,7 @@ body{padding:11px;background:#172238}
 @media(max-width:750px){.v8-company-selection-grid{grid-template-columns:1fr}}
 
 /* Compact navigator: does not hide or replace any original T3 controls. */
-.v8-employee-target{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid #dce8f2;border-left:3px solid #a35eac;border-radius:10px;background:#fff;padding:10px 13px;color:#355579}
+.v8-employee-target{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid #dce8f2;border-left:3px solid #d85163;border-radius:10px;background:#fff;padding:10px 13px;color:#355579}
 .v8-employee-target strong{font-size:12px;flex:1 1 190px}
 .v8-employee-target span{font-size:11px;flex:3 1 330px;line-height:1.4;color:#657f9c}
 .v8-employee-target button{flex:0 0 auto;min-height:32px;font-size:11px}
