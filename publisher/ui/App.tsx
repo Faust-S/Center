@@ -162,6 +162,27 @@ export default function App(){
  }
  const corporateOfferReviews=useMemo(()=>projectCorporateOfferReviews(state),[state]);
  const [corporateSeatInputs,setCorporateSeatInputs]=useState<Record<string,string>>({});
+ // Read-only corporate issuer availability. This is not an issued-license
+ // inventory, a signed STATUS or a recipient entitlement.
+ const [corporateIssuerCount,setCorporateIssuerCount]=useState<number|null>(null);
+ const [corporateIssuerBusy,setCorporateIssuerBusy]=useState(false);
+ const [corporateIssuerError,setCorporateIssuerError]=useState('');
+ async function checkCorporateIssuer(){
+   if(corporateIssuerBusy||!nativeHost)return;
+   setCorporateIssuerCount(null);setCorporateIssuerError('');setCorporateIssuerBusy(true);
+   try{
+     const value=await invoke('publisher_t3_corporate_capabilities');
+     if(value?.operation!=='CORPORATE_CAPABILITIES'||
+        value.environment!=='PRODUCTION'||value.commercialAuthorityProven!==false||
+        value.productionActivation!==false||value.activeSeats!==0||
+        !Array.isArray(value.issuers)||
+        value.issuers.some((id:unknown)=>typeof id!=='string'||!id.trim()))
+       throw Error('CORPORATE_ORIGINAL_OWNER_CAPABILITIES_INVALID');
+     setCorporateIssuerCount(value.issuers.length);
+   }catch(e){
+     setCorporateIssuerError('Исходный корпоративный T3 недоступен: '+getError(e));
+   }finally{setCorporateIssuerBusy(false);}
+ }
  const [personRequestId,setPersonRequestId]=useState('');
  const [personAttention,setPersonAttention]=useState<ReturnType<typeof projectPublisherPersonAttention>|null>(null);
  const [personAttentionBusy,setPersonAttentionBusy]=useState(false);
@@ -597,6 +618,10 @@ export default function App(){
        </section>{page==='overview'&&diagnosticPanel}</>:<>
        {page==='overview'&&<>
          <PublisherDashboard draft={state} attention={personAttention}
+           corporateIssuerCount={corporateIssuerCount}
+           corporateIssuerBusy={corporateIssuerBusy}
+           corporateIssuerError={corporateIssuerError}
+           onCheckCorporateIssuer={()=>void checkCorporateIssuer()}
            diagnostics={diagnostics}
            attentionBusy={personAttentionBusy} attentionError={personAttentionError}
            onCheckAttention={()=>void checkPersonAttention()}
@@ -607,28 +632,29 @@ export default function App(){
            onLibrary={openWidgetLibrary} onNavigate={go}/>
          <div className="pub-detail-section-title"><h2>Рабочие действия</h2>
            <p>Проверки, резервные копии и исходные подписанные данные доступны ниже.</p></div>
-         <div className="metrics">
-           <div className="card metric publisher-metric"><span>Продукты</span><strong>{state.products.length}</strong><small>Каталог в подготовке</small></div>
-           <div className="card metric publisher-metric"><span>Клиенты</span><strong>{state.holders.length}</strong><small>Привязанные идентификаторы</small></div>
-           <div className="card metric publisher-metric"><span>Черновики запросов</span><strong>{state.proposals.length}</strong><small>Статус выдачи — в журнале T3</small></div>
-         </div>
          <section className="card padded" data-testid="publisher-corporate-primary">
            <div className="eyebrow">ОСНОВНОЙ МАРШРУТ</div>
            <h2>Корпоративная лицензия IWXA Admin Center</h2>
-           <p>Publisher выдаёт лицензию организации. Admin Center принимает её через исходный T3
-             и распределяет только подтверждённые организационные возможности
-             между сотрудниками и их Personal Agent.</p>
+           <p>Сначала выберите организацию и тариф, затем проверьте условия
+             и подпишите лицензию у зарегистрированного издателя T3.
+             Получение и применение лицензии выполняет Admin Center.</p>
            <p className="muted">
              Организаций в подготовке: {state.holders.filter(h=>h.type==='ORGANIZATION').length}.
              Корпоративных тарифов Admin Center: {state.tariffs.filter(t=>t.holderType==='ORGANIZATION'&&t.productId==='IWXA_ADMIN_CENTER').length}.
              Запросов организаций: {state.proposals.filter(p=>p.productId==='IWXA_ADMIN_CENTER'&&state.holders.some(h=>h.id===p.holderId&&h.type==='ORGANIZATION')).length}.
            </p>
-           <p className="muted">Сейчас подписывается только TEST-лицензия Admin Center.
-             Оригинальная коммерческая лицензия организации и распределение действительных мест
-             Personal Agent ещё не включены. Доступных для назначения мест: 0.</p>
+           <p className="muted">Для Admin Center предусмотрены TEST-подготовка и
+             отдельный корпоративный T3 Owner. Его полномочия проверяются перед
+             подписанием, а результат сверяется с исходным журналом.
+             Доступных для назначения без независимого приёма мест: 0.</p>
            <div className="actions">
              <button type="button" className="primary" onClick={()=>go('proposals')}>
                Подготовить корпоративную лицензию
+             </button>
+             <button type="button" className="secondary"
+               data-testid="publisher-home-corporate-owner"
+               onClick={()=>go('trust','publisher-corporate-native-owner')}>
+               Открыть корпоративного издателя T3
              </button>
              <button type="button" className="secondary" onClick={()=>go('holders')}>
                Открыть организации
@@ -682,7 +708,7 @@ export default function App(){
              <button type="button" className="secondary" onClick={()=>go('releases')}>Проверить сборку</button>
            </div>
          </section>
-         <section className="card padded"><h2>Текущее состояние</h2><p className="muted">Заявок на публикацию: {state.artifacts.length}. Подтверждённых релизов: 0. Подписанные лицензии PERSON учитывает отдельный журнал T3, а не черновики.</p><p className="muted">Подпись доступна только через отдельно зарегистрированный нативный T3 Owner. Состав доверенных издателей и фактические права проверяются установленной программой-получателем; коммерческая приёмка ещё не завершена.</p></section>
+         <section className="card padded"><h2>Текущее состояние</h2><p className="muted">Проверено файлов: {state.artifacts.length}. Локальный реестр хранит результаты сверки байтов и заявленного источника. Разрешение на публикацию и подписанные лицензии учитываются исходными механизмами T3.</p><p className="muted">Зарегистрированного издателя и действующий STATUS можно проверить в разделе «Доверие и ключи». Получение лицензии и права подтверждает установленная программа-получатель.</p></section>
          {diagnosticPanel}
           <section className="card padded" data-testid="publisher-preparation-backup">
            <h2>Резервная копия черновиков</h2>
