@@ -318,13 +318,13 @@ function Use-Json-Through-Publisher-Dialog([string]$buttonName,[string]$destinat
       $inputs=$dialog.FindAll(
         [System.Windows.Automation.TreeScope]::Descendants,
         [System.Windows.Automation.Condition]::TrueCondition)
-      foreach($input in $inputs){
+      foreach($dialogField in $inputs){
         try {
-          if($input.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit -and
-             $input.Current.ControlType -ne [System.Windows.Automation.ControlType]::ComboBox){
+          if($dialogField.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit -and
+             $dialogField.Current.ControlType -ne [System.Windows.Automation.ControlType]::ComboBox){
             continue
           }
-          $value=$input.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+          $value=$dialogField.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
           if($value.Current.Value -ceq $destination){
             $actual=$value.Current.Value
             break
