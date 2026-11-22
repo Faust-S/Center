@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 35
     env:
-      AGENT06_PRIVATE_PIN: '28c4f0594947c0a206bfb004b7c1d4de1206540e'
+      AGENT06_PRIVATE_PIN: '004e634c03f3b0fe6af3d793a020259b0e00e024'
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -84,6 +84,48 @@ jobs:
             if($exitCode -ne 0){throw 'AGENT06_PROVIDER_SOURCE_TESTS_FAILED'}
             Write-Host 'AGENT06_PROVIDER_SOURCE_TESTS_PASS'
           }finally{Pop-Location}
+
+      - name: Live two-account Ethereal SMTP IMAP qualification
+        shell: pwsh
+        env:
+          IWXA_RUN_ETHEREAL_LIVE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $log = Join-Path $env:RUNNER_TEMP 'agent061-ethereal-private.log'
+          Push-Location private-agent
+          try{
+            # Test creates two owned disposable sandbox accounts via official API.
+            # SMTP delivery is trapped at Ethereal. No username/password, real
+            # recipients, private code, mailbox content or preview URL printed.
+            & python -B -m pytest -q -p no:cacheprovider tests/test_agent06_ethereal_live.py *> $log
+            $rc = $LASTEXITCODE
+            if($rc -ne 0){
+              $raw = Get-Content -LiteralPath $log -Raw
+              $codes = @(
+                'ethereal_account_creation_unavailable',
+                'ethereal_account_creation_rejected',
+                'ethereal_account_transport_contract_changed',
+                'ethereal_account_credentials_invalid',
+                'imap_verification_failed',
+                'smtp_verification_failed',
+                'smtp_send_failed',
+                'imap_read_failed',
+                'ethereal_sent_message_missing_from_own_mailbox',
+                'online_account_slot_capabilities_incompatible',
+                'tool_provider_binding_mismatch'
+              )
+              $code='OTHER'
+              foreach($candidate in $codes){
+                if($raw.Contains($candidate)){$code=$candidate;break}
+              }
+              Write-Host ('AGENT061_ETHEREAL_LIVE_FAILURE_CODE='+$code)
+              throw 'AGENT061_ETHEREAL_LIVE_FAILED'
+            }
+            Write-Host 'AGENT061_ETHEREAL_LIVE_TWO_ACCOUNTS_PASS'
+          }finally{
+            Pop-Location
+            if(Test-Path -LiteralPath $log){Remove-Item -LiteralPath $log -Force}
+          }
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
