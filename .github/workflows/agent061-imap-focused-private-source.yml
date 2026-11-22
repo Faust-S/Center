@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 15
     env:
-      AGENT061_SOURCE_PIN: 'e93e9ba7cd6ee727c69d65e3a3c44dee50e8a12b'
+      AGENT061_SOURCE_PIN: '6baccf1dc91ed4eb7b9b2f61c402ad0b14e57296'
       IWXA_RUN_ETHEREAL_LIVE: '1'
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
