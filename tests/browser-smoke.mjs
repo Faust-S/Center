@@ -303,7 +303,7 @@ try{
           contextId:'context:enrolled',contextEpoch:1,
           d3RecipientAvailable:true,d3TaskIssueAvailable:false,
           d3InspectAvailable:true,d3ApplyAvailable:false,
-          d3ApplyRecoverAvailable:false,d2ActivityReaderConnected:true,
+          d3ApplyRecoverAvailable:false,
           productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
         }};
       }
@@ -398,7 +398,7 @@ try{
           contextId:'context:ui-smoke',contextEpoch:held.epoch,
           d3RecipientAvailable:true,d3TaskIssueAvailable:true,
           d3InspectAvailable:true,d3ApplyAvailable:false,
-          d3ApplyRecoverAvailable:false,
+          d3ApplyRecoverAvailable:false,d2ActivityReaderConnected:true,
           productionActivation:false,T3_READY:false,
           tasks,totalTasks:tasks.length
         }};
