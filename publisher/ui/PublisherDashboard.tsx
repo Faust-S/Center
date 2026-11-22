@@ -6,8 +6,14 @@ export type Page='overview'|'products'|'tariffs'|'holders'|'proposals'|'releases
 export type WidgetId='corporate'|'person'|'products'|'tariffs'|'clients'|'preparations'|'ledger'|'trust'|'releases'|'delivery'|'age'|'backups'|'diagnostics'|'recovery';
 export type Widget={id:WidgetId;wide:boolean};
 export type Preferences={widgets:Widget[];dockWidth:number;dockOpen:boolean};
-type Draft={products:{id:string;name:string}[];holders:{id:string;type:string;name:string}[];tariffs:{id:string;productId:string;name:string}[];proposals:{id:string;productId:string;holderId:string}[];artifacts:{id:string;productId:string;name:string}[]};
-type Attention={attentionInShown:number;shown:number;truncated:boolean}|null;
+type Draft={products:{id:string;name:string;version:string}[];
+ holders:{id:string;type:string;name:string}[];
+ tariffs:{id:string;productId:string;name:string;holderType:string}[];
+ proposals:{id:string;productId:string;holderId:string;previousProposalId?:string}[];
+ artifacts:{id:string;productId:string;name:string;platform:string}[]};
+type Attention={attentionInShown:number;shown:number;total:number;truncated:boolean}|null;
+type Diagnostics={localPreparation:'READABLE'|'EMPTY'|'NEEDS_ATTENTION';
+ webviewProfile:'FOLDER_PRESENT'|'FOLDER_NOT_OBSERVED';attentionRequired:boolean}|null;
 type Spec={label:string;category:string;summary:string;source:string;page:Page};
 export const WIDGETS:Record<WidgetId,Spec>={
  corporate:{label:'Лицензия организации',category:'Лицензии',summary:'Admin Center и назначаемый пул корпоративных Personal Agent.',source:'Подготовка; подтверждённые места: 0',page:'proposals'},
@@ -54,24 +60,79 @@ export function savePreferences(p:Preferences){
    widgets:p.widgets,dockWidth:p.dockWidth,dockOpen:p.dockOpen
  }));}catch{/* cosmetic setting only, never blocks native store */}
 }
-export type DashboardProps={draft:Draft;attention:Attention;layout:Widget[];editing:boolean;
- onChange:(next:Widget[])=>void;onEditing:(value:boolean)=>void;
- onLibrary:()=>void;onNavigate:(page:Page,anchor?:string)=>void};
-function metric(id:WidgetId,d:Draft,attention:Attention){
+export type DashboardProps={draft:Draft;attention:Attention;diagnostics:Diagnostics;
+ attentionBusy:boolean;attentionError:string;onCheckAttention:()=>void;
+ diagnosticsBusy:boolean;diagnosticsError:string;onCheckDiagnostics:()=>void;
+ layout:Widget[];editing:boolean;onChange:(next:Widget[])=>void;
+ onEditing:(value:boolean)=>void;onLibrary:()=>void;
+ onNavigate:(page:Page,anchor?:string)=>void};
+function metric(id:WidgetId,d:Draft,attention:Attention,diagnostics:Diagnostics):[number|string,string]|null{
  const organizations=new Set(d.holders.filter(h=>h.type==='ORGANIZATION').map(h=>h.id));
- const people=new Set(d.holders.filter(h=>h.type==='PERSON').map(h=>h.id));
  switch(id){
   case 'corporate':return [d.proposals.filter(p=>p.productId==='IWXA_ADMIN_CENTER'&&organizations.has(p.holderId)).length,'подготовок организации'];
-  case 'person':return [attention?attention.attentionInShown:d.proposals.filter(p=>people.has(p.holderId)).length,attention?'состояний требуют внимания':'подготовок PERSON, STATUS не проверен'];
+  case 'person':return attention?[attention.attentionInShown,'состояний требуют внимания в прочитанном журнале']:
+    ['—','журнал PERSON ещё не запрошен'];
+  case 'ledger':return attention?[attention.shown,'записей прочитано из T3']:
+    ['—','журнал PERSON ещё не запрошен'];
   case 'products':return [d.products.length,'продуктов'];
   case 'tariffs':return [d.tariffs.length,'редакций'];
   case 'clients':return [d.holders.length,'получателей'];
   case 'preparations':return [d.proposals.length,'неподписанных предложений'];
   case 'releases':return [d.artifacts.length,'записей о файлах'];
+  case 'diagnostics':return diagnostics?['Проверено','нативное состояние Publisher']:
+    ['—','диагностика ещё не запускалась'];
   default:return null;
  }
 }
-export function PublisherDashboard({draft,attention,layout,editing,onChange,onEditing,onLibrary,onNavigate}:DashboardProps){
+// Only locally persisted unsigned drafts or explicit native readbacks feed
+// these details. A blank or partial issuer journal is never zero licenses.
+function details(id:WidgetId,d:Draft,attention:Attention,diagnostics:Diagnostics):string[]{
+ const orgs=d.holders.filter(h=>h.type==='ORGANIZATION').length;
+ const people=d.holders.filter(h=>h.type==='PERSON').length;
+ switch(id){
+  case 'corporate':return [
+   'Организаций в подготовке: '+orgs,
+   'Корпоративных тарифов Admin Center: '+d.tariffs.filter(t=>t.productId==='IWXA_ADMIN_CENTER'&&t.holderType==='ORGANIZATION').length
+  ];
+  case 'person':return attention?[
+    'Прочитано: '+attention.shown+' из '+attention.total,
+    ...(attention.truncated?['Журнал неполный: нужен точный поиск']:[])]:
+    ['Неподписанных подготовок PERSON: '+d.proposals.filter(p=>
+      d.holders.some(h=>h.id===p.holderId&&h.type==='PERSON')).length];
+  case 'ledger':return attention?[
+    'Состояний требуют внимания: '+attention.attentionInShown,
+    'Прочитано: '+attention.shown+' из '+attention.total,
+    ...(attention.truncated?['Нет полной картины без точного поиска']:[])
+   ]:['Нужен запрос к исходному T3'];
+  case 'products':return d.products.length?
+    d.products.slice(0,3).map(p=>p.name+' · '+p.version):['Каталог пока пуст'];
+  case 'tariffs':return [
+    'Для организаций: '+d.tariffs.filter(t=>t.holderType==='ORGANIZATION').length,
+    'Для физических лиц: '+d.tariffs.filter(t=>t.holderType==='PERSON').length
+   ];
+  case 'clients':return ['Организации: '+orgs,'Физические лица: '+people];
+  case 'preparations':return [
+    'Для организаций: '+d.proposals.filter(p=>
+      d.holders.some(h=>h.id===p.holderId&&h.type==='ORGANIZATION')).length,
+    'Для PERSON: '+d.proposals.filter(p=>
+      d.holders.some(h=>h.id===p.holderId&&h.type==='PERSON')).length,
+    'Подготовок продления: '+d.proposals.filter(p=>Boolean(p.previousProposalId)).length
+   ];
+  case 'releases':return d.artifacts.length?
+    d.artifacts.slice(-2).reverse().map(a=>a.name+' · '+a.platform):
+    ['Файлы пока не проверялись'];
+  case 'diagnostics':return diagnostics?[
+    'Черновики: '+(diagnostics.localPreparation==='READABLE'?'доступны':
+      diagnostics.localPreparation==='EMPTY'?'пусто':'требуют внимания'),
+    'WebView2: '+(diagnostics.webviewProfile==='FOLDER_PRESENT'?'профиль доступен':'профиль не обнаружен'),
+    ...(diagnostics.attentionRequired?['Программа требует внимания']:[])
+   ]:['Запустите проверку состояния установленного приложения'];
+  default:return [];
+ }
+}
+export function PublisherDashboard({draft,attention,diagnostics,attentionBusy,attentionError,
+ onCheckAttention,diagnosticsBusy,diagnosticsError,onCheckDiagnostics,
+ layout,editing,onChange,onEditing,onLibrary,onNavigate}:DashboardProps){
  const [dragged,setDragged]=React.useState<WidgetId|null>(null);
  const move=(id:WidgetId,target:WidgetId|undefined)=>{
   if(!target)return;
@@ -94,7 +155,8 @@ export function PublisherDashboard({draft,attention,layout,editing,onChange,onEd
   <div className="pub-dashboard-grid" role="list" aria-label="Настраиваемые виджеты Publisher">
    {layout.length===0&&<div className="card pub-dashboard-empty"><h3>Здесь пока нет виджетов</h3><p>Подключите только те, которые нужны вам.</p><button className="primary" onClick={onLibrary}>Добавить виджеты</button></div>}
    {layout.map((w,i)=>{
-    const spec=WIDGETS[w.id],value=metric(w.id,draft,attention);
+    const spec=WIDGETS[w.id],value=metric(w.id,draft,attention,diagnostics);
+    const facts=details(w.id,draft,attention,diagnostics);
     const jump=()=>onNavigate(spec.page,w.id==='backups'?'publisher-preparation-backup':w.id==='diagnostics'?'publisher-diagnostics':undefined);
     return <article key={w.id} role="listitem" className={'card pub-widget'+(w.wide?' wide':'')+(editing?' editing':'')+(dragged===w.id?' moving':'')}
       data-widget-id={w.id} draggable={editing}
@@ -121,8 +183,20 @@ export function PublisherDashboard({draft,attention,layout,editing,onChange,onEd
      <div className="pub-widget-body">
       {value&&<div className="pub-widget-value"><strong>{value[0]}</strong><span>{value[1]}</span></div>}
       <p>{spec.summary}</p>
-      {w.id==='corporate'&&<small>Назначаемых без независимого приёма мест: 0</small>}
-      {w.id==='person'&&attention?.truncated&&<small>Журнал T3 показан не полностью</small>}
+      {facts.length>0&&<ul className="pub-widget-facts" aria-label={'Данные: '+spec.label}>
+        {facts.map((fact,i)=><li key={i}>{fact}</li>)}
+      </ul>}
+      {w.id==='corporate'&&<small>Подтверждённых к назначению мест без независимого приёма: 0</small>}
+      {(w.id==='person'||w.id==='ledger')&&<div className="pub-widget-check">
+        <button type="button" className="secondary" disabled={attentionBusy}
+          onClick={onCheckAttention}>{attentionBusy?'Читаем T3…':'Прочитать PERSON в T3'}</button>
+        {attentionError&&<small role="alert">{attentionError}</small>}
+      </div>}
+      {w.id==='diagnostics'&&<div className="pub-widget-check">
+        <button type="button" className="secondary" disabled={diagnosticsBusy}
+          onClick={onCheckDiagnostics}>{diagnosticsBusy?'Проверяем…':'Проверить состояние Publisher'}</button>
+        {diagnosticsError&&<small role="alert">{diagnosticsError}</small>}
+      </div>
      </div>
      <footer className="pub-widget-footer"><small>{spec.source}</small><button className="secondary" onClick={jump}>Открыть</button></footer>
     </article>;
