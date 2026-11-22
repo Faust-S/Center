@@ -236,6 +236,11 @@ try {
   const dashboard=page.getByTestId('publisher-dashboard');
   await dashboard.waitFor();
   assert.equal(await dashboard.locator('[data-widget-id]').count(),9);
+  assert.match(await dashboard.locator('[data-widget-id="person"]').innerText(),
+    /журнал PERSON ещё не запрошен/,
+    'Unsigned drafts must never masquerade as a complete signed PERSON inventory');
+  assert.match(await dashboard.locator('[data-widget-id="products"]').innerText(),
+    /Каталог пока пуст/);
   assert.equal(await page.locator('.publisher-app .breadcrumb').count(),0);
   assert.equal(await page.locator('.publisher-section-eyebrow').count(),0);
   assert.equal(await page.locator('.publisher-version').count(),0);
@@ -255,6 +260,11 @@ try {
   assert.equal(await library.locator('.pub-library-entry').count(),14);
   await library.getByRole('button',{name:'Добавить виджет Диагностика'}).click();
   assert.equal(await dashboard.locator('[data-widget-id="diagnostics"]').count(),1);
+  const diagnosticWidget=dashboard.locator('[data-widget-id="diagnostics"]');
+  await diagnosticWidget.getByRole('button',{name:'Проверить состояние Publisher'}).click();
+  await diagnosticWidget.getByText('Черновики: доступны').waitFor();
+  assert.match(await diagnosticWidget.innerText(),/WebView2: профиль доступен/);
+  checks.push('v2-native-diagnostic-widget-uses-current-validated-ipc-report');
   const splitter=page.getByTestId('publisher-splitter');
   const widthBefore=Number(await splitter.getAttribute('aria-valuenow'));
   await splitter.focus();
