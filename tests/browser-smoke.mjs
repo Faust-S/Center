@@ -101,6 +101,9 @@ try{
   assert.equal(await page.getByTestId('assignment-row').count(),1);
   assert.ok((await page.getByTestId('assignment-atlas-status').textContent()).includes('совпадают'));
   checks.push('organization-workspace-two-participants-assignment');
+  assert.equal(await page.getByTestId('nav-overview').getAttribute('aria-label'),
+    'Обзор · Admin Center',
+    'the native sidebar has a unique accessible Overview target alongside original T3');
   await page.getByTestId('nav-overview').click();
   await page.getByTestId('overview-search').fill('Compare three suppliers');
   assert.equal(await page.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
