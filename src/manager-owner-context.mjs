@@ -10,7 +10,7 @@ const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const need=(ok,code)=>{if(!ok)throw Error(code);};
 const empty=()=>({
  status:'NOT_CONNECTED',workspaceId:null,actorId:null,contextId:null,
- contextEpoch:null,totalTasks:0,inboxTotal:null,inboxTruncated:false,
+ contextEpoch:null,totalTasks:0,d2ReaderConnected:false,inboxTotal:null,inboxTruncated:false,
  entries:[],attention:[],inboxLoaded:false
 });
 
@@ -40,7 +40,10 @@ export function readManagerSignedContext(view,organizationId,inbox=null){
  }
  const base={status:'SIGNED_D3_READBACK',organizationId,
    workspaceId:s.workspaceId,actorId:s.actorId,contextId:s.contextId,
-   contextEpoch:s.contextEpoch,totalTasks:s.totalTasks,inboxTotal:null,
+   contextEpoch:s.contextEpoch,totalTasks:s.totalTasks,
+    // Signed native capability presence only, NOT a DATA grant, T2 receipt
+    // or evidence that the selected corporate Workspace exists.
+    d2ReaderConnected:s.d2ActivityReaderConnected===true,inboxTotal:null,
    inboxTruncated:false,entries,attention,inboxLoaded:false};
  if(inbox===null)return base;
  need(inbox?.schema==='IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1' &&
