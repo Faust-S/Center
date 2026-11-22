@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 35
     env:
-      AGENT06_PRIVATE_PIN: '4a0faefd530855dc3797bfcd755e29622f433ae8'
+      AGENT06_PRIVATE_PIN: '4fd3b0a4eee6829afa4699bbbca9aff36ed0f6eb'
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -135,6 +135,13 @@ jobs:
                   'ethereal_imap_noop_not_ok',
                   'ethereal_original_account_verify_disagrees_with_imap_probe',
                   'ethereal_original_account_verify_raised',
+                  'ethereal_full_ACCOUNT_SETUP_failed',
+                  'ethereal_full_CONFIGURE_failed',
+                  'ethereal_full_VERIFY_failed',
+                  'ethereal_full_SEND_failed',
+                  'ethereal_full_READ_failed',
+                  'ethereal_full_COLD_failed',
+                  'ethereal_full_SECRETS_failed',
                   'ethereal_verify_imap_verification_failed',
                   'ethereal_verify_smtp_verification_failed',
                   'ethereal_smtp_tool_send_failed',
