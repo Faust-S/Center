@@ -55,10 +55,12 @@ export function PublisherSideNav({page,onNavigate,onLibrary}:{page:Page;
   </header>
   <nav aria-label="Действия раздела Publisher">
    <div className="pub-side-caption">В этом разделе</div>
-   {current.items.map(item=><button key={item.label} type="button"
-     aria-label={'Перейти к '+item.label}
-     onClick={()=>item.label==='Конструктор дашборда'?onLibrary():
-       onNavigate(item.page,item.anchor)}>{item.label}</button>)}
+   {current.items.map(item=><a key={item.label} href="#publisher-workspace"
+     onClick={event=>{
+       event.preventDefault();
+       if(item.label==='Конструктор дашборда')onLibrary();
+       else onNavigate(item.page,item.anchor);
+     }}>{item.label}</a>)}
   </nav>
   <div className="pub-side-context-foot">
    <strong>Исходный T3</strong>
