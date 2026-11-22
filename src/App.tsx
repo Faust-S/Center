@@ -113,6 +113,7 @@ export default function App() {
   const [navQuery,setNavQuery]=useState('');
   const [v8Menu,setV8Menu]=useState('');
   const [inspectorVisible,setInspectorVisible]=useState(false);
+  const [inspectorTab,setInspectorTab]=useState<'context'|'tasks'|'sources'>('context');
   const [inspectorWidth,setInspectorWidth]=useState(()=>{
     try{const width=Number(localStorage.getItem('iwxa.admin-center.v8.inspector.width'));
       return Number.isFinite(width)&&width>=310&&width<=680?width:355;}
@@ -214,6 +215,21 @@ export default function App() {
     a.atlasRef?.workId&&atlasWorkReadback(atlasView,a.atlasRef)!=='SOURCE_REVISION_MATCHES').length:0;
   const stats = overview(state);
   const title = pages.find(row => row[0] === page)![1];
+  const navGroups:Record<Page,Page[]>={
+    overview:['overview','context'],context:['context','overview'],
+    work:['work','resources','results'],results:['results','work','people'],
+    people:['people','programs','results'],resources:['resources','work','context'],
+    programs:['programs','people'],data:['data','programs','results']
+  };
+  const queryText=navQuery.trim().toLocaleLowerCase('ru');
+  const contextualPages=pages.filter(([id,label])=>
+    queryText?label.toLocaleLowerCase('ru').includes(queryText)
+      :navGroups[page].includes(id));
+  const draftMatches=queryText&&org?[
+    ...org.participants.map(p=>({key:'p:'+p.id,name:p.name,label:'Сотрудник',page:'people' as Page})),
+    ...org.workspaces.map(w=>({key:'w:'+w.id,name:w.name,label:'Рабочая область',page:'resources' as Page})),
+    ...org.assignments.map(a=>({key:'a:'+a.id,name:a.title,label:'Поручение',page:'work' as Page}))
+  ].filter(entry=>entry.name.toLocaleLowerCase('ru').includes(queryText)).slice(0,18):[];
 
   const problem = (e: unknown) => {
     const code = e instanceof Error ? e.message : String(e);
@@ -607,7 +623,8 @@ export default function App() {
     </header>
     <nav className="v8-rail" aria-label="Основные разделы">
       {pages.filter(([id])=>id!=='data').map(([id,label])=><button key={id} type="button"
-        className={page===id?'active':''} aria-label={label} title={label} onClick={()=>go(id)}>
+        className={page===id?'active':''} aria-label={id==='overview'?'Обзор · Admin Center':label}
+        title={label} data-testid={`nav-${id}`} onClick={()=>go(id)}>
         <V8RailIcon name={id}/>
       </button>)}
       <div className="v8-rail-space"/>
@@ -621,11 +638,20 @@ export default function App() {
       <div className="v8-nav-search"><span aria-hidden="true">⌕</span><input type="search"
         value={navQuery} onChange={e=>setNavQuery(e.target.value)} aria-label="Найти раздел"
         placeholder="Найти работу или команду"/></div>
-      <div className="v8-nav-caption">РАЗДЕЛЫ</div>
-      <nav>{pages.filter(([id,label])=>id!=='data'&&label.toLocaleLowerCase('ru').includes(navQuery.toLocaleLowerCase('ru'))).map(([id,label,icon])=>
+      <div className="v8-nav-caption">{queryText?'РЕЗУЛЬТАТЫ ПОИСКА':'РАЗДЕЛ'}</div>
+      <nav>{contextualPages.map(([id,label,icon])=>
         <button key={id} className={`nav-link ${page===id?'active':''}`} aria-current={page===id?'page':undefined}
-          aria-label={id==='overview'?'Обзор · Admin Center':undefined} onClick={()=>go(id)}
-          data-testid={`nav-${id}`}><span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span>{id==='work'&&!!stats.drafts&&<em>{stats.drafts}</em>}</button>)}</nav>
+          onClick={()=>{setNavQuery('');go(id);}}>
+          <span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span>{id==='work'&&!!stats.drafts&&<em>{stats.drafts}</em>}
+        </button>)}
+        {draftMatches.length>0&&<div className="v8-nav-caption">ЧЕРНОВИКИ ОРГАНИЗАЦИИ</div>}
+        {draftMatches.map(hit=><button key={hit.key} className="nav-link" type="button"
+          onClick={()=>{setNavQuery('');if(hit.key.startsWith('a:')){
+            const task=org?.assignments.find(a=>a.id===hit.key.slice(2));if(task)startAssignment(task);
+          }else go(hit.page);}}>
+          <span className="nav-icon" aria-hidden="true">·</span><span>{hit.name}<small className="v8-nav-kind">{hit.label}</small></span>
+        </button>)}
+      </nav>
       <div className="sidebar-bottom">
         <div className="organization-select">
           <label htmlFor="active-organization">Текущая организация</label>
@@ -848,12 +874,32 @@ export default function App() {
         onKeyDown={event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();setInspectorWidth(v=>Math.max(310,Math.min(680,v+(event.key==='ArrowLeft'?18:-18))));}}}
       />
       <div className="v8-inspector-header"><strong>Просмотр</strong><button type="button" aria-label="Закрыть панель" onClick={()=>setInspectorVisible(false)}>×</button></div>
+      <div className="v8-inspector-tabs" role="tablist" aria-label="Просмотр">
+        {([['context','Контекст'],['tasks','Поручения'],['sources','Источники']] as const).map(([id,label])=>
+          <button type="button" role="tab" key={id} aria-selected={inspectorTab===id}
+            className={inspectorTab===id?'active':''} onClick={()=>setInspectorTab(id)}>{label}</button>)}
+      </div>
       <div className="v8-inspector-content">
-        <div className="eyebrow">КОНТЕКСТ РУКОВОДИТЕЛЯ</div><h2>{org?.name??'Ваша организация'}</h2>
-        <p className="muted">{org?'Работа относится только к выбранной организации.':'Создайте группу или организацию и подготовьте первые поручения.'}</p>
-        <div className="inspector-card"><strong>Следующий шаг</strong><p>{!org?'Укажите название организации.':!org.workspaces.length?'Добавьте рабочую область.':!org.participants.length?'Добавьте сотрудников и определите роли.':!org.assignments.length?'Подготовьте поручение для сотрудника.':'Проверьте критерии результата, источник Atlas и подписанный T3.'}</p></div>
-        <div className="inspector-card"><strong>Корпоративные источники</strong><p>Оригинальный T3 Owner, T2 Kernel и защищённый обмен читаются только через действующие подписанные маршруты.</p>
-          <button className="secondary" type="button" onClick={()=>go('results')}>Открыть Result / Review</button></div>
+        {inspectorTab==='context'&&<>
+          <div className="eyebrow">КОНТЕКСТ РУКОВОДИТЕЛЯ</div><h2>{org?.name??'Ваша организация'}</h2>
+          <p className="muted">{org?'Работа относится только к выбранной организации.':'Создайте группу или организацию и подготовьте первые поручения.'}</p>
+          <div className="inspector-card"><strong>Следующий шаг</strong><p>{!org?'Укажите название организации.':!org.workspaces.length?'Добавьте рабочую область.':!org.participants.length?'Добавьте сотрудников и определите роли.':!org.assignments.length?'Подготовьте поручение для сотрудника.':'Проверьте критерии результата, источник Atlas и подписанный T3.'}</p></div>
+        </>}
+        {inspectorTab==='tasks'&&<>
+          <h2>Поручения организации</h2><p className="muted">Сохранённые черновики, не подписанные Task.</p>
+          {org?.assignments.map(item=><button className="v8-inspector-task" key={item.id}
+            type="button" onClick={()=>startAssignment(item)}><strong>{item.title}</strong><small>{item.dueDate||'Без срока'}</small></button>)}
+          {!org?.assignments.length&&<p className="muted">Поручений пока нет.</p>}
+          <button className="secondary" type="button" onClick={()=>go('work')}>Открыть поручения</button>
+        </>}
+        {inspectorTab==='sources'&&<>
+          <h2>Корпоративные источники</h2>
+          <div className="inspector-card"><strong>Исходный T3 Owner</strong>
+            <p>Сведения доступны только после оригинального подписанного чтения.</p></div>
+          <div className="inspector-card"><strong>Atlas</strong>
+            <p>{observedAtlas?'Открыто проектов: '+observedAtlas.projects.length:'Источник не открыт'}</p></div>
+          <button className="secondary" type="button" onClick={()=>go('results')}>Открыть Result / Review</button>
+        </>}
       </div>
     </aside>
   </div>;
