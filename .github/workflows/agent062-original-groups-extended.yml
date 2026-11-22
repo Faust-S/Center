@@ -16,8 +16,8 @@ jobs:
     timeout-minutes: 15
     env:
       PYTHONDONTWRITEBYTECODE: '1'
-      PRIVATE_SOURCE_PIN: '4a413e4ca2e4c9643eace359e48cff56cfeff9bd'
-      PRIVATE_TREE_PIN: '5c159b91b67eb3a6e88fea549991c42d7d6be651'
+      PRIVATE_SOURCE_PIN: '39a4f49ed9a5c0781c4a4769e9603ca8fb1e8d23'
+      PRIVATE_TREE_PIN: 'c0032bbfaed265e3d544450ea93f4e36c810dd19'
     steps:
       - uses: actions/checkout@v4
         with:
