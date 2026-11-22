@@ -5,6 +5,7 @@ import {readAtlasSourceFile} from './atlas-file-import.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
 import ManagerContextPanel from './ManagerContextPanel';
+import type {ManagerOriginalSelection} from './manager-original-selection';
 import Cen04LicensePanel from './Cen04LicensePanel';
 import AgeExchangePanel from './AgeExchangePanel';
 import './style.css';
@@ -61,6 +62,7 @@ export default function App() {
   const [nativeRestoring,setNativeRestoring] = useState(nativeHost);
   const [state,setState] = useState<Draft>(() => emptyDraft() as Draft);
   const [page,setPage] = useState<Page>('overview');
+  const [managerOriginal,setManagerOriginal]=useState<ManagerOriginalSelection|null>(null);
   // UI-only presence of the original signed child WebView; signing state,
   // Control bearer and Kernel remain owned by the private installed Host.
   const [signedWorkspaceOrg,setSignedWorkspaceOrg] = useState<string|null>(null);
@@ -269,6 +271,11 @@ export default function App() {
     setSignedWorkspaceGeneration(value=>value+1);
   };
   const go = (next: Page) => {setPage(next); setMenuOpen(false);};
+  const openManagerOriginal=(selection:ManagerOriginalSelection)=>{
+    if(!org||selection.organizationId!==org.id)return;
+    setManagerOriginal(selection);
+    go('results');
+  };
   const openContextEntry = (entry:{kind:string;id:string}) => {
     if(!org)return;
     if(entry.kind==='assignment'){
@@ -399,6 +406,7 @@ export default function App() {
   const selectOrg = (organizationId: string) => {
     if (editor) {setError('Сохраните или закройте открытый редактор поручения перед сменой организации.'); return;}
     if(command({type:'SELECT_ORGANIZATION',organizationId})){
+      setManagerOriginal(null);
       atlasFileRequest.current++;
       setAtlasFile(null);setAtlasSelected('');setAtlasWorkspace('');setNativeAtlas(null);
       setAtlasObservationMode('file');
@@ -537,7 +545,8 @@ export default function App() {
         <ManagerContextPanel key={'home|'+org.id} organization={org} atlasView={observedAtlas}
           view="overview" atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
           invoke={nativeHost?nativeInvoke:null}
-          onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}/>
+          onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}
+          onOpenOriginal={openManagerOriginal}/>
         <section className="hero"><div className="eyebrow">РАБОТА РУКОВОДИТЕЛЯ</div><h2>Видеть работу целиком и принимать решения</h2><p>План находится в Atlas. Сотрудник выполняет поручение в Personal Agent. Здесь вы управляете работой и принимаете результат.</p><div className="actions"><button className="primary" onClick={()=>startAssignment()} disabled={!org.workspaces.length}>＋ Новое поручение</button><button className="secondary" onClick={()=>go(org.workspaces.length?'people':'resources')}>{org.workspaces.length?'Добавить участника':'Создать рабочую область'}</button></div></section>
         <div className="metrics">
           {[['Рабочие области',stats.workspaces],['Участники',stats.participants],['Черновики поручений',stats.drafts]].map(([label,value])=><div className="card metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}
@@ -550,7 +559,8 @@ export default function App() {
       {org && page==='context' && <ManagerContextPanel key={'context|'+org.id} organization={org}
         atlasView={observedAtlas} view="context" atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
         invoke={nativeHost?nativeInvoke:null}
-        onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}/>}
+        onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}
+        onOpenOriginal={openManagerOriginal}/>}
 
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает проекты и зависимости. Привязка к работе необязательна. Только проектные поручения требуют проверки точной редакции установленного Atlas перед подписанием. Обычные поручения работают через T3 без Atlas.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
@@ -666,7 +676,7 @@ export default function App() {
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 
-       {org && page==='results' && <CorporatePanel key={org.id} organization={org} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace}/>} 
+       {org && page==='results' && <CorporatePanel key={org.id} organization={org} managerOriginal={managerOriginal} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace}/>} 
       {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
         <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
         {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button></div>)}

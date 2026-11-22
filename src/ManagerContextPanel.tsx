@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
-import {readManagerSignedContext,managerSignedInboxArgs} from './manager-owner-context.mjs';
+import {readManagerSignedContext,managerSignedInboxArgs,prepareManagerOriginalSelection} from './manager-owner-context.mjs';
+import type {ManagerOriginalSelection} from './manager-original-selection';
 import {buildManagerContext, searchManagerContext, managerAttention} from './manager-context.mjs';
 
 type View = 'overview'|'context';
@@ -20,6 +21,7 @@ type Props={
  onNavigate:(destination:Destination)=>void;
  onOpenEntry:(entry:Entry)=>void;
  onOpenAttention:(item:Alert)=>void;
+ onOpenOriginal:(selection:ManagerOriginalSelection)=>void;
  invoke?:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null;
 };
 const destinations:Record<string,Destination>={
@@ -42,7 +44,7 @@ const links=[
  {id:'atlas',label:'Atlas',detail:'Необязательный план проектов и работ',target:'resources' as Destination},
  {id:'results',label:'Результаты',detail:'Human Review, приёмка и разрешённое применение',target:'results' as Destination}
 ];
-export default function ManagerContextPanel({organization,atlasView,view,atlasStatus,onNavigate,onOpenEntry,onOpenAttention,invoke=null}:Props) {
+export default function ManagerContextPanel({organization,atlasView,view,atlasStatus,onNavigate,onOpenEntry,onOpenAttention,onOpenOriginal,invoke=null}:Props) {
  const [query,setQuery]=useState('');
  // Explicit read only: no background signer initialization or repeating
  // requests whenever React renders. Clear on a changed organization/unmount.
@@ -95,6 +97,29 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
  const selected=links.find(x=>x.id===selection)??links[0];
  const full=view==='context';
  const available=atlasView?.projects?.length??0;
+ const openOriginal=(kind:string,id:string)=>{
+   const selection=prepareManagerOriginalSelection(owner,organization.id,kind,id);
+   if(selection)onOpenOriginal(selection);
+ };
+ const openHit=(hit:Entry)=>{
+   if(hit.kind==='signed-task'||hit.kind==='signed-result-package')openOriginal(hit.kind,hit.id);
+   else onOpenEntry(hit);
+ };
+ const openAlert=(item:Alert)=>{
+   if(item.key.startsWith('signed-inbox:'))openOriginal('signed-result-package',item.key.slice('signed-inbox:'.length));
+   else onOpenAttention(item);
+ };
+ const mapFacts:Record<string,string>={
+   organization:'Выбрана: '+organization.name,
+   people:(organization.participants?.length??0)+' контактов в черновике',
+   work:(organization.assignments?.length??0)+' черновиков поручений',
+   agent:'Личный Agent отделён от данных компании',
+   t3:owner?.status==='SIGNED_D3_READBACK'&&owner.organizationId===organization.id
+     ?'Прочитано: '+owner.totalTasks+' Task':'Подписанные сведения не прочитаны',
+   atlas:available>0?'Открыто проектов: '+available:'Источник необязателен',
+   results:owner?.inboxLoaded&&owner.organizationId===organization.id
+     ?'Пакетов: '+owner.inboxTotal:'Журнал Reconciliation не прочитан'
+ };
  return <section className="manager-context" data-testid={full?'manager-context-detail':'manager-context-overview'}>
    <div className="card padded manager-search">
      <div className="section-head"><h2>{full?'Поиск по доступному контексту':'Что нужно найти или решить?'}</h2>
@@ -129,7 +154,7 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
      </div>
      {query.trim()&&<div className="manager-results" aria-live="polite" data-testid={full?'context-hits':'overview-hits'}>
        {hits.length?hits.map(hit=><button key={hit.kind+'|'+hit.id} type="button" className="manager-hit"
-         onClick={()=>onOpenEntry(hit)} data-testid="manager-search-hit">
+         onClick={()=>openHit(hit)} data-testid="manager-search-hit">
          <span className="manager-hit-name"><strong>{hit.title}</strong><small>{names[hit.kind]??hit.kind} · {hit.source}</small></span>
          <span className="manager-hit-description">{hit.summary}</span>
          <span aria-hidden="true">›</span>
@@ -139,7 +164,7 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
    <div className="card padded manager-attention" data-testid="manager-attention">
      <div className="section-head"><h2>Требует внимания</h2><small className="muted">Черновики{owner?.inboxLoaded?' и оригинальный T3':''}</small></div>
      {alerts.length?alerts.slice(0,full?12:4).map(a=><button type="button" key={a.key}
-       className="manager-attention-item" onClick={()=>onOpenAttention(a)} data-testid="manager-attention-item">
+       className="manager-attention-item" onClick={()=>openAlert(a)} data-testid="manager-attention-item">
        <span><strong>{a.title}</strong><small>{a.detail}</small></span><span aria-hidden="true">›</span>
      </button>):<p className="muted">В доступных черновиках нет выявленных вопросов. Состояние неподключённого корпоративного владельца здесь не оценивалось.</p>}
      {!full&&<button type="button" className="quiet" data-testid="open-context-map" onClick={()=>onNavigate('context')}>Открыть карту организации и полный поиск →</button>}
@@ -154,7 +179,7 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
            className={'manager-map-node '+(selection===node.id?'selected ':'')+'manager-map-'+node.id}
            aria-pressed={selection===node.id} data-testid={'context-map-'+node.id}
            onClick={()=>setSelection(node.id)}>
-           <strong>{node.label}</strong><small>{node.detail}</small>
+           <strong>{node.label}</strong><small>{node.detail}</small><span className="manager-map-fact">{mapFacts[node.id]}</span>
          </button>)}
        </div>
        <div className="manager-map-detail" data-testid="context-map-detail">
