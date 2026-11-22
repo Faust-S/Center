@@ -10,6 +10,12 @@ const SOURCE_REQUIRED='SOURCE_REQUIRED';
 const rows=(source)=>Array.isArray(source)?source:[];
 const linked=(item)=>({key:item.kind+':'+item.id,kind:item.kind,id:item.id,
  title:item.title,detail:item.summary,source:item.source});
+/**
+ * @param {string} question
+ * @param {{organization?:any,owner?:any,atlasView?:any,rows?:any[],alerts?:any[]}} [sources]
+ * @returns {{question:string,title:string,status:string,summary:string,
+ *  items:Array<{key:string,kind:string,id:string,title:string,detail:string,source:string}>,scope:string}}
+ */
 export function answerManagerQuestion(question,{organization=null,owner=null,atlasView=null,
   rows:availableRows=[],alerts=[]}={}){
  const orgId=organization?.id;

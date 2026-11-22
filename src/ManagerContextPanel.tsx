@@ -206,7 +206,7 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
          <button className="secondary" type="button" disabled={loading}
            onClick={()=>{void refreshSigned()}}>Перечитать оригинальный T3</button>}
        {answer.items.length>0&&<div className="manager-answer-sources" data-testid="manager-answer-sources">
-         {answer.items.map(item=><button className="manager-answer-source" type="button" key={item.key}
+         {answer.items.map((item:any)=><button className="manager-answer-source" type="button" key={item.key}
            onClick={()=>openAnswerItem(item)}>
            <strong>{item.title}</strong><small>{item.source}</small><span>{item.detail}</span>
          </button>)}
