@@ -1,0 +1,26 @@
+name: Agent 0.6.2 Dashboard Source Qualification
+on:
+  push:
+    branches:
+      - work/2026-11-22-agent-062-dashboard-source-ci
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-source:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned source-only dependencies
+        working-directory: qa/agent062_dashboard
+        run: npm install --no-audit --no-fund --ignore-scripts
+      - name: Typecheck full dashboard surface and live adapters
+        working-directory: qa/agent062_dashboard
+        run: npm run check:types
+      - name: Run dashboard and Workspace source tests
+        working-directory: qa/agent062_dashboard
+        run: npm run check:tests
