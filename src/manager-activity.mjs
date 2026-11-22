@@ -11,7 +11,7 @@ const same=(a,b)=>a===b;
 // Native T3 failures can arrive as Error, Tauri string or typed error.
 // Expose ONLY one bounded uppercase machine code to the user and Windows UIA,
 // never exception messages, stack traces, file paths or source material.
-const SAFE_SOURCE_CODE=/^(?:CEN_D2|CEN_D3|T3_D1|T3_D2|T3_D3|T3_OWNER|T3_SUBJECT|WORKSPACE|SOURCE|OPERATION)_[A-Z0-9_]{4,90}$/;
+const SAFE_SOURCE_CODE=/^(?:CEN_D2|CEN_D3|T3_D1|T3_D2|T3_D3|T3_OWNER|T3_SUBJECT|T3_ACCESS|T3_KERNEL|T3_HOST|WORKSPACE|SOURCE|OPERATION)_[A-Z0-9_]{4,90}$/;
 export function managerActivityFailureCode(error){
  const raw=typeof error==='string'?error:
    typeof error?.code==='string'?error.code:
