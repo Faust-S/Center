@@ -529,7 +529,7 @@ export default function App(){
               {diagnostics&&<button type="button" className="secondary" onClick={()=>void copyDiagnostics()}>Скопировать сведения</button>}
             </div>
             {diagnostics&&<div data-testid="publisher-diagnostics-result" role="status">
-              <p>Программа: IWXA Publisher {diagnostics.version} · нативный запуск подтверждён.</p>
+              <p>Программа: IWXA Publisher · нативный запуск подтверждён.</p>
               <p>Черновики: {diagnostics.localPreparation==='READABLE'?'читаются':diagnostics.localPreparation==='EMPTY'?'ещё не созданы':'требуют внимания'}.
               Профиль WebView2: {diagnostics.webviewProfile==='FOLDER_PRESENT'?'каталог доступен':'каталог не обнаружен'}.</p>
               <p className="muted">Установка: откройте IWXA Setup Core для проверки, восстановления или удаления. Лицензирование: TEST и PERSON через оригинальный T3.
