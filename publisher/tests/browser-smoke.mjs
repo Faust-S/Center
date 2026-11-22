@@ -214,14 +214,16 @@ try {
     }};
   });
   await page.goto('http://127.0.0.1:4175');
-  assert.match(await page.locator('main').innerText(),/Подтверждённых релизов: 0/);
-  assert.match(await page.locator('main').innerText(),/Подписанные лицензии PERSON учитывает отдельный журнал T3/);
-  assert.match(await page.locator('main').innerText(),/Статус выдачи — в журнале T3/);
+  assert.match(await page.locator('main').innerText(),/Проверено файлов: 0/);
+  assert.match(await page.locator('main').innerText(),/Разрешение на публикацию и подписанные лицензии учитываются исходными механизмами T3/);
+  assert.equal(await page.locator('.publisher-app .publisher-metric').count(),0,
+    'The customizable dashboard must not be followed by duplicate fixed counters');
   const corporatePrimary=page.getByTestId('publisher-corporate-primary');
   await corporatePrimary.waitFor();
   assert.match(await corporatePrimary.innerText(),/Корпоративная лицензия IWXA Admin Center/);
-  assert.match(await corporatePrimary.innerText(),/только TEST-лицензия Admin Center/);
-  assert.match(await corporatePrimary.innerText(),/Доступных для назначения мест: 0/);
+  assert.match(await corporatePrimary.innerText(),/отдельный корпоративный T3 Owner/);
+  assert.match(await corporatePrimary.innerText(),/Доступных для назначения без независимого приёма мест: 0/);
+  assert.equal(await corporatePrimary.getByTestId('publisher-home-corporate-owner').count(),1);
   assert.equal(await corporatePrimary.getByRole('button',{name:'Подготовить корпоративную лицензию'}).count(),1);
   assert.equal(await page.evaluate(()=>{
     const first=document.querySelector('[data-testid="publisher-corporate-primary"]');
@@ -243,6 +245,25 @@ try {
     'Unsigned drafts must never masquerade as a complete signed PERSON inventory');
   assert.match(await dashboard.locator('[data-widget-id="products"]').innerText(),
     /Каталог пока пуст/);
+  const corporateWidget=dashboard.locator('[data-widget-id="corporate"]');
+  assert.match(await corporateWidget.innerText(),/Исходный корпоративный T3 ещё не проверен/);
+  await corporateWidget.getByTestId('publisher-dashboard-corporate-check').click();
+  await corporateWidget.getByRole('alert').waitFor();
+  assert.match(await corporateWidget.getByRole('alert').innerText(),/NOT_ENROLLED/);
+  assert.match(await corporateWidget.innerText(),/Исходный корпоративный T3 ещё не проверен/);
+  await page.evaluate(()=>{window.__publisherMockCorporateEnrolled=true;});
+  await corporateWidget.getByTestId('publisher-dashboard-corporate-check').click();
+  await corporateWidget.getByText('Зарегистрировано издателей T3: 1').waitFor();
+  await page.evaluate(()=>{window.__publisherMockCorporateEnrolled=false;});
+  assert.equal(await page.evaluate(()=>
+    JSON.stringify(localStorage.getItem('iwxa.publisher.ui.v2')||'').includes('issuer:corporate:fixture')),false);
+  checks.push('corporate-dashboard-explicit-original-issuer-readback-fail-closed-no-ui-persistence');
+  await page.getByTestId('publisher-home-corporate-owner').click();
+  await page.getByTestId('publisher-corporate-native-owner').waitFor();
+  assert.equal(await page.getByRole('heading',{name:'Доверие и ключи',exact:true}).count(),1);
+  await page.getByRole('button',{name:'Обзор',exact:true}).click();
+  await dashboard.waitFor();
+  checks.push('v2-home-opens-original-corporate-owner-without-duplicate-license-engine');
   assert.equal(await page.locator('.publisher-app .breadcrumb').count(),0);
   assert.equal(await page.locator('.publisher-section-eyebrow').count(),0);
   assert.equal(await page.locator('.publisher-version').count(),0);
