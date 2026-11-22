@@ -231,31 +231,81 @@ try {
   }),true,'Main corporate route must precede optional PERSON attention');
   checks.push('publisher-home-prioritizes-corporate-admin-center-license-and-zero-real-seats');
 
-  assert.match(await page.locator('.publisher-app .inspector').textContent(),/Подписанные лицензии[\s\S]*Журнал T3/);
+  assert.equal(await page.locator('.publisher-app .inspector').count(),0,
+    'Legacy duplicate read-only inspector is replaced by a contextual dock');
+  const dashboard=page.getByTestId('publisher-dashboard');
+  await dashboard.waitFor();
+  assert.equal(await dashboard.locator('[data-widget-id]').count(),9);
+  assert.equal(await page.locator('.publisher-app .breadcrumb').count(),0);
+  assert.equal(await page.locator('.publisher-section-eyebrow').count(),0);
+  assert.equal(await page.locator('.publisher-version').count(),0);
+  assert.equal(await page.getByText('Плотность интерфейса',{exact:true}).count(),0);
+  assert.equal(await page.getByTestId('publisher-split-dock').count(),0);
+  await page.getByTestId('publisher-dashboard-edit').click();
+  assert.equal(await dashboard.locator('.pub-widget.editing').count(),9);
+  // Arrow-key reorder works independently from mouse drag and persists.
+  await dashboard.getByRole('button',{name:'Позже Лицензия организации'}).click();
+  assert.equal(await dashboard.locator('[data-widget-id]').first().getAttribute('data-widget-id'),'person');
+  await dashboard.getByRole('button',{name:'Ширина Продукты'}).click();
+  assert.equal(await dashboard.locator('[data-widget-id="products"]').evaluate(el=>el.classList.contains('wide')),true);
+  await page.getByTestId('publisher-dashboard-library').click();
+  const sidecar=page.getByTestId('publisher-split-dock');
+  await sidecar.waitFor();
+  const library=page.getByTestId('publisher-widget-library');
+  assert.equal(await library.locator('.pub-library-entry').count(),14);
+  await library.getByRole('button',{name:'Добавить виджет Диагностика'}).click();
+  assert.equal(await dashboard.locator('[data-widget-id="diagnostics"]').count(),1);
+  const splitter=page.getByTestId('publisher-splitter');
+  const widthBefore=Number(await splitter.getAttribute('aria-valuenow'));
+  await splitter.focus();
+  await splitter.press('ArrowLeft');
+  const widthAfter=Number(await splitter.getAttribute('aria-valuenow'));
+  assert.ok(widthAfter>widthBefore,'Keyboard splitter must resize dock');
+  const geometry=await page.evaluate(()=>{
+    const main=document.querySelector('.publisher-app .main').getBoundingClientRect();
+    const dock=document.querySelector('[data-testid="publisher-split-dock"]').getBoundingClientRect();
+    return {mainRight:main.right,dockLeft:dock.left,mainWidth:main.width,dockWidth:dock.width};
+  });
+  assert.ok(geometry.mainRight<=geometry.dockLeft+2&&geometry.mainWidth>250,
+    'Dock must share a plane with main without covering the working form');
+  const settingsSaved=JSON.parse(await page.evaluate(()=>
+    localStorage.getItem('iwxa.publisher.ui.v2')));
+  assert.equal(settingsSaved.widgets.length,10);
+  assert.equal(settingsSaved.widgets[0].id,'person');
+  assert.ok(settingsSaved.widgets.some(w=>w.id==='products'&&w.wide));
+  assert.ok(!JSON.stringify(settingsSaved).includes('license:')&&
+    !JSON.stringify(settingsSaved).includes('org:'),
+    'UI-only settings must not persist business or entitlement data');
+  await page.getByTestId('publisher-dock-close').click();
+  await page.getByTestId('publisher-dashboard-edit').click();
+  await page.reload();
+  await page.getByTestId('publisher-dashboard').waitFor();
+  assert.equal(await page.getByTestId('publisher-dashboard')
+    .locator('[data-widget-id]').first().getAttribute('data-widget-id'),'person');
+  assert.equal(await page.getByTestId('publisher-dashboard')
+    .locator('[data-widget-id="diagnostics"]').count(),1);
+  await page.getByTestId('publisher-dashboard-reset').click();
+  assert.equal(await page.getByTestId('publisher-dashboard').locator('[data-widget-id]').count(),9);
+  checks.push('v2-real-draggable-dashboard-add-remove-reorder-width-persistence-with-no-business-storage');
+  checks.push('v2-side-by-side-dock-keyboard-resize-no-center-overlay-no-breadcrumb-version-or-density');
   assert.equal(await page.getByText('Действительные лицензии',{exact:true}).count(),0,
     'Local unsigned preparations cannot assert that original T3 has issued no licenses');
   checks.push('empty-owner-first-run-no-synthetic-license');
   checks.push('publisher-overview-reports-original-T3-as-license-owner');
   await page.setViewportSize({width:1024,height:640});
-  const footerVisible=await page.locator('.publisher-app .sidebar-bottom p').last().evaluate(el=>{
-    const r=el.getBoundingClientRect(),area=el.closest('.sidebar').getBoundingClientRect();
-    return r.top>=area.top&&r.bottom<=area.bottom;
-  });
-  assert.ok(footerVisible,'Publisher bottom navigation description must fit a compact desktop window');
-  assert.match(await page.locator('.publisher-app .sidebar-bottom p').last().innerText(),/Черновики — не лицензии/);
-  checks.push('compact-desktop-sidebar-caption-fully-visible');
+  assert.equal(await page.locator('.publisher-app .sidebar .nav-link').count(),8);
+  assert.ok(await page.getByRole('button',{name:'Продукты',exact:true}).isVisible());
+  assert.ok(await page.getByRole('button',{name:'Настройки',exact:true}).isVisible());
+  checks.push('compact-desktop-icon-navigation-remains-accessible-without-duplicate-controls');
   // The native 680px window can be constrained further by Windows taskbars
   // and display scaling. Its whole navigation and footer must fit together.
   await page.setViewportSize({width:1024,height:520});
   const compactSidebar=await page.locator('.publisher-app .sidebar').evaluate(el=>{
     const viewport=el.getBoundingClientRect();
     const nav=el.querySelectorAll('.nav-link');
-    const bottom=el.querySelector('.sidebar-bottom p:last-child');
-    if(!bottom||nav.length!==7)return false;
+    if(nav.length!==8)return false;
     const last=nav[nav.length-1].getBoundingClientRect();
-    const foot=bottom.getBoundingClientRect();
-    return last.top>=viewport.top&&last.bottom<=viewport.bottom&&
-      foot.top>=viewport.top&&foot.bottom<=viewport.bottom-18&&el.scrollTop===0;
+    return last.top>=viewport.top&&last.bottom<=viewport.bottom&&el.scrollTop===0;
   });
   assert.ok(compactSidebar,'At 520px height both the final navigation section and footer must be visible without sidebar scrolling');
   checks.push('compact-height-native-sidebar-all-sections-and-footer-visible');
@@ -299,9 +349,13 @@ try {
   const mark=page.locator('.publisher-brand-logo');
   assert.equal(await mark.getAttribute('src'),'/favicon.svg');
   assert.equal(await mark.getAttribute('alt'),'IWXA');
-  assert.equal((await page.locator('.publisher-version').innerText()).trim(),'0.5',
-    'Installed Publisher 0.5 must not display the frozen 0.4 version badge');
-  checks.push('publisher-visible-version-matches-installed-0-5');
+  assert.equal(await page.locator('.publisher-version').count(),0,
+    'Publisher version must not be shown outside Settings');
+  await page.getByRole('button',{name:'Настройки',exact:true}).click();
+  assert.match(await page.getByTestId('publisher-settings').innerText(),/Версия программы/);
+  assert.match(await page.getByTestId('publisher-settings').innerText(),/0.5.0-dev.1/);
+  await page.getByRole('button',{name:'Обзор',exact:true}).click();
+  checks.push('publisher-version-is-settings-only-native-setup-identity');
   const brandSvg=await (await page.request.get('http://127.0.0.1:4175/favicon.svg')).text();
   assert.match(brandSvg,/fill="#FFFFFF"/);
   assert.match(brandSvg,/fill="#05070D"/);
@@ -309,8 +363,8 @@ try {
   assert.ok(!brandSvg.includes('#B6F24B'),'Publisher still uses Agent green background');
   const logoStyle=await mark.evaluate(el=>({w:el.getBoundingClientRect().width,loaded:el.complete&&el.naturalWidth>0}));
   assert.ok(logoStyle.loaded&&logoStyle.w>=36,'Publisher mark not rendered in agent shell');
-  assert.equal(await page.locator('nav[aria-label="Разделы Publisher"] .nav-link svg').count(),7);
-  checks.push('agent-exact-ix-glyph-white-logo-and-seven-vector-navigation-icons');
+  assert.equal(await page.locator('nav[aria-label="Разделы Publisher"] .nav-link svg').count(),8);
+  checks.push('agent-exact-ix-glyph-white-logo-and-eight-vector-navigation-icons');
   assert.equal(await page.getByRole('button',{name:'Сохранить копию черновиков'}).isEnabled(),true);
   assert.equal(await page.getByRole('button',{name:'Восстановить черновики'}).isEnabled(),true);
   assert.match(await page.getByTestId('publisher-preparation-backup').innerText(),/ключей издателя в копии нет/);
@@ -318,7 +372,7 @@ try {
   await page.getByRole('button',{name:'Проверить программу'}).click();
   const diagnostics=page.getByTestId('publisher-diagnostics-result');
   await diagnostics.waitFor();
-  assert.match(await diagnostics.innerText(),/IWXA Publisher 0.5.0-dev.1/);
+  assert.match(await diagnostics.innerText(),/IWXA Publisher · нативный запуск подтверждён/);
   assert.match(await diagnostics.innerText(),/Черновики: читаются/);
   assert.match(await diagnostics.innerText(),/проверки, восстановления или удаления/);
   const diag=JSON.parse(await page.getByRole('textbox',{name:'Сведения диагностики'}).inputValue());
