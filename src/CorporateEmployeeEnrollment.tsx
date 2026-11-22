@@ -43,10 +43,12 @@ function keyRecord(raw:string,personId:string){
     throw Error('CEN_D3_EMPLOYEE_PUBLIC_KEY_RECORD_INVALID');
   return k;
 }
-export default function CorporateEmployeeEnrollment({session,contacts,execute,run,busy}:{
- session:Session;contacts:Contact[];execute:Exec;run:Run;busy:boolean;
+export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,execute,run,busy}:{
+ session:Session;contacts:Contact[];preferredContactId?:string|null;execute:Exec;run:Run;busy:boolean;
 }){
- const [contact,setContact]=useState('');
+ // A preselected organizational contact is only a local draft hint;
+ // never infer an employee PROOF key, signed identity or active grant.
+ const [contact,setContact]=useState(()=>contacts.some(c=>c.id===preferredContactId)?preferredContactId??'':'');
  const [personId,setPersonId]=useState('');
  const [keyId,setKeyId]=useState('');
  const [publicRecord,setPublicRecord]=useState('');
