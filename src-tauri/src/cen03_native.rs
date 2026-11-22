@@ -796,6 +796,34 @@ fn signed_workspace_navigation_allowed(
         candidate.path()=="/workspace/trusted-kernel-realm.html"&&
         candidate.fragment().is_none()
 }
+// Preserve the one original T2 browser Kernel as a render-active native
+// child when Admin Center switches back to its manager/Review surface.
+// WebView2 may deprioritize a hidden HWND even though its KernelStatus
+// previously reported READY. A 1px parked child has no useful UI surface,
+// and the original signed owner/Store/Control remain exactly the same.
+// Closing is still the ONLY action that releases the signed owner.
+fn restore_original_signed_workspace_view(
+    app:&AppHandle,webview:&tauri::Webview
+)->Result<(),String>{
+    let window=app.get_window("main")
+        .ok_or("CEN_D3_ORIGINAL_MAIN_WINDOW_REQUIRED")?;
+    let physical=window.inner_size()
+        .map_err(|_|"CEN_D3_ORIGINAL_WINDOW_BOUNDS_REQUIRED")?;
+    let scale=window.scale_factor()
+        .map_err(|_|"CEN_D3_ORIGINAL_WINDOW_SCALE_REQUIRED")?;
+    let logical=physical.to_logical::<f64>(scale);
+    if logical.width<720.0||logical.height<500.0{
+        return Err("CEN_D3_ORIGINAL_WORKSPACE_WINDOW_TOO_SMALL".into());
+    }
+    webview.set_size(tauri::LogicalSize::new(
+        logical.width-219.0,logical.height-91.0))
+        .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_RESTORE_BOUNDS_FAILED".to_owned())?;
+    webview.set_auto_resize(true)
+        .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_RESTORE_RESIZE_FAILED".to_owned())?;
+    webview.show()
+        .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_SHOW_FAILED".to_owned())?;
+    Ok(())
+}
 fn close_original_signed_workspace(app:&AppHandle)->Result<(),String>{
     if let Some(webview)=app.get_webview(SIGNED_WORKSPACE_WEBVIEW){
         webview.close()
@@ -839,9 +867,10 @@ pub async fn center_corporate_close_signed_workspace(
     ).await.map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_WORKER_FAILED".to_owned())?
 }
 // The signed Kernel MUST remain alive while the manager returns to the
-// native Center Review/Apply controls in the same window. Hiding only the
-// child WebView is not a logout: use close_signed_workspace to release the
-// native owner and revoke the original Kernel session.
+// native Center Review/Apply controls in the same window. WebView2 can
+// throttle a hidden child HWND, preventing its original T2 Kernel iframe
+// from servicing DATA/Apply. Park the SAME child at 1px instead of hide().
+// Use close_signed_workspace to release its original signed owner.
 #[tauri::command]
 pub async fn center_corporate_hide_signed_workspace(
     app:AppHandle
@@ -849,8 +878,10 @@ pub async fn center_corporate_hide_signed_workspace(
     tauri::async_runtime::spawn_blocking(move||{
         let webview=app.get_webview(SIGNED_WORKSPACE_WEBVIEW)
             .ok_or("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING")?;
-        webview.hide()
-            .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_HIDE_FAILED".to_owned())?;
+        webview.set_auto_resize(false)
+            .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_PARK_RESIZE_FAILED".to_owned())?;
+        webview.set_size(tauri::LogicalSize::new(1.0,1.0))
+            .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_PARK_BOUNDS_FAILED".to_owned())?;
         record_signed_workspace_visible(&app,false)?;
         // The native Review controls live in the original main WebView.
         // Recover keyboard focus after hiding the child; focus failure
@@ -873,8 +904,7 @@ pub async fn center_corporate_show_signed_workspace(
         original_signed_workspace_origins(&view)?;
         let webview=app.get_webview(SIGNED_WORKSPACE_WEBVIEW)
             .ok_or("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING")?;
-        webview.show()
-            .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_SHOW_FAILED".to_owned())?;
+        restore_original_signed_workspace_view(&app,&webview)?;
         record_signed_workspace_visible(&app,true)?;
         let _=webview.set_focus();
         Ok(())
@@ -901,8 +931,7 @@ pub async fn center_corporate_open_signed_workspace(
             // the signed T3 child and original Kernel stay alive. Reuse that
             // SAME child under the already revalidated native owner instead
             // of marooning the user behind an ALREADY_OPEN error.
-            existing.show()
-                .map_err(|_|"CEN_D3_ORIGINAL_WORKSPACE_SHOW_FAILED".to_owned())?;
+            restore_original_signed_workspace_view(&app,&existing)?;
             record_signed_workspace_visible(&app,true)?;
             let _=existing.set_focus();
             return Ok(());
