@@ -1,6 +1,6 @@
-# Public qualification code ONLY. Private Agent is checked out read-only
-# at one fixed SHA onto a disposable GitHub-hosted Windows runner.
-# Do not publish source, logs, binaries, credentials, screenshots or receipts.
+# Public release controller ONLY. Original private Agent is checked out
+# from one fixed SHA on a disposable Windows runner. Private installer is
+# uploaded exclusively to private Agent Releases; no public build artifact.
 name: IWXA Agent 0.6.2 private Windows release publication
 on:
   push:
@@ -69,7 +69,7 @@ jobs:
       - name: Confirm explicitly authorized private release credentials
         shell: pwsh
         env:
-          IWXA_PRIVATE_RELEASE_WRITE_TOKEN: ${{ secrets.IWXA_PRIVATE_RELEASE_WRITE_TOKEN }}
+          IWXA_PRIVATE_RELEASE_WRITE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: |
           if([string]::IsNullOrWhiteSpace($env:IWXA_PRIVATE_RELEASE_WRITE_TOKEN)){
             throw 'AGENT062_PRIVATE_RELEASE_WRITE_TOKEN_NOT_CONFIGURED'
@@ -375,7 +375,7 @@ jobs:
       - name: Publish accepted installer only to private GitHub Releases
         shell: pwsh
         env:
-          IWXA_PRIVATE_RELEASE_WRITE_TOKEN: ${{ secrets.IWXA_PRIVATE_RELEASE_WRITE_TOKEN }}
+          IWXA_PRIVATE_RELEASE_WRITE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: |
           $ErrorActionPreference='Stop'
           $repo='Faust-S/iwxa-personal-agent'
