@@ -88,6 +88,11 @@
 .publisher-app .pub-widget-check button{min-height:31px;padding:6px 10px;
  font-size:11px;white-space:normal;text-align:left}
 .publisher-app .pub-widget-check small{color:#99533d;line-height:1.4}
+.publisher-app .pub-widget[data-widget-id="corporate"] .pub-widget-check{
+ flex-direction:row;align-items:center;flex-wrap:wrap;gap:7px}
+.publisher-app .pub-widget[data-widget-id="corporate"] .pub-widget-check>small{
+ flex-basis:100%}
+
 .publisher-app .pub-widget-footer{display:flex;align-items:center;justify-content:space-between;
  gap:11px;margin-top:auto;border-top:1px solid #e8eef6;padding-top:12px}
 .publisher-app .pub-widget-footer small{font-size:10px;color:#7790a7}
