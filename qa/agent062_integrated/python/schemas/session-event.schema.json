@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:iwxa:research:personal-agent:session-event:0.11",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "session_ref",
+    "event_type",
+    "instruction_digest",
+    "created_at",
+    "event_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.11"
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^SEV-[A-Za-z0-9_-]+$"
+    },
+    "session_ref": {
+      "$ref": "urn:iwxa:research:personal-agent:operation-ref:0.11"
+    },
+    "event_type": {
+      "enum": [
+        "BIND",
+        "RESUME",
+        "RECYCLE",
+        "PAUSE",
+        "CLEAR",
+        "STEER",
+        "CANCEL"
+      ]
+    },
+    "instruction_digest": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

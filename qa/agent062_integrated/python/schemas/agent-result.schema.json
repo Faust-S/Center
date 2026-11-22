@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:iwxa:research:personal-agent:result:0.5",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "result_id",
+    "task_id",
+    "task_digest",
+    "causal_binding_digest",
+    "context_projection_digest",
+    "run_bundle_digest",
+    "output_type",
+    "summary",
+    "claims",
+    "uncertainties",
+    "draft_artifacts",
+    "action_candidates",
+    "performed_external_actions",
+    "runtime_meta",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.5"
+    },
+    "result_id": {
+      "type": "string",
+      "pattern": "^RES-[A-Za-z0-9_-]+$"
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "task_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "causal_binding_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "context_projection_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "run_bundle_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "output_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string"
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "basis",
+          "evidence_refs"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "basis": {
+            "enum": [
+              "evidence",
+              "assumption"
+            ]
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "assumption": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "draft_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "action_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidate_id",
+          "operation",
+          "target",
+          "arguments",
+          "risk",
+          "reversible",
+          "execution_tier"
+        ],
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "pattern": "^AC-[A-Za-z0-9_-]+$"
+          },
+          "operation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "target": {
+            "type": "string",
+            "minLength": 1
+          },
+          "arguments": {
+            "type": "object"
+          },
+          "risk": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "reversible": {
+            "type": "boolean"
+          },
+          "execution_tier": {
+            "const": "T6_REQUIRED"
+          }
+        }
+      }
+    },
+    "performed_external_actions": {
+      "const": false
+    },
+    "runtime_meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "model"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "adapter": {
+          "type": "string"
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

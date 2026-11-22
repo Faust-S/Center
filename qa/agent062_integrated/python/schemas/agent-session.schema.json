@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:iwxa:research:personal-agent:session:0.11",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "session_id",
+    "surface",
+    "conversation_key_digest",
+    "state",
+    "generation",
+    "created_at",
+    "updated_at",
+    "session_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.11"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^SES-[A-Za-z0-9_-]+$"
+    },
+    "surface": {
+      "enum": [
+        "web",
+        "pwa",
+        "telegram",
+        "desktop",
+        "api"
+      ]
+    },
+    "conversation_key_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "workspace_ref": {
+      "type": "string",
+      "maxLength": 400
+    },
+    "state": {
+      "enum": [
+        "ACTIVE",
+        "PAUSED",
+        "CLEARED"
+      ]
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "session_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

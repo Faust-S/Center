@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:iwxa:research:personal-agent:operation-ref:0.11",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "ref_kind", "ref_id", "digest_sha256", "digest_profile"],
+  "properties": {
+    "schema_version": {"const": "0.11"},
+    "ref_kind": {"enum": ["action_candidate", "accepted_artifact", "prepared_action", "execution_approval", "execution_receipt", "session", "goal", "goal_proof", "automation_job", "automation_run", "skill_activation", "hook_receipt", "fallback_attempt", "evidence"]},
+    "ref_id": {"type": "string", "minLength": 1},
+    "digest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "digest_profile": {"const": "IWXA_CANONICAL_JSON_SHA256_V1"}
+  }
+}
