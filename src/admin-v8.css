@@ -219,6 +219,11 @@ body{padding:11px;background:#172238}
 .v8-company-selection-grid strong{display:block;font-size:11px;margin-bottom:6px;color:#2f4e70}
 .v8-company-selection-grid p{padding:6px 0;margin:0;border-bottom:1px solid #f0f5fa;font-size:11px;color:#3b5978;overflow-wrap:anywhere}
 .v8-company-selection-grid p:last-child{border-bottom:0}
+.v8-company-task{display:flex;align-items:center;gap:4px;width:100%;padding:7px 0;background:transparent;border:0;border-bottom:1px solid #f0f5fa;border-radius:0;color:#3b5978;text-align:left;font-size:11px;overflow-wrap:anywhere;min-height:34px}
+.v8-company-task:last-child{border-bottom:0}
+.v8-company-task:hover,.v8-company-task:focus-visible{background:#ecf5ff;color:#17446d;outline-offset:2px}
+.v8-company-task span:first-child{flex:1;min-width:0}
+.v8-company-task span:last-child{font-size:13px;color:#648bb7}
 .v8-company-selection-grid small{color:#869db3}
 .v8-company-selection-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
 .v8-company-selection-actions button{font-size:11px;min-height:30px}
