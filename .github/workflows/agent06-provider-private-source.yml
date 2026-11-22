@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 35
     env:
-      AGENT06_PRIVATE_PIN: 'ba69884ef47fee8e4077029d423c8b1bf0e68048'
+      AGENT06_PRIVATE_PIN: '479a8a2ff672261a72f6db04fd73770f23dac6e3'
       PYTHONDONTWRITEBYTECODE: '1'
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -117,6 +117,12 @@ jobs:
                 'ethereal_account_creation_rejected',
                 'ethereal_account_transport_contract_changed',
                 'ethereal_account_credentials_invalid',
+                'ethereal_imap_tls_or_connect_failed',
+                'ethereal_imap_login_failed',
+                'ethereal_imap_noop_failed',
+                'ethereal_imap_noop_not_ok',
+                'ethereal_original_account_verify_disagrees_with_imap_probe',
+                'ethereal_verify_imap_verification_failed',
                 'imap_verification_failed',
                 'smtp_verification_failed',
                 'smtp_send_failed',
