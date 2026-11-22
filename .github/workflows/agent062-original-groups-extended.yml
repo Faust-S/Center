@@ -1,10 +1,10 @@
 # Public qualification controller. Original private Agent sources are checked out
 # read-only onto a disposable Windows runner; nothing is uploaded.
-name: Agent062 original groups drafts and model pins Windows
+name: Agent062 original conversation history persistence Windows
 on:
   push:
     branches:
-      - work/2026-11-22-agent-062-integrated-windows-frontend
+      - work/2026-11-22-agent-062-chat-history-qa
     paths:
       - .github/workflows/agent062-original-groups-extended.yml
   workflow_dispatch:
@@ -16,8 +16,8 @@ jobs:
     timeout-minutes: 15
     env:
       PYTHONDONTWRITEBYTECODE: '1'
-      PRIVATE_SOURCE_PIN: 'fa316852e6ab8245250fa3e522ee4b98701d6e11'
-      PRIVATE_TREE_PIN: 'a5116a9cdfe005cba0d8590c75e993abfa9f8986'
+      PRIVATE_SOURCE_PIN: '4a413e4ca2e4c9643eace359e48cff56cfeff9bd'
+      PRIVATE_TREE_PIN: '5c159b91b67eb3a6e88fea549991c42d7d6be651'
     steps:
       - uses: actions/checkout@v4
         with:
