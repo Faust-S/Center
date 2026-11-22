@@ -25,6 +25,7 @@ type Props={
  onOpenAttention:(item:Alert)=>void;
  onOpenOriginal:(selection:ManagerOriginalSelection)=>void;
  invoke?:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null;
+ sourceGeneration?:number;
 };
 const destinations:Record<string,Destination>={
  organization:'overview',workspace:'resources',person:'people',
@@ -58,11 +59,13 @@ const mapRelations=[
  {from:'work',to:'atlas',label:'План проекта, необязательно'},
  {from:'t3',to:'results',label:'Review, затем отдельный Apply'}
 ];
-export default function ManagerContextPanel({organization,atlasView,view,atlasStatus,onNavigate,onOpenEntry,onOpenAttention,onOpenOriginal,invoke=null}:Props) {
+export default function ManagerContextPanel({organization,atlasView,view,atlasStatus,onNavigate,onOpenEntry,onOpenAttention,onOpenOriginal,invoke=null,sourceGeneration=0}:Props) {
  const [query,setQuery]=useState('');
  const [selectedQuestion,setSelectedQuestion]=useState<string|null>(null);
  // Explicit read only: no background signer initialization or repeating
- // requests whenever React renders. Clear on a changed organization/unmount.
+ // requests whenever React renders. Clear on a changed organization,
+ // original Kernel child lifecycle, or unmount. Retained native observations
+ // must never look live after the signed Workspace has closed/reopened.
  const request=useRef(0);
  const [owner,setOwner]=useState<any>(null);
  const [ownerIssue,setOwnerIssue]=useState('');
@@ -77,7 +80,7 @@ export default function ManagerContextPanel({organization,atlasView,view,atlasSt
    setOwner(null);setOwnerIssue('');setInboxIssue('');setLoading(false);
    setActivity(null);setActivityLoading(false);setActivityIssue('');setSelectedEvidence(null);
    return()=>{request.current++};
- },[organization.id]);
+ },[organization.id,sourceGeneration]);
  const refreshSigned=async()=>{
    if(!invoke||loading||activityLoading)return;
    const selectedId=organization.id,seq=++request.current;
