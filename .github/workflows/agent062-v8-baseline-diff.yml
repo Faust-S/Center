@@ -81,7 +81,23 @@ jobs:
           $new=@($result.V8.failed)
           $extra=@($new|Where-Object {$_ -cnotin $old})
           Write-Host ('AGENT062_V8_NEW_REGRESSIONS='+$extra.Count)
-          if($extra.Count -ne 0){throw 'AGENT062_V8_NEW_REGRESSIONS_FOUND'}
+          # Show only a bounded test filename and line for each new failure.
+          # The actual TAP and failure text remain private inside this runner.
+          if($extra.Count -ne 0){
+            $blocks=[regex]::Matches($raw,'(?ms)^not ok [0-9]+ - (?<name>[^\r\n]+)\r?\n(?<detail>.*?)(?=^(?:ok|not ok) [0-9]+ - |^# tests |\z)')
+            $seen=0
+            foreach($item in $blocks){
+              if($item.Groups['name'].Value.Trim() -cnotin $extra){continue}
+              $found=[regex]::Match($item.Groups['detail'].Value,
+                "(?m)^\s*location: '.*?[\\/]tests[\\/](?<file>[A-Za-z0-9_.-]+):(?<line>[0-9]+):[0-9]+'")
+              if($found.Success){
+                $seen++
+                Write-Host ('AGENT062_V8_NEW_FAILURE_LOCATION_'+$seen+'='+$found.Groups['file'].Value+':'+$found.Groups['line'].Value)
+              }
+            }
+            Write-Host ('AGENT062_V8_NEW_FAILURE_LOCATIONS='+$seen)
+            throw 'AGENT062_V8_NEW_REGRESSIONS_FOUND'
+          }
           if($result.V8.tests -le $result.BASE.tests){throw 'AGENT062_V8_TEST_COVERAGE_MISSING'}
           Write-Host 'AGENT062_V8_BASELINE_COMPARISON_PASS'
           exit 0
