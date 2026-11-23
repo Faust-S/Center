@@ -265,3 +265,115 @@ body{padding:11px;background:#172238}
 
 .manager-data-read-progress{padding:9px 11px;margin:8px 0;color:#31567b;font-size:11px;line-height:1.5;border:1px solid #b9d3ed;border-radius:9px;background:#edf5ff}
 .manager-data-read-progress small{display:block;color:#647f9d;font-size:10px;margin-top:5px}
+
+
+/* Admin 0.4.0, accepted V8 interior alignment.
+   Existing operational React components, native owners, stores and
+   signature actions remain unchanged. One desktop window and one design. */
+.v8-app {
+  --ac-surface: #f4f8fe;
+  --ac-text: #1d3756;
+  --ac-line: #d7e4f2;
+  --ac-muted: #68809f;
+  --ac-brand-red: #ef5350;
+}
+.v8-titlebar .v8-logo { object-fit:contain; border-radius:9px; }
+.v8-rail .v8-rail-profile .v8-profile-mark {
+  width:27px;height:27px;display:block;object-fit:contain;flex:none;
+}
+.v8-app .sidebar nav .nav-icon { display:grid;place-items:center; width:18px; min-width:18px; }
+.v8-app .sidebar nav .nav-icon svg {
+  width:16px;height:16px;stroke:currentColor;fill:none;
+  stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;
+}
+.v8-app .main .v8-page-location{
+  display:flex;flex-direction:column;justify-content:center;
+  flex:1;min-width:0;overflow:hidden;gap:2px;color:#294768;
+}
+.v8-app .main .v8-page-location strong{
+  display:block;font-size:13px;font-weight:700;overflow:hidden;
+  white-space:nowrap;text-overflow:ellipsis;
+}
+.v8-app .main .v8-page-location small{
+  display:block;font-size:10px;color:#7c91a8;overflow:hidden;
+  white-space:nowrap;text-overflow:ellipsis;
+}
+.v8-app .main .top{gap:8px;align-items:center;}
+.v8-app .main :where(.page-heading,.section-head){color:var(--ac-text)}
+.v8-app .main .page-heading .eyebrow{
+  font-size:10px;letter-spacing:1.1px;color:#cf5160;
+}
+.v8-app .main .page-heading h1{
+  color:#1d3756;font-weight:720;font-size:25px;letter-spacing:-.45px;
+  margin:5px 0 0;
+}
+.v8-app .main :where(.card,.form-panel,.nested-form,.manager-map-detail,
+ .manager-evidence-detail){
+  border-radius:12px;border:1px solid var(--ac-line);
+  box-shadow:0 4px 16px #bfd2e51b;background:#fff;
+}
+.v8-app .main .nested-form {
+  margin:12px 0 14px;padding:16px 18px;
+}
+.v8-app .main .nested-form :where(.nested-form,.notice){
+  box-shadow:none;
+}
+.v8-app .main :where(.card.padded,.form-panel){padding:16px 18px;}
+.v8-app .main :where(.card h2,.form-panel h2,.nested-form h2,
+ .manager-map-detail h2){
+  color:#254362;font-size:15px;font-weight:690;line-height:1.4;
+}
+.v8-app .main :where(.card h3,.nested-form h3,.form-panel h3) {
+  color:#2d4c6b;font-size:13px;font-weight:675;
+}
+.v8-app .main :where(.muted,.nested-form p,.form-panel p){
+  color:#667e9a;line-height:1.55;
+}
+.v8-app .main :where(.simple-row,.assignment-row){
+  border-radius:10px;border:1px solid #dce8f4;background:#fff;
+  padding:11px 13px;min-height:55px;margin:7px 0;color:#2b4766;
+}
+.v8-app .main .simple-row{align-items:center;}
+.v8-app .main :where(.simple-row,.assignment-row):hover{
+  border-color:#b1cae8;background:#f9fcff;
+}
+.v8-app .main :where(.form-panel,.nested-form) label{
+  color:#46617e;font-size:11px;font-weight:600;
+}
+.v8-app .main :where(input:not([type=checkbox]),select,textarea){
+  background:#fff;border-color:#cdddeb;border-radius:9px;
+  color:#203b5b;font-size:12px;min-height:36px;
+}
+.v8-app .main :where(input,select,textarea):focus-visible{
+  outline:2px solid #6098da;outline-offset:2px;
+}
+.v8-app .main :where(.primary,.secondary,.quiet){
+  min-height:34px;border-radius:9px;font-size:12px;
+  box-shadow:none;white-space:normal;
+}
+.v8-app .main .primary{
+  background:linear-gradient(100deg,#2f71e8,#5691f5);
+  color:#fff;
+}
+.v8-app .main .secondary{background:#f8fbff;border-color:#cbdbea;color:#335878}
+.v8-app .main .quiet{color:#3c658d}
+.v8-app .main :where(.notice,.notice.subdued){
+  box-shadow:none;padding:10px 13px;border-radius:9px;
+  font-size:11px;line-height:1.55;
+}
+.v8-app .main .notice:not(.error){border-color:#d7e4f2;background:#edf4fc;color:#536e8a}
+.v8-app .main table { width:100%;border-collapse:collapse;}
+.v8-app .main :where(th,td){
+  padding:10px;border-bottom:1px solid #e2ebf4;
+  vertical-align:top;font-size:11px;color:#375574;text-align:left;
+}
+.v8-app .main th {color:#7189a3;font-weight:670;}
+.v8-app .main tr:last-child td{border-bottom:0}
+.v8-app .main .form-grid{gap:9px 13px;}
+.v8-app .main .actions{gap:8px;margin-top:12px;}
+.v8-app .main .status.neutral {background:#f1f6fc;color:#647b94;border-color:#dce6f2}
+.v8-app .main .footer{border-top:1px solid #dbe6f1;}
+@media(max-width:900px){
+  .v8-app .main :where(.nested-form,.card.padded,.form-panel){padding:13px;}
+  .v8-app .main .page-heading h1{font-size:22px}
+}
