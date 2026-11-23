@@ -2,6 +2,7 @@ import React,{useMemo,useState} from 'react';
 import {projectCorporateSigningOffers} from '../src/corporate-offer-review.mjs';
 import {prepareCorporateLicenseRequest,encodeCorporateLicenseRequest}
   from '../src/corporate-license-request.mjs';
+import {inspectCorporateIssuePreflight} from '../src/corporate-owner-readback.mjs';
 
 type Offer={proposalId:string;organization:{id:string;name:string};
   tariff:{id:string;name:string;revision:number};
@@ -48,7 +49,11 @@ export default function PublisherCorporateOwnerPanel({
   const [problem,setProblem]=useState('');
   const selected=offers.items.find((o:Offer)=>o.proposalId===proposalId);
   const clearAction=()=>{setReview(null);setConfirmIssue(false);setSigned(null);
-    setUnknown(false);setConfirmStatus(false);setProblem('');setFeedback('');};
+    setConfirmStatus(false);setFeedback('');
+    // A lost ACK is not cleared by editing an issuer, seat or proposal.
+    // It can only be reconciled by exact signed T3 readback.
+    if(!unknown)setProblem('');
+  };
   // Focus transfers only the unsigned choice, never human consent, signature
   // or readback. Every new signing attempt needs deliberate review.
   React.useEffect(()=>{
@@ -101,8 +106,8 @@ export default function PublisherCorporateOwnerPanel({
   }
 
   function prepare(){
-    if(!selected||!issuer||!seatsInput(seatInput))return;
-    setProblem('');setFeedback('');setSigned(null);setUnknown(false);
+    if(unknown||!selected||!issuer||!seatsInput(seatInput))return;
+    setProblem('');setFeedback('');setSigned(null);
     try{
       const request=prepareCorporateLicenseRequest(draft,{
         proposalId:selected.proposalId,personalAgentSeats:Number(seatInput)
@@ -140,10 +145,34 @@ export default function PublisherCorporateOwnerPanel({
     if(busy||unknown||!review||!confirmIssue||
       review.issuerId!==issuer||review.sourceSha256!==expectedDraftSha256)return;
     setBusy(true);setProblem('');setFeedback('');
+    let irreversibleStarted=false;
     try{
       await ensureSigningDraftCurrent(review.sourceSha256);
-      // The native Rust bridge holds the original Publisher write lock from
-      // exact source comparison THROUGH the irreversible original T3 issue.
+      // An ACK can be lost after the original T3 committed an ISSUE. Before
+      // EVERY attempt, even after a window restart, check that exact request
+      // ID in the original signed ledger. Never infer status from a draft.
+      const inventory=await invoke('publisher_t3_corporate_inventory',{
+        lookupId:review.request.requestId
+      });
+      const preflight=inspectCorporateIssuePreflight(
+        inventory,review.request.requestId);
+      if(preflight.state==='ALREADY_SIGNED'){
+        const read=await coldSignedReadback(preflight.licenseId,review.request.requestId);
+        if(read.organizationId!==review.request.subject.id||
+           read.tariffId!==review.request.tariff.id||
+           read.tariffRevision!==review.request.tariff.revision||
+           read.issuerAuthorityId!==review.issuerId)
+          throw Error('CORPORATE_PREFLIGHT_SIGNED_TERMS_MISMATCH');
+        setSigned(read);setLookup(read.licenseId);
+        setReview(null);setConfirmIssue(false);
+        setFeedback('Исходный журнал T3 уже содержит подпись этого запроса. '+
+          'Повторное подписание не выполнялось. Получение в Admin Center не подтверждено.');
+        return;
+      }
+      // The native Rust bridge locks the saved source and delegates the
+      // irreversible signing to the ORIGINAL T3 Owner. A source readback
+      // is a guard, not a substitute for native atomic de-duplication.
+      irreversibleStarted=true;
       const result=await invoke('publisher_t3_corporate_issue',{
         requestJson:review.raw,issuerAuthorityId:issuer,
         expectedDraftSha256:review.sourceSha256
@@ -156,14 +185,24 @@ export default function PublisherCorporateOwnerPanel({
       const read=await coldSignedReadback(result.licenseId,review.request.requestId);
       if(read.organizationId!==review.request.subject.id||
          read.tariffId!==review.request.tariff.id||
-         read.tariffRevision!==review.request.tariff.revision)
+         read.tariffRevision!==review.request.tariff.revision||
+         read.issuerAuthorityId!==review.issuerId)
         throw Error('CORPORATE_OWNER_READBACK_TERMS_MISMATCH');
       setSigned(read);setLookup(read.licenseId);setReview(null);setConfirmIssue(false);
-      setFeedback('Лицензия подписана и сохранена в оригинальном журнале T3. Получение в Admin Center и места сотрудников не подтверждены.');
+      setFeedback('Лицензия подписана и сохранена в оригинальном журнале T3. '+
+        'Получение в Admin Center и места сотрудников не подтверждены.');
     }catch(e){
-      // A native ACK might be lost AFTER signing. Never blindly sign again.
-      setUnknown(true);
-      setProblem('Исход операции не подтверждён. Не повторяйте подписание; проверьте точный журнал издателя: '+error(e));
+      if(irreversibleStarted){
+        // The original T3 may have committed despite lost native response.
+        // Keep the request ID in the exact lookup field for cold recovery.
+        setLookup(review.request.requestId);
+        setUnknown(true);
+        setProblem('Исход операции не подтверждён. Не повторяйте подписание. '+
+          'Проверьте точный requestId в журнале T3: '+error(e));
+      }else{
+        setProblem('Подписание не начиналось. Исходный T3 не подтвердил '+
+          'отсутствие предыдущей выдачи: '+error(e));
+      }
     }finally{setBusy(false);}
   }
 
@@ -269,7 +308,7 @@ export default function PublisherCorporateOwnerPanel({
         </select>
       </label>
       <label>Подготовленное предложение организации
-        <select value={proposalId} disabled={busy}
+        <select value={proposalId} disabled={busy||unknown}
           onChange={e=>{setProposalId(e.target.value);setSeatInput('');clearAction();}}>
           <option value="">Выберите предложение</option>
           {offers.items.map((x:Offer)=><option value={x.proposalId} key={x.proposalId}>
@@ -287,7 +326,7 @@ export default function PublisherCorporateOwnerPanel({
             data-testid="publisher-corporate-native-seats"/>
         </label>
         <button type="button" className="secondary"
-          disabled={!issuer||!seatsInput(seatInput)||busy}
+          disabled={!issuer||!seatsInput(seatInput)||busy||unknown}
           onClick={prepare}>Проверить условия перед подписью</button>
       </div>}
       {review&&<div className="publisher-test-request"
@@ -311,6 +350,12 @@ export default function PublisherCorporateOwnerPanel({
           onClick={()=>void issue()}>Подписать через оригинальный T3</button>
       </div>}
     </div>}
+    {unknown&&<p className="notice" role="alert"
+      data-testid="publisher-corporate-outcome-unknown">
+      После неустановленного исхода ISSUE или STATUS повторная подпись
+      недоступна. Прочитайте точный исходный журнал T3 по идентификатору ниже.
+      Закройте это состояние только подтверждённым readback.
+    </p>}
     <div className="publisher-test-request">
       <label>Точный requestId, licenseId или organizationId исходного T3
         <input value={lookup} disabled={busy}
