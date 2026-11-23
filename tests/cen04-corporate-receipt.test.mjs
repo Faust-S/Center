@@ -54,6 +54,22 @@ test('independent corporate first-use and capabilities never grant rights',()=>{
  assert.throws(()=>inspectCorporateEnrollment(enrolled(),'org:other',SHA));
  assert.throws(()=>inspectCorporateCapabilities({...caps(),organizationId:'org:other'},ORG));
 });
+test('after a lost corporate first-use ACK only the same pinned publisher is recoverable',()=>{
+ const recorded=inspectCorporatePinnedTrust(caps(),ORG,SHA);
+ assert.equal(recorded.intakeConfigured,true);
+ assert.equal(recorded.fingerprint,SHA);
+ assert.equal(Object.isFrozen(recorded),true);
+ for(const evidence of [
+   {...caps(),fingerprint:'b'.repeat(64)},
+   {...caps(),fingerprint:'INVALID'},
+   {...caps(),organizationId:'org:other'},
+   {...caps(),trustOrigin:'IWXA_PACKAGE'},
+   {...caps(),activeSeats:1}
+ ])assert.throws(()=>inspectCorporatePinnedTrust(evidence,ORG,SHA),
+   /CEN04_CORPORATE_ORIGINAL_T3_RECEIPT_REQUIRED/);
+ assert.throws(()=>inspectCorporatePinnedTrust(caps(),ORG,'b'.repeat(64)));
+ assert.throws(()=>inspectCorporatePinnedTrust(caps(),'org:other',SHA));
+});
 test('source signed receive verifies exact incoming SHA, idempotent carrier and no seats',()=>{
  const evidence=inspectCorporateReceived(received(),ORG,SHA);
  assert.equal(evidence.licenseId,'license:company');
