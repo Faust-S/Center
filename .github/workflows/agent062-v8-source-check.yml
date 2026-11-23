@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: c8864f912dc061787edbc98ea6c4189ed784efdd
+          ref: dc960c5e214b73a00b328da7a7ca2784b57f3fb1
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
           show-progress: false
