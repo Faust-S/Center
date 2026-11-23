@@ -269,9 +269,26 @@ try{
   await page.getByTestId('save-assignment').click();
   await page.getByTestId('assignment-row').last().click();
   assert.match(await page.getByTestId('assignment-atlas-binding').innerText(),/Без связи с Atlas/);
+  const inspector=page.getByTestId('v8-inspector-detail');
+  await inspector.getByRole('heading',{name:'Independent HR coordination'}).waitFor({state:'visible'});
+  assert.match(await inspector.innerText(),/Критерии приёмки/);
+  assert.equal(await page.locator('.v8-inspector-tab-wrap.active').count(),1);
+  await page.getByRole('button',{name:'Закрыть материал: Independent HR coordination'}).click();
+  assert.equal(await page.locator('.v8-inspector-tab-wrap').count(),0);
+  checks.push('v8-real-assignment-right-dock-and-close');
   await page.getByRole('button',{name:'Закрыть редактор'}).click();
+  await page.getByTestId('nav-people').click();
+  await page.getByRole('button',{name:'Карточка'}).first().click();
+  assert.match(await page.getByTestId('v8-inspector-detail').innerText(),/Подписанные права/);
+  checks.push('v8-employee-card-opens-real-inspector');
   await page.getByTestId('nav-resources').click();
   assert.match(await page.getByText(/Связанный план Atlas:/).first().innerText(),/Связанный план Atlas:/);
+  await page.getByRole('button',{name:'Подробнее'}).first().click();
+  assert.match(await page.getByTestId('v8-inspector-detail').innerText(),/План Atlas/);
+  await page.locator('#active-organization').selectOption({label:'South workshop'});
+  assert.equal(await page.locator('.v8-inspector-tab-wrap').count(),0,
+    'inspector must not keep a previous organization person or Workspace');
+  checks.push('v8-inspector-workspace-and-org-switch-scope');
   checks.push('independent-task-detaches-atlas-without-modifying-workspace');
   await page.locator('#active-organization').selectOption({label:'South workshop'});
   await page.getByTestId('nav-overview').click();await page.screenshot({path:'artifacts/overview-1366.png',fullPage:true});
