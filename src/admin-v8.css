@@ -380,21 +380,29 @@ body{padding:11px;background:#172238}
 
 
 /* V8 dock: document-specific tabs, not a second overlapping application window. */
-.v8-inspector-tabs{overflow-x:auto;overflow-y:hidden;min-width:0;scrollbar-width:thin;flex-wrap:nowrap}
-.v8-inspector-tabs>button{flex:none}
+.v8-inspector-tabs{
+  display:flex;align-items:center;flex-wrap:wrap;gap:4px;
+  overflow-x:hidden;overflow-y:visible;min-width:0;
+  padding:8px 10px;border-bottom:1px solid #d9e4f0;
+}
+.v8-inspector-tabs>button{
+  flex:1 1 calc((100% - 8px)/3);min-width:0;max-width:calc((100% - 8px)/3);
+  padding:8px 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
 .v8-inspector-tab-wrap{
-  display:flex;align-items:center;min-width:0;max-width:210px;flex:0 0 auto;
-  border:1px solid transparent;border-radius:8px;margin-right:3px;
+  display:flex;align-items:center;min-width:0;width:100%;max-width:100%;
+  flex:1 1 100%;margin:4px 0 0;
+  border:1px solid transparent;border-radius:8px;
 }
 .v8-inspector-tab-wrap.active{background:#fff;border-color:#afc8e7}
 .v8-inspector-tab-wrap>button:first-child{
-  min-width:0;max-width:157px;overflow:hidden;text-overflow:ellipsis;
+  min-width:0;max-width:none;flex:1;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;padding:7px 4px 7px 10px;color:#56718d;
   font-size:11px;background:transparent;border:0;
 }
 .v8-inspector-tab-wrap.active>button:first-child{color:#1f497b;font-weight:690}
 .v8-inspector-tab-close{
-  width:25px;min-height:26px;padding:0 5px;
+  flex:0 0 25px;width:25px;min-height:26px;padding:0 5px;
   font-size:15px;background:transparent;border:0;color:#6d839f;
 }
 .v8-inspector-tab-close:hover{color:#a53c49;background:#f6eded}
