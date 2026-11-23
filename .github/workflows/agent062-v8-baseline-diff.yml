@@ -84,15 +84,23 @@ jobs:
           # Show only a bounded test filename and line for each new failure.
           # The actual TAP and failure text remain private inside this runner.
           if($extra.Count -ne 0){
-            $blocks=[regex]::Matches($raw,'(?ms)^not ok [0-9]+ - (?<name>[^\r\n]+)\r?\n(?<detail>.*?)(?=^(?:ok|not ok) [0-9]+ - |^# tests |\z)')
             $seen=0
-            foreach($item in $blocks){
-              if($item.Groups['name'].Value.Trim() -cnotin $extra){continue}
-              $found=[regex]::Match($item.Groups['detail'].Value,
-                "(?m)^\s*location: '.*?[\\/]tests[\\/](?<file>[A-Za-z0-9_.-]+):(?<line>[0-9]+):[0-9]+'")
-              if($found.Success){
-                $seen++
-                Write-Host ('AGENT062_V8_NEW_FAILURE_LOCATION_'+$seen+'='+$found.Groups['file'].Value+':'+$found.Groups['line'].Value)
+            foreach($title in $extra){
+              $pattern='(?m)^not ok (?<idx>[0-9]+) - '+[regex]::Escape([string]$title)+'\s*$'
+              $match=[regex]::Match($raw,$pattern)
+              if(!$match.Success){continue}
+              $idx=[int]$match.Groups['idx'].Value
+              $offset=$match.Index+$match.Length
+              $part=$raw.Substring($offset,[Math]::Min(3200,$raw.Length-$offset))
+              $loc=[regex]::Match($part,"(?m)^\s*location:\s*'(?<path>[^'\r\n]+)'")
+              if($loc.Success){
+                $parts=[regex]::Split($loc.Groups['path'].Value,'[\\/]')
+                $leaf=$parts[$parts.Length-1]
+                $file=[regex]::Match($leaf,'^(?<name>[A-Za-z0-9_.-]+):(?<line>[0-9]+):[0-9]+$')
+                if($file.Success){
+                  $seen++
+                  Write-Host ('AGENT062_V8_REGRESSION_'+$seen+'_TEST='+$idx+';FILE='+$file.Groups['name'].Value+';LINE='+$file.Groups['line'].Value)
+                }
               }
             }
             Write-Host ('AGENT062_V8_NEW_FAILURE_LOCATIONS='+$seen)
