@@ -27,6 +27,13 @@ export function inspectCorporateCapabilities(v,organizationId){
  return Object.freeze({organizationId,intakeConfigured:true,
    fingerprint:v.fingerprint});
 }
+// Exact original native public fingerprint binds a lost-ACK recovery to the
+// *same* publisher, never merely to "some trust exists" for this org.
+export function inspectCorporatePinnedTrust(v,organizationId,expectedSha256){
+ const installed=inspectCorporateCapabilities(v,organizationId);
+ if(!HEX.test(expectedSha256)||installed.fingerprint!==expectedSha256)denied();
+ return installed;
+}
 export function inspectCorporateRead(v,organizationId){
  const view=v?.view;
  if(!base(v)||v.operation!=='CORPORATE_READ'||
