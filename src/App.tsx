@@ -923,6 +923,15 @@ export default function App() {
         {([['context','Контекст'],['tasks','Поручения'],['sources','Источники']] as const).map(([id,label])=>
           <button type="button" role="tab" key={id} aria-selected={inspectorTab===id}
             className={inspectorTab===id?'active':''} onClick={()=>setInspectorTab(id)}>{label}</button>)}
+        {inspectorPreviews.filter(item=>item.organizationId===org?.id).map(item=>
+          <div className={'v8-inspector-tab-wrap '+(inspectorTab==='selected'&&activePreviewKey===item.key?'active':'')} key={item.key}>
+            <button type="button" role="tab" aria-selected={inspectorTab==='selected'&&activePreviewKey===item.key}
+              title={item.label} onClick={()=>{setActivePreviewKey(item.key);setInspectorTab('selected');}}>
+              {item.label}
+            </button>
+            <button type="button" className="v8-inspector-tab-close" aria-label={'Закрыть материал: '+item.label}
+              onClick={()=>closeInspectorPreview(item.key)}>×</button>
+          </div>)}
       </div>
       <div className="v8-inspector-content">
         {inspectorTab==='context'&&<>
@@ -937,6 +946,52 @@ export default function App() {
           {!org?.assignments.length&&<p className="muted">Поручений пока нет.</p>}
           <button className="secondary" type="button" onClick={()=>go('work')}>Открыть поручения</button>
         </>}
+        {inspectorTab==='selected'&&<div className="v8-inspector-detail" data-testid="v8-inspector-detail">
+          {!selectedPreview&&<p className="muted">Выберите работу, сотрудника, рабочую область или проект.</p>}
+          {previewTask&&<>
+            <div className="eyebrow">ПОРУЧЕНИЕ</div><h2>{previewTask.title}</h2>
+            <p className="muted">Черновик {previewTask.editNumber} · {previewTask.dueDate||'Без срока'}</p>
+            <div className="inspector-card"><strong>Что требуется</strong><p>{previewTask.description||'Описание не указано'}</p></div>
+            <div className="inspector-card"><strong>Критерии приёмки</strong><p>{previewTask.criteria||'Не указаны'}</p></div>
+            <div className="inspector-card"><strong>Исполнитель</strong><p>{org?.participants.find(p=>p.id===previewTask.assigneeId)?.name||'Не выбран'}</p>
+              <strong>Кто принимает Result</strong><p>{org?.participants.find(p=>p.id===previewTask.reviewerId)?.name||'Не выбран'}</p>
+              <strong>Atlas</strong><p>{previewTask.atlasRef?previewTask.atlasRef.projectId+' · редакция '+previewTask.atlasRef.revision:'Без связи с Atlas'}</p>
+            </div>
+            <button className="primary" type="button" onClick={()=>startAssignment(previewTask)}>Редактировать поручение</button>
+          </>}
+          {previewPerson&&<>
+            <div className="eyebrow">СОТРУДНИК</div><h2>{previewPerson.name}</h2>
+            <div className="inspector-card"><strong>Функция</strong><p>{previewPerson.roleLabel||'Не указана'}</p>
+              <strong>Personal Agent</strong><p>{previewPerson.personalAgentPlan==='PLANNED'?'Место запланировано':'Место не запланировано'}</p>
+              <strong>Подписанные права</strong><p>Проверяются отдельно в исходном T3 Kernel.</p>
+            </div>
+            <button className="secondary" type="button" onClick={()=>openEmployeeConnection(previewPerson.id)}>
+              Открыть подключение T3
+            </button>
+          </>}
+          {previewWorkspace&&<>
+            <div className="eyebrow">РАБОЧАЯ ОБЛАСТЬ</div><h2>{previewWorkspace.name}</h2>
+            <div className="inspector-card"><strong>План Atlas</strong><p>{previewWorkspace.atlasRef?previewWorkspace.atlasRef.projectId+' · редакция '+previewWorkspace.atlasRef.revision:'Не привязан'}</p></div>
+            <h3>Поручения</h3>
+            {org?.assignments.filter(a=>a.workspaceId===previewWorkspace.id).map(a=>
+              <button key={a.id} type="button" className="v8-inspector-task"
+                onClick={()=>startAssignment(a)}><strong>{a.title}</strong><small>{a.dueDate||'Без срока'}</small></button>)}
+            {!org?.assignments.some(a=>a.workspaceId===previewWorkspace.id)&&<p className="muted">Поручений пока нет.</p>}
+            <button type="button" className="secondary" onClick={()=>go('resources')}>Все рабочие области</button>
+          </>}
+          {previewProject&&<>
+            <div className="eyebrow">ПРОЕКТ ATLAS</div><h2>{previewProject.name}</h2>
+            <div className="inspector-card"><strong>Редакция портфеля</strong><p>{observedAtlas?.revision||'Не определена'}</p>
+              <strong>Работы</strong><p>{previewProject.total} всего · {previewProject.done} завершены · {previewProject.blocked} заблокированы</p></div>
+            <h3>Работы проекта</h3>
+            {previewProject.workItems.slice(0,20).map(item=><button type="button" className="v8-inspector-task" key={item.id}
+              onClick={()=>{if(observedAtlas)prepareAtlasWork(linkableAtlasWork(observedAtlas,previewProject.id,item.id));}}>
+              <strong>{item.title}</strong><small>{item.state} · {item.dueDate||'Без срока'}</small>
+            </button>)}
+          </>}
+          {selectedPreview&&!previewTask&&!previewPerson&&!previewWorkspace&&!previewProject&&
+            <p className="muted">Материал не найден в текущем контексте. Выберите его снова.</p>}
+        </div>}
         {inspectorTab==='sources'&&<>
           <h2>Корпоративные источники</h2>
           <div className="inspector-card"><strong>Исходный T3 Owner</strong>
