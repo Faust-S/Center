@@ -273,6 +273,31 @@ try{
   await inspector.getByRole('heading',{name:'Independent HR coordination'}).waitFor({state:'visible'});
   assert.match(await inspector.innerText(),/Критерии приёмки/);
   assert.equal(await page.locator('.v8-inspector-tab-wrap.active').count(),1);
+  // A selected object must never render as a fourth, half-cut tab.
+  // The first three fixed tabs form one row, opened objects use full-width
+  // rows below them; this remains true with the compact right inspector.
+  const inspectTabs=async()=>{
+    return await page.locator('.v8-inspector-tabs').evaluate(element=>{
+      const base=Array.from(element.querySelectorAll(':scope > button'));
+      const active=element.querySelector('.v8-inspector-tab-wrap.active');
+      const a=active?.getBoundingClientRect(),b=element.getBoundingClientRect();
+      return {
+        overflow:element.scrollWidth-element.clientWidth,
+        activeVisible:!!(a&&a.left>=b.left-1&&a.right<=b.right+1),
+        objectBelow:!!(a&&base.length===3&&
+          a.top>=base[0].getBoundingClientRect().bottom-1),
+        visibleTabs:base.length,
+        closeVisible:!!active?.querySelector('.v8-inspector-tab-close')?.getBoundingClientRect().width
+      };
+    });
+  };
+  const wideInspectorTabs=await inspectTabs();
+  assert.ok(wideInspectorTabs.overflow<=1&&wideInspectorTabs.activeVisible&&
+    wideInspectorTabs.objectBelow&&wideInspectorTabs.visibleTabs===3&&
+    wideInspectorTabs.closeVisible,
+    '1366 inspector object tab must be fully visible below the three fixed tabs: '+
+    JSON.stringify(wideInspectorTabs));
+  await page.screenshot({path:'artifacts/inspector-selection-1366.png',fullPage:true});
   await page.setViewportSize({width:820,height:650});
   const compactDock=await page.evaluate(()=>{
     const main=document.querySelector('.v8-app .main').getBoundingClientRect();
@@ -284,6 +309,12 @@ try{
     compactDock.dockWidth>=270&&compactDock.overlap<=1,
     'compact 820x650 must show real inspector BESIDE main, not overlay/hide: '+
     JSON.stringify(compactDock));
+  const compactInspectorTabs=await inspectTabs();
+  assert.ok(compactInspectorTabs.overflow<=1&&compactInspectorTabs.activeVisible&&
+    compactInspectorTabs.objectBelow&&compactInspectorTabs.closeVisible,
+    '820 inspector object tab must not be clipped by viewport or navigation: '+
+    JSON.stringify(compactInspectorTabs));
+  checks.push('v8-inspector-object-tab-not-clipped-at-1366-and-820');
   await page.setViewportSize({width:1366,height:900});
   checks.push('v8-820x650-resizable-inspector-does-not-overlay-main');
   await page.getByRole('button',{name:'Закрыть материал: Independent HR coordination'}).click();
