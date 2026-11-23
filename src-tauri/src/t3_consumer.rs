@@ -431,6 +431,7 @@ pub async fn center_cen04_corporate_t3_capabilities(
      v["organizationId"]!=org||
      v["productId"]!="IWXA_ADMIN_CENTER"||
      v["intakeConfigured"]!=true||
+     !corporate_hex(v["fingerprint"].as_str().unwrap_or(""))||
      v["trustOrigin"]!="HOST_PREINSTALLED_PUBLIC_POLICY"||
      v["recipientConfirmed"]!=false||
      v["activeSeats"]!=0||
