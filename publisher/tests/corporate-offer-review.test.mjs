@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {emptyPublisherDraft,applyPublisherDraftCommand,encodePublisherDraft}
  from '../src/preparation.mjs';
 import {CORPORATE_OFFER_REVIEW_SCHEMA,prepareCorporateOfferReview as prepare,
-  projectCorporateOfferReviews as project} from '../src/corporate-offer-review.mjs';
+  projectCorporateOfferReviews as project,
+  projectCorporateSigningOffers as signing} from '../src/corporate-offer-review.mjs';
 
 const quota={metric:'CLOUD_TOKENS',service:'CLOUD',unit:'TOKENS',period:'MONTH',max:150000};
 function fixture({productSeats=5,employeeLimit=10}={}){
@@ -92,4 +93,29 @@ test('local review preserves followup lineage without claiming signed renewal',(
  assert.equal(latest.items[0].priorPreparationId,draft.proposals[0].id);
  assert.equal(latest.items[0].signedCorporateLicense,false);
  assert.equal(latest.assignablePersonalAgentSeats,0);
+});
+
+test('focused older corporate preparation is selectable even beyond last 20',()=>{
+ let draft=fixture();
+ const originalId=draft.proposals[0].id;
+ for(let i=0;i<23;i++)
+  draft=applyPublisherDraftCommand(draft,{kind:'addTariffProposal',
+   tariffId:'TEAM',revision:1,productId:'IWXA_ADMIN_CENTER',
+   holderId:'org:company'});
+ const original=encodePublisherDraft(draft);
+ const recent=project(draft,{limit:20});
+ assert.equal(recent.total,24);
+ assert.ok(!recent.items.some(x=>x.proposalId===originalId));
+ const focused=signing(draft,{focusProposalId:originalId});
+ assert.equal(focused.total,24);
+ assert.equal(focused.shown,21);
+ assert.equal(focused.truncated,true);
+ assert.equal(focused.items[0].proposalId,originalId);
+ assert.equal(new Set(focused.items.map(x=>x.proposalId)).size,21);
+ assert.equal(focused.items[0].status,'LOCAL_PREPARATION_NOT_SIGNED');
+ assert.equal(focused.items[0].signedCorporateLicense,false);
+ assert.equal(encodePublisherDraft(draft),original,
+  'A focused link must not change any source or stored entitlement');
+ const absent=signing(draft,{focusProposalId:'missing'});
+ assert.deepEqual(absent.items,recent.items);
 });
