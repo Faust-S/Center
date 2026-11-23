@@ -16,7 +16,7 @@ const enrolled=()=>base('CORPORATE_ENROLLED',{
 });
 const caps=()=>base('CORPORATE_CAPABILITIES',{
  organizationId:ORG,productId:'IWXA_ADMIN_CENTER',intakeConfigured:true,
- recipientConfirmed:false,trustOrigin:'HOST_PREINSTALLED_PUBLIC_POLICY'
+ fingerprint:SHA,recipientConfirmed:false,trustOrigin:'HOST_PREINSTALLED_PUBLIC_POLICY'
 });
 const received=()=>base('CORPORATE_RECEIVE',{
  organizationId:ORG,productId:'IWXA_ADMIN_CENTER',
