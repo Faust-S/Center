@@ -84,4 +84,5 @@ jobs:
           if($extra.Count -ne 0){throw 'AGENT062_V8_NEW_REGRESSIONS_FOUND'}
           if($result.V8.tests -le $result.BASE.tests){throw 'AGENT062_V8_TEST_COVERAGE_MISSING'}
           Write-Host 'AGENT062_V8_BASELINE_COMPARISON_PASS'
+          exit 0
       # Logs and source are never uploaded or echoed; only safe counts.
