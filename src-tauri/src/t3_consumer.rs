@@ -197,9 +197,131 @@ pub async fn center_cen04_t3_import_age(app:AppHandle,organization_id:String)
   }).await.map_err(|_|"CEN04_T3_AGE_WORKER_FAILED".to_string())?
 }
 
+// Transport integrity only: the original T3 has not yet provided its
+// CORPORATE ProductLicenseConsumer. No package is parsed, no trust is enrolled,
+// no license is admitted, and no rights or recipient receipt are created.
+const CORPORATE_CARRIER_LIMIT:u64=4*1024*1024;
+
+fn inspect_corporate_file_hash(
+ path:&std::path::Path,org:&str,expected_sha256:&str,expected_bytes:u64
+)->Result<Value,String>{
+ use sha2::{Digest,Sha256};
+ use std::io::Read;
+ scope(org)?;
+ if expected_sha256.len()!=64||
+    !expected_sha256.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)) {
+   return Err("CEN04_CORPORATE_CARRIER_SHA256_REQUIRED".into());
+ }
+ if expected_bytes==0||expected_bytes>CORPORATE_CARRIER_LIMIT{
+   return Err("CEN04_CORPORATE_CARRIER_SIZE_REQUIRED".into());
+ }
+ if !path.extension().and_then(|p|p.to_str())
+   .is_some_and(|x|x.eq_ignore_ascii_case("iwxa")) {
+   return Err("CEN04_CORPORATE_CARRIER_IWXA_REQUIRED".into());
+ }
+ let info=std::fs::symlink_metadata(path)
+   .map_err(|_|"CEN04_CORPORATE_CARRIER_UNREADABLE")?;
+ if !info.is_file()||info.file_type().is_symlink()||
+    info.len()!=expected_bytes {
+   return Err("CEN04_CORPORATE_CARRIER_FILE_SIZE_MISMATCH".into());
+ }
+ let mut file=std::fs::File::open(path)
+   .map_err(|_|"CEN04_CORPORATE_CARRIER_UNREADABLE")?;
+ let mut hash=Sha256::new();
+ let mut read=0u64;
+ let mut chunk=[0_u8;8192];
+ loop{
+   let n=file.read(&mut chunk)
+     .map_err(|_|"CEN04_CORPORATE_CARRIER_READ_INTERRUPTED")?;
+   if n==0{break;}
+   read=read.checked_add(n as u64)
+     .ok_or("CEN04_CORPORATE_CARRIER_SIZE_INVALID")?;
+   if read>CORPORATE_CARRIER_LIMIT {
+     return Err("CEN04_CORPORATE_CARRIER_SIZE_INVALID".into());
+   }
+   hash.update(&chunk[..n]);
+ }
+ if read!=expected_bytes||file.metadata()
+   .map_err(|_|"CEN04_CORPORATE_CARRIER_UNREADABLE")?.len()!=read{
+   return Err("CEN04_CORPORATE_CARRIER_CHANGED_DURING_READ".into());
+ }
+ let actual=format!("{:x}",hash.finalize());
+ if actual!=expected_sha256{
+   return Err("CEN04_CORPORATE_CARRIER_SHA256_MISMATCH".into());
+ }
+ Ok(serde_json::json!({
+   "operation":"CORPORATE_CARRIER_SHA256_MATCHED",
+   "organizationId":org,"productId":"IWXA_ADMIN_CENTER",
+   "packageSha256":actual,"bytes":read,
+   "signatureVerified":false,"statusVerified":false,
+   "recipientConfirmed":false,"activeSeats":0,
+   "assignablePersonalAgentSeats":0,"productionActivation":false
+ }))
+}
+
+// The native picker keeps the file path and entire .iwxa opaque to React.
+// A checksum match proves *transport bytes*, not a T3 signature or entitlement.
+#[tauri::command]
+pub async fn center_cen04_corporate_verify_carrier(
+ organization_id:String,expected_sha256:String,expected_bytes:u64
+)->Result<Option<Value>,String>{
+ let org=scope(&organization_id)?;
+ if expected_sha256.len()!=64||
+   !expected_sha256.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b))||
+   expected_bytes==0||expected_bytes>CORPORATE_CARRIER_LIMIT{
+   return Err("CEN04_CORPORATE_CARRIER_EXPECTATION_REQUIRED".into());
+ }
+ let chosen=rfd::FileDialog::new()
+   .set_title("Admin Center - сверить корпоративный файл Publisher")
+   .add_filter("IWXA",&["iwxa"]).pick_file();
+ let Some(path)=chosen else{return Ok(None)};
+ tauri::async_runtime::spawn_blocking(move||
+   inspect_corporate_file_hash(&path,&org,&expected_sha256,expected_bytes)
+     .map(Some))
+   .await.map_err(|_|"CEN04_CORPORATE_CARRIER_WORKER_FAILED".to_string())?
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+  #[test]
+  fn corporate_carrier_matches_exact_publisher_digest_without_grant(){
+    use sha2::{Digest,Sha256};
+    let base=std::env::temp_dir().join(format!(
+      "center-cen04-corporate-{}",uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&base).unwrap();
+    let path=base.join("original.iwxa");
+    let bytes=b"opaque original T3 carrier bytes - not parsed here";
+    std::fs::write(&path,bytes).unwrap();
+    let digest=format!("{:x}",Sha256::digest(bytes));
+    let value=inspect_corporate_file_hash(&path,"org:north",&digest,bytes.len() as u64).unwrap();
+    assert_eq!(value["operation"],"CORPORATE_CARRIER_SHA256_MATCHED");
+    assert_eq!(value["organizationId"],"org:north");
+    assert_eq!(value["productId"],"IWXA_ADMIN_CENTER");
+    assert_eq!(value["packageSha256"],digest);
+    assert_eq!(value["bytes"],bytes.len() as u64);
+    for key in ["signatureVerified","statusVerified","recipientConfirmed",
+      "productionActivation"]{assert_eq!(value[key],false);}
+    assert_eq!(value["activeSeats"],0);
+    assert_eq!(value["assignablePersonalAgentSeats"],0);
+    assert!(value.get("licenseId").is_none());
+    assert!(value.get("entitlement").is_none());
+    assert!(inspect_corporate_file_hash(
+      &path,"org:north",&"0".repeat(64),bytes.len() as u64).is_err());
+    assert!(inspect_corporate_file_hash(
+      &path,"org:north",&digest,bytes.len() as u64+1).is_err());
+    assert!(inspect_corporate_file_hash(
+      &path,"../another",&digest,bytes.len() as u64).is_err());
+    assert!(inspect_corporate_file_hash(
+      &path,"org:north","BAD",bytes.len() as u64).is_err());
+    assert!(inspect_corporate_file_hash(
+      &path,"org:north",&digest,0).is_err());
+    let other=base.join("draft.json");
+    std::fs::write(&other,bytes).unwrap();
+    assert!(inspect_corporate_file_hash(
+      &other,"org:north",&digest,bytes.len() as u64).is_err());
+    std::fs::remove_dir_all(base).unwrap();
+  }
   fn valid_read()->Value{
     serde_json::json!({
       "operation":"TEST_READ","activeSeats":0,"productionActivation":false,

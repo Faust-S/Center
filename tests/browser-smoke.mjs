@@ -86,6 +86,16 @@ try{
   assert.equal(await page.getByTestId('cen04-import-verified-age').isEnabled(),false);
   assert.equal(await page.getByTestId('cen04-import-verified-iwxa').isEnabled(),false);
   assert.equal(await page.getByTestId('cen04-enroll-trust').count(),0);
+  const corporateCarrier=page.getByTestId('cen04-corporate-file-preflight');
+  assert.match(await corporateCarrier.innerText(),/Корпоративная лицензия: сверка файла/);
+  assert.equal(await corporateCarrier.getByTestId('cen04-corporate-file-matched').count(),0);
+  assert.equal(await corporateCarrier.getByTestId('cen04-corporate-verify-carrier').isDisabled(),true);
+  await corporateCarrier.getByTestId('cen04-corporate-sha256').fill('a'.repeat(64));
+  await corporateCarrier.getByTestId('cen04-corporate-bytes').fill('7312');
+  assert.equal(await corporateCarrier.getByTestId('cen04-corporate-verify-carrier').isDisabled(),true,
+    'Browser preview must not impersonate a native Windows file check');
+  assert.equal(await corporateCarrier.getByTestId('cen04-corporate-file-matched').count(),0);
+  checks.push('cen04-corporate-file-sha256-native-only-no-signature-or-seats');
   assert.equal(await page.getByTestId('center-age-exchange').count(),1);
   assert.equal(await page.getByTestId('center-age-encrypt').count(),0);
   assert.equal(await page.getByTestId('center-age-decrypt').count(),0);
@@ -251,6 +261,12 @@ try{
   await page.locator('#active-organization').selectOption({label:'South workshop'});
   assert.equal(await page.getByTestId('atlas-project-count').count(),0);
   checks.push('two-organization-draft-isolation-and-file-source-scope');
+  await page.getByTestId('nav-programs').click();
+  assert.equal(await page.getByTestId('cen04-corporate-sha256').inputValue(),'',
+    "An earlier organization's Publisher digest must not carry into the new organization");
+  assert.equal(await page.getByTestId('cen04-corporate-bytes').inputValue(),'');
+  assert.equal(await page.getByTestId('cen04-corporate-file-matched').count(),0);
+  checks.push('cen04-corporate-file-check-organization-switch-resets-source');
   await page.getByTestId('nav-results').click();
   await page.getByTestId('corporate-owner-status').waitFor({state:'visible'});
   assert.match(await page.getByTestId('corporate-owner-status').innerText(),/NOT_CONNECTED/);
