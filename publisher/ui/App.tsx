@@ -5,7 +5,7 @@ import {simulateIssuerEvent} from '../src/issuer-simulation.mjs';
 import {prepareUnsignedPersonLicenseRequest} from '../src/person-license-request.mjs';
 import {projectCorporateOfferReviews} from '../src/corporate-offer-review.mjs';
 import {prepareCorporateLicenseRequest,encodeCorporateLicenseRequest,
-  suggestedCorporateLicenseRequestFileName} from '../src/corporate-license-request.mjs';
+  suggestedCorporateLicenseRequestFileName,preserveSignedCorporateSources} from '../src/corporate-license-request.mjs';
 import {projectPublisherPersonAttention} from '../src/person-attention.mjs';
 import PublisherT3OwnerPanel from './PublisherT3OwnerPanel';
 import PublisherCorporateOwnerPanel from './PublisherCorporateOwnerPanel';
@@ -134,6 +134,18 @@ async function preserveSignedPersonSources(current:Draft,replacement:Draft):Prom
    if(ledger.matches>0)
      throw new Error('Подписанный PERSON-запрос нельзя удалить или изменить: он нужен для продления. '+
        'Для прекращения прав подпишите отзыв в журнале T3.');
+ }
+}
+
+// The issuer's original ledger, not a local flag, decides whether deleting
+// or restoring a preparation could detach an already signed license.
+async function preserveSignedPublisherSources(current:Draft,replacement:Draft):Promise<void>{
+ await preserveSignedPersonSources(current,replacement);
+ try{
+   await preserveSignedCorporateSources(current,replacement,(lookupId:string)=>
+     invoke('publisher_t3_corporate_inventory',{lookupId}));
+ }catch(e){
+   throw Error('Корпоративная подготовка не изменена: нужна сверка с исходным T3. '+getError(e));
  }
 }
 
@@ -308,7 +320,7 @@ export default function App(){
    setBusy(true);setError('');setMessage('');setSimulated(null);
    try{
      const next=applyPublisherDraftCommand(state,command) as Draft;
-     if(command.kind==='removeProposal')await preserveSignedPersonSources(state,next);
+     if(command.kind==='removeProposal')await preserveSignedPublisherSources(state,next);
      draftSourceSha256.current=await persistDraft(next,draftSourceSha256.current);
      setState(next);
      setPendingRestore(null);
@@ -404,7 +416,7 @@ export default function App(){
    if(!pendingRestore||busy||!nativeHost||!loaded)return;
    setBusy(true);setError('');setMessage('');
    try {
-     await preserveSignedPersonSources(state,pendingRestore);
+     await preserveSignedPublisherSources(state,pendingRestore);
      draftSourceSha256.current=await persistDraft(pendingRestore,draftSourceSha256.current);
      setState(pendingRestore);setPendingRestore(null);setSimulated(null);setInspected(null);
      setMessage('Черновики восстановлены из копии и сохранены. Подписи и права не изменены.');
