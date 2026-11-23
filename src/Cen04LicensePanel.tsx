@@ -210,7 +210,7 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
        onClick={()=>void verifyCorporateFile()}>
        Выбрать .iwxa и сверить с Publisher
      </button>
-     {corporateFile&&<div className="atlas-file-review"
+     {corporateFile&&<div className="cen04-carrier-match"
        data-testid="cen04-corporate-file-matched">
        <strong>Файл совпадает с экспортом Publisher</strong>
        <p>Размер: {corporateFile.bytes} байт.
