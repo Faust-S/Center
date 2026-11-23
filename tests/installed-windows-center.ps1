@@ -47,6 +47,73 @@ function Capture-CenterFailure {
     } finally {$gfx.Dispose();$bmp.Dispose()}
   } catch {Write-Warning "Screenshot failed: $($_.Exception.Message)"}
 }
+# Preserve evidence of a white installed WebView2 without treating missing
+# controls as a harmless UIA timeout. No browser automation or private data.
+function Capture-CenterRuntimeDiagnostic {
+  $report=[ordered]@{
+    schema='IWXA_CENTER_INSTALLED_BOOT_DIAGNOSTIC/1'
+    status='GUI_NOT_VERIFIED'
+    centerRunning=$false
+    nativeWindowPresent=$false
+    uiaDescendantCount=$null
+    uiaNamedSample=@()
+    webview2ChildProcessCount=0
+    webview2ChildProcessIds=@()
+    webview2RuntimeFileVersions=@()
+  }
+  try {
+    $proc.Refresh()
+    $report.centerRunning=(-not $proc.HasExited)
+    $report.nativeWindowPresent=($proc.MainWindowHandle -ne [IntPtr]::Zero)
+    if($report.nativeWindowPresent){
+      $root=Root-Element
+      $nodes=$root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      $report.uiaDescendantCount=$nodes.Count
+      $names=@()
+      foreach($node in $nodes){
+        if($names.Count -ge 16){break}
+        try{
+          $name=[string]$node.Current.Name
+          if($name){$names+=($name.Substring(0,[Math]::Min(80,$name.Length)))}
+        }catch{}
+      }
+      $report.uiaNamedSample=$names
+    }
+  } catch {
+    $report.uiaErrorType=$_.Exception.GetType().Name
+  }
+  try {
+    $processes=@(Get-CimInstance -ClassName Win32_Process |
+      Where-Object {$_.Name -in @('msedgewebview2.exe','iwxa-admin-center.exe')})
+    $descendants=@()
+    $parents=@([int]$proc.Id)
+    for($depth=0;$depth -lt 5;$depth++){
+      $new=@($processes|Where-Object {$parents -contains [int]$_.ParentProcessId -and
+        $descendants -notcontains [int]$_.ProcessId})
+      if($new.Count -eq 0){break}
+      $descendants+=@($new|ForEach-Object{[int]$_.ProcessId})
+      $parents=@($new|ForEach-Object{[int]$_.ProcessId})
+    }
+    $web=@($processes|Where-Object{$_.Name -eq 'msedgewebview2.exe' -and
+      $descendants -contains [int]$_.ProcessId})
+    $report.webview2ChildProcessCount=$web.Count
+    $report.webview2ChildProcessIds=@($web|ForEach-Object{[int]$_.ProcessId})
+    $report.webview2RuntimeFileVersions=@($web|ForEach-Object{
+      try{(Get-Item -LiteralPath $_.ExecutablePath -ErrorAction Stop).VersionInfo.FileVersion}
+      catch{'UNAVAILABLE'}
+    }|Select-Object -Unique)
+  }catch{
+    $report.processDiagnosticErrorType=$_.Exception.GetType().Name
+  }
+  $file=Join-Path $artifactDir 'installed-gui-diagnostic.json'
+  $report|ConvertTo-Json -Depth 6|Set-Content -LiteralPath $file
+  Write-Host ("CENTER_INSTALLED_WEBVIEW2_DIAGNOSTIC " +
+    "uia=$($report.uiaDescendantCount) " +
+    "webview2Children=$($report.webview2ChildProcessCount) " +
+    "centerRunning=$($report.centerRunning)")
+}
+
 function Start-Center {
   $script:proc=Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
   for($i=0;$i -lt 90;$i++){
@@ -618,6 +685,7 @@ try {
 } catch {
   Write-Host "CENTER_INSTALLED_GUI_FAIL $($_.Exception.Message)"
   Capture-CenterFailure
+  Capture-CenterRuntimeDiagnostic
   throw
 } finally {
   if($null -ne $proc){
