@@ -21,7 +21,7 @@ public static class SetupUiNativeMouse {
 }
 '@
 $artifact = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
-$oldSetup = Join-Path $artifact 'iwxa-setup-core-center-0.3-preview.exe'
+$oldSetup = Join-Path $artifact 'IWXA-Admin-Center-0.4.0-Setup.exe'
 $newSetup = Join-Path $artifact 'setup-core-center-upgrade.exe'
 $root = Join-Path $env:LOCALAPPDATA 'Programs/IWXA Admin Center'
 $dataRoot = Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center/atlas-store-v1'
@@ -158,7 +158,7 @@ try {
     for ($i=0; $i -lt 90; $i++) {
         Start-Sleep -Milliseconds 350
         $installed = Get-ItemProperty -Path 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center' -ErrorAction SilentlyContinue
-        if ($installed.Version -eq '0.3.0-dev.2' -and
+        if ($installed.Version -eq '0.4.1' -and
             (Test-Path -LiteralPath ($root + '.iwxa-previous'))) {
             $switched = $true
             break
