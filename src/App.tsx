@@ -25,6 +25,7 @@ type AtlasPortfolioView = {source:string;revision:string;authorization:string;mo
 type AtlasCopyDelta={previousRevision:string;revision:string;sharedProjects:number;addedProjects:number;removedProjects:number;changedProjects:number;addedWorks:number;removedWorks:number;changedWorks:number;changedDependencies:number;revisionRelation:string;contentChanged:boolean};
 type Editor = {sourceResultRef:SourceResultRef|null;assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
 type Page = 'overview'|'context'|'work'|'results'|'resources'|'people'|'programs'|'data';
+type InspectorPreview = {key:string;kind:'assignment'|'person'|'workspace'|'atlas-project';id:string;organizationId:string;label:string};
 const pages: [Page, string, string][] = [['overview','Главная','⌂'],['context','Контекст организации','◎'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['resources','Планы Atlas','◇'],['programs','Personal Agent и лицензии','▦'],['data','Профиль и данные','◈']];
 const workStatusLabels:Record<string,string>={
   NOT_OBSERVED:'Источник Atlas не открыт - редакция не проверена.',
@@ -116,7 +117,9 @@ export default function App() {
   const [navQuery,setNavQuery]=useState('');
   const [v8Menu,setV8Menu]=useState('');
   const [inspectorVisible,setInspectorVisible]=useState(false);
-  const [inspectorTab,setInspectorTab]=useState<'context'|'tasks'|'sources'>('context');
+  const [inspectorTab,setInspectorTab]=useState<'context'|'tasks'|'sources'|'selected'>('context');
+  const [inspectorPreviews,setInspectorPreviews]=useState<InspectorPreview[]>([]);
+  const [activePreviewKey,setActivePreviewKey]=useState('');
   const [inspectorWidth,setInspectorWidth]=useState(()=>{
     try{const width=Number(localStorage.getItem('iwxa.admin-center.v8.inspector.width'));
       return Number.isFinite(width)&&width>=310&&width<=680?width:355;}
@@ -214,6 +217,11 @@ export default function App() {
   const matchingNativeAtlas=nativeAtlas&&nativeAtlas.organizationId===org?.id ? nativeAtlas.view : null;
   const observedAtlas=selectAtlasReferenceSource(atlasView,matchingNativeAtlas,atlasObservationMode) as AtlasPortfolioView|null;
   const currentFile=atlasFile?.organizationId===org?.id?atlasFile:null;
+  const selectedPreview=inspectorPreviews.find(p=>p.key===activePreviewKey&&p.organizationId===org?.id);
+  const previewTask=selectedPreview?.kind==='assignment'?org?.assignments.find(t=>t.id===selectedPreview.id):null;
+  const previewPerson=selectedPreview?.kind==='person'?org?.participants.find(p=>p.id===selectedPreview.id):null;
+  const previewWorkspace=selectedPreview?.kind==='workspace'?org?.workspaces.find(w=>w.id===selectedPreview.id):null;
+  const previewProject=selectedPreview?.kind==='atlas-project'?observedAtlas?.projects.find(p=>p.id===selectedPreview.id):null;
   const fileLinksToReview=atlasView?(org?.assignments??[]).filter(a=>
     a.atlasRef?.workId&&atlasWorkReadback(atlasView,a.atlasRef)!=='SOURCE_REVISION_MATCHES').length:0;
   const stats = overview(state);
@@ -358,6 +366,17 @@ export default function App() {
     setManagerOriginal(selection);
     go('results');
   };
+  const openInspectorPreview=(kind:InspectorPreview['kind'],id:string,label:string)=>{
+    if(!org)return;
+    const key=kind+':'+org.id+':'+id;
+    const item:InspectorPreview={key,kind,id,label,organizationId:org.id};
+    setInspectorPreviews(prev=>[...prev.filter(p=>p.key!==key),item].slice(-8));
+    setActivePreviewKey(key);setInspectorTab('selected');setInspectorVisible(true);
+  };
+  const closeInspectorPreview=(key:string)=>{
+    setInspectorPreviews(prev=>prev.filter(p=>p.key!==key));
+    if(activePreviewKey===key){setActivePreviewKey('');setInspectorTab('context');}
+  };
   const openContextEntry = (entry:{kind:string;id:string}) => {
     if(!org)return;
     if(entry.kind==='assignment'){
@@ -370,6 +389,13 @@ export default function App() {
       'atlas-project':'resources','atlas-work':'resources',
       'signed-task':'results','signed-result-package':'results'
     };
+    if(entry.kind==='person'){
+      const person=org.participants.find(p=>p.id===entry.id);
+      if(person)openInspectorPreview('person',person.id,person.name);
+    } else if(entry.kind==='workspace'){
+      const space=org.workspaces.find(w=>w.id===entry.id);
+      if(space)openInspectorPreview('workspace',space.id,space.name);
+    }
     go(destination[entry.kind]??'context');
   };
   const openContextAttention = (item:{destination:string;assignmentId:string|null}) => {
@@ -409,6 +435,7 @@ export default function App() {
     const next=item ? {assignmentId:item.id, expectedEditNumber:item.editNumber, title:item.title, workspaceId:item.workspaceId, assigneeId:item.assigneeId ?? '', reviewerId:item.reviewerId ?? '', description:item.description, criteria:item.criteria, dueDate:item.dueDate, priority:item.priority, atlasRef:item.atlasRef,sourceResultRef:item.sourceResultRef??null} : initialEditor(org);
     editorBaselineRef.current=JSON.stringify(next);
     setEditor(next);
+    if(item)openInspectorPreview('assignment',item.id,item.title);
     setError('');
     go('work');
   };
@@ -489,6 +516,7 @@ export default function App() {
     if (editor) {setError('Сохраните или закройте открытый редактор поручения перед сменой организации.'); return;}
     if(command({type:'SELECT_ORGANIZATION',organizationId})){
       setManagerOriginal(null);setFocusedEmployeeContact(null);
+      setInspectorPreviews([]);setActivePreviewKey('');setInspectorTab('context');
       atlasFileRequest.current++;
       setAtlasFile(null);setAtlasSelected('');setAtlasWorkspace('');setNativeAtlas(null);
       setAtlasObservationMode('file');
@@ -717,7 +745,7 @@ export default function App() {
 
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает проекты и зависимости. Привязка к работе необязательна. Только проектные поручения требуют проверки точной редакции установленного Atlas перед подписанием. Обычные поручения работают через T3 без Atlas.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
-        {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span></div>)}
+        {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span><button type="button" className="secondary" onClick={()=>openInspectorPreview('workspace',w.id,w.name)}>Подробнее</button></div>)}
         <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
         <div className="card nested-form" data-testid="atlas-link-panel">
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
@@ -752,7 +780,7 @@ export default function App() {
               <div className="card metric"><span>Зависимости</span><strong>{atlasView.dependencies.length}</strong></div>
               <div className="card metric"><span>Редакция</span><strong data-testid="atlas-revision">{atlasView.revision}</strong></div>
             </div>
-            <div className="atlas-project-list">{atlasView.projects.map(project=><button type="button" key={project.id} data-testid="atlas-project-card" className={`assignment-row atlas-project-card ${atlasSelected===project.id?'chosen':''}`} onClick={()=>setAtlasSelected(project.id)}>
+            <div className="atlas-project-list">{atlasView.projects.map(project=><button type="button" key={project.id} data-testid="atlas-project-card" className={`assignment-row atlas-project-card ${atlasSelected===project.id?'chosen':''}`} onClick={()=>{setAtlasSelected(project.id);openInspectorPreview('atlas-project',project.id,project.name);}}>
               <span className="task-mark">◇</span><span className="row-content"><strong>{project.name}</strong><small>{project.total} работ · {project.done} завершено · {project.blocked} заблокировано · {project.stages} этапов</small></span><span className="status neutral">{project.progress===null?'Нет работ':project.progress+'%'}</span>
             </button>)}</div>
             {!!org.workspaces.length && !!atlasView.projects.length && <form onSubmit={e=>{e.preventDefault();if(!atlasSelected)return;const workspaceId=atlasWorkspace||org.workspaces[0].id;const link=linkableAtlasProject(atlasView,atlasSelected);command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:link});}}>
@@ -794,7 +822,7 @@ export default function App() {
         <form className="form-grid member-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;const data=new FormData(form);if(command({type:'ADD_PARTICIPANT',organizationId:org.id,name:data.get('name'),roleLabel:data.get('role')}))form.reset();}}>
           <label>Имя<input name="name" required maxLength={160} data-testid="person-name"/></label><label>Функция в команде<input name="role" maxLength={160} placeholder="Например, руководитель"/></label><button className="primary" data-testid="add-person">Добавить участника</button>
         </form>
-        {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.roleLabel||'Функция не указана'} · {person.personalAgentPlan==='PLANNED'?'Доступ к Personal Agent запланирован':'Место Personal Agent не запланировано'}</small></div><span className="status neutral">Нет подтверждённого допуска</span></div>)}
+        {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.roleLabel||'Функция не указана'} · {person.personalAgentPlan==='PLANNED'?'Доступ к Personal Agent запланирован':'Место Personal Agent не запланировано'}</small></div><span className="status neutral">Нет подтверждённого допуска</span><button type="button" className="secondary" onClick={()=>openInspectorPreview('person',person.id,person.name)}>Карточка</button></div>)}
         {!org.participants.length && <Empty title="Добавьте первого участника" text="Организация может начинать работу с одного человека. Тестовые участники автоматически не создаются."/>}
       </section></>}
 
