@@ -408,3 +408,20 @@ body{padding:11px;background:#172238}
 .v8-inspector-detail .inspector-card p:last-child{margin-bottom:0}
 .v8-inspector-detail button.primary,.v8-inspector-detail button.secondary{align-self:flex-start}
 .v8-app.with-inspector .main{min-width:0}
+
+
+/* Compact native Windows: keep real center and inspector side-by-side.
+   The icon rail remains usable; contextual nav collapses instead of
+   drawing an inspector on top of the active Task/Result editor. */
+@media (min-width:651px) and (max-width:900px){
+  .app.v8-app.with-inspector{
+    grid-template-columns:58px minmax(0,1fr) minmax(270px,min(var(--v8-inspector-width),42vw));
+  }
+  .v8-app.with-inspector .sidebar{display:none}
+  .v8-app.with-inspector .main{grid-column:2;grid-row:2;min-width:0}
+  .v8-app.with-inspector .inspector{
+    grid-column:3;grid-row:2;display:block!important;min-width:0;
+  }
+  .v8-app.with-inspector .main .top{padding-left:14px;padding-right:14px}
+  .v8-app.with-inspector .main .top-save{padding:6px 8px}
+}
