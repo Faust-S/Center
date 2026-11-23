@@ -377,3 +377,34 @@ body{padding:11px;background:#172238}
   .v8-app .main :where(.nested-form,.card.padded,.form-panel){padding:13px;}
   .v8-app .main .page-heading h1{font-size:22px}
 }
+
+
+/* V8 dock: document-specific tabs, not a second overlapping application window. */
+.v8-inspector-tabs{overflow-x:auto;overflow-y:hidden;min-width:0;scrollbar-width:thin;flex-wrap:nowrap}
+.v8-inspector-tabs>button{flex:none}
+.v8-inspector-tab-wrap{
+  display:flex;align-items:center;min-width:0;max-width:210px;flex:0 0 auto;
+  border:1px solid transparent;border-radius:8px;margin-right:3px;
+}
+.v8-inspector-tab-wrap.active{background:#fff;border-color:#afc8e7}
+.v8-inspector-tab-wrap>button:first-child{
+  min-width:0;max-width:157px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;padding:7px 4px 7px 10px;color:#56718d;
+  font-size:11px;background:transparent;border:0;
+}
+.v8-inspector-tab-wrap.active>button:first-child{color:#1f497b;font-weight:690}
+.v8-inspector-tab-close{
+  width:25px;min-height:26px;padding:0 5px;
+  font-size:15px;background:transparent;border:0;color:#6d839f;
+}
+.v8-inspector-tab-close:hover{color:#a53c49;background:#f6eded}
+.v8-inspector-detail{display:flex;flex-direction:column;align-items:stretch;gap:10px}
+.v8-inspector-detail .eyebrow{font-size:10px;color:#a94e5f}
+.v8-inspector-detail h2{font-size:18px;color:#203b5b;margin:0 0 4px}
+.v8-inspector-detail h3{font-size:13px;color:#385675;margin:8px 0 0}
+.v8-inspector-detail .inspector-card{margin:0;padding:13px 14px;background:#fff}
+.v8-inspector-detail .inspector-card strong{display:block;font-size:11px;color:#36587a}
+.v8-inspector-detail .inspector-card p{margin:5px 0 10px;font-size:11px}
+.v8-inspector-detail .inspector-card p:last-child{margin-bottom:0}
+.v8-inspector-detail button.primary,.v8-inspector-detail button.secondary{align-self:flex-start}
+.v8-app.with-inspector .main{min-width:0}
