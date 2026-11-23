@@ -5,7 +5,8 @@ import {emptyPublisherDraft,applyPublisherDraftCommand,encodePublisherDraft}
 import {CORPORATE_REQUEST_SCHEMA,
   prepareCorporateLicenseRequest as prepare,
   encodeCorporateLicenseRequest as encode,
-  suggestedCorporateLicenseRequestFileName as filename
+  suggestedCorporateLicenseRequestFileName as filename,
+  preserveSignedCorporateSources as preserve
 } from '../src/corporate-license-request.mjs';
 function fixture(features=['PERSONAL_AGENT_CORPORATE']){
  let d=emptyPublisherDraft();
@@ -60,4 +61,52 @@ test('cannot claim a production license by relabeling the unsigned request',()=>
    code:'CORPORATE_REQUEST_UNSIGNED_PROFILE_REQUIRED'});
  assert.throws(()=>encode({...r,status:'ACTIVE'}),{
    code:'CORPORATE_REQUEST_UNSIGNED_PROFILE_REQUIRED'});
+});
+
+const emptyOriginal=(id)=>({
+ operation:'CORPORATE_INVENTORY',lookupId:id,matches:0,licenses:[],
+ total:0,truncated:false,productionActivation:false,activeSeats:0
+});
+test('corporate preparation may be deleted only after exact original unsigned readback',async()=>{
+ const draft=fixture(),id=draft.proposals[0].id;
+ const next=applyPublisherDraftCommand(draft,{kind:'removeProposal',id});
+ const previous=encodePublisherDraft(draft);
+ let reads=0;
+ await preserve(draft,draft,async()=>{reads++;throw Error('SHOULD_NOT_READ');});
+ assert.equal(reads,0,'Unchanged sources must not contact original T3');
+ await preserve(draft,next,async lookupId=>{reads++;assert.equal(lookupId,id);
+  return emptyOriginal(lookupId);});
+ assert.equal(reads,1);
+ assert.equal(encodePublisherDraft(draft),previous,
+  'Guard cannot mutate or persist drafts');
+ assert.equal(next.proposals.length,0);
+});
+test('signed corporate source survives deletion and changed same-id preparation',async()=>{
+ const draft=fixture(),id=draft.proposals[0].id;
+ const without=applyPublisherDraftCommand(draft,{kind:'removeProposal',id});
+ const ledger=async lookupId=>({
+  ...emptyOriginal(lookupId),matches:1,total:1,
+  licenses:[{requestId:id,licenseId:'corporate:license:one'}]
+ });
+ await assert.rejects(preserve(draft,without,ledger),{
+  code:'CORPORATE_SOURCE_SIGNED_REQUEST_MUST_BE_RETAINED'});
+ const changed=structuredClone(draft);
+ changed.proposals[0].productVersion='0.6.0';
+ await assert.rejects(preserve(draft,changed,ledger),{
+  code:'CORPORATE_SOURCE_SIGNED_REQUEST_MUST_BE_RETAINED'});
+});
+test('corporate source guard fails closed on unknown, truncated or malformed T3 ledger',async()=>{
+ const draft=fixture(),id=draft.proposals[0].id;
+ const without=applyPublisherDraftCommand(draft,{kind:'removeProposal',id});
+ await assert.rejects(preserve(draft,without,async()=>{throw Error('OFFLINE');}),{
+  code:'CORPORATE_SOURCE_ORIGINAL_LEDGER_UNAVAILABLE'});
+ for(const malformed of [
+  {...emptyOriginal(id),lookupId:'another'},
+  {...emptyOriginal(id),truncated:true},
+  {...emptyOriginal(id),matches:0,licenses:[{requestId:id}]},
+  {...emptyOriginal(id),productionActivation:true}
+ ]){
+  await assert.rejects(preserve(draft,without,async()=>malformed),{
+   code:'CORPORATE_SOURCE_LEDGER_READBACK_INVALID'});
+ }
 });
