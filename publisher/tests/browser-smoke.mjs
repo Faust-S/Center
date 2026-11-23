@@ -146,6 +146,15 @@ try {
           state:entry.status,sequence:entry.sequence,
           activeSeats:0,productionActivation:false};
       }
+      if(command==='publisher_t3_corporate_export'){
+        const entry=JSON.parse(sessionStorage.getItem('publisher-corporate-mock-signed')||'null');
+        if(!entry||entry.licenseId!==args.licenseId||
+           entry.sequence<1||entry.status==='NOT_ACTIVATED')
+          throw Error('CORPORATE_ORIGINAL_SIGNED_STATUS_REQUIRED');
+        return {operation:'CORPORATE_IWXA_EXPORTED',
+          licenseId:entry.licenseId,packageSha256:'c'.repeat(64),
+          bytes:7312,activeSeats:0,productionActivation:false};
+      }
       if(command==='publisher_t3_corporate_inventory'){
         if(window.__publisherMockCorporateFailNextInventory===true){
           window.__publisherMockCorporateFailNextInventory=false;
@@ -876,6 +885,27 @@ try {
   assert.equal(await coldCorp.getByTestId('publisher-corporate-outcome-unknown').count(),0);
   assert.equal(await page.evaluate(()=>window.__publisherMockCorporateStatusCalls||0),1);
   checks.push('corporate-status-lost-ack-exact-sequence-only-no-second-status');
+  await coldCorp.getByTestId('publisher-corporate-native-export').click();
+  const handoff= coldCorp.getByTestId('publisher-corporate-delivery-handoff');
+  await handoff.waitFor();
+  assert.match(await handoff.innerText(),/license:corporate:fixture/);
+  assert.match(await handoff.innerText(),/STATUS: ACTIVE, редакция 1/);
+  assert.match(await handoff.innerText(),new RegExp('c'.repeat(64)));
+  assert.match(await handoff.innerText(),/7312 байт/);
+  assert.match(await handoff.innerText(),/получения T3 права организации и сотрудников не меняются/);
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);
+  // A new signed STATUS makes the previous exported file a historical
+  // carrier, never the current revision displayed for delivery.
+  await coldCorp.getByLabel('Действие STATUS').selectOption('SUSPENDED');
+  await coldCorp.getByRole('checkbox',{
+    name:'Подтверждаю отдельную подпись STATUS; отзыв необратим'
+  }).check();
+  await coldCorp.getByRole('button',{name:'Подписать новый STATUS через T3'}).click();
+  await coldCorp.getByText('Подписанный STATUS сохранён в оригинальном T3.',{exact:false}).waitFor();
+  assert.equal(await handoff.count(),0,
+    'An export of STATUS sequence 1 must not remain current after sequence 2');
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);
+  checks.push('corporate-export-exact-sha256-and-new-status-invalidates-old-handoff');
   const ownerPanel=page.getByTestId('publisher-t3-owner-panel');
   await ownerPanel.getByText('Журнал T3 недоступен при запуске.',{exact:false}).waitFor();
   assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
