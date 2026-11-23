@@ -32,6 +32,11 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
  const [corporateMessage,setCorporateMessage]=useState('');
  const [corporateFailure,setCorporateFailure]=useState('');
  const actionRef=useRef(false);
+ // Ignore old source responses if the manager switches organizations while
+ // a native file picker, trusted enrollment or Store read is in flight.
+ const latestOrgRef=useRef(organizationId);
+ latestOrgRef.current=organizationId;
+ const sameOrg=()=>latestOrgRef.current===organizationId;
  const [latest,setLatest]=useState<{licenseId:string;status:string;outcome:string}|null>(null);
  const [message,setMessage]=useState('');
  const [failure,setFailure]=useState('');
@@ -149,18 +154,48 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
      const value=await invoke('center_cen04_corporate_t3_enroll',{
        organizationId,expectedSha256:fingerprint
      });
+     if(!sameOrg())return;
      if(value===null){setCorporateMessage('Выбор публичного доверия отменён.');return;}
      inspectCorporateEnrollment(value,organizationId,fingerprint);
      const caps=await invoke('center_cen04_corporate_t3_capabilities',{organizationId});
-     inspectCorporateCapabilities(caps,organizationId);
+     const installed=inspectCorporateCapabilities(caps,organizationId);
+     if(installed.fingerprint!==fingerprint)
+       throw Error('CEN04_CORPORATE_TRUST_FINGERPRINT_MISMATCH');
+     if(!sameOrg())return;
      setCorporateReady(true);setCorporateTrustSha('');
      setCorporateMessage('Доверие корпоративного издателя установлено в оригинальном T3. '+
        'Лицензия ещё не получена, права и места не назначены.');
      try{
        const read=await invoke('center_cen04_corporate_t3_read',{organizationId});
-       setCorporateRead(inspectCorporateRead(read,organizationId));
-     }catch(e){setCorporateFailure('Не удалось перечитать корпоративный T3: '+error(e));}
-   }catch(e){setCorporateFailure('Не удалось установить корпоративное доверие: '+error(e));}
+       const evidence=inspectCorporateRead(read,organizationId);
+       if(sameOrg())setCorporateRead(evidence);
+     }catch(e){if(sameOrg())setCorporateFailure('Не удалось перечитать корпоративный T3: '+error(e));}
+   }catch(e){
+     if(!sameOrg())return;
+     // First-use may have committed before its ACK was lost. Re-read the
+     // ORIGINAL organization-scoped trust and match the exact independently
+     // supplied fingerprint before treating an enrollment as recovered.
+     try{
+       const caps=await invoke('center_cen04_corporate_t3_capabilities',{organizationId});
+       const installed=inspectCorporateCapabilities(caps,organizationId);
+       if(installed.fingerprint!==fingerprint)
+         throw Error('CEN04_CORPORATE_TRUST_FINGERPRINT_MISMATCH');
+       if(!sameOrg())return;
+       setCorporateReady(true);setCorporateTrustSha('');
+       setCorporateMessage('Исходный T3 подтвердил уже установленное доверие по SHA-256. '+
+         'Повторное создание ключей или Store не требуется.');
+       try{
+         const read=await invoke('center_cen04_corporate_t3_read',{organizationId});
+         const evidence=inspectCorporateRead(read,organizationId);
+         if(sameOrg())setCorporateRead(evidence);
+       }catch(readError){
+         if(sameOrg())setCorporateFailure('Доверие подтверждено, но readback T3 не удался: '+error(readError));
+       }
+     }catch(recoverError){
+       if(sameOrg())setCorporateFailure('Не удалось подтвердить корпоративное доверие T3: '+
+         error(e)+'; контрольный readback: '+error(recoverError));
+     }
+   }
    finally{actionRef.current=false;setBusy(false);}
  }
  async function receiveCorporate(){
@@ -182,20 +217,25 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
      const result=await invoke('center_cen04_corporate_t3_receive',{
        organizationId,expectedSha256,expectedBytes
      });
+     if(!sameOrg())return;
      if(result===null){setCorporateMessage('Получение корпоративного файла отменено.');return;}
      const saved=inspectCorporateReceived(result,organizationId,expectedSha256);
      setCorporateLatest(saved);
      try{
        const read=await invoke('center_cen04_corporate_t3_read',{organizationId});
-       setCorporateRead(inspectCorporateRead(read,organizationId));
+       const evidence=inspectCorporateRead(read,organizationId);
+       if(!sameOrg())return;
+       setCorporateRead(evidence);
        setCorporateMessage(saved.outcome==='ALREADY_RECEIVED'
          ?'Исходные LICENSE и STATUS уже сохранены в T3. Новая запись не создана.'
          :'Подписи LICENSE и STATUS проверены оригинальным T3, запись сохранена и прочитана.');
      }catch(e){
-       setCorporateRead(null);
-       setCorporateFailure('Лицензия подтверждена исходной квитанцией, но общий readback не удался: '+error(e));
+       if(sameOrg()){
+         setCorporateRead(null);
+         setCorporateFailure('Лицензия подтверждена исходной квитанцией, но общий readback не удался: '+error(e));
+       }
      }
-   }catch(e){setCorporateFailure('T3 не принял корпоративную лицензию: '+error(e));}
+   }catch(e){if(sameOrg())setCorporateFailure('T3 не принял корпоративную лицензию: '+error(e));}
    finally{actionRef.current=false;setBusy(false);}
  }
  async function refreshCorporate(){
@@ -204,8 +244,11 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    setCorporateFailure('');
    try{
      const value=await invoke('center_cen04_corporate_t3_read',{organizationId});
-     setCorporateRead(inspectCorporateRead(value,organizationId));
-   }catch(e){setCorporateRead(null);setCorporateFailure('Корпоративное чтение T3: '+error(e));}
+     const evidence=inspectCorporateRead(value,organizationId);
+     if(sameOrg())setCorporateRead(evidence);
+   }catch(e){if(sameOrg()){
+     setCorporateRead(null);setCorporateFailure('Корпоративное чтение T3: '+error(e));
+   }}
    finally{actionRef.current=false;setBusy(false);}
  }
  async function configureTrust(){
