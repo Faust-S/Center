@@ -296,6 +296,9 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
             snapshot["d3EmployeeTaskIssueAvailable"]==true,
         "d3EmployeeTaskGrantIssue"|"d3EmployeeTaskGrantReadback"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true,
+        "d3EmployeeWorkspaceGrantIssue"|"d3EmployeeWorkspaceGrantReadback"=>
+            snapshot["d3EmployeeEnrollmentAvailable"]==true&&
+            snapshot["d3EmployeeWorkspaceRightsAvailable"]==true,
         "d3EmployeeCredentialBegin"|"d3EmployeeCredentialCancel"|
         "d3EmployeeCredentialAdmit"|
         "d3EmployeeCredentialRead"|"d3EmployeeBegin"|
@@ -1188,6 +1191,20 @@ pub async fn center_corporate_action(
             return Err("CEN_D3_EMPLOYEE_TASK_HUMAN_CANCELLED".into());
         }
     }
+    if operation=="d3EmployeeWorkspaceGrantIssue"{
+        let who=input["employeePersonId"].as_str().unwrap_or("");
+        let enrollment=input["enrollmentId"].as_str().unwrap_or("");
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: права сотрудника в Workspace")
+            .set_description(&format!(
+                "Выдать сотруднику {} (подключение {}) четыре отдельных подписанных полномочия исходного Kernel: чтение Workspace, запись объектов, создание Workspace и импорт полного архива через T2 Exchange? Личная область сотрудника и права руководителя не изменяются. После отправки повторная выдача запрещена до чтения исходного Kernel.",who,enrollment))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Warning)
+            .show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Err("CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_HUMAN_CANCELLED".into());
+        }
+    }
     if operation=="d3EmployeeTaskGrantIssue"{
         let who=input["employeePersonId"].as_str().unwrap_or("");
         let enrollment=input["enrollmentId"].as_str().unwrap_or("");
@@ -1774,6 +1791,15 @@ mod tests{
             "enrollmentId":"enrollment:one"}),"d3EmployeeRead").is_ok());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one"}),"d3EmployeeExportInvite").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","confirmed":true}),
+            "d3EmployeeWorkspaceGrantIssue").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","confirmed":false}),
+            "d3EmployeeWorkspaceGrantIssue").is_err());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one"}),
+            "d3EmployeeWorkspaceGrantReadback").is_ok());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one","confirmed":true}),
             "d3EmployeeTaskGrantIssue").is_ok());
