@@ -2,7 +2,8 @@ import React,{useMemo,useState} from 'react';
 import {projectCorporateSigningOffers} from '../src/corporate-offer-review.mjs';
 import {prepareCorporateLicenseRequest,encodeCorporateLicenseRequest}
   from '../src/corporate-license-request.mjs';
-import {inspectCorporateIssuePreflight} from '../src/corporate-owner-readback.mjs';
+import {inspectCorporateIssuePreflight,inspectUnknownCorporateMutationReadback}
+  from '../src/corporate-owner-readback.mjs';
 
 type Offer={proposalId:string;organization:{id:string;name:string};
   tariff:{id:string;name:string;revision:number};
@@ -45,7 +46,11 @@ export default function PublisherCorporateOwnerPanel({
   const [confirmStatus,setConfirmStatus]=useState(false);
   const [unknown,setUnknown]=useState(false);
   const [unconfirmed,setUnconfirmed]=useState<
-    {kind:'ISSUE'|'STATUS';requestId:string;licenseId?:string}|null>(null);
+    |{kind:'ISSUE';requestId:string;issuerId:string;organizationId:string;
+       tariffId:string;tariffRevision:number}
+    |{kind:'STATUS';requestId:string;licenseId:string;
+       expectedSequence:number;expectedStatus:'ACTIVE'|'SUSPENDED'|'REVOKED'}
+    |null>(null);
   const [busy,setBusy]=useState(false);
   const [feedback,setFeedback]=useState('');
   const [problem,setProblem]=useState('');
@@ -198,7 +203,10 @@ export default function PublisherCorporateOwnerPanel({
         // The original T3 may have committed despite lost native response.
         // Keep the request ID in the exact lookup field for cold recovery.
         setLookup(review.request.requestId);
-        setUnconfirmed({kind:'ISSUE',requestId:review.request.requestId});
+        setUnconfirmed({kind:'ISSUE',requestId:review.request.requestId,
+          issuerId:review.issuerId,organizationId:review.request.subject.id,
+          tariffId:review.request.tariff.id,
+          tariffRevision:review.request.tariff.revision});
         setUnknown(true);
         setProblem('Исход операции не подтверждён. Не повторяйте подписание. '+
           'Проверьте точный requestId в журнале T3: '+error(e));
@@ -225,10 +233,12 @@ export default function PublisherCorporateOwnerPanel({
            lookup.trim()===signedRead.licenseId||
            lookup.trim()===signedRead.organizationId))
         throw Error('CORPORATE_OWNER_LOOKUP_BINDING_INVALID');
-      if(unknown&&(!unconfirmed||
-        signedRead.requestId!==unconfirmed.requestId||
-        (unconfirmed.kind==='STATUS'&&signedRead.licenseId!==unconfirmed.licenseId)))
-        throw Error('CORPORATE_UNKNOWN_OUTCOME_REQUIRES_SAME_ORIGINAL_REQUEST');
+      if(unknown){
+        // The current owner record at an older STATUS sequence does not
+        // confirm a lost STATUS write. Compare its EXACT committed revision,
+        // not merely the license ID, before re-enabling any issuer action.
+        inspectUnknownCorporateMutationReadback(unconfirmed,signedRead);
+      }
       setSigned(signedRead);setUnknown(false);setUnconfirmed(null);setReview(null);
       setConfirmIssue(false);setConfirmStatus(false);
       setFeedback('Подпись и STATUS подтверждены двумя независимыми чтениями исходного журнала. Доставка и приём организацией не доказаны.');
@@ -261,7 +271,8 @@ export default function PublisherCorporateOwnerPanel({
     }catch(e){
       setSigned(null);setUnknown(true);
       setUnconfirmed({kind:'STATUS',requestId:previous.requestId,
-        licenseId:previous.licenseId});
+        licenseId:previous.licenseId,expectedSequence:previous.sequence+1,
+        expectedStatus:statusAction});
       setLookup(previous.licenseId);
       setProblem('Неизвестный исход STATUS. Нельзя повторно подписывать без точного исходного readback: '+error(e));
     }finally{setBusy(false);}
