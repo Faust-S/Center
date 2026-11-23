@@ -102,6 +102,10 @@ try {
           organizationId:request.subject.id,productId:'IWXA_ADMIN_CENTER',
           status:'NOT_ACTIVATED',sequence:0};
         sessionStorage.setItem('publisher-corporate-mock-signed',JSON.stringify(entry));
+        if(window.__publisherMockCorporateLoseNextIssueReceipt===true){
+          window.__publisherMockCorporateLoseNextIssueReceipt=false;
+          throw Error('CORPORATE_ORIGINAL_ISSUE_ACK_LOST');
+        }
         return {operation:'CORPORATE_ISSUE',outcome:'ISSUED_NEW',
           licenseId:entry.licenseId,requestId:entry.requestId,
           productionActivation:false,activeSeats:0};
@@ -122,6 +126,10 @@ try {
           assignablePersonalAgentSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_corporate_inventory'){
+        if(window.__publisherMockCorporateFailNextInventory===true){
+          window.__publisherMockCorporateFailNextInventory=false;
+          throw Error('CORPORATE_ORIGINAL_LEDGER_TEMPORARILY_UNAVAILABLE');
+        }
         const entry=JSON.parse(sessionStorage.getItem('publisher-corporate-mock-signed')||'null');
         const matches=entry&&
           [entry.licenseId,entry.requestId,entry.organizationId].includes(args.lookupId)
@@ -767,13 +775,56 @@ try {
   assert.equal(await corp.getByTestId('publisher-corporate-native-issue').isDisabled(),true);
   assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),0);
   await corp.getByRole('checkbox',{name:'Подтверждаю выдачу организации по этим условиям'}).check();
+  // The original T3 ledger must be readable before any irreversible
+  // ISSUE. A failure here cannot be represented as a signed license.
+  await page.evaluate(()=>{window.__publisherMockCorporateFailNextInventory=true;});
   await corp.getByTestId('publisher-corporate-native-issue').click();
+  await corp.getByText('Подписание не начиналось.',{exact:false}).waitFor();
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),0);
+  assert.equal(await corp.getByTestId('publisher-corporate-outcome-unknown').count(),0);
+  checks.push('corporate-issuer-preflight-fails-closed-before-signing');
+  // The original owner commits a signed record and then loses its ACK.
+  // Reconciliation must find this durable signature without a second ISSUE.
+  await page.evaluate(()=>{window.__publisherMockCorporateLoseNextIssueReceipt=true;});
+  await corp.getByTestId('publisher-corporate-native-issue').click();
+  await corp.getByTestId('publisher-corporate-outcome-unknown').waitFor();
+  const signedRequestId=JSON.parse(await page.evaluate(()=>
+    sessionStorage.getItem('iwxa-publisher-test-native-draft')))
+    .proposals.find(p=>p.tariffSnapshot)?.id;
+  assert.equal(await corp.getByTestId('publisher-corporate-native-lookup').inputValue(),signedRequestId);
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);
+  assert.equal(await corp.getByTestId('publisher-corporate-native-issue').isDisabled(),true);
+  // A different exact lookup must not clear this unresolved mutation.
+  await corp.getByTestId('publisher-corporate-native-lookup').fill('org:other');
+  await corp.getByRole('button',{name:'Прочитать подписанный журнал T3'}).click();
+  await corp.getByTestId('publisher-corporate-outcome-unknown').waitFor();
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);
+  await corp.getByTestId('publisher-corporate-native-lookup').fill(signedRequestId);
+  await corp.getByRole('button',{name:'Прочитать подписанный журнал T3'}).click();
   await corp.getByTestId('publisher-corporate-native-readback').waitFor();
+  assert.equal(await corp.getByTestId('publisher-corporate-outcome-unknown').count(),0);
   assert.match(await corp.getByTestId('publisher-corporate-native-readback').innerText(),
     /Подписано издателем T3, не принято получателем/);
   assert.match(await corp.getByTestId('publisher-corporate-native-readback').innerText(),
     /Назначаемых мест: 0/);
   assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);
+  checks.push('corporate-lost-issue-ack-exact-original-readback-no-second-signing');
+  // Even after the whole Owner page is unmounted, the original requestId
+  // is checked again before calling the issuer. UI state is not a durable
+  // replacement for T3's original signed ledger.
+  await page.getByRole('button',{name:'Лицензии',exact:true}).click();
+  await page.getByRole('button',{name:'Доверие и ключи',exact:true}).click();
+  const coldCorp=page.getByTestId('publisher-corporate-native-owner');
+  await coldCorp.getByTestId('publisher-corporate-owner-check').click();
+  await coldCorp.getByLabel('Подготовленное предложение организации').selectOption(signedRequestId);
+  await coldCorp.getByTestId('publisher-corporate-native-seats').fill('0');
+  await coldCorp.getByRole('button',{name:'Проверить условия перед подписью'}).click();
+  await coldCorp.getByRole('checkbox',{name:'Подтверждаю выдачу организации по этим условиям'}).check();
+  await coldCorp.getByTestId('publisher-corporate-native-issue').click();
+  await coldCorp.getByTestId('publisher-corporate-native-readback').waitFor();
+  await coldCorp.getByText('Повторное подписание не выполнялось.',{exact:false}).waitFor();
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);
+  checks.push('corporate-cold-window-reopening-original-ledger-dedup-without-second-issue');
   checks.push('corporate-owner-ui-human-consent-cold-signed-readback-no-recipient-grant');
   const ownerPanel=page.getByTestId('publisher-t3-owner-panel');
   await ownerPanel.getByText('Журнал T3 недоступен при запуске.',{exact:false}).waitFor();
