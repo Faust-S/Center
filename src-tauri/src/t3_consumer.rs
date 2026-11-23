@@ -385,6 +385,11 @@ pub async fn center_cen04_corporate_t3_enroll(
   if !corporate_hex(&expected_sha256){
     return Err("CEN04_CORPORATE_PUBLIC_TRUST_SHA256_REQUIRED".into());
   }
+  // First use needs only the exact independently pinned ORIGINAL T3 EXE,
+  // not any previously provisioned publisher trust or local DPAPI key.
+  if !t3::availability(&app,"consumer-corporate"){
+    return Err("CEN04_CORPORATE_ORIGINAL_CONSUMER_NOT_BUNDLED".into());
+  }
   let file=rfd::FileDialog::new()
     .set_title("Admin Center - выбрать публичное доверие корпоративного издателя")
     .add_filter("T3 public trust",&["json"]).pick_file();
