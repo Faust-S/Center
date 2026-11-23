@@ -61,11 +61,11 @@ class Admin04UnifiedDesign(unittest.TestCase):
             json.loads((ROOT / "installer/products/center.json").read_text(encoding="utf-8"))["version"],
         ]
         cargo = (ROOT / "src-tauri/Cargo.toml").read_text(encoding="utf-8")
-        self.assertEqual(versions, ["0.4.0"] * 3)
-        self.assertIn('version = "0.4.0"', cargo)
+        self.assertEqual(versions, ["0.4.1"] * 3)
+        self.assertIn('version = "0.4.1"', cargo)
         app = (ROOT / "src/App.tsx").read_text(encoding="utf-8")
         theme = (ROOT / "src/admin-v8.css").read_text(encoding="utf-8")
-        self.assertIn("Версия программы: 0.4.0", app)
+        self.assertIn("Версия программы: 0.4.1", app)
         self.assertIn('className="v8-page-location"', app)
         self.assertIn('className="v8-profile-mark"', app)
         self.assertIn('className="v8-rail"', app)
