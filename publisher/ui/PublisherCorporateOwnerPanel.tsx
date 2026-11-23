@@ -4,6 +4,8 @@ import {prepareCorporateLicenseRequest,encodeCorporateLicenseRequest}
   from '../src/corporate-license-request.mjs';
 import {inspectCorporateIssuePreflight,inspectUnknownCorporateMutationReadback}
   from '../src/corporate-owner-readback.mjs';
+import {projectCorporateDeliveryHandoff}
+  from '../src/corporate-delivery-handoff.mjs';
 
 type Offer={proposalId:string;organization:{id:string;name:string};
   tariff:{id:string;name:string;revision:number};
@@ -40,6 +42,13 @@ export default function PublisherCorporateOwnerPanel({
     sourceSha256:string;issuerId:string}|null>(null);
   const [confirmIssue,setConfirmIssue]=useState(false);
   const [signed,setSigned]=useState<IssuerReadback|null>(null);
+  const [delivery,setDelivery]=useState<null|{
+    licenseId:string;requestId:string;issuerAuthorityId:string;
+    organizationId:string;productId:string;tariffId:string;
+    tariffRevision:number;status:string;sequence:number;
+    licenseEnvelopeSha256:string;statusEnvelopeSha256:string;
+    packageSha256:string;bytes:number;
+  }>(null);
   const [lookup,setLookup]=useState('');
   const [statusAction,setStatusAction]=useState<'ACTIVE'|'SUSPENDED'|'REVOKED'>('ACTIVE');
   const [validUntil,setValidUntil]=useState('');
@@ -55,6 +64,13 @@ export default function PublisherCorporateOwnerPanel({
   const [feedback,setFeedback]=useState('');
   const [problem,setProblem]=useState('');
   const selected=offers.items.find((o:Offer)=>o.proposalId===proposalId);
+  // An export receipt is valid for one exact signed STATUS revision only.
+  const currentDelivery=delivery&&signed&&!unknown&&
+    delivery.licenseId===signed.licenseId&&
+    delivery.requestId===signed.requestId&&
+    delivery.status===signed.status&&delivery.sequence===signed.sequence&&
+    delivery.licenseEnvelopeSha256===signed.licenseEnvelopeSha256&&
+    delivery.statusEnvelopeSha256===signed.statusEnvelopeSha256?delivery:null;
   const clearAction=()=>{setReview(null);setConfirmIssue(false);setSigned(null);
     setConfirmStatus(false);setFeedback('');
     // A lost ACK is not cleared by editing an issuer, seat or proposal.
@@ -280,7 +296,7 @@ export default function PublisherCorporateOwnerPanel({
 
   async function exportSignedIwxa(){
     if(!signed||signed.status==='NOT_ACTIVATED'||unknown||busy)return;
-    setBusy(true);setProblem('');setFeedback('');
+    setBusy(true);setProblem('');setFeedback('');setDelivery(null);
     try{
       const result=await invoke('publisher_t3_corporate_export',{
         licenseId:signed.licenseId
@@ -288,13 +304,12 @@ export default function PublisherCorporateOwnerPanel({
       if(result===null){
         setFeedback('Выбор места сохранения .iwxa отменён.');return;
       }
-      if(result.operation!=='CORPORATE_IWXA_EXPORTED'||
-         result.licenseId!==signed.licenseId||
-         !HEX.test(result.packageSha256)||
-         !Number.isSafeInteger(result.bytes)||result.bytes<1||
-         result.productionActivation!==false||result.activeSeats!==0)
-        throw Error('CORPORATE_OWNER_IWXA_NOT_VERIFIED');
-      setFeedback('Оригинальный T3 записал подписанный .iwxa. Целостность файла проверена. Доставка, принятие Admin Center и места Personal Agent ещё не подтверждены.');
+      // After the native file was written, read the ORIGINAL issuer ledger
+      // twice. Never present an older STATUS as the identity of a new carrier.
+      const latest=await coldSignedReadback(signed.licenseId,signed.requestId);
+      const checked=projectCorporateDeliveryHandoff(signed,result,latest);
+      setSigned(latest);setDelivery(checked);
+      setFeedback('Подписанный .iwxa сохранён оригинальным T3. Контрольные данные ниже нужны для независимой сверки в Admin Center.');
     }catch(e){
       setProblem('Нельзя подтвердить экспорт исходного .iwxa: '+error(e));
     }finally{setBusy(false);}
@@ -401,6 +416,23 @@ export default function PublisherCorporateOwnerPanel({
           onClick={()=>void exportSignedIwxa()}>
           Экспортировать подписанный .iwxa через исходный T3
         </button>}
+      {currentDelivery&&<section className="publisher-test-request"
+        data-testid="publisher-corporate-delivery-handoff"
+        aria-label="Контрольные данные передачи корпоративной лицензии">
+        <strong>Подписанный файл готов к передаче</strong>
+        <p>Организация: {currentDelivery.organizationId}.
+          Лицензия: {currentDelivery.licenseId}.
+          Запрос: {currentDelivery.requestId}.</p>
+        <p>Издатель: {currentDelivery.issuerAuthorityId}.
+          STATUS: {currentDelivery.status}, редакция {currentDelivery.sequence}.</p>
+        <p>SHA-256 файла .iwxa:
+          <code className="pub-long-code">{currentDelivery.packageSha256}</code>
+        </p>
+        <p>Размер файла: {currentDelivery.bytes} байт.</p>
+        <p>Передайте файл в Admin Center и независимо сверяйте его с
+          исходным публичным доверием издателя. До подтверждения
+          получения T3 права организации и сотрудников не меняются.</p>
+      </section>}
       {signed.status!=='REVOKED'&&<div>
         <label>Действие STATUS
           <select value={statusAction} disabled={busy}
