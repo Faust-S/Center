@@ -188,6 +188,9 @@
  padding:16px 0;gap:16px;border-bottom:1px solid #e3edf7;color:#45607f;font-size:13px}
 .publisher-app .pub-settings-row strong{color:#2b496b}
 .publisher-app .pub-settings-row button{width:auto}
+.publisher-app .pub-long-code{display:block;max-width:100%;overflow-wrap:anywhere;
+  white-space:normal;user-select:text;font-size:11px;margin-top:6px;
+  padding:8px;border:1px solid #d9e5f1;background:#f6f9fd;border-radius:6px}
 
 /* Compact native laptop remains a single window. All panes share width. */
 /* Adapt to the central work area, not the outer window: opening the
