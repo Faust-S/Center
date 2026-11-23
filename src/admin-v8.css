@@ -1,7 +1,7 @@
 /* IWXA Admin Center V8. Native React/Tauri presentation layer only.
    Original T2/T3/Atlas/Publisher authority and storage are unchanged. */
 body{padding:11px;background:#172238}
-.app.v8-app{--v8-inspector-width:355px;display:grid;grid-template-columns:60px 247px minmax(0,1fr);grid-template-rows:49px minmax(0,1fr);height:calc(100vh - 22px);min-height:600px;overflow:hidden;border:1px solid #9eafc8;border-radius:15px;background:linear-gradient(120deg,#e7eef9,#f2f5fb 70%,#eaf1fb)}
+.app.v8-app{--v8-inspector-width:355px;display:grid;grid-template-columns:60px 247px minmax(0,1fr);grid-template-rows:49px minmax(0,1fr);height:calc(100vh - 24px);min-height:0;overflow:hidden;border:1px solid #9eafc8;border-radius:15px;background:linear-gradient(120deg,#e7eef9,#f2f5fb 70%,#eaf1fb)}
 .app.v8-app.with-inspector{grid-template-columns:60px 247px minmax(0,1fr) var(--v8-inspector-width)}
 .v8-titlebar{grid-column:1/-1;grid-row:1;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid #c9d6e7;background:linear-gradient(94deg,#dfe9f7,#f4f7fc 62%,#e6eef9);min-width:0}
 .v8-logo{width:31px;height:31px;flex:0 0 31px;display:block}
@@ -422,7 +422,8 @@ body{padding:11px;background:#172238}
    The icon rail remains usable; contextual nav collapses instead of
    drawing an inspector on top of the active Task/Result editor. */
 @media (min-width:651px) and (max-width:900px){
-  .app.v8-app.with-inspector{
+  .app.v8-app.with-inspector,
+  .app.v8-app.menu-open.with-inspector{
     grid-template-columns:58px minmax(0,1fr) minmax(270px,min(var(--v8-inspector-width),42vw));
   }
   .v8-app.with-inspector .sidebar{display:none}

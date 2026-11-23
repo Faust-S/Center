@@ -336,6 +336,38 @@ try{
     '820 inspector object tab must not be clipped by viewport or navigation: '+
     JSON.stringify(compactInspectorTabs));
   checks.push('v8-inspector-object-tab-not-clipped-at-1366-and-820');
+  // The compact native editor and inspector must stay in adjacent grid tracks
+  // even when the manager toggles the contextual navigation rail.
+  const compactBounds=()=>page.evaluate(()=>{
+    const shell=document.querySelector('.app.v8-app').getBoundingClientRect();
+    const main=document.querySelector('.v8-app .main').getBoundingClientRect();
+    const dock=document.querySelector('.v8-app .inspector').getBoundingClientRect();
+    const rail=document.querySelector('.v8-rail').getBoundingClientRect();
+    return {mainWidth:main.width,dockWidth:dock.width,overlap:main.right-dock.left,
+      shellBottom:shell.bottom,railBottom:rail.bottom,
+      sidebarHidden:getComputedStyle(document.querySelector('.v8-app .sidebar')).display==='none',
+      dockVisible:getComputedStyle(document.querySelector('.v8-app .inspector')).display!=='none',
+      xOverflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,
+      yOverflow:document.documentElement.scrollHeight-document.documentElement.clientHeight};
+  });
+  await page.getByRole('button',{name:'Разделы'}).click();
+  assert.equal(await page.locator('.v8-app.menu-open.with-inspector').count(),1);
+  const toggledBounds=await compactBounds();
+  assert.ok(toggledBounds.mainWidth>=330&&toggledBounds.dockWidth>=270&&
+    toggledBounds.overlap<=1&&toggledBounds.dockVisible&&toggledBounds.sidebarHidden,
+    'compact inspector + nav toggle must preserve side-by-side native editor: '+
+    JSON.stringify(toggledBounds));
+  checks.push('v8-820x650-inspector-sidebar-toggle-keeps-main-visible');
+  await page.getByRole('button',{name:'Разделы'}).click();
+  await page.setViewportSize({width:720,height:500});
+  const minBounds=await compactBounds();
+  assert.ok(minBounds.mainWidth>=320&&minBounds.dockWidth>=270&&
+    minBounds.overlap<=1&&minBounds.dockVisible&&minBounds.sidebarHidden&&
+    minBounds.shellBottom<=501&&minBounds.railBottom<=501&&
+    minBounds.xOverflow<=1&&minBounds.yOverflow<=1,
+    'native 720x500 minimum window must not clip desktop shell: '+
+    JSON.stringify(minBounds));
+  checks.push('v8-720x500-window-shell-no-clipping-or-document-overflow');
   await page.setViewportSize({width:1366,height:900});
   checks.push('v8-820x650-resizable-inspector-does-not-overlay-main');
   await page.getByRole('button',{name:'Закрыть материал: Independent HR coordination'}).click();
