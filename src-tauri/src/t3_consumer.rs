@@ -523,6 +523,83 @@ mod tests {
       &other,"org:north",&digest,bytes.len() as u64).is_err());
     std::fs::remove_dir_all(base).unwrap();
   }
+  #[test]
+  fn original_corporate_receipt_requires_independent_production_signature_and_zero_seats(){
+    let sha="a".repeat(64);
+    let original="b".repeat(64);
+    let good=serde_json::json!({
+      "schema":CORPORATE_NATIVE_SCHEMA,
+      "operation":"CORPORATE_RECEIVE","organizationId":"org:company",
+      "productId":"IWXA_ADMIN_CENTER",
+      "licenseId":"license:one","requestId":"request:one",
+      "issuerAuthorityId":"publisher:original","tariffId":"TEAM",
+      "tariffRevision":2,"status":"ACTIVE","sequence":1,"revision":1,
+      "outcome":"VERIFIED_CORPORATE_SAVED","packageSha256":sha,
+      "storedPackageSha256":original,
+      "trustOrigin":"HOST_PREINSTALLED_PUBLIC_POLICY",
+      "signatureVerified":true,"statusVerified":true,
+      "statusFloorVerified":true,"signedLicenseAccepted":true,
+      "recipientConfirmed":true,"originalHolderReceiptRequired":true,
+      "holderApplied":false,"activeSeats":0,
+      "assignablePersonalAgentSeats":0,"productionActivation":false
+    });
+    assert!(corporate_received(&good,"org:company",&sha).is_ok());
+    assert!(corporate_received(&good,"org:wrong",&sha).is_err());
+    assert!(corporate_received(&good,"org:company",&"c".repeat(64)).is_err());
+    for (field,forged) in [
+      ("operation",Value::String("TEST_RECEIVE".into())),
+      ("signatureVerified",Value::Bool(false)),
+      ("statusVerified",Value::Bool(false)),
+      ("statusFloorVerified",Value::Bool(false)),
+      ("signedLicenseAccepted",Value::Bool(false)),
+      ("recipientConfirmed",Value::Bool(false)),
+      ("holderApplied",Value::Bool(true)),
+      ("productionActivation",Value::Bool(true)),
+      ("activeSeats",Value::from(1)),
+      ("assignablePersonalAgentSeats",Value::from(1)),
+      ("status",Value::String("NOT_SIGNED".into())),
+      ("revision",Value::from(0))
+    ]{
+      let mut invalid=good.clone();
+      invalid[field]=forged;
+      assert!(corporate_received(&invalid,"org:company",&sha).is_err(),
+        "field {field}");
+    }
+  }
+  #[test]
+  fn original_corporate_view_keeps_historical_status_and_employer_scope(){
+    let valid=serde_json::json!({
+      "schema":CORPORATE_NATIVE_SCHEMA,"operation":"CORPORATE_READ",
+      "activeSeats":0,"assignablePersonalAgentSeats":0,"productionActivation":false,
+      "view":{"schema":"IWXA_T3_CORPORATE_PRODUCT_LICENSE_CONSUMER_VIEW/1",
+        "organizationId":"org:company","productId":"IWXA_ADMIN_CENTER",
+        "revision":2,"trustOrigin":"HOST_PREINSTALLED_PUBLIC_POLICY",
+        "activeSeats":0,"assignablePersonalAgentSeats":0,"productionActivation":false,
+        "licenses":[{
+          "licenseId":"license:one","requestId":"request:one",
+          "issuerAuthorityId":"publisher:original","organizationId":"org:company",
+          "productId":"IWXA_ADMIN_CENTER","tariffId":"TEAM","tariffRevision":1,
+          "status":"STATUS_STALE","sequence":2,
+          "signatureVerified":true,"statusVerified":true,
+          "recipientConfirmed":true,"originalHolderReceiptRequired":true,
+          "current":false,"activeSeats":0,
+          "assignablePersonalAgentSeats":0,"productionActivation":false
+        }]
+      }
+    });
+    assert!(corporate_opaque_read(&valid,"org:company").is_ok());
+    assert!(corporate_opaque_read(&valid,"org:other").is_err());
+    let mut wrong=valid.clone();
+    wrong["view"]["licenses"][0]["organizationId"]=Value::String("org:other".into());
+    assert!(corporate_opaque_read(&wrong,"org:company").is_err());
+    let mut duplicate=valid.clone();
+    let row=duplicate["view"]["licenses"][0].clone();
+    duplicate["view"]["licenses"].as_array_mut().unwrap().push(row);
+    assert!(corporate_opaque_read(&duplicate,"org:company").is_err());
+    let mut forged=valid.clone();
+    forged["view"]["licenses"][0]["activeSeats"]=Value::from(2);
+    assert!(corporate_opaque_read(&forged,"org:company").is_err());
+  }
   fn valid_read()->Value{
     serde_json::json!({
       "operation":"TEST_READ","activeSeats":0,"productionActivation":false,
