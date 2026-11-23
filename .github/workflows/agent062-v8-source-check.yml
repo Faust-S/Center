@@ -33,6 +33,13 @@ jobs:
             $path,[ref]$tokens,[ref]$errors) | Out-Null
           if(@($errors).Count -ne 0){
             Write-Host ('AGENT062_V8_WINDOWS_POWERSHELL_PARSE_ERRORS='+@($errors).Count)
+            foreach($entry in @($errors)|Select-Object -First 12){
+              # Publish only parser IDs and line numbers; private source
+              # excerpts, installed data and credentials stay in the runner.
+              Write-Host ('AGENT062_V8_PARSE_ID='+[string]$entry.ErrorId+
+                ';LINE='+[int]$entry.Extent.StartLineNumber+
+                ';COLUMN='+[int]$entry.Extent.StartColumnNumber)
+            }
             throw 'AGENT062_V8_WINDOWS_POWERSHELL_PARSE_FAILED'
           }
           Write-Host 'AGENT062_V8_WINDOWS_POWERSHELL_PARSE_PASS'
