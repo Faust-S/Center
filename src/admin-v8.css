@@ -433,3 +433,31 @@ body{padding:11px;background:#172238}
   .v8-app.with-inspector .main .top{padding-left:14px;padding-right:14px}
   .v8-app.with-inspector .main .top-save{padding:6px 8px}
 }
+
+
+/* IWXA 0.4.1: native 820x650 first-use view.
+   Do not squeeze the product explanation into a 65px column when two
+   full-width manager actions are present. Both remain independently usable. */
+@media(max-width:970px){
+ .v8-app .v8-start-notice{
+   display:flex;flex-direction:column;align-items:stretch;
+   gap:10px;padding:12px 14px;
+ }
+ .v8-app .v8-start-notice>div:first-child{
+   flex:0 1 auto;width:100%;min-width:0;
+ }
+ .v8-app .v8-start-notice :where(strong,p){
+   display:block;max-width:none;
+ }
+ .v8-app .v8-start-actions{
+   display:grid;width:100%;min-width:0;flex:0 1 auto;
+   grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;
+ }
+ .v8-app .v8-start-actions button{
+   min-width:0;width:100%;white-space:normal;
+   padding:7px 10px;line-height:1.35;
+ }
+}
+@media(max-width:570px){
+ .v8-app .v8-start-actions{grid-template-columns:1fr;}
+}
