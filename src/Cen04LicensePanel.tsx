@@ -101,8 +101,8 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
      if(value===null){setCorporateMessage('Выбор файла отменён.');return;}
      const matched=checkCorporateCarrierMatch(value,expectation);
      setCorporateFile(matched);
-     setCorporateMessage('Байты полученного файла совпадают с экспортом Publisher. '+
-       'Подпись и права ещё не проверены корпоративным T3 Consumer.');
+     setCorporateMessage('Байты выбранного файла совпали с введёнными SHA-256 '+
+       'и размером из Publisher. Подпись и права пока не проверены T3.');
    }catch(e){
      setCorporateFailure('Контрольная сумма файла не совпала либо файл недоступен: '+error(e));
    }finally{actionRef.current=false;setBusy(false);}
@@ -212,12 +212,13 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
      </button>
      {corporateFile&&<div className="cen04-carrier-match"
        data-testid="cen04-corporate-file-matched">
-       <strong>Файл совпадает с экспортом Publisher</strong>
+       <strong>Контрольная сумма и размер файла совпали</strong>
        <p>Размер: {corporateFile.bytes} байт.
-         Организация: {corporateFile.organizationId}.</p>
+         Выбранная организация Admin Center: {corporateFile.organizationId}.</p>
        <p className="muted">SHA-256: <code className="cen04-sha">
          {corporateFile.packageSha256}</code></p>
-       <p>Подпись, STATUS и получение лицензии пока не проверены.
+       <p>Принадлежность пакета этой организации, подпись, STATUS
+         и получение лицензии пока не проверены оригинальным T3.
          Доступных к назначению мест: 0.</p>
      </div>}
      {corporateMessage&&<p role="status">{corporateMessage}</p>}
