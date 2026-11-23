@@ -244,6 +244,7 @@ jobs:
             artifacts/installer-sha256.txt
             artifacts/installed-gui-result.json
             artifacts/installed-gui-failure.png
+            artifacts/installed-gui-diagnostic.json
             artifacts/u05-two-installed-result.json
             artifacts/atlas05-center-iwxa-result.json
             vendor/atlas/artifacts/IWXA-Atlas-0.9.0-dev.1-Setup.exe.sha256

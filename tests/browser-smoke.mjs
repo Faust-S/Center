@@ -95,7 +95,13 @@ try{
   assert.equal(await corporateCarrier.getByTestId('cen04-corporate-verify-carrier').isDisabled(),true,
     'Browser preview must not impersonate a native Windows file check');
   assert.equal(await corporateCarrier.getByTestId('cen04-corporate-file-matched').count(),0);
+  assert.equal(await corporateCarrier.getByTestId('cen04-corporate-native-receive').isDisabled(),true);
+  assert.equal(await corporateCarrier.getByTestId('cen04-corporate-native-read').isDisabled(),true);
+  assert.equal(await corporateCarrier.getByTestId('cen04-corporate-enroll-trust').isDisabled(),true);
+  assert.equal(await corporateCarrier.getByTestId('cen04-corporate-original-received').count(),0);
+  assert.equal(await corporateCarrier.getByTestId('cen04-corporate-original-list').count(),0);
   checks.push('cen04-corporate-file-sha256-native-only-no-signature-or-seats');
+  checks.push('cen04-corporate-original-t3-not-impersonated-in-browser');
   assert.equal(await page.getByTestId('center-age-exchange').count(),1);
   assert.equal(await page.getByTestId('center-age-encrypt').count(),0);
   assert.equal(await page.getByTestId('center-age-decrypt').count(),0);
