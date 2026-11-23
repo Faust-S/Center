@@ -664,7 +664,8 @@ try{
   // the original installed T3, independent employee signature or Kernel.
   const employeeState={registered:false,ready:false,reads:0,
     initializations:0,inviteExports:0,savedDraft:null,requiresCold:false,
-    wrongReadKey:true,taskGrantCalls:0,taskGrantSaved:false,
+    wrongReadKey:true,workspaceGrantCalls:0,workspaceGrantSaved:false,
+    taskGrantCalls:0,taskGrantSaved:false,
     wrongTaskGrantRecipient:true,cancelFirstTaskGrant:true,
     loseFirstTaskGrantAck:true,taskIssueCalls:0,signedTaskSaved:false,
     cancelFirstTask:true,loseFirstTaskAck:true,taskExports:0,
@@ -694,6 +695,7 @@ try{
           d3EmployeeRegistryReadbackAvailable:true,
           d3EmployeeEnrollmentAvailable:employeeState.ready,
           d3EmployeeTaskIssueAvailable:employeeState.ready,
+          d3EmployeeWorkspaceRightsAvailable:employeeState.ready,
           productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
         }};
       if(command==='center_corporate_age_status')return {
@@ -753,6 +755,52 @@ try{
               ]}},
             originalEnrollment:{payload:{personId,organizationId,workspaceId,
               credentialPublicKeyRef:credentialKeyId}}
+          };
+        }
+        if(args.operation==='d3EmployeeWorkspaceGrantIssue'){
+          assert.equal(args.input.confirmed,true);
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(employeeState.workspaceGrantSaved,false,
+            'one signed set must not be reissued');
+          employeeState.workspaceGrantCalls++;
+          employeeState.workspaceGrantSaved=true;
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1',
+            state:'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE',
+            originalReadback:true,safeToReissue:false
+          };
+        }
+        if(args.operation==='d3EmployeeWorkspaceGrantReadback'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          const organizationId=args.organizationId;
+          const workspaceId='workspace:employee-fixture';
+          const spec={
+            readAccess:['workspace.read','workspace.read'],
+            writeAccess:['object.write','workspace.work'],
+            createAccess:['workspace.create','workspace.onboarding'],
+            importAccess:['workspace.exchange.import','workspace.exchange.import']
+          };
+          const attachments=Object.fromEntries(Object.entries(spec).map(([key,[action,purpose]])=>{
+            const grantId='grant:'+key;
+            return [key,{
+              grantId,membership:{personId:'person:independent',workspaceId},
+              binding:{grantId,holderPersonId:'person:independent',
+                actions:[action],purposes:[purpose]},
+              credential:{publicKeyRef:'key:independent'},
+              enrollment:{payload:{credentialPublicKeyRef:'key:independent'}}
+            }];
+          }));
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1',
+            state:employeeState.workspaceGrantSaved?
+              'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE':
+              'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_NOT_FOUND',
+            organizationId,workspaceId,employeePersonId:'person:independent',
+            enrollmentId:'enrollment:verified',originalReadback:true,
+            safeToReissue:false,statusSequence:5,
+            attachments:employeeState.workspaceGrantSaved?attachments:{}
           };
         }
         if(args.operation==='d3EmployeeTaskGrantReadback'){
@@ -1027,6 +1075,17 @@ try{
   await employeePage.getByTestId('d3-employee-read').click();
   await employeePage.getByTestId('d3-employee-enrolled').waitFor();
   assert.equal(await employeePage.getByTestId('d3-employee-invitation-export').count(),1);
+  assert.equal(await employeePage.getByTestId('d3-employee-invitation-export').isEnabled(),false,
+    'without four original Workspace rights, the personal invitation stays disabled');
+  await employeePage.getByTestId('d3-employee-workspace-grants-read').click();
+  assert.equal(employeeState.workspaceGrantCalls,0,
+    'reading missing original employee rights never signs a grant');
+  await employeePage.getByTestId('d3-employee-workspace-grants-issue').click();
+  await employeePage.getByTestId('d3-employee-workspace-rights-confirmed').waitFor();
+  assert.equal(employeeState.workspaceGrantCalls,1,
+    'explicit manager approval signs exactly one original four-grant set');
+  assert.equal(await employeePage.getByTestId('d3-employee-workspace-grants-issue').isEnabled(),false,
+    'independent Workspace rights cannot be issued twice');
   const taskDataIssue=employeePage.getByTestId('d3-employee-task-grant-issue');
   assert.equal(await taskDataIssue.isEnabled(),true);
   await taskDataIssue.click();
