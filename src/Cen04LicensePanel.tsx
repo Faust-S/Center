@@ -1,4 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
+import {checkCorporateCarrierExpectation,checkCorporateCarrierMatch}
+  from '../runtime/cen04-corporate-carrier.mjs';
 
 // Signed license bytes never enter WebView: only original T3 Consumer may
 // intake a signed package after separate first-use enrollment. The raw .iwxa
@@ -14,6 +16,14 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
  const [ready,setReady]=useState(false);
  const [busy,setBusy]=useState(false);
  const [trustSha,setTrustSha]=useState('');
+ const [corporateSha,setCorporateSha]=useState('');
+ const [corporateBytes,setCorporateBytes]=useState('');
+ const [corporateFile,setCorporateFile]=useState<{
+   organizationId:string;packageSha256:string;bytes:number;
+   signedLicenseAccepted:false;assignablePersonalAgentSeats:0
+ }|null>(null);
+ const [corporateMessage,setCorporateMessage]=useState('');
+ const [corporateFailure,setCorporateFailure]=useState('');
  const actionRef=useRef(false);
  const [latest,setLatest]=useState<{licenseId:string;status:string;outcome:string}|null>(null);
  const [message,setMessage]=useState('');
@@ -41,6 +51,8 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
  }
  useEffect(()=>{
    setReady(false);setVerified(null);setLatest(null);setMessage('');setFailure('');
+   setCorporateFile(null);setCorporateSha('');setCorporateBytes('');
+   setCorporateMessage('');setCorporateFailure('');
    let live=true;
    if(invoke){
      (async()=>{
@@ -69,6 +81,32 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    }
    return ()=>{live=false;};
  },[organizationId,invoke]);
+ async function verifyCorporateFile(){
+   if(!invoke||busy||actionRef.current)return;
+   const expectedSha256=corporateSha.trim().toLowerCase();
+   const expectedBytes=Number(corporateBytes);
+   let expectation;
+   try{
+     expectation=checkCorporateCarrierExpectation({
+       organizationId,sha256:expectedSha256,bytes:expectedBytes
+     });
+     if(!/^[1-9][0-9]*$/.test(corporateBytes))throw Error('CEN04_CORPORATE_BYTES_REQUIRED');
+   }catch(e){setCorporateFailure('Проверьте SHA-256 и размер файла из Publisher: '+error(e));return;}
+   actionRef.current=true;setBusy(true);setCorporateFile(null);
+   setCorporateMessage('');setCorporateFailure('');
+   try{
+     const value=await invoke('center_cen04_corporate_verify_carrier',{
+       organizationId,expectedSha256,expectedBytes
+     });
+     if(value===null){setCorporateMessage('Выбор файла отменён.');return;}
+     const matched=checkCorporateCarrierMatch(value,expectation);
+     setCorporateFile(matched);
+     setCorporateMessage('Байты полученного файла совпадают с экспортом Publisher. '+
+       'Подпись и права ещё не проверены корпоративным T3 Consumer.');
+   }catch(e){
+     setCorporateFailure('Контрольная сумма файла не совпала либо файл недоступен: '+error(e));
+   }finally{actionRef.current=false;setBusy(false);}
+ }
  async function configureTrust(){
    if(!invoke||ready||busy||actionRef.current)return;
    const expectedSha256=trustSha.trim().toLowerCase();
@@ -143,6 +181,51 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
  }
  return <section className="card padded" data-testid="cen04-test-license-panel">
    <h3>Лицензии Admin Center от Publisher</h3>
+   <div className="nested-form" data-testid="cen04-corporate-file-preflight">
+     <h4>Корпоративная лицензия: сверка файла</h4>
+     <p className="muted">После выпуска лицензии в Publisher перенесите
+       контрольную сумму и размер сохранённого .iwxa. Admin Center сравнит
+       их с выбранным файлом. Это первый этап передачи, до получения и
+       проверки подписанной лицензии в корпоративном T3 Consumer.</p>
+     <label>SHA-256 корпоративного .iwxa из Publisher
+       <input data-testid="cen04-corporate-sha256" value={corporateSha}
+         autoComplete="off" spellCheck={false} disabled={busy}
+         placeholder="64 символа"
+         onChange={e=>{setCorporateSha(e.target.value);setCorporateFile(null);
+           setCorporateMessage('');setCorporateFailure('');}}/>
+     </label>
+     <label>Размер файла из Publisher (байт)
+       <input data-testid="cen04-corporate-bytes" value={corporateBytes}
+         inputMode="numeric" autoComplete="off" disabled={busy}
+         placeholder="Например, 7312"
+         onChange={e=>{setCorporateBytes(e.target.value);setCorporateFile(null);
+           setCorporateMessage('');setCorporateFailure('');}}/>
+     </label>
+     <button type="button" className="secondary"
+       data-testid="cen04-corporate-verify-carrier"
+       disabled={!invoke||busy||
+         !/^[a-f0-9]{64}$/.test(corporateSha.trim().toLowerCase())||
+         !/^[1-9][0-9]*$/.test(corporateBytes)||
+         Number(corporateBytes)>4*1024*1024}
+       onClick={()=>void verifyCorporateFile()}>
+       Выбрать .iwxa и сверить с Publisher
+     </button>
+     {corporateFile&&<div className="atlas-file-review"
+       data-testid="cen04-corporate-file-matched">
+       <strong>Файл совпадает с экспортом Publisher</strong>
+       <p>Размер: {corporateFile.bytes} байт.
+         Организация: {corporateFile.organizationId}.</p>
+       <p className="muted">SHA-256: <code className="cen04-sha">
+         {corporateFile.packageSha256}</code></p>
+       <p>Подпись, STATUS и получение лицензии пока не проверены.
+         Доступных к назначению мест: 0.</p>
+     </div>}
+     {corporateMessage&&<p role="status">{corporateMessage}</p>}
+     {corporateFailure&&<p role="alert">{corporateFailure}</p>}
+     {!invoke&&<p className="muted">
+       Выбор файла доступен в установленном Admin Center.</p>}
+   </div>
+   <h4>TEST-лицензии</h4>
    <p className="muted">Подписанные TEST-лицензии передаются в едином формате .iwxa.
       Подлинность и статус независимо проверяет T3 по ранее установленному доверию.
       Для защищённой доставки используется .iwxa.age: T3 расшифровывает пакет,
