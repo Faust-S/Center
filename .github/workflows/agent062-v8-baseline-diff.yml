@@ -1,0 +1,87 @@
+name: Agent062 V8 compare complete Node suite with release baseline
+on:
+  push:
+    branches:
+      - work/2026-11-23-agent-062-v8-baseline-diff
+    paths:
+      - .github/workflows/agent062-v8-baseline-diff.yml
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 39a4f49ed9a5c0781c4a4769e9603ca8fb1e8d23
+          path: baseline
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 9a4e4708fe21fbc23701952d4527bd404dbd13ff
+          path: candidate
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compare entire original Node suite without publishing private failures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $cases=@(
+            @{name='BASE';repo='baseline';sha='39a4f49ed9a5c0781c4a4769e9603ca8fb1e8d23'},
+            @{name='V8';repo='candidate';sha='9a4e4708fe21fbc23701952d4527bd404dbd13ff'}
+          )
+          $result=@{}
+          foreach($c in $cases){
+            $path=Join-Path $env:GITHUB_WORKSPACE $c.repo
+            $actual=(& git -C $path rev-parse HEAD).Trim()
+            if($actual -cne $c.sha){throw 'AGENT062_BASELINE_SOURCE_MISMATCH'}
+            Push-Location (Join-Path $path 'desktop')
+            try{
+              $installLog=Join-Path $env:RUNNER_TEMP ($c.name+'-install.private.log')
+              $testLog=Join-Path $env:RUNNER_TEMP ($c.name+'-tests.private.log')
+              $before=$ErrorActionPreference
+              $ErrorActionPreference='Continue'
+              & npm ci --no-audit --no-fund *> $installLog
+              $installExit=$LASTEXITCODE
+              if($installExit -ne 0){throw 'AGENT062_BASELINE_INSTALL_FAILED'}
+              & npm run test *> $testLog
+              $testExit=$LASTEXITCODE
+              $ErrorActionPreference=$before
+              $raw=Get-Content -LiteralPath $testLog -Raw -Encoding UTF8
+              $counts=@{}
+              foreach($key in @('tests','pass','fail')){
+                $matched=[regex]::Matches($raw,'(?m)^# '+$key+' ([0-9]+)\s*$')
+                if($matched.Count -ne 1){throw 'AGENT062_BASELINE_TEST_SUMMARY_MISSING'}
+                $counts[$key]=[int]$matched[0].Groups[1].Value
+              }
+              if($counts.tests -ne ($counts.pass+$counts.fail) -or
+                 (($counts.fail -eq 0) -ne ($testExit -eq 0))){
+                throw 'AGENT062_BASELINE_TEST_STATUS_MISMATCH'
+              }
+              $failNames=@([regex]::Matches($raw,'(?m)^not ok [0-9]+ - (.*)$')|ForEach-Object {$_.Groups[1].Value.Trim()})
+              if($failNames.Count -ne $counts.fail){throw 'AGENT062_BASELINE_FAILURE_COUNT_MISMATCH'}
+              $result[$c.name]=@{tests=$counts.tests;pass=$counts.pass;fail=$counts.fail;failed=$failNames}
+              Write-Host ('AGENT062_'+$c.name+'_TOTAL='+$counts.tests)
+              Write-Host ('AGENT062_'+$c.name+'_PASS='+$counts.pass)
+              Write-Host ('AGENT062_'+$c.name+'_FAIL='+$counts.fail)
+            } finally {
+              Pop-Location
+            }
+          }
+          $old=@($result.BASE.failed)
+          $new=@($result.V8.failed)
+          $extra=@($new|Where-Object {$_ -cnotin $old})
+          Write-Host ('AGENT062_V8_NEW_REGRESSIONS='+$extra.Count)
+          if($extra.Count -ne 0){throw 'AGENT062_V8_NEW_REGRESSIONS_FOUND'}
+          if($result.V8.tests -le $result.BASE.tests){throw 'AGENT062_V8_TEST_COVERAGE_MISSING'}
+          Write-Host 'AGENT062_V8_BASELINE_COMPARISON_PASS'
+      # Logs and source are never uploaded or echoed; only safe counts.
