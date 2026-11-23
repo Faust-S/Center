@@ -263,7 +263,7 @@ try{
   checks.push('two-organization-draft-isolation-and-file-source-scope');
   await page.getByTestId('nav-programs').click();
   assert.equal(await page.getByTestId('cen04-corporate-sha256').inputValue(),'',
-    'An earlier organization's Publisher digest must not carry into the new organization');
+    "An earlier organization's Publisher digest must not carry into the new organization");
   assert.equal(await page.getByTestId('cen04-corporate-bytes').inputValue(),'');
   assert.equal(await page.getByTestId('cen04-corporate-file-matched').count(),0);
   checks.push('cen04-corporate-file-check-organization-switch-resets-source');
