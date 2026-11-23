@@ -291,7 +291,13 @@ try{
   checks.push('v8-inspector-workspace-and-org-switch-scope');
   checks.push('independent-task-detaches-atlas-without-modifying-workspace');
   await page.locator('#active-organization').selectOption({label:'South workshop'});
-  await page.getByTestId('nav-overview').click();await page.screenshot({path:'artifacts/overview-1366.png',fullPage:true});
+  await page.getByTestId('nav-overview').click();
+  await page.getByTestId('admin-v8-dashboard').waitFor({state:'visible'});
+  assert.equal(await page.locator('.main').evaluate(element=>element.scrollTop),0,
+    'dashboard must open at top instead of inheriting Atlas/Result scroll');
+  await page.getByTestId('dashboard-edit').waitFor({state:'visible'});
+  checks.push('v8-dashboard-top-after-desktop-navigation');
+  await page.screenshot({path:'artifacts/overview-1366.png',fullPage:true});
   await page.setViewportSize({width:320,height:800});assert.ok(await page.getByRole('button',{name:'Разделы'}).isVisible());await page.getByRole('button',{name:'Разделы'}).click();await page.getByTestId('nav-work').click();
   const sizes=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert.ok(sizes.scroll<=sizes.width+1,JSON.stringify(sizes));checks.push('navigation-and-no-overflow-320');
   await page.screenshot({path:'artifacts/work-320.png',fullPage:true});assert.deepEqual(errors,[]);checks.push('no-page-errors');
