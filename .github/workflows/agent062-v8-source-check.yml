@@ -15,13 +15,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 568548e08619ce50334feac79135a08300be2172
+          ref: 9a4e4708fe21fbc23701952d4527bd404dbd13ff
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
           show-progress: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Parse native Windows UI Automation witness
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $path=Join-Path $env:GITHUB_WORKSPACE 'qualification/agent062/qualify_dashboard_installed.ps1'
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            $path,[ref]$tokens,[ref]$errors) | Out-Null
+          if(@($errors).Count -ne 0){
+            Write-Host ('AGENT062_V8_WINDOWS_POWERSHELL_PARSE_ERRORS='+@($errors).Count)
+            throw 'AGENT062_V8_WINDOWS_POWERSHELL_PARSE_FAILED'
+          }
+          Write-Host 'AGENT062_V8_WINDOWS_POWERSHELL_PARSE_PASS'
       - name: Run the original desktop tests and V8 shell checks
         shell: pwsh
         run: |
