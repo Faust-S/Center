@@ -59,3 +59,40 @@ export function suggestedCorporateLicenseRequestFileName(request){
   const tail=request.requestId.slice(-28).replace(/[^A-Za-z0-9.-]/g,'-');
   return 'iwxa-corporate-license-request-'+tail+'.json';
 }
+
+// Retain the local preparation that produced an ORIGINAL signed corporate
+// license. It is needed for later STATUS/renewal; deleting or restoring an
+// older backup must not silently detach the signed request from its source.
+// The only authority is an exact, read-only lookup in the existing T3 ledger.
+export async function preserveSignedCorporateSources(current,replacement,readOriginalInventory){
+ if(typeof readOriginalInventory!=='function')
+  deny('CORPORATE_SOURCE_LEDGER_READER_REQUIRED');
+ for(const proposal of current.proposals){
+  if(proposal.productId!=='IWXA_ADMIN_CENTER'||
+     proposal.tariffSnapshot?.holderType!=='ORGANIZATION')continue;
+  const request=prepareCorporateLicenseRequest(current,{
+   proposalId:proposal.id,personalAgentSeats:0
+  });
+  let after=null;
+  try{after=prepareCorporateLicenseRequest(replacement,{
+   proposalId:proposal.id,personalAgentSeats:0
+  });}catch{/* A removed or changed source cannot be reconstructed. */}
+  if(after&&JSON.stringify(after)===JSON.stringify(request))continue;
+  let inventory;
+  try{inventory=await readOriginalInventory(proposal.id);}
+  catch{deny('CORPORATE_SOURCE_ORIGINAL_LEDGER_UNAVAILABLE');}
+  if(inventory?.operation!=='CORPORATE_INVENTORY'||
+     inventory.lookupId!==proposal.id||
+     inventory.productionActivation!==false||inventory.activeSeats!==0||
+     inventory.truncated!==false||
+     !Number.isSafeInteger(inventory.total)||inventory.total<0||
+     !Number.isSafeInteger(inventory.matches)||inventory.matches<0||
+     inventory.total<inventory.matches||
+     !Array.isArray(inventory.licenses)||
+     inventory.licenses.length!==inventory.matches){
+    deny('CORPORATE_SOURCE_LEDGER_READBACK_INVALID');
+  }
+  if(inventory.matches!==0)
+   deny('CORPORATE_SOURCE_SIGNED_REQUEST_MUST_BE_RETAINED');
+ }
+}
