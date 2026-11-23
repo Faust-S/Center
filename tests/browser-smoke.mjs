@@ -664,6 +664,7 @@ try{
   // the original installed T3, independent employee signature or Kernel.
   const employeeState={registered:false,ready:false,reads:0,
     initializations:0,inviteExports:0,savedDraft:null,requiresCold:false,
+    workspaceGrantCalls:0,workspaceGrantsSaved:false,
     wrongReadKey:true,taskGrantCalls:0,taskGrantSaved:false,
     wrongTaskGrantRecipient:true,cancelFirstTaskGrant:true,
     loseFirstTaskGrantAck:true,taskIssueCalls:0,signedTaskSaved:false,
@@ -693,6 +694,7 @@ try{
           d3EmployeeRegistryBootstrapAvailable:true,
           d3EmployeeRegistryReadbackAvailable:true,
           d3EmployeeEnrollmentAvailable:employeeState.ready,
+          d3EmployeeWorkspaceRightsAvailable:employeeState.ready,
           d3EmployeeTaskIssueAvailable:employeeState.ready,
           productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
         }};
@@ -753,6 +755,48 @@ try{
               ]}},
             originalEnrollment:{payload:{personId,organizationId,workspaceId,
               credentialPublicKeyRef:credentialKeyId}}
+          };
+        }
+        if(args.operation==='d3EmployeeWorkspaceGrantIssue'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          assert.equal(args.input.confirmed,true);
+          employeeState.workspaceGrantCalls++;
+          employeeState.workspaceGrantsSaved=true;
+          return {state:'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE',
+            originalReadback:true,safeToReissue:false};
+        }
+        if(args.operation==='d3EmployeeWorkspaceGrantReadback'){
+          assert.equal(args.input.employeePersonId,'person:independent');
+          assert.equal(args.input.enrollmentId,'enrollment:verified');
+          if(!employeeState.workspaceGrantsSaved)
+            throw Error('CEN_D3_ORIGINAL_WORKSPACE_RIGHTS_NOT_ISSUED');
+          const rights={
+            readAccess:['workspace.read','workspace.read'],
+            writeAccess:['object.write','workspace.work'],
+            createAccess:['workspace.create','workspace.onboarding'],
+            importAccess:['workspace.exchange.import','workspace.exchange.import']
+          };
+          const attachments=Object.fromEntries(Object.entries(rights).map(
+            ([kind,[action,purpose]])=>{
+              const grantId='grant:'+kind;
+              return [kind,{grantId,
+                membership:{personId:'person:independent',
+                  workspaceId:'workspace:employee-fixture'},
+                binding:{grantId,holderPersonId:'person:independent',
+                  actions:[action],purposes:[purpose]},
+                credential:{publicKeyRef:'key:independent'},
+                enrollment:{payload:{credentialPublicKeyRef:'key:independent'}}}];
+            }));
+          return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1',
+            state:'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE',
+            organizationId:args.organizationId,
+            workspaceId:'workspace:employee-fixture',
+            employeePersonId:'person:independent',
+            enrollmentId:'enrollment:verified',
+            originalReadback:true,safeToReissue:false,statusSequence:5,
+            attachments
           };
         }
         if(args.operation==='d3EmployeeTaskGrantReadback'){
@@ -1027,6 +1071,13 @@ try{
   await employeePage.getByTestId('d3-employee-read').click();
   await employeePage.getByTestId('d3-employee-enrolled').waitFor();
   assert.equal(await employeePage.getByTestId('d3-employee-invitation-export').count(),1);
+  assert.equal(await employeePage.getByTestId('d3-employee-invitation-export').isDisabled(),true,
+    'Enrollment alone is not the original four Workspace rights');
+  await employeePage.getByTestId('d3-employee-workspace-grants-issue').click();
+  await employeePage.getByTestId('d3-employee-workspace-rights-confirmed').waitFor();
+  assert.equal(employeeState.workspaceGrantCalls,1);
+  assert.equal(await employeePage.getByTestId('d3-employee-invitation-export').isEnabled(),true);
+  checks.push('d3-original-workspace-rights-required-before-signed-employee-invitation');
   const taskDataIssue=employeePage.getByTestId('d3-employee-task-grant-issue');
   assert.equal(await taskDataIssue.isEnabled(),true);
   await taskDataIssue.click();
