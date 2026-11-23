@@ -29,7 +29,7 @@ jobs:
           Set-Location desktop
           npm ci --no-audit --no-fund
           if($LASTEXITCODE -ne 0){throw 'AGENT062_V8_NPM_INSTALL_FAILED'}
-          node --test tests/agent062-v8-shell.test.mjs tests/agent06-sidebar-collapse.test.mjs tests/conversation-groups-062.test.mjs
+          npm run test
           if($LASTEXITCODE -ne 0){throw 'AGENT062_V8_UI_TESTS_FAILED'}
           npm run build
           if($LASTEXITCODE -ne 0){throw 'AGENT062_V8_TYPESCRIPT_BUILD_FAILED'}
