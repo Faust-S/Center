@@ -813,6 +813,9 @@ try {
   // is checked again before calling the issuer. UI state is not a durable
   // replacement for T3's original signed ledger.
   await page.getByRole('button',{name:'Лицензии',exact:true}).click();
+  // Earlier corporate navigation has already consumed the first-use TEST
+  // inventory read. Trigger the TEST read failure for THIS exact remount.
+  await page.evaluate(()=>{window.__publisherMockFailNextInventory=true;});
   await page.getByRole('button',{name:'Доверие и ключи',exact:true}).click();
   const coldCorp=page.getByTestId('publisher-corporate-native-owner');
   await coldCorp.getByTestId('publisher-corporate-owner-check').click();
