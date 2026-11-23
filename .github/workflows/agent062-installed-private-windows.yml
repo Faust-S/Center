@@ -1,11 +1,11 @@
 # Public qualification code ONLY. Private Agent is checked out read-only
 # at one fixed SHA onto a disposable GitHub-hosted Windows runner.
 # Do not publish source, logs, binaries, credentials, screenshots or receipts.
-name: Agent062 V8 original Windows shell and Core qualification
+name: Agent062 V8 installed visual and Core qualification
 on:
   push:
     branches:
-      - work/2026-11-23-agent-062-v8-qualify
+      - work/2026-11-23-agent-062-v8-visual-qualify
 permissions:
   contents: read
 concurrency:
@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '0b4a3a04a7fb827ba08f4651367a6ecd16aa4c36'
-      PRIVATE_TREE_PIN: 'a8851a28fd72be5df97bb71c8bc311ba6d0a6e81'
+      PRIVATE_SOURCE_PIN: '5a6e7d6825c9bb43bbda144978affc9645f6465b'
+      PRIVATE_TREE_PIN: '0fb2c907843f72e2c9daf7bd119932f949bc1ad4'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -181,6 +181,9 @@ jobs:
       - name: Install actual Setup Core, exercise GUI accounts and cold restart, repair and uninstall
         shell: pwsh
         timeout-minutes: 24
+        env:
+          AGENT062_V8_SCREENSHOT_HOME: ${{ runner.temp }}/agent062-v8-home.png
+          AGENT062_V8_SCREENSHOT_DIALOGUE: ${{ runner.temp }}/agent062-v8-dialogue.png
         run: |
           $ErrorActionPreference='Continue'
           $privateRoot=Join-Path $env:RUNNER_TEMP 'agent06-installed-private'
@@ -323,4 +326,13 @@ jobs:
           }
           Write-Host 'AGENT06_ONLINE_SETUP_REPAIR_UNINSTALL_PASS'
           Write-Host 'AGENT06_PRIVATE_ARTIFACTS_UPLOADED=0'
-      # Intentionally no upload-artifact, cache, screenshot, EXE or private logs.
+      - name: Upload clean UI-only screenshots for independent visual comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: IWXA-Agent062-V8-clean-Windows-screens
+          path: |
+            ${{ runner.temp }}/agent062-v8-home.png
+            ${{ runner.temp }}/agent062-v8-dialogue.png
+          if-no-files-found: error
+          retention-days: 1
+      # Synthetic isolated Windows UI only. No EXE, source, logs or user profiles.
