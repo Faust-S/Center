@@ -384,7 +384,8 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
          Лицензий: {corporateRead.licenses.length}.
          Редакция Store: {corporateRead.revision}.
          Назначаемых мест Personal Agent: 0.</p>
-       {corporateRead.licenses.map(row=><div className="simple-row"
+       {corporateRead.licenses.map((row:{licenseId:string;issuerAuthorityId:string;
+         tariffId:string;status:string;sequence:number;current:boolean})=><div className="simple-row"
          key={row.licenseId}>
          <div><strong>{row.licenseId}</strong>
            <small>Издатель: {row.issuerAuthorityId};
