@@ -38,7 +38,7 @@ try {
     $width=64
     $height=64
     $xorBytes=$width*$height*4
-    $andStride=[int](($width+31)/32)*4
+    $andStride=([int][Math]::Floor(($width+31)/32))*4
     $andBytes=$andStride*$height
     $imageBytes=40+$xorBytes+$andBytes
     $stream = [IO.File]::Open($target,[IO.FileMode]::Create,[IO.FileAccess]::Write)
