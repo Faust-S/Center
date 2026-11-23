@@ -59,6 +59,42 @@ try {
         return Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
     }
 
+    # Verify the actual RT_GROUP_ICON embedded by csc.exe, not an adjacent
+    # source SVG or an icon fixture. A 4-bit WinForms ICO silently turns the
+    # official IWXA red #EF5350 into pure #FF0000, which is unacceptable.
+    Add-Type -AssemblyName System.Drawing
+    function Assert-ApprovedNativeIwxaIcon([string]$pePath, [string]$capture) {
+        $icon=[System.Drawing.Icon]::ExtractAssociatedIcon($pePath)
+        if ($null -eq $icon){throw 'IWXA_NATIVE_PE_BRAND_ICON_MISSING'}
+        try {
+            $pixels=$icon.ToBitmap()
+            try {
+                $sampleX=[int][Math]::Floor($pixels.Width * 8 / 64)
+                $blackX=[int][Math]::Floor($pixels.Width * 16 / 64)
+                $centerY=[int][Math]::Floor($pixels.Height * 32 / 64)
+                $red=$pixels.GetPixel($sampleX,$centerY)
+                $ink=$pixels.GetPixel($blackX,$centerY)
+                if([Math]::Abs($red.R-239) -gt 9 -or
+                   [Math]::Abs($red.G-83) -gt 9 -or
+                   [Math]::Abs($red.B-80) -gt 9 -or
+                   $red.A -lt 230){
+                    throw ('IWXA_NATIVE_PE_BRAND_RED_PIXEL_MISMATCH actual={0},{1},{2},{3}' -f
+                        $red.R,$red.G,$red.B,$red.A)
+                }
+                if([Math]::Abs($ink.R-5) -gt 9 -or
+                   [Math]::Abs($ink.G-7) -gt 9 -or
+                   [Math]::Abs($ink.B-13) -gt 9 -or
+                   $ink.A -lt 230){
+                    throw ('IWXA_NATIVE_PE_BRAND_GLYPH_PIXEL_MISMATCH actual={0},{1},{2},{3}' -f
+                        $ink.R,$ink.G,$ink.B,$ink.A)
+                }
+                $pixels.Save($capture,[Drawing.Imaging.ImageFormat]::Png)
+                Write-Host "IWXA_SETUP_1_0_NATIVE_EMBEDDED_TRUECOLOR_RED_ICON_PASS pixels=$($pixels.Width)x$($pixels.Height)"
+            }finally{$pixels.Dispose()}
+        }finally{$icon.Dispose()}
+    }
+    Assert-ApprovedNativeIwxaIcon $stub (Join-Path $artifact 'setup-core-stub-truecolor-icon.png')
+    Assert-ApprovedNativeIwxaIcon $bundle (Join-Path $artifact 'setup-core-full-truecolor-icon.png')
     $native = Invoke-NativeInspection $bundle $report 0
     if ($native.status -ne 'VERIFIED' -or $native.product -ne $manifest.product -or
         $native.version -ne '0.4.1' -or $native.sourceCommit -ne $sourceHead -or
