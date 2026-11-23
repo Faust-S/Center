@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {inspectCorporateEnrollment,inspectCorporateCapabilities,
- inspectCorporateRead,inspectCorporateReceived}
+ inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived}
  from '../runtime/cen04-corporate-receipt.mjs';
 const ORG='org:company',SHA='a'.repeat(64),STORED='b'.repeat(64);
 const base=(operation,rest={})=>({
