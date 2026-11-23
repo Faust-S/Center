@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '5ebf25c85ba50ebb863f26bab28ba2d3db769693'
-      PRIVATE_TREE_PIN: '8c3a24949356f574c6b15ddd27ab77285ea405d9'
+      PRIVATE_SOURCE_PIN: 'd8dd7132b69cd9876dde29c8c80c4b356018586f'
+      PRIVATE_TREE_PIN: '1b0cfeeee102506b3aa4e9fd062ff005e32e2133'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -185,6 +185,12 @@ jobs:
           AGENT062_V8_SCREENSHOT_INITIAL: ${{ runner.temp }}/agent062-v8-initial.png
           AGENT062_V8_SCREENSHOT_HOME: ${{ runner.temp }}/agent062-v8-home.png
           AGENT062_V8_SCREENSHOT_DIALOGUE: ${{ runner.temp }}/agent062-v8-dialogue.png
+          AGENT062_V8_SCREENSHOT_MODELS: ${{ runner.temp }}/agent062-v8-models.png
+          AGENT062_V8_SCREENSHOT_FILES: ${{ runner.temp }}/agent062-v8-files.png
+          AGENT062_V8_SCREENSHOT_WORKSPACES: ${{ runner.temp }}/agent062-v8-workspaces.png
+          AGENT062_V8_SCREENSHOT_SETTINGS: ${{ runner.temp }}/agent062-v8-settings.png
+          AGENT062_V8_SCREENSHOT_APPROVALS: ${{ runner.temp }}/agent062-v8-approvals.png
+          AGENT062_V8_SCREENSHOT_GRAPH: ${{ runner.temp }}/agent062-v8-graph.png
         run: |
           $ErrorActionPreference='Continue'
           $privateRoot=Join-Path $env:RUNNER_TEMP 'agent06-installed-private'
@@ -221,12 +227,28 @@ jobs:
                 $phases=@('VALIDATE','NATIVE_FIRST','CREATE','GUI_FIRST','DASHBOARD_FIRST',
                   'NATIVE_COLD_REOPEN','COLD_READBACK','DASHBOARD_COLD','REMOVE',
                   'NATIVE_COLD_REMOVE_REOPEN','COLD_REMOVE_READBACK',
-                  'GUI_COLD_REMOVE','RESULT')
+                  'GUI_COLD_REMOVE','V8_INTERNAL_ROUTES','RESULT')
                 if([string]$w.phase -cin $phases){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_PHASE='+[string]$w.phase)
                 }
                 $safeReasons=@(
                   'agent062_v8_capabilities_rail_missing',
+                  'agent062_v8_models_navigation_missing',
+                  'agent062_v8_models_workflow_missing',
+                  'agent062_v8_models_choice_missing',
+                  'agent062_v8_files_navigation_missing',
+                  'agent062_v8_files_reader_missing',
+                  'agent062_v8_workspaces_navigation_missing',
+                  'agent062_v8_workspaces_create_missing',
+                  'agent062_v8_workspaces_editor_missing',
+                  'agent062_v8_settings_navigation_missing',
+                  'agent062_v8_settings_categories_missing',
+                  'agent062_v8_settings_editor_missing',
+                  'agent062_v8_approvals_navigation_missing',
+                  'agent062_v8_approvals_inbox_missing',
+                  'agent062_v8_tasks_navigation_missing',
+                  'agent062_v8_graph_navigation_missing',
+                  'agent062_v8_graph_workspace_missing',
                   'agent062_v8_capture_window_missing',
                   'agent062_v8_capture_window_bounds_invalid',
                   'agent062_v8_capture_missing',
@@ -305,7 +327,7 @@ jobs:
                   'NOT_STARTED','LOOKUP_INITIAL_TITLE',
                   'LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON',
                   'CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE',
-                  'LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE'
+                  'LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE','V8_MODELS_ROUTE','V8_FILES_ROUTE','V8_WORKSPACES_ROUTE','V8_SETTINGS_ROUTE','V8_APPROVALS_ROUTE','V8_GRAPH_ROUTE','V8_ROUTES_COMPLETE'
                 )
                 if([string]$w.ui_checkpoint -cin $safeCheckpoints){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_GUI_CHECKPOINT='+[string]$w.ui_checkpoint)
@@ -355,6 +377,12 @@ jobs:
             ${{ runner.temp }}/agent062-v8-initial.png
             ${{ runner.temp }}/agent062-v8-home.png
             ${{ runner.temp }}/agent062-v8-dialogue.png
+            ${{ runner.temp }}/agent062-v8-models.png
+            ${{ runner.temp }}/agent062-v8-files.png
+            ${{ runner.temp }}/agent062-v8-workspaces.png
+            ${{ runner.temp }}/agent062-v8-settings.png
+            ${{ runner.temp }}/agent062-v8-approvals.png
+            ${{ runner.temp }}/agent062-v8-graph.png
           if-no-files-found: warn
           retention-days: 1
       # Synthetic isolated Windows UI only. No EXE, source, logs or user profiles.
