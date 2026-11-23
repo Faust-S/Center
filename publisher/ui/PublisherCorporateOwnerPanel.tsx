@@ -1,5 +1,5 @@
 import React,{useMemo,useState} from 'react';
-import {projectCorporateOfferReviews} from '../src/corporate-offer-review.mjs';
+import {projectCorporateSigningOffers} from '../src/corporate-offer-review.mjs';
 import {prepareCorporateLicenseRequest,encodeCorporateLicenseRequest}
   from '../src/corporate-license-request.mjs';
 
@@ -18,19 +18,22 @@ type IssuerReadback={operation:string;licenseId:string;requestId:string;
   assignablePersonalAgentSeats:number;productionActivation:boolean};
 type Props={draft:any;invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;
   expectedDraftSha256:string;
+  focusProposal?:{proposalId:string;seats:string}|null;
   ensureSigningDraftCurrent:(sha:string)=>Promise<void>};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
 const HEX=/^[a-f0-9]{64}$/;
 const seatsInput=(s:string)=>/^(0|[1-9][0-9]*)$/.test(s);
 
 export default function PublisherCorporateOwnerPanel({
-  draft,invoke,expectedDraftSha256,ensureSigningDraftCurrent
+  draft,invoke,expectedDraftSha256,ensureSigningDraftCurrent,focusProposal
 }:Props){
-  const offers=useMemo(()=>projectCorporateOfferReviews(draft,{limit:20}),[draft]);
+  const offers=useMemo(()=>projectCorporateSigningOffers(draft,{
+    focusProposalId:focusProposal?.proposalId??'',limit:20
+  }),[draft,focusProposal?.proposalId]);
   const [issuers,setIssuers]=useState<string[]>([]);
   const [issuer,setIssuer]=useState('');
-  const [proposalId,setProposalId]=useState('');
-  const [seatInput,setSeatInput]=useState('');
+  const [proposalId,setProposalId]=useState(focusProposal?.proposalId??'');
+  const [seatInput,setSeatInput]=useState(focusProposal?.seats??'');
   const [review,setReview]=useState<{request:any;raw:string;
     sourceSha256:string;issuerId:string}|null>(null);
   const [confirmIssue,setConfirmIssue]=useState(false);
@@ -46,16 +49,25 @@ export default function PublisherCorporateOwnerPanel({
   const selected=offers.items.find((o:Offer)=>o.proposalId===proposalId);
   const clearAction=()=>{setReview(null);setConfirmIssue(false);setSigned(null);
     setUnknown(false);setConfirmStatus(false);setProblem('');setFeedback('');};
+  // Focus transfers only the unsigned choice, never human consent, signature
+  // or readback. Every new signing attempt needs deliberate review.
+  React.useEffect(()=>{
+    if(!focusProposal?.proposalId)return;
+    setProposalId(focusProposal.proposalId);
+    setSeatInput(focusProposal.seats);
+    clearAction();
+  },[focusProposal?.proposalId,focusProposal?.seats]);
 
   async function loadCapabilities(){
     if(busy)return;
     setBusy(true);setProblem('');setFeedback('');
+    setReview(null);setConfirmIssue(false);
     try{
       const value=await invoke('publisher_t3_corporate_capabilities') as OwnerCaps;
       if(value.operation!=='CORPORATE_CAPABILITIES'||
         value.environment!=='PRODUCTION'||
         value.productionActivation!==false||value.activeSeats!==0||
-        !Array.isArray(value.issuers)||value.issuers.some(x=>typeof x!=='string'))
+        !Array.isArray(value.issuers)||value.issuers.some(x=>typeof x!=='string'||!x.trim()))
         throw Error('CORPORATE_OWNER_CAPABILITIES_NOT_ORIGINAL');
       setIssuers(value.issuers);
       setIssuer(value.issuers.length===1?value.issuers[0]:'');
@@ -234,6 +246,12 @@ export default function PublisherCorporateOwnerPanel({
       LICENSE и STATUS. Сведения Publisher не являются проверкой доставки
       пакета организации или прав Personal Agent. Коммерческих мест без
       независимого приёма в Admin Center: 0.</p>
+    {focusProposal?.proposalId&&selected&&<p className="notice subdued"
+      data-testid="publisher-corporate-focused-proposal">
+      Выбрана неподписанная подготовка: {selected.organization.name}.
+      Тариф: {selected.tariff.name}, редакция {selected.tariff.revision}.
+      Проверьте издателя и условия перед отдельным подтверждением подписи.
+    </p>}
     <button className="secondary" type="button" disabled={busy}
       data-testid="publisher-corporate-owner-check"
       onClick={()=>void loadCapabilities()}>Проверить зарегистрированного издателя T3</button>
@@ -252,7 +270,7 @@ export default function PublisherCorporateOwnerPanel({
       </label>
       <label>Подготовленное предложение организации
         <select value={proposalId} disabled={busy}
-          onChange={e=>{setProposalId(e.target.value);clearAction();}}>
+          onChange={e=>{setProposalId(e.target.value);setSeatInput('');clearAction();}}>
           <option value="">Выберите предложение</option>
           {offers.items.map((x:Offer)=><option value={x.proposalId} key={x.proposalId}>
             {x.organization.name} · {x.tariff.name} (ред. {x.tariff.revision})
@@ -288,8 +306,8 @@ export default function PublisherCorporateOwnerPanel({
         </label>
         <button type="button" className="primary"
           data-testid="publisher-corporate-native-issue"
-          disabled={busy||unknown||!confirmIssue||
-            review.sourceSha256!==expectedDraftSha256}
+          disabled={busy||unknown||!confirmIssue||!issuer||
+            review.issuerId!==issuer||review.sourceSha256!==expectedDraftSha256}
           onClick={()=>void issue()}>Подписать через оригинальный T3</button>
       </div>}
     </div>}
