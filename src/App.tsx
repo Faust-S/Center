@@ -85,6 +85,12 @@ export default function App() {
   const [nativeRestoring,setNativeRestoring] = useState(nativeHost);
   const [state,setState] = useState<Draft>(() => emptyDraft() as Draft);
   const [page,setPage] = useState<Page>('overview');
+  const mainScrollRef=useRef<HTMLElement|null>(null);
+  // Desktop navigation is not a website. A new section or organization
+  // opens from the top, rather than inheriting the previous long-form scroll.
+  React.useLayoutEffect(()=>{
+    if(mainScrollRef.current)mainScrollRef.current.scrollTop=0;
+  },[page,state.activeOrganizationId]);
   const [managerOriginal,setManagerOriginal]=useState<ManagerOriginalSelection|null>(null);
   const [focusedEmployeeContact,setFocusedEmployeeContact]=useState<string|null>(null);
   // UI-only presence of the original signed child WebView; signing state,
@@ -701,7 +707,7 @@ export default function App() {
       </div>
     </aside>
 
-    <main className="main">
+    <main ref={mainScrollRef} className="main">
       <header className="top" aria-label="Текущий раздел"><div className="v8-page-location"><strong>{title}</strong><small>{org?.name??'IWXA Admin Center · рабочее место руководителя'}</small></div>
        {signedWorkspaceOrg&&<>
         {signedWorkspaceVisible
