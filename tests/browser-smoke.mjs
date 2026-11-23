@@ -273,6 +273,19 @@ try{
   await inspector.getByRole('heading',{name:'Independent HR coordination'}).waitFor({state:'visible'});
   assert.match(await inspector.innerText(),/Критерии приёмки/);
   assert.equal(await page.locator('.v8-inspector-tab-wrap.active').count(),1);
+  await page.setViewportSize({width:820,height:650});
+  const compactDock=await page.evaluate(()=>{
+    const main=document.querySelector('.v8-app .main').getBoundingClientRect();
+    const dock=document.querySelector('.v8-app .inspector').getBoundingClientRect();
+    return {mainWidth:main.width,dockWidth:dock.width,overlap:main.right-dock.left,
+      dockVisible:window.getComputedStyle(document.querySelector('.v8-app .inspector')).display!=='none'};
+  });
+  assert.ok(compactDock.dockVisible&&compactDock.mainWidth>=330&&
+    compactDock.dockWidth>=270&&compactDock.overlap<=1,
+    'compact 820x650 must show real inspector BESIDE main, not overlay/hide: '+
+    JSON.stringify(compactDock));
+  await page.setViewportSize({width:1366,height:900});
+  checks.push('v8-820x650-resizable-inspector-does-not-overlay-main');
   await page.getByRole('button',{name:'Закрыть материал: Independent HR coordination'}).click();
   assert.equal(await page.locator('.v8-inspector-tab-wrap').count(),0);
   checks.push('v8-real-assignment-right-dock-and-close');
