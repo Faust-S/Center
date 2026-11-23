@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '33956d3fb32a34effe35a47884c2c669f8cd7d3c'
-      PRIVATE_TREE_PIN: 'f32e6f4b24e819d5bbd2c053efa84dfff9fe7930'
+      PRIVATE_SOURCE_PIN: '97fbd7960cfd34cca77c8873886eadee73346fa9'
+      PRIVATE_TREE_PIN: 'cd670d50f03b7cc84c54e8cdd11010d570d1a983'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -182,6 +182,7 @@ jobs:
         shell: pwsh
         timeout-minutes: 24
         env:
+          AGENT062_V8_SCREENSHOT_INITIAL: ${{ runner.temp }}/agent062-v8-initial.png
           AGENT062_V8_SCREENSHOT_HOME: ${{ runner.temp }}/agent062-v8-home.png
           AGENT062_V8_SCREENSHOT_DIALOGUE: ${{ runner.temp }}/agent062-v8-dialogue.png
         run: |
@@ -225,6 +226,10 @@ jobs:
                   Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_PHASE='+[string]$w.phase)
                 }
                 $safeReasons=@(
+                  'agent062_v8_capabilities_rail_missing',
+                  'agent062_v8_capture_window_missing',
+                  'agent062_v8_capture_window_bounds_invalid',
+                  'agent062_v8_capture_missing',
                   'agent062_dashboard_native_window_closed',
                   'agent062_dashboard_home_navigation_missing',
                   'agent062_dashboard_home_missing',
@@ -262,6 +267,21 @@ jobs:
                 )
                 if([string]$w.failure_code -cin $safeReasons){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_CODE='+[string]$w.failure_code)
+                }
+                if($w.v8_ui_structure){
+                  $d=$w.v8_ui_structure
+                  foreach($key in @('total','buttons','documents')){
+                    $n=0
+                    if([int]::TryParse([string]$d.$key,[ref]$n) -and $n -ge 0 -and $n -le 10000){
+                      Write-Host ('AGENT062_V8_UIA_'+$key.ToUpperInvariant()+'='+$n)
+                    }
+                  }
+                  foreach($key in @('models_name','title_name','rail_name','observation_failed')){
+                    if($null -ne $d.$key){
+                      $val=if($d.$key -eq $true){'YES'}else{'NO'}
+                      Write-Host ('AGENT062_V8_UIA_'+$key.ToUpperInvariant()+'='+$val)
+                    }
+                  }
                 }
                 $safeExceptions=@('ParameterBindingException','MethodInvocationException',
                   'RuntimeException','PropertyNotFoundException','NullReferenceException',
@@ -327,12 +347,14 @@ jobs:
           Write-Host 'AGENT06_ONLINE_SETUP_REPAIR_UNINSTALL_PASS'
           Write-Host 'AGENT06_PRIVATE_ARTIFACTS_UPLOADED=0'
       - name: Upload clean UI-only screenshots for independent visual comparison
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: IWXA-Agent062-V8-clean-Windows-screens
           path: |
+            ${{ runner.temp }}/agent062-v8-initial.png
             ${{ runner.temp }}/agent062-v8-home.png
             ${{ runner.temp }}/agent062-v8-dialogue.png
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 1
       # Synthetic isolated Windows UI only. No EXE, source, logs or user profiles.
