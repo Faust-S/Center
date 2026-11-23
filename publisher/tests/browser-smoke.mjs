@@ -114,16 +114,37 @@ try {
         const entry=JSON.parse(sessionStorage.getItem('publisher-corporate-mock-signed')||'null');
         if(!entry||entry.licenseId!==args.licenseId)
           throw Error('CORPORATE_ORIGINAL_SIGNED_ENTRY_MISSING');
+        const showStale=(window.__publisherMockCorporateStaleStatusReadbackCount||0)>0;
+        if(showStale)window.__publisherMockCorporateStaleStatusReadbackCount-=1;
+        const observed=showStale?{...entry,status:'NOT_ACTIVATED',sequence:0}:entry;
+        const withStatus=observed.sequence>0;
         return {operation:'CORPORATE_SIGNED_READBACK',
           source:'ORIGINAL_T3_PRODUCT_ISSUE_LEDGER',
-          ...entry,issuerAuthorityId:'issuer:corporate:fixture',
+          ...observed,issuerAuthorityId:'issuer:corporate:fixture',
           tariffId:'TEAM',tariffRevision:1,productVersion:'0.5.0',
           licenseEnvelopeSha256:'e'.repeat(64),
           licenseSignatureVerifiedAtIssuance:true,
-          statusEnvelopeSha256:null,statusSignatureVerifiedAtIssuance:false,
-          statusFloorVerified:false,stateRevision:1,ledgerRevision:1,
-          recipientConfirmed:false,activeSeats:0,
+          statusEnvelopeSha256:withStatus?'f'.repeat(64):null,
+          statusSignatureVerifiedAtIssuance:withStatus,
+          statusFloorVerified:withStatus,stateRevision:observed.sequence+1,
+          ledgerRevision:observed.sequence+1,recipientConfirmed:false,activeSeats:0,
           assignablePersonalAgentSeats:0,productionActivation:false};
+      }
+      if(command==='publisher_t3_corporate_change_status'){
+        const entry=JSON.parse(sessionStorage.getItem('publisher-corporate-mock-signed')||'null');
+        if(!entry||entry.licenseId!==args.licenseId||
+           entry.sequence!==args.expectedSequence)
+          throw Error('CORPORATE_STATUS_SEQUENCE_CONFLICT');
+        window.__publisherMockCorporateStatusCalls=(window.__publisherMockCorporateStatusCalls||0)+1;
+        entry.sequence+=1;entry.status=args.nextStatus;
+        sessionStorage.setItem('publisher-corporate-mock-signed',JSON.stringify(entry));
+        if(window.__publisherMockCorporateLoseNextStatusReceipt===true){
+          window.__publisherMockCorporateLoseNextStatusReceipt=false;
+          throw Error('CORPORATE_STATUS_ACK_LOST_AFTER_COMMIT');
+        }
+        return {operation:'CORPORATE_STATUS',licenseId:entry.licenseId,
+          state:entry.status,sequence:entry.sequence,
+          activeSeats:0,productionActivation:false};
       }
       if(command==='publisher_t3_corporate_inventory'){
         if(window.__publisherMockCorporateFailNextInventory===true){
@@ -829,6 +850,32 @@ try {
   assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);
   checks.push('corporate-cold-window-reopening-original-ledger-dedup-without-second-issue');
   checks.push('corporate-owner-ui-human-consent-cold-signed-readback-no-recipient-grant');
+  // STATUS can be committed to original T3 after its native ACK is lost.
+  // A stale readback of the pre-commit status must NOT unlock a retry.
+  await coldCorp.getByLabel('STATUS действителен до (UTC, ISO 8601)')
+    .fill('2030-12-01T12:00:00.000Z');
+  await coldCorp.getByRole('checkbox',{
+    name:'Подтверждаю отдельную подпись STATUS; отзыв необратим'
+  }).check();
+  await page.evaluate(()=>{window.__publisherMockCorporateLoseNextStatusReceipt=true;});
+  await coldCorp.getByRole('button',{name:'Подписать новый STATUS через T3'}).click();
+  await coldCorp.getByTestId('publisher-corporate-outcome-unknown').waitFor();
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateStatusCalls||0),1);
+  assert.equal(await coldCorp.getByTestId('publisher-corporate-native-lookup').inputValue(),
+    'license:corporate:fixture');
+  await page.evaluate(()=>{window.__publisherMockCorporateStaleStatusReadbackCount=2;});
+  await coldCorp.getByRole('button',{name:'Прочитать подписанный журнал T3'}).click();
+  await coldCorp.getByText('CORPORATE_UNKNOWN_STATUS_EXACT_COMMIT_REQUIRED',
+    {exact:false}).waitFor();
+  assert.equal(await coldCorp.getByTestId('publisher-corporate-outcome-unknown').count(),1);
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateStatusCalls||0),1);
+  await coldCorp.getByRole('button',{name:'Прочитать подписанный журнал T3'}).click();
+  await coldCorp.getByTestId('publisher-corporate-native-readback').waitFor();
+  assert.match(await coldCorp.getByTestId('publisher-corporate-native-readback').innerText(),
+    /STATUS: ACTIVE, последовательность 1/);
+  assert.equal(await coldCorp.getByTestId('publisher-corporate-outcome-unknown').count(),0);
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateStatusCalls||0),1);
+  checks.push('corporate-status-lost-ack-exact-sequence-only-no-second-status');
   const ownerPanel=page.getByTestId('publisher-t3-owner-panel');
   await ownerPanel.getByText('Журнал T3 недоступен при запуске.',{exact:false}).waitFor();
   assert.equal(await page.getByTestId('publisher-t3-issue').isDisabled(),true);
