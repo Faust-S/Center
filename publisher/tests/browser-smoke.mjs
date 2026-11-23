@@ -623,6 +623,33 @@ try {
   assert.equal(corporateRequest.status,'UNSIGNED_REQUEST');
   assert.equal(Object.hasOwn(corporateRequest,'signature'),false);
   checks.push('native-corporate-request-export-exact-unsigned-t3-profile-no-agent-authority');
+  // Continue from the exact prepared organization without finding the
+  // same tariff and holder again. This must NOT sign in the background.
+  await corporateReview.getByTestId('publisher-open-corporate-signing').click();
+  const focusedCorporate=page.getByTestId('publisher-corporate-native-owner');
+  await focusedCorporate.getByTestId('publisher-corporate-focused-proposal').waitFor();
+  assert.match(await focusedCorporate.getByTestId('publisher-corporate-focused-proposal').innerText(),
+    /Test Corporation/);
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),0);
+  assert.equal(await focusedCorporate.getByTestId('publisher-corporate-native-issue').count(),0);
+  await page.evaluate(()=>{window.__publisherMockCorporateEnrolled=true;});
+  await focusedCorporate.getByTestId('publisher-corporate-owner-check').click();
+  assert.equal(await focusedCorporate.getByLabel('Подготовленное предложение организации').inputValue(),
+    corporateRequest.requestId);
+  assert.equal(await focusedCorporate.getByTestId('publisher-corporate-native-seats').inputValue(),'0',
+    'Explicitly entered Personal Agent seats must follow their exact proposal');
+  assert.equal(await focusedCorporate.getByTestId('publisher-corporate-native-issue').count(),0,
+    'Selecting a prepared offer must not bypass review or human confirmation');
+  await page.evaluate(()=>{window.__publisherMockCorporateEnrolled=false;});
+  await focusedCorporate.getByTestId('publisher-corporate-owner-check').click();
+  await focusedCorporate.getByRole('alert').waitFor();
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),0);
+  await page.getByRole('button',{name:'Лицензии',exact:true}).click();
+  await page.getByTestId('publisher-open-corporate-from-list').click();
+  await page.getByTestId('publisher-corporate-focused-proposal').waitFor();
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),0);
+  await page.getByRole('button',{name:'Лицензии',exact:true}).click();
+  checks.push('v2-exact-corporate-handoff-retains-request-and-seats-no-auto-sign');
 
   await page.getByRole('button',{name:'Тарифы и лимиты',exact:true}).click();
   await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
