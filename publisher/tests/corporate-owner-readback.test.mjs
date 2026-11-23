@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inspectCorporateIssuePreflight as inspect}
+import {inspectCorporateIssuePreflight as inspect,
+  inspectUnknownCorporateMutationReadback as reconcile}
   from '../src/corporate-owner-readback.mjs';
 
 const requestId='proposal:company:one';
@@ -63,4 +64,47 @@ test('original preflight is read-only and never mints rights',()=>{
  assert.equal(result.activeSeats,undefined);
  assert.equal(result.issuerAuthorityId,undefined);
  assert.equal(result.signature,undefined);
+});
+
+const verified=(o={})=>({
+ operation:'CORPORATE_SIGNED_READBACK',requestId,
+ licenseId:'license:corporate:one',issuerAuthorityId:'issuer:corporate:one',
+ organizationId:'org:company',productId:'IWXA_ADMIN_CENTER',
+ tariffId:'TEAM',tariffRevision:2,status:'ACTIVE',sequence:1,
+ ...o
+});
+const issuePending={kind:'ISSUE',requestId,issuerId:'issuer:corporate:one',
+ organizationId:'org:company',tariffId:'TEAM',tariffRevision:2};
+const statusPending={kind:'STATUS',requestId,licenseId:'license:corporate:one',
+ expectedStatus:'ACTIVE',expectedSequence:1};
+test('lost ISSUE receipt reconciles exact original T3 issuer, organization and tariff',()=>{
+ assert.deepEqual(reconcile(issuePending,verified()),
+  {state:'ORIGINAL_COMMIT_CONFIRMED',
+   licenseId:'license:corporate:one',requestId});
+ for(const malformed of [
+  verified({requestId:'proposal:other'}),
+  verified({issuerAuthorityId:'issuer:other'}),
+  verified({organizationId:'org:other'}),
+  verified({tariffId:'BASIC'}),
+  verified({tariffRevision:1}),
+  verified({licenseId:'../file'}),
+  verified({productId:'IWXA_ATLAS'})
+ ]){
+  assert.throws(()=>reconcile(issuePending,malformed),/CORPORATE_UNKNOWN_/);
+ }
+});
+test('lost STATUS ACK must not be cleared by stale or unrelated original readback',()=>{
+ assert.equal(reconcile(statusPending,verified()).state,'ORIGINAL_COMMIT_CONFIRMED');
+ for(const malformed of [
+  verified({sequence:0,status:'NOT_ACTIVATED'}),
+  verified({sequence:2}),
+  verified({status:'SUSPENDED'}),
+  verified({licenseId:'license:another'}),
+  verified({requestId:'proposal:other'})
+ ]){
+  assert.throws(()=>reconcile(statusPending,malformed),/CORPORATE_UNKNOWN_/);
+ }
+ assert.throws(()=>reconcile({...statusPending,kind:'MISSING'},verified()),
+  {code:'CORPORATE_UNKNOWN_OPERATION_INVALID'});
+ assert.throws(()=>reconcile(null,verified()),/CORPORATE_UNKNOWN_/);
 });
