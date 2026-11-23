@@ -12,7 +12,8 @@ type Session={organizationId:string;workspaceId:string;actorId:string;
   d3EmployeeEnrollmentAvailable?:boolean;
   d3EmployeeRegistryBootstrapAvailable?:boolean;
   d3EmployeeRegistryReadbackAvailable?:boolean;
-  d3EmployeeTaskIssueAvailable?:boolean};
+  d3EmployeeTaskIssueAvailable?:boolean;
+  d3EmployeeWorkspaceRightsAvailable?:boolean};
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 function jsonObject(raw:string,code:string):Record<string,any>{
@@ -66,6 +67,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const [enrollmentAttempted,setEnrollmentAttempted]=useState(false);
  const [enrollmentReceipt,setEnrollmentReceipt]=useState<any>(null);
  const [employeeInviteReceipt,setEmployeeInviteReceipt]=useState<any>(null);
+ const [workspaceRightsAttempted,setWorkspaceRightsAttempted]=useState(false);
+ const [workspaceRightsReceipt,setWorkspaceRightsReceipt]=useState<any>(null);
  const [taskGrantAttempted,setTaskGrantAttempted]=useState(false);
  const [taskGrantReceipt,setTaskGrantReceipt]=useState<any>(null);
  const [taskText,setTaskText]=useState('');
@@ -79,6 +82,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const bootstrap=session.d3EmployeeRegistryBootstrapAvailable===true;
  const registryRead=session.d3EmployeeRegistryReadbackAvailable===true;
  const taskIssueAvailable=session.d3EmployeeTaskIssueAvailable===true;
+ const workspaceRightsAvailable=session.d3EmployeeWorkspaceRightsAvailable===true;
  const personOk=ID.test(personId)&&personId!==session.actorId;
  const credentialOk=credentialReceipt?.state==='ORIGINAL_PROOF_CREDENTIAL_ADMITTED'&&
    credentialReceipt.employeePersonId===personId&&
@@ -122,6 +126,35 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    enrollmentReceipt.originalEnrollment?.payload?.credentialPublicKeyRef===keyId&&
    Number.isSafeInteger(enrollmentReceipt.statusSequence)&&
    enrollmentReceipt.statusSequence>0;
+ // The independent employee's four T2 rights come from a separate original
+ // Kernel grant write. Neither work.prepare nor package.export is an import.
+ const rightsSpec:Record<string,[string,string,string]>={
+   readAccess:['workspace.read','workspace.read','DATA'],
+   writeAccess:['object.write','workspace.work','ACTION'],
+   createAccess:['workspace.create','workspace.onboarding','ACTION'],
+   importAccess:['workspace.exchange.import','workspace.exchange.import','ACTION'],
+ };
+ const workspaceRightsOk=enrolled&&
+   workspaceRightsReceipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1'&&
+   workspaceRightsReceipt.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'&&
+   workspaceRightsReceipt.organizationId===session.organizationId&&
+   workspaceRightsReceipt.workspaceId===session.workspaceId&&
+   workspaceRightsReceipt.employeePersonId===personId&&
+   workspaceRightsReceipt.enrollmentId===enrollmentReceipt.enrollmentId&&
+   workspaceRightsReceipt.originalReadback===true&&
+   workspaceRightsReceipt.safeToReissue===false&&
+   Number.isSafeInteger(workspaceRightsReceipt.statusSequence)&&
+   Object.entries(rightsSpec).every(([key,[action,purpose,rightClass]])=>{
+     const a=workspaceRightsReceipt.attachments?.[key];
+     return a?.grantId===a?.binding?.grantId&&
+       a?.membership?.personId===personId&&
+       a?.membership?.workspaceId===session.workspaceId&&
+       a?.binding?.holderPersonId===personId&&
+       a?.credential?.publicKeyRef===keyId&&
+       a?.enrollment?.payload?.credentialPublicKeyRef===keyId&&
+       a?.binding?.actions?.length===1&&a.binding.actions[0]===action&&
+       a?.binding?.purposes?.length===1&&a.binding.purposes[0]===purpose;
+   });
  // A second signed DATA grant belongs to the manager, not the worker.
  const managerTaskResources=[
    'workspace:'+session.workspaceId,'subject:'+session.organizationId,
@@ -148,18 +181,20 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    Number.isSafeInteger(taskGrantReceipt.statusSequence)&&
    taskGrantReceipt.statusSequence>0;
  // The employee must import the current signed manager DATA + STATUS.
- const invitationCurrentForTask=managerTaskGrantOk&&
+ const invitationCurrentForTask=managerTaskGrantOk&&workspaceRightsOk&&
    employeeInviteReceipt?.originalSigned===true&&
    employeeInviteReceipt.originalKernelReadback===true&&
    employeeInviteReceipt.enrollmentId===enrollmentReceipt.enrollmentId&&
    Number.isSafeInteger(employeeInviteReceipt.statusSequence)&&
-   employeeInviteReceipt.statusSequence>=taskGrantReceipt.statusSequence;
+   employeeInviteReceipt.statusSequence>=taskGrantReceipt.statusSequence&&
+   employeeInviteReceipt.statusSequence>=workspaceRightsReceipt.statusSequence;
  const reset=()=>{
    setCredentialChallenge(null);setCredentialProof('');setCredentialAttempted(false);
    setCredentialReceipt(null);setEnrollmentChallenge(null);setRecoveryEnrollmentId('');
    setEnrollmentProof('');
    setEnrollmentAttempted(false);setEnrollmentReceipt(null);
    setEmployeeInviteReceipt(null);
+   setWorkspaceRightsAttempted(false);setWorkspaceRightsReceipt(null);
    setTaskGrantAttempted(false);setTaskGrantReceipt(null);
    setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);
@@ -435,10 +470,60 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      <p>Подтверждены отдельные ACTION work.prepare и DATA package.export.
         Получатель не получает ключ issuer или полномочия руководителя.
         Доставка приглашения не подтверждена.</p>
+     <div className="nested-form" data-testid="d3-employee-workspace-rights">
+       <h3>Доступ сотрудника к Workspace</h3>
+       <p>Чтобы сотрудник работал с данными компании, руководитель отдельно
+         разрешает чтение, сохранение, создание Workspace и импорт полного
+         архива через Exchange. Само членство этих прав не предоставляет.</p>
+       <div className="actions">
+         <button data-testid="d3-employee-workspace-grants-issue"
+           disabled={!workspaceRightsAvailable||busy||
+             workspaceRightsAttempted||workspaceRightsOk}
+           onClick={()=>void run('Исходный Kernel подтвердил четыре права Workspace.',async()=>{
+             if(workspaceRightsAttempted)
+               throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_USE_READBACK');
+             setWorkspaceRightsAttempted(true);
+             const r=await execute('d3EmployeeWorkspaceGrantIssue',{
+               employeePersonId:personId,
+               enrollmentId:enrollmentReceipt.enrollmentId,
+               confirmed:true
+             });
+             if(r?.state!=='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'||
+               r.originalReadback!==true||r.safeToReissue!==false)
+               throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
+             const read=await execute('d3EmployeeWorkspaceGrantReadback',{
+               employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
+             });
+             setWorkspaceRightsReceipt(read);
+             if(read?.state!=='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE')
+               throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
+           })}>Разрешить работу и перенос Workspace</button>
+         <button className="secondary" data-testid="d3-employee-workspace-grants-read"
+           disabled={!workspaceRightsAvailable||busy}
+           onClick={()=>void run('Подписанные права перечитаны без новой выдачи.',async()=>{
+             const r=await execute('d3EmployeeWorkspaceGrantReadback',{
+               employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
+             });
+             setWorkspaceRightsReceipt(r);
+           })}>Проверить выданные права</button>
+       </div>
+       {workspaceRightsOk&&<p role="status" data-testid="d3-employee-workspace-rights-confirmed">
+         Четыре права подтверждены исходным Kernel. Импорт будет разрешён
+         только в выбранную корпоративную Workspace.</p>}
+       {workspaceRightsAttempted&&!workspaceRightsOk&&<p className="notice subdued">
+         Ответ мог потеряться после записи. Не выдавайте права повторно.
+         Используйте проверку выданных прав.</p>}
+       {!workspaceRightsAvailable&&<p className="notice subdued">
+         Подключите исходный T2 Kernel с поддержкой корпоративного Exchange.
+         Пока права недоступны, приглашение к передаче Workspace не выдаётся.</p>}
+     </div>
+     <p>Приглашение содержит только подтверждённые права сотрудника
+        и текущий подписанный STATUS. Сотрудник открывает Workspace
+        и импортирует архив через штатный Exchange.</p>
      <p>Оригинальный T3 сохраняет ранее выданные этому сотруднику права
        в персональное подписанное приглашение .iwxa. Выдача грантов
        не повторяется. Приём файла в Agent ещё требуется подтвердить.</p>
-     <button data-testid="d3-employee-invitation-export" disabled={busy}
+     <button data-testid="d3-employee-invitation-export" disabled={busy||!workspaceRightsOk}
        onClick={()=>void run('Подписанное приглашение сохранено, доставка не подтверждена.',async()=>{
          const receipt=await execute('d3EmployeeExportInvite',{
            employeePersonId:personId,
