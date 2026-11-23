@@ -871,7 +871,7 @@ export default function App() {
         <section className="card padded" data-testid="admin-profile-settings">
           <h2>Профиль, настройки и сведения о программе</h2>
           <div className="v8-profile-details"><strong>IWXA Admin Center</strong>
-            <p>Версия программы: 0.4.0</p>
+            <p>Версия программы: 0.4.1</p>
             <p>Источник: действующая ветка Center. Управленческие данные и подписанные права остаются в оригинальных T2/T3 и связанных приложениях.</p>
           </div>
         </section>
