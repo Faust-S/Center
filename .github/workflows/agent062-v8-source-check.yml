@@ -1,0 +1,36 @@
+name: Agent062 V8 source and UI regression Windows
+on:
+  push:
+    branches:
+      - work/2026-11-23-agent-062-v8-source-check
+    paths:
+      - .github/workflows/agent062-v8-source-check.yml
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: windows-2022
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 0b4a3a04a7fb827ba08f4651367a6ecd16aa4c36
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run the original desktop tests and V8 shell checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-Location desktop
+          npm ci --no-audit --no-fund
+          if($LASTEXITCODE -ne 0){throw 'AGENT062_V8_NPM_INSTALL_FAILED'}
+          node --test tests/agent062-v8-shell.test.mjs tests/agent06-sidebar-collapse.test.mjs tests/conversation-groups-062.test.mjs
+          if($LASTEXITCODE -ne 0){throw 'AGENT062_V8_UI_TESTS_FAILED'}
+          npm run build
+          if($LASTEXITCODE -ne 0){throw 'AGENT062_V8_TYPESCRIPT_BUILD_FAILED'}
+          Write-Host 'AGENT062_V8_TS_BUILD_AND_UI_REGRESSION_PASS'
