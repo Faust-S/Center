@@ -1,4 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
+import {prepareAdminPublisherTestRequest} from '../runtime/cen04-issuer-request.mjs';
 
 // Signed license bytes never enter WebView: only original T3 Consumer may
 // intake a signed package after separate first-use enrollment. The raw .iwxa
@@ -7,9 +8,14 @@ type License={licenseId:string;status:'ACTIVE'|'SUSPENDED'|'REVOKED';
  sequence:number;claimedSeats:number;signatureVerified:true;statusVerified:true};
 type View={organizationId:string;productId:string;licenses:License[];
  revision:number;activeSeats:0;assignableSeats:0;productionActivation:false};
-type Props={organizationId:string;invoke:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null};
+type Props={organizationId:string;organizationName:string;
+ organizationKind:'GROUP'|'ORGANIZATION';
+ invoke:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function Cen04LicensePanel({organizationId,invoke}:Props){
+export default function Cen04LicensePanel({organizationId,organizationName,organizationKind,invoke}:Props){
+ const [testSeats,setTestSeats]=useState('1');
+ const [testTerm,setTestTerm]=useState('30');
+ const [testVersion,setTestVersion]=useState('0.4.0');
  const [verified,setVerified]=useState<View|null>(null);
  const [ready,setReady]=useState(false);
  const [busy,setBusy]=useState(false);
@@ -69,6 +75,24 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
    }
    return ()=>{live=false;};
  },[organizationId,invoke]);
+ async function exportUnsignedRequest(){
+   if(!invoke||busy||actionRef.current)return;
+   actionRef.current=true;setBusy(true);setFailure('');setMessage('');
+   try{
+     const prepared=prepareAdminPublisherTestRequest({
+       organization:{kind:organizationKind,id:organizationId,name:organizationName},
+       requestId:'request:admin:'+crypto.randomUUID(),
+       requestedAt:new Date().toISOString(),version:testVersion,
+       termDays:Number(testTerm),seats:Number(testSeats)
+     });
+     const saved=await invoke('center_export_publisher_test_request',{
+       content:prepared.content,suggestedFileName:prepared.suggestedFileName});
+     setMessage(saved?
+       'Запрос для Publisher сохранён. Подпись и права не создавались.':
+       'Сохранение запроса отменено. Подпись и права не создавались.');
+   }catch(e){setFailure('Запрос Publisher не сохранён: '+error(e));}
+   finally{actionRef.current=false;setBusy(false);}
+ }
  async function configureTrust(){
    if(!invoke||ready||busy||actionRef.current)return;
    const expectedSha256=trustSha.trim().toLowerCase();
@@ -148,6 +172,30 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
       Для защищённой доставки используется .iwxa.age: T3 расшифровывает пакет,
       проверяет подпись и статус и сохраняет лицензию без промежуточного файла в интерфейсе.
       Коммерческая активация не выполняется.</p>
+   <div className="nested-form" data-testid="cen04-publisher-request">
+     <h4>Запрос лицензии в Publisher</h4>
+     <p className="muted">Подготовьте запрос для выбранной организации.
+       Publisher выдаёт отдельную подписанную лицензию после проверки.
+       Сохранение запроса не включает коммерческие места и не меняет полномочия T3.</p>
+     <div className="form-grid">
+       <label>Версия Admin Center
+         <input aria-label="Версия продукта для Publisher" value={testVersion}
+           maxLength={64} onChange={e=>setTestVersion(e.target.value)} disabled={busy}/>
+       </label>
+       <label>Срок в днях
+         <input aria-label="Срок TEST-запроса" type="number" min={1} max={3650}
+           value={testTerm} onChange={e=>setTestTerm(e.target.value)} disabled={busy}/>
+       </label>
+       <label>Заявленных TEST-мест
+         <input aria-label="Места TEST-запроса" type="number" min={1} max={10000}
+           value={testSeats} onChange={e=>setTestSeats(e.target.value)} disabled={busy}/>
+       </label>
+     </div>
+     <button type="button" className="secondary" data-testid="cen04-export-publisher-request"
+       onClick={()=>void exportUnsignedRequest()} disabled={!invoke||busy}>
+       Сохранить запрос для Publisher
+     </button>
+   </div>
    <div className="actions">
      <button type="button" className="secondary" data-testid="cen04-import-verified-age"
        onClick={()=>void importVerified(true)} disabled={!ready||busy}>
