@@ -323,6 +323,13 @@ mod tests {
     let payload=vec![b'X';2*MAX_OUTPUT];
     assert_eq!(drain_pipe(std::io::Cursor::new(payload),MAX_OUTPUT+1)
       .unwrap().len(),MAX_OUTPUT+1);
+    // Corporate PRODUCTION and TEST use exactly the same ORIGINAL binary
+    // and native root, while only corporate first use works before trust.
+    assert_eq!(kind_spec("consumer-corporate").unwrap(),
+      kind_spec("consumer").unwrap());
+    assert!(valid_product_action("corporate-enroll"));
+    assert!(valid_product_action("corporate-read"));
+    assert!(valid_product_action("corporate-receive"));
     assert!(valid_identifier("publisher:issuer:1"));
     assert!(!valid_identifier("../relative"));
     assert!(!valid_identifier("bad name"));
