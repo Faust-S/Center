@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import struct
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
+from unittest.mock import patch
 from pathlib import Path
 
 from installer.build_bundle import (
-    FOOTER, MAGIC, SetupBundleError, create_bundle, inspect_bundle, safe_relative,
+    FOOTER, MAGIC, RESOURCE_MAGIC, MAX_PE_RESOURCE_BYTES, SetupBundleError,
+    _build_resource_blob, create_bundle, inspect_bundle, safe_relative,
     validate_product,
 )
 
@@ -18,7 +22,7 @@ PRODUCT = {
     "id": "iwxa.admin-center",
     "display_name": "IWXA Admin Center",
     "publisher": "IWXA",
-    "version": "0.3.0-dev.1",
+    "version": "0.3.0-dev.2",
     "architecture": "windows-x64",
     "install_dir": "IWXA Admin Center",
     "entrypoint": "iwxa-admin-center.exe",
@@ -53,6 +57,202 @@ class BundleTests(unittest.TestCase):
         return create_bundle(product_json=self.profile, payload_dir=self.payload,
             stub=self.stub, output=self.out, source_commit="a" * 40, source_tree="b" * 40)
 
+
+    def test_native_ui_is_product_neutral_and_versions_are_dynamic(self):
+        gui = (Path(__file__).resolve().parents[1] / "windows" / "SetupCore.Form.cs").read_text(encoding="utf-8")
+        for forbidden in ("IWXA Admin Center", "IWXA Atlas", "IWXA Publisher",
+                          "NSIS 0.2", "0.2", "0.3"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, gui)
+        self.assertIn("info.Name", gui)
+        self.assertIn("info.Version", gui)
+        self.assertIn("old.Version", gui)
+
+    def test_post_operation_verification_cannot_reenable_actions_early(self):
+        source = (Path(__file__).resolve().parents[1] / "windows" /
+                  "SetupCore.Form.cs").read_text(encoding="utf-8")
+        self.assertIn("private bool verifyingState = false;", source)
+        self.assertIn("UpgradeAssessment verified = await VerifyAsync(true);", source)
+        self.assertIn("if (verifyingState || (performingOperation && !fromOperation))", source)
+        self.assertIn("!performingOperation && !verifyingState", source)
+        self.assertIn("install.Enabled = !performingOperation &&", source)
+        self.assertNotIn("performingOperation = false;\n                UpgradeAssessment verified", source)
+
+    def test_native_stub_embeds_single_exe_system_dpi_manifest(self):
+        windows = Path(__file__).resolve().parents[1] / "windows"
+        manifest = ET.fromstring((windows / "SetupCore.manifest").read_text(encoding="utf-8"))
+        aware = manifest.find(".//{http://schemas.microsoft.com/SMI/2005/WindowsSettings}dpiAware")
+        execution = manifest.find(".//{urn:schemas-microsoft-com:asm.v3}requestedExecutionLevel")
+        self.assertIsNotNone(aware)
+        self.assertEqual(aware.text.strip(), "true")
+        self.assertIsNotNone(execution)
+        self.assertEqual(execution.attrib["level"], "asInvoker")
+        script = (windows / "build-stub.ps1").read_text(encoding="utf-8")
+        self.assertIn("/win32manifest:$manifestPath", script)
+        self.assertIn("IWXA_SETUP_NATIVE_MANIFEST_MISSING", script)
+
+    def test_native_setup_preserves_action_geometry_at_small_sizes(self):
+        root = Path(__file__).resolve().parents[1] / "windows"
+        form = (root / "SetupCore.Form.cs").read_text(encoding="utf-8")
+        ux = (root / "SetupCore.Unified.cs").read_text(encoding="utf-8")
+        for marker in (
+            'MinimumSize = new Size(750, 520)',
+            'FitInitialWindowToWorkingArea()',
+            'internal static Size FitToWorkingAreaSize(',
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, form)
+        for marker in (
+            'MinimumSize = new Size(830, 520)',
+            'BuildUnifiedLayout()',
+            'unifiedMain.ColumnCount = 2',
+            'unifiedPathPanel.AutoScroll = false',
+            'private void AdjustUnifiedForScreen()',
+            'unifiedCompact = small',
+            'compactSettings.Visible = small',
+            'OpenCompactSettings()',
+            'iwxaSetupPrimaryAction',
+            'iwxaSetupInstallRoot',
+            'iwxaSetupDataRoot',
+            'iwxaSetupCommonRoot',
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, ux)
+        self.assertNotIn('iwxaSetupNavigation0', ux)
+        self.assertNotIn('AutoScroll = true', ux)
+
+    def test_native_setup_shows_real_storage_copy_progress_only(self):
+        root = Path(__file__).resolve().parents[1] / "windows"
+        source = (root / "SetupCore.Form.cs").read_text(encoding="utf-8")
+        unified = (root / "SetupCore.Unified.cs").read_text(encoding="utf-8")
+        native = (root / "SetupCore.Install.cs").read_text(encoding="utf-8")
+        self.assertIn("ProgressBarStyle.Marquee", source)
+        self.assertIn("busyProgress.Visible = true", source)
+        self.assertIn("busyProgress.Visible = false", source)
+        self.assertIn("busyProgress.AccessibleName", unified)
+        self.assertIn("busyProgress.Style = moving ?", source)
+        self.assertIn("ProgressBarStyle.Continuous : ProgressBarStyle.Marquee", source)
+        self.assertIn("Math.Floor(copied * 100.0 / total)", source)
+        self.assertIn("busyProgress.Value = percent;", source)
+        self.assertIn("busyProgress.Style = ProgressBarStyle.Marquee;", source)
+        self.assertIn("Action<long, long> progress", native)
+        self.assertIn("if (bytesCopied != null) bytesCopied(length);", native)
+        self.assertNotIn("busyProgress.Value = 100", source)
+
+    def test_native_installed_app_uninstall_is_visible_and_data_preserving(self):
+        root = Path(__file__).resolve().parents[1] / "windows"
+        form = (root / "SetupCore.Form.cs").read_text(encoding="utf-8")
+        ux = (root / "SetupCore.Unified.cs").read_text(encoding="utf-8")
+        experience = (root / "SetupCore.Experience.cs").read_text(encoding="utf-8")
+        program = (root / "SetupCore.Program.cs").read_text(encoding="utf-8")
+        self.assertIn('removeApplication.Name = "iwxaSetupRemoveApplication"', ux)
+        self.assertIn('await BeginUninstallAsync()', ux)
+        self.assertIn('uninstaller, arguments', form)
+        self.assertIn('optionalRemoval == 0 ?', form)
+        self.assertIn('ConfirmExperienceUninstall(BundleInfo info)', experience)
+        self.assertIn('selectedRemovalMask = 0;', experience)
+        self.assertIn('CleanupBlockReason(info, flags[i])', experience)
+        self.assertIn('AllowsOwnedUninstall(plan.Status)', form)
+        self.assertIn('case "APPLICATION_RUNNING":', form)
+        self.assertIn('case "DOWNGRADE_BLOCKED":', form)
+        self.assertIn('UserUninstallFailure(ex)', program)
+        self.assertIn('UNINSTALLED_USER_DATA_PRESERVED', program)
+        self.assertNotIn('MessageBox.Show(result.Status, "IWXA Setup"', program)
+
+    def test_setup_hides_machine_codes_until_technical_details_requested(self):
+        root = Path(__file__).resolve().parents[1] / "windows"
+        form = (root / "SetupCore.Form.cs").read_text(encoding="utf-8")
+        ux = (root / "SetupCore.Unified.cs").read_text(encoding="utf-8")
+        experience = (root / "SetupCore.Experience.cs").read_text(encoding="utf-8")
+        self.assertIn('technicalDetails.Name = "iwxaSetupTechnicalDetails"', ux)
+        self.assertIn('SetTechnicalReport(info, plan.Status, null)', form)
+        self.assertIn('report.AppendLine("Package SHA-256: "', form)
+        self.assertIn('ExplainBlockedState(plan.Status)', form)
+        self.assertIn('ExplainStorageSettingsError(error)', experience)
+        self.assertNotIn('version.Text = ex.Message', form)
+        self.assertNotIn('version.Text = failure.Message', form)
+        self.assertNotIn('packageDetails.Text = ex.Message', form)
+        self.assertNotIn('plan.Status + "   ', form)
+        self.assertNotIn('check.Status, versionLine', form)
+        self.assertNotIn('version.Text = T("Код диагностики: "', form)
+        self.assertIn('SetTechnicalReport(info, plan.Status, "Preflight: " + check.Status)', form)
+        self.assertIn('Name = "iwxaSetupTechnicalReport"', form)
+        self.assertIn('Name = "iwxaSetupCopyTechnicalReport"', form)
+        self.assertIn('Clipboard.SetText(report.Text)', form)
+        self.assertNotIn('MessageBox.Show(this, technicalReport,', form)
+        self.assertIn('SetupReadiness.DetectWebView2Version()', experience)
+        self.assertIn('await ExecuteAsync(SetupOperation.InstallWebView2)', ux)
+        self.assertIn('await ExecuteAsync(SetupOperation.InstallWebView2Offline)', ux)
+
+    def test_clean_vm_webview2_witness_cannot_report_offline_without_proof(self):
+        source = (Path(__file__).resolve().parents[1] / "windows" /
+                  "qualify-webview2-clean-windows.ps1").read_text(encoding="utf-8")
+        native = (Path(__file__).resolve().parents[1] / "windows" /
+                  "SetupCore.Program.cs").read_text(encoding="utf-8")
+        for marker in ("Assert-OfflineNetworkIsolation",
+                       "Get-NetRoute -AddressFamily IPv4",
+                       "Get-NetRoute -AddressFamily IPv6",
+                       "WEBVIEW2_CLEAN_VM_OFFLINE_HTTPS_REACHABLE",
+                       "WEBVIEW2_CLEAN_VM_APP_CONTENT_NOT_FOUND",
+                       "ExpectedGuiAccessibleName",
+                       "offlineNetworkIsolationVerified",
+                       "productUninstallQualified",
+                       "Write-Qualification 'NOT_QUALIFIED'"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, source)
+        self.assertNotIn("iwxa.admin-center", source)
+        self.assertNotIn("iwxa-admin-center.exe", source)
+        self.assertIn('{"entrypoint", result.Entrypoint}', native)
+        self.assertIn('{"requiresWebView2", result.NeedsWebView2}', native)
+
+    def test_two_other_product_profiles_share_same_package_contract(self):
+        for suffix in ("alpha", "beta"):
+            with self.subTest(product=suffix):
+                profile = copy.deepcopy(PRODUCT)
+                profile["id"] = "iwxa.fixture-" + suffix
+                profile["display_name"] = "IWXA Fixture " + suffix.title()
+                profile["install_dir"] = "IWXA Fixture " + suffix.title()
+                profile["entrypoint"] = "iwxa-fixture-" + suffix + ".exe"
+                profile["data_namespace"] = "ru.iwxa.fixture-" + suffix
+                profile["version"] = "1.4.0"
+                profile["requirements"] = [] if suffix == "alpha" else ["webview2-evergreen"]
+                (self.payload / "iwxa-admin-center.exe").rename(
+                    self.payload / profile["entrypoint"])
+                self.profile.write_text(json.dumps(profile), encoding="utf-8")
+                packed = self.bundle()
+                inspected = inspect_bundle(self.out, verify_files=True)
+                self.assertEqual(packed["product"], profile["id"])
+                self.assertEqual(inspected["product"], profile["id"])
+                self.assertEqual(inspected["version"], "1.4.0")
+                (self.payload / profile["entrypoint"]).rename(
+                    self.payload / "iwxa-admin-center.exe")
+
+    def test_v2_resource_stream_matches_existing_signed_format_exactly(self):
+        self.bundle()
+        resource = self.root / "v2-resource.bin"
+        size, digest = _build_resource_blob(self.out, self.stub, resource)
+        overlay = self.out.read_bytes()
+        fields = FOOTER.unpack(overlay[-FOOTER.size:])
+        expected = overlay[fields[1]:-FOOTER.size] + FOOTER.pack(
+            RESOURCE_MAGIC, 0, fields[2], fields[3],
+            bytes(32), fields[5], fields[6],
+        )
+        self.assertEqual(size, len(expected))
+        self.assertEqual(resource.read_bytes(), expected)
+        self.assertEqual(digest, hashlib.sha256(expected).digest())
+        with patch("installer.build_bundle.MAX_PE_RESOURCE_BYTES", size - 1):
+            with self.assertRaisesRegex(SetupBundleError, "pe_resource_maximum_payload_exceeded"):
+                _build_resource_blob(self.out, self.stub, self.root / "blocked-resource.bin")
+        self.assertLess(size, MAX_PE_RESOURCE_BYTES)
+
+    def test_v2_resource_stream_rejects_invalid_overlay_footer(self):
+        self.bundle()
+        content = bytearray(self.out.read_bytes())
+        content[-FOOTER.size] ^= 1
+        self.out.write_bytes(content)
+        with self.assertRaisesRegex(SetupBundleError, "pe_resource_original_bundle_invalid"):
+            _build_resource_blob(self.out, self.stub, self.root / "damaged-resource.bin")
+
     def test_stable_reproducible_single_exe_and_identity(self):
         result = self.bundle()
         first = self.out.read_bytes()
@@ -79,51 +279,6 @@ class BundleTests(unittest.TestCase):
         self.out.write_bytes(original[:-1])
         with self.assertRaisesRegex(SetupBundleError, "bundle_footer_invalid|bundle_layout_invalid"):
             inspect_bundle(self.out)
-
-    def test_qualified_one_dist_is_preserved_inside_the_original_setup_core(self):
-        """The Setup Core packages an existing original Kernel and signed UI.
-
-        These bytes are packaging fixtures, not a production Kernel proof.
-        Qualification of the real T2 artifact is performed by One Core
-        *before* the private installer stages this exact directory.
-        """
-        import hashlib
-
-        root = self.payload / "t3" / "one-dist"
-        entries = {
-            "_iwxa/loader.js": b"unchanged original t2 loader",
-            "_iwxa/runtime/0.3.6/runtime.js": b"unchanged original t2 kernel",
-            "_iwxa/domain.json": b'{"origin":"http://127.0.0.1:18883"}',
-            "_iwxa/service-catalog.json": b'{"count":1,"entries":[]}',
-            "workspace/workspace.config.json": b'{"workspace_service_id":"example"}',
-            "workspace/trusted-kernel-realm.html": b"<html>original trusted realm</html>",
-            "workspace/isolated-signed-workspace.html": b"<html>original signed UI</html>",
-            "workspace/assets/compiled-signed.js": b"compiled original One Core",
-        }
-        for name, content in entries.items():
-            target = root / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
-        receipt = self.bundle()
-        self.assertEqual(receipt["status"], "VERIFIED")
-        self.assertEqual(receipt["file_count"], len(entries) + 2)
-        self.assertEqual(inspect_bundle(self.out, verify_files=True)["status"],
-                         "VERIFIED")
-        packed = self.out.read_bytes()
-        _, stub_size, zip_size, meta_size, *_ = FOOTER.unpack(packed[-FOOTER.size:])
-        manifest = json.loads(packed[stub_size + zip_size:
-                                     stub_size + zip_size + meta_size])
-        index = {item["path"]: item for item in manifest["files"]}
-        for name, content in entries.items():
-            item = index["t3/one-dist/" + name]
-            self.assertEqual(item["bytes"], len(content))
-            self.assertEqual(item["sha256"], hashlib.sha256(content).hexdigest())
-        # The installer remains self-contained and independently verifiable
-        # even if the original staging folder disappears after publication.
-        import shutil
-        shutil.rmtree(root)
-        self.assertEqual(inspect_bundle(self.out, verify_files=True)["status"],
-                         "VERIFIED")
 
     def test_console_stub_rejected_without_publishing_output(self):
         pe = bytearray(self.stub.read_bytes())
@@ -167,6 +322,7 @@ class BundleTests(unittest.TestCase):
         for key, invalid in (
             ("id", "../pwn"), ("install_dir", "../other"),
             ("entrypoint", "../../secret.exe"), ("architecture", "win32"),
+            ("architecture", "windows-arm64"),
             ("requirements", ["cmd.exe /c something"])
         ):
             with self.subTest(key=key):

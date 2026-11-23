@@ -22,7 +22,7 @@ namespace IwxaSetup
         private const string WebView2Guid =
             "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
 
-        internal static InstallPreflight Check(BundleInfo info)
+        internal static InstallPreflight Check(BundleInfo info, string selectedRoot = null)
         {
             var result = new InstallPreflight { Status = "READY_FOR_FIRST_INSTALL",
                 WebView2Version = "" };
@@ -34,7 +34,7 @@ namespace IwxaSetup
             }
             string local = Environment.GetFolderPath(
                 Environment.SpecialFolder.LocalApplicationData);
-            string root = Path.Combine(local, "Programs", info.InstallDir);
+            string root = selectedRoot == null ? SetupInstallation.RootFor(info) : SetupInstallation.ValidateInstallRoot(selectedRoot);
             if (Directory.Exists(root + ".iwxa-previous") ||
                 File.Exists(root + ".iwxa-previous"))
             {
@@ -44,16 +44,36 @@ namespace IwxaSetup
             string legacy = Path.Combine(local, info.InstallDir);
             // Do not replace any directory not registered as ours, including
             // the user's existing Tauri NSIS 0.2 install. S3 owns migration.
-            if (Directory.Exists(root) || File.Exists(root) ||
-                RegistryProductExists(info))
+            // A person may choose an EXISTING EMPTY directory using the
+            // Windows folder picker. That is not an installed application.
+            // Keep all nonempty, linked and already-owned roots protected.
+            if (RegistryProductExists(info))
             {
                 result.Status = "EXISTING_INSTALLATION";
+                return result;
+            }
+            if (File.Exists(root) || (Directory.Exists(root) &&
+                !SetupInstallation.IsUnusedStorageTarget(root)))
+            {
+                result.Status = selectedRoot == null ?
+                    "EXISTING_INSTALLATION" : "INSTALL_ROOT_NOT_EMPTY";
                 return result;
             }
             if (Directory.Exists(legacy) || File.Exists(legacy) ||
                 NsIsInstalled(info.Name))
             {
                 result.Status = "LEGACY_INSTALLATION";
+                return result;
+            }
+            // A conflicting Start Menu shortcut may belong to the user.
+            // Never overwrite it during a first install; NSIS preview was
+            // identified and returned earlier, so it remains unaffected.
+            string shortcut = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Programs),
+                info.InstallDir + ".lnk");
+            if (File.Exists(shortcut) || Directory.Exists(shortcut))
+            {
+                result.Status = "START_MENU_SHORTCUT_CONFLICT";
                 return result;
             }
             if (info.NeedsWebView2)
@@ -130,6 +150,7 @@ namespace IwxaSetup
         {
             if (!String.IsNullOrWhiteSpace(DetectWebView2Version()))
                 return "WEBVIEW2_ALREADY_INSTALLED";
+            VerifyWebView2StandaloneCandidate(executable);
             return InstallVerifiedWebView2(executable);
         }
 
@@ -160,6 +181,18 @@ namespace IwxaSetup
                 throw new InvalidDataException(
                     "SETUP_WEBVIEW2_INSTALLER_PRODUCT_UNEXPECTED");
             return "WEBVIEW2_MICROSOFT_INSTALLER_VERIFIED";
+        }
+
+        // Reject the tiny online bootstrapper in the OFFLINE selection.
+        // Size is only a useful first-pass distinction: the actual offline
+        // installation must still succeed and Runtime registration read back.
+        internal static string VerifyWebView2StandaloneCandidate(string executable)
+        {
+            VerifyWebView2Installer(executable);
+            if (new FileInfo(executable).Length < 16L * 1024 * 1024)
+                throw new InvalidDataException(
+                    "SETUP_WEBVIEW2_OFFLINE_STANDALONE_REQUIRED");
+            return "WEBVIEW2_MICROSOFT_OFFLINE_CANDIDATE_VERIFIED";
         }
 
         private static string InstallVerifiedWebView2(string executable)

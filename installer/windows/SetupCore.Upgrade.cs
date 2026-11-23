@@ -22,7 +22,14 @@ namespace IwxaSetup
     {
         internal static UpgradeAssessment PlanUpgrade(string bundle)
         {
-            BundleInfo info = BundleReader.Inspect(bundle);
+            return PlanUpgrade(BundleReader.Inspect(bundle));
+        }
+
+        // Reuse the already verified bundle for UI planning. Mutating operations
+        // continue to inspect their source package independently.
+        internal static UpgradeAssessment PlanUpgrade(BundleInfo info)
+        {
+            if (info == null) throw new ArgumentNullException("info");
             var plan = new UpgradeAssessment {
                 Product = info.Id, CandidateVersion = info.Version,
                 InstalledVersion = "", InstallRoot = RootFor(info),
@@ -65,11 +72,31 @@ namespace IwxaSetup
                         {
                             BundleInfo current = ReadOwnedRelease(root, root, info.Id);
                             BundleInfo old = ReadOwnedRelease(
-                                PreviousFor(info), root, info.Id);
+                                PreviousFor(info), root, info.Id, true);
+                            // A damaged same-version backup is expected after
+                            // Repair, but an incomplete previous upgrade
+                            // cannot silently be treated as verified.
+                            bool repairedVersion = old.Version == current.Version &&
+                                old.PackageSha256 == current.PackageSha256;
+                            RequireOnlyOwnedFiles(
+                                PreviousFor(info), repairedVersion);
+                            bool incompleteRepairBackup = false;
+                            if (repairedVersion)
+                            {
+                                try { RequireOnlyOwnedFiles(PreviousFor(info)); }
+                                catch (InvalidDataException missing)
+                                {
+                                    if (missing.Message != "SETUP_OWNED_FILES_MISSING")
+                                        throw;
+                                    incompleteRepairBackup = true;
+                                }
+                            }
                             plan.Status = current.PackageSha256 == info.PackageSha256 &&
                                 Convert.ToString(owned.GetValue("Version")) == info.Version &&
                                 old.Id == info.Id ?
-                                "UPGRADE_PENDING_CONFIRMATION" :
+                                (incompleteRepairBackup ?
+                                    "REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK" :
+                                    "UPGRADE_PENDING_CONFIRMATION") :
                                 "UPGRADE_RECOVERY_REQUIRED";
                         }
                         catch (Exception)
@@ -117,11 +144,44 @@ namespace IwxaSetup
                         oldVersion != Convert.ToString(reg.GetValue("Version")) ||
                         Convert.ToString(receipt["packageSha256"]) !=
                             Convert.ToString(reg.GetValue("PackageSha256")) ||
-                        !File.Exists(Path.Combine(root, UninstallExe)) ||
-                        !File.Exists(Path.Combine(root,
-                            info.Entrypoint.Replace('/', Path.DirectorySeparatorChar))))
+                        !File.Exists(Path.Combine(root, UninstallExe)))
                     {
                         plan.Status = "OWNERSHIP_MISMATCH";
+                        return plan;
+                    }
+                    string app = Path.Combine(root,
+                        info.Entrypoint.Replace('/', Path.DirectorySeparatorChar));
+                    if (!File.Exists(app))
+                    {
+                        // The installed EXE may be absent, but Repair is
+                        // permitted ONLY for the exact same verified package.
+                        // Never use this route to adopt an unrelated root,
+                        // damaged receipt, symlink or legacy NSIS preview.
+                        if (receipt.ContainsKey("legacyHandoff") ||
+                            oldVersion != info.Version ||
+                            Convert.ToString(receipt["packageSha256"]) !=
+                                info.PackageSha256)
+                        {
+                            plan.Status = "OWNERSHIP_MISMATCH";
+                            return plan;
+                        }
+                        BundleInfo damaged = ReadOwnedRelease(
+                            root, root, info.Id, true);
+                        if (!String.Equals(damaged.Entrypoint, info.Entrypoint,
+                                StringComparison.OrdinalIgnoreCase) ||
+                            damaged.Version != info.Version ||
+                            damaged.PackageSha256 != info.PackageSha256)
+                        {
+                            plan.Status = "OWNERSHIP_MISMATCH";
+                            return plan;
+                        }
+                        RequireOnlyOwnedFiles(root, true);
+                        plan.InstalledVersion = oldVersion;
+                        plan.Status = info.NeedsWebView2 &&
+                            String.IsNullOrWhiteSpace(
+                                SetupReadiness.DetectWebView2Version()) ?
+                            "WEBVIEW2_MISSING" :
+                            "REPAIR_CANDIDATE_NOT_ACTIVATED";
                         return plan;
                     }
                     plan.InstalledVersion = oldVersion;
@@ -130,7 +190,7 @@ namespace IwxaSetup
                         var handoff = receipt["legacyHandoff"] as
                             IDictionary<string, object>;
                         LegacyAssessment legacy = SetupLegacy.Inspect(info);
-                        plan.Status = handoff != null &&
+                        bool originalValid = handoff != null &&
                             Convert.ToString(handoff["schema"]) ==
                                 "IWXA_SETUP_LEGACY_HANDOFF/1" &&
                             String.Equals(Convert.ToString(handoff["root"]),
@@ -138,9 +198,32 @@ namespace IwxaSetup
                             Convert.ToString(handoff["version"]) == legacy.Version &&
                             Convert.ToString(handoff["registryName"]) ==
                                 legacy.RegistryName &&
-                            legacy.Status == "LEGACY_CONFIRMED_READ_ONLY" ?
-                                "LEGACY_MIGRATION_PENDING_GUI_READBACK" :
-                                "LEGACY_MIGRATION_REVIEW_REQUIRED";
+                            Convert.ToString(handoff["uninstaller"]) ==
+                                legacy.Uninstaller &&
+                            legacy.Status == "LEGACY_CONFIRMED_READ_ONLY" &&
+                            FingerprintLegacyFile(Path.Combine(legacy.Root,
+                                info.Entrypoint.Replace('/', Path.DirectorySeparatorChar))) ==
+                                Convert.ToString(handoff["applicationSha256"]) &&
+                            FingerprintLegacyFile(legacy.Uninstaller) ==
+                                Convert.ToString(handoff["uninstallerSha256"]);
+                        if (!originalValid || oldVersion != info.Version ||
+                            Convert.ToString(receipt["packageSha256"]) != info.PackageSha256)
+                            plan.Status = "LEGACY_MIGRATION_REVIEW_REQUIRED";
+                        else
+                        {
+                            string phase = Convert.ToString(handoff["status"]);
+                            if (phase == "PREVIEW_ONLY_NSIS_RETAINED")
+                                plan.Status = "LEGACY_MIGRATION_PENDING_GUI_READBACK";
+                            else if (phase == "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED")
+                                plan.Status = LegacyShortcutMatches(info, handoff) ?
+                                    "LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED" :
+                                    "LEGACY_MIGRATION_REVIEW_REQUIRED";
+                            else if (phase == "LEGACY_SHORTCUT_SWITCH_PENDING" ||
+                                     phase == "LEGACY_SHORTCUT_RESTORE_PENDING")
+                                plan.Status = "LEGACY_SWITCH_RECOVERY_REQUIRED";
+                            else
+                                plan.Status = "LEGACY_MIGRATION_REVIEW_REQUIRED";
+                        }
                         return plan;
                     }
                 }
