@@ -16,6 +16,10 @@ fn kind_spec(role: &str) -> Result<(&'static str, &'static str), String> {
     match role {
         "owner" => Ok(("iwxa-t3-product-owner.exe", "t3-owner-test")),
         "consumer" => Ok(("iwxa-t3-product-consumer.exe", "t3-consumer-test")),
+        // CORPORATE uses the exact same pinned ORIGINAL Consumer executable
+        // and root as TEST, but a different organization-scoped recipient
+        // profile in the original T3 SubjectScopedStore.
+        "consumer-corporate" => Ok(("iwxa-t3-product-consumer.exe", "t3-consumer-test")),
         // Reuse the SAME private original owner binary. D3 is an entirely
         // separate signed corporate profile, never the TEST issuer root.
         "admin-d3" => Ok(("iwxa-t3-product-owner.exe", "t3-admin")),
@@ -28,7 +32,7 @@ fn binary(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
     let target = root.join("t3").join(file);
     match std::fs::symlink_metadata(&target) {
         Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {
-            if role=="admin-d3" || role=="consumer" {
+            if role=="admin-d3" || role=="consumer" || role=="consumer-corporate" {
                 // Neither the signed corporate owner nor the original
                 // license Consumer is authenticated by an EXE filename.
                 // Both SHA-256 pins are compiled by the trusted private
@@ -108,6 +112,10 @@ pub fn availability(app:&AppHandle,role:&str) -> bool {
         "owner" => &["registry.iwxa","anchor.json","keys.vault.json",
             "master-secret.dpapi.json","administrator.dpapi.json"],
         "consumer" => &["publisher-test-trust.json","master-secret.dpapi.json"],
+        // First-use corporate-enroll MUST run before trust/DPAPI exists.
+        // The pinned original executable validates per-organization
+        // preinstalled trust and local DPAPI binding for later commands.
+        "consumer-corporate" => &[],
         "admin-d3" => &["registry.json","identity.json","vault.json",
             "operators.json","master-secret.dpapi.json"],
         _ => return false
