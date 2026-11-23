@@ -158,9 +158,7 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
      if(value===null){setCorporateMessage('Выбор публичного доверия отменён.');return;}
      inspectCorporateEnrollment(value,organizationId,fingerprint);
      const caps=await invoke('center_cen04_corporate_t3_capabilities',{organizationId});
-     const installed=inspectCorporateCapabilities(caps,organizationId);
-     if(installed.fingerprint!==fingerprint)
-       throw Error('CEN04_CORPORATE_TRUST_FINGERPRINT_MISMATCH');
+     inspectCorporatePinnedTrust(caps,organizationId,fingerprint);
      if(!sameOrg())return;
      setCorporateReady(true);setCorporateTrustSha('');
      setCorporateMessage('Доверие корпоративного издателя установлено в оригинальном T3. '+
