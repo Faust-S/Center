@@ -2,7 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import {checkCorporateCarrierExpectation,checkCorporateCarrierMatch}
   from '../runtime/cen04-corporate-carrier.mjs';
 import {inspectCorporateEnrollment,inspectCorporateCapabilities,
-  inspectCorporateRead,inspectCorporateReceived}
+  inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived}
   from '../runtime/cen04-corporate-receipt.mjs';
 
 // Signed license bytes never enter WebView: only original T3 Consumer may
