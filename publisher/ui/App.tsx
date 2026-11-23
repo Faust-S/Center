@@ -162,6 +162,9 @@ export default function App(){
  }
  const corporateOfferReviews=useMemo(()=>projectCorporateOfferReviews(state),[state]);
  const [corporateSeatInputs,setCorporateSeatInputs]=useState<Record<string,string>>({});
+ // UI-only handoff: signing still checks the saved request, T3 issuer, source
+ // hash and an explicit human confirmation before ISSUE.
+ const [corporateFocus,setCorporateFocus]=useState<{proposalId:string;seats:string}|null>(null);
  // Read-only corporate issuer availability. This is not an issued-license
  // inventory, a signed STATUS or a recipient entitlement.
  const [corporateIssuerCount,setCorporateIssuerCount]=useState<number|null>(null);
@@ -530,13 +533,14 @@ export default function App(){
      setDiagnosticsMessage('Автоматическое копирование недоступно. Выделите сведения ниже и нажмите Ctrl+C.');
    }
  }
- function go(p:Page,anchor?:string){
+ function go(p:Page,anchor?:string,corporate?:{proposalId:string;seats:string}){
    // Reset the native desktop work area's scroll when changing sections.
    // Compact layouts scroll the document instead of the work area.
    if(mainScrollRef.current)mainScrollRef.current.scrollTop=0;
    window.scrollTo(0,0);
    if(p!=='proposals')setLegacyOpen(false);
    if(p!=='trust')setPersonRequestId('');
+   setCorporateFocus(p==='trust'?corporate??null:null);
    setPage(p);setMobileNav(false);setError('');setMessage('');setPendingRestore(null);setOfflineCopies(null);
    if(anchor)window.setTimeout(()=>{
      document.querySelector('[data-testid="'+anchor+'"]')?.scrollIntoView({block:'start'});
@@ -839,6 +843,14 @@ export default function App(){
                      onClick={()=>void exportCorporateRequest(offer.proposalId)}>
                      Экспортировать корпоративный запрос T3
                    </button>
+                   <button type="button" className="primary"
+                     data-testid="publisher-open-corporate-signing" disabled={busy||!nativeHost}
+                     onClick={()=>go('trust','publisher-corporate-native-owner',{
+                       proposalId:offer.proposalId,
+                       seats:corporateSeatInputs[offer.proposalId]??''
+                     })}>
+                     Продолжить с этим предложением в T3
+                   </button>
                    <small>Это отдельный неподписанный запрос. Полномочия издателя,
                      подписанный статус и права сотрудников здесь не создаются.</small>
                  </div><span className="status neutral">Подготовка</span>
@@ -876,6 +888,15 @@ export default function App(){
                <button className="secondary" disabled={busy} type="button" onClick={()=>void exportTestRequest(p.id)}>Подготовить TEST-запрос</button>
                <button className="secondary" disabled={busy} type="button" onClick={()=>simulateTestDecision(p.id)}>Моделировать TEST-ответ</button>
              </>}
+            {p.tariffSnapshot?.holderType==='ORGANIZATION'&&
+             p.productId==='IWXA_ADMIN_CENTER'&&
+             <button className="secondary" type="button"
+               data-testid="publisher-open-corporate-from-list" disabled={busy||!nativeHost}
+               onClick={()=>go('trust','publisher-corporate-native-owner',{
+                 proposalId:p.id,seats:corporateSeatInputs[p.id]??''
+               })}>
+               Открыть корпоративную выдачу T3
+             </button>}
             {p.tariffSnapshot?.holderType==='PERSON'&&
              ['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(p.productId)&&
              <button className="secondary" type="button"
@@ -932,6 +953,7 @@ export default function App(){
        {page==='trust'&&<section className="card padded"><h2>Издательские полномочия</h2>
            <p className="muted">TEST-подпись доступна только через ранее зарегистрированного владельца и оригинальный нативный компонент T3. Подписанный выпуск PERSON требует отдельно зарегистрированного издателя. Закрытые ключи не передаются в интерфейс. Действие лицензии подтверждается установленным продуктом, а не фактом её выдачи.</p>
            <PublisherCorporateOwnerPanel draft={state} invoke={invoke}
+             focusProposal={corporateFocus}
              expectedDraftSha256={draftSourceSha256.current}
              ensureSigningDraftCurrent={ensureSigningDraftCurrent}/>
            <div className="divider"></div>
