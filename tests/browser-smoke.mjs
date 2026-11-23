@@ -105,6 +105,12 @@ try{
   assert.equal(await page.getByTestId('planned-agent-seats').textContent(),'1');checks.push('manager-plans-agent-seat-no-license-claim');
   assert.equal(await page.getByTestId('cen04-select-test-iwxa').count(),0);
   assert.equal(await page.getByTestId('cen04-import-verified-age').isEnabled(),false);
+  assert.equal(await page.getByTestId('cen04-corporate-native-intake').count(),1);
+  assert.equal(await page.getByTestId('cen04-corporate-native-receive').isEnabled(),false);
+  assert.equal(await page.getByTestId('cen04-corporate-native-read').isEnabled(),false);
+  assert.equal(await page.getByTestId('cen04-corporate-enroll-trust').isEnabled(),false);
+  assert.equal(await page.getByTestId('cen04-corporate-original-received').count(),0);
+
   assert.equal(await page.getByTestId('cen04-import-verified-iwxa').isEnabled(),false);
   assert.equal(await page.getByTestId('cen04-enroll-trust').count(),0);
   assert.equal(await page.getByTestId('center-age-exchange').count(),1);

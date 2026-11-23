@@ -16,6 +16,8 @@ fn kind_spec(role: &str) -> Result<(&'static str, &'static str), String> {
     match role {
         "owner" => Ok(("iwxa-t3-product-owner.exe", "t3-owner-test")),
         "consumer" => Ok(("iwxa-t3-product-consumer.exe", "t3-consumer-test")),
+        // One original Consumer binary and root; organization-scoped corporate profile.
+        "consumer-corporate" => Ok(("iwxa-t3-product-consumer.exe", "t3-consumer-test")),
         // Reuse the SAME private original owner binary. D3 is an entirely
         // separate signed corporate profile, never the TEST issuer root.
         "admin-d3" => Ok(("iwxa-t3-product-owner.exe", "t3-admin")),
@@ -28,7 +30,7 @@ fn binary(app: &AppHandle, role: &str) -> Result<PathBuf, String> {
     let target = root.join("t3").join(file);
     match std::fs::symlink_metadata(&target) {
         Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {
-            if role=="admin-d3" || role=="consumer" {
+            if role=="admin-d3" || role=="consumer" || role=="consumer-corporate" {
                 // Neither the signed corporate owner nor the original
                 // license Consumer is authenticated by an EXE filename.
                 // Both SHA-256 pins are compiled by the trusted private
@@ -108,6 +110,8 @@ pub fn availability(app:&AppHandle,role:&str) -> bool {
         "owner" => &["registry.iwxa","anchor.json","keys.vault.json",
             "master-secret.dpapi.json","administrator.dpapi.json"],
         "consumer" => &["publisher-test-trust.json","master-secret.dpapi.json"],
+        // Corporate first use is deliberately possible before any trust/DPAPI files exist.
+        "consumer-corporate" => &[],
         "admin-d3" => &["registry.json","identity.json","vault.json",
             "operators.json","master-secret.dpapi.json"],
         _ => return false
@@ -301,7 +305,11 @@ mod tests {
  use super::*;
  #[test]
  fn native_component_adapter_does_not_trust_strings_or_commercial_seats() {
-    assert!(valid_product_action("d3-enroll"));
+    assert_eq!(kind_spec("consumer-corporate").unwrap(),kind_spec("consumer").unwrap());
+     assert!(valid_product_action("corporate-enroll"));
+     assert!(valid_product_action("corporate-read"));
+     assert!(valid_product_action("corporate-receive"));
+     assert!(valid_product_action("d3-enroll"));
     assert!(valid_product_action("test-enroll"));
     assert!(!valid_product_action(""));
     assert!(!valid_product_action("3d-enroll"));
