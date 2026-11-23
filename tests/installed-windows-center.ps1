@@ -173,6 +173,46 @@ function Type-Control([string]$name,[string]$value){
   [System.Windows.Forms.SendKeys]::SendWait($value)
   Start-Sleep -Milliseconds 200
 }
+function Type-ControlConfirmed([string]$name,[string]$value,[string]$actionName){
+  # WebView2 may lose SendKeys input while the native Atlas projection is
+  # completing its asynchronous project creation. A visible project in the
+  # Store is not proof that the React input onChange has been processed.
+  # Use real Windows UIA and keyboard input; never write the component's
+  # state, DOM, Store or a substitute work through an adapter.
+  for($attempt=1;$attempt -le 4;$attempt++){
+    $edit=Find-Control $name 'Edit'
+    if(-not $edit.Current.IsEnabled){
+      Start-Sleep -Milliseconds 350
+      continue
+    }
+    $edit.SetFocus()
+    Start-Sleep -Milliseconds 250
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    Start-Sleep -Milliseconds 80
+    [System.Windows.Forms.SendKeys]::SendWait($value)
+    for($poll=0;$poll -lt 18;$poll++){
+      Start-Sleep -Milliseconds 180
+      $observed=''
+      try {
+        $current=Find-Control $name 'Edit' 1
+        $pattern=$current.GetCurrentPattern(
+          [System.Windows.Automation.ValuePattern]::Pattern)
+        $observed=[string]$pattern.Current.Value
+      } catch {}
+      $canSubmit=$false
+      try {
+        $action=Find-Control $actionName 'Button' 1
+        $canSubmit=[bool]$action.Current.IsEnabled
+      } catch {}
+      if($observed -ceq $value -and $canSubmit){
+        Write-Host "CENTER_INSTALLED_NATIVE_TEXT_COMMITTED_PASS field=$name attempt=$attempt"
+        return
+      }
+    }
+    Write-Host "CENTER_INSTALLED_NATIVE_TEXT_RETRY field=$name attempt=$attempt"
+  }
+  throw "CENTER_INSTALLED_NATIVE_TEXT_INPUT_NOT_COMMITTED: $name"
+}
 function Find-ProjectButton([string]$text){
   for($i=0;$i -lt 65;$i++){
     $root=Root-Element
@@ -381,7 +421,7 @@ try {
   $visible=Find-ProjectButton $expectedProject
   if(!$visible){throw 'Native Atlas project was stored but was not rendered'}
   Write-Host "CENTER_INSTALLED_GUI_ATLAS_PROJECT_READBACK_PASS generation=$($projectOnly.generation)"
-  Type-Control 'Работа Atlas' $expectedWork
+  Type-ControlConfirmed 'Работа Atlas' $expectedWork 'Добавить работу'
   Click-Control 'Добавить работу'
   $saved=Wait-SavedProject 1
   if($saved.revision -lt 2){throw 'Atlas did not advance native revision'}
@@ -543,7 +583,7 @@ try {
   Type-Control 'Новый проект Atlas' $expectedSecondProject
   Click-Control 'Создать проект'
   $secondProjectOnly=Wait-SavedProject 0 $secondOrgId $expectedSecondProject $expectedSecondWork
-  Type-Control 'Работа Atlas' $expectedSecondWork
+  Type-ControlConfirmed 'Работа Atlas' $expectedSecondWork 'Добавить работу'
   Click-Control 'Добавить работу'
   $secondSaved=Wait-SavedProject 1 $secondOrgId $expectedSecondProject $expectedSecondWork
   $secondProjectId=[string]$secondSaved.project.id
