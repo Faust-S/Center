@@ -137,7 +137,7 @@ jobs:
       - name: Verify IWXA Setup Core Windows distribution and record hashes
         shell: pwsh
         run: |
-          $installer = Get-Item -LiteralPath 'artifacts/IWXA-Admin-Center-0.4.0-Setup.exe' -ErrorAction Stop
+          $installer = Get-Item -LiteralPath 'artifacts/IWXA-Admin-Center-0.4.1-Setup.exe' -ErrorAction Stop
           $sha = Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256
           New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
           "$($installer.Name) SHA256=$($sha.Hash) SIZE=$($installer.Length)" | Set-Content 'artifacts/installer-sha256.txt'
