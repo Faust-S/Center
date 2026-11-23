@@ -483,11 +483,19 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
              if(workspaceRightsAttempted)
                throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_USE_READBACK');
              setWorkspaceRightsAttempted(true);
-             const r=await execute('d3EmployeeWorkspaceGrantIssue',{
-               employeePersonId:personId,
-               enrollmentId:enrollmentReceipt.enrollmentId,
-               confirmed:true
-             });
+             let r:any;
+             try {
+               r=await execute('d3EmployeeWorkspaceGrantIssue',{
+                 employeePersonId:personId,
+                 enrollmentId:enrollmentReceipt.enrollmentId,
+                 confirmed:true
+               });
+             } catch(e) {
+               if(String(e).replace(/^Error:\s*/,'').trim()===
+                  'CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_HUMAN_CANCELLED')
+                 setWorkspaceRightsAttempted(false);
+               throw e;
+             }
              if(r?.state!=='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'||
                r.originalReadback!==true||r.safeToReissue!==false)
                throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
