@@ -24,3 +24,35 @@ export function inspectCorporateIssuePreflight(value,requestId){
    deny('CORPORATE_PREFLIGHT_SIGNED_SCOPE_INVALID');
  return Object.freeze({state:'ALREADY_SIGNED',requestId,licenseId:entry.licenseId});
 }
+
+// Recovery after an uncertain native ACK is independent of the current UI
+// selection. For STATUS, the same signed record at the previous sequence is
+// NOT proof that the mutation committed. No second signing is authorized.
+export function inspectUnknownCorporateMutationReadback(pending,signed){
+ if(!pending||!signed||signed.operation!=='CORPORATE_SIGNED_READBACK'||
+    !id(pending.requestId)||!id(signed.requestId)||
+    signed.requestId!==pending.requestId||
+    !id(signed.licenseId)||
+    signed.productId!=='IWXA_ADMIN_CENTER')
+   deny('CORPORATE_UNKNOWN_ORIGINAL_REQUEST_MISMATCH');
+ if(pending.kind==='ISSUE'){
+   if(!id(pending.issuerId)||!id(pending.organizationId)||
+      !id(pending.tariffId)||!Number.isSafeInteger(pending.tariffRevision)||
+      pending.tariffRevision<1||
+      signed.issuerAuthorityId!==pending.issuerId||
+      signed.organizationId!==pending.organizationId||
+      signed.tariffId!==pending.tariffId||
+      signed.tariffRevision!==pending.tariffRevision)
+    deny('CORPORATE_UNKNOWN_ISSUE_TERMS_MISMATCH');
+ }else if(pending.kind==='STATUS'){
+   if(!id(pending.licenseId)||signed.licenseId!==pending.licenseId||
+      !['ACTIVE','SUSPENDED','REVOKED'].includes(pending.expectedStatus)||
+      !Number.isSafeInteger(pending.expectedSequence)||
+      pending.expectedSequence<1||
+      signed.sequence!==pending.expectedSequence||
+      signed.status!==pending.expectedStatus)
+    deny('CORPORATE_UNKNOWN_STATUS_EXACT_COMMIT_REQUIRED');
+ }else deny('CORPORATE_UNKNOWN_OPERATION_INVALID');
+ return Object.freeze({state:'ORIGINAL_COMMIT_CONFIRMED',
+   licenseId:signed.licenseId,requestId:signed.requestId});
+}
