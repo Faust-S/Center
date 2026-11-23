@@ -175,9 +175,7 @@ export default function Cen04LicensePanel({organizationId,invoke}:Props){
      // supplied fingerprint before treating an enrollment as recovered.
      try{
        const caps=await invoke('center_cen04_corporate_t3_capabilities',{organizationId});
-       const installed=inspectCorporateCapabilities(caps,organizationId);
-       if(installed.fingerprint!==fingerprint)
-         throw Error('CEN04_CORPORATE_TRUST_FINGERPRINT_MISMATCH');
+       inspectCorporatePinnedTrust(caps,organizationId,fingerprint);
        if(!sameOrg())return;
        setCorporateReady(true);setCorporateTrustSha('');
        setCorporateMessage('Исходный T3 подтвердил уже установленное доверие по SHA-256. '+
