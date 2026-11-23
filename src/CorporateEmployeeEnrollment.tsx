@@ -128,11 +128,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    enrollmentReceipt.statusSequence>0;
  // The independent employee's four T2 rights come from a separate original
  // Kernel grant write. Neither work.prepare nor package.export is an import.
- const rightsSpec:Record<string,[string,string,string]>={
-   readAccess:['workspace.read','workspace.read','DATA'],
-   writeAccess:['object.write','workspace.work','ACTION'],
-   createAccess:['workspace.create','workspace.onboarding','ACTION'],
-   importAccess:['workspace.exchange.import','workspace.exchange.import','ACTION'],
+ const rightsSpec:Record<string,[string,string]>={
+   readAccess:['workspace.read','workspace.read'],
+   writeAccess:['object.write','workspace.work'],
+   createAccess:['workspace.create','workspace.onboarding'],
+   importAccess:['workspace.exchange.import','workspace.exchange.import'],
  };
  const workspaceRightsOk=enrolled&&
    workspaceRightsReceipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1'&&
@@ -144,7 +144,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    workspaceRightsReceipt.originalReadback===true&&
    workspaceRightsReceipt.safeToReissue===false&&
    Number.isSafeInteger(workspaceRightsReceipt.statusSequence)&&
-   Object.entries(rightsSpec).every(([key,[action,purpose,rightClass]])=>{
+   Object.entries(rightsSpec).every(([key,[action,purpose]])=>{
      const a=workspaceRightsReceipt.attachments?.[key];
      return a?.grantId===a?.binding?.grantId&&
        a?.membership?.personId===personId&&
