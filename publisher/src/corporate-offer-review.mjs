@@ -85,3 +85,17 @@ export function projectCorporateOfferReviews(draft,{limit=10}={}){
     assignablePersonalAgentSeats:0
   };
 }
+
+// The signer normally lists the latest 20 corporate preparations. A direct
+// navigation from an older saved proposal must keep the exact source in view
+// without expanding or copying the underlying issuer ledger.
+export function projectCorporateSigningOffers(draft,{focusProposalId='',limit=20}={}){
+  const recent=projectCorporateOfferReviews(draft,{limit});
+  if(!focusProposalId||recent.items.some(row=>row.proposalId===focusProposalId))
+    return recent;
+  let focused;
+  try{focused=prepareCorporateOfferReview(draft,{proposalId:focusProposalId});}
+  catch{return recent;} // A deleted/unsignable source is never fabricated.
+  const items=[focused,...recent.items];
+  return {...recent,shown:items.length,truncated:recent.total>items.length,items};
+}
