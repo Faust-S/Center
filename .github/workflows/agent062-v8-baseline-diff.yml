@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 5ebf25c85ba50ebb863f26bab28ba2d3db769693
+          ref: d15d9bdad1b7948fcfedffc50e634676ad44ed15
           path: candidate
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
@@ -37,7 +37,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $cases=@(
             @{name='BASE';repo='baseline';sha='39a4f49ed9a5c0781c4a4769e9603ca8fb1e8d23'},
-            @{name='V8';repo='candidate';sha='5ebf25c85ba50ebb863f26bab28ba2d3db769693'}
+            @{name='V8';repo='candidate';sha='d15d9bdad1b7948fcfedffc50e634676ad44ed15'}
           )
           $result=@{}
           foreach($c in $cases){
