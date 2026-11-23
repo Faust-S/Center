@@ -281,6 +281,207 @@ pub async fn center_cen04_corporate_verify_carrier(
    .await.map_err(|_|"CEN04_CORPORATE_CARRIER_WORKER_FAILED".to_string())?
 }
 
+// Corporate PRODUCTION is NOT an alias of the TEST Consumer. It runs
+// through the same SHA-256-pinned ORIGINAL T3 executable, with its own
+// independently enrolled public trust, organization DPAPI custody and
+// ORIGINAL SubjectScopedStore. No signature or seat logic lives in Center.
+const CORPORATE_NATIVE_SCHEMA:&str="IWXA_T3_CORPORATE_CONSUMER_NATIVE_RECEIPT/1";
+fn corporate_hex(s:&str)->bool{
+  s.len()==64&&s.bytes().all(|x|x.is_ascii_digit()||(b'a'..=b'f').contains(&x))
+}
+fn corporate_opaque_read(receipt:&Value,org:&str)->Result<(),String>{
+  if receipt["schema"]!=CORPORATE_NATIVE_SCHEMA||
+     receipt["operation"]!="CORPORATE_READ"||
+     receipt["activeSeats"]!=0||
+     receipt["assignablePersonalAgentSeats"]!=0||
+     receipt["productionActivation"]!=false {
+    return Err("CEN04_CORPORATE_ORIGINAL_READ_REQUIRED".into());
+  }
+  let view=&receipt["view"];
+  if view["schema"]!="IWXA_T3_CORPORATE_PRODUCT_LICENSE_CONSUMER_VIEW/1"||
+     view["organizationId"]!=org||
+     view["productId"]!="IWXA_ADMIN_CENTER"||
+     view["trustOrigin"]!="HOST_PREINSTALLED_PUBLIC_POLICY"||
+     view["revision"].as_u64().is_none_or(|n|n>MAX_SAFE_INTEGER)||
+     view["activeSeats"]!=0||
+     view["assignablePersonalAgentSeats"]!=0||
+     view["productionActivation"]!=false {
+    return Err("CEN04_CORPORATE_ORIGINAL_VIEW_INVALID".into());
+  }
+  let rows=view["licenses"].as_array()
+    .ok_or("CEN04_CORPORATE_ORIGINAL_LICENSES_REQUIRED")?;
+  let mut ids=std::collections::HashSet::new();
+  for row in rows {
+    let license_id=row["licenseId"].as_str().unwrap_or("");
+    if !t3::valid_identifier(license_id)||!ids.insert(license_id)||
+       row["organizationId"]!=org||
+       row["productId"]!="IWXA_ADMIN_CENTER"||
+       !t3::valid_identifier(row["requestId"].as_str().unwrap_or(""))||
+       !t3::valid_identifier(row["issuerAuthorityId"].as_str().unwrap_or(""))||
+       !t3::valid_identifier(row["tariffId"].as_str().unwrap_or(""))||
+       row["tariffRevision"].as_u64().is_none_or(|n|n==0||n>MAX_SAFE_INTEGER)||
+       !matches!(row["status"].as_str(),
+         Some("ACTIVE"|"SUSPENDED"|"REVOKED"|"EXPIRED"|"STATUS_STALE"))||
+       row["sequence"].as_u64().is_none_or(|n|n==0||n>MAX_SAFE_INTEGER)||
+       row["signatureVerified"]!=true||
+       row["statusVerified"]!=true||
+       row["recipientConfirmed"]!=true||
+       row["originalHolderReceiptRequired"]!=true||
+       row["current"].as_bool().is_none()||
+       row["activeSeats"]!=0||
+       row["assignablePersonalAgentSeats"]!=0||
+       row["productionActivation"]!=false {
+      return Err("CEN04_CORPORATE_ORIGINAL_LICENSE_ROW_INVALID".into());
+    }
+  }
+  Ok(())
+}
+fn corporate_received(receipt:&Value,org:&str,sha:&str)->Result<(),String>{
+  if receipt["schema"]!=CORPORATE_NATIVE_SCHEMA||
+     receipt["operation"]!="CORPORATE_RECEIVE"||
+     receipt["organizationId"]!=org||
+     receipt["productId"]!="IWXA_ADMIN_CENTER"||
+     receipt["packageSha256"]!=sha||
+     !corporate_hex(receipt["storedPackageSha256"].as_str().unwrap_or(""))||
+     !matches!(receipt["outcome"].as_str(),
+       Some("VERIFIED_CORPORATE_SAVED"|"ALREADY_RECEIVED"))||
+     !matches!(receipt["status"].as_str(),
+       Some("ACTIVE"|"SUSPENDED"|"REVOKED"|"EXPIRED"|"STATUS_STALE"))||
+     receipt["sequence"].as_u64().is_none_or(|n|n==0||n>MAX_SAFE_INTEGER)||
+     receipt["revision"].as_u64().is_none_or(|n|n==0||n>MAX_SAFE_INTEGER)||
+     !t3::valid_identifier(receipt["licenseId"].as_str().unwrap_or(""))||
+     !t3::valid_identifier(receipt["requestId"].as_str().unwrap_or(""))||
+     !t3::valid_identifier(receipt["issuerAuthorityId"].as_str().unwrap_or(""))||
+     !t3::valid_identifier(receipt["tariffId"].as_str().unwrap_or(""))||
+     receipt["tariffRevision"].as_u64().is_none_or(|n|n==0||n>MAX_SAFE_INTEGER)||
+     receipt["trustOrigin"]!="HOST_PREINSTALLED_PUBLIC_POLICY"||
+     receipt["signatureVerified"]!=true||
+     receipt["statusVerified"]!=true||
+     receipt["statusFloorVerified"]!=true||
+     receipt["signedLicenseAccepted"]!=true||
+     receipt["recipientConfirmed"]!=true||
+     receipt["originalHolderReceiptRequired"]!=true||
+     receipt["holderApplied"]!=false||
+     receipt["activeSeats"]!=0||
+     receipt["assignablePersonalAgentSeats"]!=0||
+     receipt["productionActivation"]!=false{
+    return Err("CEN04_CORPORATE_ORIGINAL_SIGNED_RECEIPT_REQUIRED".into());
+  }
+  Ok(())
+}
+async fn corporate_t3(app:AppHandle,action:&'static str,
+  organization_id:String,more:Vec<String>)->Result<Value,String>{
+  let mut args=vec![organization_id];
+  args.extend(more);
+  tauri::async_runtime::spawn_blocking(move||
+    t3::run(&app,"consumer-corporate",action,&args))
+    .await.map_err(|_|"CEN04_CORPORATE_ORIGINAL_WORKER_FAILED".to_owned())?
+}
+#[tauri::command]
+pub async fn center_cen04_corporate_t3_enroll(
+ app:AppHandle,organization_id:String,expected_sha256:String
+)->Result<Option<Value>,String>{
+  let org=scope(&organization_id)?;
+  if !corporate_hex(&expected_sha256){
+    return Err("CEN04_CORPORATE_PUBLIC_TRUST_SHA256_REQUIRED".into());
+  }
+  let file=rfd::FileDialog::new()
+    .set_title("Admin Center - выбрать публичное доверие корпоративного издателя")
+    .add_filter("T3 public trust",&["json"]).pick_file();
+  let Some(path)=file else{return Ok(None)};
+  if path.file_name().and_then(|x|x.to_str())!=Some("publisher-corporate-trust.json"){
+    return Err("CEN04_CORPORATE_PUBLIC_TRUST_FILE_NAME_INVALID".into());
+  }
+  let meta=std::fs::symlink_metadata(&path)
+    .map_err(|_|"CEN04_CORPORATE_PUBLIC_TRUST_UNREADABLE")?;
+  if !meta.is_file()||meta.file_type().is_symlink()||
+     meta.len()<3||meta.len()>1024*1024{
+    return Err("CEN04_CORPORATE_PUBLIC_TRUST_FILE_INVALID".into());
+  }
+  let v=corporate_t3(app,"corporate-enroll",org.clone(),
+    vec![path.to_string_lossy().into_owned(),expected_sha256.clone()]).await?;
+  if v["schema"]!=CORPORATE_NATIVE_SCHEMA||
+     v["operation"]!="CORPORATE_ENROLLED"||
+     v["organizationId"]!=org||
+     v["fingerprint"]!=expected_sha256||
+     v["trustOrigin"]!="HOST_PREINSTALLED_PUBLIC_POLICY"||
+     v["intakeConfigured"]!=true||
+     v["publicOnly"]!=true||
+     v["recipientConfirmed"]!=false||
+     v["activeSeats"]!=0||
+     v["assignablePersonalAgentSeats"]!=0||
+     v["productionActivation"]!=false{
+    return Err("CEN04_CORPORATE_ORIGINAL_ENROLL_RECEIPT_INVALID".into());
+  }
+  Ok(Some(v))
+}
+#[tauri::command]
+pub async fn center_cen04_corporate_t3_capabilities(
+ app:AppHandle,organization_id:String
+)->Result<Value,String>{
+  let org=scope(&organization_id)?;
+  let v=corporate_t3(app,"corporate-capabilities",org.clone(),vec![]).await?;
+  if v["schema"]!=CORPORATE_NATIVE_SCHEMA||
+     v["operation"]!="CORPORATE_CAPABILITIES"||
+     v["organizationId"]!=org||
+     v["productId"]!="IWXA_ADMIN_CENTER"||
+     v["intakeConfigured"]!=true||
+     v["trustOrigin"]!="HOST_PREINSTALLED_PUBLIC_POLICY"||
+     v["recipientConfirmed"]!=false||
+     v["activeSeats"]!=0||
+     v["assignablePersonalAgentSeats"]!=0||
+     v["productionActivation"]!=false{
+    return Err("CEN04_CORPORATE_ORIGINAL_CAPABILITIES_INVALID".into());
+  }
+  Ok(v)
+}
+#[tauri::command]
+pub async fn center_cen04_corporate_t3_read(
+ app:AppHandle,organization_id:String
+)->Result<Value,String>{
+  let org=scope(&organization_id)?;
+  let v=corporate_t3(app,"corporate-read",org.clone(),vec![]).await?;
+  corporate_opaque_read(&v,&org)?;
+  Ok(v)
+}
+#[tauri::command]
+pub async fn center_cen04_corporate_t3_receive(
+ app:AppHandle,organization_id:String,
+ expected_sha256:String,expected_bytes:u64
+)->Result<Option<Value>,String>{
+  let org=scope(&organization_id)?;
+  if !corporate_hex(&expected_sha256)||
+     expected_bytes==0||expected_bytes>CORPORATE_CARRIER_LIMIT{
+    return Err("CEN04_CORPORATE_EXPECTED_PACKAGE_REQUIRED".into());
+  }
+  if !t3::availability(&app,"consumer-corporate"){
+    return Err("CEN04_CORPORATE_ORIGINAL_CONSUMER_NOT_BUNDLED".into());
+  }
+  let path=rfd::FileDialog::new()
+    .set_title("Admin Center - получить подписанный корпоративный .iwxa через T3")
+    .add_filter("IWXA",&["iwxa"]).pick_file();
+  let Some(selected)=path else{return Ok(None)};
+  if !selected.extension().and_then(|x|x.to_str())
+    .is_some_and(|x|x.eq_ignore_ascii_case("iwxa")){
+    return Err("CEN04_CORPORATE_IWXA_EXTENSION_REQUIRED".into());
+  }
+  let info=std::fs::symlink_metadata(&selected)
+    .map_err(|_|"CEN04_CORPORATE_IWXA_UNREADABLE")?;
+  if !info.is_file()||info.file_type().is_symlink()||
+     info.len()!=expected_bytes {
+    return Err("CEN04_CORPORATE_IWXA_SIZE_MISMATCH".into());
+  }
+  // The original T3 Host independently hashes and verifies THESE SAME
+  // read bytes against the expected Publisher fingerprint before durable
+  // receipt. The prior GUI file-check result is not trusted here.
+  let v=corporate_t3(app,"corporate-receive",org.clone(),vec![
+    selected.to_string_lossy().into_owned(),
+    expected_sha256.clone(),expected_bytes.to_string()
+  ]).await?;
+  corporate_received(&v,&org,&expected_sha256)?;
+  Ok(Some(v))
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
