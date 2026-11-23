@@ -62,7 +62,7 @@ class Admin04UnifiedDesign(unittest.TestCase):
         ]
         cargo = (ROOT / "src-tauri/Cargo.toml").read_text(encoding="utf-8")
         self.assertEqual(versions, ["0.4.0"] * 3)
-        self.assertRegex(cargo, r'(?m)^version = "0\\.4\\.0"$')
+        self.assertIn('version = "0.4.0"', cargo)
         app = (ROOT / "src/App.tsx").read_text(encoding="utf-8")
         theme = (ROOT / "src/admin-v8.css").read_text(encoding="utf-8")
         self.assertIn("Версия программы: 0.4.0", app)
