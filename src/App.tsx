@@ -11,6 +11,7 @@ import {retainSignedWorkspaceForPage,mayOpenSignedWorkspaceOnPage} from './signe
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import Cen04LicensePanel from './Cen04LicensePanel';
 import AgeExchangePanel from './AgeExchangePanel';
+import iwxaBrandMark from './assets/iwxa-admin-center.svg?url';
 import './style.css';
 import './admin-v8.css';
 
@@ -593,11 +594,7 @@ export default function App() {
   return <div className={`app v8-app ${menuOpen?'menu-open':''} ${inspectorVisible?'with-inspector':''}`}
       style={{'--v8-inspector-width':inspectorWidth+'px'} as React.CSSProperties}>
     <header className="v8-titlebar" aria-label="IWXA Admin Center">
-      <svg className="v8-logo" viewBox="0 0 64 64" role="img" aria-label="IWXA">
-        <rect width="64" height="64" rx="10" fill="#eb4e58"/>
-        <rect x="13" y="13" width="7" height="38" fill="#05070d"/>
-        <path d="M29 14 L51 50 M51 14 L29 50" stroke="#05070d" strokeWidth="7"/>
-      </svg>
+      <img className="v8-logo" src={iwxaBrandMark} alt="IWXA Admin Center"/>
       <button type="button" className="v8-topicon" title="Назад" disabled={navigationCursor.current===0} onClick={()=>goHistory(-1)} aria-label="Назад">‹</button>
       <button type="button" className="v8-topicon" title="Вперёд" disabled={navigationCursor.current>=navigationHistory.current.length-1} onClick={()=>goHistory(1)} aria-label="Вперёд">›</button>
       <button type="button" className="v8-topicon" title="Показать или скрыть разделы" onClick={()=>setMenuOpen(value=>!value)} aria-label="Разделы">◫</button>
@@ -642,7 +639,7 @@ export default function App() {
       <div className="v8-rail-rule"/>
       <button type="button" title="Выбрать организацию" aria-label="Выбрать организацию" onClick={()=>go('overview')}><V8RailIcon name="context"/></button>
       <button type="button" className="v8-rail-profile" data-testid="nav-data" aria-label="Профиль и настройки" title="Профиль и настройки" onClick={()=>go('data')}>
-        <svg viewBox="0 0 64 64" role="img" aria-label="IWXA"><rect width="64" height="64" rx="10" fill="#eb4e58"/><rect x="13" y="13" width="7" height="38" fill="#05070d"/><path d="M29 14 L51 50 M51 14 L29 50" stroke="#05070d" strokeWidth="7"/></svg>
+        <img className="v8-profile-mark" src={iwxaBrandMark} alt="IWXA Admin Center"/>
       </button>
     </nav>
     <aside className="sidebar" aria-label="Навигация по разделам">
@@ -677,7 +674,7 @@ export default function App() {
     </aside>
 
     <main className="main">
-      <header className="top"><button className="menu-button quiet" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={()=>setMenuOpen(!menuOpen)}>☰</button><div className="breadcrumb"><strong>{title}</strong><small>{org?.name??'IWXA Admin Center · рабочее место руководителя'}</small></div>
+      <header className="top" aria-label="Текущий раздел"><div className="v8-page-location"><strong>{title}</strong><small>{org?.name??'IWXA Admin Center · рабочее место руководителя'}</small></div>
        {signedWorkspaceOrg&&<>
         {signedWorkspaceVisible
           ? <button className="secondary" data-testid="d3-return-to-review"
@@ -688,7 +685,6 @@ export default function App() {
           aria-label="Завершить подписанную Workspace T3" title="Завершить сеанс Workspace T3"
           onClick={()=>{void closeSignedWorkspace().catch(()=>setError('Не удалось завершить Workspace T3.'));}}>×</button>
        </>}
-       <button type="button" className="v8-dock-toggle" onClick={()=>setInspectorVisible(value=>!value)}>{inspectorVisible?'Скрыть просмотр':'Открыть просмотр'}</button>
        <button className="secondary top-save" onClick={saveFile} disabled={!org||saving}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
       {page!=='overview'&&page!=='results'&&<div className="page-heading"><div><div className="eyebrow">РАБОЧЕЕ МЕСТО РУКОВОДИТЕЛЯ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>}
       {error && <div className="notice error" role="alert">{error}</div>}
