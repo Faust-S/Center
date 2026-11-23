@@ -19,6 +19,27 @@ try{
     return dialog.accept();
   });
   await page.goto('http://127.0.0.1:4173');
+  // Native desktop 820x650 must not compress the first-use explanation into
+  // a 60px column beside the two independent manager actions.
+  await page.setViewportSize({width:820,height:650});
+  const compactFirstUse=await page.locator('.v8-start-notice').evaluate(el=>{
+    const text=el.firstElementChild?.getBoundingClientRect();
+    const actions=el.querySelector('.v8-start-actions')?.getBoundingClientRect();
+    const notice=el.getBoundingClientRect();
+    return {textWidth:text?.width??0,textBottom:text?.bottom??0,
+      actionsTop:actions?.top??0,actionsWidth:actions?.width??0,
+      noticeHeight:notice.height,horizontalOverflow:document.documentElement.scrollWidth-
+       document.documentElement.clientWidth};
+  });
+  assert.ok(compactFirstUse.textWidth>=240&&
+    compactFirstUse.actionsTop>=compactFirstUse.textBottom-1&&
+    compactFirstUse.noticeHeight<=190&&
+    compactFirstUse.horizontalOverflow<=1,
+    '820x650 first use must keep readable explanation and both actions: '+
+      JSON.stringify(compactFirstUse));
+  await page.screenshot({path:'artifacts/overview-first-use-820.png',fullPage:true});
+  checks.push('v8-first-use-820x650-readable-text-and-buttons');
+  await page.setViewportSize({width:1366,height:900});
   await page.getByTestId('org-name').fill('North workshop');await page.getByTestId('create-org').click();
   await page.getByTestId('manager-context-overview').waitFor();
   await page.getByTestId('manager-question-review').click();
