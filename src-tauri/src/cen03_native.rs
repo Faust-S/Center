@@ -117,6 +117,15 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               return Err("CEN_D3_EMPLOYEE_ENROLLMENT_IDENTIFIERS_REQUIRED".into());
           }
       },
+      "d3EmployeeWorkspaceGrantIssue"|"d3EmployeeWorkspaceGrantReadback"=>{
+          if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
+             !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier){
+              return Err("CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_SCOPE_REQUIRED".into());
+          }
+          if operation=="d3EmployeeWorkspaceGrantIssue"&&input["confirmed"]!=true{
+              return Err("CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_CONFIRMATION_REQUIRED".into());
+          }
+      },
       "d3EmployeeTaskGrantIssue"|"d3EmployeeTaskGrantReadback"=>{
           if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
              !input["enrollmentId"].as_str().is_some_and(t3::valid_identifier){
@@ -248,6 +257,8 @@ fn supported_state(result:&Value,organization_id:&str,
         !view["snapshot"]["d3EmployeeRegistryReadbackAvailable"].is_boolean())||
        (view["snapshot"]["d3EmployeeTaskIssueAvailable"]!=Value::Null&&
         !view["snapshot"]["d3EmployeeTaskIssueAvailable"].is_boolean())||
+       (view["snapshot"]["d3EmployeeWorkspaceRightsAvailable"]!=Value::Null&&
+        !view["snapshot"]["d3EmployeeWorkspaceRightsAvailable"].is_boolean())||
        !view["snapshot"]["tasks"].is_array()||
        !view["snapshot"]["totalTasks"].as_u64().is_some_and(|n|n<=256){
 
@@ -264,7 +275,8 @@ fn supported_state(result:&Value,organization_id:&str,
     }
     for name in ["d3EmployeeRegistryBootstrapAvailable",
                  "d3EmployeeRegistryReadbackAvailable",
-                 "d3EmployeeTaskIssueAvailable"] {
+                 "d3EmployeeTaskIssueAvailable",
+                 "d3EmployeeWorkspaceRightsAvailable"] {
         if projected["snapshot"][name]==Value::Null {
             projected["snapshot"][name]=Value::Bool(false);
         }
