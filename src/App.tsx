@@ -647,10 +647,10 @@ export default function App() {
         value={navQuery} onChange={e=>setNavQuery(e.target.value)} aria-label="Найти раздел"
         placeholder="Найти работу или команду"/></div>
       <div className="v8-nav-caption">{queryText?'РЕЗУЛЬТАТЫ ПОИСКА':'РАЗДЕЛ'}</div>
-      <nav>{contextualPages.map(([id,label,icon])=>
+      <nav>{contextualPages.map(([id,label])=>
         <button key={id} className={`nav-link ${page===id?'active':''}`} aria-current={page===id?'page':undefined}
           onClick={()=>{setNavQuery('');go(id);}}>
-          <span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span>{id==='work'&&!!stats.drafts&&<em>{stats.drafts}</em>}
+          <span className="nav-icon" aria-hidden="true"><V8RailIcon name={id}/></span><span>{label}</span>{id==='work'&&!!stats.drafts&&<em>{stats.drafts}</em>}
         </button>)}
         {draftMatches.length>0&&<div className="v8-nav-caption">ЧЕРНОВИКИ ОРГАНИЗАЦИИ</div>}
         {draftMatches.map(hit=><button key={hit.key} className="nav-link" type="button"
