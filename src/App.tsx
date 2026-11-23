@@ -866,7 +866,9 @@ export default function App() {
         {!org.participants.length && <Empty title="Сначала добавьте сотрудников" text="Для каждого сотрудника можно подготовить план доступа к Personal Agent."/>}
         <div className="notice subdued">Разделение ответственности: Publisher выпускает программные лицензии и издательские статусы; Admin Center распределяет подтверждённые места организации и управляет организационными полномочиями. Ни одна кнопка здесь пока не активирует программу.</div>
         <AgeExchangePanel invoke={nativeHost?nativeInvoke:null} prefix="center" recipientOnly/>
-         <Cen04LicensePanel key={org.id} organizationId={org.id} invoke={nativeHost?nativeInvoke:null}/>
+         <Cen04LicensePanel key={org.id} organizationId={org.id} organizationName={org.name}
+          organizationKind={org.kind==='ORGANIZATION'?'ORGANIZATION':'GROUP'}
+          invoke={nativeHost?nativeInvoke:null}/>
       </section>}
       {org && page==='data' && <section className="card padded"><h2>Черновики и защищённый обмен</h2><p>Сохраните рабочие черновики перед закрытием. Для поручений и результатов в полном выпуске используется существующий подписанный обмен IWXA с шифрованием age для выбранных получателей.</p><div className="actions"><button className="primary" disabled={saving} onClick={saveFile}>{nativeHost?'Сохранить локально':'Сохранить файл черновиков'}</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button>{nativeHost&&<button className="secondary" onClick={exportFile}>Экспортировать JSON</button>}</div><div className="notice subdued">Локальное сохранение и экспорт содержат только подготовительные черновики. Это не .iwxa и не .iwxa.age, в них нет ключей или принятых решений. Защищённый файловый обмен доступен ниже при установленном компоненте T3. Расшифровка не означает корпоративного принятия; оригинальный T3 отдельно проверяет и применяет полученный пакет.</div></section>}
       {page==='data'&&<>
