@@ -22,8 +22,10 @@ export function inspectCorporateCapabilities(v,organizationId){
  if(!base(v)||v.operation!=='CORPORATE_CAPABILITIES'||
     v.organizationId!==organizationId||v.productId!=='IWXA_ADMIN_CENTER'||
     v.intakeConfigured!==true||v.recipientConfirmed!==false||
+    !HEX.test(v.fingerprint)||
     v.trustOrigin!=='HOST_PREINSTALLED_PUBLIC_POLICY')denied();
- return Object.freeze({organizationId,intakeConfigured:true});
+ return Object.freeze({organizationId,intakeConfigured:true,
+   fingerprint:v.fingerprint});
 }
 export function inspectCorporateRead(v,organizationId){
  const view=v?.view;
