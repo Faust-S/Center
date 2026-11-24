@@ -15,7 +15,8 @@ param(
   [Parameter(Mandatory=$true)][string]$IssuerAuthorityId,
   [Parameter(Mandatory=$true)][switch]$DedicatedTestProfile,
   [switch]$QualifySeatProjection,
-  [switch]$ResumeQualifiedCenterCI
+  [switch]$ResumeQualifiedCenterCI,
+  [switch]$PrepareLicensedEmployee
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -34,6 +35,18 @@ if($ResumeQualifiedCenterCI){
 }
 if([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA'){
   throw 'CORPORATE_INSTALLED_START_PWSH_WITH_STA'
+}
+# This is a separate prefix witness, never a successful full lifecycle.
+# Preserve two already signed public transfer files only on the same disposable
+# Center CI runner. The ordinary local/full witness is unchanged.
+$employeeHandoff=$null
+$employeeHandoffReady=$false
+if($PrepareLicensedEmployee){
+  if(!$ResumeQualifiedCenterCI -or !$env:RUNNER_TEMP -or ![IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP)){
+    throw 'CORPORATE_INSTALLED_EMPLOYEE_PREPARATION_DISPOSABLE_REQUIRED'
+  }
+  $employeeHandoff=Join-Path $env:RUNNER_TEMP 'iwxa-licensed-employee-handoff'
+  if(Test-Path -LiteralPath $employeeHandoff){throw 'CORPORATE_INSTALLED_EMPLOYEE_HANDOFF_NOT_FRESH'}
 }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -776,7 +789,11 @@ function Publisher-Status([string]$state,[string]$id,[int]$sequence){
     default {throw 'CORPORATE_GUI_UNSUPPORTED_STATUS'}
   }
   # The fresh form defaults to ACTIVE.
-  $until=[DateTime]::UtcNow.AddMinutes(15).ToString("yyyy-MM-ddTHH:mm:ss.fffZ",[Globalization.CultureInfo]::InvariantCulture)
+  # The disposable fixture permits at most 3600 seconds. The longer
+  # 45-minute window is only for the same-runner employee continuation;
+  # the independent license-lifecycle test retains its original 15 minutes.
+  $minutes=if($PrepareLicensedEmployee){45}else{15}
+  $until=[DateTime]::UtcNow.AddMinutes($minutes).ToString("yyyy-MM-ddTHH:mm:ss.fffZ",[Globalization.CultureInfo]::InvariantCulture)
   Enter $pub 'STATUS действителен до (UTC, ISO 8601)' $until
   Confirm-Checkbox $pub 'Подтверждаю отдельную подпись STATUS; отзыв необратим' 'Подписать новый STATUS через T3'
   Press $pub 'Подписать новый STATUS через T3'
@@ -1017,6 +1034,39 @@ try{
     Center-SeatProjection $false 2 10
     Record-Check 'CENTER_INSTALLED_REGISTRY_AND_LICENSE_COLD_READBACK'
   }
+  if($PrepareLicensedEmployee){
+    if($checks.Count -ne 9 -or $active.status -cne 'ACTIVE' -or $active.sequence -ne 1 -or
+       $active.organizationId -cne $org -or
+       [DateTimeOffset]::Parse([string]$active.statusValidUntil) -le [DateTimeOffset]::UtcNow.AddMinutes(20)){
+      throw 'CORPORATE_INSTALLED_EMPLOYEE_ACTIVE_LICENSE_NOT_CURRENT'
+    }
+    # Independent, exact native readback after the cold restart. Merely
+    # copying a GUI file cannot be used as the preparation receipt.
+    $checked=Verify-Center $org $active 1 (Digest $activeFile)
+    if($checked.status -cne 'ACTIVE' -or $checked.recipientConfirmed -ne $true){
+      throw 'CORPORATE_INSTALLED_EMPLOYEE_LICENSE_RECEIPT_INVALID'
+    }
+    [void][IO.Directory]::CreateDirectory($employeeHandoff)
+    $trustOut=Join-Path $employeeHandoff 'publisher-trust.json'
+    $licenseOut=Join-Path $employeeHandoff 'corporate-active.iwxa'
+    [IO.File]::Copy($trustFile,$trustOut,$false)
+    [IO.File]::Copy($activeFile,$licenseOut,$false)
+    if((Digest $trustOut) -cne $trustSha -or (Digest $licenseOut) -cne (Digest $activeFile)){
+      throw 'CORPORATE_INSTALLED_EMPLOYEE_HANDOFF_BYTES_CHANGED'
+    }
+    [ordered]@{
+      schema='IWXA_DISPOSABLE_LICENSED_EMPLOYEE_HANDOFF/1'
+      organizationId=$org;licenseId=$id;status='ACTIVE';sequence=1
+      statusValidUntil=$active.statusValidUntil
+      trustSha256=$trustSha;packageSha256=(Digest $licenseOut)
+      publisherSha256=(Digest $publisherPath);centerSha256=(Digest $centerPath)
+      ownerSha256=(Digest $ownerPath);consumerSha256=(Digest $consumerPath)
+      recipientConfirmed=$true;employeeSeatAssigned=$false;productionActivation=$false
+    }|ConvertTo-Json -Depth 4|Set-Content -LiteralPath (Join-Path $employeeHandoff 'receipt.json') -Encoding UTF8
+    $employeeHandoffReady=$true
+    Write-Host 'CORPORATE_LICENSED_EMPLOYEE_PREPARATION=PASS checks=9'
+    return
+  }
   Center-Receive $handoff $activeFile
   Wait-Text $cen 'Новая запись не создана'
   $null=Verify-Center $org $active 1 (Digest $activeFile)
@@ -1214,5 +1264,8 @@ try{
   }
   if($ResumeQualifiedCenterCI){
     Remove-Item -LiteralPath $artifact -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  if($PrepareLicensedEmployee -and !$employeeHandoffReady -and $employeeHandoff){
+    Remove-Item -LiteralPath $employeeHandoff -Recurse -Force -ErrorAction SilentlyContinue
   }
 }
