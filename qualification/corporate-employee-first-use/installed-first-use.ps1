@@ -81,6 +81,60 @@ function Open-AgentCompany($process){
  }
  throw 'EMPLOYEE_INSTALLED_AGENT_T3_PROFILE_NOT_READY'
 }
+# Observe finite public status markers only. Never emit a UI name, raw
+# exception, profile content, path, identity, key or other native evidence.
+function Profile-Diagnostic($process,[string]$phase){
+ $known=@(
+  @('T3_EMPLOYEE_WINDOWS_PARENT_NOT_TRUSTED','T3_EMPLOYEE_WINDOWS_PARENT_NOT_TRUSTED'),
+  @('T3_EMPLOYEE_WINDOWS_CANDIDATE_EXISTS_READBACK','T3_EMPLOYEE_WINDOWS_CANDIDATE_EXISTS_READBACK'),
+  @('T3_EMPLOYEE_WINDOWS_CANDIDATE_NOT_FOUND','T3_EMPLOYEE_WINDOWS_CANDIDATE_NOT_FOUND'),
+  @('T3_EMPLOYEE_BOOTSTRAP_FINGERPRINT_MISMATCH','T3_EMPLOYEE_BOOTSTRAP_FINGERPRINT_MISMATCH'),
+  @('T3_EMPLOYEE_BOOTSTRAP_READBACK_MISMATCH','T3_EMPLOYEE_BOOTSTRAP_READBACK_MISMATCH'),
+  @('T3_EMPLOYEE_WINDOWS_CANDIDATE_BINDING_CHANGED','T3_EMPLOYEE_WINDOWS_CANDIDATE_BINDING_CHANGED'),
+  @('T3_ORIGINAL_OWNER_NOT_INSTALLED','T3_ORIGINAL_OWNER_NOT_INSTALLED'),
+  @('T3_OUTCOME_UNKNOWN_RECONCILE_FIRST','T3_OUTCOME_UNKNOWN_RECONCILE_FIRST'),
+  @('T3_EMPLOYEE_EXPLICIT_ISSUER_CONFIRMATION_REQUIRED','T3_EMPLOYEE_EXPLICIT_ISSUER_CONFIRMATION_REQUIRED'),
+  @('T3_EMPLOYEE_ISSUER_PUBLIC_KEY_INVALID','T3_EMPLOYEE_ISSUER_PUBLIC_KEY_INVALID'),
+  @('T3_EMPLOYEE_WINDOWS_ROOT_REQUIRED','T3_EMPLOYEE_WINDOWS_ROOT_REQUIRED'),
+  @('T3_EMPLOYEE_WINDOWS_CANDIDATE_DPAPI_REQUIRED','T3_EMPLOYEE_WINDOWS_CANDIDATE_DPAPI_REQUIRED'),
+  @('T3_EMPLOYEE_BOOTSTRAP_PROFILE_INVALID','T3_EMPLOYEE_BOOTSTRAP_PROFILE_INVALID'),
+  @('Исходный T3 не подтвердил точный профиль сотрудника.','UI_CANDIDATE_NOT_VERIFIED'),
+  @('Вставьте полный исходный профиль из Admin Center.','UI_BOOTSTRAP_PROFILE_REJECTED')
+ )
+ foreach($pair in $known){
+  if(Has-Text $process $pair[0]){
+   Write-Host ('EMPLOYEE_INSTALLED_PROFILE_DIAGNOSTIC='+$phase+':'+$pair[1])
+   return
+  }
+ }
+ Write-Host ('EMPLOYEE_INSTALLED_PROFILE_DIAGNOSTIC='+$phase+':NO_RECOGNIZED_UI_STATUS')
+}
+function Wait-ProfileConfirmation($process,[int]$attempts){
+ for($i=0;$i -lt $attempts;$i++){
+  if(Has-Text $process 'Локальный профиль подтверждён'){return $true}
+  Start-Sleep -Milliseconds 500
+ }
+ return $false
+}
+function Complete-EmployeeProfileReadback($process){
+ Stage 'AGENT_PROFILE_CREATE_ONCE'
+ Press $process 'Создать свой защищённый профиль'
+ Stage 'AGENT_PROFILE_CONFIRMATION'
+ if(Wait-ProfileConfirmation $process 120){
+  Write-Host 'EMPLOYEE_INSTALLED_PROFILE_READBACK=FIRST_ACK'
+  return
+ }
+ Profile-Diagnostic $process 'CREATE'
+ # A timeout does NOT prove creation failed. Recover the original candidate
+ # using the explicit read-only control. Never generate a second credential.
+ Stage 'AGENT_PROFILE_EXISTING_READBACK'
+ Press $process 'Прочитать ранее созданный профиль'
+ if(!(Wait-ProfileConfirmation $process 120)){
+  Profile-Diagnostic $process 'READ'
+  throw 'EMPLOYEE_INSTALLED_AGENT_PROFILE_READBACK_NOT_CONFIRMED'
+ }
+ Write-Host 'EMPLOYEE_INSTALLED_PROFILE_READBACK=RECOVERED_EXISTING'
+}
 function Sign-EmployeeChallenge($process,[string]$request,$candidate){
  $q=$request|ConvertFrom-Json -Depth 20
  Need ($q.request.actorId -ceq $candidate.employeePersonId -and
@@ -135,8 +189,7 @@ try{
  Wait-Text $agent 'Первое подключение к организации' 240
  Enter $agent 'Профиль подключения' $profileRaw
  Enter $agent 'Подтверждённый отпечаток профиля SHA-256' $fingerprint
- Press $agent 'Создать свой защищённый профиль'
- Wait-Text $agent 'Локальный профиль подтверждён' 240
+ Complete-EmployeeProfileReadback $agent
  $candidateRaw=Copy-Visible $agent 'Скопировать публичную запись'
  $candidate=$candidateRaw|ConvertFrom-Json -Depth 20
  Need ($candidate.schema -ceq 'IWXA_T3_ORIGINAL_EMPLOYEE_WINDOWS_CANDIDATE/1' -and
