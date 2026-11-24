@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: dbd38161e4ba7236722a9fd44e649f9747a4214b
-      PRIVATE_TREE: e8a03c1e2eb88856d6396f8eef1f70d542497dfb
+      PRIVATE_PIN: 7015a3965f7ab895270cf7bd53ad1bf13f944f4f
+      PRIVATE_TREE: 18e7766b0f90c7493bf22ef83dc9170f1681d45f
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
       IWXA_NATIVE_QWEN_TOOL_TEST: '1'
     steps:
