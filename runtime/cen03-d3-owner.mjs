@@ -227,6 +227,59 @@ export function validateOriginalEmployeeTaskIssueReceipt(
  return copy(receipt,code);
 }
 
+// UI continuation only, following the existing pending seat intent pattern.
+// Do not store Task content, a signature, receipt, grant or organizational
+// authority here. The original owner remains the only Task inventory.
+const employeeTaskId=value=>typeof value==='string'&&/^task:[A-Za-z0-9-]{1,100}$/.test(value);
+export function employeeTaskContinuationKey(organizationId,workspaceId,actorId,employeePersonId,enrollmentId){
+ need([organizationId,workspaceId,actorId,employeePersonId,enrollmentId].every(validId)&&
+  actorId!==employeePersonId,'CEN_D3_EMPLOYEE_TASK_CONTINUATION_SCOPE_INVALID');
+ return 'iwxa.center.pending-employee-task.v1:'+JSON.stringify([
+  organizationId,workspaceId,actorId,employeePersonId,enrollmentId]);
+}
+export function readEmployeeTaskContinuation(storage,key){
+ const value=storage.getItem(key);
+ need(value===null||employeeTaskId(value),'CEN_D3_EMPLOYEE_TASK_CONTINUATION_INVALID');
+ return value;
+}
+export function saveEmployeeTaskContinuation(storage,key,taskId){
+ need(employeeTaskId(taskId),'CEN_D3_EMPLOYEE_TASK_CONTINUATION_INVALID');
+ need(readEmployeeTaskContinuation(storage,key)===null,'CEN_D3_EMPLOYEE_TASK_CONTINUATION_ALREADY_PENDING');
+ storage.setItem(key,taskId);
+ need(readEmployeeTaskContinuation(storage,key)===taskId,'CEN_D3_EMPLOYEE_TASK_CONTINUATION_NOT_SAVED');
+}
+export function clearEmployeeTaskContinuation(storage,key,taskId){
+ const current=readEmployeeTaskContinuation(storage,key);
+ need(employeeTaskId(taskId)&&(current===null||current===taskId),
+  'CEN_D3_EMPLOYEE_TASK_CONTINUATION_CHANGED');
+ if(current!==null)storage.removeItem(key);
+ need(readEmployeeTaskContinuation(storage,key)===null,'CEN_D3_EMPLOYEE_TASK_CONTINUATION_NOT_CLEARED');
+}
+
+// Match the existing ORIGINAL native d3EmployeeTaskReadback contract.
+// A prior successful issuance/recovery receipt cannot be replaced by a
+// different original carrier with the same Task ID. Absence is never proof
+// that an earlier consequential invocation can safely be dispatched again.
+export function validateOriginalEmployeeTaskReadback(receipt,{taskId,employeePersonId,enrollmentId},previous=null){
+ const code='CEN_D3_EMPLOYEE_TASK_ORIGINAL_READBACK_HOLD';
+ need(employeeTaskId(taskId)&&validId(employeePersonId)&&validId(enrollmentId)&&
+  receipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1'&&
+  receipt.taskId===taskId&&typeof receipt.found==='boolean',code);
+ if(!receipt.found){
+  need(previous===null&&receipt.automaticReissueAllowed===false&&
+   ['NOT_IN_ORIGINAL_TASK_INVENTORY','ORIGINAL_SIGNED_CARRIER_WITHOUT_INVENTORY_HOLD'].includes(receipt.status),code);
+ }else{
+  need(receipt.status==='SIGNED_TASK_PERSISTED_NOT_DELIVERED'&&
+   receipt.recipientId===employeePersonId&&receipt.enrollmentId===enrollmentId&&
+   receipt.originalKernelReadback===true&&receipt.taskDelivered===false&&
+   validSha(receipt.taskRevisionId)&&validSha(receipt.packageSha256),code);
+  if(previous!==null)need(previous.taskId===taskId&&
+   previous.recipientId===employeePersonId&&previous.enrollmentId===enrollmentId&&
+   previous.taskRevisionId===receipt.taskRevisionId&&previous.packageSha256===receipt.packageSha256,code);
+ }
+ return copy(receipt,code);
+}
+
 export function appendOriginalResultReview(previous,preview,organizationId,
  workspaceId){
  const bad='CEN_D3_SIGNED_RESULT_REVIEW_STALE';

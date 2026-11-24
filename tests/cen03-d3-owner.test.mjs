@@ -7,6 +7,8 @@ import {signedD3SessionFingerprint,
 import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
  appendOriginalResultReview,readCompleteOriginalResult,
  validateOriginalSignedTaskReadback,validateOriginalEmployeeTaskIssueReceipt,
+ validateOriginalEmployeeTaskReadback,employeeTaskContinuationKey,readEmployeeTaskContinuation,
+ saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
  isDefiniteUndispatchedD3Failure,
  readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
@@ -67,6 +69,72 @@ test('independent employee signed Task accepts original native state, never firs
    ()=>validateOriginalEmployeeTaskIssueReceipt({...real,...changed},scope),
    /CEN_D3_EMPLOYEE_TASK_ORIGINAL_SIGNING_UNCONFIRMED/,
    'the public UI cannot accept a foreign/unsigned/legacy Task receipt');
+});
+
+test('independent employee Task continuation saves only the operation ID, restores after reopening and isolates exact enrollments',()=>{
+ const entries=new Map();
+ const storage={getItem:k=>entries.get(k)??null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)};
+ const scope=['org:north','workspace:north','person:manager','person:worker','enrollment:worker'];
+ const key=employeeTaskContinuationKey(...scope);
+ const task='task:existing-1';
+ assert.equal(readEmployeeTaskContinuation(storage,key),null);
+ saveEmployeeTaskContinuation(storage,key,task);
+ assert.equal(readEmployeeTaskContinuation(storage,key),task);
+ assert.deepEqual([...entries.values()],[task]);
+ assert.throws(()=>saveEmployeeTaskContinuation(storage,key,task),/CONTINUATION_ALREADY_PENDING/);
+ assert.throws(()=>saveEmployeeTaskContinuation(storage,key,'task:new-2'),/CONTINUATION_ALREADY_PENDING/);
+ assert.throws(()=>clearEmployeeTaskContinuation(storage,key,'task:new-2'),/CONTINUATION_CHANGED/);
+ for(let i=0;i<scope.length;i++){
+   const different=[...scope];different[i]+='-other';
+   assert.equal(readEmployeeTaskContinuation(storage,employeeTaskContinuationKey(...different)),null);
+ }
+ clearEmployeeTaskContinuation(storage,key,task);
+ saveEmployeeTaskContinuation(storage,key,'task:new-2');
+ assert.equal(readEmployeeTaskContinuation(storage,key),'task:new-2');
+ assert.throws(()=>employeeTaskContinuationKey('org:north','workspace:north','person:manager','person:manager','enrollment:worker'),/CONTINUATION_SCOPE_INVALID/);
+});
+test('employee Task continuation fails closed when local operation identity cannot be saved or read',()=>{
+ const key=employeeTaskContinuationKey('org:north','workspace:north','person:manager','person:worker','enrollment:worker');
+ const noWrite={getItem:()=>null,setItem:()=>{},removeItem:()=>{}};
+ assert.throws(()=>saveEmployeeTaskContinuation(noWrite,key,'task:existing-1'),/CONTINUATION_NOT_SAVED/);
+ const invalid={getItem:()=>'{not a task}',setItem:()=>assert.fail('must not overwrite'),removeItem:()=>assert.fail('must not delete')};
+ assert.throws(()=>readEmployeeTaskContinuation(invalid,key),/CONTINUATION_INVALID/);
+ assert.throws(()=>saveEmployeeTaskContinuation(invalid,key,'task:existing-1'),/CONTINUATION_INVALID/);
+ assert.throws(()=>clearEmployeeTaskContinuation(invalid,key,'task:existing-1'),/CONTINUATION_INVALID/);
+});
+test('independent employee Task readback binds prior signed bytes, distinguishes missing and orphan without claiming safe reissue',()=>{
+ const scope={taskId:'task:work-verified',employeePersonId:'person:worker',enrollmentId:'enrollment:worker'};
+ const original={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1',found:true,
+  taskId:scope.taskId,recipientId:scope.employeePersonId,enrollmentId:scope.enrollmentId,
+  status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED',originalKernelReadback:true,
+  taskDelivered:false,taskRevisionId:A,packageSha256:B};
+ const issued={taskId:scope.taskId,recipientId:scope.employeePersonId,enrollmentId:scope.enrollmentId,
+   taskRevisionId:A,packageSha256:B};
+ assert.deepEqual(validateOriginalEmployeeTaskReadback(original,scope,issued),original);
+ for(const patch of [{taskId:'task:other'},{recipientId:'person:other'},{enrollmentId:'enrollment:other'},
+  {taskDelivered:true},{originalKernelReadback:false},{packageSha256:C},{taskRevisionId:C}]){
+   assert.throws(()=>validateOriginalEmployeeTaskReadback({...original,...patch},scope,issued),/ORIGINAL_READBACK_HOLD/);
+ }
+ for(const status of ['NOT_IN_ORIGINAL_TASK_INVENTORY','ORIGINAL_SIGNED_CARRIER_WITHOUT_INVENTORY_HOLD']){
+   const missing={schema:original.schema,taskId:scope.taskId,found:false,status,automaticReissueAllowed:false};
+   assert.deepEqual(validateOriginalEmployeeTaskReadback(missing,scope),missing);
+   assert.throws(()=>validateOriginalEmployeeTaskReadback(missing,scope,issued),/ORIGINAL_READBACK_HOLD/);
+   assert.throws(()=>validateOriginalEmployeeTaskReadback({...missing,automaticReissueAllowed:true},scope),/ORIGINAL_READBACK_HOLD/);
+ }
+});
+test('employee UI persists exact Task ID before signing and permits next Task only after original cold readback',()=>{
+ const ui=readFileSync(new URL('../src/CorporateEmployeeEnrollment.tsx',import.meta.url),'utf8');
+ const start=ui.indexOf('data-testid="d3-employee-task-create"');
+ const end=ui.indexOf('data-testid="d3-employee-task-read"',start);
+ const issue=ui.slice(start,end);
+ const save=issue.indexOf('saveEmployeeTaskContinuation(localStorage,taskScope,taskId)');
+ const send=issue.indexOf("execute('d3EmployeeCreateTask'");
+ assert.ok(save>=0&&send>save);
+ assert.match(ui,/const freshTaskReadback=taskReceipt\?\.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK\/1'/);
+ assert.match(ui,/taskAttempted&&!freshTaskReadback/);
+ assert.match(ui,/const pending=readEmployeeTaskContinuation\(localStorage,taskScope\)/);
+ assert.match(ui,/setTaskId\('task:'\+crypto\.randomUUID\(\)\)/);
+ assert.match(ui,/validateOriginalEmployeeTaskReadback\(result,/);
 });
 
 test('D3 native definite pre-dispatch failures permit a deliberate retry, never lost ACK',()=>{
