@@ -1,5 +1,7 @@
 """Independent native Qwen Code / llama.cpp qualification. Public synthetic inputs only."""
 import hashlib
+import http.client
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -11,6 +13,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import traceback
 from threading import Thread
 from time import monotonic, sleep
 from urllib.request import Request, urlopen
@@ -21,7 +24,7 @@ QWEN = ("qwen-code-win-x64.zip","81234b13006160d5bd6b9ab2d5a072964d38796c83e23ee
 LLAMA = ("llama-b11827-bin-win-cpu-x64.zip","2740eeac6ed9b727a3a1002f5a42e74defa3c4cbb9a8b42b11356a07f969cb13") if WIN else ("llama-b11827-bin-ubuntu-x64.tar.gz","7c1de2b2a139aa90e28b88d44a75f5966485604f68aa0ccdc2339959bca9b5f6")
 MODEL = "Qwen3-0.6B-Q8_0.gguf"
 MODEL_SHA = "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031"
-ALIAS = "iwxa-native-test"
+ALIAS = "qwen3-0.6b"
 STAGE = "START"
 
 def mark(stage):
@@ -126,6 +129,61 @@ class Client:
     def close(self):
         stop(self.p)
 
+class DiagnosticProxy(ThreadingHTTPServer):
+    daemon_threads=True
+    def __init__(self,port):
+        self.model_port=port
+        self.posts=0
+        super().__init__(("127.0.0.1",0),DiagnosticHandler)
+
+class DiagnosticHandler(BaseHTTPRequestHandler):
+    protocol_version="HTTP/1.0"
+    def log_message(self,*args): pass
+    def do_GET(self): self.forward()
+    def do_POST(self): self.forward()
+    def forward(self):
+        if (self.command,self.path) not in {("GET","/v1/models"),("POST","/v1/chat/completions")}:
+            print("NATIVE_API_UNEXPECTED_ROUTE=1",flush=True)
+            self.send_error(404);return
+        n=int(self.headers.get("Content-Length","0"))
+        if n<0 or n>8_000_000:
+            self.send_error(413);return
+        raw=self.rfile.read(n)
+        if self.command=="POST":
+            self.server.posts+=1
+            data=json.loads(raw)
+            print("NATIVE_API_REQUEST="+json.dumps({"number":self.server.posts,"model_match":data.get("model")==ALIAS,
+                "stream":data.get("stream",False),"bytes":n,"max_tokens":data.get("max_tokens")}),flush=True)
+        upstream=http.client.HTTPConnection("127.0.0.1",self.server.model_port,timeout=150)
+        started=monotonic()
+        try:
+            upstream.request(self.command,self.path,body=raw if n else None,headers={"Content-Type":"application/json"})
+            result=upstream.getresponse()
+            print("NATIVE_API_STATUS="+str(result.status),flush=True)
+            self.send_response(result.status)
+            self.send_header("Content-Type",result.getheader("Content-Type","application/json"))
+            self.send_header("Connection","close");self.end_headers()
+            total=0
+            while chunk:=result.read1(16384):
+                self.wfile.write(chunk);self.wfile.flush();total+=len(chunk)
+            print("NATIVE_API_COMPLETE="+json.dumps({"bytes":total,"ms":int((monotonic()-started)*1000)}),flush=True)
+        except (OSError,http.client.HTTPException) as exc:
+            print("NATIVE_API_ERROR="+type(exc).__name__,flush=True)
+        finally: upstream.close()
+
+def direct_smoke(port):
+    before=metric(port)
+    body={"model":ALIAS,"messages":[{"role":"user","content":"Say hello. /no_think"}],
+          "max_tokens":16,"stream":False,"chat_template_kwargs":{"enable_thinking":False}}
+    req=Request("http://127.0.0.1:"+str(port)+"/v1/chat/completions",
+                data=json.dumps(body).encode(),headers={"Content-Type":"application/json"})
+    with urlopen(req,timeout=90) as response:
+        result=json.loads(response.read())
+    require(bool(result.get("choices")),"DIRECT_API_NO_CHOICES")
+    count=metric(port)-before
+    require(count>0,"DIRECT_API_NO_INFERENCE")
+    print("NATIVE_DIRECT_GENERATED_TOKENS="+str(int(count)),flush=True)
+
 def metric(port):
     with urlopen("http://127.0.0.1:"+str(port)+"/metrics",timeout=10) as r:
         raw=r.read().decode()
@@ -135,7 +193,15 @@ def metric(port):
 
 def prompt(client,sid,text):
     client.events.clear()
-    turn=client.call("session/prompt",{"sessionId":sid,"prompt":[{"type":"text","text":text}]},timeout=360)
+    try:
+        turn=client.call("session/prompt",{"sessionId":sid,"prompt":[{"type":"text","text":text}]},timeout=240)
+    finally:
+        kinds={}
+        for event in client.events:
+            kind=event.get("update",{}).get("sessionUpdate","unknown")
+            if isinstance(kind,str) and re.fullmatch(r"[a-zA-Z0-9_]+",kind):
+                kinds[kind]=kinds.get(kind,0)+1
+        print("NATIVE_ACP_UPDATES="+json.dumps(kinds),flush=True)
     chunks=[u["update"]["content"].get("text","") for u in client.events
             if u.get("sessionId")==sid and u.get("update",{}).get("sessionUpdate")=="agent_message_chunk"
             and u["update"].get("content",{}).get("type")=="text"]
@@ -166,16 +232,18 @@ def run(root):
         "QWEN_CODE_LAUNCHER_PATH":str(find(root/"qwen","qwen.cmd" if WIN else "qwen"))})
     with socket.socket() as sock:
         sock.bind(("127.0.0.1",0));port=sock.getsockname()[1]
-    base="http://127.0.0.1:"+str(port)+"/v1"
+    proxy=DiagnosticProxy(port)
+    base="http://127.0.0.1:"+str(proxy.server_port)+"/v1"
     env.update({"OPENAI_API_KEY":"public-local-test","IWXA_LOCAL_API_KEY":"public-local-test","OPENAI_BASE_URL":base,"OPENAI_MODEL":ALIAS})
     settings={"modelProviders":{"openai":[{"id":ALIAS,"baseUrl":base,"envKey":"IWXA_LOCAL_API_KEY",
-        "generationConfig":{"contextWindowSize":32768,"samplingParams":{"temperature":0.1,"max_tokens":128},
+        "name":"Qwen3 local qualification","wireApi":"chat-completions","capabilities":{"reasoning":{"profile":"qwen-chat-template"}},
+        "generationConfig":{"contextWindowSize":32768,"timeout":120000,"streamIdleTimeoutMs":120000,"maxRetries":0,"samplingParams":{"temperature":0.1,"max_tokens":128},
         "extra_body":{"chat_template_kwargs":{"enable_thinking":False}}}}]},
         "security":{"auth":{"selectedType":"openai"}},"model":{"name":ALIAS},"privacy":{"usageStatisticsEnabled":False}}
     (home/".qwen").mkdir()
     (home/".qwen"/"settings.json").write_text(json.dumps(settings),encoding="utf-8")
-    args=[node,entry,"--acp","--approval-mode","plan"]
-    llama=None; c=None
+    args=[node,entry,"--acp","--approval-mode","plan","--model",ALIAS]
+    llama=None; c=None; proxy_thread=None
     with (root/"llama.log").open("wb") as log,(root/"qwen.log").open("wb") as err:
         try:
             mark("NATIVE_VERSION")
@@ -193,7 +261,10 @@ def run(root):
                         if json.loads(response.read()).get("status")=="ok": break
                 except Exception: sleep(1)
             else: raise RuntimeError("LLAMA_NOT_READY")
+            mark("DIRECT_API")
+            direct_smoke(port)
             before=metric(port)
+            proxy_thread=Thread(target=proxy.serve_forever,daemon=True);proxy_thread.start()
             mark("ACP_INITIALIZE")
             c=Client(args,env,cwd,err)
             init=c.call("initialize",{"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"iwxa-public-qualification","version":"1"}},timeout=120)
@@ -222,10 +293,16 @@ def run(root):
             require(last>after,"NO_REAL_INFERENCE_RESTORED")
             print("NATIVE_RESTORED_CHUNKS="+str(n2),flush=True)
             print("NATIVE_RESTORED_GENERATED_TOKENS="+str(int(last-after)),flush=True)
+            mark("ACP_FINAL_CLOSE")
+            c.close();c=None
+            mark("WORKSPACE_VERIFY")
             require(not any(cwd.iterdir()),"UNEXPECTED_WORKSPACE_WRITE")
             mark("PASS")
         finally:
             if c: c.close()
+            if proxy_thread: proxy.shutdown()
+            proxy.server_close()
+            print("NATIVE_API_POSTS="+str(proxy.posts),flush=True)
             stop(llama)
 
 if __name__=="__main__":
@@ -235,6 +312,9 @@ if __name__=="__main__":
     except Exception as exc:
         print("NATIVE_FAILURE_STAGE="+STAGE,flush=True)
         print("NATIVE_FAILURE_TYPE="+type(exc).__name__,flush=True)
+        print("NATIVE_FAILURE_TRACE="+json.dumps([{"file":Path(f.filename).name,"line":f.lineno,"function":f.name} for f in traceback.extract_tb(exc.__traceback__)]),flush=True)
+        if isinstance(exc,OSError):
+            print("NATIVE_FAILURE_ERRNO="+str(exc.errno),flush=True)
         if type(exc) is RuntimeError and re.fullmatch(r"[A-Z0-9_]+",str(exc)):
             print("NATIVE_FAILURE_CODE="+str(exc),flush=True)
         sys.exit(1)
