@@ -13,11 +13,11 @@ concurrency:
   group: corporate-installed-one-core-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 env:
-  T3_PIN: 'f0f1737e0cfbb03f21834acea1cbd894ffd395da'
-  CORE_PIN: 'e4eddf4369db5a7d6efe9a979210b9d80448ba71'
+  T3_PIN: 'd7e24de7e7dbf0193a9b8c56274a7be581a36750'
+  CORE_PIN: 'c01903da9a7c792b97f344aeb546466c6d57e9a3'
   CENTER_PIN: 'dd368b1fb36ff2750e1923cb5aec73e3551c801a'
-  PUBLISHER_PIN: 'b1067959e8ecc01f40131d5e29e6c86be82ea27a'
-  AGENT_PIN: '5f4344fef70eb57ee825cad81984bb0f1db8fb9e'
+  PUBLISHER_PIN: 'e0a7b8b23605cc596d95318a0e15a7b46f495507'
+  AGENT_PIN: 'ddb6a281b7447dee7868af9195cd7a01e9fd6ccf'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -173,7 +173,7 @@ jobs:
           try{
             & ./qualification/corporate-installed/center-seat-first-use.ps1 -InstallRoot $env:CORPORATE_ADMIN_INSTALL -OriginalWitness (Resolve-Path 'one-core/packages/t3-core/tests/g4-installed-original-center-first-use.ps1').Path *> $log
             $raw=Get-Content -LiteralPath $log -Raw
-            foreach($marker in @('G4_INSTALLED_FIRST_USE_NATIVE_CANCEL_NO_OWNER_PASS','G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS','G4_INSTALLED_COLD_ORIGINAL_DPAPI_INDEPENDENT_PROCESS_PASS','G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS','CORPORATE_INSTALLED_SEAT_REGISTRY_MISSING_READ_PASS','CORPORATE_INSTALLED_SEAT_REGISTRY_CANCEL_PASS','CORPORATE_INSTALLED_SEAT_REGISTRY_INITIALIZED_PASS','CORPORATE_INSTALLED_SEAT_COLD_READ_PASS')){
+            foreach($marker in @('G4_INSTALLED_FIRST_USE_NATIVE_CANCEL_NO_OWNER_PASS','G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS','G4_INSTALLED_COLD_ORIGINAL_DPAPI_INDEPENDENT_PROCESS_PASS','G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS','G4_INSTALLED_COLD_CORPORATE_ORGANIZATION_KIND_PASS','CORPORATE_INSTALLED_SEAT_REGISTRY_MISSING_READ_PASS','CORPORATE_INSTALLED_SEAT_REGISTRY_CANCEL_PASS','CORPORATE_INSTALLED_SEAT_REGISTRY_INITIALIZED_PASS','CORPORATE_INSTALLED_SEAT_COLD_READ_PASS')){
               if(!$raw.Contains($marker)){throw 'CORPORATE_INSTALLED_ADMIN_UI_RECEIPT_MISSING'}
             }
             foreach($m in [regex]::Matches($raw,'(?m)^CORPORATE_INSTALLED_SEAT_GATE_MS=(\d{1,8})\s*$')){
@@ -252,7 +252,68 @@ jobs:
           $reg=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher'
           if($reg.InstallLocation -ine $root -or $reg.DataLocation -ieq $env:CORPORATE_ADMIN_DATA){throw 'CORPORATE_INSTALLED_PUBLISHER_REGISTRATION_INVALID'}
           "CORPORATE_PUBLISHER_INSTALL=$root"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CORPORATE_PUBLISHER_DATA=$($reg.DataLocation)"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'CORPORATE_INSTALLED_PUBLISHER_SAME_ORIGINAL_OWNER=PASS'
+      - name: Provision disposable original Publisher owner in the already qualified Windows profile
+        shell: pwsh
+        timeout-minutes: 5
+        env:
+          IWXA_T3_SYNTHETIC_PROVISION: CORPORATE_CENTER_CI_FIXTURE_ONLY
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-seed-private.log'
+          $out=Join-Path $env:RUNNER_TEMP 'corporate-installed-seed-private.json'
+          foreach($file in @('corporate-publisher-installed-seed-fixture.mjs','corporate-publisher-installed-seed-local.mjs','corporate-publisher-installed-seed-center-ci.mjs')){
+            & node --check ('private-t3/qualification/'+$file) *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_SEED_SYNTAX_FAILED'}
+          }
+          & node private-t3/qualification/corporate-publisher-installed-seed-center-ci.mjs $env:CORPORATE_PUBLISHER_DATA $env:CORPORATE_ADMIN_DATA 1>$out 2>$log
+          if($LASTEXITCODE -ne 0){
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            $safe=@([regex]::Matches($raw,'(?<![A-Z0-9_])CORPORATE_SEED_[A-Z0-9_]{4,90}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique)
+            Write-Host ('CORPORATE_INSTALLED_SEED_CODES='+($safe -join ','))
+            throw 'CORPORATE_INSTALLED_SEED_HOLD'
+          }
+          $r=Get-Content -LiteralPath $out -Raw|ConvertFrom-Json
+          if($r.status -cne 'PRIVATE_CENTER_CI_SYNTHETIC_OWNER_READY' -or
+             $r.syntheticOnly -ne $true -or $r.commercialAuthorityProven -ne $false -or
+             $r.productionActivation -ne $false -or $r.activeSeats -ne 0 -or $r.recipientEnrolled -ne $false -or
+             $r.issuerAuthorityId -cne 'publisher:synthetic:corporate:installed'){throw 'CORPORATE_INSTALLED_SEED_RECEIPT_INVALID'}
+          Write-Host 'CORPORATE_INSTALLED_DISPOSABLE_PUBLISHER_OWNER_READY=PASS'
+      - name: Two installed products original signed license issue intake renewal suspension and revocation
+        shell: pwsh
+        timeout-minutes: 38
+        env:
+          IWXA_T3_SYNTHETIC_PROVISION: CORPORATE_CENTER_CI_FIXTURE_ONLY
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-license-gui-private.log'
+          $witness=(Resolve-Path 'publisher/tests/installed-publisher-center-corporate.ps1').Path
+          $tokens=$null;$errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($witness,[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){throw 'CORPORATE_INSTALLED_LICENSE_WITNESS_PARSE_FAILED'}
+          $adminPayload=(Resolve-Path 'admin/artifacts/private-t3-d3-payload').Path
+          $publisherExe=Join-Path $env:CORPORATE_PUBLISHER_INSTALL 'iwxa-publisher.exe'
+          $adminExe=Join-Path $env:CORPORATE_ADMIN_INSTALL 'iwxa-admin-center.exe'
+          $publisherHash=(Get-FileHash -LiteralPath 'publisher/publisher/src-tauri/target/release/iwxa-publisher.exe').Hash
+          $centerHash=(Get-FileHash -LiteralPath (Join-Path $adminPayload 'iwxa-admin-center.exe')).Hash
+          $ownerHash=(Get-FileHash -LiteralPath (Join-Path $adminPayload 't3/iwxa-t3-product-owner.exe')).Hash
+          $consumerHash=(Get-FileHash -LiteralPath (Join-Path $adminPayload 't3/iwxa-t3-product-consumer.exe')).Hash
+          & pwsh.exe -NoLogo -NoProfile -STA -File $witness -PublisherExe $publisherExe -AdminCenterExe $adminExe -ExpectedPublisherSha256 $publisherHash -ExpectedCenterSha256 $centerHash -ExpectedOwnerSha256 $ownerHash -ExpectedConsumerSha256 $consumerHash -IssuerAuthorityId 'publisher:synthetic:corporate:installed' -DedicatedTestProfile -QualifySeatProjection -ResumeQualifiedCenterCI *> $log
+          $exit=$LASTEXITCODE
+          $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+          $checks=@([regex]::Matches($raw,'(?m)^CORPORATE_TWO_INSTALLED_CHECK=([A-Z0-9_]{3,100})\s*$')|ForEach-Object {$_.Groups[1].Value})
+          foreach($check in $checks){Write-Host ('CORPORATE_TWO_INSTALLED_CHECK='+$check)}
+          $m=[regex]::Match($raw,'(?m)^CORPORATE_TWO_INSTALLED_NATIVE_PASS checks=(\d{1,3})\s*$')
+          if($exit -ne 0 -or !$m.Success -or [int]$m.Groups[1].Value -ne 24 -or $checks.Count -ne 24){
+            $safe=@([regex]::Matches($raw,'(?<![A-Z0-9_])CORPORATE_(?:GUI|NATIVE|INSTALLED|SEAT|TWO_INSTALLED)_[A-Z0-9_]{4,100}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
+            Write-Host ('CORPORATE_INSTALLED_LICENSE_CODES='+($safe -join ','))
+            throw 'CORPORATE_INSTALLED_LICENSE_GUI_HOLD'
+          }
+          foreach($required in @('CENTER_RESUMES_QUALIFIED_ORGANIZATION_AND_EXPOSES_EXACT_ID','PUBLISHER_GUI_ORIGINAL_SIGNED_ISSUE','CENTER_INSTALLED_REGISTRY_USES_SIGNED_TARIFF_2_10','CENTER_INSTALLED_REGISTRY_AND_LICENSE_COLD_READBACK','CENTER_RENEWAL_REPLACES_OLD_LIMITS_WITHOUT_SUMMING','CENTER_DURABLE_REVOKE_AND_OLD_ACTIVE_REPLAY_DENIED')){
+            if($checks -cnotcontains $required){throw 'CORPORATE_INSTALLED_LICENSE_RECEIPT_MISSING'}
+          }
+          Write-Host 'CORPORATE_INSTALLED_PUBLISHER_CENTER_LICENSE_LIFECYCLE=PASS'
       - name: Discard all private sources native packages test profile and diagnostics
         if: always()
         shell: pwsh
@@ -272,6 +333,7 @@ jobs:
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
           }
           Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'corporate-installed-*-private.*' -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'iwxa-corporate-witness-*' -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
           Write-Host 'CORPORATE_INSTALLED_PRIVATE_CLEANUP=COMPLETE'
   agent:
     if: ${{ github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'ci(admin):') }}
