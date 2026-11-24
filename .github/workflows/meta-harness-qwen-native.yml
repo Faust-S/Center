@@ -1,0 +1,26 @@
+name: Qwen Code native ACP public qualification
+on:
+  push:
+    branches: [work/2026-11-24-meta-harness-source-qualification]
+    paths:
+      - '.github/workflows/meta-harness-qwen-native.yml'
+      - 'qualification/meta_harness_qwen_native.py'
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Native protocol and real local model, public synthetic input only
+        run: python qualification/meta_harness_qwen_native.py
