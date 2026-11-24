@@ -892,6 +892,12 @@ try {
   assert.match(await handoff.innerText(),/STATUS: ACTIVE, редакция 1/);
   assert.match(await handoff.innerText(),new RegExp('c'.repeat(64)));
   assert.match(await handoff.innerText(),/7312 байт/);
+  const copiedCorporate=JSON.parse(await handoff.getByTestId('publisher-corporate-handoff-text').inputValue());
+  assert.equal(copiedCorporate.licenseId,'license:corporate:fixture');
+  assert.equal(copiedCorporate.packageSha256,'c'.repeat(64));
+  assert.equal(copiedCorporate.bytes,7312);
+  assert.equal(copiedCorporate.recipientConfirmed,false);
+  assert.equal(copiedCorporate.assignablePersonalAgentSeats,0);
   assert.match(await handoff.innerText(),/получения T3 права организации и сотрудников не меняются/);
   assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);
   // A new signed STATUS makes the previous exported file a historical

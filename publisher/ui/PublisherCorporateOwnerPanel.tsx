@@ -51,6 +51,8 @@ export default function PublisherCorporateOwnerPanel({
     recipientConfirmed:false;assignablePersonalAgentSeats:0;
   }>(null);
   const deliveryTextRef=useRef<HTMLTextAreaElement>(null);
+  const trustTextRef=useRef<HTMLInputElement>(null);
+  const [trustExport,setTrustExport]=useState<{sha256:string;bytes:number}|null>(null);
   const [lookup,setLookup]=useState('');
   const [statusAction,setStatusAction]=useState<'ACTIVE'|'SUSPENDED'|'REVOKED'>('ACTIVE');
   const [validUntil,setValidUntil]=useState('');
@@ -96,7 +98,7 @@ export default function PublisherCorporateOwnerPanel({
   async function loadCapabilities(){
     if(busy)return;
     setBusy(true);setProblem('');setFeedback('');
-    setReview(null);setConfirmIssue(false);
+    setReview(null);setConfirmIssue(false);setTrustExport(null);
     try{
       const value=await invoke('publisher_t3_corporate_capabilities') as OwnerCaps;
       if(value.operation!=='CORPORATE_CAPABILITIES'||
@@ -117,7 +119,7 @@ export default function PublisherCorporateOwnerPanel({
 
   async function exportCorporateTrust(){
     if(busy||issuers.length===0)return;
-    setBusy(true);setProblem('');setFeedback('');
+    setBusy(true);setProblem('');setFeedback('');setTrustExport(null);
     try{
       const result=await invoke('publisher_t3_corporate_export_public_trust');
       if(result===null){
@@ -126,13 +128,27 @@ export default function PublisherCorporateOwnerPanel({
       if(result.operation!=='CORPORATE_TRUST_EXPORTED'||
         result.publicOnly!==true||result.recipientProvisioned!==false||
         result.activeSeats!==0||result.productionActivation!==false||
-        !HEX.test(result.sha256))
+        !HEX.test(result.sha256)||!Number.isSafeInteger(result.bytes)||
+        result.bytes<3||result.bytes>1024*1024)
         throw Error('CORPORATE_ORIGINAL_PUBLIC_TRUST_RECEIPT_INVALID');
+      setTrustExport({sha256:result.sha256,bytes:result.bytes});
       setFeedback('Публичное доверие оригинального издателя сохранено. SHA-256: '+
         result.sha256+'. Его нужно независимо установить и проверить в Admin Center ДО получения лицензии; права не созданы.');
     }catch(e){
       setProblem('Не удалось подтвердить исходный публичный trust: '+error(e));
     }finally{setBusy(false);}
+  }
+
+  async function copyTrustFingerprint(){
+    const field=trustTextRef.current;
+    if(busy||!trustExport||!field)return;
+    field.focus();field.select();
+    try{
+      await navigator.clipboard.writeText(field.value);
+      setFeedback('SHA-256 публичного доверия скопирован. Передайте его получателю отдельно от файла лицензии.');
+    }catch{
+      setFeedback('SHA-256 выделен. Нажмите Ctrl+C.');
+    }
   }
 
   function prepare(){
@@ -357,6 +373,16 @@ export default function PublisherCorporateOwnerPanel({
       onClick={()=>void exportCorporateTrust()}>
       Экспортировать публичное доверие для независимого Admin Center
     </button>}
+    {trustExport&&<div className="publisher-test-request" data-testid="publisher-corporate-trust-handoff">
+      <label>SHA-256 публичного доверия издателя
+        <input ref={trustTextRef} readOnly value={trustExport.sha256} spellCheck={false}/>
+      </label>
+      <button type="button" className="secondary" disabled={busy}
+        data-testid="publisher-corporate-trust-copy"
+        onClick={()=>void copyTrustFingerprint()}>Скопировать SHA-256 доверия</button>
+      <p>Размер файла: {trustExport.bytes} байт. Передайте отпечаток независимо от .iwxa.
+        Доверие не является лицензией или правом.</p>
+    </div>}
     {issuers.length>0&&<div className="publisher-offer-review">
       <label>Зарегистрированный издатель
         <select value={issuer} disabled={busy}
