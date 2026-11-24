@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '5637e93b2c9c0586d6399c30c2326cd30a5d83b3'
-      PRIVATE_TREE_PIN: '23ad83096f4efaaae8884b1c1b7307c614fe5ecd'
+      PRIVATE_SOURCE_PIN: 'e12f3726a8d693406c31a65d3a1ab96ba6265666'
+      PRIVATE_TREE_PIN: '5d0183e32a08946c2be4c8616cb0f040d08bfbf5'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -209,7 +209,7 @@ jobs:
             try{
               $w=Get-Content -LiteralPath $receipt -Raw -Encoding UTF8|ConvertFrom-Json
               if($w.schema -ceq 'IWXA_AGENT063_GUIDED_MODEL_WITNESS/1' -and $w.status -ceq 'PASS' -and $w.public_artifacts_uploaded -eq $false){
-                $required=@('fresh_profile_verified','explicit_network_consent_via_gui','automatic_real_model_preparation_via_gui','real_local_inference_receipt_verified','offline_restored_via_gui','original_draft_preserved','real_task_submitted_via_gui','human_review_saved_via_gui','accepted_task_restored_after_cold_restart','no_duplicate_task_verified','no_external_task_effects_verified')
+                $required=@('fresh_profile_verified','explicit_network_consent_via_gui','automatic_real_model_preparation_via_gui','real_local_inference_receipt_verified','offline_restored_via_gui','original_draft_preserved','real_task_submitted_via_gui','visible_review_decisions_via_gui','review_selection_did_not_submit','human_review_saved_via_gui','accepted_task_restored_after_cold_restart','no_duplicate_task_verified','no_external_task_effects_verified')
                 $verified=$true
                 foreach($key in $required){
                   if($w.$key -ne $true){$verified=$false;break}
