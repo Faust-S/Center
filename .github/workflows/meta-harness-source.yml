@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     env:
-      PRIVATE_PIN: e878704c41c148fbb3d627d6acb42dc2150e11fd
-      PRIVATE_TREE: 5e44992e85c7e060c7f5056520bd8f7b185d660b
+      PRIVATE_PIN: 26275bd97548a6489652c2c354cf509f75d3f39f
+      PRIVATE_TREE: 785cf529fb96032b5d44e60f70546c772022eb61
       QUALIFY_SCOPE: ADAPTER_PRODUCT
     steps:
       - uses: actions/setup-python@v5
@@ -178,7 +178,7 @@ jobs:
                       })
                   groups={"PRODUCT_ROUTE":groups["PRODUCT_ROUTE"],"TASK_ASSIGNMENT":["tests/test_meta_harness_task_assignment.py"],"ACP_PROTOCOL":groups["ACP_PROTOCOL"],"ACP_PRODUCT":groups["ACP_PRODUCT"],"STRATEGY":["tests/test_meta_harness_strategy_history.py"],"CORE_ADAPTERS":groups["CORE_ADAPTERS"],
                           "ACP_CONTEXT_READ":["tests/test_meta_harness_acp_context_read.py"],
-                        "TOOL_READ":["tests/test_meta_harness_tool_read.py"],
+                        "TOOL_READ":["tests/test_meta_harness_tool_read.py","tests/test_meta_harness_mcp_read.py"],
                           "WORK_BOARD":["tests/test_work_board_state_transaction.py"],
                           "ORIGINAL_HANDOFF":groups["ORIGINAL_HANDOFF"],
                           "TICKET_REGRESSION":["tests/test_meta_harness_original_task_workflow.py::test_meta_harness_ticket_reserved_execution_and_exact_dependency_snapshot",
