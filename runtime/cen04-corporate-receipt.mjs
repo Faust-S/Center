@@ -93,6 +93,9 @@ export function inspectCorporateRead(v,organizationId){
       row.organizationId!==organizationId||
       row.productId!=='IWXA_ADMIN_CENTER'||
       !id(row.tariffId)||!count(row.tariffRevision)||
+      !id(row.lineageId)||(row.renewalOf!==null&&
+        (!id(row.renewalOf)||row.renewalOf===row.licenseId))||
+      typeof row.superseded!=='boolean'||typeof row.lineageResolved!=='boolean'||
       !states.has(row.status)||!count(row.sequence)||
       row.signatureVerified!==true||row.statusVerified!==true||
       row.recipientConfirmed!==true||row.originalHolderReceiptRequired!==true||
@@ -110,13 +113,29 @@ export function inspectCorporateRead(v,organizationId){
      issuerAuthorityId:row.issuerAuthorityId,
      organizationId,productId:row.productId,tariffId:row.tariffId,
      tariffRevision:row.tariffRevision,sequence:row.sequence,status:row.status,
+     lineageId:row.lineageId,renewalOf:row.renewalOf,
+     superseded:row.superseded,lineageResolved:row.lineageResolved,
      current:row.current,packageSha256:row.packageSha256,
      ...verifiedEnvelopeIdentity(row),signedTerms:inspectSignedTerms(row.signedTerms),
      expiresAt:row.expiresAt,statusValidUntil:row.statusValidUntil
    }));
  }
+ const capacity=view.capacity;
+ const candidates=projected.filter(x=>x.current&&x.status==='ACTIVE'&&!x.superseded);
+ const state=candidates.some(x=>!x.lineageResolved)?'LINEAGE_INCOMPLETE':
+   candidates.length>1?'MULTIPLE_CURRENT_LICENSES':
+   candidates.length===1?'VERIFIED_CAPACITY_CANDIDATE':'NO_CURRENT_LICENSE';
+ const candidateLicenseId=state==='VERIFIED_CAPACITY_CANDIDATE'?candidates[0].licenseId:null;
+ if(!exact(capacity,['state','candidateLicenseId','activeLicenseCount','holderApplied',
+   'activeSeats','assignablePersonalAgentSeats','productionActivation'])||
+   capacity.state!==state||capacity.candidateLicenseId!==candidateLicenseId||
+   capacity.activeLicenseCount!==candidates.length||capacity.holderApplied!==false||
+   capacity.activeSeats!==0||capacity.assignablePersonalAgentSeats!==0||
+   capacity.productionActivation!==false)denied();
  return Object.freeze({organizationId,revision:view.revision,
-   licenses:Object.freeze(projected),activeSeats:0,assignablePersonalAgentSeats:0});
+   licenses:Object.freeze(projected),capacity:Object.freeze({state,candidateLicenseId,
+    activeLicenseCount:candidates.length,holderApplied:false}),
+   activeSeats:0,assignablePersonalAgentSeats:0});
 }
 export function inspectCorporateReceived(v,organizationId,expectedSha256){
  if(!base(v)||v.operation!=='CORPORATE_RECEIVE'||
@@ -164,4 +183,31 @@ export function reconcileCorporateReceiveWithRead(receipt,view){
           row.signedStatus!==receipt.signedStatus||
           row.packageSha256!==receipt.storedPackageSha256)fail();
  return Object.freeze({row,newer});
+}
+
+// Compare the existing organization preparation to the single T3-verified
+// capacity candidate. This is a planning calculation, never seat admission.
+export function projectCorporateSeatPlan(read,participants){
+ if(!Array.isArray(participants))denied();
+ const seen=new Set();
+ let planned=0;
+ for(const person of participants){
+   if(!id(person?.id)||seen.has(person.id)||
+     ![undefined,'NONE','PLANNED'].includes(person.personalAgentPlan))denied();
+   seen.add(person.id);
+   if(person.personalAgentPlan==='PLANNED')planned++;
+ }
+ const base={employeeCount:seen.size,planned,assigned:null};
+ const row=read?.capacity?.state==='VERIFIED_CAPACITY_CANDIDATE'?
+   read.licenses.find(x=>x.licenseId===read.capacity.candidateLicenseId):null;
+ if(!row)return Object.freeze({...base,state:read?.capacity?.state??'NOT_READ',
+   employeeLimit:null,seatLimit:null,employeeOverLimit:null,seatOverLimit:null,
+   remainingPlannedSeats:null,licenseId:null});
+ const l=row.signedTerms.limits;
+ return Object.freeze({...base,state:'VERIFIED_CAPACITY_CANDIDATE',
+   employeeLimit:l.employeeLimit,seatLimit:l.personalAgentSeats,
+   employeeOverLimit:Math.max(0,seen.size-l.employeeLimit),
+   seatOverLimit:Math.max(0,planned-l.personalAgentSeats),
+   remainingPlannedSeats:Math.max(0,l.personalAgentSeats-planned),
+   licenseId:row.licenseId});
 }

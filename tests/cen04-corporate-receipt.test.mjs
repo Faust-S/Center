@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {inspectCorporateEnrollment,inspectCorporateCapabilities,
  inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived,
- reconcileCorporateReceiveWithRead}
+ reconcileCorporateReceiveWithRead,projectCorporateSeatPlan}
  from '../runtime/cen04-corporate-receipt.mjs';
 import {parseCorporateDeliveryHandoff,matchesCorporateDeliveryReceipt,matchesCorporateSignedPair} from '../runtime/cen04-corporate-carrier.mjs';
 const ORG='org:company',SHA='a'.repeat(64),STORED='b'.repeat(64);
@@ -32,15 +32,21 @@ const received=()=>base('CORPORATE_RECEIVE',{
  signedLicenseAccepted:true,recipientConfirmed:true,
  originalHolderReceiptRequired:true,holderApplied:false
 });
+const capacity=(state='NO_CURRENT_LICENSE',candidateLicenseId=null,activeLicenseCount=0)=>({
+ state,candidateLicenseId,activeLicenseCount,holderApplied:false,
+ activeSeats:0,assignablePersonalAgentSeats:0,productionActivation:false
+});
 const view=()=>base('CORPORATE_READ',{view:{
  schema:'IWXA_T3_CORPORATE_PRODUCT_LICENSE_CONSUMER_VIEW/1',
  organizationId:ORG,productId:'IWXA_ADMIN_CENTER',
  revision:4,trustOrigin:'HOST_PREINSTALLED_PUBLIC_POLICY',
  activeSeats:0,assignablePersonalAgentSeats:0,productionActivation:false,
+ capacity:capacity(),
  licenses:[{licenseId:'license:company',requestId:'request:company',
  issuerAuthorityId:'publisher:original',organizationId:ORG,
  productId:'IWXA_ADMIN_CENTER',tariffId:'TEAM',tariffRevision:2,
  status:'STATUS_STALE',signedStatus:'ACTIVE',sequence:3,current:false,
+ lineageId:'lineage:company',renewalOf:null,superseded:false,lineageResolved:true,
  licenseEnvelopeSha256:'c'.repeat(64),statusEnvelopeSha256:'d'.repeat(64),
  packageSha256:STORED,expiresAt:'2026-12-23T10:00:00.000Z',
  statusValidUntil:'2026-11-24T10:00:00.000Z',
@@ -200,4 +206,45 @@ test('lost receive ACK can recover the same signed pair but never assert a diffe
  assert.equal(matchesCorporateDeliveryReceipt(row,expected),false);
  const other=view();other.view.licenses[0].statusEnvelopeSha256='f'.repeat(64);
  assert.equal(matchesCorporateSignedPair(inspectCorporateRead(other,ORG).licenses[0],expected),false);
+});
+
+test('existing seat plan compares only one original current tariff; no additive license count',()=>{
+ const v=view(),row=v.view.licenses[0];
+ Object.assign(row,{status:'ACTIVE',current:true});
+ v.view.capacity=capacity('VERIFIED_CAPACITY_CANDIDATE',row.licenseId,1);
+ const roster=Array.from({length:11},(_,i)=>({id:'person:'+i,
+   personalAgentPlan:i<5?'PLANNED':'NONE'}));
+ let result=projectCorporateSeatPlan(inspectCorporateRead(v,ORG),roster);
+ assert.equal(result.employeeOverLimit,1);
+ assert.equal(result.seatOverLimit,1);
+ assert.equal(result.remainingPlannedSeats,0);
+ assert.equal(result.assigned,null);
+ const next={...row,licenseId:'license:new',requestId:'request:new',
+   renewalOf:row.licenseId,tariffRevision:3,
+   signedTerms:{...row.signedTerms,limits:{...row.signedTerms.limits,personalAgentSeats:8}}};
+ row.superseded=true;v.view.licenses.push(next);
+ v.view.capacity=capacity('VERIFIED_CAPACITY_CANDIDATE',next.licenseId,1);
+ result=projectCorporateSeatPlan(inspectCorporateRead(v,ORG),roster);
+ assert.equal(result.seatLimit,8);
+ assert.equal(result.remainingPlannedSeats,3);
+ assert.equal(result.seatOverLimit,0);
+ row.superseded=false;next.renewalOf=null;next.lineageId='lineage:independent';
+ v.view.capacity=capacity('MULTIPLE_CURRENT_LICENSES',null,2);
+ result=projectCorporateSeatPlan(inspectCorporateRead(v,ORG),roster);
+ assert.equal(result.seatLimit,null);
+ assert.equal(result.remainingPlannedSeats,null);
+ assert.equal(result.state,'MULTIPLE_CURRENT_LICENSES');
+ v.view.capacity=capacity('VERIFIED_CAPACITY_CANDIDATE',next.licenseId,1);
+ assert.throws(()=>inspectCorporateRead(v,ORG));
+});
+test('unknown or incomplete license cannot claim capacity or turn preparation into assignments',()=>{
+ const roster=[{id:'person:1',personalAgentPlan:'PLANNED'}];
+ const missing=projectCorporateSeatPlan(null,roster);
+ assert.equal(missing.planned,1);assert.equal(missing.seatLimit,null);
+ assert.equal(missing.assigned,null);
+ const v=view(),row=v.view.licenses[0];
+ Object.assign(row,{status:'ACTIVE',current:true,lineageResolved:false});
+ v.view.capacity=capacity('LINEAGE_INCOMPLETE',null,1);
+ assert.equal(projectCorporateSeatPlan(inspectCorporateRead(v,ORG),roster).state,'LINEAGE_INCOMPLETE');
+ assert.throws(()=>projectCorporateSeatPlan(null,[...roster,...roster]));
 });

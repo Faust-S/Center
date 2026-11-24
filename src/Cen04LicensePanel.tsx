@@ -11,9 +11,10 @@ type View={organizationId:string;productId:string;licenses:License[];
  revision:number;activeSeats:0;assignableSeats:0;productionActivation:false};
 type Props={organizationId:string;organizationName:string;
  organizationKind:'GROUP'|'ORGANIZATION';
+ participants:readonly {id:string;personalAgentPlan?:'NONE'|'PLANNED'}[];
  invoke:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function Cen04LicensePanel({organizationId,organizationName,organizationKind,invoke}:Props){
+export default function Cen04LicensePanel({organizationId,organizationName,organizationKind,participants,invoke}:Props){
  const [testSeats,setTestSeats]=useState('1');
  const [testTerm,setTestTerm]=useState('30');
  const [testVersion,setTestVersion]=useState('0.4.1');
@@ -253,7 +254,8 @@ export default function Cen04LicensePanel({organizationId,organizationName,organ
        <span className="status neutral">Подпись T3 проверена</span>
      </div>)}
    </div>}
-   <Cen04CorporateIntakePanel key={organizationId} organizationId={organizationId} invoke={invoke}/>
+   <Cen04CorporateIntakePanel key={organizationId} organizationId={organizationId}
+     participants={participants} invoke={invoke}/>
     <div className="notice subdued">
      TEST-лицензии не дают права назначать места Personal Agent. Активных мест: 0.
    </div>

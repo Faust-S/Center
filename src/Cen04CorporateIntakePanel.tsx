@@ -4,15 +4,16 @@ import {checkCorporateCarrierExpectation,checkCorporateCarrierMatch,
  from '../runtime/cen04-corporate-carrier.mjs';
 import {inspectCorporateEnrollment,inspectCorporateCapabilities,
  inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived,
- reconcileCorporateReceiveWithRead}
+ reconcileCorporateReceiveWithRead,projectCorporateSeatPlan}
  from '../runtime/cen04-corporate-receipt.mjs';
 
 // This is only the UI of the ORIGINAL T3 corporate Consumer profile.
 // Admin Center 0.4.1 retains its separate Publisher TEST request workflow.
-type Props={organizationId:string;
+type PlanParticipant={id:string;personalAgentPlan?:'NONE'|'PLANNED'};
+type Props={organizationId:string;participants:readonly PlanParticipant[];
  invoke:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props){
+export default function Cen04CorporateIntakePanel({organizationId,participants,invoke}:Props){
  const [busy,setBusy]=useState(false);
  const actionRef=useRef(false);
  const [corporateSha,setCorporateSha]=useState('');
@@ -32,6 +33,7 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
  }|null>(null);
  const [corporateMessage,setCorporateMessage]=useState('');
  const [corporateFailure,setCorporateFailure]=useState('');
+ const seatPlan=projectCorporateSeatPlan(corporateRead,participants);
  const latestOrgRef=useRef(organizationId);
  latestOrgRef.current=organizationId;
  const sameOrg=()=>latestOrgRef.current===organizationId;
@@ -414,6 +416,26 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
          Лицензий: {corporateRead.licenses.length}.
          Редакция Store: {corporateRead.revision}.
          Назначаемых мест Personal Agent: 0.</p>
+       <section className="nested-form" data-testid="cen04-corporate-capacity">
+         <strong>План мест по актуальному тарифу</strong>
+         {seatPlan.state==='VERIFIED_CAPACITY_CANDIDATE'?<>
+           <div className="form-grid">
+             <div><small>Сотрудники / лимит</small><strong>{' '}{seatPlan.employeeCount} / {seatPlan.employeeLimit}</strong></div>
+             <div><small>Запланированные места Agent / лимит</small><strong>{' '}{seatPlan.planned} / {seatPlan.seatLimit}</strong></div>
+             <div><small>Остаток для планирования</small><strong>{' '}{seatPlan.remainingPlannedSeats}</strong></div>
+           </div>
+           {((seatPlan.employeeOverLimit??0)>0||(seatPlan.seatOverLimit??0)>0)?
+             <p role="alert">План превышает подписанные условия. Сотрудников сверх лимита: {seatPlan.employeeOverLimit}.
+               Мест Agent сверх лимита: {seatPlan.seatOverLimit}. Уточните тариф или план.</p>:
+             <p>Текущий план укладывается в подписанные лимиты.</p>}
+           <p className="muted">Используется только одна актуальная лицензия: {seatPlan.licenseId}.
+             Это сравнение плана, не выдача мест или прав.</p>
+         </>:<p role="status">{seatPlan.state==='LINEAGE_INCOMPLETE'?
+           'История продления неполна. Для расчёта лимитов требуется недостающая лицензия.':
+           seatPlan.state==='MULTIPLE_CURRENT_LICENSES'?
+             'Получено несколько действующих независимых лицензий. Их лимиты не складываются; уточните основание у Publisher.':
+             'Нет текущей подписанной лицензии ACTIVE. Лимиты плана не определены.'}</p>}
+       </section>
        {corporateRead.licenses.map(row=><section className="nested-form"
          data-testid="cen04-corporate-license-terms" key={row.licenseId}>
          <div className="simple-row">
@@ -422,7 +444,9 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
              <small>{row.current?'STATUS проверен на момент чтения.':
                'Историческая запись, срок действия или срок STATUS истёк.'}</small>
            </div>
-           <span className="status neutral">Получено T3</span>
+           <span className="status neutral">{row.superseded?'Заменена новой редакцией':
+             !row.lineageResolved?'История неполна':
+             row.licenseId===corporateRead.capacity.candidateLicenseId?'Актуальный тариф':'Получено T3'}</span>
          </div>
          <div className="form-grid" aria-label="Подписанные условия лицензии">
            <div><small>Места Admin Center по лицензии</small>
@@ -445,6 +469,8 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
              </p>)}
            </div>:<p>Квоты ресурсов не указаны.</p>}
            <p>Лицензия: {row.licenseId}.</p>
+           <p>Цепочка лицензии: {row.lineageId}.
+             {row.renewalOf?' Предыдущая лицензия: '+row.renewalOf+'.':' Первичная редакция.'}</p>
            <p>Запрос: {row.requestId}. Издатель: {row.issuerAuthorityId}.</p>
            <p>Подписанный STATUS: {row.signedStatus}.</p>
            <p>SHA-256 LICENSE: <code className="cen04-sha">{row.licenseEnvelopeSha256}</code></p>
