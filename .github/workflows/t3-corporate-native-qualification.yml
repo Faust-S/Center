@@ -19,7 +19,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      IWXA_EXPECTED_T3: 'f08586ef4d7e2e9a71ff69a01a2d751c5047ba3b'
+      IWXA_EXPECTED_T3: '98624b95a3ed0437ee1be0b4a5e0ff9280bfbee2'
       IWXA_EXPECTED_ONE_CORE: '5fc1f2a09b4e91b8230d148241d3806049d7dbfb'
     steps:
       - name: Require the previously authorized private source grant
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: f08586ef4d7e2e9a71ff69a01a2d751c5047ba3b
+          ref: 98624b95a3ed0437ee1be0b4a5e0ff9280bfbee2
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
