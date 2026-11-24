@@ -197,8 +197,9 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
       !['OPEN_WORKSPACE','READ_REGISTRY'].includes(seatStage))return;
    const key=registryReadKey,attemptKey=JSON.stringify([key,registryRetry]);
    if(automaticRegistryRead.current===attemptKey)return;
-   const scope={...owner.snapshot};
-   let active=true,timer:number|undefined;
+   const {workspaceId,actorId,contextId,contextEpoch}=owner.snapshot;
+   const scope={organizationId,workspaceId,actorId,contextId,contextEpoch};
+   let active=true,finished=false,timer:number|undefined;
    const begin=()=>{
      if(!active)return;
      if(actionRef.current){timer=window.setTimeout(begin,150);return;}
@@ -217,7 +218,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
            wait:()=>new Promise<void>(resolve=>window.setTimeout(resolve,600)),
          });
          if(!active||observed==='CANCELLED')return;
-         if(observed==='TIMEOUT'){setRegistryObservation({key,state:'TIMEOUT'});return;}
+         if(observed==='TIMEOUT'){finished=true;setRegistryObservation({key,state:'TIMEOUT'});return;}
          // The native receipt can change available operations without a
          // context epoch change. Re-read that exact owner, not a UI guess.
          const next=await invoke('center_corporate_state',{organizationId});
@@ -225,14 +226,22 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
          if(!originalSeatRegistryScopeMatches(next,scope))
            throw Error('CEN_D3_EMPLOYEE_REGISTRY_SCOPE_CHANGED');
          adoptOwner(next);
+         finished=true;
          setRegistryObservation({key,state:observed==='CONFIRMED'?'CONFIRMED':'NOT_FOUND'});
        }catch(e){
-         if(active){setRegistryObservation({key,state:'FAILED'});setError(why(e));}
+         if(active){finished=true;setRegistryObservation({key,state:'FAILED'});setError(why(e));}
        }finally{actionRef.current=false;setBusy(false);}
      })();
    };
    timer=window.setTimeout(begin,0);
-   return()=>{active=false;if(timer!==undefined)window.clearTimeout(timer)};
+   return()=>{
+     active=false;
+     if(timer!==undefined)window.clearTimeout(timer);
+     // A cancelled observation is not a completed read. Returning to the
+     // same signed scope may resume it once the native action slot is free.
+     if(!finished&&automaticRegistryRead.current===attemptKey)
+       automaticRegistryRead.current=null;
+   };
  },[preferCorporateSeats,signedWorkspaceVisible,signedWorkspaceOpen,registryReadKey,registryRetry,invoke]);
  const applied=(()=>{
    if(!legacyReady)return {status:'NOT_CONNECTED',records:[] as any[]};
