@@ -948,6 +948,8 @@ try{
   await reusePage.getByTestId('subnav-reuse').click();
   await reusePage.getByTestId('d3-reuse-refresh').click();
   await reusePage.getByTestId('d3-reuse-package').selectOption('d'.repeat(64));
+  assert.equal(await reusePage.getByTestId('d3-reuse-technical').getAttribute('open'),null);
+  assert.equal(await reusePage.getByTestId('d3-reuse-sha').isVisible(),false);
   await reusePage.getByTestId('d3-reuse-read').click();
   await reusePage.getByTestId('corporate-panel').getByRole('alert').waitFor();
   assert.equal(await reusePage.getByTestId('d3-reuse-create-draft').count(),0);
@@ -955,6 +957,7 @@ try{
   await reusePage.evaluate(()=>{window.__reuseFixture.applied=true});
   await reusePage.getByTestId('d3-reuse-read').click();
   await reusePage.getByTestId('d3-reuse-confirmed').waitFor();
+  assert.match(await reusePage.getByTestId('d3-reuse-human-summary').innerText(),/Проверить предложение поставщика/);
   assert.match(await reusePage.getByTestId('d3-reuse-text').inputValue(),/Поставщик подтвердил/);
   await reusePage.screenshot({path:'artifacts/v8-original-result-reuse.png',fullPage:true});
   await reusePage.getByTestId('d3-reuse-create-draft').click();
@@ -1014,6 +1017,7 @@ try{
     loseFirstTaskGrantAck:true,taskIssueCalls:0,signedTaskSaved:false,
     cancelFirstTask:true,loseFirstTaskAck:true,taskExports:0,
     taskOrphan:false,taskRecoveryCalls:0,cancelFirstTaskRecovery:true,
+    reuseApplied:false,reuseReadbacks:0,
     contextEpoch:1,
     cancelFirstInit:true,loseFirstInitAck:true};
   const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
@@ -1034,7 +1038,7 @@ try{
           contextId:'context:employee-fixture',contextEpoch:employeeState.contextEpoch,
           d3RecipientAvailable:true,d3TaskIssueAvailable:false,
           d3InspectAvailable:true,d3ApplyAvailable:false,
-          d3ApplyRecoverAvailable:false,
+          d3ApplyRecoverAvailable:employeeState.ready,
           d3EmployeeRegistryBootstrapAvailable:true,
           d3EmployeeRegistryReadbackAvailable:true,
           d3EmployeeEnrollmentAvailable:employeeState.ready,
@@ -1185,12 +1189,51 @@ try{
           }
           throw Error('CEN_UI_UNEXPECTED_TASK_DATA_GRANT_REISSUE');
         }
+        if(args.operation==='d3InspectAccepted'||args.operation==='d3RecoverApplied'){
+          // UI-only shape fixture, not original cryptographic evidence.
+          const source=employeeReuseSource,result=savedReuse.description;
+          const target={consumerId:'IWXA_ADMIN_CENTER',processId:'admin.applied-results',
+            processVersion:'1',purpose:'application',subjectId:source.organizationId,
+            workspaceId:source.workspaceId,dataRootId:'root:employee-fixture'};
+          const E='f'.repeat(64);
+          assert.equal(args.organizationId,source.organizationId);
+          assert.equal(args.input.acceptanceId,source.acceptanceId);
+          assert.deepEqual(args.input.revisionIds,[source.resultRevisionId]);
+          if(args.operation==='d3InspectAccepted')return {
+            schema:'IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1',
+            status:'CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION',
+            source:{acceptanceId:source.acceptanceId},target,
+            applicationAttempted:false,applicationAuthorized:false,externalContextCoreApplied:false,
+            changes:[{taskId:source.taskId,taskRevisionId:source.taskRevisionId,
+              resultRevisionId:source.resultRevisionId,executorId:'person:worker',
+              resultExcerpt:result,resultTruncated:false}]};
+          employeeState.reuseReadbacks++;
+          if(!employeeState.reuseApplied)return {status:'OUTCOME_UNKNOWN',effectKey:E,
+            automaticRetryAllowed:false,kernelWriteReadback:'NOT_CONFIRMED',
+            originalKernelReadback:null,originalEventReadback:null};
+          const object={object_id:'result:applied:'+E,workspace_id:source.workspaceId,revision:1,
+            schema_id:'iwxa.admin.applied-results',schema_version:'1.0.0',
+            data:{schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',records:[{...source,
+              executorId:'person:worker',result}]}};
+          return {status:'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED',effectKey:E,
+            automaticRetryAllowed:false,kernelWriteReadback:'CONFIRMED',
+            externalProductAcceptance:'NOT_ACCEPTED',originalKernelReadback:{object},
+            originalEventReadback:{workspace_id:source.workspaceId,event_id:'event:employee-prior',
+              object_id:object.object_id,revision:1,event_type:'iwxa.admin.result.applied',
+              idempotency_key:E,payload:{reconciliation_acceptance_id:source.acceptanceId,
+                reconciliation_revision_ids:[source.resultRevisionId]}}};
+        }
         if(args.operation==='d3EmployeeCreateTask'){
           assert.equal(args.input.confirmed,true);
           assert.equal(args.input.employeePersonId,'person:independent');
           assert.equal(args.input.enrollmentId,'enrollment:verified');
           assert.equal(args.input.taskId,'task:independent-work');
-          assert.equal(args.input.task,'Review verified supplier statement');
+          assert.match(args.input.task,/Review verified supplier statement/);
+          assert.ok(args.input.task.includes(savedReuse.description));
+          assert.ok(args.input.task.includes(employeeReuseSource.taskRevisionId));
+          assert.ok(args.input.task.includes(employeeReuseSource.resultRevisionId));
+          assert.ok(args.input.task.includes(employeeReuseSource.acceptanceId));
+          assert.ok(employeeState.reuseApplied,'unconfirmed source cannot reach native signing');
           assert.equal(employeeState.taskGrantSaved,true);
           assert.equal(employeeState.wrongTaskGrantRecipient,false);
           if(employeeState.cancelFirstTask){
@@ -1326,10 +1369,16 @@ try{
   // The installed Center already saved this exact draft for cold restore.
   const employeeOrgId=await employeePage.locator('#active-organization').inputValue();
   assert.ok(employeeOrgId);
+  const employeeReuseSource={...savedReuse.sourceResultRef,
+    organizationId:employeeOrgId,workspaceId:'workspace:employee-fixture'};
+  const employeeReuseDraft={...savedReuse,title:'Review verified supplier statement',
+    workspaceId:'workspace:employee-fixture',assigneeId:null,reviewerId:null,
+    atlasRef:null,sourceResultRef:employeeReuseSource};
   employeeState.savedDraft=JSON.stringify({
     format:'iwxa.admin-center.draft',version:1,
     organizations:[{id:employeeOrgId,name:'Independent staff test',
-      kind:'ORGANIZATION',workspaces:[],participants:[],assignments:[]}],
+      kind:'ORGANIZATION',workspaces:[{id:'workspace:employee-fixture',name:'Employee Workspace',atlasRef:null}],
+      participants:[],assignments:[employeeReuseDraft]}],
     activeOrganizationId:employeeOrgId,
     updatedAt:'2026-11-17T00:00:00.000Z'
   });
@@ -1397,7 +1446,15 @@ try{
   await employeePage.getByTestId('add-person').click();
   const employeeMapButton=employeePage.locator('[data-testid^="company-person-"]').first();
   const employeeContactId=(await employeeMapButton.getAttribute('data-testid')).slice('company-person-'.length);
-  await employeeMapButton.click();
+  await employeePage.getByTestId('nav-work').click();
+  await employeePage.getByTestId('assignment-row').click();
+  await employeePage.getByTestId('assignment-form').getByLabel('Исполнитель').selectOption(employeeContactId);
+  await employeePage.getByTestId('save-assignment').click();
+  await employeePage.getByTestId('assignment-row').waitFor();
+  await employeePage.getByRole('button',{name:'Сохранить на компьютере',exact:true}).click();
+  await employeePage.getByText('Черновики сохранены на этом компьютере.',{exact:true}).waitFor();
+  await employeePage.getByTestId('nav-people').click();
+  await employeePage.getByTestId('company-person-'+employeeContactId).click();
   await employeePage.getByTestId('company-selection-detail')
     .getByRole('button',{name:'Подключение сотрудника T3',exact:true}).click();
   assert.equal(await employeePage.locator('main').getAttribute('data-admin-route'),'employees-t3');
@@ -1462,8 +1519,9 @@ try{
   assert.equal(await newEmployeeTask.isEnabled(),false,
     'no Task may be signed until its exact text and taskId are supplied');
   await employeePage.getByTestId('d3-employee-task-id').fill('task:independent-work');
-  await employeePage.getByTestId('d3-employee-task-text').fill(
-    'Review verified supplier statement');
+  await employeePage.getByTestId('d3-employee-task-draft').selectOption(employeeReuseDraft.id);
+  await employeePage.getByTestId('d3-employee-draft-source').waitFor();
+  assert.match(await employeePage.getByTestId('d3-employee-task-text').inputValue(),/Review verified supplier statement/);
   assert.equal(await newEmployeeTask.isEnabled(),false,
     'an outdated signed invitation cannot authorize employee Task reception');
   await employeePage.getByTestId('d3-employee-task-invite-stale').waitFor();
@@ -1472,8 +1530,19 @@ try{
   assert.match(await employeePage.getByTestId('d3-employee-invitation-export-receipt').innerText(),
     /Подписанный .iwxa сохранён, доставка не подтверждена/);
   assert.equal(employeeState.inviteExports,1);
+  assert.equal(await newEmployeeTask.isEnabled(),false,
+    'local contact is not proof of signed recipient identity');
+  await employeePage.getByTestId('d3-employee-draft-recipient-confirmed').check();
   assert.equal(await newEmployeeTask.isEnabled(),true,
-    'original invitation status includes the new exact manager DATA grant');
+    'current invitation and explicit recipient match permit original source verification');
+  await newEmployeeTask.click();
+  await employeePage.getByText(/Применённый Result не подтверждён исходным Kernel/).waitFor();
+  assert.equal(employeeState.taskIssueCalls,0);
+  assert.equal(employeeState.cancelFirstTask,true);
+  assert.equal(employeeState.reuseReadbacks,1);
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-create"]')?.disabled===false);
+  employeeState.reuseApplied=true;
   await newEmployeeTask.click();
   assert.equal(employeeState.taskIssueCalls,0,
     'definite native Human cancellation cannot create an original Task');
@@ -1482,6 +1551,8 @@ try{
   assert.equal(await newEmployeeTask.isEnabled(),true);
   await newEmployeeTask.click();
   assert.equal(employeeState.taskIssueCalls,1);
+  assert.equal(employeeState.reuseReadbacks,3,'source is rechecked before each native signing attempt');
+  checks.push('d3-employee-assigned-result-draft-revalidated-before-exact-signed-recipient');
   assert.equal(await newEmployeeTask.isEnabled(),false,
     'lost Task ACK forbids creating a second signed revision');
   await employeePage.getByTestId('d3-employee-task-read').click();
