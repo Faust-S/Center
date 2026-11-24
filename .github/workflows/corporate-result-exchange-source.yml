@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: a6b98eef231003bd52da2125686011d35a8b622f
+          ref: 365c7dcefeb6bbe4e6f71567749bdfd85e24ce87
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -36,7 +36,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if ((& git -C private-t3 rev-parse HEAD).Trim() -cne 'a6b98eef231003bd52da2125686011d35a8b622f' -or
+          if ((& git -C private-t3 rev-parse HEAD).Trim() -cne '365c7dcefeb6bbe4e6f71567749bdfd85e24ce87' -or
               (& git -C public-one-core rev-parse HEAD).Trim() -cne '06b56c6f2c1c3164e4a2e92bdcbe8706929216b5') {
             throw 'ORIGINAL_RETURN_EXCHANGE_SOURCE_PIN_MISMATCH'
           }
