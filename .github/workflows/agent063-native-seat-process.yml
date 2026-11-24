@@ -1,0 +1,81 @@
+name: Original Admin and two Agent native seat source processes
+on:
+  push:
+    branches: ['work/2026-11-24-agent063-native-seat-process']
+    paths: ['.github/workflows/agent063-native-seat-process.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: employee-seat-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-source-process:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 8563c62ce9d48527c6ba2066b0c16e35b77bb147
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: original-t3
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 2b757eae313651db5f5c7e60b92b8e168c25304e
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: agent
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: d89ec3ead3e660a7865043d1ecacd7f2b259f6cc
+          path: one-core
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Confirm exact source pins and execute native source process
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $PSNativeCommandUseErrorActionPreference=$false
+          foreach($p in @(@('original-t3','8563c62ce9d48527c6ba2066b0c16e35b77bb147'),@('agent','2b757eae313651db5f5c7e60b92b8e168c25304e'),@('one-core','d89ec3ead3e660a7865043d1ecacd7f2b259f6cc'))){
+            if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'SOURCE_PIN_MISMATCH'}
+          }
+          Write-Host 'ORIGINAL_SOURCE_PINS=PASS'
+          $log=Join-Path $env:RUNNER_TEMP 'employee-seat-process-private.log'
+          $out=Join-Path $env:RUNNER_TEMP 'employee-seat-process-private.json'
+          & node original-t3/scripts/qualify-employee-corporate-seat-process.mjs (Resolve-Path one-core).Path (Resolve-Path agent).Path 1>$out 2>$log
+          if($LASTEXITCODE -ne 0){
+            $raw=Get-Content -LiteralPath $log -Raw
+            foreach($m in [regex]::Matches($raw,'(?m)^SEAT_PROCESS_(PHASE|CODE)=([A-Z0-9_]{3,120})\s*$')){
+              Write-Host ('SEAT_PROCESS_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+            }
+            $m=[regex]::Match($raw,'qualify-employee-corporate-seat-process\.mjs:(\d+):(\d+)')
+            if($m.Success){Write-Host ('SEAT_PROCESS_LINE='+$m.Groups[1].Value)}
+            throw 'ORIGINAL_EMPLOYEE_SEAT_PROCESS_FAILED'
+          }
+          $r=Get-Content -LiteralPath $out -Raw|ConvertFrom-Json
+          if($r.result -ne 'PASS' -or $r.checks -lt 7 -or $r.windowsDpapi -ne $true -or
+             $r.originalAdminOwner -ne $true -or $r.originalAgentIpc -ne $true -or
+             $r.originalConsumer -ne $true -or $r.realKernel -ne $false -or
+             $r.installedGui -ne $false -or $r.independentWindowsSids -ne $false -or
+             $r.productionActivation -ne $false){throw 'ORIGINAL_EMPLOYEE_SEAT_PROCESS_RECEIPT_INVALID'}
+          Write-Host ('ORIGINAL_EMPLOYEE_SEAT_SOURCE_PROCESS_CHECKS='+[int]$r.checks)
+          Write-Host 'ORIGINAL_EMPLOYEE_SEAT_SOURCE_PROCESS=PASS'
+      - name: Discard transient private sources and local test data
+        if: always()
+        shell: pwsh
+        run: |
+          foreach($p in @('original-t3','agent')){Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'employee-seat-process-private.*' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'iwxa-corporate-employee-process-*' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host 'PRIVATE_CLEANUP=COMPLETE'
+# Test-only original registry fixture, not a real Kernel or installed GUI.
+# No publication, cache, private log or binary artifact.
