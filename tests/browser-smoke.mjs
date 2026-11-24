@@ -1524,7 +1524,11 @@ try{
   await employeePage.getByTestId('nav-overview').click();
   await employeePage.getByTestId('manager-read-signed').click();
   await employeePage.getByTestId('manager-signed-summary').waitFor();
+  // All search words occur in both signed assignments; do not conflate
+  // similar descriptions. A specific original Task ID is unambiguous.
   await employeePage.getByTestId('overview-search').fill('Review verified supplier statement');
+  assert.equal(await employeePage.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),2);
+  await employeePage.getByTestId('overview-search').fill('task:independent-work');
   assert.equal(await employeePage.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
   await employeePage.getByTestId('manager-search-hit').click();
   await employeePage.getByTestId('d3-employee-open-focused-task').waitFor();
