@@ -218,8 +218,10 @@ try{
   assert.ok(await page.getByTestId('refresh-assignment-atlas').isVisible());
   await page.getByTestId('task-title').fill('Unsaved editor text');
   await page.getByTestId('nav-resources').click();
-  await page.getByTestId('atlas-file-work-to-assignment').first().click();
-  assert.ok(await page.getByRole('alert').isVisible());
+  // The new explicit workspace gate correctly refuses a stale source before
+  // invoking the editor. Do not click an intentionally disabled control.
+  assert.equal(await page.getByTestId('atlas-file-work-to-assignment').first().isEnabled(),false);
+  assert.match(await page.getByTestId('atlas-file-binding-status').innerText(),/пока не установлена/);
   await page.getByTestId('nav-work').click();
   assert.equal(await page.getByTestId('task-title').inputValue(),'Unsaved editor text');
   await page.getByTestId('task-title').fill('Compare four suppliers');
@@ -243,6 +245,21 @@ try{
   assert.equal(await page.getByTestId('task-title').inputValue(),'Compare four suppliers');
   await page.getByTestId('save-assignment').click();
   checks.push('confirmed-revision-refresh-keeps-work-id-and-unsaved-editor');
+  // The exact current binding, as opposed to the stale revision above,
+  // reaches the original unsaved-editor guard and must not replace it.
+  await page.getByTestId('nav-resources').click();
+  await page.getByTestId('link-atlas').click();
+  assert.equal(await page.getByTestId('atlas-file-work-to-assignment').first().isEnabled(),true);
+  await page.getByTestId('nav-work').click();
+  await page.getByTestId('assignment-row').first().click();
+  await page.getByTestId('task-title').fill('Unsaved editor text');
+  await page.getByTestId('nav-resources').click();
+  await page.getByTestId('atlas-file-work-to-assignment').first().click();
+  assert.match(await page.getByRole('alert').innerText(),/Сохраните или закройте открытый редактор/);
+  await page.getByTestId('nav-work').click();
+  assert.equal(await page.getByTestId('task-title').inputValue(),'Unsaved editor text');
+  await page.getByTestId('task-title').fill('Compare four suppliers');
+  await page.getByRole('button',{name:'Закрыть редактор'}).click();
   await page.getByTestId('assignment-row').first().click();
   await page.getByTestId('task-title').fill('This unsaved next task must be retained');
   await page.getByTestId('nav-results').click();
