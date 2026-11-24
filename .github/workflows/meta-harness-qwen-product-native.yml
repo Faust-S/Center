@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: dae2280d94383f8ccc7962b7798f72936f0e8c2e
-      PRIVATE_TREE: b30909cccd911226a0623b3c64abc010008ccc40
+      PRIVATE_PIN: 28021a99b2c0bb343d51cb054954b79681cfa5e2
+      PRIVATE_TREE: 9f7c78892e47cd7a3c685502071dc9c5f580367a
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
     steps:
       - uses: actions/setup-python@v5
@@ -111,6 +111,8 @@ jobs:
                       if remote:
                           status("QWEN_PRODUCT_REMOTE",":".join(remote.groups()))
                       if re.fullmatch(r"QWEN_PRODUCT_HTTP=(OPENAI_CHAT|OPENAI_MODELS|GENERATE|CHAT|TAGS|SHOW|VERSION):[1-5][0-9]{2}",line.strip()) or re.fullmatch(r"QWEN_PRODUCT_OLLAMA_KIND=(TOOLS_UNSUPPORTED|CONTEXT_LIMIT|MODEL_LOAD|OUT_OF_MEMORY)",line.strip()):
+                          print(line.strip(),flush=True)
+                      if re.fullmatch(r"QWEN_PRODUCT_CHAT_SHAPE=(?:INVALID|TOOLS_(?:NONEMPTY|EMPTY|ABSENT):STREAM_(?:YES|NO):MODEL_(?:MATCH|OTHER):RESPONSE_FORMAT_(?:YES|NO):MESSAGES_[0-9]{1,5})",line.strip()) or re.fullmatch(r"QWEN_PRODUCT_OPENAI_ERROR=[45][0-9]{2}:(TOOLS_UNSUPPORTED|TOOL_INVALID|CONTEXT_LIMIT|MODEL_NOT_FOUND|MESSAGES_INVALID|PARAMETER_INVALID|OUT_OF_MEMORY|OTHER)",line.strip()):
                           print(line.strip(),flush=True)
                       match=re.fullmatch(r"QWEN_PRODUCT_BLOCKED=([A-Z][A-Z_0-9]{1,100})",line.strip())
                       if match:
