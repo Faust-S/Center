@@ -203,6 +203,7 @@ jobs:
         with:
           node-version: '22.16.0'
       - name: Verify exact original sources
+        id: t3pins
         shell: pwsh
         run: |
           $actualT3=(& git -C private-t3 rev-parse HEAD).Trim()
@@ -233,11 +234,23 @@ jobs:
             if($exit -ne 0){
               $indices=@([regex]::Matches($raw,'(?m)^not ok (\d+)') | ForEach-Object {$_.Groups[1].Value} | Select-Object -First 20)
               Write-Host ("T3_CORPORATE_FAILED_TEST_ORDINALS="+($indices -join ','))
+              # Diagnostic allowlist: file basename, line and fixed machine
+              # error code only, never private source, values or stack text.
+              $blocks=[regex]::Split($raw,'(?m)(?=^not ok \d+ )')
+              foreach($block in $blocks){
+                if($block -notmatch '^not ok (\d+) '){continue}
+                $index=$Matches[1]
+                $loc=[regex]::Match($block,'(?m)^\s*location: [^\r\n]*[/\\]([a-zA-Z0-9_.-]+\.test\.mjs):(\d+):(\d+)')
+                if($loc.Success){Write-Host ('T3_FAILED_LOCATION='+$index+':'+$loc.Groups[1].Value+':'+$loc.Groups[2].Value+':'+$loc.Groups[3].Value)}
+                $code=[regex]::Match($block,"(?m)^\s*(?:error|code):\s*['\x22]?((?:ERR_|INTEROP_|T3_|CORP_|CORPORATE_|ACCESS_)[A-Z0-9_]{3,100})")
+                if($code.Success){Write-Host ('T3_FAILED_CODE='+$index+':'+$code.Groups[1].Value)}
+              }
               throw 'T3_CORPORATE_PRIVATE_REGRESSION_FAILED'
             }
             Write-Host 'T3_CORPORATE_PRIVATE_REGRESSION_PASS'
           } finally {Pop-Location}
       - name: Real One Core Ed25519 and original encrypted Store qualification
+        if: ${{ !cancelled() && steps.t3pins.outcome == 'success' }}
         shell: pwsh
         run: |
           $log=Join-Path $env:RUNNER_TEMP 't3-corporate-onecore-private.log'
@@ -257,11 +270,11 @@ jobs:
           }
           Write-Host ("T3_CORPORATE_REAL_ONE_CORE_PASS="+[int]$r.checks)
       - uses: oven-sh/setup-bun@v2
-        if: runner.os == 'Windows'
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.t3pins.outcome == 'success' }}
         with:
           bun-version: '1.3.4'
       - name: Compile exact release Consumer entry and qualify real Windows DPAPI
-        if: runner.os == 'Windows'
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.t3pins.outcome == 'success' }}
         shell: pwsh
         run: |
           $log=Join-Path $env:RUNNER_TEMP 't3-corporate-compiled-private.log'
