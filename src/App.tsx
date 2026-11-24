@@ -7,6 +7,7 @@ import CorporatePanel from './CorporatePanel';
 import ManagerContextPanel from './ManagerContextPanel';
 import AdminDashboard, {AdminCompanyStructure} from './AdminDashboard';
 import AdminResultRoute from './AdminResultRoute';
+import {inspectorLayout,clampInspectorWidth,INSPECTOR_MIN,INSPECTOR_MAX} from './inspector-layout.mjs';
 import {ADMIN_ROUTES,ADMIN_NAV_GROUPS,routeRoot,routeAllows,visibleAdminRoutes,type AdminRouteId,type AdminPage} from './admin-navigation';
 import {retainSignedWorkspaceForPage,mayOpenSignedWorkspaceOnPage} from './signed-workspace-navigation.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
@@ -130,10 +131,26 @@ export default function App() {
   const [activePreviewKey,setActivePreviewKey]=useState('');
   const [inspectorWidth,setInspectorWidth]=useState(()=>{
     try{const width=Number(localStorage.getItem('iwxa.admin-center.v8.inspector.width'));
-      return Number.isFinite(width)&&width>=310&&width<=680?width:355;}
+      return Number.isFinite(width)&&width>=INSPECTOR_MIN&&width<=INSPECTOR_MAX?width:355;}
     catch{return 355;}
   });
-  const inspectorPointer=useRef<{x:number;width:number}|null>(null);
+  const [viewportWidth,setViewportWidth]=useState(()=>window.innerWidth);
+  useEffect(()=>{
+    const update=()=>setViewportWidth(window.innerWidth);
+    window.addEventListener('resize',update);
+    return ()=>window.removeEventListener('resize',update);
+  },[]);
+  const inspectorBounds=inspectorLayout(viewportWidth,menuOpen);
+  const effectiveInspectorWidth=clampInspectorWidth(inspectorWidth,inspectorBounds);
+  const inspectorPointer=useRef<{x:number;width:number;last:number}|null>(null);
+  const saveInspectorWidth=(width:number)=>{
+    try{localStorage.setItem('iwxa.admin-center.v8.inspector.width',String(width))}catch{}
+  };
+  const resizeInspector=(width:number)=>{
+    const next=clampInspectorWidth(width,inspectorBounds);
+    setInspectorWidth(next);
+    return next;
+  };
   const navigationHistory=useRef<AdminRouteId[]>(['overview']);
   const navigationCursor=useRef(0);
   const [navigationVersion,setNavigationVersion]=useState(0);
@@ -621,7 +638,7 @@ export default function App() {
 
   if(nativeRestoring)return <div className="app"><main className="main"><div className="card padded" role="status">Открываем сохранённую работу...</div></main></div>;
   return <div className={`app v8-app ${menuOpen?'menu-open':''} ${inspectorVisible?'with-inspector':''}`}
-      style={{'--v8-inspector-width':inspectorWidth+'px'} as React.CSSProperties}>
+      style={{'--v8-inspector-width':effectiveInspectorWidth+'px'} as React.CSSProperties}>
     <header className="v8-titlebar" aria-label="IWXA Admin Center">
       <img className="v8-logo" src={iwxaBrandMark} alt="IWXA Admin Center"/>
       <button type="button" className="v8-topicon" title="Назад" disabled={navigationCursor.current===0} onClick={()=>goHistory(-1)} aria-label="Назад">‹</button>
@@ -946,12 +963,30 @@ export default function App() {
     </main>
     <aside className="inspector" aria-label="Панель просмотра">
       <div className="v8-inspector-grip" role="separator" tabIndex={0} aria-label="Изменить ширину панели"
-        aria-valuenow={inspectorWidth} aria-valuemin={310} aria-valuemax={680}
-        onPointerDown={event=>{inspectorPointer.current={x:event.clientX,width:inspectorWidth};event.currentTarget.setPointerCapture(event.pointerId);}}
-        onPointerMove={event=>{const origin=inspectorPointer.current;if(origin)setInspectorWidth(Math.max(310,Math.min(680,origin.width+origin.x-event.clientX)));}}
-        onPointerUp={event=>{if(!inspectorPointer.current)return;inspectorPointer.current=null;
-          try{localStorage.setItem('iwxa.admin-center.v8.inspector.width',String(inspectorWidth));}catch{}event.currentTarget.releasePointerCapture(event.pointerId);}}
-        onKeyDown={event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();setInspectorWidth(v=>Math.max(310,Math.min(680,v+(event.key==='ArrowLeft'?18:-18))));}}}
+        aria-orientation="vertical" aria-valuenow={effectiveInspectorWidth}
+        aria-valuemin={inspectorBounds.min} aria-valuemax={inspectorBounds.max}
+        onPointerDown={event=>{
+          inspectorPointer.current={x:event.clientX,width:effectiveInspectorWidth,last:effectiveInspectorWidth};
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={event=>{
+          const origin=inspectorPointer.current;
+          if(origin)origin.last=resizeInspector(origin.width+origin.x-event.clientX);
+        }}
+        onPointerUp={event=>{
+          const origin=inspectorPointer.current;if(!origin)return;
+          inspectorPointer.current=null;saveInspectorWidth(origin.last);
+          if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={()=>{const origin=inspectorPointer.current;inspectorPointer.current=null;if(origin)saveInspectorWidth(origin.last);}}
+        onKeyDown={event=>{
+          const key=event.key;
+          if(!['ArrowLeft','ArrowRight','Home','End'].includes(key))return;
+          event.preventDefault();
+          const width=key==='Home'?inspectorBounds.min:key==='End'?inspectorBounds.max:
+            effectiveInspectorWidth+(key==='ArrowLeft'?18:-18);
+          saveInspectorWidth(resizeInspector(width));
+        }}
       />
       <div className="v8-inspector-header"><strong>Просмотр</strong><button type="button" aria-label="Закрыть панель" onClick={()=>setInspectorVisible(false)}>×</button></div>
       <div className="v8-inspector-tabs" role="tablist" aria-label="Просмотр">

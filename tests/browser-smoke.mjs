@@ -359,6 +359,37 @@ try{
     JSON.stringify(toggledBounds));
   checks.push('v8-820x650-inspector-sidebar-toggle-keeps-main-visible');
   await page.getByRole('button',{name:'Разделы'}).click();
+  // Observe actual grid widths, not just a React variable that CSS may ignore.
+  const grip=page.getByRole('separator',{name:'Изменить ширину панели'});
+  for(const size of [{width:1024,height:768},{width:820,height:650}]){
+    await page.setViewportSize(size);
+    await grip.focus();
+    await grip.press('Home');
+    const atMin=await compactBounds();
+    await grip.press('ArrowLeft');
+    const keyResized=await compactBounds();
+    assert.ok(keyResized.dockWidth>=atMin.dockWidth+17,
+      'keyboard must change rendered inspector width at '+size.width);
+    const handle=await grip.boundingBox();
+    assert.ok(handle);
+    await page.mouse.move(handle.x+Math.min(3,handle.width/2),handle.y+Math.min(120,handle.height/2));
+    await page.mouse.down();
+    await page.mouse.move(handle.x-25,handle.y+Math.min(120,handle.height/2),{steps:4});
+    await page.mouse.up();
+    const pointerResized=await compactBounds();
+    assert.ok(pointerResized.dockWidth>=keyResized.dockWidth+15&&
+      pointerResized.overlap<=1&&pointerResized.mainWidth>=319,
+      'drag must resize actual side-by-side tracks at '+size.width+': '+JSON.stringify(pointerResized));
+    assert.equal(Number(await grip.getAttribute('aria-valuenow')),Math.round(pointerResized.dockWidth));
+    assert.equal(Number(await page.evaluate(()=>localStorage.getItem('iwxa.admin-center.v8.inspector.width'))),
+      Math.round(pointerResized.dockWidth));
+    await grip.press('End');
+    const atMax=await compactBounds();
+    assert.ok(atMax.mainWidth>=319&&atMax.overlap<=1);
+    assert.equal(Number(await grip.getAttribute('aria-valuemax')),Math.round(atMax.dockWidth));
+    await grip.press('Home');
+  }
+  checks.push('v8-1024-and-820-actual-inspector-keyboard-pointer-resize-and-persistence');
   await page.setViewportSize({width:720,height:500});
   const minBounds=await compactBounds();
   assert.ok(minBounds.mainWidth>=320&&minBounds.dockWidth>=270&&
@@ -1568,6 +1599,15 @@ try{
   assert.equal(await v8Page.locator('main').getAttribute('data-admin-route'),'review');
   assert.equal(await v8Page.getByLabel('Найти раздел').inputValue(),'');
   checks.push('v8-profile-local-drafts-exchange-guide-and-direct-route-search');
+  await v8Page.setViewportSize({width:820,height:650});
+  // A compact window may hide contextual sidebar while the real inspector
+  // is open. Its native section selector must still reach every route.
+  await v8Page.getByRole('button',{name:'Разделы',exact:true}).click();
+  await v8Page.getByLabel('Подраздел').selectOption('signed-tasks');
+  assert.equal(await v8Page.locator('main').getAttribute('data-admin-route'),'signed-tasks');
+  assert.equal(await v8Page.getByTestId('cen02-section').isVisible(),true);
+  await v8Page.setViewportSize({width:1440,height:960});
+  checks.push('v8-compact-workspace-route-selector');
   await v8Page.getByTestId('nav-data').click();
   await v8Page.getByTestId('admin-profile-settings').waitFor();
   assert.match(await v8Page.getByTestId('admin-profile-settings').innerText(),/0\.4\.1/);
