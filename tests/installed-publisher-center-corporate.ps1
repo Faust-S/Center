@@ -196,8 +196,9 @@ function Wait-Preparation([string]$path,[scriptblock]$predicate){
   throw 'CORPORATE_INSTALLED_PREPARATION_NOT_SAVED'
 }
 
-function Start-App([string]$file) {
-  $process=Start-Process -FilePath $file -WorkingDirectory (Split-Path $file -Parent) -PassThru
+function Start-App([string]$file,[string]$workingDirectory='') {
+  if(!$workingDirectory){$workingDirectory=Split-Path $file -Parent}
+  $process=Start-Process -FilePath $file -WorkingDirectory $workingDirectory -PassThru
   for($attempt=0;$attempt -lt 100;$attempt++){
     Start-Sleep -Milliseconds 250
     $process.Refresh()
@@ -222,7 +223,7 @@ function Window($process) {
     try{
       if($candidate.Current.ProcessId -eq $process.Id -and
          $candidate.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window -and
-         $candidate.Current.Name -cmatch '^IWXA (?:Publisher|Admin Center)(?:$|\s)'){
+         $candidate.Current.Name -cmatch '^IWXA (?:Publisher|Admin Center|Personal)(?:$|\s)'){
         $match+=,$candidate
       }
     }catch{}
@@ -609,6 +610,8 @@ function Native-FileDialog($process,[string]$button,[string]$file,[bool]$exists)
     'Экспортировать подписанный .iwxa через исходный T3' {'Publisher: корпоративная лицензия IWXA Admin Center'}
     'Установить доверие корпоративного издателя' {'Admin Center - выбрать публичное доверие корпоративного издателя'}
     'Получить подписанную корпоративную лицензию через T3' {'Admin Center - получить подписанный корпоративный .iwxa через T3'}
+    'Сохранить персональное приглашение .iwxa' {'Сохранить приглашение сотрудника T3'}
+    'Сохранить подписанную Task .iwxa' {'Сохранить Task независимому сотруднику T3'}
     default {throw 'CORPORATE_GUI_NATIVE_PICKER_UNKNOWN_ROUTE'}
   }
   $process.Refresh()
