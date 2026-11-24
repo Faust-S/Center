@@ -2,6 +2,8 @@ import {routeAllows,type AdminRouteId} from './admin-navigation';
 import React,{useEffect,useRef,useState} from 'react';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
+import {draftTaskText,verifyDraftSigningSources,type AssignmentDraft,type SourceResultRef} from './signed-draft-task';
+export type {SourceResultRef} from './signed-draft-task';
 import {readOriginalResultReview,readCompleteOriginalResult,
  validateOriginalSignedTaskReadback,
  isDefiniteUndispatchedD3Failure,
@@ -18,10 +20,6 @@ type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   d3InspectAvailable?:boolean;
   d3TaskIssueAvailable?:boolean;d3ApplyRecoverAvailable?:boolean;
   tasks?:SignedTask[];totalTasks?:number}};
-export type SourceResultRef={organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string};
-type AssignmentDraft={id:string;title:string;assigneeId:string;editNumber:number;
- description:string;criteria:string;dueDate:string;sourceResultRef?:SourceResultRef|null;
- atlasRef:{projectId:string;revision:string;workId?:string}|null};
 type AgeStatus={operation:'AGE_STATUS';available:boolean;recipient:string|null;
   toolchain:{ready:boolean;reason?:string};provider:string;admitted:false};
 const hex=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
@@ -187,35 +185,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      !taskIdSaved||taskAttempted||
      signedTasks.some(t=>t.taskId===taskOperationId))
      throw Error('CEN_D3_SIGNED_TASK_OPERATION_REQUIRED');
-   // A draft Atlas link is not automatically a valid current source. Before
-   // original T3 signs it, reread the installed Atlas Desktop owner in its
-   // existing fixed-path READ_ONLY mode, never a cached/selected file copy.
-   const source=assignmentDrafts.find(a=>a.id===draftId)?.atlasRef;
-   if(source){
-     // Original corporate Task requires no Atlas modules until this exact
-     // draft explicitly carries a native project/work reference.
-     const [{createNativeAtlasPort},{atlasLinkReadback,atlasWorkReadback}]=
-       await Promise.all([
-         import('./atlas-native.mjs'),
-         import('./atlas-integration.mjs')
-       ]).catch(()=>{throw Error('CEN_D3_ATLAS_OWNER_NOT_AVAILABLE');});
-     const port=createNativeAtlasPort(invoke);
-     let sessionFromInstalled;
-     try{
-       sessionFromInstalled=await port.openPublicAtlas(session.organizationId);
-     }catch{throw Error('CEN_D3_ATLAS_OWNER_NOT_AVAILABLE');}
-     const fresh=port.view(sessionFromInstalled);
-     const current=source.workId?
-       atlasWorkReadback(fresh,source):atlasLinkReadback(fresh,source);
-     if(current!=='SOURCE_REVISION_MATCHES')
-       throw Error('CEN_D3_ATLAS_SOURCE_REVISION_STALE');
-   }
-   // Re-read the original signed projection and Kernel Object/Event.
-   // A local draft reference is not evidence of application.
-   if(linkedResult){
-     if(session.d3ApplyRecoverAvailable!==true)throw Error('CEN_D3_REUSE_ORIGINAL_RESULT_NOT_CONFIRMED');
-     await readOriginalAppliedResult(execute,session,linkedResult);
-   }
+   await verifyDraftSigningSources(chosenDraft,session,invoke,execute);
    // The operation ID is saved before the original signer may write. Even if
    // this call loses its reply, the same ID can be queried without re-signing.
    const immutableId=taskOperationId;
@@ -302,6 +272,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      receipt.receipt?.packageSha256===hash)||
    decisionAttempts.current.has(decisionKey(hash));
  const refreshInbox=(requestedPackage:string|null=null)=>run('Полученные пакеты перечитаны из оригинального Reconciliation.',async()=>{
+   if(route==='reuse'){setReuseReadback(null);setReuseFragment('');}
    const result=await execute('d3Inbox');
    if(result?.schema!=='IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1'||
      result.organizationId!==session.organizationId||
@@ -583,7 +554,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    if(readback.result.length!==reviewed.resultLength||
      !readback.result.startsWith(reviewed.resultText))
      throw Error('CEN_D3_REUSE_ORIGINAL_RESULT_NOT_CONFIRMED');
-   setReuseReadback(readback);
+   setReuseReadback({...readback,assignmentText:reviewed.assignmentText,executorId:reviewed.executorId});
    setReuseFragment(readback.result.length<=6000?readback.result:'');
  });
  return <div className="nested-form" data-testid="cen03-d3-original">
@@ -603,19 +574,22 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
   <p className="muted">Подтверждённый субъект: {session.actorId} · Workspace: {session.workspaceId}.
    Оригинальный получатель проверяет подпись и полномочия. Приём не означает ACCEPT;
    ACCEPT не означает запись в Kernel.</p>
-  {route==='reuse'&&<section className="nested-form" data-testid="d3-original-reuse">
+  {route==='reuse'&&<section className="nested-form v8-result-reuse" data-testid="d3-original-reuse">
      <p>Выберите принятый пакет. Только повторное чтение исходных Object и Event подтверждает применение Result. Затем подготовьте следующее поручение.</p>
      <button type="button" className="secondary" data-testid="d3-reuse-refresh" disabled={busy}
        onClick={()=>{void refreshInbox()}}>Обновить список принятых Result</button>
+     {inbox&&inbox.items.every(x=>x.status!=='ACCEPTED'||!hex(x.acceptanceId)||!x.operationId)&&<p role="status" className="muted">В полученном списке пока нет принятых результатов.</p>}
+     {inbox?.truncated&&<p className="muted">Показаны последние {inbox.items.length} пакетов из {inbox.total}. Для более раннего результата укажите исходную квитанцию ниже.</p>}
      {inbox&&<label>Принятый пакет
        <select data-testid="d3-reuse-package" disabled={busy} value={hash}
          onChange={e=>{const item=inbox.items.find(x=>x.packageSha256===e.target.value);
            choose(e.target.value);if(item?.operationId)setOperationId(item.operationId);}}>
          <option value="">Выберите пакет</option>
          {inbox.items.filter(x=>x.status==='ACCEPTED'&&hex(x.acceptanceId)&&opPattern.test(x.operationId??''))
-           .map(x=><option value={x.packageSha256} key={x.packageSha256}>{x.packageSha256.slice(0,20)}…</option>)}
+           .map((x,index)=><option value={x.packageSha256} key={x.packageSha256}>Результат {index+1} · …{x.packageSha256.slice(-10)}</option>)}
        </select>
      </label>}
+     <details className="v8-reuse-details" data-testid="d3-reuse-technical"><summary>Указать исходную квитанцию вручную</summary>
      <label>SHA-256 исходного пакета
        <input data-testid="d3-reuse-sha" maxLength={64} disabled={busy} value={hash}
          onChange={e=>choose(e.target.value.trim().toLowerCase())}/>
@@ -624,13 +598,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        <input data-testid="d3-reuse-operation" maxLength={160} disabled={busy} value={operationId}
          onChange={e=>{setOperationId(e.target.value.trim());setReuseReadback(null);setReuseFragment('');}}/>
      </label>
+     </details>
      {session.d3ApplyRecoverAvailable!==true&&<p className="muted">Откройте исходную Workspace T3, затем вернитесь к приёмке для чтения Kernel.</p>}
      <button type="button" className="primary" data-testid="d3-reuse-read"
        disabled={busy||session.d3ApplyRecoverAvailable!==true||!hex(hash)||!opPattern.test(operationId)}
        onClick={readReuse}>Прочитать применённый Result</button>
      {reuseReadback&&<div data-testid="d3-reuse-confirmed">
-       <p><strong>Object и Event подтверждены</strong> · {reuseReadback.source.taskId}</p>
-       <p className="muted">Редакция Result: {reuseReadback.source.resultRevisionId}</p>
+       <div className="v8-reuse-verified" data-testid="d3-reuse-human-summary"><strong>Результат применён и подтверждён</strong><p>{reuseReadback.assignmentText}</p><small>Исполнитель: {reuseReadback.executorId}</small></div>
+       <details className="v8-reuse-details"><summary>Сведения об исходной записи</summary><p className="muted">Object и Event подтверждены · {reuseReadback.source.taskId}</p><p className="muted">Редакция Result: {reuseReadback.source.resultRevisionId}</p></details>
        <details><summary>Полный исходный Result</summary>
          <pre className="v8-reuse-full-result">{reuseReadback.result}</pre>
        </details>
@@ -662,14 +637,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        const selected=assignmentDrafts.find(a=>a.id===id);
        setDraftSnapshot(selected?JSON.stringify(selected):'');
        if(selected){
-         const atlas=selected.atlasRef;
-         const content=[selected.title,selected.description,
-           selected.criteria&&'Критерии приёмки: '+selected.criteria,
-           selected.dueDate&&'Срок: '+selected.dueDate,
-           atlas&&'Ссылка на проект Atlas (из черновика, не доказательство полномочий): '+
-             atlas.projectId+' @ '+atlas.revision+
-             (atlas.workId?', работа: '+atlas.workId:'')].filter(Boolean).join('\n\n');
-         setTaskText(content);
+         setTaskText(draftTaskText(selected));
        }else{
          // Do not retain a previous employee-assigned draft in manual mode.
          setTaskText('');

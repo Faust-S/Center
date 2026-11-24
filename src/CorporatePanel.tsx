@@ -3,6 +3,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import CorporateD3Panel,{type SourceResultRef} from './CorporateD3Panel';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import CorporateEmployeeEnrollment from './CorporateEmployeeEnrollment';
+import type {AssignmentDraft} from './signed-draft-task';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
 import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox,signedD3SessionFingerprint,
  signedD3EmployeeScopeFingerprint} from '../runtime/cen03-review.mjs';
@@ -185,6 +186,12 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  const operators=legacyReady&&Array.isArray(owner?.snapshot?.operators)
    ?owner.snapshot.operators.filter((x:any)=>typeof x?.id==='string' &&
       typeof x?.personId==='string'):[];
+ const assignmentDrafts:AssignmentDraft[]=d3Ready?organization.assignments.filter(a=>
+   a.workspaceId===owner.snapshot.workspaceId).map(a=>({
+    id:a.id,title:a.title,workspaceId:a.workspaceId??'',assigneeId:a.assigneeId??'',
+    editNumber:a.editNumber??0,description:a.description??'',criteria:a.criteria??'',
+    dueDate:a.dueDate??'',atlasRef:a.atlasRef??null,sourceResultRef:a.sourceResultRef??null
+   })):[];
  const acceptedSelection=acceptedApplicationSelection(review,hash);
  const canApply=legacyReady&&!!acceptedSelection&&
    owner.snapshot?.application?.status!=='HOLD_FOR_EXPLICIT_RECOVERY';
@@ -236,19 +243,13 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   {d3Ready&&invoke&&<div className="v8-route-region" hidden={!routeAllows(route,'employees-t3')}><CorporateEmployeeEnrollment key={'employee|'+(signedD3EmployeeScopeFingerprint(owner,organizationId)??'unknown')}
     session={owner.snapshot} contacts={organization.participants??[]}
     preferredContactId={preferredEmployeeContactId}
-    execute={execute} run={act} busy={busy}/></div>}
+    execute={execute} run={act} busy={busy} invoke={invoke} assignmentDrafts={assignmentDrafts}/></div>}
   {d3Ready&&invoke ? <div className="v8-route-region" hidden={!routeAllows(route,'signed-tasks','receive','review','apply','recovery','reuse')}><CorporateD3Panel route={route} onNavigate={onNavigate} onReuse={onReuse} key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
     dispatchedApplications={dispatchedD3Applications}
     taskAttempts={attemptedD3Tasks}
     decisionAttempts={attemptedD3Decisions}
     run={act} busy={busy} invoke={invoke} managerOriginal={managerOriginal} organizationName={organization.name}
-    assignmentDrafts={organization.assignments.filter(a=>
-      a.workspaceId===owner.snapshot.workspaceId).map(a=>({
-        id:a.id,title:a.title,assigneeId:a.assigneeId??'',
-        editNumber:a.editNumber??0,description:a.description??'',
-        criteria:a.criteria??'',dueDate:a.dueDate??'',
-        atlasRef:a.atlasRef??null,sourceResultRef:a.sourceResultRef??null
-      }))}/></div> : <>
+    assignmentDrafts={assignmentDrafts}/></div> : <>
   <div className="nested-form" data-testid="cen02-owner-people" hidden={!routeAllows(route,'employees-t3')}>
    <h3>Ответственные в организации</h3>
    <p className="muted">Выбор выполняется только из подтверждённого реестра T3. Черновики сотрудников и запланированные места Personal Agent не дают полномочий.</p>

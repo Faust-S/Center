@@ -533,3 +533,12 @@ body{padding:11px;background:#172238}
 .v8-work-filters button small{margin-left:4px;color:#607c99;font-size:10px}
 
 .v8-reuse-full-result{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;font:inherit;line-height:1.5;margin:8px 0}
+
+/* Reuse keeps technical receipt IDs available without dominating the work view. */
+.v8-result-reuse{display:flex;flex-direction:column;gap:10px;min-width:0}
+.v8-result-reuse>button{align-self:flex-start}
+.v8-reuse-details{overflow-wrap:anywhere}
+.v8-reuse-details>summary{cursor:pointer;color:var(--text,#294661)}
+.v8-reuse-details>label{display:block;margin-top:8px}
+.v8-reuse-verified{padding:12px;border:1px solid #c8d9eb;border-radius:9px;background:#f6f9fd;overflow-wrap:anywhere}
+.v8-reuse-verified p{margin:6px 0}

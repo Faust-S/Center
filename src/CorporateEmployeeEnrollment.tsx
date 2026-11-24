@@ -1,6 +1,7 @@
 import React,{useState} from 'react';
-import {validateOriginalEmployeeTaskIssueReceipt}
+import {validateOriginalEmployeeTaskIssueReceipt,originalResultTaskText}
  from '../runtime/cen03-d3-owner.mjs';
+import {draftTaskText,verifyDraftSigningSources,type AssignmentDraft} from './signed-draft-task';
 
 // This is a manager's view of the ORIGINAL installed T3 employee enrollment.
 // It does not generate signatures, enroll keys, issue grants or persist status.
@@ -13,6 +14,7 @@ type Session={organizationId:string;workspaceId:string;actorId:string;
   d3EmployeeRegistryBootstrapAvailable?:boolean;
   d3EmployeeRegistryReadbackAvailable?:boolean;
   d3EmployeeTaskIssueAvailable?:boolean;
+  d3ApplyRecoverAvailable?:boolean;
   d3EmployeeWorkspaceRightsAvailable?:boolean};
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
@@ -44,8 +46,9 @@ function keyRecord(raw:string,personId:string){
     throw Error('CEN_D3_EMPLOYEE_PUBLIC_KEY_RECORD_INVALID');
   return k;
 }
-export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,execute,run,busy}:{
+export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,execute,run,busy,invoke,assignmentDrafts}:{
  session:Session;contacts:Contact[];preferredContactId?:string|null;execute:Exec;run:Run;busy:boolean;
+ invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;assignmentDrafts:AssignmentDraft[];
 }){
  // A preselected organizational contact is only a local draft hint;
  // never infer an employee PROOF key, signed identity or active grant.
@@ -72,6 +75,9 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const [taskGrantAttempted,setTaskGrantAttempted]=useState(false);
  const [taskGrantReceipt,setTaskGrantReceipt]=useState<any>(null);
  const [taskText,setTaskText]=useState('');
+ const [taskDraftId,setTaskDraftId]=useState('');
+ const [taskDraftSnapshot,setTaskDraftSnapshot]=useState('');
+ const [draftRecipientConfirmed,setDraftRecipientConfirmed]=useState(false);
  const [taskId,setTaskId]=useState('');
  const [taskAttempted,setTaskAttempted]=useState(false);
  const [taskReceipt,setTaskReceipt]=useState<any>(null);
@@ -188,6 +194,13 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    Number.isSafeInteger(employeeInviteReceipt.statusSequence)&&
    employeeInviteReceipt.statusSequence>=taskGrantReceipt.statusSequence&&
    employeeInviteReceipt.statusSequence>=workspaceRightsReceipt.statusSequence;
+ const draftCandidates=assignmentDrafts.filter(a=>!a.assigneeId||a.assigneeId===contact);
+ const chosenDraft=assignmentDrafts.find(a=>a.id===taskDraftId);
+ const draftStale=!!taskDraftId&&(!chosenDraft||JSON.stringify(chosenDraft)!==taskDraftSnapshot);
+ const draftContactMismatch=!!chosenDraft?.assigneeId&&chosenDraft.assigneeId!==contact;
+ const draftRecipientPending=!!chosenDraft?.assigneeId&&!draftRecipientConfirmed;
+ let finalTaskText:string|null=null;
+ try{finalTaskText=originalResultTaskText(taskText,chosenDraft?.sourceResultRef??null)}catch{}
  const reset=()=>{
    setCredentialChallenge(null);setCredentialProof('');setCredentialAttempted(false);
    setCredentialReceipt(null);setEnrollmentChallenge(null);setRecoveryEnrollmentId('');
@@ -197,6 +210,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    setWorkspaceRightsAttempted(false);setWorkspaceRightsReceipt(null);
    setTaskGrantAttempted(false);setTaskGrantReceipt(null);
    setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);
+   setTaskDraftId('');setTaskDraftSnapshot('');setDraftRecipientConfirmed(false);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);
    setTaskNeedsRebind(false);
  };
@@ -622,6 +636,24 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      {!taskIssueAvailable&&<p className="notice subdued" data-testid="d3-employee-task-owner-unavailable">
        Оригинальный Kernel сейчас не подключён к владельцу Task.
         Откройте доверенную Workspace и перечитайте адресный DATA-грант.</p>}
+     {!!draftCandidates.length&&<label>Подготовить из сохранённого черновика
+      <select data-testid="d3-employee-task-draft" disabled={busy||taskAttempted} value={taskDraftId}
+       onChange={event=>{const id=event.target.value,draft=draftCandidates.find(a=>a.id===id);
+         setTaskDraftId(id);setTaskDraftSnapshot(draft?JSON.stringify(draft):'');
+         setDraftRecipientConfirmed(false);setTaskText(draft?draftTaskText(draft):'');}}>
+       <option value="">Самостоятельное поручение</option>
+       {draftCandidates.map(a=><option value={a.id} key={a.id}>{a.title}</option>)}
+      </select></label>}
+     {chosenDraft?.assigneeId&&<label className="inline-check">
+       <input type="checkbox" data-testid="d3-employee-draft-recipient-confirmed"
+        checked={draftRecipientConfirmed} disabled={busy||taskAttempted||draftContactMismatch}
+        onChange={event=>setDraftRecipientConfirmed(event.target.checked)}/>
+       Подтверждаю, что контакт черновика соответствует подписанному сотруднику {personId}.
+     </label>}
+     {(draftStale||draftContactMismatch)&&<p role="status" className="notice subdued" data-testid="d3-employee-draft-stale">Черновик или его исполнитель изменился. Выберите поручение повторно.</p>}
+     {chosenDraft?.sourceResultRef&&<p className="notice subdued" data-testid="d3-employee-draft-source">Источник: применённый Result. Перед подписанием повторно проверяются его Object и Event.</p>}
+     {chosenDraft?.sourceResultRef&&session.d3ApplyRecoverAvailable!==true&&<p className="muted">Откройте исходную Workspace для проверки источника перед выдачей Task.</p>}
+     {taskText.trim()&&!finalTaskText&&<p role="status">Полный текст с источниками превышает 10 000 символов. Сократите текст вручную.</p>}
      <label>Текст поручения
       <textarea data-testid="d3-employee-task-text" rows={3} maxLength={10000}
         value={taskText} disabled={busy||taskAttempted}
@@ -633,17 +665,20 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      </label>
      <button data-testid="d3-employee-task-create" disabled={!taskIssueAvailable||
         !invitationCurrentForTask||busy||taskAttempted||
-       !/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||!taskText.trim()}
+       !/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||!finalTaskText||draftStale||draftContactMismatch||draftRecipientPending||
+       (!!chosenDraft?.sourceResultRef&&session.d3ApplyRecoverAvailable!==true)}
        onClick={()=>void run('Оригинальная Task подписана адресату, доставка не подтверждена.',async()=>{
-        if(taskAttempted||!managerTaskGrantOk||
-            !ID.test(enrollmentReceipt.enrollmentId))
+        if(taskAttempted||!taskIssueAvailable||!invitationCurrentForTask||!managerTaskGrantOk||
+            !ID.test(enrollmentReceipt.enrollmentId)||!finalTaskText||!/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||
+            draftStale||draftContactMismatch||draftRecipientPending)
            throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_DATA_GRANT_REQUIRED');
+         await verifyDraftSigningSources(chosenDraft,session,invoke,execute);
          setTaskAttempted(true);
          let result:any;
          try{
            result=await execute('d3EmployeeCreateTask',{
              enrollmentId:enrollmentReceipt.enrollmentId,
-             employeePersonId:personId,taskId,task:taskText.trim(),confirmed:true
+             employeePersonId:personId,taskId,task:finalTaskText,confirmed:true
            });
          }catch(e){
            if(String(e).replace(/^Error:\s*/,'').trim()===
