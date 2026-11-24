@@ -93,6 +93,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const registryRead=session.d3EmployeeRegistryReadbackAvailable===true;
  const taskIssueAvailable=session.d3EmployeeTaskIssueAvailable===true;
  const workspaceRightsAvailable=session.d3EmployeeWorkspaceRightsAvailable===true;
+ const contactSelected=contacts.some(x=>x.id===contact);
  const personOk=ID.test(personId)&&personId!==session.actorId;
  const credentialOk=credentialReceipt?.state==='ORIGINAL_PROOF_CREDENTIAL_ADMITTED'&&
    credentialReceipt.employeePersonId===personId&&
@@ -343,6 +344,22 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
   <>
   <div className="nested-form" data-testid="d3-employee-bootstrap">
    <h4>Первое подключение сотрудника</h4>
+   <label>Сотрудник в организации
+    <select data-testid="d3-employee-contact" value={contact} disabled={busy}
+      onChange={e=>{
+        // The contact is a draft hint only; never carry another person's
+        // candidate, key or unfinished proof to a newly selected contact.
+        setContact(e.target.value);setPersonId('');setKeyId('');
+        setPublicCandidate('');setCopyNotice('');setPublicRecord('');reset();
+      }}>
+     <option value="">Выберите сотрудника</option>
+     {contacts.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
+    </select>
+   </label>
+   {!contactSelected&&<p className="muted">{contacts.length===0
+    ?'Добавьте сотрудника в структуру организации перед переносом его публичной записи.'
+    :'Сначала выберите сотрудника, затем перенесите полученную от него запись.'}
+    {' '}Публичный профиль организации можно получить заранее.</p>}
    <p>Передайте сотруднику исходный публичный профиль организации. Контрольный отпечаток сообщите отдельно. Agent создаст собственные ключи на компьютере сотрудника.</p>
    <button type="button" data-testid="d3-employee-bootstrap-profile" disabled={busy}
     onClick={()=>void run('Исходный профиль подключения прочитан.',async()=>{
@@ -362,10 +379,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
     <label>Публичная запись, полученная от Agent
      <textarea rows={4} maxLength={32768} value={publicCandidate} disabled={busy}
       onChange={e=>setPublicCandidate(e.target.value)} data-testid="d3-employee-bootstrap-candidate"/></label>
-    <button type="button" disabled={busy||!publicCandidate.trim()||!!credentialChallenge||!!enrollmentChallenge||
+    <button type="button" disabled={busy||!contactSelected||!publicCandidate.trim()||!!credentialChallenge||!!enrollmentChallenge||
       credentialAttempted||enrollmentAttempted}
       data-testid="d3-employee-bootstrap-candidate-read"
       onClick={()=>void run('Публичная запись перенесена. Ключ ещё не подтверждён.',async()=>{
+       if(!contactSelected)throw Error('CEN_D3_EMPLOYEE_CONTACT_REQUIRED');
        const c=readOriginalEmployeePublicCandidate(publicCandidate,session,bootstrapProfile);
        setPersonId(c.employeePersonId);setKeyId(c.credentialKeyId);
        setPublicRecord(JSON.stringify(c.keyRecord,null,2));reset();
@@ -374,18 +392,6 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    </>}
   </div>
   <div className="form-grid">
-   <label>Контакт в черновике
-    <select data-testid="d3-employee-contact" value={contact} disabled={busy}
-      onChange={e=>{
-        // A draft contact has NO T3 identity. Never display the previously
-        // selected employee key as belonging to a different contact.
-        setContact(e.target.value);setPersonId('');setKeyId('');
-        setPublicRecord('');reset();
-      }}>
-     <option value="">Выберите сотрудника</option>
-     {contacts.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
-    </select>
-   </label>
    <label>Подписанная личность T3 сотрудника
     <input data-testid="d3-employee-person" value={personId} disabled={busy}
       placeholder="person:..." onChange={e=>{setPersonId(e.target.value.trim());reset();}}/>
@@ -402,9 +408,10 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
       placeholder='{"subjectId":"person:...","publicKey":"-----BEGIN PUBLIC KEY-----..."}'/>
    </label>
    <div className="actions">
-    <button data-testid="d3-employee-credential-begin" disabled={busy||!contact||!personOk||
+    <button data-testid="d3-employee-credential-begin" disabled={busy||!contactSelected||!personOk||
       !ID.test(keyId)||!!credentialChallenge||credentialAttempted||credentialOk}
      onClick={()=>void run('Запрос оригинального подтверждения ключа создан.',async()=>{
+       if(!contactSelected)throw Error('CEN_D3_EMPLOYEE_CONTACT_REQUIRED');
        const result=await execute('d3EmployeeCredentialBegin',{
          employeePersonId:personId,credentialKeyId:keyId,
          keyRecord:keyRecord(publicRecord,personId)});
