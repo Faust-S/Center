@@ -110,7 +110,7 @@ function Check-ExactTask($process,[string]$text,[string]$id,[string]$sha,[string
  Wait-Text $process $executor 240
 }
 $handoff=Join-Path $env:RUNNER_TEMP 'iwxa-licensed-employee-handoff'
-$trust=Join-Path $handoff 'publisher-trust.json'
+$trust=Join-Path $handoff 'publisher-corporate-trust.json'
 $license=Join-Path $handoff 'corporate-active.iwxa'
 $receipt=Get-Content -LiteralPath (Join-Path $handoff 'receipt.json') -Raw|ConvertFrom-Json
 $publisherReg=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher'
