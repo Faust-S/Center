@@ -16,6 +16,9 @@ const bounded=(v,min,max)=>Number.isSafeInteger(v)&&v>=min&&v<=max;
 const exact=(v,keys)=>v!==null&&typeof v==='object'&&!Array.isArray(v)&&
   Object.keys(v).length===keys.length&&keys.every(k=>Object.hasOwn(v,k));
 // Shape guard for an already verified native projection, not a license validator.
+/** @typedef {{metric:string,service:'LOCAL'|'CLOUD',unit:'COUNT'|'TOKENS'|'MINUTES'|'GIB'|'CREDITS',period:'TOTAL'|'DAY'|'MONTH',max:number}} DisplayQuota */
+/** @typedef {{productVersion:string,featureIds:readonly string[],limits:{adminCenterSeats:number,employeeLimit:number,personalAgentSeats:number,quotas:readonly Readonly<DisplayQuota>[]}}} DisplayTerms */
+/** @returns {Readonly<DisplayTerms>} */
 function inspectSignedTerms(terms){
  if(!exact(terms,['productVersion','featureIds','limits'])||
     typeof terms.productVersion!=='string'||terms.productVersion.length>96||
