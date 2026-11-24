@@ -1,0 +1,120 @@
+name: Agent 0.6.3 original corporate seat qualification
+on:
+  push:
+    branches: ['work/2026-11-24-agent063-corporate-seat-qualification']
+    paths: ['.github/workflows/agent063-corporate-seat-qualification.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent063-corporate-seat-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  original-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      AGENT_PIN: '79e0a840c4642504649f28ee434a4affafada017'
+      T3_PIN: 'e6ba6dc5d8a1e03038140484e043854d0fbb3461'
+      CORE_PIN: '77c21a42fd0427e3e469f34eef13d22717bbfb9d'
+    steps:
+      - name: Require the existing authorized source grant
+        shell: pwsh
+        env:
+          READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          if([string]::IsNullOrWhiteSpace($env:READ_TOKEN)){throw 'PRIVATE_READ_GRANT_UNAVAILABLE'}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 79e0a840c4642504649f28ee434a4affafada017
+          path: agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: e6ba6dc5d8a1e03038140484e043854d0fbb3461
+          path: original-t3
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 77c21a42fd0427e3e469f34eef13d22717bbfb9d
+          path: one-core
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact source revisions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($pair in @(@('agent',$env:AGENT_PIN),@('original-t3',$env:T3_PIN),@('one-core',$env:CORE_PIN))){
+            if((& git -C $pair[0] rev-parse HEAD).Trim() -cne $pair[1]){throw 'SOURCE_PIN_MISMATCH'}
+          }
+          Write-Host 'SOURCE_PINS=PASS'
+      - name: Execute original worker IPC, original seat policy and original T3 interop regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $PSNativeCommandUseErrorActionPreference=$false
+          $results=@()
+          function Run-Suite($label,$root,$files){
+            $log=Join-Path $env:RUNNER_TEMP "agent-seat-$label-private.log"
+            Push-Location $root
+            try {
+              & node --test @files *> $log
+              $exit=$LASTEXITCODE
+              $raw=Get-Content -LiteralPath $log -Raw
+              foreach($key in @('tests','pass','fail','cancelled','skipped')){
+                $m=[regex]::Matches($raw,"(?m)^# $key (\d+)\s*$")
+                if($m.Count -gt 0){Write-Host ($label+'_'+$key.ToUpperInvariant()+'='+$m[$m.Count-1].Groups[1].Value)}
+              }
+              $pass=[regex]::Matches($raw,'(?m)^# pass (\d+)\s*$')
+              $fail=[regex]::Matches($raw,'(?m)^# fail (\d+)\s*$')
+              $good=$exit -eq 0 -and $pass.Count -gt 0 -and $fail.Count -gt 0 -and [int]$pass[$pass.Count-1].Groups[1].Value -gt 0 -and [int]$fail[$fail.Count-1].Groups[1].Value -eq 0
+              Write-Host ($label+'='+$(if($good){'PASS'}else{'FAIL'}))
+              if(!$good){
+                $indices=@([regex]::Matches($raw,'(?m)^not ok (\d+)') | ForEach-Object {$_.Groups[1].Value} | Select-Object -First 20)
+                Write-Host ($label+'_FAILED_ORDINALS='+($indices -join ','))
+              }
+              return $good
+            } finally {Pop-Location}
+          }
+          $results+=Run-Suite 'AGENT_WORKER' 'agent' @('tests/test_agent063_original_registry_refresh.test.mjs','tests/test_agent06_original_t3_large_ipc.test.mjs','tests/test_agent063_original_task_catalog.test.mjs')
+          $results+=Run-Suite 'ONE_CORE_SEATS' 'one-core/packages/t3-core' @('tests/t3-corporate-product-license.test.mjs')
+          $results+=Run-Suite 'ORIGINAL_T3' 'original-t3' @('tests/control-admin-interop.test.mjs','tests/access-product-license-corporate-consumer.test.mjs','tests/access-product-license-corporate-windows.test.mjs','tests/multi-employee-provisioning.test.mjs')
+          if($results -contains $false){throw 'CORPORATE_SOURCE_REGRESSION_FAILED'}
+      - name: Run original signed corporate Consumer against exact One Core
+        shell: pwsh
+        if: ${{ !cancelled() }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $PSNativeCommandUseErrorActionPreference=$false
+          $out=Join-Path $env:RUNNER_TEMP 'agent-seat-consumer-private.json'
+          $log=Join-Path $env:RUNNER_TEMP 'agent-seat-consumer-private.log'
+          & node original-t3/scripts/qualify-corporate-product-consumer-one-core.mjs (Resolve-Path one-core).Path 1>$out 2>$log
+          if($LASTEXITCODE -ne 0){throw 'ORIGINAL_CORPORATE_CONSUMER_SOURCE_FAILED'}
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if($r.result -ne 'PASS' -or [int]$r.checks -lt 9 -or $r.productionActivation -ne $false -or $r.nativeQualification -ne 'NOT_RUN'){
+            throw 'ORIGINAL_CORPORATE_CONSUMER_RECEIPT_INVALID'
+          }
+          Write-Host ('ORIGINAL_CONSUMER_CHECKS='+[int]$r.checks)
+          Write-Host 'ORIGINAL_CONSUMER=PASS'
+      - name: Remove transient private checkouts and private logs
+        if: always()
+        shell: pwsh
+        run: |
+          foreach($p in @('agent','original-t3')){Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent-seat-*-private.*' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host 'PRIVATE_CLEANUP=COMPLETE'
+# No private artifacts, logs, caches, releases, installers or source publication.
