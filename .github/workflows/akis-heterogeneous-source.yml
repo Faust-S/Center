@@ -1,0 +1,60 @@
+name: AKIS pinned private heterogeneous original source
+on:
+  push:
+    branches:
+      - work/2026-11-24-akis-heterogeneous-private-qualification
+    paths:
+      - .github/workflows/akis-heterogeneous-source.yml
+      - .github/scripts/akis_heterogeneous_source.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Qualify pinned original private source
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          QUALIFY_SCOPE: regression
+        run: python .github/scripts/akis_heterogeneous_source.py
+  experiments:
+    needs: regression
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        case:
+          - {n: 100, periods: 3, seed: 17, mode: S0, fee: '80.00', tool: '0.00'}
+          - {n: 1000, periods: 3, seed: 41, mode: S0, fee: '80.00', tool: '0.00'}
+          - {n: 10000, periods: 3, seed: 17, mode: S0, fee: '80.00', tool: '0.00'}
+          - {n: 10000, periods: 3, seed: 17, mode: S2, fee: '80.00', tool: '12.00'}
+          - {n: 1000, periods: 12, seed: 83, mode: S1, fee: '60.00', tool: '12.00'}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Four independently executed original trajectories
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          QUALIFY_SCOPE: experiment
+          ENTERPRISES: ${{ matrix.case.n }}
+          PERIODS: ${{ matrix.case.periods }}
+          SEED: ${{ matrix.case.seed }}
+          DIRECT_MODE: ${{ matrix.case.mode }}
+          FEE: ${{ matrix.case.fee }}
+          TOOL_COST: ${{ matrix.case.tool }}
+        run: python .github/scripts/akis_heterogeneous_source.py
