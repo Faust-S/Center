@@ -101,7 +101,12 @@ try{
   checks.push('atlas-real-portfolio-project-selection-and-link');
   await page.getByTestId('nav-people').click();
   for(const name of ['Anna','Boris']){await page.getByTestId('person-name').fill(name);await page.getByTestId('add-person').click();}
-  await page.getByTestId('nav-programs').click();await page.getByTestId('plan-agent-seat').first().click();
+  await page.getByTestId('nav-programs').click();
+  await page.getByTestId('open-corporate-seat-registry').click();
+  await page.getByTestId('corporate-seat-route-guide').waitFor();
+  assert.equal(await page.getByTestId('corporate-panel').count(),1);
+  await page.getByTestId('nav-programs').click();
+  await page.getByTestId('plan-agent-seat').first().click();
   assert.equal(await page.getByTestId('planned-agent-seats').textContent(),'1');checks.push('manager-plans-agent-seat-no-license-claim');
   assert.equal(await page.getByTestId('cen04-select-test-iwxa').count(),0);
   assert.equal(await page.getByTestId('cen04-import-verified-age').isEnabled(),false);

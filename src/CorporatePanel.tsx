@@ -57,7 +57,7 @@ const why=(e:unknown)=>{
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null,preferCorporateSeats=false}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null;preferCorporateSeats?:boolean}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
@@ -91,6 +91,13 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  const legacyReady=ownerSessionFingerprint(owner,organizationId)!==null;
  const d3Ready=signedD3SessionFingerprint(owner,organizationId)!==null;
  const ready=legacyReady||d3Ready;
+ const seatNavigationTarget=d3Ready?(owner?.snapshot?.d3EmployeeCorporateSeatsAvailable===true
+   ?'d3-corporate-seat-assignments':'d3-independent-employee'):'corporate-panel';
+ React.useLayoutEffect(()=>{
+   if(!preferCorporateSeats)return;
+   const target=document.querySelector<HTMLElement>(`[data-testid="${seatNavigationTarget}"]`);
+   if(target){target.scrollIntoView({block:'start',behavior:'auto'});target.focus({preventScroll:true});}
+ },[preferCorporateSeats,seatNavigationTarget]);
  const resetReview=()=>{setReview(null);setConsent(false);setRejectReason('');setPreview(null);setApplyConsent(false);setApplyDecided(false)};
  const adoptOwner=(candidate:any)=>{
    const fingerprint=ownerSessionFingerprint(candidate,organizationId)??
@@ -185,7 +192,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  const acceptedSelection=acceptedApplicationSelection(review,hash);
  const canApply=legacyReady&&!!acceptedSelection&&
    owner.snapshot?.application?.status!=='HOLD_FOR_EXPLICIT_RECOVERY';
- return <section className="card padded" data-testid="corporate-panel">
+ return <section className="card padded" data-testid="corporate-panel" tabIndex={preferCorporateSeats?-1:undefined}>
   <div className="section-head"><h2>Поручения и корпоративная приёмка</h2>
    <div className="actions">
     {d3Ready&&invoke&&owner?.snapshot?.originalSignedWorkspaceAvailable===true&&
@@ -194,6 +201,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
           onOpenSignedWorkspace(organizationId))}>Открыть Workspace T3</button>}
     <button className="secondary" disabled={busy} onClick={()=>act('Состояние перечитано.',async()=>{await refresh();resetReview()})}>Обновить</button>
    </div></div>
+  {preferCorporateSeats&&<p role="status" data-testid="corporate-seat-route-guide">{d3Ready?(owner?.snapshot?.d3EmployeeCorporateSeatsAvailable===true?'Перечитайте подписанные назначения и распределите места в текущей организации.':'Откройте Workspace T3, вернитесь к приёмке и подключите или перечитайте исходный реестр сотрудников. Затем доступны корпоративные места.'):'Подключите подписанную организацию T3, чтобы перейти к её сотрудникам и корпоративным местам.'}</p>}
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
   <p className="notice subdued" data-testid="corporate-owner-status">{d3Ready?'Подписанный T3 D3 получатель доступен. Это не статус готовности всего T3.':ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; проверьте состояние владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}

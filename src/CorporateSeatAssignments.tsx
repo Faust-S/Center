@@ -117,7 +117,7 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
    throw e;
   }
  });
- return <div className="nested-form" data-testid="d3-corporate-seat-assignments">
+ return <div className="nested-form" data-testid="d3-corporate-seat-assignments" tabIndex={-1}>
   <h3>Распределение корпоративных мест Personal Agent</h3>
   <p className="muted">Места учитываются в подписанном реестре T3 отдельно от задач и доступа к данным. Назначение места не подтверждает подключение установленного Agent.</p>
   {!available?<p role="status">Подключите исходный реестр сотрудников и совместимый T3 Host.</p>:<>
