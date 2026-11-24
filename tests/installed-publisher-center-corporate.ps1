@@ -531,7 +531,11 @@ try{
   Center-Receive $handoff $activeFile
   $null=Verify-Center $org $active 1 (Digest $activeFile)
   Wait-Text $cen 'Тариф TEAM, редакция 1'
-  Wait-Text $cen 'Доступно к назначению: 0'
+  # The new Center tariff panel projects signed limits, not the registry's
+  # actual allocation count. Verify-Center above still checks the original
+  # Consumer's independent receipt: this intake did not allocate any seat.
+  Wait-Text $cen 'Фактические назначения и свободные места определяются по исходному реестру T3.'
+  Wait-Text $cen 'Перейти к распределению мест'
   $checks.Add('CENTER_ORIGINAL_SIGNATURES_AND_SIGNED_TERMS_READBACK')
   Stop-App $cen
   $cen=Start-App $centerPath
