@@ -16,9 +16,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      PRIVATE_PIN: 8032fcc3e8c2bce816806633f2c8e64934a3487e
-      PRIVATE_TREE: 9991a29fc1be9a19ae037e4be4ad8b7d9e91fc78
-      PUBLIC_PIN: 1b9ceda616a35f15078751d4d65729d17edf9e4b
+      PRIVATE_PIN: 8f70e3a86f59d6f60688adfc38d96f816c385bb8
+      PRIVATE_TREE: 3ecc456481b3827f146edc7427fd6c5c63769aca
+      PUBLIC_PIN: ae12dcdcb1defaa7899ced73e46ca4439ba9e122
       BASELINE_PIN: 57b701c6b7a1ede36dca70b2b0d2065b1ec577e0
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 8032fcc3e8c2bce816806633f2c8e64934a3487e
+          ref: 8f70e3a86f59d6f60688adfc38d96f816c385bb8
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private-agent
           fetch-depth: 8
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 1b9ceda616a35f15078751d4d65729d17edf9e4b
+          ref: ae12dcdcb1defaa7899ced73e46ca4439ba9e122
           path: activity-public
           persist-credentials: false
           show-progress: false
@@ -74,24 +74,24 @@ jobs:
             python -m pip install -q -r requirements-ci.txt *> $install
             if($LASTEXITCODE -ne 0){throw 'PYTHON_INSTALL_FAILED'}
             Write-Host 'PYTHON_INSTALL=PASS'
-            python -m pytest -q --tb=short tests/test_activity_routine_source.py tests/test_activity_personal_extraction.py tests/test_activity_technology_consumer.py *> $log
+            python -m pytest -q --tb=short tests/test_activity_routine_source.py tests/test_activity_personal_extraction.py tests/test_activity_technology_consumer.py tests/test_activity_d05_extraction.py *> $log
             $exit=$LASTEXITCODE
             $raw=Get-Content -LiteralPath $log -Raw
             $last=($raw -split '\r?\n' | Where-Object {$_ -match '[0-9]+ (passed|failed|skipped|errors?)\b' -and $_ -match ' in [0-9.]+s'} | Select-Object -Last 1)
             foreach($key in @('passed','failed','skipped','errors')){
               if($last){$match=[regex]::Match($last,'\b([0-9]+) '+$key+'\b');if($match.Success){Write-Host ('PYTHON_'+$key.ToUpperInvariant()+'='+$match.Groups[1].Value)}}
             }
-            foreach($m in [regex]::Matches($raw,'(?m)^FAILED tests/(test_activity_(?:routine_source|personal_extraction|technology_consumer)\.py)::([A-Za-z0-9_]+)')){
+            foreach($m in [regex]::Matches($raw,'(?m)^FAILED tests/(test_activity_(?:routine_source|personal_extraction|technology_consumer|d05_extraction)\.py)::([A-Za-z0-9_]+)')){
               Write-Host ('FAILED_TEST='+$m.Groups[1].Value+'::'+$m.Groups[2].Value)
             }
             foreach($m in [regex]::Matches($raw,'(?m)^((?:runtime/activity_[a-z_]+|tests/test_activity_[a-z_]+)\.py):(\d+): ([A-Za-z]+Error)\b')){
               Write-Host ('FAILURE_LOCATION='+$m.Groups[1].Value+':'+$m.Groups[2].Value+':'+$m.Groups[3].Value)
             }
-            foreach($code in @('activity_cross_runtime_request_failed','activity_cross_runtime_review_failed','activity_cross_runtime_document_mismatch','activity_cross_runtime_digest_mismatch','activity_extraction_selection_unavailable','activity_extraction_acceptance_unverified','activity_extraction_task_scope_changed','activity_extraction_source_content_limit','activity_extraction_source_empty')){
+            foreach($code in @('activity_cross_runtime_request_failed','activity_cross_runtime_review_failed','activity_cross_runtime_document_mismatch','activity_cross_runtime_digest_mismatch','activity_extraction_selection_unavailable','activity_extraction_acceptance_unverified','activity_extraction_task_scope_changed','activity_extraction_source_content_limit','activity_extraction_source_empty','activity_d05_public_request_failed','activity_d05_public_review_failed','activity_d05_request_changed','activity_d05_local_area_required','activity_d05_human_acceptance_required')){
               if($raw.Contains($code)){Write-Host ('DIAGNOSTIC='+$code)}
             }
             # Only known code file aliases, line numbers and error types.
-            foreach($m in [regex]::Matches($raw,'(?m)(test_activity_(?:routine_source|personal_extraction|technology_consumer)\.py|activity_(?:routine_source|personal_extraction|technology_consumer)\.py):(\d+):')){
+            foreach($m in [regex]::Matches($raw,'(?m)(test_activity_(?:routine_source|personal_extraction|technology_consumer|d05_extraction)\.py|activity_(?:routine_source|personal_extraction|technology_consumer|d05_extraction)\.py):(\d+):')){
               Write-Host ('TRACE_LINE='+$m.Groups[1].Value+':'+$m.Groups[2].Value)
             }
             foreach($m in [regex]::Matches($raw,'(?m)^\s*E\s+([A-Za-z]+Error)\b')){
@@ -104,7 +104,6 @@ jobs:
             if($exit -ne 0){throw 'ORIGINAL_CORE_EXTRACTION_FAILED'}
           }finally{Pop-Location}
       - name: Existing desktop build and regression
-        if: ${{ false }}
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -121,7 +120,7 @@ jobs:
             $buildExit=$LASTEXITCODE
             Write-Host ('BUILD='+$(if($buildExit -eq 0){'PASS'}else{'FAIL'}))
             $raw=Get-Content -LiteralPath $build -Raw
-            foreach($m in [regex]::Matches($raw,'(?m)(activity-routine-extraction|activity-technology-import|automations-control)\.tsx\((\d+),(\d+)\): error (TS\d+)')){
+            foreach($m in [regex]::Matches($raw,'(?m)(activity-routine-extraction|activity-technology-import|activity-d05-extraction|automations-control|work-areas-control)\.tsx\((\d+),(\d+)\): error (TS\d+)')){
               Write-Host ('BUILD_DIAGNOSTIC='+$m.Groups[1].Value+':'+$m.Groups[2].Value+':'+$m.Groups[3].Value+':'+$m.Groups[4].Value)
             }
             node --test --test-reporter=tap *> $tests
