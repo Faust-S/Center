@@ -688,6 +688,22 @@ try {
   Click-ButtonContaining 'Поручения'
   $assignmentButton=Find-ProjectButton $expectedRevisedAssignment
   if(!$assignmentButton){throw 'Edited Atlas assignment not shown after installed GUI restart'}
+  # Check the new filters against the actual installed Atlas WorkRef that
+  # was created and saved above, not a synthetic UI fixture.
+  $draftBeforeFilter=(Get-FileHash -LiteralPath $localDraft -Algorithm SHA256).Hash
+  Click-ButtonContaining 'Связаны с Atlas'
+  [void](Find-ProjectButton $expectedRevisedAssignment)
+  Click-ButtonContaining 'Без Atlas'
+  [void](Find-TextContaining 'Нет поручений по этому условию')
+  if(Visible-ButtonContaining $expectedRevisedAssignment){
+    throw 'V8_NATIVE_ATLAS_ASSIGNMENT_VISIBLE_IN_ORDINARY_FILTER'
+  }
+  Click-Control 'Показать все'
+  [void](Find-ProjectButton $expectedRevisedAssignment)
+  if((Get-FileHash -LiteralPath $localDraft -Algorithm SHA256).Hash -cne $draftBeforeFilter){
+    throw 'V8_NATIVE_FILTER_MUTATED_SAVED_DRAFT'
+  }
+  Write-Host 'V8_NATIVE_ATLAS_FILTER_REAL_WORKREF_NO_WRITE_PASS'
   Click-Control 'Сотрудники и роли'
   [void](Find-TextContaining $staffNames[0])
   [void](Find-TextContaining $staffNames[1])
