@@ -63,19 +63,41 @@ jobs:
               $m=[regex]::Matches($raw,"(?m)^# $name (\d+)\s*$")
               if($m.Count){Write-Host ('AGENT064_DESKTOP_'+$name.ToUpperInvariant()+'='+$m[$m.Count-1].Groups[1].Value)}
             }
-            if($exit -ne 0){
+            $testFailed=($exit -ne 0)
+            if($testFailed){
               $idx=@([regex]::Matches($raw,'(?m)^not ok (\d+)')|ForEach-Object {$_.Groups[1].Value})
               Write-Host ('AGENT064_DESKTOP_FAILED_ORDINALS='+($idx -join ','))
-              throw 'AGENT064_DESKTOP_TEST_FAILED'
+              # Map private test locations to stable ordinal identifiers. Never print names or assertions.
+              $paths=[string[]]@(Get-ChildItem -LiteralPath tests -Recurse -File -Filter '*.test.mjs'|ForEach-Object {$_.FullName})
+              [Array]::Sort($paths,[StringComparer]::Ordinal)
+              foreach($failure in [regex]::Matches($raw,'(?ms)^not ok \d+[^\r\n]*\r?\n.*?(?=^# Subtest:|^(?:ok|not ok) \d+|\z)')){
+                $normalized=$failure.Value.Replace('\','/')
+                for($i=0;$i -lt $paths.Length;$i++){
+                  $p=$paths[$i].Replace('\','/')
+                  $rel=$p.Substring($p.LastIndexOf('/tests/')+1)
+                  $loc=[regex]::Match($normalized,[regex]::Escape($rel)+':(\d+):(\d+)')
+                  if($loc.Success){Write-Host ('AGENT064_DESKTOP_FAILURE_SITE='+($i+1)+':'+$loc.Groups[1].Value+':'+$loc.Groups[2].Value)}
+                }
+                $codes=@([regex]::Matches($normalized,'\b(?:ERR_ASSERTION|ERR_MODULE_NOT_FOUND|AssertionError|TypeError|ReferenceError|SyntaxError)\b')|ForEach-Object {$_.Value}|Sort-Object -Unique)
+                if($codes.Count){Write-Host ('AGENT064_DESKTOP_FAILURE_CODES='+($codes -join ','))}
+              }
             }
             & npm run build *> $log
-            if($LASTEXITCODE -ne 0){
+            $buildFailed=($LASTEXITCODE -ne 0)
+            if($buildFailed){
               $raw=Get-Content -Raw -LiteralPath $log
               $idx=@([regex]::Matches($raw,'(?m)^([^\r\n]+?\(\d+,\d+\)): error (TS\d+)')|ForEach-Object {$_.Groups[2].Value}|Sort-Object -Unique)
               Write-Host ('AGENT064_TYPESCRIPT_CODES='+($idx -join ','))
-              throw 'AGENT064_DESKTOP_BUILD_FAILED'
-            }
-            Write-Host 'AGENT064_DESKTOP_BUILD=PASS'
+              $paths=[string[]]@(Get-ChildItem -LiteralPath src -Recurse -File|Where-Object {$_.Extension -in @('.ts','.tsx')}|ForEach-Object {$_.FullName})
+              [Array]::Sort($paths,[StringComparer]::Ordinal)
+              foreach($m in [regex]::Matches($raw,'(?m)^([^\r\n]+?)\((\d+),(\d+)\): error (TS\d+)')){
+                $p=[IO.Path]::GetFullPath($m.Groups[1].Value)
+                $i=[Array]::IndexOf($paths,$p)
+                if($i -ge 0){Write-Host ('AGENT064_TYPESCRIPT_SITE='+($i+1)+':'+$m.Groups[2].Value+':'+$m.Groups[3].Value+':'+$m.Groups[4].Value)}
+              }
+            }else{Write-Host 'AGENT064_DESKTOP_BUILD=PASS'}
+            if($testFailed){throw 'AGENT064_DESKTOP_TEST_FAILED'}
+            if($buildFailed){throw 'AGENT064_DESKTOP_BUILD_FAILED'}
           }finally{Pop-Location;Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue}
       - name: Corporate employee and preserved local model/runtime regression
         if: always()
