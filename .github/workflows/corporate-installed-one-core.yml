@@ -13,11 +13,11 @@ concurrency:
   group: corporate-installed-one-core-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 env:
-  T3_PIN: 'aaef813dd06ef29b681d4ad080960433613d985d'
-  CORE_PIN: '0cb5bc0379e18c3a94e64346fafaedcc105b4e62'
+  T3_PIN: '365c7dcefeb6bbe4e6f71567749bdfd85e24ce87'
+  CORE_PIN: '06b56c6f2c1c3164e4a2e92bdcbe8706929216b5'
   CENTER_PIN: '95ee2e984ba59861c4367e26d9d9d66fbe11918b'
-  PUBLISHER_PIN: 'f0d109b1bc425a656f34bedf30ccd03dba2f0abe'
-  AGENT_PIN: 'e9079f788496c04b4addbb23b81b850e37f8a217'
+  PUBLISHER_PIN: '3f8eefd2220fa3de04a3d5ccf622c26116b4a6a1'
+  AGENT_PIN: '9eed9dcaabe0f8d5d51d37755805265f816c90fd'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'

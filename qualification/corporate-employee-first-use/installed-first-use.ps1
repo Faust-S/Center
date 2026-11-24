@@ -235,6 +235,11 @@ try{
  Original-Confirm $cen 'IWXA T3: права сотрудника в Workspace'
  Wait-Text $cen 'Четыре права подтверждены исходным Kernel' 240
  Record 'ORIGINAL_FOUR_WORKSPACE_GRANTS'
+ Stage 'RETURN_EXPORT_RIGHT'
+ Press-VerifiedEmployeeButton $cen 'Разрешить возврат полной Workspace'
+ Original-Confirm $cen 'IWXA T3: права сотрудника в Workspace'
+ Wait-Text $cen 'Отдельное право DATA подтверждено' 240
+ Record 'ORIGINAL_ADDITIVE_WORKSPACE_RETURN_EXPORT_GRANT'
  Stage 'MANAGER_TASK_RIGHT'
  Press-VerifiedEmployeeButton $cen 'Выдать адресное право на Task'
  Original-Confirm $cen 'IWXA T3: право выдачи поручений сотруднику'
@@ -267,6 +272,8 @@ try{
  Need ((Read-Edit $cen 'Подписанная личность T3 сотрудника') -ceq $candidate.employeePersonId -and
   (Read-Edit $cen 'Идентификатор публичного PROOF-ключа') -ceq $candidate.credentialKeyId) 'EMPLOYEE_INSTALLED_COLD_ROSTER_IDENTITY_INVALID'
  Record 'CENTER_COLD_ORIGINAL_ROSTER_REOPEN'
+ Wait-Text $cen 'Отдельное право DATA подтверждено' 240
+ Record 'CENTER_COLD_ORIGINAL_RETURN_EXPORT_GRANT'
  # This first-use gate intentionally stops before any licensed Task execution.
  # It cannot qualify Publisher trust, a seat assignment or Result acceptance.
  Write-Host ('EMPLOYEE_INSTALLED_FIRST_USE=PASS checks='+$checks.Count)
