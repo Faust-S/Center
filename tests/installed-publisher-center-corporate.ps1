@@ -372,15 +372,68 @@ function Copy-FromGui($process,[string]$button,[string]$field){
   }
   return $expected
 }
-function Confirm-Checkbox($process,[string]$name){
+function Read-ConfirmationState($process,[string]$name){
+  # React-controlled checkboxes and WebView2 providers may be recreated
+  # after an asynchronous event. Never use a previously acquired pattern
+  # for the verification of a subsequent transition.
+  $element=Control $process $name 'CheckBox' 4
+  $pattern=$null
+  if(!$element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern,[ref]$pattern)){
+    throw 'CORPORATE_GUI_CONFIRMATION_TOGGLE_PATTERN_REQUIRED'
+  }
+  return [pscustomobject]@{
+    Element=$element
+    Pattern=$pattern
+    State=$pattern.Current.ToggleState
+    Enabled=$element.Current.IsEnabled
+  }
+}
+function Wait-ConfirmationReady($process,[string]$name,[string]$submit,[bool]$wanted){
+  $expected=if($wanted){[System.Windows.Automation.ToggleState]::On}else{[System.Windows.Automation.ToggleState]::Off}
+  $stable=0
+  for($i=0;$i -lt 50;$i++){
+    $observed=$false
+    try{
+      $fresh=Read-ConfirmationState $process $name
+      $button=Control $process $submit 'Button' 4
+      $observed=$fresh.Enabled -and $fresh.State -eq $expected -and $button.Current.IsEnabled -eq $wanted
+    }catch{}
+    if($observed){
+      $stable++
+      if($stable -ge 3){return $true}
+    }else{$stable=0}
+    Start-Sleep -Milliseconds 180
+  }
+  return $false
+}
+function Confirm-Checkbox($process,[string]$name,[string]$submit){
   Gui-Step 'CHECKBOX'
   Focus-App $process
-  $element=Control $process $name 'CheckBox'
-  $pattern=$element.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
-  if($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On){$pattern.Toggle()}
-  if($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On){
-    throw 'CORPORATE_GUI_CONFIRMATION_NOT_CHECKED'
+  # Prove that the exact human-confirmation gate is initially closed.
+  # Do not accidentally issue a signature from a stale checked review.
+  if(!(Wait-ConfirmationReady $process $name $submit $false)){
+    throw 'CORPORATE_GUI_CONFIRMATION_INITIAL_GATE_NOT_CLOSED'
   }
+  $fresh=Read-ConfirmationState $process $name
+  if($fresh.State -ne [System.Windows.Automation.ToggleState]::Off -or !$fresh.Enabled){
+    throw 'CORPORATE_GUI_CONFIRMATION_CHANGED_BEFORE_INPUT'
+  }
+  # A keyboard Space on the named, focused, native accessibility element
+  # follows the real HTML input path. TogglePattern.Invoke can return
+  # before the controlled React checkbox has acknowledged the event.
+  $fresh.Element.SetFocus()
+  Start-Sleep -Milliseconds 150
+  $focus=[System.Windows.Automation.AutomationElement]::FocusedElement
+  if(!$focus -or ![System.Windows.Automation.Automation]::Compare($focus,$fresh.Element) -or
+     [CorporateQualificationGui]::GetForegroundWindow() -ne $process.MainWindowHandle){
+    throw 'CORPORATE_GUI_CONFIRMATION_FOCUS_NOT_CONFIRMED'
+  }
+  [System.Windows.Forms.SendKeys]::SendWait(' ')
+  if(Wait-ConfirmationReady $process $name $submit $true){return}
+  # Do not retry the mutation: a delayed UI event could reverse an already
+  # accepted checkbox. A fresh On state and the actual enabled signature
+  # button must agree, otherwise leave the irreversible command untouched.
+  throw 'CORPORATE_GUI_CONFIRMATION_GATE_NOT_OPEN'
 }
 function Select-Last($process,[string]$name){
   Gui-Step 'COMBO'
@@ -722,7 +775,7 @@ function Publisher-Status([string]$state,[string]$id,[int]$sequence){
   # The fresh form defaults to ACTIVE.
   $until=[DateTime]::UtcNow.AddMinutes(15).ToString("yyyy-MM-ddTHH:mm:ss.fffZ",[Globalization.CultureInfo]::InvariantCulture)
   Enter $pub 'STATUS действителен до (UTC, ISO 8601)' $until
-  Confirm-Checkbox $pub 'Подтверждаю отдельную подпись STATUS; отзыв необратим'
+  Confirm-Checkbox $pub 'Подтверждаю отдельную подпись STATUS; отзыв необратим' 'Подписать новый STATUS через T3'
   Press $pub 'Подписать новый STATUS через T3'
   Wait-Text $pub "STATUS: $state, последовательность $sequence"
   $proof=Owner-Read $id
@@ -879,7 +932,7 @@ try{
   Select-FirstReal $pub 'Подготовленное предложение организации'
   Enter $pub 'Корпоративные места Personal Agent (явно)' '2'
   Press $pub 'Проверить условия перед подписью'
-  Confirm-Checkbox $pub 'Подтверждаю выдачу организации по этим условиям'
+  Confirm-Checkbox $pub 'Подтверждаю выдачу организации по этим условиям' 'Подписать через оригинальный T3'
   Press $pub 'Подписать через оригинальный T3'
   Wait-Text $pub 'Лицензия подписана и сохранена в оригинальном журнале T3'
   $inventory=Read-Native $ownerPath @('corporate-inventory',$ownerRoot,$request)
@@ -1005,7 +1058,7 @@ try{
   Enter $pub 'Корпоративные места Personal Agent (явно)' '1'
   Press $pub 'Проверить условия перед подписью'
   Wait-Text $pub "Предыдущая лицензия: $id"
-  Confirm-Checkbox $pub 'Подтверждаю выдачу организации по этим условиям'
+  Confirm-Checkbox $pub 'Подтверждаю выдачу организации по этим условиям' 'Подписать через оригинальный T3'
   Press $pub 'Подписать через оригинальный T3'
   Wait-Text $pub 'Лицензия подписана и сохранена в оригинальном журнале T3'
   $nextInventory=Read-Native $ownerPath @('corporate-inventory',$ownerRoot,$nextRequest)
