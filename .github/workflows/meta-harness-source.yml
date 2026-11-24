@@ -16,7 +16,7 @@ jobs:
       matrix:
         os: [windows-2022, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 50
+    timeout-minutes: 65
     env:
       PRIVATE_PIN: '12c44548da8e2d5ddbf1f12f271489810f5f9dcf'
       PRIVATE_TREE: '26e90703b94eec5bb2e5491fddba73b10ad9bfb1'
@@ -179,7 +179,7 @@ jobs:
                           "PROGRAMS_SESSION":depth[14:19],
                           "CORE_ADAPTERS":depth[19:],
                       })
-                  groups={"PRODUCT_ROUTE":groups["PRODUCT_ROUTE"],"TASK_ASSIGNMENT":["tests/test_meta_harness_task_assignment.py"],"ACP_PROTOCOL":groups["ACP_PROTOCOL"],"ACP_PRODUCT":groups["ACP_PRODUCT"],"STRATEGY":["tests/test_meta_harness_strategy_history.py"],"CORE_ADAPTERS":groups["CORE_ADAPTERS"],
+                  groups={"PRODUCT_ROUTE_GRAPH":[groups["PRODUCT_ROUTE"][0]],"PRODUCT_ROUTE_NATIVE_STATE":groups["PRODUCT_ROUTE"][1:],"TASK_ASSIGNMENT":["tests/test_meta_harness_task_assignment.py"],"ACP_PROTOCOL":groups["ACP_PROTOCOL"],"ACP_PRODUCT":groups["ACP_PRODUCT"],"STRATEGY":["tests/test_meta_harness_strategy_history.py"],"CORE_ADAPTERS":groups["CORE_ADAPTERS"],
                           "ACP_CONTEXT_READ":["tests/test_meta_harness_acp_context_read.py"],
                         "TOOL_READ":["tests/test_meta_harness_tool_read.py","tests/test_meta_harness_mcp_read.py"],
                           "WORK_BOARD":["tests/test_work_board_state_transaction.py"],
@@ -193,7 +193,10 @@ jobs:
                       report = root / (group+".json")
                       status(group,"STARTED")
                       try:
-                          proc = run([sys.executable,str(plugin),str(report),*files],timeout=1200 if group in {"TASK","TASK_TRANSPORT","STRATEGY","WORK_BOARD","ORIGINAL_TASK","TICKET_REGRESSION"} else 420)
+                          # A multipart Graph exercise may execute several verified steps and cold restarts.
+                          # The old seven-minute group cap hid all Windows case results.
+                          limit=1500 if group=="PRODUCT_ROUTE_GRAPH" else 1200 if group in {"TASK","TASK_TRANSPORT","STRATEGY","WORK_BOARD","ORIGINAL_TASK","TICKET_REGRESSION"} else 420
+                          proc = run([sys.executable,str(plugin),str(report),*files],timeout=limit)
                       except subprocess.TimeoutExpired:
                           status(group,"TIMEOUT")
                           failed=True
