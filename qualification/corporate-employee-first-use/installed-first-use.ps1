@@ -106,19 +106,52 @@ function Open-CenterRegistry($process){
  Wait-Text $process 'Зарезервированные места / лимит' 240
  Wait-Text $process 'Получить профиль подключения' 240
 }
-function Open-AgentCompany($process){
- if(!(Has-Text $process 'Работа в организации' $true)){
-  Press $process 'Работа'
+# Workbench V8 exposes "Задачи" on its always available primary rail.
+# The active-only context group is not a button named "Работа".
+# Resolve the actual current visible child after entering the rail section.
+function Agent-VisibleButton($process,[string]$name){
+ $items=(Window $process).FindAll(
+  [System.Windows.Automation.TreeScope]::Descendants,
+  [System.Windows.Automation.PropertyCondition]::new(
+   [System.Windows.Automation.AutomationElement]::NameProperty,$name))
+ foreach($item in $items){
+  try{
+   if($item.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+     !$item.Current.IsOffscreen -and $item.Current.IsEnabled){return $true}
+  }catch{}
  }
+ return $false
+}
+function Open-AgentCompany($process){
+ Stage 'AGENT_V8_NAVIGATION'
+ Press $process 'Задачи'
+ # The active rail now exposes Work's contextual sidebar. Expand the
+ # real sidebar/disclosure if the saved layout has them collapsed.
+ for($i=0;$i -lt 120;$i++){
+  if(Agent-VisibleButton $process 'Работа в организации'){break}
+  if(Agent-VisibleButton $process 'Открыть панель'){
+   Press $process 'Открыть панель'
+  }elseif(Agent-VisibleButton $process 'Показать подразделы Работа'){
+   Press $process 'Показать подразделы Работа'
+  }
+  Start-Sleep -Milliseconds 250
+ }
+ Need (Agent-VisibleButton $process 'Работа в организации') 'EMPLOYEE_INSTALLED_AGENT_COMPANY_NAVIGATION_NOT_AVAILABLE'
  Press $process 'Работа в организации'
  Wait-Text $process 'Работа в организации' 240
- if(Has-Text $process 'Проверить состояние T3' $true){
-  Press $process 'Проверить состояние T3'
-  Start-Sleep -Milliseconds 500
+ Stage 'AGENT_T3_PROFILE_READINESS'
+ # Wait for the real profile form or the actual T3 enable/read controls;
+ # do not treat the page title as proof that the profile is ready.
+ for($i=0;$i -lt 240;$i++){
+  if(Has-Text $process 'Первое подключение к организации'){return}
+  if(Agent-VisibleButton $process 'Проверить состояние T3'){
+   Press $process 'Проверить состояние T3'
+  }elseif(Agent-VisibleButton $process 'Включить локальную работу T3'){
+   Press $process 'Включить локальную работу T3'
+  }
+  Start-Sleep -Milliseconds 250
  }
- if(Has-Text $process 'Включить локальную работу T3' $true){
-  Press $process 'Включить локальную работу T3'
- }
+ throw 'EMPLOYEE_INSTALLED_AGENT_T3_PROFILE_NOT_READY'
 }
 function Sign-EmployeeChallenge($process,[string]$request,$candidate){
  $q=$request|ConvertFrom-Json -Depth 20
@@ -170,6 +203,7 @@ try{
  Stage 'AGENT_OWN_PROFILE'
  $agent=Start-App $agentExe $AgentRoot
  Open-AgentCompany $agent
+ Stage 'AGENT_OWN_PROFILE'
  Wait-Text $agent 'Первое подключение к организации' 240
  Enter $agent 'Профиль подключения' $profileRaw
  Enter $agent 'Подтверждённый отпечаток профиля SHA-256' $fingerprint
