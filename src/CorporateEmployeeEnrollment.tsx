@@ -1,4 +1,5 @@
 import React,{useState} from 'react';
+import CorporateSeatAssignments from './CorporateSeatAssignments';
 import {validateOriginalEmployeeTaskIssueReceipt}
  from '../runtime/cen03-d3-owner.mjs';
 
@@ -13,7 +14,8 @@ type Session={organizationId:string;workspaceId:string;actorId:string;
   d3EmployeeRegistryBootstrapAvailable?:boolean;
   d3EmployeeRegistryReadbackAvailable?:boolean;
   d3EmployeeTaskIssueAvailable?:boolean;
-  d3EmployeeWorkspaceRightsAvailable?:boolean};
+  d3EmployeeWorkspaceRightsAvailable?:boolean;
+  d3EmployeeCorporateSeatsAvailable?:boolean};
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 function jsonObject(raw:string,code:string):Record<string,any>{
@@ -758,5 +760,9 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
     </div>}
    </div>}
   </div>}
+  <CorporateSeatAssignments organizationId={session.organizationId} workspaceId={session.workspaceId}
+   employee={enrolled?{personId,enrollmentId:enrollmentReceipt.enrollmentId}:null}
+   available={available&&session.d3EmployeeCorporateSeatsAvailable===true}
+   execute={execute} run={run} busy={busy}/>
  </section>;
 }

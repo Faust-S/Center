@@ -426,14 +426,14 @@ export default function Cen04CorporateIntakePanel({organizationId,participants,i
          последовательность: {corporateLatest.sequence}.
          Редакция Store: {corporateLatest.revision}.</p>
        <p className="muted">Подпись проверена, пакет сохранён.
-         Применение лицензии организацией и распределение мест не выполнялись.</p>
+         Получение пакета само по себе не распределяет места.</p>
      </div>}
      {corporateReady&&corporateRead&&<div
        data-testid="cen04-corporate-original-list">
        <p><strong>Исходное корпоративное чтение T3.</strong>
          Лицензий: {corporateRead.licenses.length}.
          Редакция Store: {corporateRead.revision}.
-         Назначаемых мест Personal Agent: 0.</p>
+         Фактические назначения проверяются в подписанном реестре сотрудников T3.</p>
        <section className="nested-form" data-testid="cen04-corporate-capacity">
          <strong>План мест по актуальному тарифу</strong>
          {seatPlan.state==='VERIFIED_CAPACITY_CANDIDATE'?<>
@@ -447,7 +447,7 @@ export default function Cen04CorporateIntakePanel({organizationId,participants,i
                Мест Agent сверх лимита: {seatPlan.seatOverLimit}. Уточните тариф или план.</p>:
              <p>Текущий план укладывается в подписанные лимиты.</p>}
            <p className="muted">Используется только одна актуальная лицензия: {seatPlan.licenseId}.
-             Это сравнение плана, не выдача мест или прав.</p>
+             Это сравнение плана, не выдача мест или прав. Для назначения откройте раздел независимого сотрудника организации.</p>
          </>:<p role="status">{seatPlan.state==='LINEAGE_INCOMPLETE'?
            'История продления неполна. Для расчёта лимитов требуется недостающая лицензия.':
            seatPlan.state==='MULTIPLE_CURRENT_LICENSES'?

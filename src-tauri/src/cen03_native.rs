@@ -51,6 +51,42 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               return Err("CEN_D2_ORIGINAL_READ_ONLY_INPUT_REQUIRED".into());
           }
       },
+      "d3EmployeeSeatView"=>{
+          if !input.as_object().is_some_and(|m|m.is_empty()||
+             (m.len()==1&&m.get("offset").and_then(Value::as_u64).is_some_and(|n|n<=9_007_199_254_740_991))){
+              return Err("CEN_D3_CORPORATE_SEAT_VIEW_INPUT_INVALID".into());
+          }
+      },
+      "d3EmployeeSeatPolicyEnable"=>{
+          if !input.as_object().is_some_and(|m|m.len()==2)||
+             input["confirmed"]!=true||!validate_hex(input["expectedRegistryDigest"].as_str()){
+              return Err("CEN_D3_CORPORATE_SEAT_POLICY_CONFIRMATION_REQUIRED".into());
+          }
+      },
+      "d3EmployeeSeatChange"=>{
+          let fields=["confirmed","kind","commandId","expectedRegistryDigest",
+             "expectedLicenseDigest","employeePersonId","enrollmentId","fromGrantId"];
+          if !input.as_object().is_some_and(|m|m.len()==fields.len()&&
+             fields.iter().all(|k|m.contains_key(*k)))||
+             input["confirmed"]!=true||
+             !input["commandId"].as_str().is_some_and(t3::valid_identifier)||
+             !validate_hex(input["expectedRegistryDigest"].as_str())||
+             !(input["expectedLicenseDigest"].is_null()||validate_hex(input["expectedLicenseDigest"].as_str())){
+              return Err("CEN_D3_CORPORATE_SEAT_COMMAND_INVALID".into());
+          }
+          let target=input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)&&
+             input["enrollmentId"].as_str().is_some_and(t3::valid_identifier);
+          let no_target=input["employeePersonId"].is_null()&&input["enrollmentId"].is_null();
+          let source=input["fromGrantId"].as_str().is_some_and(t3::valid_identifier);
+          let commercial=validate_hex(input["expectedLicenseDigest"].as_str());
+          let valid=match input["kind"].as_str(){
+             Some("ASSIGN")=>target&&commercial&&input["fromGrantId"].is_null(),
+             Some("RELEASE")=>no_target&&source,
+             Some("TRANSFER")=>target&&source&&commercial,
+             _=>false
+          };
+          if !valid{return Err("CEN_D3_CORPORATE_SEAT_COMMAND_SCOPE_INVALID".into());}
+      },
       "d3EmployeeRegistryReadback"=>{},
       "d3EmployeeRegistryInitialize"=>{
           if input["confirmed"]!=true{
@@ -259,6 +295,8 @@ fn supported_state(result:&Value,organization_id:&str,
         !view["snapshot"]["d3EmployeeTaskIssueAvailable"].is_boolean())||
        (view["snapshot"]["d3EmployeeWorkspaceRightsAvailable"]!=Value::Null&&
         !view["snapshot"]["d3EmployeeWorkspaceRightsAvailable"].is_boolean())||
+       (view["snapshot"]["d3EmployeeCorporateSeatsAvailable"]!=Value::Null&&
+        !view["snapshot"]["d3EmployeeCorporateSeatsAvailable"].is_boolean())||
        !view["snapshot"]["tasks"].is_array()||
        !view["snapshot"]["totalTasks"].as_u64().is_some_and(|n|n<=256){
 
@@ -276,7 +314,8 @@ fn supported_state(result:&Value,organization_id:&str,
     for name in ["d3EmployeeRegistryBootstrapAvailable",
                  "d3EmployeeRegistryReadbackAvailable",
                  "d3EmployeeTaskIssueAvailable",
-                 "d3EmployeeWorkspaceRightsAvailable"] {
+                 "d3EmployeeWorkspaceRightsAvailable",
+                 "d3EmployeeCorporateSeatsAvailable"] {
         if projected["snapshot"][name]==Value::Null {
             projected["snapshot"][name]=Value::Bool(false);
         }
@@ -294,6 +333,9 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
         "d3EmployeeExportTask"|"d3EmployeeRecoverOrphanTask"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true&&
             snapshot["d3EmployeeTaskIssueAvailable"]==true,
+        "d3EmployeeSeatView"|"d3EmployeeSeatPolicyEnable"|"d3EmployeeSeatChange"=>
+            snapshot["d3EmployeeEnrollmentAvailable"]==true&&
+            snapshot["d3EmployeeCorporateSeatsAvailable"]==true,
         "d3EmployeeTaskGrantIssue"|"d3EmployeeTaskGrantReadback"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true,
         "d3EmployeeWorkspaceGrantIssue"|"d3EmployeeWorkspaceGrantReadback"=>
@@ -311,6 +353,45 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
             snapshot["d3ApplyAvailable"]==true,
         _=>true,
     }
+}
+fn verify_corporate_seat_readback(result:&Value,input:&Value,operation:&str,
+    organization_id:&str,observed:&Value)->Result<(),String>{
+    let view=if operation=="d3EmployeeSeatView"{result}else{&result["view"]};
+    if view["schema"]!="IWXA_T3_ORIGINAL_CORPORATE_SEAT_VIEW/1"||
+       view["organizationId"]!=organization_id||
+       view["workspaceId"]!=observed["snapshot"]["workspaceId"]||
+       view["originalReadback"]!=true||view["productionActivation"]!=false||
+       !validate_hex(view["registryDigest"].as_str())||
+       !view["seatPolicyReady"].is_boolean()||
+       !view["reservedSeats"].as_u64().is_some_and(|n|n<=9_007_199_254_740_991)||
+       !view["assignments"].as_array().is_some_and(|rows|rows.len()<=64){
+        return Err("CEN_D3_CORPORATE_SEAT_READBACK_INVALID".into());
+    }
+    match operation{
+        "d3EmployeeSeatView"=>{
+            if view["assignmentOffset"].as_u64()!=Some(input["offset"].as_u64().unwrap_or(0)){
+                return Err("CEN_D3_CORPORATE_SEAT_PAGE_INVALID".into());
+            }
+        },
+        "d3EmployeeSeatPolicyEnable"=>{
+            if result["originalReadback"]!=true||
+               !matches!(result["outcome"].as_str(),Some("ENABLED"|"ALREADY_ENABLED"))||
+               view["seatPolicyReady"]!=true{
+                return Err("CEN_D3_CORPORATE_SEAT_POLICY_OUTCOME_UNKNOWN".into());
+            }
+        },
+        "d3EmployeeSeatChange"=>{
+            if result["originalReadback"]!=true||result["commandId"]!=input["commandId"]||
+               !matches!(result["outcome"].as_str(),Some("COMMITTED"|"ALREADY_COMMITTED"))||
+               result["releasedGrantId"]!=input["fromGrantId"]||
+               (if input["kind"]=="RELEASE"{!result["grantId"].is_null()}else{
+                   !result["grantId"].as_str().is_some_and(t3::valid_identifier)}){
+                return Err("CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN".into());
+            }
+        },
+        _=>return Err("CEN_D3_CORPORATE_SEAT_OPERATION_INVALID".into())
+    }
+    Ok(())
 }
 fn exact_binding(view:&Value,organization_id:&str,binding:&Value)->bool{
     let s=&view["snapshot"];
@@ -1120,6 +1201,35 @@ pub async fn center_corporate_action(
             return Err("CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED".into());
         }
     }
+    if matches!(operation.as_str(),"d3EmployeeSeatView"|"d3EmployeeSeatPolicyEnable"|"d3EmployeeSeatChange"){
+        if app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_none(){
+            return Err("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING".into());
+        }
+        let verified=private_owner_state(&app,&organization_id)?;
+        if !exact_binding(&verified,&organization_id,&binding)||
+           !exact_kernel_apply_capability(&verified,&operation){
+            return Err("CEN_D3_CONTEXT_CHANGED".into());
+        }
+        if operation!="d3EmployeeSeatView"{
+            let description=if operation=="d3EmployeeSeatPolicyEnable"{
+                "Подключить продуктовые места в исходной политике организации? Существующие сотрудники, ключи и права доступа к данным и задачам сохраняются.".to_owned()
+            }else{
+                let kind=input["kind"].as_str().unwrap_or("");
+                let who=input["employeePersonId"].as_str().unwrap_or("—");
+                let source=input["fromGrantId"].as_str().unwrap_or("—");
+                let action=match kind{"ASSIGN"=>"Назначить","RELEASE"=>"Освободить",_=>"Передать"};
+                format!("{} корпоративное место Personal Agent? Получатель: {}. Исходное назначение: {}. Изменяется только продуктовый ENTITLEMENT в исходном T3. Доставка и подключение Agent не подтверждаются.",action,who,source)
+            };
+            let answer=rfd::MessageDialog::new()
+                .set_title("IWXA T3: распределение корпоративных мест")
+                .set_description(&description)
+                .set_buttons(rfd::MessageButtons::YesNo)
+                .set_level(rfd::MessageLevel::Warning).show();
+            if answer!=rfd::MessageDialogResult::Yes{
+                return Err("CEN_D3_CORPORATE_SEAT_HUMAN_CANCELLED".into());
+            }
+        }
+    }
     if operation=="d3EmployeeRegistryInitialize"{
         if app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_none() {
             return Err("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING".into());
@@ -1356,6 +1466,12 @@ pub async fn center_corporate_action(
         // Age decryption is NOT admission. The original T3 recipient must
         // prove it received the same signed archive as the age tool verified.
         let mut result=output["result"].clone();
+        if matches!(operation.as_str(),"d3EmployeeSeatView"|"d3EmployeeSeatPolicyEnable"|"d3EmployeeSeatChange"){
+            if let Err(error)=verify_corporate_seat_readback(&result,&input,&operation,&organization_id,&observed){
+                let _=close_original_owner(&app);
+                return Err(error);
+            }
+        }
         if operation=="d2ActivityReadback"{
             // The source stays the ORIGINAL trusted T2 Kernel and private
             // D1 signed DATA owner. Center receives only a bounded sanitized
@@ -1978,5 +2094,50 @@ mod tests{
         let mut forged=unknown.clone();
         forged["originalEventReadback"]=json!({"event_id":"event:fake"});
         assert!(verify_kernel_recovery(&forged,&input,&view).is_err());
+    }
+}
+
+#[cfg(test)]
+mod corporate_seat_boundary_tests{
+    use super::*;
+    #[test]
+    fn seat_actions_require_exact_snapshot_and_human_confirmation(){
+        let mut command=json!({"kind":"ASSIGN","confirmed":true,"commandId":"seat:one",
+            "expectedRegistryDigest":"a".repeat(64),"expectedLicenseDigest":"b".repeat(64),
+            "employeePersonId":"person:worker","enrollmentId":"enrollment:one","fromGrantId":null});
+        assert!(check_bound_request(&command,"d3EmployeeSeatChange").is_ok());
+        command["confirmed"]=json!(false);
+        assert!(check_bound_request(&command,"d3EmployeeSeatChange").is_err());
+        command["confirmed"]=json!(true);
+        command["managerGrantId"]=json!("grant:forged");
+        assert!(check_bound_request(&command,"d3EmployeeSeatChange").is_err());
+        command.as_object_mut().unwrap().remove("managerGrantId");
+        command["kind"]=json!("RELEASE");
+        command["expectedLicenseDigest"]=Value::Null;
+        command["fromGrantId"]=json!("grant:seat:one");
+        command["employeePersonId"]=Value::Null;
+        command["enrollmentId"]=Value::Null;
+        assert!(check_bound_request(&command,"d3EmployeeSeatChange").is_ok());
+        assert!(check_bound_request(&json!({"offset":64}),"d3EmployeeSeatView").is_ok());
+        assert!(check_bound_request(&json!({"offset":-1}),"d3EmployeeSeatView").is_err());
+        assert!(check_bound_request(&json!({"confirmed":true,"expectedRegistryDigest":"a".repeat(64)}),
+            "d3EmployeeSeatPolicyEnable").is_ok());
+        assert!(!exact_kernel_apply_capability(&json!({"snapshot":{"d3EmployeeEnrollmentAvailable":true}}),
+            "d3EmployeeSeatChange"));
+    }
+    #[test]
+    fn seat_receipt_must_match_original_scope_and_operation(){
+        let observed=json!({"snapshot":{"workspaceId":"workspace:one"}});
+        let view=json!({"schema":"IWXA_T3_ORIGINAL_CORPORATE_SEAT_VIEW/1",
+            "organizationId":"org:one","workspaceId":"workspace:one","originalReadback":true,
+            "productionActivation":false,"registryDigest":"a".repeat(64),
+            "seatPolicyReady":true,"reservedSeats":1,"assignments":[],"assignmentOffset":0});
+        assert!(verify_corporate_seat_readback(&view,&json!({}),"d3EmployeeSeatView","org:one",&observed).is_ok());
+        let mut receipt=json!({"originalReadback":true,"outcome":"COMMITTED","commandId":"seat:one",
+            "grantId":"grant:seat:one","releasedGrantId":null,"view":view});
+        let command=json!({"commandId":"seat:one","kind":"ASSIGN","fromGrantId":null});
+        assert!(verify_corporate_seat_readback(&receipt,&command,"d3EmployeeSeatChange","org:one",&observed).is_ok());
+        receipt["commandId"]=json!("seat:other");
+        assert!(verify_corporate_seat_readback(&receipt,&command,"d3EmployeeSeatChange","org:one",&observed).is_err());
     }
 }
