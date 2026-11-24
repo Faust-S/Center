@@ -6,7 +6,7 @@ import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
 import {readOriginalEmployeeRegistryReceipt,readOriginalSeatView} from '../runtime/cen03-corporate-seats.mjs';
 import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskReadback,readOriginalEmployeeBootstrap,readOriginalEmployeePublicCandidate,
  employeeTaskContinuationKey,readEmployeeTaskContinuation,saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
- readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,
+ readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,readEmployeeChallengeProof,
  inspectOriginalEmployeeWorkspaceRights,inspectOriginalEmployeeTaskGrant,
  readOriginalTaskCatalog,validateOriginalEmployeeCatalogReadback,validateOriginalEmployeeTaskExportReceipt}
  from '../runtime/cen03-d3-owner.mjs';
@@ -35,16 +35,6 @@ function jsonObject(raw:string,code:string):Record<string,any>{
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
     Object.getPrototypeOf(parsed)!==Object.prototype)throw Error(code);
   return parsed as Record<string,any>;
-}
-function proof(raw:string){
-  const value=jsonObject(raw,'CEN_D3_EMPLOYEE_SIGNED_PROOF_REQUIRED');
-  // Original T3 makeProof returns an envelope. The kind is in its payload.
-  if(value.schema!=='IWXA_T3_ACCESS_SIGNED/1'||!ID.test(value.keyId)||
-    value.payload?.kind!=='PROOF'||typeof value.payload?.challenge!=='string'||
-    !HEX.test(value.payload?.requestDigest)||
-    typeof value.signature!=='string'||!/^[A-Za-z0-9_-]{86}$/.test(value.signature))
-    throw Error('CEN_D3_EMPLOYEE_SIGNED_PROOF_REQUIRED');
-  return value;
 }
 function keyRecord(raw:string,personId:string){
   const k=jsonObject(raw,'CEN_D3_EMPLOYEE_PUBLIC_KEY_RECORD_INVALID');
@@ -89,6 +79,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const [enrollmentProof,setEnrollmentProof]=useState('');
  const [enrollmentAttempted,setEnrollmentAttempted]=useState(false);
  const [enrollmentReceipt,setEnrollmentReceipt]=useState<any>(null);
+ const proofReady=(raw:string,challenge:unknown)=>{
+   try{readEmployeeChallengeProof(raw,keyId,challenge);return true}catch{return false}
+ };
+ const credentialProofReady=proofReady(credentialProof,credentialChallenge?.employeeChallenge);
+ const enrollmentProofReady=proofReady(enrollmentProof,enrollmentChallenge?.challenge);
  const [employeeInviteReceipt,setEmployeeInviteReceipt]=useState<any>(null);
  const [workspaceRightsAttempted,setWorkspaceRightsAttempted]=useState(false);
  const [returnExportAttempted,setReturnExportAttempted]=useState(false);
@@ -368,8 +363,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    if(!credentialChallenge)throw Error('CEN_D3_EMPLOYEE_KEY_PROOF_NOT_PREPARED');
    // Once sent, a lost ACK is read-only recovery, never another admission.
    if(credentialAttempted)throw Error('CEN_D3_EMPLOYEE_ADMISSION_OUTCOME_UNKNOWN');
-   const employeeProof=proof(credentialProof);
-   if(employeeProof.keyId!==keyId)throw Error('CEN_D3_EMPLOYEE_PROOF_KEY_MISMATCH');
+   const employeeProof=readEmployeeChallengeProof(credentialProof,keyId,credentialChallenge.employeeChallenge);
    setCredentialAttempted(true);
    let result:any;
    try{
@@ -399,8 +393,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const confirmEnrollment=()=>run('Оригинальные ACTION/DATA и signed STATUS перечитаны из Kernel.',async()=>{
    if(!credentialOk||!enrollmentChallenge||enrollmentAttempted)
      throw Error('CEN_D3_EMPLOYEE_ENROLLMENT_CHALLENGE_REQUIRED');
-   const employeeProof=proof(enrollmentProof);
-   if(employeeProof.keyId!==keyId)throw Error('CEN_D3_EMPLOYEE_PROOF_KEY_MISMATCH');
+   const employeeProof=readEmployeeChallengeProof(enrollmentProof,keyId,enrollmentChallenge.challenge);
    setEnrollmentAttempted(true);
    let result:any;
    try{
@@ -622,8 +615,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
       value={credentialProof} disabled={busy||credentialAttempted}
       onChange={e=>setCredentialProof(e.target.value)}/>
     </label>
-    <button data-testid="d3-employee-credential-admit" disabled={busy||credentialAttempted||
-      !credentialProof.trim()} onClick={()=>void confirmCredential()}>
+    {!!credentialProof.trim()&&<p role="status" data-testid="d3-credential-proof-format">
+       {credentialProofReady?'Ответ ключа соответствует текущему запросу. Подлинность проверит исходный T3.':
+         'Ответ не соответствует текущему запросу или ключу. Скопируйте точный ответ из Agent.'}</p>}
+     <button data-testid="d3-employee-credential-admit" disabled={busy||credentialAttempted||
+       !credentialProofReady} onClick={()=>void confirmCredential()}>
       Подтвердить ключ и перечитать Kernel</button>
     <button className="secondary" data-testid="d3-employee-credential-cancel"
       disabled={busy||credentialAttempted}
@@ -675,9 +671,12 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
         value={enrollmentProof} disabled={busy||enrollmentAttempted}
         onChange={e=>setEnrollmentProof(e.target.value)}/>
      </label>
+     {!!enrollmentProof.trim()&&<p role="status" data-testid="d3-enrollment-proof-format">
+       {enrollmentProofReady?'Ответ подключения соответствует текущему запросу. Подлинность проверит исходный T3.':
+         'Ответ не соответствует запросу подключения. Скопируйте новый ответ из Agent.'}</p>}
      <div className="actions">
       <button data-testid="d3-employee-complete" disabled={busy||enrollmentAttempted||
-        !enrollmentProof.trim()} onClick={()=>void confirmEnrollment()}>
+        !enrollmentProofReady} onClick={()=>void confirmEnrollment()}>
         Выдать ACTION/DATA и перечитать STATUS</button>
       <button className="secondary" data-testid="d3-employee-cancel"
         disabled={busy||enrollmentAttempted}

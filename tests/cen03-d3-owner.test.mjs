@@ -9,7 +9,7 @@ import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
  validateOriginalSignedTaskReadback,validateOriginalEmployeeTaskIssueReceipt,
  validateOriginalEmployeeTaskReadback,employeeTaskContinuationKey,readEmployeeTaskContinuation,
  saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
- readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,
+ readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,readEmployeeChallengeProof,
  inspectOriginalEmployeeWorkspaceRights,inspectOriginalEmployeeTaskGrant,
  readOriginalTaskCatalog,validateOriginalEmployeeCatalogReadback,validateOriginalEmployeeTaskExportReceipt,
  isDefiniteUndispatchedD3Failure,
@@ -858,4 +858,22 @@ test('employee public bootstrap binds exact original organization, manager and c
   {employeePersonId:scope.actorId},{employeeProofKeyRecord:{...candidate.employeeProofKeyRecord,privateKey:'hidden'}}])
   assert.throws(()=>readOriginalEmployeePublicCandidate(JSON.stringify({...candidate,...patch}),scope,checked),
    /CEN_D3_EMPLOYEE_PUBLIC_CANDIDATE_INVALID/);
+});
+
+test('employee key and membership responses require the exact outstanding challenge before native confirmation',()=>{
+ const key='key:employee',challenge='fresh-challenge';
+ const proof={schema:'IWXA_T3_ACCESS_SIGNED/1',keyId:key,
+  payload:{kind:'PROOF',challenge,requestDigest:A},signature:'a'.repeat(86)};
+ assert.deepEqual(readEmployeeChallengeProof(JSON.stringify(proof),key,challenge),proof);
+ assert.throws(()=>readEmployeeChallengeProof(JSON.stringify(proof),key,'new-challenge'),
+  /CEN_D3_EMPLOYEE_PROOF_CHALLENGE_MISMATCH/);
+ assert.throws(()=>readEmployeeChallengeProof(JSON.stringify(proof),'key:other',challenge),
+  /CEN_D3_EMPLOYEE_PROOF_KEY_MISMATCH/);
+ for(const raw of ['invalid','null','[]',JSON.stringify({...proof,signature:'short'}),
+    JSON.stringify({...proof,payload:{...proof.payload,requestDigest:'not-a-digest'}})])
+  assert.throws(()=>readEmployeeChallengeProof(raw,key,challenge),
+   /CEN_D3_EMPLOYEE_SIGNED_PROOF_REQUIRED/);
+ const ui=readFileSync(new URL('../src/CorporateEmployeeEnrollment.tsx',import.meta.url),'utf8');
+ assert.match(ui,/!credentialProofReady\} onClick=\{\(\)=>void confirmCredential\(\)\}/);
+ assert.match(ui,/!enrollmentProofReady\} onClick=\{\(\)=>void confirmEnrollment\(\)\}/);
 });

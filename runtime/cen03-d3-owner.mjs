@@ -52,6 +52,23 @@ const validId=value=>typeof value==='string'&&ID.test(value);
 const validSha=value=>typeof value==='string'&&SHA.test(value);
 const fail=code=>{const e=new Error(code);e.code=code;throw e;};
 const need=(ok,code)=>{if(!ok)fail(code);};
+// UI preflight only. The original signed Owner still verifies the PROOF
+// cryptographically against its request digest, key and live challenge.
+export function readEmployeeChallengeProof(raw,keyId,challenge){
+  const code='CEN_D3_EMPLOYEE_SIGNED_PROOF_REQUIRED';
+  need(typeof raw==='string'&&raw.length>0&&raw.length<=32768&&
+    validId(keyId)&&typeof challenge==='string'&&challenge.length>0,code);
+  let value;
+  try{value=JSON.parse(raw);}catch{fail(code);}
+  need(value&&Object.getPrototypeOf(value)===Object.prototype&&
+    value.schema==='IWXA_T3_ACCESS_SIGNED/1'&&
+    value.payload?.kind==='PROOF'&&typeof value.payload.challenge==='string'&&
+    validSha(value.payload.requestDigest)&&typeof value.signature==='string'&&
+    /^[A-Za-z0-9_-]{86}$/.test(value.signature),code);
+  need(value.keyId===keyId,'CEN_D3_EMPLOYEE_PROOF_KEY_MISMATCH');
+  need(value.payload.challenge===challenge,'CEN_D3_EMPLOYEE_PROOF_CHALLENGE_MISMATCH');
+  return value;
+}
 const sameSubject=(a,b)=>JSON.stringify(CONTEXT_FIELDS.map(field=>a?.[field]))===
   JSON.stringify(CONTEXT_FIELDS.map(field=>b?.[field]));
 const copy=(value,code)=>{try{return structuredClone(value);}catch{fail(code);}};
