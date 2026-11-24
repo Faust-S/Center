@@ -1,10 +1,10 @@
 # Differential qualification of identical historical test modules on pinned
 # candidate and stable sources. Only aggregate outcomes and numeric ordinals leave the runner.
-name: Agent 0.6.3 versus stable 0.6.2 regression provenance
+name: Agent 0.6.3 versus stable 0.6.2 Windows regression provenance
 on:
   push:
     branches:
-      - work/2026-11-24-agent-v8-baseline-comparison
+      - work/2026-11-24-agent-v8-windows-baseline-comparison
     paths:
       - .github/workflows/agent-v8-regression-diagnostics.yml
 permissions:
@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   compare:
-    runs-on: ubuntu-24.04
+    runs-on: windows-2022
     timeout-minutes: 65
     env:
       PRIVATE_PIN: '12433fa69a5451f4819403144e5fd7961be102f7'
@@ -60,8 +60,8 @@ jobs:
           $all=[string[]]@(& git -C $candidate ls-files -- tests/|Where-Object {$_ -cmatch '^tests/(?:[a-zA-Z0-9_]+/)*test_[a-zA-Z0-9_]+\.py$'})
           [Array]::Sort($all,[StringComparer]::Ordinal)
           if($all.Count -ne 440){throw 'DIFFERENTIAL_CATALOGUE_INVALID'}
-          # Coordinates originate from the completed full Linux regression.
-          $ordinals=@(3,10,15,17,41,47,58,59,98,104,126,149,230,232,240,241,294,359,373,376,377,388,396,408)
+          # Coordinates originate from the completed full Windows regression.
+          $ordinals=@(10,15,17,41,47,58,59,98,104,126,230,232,240,241,294,377,388,396,408)
           $suites=[string[]]@($ordinals|ForEach-Object {$all[$_-1]})
           foreach($relative in @($suites+'requirements-ci.txt')){
             $a=Join-Path $candidate $relative
