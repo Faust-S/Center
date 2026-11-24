@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: 0225ac0487af56e6deb1c82f8076ef7931e29a87
-      PRIVATE_TREE: 39951e1247ec9481a0f3afc29f1f068709056cc2
+      PRIVATE_PIN: 91b110cf9cc590c234e3bdc97431175734173658
+      PRIVATE_TREE: b261fbe86ab02723411968729dfa6cb480c8c594
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -100,9 +100,16 @@ jobs:
           sys.exit(int(result))
           ''',encoding="utf-8")
                   groups = {
+                      "TASK": ["tests/test_meta_harness_original_task_workflow.py"],
+                      "HOST": ["tests/test_fc6_configured_chain_interaction.py",
+                               "tests/test_fc6_daily_driver_graph_binding_m10.py",
+                               "tests/test_fc6_initial_chain_interaction_integration.py",
+                               "tests/test_agent06_graph_result_task_seed.py",
+                               "tests/test_k01_accepted_result_real_cycle.py",
+                               "tests/test_graph_result_readback_integrity.py"],
                       "HANDOFF": ["tests/test_meta_harness_contextual_handoff_graph.py"],
                       "META": sorted(str(p.relative_to(source)) for p in source.glob("tests/test_meta_harness_*.py")
-                                     if p.name!="test_meta_harness_contextual_handoff_graph.py"),
+                                     if p.name not in {"test_meta_harness_contextual_handoff_graph.py","test_meta_harness_original_task_workflow.py"}),
                       "GRAPH": sorted(str(p.relative_to(source)) for p in source.glob("tests/test_fc6_graph*.py")),
                       "ADAPTERS": ["tests/test_goose_agent_runtime_user_ready.py",
                                    "tests/test_agent06_claude_code_cli.py"],
