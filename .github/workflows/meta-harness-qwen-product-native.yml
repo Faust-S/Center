@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: a430a8940e8caa75acfbbad66f90e290dc1fd7c1
-      PRIVATE_TREE: 8286796386c173f0b73bec1ecb5c66ec71d34da2
+      PRIVATE_PIN: cd7942d8a6687855815b9ef96ac5668a51dfcfcd
+      PRIVATE_TREE: 04d8c21711d020dc47d17ec06f83befcfe1622f7
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
     steps:
       - uses: actions/setup-python@v5
@@ -99,6 +99,10 @@ jobs:
                       if m:
                           key=hashlib.sha256(m.group(1).encode()).hexdigest()[:16]
                           status("QWEN_PRODUCT_CASE",key+":"+m.group(2)+":"+hashlib.sha256(m.group(3).encode()).hexdigest()[:12])
+                  allowed_diagnostics=set(["ACP_ABSOLUTE_WORKSPACE_REQUIRED","ACP_ALREADY_INITIALIZED","ACP_CANCELLED_BEFORE_SEND","ACP_CANCEL_OUTCOME_UNKNOWN","ACP_CLOSE_NOT_ADVERTISED","ACP_CONCURRENT_OPERATION","ACP_CONNECTION_OUTCOME_UNKNOWN","ACP_DISCONNECTED_OUTCOME_UNKNOWN","ACP_FRAME_LIMIT","ACP_FRAME_LIMIT_OR_TRUNCATED","ACP_INITIALIZE_REQUIRED","ACP_INVALID_CANCEL_EVENT","ACP_INVALID_CONFIG_OPTIONS","ACP_INVALID_CONTENT","ACP_INVALID_ENVELOPE","ACP_INVALID_JSON","ACP_INVALID_MODE_UPDATE","ACP_INVALID_SERVER_REQUEST","ACP_INVALID_SESSION","ACP_INVALID_STOP_REASON","ACP_INVALID_TIMEOUT","ACP_INVALID_UPDATE","ACP_LIST_NOT_ADVERTISED","ACP_LOAD_NOT_ADVERTISED","ACP_MODEL_NOT_ADVERTISED","ACP_MODEL_OPTION_UNAVAILABLE_OR_AMBIGUOUS","ACP_MODEL_SELECTION_UNCONFIRMED","ACP_PROMPT_CAPABILITY_REQUIRED","ACP_REMOTE_ERROR","ACP_RESPONSE_ID_MISMATCH","ACP_RESUME_NOT_ADVERTISED","ACP_SESSION_ALREADY_SELECTED","ACP_SESSION_MISMATCH","ACP_TIMEOUT_OUTCOME_UNKNOWN","ACP_TRANSPORT_DETACHED","ACP_TURN_LIMIT","ACP_UNEXPECTED_SESSION_UPDATE","ACP_UNKNOWN_CONTENT_TYPE","ACP_UNSUPPORTED_PROTOCOL","ACP_WRITE_OUTCOME_UNKNOWN","acp_cancelled_before_dispatch","acp_cancelled_before_next_operation","acp_cancelled_before_prompt","acp_context_blocks_required","acp_explicit_proposal_required","acp_native_cancelled","acp_native_option_owner_not_bound","acp_native_process_authority_denied","acp_observation_receipt_required","acp_outcome_not_confirmed","acp_outcome_unknown","acp_payload_authority_denied","acp_private_transfer_not_admitted","acp_prompt_not_sent","acp_request_deadline","acp_runtime_binding_mismatch","acp_session_binding_unconfirmed","acp_session_receipt_required","acp_session_state_denied","acp_transport_required","PORT_PROTOCOL_ERROR","AUTHORITY_REQUIRED","PORT_UNAVAILABLE","CANCELLED","TIMED_OUT","PRIVACY_DENIED","AGENT_RUNTIME_RESPONSE_INVALID","AGENT_RUNTIME_INVOCATION_FAILED","AGENT_RUNTIME_UNAVAILABLE","AGENT_RUNTIME_FAILED","AGENT_RUNTIME_TIMEOUT","ACP_GRAPH_ATTEMPT_CHANGED","ACP_ORIGINAL_TASK_ROUTE_REQUIRED"])
+                  for line in out.splitlines():
+                      if line.startswith("QWEN_PRODUCT_DIAGNOSTIC=") and line.split("=",1)[1].strip() in allowed_diagnostics:
+                          status("QWEN_PRODUCT_DIAGNOSTIC",line.split("=",1)[1].strip())
                   for code in ("t3_external_execution_disabled","ACP_ORIGINAL_TASK_ROUTE_REQUIRED","ACP_GRAPH_ATTEMPT_CHANGED","AGENT_RUNTIME_UNAVAILABLE","AGENT_RUNTIME_INVOCATION_FAILED","AGENT_RUNTIME_RESPONSE_INVALID","AGENT_RUNTIME_TIMEOUT","AUTHORITY_REQUIRED","acp_session_state_denied","acp_native_route_not_ready","acp_reviewed_graph_attempt_required","acp_native_launch_not_authorized","acp_native_state_changed","META_HARNESS_ROLE_BINDING_CHANGED","agent_runtime_requires_reviewed_task_graph","qwen_installation_or_local_model_required","qwen_graph_owns_model_and_session","qwen_task_workspace_link_required","acp_local_process_tree_stop_unconfirmed"):
                       if re.search(r"(?<![A-Za-z0-9_])"+code+r"(?![A-Za-z0-9_])",out):
                           status("QWEN_PRODUCT_DIAGNOSTIC",code)
