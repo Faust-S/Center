@@ -44,6 +44,7 @@ export function inspectUnknownCorporateMutationReadback(pending,signed){
       signed.tariffId!==pending.tariffId||
       signed.tariffRevision!==pending.tariffRevision)
     deny('CORPORATE_UNKNOWN_ISSUE_TERMS_MISMATCH');
+   inspectCorporateIssueLineage(signed,pending.renewal??null);
  }else if(pending.kind==='STATUS'){
    if(!id(pending.licenseId)||signed.licenseId!==pending.licenseId||
       !['ACTIVE','SUSPENDED','REVOKED'].includes(pending.expectedStatus)||
@@ -55,4 +56,28 @@ export function inspectUnknownCorporateMutationReadback(pending,signed){
  }else deny('CORPORATE_UNKNOWN_OPERATION_INVALID');
  return Object.freeze({state:'ORIGINAL_COMMIT_CONFIRMED',
    licenseId:signed.licenseId,requestId:signed.requestId});
+}
+
+// Read the predecessor against the exact original signed ledger, not draft labels.
+export function inspectCorporateRenewalPreflight(inventory,signed,scope){
+ const prior=inspectCorporateIssuePreflight(inventory,scope?.priorRequestId);
+ if(prior.state!=='ALREADY_SIGNED'||
+    signed?.operation!=='CORPORATE_SIGNED_READBACK'||
+    signed.requestId!==prior.requestId||signed.licenseId!==prior.licenseId||
+    !id(signed.lineageId)||signed.issuerAuthorityId!==scope.issuerId||
+    signed.organizationId!==scope.organizationId||
+    signed.productId!=='IWXA_ADMIN_CENTER'||
+    !['NOT_ACTIVATED','ACTIVE','SUSPENDED'].includes(signed.status)||
+    signed.activeSeats!==0||signed.productionActivation!==false||
+    signed.recipientConfirmed!==false)
+   deny('CORPORATE_RENEWAL_SIGNED_PREDECESSOR_REQUIRED');
+ return Object.freeze({licenseId:signed.licenseId,lineageId:signed.lineageId});
+}
+export function inspectCorporateIssueLineage(signed,expected){
+ if(!signed||!id(signed.lineageId)||
+    signed.renewalOf!==(expected?.licenseId??null)||
+    (expected!==null&&(!expected||!id(expected.lineageId)||
+      signed.lineageId!==expected.lineageId)))
+   deny('CORPORATE_ISSUE_LINEAGE_MISMATCH');
+ return signed;
 }
