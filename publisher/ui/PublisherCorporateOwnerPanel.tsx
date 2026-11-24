@@ -1,4 +1,4 @@
-import React,{useMemo,useState} from 'react';
+import React,{useMemo,useRef,useState} from 'react';
 import {projectCorporateSigningOffers} from '../src/corporate-offer-review.mjs';
 import {prepareCorporateLicenseRequest,encodeCorporateLicenseRequest}
   from '../src/corporate-license-request.mjs';
@@ -48,7 +48,9 @@ export default function PublisherCorporateOwnerPanel({
     tariffRevision:number;status:string;sequence:number;
     licenseEnvelopeSha256:string;statusEnvelopeSha256:string;
     packageSha256:string;bytes:number;
+    recipientConfirmed:false;assignablePersonalAgentSeats:0;
   }>(null);
+  const deliveryTextRef=useRef<HTMLTextAreaElement>(null);
   const [lookup,setLookup]=useState('');
   const [statusAction,setStatusAction]=useState<'ACTIVE'|'SUSPENDED'|'REVOKED'>('ACTIVE');
   const [validUntil,setValidUntil]=useState('');
@@ -68,6 +70,11 @@ export default function PublisherCorporateOwnerPanel({
   const currentDelivery=delivery&&signed&&!unknown&&
     delivery.licenseId===signed.licenseId&&
     delivery.requestId===signed.requestId&&
+    delivery.organizationId===signed.organizationId&&
+    delivery.issuerAuthorityId===signed.issuerAuthorityId&&
+    delivery.productId===signed.productId&&
+    delivery.tariffId===signed.tariffId&&
+    delivery.tariffRevision===signed.tariffRevision&&
     delivery.status===signed.status&&delivery.sequence===signed.sequence&&
     delivery.licenseEnvelopeSha256===signed.licenseEnvelopeSha256&&
     delivery.statusEnvelopeSha256===signed.statusEnvelopeSha256?delivery:null;
@@ -315,6 +322,21 @@ export default function PublisherCorporateOwnerPanel({
     }finally{setBusy(false);}
   }
 
+  async function copyDelivery(){
+    if(busy||!currentDelivery)return;
+    const field=deliveryTextRef.current;
+    if(!field)return;
+    // Copy the existing verified export projection, not a second package.
+    // The fallback works without WebView clipboard permissions.
+    field.focus();field.select();
+    try{
+      await navigator.clipboard.writeText(field.value);
+      setFeedback('Контрольные данные скопированы. Вставьте их в Admin Center.');
+    }catch{
+      setFeedback('Контрольные данные выделены. Нажмите Ctrl+C.');
+    }
+  }
+
   return <section className="publisher-test-owner" data-testid="publisher-corporate-native-owner">
     <h3>Корпоративная лицензия организации: исходный T3</h3>
     <p className="muted">Только зарегистрированный исходный T3 Owner подписывает
@@ -429,6 +451,14 @@ export default function PublisherCorporateOwnerPanel({
           <code className="pub-long-code">{currentDelivery.packageSha256}</code>
         </p>
         <p>Размер файла: {currentDelivery.bytes} байт.</p>
+        <label>Контрольные данные для Admin Center
+          <textarea ref={deliveryTextRef} rows={2} readOnly spellCheck={false}
+            data-testid="publisher-corporate-handoff-text"
+            value={JSON.stringify(currentDelivery)}/>
+        </label>
+        <button type="button" className="secondary" disabled={busy}
+          data-testid="publisher-corporate-handoff-copy"
+          onClick={()=>void copyDelivery()}>Скопировать контрольные данные</button>
         <p>Передайте файл в Admin Center и независимо сверяйте его с
           исходным публичным доверием издателя. До подтверждения
           получения T3 права организации и сотрудников не меняются.</p>

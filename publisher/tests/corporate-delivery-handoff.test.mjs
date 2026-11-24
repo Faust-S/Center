@@ -79,3 +79,15 @@ test('no synthetic file success, trust, production or unsigned STATUS is accepte
     /CORPORATE_DELIVERY_ORIGINAL_SIGNED_SOURCE_REQUIRED/);
  }
 });
+
+test('clipboard roundtrip preserves the existing export projection, not a license or grant',()=>{
+ const data=handoff(view(),exported(),view());
+ const copied=JSON.parse(JSON.stringify(data));
+ assert.deepEqual(copied,data);
+ assert.equal(copied.organizationId,'org:company');
+ assert.equal(copied.productId,'IWXA_ADMIN_CENTER');
+ assert.equal(copied.recipientConfirmed,false);
+ assert.equal(copied.assignablePersonalAgentSeats,0);
+ for(const forbidden of ['signature','privateKey','statusEnvelope','licenseEnvelope','productionActivation'])
+   assert.equal(Object.hasOwn(copied,forbidden),false);
+});
