@@ -437,7 +437,7 @@ function Qualify-V8Routes {
     @{root='Поручения';routes=@(
       @{id='work';button='Новое поручение';contains=$true})},
     @{root='Результаты';routes=@(
-      @{id='results';text='Одна Workspace. Вся работа организации.'},
+      @{id='results';text='Маршрут поручения и результата';absent='1. Выдать подписанное поручение'},
       @{id='signed-workspace';nav='Workspace T3';text='Одна Workspace. Вся работа организации.';absent='1. Выдать подписанное поручение'},
       @{id='employees-t3';nav='Подключение сотрудника T3';text='Ответственные в организации';absent='1. Выдать подписанное поручение'},
       @{id='signed-tasks';nav='Подписанные Task';text='1. Выдать подписанное поручение';absent='3. Отдельное применение'},
@@ -705,8 +705,10 @@ try {
   # packaged. Contract-double results cannot enable real corporate actions.
   Click-Control 'Результаты'
   [void](Find-TextContaining 'NOT_CONNECTED')
+  Click-Control 'Раздел: Подписанные Task'
   Assert-ButtonDisabled 'Выдать через CEN02'
   Assert-ButtonDisabled 'Сохранить .iwxa'
+  Click-Control 'Раздел: Получение .iwxa'
   Assert-ButtonDisabled 'Получить Result'
   if(Visible-ButtonContaining 'ACCEPT' -or Visible-ButtonContaining 'Apply'){
     throw 'Corporate decision or application appeared without an owner Review'

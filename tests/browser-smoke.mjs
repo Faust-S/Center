@@ -223,6 +223,7 @@ try{
   await page.getByTestId('assignment-row').first().click();
   await page.getByTestId('task-title').fill('This unsaved next task must be retained');
   await page.getByTestId('nav-results').click();
+  await page.getByTestId('subnav-signed-tasks').click();
   await page.getByRole('button',{name:'Подготовить поручение'}).click();
   assert.equal(await page.getByTestId('task-title').inputValue(),
     'This unsaved next task must be retained');
@@ -275,6 +276,9 @@ try{
   await page.getByTestId('nav-results').click();
   await page.getByTestId('corporate-owner-status').waitFor({state:'visible'});
   assert.match(await page.getByTestId('corporate-owner-status').innerText(),/NOT_CONNECTED/);
+  assert.equal(await page.getByTestId('corporate-issue').isVisible(),false);
+  await page.getByTestId('subnav-signed-tasks').click();
+  assert.equal(await page.getByTestId('corporate-issue').isVisible(),true);
   assert.equal(await page.getByTestId('corporate-issue').isEnabled(),false);
   assert.equal(await page.getByTestId('corporate-accept').count(),0);
   checks.push('corporate-workbench-fail-closed-without-private-owner');
@@ -486,6 +490,7 @@ try{
   await onboardPage.getByTestId('org-name').fill('First use workshop');
   await onboardPage.getByTestId('create-org').click();
   await onboardPage.getByTestId('nav-results').click();
+  await onboardPage.getByTestId('subnav-signed-workspace').click();
   await onboardPage.getByTestId('d3-enrollment-no-workspace').waitFor();
   assert.equal(await onboardPage.getByTestId('d3-enroll').isEnabled(),false);
   assert.equal(await onboardPage.getByTestId('d3-enrollment-workspace').count(),0);
@@ -493,6 +498,7 @@ try{
   await onboardPage.getByTestId('workspace-name').fill('Purchasing team');
   await onboardPage.getByTestId('add-workspace').click();
   await onboardPage.getByTestId('nav-results').click();
+  await onboardPage.getByTestId('subnav-signed-workspace').click();
   await onboardPage.getByTestId('d3-enrollment-workspace').waitFor();
   const signedWorkspaceSelect=onboardPage.getByTestId('d3-enrollment-workspace');
   assert.ok((await signedWorkspaceSelect.locator('option').allTextContents()).includes('Purchasing team'),
@@ -674,7 +680,7 @@ try{
   await d3Page.getByTestId('org-name').fill('UI signed Task fixture');
   await d3Page.getByTestId('create-org').click();
   await d3Page.getByTestId('nav-results').click();
-  await d3Page.getByTestId('d3-signed-task-workflow').waitFor();
+  await d3Page.getByTestId('subnav-employees-t3').click();
   // Installed independent employee authority cannot be inferred from the
   // existing original reviewer alone. When the private owner does not
   // advertise the genuine One Core enrollment port, no UI-issued grant,
@@ -683,6 +689,8 @@ try{
   assert.equal(await d3Page.getByTestId('d3-employee-steps').count(),0);
   assert.equal(await d3Page.getByTestId('d3-employee-credential-begin').count(),0);
   checks.push('d3-independent-employee-unavailable-without-original-kernel-owner');
+  await d3Page.getByTestId('subnav-signed-tasks').click();
+  await d3Page.getByTestId('d3-signed-task-workflow').waitFor();
   await d3Page.getByTestId('d3-task-text').fill('Check original supplier receipt');
   await d3Page.getByTestId('d3-task-prepare-id').click();
   const attemptedTaskId=await d3Page.getByTestId('d3-task-operation-id').inputValue();
@@ -704,6 +712,7 @@ try{
   // The original signed child must be opened on Results and remain alive
   // while the manager visits Overview/Corporate Context for D2 evidence.
   // A UI fixture tests navigation only, not Ed25519/DPAPI/original T2.
+  await d3Page.getByTestId('subnav-signed-workspace').click();
   await d3Page.getByTestId('v8-workspace-entry').waitFor();
   assert.equal(await d3Page.getByTestId('v8-workspace-open').isEnabled(),true,
     'installed host must use the original signed Workspace opening command');
@@ -827,7 +836,8 @@ try{
   // This UI fixture keeps native owner state independent of the React panel.
   await d3Page.getByTestId('nav-overview').click();
   await d3Page.getByTestId('nav-results').click();
-  await d3Page.getByTestId('d3-signed-task-workflow').waitFor();
+  await d3Page.getByTestId('subnav-review').click();
+  await d3Page.getByTestId('d3-package-sha').waitFor();
   await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
   await d3Page.getByTestId('d3-operation-id').fill(pendingDecisionId);
   await d3Page.getByTestId('d3-recover').click();
@@ -1180,6 +1190,7 @@ try{
     updatedAt:'2026-11-17T00:00:00.000Z'
   });
   await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('subnav-employees-t3').click();
   await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
   await employeePage.getByTestId('d3-employee-registry-readback').click();
   await employeePage.getByRole('alert').waitFor();
@@ -1208,6 +1219,7 @@ try{
   employeeState.requiresCold=false;
   await employeePage.reload();
   await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('subnav-employees-t3').click();
   await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
   await employeePage.getByTestId('d3-employee-registry-readback').click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
@@ -1220,6 +1232,7 @@ try{
   // Ordinary Center startup returns to its overview. Open the original
   // corporate workbench again; native signer state survives navigation.
   await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('subnav-employees-t3').click();
   await employeePage.getByTestId('d3-employee-registry-readback').waitFor();
   assert.equal(await employeePage.getByTestId('d3-employee-registry-readback').count(),1);
   await employeePage.getByTestId('d3-employee-registry-readback').click();
@@ -1334,6 +1347,7 @@ try{
   // longer has an invitation export receipt, and must NOT sign one again.
   await employeePage.reload();
   await employeePage.getByTestId('nav-results').click();
+  await employeePage.getByTestId('subnav-employees-t3').click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
   await employeePage.getByTestId('d3-employee-person').fill('person:independent');
   await employeePage.getByTestId('d3-employee-key').fill('key:independent');
@@ -1546,6 +1560,16 @@ try{
   await v8Page.getByTestId('task-title').fill('Согласовать поставку V8');
   await v8Page.getByTestId('assignment-form').getByLabel('Исполнитель').selectOption('');
   await v8Page.getByTestId('save-assignment').click();
+  await v8Page.getByTestId('work-filter-unassigned').click();
+  assert.equal(await v8Page.getByTestId('assignment-row').count(),1);
+  await v8Page.getByTestId('work-filter-atlas').click();
+  assert.equal(await v8Page.getByTestId('assignment-row').count(),0);
+  assert.equal(await v8Page.getByTestId('work-filter-empty').isVisible(),true);
+  await v8Page.getByTestId('work-filter-ordinary').click();
+  assert.equal(await v8Page.getByTestId('assignment-row').count(),1);
+  await v8Page.getByTestId('work-filter-all').click();
+  assert.equal(await v8Page.getByTestId('work-filter-all').getAttribute('aria-pressed'),'true');
+  checks.push('v8-task-filters-read-existing-drafts-without-mutating-them');
   await v8Page.getByTestId('nav-people').click();
   await v8Page.locator('[data-testid^="company-workspace-"]').first().click();
   assert.match(await v8Page.getByTestId('company-selection-detail').innerText(),/Согласовать поставку V8/);
@@ -1569,7 +1593,12 @@ try{
     'browser view must not invent the native signed Workspace owner');
   assert.equal(await v8Page.getByTestId('corporate-panel').count(),1,
     'the same original corporate operations remain mounted below the new workspace entry');
-  assert.equal(await v8Page.locator('[data-testid^="v8-result-step-"]').count(),7);
+  assert.equal(await v8Page.locator('[data-testid^="v8-result-step-"]').count(),8);
+  assert.equal(await v8Page.getByTestId('v8-result-pipeline').isVisible(),true);
+  for(const form of ['cen02-owner-people','cen02-section','cen03-section','cen03-apply','cen03-reuse'])
+    assert.equal(await v8Page.getByTestId(form).isVisible(),false,form+' must not be visible on Results entry');
+  await v8Page.screenshot({path:'artifacts/v8-results-pipeline.png',fullPage:true});
+  checks.push('v8-results-entry-eight-stages-no-aggregate-forms');
   await v8Page.getByTestId('v8-result-step-employees').click();
   assert.match(await v8Page.getByTestId('v8-results-journey').innerText(),/Контакт в черновике не выдаёт права/);
   await v8Page.getByTestId('v8-result-step-apply').click();
@@ -1592,6 +1621,13 @@ try{
   assert.equal(await v8Page.getByTestId('corporate-receive').isVisible(),false);
   assert.equal(await v8Page.getByTestId('corporate-apply-preview').isVisible(),false);
   assert.equal(await v8Page.getByTestId('corporate-review').isVisible(),true);
+  assert.equal(await v8Page.getByTestId('v8-recovery-hub').isVisible(),true);
+  for(const [target,id] of [['signed-tasks','task'],['employees-t3','employee'],['signed-workspace','workspace']]){
+    await v8Page.getByTestId('v8-recovery-'+id).click();
+    assert.equal(await v8Page.locator('main').getAttribute('data-admin-route'),target);
+    await v8Page.getByTestId('subnav-recovery').click();
+  }
+  checks.push('v8-recovery-hub-opens-original-working-regions');
   await v8Page.getByTestId('subnav-reuse').click();
   assert.equal(await v8Page.getByTestId('cen03-reuse').isVisible(),true);
   assert.equal(await v8Page.getByTestId('cen03-apply').isVisible(),false);

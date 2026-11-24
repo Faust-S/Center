@@ -121,6 +121,8 @@ export default function App() {
     return ()=>{live=false;unlisten?.();};
   },[nativeHost]);
   const [editor,setEditor] = useState<Editor|null>(null);
+  const [workFilter,setWorkFilter]=useState<'all'|'unassigned'|'atlas'|'ordinary'>('all');
+  useEffect(()=>setWorkFilter('all'),[state.activeOrganizationId]);
   const [creatingOrg,setCreatingOrg] = useState(false);
   const [menuOpen,setMenuOpen] = useState(false);
   const [navQuery,setNavQuery]=useState('');
@@ -239,6 +241,9 @@ export default function App() {
     return ()=>{cancelled=true};
   }, []);
   const org = state.organizations.find(row => row.id === state.activeOrganizationId);
+  const workItems=org?.assignments??[];
+  const visibleWorkItems=workItems.filter(item=>workFilter==='all'||
+    (workFilter==='unassigned'?!item.assigneeId:workFilter==='atlas'?!!item.atlasRef:!item.atlasRef));
   activeOrganizationRef.current=state.activeOrganizationId;
   const atlasView = atlasFile?.organizationId===org?.id ? atlasFile?.view ?? null : null;
   const matchingNativeAtlas=nativeAtlas&&nativeAtlas.organizationId===org?.id ? nativeAtlas.view : null;
@@ -885,14 +890,14 @@ export default function App() {
         <div className="section-head"><p className="muted">Черновик не считается выданным поручением.</p>
           <div className="actions">
             {!editor&&org.assignments.length>0&&<button className="secondary" type="button"
-              data-testid="open-signed-t3-task" onClick={()=>go('results')}>
+              data-testid="open-signed-t3-task" onClick={()=>go('signed-tasks')}>
               Подписать поручение T3
             </button>}
             <button className="primary" disabled={!org.workspaces.length||!!editor}
               onClick={()=>startAssignment()}>＋ Новое поручение</button>
           </div>
         </div>
-        {editor ? <form className="card form-panel" data-testid="assignment-form" onSubmit={e=>{e.preventDefault();if(command({type:'SAVE_ASSIGNMENT',organizationId:org.id,...editor})){editorBaselineRef.current=null;setEditor(null);}}}>
+        {editor ? <form className="card form-panel" data-testid="assignment-form" onSubmit={e=>{e.preventDefault();if(command({type:'SAVE_ASSIGNMENT',organizationId:org.id,...editor})){editorBaselineRef.current=null;setEditor(null);setWorkFilter('all');}}}>
           <div className="section-head"><h2>{editor.assignmentId?'Редактировать поручение':'Новое поручение'}</h2><button type="button" className="quiet" onClick={closeEditor}>Закрыть редактор</button></div>
           <label>Что нужно сделать<input autoFocus value={editor.title} maxLength={200} required onChange={e=>editorField('title',e.target.value)} data-testid="task-title"/></label>
           <div className="form-grid">
@@ -927,10 +932,20 @@ export default function App() {
               Проверить и обновить редакцию ссылки
             </button>}
           <div className="form-footer"><span className="muted">
-           Сохраните черновик, затем откройте «Результаты» и выпустите подписанную Task через установленный T3.
+           Сохраните черновик, затем откройте «Подписанные Task» для выпуска через установленный T3.
            Черновик не является подписанным поручением.
           </span><button className="primary" data-testid="save-assignment">Сохранить черновик</button></div>
-        </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
+        </form> : <section className="card padded">
+          <div className="v8-work-filters" role="group" aria-label="Фильтр поручений" data-testid="v8-work-filters">
+           {([ ['all','Все',workItems.length], ['unassigned','Без исполнителя',workItems.filter(a=>!a.assigneeId).length],
+               ['atlas','Связаны с Atlas',workItems.filter(a=>!!a.atlasRef).length], ['ordinary','Без Atlas',workItems.filter(a=>!a.atlasRef).length] ] as const).map(([key,label,count])=>
+             <button type="button" key={key} className={workFilter===key?'active':''} aria-pressed={workFilter===key}
+              data-testid={'work-filter-'+key} onClick={()=>setWorkFilter(key)}>{label} <small>{count}</small></button>)}
+          </div>
+          {visibleWorkItems.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}
+          {!workItems.length?<Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Планы Atlas».'}/>:
+           !visibleWorkItems.length?<div data-testid="work-filter-empty"><Empty title="Нет поручений по этому условию" text="Измените фильтр, чтобы открыть другой черновик."/><button type="button" className="secondary" onClick={()=>setWorkFilter('all')}>Показать все</button></div>:null}
+        </section>}
       </>}
 
        {org && page==='results' && <AdminResultRoute route={route} onNavigate={go} organizationName={org.name} nativeHost={nativeHost}
@@ -1092,7 +1107,7 @@ export default function App() {
             <p>Сведения доступны только после оригинального подписанного чтения.</p></div>
           <div className="inspector-card"><strong>Atlas</strong>
             <p>{observedAtlas?'Открыто проектов: '+observedAtlas.projects.length:'Источник не открыт'}</p></div>
-          <button className="secondary" type="button" onClick={()=>go('results')}>Открыть Result / Review</button>
+          <button className="secondary" type="button" onClick={()=>go('review')}>Открыть Result / Review</button>
         </>}
       </div>
     </aside>

@@ -17,7 +17,9 @@ const STEPS=[
  {id:'apply',label:'6 · Apply',route:'apply',
   help:'ACCEPT и APPLY разные действия. Отдельный APPLY нужен только для разрешённого изменения исходного Kernel.'},
  {id:'reuse',label:'7 · Продолжить',route:'reuse',
-  help:'Начните следующую Task от сохранённого корпоративного результата в той же Workspace. История и связи остаются у исходного T2.'}
+  help:'Начните следующую Task от сохранённого корпоративного результата в той же Workspace. История и связи остаются у исходного T2.'},
+ {id:'recovery',label:'8 · Восстановление',route:'recovery',
+  help:'Перечитайте исходную операцию, квитанцию и редакции. Не повторяйте запись при неизвестном исходе.'}
 ] as const;
 type Props={
  route:AdminRouteId;
@@ -40,6 +42,7 @@ export default function AdminResultRoute({route,onNavigate,organizationName,nati
   finally{setOpening(false);}
  };
  const current=STEPS.find(item=>item.route===route);
+ const root=route==='results';
  const open=(step:typeof STEPS[number])=>onNavigate(step.route);
  return <div className="v8-result-layout">
   {focusedEmployeeName&&(route==='employees-t3'||route==='results')&&<div className="v8-employee-target" data-testid="v8-employee-focus">
@@ -47,11 +50,11 @@ export default function AdminResultRoute({route,onNavigate,organizationName,nati
     <span>Выбран контакт организации. Подписанный T3 отдельно проверяет личность, ключ и полномочия. Никакие права при переходе не выдаются.</span>
     <button type="button" className="secondary" onClick={()=>open(STEPS[1])}>К подключению T3</button>
    </div>}
-  <section className="v8-workspace-entry" data-testid="v8-workspace-entry" hidden={route!=='results'&&route!=='signed-workspace'}>
+  <section className={'v8-workspace-entry'+(root?' v8-workspace-entry-summary':'')} data-testid="v8-workspace-entry" hidden={!root&&route!=='signed-workspace'}>
    <div className="v8-workspace-heading">
     <div><small>КОРПОРАТИВНАЯ РАБОТА IWXA</small><h2>Одна Workspace. Вся работа организации.</h2>
-     <p>Поручения, результаты, связи, документы и история принадлежат исходной Workspace T2.
-      Для передачи используется штатный экспорт всей выбранной Workspace через IWXA Exchange.</p></div>
+     <p>{root?<>Организация: <strong>{organizationName}</strong>. Поручения, результаты и история сохраняются в исходной Workspace T2.</>:<>Поручения, результаты, связи, документы и история принадлежат исходной Workspace T2.
+      Для передачи используется штатный экспорт всей выбранной Workspace через IWXA Exchange.</>}</p></div>
     <div className="v8-workspace-actions">
      <button type="button" className="primary" data-testid="v8-workspace-open"
       disabled={!nativeHost||opening} onClick={()=>{void openWorkspace()}}>
@@ -60,33 +63,48 @@ export default function AdminResultRoute({route,onNavigate,organizationName,nati
       onClick={()=>open(STEPS[0])}>Подключение и полномочия</button>
     </div>
    </div>
-   <div className="v8-workspace-facts">
+   {!root&&<div className="v8-workspace-facts">
     <div><strong>Выбранная организация</strong><span>{organizationName}</span></div>
     <div><strong>Единица сохранения</strong><span>Корпоративная Workspace целиком</span></div>
     <div><strong>Обмен и продолжение</strong><span>Одна Workspace, её история и связи</span></div>
-   </div>
+   </div>}
    <p className="v8-workspace-status" data-testid="v8-workspace-status" role="status">
     {signedWorkspaceOpen
       ?signedWorkspaceVisible?'Нативное окно T3 открыто. Проверьте выбранную Workspace и действующие полномочия внутри.':'Нативный сеанс T3 сохранён. Окно скрыто для работы в Admin Center.'
       :nativeHost?'Подписанная Workspace ещё не открыта в этом сеансе.':'Работа с подписанной Workspace доступна в установленном Admin Center.'}
    </p>
    {openIssue&&<p className="v8-workspace-error" role="alert" data-testid="v8-workspace-error">{openIssue}</p>}
-   <p className="v8-workspace-boundary">Локальные черновики и планы Atlas остаются отдельно до подтверждённой операции исходного владельца. Личные области Personal Agent и другие организации в корпоративный экспорт не входят.</p>
+   {!root&&<p className="v8-workspace-boundary">Локальные черновики и планы Atlas остаются отдельно до подтверждённой операции исходного владельца. Личные области Personal Agent и другие организации в корпоративный экспорт не входят.</p>}
   </section>
   <section className="v8-result-journey" data-testid="v8-results-journey"
    aria-label="Этапы корпоративного поручения">
-   <div className="v8-result-journey-head"><strong>Связанные действия: от поручения до принятия</strong>
-     <small>Используются существующие операции оригинального T3</small>
+   <div className="v8-result-journey-head"><strong>{root?'Маршрут поручения и результата':'Этап корпоративной работы'}</strong>
+     <small>{root?'8 этапов · оригинальный T3':'Исходные операции T3'}</small>
    </div>
-   <nav className="v8-result-journey-steps" aria-label="Маршрут Task и Result">
+   <nav className={root?'v8-result-pipeline':'v8-result-journey-steps'} aria-label="Маршрут Task и Result" data-testid={root?'v8-result-pipeline':undefined}>
     {STEPS.map(step=><button key={step.id} type="button" aria-pressed={route===step.route}
        className={route===step.route?'active':''} data-testid={'v8-result-step-'+step.id}
-       onClick={()=>open(step)}>{step.label}</button>)}
+       onClick={()=>open(step)}>{root?<><strong>{step.label}</strong><span>{step.help}</span><span className="v8-pipeline-open" aria-hidden="true">Открыть ›</span></>:step.label}</button>)}
    </nav>
    {current&&<div className="v8-result-journey-hint" role="status">
       <span>{current.help}</span>
       <button type="button" aria-label="Все корпоративные операции" onClick={()=>onNavigate('results')}>×</button>
     </div>}
  </section>
+ {root&&<section className="v8-recovery-links" aria-label="Связанные разделы">
+   <button type="button" className="secondary" onClick={()=>onNavigate('people')}>Сотрудники и роли</button>
+   <button type="button" className="secondary" onClick={()=>onNavigate('work')}>Локальные поручения</button>
+   <button type="button" className="secondary" onClick={()=>onNavigate('context')}>Контекст организации</button>
+ </section>}
+ {route==='recovery'&&<section className="card padded v8-recovery-hub" data-testid="v8-recovery-hub">
+   <h2>Восстановление исходной операции</h2>
+   <p className="muted">Сохраните исходный ID. Используйте чтение в том же контексте и не создавайте новую операцию вместо неподтверждённой.</p>
+   <div className="v8-recovery-links">
+     <button type="button" className="secondary" data-testid="v8-recovery-task" onClick={()=>onNavigate('signed-tasks')}>Task: проверить исходный ID</button>
+     <button type="button" className="secondary" data-testid="v8-recovery-employee" onClick={()=>onNavigate('employees-t3')}>Сотрудник: перечитать реестр</button>
+     <button type="button" className="secondary" data-testid="v8-recovery-workspace" onClick={()=>onNavigate('signed-workspace')}>Workspace: открыть исходную</button>
+   </div>
+   <p className="muted">Переход только открывает существующий рабочий раздел, не отправляет подпись и не выдаёт права. Для решения ACCEPT / REJECT и Apply используйте чтение оригинальных пакетов и квитанций ниже.</p>
+ </section>}
  </div>;
 }

@@ -37,10 +37,12 @@ export const ADMIN_NAV_GROUPS:Record<AdminPage,readonly AdminRouteId[]>={
 };
 export const ADMIN_ROUTE_IDS=Object.keys(ADMIN_ROUTES) as AdminRouteId[];
 export const routeRoot=(route:AdminRouteId):AdminPage=>ADMIN_ROUTES[route].root;
-// Root retains the complete workbench. Focused routes reveal the original
-// working regions without remounting components or copying signed state.
+// Results is a task-oriented entry page, not a concatenation of forms.
+// Its original workbench stays mounted within the Results root; focused
+// routes reveal only the working regions for that step. Other roots keep
+// their existing contents. No signed state is duplicated.
 export const routeAllows=(route:AdminRouteId,...sections:AdminRouteId[])=>
- route===routeRoot(route)||sections.includes(route);
+ (route===routeRoot(route)&&route!=='results')||sections.includes(route);
 export function visibleAdminRoutes(page:AdminPage,query:string):AdminRouteId[]{
  const needle=query.trim().toLocaleLowerCase('ru');
  return needle?ADMIN_ROUTE_IDS.filter(id=>ADMIN_ROUTES[id].label.toLocaleLowerCase('ru').includes(needle)):
