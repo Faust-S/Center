@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 7ce69e0e92c1dde2a3da985f5a973675d324121b
+          ref: 718f9eeb2e767451af54dbf71c57f4cb38f4b43c
           path: public-one-core
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -37,10 +37,10 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if ((& git -C private-t3 rev-parse HEAD).Trim() -cne '8f60f667931f34f82724e28bce0c872514f0a6a3' -or
-              (& git -C public-one-core rev-parse HEAD).Trim() -cne '7ce69e0e92c1dde2a3da985f5a973675d324121b') {
+              (& git -C public-one-core rev-parse HEAD).Trim() -cne '718f9eeb2e767451af54dbf71c57f4cb38f4b43c') {
             throw 'ORIGINAL_RETURN_EXCHANGE_SOURCE_PIN_MISMATCH'
           }
-          & node --test public-one-core/packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs
+          & node --test public-one-core/packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-control-http.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_ENROLLMENT_REGRESSION_FAILED' }
       - name: Original signed Exchange and Control HTTP regression
         shell: pwsh
