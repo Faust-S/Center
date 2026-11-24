@@ -347,41 +347,7 @@ jobs:
               try{
                 $g=Get-Content -LiteralPath $gate -Raw|ConvertFrom-Json
                 $stage=[string]$g.stage
-                if($stage -cmatch '^[a-z][a-z0-9_]{2,63}
-            # and allowlisted failure enums. Never upload the receipt or logs.
-            $witness=Join-Path $out 'temporary-installed-fixture/installed-witness.json'
-            if(Test-Path -LiteralPath $witness -PathType Leaf){
-              try{
-                $r=Get-Content -LiteralPath $witness -Raw|ConvertFrom-Json
-                $phases=@('SHORTCUT_READBACK','COLD_GUI_BOOT','FIRST_CORE','CORE_QUERIES','DRAFT_CREATE','GUI_DRAFT_EDIT','GUI_DRAFT_READBACK','QWEN_EXECUTE','COLD_RESTART','COLD_CORE_QUERIES','GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT','GUI_RESULT','GUI_TASK_SUBMIT','GUI_TASK_RESULT','GUI_TASK_REVIEW','GUI_TASK_REVIEW_READBACK','GUI_COLD_RESTART','GUI_COLD_IMPORT','K03_TASK_EXECUTE','K03_TASK_COLD_RESTART','K03_TASK_COLD_READBACK','CLEAN_STOP','WITNESS_RECEIPT')
-                if($r.status -ceq 'FAIL' -and $r.phase -cin $phases){
-                  Write-Host ('CORPORATE_AGENT_NATIVE_WITNESS_PHASE='+$r.phase)
-                  foreach($key in @('failure_code','last_checkpoint','last_operation','background_state','background_error_class')){
-                    $prop=$r.PSObject.Properties[$key]
-                    if($prop -and [string]$prop.Value -cmatch '^[A-Z0-9_]{1,100}$'){
-                      Write-Host ('CORPORATE_AGENT_NATIVE_'+$key.ToUpperInvariant()+'='+$prop.Value)
-                    }
-                  }
-                }elseif($r.status -ceq 'PASS'){Write-Host 'CORPORATE_AGENT_NATIVE_WITNESS=PASS_SETUP_REMAINS_UNQUALIFIED'}
-              }catch{Write-Host 'CORPORATE_AGENT_NATIVE_WITNESS_DIAGNOSTIC_UNAVAILABLE'}
-            }else{Write-Host 'CORPORATE_AGENT_NATIVE_WITNESS_RECEIPT_ABSENT'}
-            $acceptLog=Join-Path $out 'logs/public-test-local-result.txt'
-            if(Test-Path -LiteralPath $acceptLog -PathType Leaf){
-              $safe=@([regex]::Matches((Get-Content -LiteralPath $acceptLog -Raw),'(?<![A-Z0-9_])(?:IWXA_SETUP_LOCAL|SETUP_LOCAL)_[A-Z0-9_]{4,100}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Last 20)
-              Write-Host ('CORPORATE_AGENT_SETUP_RECEIPT_CODES='+($safe -join ','))
-            }
-            throw 'CORPORATE_AGENT_ORIGINAL_SETUP_HOLD'
-          }
-      - name: Discard private Agent checkout and installed test resources
-        if: always()
-        shell: pwsh
-        run: |
-          foreach($dir in @('private-t3','private-agent','one-core','setup-core',(Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'),(Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache'))){
-            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
-          }
-          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'corporate-installed-agent-build-private.log') -Force -ErrorAction SilentlyContinue
-          Write-Host 'CORPORATE_AGENT_PRIVATE_CLEANUP=COMPLETE'
-){
+                if($stage -cmatch '^[a-z][a-z0-9_]{2,63}$'){
                   Write-Host ('CORPORATE_AGENT_PACKAGE_GATE_STAGE='+$stage.ToUpperInvariant())
                 }
                 $detail=[string]$g.error_code
