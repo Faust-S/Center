@@ -438,9 +438,10 @@ try {
   # its click. Exercise the REAL installed window with a physical Windows
   # mouse click and require the resulting editor to become accessible.
   # Both actions only change the local manager draft, not signed T3 owners.
-  Click-VisibleUiButton (Find-Control 'Связать с рабочей областью') 'Связать с рабочей областью'
-  Start-Sleep -Milliseconds 350
-  Click-VisibleUiButton (Find-Control 'Подготовить поручение по работе') 'Подготовить поручение по работе'
+  Click-Control 'Связать с рабочей областью'
+  [void](Find-TextContaining 'Связь с выбранной редакцией подтверждена в черновике')
+  Write-Host 'CENTER_INSTALLED_GUI_ATLAS_WORKSPACE_BINDING_READBACK_PASS'
+  Click-Control 'Подготовить поручение по работе'
   [void](Find-Control 'Что нужно сделать' 'Edit')
   Write-Host 'CENTER_INSTALLED_GUI_ATLAS_WORK_EDITOR_OPEN_PASS'
   Type-Control 'Что нужно сделать' $expectedAssignment
@@ -486,7 +487,18 @@ try {
   Assert-ButtonDisabled 'Проверить и сохранить через T3'
   Assert-ButtonDisabled 'Обновить лицензии'
   Assert-ButtonDisabled 'Подключить доверие издателя T3'
-  [void](Find-TextContaining 'Активных мест: 0')
+  # The tariff panel no longer publishes an artificial active-seat counter
+  # when the actual employee registry is not connected. A plan is not a
+  # confirmed seat. Require the explicit boundary and deny any live tariff
+  # allocation shortcut in this public, unsigned installation.
+  [void](Find-TextContaining 'TEST-лицензии не дают права назначать места Personal Agent')
+  [void](Find-TextContaining 'Места запланированы')
+  if(Visible-ButtonContaining 'Перейти к распределению мест'){
+    throw 'CEN04_INSTALLED_UNVERIFIED_TARIFF_CAPACITY_MUST_NOT_EXIST'
+  }
+  if(Visible-ButtonContaining 'Назначить место'){
+    throw 'CEN04_INSTALLED_NO_ORIGINAL_REGISTRY_ASSIGNMENT_REQUIRED'
+  }
   Write-Host 'CENTER_INSTALLED_CEN04_NATIVE_T3_NOT_CONFIGURED_ZERO_SEATS_PASS'
   Click-ButtonContaining 'Поручения'
   Click-ButtonContaining $expectedAssignment

@@ -8,7 +8,7 @@ const signed={status:'D3_OWNER_READY',snapshot:{
  actorId:'person:manager',contextId:'context:one',contextEpoch:7,
  d3RecipientAvailable:true,productionActivation:false,T3_READY:false,
  totalTasks:1,tasks:[{taskId:'task:one',taskRevisionId:sha('a'),
- packageSha256:sha('b'),summary:'Поставка завершена?',deliveryState:'NOT_CONFIRMED'}]
+ packageSha256:sha('b'),summary:'Поставка завершена?',recipientId:'person:manager',deliveryState:'NOT_CONFIRMED'}]
 }};
 const inbox={
  schema:'IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1',

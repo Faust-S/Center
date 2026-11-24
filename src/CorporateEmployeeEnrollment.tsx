@@ -1,5 +1,14 @@
-import React,{useState} from 'react';
-import {validateOriginalEmployeeTaskIssueReceipt}
+import React,{useEffect,useRef,useState} from 'react';
+import {prepareEmployeeDraftTask,employeeDraftSelectionCurrent,verifyEmployeeDraftSources} from './corporate-draft-task.mjs';
+import CorporateSeatAssignments from './CorporateSeatAssignments';
+import type {ManagerOriginalSelection} from './manager-original-selection';
+import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
+import {readOriginalEmployeeRegistryReceipt,readOriginalSeatView} from '../runtime/cen03-corporate-seats.mjs';
+import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskReadback,readOriginalEmployeeBootstrap,readOriginalEmployeePublicCandidate,
+ employeeTaskContinuationKey,readEmployeeTaskContinuation,saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
+ readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,
+ inspectOriginalEmployeeWorkspaceRights,inspectOriginalEmployeeTaskGrant,
+ readOriginalTaskCatalog,validateOriginalEmployeeCatalogReadback,validateOriginalEmployeeTaskExportReceipt}
  from '../runtime/cen03-d3-owner.mjs';
 
 // This is a manager's view of the ORIGINAL installed T3 employee enrollment.
@@ -8,12 +17,16 @@ import {validateOriginalEmployeeTaskIssueReceipt}
 type Exec=(operation:string,input?:Record<string,unknown>)=>Promise<any>;
 type Run=(message:string,task:()=>Promise<void|boolean>)=>Promise<void>;
 type Contact={id:string;name:string};
-type Session={organizationId:string;workspaceId:string;actorId:string;
+type DraftSource={id:string;title:string;workspaceId?:string;assigneeId?:string|null;reviewerId?:string|null;status?:string;editNumber?:number;description?:string;criteria?:string;dueDate?:string;atlasRef:{projectId:string;revision:string;workId?:string}|null;sourceResultRef?:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}|null};
+type TaskCatalogRow={taskId:string;recipientId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:string};
+type Session={organizationId:string;workspaceId:string;actorId:string;contextId:string;contextEpoch:number;
+  tasks?:TaskCatalogRow[];totalTasks?:number;
   d3EmployeeEnrollmentAvailable?:boolean;
   d3EmployeeRegistryBootstrapAvailable?:boolean;
   d3EmployeeRegistryReadbackAvailable?:boolean;
   d3EmployeeTaskIssueAvailable?:boolean;
-  d3EmployeeWorkspaceRightsAvailable?:boolean};
+  d3EmployeeWorkspaceRightsAvailable?:boolean;
+  d3EmployeeCorporateSeatsAvailable?:boolean};
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 function jsonObject(raw:string,code:string):Record<string,any>{
@@ -44,15 +57,25 @@ function keyRecord(raw:string,personId:string){
     throw Error('CEN_D3_EMPLOYEE_PUBLIC_KEY_RECORD_INVALID');
   return k;
 }
-export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,execute,run,busy}:{
- session:Session;contacts:Contact[];preferredContactId?:string|null;execute:Exec;run:Run;busy:boolean;
+export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,autoReadSeats=false,requireRegistryAbsence=false,registryAbsent=false,execute,run,busy,onOpenLicenses,managerOriginal=null,assignmentDrafts,invoke,onEnsureDraftSaved}:{
+ session:Session;contacts:Contact[];preferredContactId?:string|null;autoReadSeats?:boolean;requireRegistryAbsence?:boolean;registryAbsent?:boolean;execute:Exec;run:Run;busy:boolean;onOpenLicenses?:()=>void;managerOriginal?:ManagerOriginalSelection|null;
+ assignmentDrafts:DraftSource[];invoke:Exec;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;
 }){
  // A preselected organizational contact is only a local draft hint;
  // never infer an employee PROOF key, signed identity or active grant.
  const [contact,setContact]=useState(()=>contacts.some(c=>c.id===preferredContactId)?preferredContactId??'':'');
+ const [roster,setRoster]=useState<any>(null);
+ const [rosterChoice,setRosterChoice]=useState('');
  const [personId,setPersonId]=useState('');
  const [keyId,setKeyId]=useState('');
  const [publicRecord,setPublicRecord]=useState('');
+ const [bootstrapProfile,setBootstrapProfile]=useState<{profile:Record<string,unknown>;profileDigest:string}|null>(null);
+ const [publicCandidate,setPublicCandidate]=useState('');
+ const [copyNotice,setCopyNotice]=useState('');
+ async function copyPublic(value:string){
+  try{await navigator.clipboard.writeText(value);setCopyNotice('Скопировано.')}
+  catch{setCopyNotice('Выделите и скопируйте текст вручную.')}
+ }
  const [credentialChallenge,setCredentialChallenge]=useState<any>(null);
  const [credentialProof,setCredentialProof]=useState('');
  const [credentialAttempted,setCredentialAttempted]=useState(false);
@@ -69,20 +92,33 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const [employeeInviteReceipt,setEmployeeInviteReceipt]=useState<any>(null);
  const [workspaceRightsAttempted,setWorkspaceRightsAttempted]=useState(false);
  const [workspaceRightsReceipt,setWorkspaceRightsReceipt]=useState<any>(null);
+ const [workspaceReadHold,setWorkspaceReadHold]=useState(false);
  const [taskGrantAttempted,setTaskGrantAttempted]=useState(false);
  const [taskGrantReceipt,setTaskGrantReceipt]=useState<any>(null);
+ const [taskGrantReadHold,setTaskGrantReadHold]=useState(false);
  const [taskText,setTaskText]=useState('');
+ const [draftSource,setDraftSource]=useState<ReturnType<typeof prepareEmployeeDraftTask>|null>(null);
+ const [draftConsent,setDraftConsent]=useState(false);
+ const [draftProblem,setDraftProblem]=useState('');
+ const mounted=useRef(true);
+ useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[]);
+ const [historyChoice,setHistoryChoice]=useState<{scope:string;id:string}|null>(null);
+ const [historyReadback,setHistoryReadback]=useState<{scope:string;epoch:number;receipt:any}|null>(null);
  const [taskId,setTaskId]=useState('');
  const [taskAttempted,setTaskAttempted]=useState(false);
  const [taskReceipt,setTaskReceipt]=useState<any>(null);
+ const [taskReadbackCurrent,setTaskReadbackCurrent]=useState(false);
  const [taskRecoveryHold,setTaskRecoveryHold]=useState(false);
  const [taskRecoveryAttempted,setTaskRecoveryAttempted]=useState(false);
  const [taskNeedsRebind,setTaskNeedsRebind]=useState(false);
+ const [loadedTaskScope,setLoadedTaskScope]=useState<string|null>(null);
+ const [taskContinuationBlocked,setTaskContinuationBlocked]=useState(false);
  const available=session.d3EmployeeEnrollmentAvailable===true;
  const bootstrap=session.d3EmployeeRegistryBootstrapAvailable===true;
  const registryRead=session.d3EmployeeRegistryReadbackAvailable===true;
  const taskIssueAvailable=session.d3EmployeeTaskIssueAvailable===true;
  const workspaceRightsAvailable=session.d3EmployeeWorkspaceRightsAvailable===true;
+ const contactSelected=contacts.some(x=>x.id===contact);
  const personOk=ID.test(personId)&&personId!==session.actorId;
  const credentialOk=credentialReceipt?.state==='ORIGINAL_PROOF_CREDENTIAL_ADMITTED'&&
    credentialReceipt.employeePersonId===personId&&
@@ -91,95 +127,44 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  // A status flag alone must never display another employee's corporate
  // rights as belonging to the currently selected identity. Original T3
  // verifies every signed envelope; the UI binds its exact public readback.
- const exportResources=[
-   'workspace:'+session.workspaceId,'subject:'+session.organizationId,
-   'recipient:'+session.organizationId,'field:result','operation:UPSERT'
- ];
- const enrolled=credentialOk&&personOk&&
-   enrollmentReceipt?.state==='ORIGINAL_GRANTS_ACTIVE'&&
-   enrollmentReceipt.employeePersonId===personId&&
-   enrollmentReceipt.organizationId===session.organizationId&&
-   enrollmentReceipt.originalReadback===true&&
-   enrollmentReceipt.originalSigned===true&&
-   enrollmentReceipt.safeToReissue===false&&
-   enrollmentReceipt.membership?.personId===personId&&
-   enrollmentReceipt.membership?.organizationId===session.organizationId&&
-   enrollmentReceipt.membership?.workspaceId===session.workspaceId&&
-   enrollmentReceipt.credential?.holderPersonId===personId&&
-   enrollmentReceipt.credential?.publicKeyRef===keyId&&
-   enrollmentReceipt.binding?.holderPersonId===personId&&
-   enrollmentReceipt.binding?.organizationId===session.organizationId&&
-   enrollmentReceipt.binding?.grantId===enrollmentReceipt.workGrant?.payload?.id&&
-   enrollmentReceipt.workGrant?.payload?.holderId===personId&&
-   enrollmentReceipt.workGrant?.payload?.rightClass==='ACTION'&&
-   JSON.stringify(enrollmentReceipt.workGrant?.payload?.actions)==='["work.prepare"]'&&
-   JSON.stringify(enrollmentReceipt.workGrant?.payload?.resources)===
-     JSON.stringify([session.workspaceId])&&
-   enrollmentReceipt.exportGrant?.payload?.holderId===personId&&
-   enrollmentReceipt.exportGrant?.payload?.rightClass==='DATA'&&
-   JSON.stringify(enrollmentReceipt.exportGrant?.payload?.actions)==='["package.export"]'&&
-   JSON.stringify(enrollmentReceipt.exportGrant?.payload?.resources)===
-     JSON.stringify(exportResources)&&
-   enrollmentReceipt.originalEnrollment?.payload?.personId===personId&&
-   enrollmentReceipt.originalEnrollment?.payload?.organizationId===session.organizationId&&
-   enrollmentReceipt.originalEnrollment?.payload?.workspaceId===session.workspaceId&&
-   enrollmentReceipt.originalEnrollment?.payload?.credentialPublicKeyRef===keyId&&
-   Number.isSafeInteger(enrollmentReceipt.statusSequence)&&
-   enrollmentReceipt.statusSequence>0;
- // The independent employee's four T2 rights come from a separate original
- // Kernel grant write. Neither work.prepare nor package.export is an import.
- const rightsSpec:Record<string,[string,string]>={
-   readAccess:['workspace.read','workspace.read'],
-   writeAccess:['object.write','workspace.work'],
-   createAccess:['workspace.create','workspace.onboarding'],
-   importAccess:['workspace.exchange.import','workspace.exchange.import'],
- };
- const workspaceRightsOk=enrolled&&
-   workspaceRightsReceipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1'&&
-   workspaceRightsReceipt.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'&&
-   workspaceRightsReceipt.organizationId===session.organizationId&&
-   workspaceRightsReceipt.workspaceId===session.workspaceId&&
-   workspaceRightsReceipt.employeePersonId===personId&&
-   workspaceRightsReceipt.enrollmentId===enrollmentReceipt.enrollmentId&&
-   workspaceRightsReceipt.originalReadback===true&&
-   workspaceRightsReceipt.safeToReissue===false&&
-   Number.isSafeInteger(workspaceRightsReceipt.statusSequence)&&
-   Object.entries(rightsSpec).every(([key,[action,purpose]])=>{
-     const a=workspaceRightsReceipt.attachments?.[key];
-     return a?.grantId===a?.binding?.grantId&&
-       a?.membership?.personId===personId&&
-       a?.membership?.workspaceId===session.workspaceId&&
-       a?.binding?.holderPersonId===personId&&
-       a?.credential?.publicKeyRef===keyId&&
-       a?.enrollment?.payload?.credentialPublicKeyRef===keyId&&
-       a?.binding?.actions?.length===1&&a.binding.actions[0]===action&&
-       a?.binding?.purposes?.length===1&&a.binding.purposes[0]===purpose;
-   });
- // A second signed DATA grant belongs to the manager, not the worker.
- const managerTaskResources=[
-   'workspace:'+session.workspaceId,'subject:'+session.organizationId,
-   'recipient:'+personId,'field:task','operation:UPSERT'
- ];
- const managerTaskGrantOk=enrolled&&
-   taskGrantReceipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1'&&
-   taskGrantReceipt.state==='ORIGINAL_MANAGER_TASK_DATA_ACTIVE'&&
-   taskGrantReceipt.organizationId===session.organizationId&&
-   taskGrantReceipt.workspaceId===session.workspaceId&&
-   taskGrantReceipt.recipientId===personId&&
-   taskGrantReceipt.employeePersonId===personId&&
-   taskGrantReceipt.managerPersonId===session.actorId&&
-   taskGrantReceipt.enrollmentId===enrollmentReceipt.enrollmentId&&
-   taskGrantReceipt.originalReadback===true&&
-   taskGrantReceipt.safeToReissue===false&&
-   taskGrantReceipt.grant?.payload?.holderId===session.actorId&&
-   taskGrantReceipt.grant?.payload?.roleId==='assigner'&&
-   taskGrantReceipt.grant?.payload?.rightClass==='DATA'&&
-   JSON.stringify(taskGrantReceipt.grant?.payload?.actions)==='["package.export"]'&&
-   JSON.stringify(taskGrantReceipt.grant?.payload?.purposes)==='["assignment"]'&&
-   JSON.stringify(taskGrantReceipt.grant?.payload?.resources)===
-     JSON.stringify(managerTaskResources)&&
-   Number.isSafeInteger(taskGrantReceipt.statusSequence)&&
-   taskGrantReceipt.statusSequence>0;
+ let enrolled=false;
+ if(credentialOk&&personOk){
+   try{
+     const identity=readOriginalEmployeeEnrollmentIdentity(enrollmentReceipt,{
+       organizationId:session.organizationId,workspaceId:session.workspaceId,
+       actorId:session.actorId,employeePersonId:personId,enrollmentId:recoveryEnrollmentId
+     });
+     enrolled=identity.credentialKeyId===keyId;
+   }catch{/* No original bound enrollment: no employee authority in this form. */}
+ }
+ // A card is only a projection of current original signed readback, never
+ // a second grant evaluator or local source of authority.
+ const grantScope={organizationId:session.organizationId,workspaceId:session.workspaceId,
+   actorId:session.actorId,employeePersonId:personId,
+   enrollmentId:recoveryEnrollmentId,credentialKeyId:keyId};
+ function inspected(kind:'workspace'|'task',receipt:any,scope=grantScope){
+   try{return kind==='workspace'?inspectOriginalEmployeeWorkspaceRights(receipt,scope):
+     inspectOriginalEmployeeTaskGrant(receipt,scope)}
+   catch{return 'UNVERIFIED'}
+ }
+ const workspaceRightsOk=enrolled&&!workspaceReadHold&&
+   inspected('workspace',workspaceRightsReceipt)==='ACTIVE';
+ const managerTaskGrantOk=enrolled&&!taskGrantReadHold&&
+   inspected('task',taskGrantReceipt)==='ACTIVE';
+ const taskGrantKnownHold=inspected('task',taskGrantReceipt)==='HOLD';
+ async function readGrant(kind:'workspace'|'task',scope=grantScope){
+   const workspace=kind==='workspace';
+   const setHold=workspace?setWorkspaceReadHold:setTaskGrantReadHold;
+   const setReceipt=workspace?setWorkspaceRightsReceipt:setTaskGrantReceipt;
+   // Old receipts cannot survive a failed current read.
+   setHold(true);setReceipt(null);
+   const result=await execute(workspace?'d3EmployeeWorkspaceGrantReadback':'d3EmployeeTaskGrantReadback',{
+     employeePersonId:scope.employeePersonId,enrollmentId:scope.enrollmentId});
+   const state=workspace?inspectOriginalEmployeeWorkspaceRights(result,scope):
+     inspectOriginalEmployeeTaskGrant(result,scope);
+   setReceipt(result);setHold(false);
+   return state;
+ }
  // The employee must import the current signed manager DATA + STATUS.
  const invitationCurrentForTask=managerTaskGrantOk&&workspaceRightsOk&&
    employeeInviteReceipt?.originalSigned===true&&
@@ -188,18 +173,191 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    Number.isSafeInteger(employeeInviteReceipt.statusSequence)&&
    employeeInviteReceipt.statusSequence>=taskGrantReceipt.statusSequence&&
    employeeInviteReceipt.statusSequence>=workspaceRightsReceipt.statusSequence;
+ // Do not couple the next Task to the employee's first-use form. The
+ // continuation is scoped to the exact original enrollment and manager.
+ // Retain a dispatched ID across contact navigation, owner epoch changes
+ // and process restart, but never treat local storage as native readback.
+ const taskScope=enrolled?employeeTaskContinuationKey(session.organizationId,
+   session.workspaceId,session.actorId,personId,enrollmentReceipt.enrollmentId):null;
+ const taskScopeReady=taskScope!==null&&loadedTaskScope===taskScope&&!taskContinuationBlocked;
+ const draftScope={...grantScope,contextId:session.contextId,contextEpoch:session.contextEpoch};
+ const chosenDraft=draftSource?assignmentDrafts.find(d=>d.id===draftSource.id):undefined;
+ const draftSelectionCurrent=!!draftSource&&employeeDraftSelectionCurrent(draftSource,chosenDraft,draftScope,taskText,true);
+ const draftReady=!draftSource||draftSelectionCurrent&&draftConsent;
+ const draftGate=useRef({ready:false,source:null as typeof draftSource});
+ draftGate.current={ready:draftReady,source:draftSource};
+ const clearDraftSource=()=>{setDraftSource(null);setDraftConsent(false);setDraftProblem('')};
+ function chooseDraft(id:string){
+   clearDraftSource();setTaskText('');
+   if(!id)return;
+   try{
+     if(!enrolled||!taskScopeReady||taskAttempted)throw Error('CEN_D3_EMPLOYEE_DRAFT_SOURCE_INVALID');
+     const source=prepareEmployeeDraftTask(assignmentDrafts.find(d=>d.id===id),draftScope);
+     setDraftSource(source);setTaskText(source.text);
+   }catch(e){setDraftProblem(String(e))}
+ }
+ const catalog=(()=>{
+   try{return readOriginalTaskCatalog(session)}catch{return null}
+ })();
+ const historyRows:TaskCatalogRow[]=enrolled?(catalog?.rows.filter((row:TaskCatalogRow)=>row.recipientId===personId)??[]):[];
+ const selectedHistory=historyChoice&&historyChoice.scope===taskScope?
+   historyRows.find(row=>row.taskId===historyChoice.id):undefined;
+ const focusedTask=managerOriginal?.kind==='signed-task'&&
+   managerOriginalSelectionMatches(managerOriginal,session)&&
+   managerOriginal.recipientId!==session.actorId?
+   catalog?.rows.find((row:TaskCatalogRow)=>row.taskId===managerOriginal.id):undefined;
+ const verifiedHistory=(()=>{
+   if(!selectedHistory||!historyReadback||historyReadback.scope!==taskScope||
+     historyReadback.epoch!==session.contextEpoch||!enrolled)return null;
+   try{return validateOriginalEmployeeCatalogReadback(historyReadback.receipt,
+     selectedHistory,recoveryEnrollmentId)}catch{return null}
+ })();
+ const readHistory=()=>run('Подписанное поручение перечитано без новой выдачи.',async()=>{
+   setHistoryReadback(null);
+   if(!enrolled||!selectedHistory||!taskScope||!taskIssueAvailable)
+     throw Error('CEN_D3_EMPLOYEE_TASK_CATALOG_READBACK_HOLD');
+   const result=await execute('d3EmployeeTaskReadback',{
+     taskId:selectedHistory.taskId,employeePersonId:personId,enrollmentId:recoveryEnrollmentId});
+   const receipt=validateOriginalEmployeeCatalogReadback(result,selectedHistory,recoveryEnrollmentId);
+   setHistoryReadback({scope:taskScope,epoch:session.contextEpoch,receipt});
+ });
+ const exportHistory=()=>run('Ранее подписанный файл сохранён. Доставка не подтверждена.',async()=>{
+   if(!verifiedHistory||!selectedHistory||!enrolled||!taskIssueAvailable)
+     throw Error('CEN_D3_EMPLOYEE_TASK_CATALOG_READBACK_HOLD');
+   const result=await execute('d3EmployeeExportTask',{
+     taskId:selectedHistory.taskId,employeePersonId:personId,enrollmentId:recoveryEnrollmentId});
+   if(result?.status==='CANCELLED')return false;
+   validateOriginalEmployeeTaskExportReceipt(result,verifiedHistory);
+ });
+ useEffect(()=>{
+   clearDraftSource();setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
+   setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);setTaskNeedsRebind(false);
+   setLoadedTaskScope(null);setTaskContinuationBlocked(false);
+   if(!taskScope)return;
+   try{
+     const pending=readEmployeeTaskContinuation(localStorage,taskScope);
+     if(pending){setTaskId(pending);setTaskAttempted(true);}
+     setLoadedTaskScope(taskScope);
+   }catch{setTaskContinuationBlocked(true);}
+ },[taskScope]);
+ const freshTaskReadback=taskReadbackCurrent&&taskReceipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1'&&
+   taskReceipt.found===true&&taskReceipt.originalKernelReadback===true&&
+   taskReceipt.taskId===taskId&&taskReceipt.recipientId===personId&&
+   taskReceipt.enrollmentId===enrollmentReceipt?.enrollmentId&&
+   !taskNeedsRebind&&!taskRecoveryHold;
+ const prepareNextTask=()=>run('Подготовлено новое поручение для того же сотрудника.',async()=>{
+   if(!taskScopeReady||!taskScope||(taskAttempted&&!freshTaskReadback))
+     throw Error('CEN_D3_EMPLOYEE_TASK_READBACK_BEFORE_NEW_REQUIRED');
+   if(taskAttempted){
+     try{clearEmployeeTaskContinuation(localStorage,taskScope,taskId)}
+     catch(e){setTaskContinuationBlocked(true);throw e}
+   }else{
+     try{
+       if(readEmployeeTaskContinuation(localStorage,taskScope)!==null)
+         throw Error('CEN_D3_EMPLOYEE_TASK_CONTINUATION_ALREADY_PENDING');
+     }catch(e){setTaskContinuationBlocked(true);throw e}
+   }
+   clearDraftSource();setTaskId('task:'+crypto.randomUUID());setTaskText('');
+   setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);setTaskRecoveryHold(false);
+   setTaskRecoveryAttempted(false);setTaskNeedsRebind(false);
+ });
  const reset=()=>{
    setCredentialChallenge(null);setCredentialProof('');setCredentialAttempted(false);
    setCredentialReceipt(null);setEnrollmentChallenge(null);setRecoveryEnrollmentId('');
    setEnrollmentProof('');
    setEnrollmentAttempted(false);setEnrollmentReceipt(null);
    setEmployeeInviteReceipt(null);
-   setWorkspaceRightsAttempted(false);setWorkspaceRightsReceipt(null);
-   setTaskGrantAttempted(false);setTaskGrantReceipt(null);
-   setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);
+   setWorkspaceRightsAttempted(false);setWorkspaceRightsReceipt(null);setWorkspaceReadHold(false);
+   setTaskGrantAttempted(false);setTaskGrantReceipt(null);setTaskGrantReadHold(false);
+   clearDraftSource();setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);
-   setTaskNeedsRebind(false);
+   setTaskNeedsRebind(false);setLoadedTaskScope(null);setTaskContinuationBlocked(false);
+   setHistoryChoice(null);setHistoryReadback(null);
  };
+ const refreshRoster=(employeeOffset=0)=>run('Исходный список сотрудников перечитан.',async()=>{
+   setRoster(null);setRosterChoice('');
+   const result=readOriginalSeatView(await execute('d3EmployeeSeatView',{offset:0,employeeOffset}),
+     session.organizationId,session.workspaceId);
+   setRoster(result);
+ });
+ const openRosterRow=async(row:{personId:string;enrollmentId:string})=>{
+   const same=personId===row.personId&&recoveryEnrollmentId===row.enrollmentId;
+   // Failed reads of the active selection must invalidate its authority
+   // presentation. Pending Task identity survives in the scoped continuation.
+   if(same)setEnrollmentReceipt(null);
+   setWorkspaceRightsReceipt(null);setWorkspaceReadHold(true);
+   setTaskGrantReceipt(null);setTaskGrantReadHold(true);
+   setEmployeeInviteReceipt(null);setTaskReadbackCurrent(false);
+   const result=await execute('d3EmployeeRead',{
+     employeePersonId:row.personId,enrollmentId:row.enrollmentId});
+   const identity=readOriginalEmployeeEnrollmentIdentity(result,{
+     organizationId:session.organizationId,workspaceId:session.workspaceId,
+     actorId:session.actorId,employeePersonId:row.personId,enrollmentId:row.enrollmentId});
+   const credential=readOriginalEmployeeCredentialIdentity(
+     await execute('d3EmployeeCredentialRead',{
+       employeePersonId:identity.employeePersonId,credentialKeyId:identity.credentialKeyId}),identity);
+   if(!same||keyId!==identity.credentialKeyId){
+     reset();setContact('');setPublicRecord('');setPublicCandidate('');setCopyNotice('');
+   }
+   setPersonId(identity.employeePersonId);setKeyId(identity.credentialKeyId);
+   setRecoveryEnrollmentId(identity.enrollmentId);setCredentialReceipt(credential);
+   setEnrollmentReceipt(result);
+   // Reopen the exact employee and both independent rights in one action.
+   // A missing right is different from a revoked or unreadable right.
+   const scope={organizationId:session.organizationId,workspaceId:session.workspaceId,
+     actorId:session.actorId,employeePersonId:identity.employeePersonId,
+     enrollmentId:identity.enrollmentId,credentialKeyId:identity.credentialKeyId};
+   let held=false;
+   if(workspaceRightsAvailable){
+     try{await readGrant('workspace',scope)}catch{held=true}
+   }
+   if(taskIssueAvailable){
+     try{await readGrant('task',scope)}catch{held=true}
+   }
+   if(held)throw Error('CEN_D3_EMPLOYEE_EXISTING_RIGHTS_READBACK_HOLD');
+ };
+ const restoreRosterEmployee=()=>run('Подключённый сотрудник восстановлен из исходного T3 без выдачи новых прав.',async()=>{
+   const selected=roster?.eligibleEmployees.find((row:any)=>row.personId===rosterChoice);
+   if(!selected)throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_REQUIRED');
+   // A selected row is only a locator, not an authorization. Read the
+   // current same page, enrollment and exact independent PROOF key.
+   setRoster(null);
+   const current=readOriginalSeatView(await execute('d3EmployeeSeatView',{
+     offset:0,employeeOffset:roster.employeeOffset}),session.organizationId,session.workspaceId);
+   setRoster(current);
+   const row=current.eligibleEmployees.find((m:any)=>m.personId===selected.personId&&
+     m.enrollmentId===selected.enrollmentId);
+   if(!row)throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_STALE');
+   await openRosterRow(row);
+ });
+ const openFocusedEmployeeTask=()=>run('Адресат исходного поручения открыт. Поручение готово к независимому чтению.',async()=>{
+   if(!focusedTask||!available||!session.d3EmployeeCorporateSeatsAvailable)
+     throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_REQUIRED');
+   let offset=0,digest:string|null=null,total:number|null=null;
+   setRoster(null);setRosterChoice('');
+   // Page through the existing original roster with one consistent digest.
+   // A signed Task's recipient alone cannot establish an enrollment.
+   for(let page=0;page<64;page++){
+     const view=readOriginalSeatView(await execute('d3EmployeeSeatView',{
+       offset:0,employeeOffset:offset}),session.organizationId,session.workspaceId);
+     if(view.employeeOffset!==offset||(digest!==null&&view.registryDigest!==digest)||
+       (total!==null&&view.employeeTotal!==total))throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_STALE');
+     digest=view.registryDigest;total=view.employeeTotal;setRoster(view);
+     const row=view.eligibleEmployees.find((item:any)=>item.personId===focusedTask.recipientId);
+     if(row){
+       setRosterChoice(row.personId);
+       await openRosterRow(row);
+       setHistoryReadback(null);
+       setHistoryChoice({scope:employeeTaskContinuationKey(session.organizationId,
+         session.workspaceId,session.actorId,row.personId,row.enrollmentId),id:focusedTask.taskId});
+       return;
+     }
+     if(view.employeeNextOffset===null)
+       throw Error('CEN_D3_EMPLOYEE_TASK_RECIPIENT_NOT_IN_CURRENT_ROSTER');
+     offset=view.employeeNextOffset;
+   }
+   throw Error('CEN_D3_EMPLOYEE_ROSTER_PAGE_LIMIT');
+ });
  const confirmCredential=()=>run('Подлинность ключа перечитана из оригинального Kernel.',async()=>{
    if(!credentialChallenge)throw Error('CEN_D3_EMPLOYEE_KEY_PROOF_NOT_PREPARED');
    // Once sent, a lost ACK is read-only recovery, never another admission.
@@ -281,7 +439,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      throw Error('CEN_D3_EMPLOYEE_ORIGINAL_KEY_READBACK_REQUIRED');
    setCredentialReceipt(result);
  });
- return <section className="nested-form" data-testid="d3-independent-employee">
+ return <section className="nested-form" data-testid="d3-independent-employee" tabIndex={-1}>
   <h3>Независимый сотрудник организации</h3>
   <p className="muted">Подписывает только оригинальный T3 в доверенном Host. Сотрудник подтверждает
    собственный Ed25519-ключ в установленном Agent; руководитель никогда не получает закрытый ключ.
@@ -294,20 +452,15 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
       не создаёт гранты, не выполняет запись и не повторяет потерянную команду.</p>
       <button data-testid="d3-employee-registry-readback" disabled={busy}
        onClick={()=>void run('Исходный реестр перечитан без повторной записи.',async()=>{
-         const receipt=await execute('d3EmployeeRegistryReadback',{});
-         if(receipt?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1'||
-            receipt.organizationId!==session.organizationId||
-            receipt.workspaceId!==session.workspaceId||
-            receipt.originalReadback!==true||receipt.originalKernel!==true||
-            !['ORIGINAL_KERNEL_REGISTRY_CONFIRMED',
-              'ORIGINAL_KERNEL_REGISTRY_NOT_FOUND'].includes(receipt.state)||
-            receipt.automaticRetryAllowed!==false)
-           throw Error('CEN_D3_EMPLOYEE_REGISTRY_READBACK_INVALID');
-         if(receipt.state!=='ORIGINAL_KERNEL_REGISTRY_CONFIRMED')
+         const result=readOriginalEmployeeRegistryReceipt(await execute('d3EmployeeRegistryReadback',{}),
+           session.organizationId,session.workspaceId);
+         if(result==='WORKSPACE_NOT_READY')
+           throw Error('CEN_D3_ORIGINAL_EMPLOYEE_WORKSPACE_NOT_READY');
+         if(result==='NOT_FOUND')
            throw Error('CEN_D3_EMPLOYEE_REGISTRY_NOT_PRESENT_USE_EXPLICIT_INITIALIZE');
        })}>Проверить реестр без записи</button>
      </div>}
-     {bootstrap&&<div>
+     {bootstrap&&(!requireRegistryAbsence||registryAbsent)&&<div>
       <p>Откройте оригинальную T3 Workspace, затем подтвердите подключение
       исходного реестра в отдельном нативном окне Windows.
       После записи будет выполнено чтение того же Kernel.</p>
@@ -335,19 +488,88 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        })}>Подключить исходный реестр T3</button>
      </div>}
     </div>:
-  <div className="form-grid">
-   <label>Контакт в черновике
+  <>
+  {session.d3EmployeeCorporateSeatsAvailable===true&&<div className="nested-form" data-testid="d3-employee-roster">
+   <h4>Ранее подключённые сотрудники</h4>
+   {focusedTask&&<div className="notice subdued" data-testid="d3-employee-focused-task">
+    <p>Из поиска выбрано поручение: {focusedTask.summary||focusedTask.taskId}.</p>
+    <button type="button" disabled={busy} data-testid="d3-employee-open-focused-task"
+      onClick={()=>void openFocusedEmployeeTask()}>Открыть сотрудника и поручение</button>
+   </div>}
+   <p>Откройте сотрудника из подписанного реестра, чтобы восстановить его полномочия и поручения.
+     Повторное подключение или выдача ключей не требуются.</p>
+   <button type="button" className="secondary" data-testid="d3-employee-roster-read" disabled={busy}
+     onClick={()=>void refreshRoster()}>Прочитать подключённых сотрудников</button>
+   {roster&&<>
+    <label>Сотрудник из исходного T3
+     <select value={rosterChoice} data-testid="d3-employee-roster-person" disabled={busy}
+       onChange={e=>setRosterChoice(e.target.value)}>
+      <option value="">Выберите сотрудника</option>
+      {roster.eligibleEmployees.filter((m:any)=>m.personId!==session.actorId).map((m:any)=>
+        <option key={m.personId} value={m.personId}>{m.personId}</option>)}
+     </select>
+    </label>
+    <div className="actions">
+     <button type="button" className="secondary" disabled={busy||roster.employeeOffset===0}
+       onClick={()=>void refreshRoster(Math.max(0,roster.employeeOffset-64))}>Предыдущие</button>
+     <span>{roster.employeeTotal===0?'0':roster.employeeOffset+1}–{roster.employeeOffset+roster.eligibleEmployees.length} из {roster.employeeTotal}</span>
+     <button type="button" className="secondary" disabled={busy||roster.employeeNextOffset===null}
+       onClick={()=>void refreshRoster(roster.employeeNextOffset)}>Следующие</button>
+     <button type="button" data-testid="d3-employee-roster-open" disabled={busy||!rosterChoice}
+       onClick={()=>void restoreRosterEmployee()}>Открыть подключённого сотрудника</button>
+    </div>
+   </>}
+  </div>}
+  <div className="nested-form" data-testid="d3-employee-bootstrap">
+   <h4>Первое подключение сотрудника</h4>
+   <label>Сотрудник в организации
     <select data-testid="d3-employee-contact" value={contact} disabled={busy}
       onChange={e=>{
-        // A draft contact has NO T3 identity. Never display the previously
-        // selected employee key as belonging to a different contact.
+        // The contact is a draft hint only; never carry another person's
+        // candidate, key or unfinished proof to a newly selected contact.
         setContact(e.target.value);setPersonId('');setKeyId('');
-        setPublicRecord('');reset();
+        setPublicCandidate('');setCopyNotice('');setPublicRecord('');reset();
       }}>
      <option value="">Выберите сотрудника</option>
      {contacts.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
     </select>
    </label>
+   {!contactSelected&&<p className="muted">{contacts.length===0
+    ?'Добавьте сотрудника в структуру организации перед переносом его публичной записи.'
+    :'Сначала выберите сотрудника, затем перенесите полученную от него запись.'}
+    {' '}Публичный профиль организации можно получить заранее.</p>}
+   <p>Передайте сотруднику исходный публичный профиль организации. Контрольный отпечаток сообщите отдельно. Agent создаст собственные ключи на компьютере сотрудника.</p>
+   <button type="button" data-testid="d3-employee-bootstrap-profile" disabled={busy}
+    onClick={()=>void run('Исходный профиль подключения прочитан.',async()=>{
+     setBootstrapProfile(null);setPublicCandidate('');setCopyNotice('');
+     const receipt=await execute('d3EmployeeBootstrapProfile',{});
+     setBootstrapProfile(readOriginalEmployeeBootstrap(receipt,session));
+    })}>Получить профиль подключения</button>
+   {bootstrapProfile&&<>
+    <label>Публичный профиль для Agent
+     <textarea readOnly rows={4} value={JSON.stringify(bootstrapProfile.profile,null,2)}
+      onFocus={e=>e.currentTarget.select()} data-testid="d3-employee-bootstrap-profile-json"/></label>
+    <button className="secondary" type="button" onClick={()=>void copyPublic(JSON.stringify(bootstrapProfile.profile,null,2))}>Скопировать профиль</button>
+    <label>Контрольный отпечаток SHA-256
+     <input readOnly value={bootstrapProfile.profileDigest} onFocus={e=>e.currentTarget.select()}
+      data-testid="d3-employee-bootstrap-fingerprint"/></label>
+    <button type="button" className="secondary" onClick={()=>void copyPublic(bootstrapProfile.profileDigest)}>Скопировать отпечаток</button>
+    <label>Публичная запись, полученная от Agent
+     <textarea rows={4} maxLength={32768} value={publicCandidate} disabled={busy}
+      onChange={e=>setPublicCandidate(e.target.value)} data-testid="d3-employee-bootstrap-candidate"/></label>
+    <button type="button" disabled={busy||!contactSelected||!publicCandidate.trim()||!!credentialChallenge||!!enrollmentChallenge||
+      credentialAttempted||enrollmentAttempted}
+      data-testid="d3-employee-bootstrap-candidate-read"
+      onClick={()=>void run('Публичная запись перенесена. Ключ ещё не подтверждён.',async()=>{
+       if(!contactSelected)throw Error('CEN_D3_EMPLOYEE_CONTACT_REQUIRED');
+       const c=readOriginalEmployeePublicCandidate(publicCandidate,session,bootstrapProfile);
+       setPersonId(c.employeePersonId);setKeyId(c.credentialKeyId);
+       setPublicRecord(JSON.stringify(c.keyRecord,null,2));reset();
+      })}>Перенести публичную запись</button>
+    {copyNotice&&<p role="status">{copyNotice}</p>}
+   </>}
+  </div>
+  <div className="form-grid">
    <label>Подписанная личность T3 сотрудника
     <input data-testid="d3-employee-person" value={personId} disabled={busy}
       placeholder="person:..." onChange={e=>{setPersonId(e.target.value.trim());reset();}}/>
@@ -356,7 +578,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
     <input data-testid="d3-employee-key" value={keyId} disabled={busy}
       placeholder="key:..." onChange={e=>{setKeyId(e.target.value.trim());reset();}}/>
    </label>
-  </div>}
+  </div></>}
   {available&&<div data-testid="d3-employee-steps">
    <label>Публичная запись ключа, полученная от сотрудника
     <textarea data-testid="d3-employee-key-record" value={publicRecord} rows={3}
@@ -364,9 +586,10 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
       placeholder='{"subjectId":"person:...","publicKey":"-----BEGIN PUBLIC KEY-----..."}'/>
    </label>
    <div className="actions">
-    <button data-testid="d3-employee-credential-begin" disabled={busy||!contact||!personOk||
+    <button data-testid="d3-employee-credential-begin" disabled={busy||!contactSelected||!personOk||
       !ID.test(keyId)||!!credentialChallenge||credentialAttempted||credentialOk}
      onClick={()=>void run('Запрос оригинального подтверждения ключа создан.',async()=>{
+       if(!contactSelected)throw Error('CEN_D3_EMPLOYEE_CONTACT_REQUIRED');
        const result=await execute('d3EmployeeCredentialBegin',{
          employeePersonId:personId,credentialKeyId:keyId,
          keyRecord:keyRecord(publicRecord,personId)});
@@ -383,9 +606,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
     <p>Передайте запрос сотруднику. Agent подписывает его собственным
     Ed25519-ключом. Подпись действует ограниченное время: при истечении срока
     отмените только ещё не отправленный запрос и создайте новый.</p>
-    <textarea data-testid="d3-employee-credential-challenge" readOnly rows={4}
+    <textarea aria-label="Запрос подтверждения ключа" data-testid="d3-employee-credential-challenge" readOnly rows={4}
       value={JSON.stringify({request:credentialChallenge.employeeRequest,
-        challenge:credentialChallenge.employeeChallenge},null,2)}/>
+        challenge:credentialChallenge.employeeChallenge},null,2)} onFocus={e=>e.currentTarget.select()}/>
+    <button className="secondary" type="button" onClick={()=>void copyPublic(JSON.stringify({request:credentialChallenge.employeeRequest,
+      challenge:credentialChallenge.employeeChallenge},null,2))}>Скопировать запрос ключа</button>
     <label>Оригинальный подписанный ответ сотрудника
      <textarea data-testid="d3-employee-credential-proof" rows={3}
       value={credentialProof} disabled={busy||credentialAttempted}
@@ -434,9 +659,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
     {enrollmentChallenge&&<div>
      <p>Испытание ключа действует ограниченное время. Если сотрудник
        ещё не отправил ответ, прежний вызов можно отменить без Kernel-записи.</p>
-     <textarea data-testid="d3-employee-enrollment-challenge" readOnly rows={4}
+     <textarea aria-label="Запрос подтверждения подключения" data-testid="d3-employee-enrollment-challenge" readOnly rows={4}
        value={JSON.stringify({request:enrollmentChallenge.request,
-         challenge:enrollmentChallenge.challenge},null,2)}/>
+         challenge:enrollmentChallenge.challenge},null,2)} onFocus={e=>e.currentTarget.select()}/>
+     <button className="secondary" type="button" onClick={()=>void copyPublic(JSON.stringify({request:enrollmentChallenge.request,
+       challenge:enrollmentChallenge.challenge},null,2))}>Скопировать запрос подключения</button>
      <label>Подписанный ответ сотрудника
       <textarea data-testid="d3-employee-enrollment-proof" rows={3}
         value={enrollmentProof} disabled={busy||enrollmentAttempted}
@@ -478,10 +705,13 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        <div className="actions">
          <button data-testid="d3-employee-workspace-grants-issue"
            disabled={!workspaceRightsAvailable||busy||
-             workspaceRightsAttempted||workspaceRightsOk}
+             workspaceRightsAttempted||workspaceRightsOk||workspaceReadHold}
            onClick={()=>void run('Исходный Kernel подтвердил четыре права Workspace.',async()=>{
-             if(workspaceRightsAttempted)
+             if(workspaceRightsAttempted||workspaceReadHold)
                throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_USE_READBACK');
+             const before=await readGrant('workspace');
+             if(before==='ACTIVE')return;
+             if(before!=='NOT_FOUND')throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
              setWorkspaceRightsAttempted(true);
              let r:any;
              try {
@@ -499,25 +729,20 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
              if(r?.state!=='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'||
                r.originalReadback!==true||r.safeToReissue!==false)
                throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
-             const read=await execute('d3EmployeeWorkspaceGrantReadback',{
-               employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
-             });
-             setWorkspaceRightsReceipt(read);
-             if(read?.state!=='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE')
+             if(await readGrant('workspace')!=='ACTIVE')
                throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
            })}>Разрешить работу и перенос Workspace</button>
          <button className="secondary" data-testid="d3-employee-workspace-grants-read"
            disabled={!workspaceRightsAvailable||busy}
            onClick={()=>void run('Подписанные права перечитаны без новой выдачи.',async()=>{
-             const r=await execute('d3EmployeeWorkspaceGrantReadback',{
-               employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
-             });
-             setWorkspaceRightsReceipt(r);
+             await readGrant('workspace');
            })}>Проверить выданные права</button>
        </div>
        {workspaceRightsOk&&<p role="status" data-testid="d3-employee-workspace-rights-confirmed">
          Четыре права подтверждены исходным Kernel. Импорт будет разрешён
          только в выбранную корпоративную Workspace.</p>}
+       {workspaceReadHold&&<p role="alert" data-testid="d3-employee-workspace-rights-hold">
+         Не удалось подтвердить состояние прав Workspace. Перечитайте исходные права перед новой выдачей.</p>}
        {workspaceRightsAttempted&&!workspaceRightsOk&&<p className="notice subdued">
          Ответ мог потеряться после записи. Не выдавайте права повторно.
          Используйте проверку выданных прав.</p>}
@@ -564,9 +789,13 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
          этого сотрудника. Это не создаёт Task и не доставляет файл.</p>
       <div className="actions">
        <button data-testid="d3-employee-task-grant-issue"
-        disabled={busy||taskGrantAttempted||managerTaskGrantOk}
+        disabled={busy||!taskIssueAvailable||taskGrantAttempted||managerTaskGrantOk||taskGrantReadHold||taskGrantKnownHold}
         onClick={()=>void run('Оригинальный Kernel подтвердил адресный DATA-грант.',async()=>{
-          if(taskGrantAttempted)throw Error('CEN_D3_EMPLOYEE_TASK_DATA_USE_READBACK');
+          if(taskGrantAttempted||taskGrantReadHold||taskGrantKnownHold)
+            throw Error('CEN_D3_EMPLOYEE_TASK_DATA_USE_READBACK');
+          const before=await readGrant('task');
+          if(before==='ACTIVE')return;
+          if(before!=='NOT_FOUND')throw Error('CEN_D3_EMPLOYEE_TASK_DATA_READBACK_HOLD');
           setTaskGrantAttempted(true);
           let result:any;
           try{
@@ -585,29 +814,17 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
              result.recipientId!==personId||result.taskSigned!==false||
              result.taskDelivered!==false)
             throw Error('CEN_D3_EMPLOYEE_TASK_DATA_UNKNOWN_READBACK_REQUIRED');
-          const cold=await execute('d3EmployeeTaskGrantReadback',{
-            employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
-          });
-          setTaskGrantReceipt(cold);
-          if(cold?.state!=='ORIGINAL_MANAGER_TASK_DATA_ACTIVE')
+          if(await readGrant('task')!=='ACTIVE')
             throw Error('CEN_D3_EMPLOYEE_TASK_DATA_UNKNOWN_READBACK_REQUIRED');
         })}>Выдать адресное право на Task</button>
        <button className="secondary" data-testid="d3-employee-task-grant-read"
         disabled={busy} onClick={()=>void run('Адресный DATA-грант перечитан без записи.',async()=>{
-          const cold=await execute('d3EmployeeTaskGrantReadback',{
-            employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
-          });
-          if(cold?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1'||
-             cold.originalReadback!==true||cold.safeToReissue!==false||
-             cold.organizationId!==session.organizationId||
-             cold.workspaceId!==session.workspaceId||
-             cold.employeePersonId!==personId||cold.recipientId!==personId||
-             cold.managerPersonId!==session.actorId||
-             cold.enrollmentId!==enrollmentReceipt.enrollmentId)
-            throw Error('CEN_D3_EMPLOYEE_TASK_DATA_READBACK_HOLD');
-          setTaskGrantReceipt(cold);
+          await readGrant('task');
         })}>Перечитать исходный DATA-грант</button>
       </div>
+      {(taskGrantReadHold||taskGrantKnownHold)&&<p role="alert" data-testid="d3-employee-task-grant-hold">
+        Адресное право не подтверждено, отозвано или истекло. Перечитайте исходный грант.
+        Новая выдача и подписание поручений недоступны.</p>}
       {taskGrantAttempted&&!managerTaskGrantOk&&<p className="notice subdued">
          После отправки запись могла завершиться без ответа. Повторное
          подтверждение запрещено; только оригинальный readback.</p>}
@@ -622,22 +839,99 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      {!taskIssueAvailable&&<p className="notice subdued" data-testid="d3-employee-task-owner-unavailable">
        Оригинальный Kernel сейчас не подключён к владельцу Task.
         Откройте доверенную Workspace и перечитайте адресный DATA-грант.</p>}
+     <h3>Поручения сотруднику</h3>
+     <div className="nested-form" data-testid="d3-employee-task-history">
+      <h4>Ранее подписанные поручения</h4>
+      {catalog===null?<p role="alert">Исходный список поручений не подтверждён. Обновите корпоративную сессию.</p>:
+        <>
+        <p className="muted">В исходном списке этого сотрудника: {historyRows.length}.
+          {catalog.truncated?' Показана доступная часть исходного каталога.':''}
+          {' '}Доставка и приёмка не следуют из подписания.</p>
+        {!!historyRows.length&&<>
+         <label>Выберите сохранённое поручение
+          <select value={selectedHistory?.taskId??''} disabled={busy}
+            data-testid="d3-employee-history-select"
+            onChange={e=>{setHistoryReadback(null);setHistoryChoice(taskScope?{scope:taskScope,id:e.target.value}:null)}}>
+           <option value="">Выберите поручение</option>
+           {historyRows.map(row=><option key={row.taskId} value={row.taskId}>
+            {row.summary||row.taskId} · {row.taskId.slice(0,24)}
+           </option>)}
+          </select>
+         </label>
+         {selectedHistory&&<div data-testid="d3-employee-history-selection">
+          <p>{selectedHistory.summary||selectedHistory.taskId}</p>
+          <p className="muted">Редакция: {selectedHistory.taskRevisionId.slice(0,16)}… · SHA-256:
+            {' '}{selectedHistory.packageSha256.slice(0,16)}…</p>
+          <div className="actions">
+           <button type="button" className="secondary" data-testid="d3-employee-history-read"
+             disabled={busy||!taskIssueAvailable} onClick={()=>void readHistory()}>Проверить сохранённое поручение</button>
+           <button type="button" className="secondary" data-testid="d3-employee-history-export"
+             disabled={busy||!taskIssueAvailable||!verifiedHistory} onClick={()=>void exportHistory()}>Сохранить ранее подписанный файл .iwxa</button>
+          </div>
+          {verifiedHistory&&<p role="status" data-testid="d3-employee-history-confirmed">
+           Исходные подписанные байты подтверждены. Доставка не подтверждена.</p>}
+         </div>}
+        </>}
+        </>}
+     </div>
+     <p>Подготовьте новое поручение или восстановите ранее подписанное по исходному ID.
+       Повторное подключение сотрудника для следующего поручения не требуется.</p>
+     {taskContinuationBlocked&&<p role="alert" data-testid="d3-employee-task-continuation-blocked">
+       Не удалось прочитать или сохранить идентификатор операции. Новая подпись заблокирована.
+       Перечитайте исходное поручение. После устранения ошибки хранения заново откройте раздел сотрудника.</p>}
+     <button type="button" className="secondary" data-testid="d3-employee-task-new"
+       disabled={busy||!taskScopeReady||(taskAttempted&&!freshTaskReadback)}
+       onClick={()=>void prepareNextTask()}>Новое поручение</button>
+     {!!assignmentDrafts.length&&<label>Подготовить из черновика этой рабочей области
+      <select data-testid="d3-employee-task-from-draft" value={draftSource?.id??''}
+        disabled={busy||taskAttempted||!taskScopeReady} onChange={e=>chooseDraft(e.target.value)}>
+       <option value="">Ввести поручение вручную</option>
+       {assignmentDrafts.map(d=><option key={d.id} value={d.id}>{d.title}</option>)}
+      </select>
+     </label>}
+     {draftProblem&&<p role="alert">{draftProblem}</p>}
+     {draftSource&&<>
+      <p className="muted">Черновик: редакция {chosenDraft?.editNumber??'не подтверждена'}.
+       {' '}Исполнитель в черновике: {contacts.find(c=>c.id===chosenDraft?.assigneeId)?.name??'не назначен'}.
+       {' '}Подписанный адресат: {personId}. Черновой контакт не удостоверяет личность T3.</p>
+      {!draftSelectionCurrent&&<p role="alert" data-testid="d3-employee-draft-stale">
+       Черновик или контекст изменился. Выберите актуальный черновик повторно.</p>}
+      <label><input type="checkbox" data-testid="d3-employee-draft-recipient-consent"
+        checked={draftConsent} disabled={busy||taskAttempted||!draftSelectionCurrent}
+        onChange={e=>setDraftConsent(e.target.checked)}/>
+       Подтверждаю, что этот черновик предназначен выбранному подписанному сотруднику</label>
+     </>}
      <label>Текст поручения
       <textarea data-testid="d3-employee-task-text" rows={3} maxLength={10000}
-        value={taskText} disabled={busy||taskAttempted}
-        onChange={e=>setTaskText(e.target.value)}/>
+        value={taskText} disabled={busy||taskAttempted||!taskScopeReady}
+        readOnly={!!draftSource} onChange={e=>setTaskText(e.target.value)}/>
      </label>
-     <label>Исходный ID поручения (сохраните до отправки)
+     <label>Исходный ID поручения
       <input data-testid="d3-employee-task-id" value={taskId}
-        disabled={busy||taskAttempted} onChange={e=>setTaskId(e.target.value)}/>
+        maxLength={105} disabled={busy||taskAttempted||(!taskScopeReady&&!taskContinuationBlocked)}
+        onChange={e=>setTaskId(e.target.value.trim())}/>
      </label>
+     <p className="muted">Перед отправкой ID сохраняется локально. Содержимое, подпись и каталог Task
+       принадлежат оригинальному T3. При потере ответа сначала перечитайте Task.</p>
      <button data-testid="d3-employee-task-create" disabled={!taskIssueAvailable||
-        !invitationCurrentForTask||busy||taskAttempted||
-       !/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||!taskText.trim()}
+        !invitationCurrentForTask||busy||taskAttempted||!taskScopeReady||!draftReady||
+       !/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||!taskText.trim()||
+       catalog===null||catalog.rows.some((row:TaskCatalogRow)=>row.taskId===taskId)}
        onClick={()=>void run('Оригинальная Task подписана адресату, доставка не подтверждена.',async()=>{
-        if(taskAttempted||!managerTaskGrantOk||
-            !ID.test(enrollmentReceipt.enrollmentId))
+        if(taskAttempted||!managerTaskGrantOk||!invitationCurrentForTask||
+            !taskScopeReady||!taskScope||!draftReady||!ID.test(enrollmentReceipt.enrollmentId)||
+            catalog===null||catalog.rows.some((row:TaskCatalogRow)=>row.taskId===taskId))
            throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_DATA_GRANT_REQUIRED');
+         if(draftSource){
+           await onEnsureDraftSaved(session.organizationId,session.workspaceId);
+           await verifyEmployeeDraftSources(draftSource,draftScope,invoke);
+           if(!mounted.current||!draftGate.current.ready||draftGate.current.source!==draftSource)
+             throw Error('CEN_D3_EMPLOYEE_DRAFT_CHANGED_BEFORE_SIGNING');
+         }
+         // Persist only the exact operation ID before an irreversible
+         // native call. Any write failure prevents dispatch.
+         try{saveEmployeeTaskContinuation(localStorage,taskScope,taskId)}
+         catch(e){setTaskContinuationBlocked(true);throw e}
          setTaskAttempted(true);
          let result:any;
          try{
@@ -647,7 +941,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
            });
          }catch(e){
            if(String(e).replace(/^Error:\s*/,'').trim()===
-             'CEN_D3_EMPLOYEE_TASK_HUMAN_CANCELLED')setTaskAttempted(false);
+             'CEN_D3_EMPLOYEE_TASK_HUMAN_CANCELLED'){
+             try{clearEmployeeTaskContinuation(localStorage,taskScope,taskId)}
+             catch(clearError){setTaskContinuationBlocked(true);throw clearError}
+             setTaskAttempted(false);
+           }
            throw e;
          }
         const confirmed=validateOriginalEmployeeTaskIssueReceipt(result,{
@@ -658,27 +956,33 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        })}>3. Подписать Task этому сотруднику</button>
      <button data-testid="d3-employee-task-read" disabled={!taskIssueAvailable||busy||!/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)}
        onClick={()=>void run('Состояние исходной подписанной Task проверено без повторного выпуска.',async()=>{
+        setTaskReadbackCurrent(false);
         const result=await execute('d3EmployeeTaskReadback',{
           enrollmentId:enrollmentReceipt.enrollmentId,
            employeePersonId:personId,taskId});
-         if(result?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1'&&
-            result.found===false&&result.taskId===taskId&&
-            result.status==='ORIGINAL_SIGNED_CARRIER_WITHOUT_INVENTORY_HOLD'&&
-            result.automaticReissueAllowed===false){
-           setTaskAttempted(true);setTaskReceipt(null);
+         const observed=validateOriginalEmployeeTaskReadback(result,{
+           employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId,taskId
+         },taskReceipt??null);
+         if(!observed.found&&observed.status==='NOT_IN_ORIGINAL_TASK_INVENTORY'){
+           // A missing inventory record does not establish a safe retry.
+           // Keep any persisted attempt; a manually entered unused ID may
+           // still be changed, but cannot be reported as a signed Task.
+           throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_READBACK_HOLD');
+         }
+         if(taskScopeReady&&taskScope){
+           try{
+             const pending=readEmployeeTaskContinuation(localStorage,taskScope);
+             if(pending===null)saveEmployeeTaskContinuation(localStorage,taskScope,taskId);
+             else if(pending!==taskId)throw Error('CEN_D3_EMPLOYEE_TASK_CONTINUATION_CHANGED');
+           }catch(e){setTaskContinuationBlocked(true);throw e}
+         }
+         if(!observed.found){
+           setTaskAttempted(true);setTaskReceipt(null);setTaskReadbackCurrent(false);
            setTaskRecoveryHold(true);
            return;
          }
-         if(result?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1'||
-            result.found!==true||result.recipientId!==personId||
-            result.enrollmentId!==enrollmentReceipt.enrollmentId||
-            result.originalKernelReadback!==true||result.taskDelivered!==false||
-            result.taskId!==taskId||!HEX.test(result.taskRevisionId)||
-           !HEX.test(result.packageSha256)||
-           result?.status!=='SIGNED_TASK_PERSISTED_NOT_DELIVERED')
-          throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_READBACK_HOLD');
-        setTaskRecoveryHold(false);setTaskReceipt(result);setTaskAttempted(true);
-        setTaskNeedsRebind(false);
+        setTaskRecoveryHold(false);setTaskReceipt(observed);setTaskAttempted(true);
+        setTaskNeedsRebind(false);setTaskReadbackCurrent(true);
        })}>Перечитать подписанную Task</button>
      {taskRecoveryHold&&<div data-testid="d3-employee-task-orphan-recovery">
        <p className="notice subdued">Исходный подписанный .iwxa найден, но
@@ -731,32 +1035,31 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
         Каталог восстановлен без новой подписи. Откройте доверенную
         Workspace заново и перечитайте Task перед сохранением .iwxa.</p>}
      <button className="secondary" data-testid="d3-employee-task-export"
-        disabled={busy||taskNeedsRebind||!taskIssueAvailable||
-          taskReceipt?.originalKernelReadback!==true||
-          taskReceipt?.taskId!==taskId||taskReceipt?.recipientId!==personId}
+        disabled={busy||!taskIssueAvailable||!freshTaskReadback}
         onClick={()=>void run('Оригинальный подписанный .iwxa сохранён, доставка не подтверждена.',async()=>{
          const result=await execute('d3EmployeeExportTask',{
            employeePersonId:personId,
            enrollmentId:enrollmentReceipt.enrollmentId,taskId
          });
          if(result?.status==='CANCELLED')return false;
-         if(result?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_EXPORT/1'||
-            result.status!=='EXPORTED_UNDELIVERED'||
-            result.originalSigned!==true||result.taskDelivered!==false||
-            result.taskId!==taskId||result.recipientId!==personId||
-            result.taskRevisionId!==taskReceipt.taskRevisionId||
-            result.packageSha256!==taskReceipt.packageSha256||
-            !Number.isSafeInteger(result.bytes)||result.bytes<=0)
-           throw Error('CEN_D3_EMPLOYEE_TASK_EXPORT_READBACK_HOLD');
+         validateOriginalEmployeeTaskExportReceipt(result,taskReceipt);
         })}>Сохранить подписанную Task .iwxa</button>
-      {taskAttempted&&!taskReceipt&&<p className="notice subdued">
-       Task могла быть подписана до потери ACK. Повторный выпуск запрещён:
-       используйте только исходный readback.</p>}
+      {taskAttempted&&!taskReceipt&&<p className="notice subdued" data-testid="d3-employee-task-awaiting-readback">
+       Task могла быть подписана до потери ответа. Сохранён её исходный ID.
+       Повторный выпуск запрещён: сначала перечитайте Task.</p>}
      {taskReceipt&&<p data-testid="d3-employee-task-receipt">
        Подписанная Task: {taskReceipt.taskId} · {taskReceipt.taskRevisionId}.
        Доставка сотруднику не подтверждена.</p>}
+     {freshTaskReadback&&<p role="status" data-testid="d3-employee-task-next-ready">
+       Исходный каталог подтверждён. Сохраните .iwxa для передачи или подготовьте
+       следующее поручение тому же сотруднику.</p>}
     </div>}
    </div>}
   </div>}
+  <CorporateSeatAssignments key={JSON.stringify([session.organizationId,session.workspaceId,session.actorId])}
+    organizationId={session.organizationId} workspaceId={session.workspaceId} actorId={session.actorId}
+   employee={enrolled?{personId,enrollmentId:enrollmentReceipt.enrollmentId}:null}
+   available={available&&session.d3EmployeeCorporateSeatsAvailable===true} autoRead={autoReadSeats}
+   execute={execute} run={run} busy={busy} onOpenLicenses={onOpenLicenses}/>
  </section>;
 }

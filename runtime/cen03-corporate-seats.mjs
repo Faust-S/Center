@@ -1,0 +1,242 @@
+// Read-only native projection and bound UI command preparation. Not an IAM,
+// seat ledger or license evaluator. The original signed T3 owner decides.
+const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
+const SHA=/^[a-f0-9]{64}$/;
+const id=v=>typeof v==='string'&&ID.test(v);
+const sha=v=>typeof v==='string'&&SHA.test(v);
+const count=v=>Number.isSafeInteger(v)&&v>=0;
+const nullableCount=v=>v===null||count(v);
+const states=['VERIFIED_CAPACITY_CANDIDATE','LINEAGE_INCOMPLETE','MULTIPLE_CURRENT_LICENSES',
+ 'NO_CURRENT_LICENSE','LICENSE_SOURCE_UNAVAILABLE'];
+const statuses=['ACTIVE','SUSPENDED','REVOKED','SUPERSEDED'];
+const check=(ok,code='CEN_D3_CORPORATE_SEAT_READBACK_INVALID')=>{if(!ok)throw Error(code);};
+export function readOriginalSeatView(value,organizationId,workspaceId){
+ const v=value;
+ check(id(organizationId)&&id(workspaceId)&&v?.schema==='IWXA_T3_ORIGINAL_CORPORATE_SEAT_VIEW/1'&&
+  v.organizationId===organizationId&&v.workspaceId===workspaceId&&v.originalReadback===true&&
+  v.productionActivation===false&&sha(v.registryDigest)&&states.includes(v.licenseState)&&
+  (v.licenseEvidenceDigest===null||sha(v.licenseEvidenceDigest))&&
+  typeof v.seatPolicyReady==='boolean'&&typeof v.withinLimits==='boolean'&&
+  typeof v.existingLineageMatches==='boolean'&&count(v.reservedSeats)&&
+  count(v.independentlyEnrolledEmployees)&&count(v.availableSeats)&&
+  nullableCount(v.seatLimit)&&nullableCount(v.employeeLimit)&&nullableCount(v.overSeatLimit)&&
+  nullableCount(v.overEmployeeLimit)&&count(v.assignmentTotal)&&count(v.assignmentOffset)&&
+  v.assignmentOffset<=v.assignmentTotal&&v.reservedSeats<=v.assignmentTotal&&
+  Array.isArray(v.assignments)&&v.assignments.length<=64&&
+  v.assignments.length===Math.min(64,v.assignmentTotal-v.assignmentOffset)&&
+  v.assignmentNextOffset===(v.assignmentOffset+64<v.assignmentTotal?v.assignmentOffset+64:null)&&
+  count(v.employeeTotal)&&v.employeeTotal<=v.independentlyEnrolledEmployees&&count(v.employeeOffset)&&
+  v.employeeOffset<=v.employeeTotal&&Array.isArray(v.eligibleEmployees)&&
+  v.eligibleEmployees.length===Math.min(64,v.employeeTotal-v.employeeOffset)&&
+  v.employeeNextOffset===(v.employeeOffset+64<v.employeeTotal?v.employeeOffset+64:null));
+ const c=v.candidate;
+ if(c===null){
+  check(v.licenseState!=='VERIFIED_CAPACITY_CANDIDATE'&&v.availableSeats===0&&
+   v.withinLimits===false&&v.seatLimit===null&&v.employeeLimit===null&&
+   v.overSeatLimit===null&&v.overEmployeeLimit===null);
+ }else{
+  check(v.licenseState==='VERIFIED_CAPACITY_CANDIDATE'&&sha(v.licenseEvidenceDigest)&&
+   id(c?.licenseId)&&id(c?.lineageId)&&sha(c?.lineageDigest)&&sha(c?.licenseDigest)&&
+   count(c?.seatLimit)&&count(c?.employeeLimit)&&
+   typeof c.expiresAt==='string'&&Number.isFinite(Date.parse(c.expiresAt))&&
+   typeof c.statusValidUntil==='string'&&Number.isFinite(Date.parse(c.statusValidUntil))&&
+   c.seatLimit===v.seatLimit&&
+   c.employeeLimit===v.employeeLimit&&
+   v.overSeatLimit===Math.max(0,v.reservedSeats-v.seatLimit)&&
+   v.overEmployeeLimit===Math.max(0,v.independentlyEnrolledEmployees-v.employeeLimit)&&
+   (!v.withinLimits||(v.existingLineageMatches&&v.overSeatLimit===0&&v.overEmployeeLimit===0))&&
+   v.availableSeats===(v.seatPolicyReady&&v.withinLimits?Math.max(0,v.seatLimit-v.reservedSeats):0));
+ }
+ const grants=new Set(),reservedPeople=new Set();
+ for(const [index,row] of v.assignments.entries()){
+  check(row&&id(row.grantId)&&id(row.personId)&&id(row.enrollmentId)&&id(row.workGrantId)&&
+   id(row.credentialKeyId)&&sha(row.lineageDigest)&&sha(row.licenseDigest)&&
+   typeof row.expiresAt==='string'&&Number.isFinite(Date.parse(row.expiresAt))&&
+   statuses.includes(row.status)&&typeof row.reserved==='boolean'&&!grants.has(row.grantId)&&
+   row.reserved===(index+v.assignmentOffset<v.reservedSeats)&&
+   (!row.reserved||(['ACTIVE','SUSPENDED'].includes(row.status)&&!reservedPeople.has(row.personId))));
+  grants.add(row.grantId);if(row.reserved)reservedPeople.add(row.personId);
+ }
+ const roster=new Set();
+ for(const m of v.eligibleEmployees){
+  check(id(m?.personId)&&id(m?.enrollmentId)&&typeof m.reserved==='boolean'&&
+    !roster.has(m.personId));
+  const row=v.assignments.find(r=>r.personId===m.personId&&r.reserved);
+  check(!row||m.reserved);
+  if(v.assignmentOffset===0&&v.assignmentNextOffset===null)check(m.reserved===!!row);
+  roster.add(m.personId);
+ }
+ return v;
+}
+// Return a fresh command bound to the exact independently-read native state.
+// No price/seat calculations, actor selection, or proof keys are sent by UI.
+/** @param {any} view @param {string} kind @param {string} commandId
+ * @param {{personId:string,enrollmentId:string}|null} employee @param {string|null} [fromGrantId] */
+export function prepareOriginalSeatCommand(view,kind,commandId,employee,fromGrantId=null){
+ check(view?.originalReadback===true&&id(commandId)&&['ASSIGN','RELEASE','TRANSFER'].includes(kind),
+  'CEN_D3_CORPORATE_SEAT_COMMAND_INVALID');
+ const assign=kind!=='RELEASE',release=kind!=='ASSIGN';
+ const from=release?view.assignments.find(r=>r.grantId===fromGrantId&&r.reserved):null;
+ check(!release||!!from,'CEN_D3_CORPORATE_SEAT_SOURCE_REQUIRED');
+ check(release||fromGrantId===null,'CEN_D3_CORPORATE_SEAT_SOURCE_REQUIRED');
+ if(assign){
+  check(id(employee?.personId)&&id(employee?.enrollmentId)&&
+   view.seatPolicyReady===true&&view.withinLimits===true&&sha(view.licenseEvidenceDigest)&&
+   (kind!=='ASSIGN'||view.availableSeats>0)&&
+   !view.assignments.some(r=>r.personId===employee.personId&&r.reserved)&&
+   !view.eligibleEmployees.some(r=>r.personId===employee.personId&&
+    (r.reserved||r.enrollmentId!==employee.enrollmentId)),
+   'CEN_D3_CORPORATE_SEAT_ASSIGNMENT_NOT_AVAILABLE');
+ }
+ return {confirmed:true,kind,commandId,expectedRegistryDigest:view.registryDigest,
+  expectedLicenseDigest:view.licenseEvidenceDigest,
+  employeePersonId:assign?employee.personId:null,enrollmentId:assign?employee.enrollmentId:null,
+  fromGrantId:release?fromGrantId:null};
+}
+// Delivery is a read-only selection from the original independently enrolled
+// roster. Existing invitation export re-reads the native signed registry;
+// this command does not assign, release or issue a grant.
+export function prepareOriginalSeatDelivery(view,personId){
+ check(view?.originalReadback===true&&id(personId),
+  'CEN_D3_CORPORATE_SEAT_DELIVERY_SCOPE_INVALID');
+ const employee=view.eligibleEmployees.find(row=>row.personId===personId);
+ check(employee&&id(employee.enrollmentId),'CEN_D3_CORPORATE_SEAT_DELIVERY_EMPLOYEE_REQUIRED');
+ return {employeePersonId:employee.personId,enrollmentId:employee.enrollmentId};
+}
+export function readOriginalSeatDelivery(receipt,request,workspaceId){
+ if(receipt?.status==='CANCELLED')return null;
+ check(id(workspaceId)&&id(request?.employeePersonId)&&id(request?.enrollmentId)&&
+  receipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_INVITATION_EXPORT/1'&&
+  receipt.state==='SIGNED_INVITATION_EXPORTED_NOT_DELIVERED'&&
+  receipt.employeePersonId===request.employeePersonId&&receipt.recipientId===request.employeePersonId&&
+  receipt.enrollmentId===request.enrollmentId&&receipt.workspaceId===workspaceId&&
+  receipt.originalSigned===true&&receipt.originalKernelReadback===true&&
+  receipt.invitationDelivered===false&&receipt.automaticTransfer===false&&
+  count(receipt.statusSequence)&&receipt.statusSequence>0&&sha(receipt.packageSha256)&&
+  count(receipt.bytes)&&receipt.bytes>0,
+  'CEN_D3_CORPORATE_SEAT_DELIVERY_READBACK_INVALID');
+ return Object.freeze({employeePersonId:request.employeePersonId,statusSequence:receipt.statusSequence,
+  packageSha256:receipt.packageSha256,invitationDelivered:false});
+}
+export function readOriginalSeatChange(result,command,organizationId,workspaceId){
+ check(result?.originalReadback===true&&['COMMITTED','ALREADY_COMMITTED'].includes(result.outcome)&&
+  result.commandId===command.commandId&&
+  (command.kind==='RELEASE'?result.grantId===null:id(result.grantId))&&
+  result.releasedGrantId===command.fromGrantId,'CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN');
+ return readOriginalSeatView(result.view,organizationId,workspaceId);
+}
+export function readOriginalSeatPolicy(result,organizationId,workspaceId){
+ check(result?.originalReadback===true&&['ENABLED','ALREADY_ENABLED'].includes(result.outcome),
+  'CEN_D3_CORPORATE_SEAT_POLICY_OUTCOME_UNKNOWN');
+ const view=readOriginalSeatView(result.view,organizationId,workspaceId);
+ check(view.seatPolicyReady,'CEN_D3_CORPORATE_SEAT_POLICY_OUTCOME_UNKNOWN');return view;
+}
+
+export function readOriginalSeatCommandRecovery(result,command,organizationId,workspaceId){
+ check(result?.originalReadback===true&&result.automaticRetryAllowed===false&&
+   result.commandId===command.commandId&&['ALREADY_COMMITTED','NOT_COMMITTED','OUTCOME_UNKNOWN'].includes(result.outcome),
+   'CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN');
+ if(result.outcome==='ALREADY_COMMITTED')
+   return {outcome:result.outcome,view:readOriginalSeatChange(result,command,organizationId,workspaceId)};
+ check(result.grantId===null&&result.releasedGrantId===null,'CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN');
+ const view=readOriginalSeatView(result.view,organizationId,workspaceId);
+ check(result.outcome!=='NOT_COMMITTED'||view.registryDigest===command.expectedRegistryDigest,
+   'CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN');
+ return {outcome:result.outcome,view};
+}
+
+// UI continuation only. Never stores a roster, license, proof, assignment,
+// or decision. The original owner determines the command outcome.
+export function seatIntentKey(organizationId,workspaceId,actorId){
+ check([organizationId,workspaceId,actorId].every(id),'CEN_D3_CORPORATE_SEAT_INTENT_SCOPE_INVALID');
+ return 'iwxa.center.pending-seat.v1:'+JSON.stringify([organizationId,workspaceId,actorId]);
+}
+export function validateSeatIntent(v){
+ check(v&&Object.keys(v).sort().join(',')==='commandId,confirmed,employeePersonId,enrollmentId,expectedLicenseDigest,expectedRegistryDigest,fromGrantId,kind'&&
+  v.confirmed===true&&id(v.commandId)&&sha(v.expectedRegistryDigest)&&
+  (v.expectedLicenseDigest===null||sha(v.expectedLicenseDigest))&&
+  ['ASSIGN','RELEASE','TRANSFER'].includes(v.kind),'CEN_D3_CORPORATE_SEAT_INTENT_INVALID');
+ const assign=v.kind!=='RELEASE',release=v.kind!=='ASSIGN';
+ check(assign?(id(v.employeePersonId)&&id(v.enrollmentId)&&sha(v.expectedLicenseDigest)):
+  (v.employeePersonId===null&&v.enrollmentId===null),'CEN_D3_CORPORATE_SEAT_INTENT_INVALID');
+ check(release?id(v.fromGrantId):v.fromGrantId===null,'CEN_D3_CORPORATE_SEAT_INTENT_INVALID');
+ return v;
+}
+export function readSeatIntent(storage,key){
+ const raw=storage.getItem(key);
+ return raw===null?null:validateSeatIntent(JSON.parse(raw));
+}
+export function saveSeatIntent(storage,key,command){
+ const v=validateSeatIntent(command);
+ check(storage.getItem(key)===null,'CEN_D3_CORPORATE_SEAT_INTENT_ALREADY_PENDING');
+ storage.setItem(key,JSON.stringify(v));
+ check(JSON.stringify(readSeatIntent(storage,key))===JSON.stringify(v),'CEN_D3_CORPORATE_SEAT_INTENT_NOT_SAVED');
+ return v;
+}
+export function clearSeatIntent(storage,key,command){
+ const current=readSeatIntent(storage,key);
+ check(current===null||JSON.stringify(current)===JSON.stringify(validateSeatIntent(command)),
+  'CEN_D3_CORPORATE_SEAT_INTENT_CHANGED');
+ if(current!==null)storage.removeItem(key);
+}
+
+// Read-only first-use navigation over capabilities already reported by the
+// signed native Owner. This never opens a Workspace or initializes a registry.
+export function corporateSeatRouteStage({nativeHost,ownerReadFailed,d3Ready,snapshot}){
+ if(!nativeHost)return 'NATIVE_REQUIRED';
+ if(ownerReadFailed)return 'OWNER_READ_FAILED';
+ if(!d3Ready)return 'CONNECT_ORGANIZATION';
+ if(snapshot?.d3EmployeeEnrollmentAvailable===true&&
+    snapshot?.d3EmployeeCorporateSeatsAvailable===true)return 'SEATS';
+ if(snapshot?.d3EmployeeEnrollmentAvailable===true)return 'SEAT_CONTRACT_UNAVAILABLE';
+ if(snapshot?.d3EmployeeRegistryReadbackAvailable===true)return 'READ_REGISTRY';
+ if(snapshot?.originalSignedWorkspaceAvailable===true)return 'OPEN_WORKSPACE';
+ return 'KERNEL_UNAVAILABLE';
+}
+export function readOriginalEmployeeRegistryReceipt(receipt,organizationId,workspaceId){
+ const confirmed=receipt?.state==='ORIGINAL_KERNEL_REGISTRY_CONFIRMED';
+ check(id(organizationId)&&id(workspaceId)&&
+  receipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1'&&
+  (confirmed||['ORIGINAL_KERNEL_REGISTRY_NOT_FOUND','ORIGINAL_KERNEL_WORKSPACE_NOT_READY'].includes(receipt?.state))&&
+  receipt.organizationId===organizationId&&receipt.workspaceId===workspaceId&&
+  receipt.originalReadback===true&&receipt.originalKernel===true&&
+  receipt.signatureVerified===confirmed&&receipt.automaticRetryAllowed===false,
+  'CEN_D3_EMPLOYEE_REGISTRY_READBACK_INVALID');
+ return confirmed?'CONFIRMED':receipt.state==='ORIGINAL_KERNEL_WORKSPACE_NOT_READY'?'WORKSPACE_NOT_READY':'NOT_FOUND';
+}
+
+// A bounded read-only continuation of the SAME original native owner.
+// Merely attaching a WebView does not prove the selected Workspace exists.
+// No bootstrap, assignment, signer or registry write can enter this loop.
+export function originalSeatRegistryScopeMatches(owner,scope){
+ const s=owner?.snapshot;
+ return owner?.status==='D3_OWNER_READY'&&s?.product==='admin'&&
+  s?.d3RecipientAvailable===true&&s?.productionActivation===false&&s?.T3_READY===false&&
+  ['organizationId','workspaceId','actorId','contextId'].every(key=>id(scope?.[key])&&s[key]===scope[key])&&
+  Number.isSafeInteger(scope.contextEpoch)&&scope.contextEpoch>0&&s.contextEpoch===scope.contextEpoch;
+}
+/** @param {{scope:any,readOwner:()=>Promise<any>,readRegistry:(owner:any)=>Promise<any>,
+ * isCurrent:()=>boolean,wait:()=>Promise<void>,maxReads?:number}} options */
+export async function observeOriginalEmployeeRegistry({scope,readOwner,readRegistry,isCurrent,wait,maxReads=80}){
+ check(Number.isSafeInteger(maxReads)&&maxReads>=1&&maxReads<=120,
+  'CEN_D3_EMPLOYEE_REGISTRY_READ_LIMIT_INVALID');
+ for(let attempt=0;attempt<maxReads;attempt++){
+  if(!isCurrent())return 'CANCELLED';
+  const owner=await readOwner();
+  if(!isCurrent())return 'CANCELLED';
+  check(originalSeatRegistryScopeMatches(owner,scope),
+    'CEN_D3_EMPLOYEE_REGISTRY_SCOPE_CHANGED');
+  if(owner.snapshot.d3EmployeeRegistryReadbackAvailable===true){
+   const receipt=await readRegistry(owner);
+   if(!isCurrent())return 'CANCELLED';
+   const observed=readOriginalEmployeeRegistryReceipt(receipt,scope.organizationId,scope.workspaceId);
+   if(observed!=='WORKSPACE_NOT_READY')return observed;
+  }else check(owner.snapshot.originalSignedWorkspaceAvailable===true,
+    'CEN_D3_ORIGINAL_EMPLOYEE_OWNER_NOT_CONNECTED');
+  // Retry ONLY attachment/confirmed missing Workspace. A denied read,
+  // malformed receipt or changed scope throws and stops immediately.
+  if(attempt+1<maxReads)await wait();
+ }
+ return 'TIMEOUT';
+}
+

@@ -11,7 +11,7 @@ const view=(organizationId='org:north',workspaceId='workspace:north')=>({
  contextId:'context:original',contextEpoch:23,
  d3RecipientAvailable:true,productionActivation:false,T3_READY:false,
  totalTasks:1,tasks:[{taskId:'task:actual',taskRevisionId:hex('a'),
- packageSha256:hex('b'),summary:'Проверить поставку',deliveryState:'NOT_CONFIRMED'}]
+ packageSha256:hex('b'),summary:'Проверить поставку',recipientId:'person:manager',deliveryState:'NOT_CONFIRMED'}]
  }});
 const inbox=(orgId='org:north',ws='workspace:north')=>({
  schema:'IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1',
@@ -105,10 +105,27 @@ test('navigation locator permits only exact signed source and expires on epoch c
  const task=prepareManagerOriginalSelection(read,'org:north','signed-task','task:actual');
  assert.equal(task.taskRevisionId,hex('a'));
  assert.equal(task.packageSha256,hex('b'));
+ assert.equal(task.recipientId,'person:manager');
+ assert.equal(managerOriginalSelectionMatches({...task,recipientId:'person:other'},original.snapshot),false);
  assert.equal(managerOriginalSelectionMatches(task,original.snapshot),true);
  const revised=structuredClone(original.snapshot);revised.tasks[0].taskRevisionId=hex('f');
  assert.equal(managerOriginalSelectionMatches(task,revised),false,
    'same Task ID with another original revision must not be selected');
  assert.equal(managerOriginalSelectionMatches({...task,packageSha256:hex('f')},original.snapshot),false);
  assert.equal(managerOriginalSelectionMatches({...task,kind:'signed-result-package'},original.snapshot),false);
+});
+
+test('global search preserves exact employee recipient in the original Task locator',()=>{
+ const original=view();
+ original.snapshot.tasks.push({taskId:'task:employee',taskRevisionId:hex('c'),
+  packageSha256:hex('d'),summary:'Сверить документы',recipientId:'person:worker',deliveryState:'NOT_CONFIRMED'});
+ original.snapshot.totalTasks=2;
+ const catalog=readManagerSignedContext(original,'org:north');
+ assert.equal(searchManagerContext(catalog.entries,'person:worker').length,1);
+ const focus=prepareManagerOriginalSelection(catalog,'org:north','signed-task','task:employee');
+ assert.equal(focus.recipientId,'person:worker');
+ assert.equal(managerOriginalSelectionMatches(focus,original.snapshot),true);
+ const changed=structuredClone(original.snapshot);
+ changed.tasks[1].recipientId='person:other';
+ assert.equal(managerOriginalSelectionMatches(focus,changed),false);
 });

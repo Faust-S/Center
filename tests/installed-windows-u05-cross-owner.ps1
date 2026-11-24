@@ -421,7 +421,15 @@ try {
   }
   [void](Find-UI $projectTitle 'Button' $true)
   Click $projectTitle $true
+  # The file route, like the native route, requires an actual workspace choice.
+  $fileWorkspacePicker=Find-UI 'Рабочая область для файла Atlas' 'ComboBox'
+  $fileWorkspacePicker.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+  [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+  Start-Sleep -Milliseconds 400
   Click 'Связать с планом'
+  [void](Find-UI-Text 'Связь с редакцией файла подтверждена в черновике')
   Click "Подготовить поручение: $workTitle" $true
   Text 'Что нужно сделать' 'U05FileIwxaBinding'
   Text 'Критерии приёмки' 'Exact installed Atlas archive work reference'
@@ -608,9 +616,18 @@ try {
     throw 'U04_DETACH_TERMINATED_ATLAS'
   }
   Write-Host "U04_CROSS_INSTALLED_OPEN_FOCUS_RETURN_PASS atlasPid=$($atlasProcesses[0].ProcessId) revision=$revision"
-  # Preparation requires linking the existing organization workspace to this
-  # exact canonical project revision. A free-floating work cannot be issued.
-  Click 'Связать с рабочей областью'
+  # The earlier file route already bound a workspace to this exact revision.
+  # Native Atlas may restore that unique binding. Select the same fixture
+  # workspace explicitly, then require actual UI readback, not a second link.
+  $nativeWorkspacePicker=Find-UI 'Целевая рабочая область Atlas' 'ComboBox'
+  $nativeWorkspacePicker.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+  [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+  Start-Sleep -Milliseconds 400
+  $linkButton=Find-UI 'Связать с рабочей областью' 'Button'
+  if($linkButton.Current.IsEnabled){Click 'Связать с рабочей областью'}
+  [void](Find-UI-Text 'Связь с выбранной редакцией подтверждена в черновике')
   Click 'Подготовить поручение по работе'
   Text 'Что нужно сделать' 'U05PublicAtlasLinked'
   Text 'Критерии приёмки' 'Exact canonical work reference'
@@ -623,6 +640,9 @@ try {
   $linked=@($draft.organizations | ForEach-Object {$_.assignments} |
       Where-Object { $_.title -eq 'U05PublicAtlasLinked' })
   if($linked.Count -ne 1){throw "U05_CENTER_DRAFT_LINK_MISSING found=$($linked.Count)"}
+  if([string]$linked[0].workspaceId -ne [string]$fileAssignment.workspaceId){
+    throw 'U05_NATIVE_AND_FILE_WORKSPACE_MISMATCH'
+  }
   $ref=$linked[0].atlasRef
   if([string]$ref.projectId -ne $projectId -or
      [string]$ref.workId -ne $workId -or

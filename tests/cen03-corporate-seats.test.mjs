@@ -1,0 +1,181 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent,prepareOriginalSeatDelivery,readOriginalSeatDelivery,corporateSeatRouteStage,readOriginalEmployeeRegistryReceipt,observeOriginalEmployeeRegistry,originalSeatRegistryScopeMatches}
+ from '../runtime/cen03-corporate-seats.mjs';
+const H='a'.repeat(64),org='org:one',ws='workspace:one';
+const member={personId:'person:one',enrollmentId:'enrollment:one'};
+const row={grantId:'grant:seat:one',personId:'person:two',enrollmentId:'enrollment:two',
+ workGrantId:'grant:work:two',credentialKeyId:'key:two',lineageDigest:H,licenseDigest:H,
+ status:'ACTIVE',reserved:true,expiresAt:'2030-01-01T00:00:00.000Z'};
+const view=()=>({schema:'IWXA_T3_ORIGINAL_CORPORATE_SEAT_VIEW/1',organizationId:org,workspaceId:ws,
+ originalReadback:true,productionActivation:false,registryDigest:H,licenseState:'VERIFIED_CAPACITY_CANDIDATE',
+ licenseEvidenceDigest:H,seatPolicyReady:true,withinLimits:true,existingLineageMatches:true,
+ reservedSeats:1,independentlyEnrolledEmployees:2,availableSeats:1,seatLimit:2,employeeLimit:5,
+ overSeatLimit:0,overEmployeeLimit:0,assignmentTotal:1,assignmentOffset:0,assignmentNextOffset:null,
+ eligibleEmployees:[{...member,reserved:false},{personId:row.personId,enrollmentId:row.enrollmentId,reserved:true}],
+ employeeTotal:2,employeeOffset:0,employeeNextOffset:null,
+ candidate:{licenseId:'license:one',lineageId:'lineage:one',lineageDigest:H,licenseDigest:H,
+ seatLimit:2,employeeLimit:5,expiresAt:'2030-01-01T00:00:00.000Z',statusValidUntil:'2029-12-31T00:00:00.000Z'},assignments:[{...row}]});
+const read=v=>readOriginalSeatView(v,org,ws);
+test('only exact original organization and workspace projection is accepted',()=>{
+ assert.equal(read(view()).reservedSeats,1);
+ for(const bad of [{workspaceId:'workspace:two'},{organizationId:'org:two'},
+  {originalReadback:false},{productionActivation:true},{availableSeats:5},{assignmentTotal:2},
+  {registryDigest:'x'},{reservedSeats:0}]){
+  assert.throws(()=>read({...view(),...bad}),/READBACK_INVALID/);
+ }
+});
+test('assign and transfer bind exact registry, commercial digest, and enrolled person',()=>{
+ const v=read(view());
+ const a=prepareOriginalSeatCommand(v,'ASSIGN','seat:one',member);
+ assert.deepEqual(a,{confirmed:true,kind:'ASSIGN',commandId:'seat:one',expectedRegistryDigest:H,
+  expectedLicenseDigest:H,employeePersonId:member.personId,enrollmentId:member.enrollmentId,fromGrantId:null});
+ assert.equal(prepareOriginalSeatCommand(v,'TRANSFER','seat:two',member,row.grantId).fromGrantId,row.grantId);
+ assert.throws(()=>prepareOriginalSeatCommand(v,'ASSIGN','seat:one',null),/NOT_AVAILABLE/);
+ assert.throws(()=>prepareOriginalSeatCommand(v,'ASSIGN','seat:one',{personId:row.personId,enrollmentId:row.enrollmentId}),/NOT_AVAILABLE/);
+ assert.throws(()=>prepareOriginalSeatCommand(v,'TRANSFER','seat:one',member,'grant:other'),/SOURCE_REQUIRED/);
+});
+test('release remains available without an active license and no new employee identity is sent',()=>{
+ const v=read({...view(),licenseState:'LICENSE_SOURCE_UNAVAILABLE',licenseEvidenceDigest:null,
+  candidate:null,availableSeats:0,seatLimit:null,employeeLimit:null,overSeatLimit:null,overEmployeeLimit:null,
+  withinLimits:false,existingLineageMatches:false});
+ const r=prepareOriginalSeatCommand(v,'RELEASE','seat:release',member,row.grantId);
+ assert.equal(r.employeePersonId,null);assert.equal(r.enrollmentId,null);assert.equal(r.expectedLicenseDigest,null);
+ assert.throws(()=>prepareOriginalSeatCommand(v,'ASSIGN','seat:a',member),/NOT_AVAILABLE/);
+});
+test('policy and seat results require exact native receipt; unknown cannot be marked committed',()=>{
+ const v=read(view()),a=prepareOriginalSeatCommand(v,'ASSIGN','seat:one',member);
+ const receipt={originalReadback:true,outcome:'COMMITTED',commandId:a.commandId,
+  grantId:'grant:seat:new',releasedGrantId:null,view:v};
+ assert.equal(readOriginalSeatChange(receipt,a,org,ws),v);
+ assert.throws(()=>readOriginalSeatChange({...receipt,commandId:'seat:other'},a,org,ws),/OUTCOME_UNKNOWN/);
+ assert.throws(()=>readOriginalSeatChange({...receipt,originalReadback:false},a,org,ws),/OUTCOME_UNKNOWN/);
+ assert.equal(readOriginalSeatPolicy({originalReadback:true,outcome:'ENABLED',view:v},org,ws),v);
+ assert.throws(()=>readOriginalSeatPolicy({originalReadback:true,outcome:'ENABLED',
+  view:{...v,seatPolicyReady:false,availableSeats:0}},org,ws),/OUTCOME_UNKNOWN/);
+});
+test('old policy, over-capacity and non-reserved history cannot authorize new assignment',()=>{
+ const v=read({...view(),seatPolicyReady:false,availableSeats:0});
+ assert.throws(()=>prepareOriginalSeatCommand(v,'ASSIGN','seat:a',member),/NOT_AVAILABLE/);
+ const over=read({...view(),candidate:{...view().candidate,seatLimit:0},seatLimit:0,
+  overSeatLimit:1,withinLimits:false,availableSeats:0});
+ assert.throws(()=>prepareOriginalSeatCommand(over,'TRANSFER','seat:a',member,row.grantId),/NOT_AVAILABLE/);
+ assert.equal(prepareOriginalSeatCommand(over,'RELEASE','seat:r',null,row.grantId).fromGrantId,row.grantId);
+});
+
+test('verified roster selection and uncertain command recovery require exact original scope',()=>{
+ const v=read(view()),a=prepareOriginalSeatCommand(v,'ASSIGN','seat:recovery',member);
+ assert.throws(()=>read({...view(),eligibleEmployees:[{...member,reserved:true},{personId:row.personId,enrollmentId:row.enrollmentId,reserved:true}]}),/READBACK_INVALID/);
+ assert.throws(()=>prepareOriginalSeatCommand(v,'ASSIGN','seat:bad',{...member,enrollmentId:'enrollment:wrong'}),/NOT_AVAILABLE/);
+ const recovered={outcome:'ALREADY_COMMITTED',commandId:a.commandId,originalReadback:true,
+  automaticRetryAllowed:false,grantId:'grant:seat:received',releasedGrantId:null,view:v};
+ assert.equal(readOriginalSeatCommandRecovery(recovered,a,org,ws).outcome,'ALREADY_COMMITTED');
+ const absent={...recovered,outcome:'NOT_COMMITTED',grantId:null};
+ assert.equal(readOriginalSeatCommandRecovery(absent,a,org,ws).outcome,'NOT_COMMITTED');
+ assert.throws(()=>readOriginalSeatCommandRecovery({...absent,view:{...v,registryDigest:'b'.repeat(64)}},a,org,ws),/OUTCOME_UNKNOWN/);
+ assert.equal(readOriginalSeatCommandRecovery({...absent,outcome:'OUTCOME_UNKNOWN'},a,org,ws).outcome,'OUTCOME_UNKNOWN');
+ assert.throws(()=>readOriginalSeatCommandRecovery({...recovered,automaticRetryAllowed:true},a,org,ws),/OUTCOME_UNKNOWN/);
+});
+
+test('pending UI intent persists across remounts, isolates actors, and never overwrites unknown command',()=>{
+ const values=new Map(),storage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
+ const key=seatIntentKey(org,ws,'person:manager'),other=seatIntentKey(org,ws,'person:other');
+ const a=prepareOriginalSeatCommand(read(view()),'ASSIGN','seat:uncertain',member);
+ assert.equal(readSeatIntent(storage,key),null);saveSeatIntent(storage,key,a);
+ assert.deepEqual(readSeatIntent(storage,key),a);assert.equal(readSeatIntent(storage,other),null);
+ assert.throws(()=>saveSeatIntent(storage,key,{...a,commandId:'seat:second'}),/ALREADY_PENDING/);
+ assert.throws(()=>clearSeatIntent(storage,key,{...a,commandId:'seat:other'}),/CHANGED/);
+ assert.throws(()=>saveSeatIntent(storage,other,{...a,employeePersonId:null}),/INTENT_INVALID/);
+ clearSeatIntent(storage,key,a);assert.equal(readSeatIntent(storage,key),null);
+ storage.setItem(key,'{"confirmed":true}');assert.throws(()=>readSeatIntent(storage,key),/INTENT_INVALID/);
+});
+
+test('seat delivery uses existing signed invitation export for both reserved and unreserved enrolled employees',()=>{
+ const v=read(view());
+ for(const employee of v.eligibleEmployees){
+  const request=prepareOriginalSeatDelivery(v,employee.personId);
+  assert.deepEqual(request,{employeePersonId:employee.personId,enrollmentId:employee.enrollmentId});
+  const receipt={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_INVITATION_EXPORT/1',
+   state:'SIGNED_INVITATION_EXPORTED_NOT_DELIVERED',employeePersonId:employee.personId,
+   recipientId:employee.personId,enrollmentId:employee.enrollmentId,workspaceId:ws,
+   originalSigned:true,originalKernelReadback:true,invitationDelivered:false,
+   automaticTransfer:false,statusSequence:5,packageSha256:H,bytes:300};
+  assert.equal(readOriginalSeatDelivery(receipt,request,ws).invitationDelivered,false);
+  for(const change of [{recipientId:'person:foreign'},{enrollmentId:'enrollment:foreign'},
+   {workspaceId:'workspace:foreign'},{invitationDelivered:true},{originalSigned:false},
+   {originalKernelReadback:false},{automaticTransfer:true},{packageSha256:'x'}]){
+   assert.throws(()=>readOriginalSeatDelivery({...receipt,...change},request,ws),/DELIVERY_READBACK_INVALID/);
+  }
+  assert.equal(readOriginalSeatDelivery({status:'CANCELLED'},request,ws),null);
+ }
+ assert.throws(()=>prepareOriginalSeatDelivery(v,'person:foreign'),/DELIVERY_EMPLOYEE_REQUIRED/);
+ assert.throws(()=>prepareOriginalSeatDelivery({...v,originalReadback:false},member.personId),/DELIVERY_SCOPE_INVALID/);
+});
+
+test('seat route automatically selects only a read-only next stage from the existing native owner',()=>{
+ const route=(snapshot,more={})=>corporateSeatRouteStage({nativeHost:true,ownerReadFailed:false,d3Ready:true,snapshot,...more});
+ assert.equal(route({}, {nativeHost:false}),'NATIVE_REQUIRED');
+ assert.equal(route({}, {ownerReadFailed:true}),'OWNER_READ_FAILED');
+ assert.equal(route({}, {d3Ready:false}),'CONNECT_ORGANIZATION');
+ assert.equal(route({}),'KERNEL_UNAVAILABLE');
+ assert.equal(route({originalSignedWorkspaceAvailable:true}),'OPEN_WORKSPACE');
+ assert.equal(route({originalSignedWorkspaceAvailable:true,d3EmployeeRegistryReadbackAvailable:true}),'READ_REGISTRY');
+ assert.equal(route({d3EmployeeEnrollmentAvailable:true}),'SEAT_CONTRACT_UNAVAILABLE');
+ assert.equal(route({d3EmployeeCorporateSeatsAvailable:true}),'KERNEL_UNAVAILABLE');
+ assert.equal(route({d3EmployeeEnrollmentAvailable:true,d3EmployeeCorporateSeatsAvailable:true}),'SEATS');
+});
+test('cold registry read distinguishes exact signed registry from genuine absence; never authorizes a replay',()=>{
+ const receipt={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1',state:'ORIGINAL_KERNEL_REGISTRY_CONFIRMED',
+  organizationId:org,workspaceId:ws,originalReadback:true,originalKernel:true,
+  signatureVerified:true,automaticRetryAllowed:false};
+ assert.equal(readOriginalEmployeeRegistryReceipt(receipt,org,ws),'CONFIRMED');
+ const missing={...receipt,state:'ORIGINAL_KERNEL_REGISTRY_NOT_FOUND',signatureVerified:false};
+ assert.equal(readOriginalEmployeeRegistryReceipt(missing,org,ws),'NOT_FOUND');
+ for(const bad of [{workspaceId:'workspace:other'},{organizationId:'org:other'},
+  {originalReadback:false},{originalKernel:false},{automaticRetryAllowed:true},
+  {state:'ORIGINAL_KERNEL_REGISTRY_NOT_FOUND'},{signatureVerified:false}]){
+  assert.throws(()=>readOriginalEmployeeRegistryReceipt({...receipt,...bad},org,ws),/READBACK_INVALID/);
+ }
+});
+
+const scope={organizationId:org,workspaceId:ws,actorId:'person:manager',contextId:'context:one',contextEpoch:7};
+const owner=(attached=true,extra={})=>({status:'D3_OWNER_READY',snapshot:{product:'admin',...scope,
+ d3RecipientAvailable:true,productionActivation:false,T3_READY:false,originalSignedWorkspaceAvailable:true,
+ d3EmployeeRegistryReadbackAvailable:attached,...extra}});
+const registryReceipt=state=>({schema:'IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1',state,
+ organizationId:org,workspaceId:ws,originalReadback:true,originalKernel:true,
+ signatureVerified:state==='ORIGINAL_KERNEL_REGISTRY_CONFIRMED',automaticRetryAllowed:false});
+test('original registry recovery waits for attachment and verified Workspace, without writes or arbitrary sleeps',async()=>{
+ const events=[],owners=[owner(false),owner(),owner()];
+ const receipts=[registryReceipt('ORIGINAL_KERNEL_WORKSPACE_NOT_READY'),registryReceipt('ORIGINAL_KERNEL_REGISTRY_NOT_FOUND')];
+ const state=await observeOriginalEmployeeRegistry({scope,isCurrent:()=>true,
+  readOwner:async()=>{events.push('state');return owners.shift()},
+  readRegistry:async()=>{events.push('registry-read');return receipts.shift()},
+  wait:async()=>{events.push('wait')},maxReads:3});
+ assert.equal(state,'NOT_FOUND');
+ assert.deepEqual(events,['state','wait','state','registry-read','wait','state','registry-read']);
+ assert.equal(readOriginalEmployeeRegistryReceipt(registryReceipt('ORIGINAL_KERNEL_WORKSPACE_NOT_READY'),org,ws),'WORKSPACE_NOT_READY');
+});
+test('cold registry recovery confirms the exact scope and stops after a single valid receipt',async()=>{
+ let reads=0;
+ assert.equal(await observeOriginalEmployeeRegistry({scope,isCurrent:()=>true,
+  readOwner:async()=>owner(),readRegistry:async()=>{reads++;return registryReceipt('ORIGINAL_KERNEL_REGISTRY_CONFIRMED')},
+  wait:async()=>assert.fail('unexpected retry')}),'CONFIRMED');
+ assert.equal(reads,1);
+ for(const bad of [{contextEpoch:8},{contextId:'context:other'},{workspaceId:'workspace:other'},{actorId:'person:other'},{organizationId:'org:other'}]){
+  assert.equal(originalSeatRegistryScopeMatches(owner(true,bad),scope),false);
+  await assert.rejects(observeOriginalEmployeeRegistry({scope,isCurrent:()=>true,readOwner:async()=>owner(true,bad),
+   readRegistry:async()=>assert.fail('foreign read'),wait:async()=>assert.fail('foreign retry')}),/SCOPE_CHANGED/);
+ }
+});
+test('read-only recovery stops on error, cancellation and bounded timeout without classifying them as missing',async()=>{
+ let calls=0,active=true;
+ const base={scope,isCurrent:()=>active,readOwner:async()=>owner(),wait:async()=>{}};
+ await assert.rejects(observeOriginalEmployeeRegistry({...base,readRegistry:async()=>{calls++;throw Error('permission_denied')}}),/permission_denied/);
+ assert.equal(calls,1);
+ assert.equal(await observeOriginalEmployeeRegistry({...base,readRegistry:async()=>{active=false;return registryReceipt('ORIGINAL_KERNEL_REGISTRY_NOT_FOUND')}}),'CANCELLED');
+ active=true;
+ assert.equal(await observeOriginalEmployeeRegistry({...base,maxReads:3,readOwner:async()=>owner(false),
+  readRegistry:async()=>assert.fail('unattached Kernel read')}),'TIMEOUT');
+ assert.equal(calls,1);
+});

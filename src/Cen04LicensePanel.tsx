@@ -1,5 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {prepareAdminPublisherTestRequest} from '../runtime/cen04-issuer-request.mjs';
+import Cen04CorporateIntakePanel from './Cen04CorporateIntakePanel';
 
 // Signed license bytes never enter WebView: only original T3 Consumer may
 // intake a signed package after separate first-use enrollment. The raw .iwxa
@@ -10,9 +11,11 @@ type View={organizationId:string;productId:string;licenses:License[];
  revision:number;activeSeats:0;assignableSeats:0;productionActivation:false};
 type Props={organizationId:string;organizationName:string;
  organizationKind:'GROUP'|'ORGANIZATION';
+ participants:readonly {id:string;personalAgentPlan?:'NONE'|'PLANNED'}[];
+ onManageSeats:()=>void;
  invoke:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function Cen04LicensePanel({organizationId,organizationName,organizationKind,invoke}:Props){
+export default function Cen04LicensePanel({organizationId,organizationName,organizationKind,participants,invoke,onManageSeats}:Props){
  const [testSeats,setTestSeats]=useState('1');
  const [testTerm,setTestTerm]=useState('30');
  const [testVersion,setTestVersion]=useState('0.4.1');
@@ -252,8 +255,10 @@ export default function Cen04LicensePanel({organizationId,organizationName,organ
        <span className="status neutral">Подпись T3 проверена</span>
      </div>)}
    </div>}
-   <div className="notice subdued">
-     TEST-лицензии не дают права назначать места Personal Agent. Активных мест: 0.
+   <Cen04CorporateIntakePanel key={organizationId} organizationId={organizationId}
+     participants={participants} invoke={invoke} onManageSeats={onManageSeats}/>
+    <div className="notice subdued">
+     TEST-лицензии не дают права назначать места Personal Agent. По TEST-лицензиям места не выдаются.
    </div>
  </section>;
 }

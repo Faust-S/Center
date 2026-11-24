@@ -1,8 +1,10 @@
 import React,{useEffect,useRef,useState} from 'react';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
+import {readReviewContinuation,mergeReviewContinuations,rememberReviewContinuation,
+ clearUndispatchedReviewContinuation,validateReviewDecisionReceipt} from '../runtime/cen03-review-continuation.mjs';
 import {readOriginalResultReview,readCompleteOriginalResult,
- validateOriginalSignedTaskReadback,
+ validateOriginalSignedTaskReadback,readOriginalTaskCatalog,
  isDefiniteUndispatchedD3Failure,
  readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
 
@@ -11,7 +13,7 @@ import {readOriginalResultReview,readCompleteOriginalResult,
 // automatically repeat a decision whose native acknowledgment was lost.
 type Exec=(operation:string,input?:Record<string,unknown>)=>Promise<any>;
 type Run=(success:string,work:()=>Promise<void|boolean>)=>Promise<void>;
-type SignedTask={taskId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:'NOT_CONFIRMED'};
+type SignedTask={taskId:string;recipientId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:string};
 type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   contextId:string;contextEpoch:number;d3ApplyAvailable:boolean;
   d3InspectAvailable?:boolean;
@@ -53,7 +55,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [taskText,setTaskText]=useState('');
  const [draftId,setDraftId]=useState('');
  const [draftSnapshot,setDraftSnapshot]=useState('');
- const [taskId,setTaskId]=useState(()=>exactFocus?.kind==='signed-task'?exactFocus.id:'');
+ const [taskId,setTaskId]=useState(()=>exactFocus?.kind==='signed-task'&&exactFocus.recipientId===session.actorId?exactFocus.id:'');
  const [taskOperationId,setTaskOperationId]=useState(
    ()=>taskAttempts.current.get(taskAttemptKey)?.taskId??'');
  const [taskIdSaved,setTaskIdSaved]=useState(false);
@@ -66,7 +68,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [rejectReason,setRejectReason]=useState('');
  const [operationId,setOperationId]=useState('');
  const [preparedId,setPreparedId]=useState('');
- const [idSaved,setIdSaved]=useState(false);
+ const [continuationConflict,setContinuationConflict]=useState(false);
  const [decisionAttempted,setDecisionAttempted]=useState(false);
  const [decisionType,setDecisionType]=useState<'ACCEPT'|'REJECT'|null>(null);
  const [receipt,setReceipt]=useState<any>(null);
@@ -127,7 +129,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const reset=()=>{
    setPreview(null);setReviewedResult(null);
    setConfirmed(false);setRejectReason('');setOperationId('');
-   setPreparedId('');setIdSaved(false);
+   setPreparedId('');setContinuationConflict(false);
    setDecisionAttempted(false);setDecisionType(null);setReceipt(null);
    setSelectedRevisions([]);setApplication(null);setApplyConsent(false);
    setApplyAttempted(false);setKernelResult(null);
@@ -151,19 +153,33 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setLastReceiveState(null);setDraftId('');setDraftSnapshot('');reset();
  }
  },[sessionKey]);
- const choose=(value:string)=>{
+ // A persistent marker retains only IDs, not receipts or authority.
+ function observeDecision(value:string){
+   if(!hex(value))return {pending:null,blocked:false};
+   const live=decisionAttempts.current.get(decisionKey(value));
+   try{return {pending:mergeReviewContinuations('decision',
+     readReviewContinuation(localStorage,session,'decision',value),live),blocked:false}}
+   catch{return {pending:live??null,blocked:true}}
+ }
+ const choose=(value:string,originalOperationId:string|null=null)=>{
    setHash(value);setLastReceiveState(null);reset();
-   // A remounted panel restores the ID of a previously dispatched decision,
-   // rather than accidentally allowing a second ACCEPT/REJECT for this .iwxa.
-   const pending=decisionAttempts.current.get(decisionKey(value));
+   const {pending,blocked}=observeDecision(value);
+   setContinuationConflict(blocked||!!(pending&&originalOperationId&&
+     pending.operationId!==originalOperationId));
    if(pending){
      setOperationId(pending.operationId);
      setDecisionAttempted(true);setDecisionType(pending.decision);
-   }
+   }else if(originalOperationId)setOperationId(originalOperationId);
  };
- const signedTasks=Array.isArray(session.tasks)?session.tasks.filter(t=>
-   opPattern.test(t.taskId)&&hex(t.taskRevisionId)&&hex(t.packageSha256)):[];
- const selectedTask=signedTasks.find(t=>t.taskId===taskId)??signedTasks.at(-1);
+ const observedDecision=observeDecision(hash);
+ const decisionBlocked=continuationConflict||observedDecision.blocked;
+ const catalog=(()=>{
+   try{return readOriginalTaskCatalog(session)}catch{return null}
+ })();
+ const allSignedTasks:SignedTask[]=catalog?.rows??[];
+ const signedTasks=allSignedTasks.filter(t=>t.recipientId===session.actorId);
+ const employeeFocus=exactFocus?.kind==='signed-task'&&exactFocus.recipientId!==session.actorId;
+ const selectedTask=signedTasks.find(t=>t.taskId===taskId)??(employeeFocus?undefined:signedTasks.at(-1));
  const chosenDraft=assignmentDrafts.find(a=>a.id===draftId);
  const draftAssigneeUnbound=!!chosenDraft?.assigneeId;
  const draftStale=!!draftId&&(
@@ -175,7 +191,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    if(draftAssigneeUnbound)throw Error('CEN_D3_DRAFT_ASSIGNEE_NOT_SIGNED');
    if(!/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)||
      !taskIdSaved||taskAttempted||
-     signedTasks.some(t=>t.taskId===taskOperationId))
+     (!catalog||allSignedTasks.some(t=>t.taskId===taskOperationId)))
      throw Error('CEN_D3_SIGNED_TASK_OPERATION_REQUIRED');
    // A draft Atlas link is not automatically a valid current source. Before
    // original T3 signs it, reread the installed Atlas Desktop owner in its
@@ -234,6 +250,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    'Исходная подписанная Task перечитана без нового выпуска.',async()=>{
    if(!/^task:[A-Za-z0-9-]{1,100}$/.test(knownId))
      throw Error('CEN_D3_ORIGINAL_TASK_OPERATION_ID_REQUIRED');
+   if(allSignedTasks.some(t=>t.taskId===knownId&&t.recipientId!==session.actorId))
+     throw Error('CEN_D3_EMPLOYEE_TASK_USE_RECIPIENT_HISTORY');
    // The original recipient verifies stored signed .iwxa bytes and exact
    // revision. The UI never re-signs a Task to discover a lost ACK.
    const result=await execute('d3TaskReadback',{taskId:knownId});
@@ -284,7 +302,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      ['ACCEPTED','REJECTED'].includes(receipt.receipt?.acceptanceState)&&
      receipt.receipt?.operationId===operationId&&
      receipt.receipt?.packageSha256===hash)||
-   decisionAttempts.current.has(decisionKey(hash));
+   observedDecision.pending!==null||decisionBlocked;
  const refreshInbox=(requestedPackage:string|null=null)=>run('Полученные пакеты перечитаны из оригинального Reconciliation.',async()=>{
    const result=await execute('d3Inbox');
    if(result?.schema!=='IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1'||
@@ -301,8 +319,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        throw Error('CEN_D3_MANAGER_SOURCE_CONTEXT_CHANGED');
      const original=result.items.find((x:any)=>x.packageSha256===requestedPackage);
      if(!original){setInbox(result);throw Error('CEN_D3_MANAGER_SOURCE_NOT_IN_INBOX');}
-     choose(original.packageSha256);
-     if(original.operationId)setOperationId(original.operationId);
+     choose(original.packageSha256,original.operationId??null);
    }
    setInbox(result);
  });
@@ -313,8 +330,15 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    receipt.receipt.packageSha256===hash&&
    receipt.receipt.operationId===operationId&&
    receipt.kernelApplication==='NOT_ATTESTED_BY_RECONCILIATION_RECEIPT';
- const applyPreviouslySent=accepted&&
-   dispatchedApplications.current.has(attemptKey(receipt.receipt.acceptanceId as string));
+ function observeApply(acceptanceId:string){
+   const live=dispatchedApplications.current.get(attemptKey(acceptanceId));
+   try{return {pending:mergeReviewContinuations('apply',
+     readReviewContinuation(localStorage,session,'apply',acceptanceId),live) as string[]|null,blocked:false}}
+   catch{return {pending:live??null,blocked:true}}
+ }
+ const observedApply=accepted?observeApply(receipt.receipt.acceptanceId):{pending:null,blocked:false};
+ const applyPreviouslySent=accepted&&observedApply.pending!==null;
+ const applyBlocked=observedApply.blocked;
  const receiveResult=(encrypted:boolean)=>run(
    'Оригинальный подписанный Result получен в Reconciliation. ACCEPT и Apply остаются отдельными действиями.',
    async()=>{
@@ -344,7 +368,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      session.workspaceId);
    setPreview(result);setReviewedResult(inspection);
    setConfirmed(false);setApplication(null);
-   setPreparedId('');setIdSaved(false);
+   setPreparedId('');
  });
  const showCompleteReview=()=>run('Полный оригинальный подписанный Result показан для Human Review.',async()=>{
    const first=reviewedResult,source=preview;
@@ -362,22 +386,19 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const recover=()=>run('Оригинальная квитанция перечитана. Это не подтверждение записи в Kernel.',async()=>{
    const id=operationId.trim();
    if(!opPattern.test(id)||!hex(hash))throw Error('CEN_D3_RECEIPT_QUERY_REQUIRED');
-   const result=await execute('d3Receipt',{operationId:id,packageSha256:hash});
-   if(result?.kernelApplication!=='NOT_ATTESTED_BY_RECONCILIATION_RECEIPT'||
-     typeof result.found!=='boolean'||result.found&&(
-       result.receipt?.operationId!==id||
-       result.receipt?.packageSha256!==hash||
-       result.receipt?.decisionBy!==session.actorId||
-       !['ACCEPTED','REJECTED'].includes(result.receipt?.acceptanceState)||
-       result.receipt?.schema!==(result.receipt.acceptanceState==='ACCEPTED'
-         ?'IWXA_T3_ACCEPTANCE_RECEIPT/1':'IWXA_T3_REJECTION_RECEIPT/1')))
-     throw Error('CEN_D3_RECEIPT_INVALID');
+   const pending=observeDecision(hash).pending;
+   if(pending&&pending.operationId!==id)throw Error('CEN_D3_ORIGINAL_DECISION_RECEIPT_CONFLICT');
+   const result=validateReviewDecisionReceipt(
+     await execute('d3Receipt',{operationId:id,packageSha256:hash}),
+     session,hash,id,pending?.decision??null);
    if(result.found){
      const decision=result.receipt.acceptanceState==='ACCEPTED'?'ACCEPT':'REJECT';
-     const pending=decisionAttempts.current.get(decisionKey(hash));
-     if(pending&&pending.operationId!==id)
-       throw Error('CEN_D3_ORIGINAL_DECISION_RECEIPT_CONFLICT');
-     decisionAttempts.current.set(decisionKey(hash),{operationId:id,decision});
+     const marker:{operationId:string;decision:'ACCEPT'|'REJECT'}={operationId:id,decision};
+     // Reading the original receipt is allowed if local persistence fails.
+     // Never turn that failure into permission to issue a new decision.
+     try{rememberReviewContinuation(localStorage,session,'decision',hash,marker,true)}
+     catch{setContinuationConflict(true)}
+     decisionAttempts.current.set(decisionKey(hash),marker);
      setDecisionAttempted(true);setDecisionType(decision);
    }
    setReceipt(result);setApplication(null);
@@ -387,15 +408,16 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    'Решение записано исходным Reconciliation. Для проверки используйте отдельное чтение квитанции.',
    async()=>{
      if(decisionAttempted||originalDecisionRecorded||!confirmed||!preview||!hex(hash)||
-       !idSaved||!opPattern.test(preparedId)||preparedId!==operationId||
+       decisionBlocked||!opPattern.test(preparedId)||preparedId!==operationId||
        (kind==='ACCEPT'&&
          (preview.allowedAction!=='EXPLICIT_ACCEPT_ONLY'||!reviewFullyDisplayed))||
        (kind==='REJECT'&&!rejectReason.trim()))
        throw Error('CEN_D3_EXPLICIT_HUMAN_REVIEW_REQUIRED');
-     // The ID was visible and explicitly saved BEFORE dispatch. On a lost
-     // acknowledgment, restoring the original receipt never retries the write.
-     const id=preparedId;
-     decisionAttempts.current.set(decisionKey(hash),{operationId:id,decision:kind});
+     // Save and reread the exact operation ID BEFORE original dispatch.
+     const id=preparedId,marker={operationId:id,decision:kind};
+     try{rememberReviewContinuation(localStorage,session,'decision',hash,marker)}
+     catch(e){setContinuationConflict(true);throw e}
+     decisionAttempts.current.set(decisionKey(hash),marker);
      setDecisionAttempted(true);setDecisionType(kind);
      setReceipt(null);setApplication(null);
      let outcome:any;
@@ -408,6 +430,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       // was sent and the original preview can still be confirmed.
       if(String(e)==='Error: CEN_D3_HUMAN_REVIEW_CANCELLED'||
          String(e)==='CEN_D3_HUMAN_REVIEW_CANCELLED'){
+        clearUndispatchedReviewContinuation(localStorage,session,'decision',hash,marker);
         const pending=decisionAttempts.current.get(decisionKey(hash));
         if(pending?.operationId===id)decisionAttempts.current.delete(decisionKey(hash));
         setDecisionAttempted(false);setDecisionType(null);
@@ -418,9 +441,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        outcome.kernelApplication!=='NOT_APPLIED')
        throw Error('CEN_D3_OUTCOME_UNKNOWN');
      // Read only. Never call ACCEPT or REJECT again to discover the result.
-     const saved=await execute('d3Receipt',{operationId:id,packageSha256:hash});
-     if(saved?.found!==true||saved.receipt?.acceptanceState!==
-       (kind==='ACCEPT'?'ACCEPTED':'REJECTED'))
+     const saved=validateReviewDecisionReceipt(
+       await execute('d3Receipt',{operationId:id,packageSha256:hash}),session,hash,id,kind);
+     if(saved?.found!==true)
        throw Error('CEN_D3_OUTCOME_UNKNOWN');
      setReceipt(saved);
    });
@@ -463,7 +486,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  });
  const apply=()=>run('Исходный T3 Kernel вернул квитанцию записи и повторное чтение.',async()=>{
    if(!accepted||!application||!applyConsent||applyAttempted||
-      applyPreviouslySent||recoverPrevious)
+      applyPreviouslySent||applyBlocked||recoverPrevious)
      throw Error('CEN_D3_SEPARATE_HUMAN_APPLY_REQUIRED');
    const selection={acceptanceId:receipt.receipt.acceptanceId as string,
      revisionIds:[...selectedRevisions],
@@ -474,6 +497,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setWorkspacePreflight(null);
    // Record the exact selection synchronously before sending to the owner.
    // React reset after switching a Result must not erase this no-replay gate.
+   rememberReviewContinuation(localStorage,session,'apply',selection.acceptanceId,selection.revisionIds);
    dispatchedApplications.current.set(attemptKey(selection.acceptanceId),[...selection.revisionIds]);
    setApplySelection(selection);setApplyAttempted(true);
    setKernelResult(null);setKernelRecovery(null);
@@ -485,6 +509,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      // original owner is invoked. Every other failure can be post-dispatch,
      // and must retain the no-replay marker until original recovery.
      if(isDefiniteUndispatchedD3Failure(error,'d3ApplyAccepted')){
+       clearUndispatchedReviewContinuation(localStorage,session,'apply',selection.acceptanceId,selection.revisionIds);
        dispatchedApplications.current.delete(attemptKey(selection.acceptanceId));
        setApplySelection(null);setApplyAttempted(false);setApplyConsent(false);
        const raw=error instanceof Error?error.message:
@@ -508,16 +533,16 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    if(!applyAttempted&&!applyPreviouslySent&&!recoverPrevious)
      throw Error('CEN_D3_PREVIOUS_APPLY_REQUIRED_FOR_RECOVERY');
    const acceptanceId=receipt.receipt.acceptanceId as string;
-   // A live session reuses the actual previously dispatched selection.
-   // After a cold restart the manager must explicitly mark the previous
-   // attempt and reselect its original revisions before read-only recovery.
-   const saved=dispatchedApplications.current.get(attemptKey(acceptanceId));
+   // Use the exact prior selection even after process restart. Legacy
+   // receipts without a local marker still permit explicit read-only recovery.
+   const saved=observeApply(acceptanceId).pending;
    const source=applySelection??(saved?{acceptanceId,revisionIds:[...saved]}:{
      acceptanceId,revisionIds:[...selectedRevisions]
    });
    if(!hex(source.acceptanceId)||source.revisionIds.length===0||
      source.revisionIds.length>32||!source.revisionIds.every(hex))
      throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
+   try{rememberReviewContinuation(localStorage,session,'apply',source.acceptanceId,source.revisionIds,true)}catch{/* read-only recovery remains available */}
    dispatchedApplications.current.set(attemptKey(source.acceptanceId),[...source.revisionIds]);
    setApplySelection(source);setApplyAttempted(true);
    // A cold restart has no cached target. Re-read it exclusively from the
@@ -551,6 +576,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       <p>Исходный {exactFocus.kind==='signed-task'?'Task':'пакет Result'}: {exactFocus.id}.
         Подписанный владелец проверит источник заново перед действием.
         Этот переход ничего не подписывает, не принимает и не применяет.</p>
+      {exactFocus.kind==='signed-task'&&allSignedTasks.some(t=>t.taskId===exactFocus.id&&t.recipientId!==session.actorId)&&<p>Это поручение независимого сотрудника. Нажмите «Открыть сотрудника и поручение» в исходном реестре выше.</p>}
       {exactFocus.kind==='signed-result-package'&&<button className="secondary"
         type="button" data-testid="d3-manager-recheck-package" disabled={busy}
         onClick={()=>{void refreshInbox(exactFocus.id)}}>Перечитать Reconciliation и выбрать точный пакет</button>}
@@ -648,7 +674,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       <button className="primary" data-testid="d3-create-task"
        disabled={busy||!taskText.trim()||draftAssigneeUnbound||draftStale||
          !taskIdSaved||taskAttempted||
-         signedTasks.some(t=>t.taskId===taskOperationId)||
+         (!catalog||allSignedTasks.some(t=>t.taskId===taskOperationId))||
          !/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)}
        onClick={createSignedTask}>Подписать и сохранить Task</button>
      </div>
@@ -677,10 +703,12 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        throw Error('CEN_D3_FIRST_USE_COMPLETION_UNCONFIRMED');
      })}>Завершить подключение подписанных Task</button>
    </div>}
+   {catalog===null&&<p role="alert">Исходный каталог поручений не подтверждён.</p>}
    {!!signedTasks.length&&<>
-    <label>Сохранённая Task
+    <label>Сохранённая Task руководителя
      <select data-testid="d3-signed-task-select" value={selectedTask?.taskId??''}
       onChange={e=>setTaskId(e.target.value)}>
+      {employeeFocus&&<option value="">Выберите поручение руководителя</option>}
       {signedTasks.map(t=><option key={t.taskId} value={t.taskId}>
        {t.summary.slice(0,90)} · {t.taskId.slice(0,23)}
       </option>)}
@@ -696,7 +724,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       disabled={busy||!selectedTask} onClick={()=>{
        if(selectedTask)recoverTaskById(selectedTask.taskId,selectedTask);
       }}>Проверить сохранённую Task</button>
-     <button className="secondary" data-testid="d3-export-task" disabled={busy}
+     <button className="secondary" data-testid="d3-export-task" disabled={busy||!selectedTask}
       onClick={exportTask}>Сохранить подписанную Task в .iwxa</button>
     </div>
     <p className="muted">После перезапуска или потерянного ответа выберите
@@ -742,8 +770,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      onChange={e=>{
        const value=e.target.value;
        const item=inbox.items.find(x=>x.packageSha256===value);
-       choose(value);
-       if(item?.operationId)setOperationId(item.operationId);
+       choose(value,item?.operationId??null);
      }}>
      <option value="">Выберите полученный .iwxa</option>
      {inbox.items.map(x=><option key={x.packageSha256} value={x.packageSha256}>
@@ -796,41 +823,40 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    </label>
    <div className="actions">
     <button className="secondary" data-testid="d3-prepare-id"
-     disabled={busy||decisionAttempted}
+     disabled={busy||decisionAttempted||originalDecisionRecorded}
      onClick={()=>{
        const id='decision:'+crypto.randomUUID();
-       setOperationId(id);setPreparedId(id);setIdSaved(false);
+       setOperationId(id);setPreparedId(id);
        setReceipt(null);setApplication(null);
      }}>Подготовить ID решения</button>
    </div>
    {preparedId&&operationId===preparedId&&<div data-testid="d3-id-before-send">
-    <p>Сохраните ID до отправки: <code>{preparedId}</code></p>
-    <label><input type="checkbox" checked={idSaved}
-      onChange={e=>setIdSaved(e.target.checked)}/>
-      Я сохранил ID для восстановления при потере ответа</label>
+    <p>Операция: <code>{preparedId}</code>. Center сохранит ID на этом компьютере перед отправкой решения.</p>
    </div>}
    <div className="actions">
     <button className="primary" data-testid="d3-accept"
-     disabled={busy||!confirmed||decisionAttempted||originalDecisionRecorded||!idSaved||
+     disabled={busy||!confirmed||decisionAttempted||originalDecisionRecorded||
        !preparedId||preparedId!==operationId||
        preview.allowedAction!=='EXPLICIT_ACCEPT_ONLY'||!reviewFullyDisplayed}
      onClick={()=>decide('ACCEPT')}>ACCEPT</button>
     <button className="secondary" data-testid="d3-reject"
-     disabled={busy||!confirmed||decisionAttempted||originalDecisionRecorded||!idSaved||
+     disabled={busy||!confirmed||decisionAttempted||originalDecisionRecorded||
        !preparedId||preparedId!==operationId||!rejectReason.trim()}
      onClick={()=>decide('REJECT')}>REJECT</button>
    </div>
   </div>}
   <div className="nested-form" data-testid="d3-receipt-recovery">
    <h3>Восстановить решение без повтора</h3>
-   <p className="muted">ID фиксируется перед ACCEPT/REJECT. Если связь оборвалась,
-    проверяйте исходную квитанцию по ID и SHA-256. Повторный ACCEPT/REJECT запрещён.
-    ID можно сохранить отдельно для восстановления после перезапуска.</p>
+   <p className="muted">Center сохраняет ID перед ACCEPT/REJECT и восстанавливает его при выборе того же пакета.
+    При потере ответа проверьте исходную квитанцию. Повторное решение не отправляется.</p>
+   {decisionBlocked&&<p role="alert" data-testid="d3-decision-continuation-hold">
+    Локальные сведения о незавершённом решении недоступны или противоречат друг другу.
+    Новое решение заблокировано. Используйте чтение оригинальной квитанции.</p>}
    <label>ID операции
     <input data-testid="d3-operation-id" value={operationId} maxLength={160}
      disabled={busy||decisionAttempted}
      onChange={e=>{setOperationId(e.target.value.trim());setPreparedId('');
-      setIdSaved(false);setReceipt(null);setApplication(null)}}
+      setReceipt(null);setApplication(null)}}
      placeholder="decision:..." />
    </label>
    <div className="actions">
@@ -871,20 +897,21 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     <p>Исходный подписанный получатель не поддерживает просмотр принятого Result.</p>:<>
     <p>Выберите принятые редакции:</p>
     {revisions.map(id=><label key={id}>
-      <input type="checkbox" checked={selectedRevisions.includes(id)}
-       disabled={applyAttempted||applyPreviouslySent}
+      <input type="checkbox" data-testid="d3-apply-revision" checked={(observedApply.pending??selectedRevisions).includes(id)}
+       disabled={busy||applyAttempted||applyPreviouslySent||applyBlocked}
        onChange={e=>toggleRevision(id,e.target.checked)}/>
       {label(preview.entries.find((x:any)=>same(x.revisionId,id)))} · {id.slice(0,16)}
     </label>)}
     <div className="actions">
      <button className="secondary" data-testid="d3-inspect-apply"
-      disabled={busy||selectedRevisions.length===0||applyAttempted||applyPreviouslySent}
+      disabled={busy||selectedRevisions.length===0||applyAttempted||applyPreviouslySent||applyBlocked}
       onClick={inspectApplication}>Проверить принятый Result</button>
     </div>
+    {applyBlocked&&<p role="alert" data-testid="d3-apply-continuation-hold">Локальный выбор предыдущих редакций не подтверждён. Новое применение заблокировано; доступно только чтение исходного Kernel.</p>}
     {applyPreviouslySent&&!applyAttempted&&<p role="status"
       data-testid="d3-apply-already-sent">
       Для этого ACCEPT ранее отправлялся Apply. Повторная запись заблокирована.
-      Восстановление использует исходный выбор редакций.
+      Восстановление использует исходный выбор редакций: {observedApply.pending?.join(', ')}.
     </p>}
     {session.d3ApplyRecoverAvailable===true&&!applyAttempted&&
       !applyPreviouslySent&&<label>
@@ -916,11 +943,11 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        </p>)}
      {session.d3ApplyAvailable===true&&<>
      <label><input type="checkbox" checked={applyConsent}
-       disabled={applyAttempted||applyPreviouslySent||recoverPrevious}
+       disabled={busy||applyAttempted||applyPreviouslySent||applyBlocked||recoverPrevious}
        onChange={e=>setApplyConsent(e.target.checked)}/>
        Отдельно подтверждаю применение выбранных редакций</label>
      <button className="primary" data-testid="d3-apply-confirm"
-      disabled={busy||!applyConsent||applyAttempted||applyPreviouslySent||recoverPrevious}
+      disabled={busy||!applyConsent||applyAttempted||applyPreviouslySent||applyBlocked||recoverPrevious}
       onClick={apply}>Apply</button>
      </>}
     </div>}
@@ -929,7 +956,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       Kernel пока не подключено. ACCEPT не означает Apply.
      </p>}
    </>}
-   {applyAttempted&&!kernelResult&&<p className="notice subdued">
+   {applyAttempted&&!kernelResult&&!kernelRecovery&&<p className="notice subdued">
     Результат Apply не подтверждён. Требуется независимое чтение исходного Kernel
     и журнала владельца. Второй Apply здесь заблокирован.</p>}
    {kernelResult&&<p data-testid="d3-kernel-readback">

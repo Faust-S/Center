@@ -1,1 +1,33 @@
-<!doctype html><html lang="ru"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><meta name="color-scheme" content="light"/><title>IWXA Admin Center</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="color-scheme" content="light"/>
+  <title>IWXA Admin Center</title>
+  <style>
+    /* Visible even if WebView2 loads HTML but the React bundle cannot start.
+       React replaces this node immediately after mounting the real app. */
+    .iwxa-bootstrap {min-height:100vh;display:grid;place-items:center;
+      margin:0;padding:28px;background:#f2f5f9;color:#24364a;
+      font:14px/1.5 "Segoe UI Variable","Segoe UI",sans-serif}
+    .iwxa-bootstrap-panel {max-width:460px;padding:24px 28px;
+      border:1px solid #d9e1ea;border-radius:12px;background:#fff}
+    .iwxa-bootstrap-mark {display:inline-block;width:9px;height:9px;
+      border-radius:2px;background:#c83542;margin-right:9px}
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div class="iwxa-bootstrap" role="status" data-testid="iwxa-bootstrap">
+      <div class="iwxa-bootstrap-panel"><strong><span class="iwxa-bootstrap-mark"
+        aria-hidden="true"></span>IWXA Admin Center</strong>
+        <p>Открываем рабочее место...</p>
+        <p>Если интерфейс не появляется, завершите программу и сообщите о проблеме запуска.
+           Рабочие данные не сбрасываются.</p>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

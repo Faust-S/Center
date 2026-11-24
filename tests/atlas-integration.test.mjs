@@ -140,3 +140,20 @@ test("reference checks reject local Center plans as proof of original installed 
  assert.equal(selectAtlasReferenceSource(null,installed,'file'),installed);
  assert.equal(selectAtlasReferenceSource(null,null,'file'),null);
 });
+
+test('Atlas draft link target requires explicit selection when several workspaces compete',async()=>{
+ const {selectAtlasTargetWorkspace:select,atlasWorkspaceBindingMatches:matches}=await import('../src/atlas-integration.mjs');
+ const ref={projectId:'project:one',revision:'8',workId:'work:one'};
+ const plain={id:'workspace:a',name:'A',atlasRef:null};
+ const linked={id:'workspace:b',name:'B',atlasRef:{projectId:ref.projectId,revision:ref.revision}};
+ const other={id:'workspace:c',name:'C',atlasRef:linked.atlasRef};
+ assert.equal(select([plain],'',ref),plain);
+ assert.equal(select([plain,{...linked,atlasRef:null}],'',ref),null);
+ assert.equal(select([plain,linked],'',ref),linked);
+ assert.equal(select([plain,linked,other],'',ref),null);
+ assert.equal(select([plain,linked],'workspace:a',ref),plain);
+ assert.equal(select([plain,linked],'workspace:foreign',ref),null);
+ assert.equal(matches(linked,ref),true);
+ assert.equal(matches(plain,ref),false);
+ assert.equal(matches(linked,{...ref,revision:'9'}),false);
+});

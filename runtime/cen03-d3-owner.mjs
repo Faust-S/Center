@@ -227,6 +227,219 @@ export function validateOriginalEmployeeTaskIssueReceipt(
  return copy(receipt,code);
 }
 
+// Presentation of an existing original enrollment. The caller must first read
+// the ORIGINAL signed roster, enrollment and PROOF credential. Neither an
+// organizational contact nor a local continuation is proof of these rights.
+export function readOriginalEmployeeEnrollmentIdentity(receipt,
+ {organizationId,workspaceId,actorId,employeePersonId:personId,enrollmentId}){
+ const code='CEN_D3_EMPLOYEE_ORIGINAL_ENROLLMENT_READBACK_HOLD';
+ const keyId=receipt?.credential?.publicKeyRef;
+ const exportResources=['workspace:'+workspaceId,'subject:'+organizationId,
+   'recipient:'+organizationId,'field:result','operation:UPSERT'];
+ const work=receipt?.workGrant?.payload,exp=receipt?.exportGrant?.payload,
+   original=receipt?.originalEnrollment?.payload;
+ need([organizationId,workspaceId,actorId,personId,enrollmentId,keyId].every(validId)&&
+   personId!==actorId&&receipt?.state==='ORIGINAL_GRANTS_ACTIVE'&&
+   receipt.employeePersonId===personId&&receipt.enrollmentId===enrollmentId&&
+   receipt.organizationId===organizationId&&receipt.originalReadback===true&&
+   receipt.originalSigned===true&&receipt.safeToReissue===false&&
+   receipt.membership?.personId===personId&&
+   receipt.membership?.organizationId===organizationId&&
+   receipt.membership?.workspaceId===workspaceId&&
+   receipt.credential?.holderPersonId===personId&&
+   receipt.binding?.holderPersonId===personId&&
+   receipt.binding?.organizationId===organizationId&&
+   validId(work?.id)&&receipt.binding?.grantId===work.id&&
+   work.holderId===personId&&work.rightClass==='ACTION'&&
+   JSON.stringify(work.actions)==='["work.prepare"]'&&
+   JSON.stringify(work.resources)===JSON.stringify([workspaceId])&&
+   exp?.holderId===personId&&exp?.rightClass==='DATA'&&
+   JSON.stringify(exp.actions)==='["package.export"]'&&
+   JSON.stringify(exp.resources)===JSON.stringify(exportResources)&&
+   original?.personId===personId&&original?.organizationId===organizationId&&
+   original?.workspaceId===workspaceId&&original?.credentialPublicKeyRef===keyId&&
+   Number.isSafeInteger(receipt.statusSequence)&&receipt.statusSequence>0,code);
+ return Object.freeze({employeePersonId:personId,enrollmentId,credentialKeyId:keyId});
+}
+export function readOriginalEmployeeCredentialIdentity(receipt,identity){
+ const code='CEN_D3_EMPLOYEE_ORIGINAL_KEY_READBACK_REQUIRED';
+ need(validId(identity?.employeePersonId)&&validId(identity?.credentialKeyId)&&
+   receipt?.state==='ORIGINAL_PROOF_CREDENTIAL_ADMITTED'&&
+   receipt.employeePersonId===identity.employeePersonId&&
+   receipt.credentialKeyId===identity.credentialKeyId&&
+   receipt.originalReadback===true&&receipt.safeToRetry===false,code);
+ return copy(receipt,code);
+}
+
+// Interpret only the original owner's exact scoped grant readback. Missing
+// is not a permission; it merely allows a first explicitly approved issue.
+// A revoked, malformed or unknown grant must not be treated as missing.
+const employeeWorkspaceGrantSpec=Object.freeze({
+ readAccess:['workspace.read','workspace.read'],
+ writeAccess:['object.write','workspace.work'],
+ createAccess:['workspace.create','workspace.onboarding'],
+ importAccess:['workspace.exchange.import','workspace.exchange.import'],
+});
+function employeeGrantScopeMatches(value,scope){
+ return [scope?.organizationId,scope?.workspaceId,scope?.actorId,
+   scope?.employeePersonId,scope?.enrollmentId,scope?.credentialKeyId].every(validId)&&
+   scope.actorId!==scope.employeePersonId&&
+   value?.organizationId===scope.organizationId&&value.workspaceId===scope.workspaceId&&
+   value.employeePersonId===scope.employeePersonId&&value.enrollmentId===scope.enrollmentId&&
+   value.originalReadback===true&&value.safeToReissue===false;
+}
+export function inspectOriginalEmployeeWorkspaceRights(value,scope){
+ const code='CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED';
+ need(employeeGrantScopeMatches(value,scope)&&
+   value.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1',code);
+ if(value.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_NOT_FOUND'){
+   need((value.attachments===undefined||Object.keys(value.attachments??{}).length===0)&&
+     (value.grantIds===undefined||Array.isArray(value.grantIds)&&value.grantIds.length===0),code);
+   return 'NOT_FOUND';
+ }
+ need(value.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'&&
+   Number.isSafeInteger(value.statusSequence)&&value.statusSequence>0&&
+   Object.keys(value.attachments??{}).length===4,code);
+ const ids=new Set();
+ for(const [name,[action,purpose]] of Object.entries(employeeWorkspaceGrantSpec)){
+   const a=value.attachments[name];
+   need(validId(a?.grantId)&&!ids.has(a.grantId)&&a.grantId===a.binding?.grantId&&
+     a.membership?.personId===scope.employeePersonId&&
+     a.membership?.workspaceId===scope.workspaceId&&
+     a.binding.holderPersonId===scope.employeePersonId&&
+     a.credential?.publicKeyRef===scope.credentialKeyId&&
+     a.enrollment?.payload?.credentialPublicKeyRef===scope.credentialKeyId&&
+     JSON.stringify(a.binding.actions)===JSON.stringify([action])&&
+     JSON.stringify(a.binding.purposes)===JSON.stringify([purpose]),code);
+   ids.add(a.grantId);
+ }
+ if(value.grantIds!==undefined)need(Array.isArray(value.grantIds)&&
+   value.grantIds.length===4&&new Set(value.grantIds).size===4&&
+   value.grantIds.every(id=>ids.has(id)),code);
+ return 'ACTIVE';
+}
+export function inspectOriginalEmployeeTaskGrant(value,scope){
+ const code='CEN_D3_EMPLOYEE_TASK_DATA_READBACK_HOLD';
+ need(employeeGrantScopeMatches(value,scope)&&
+   value.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1'&&
+   value.recipientId===scope.employeePersonId&&value.managerPersonId===scope.actorId,code);
+ if(value.state==='ORIGINAL_MANAGER_TASK_DATA_NOT_FOUND'){
+   need(value.grant===undefined&&value.grantId===undefined,code);
+   return 'NOT_FOUND';
+ }
+ if(value.state==='ORIGINAL_MANAGER_TASK_DATA_REVOKED_OR_EXPIRED'||
+    value.state==='ORIGINAL_MANAGER_TASK_DATA_STATUS_UNKNOWN_HOLD')return 'HOLD';
+ const g=value.grant?.payload;
+ need(value.state==='ORIGINAL_MANAGER_TASK_DATA_ACTIVE'&&
+   Number.isSafeInteger(value.statusSequence)&&value.statusSequence>0&&validId(g?.id)&&
+   (value.grantId===undefined||value.grantId===g.id)&&
+   g.holderId===scope.actorId&&g.roleId==='assigner'&&g.rightClass==='DATA'&&
+   JSON.stringify(g.actions)==='["package.export"]'&&
+   JSON.stringify(g.purposes)==='["assignment"]'&&
+   JSON.stringify(g.resources)===JSON.stringify(['workspace:'+scope.workspaceId,
+     'subject:'+scope.organizationId,'recipient:'+scope.employeePersonId,'field:task','operation:UPSERT']),code);
+ return 'ACTIVE';
+}
+
+// UI continuation only, following the existing pending seat intent pattern.
+// Do not store Task content, a signature, receipt, grant or organizational
+// authority here. The original owner remains the only Task inventory.
+const employeeTaskId=value=>typeof value==='string'&&/^task:[A-Za-z0-9-]{1,100}$/.test(value);
+export function employeeTaskContinuationKey(organizationId,workspaceId,actorId,employeePersonId,enrollmentId){
+ need([organizationId,workspaceId,actorId,employeePersonId,enrollmentId].every(validId)&&
+  actorId!==employeePersonId,'CEN_D3_EMPLOYEE_TASK_CONTINUATION_SCOPE_INVALID');
+ return 'iwxa.center.pending-employee-task.v1:'+JSON.stringify([
+  organizationId,workspaceId,actorId,employeePersonId,enrollmentId]);
+}
+export function readEmployeeTaskContinuation(storage,key){
+ const value=storage.getItem(key);
+ need(value===null||employeeTaskId(value),'CEN_D3_EMPLOYEE_TASK_CONTINUATION_INVALID');
+ return value;
+}
+export function saveEmployeeTaskContinuation(storage,key,taskId){
+ need(employeeTaskId(taskId),'CEN_D3_EMPLOYEE_TASK_CONTINUATION_INVALID');
+ need(readEmployeeTaskContinuation(storage,key)===null,'CEN_D3_EMPLOYEE_TASK_CONTINUATION_ALREADY_PENDING');
+ storage.setItem(key,taskId);
+ need(readEmployeeTaskContinuation(storage,key)===taskId,'CEN_D3_EMPLOYEE_TASK_CONTINUATION_NOT_SAVED');
+}
+export function clearEmployeeTaskContinuation(storage,key,taskId){
+ const current=readEmployeeTaskContinuation(storage,key);
+ need(employeeTaskId(taskId)&&(current===null||current===taskId),
+  'CEN_D3_EMPLOYEE_TASK_CONTINUATION_CHANGED');
+ if(current!==null)storage.removeItem(key);
+ need(readEmployeeTaskContinuation(storage,key)===null,'CEN_D3_EMPLOYEE_TASK_CONTINUATION_NOT_CLEARED');
+}
+
+// Match the existing ORIGINAL native d3EmployeeTaskReadback contract.
+// A prior successful issuance/recovery receipt cannot be replaced by a
+// different original carrier with the same Task ID. Absence is never proof
+// that an earlier consequential invocation can safely be dispatched again.
+export function validateOriginalEmployeeTaskReadback(receipt,{taskId,employeePersonId,enrollmentId},previous=null){
+ const code='CEN_D3_EMPLOYEE_TASK_ORIGINAL_READBACK_HOLD';
+ need(employeeTaskId(taskId)&&validId(employeePersonId)&&validId(enrollmentId)&&
+  receipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1'&&
+  receipt.taskId===taskId&&typeof receipt.found==='boolean',code);
+ if(!receipt.found){
+  need(previous===null&&receipt.automaticReissueAllowed===false&&
+   ['NOT_IN_ORIGINAL_TASK_INVENTORY','ORIGINAL_SIGNED_CARRIER_WITHOUT_INVENTORY_HOLD'].includes(receipt.status),code);
+ }else{
+  need(receipt.status==='SIGNED_TASK_PERSISTED_NOT_DELIVERED'&&
+   receipt.recipientId===employeePersonId&&receipt.enrollmentId===enrollmentId&&
+   receipt.originalKernelReadback===true&&receipt.taskDelivered===false&&
+   validSha(receipt.taskRevisionId)&&validSha(receipt.packageSha256),code);
+  if(previous!==null)need(previous.taskId===taskId&&
+   previous.recipientId===employeePersonId&&previous.enrollmentId===enrollmentId&&
+   previous.taskRevisionId===receipt.taskRevisionId&&previous.packageSha256===receipt.packageSha256,code);
+ }
+ return copy(receipt,code);
+}
+
+// Display the existing original inventory as recipient-specific lists.
+// Every selected employee carrier still requires independent native readback.
+export function readOriginalTaskCatalog(snapshot){
+ const code='CEN_MANAGER_SIGNED_TASK_INVENTORY_INVALID';
+ need(validId(snapshot?.organizationId)&&validId(snapshot?.workspaceId)&&
+   validId(snapshot?.actorId)&&Array.isArray(snapshot.tasks)&&
+   Number.isSafeInteger(snapshot.totalTasks)&&snapshot.totalTasks>=snapshot.tasks.length&&
+   snapshot.totalTasks<=256,code);
+ const ids=new Set(),rows=[];
+ for(const row of snapshot.tasks){
+  need(employeeTaskId(row?.taskId)&&validId(row?.recipientId)&&
+   validSha(row?.taskRevisionId)&&validSha(row?.packageSha256)&&
+   typeof row?.summary==='string'&&row.summary.length<=10000&&
+   row.deliveryState==='NOT_CONFIRMED','CEN_MANAGER_SIGNED_TASK_INVALID');
+  need(!ids.has(row.taskId),'CEN_MANAGER_SIGNED_TASK_DUPLICATE');
+  ids.add(row.taskId);
+  rows.push({taskId:row.taskId,recipientId:row.recipientId,
+    taskRevisionId:row.taskRevisionId,packageSha256:row.packageSha256,
+    summary:row.summary,deliveryState:'NOT_CONFIRMED'});
+ }
+ return {rows,totalTasks:snapshot.totalTasks,truncated:rows.length<snapshot.totalTasks};
+}
+export function validateOriginalEmployeeCatalogReadback(receipt,row,enrollmentId){
+ const code='CEN_D3_EMPLOYEE_TASK_CATALOG_READBACK_HOLD';
+ need(row?.deliveryState==='NOT_CONFIRMED'&&validId(row.recipientId)&&
+   validId(enrollmentId)&&employeeTaskId(row.taskId)&&validSha(row.taskRevisionId)&&
+   validSha(row.packageSha256),code);
+ return validateOriginalEmployeeTaskReadback(receipt,{
+   employeePersonId:row.recipientId,enrollmentId,taskId:row.taskId
+ },{...row,enrollmentId});
+}
+export function validateOriginalEmployeeTaskExportReceipt(result,source){
+ const code='CEN_D3_EMPLOYEE_TASK_EXPORT_READBACK_HOLD';
+ need(source?.found===true&&source.originalKernelReadback===true&&
+   source.status==='SIGNED_TASK_PERSISTED_NOT_DELIVERED'&&
+   employeeTaskId(source.taskId)&&validId(source.recipientId)&&
+   validSha(source.taskRevisionId)&&validSha(source.packageSha256)&&
+   result?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_EXPORT/1'&&
+   result.status==='EXPORTED_UNDELIVERED'&&result.originalSigned===true&&
+   result.taskDelivered===false&&result.taskId===source.taskId&&
+   result.recipientId===source.recipientId&&result.taskRevisionId===source.taskRevisionId&&
+   result.packageSha256===source.packageSha256&&Number.isSafeInteger(result.bytes)&&
+   result.bytes>0,code);
+ return copy(result,code);
+}
+
 export function appendOriginalResultReview(previous,preview,organizationId,
  workspaceId){
  const bad='CEN_D3_SIGNED_RESULT_REVIEW_STALE';
@@ -442,4 +655,55 @@ export function createCenD3OwnerHost({admission,access,apply=null,
    return copy(result,'CEN_D3_OWNER_RESPONSE_INVALID');
  }
  return Object.freeze({state,action,close(){closed=true;}});
+}
+
+// Public original employee bootstrap projection. It carries no grant, private
+// key or new authority. The original native owner computes the fingerprint;
+// the employee confirms it independently before creating DPAPI custody.
+const employeeBootstrapFields=['audience','authorityId','confirmedIssuerSha256','issuerKeyId',
+ 'issuerPublicKey','managerPersonId','organizationDataRootId','organizationId','organizationName',
+ 'realmId','reviewKeyId','reviewPublicKey','workspaceId'];
+const publicEmployeePem=v=>typeof v==='string'&&v.length<4096&&
+ v.startsWith('-----BEGIN PUBLIC KEY-----')&&v.includes('-----END PUBLIC KEY-----')&&!v.includes('PRIVATE KEY');
+const exactEmployeeFields=(value,fields)=>value&&typeof value==='object'&&!Array.isArray(value)&&
+ Object.keys(value).length===fields.length&&fields.every(k=>Object.hasOwn(value,k));
+export function readOriginalEmployeeBootstrap(value,scope){
+ const p=value?.profile;
+ need(value?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_BOOTSTRAP/1'&&
+   value.organizationId===scope.organizationId&&value.workspaceId===scope.workspaceId&&
+   value.originalReadback===true&&value.employeeEnrolled===false&&value.grantIssued===false&&
+   validSha(value.profileDigest)&&exactEmployeeFields(p,employeeBootstrapFields)&&
+   p.organizationId===scope.organizationId&&p.workspaceId===scope.workspaceId&&
+   p.managerPersonId===scope.actorId&&
+   employeeBootstrapFields.filter(k=>!['confirmedIssuerSha256','issuerPublicKey','reviewPublicKey','organizationName'].includes(k))
+    .every(k=>validId(p[k]))&&
+   typeof p.organizationName==='string'&&p.organizationName.trim()===p.organizationName&&
+   p.organizationName.length>0&&p.organizationName.length<=120&&
+   validSha(p.confirmedIssuerSha256)&&publicEmployeePem(p.issuerPublicKey)&&publicEmployeePem(p.reviewPublicKey)&&
+   p.issuerKeyId!==p.reviewKeyId&&p.issuerPublicKey!==p.reviewPublicKey,
+   'CEN_D3_EMPLOYEE_BOOTSTRAP_READBACK_INVALID');
+ return {profile:copy(p,'CEN_D3_EMPLOYEE_BOOTSTRAP_READBACK_INVALID'),profileDigest:value.profileDigest};
+}
+export function readOriginalEmployeePublicCandidate(raw,scope,bootstrap){
+ need(typeof raw==='string'&&raw.length<=32768&&bootstrap&&validSha(bootstrap.profileDigest),
+  'CEN_D3_EMPLOYEE_PUBLIC_CANDIDATE_INVALID');
+ let c;try{c=JSON.parse(raw)}catch{fail('CEN_D3_EMPLOYEE_PUBLIC_CANDIDATE_INVALID')}
+ const k=c?.employeeProofKeyRecord;
+ need(exactEmployeeFields(c,['schema','state','profileDigest','organizationId','workspaceId','employeePersonId',
+   'managerPersonId','credentialKeyId','employeeProofKeyRecord','originalKernelEnrollment','originalSignedGrant',
+   'automaticTransfer','T3_READY'])&&
+  c.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_WINDOWS_CANDIDATE/1'&&
+  c.state==='AWAITING_ORIGINAL_MANAGER_ENROLLMENT'&&c.profileDigest===bootstrap.profileDigest&&
+  c.organizationId===scope.organizationId&&c.workspaceId===scope.workspaceId&&c.managerPersonId===scope.actorId&&
+  validId(c.employeePersonId)&&c.employeePersonId!==scope.actorId&&validId(c.credentialKeyId)&&
+  c.originalKernelEnrollment===false&&c.originalSignedGrant===false&&c.automaticTransfer===false&&c.T3_READY===false&&
+  exactEmployeeFields(k,['subjectId','environment','publicKey','status','uses','notBefore','expiresAt'])&&
+  k.subjectId===c.employeePersonId&&k.environment==='PRODUCTION'&&k.status==='ACTIVE'&&publicEmployeePem(k.publicKey)&&
+  Array.isArray(k.uses)&&k.uses.length===1&&k.uses[0]==='PROOF'&&
+  typeof k.notBefore==='string'&&typeof k.expiresAt==='string'&&
+  Number.isFinite(Date.parse(k.notBefore))&&Date.parse(k.expiresAt)>Date.parse(k.notBefore),
+  'CEN_D3_EMPLOYEE_PUBLIC_CANDIDATE_INVALID');
+ // Populating the draft fields does NOT admit the PROOF key.
+ return {employeePersonId:c.employeePersonId,credentialKeyId:c.credentialKeyId,
+  keyRecord:copy(k,'CEN_D3_EMPLOYEE_PUBLIC_CANDIDATE_INVALID')};
 }

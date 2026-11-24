@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createNativeAtlasPort} from './atlas-native.mjs';
-import {linkableAtlasProject,linkableAtlasWork} from './atlas-integration.mjs';
+import {linkableAtlasProject,linkableAtlasWork,selectAtlasTargetWorkspace,atlasWorkspaceBindingMatches} from './atlas-integration.mjs';
 import {createCen05NativePort,describeCen05Status,describeCen05Error,presentationMatchesWork} from './cen05-native.mjs';
 
 // Genuine desktop host. Browser preview intentionally has no native authority.
@@ -8,7 +8,12 @@ const isDesktop=()=>Boolean((window as any).__TAURI_INTERNALS__);
 const invoke=(name:string,args:any)=>(window as any).__TAURI_INTERNALS__.invoke(name,args);
 type Session={organizationId:string;generation:string;snapshot:any;sourceKind:'CENTER_LOCAL_PREPARATION'|'PUBLIC_ATLAS_READ_ONLY'};
 type View={source:string;revision:string;mode:string;authorization:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
-export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObserved}:{organizationId:string;onLink:(ref:{projectId:string;revision:string})=>void;onLinkWork:(ref:{projectId:string;revision:string;workId:string})=>void;onObserved?:(organizationId:string,view:View|null)=>void}){
+type WorkspaceChoice={id:string;name:string;atlasRef?:{projectId:string;revision:string}|null};
+export default function NativeAtlasPanel({organizationId,workspaces,targetWorkspaceId,onChooseWorkspace,onLink,onLinkWork,onObserved}:{
+ organizationId:string;workspaces:WorkspaceChoice[];targetWorkspaceId:string;onChooseWorkspace:(id:string)=>void;
+ onLink:(ref:{projectId:string;revision:string},workspaceId:string)=>boolean;
+ onLinkWork:(ref:{projectId:string;revision:string;workId:string},workspaceId:string)=>void;
+ onObserved?:(organizationId:string,view:View|null)=>void}){
  const [session,setSession]=useState<Session|null>(null);
  const [view,setView]=useState<View|null>(null);
  const [selected,setSelected]=useState('');
@@ -82,6 +87,9 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
    finally{locked.current=false;setBusy(false);}
  }
  const selectedProject=view?.projects.find(x=>x.id===selected);
+ const projectRef=view&&selectedProject?linkableAtlasProject(view,selected):null;
+ const target=selectAtlasTargetWorkspace(workspaces,targetWorkspaceId,projectRef) as WorkspaceChoice|null;
+ const bindingCurrent=atlasWorkspaceBindingMatches(target,projectRef);
  const selectedWorkRef=session?.sourceKind==='PUBLIC_ATLAS_READ_ONLY'&&view&&
    selectedProject?.workItems.length
    ?linkableAtlasWork(view,selected,selectedWork||selectedProject.workItems[0].id)
@@ -113,13 +121,26 @@ export default function NativeAtlasPanel({organizationId,onLink,onLinkWork,onObs
          <input aria-label="Работа Atlas" maxLength={160} value={workName} required onChange={e=>setWorkName(e.target.value)} placeholder="Работа в выбранном проекте"/>
          <button className="secondary" disabled={busy||!workName.trim()} data-testid="native-atlas-add-work">Добавить работу</button>
        </form>}
-       <button className="secondary" disabled={busy} onClick={()=>onLink(linkableAtlasProject(view,selected))} data-testid="native-atlas-link">Связать с рабочей областью</button>
+       <label>Целевая рабочая область Atlas
+         <select aria-label="Целевая рабочая область Atlas" data-testid="native-atlas-workspace"
+           value={target?.id??''} disabled={busy} onChange={e=>onChooseWorkspace(e.target.value)}>
+           <option value="">Выберите рабочую область</option>
+           {workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+         </select>
+       </label>
+       <p role="status" data-testid="native-atlas-binding-status">
+         {bindingCurrent?'Связь с выбранной редакцией подтверждена в черновике':
+           target?'Связь с выбранной редакцией пока не установлена':'Выберите целевую рабочую область'}
+       </p>
+       <button type="button" className="secondary" disabled={busy||!target||!projectRef||bindingCurrent}
+         onClick={()=>{if(target&&projectRef&&onLink(projectRef,target.id))onChooseWorkspace(target.id);}}
+         data-testid="native-atlas-link">Связать с рабочей областью</button>
        {selectedProject && selectedProject.workItems.length>0 && <div className="inline-form">
          <label>Работа Atlas <select aria-label="Выбранная работа Atlas" value={selectedWork||selectedProject.workItems[0].id} onChange={e=>setSelectedWork(e.target.value)}>
            {selectedProject.workItems.map(item=><option key={item.id} value={item.id}>{item.title}</option>)}
          </select></label>
-         <button type="button" className="secondary" disabled={busy} data-testid="native-atlas-work-to-assignment"
-           onClick={()=>onLinkWork(linkableAtlasWork(view,selected,selectedWork||selectedProject.workItems[0].id))}>Подготовить поручение по работе</button>
+         <button type="button" className="secondary" disabled={busy||!target||!bindingCurrent} data-testid="native-atlas-work-to-assignment"
+           onClick={()=>{if(target&&bindingCurrent)onLinkWork(linkableAtlasWork(view,selected,selectedWork||selectedProject.workItems[0].id),target.id);}}>Подготовить поручение по работе</button>
        </div>}
      </>}
      {session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'&&selectedProject&&selectedProject.workItems.length>0&&<div className="nested-form" data-testid="cen05-native-presentation">

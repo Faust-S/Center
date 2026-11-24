@@ -74,6 +74,7 @@ try{
   assert.match(await page.getByTestId('center-age-exchange').innerText(),/установленном Windows-приложении/);
   checks.push('encrypted-iwxa-file-transport-not-executed-in-browser');
   await page.getByTestId('nav-resources').click();await page.getByTestId('workspace-name').fill('Procurement');await page.getByTestId('add-workspace').click();
+  await page.getByTestId('workspace-name').fill('Independent operations');await page.getByTestId('add-workspace').click();
   // Build a real Atlas snapshot through its pinned domain module, never a fake project record.
   const {empty,createProject,createItem,editProject,serialize}=await import('../vendor/atlas/src/core.mjs');
   const first=createProject(empty(),{name:'Supply programme',type:'business'});
@@ -97,14 +98,36 @@ try{
   assert.equal(await page.getByTestId('atlas-project-count').textContent(),'1');
   assert.equal(await page.getByTestId('atlas-revision').textContent(),String(work.state.revision));
   checks.push('atlas-iwxa-real-file-picker-valid-and-tampered-archive-rejected');
+  const fileTarget=page.getByTestId('atlas-workspace-select');
+  assert.equal(await fileTarget.inputValue(),'');
+  assert.equal(await page.getByTestId('link-atlas').isEnabled(),false);
+  assert.equal(await page.getByTestId('atlas-file-work-to-assignment').first().isEnabled(),false);
+  await fileTarget.selectOption({label:'Procurement'});
+  assert.equal(await page.getByTestId('atlas-file-work-to-assignment').first().isEnabled(),false);
   await page.getByTestId('link-atlas').click();
+  assert.match(await page.getByTestId('atlas-file-binding-status').innerText(),/Связь с редакцией файла подтверждена/);
+  assert.equal(await page.getByTestId('atlas-file-work-to-assignment').first().isEnabled(),true);
   checks.push('atlas-real-portfolio-project-selection-and-link');
   await page.getByTestId('nav-people').click();
   for(const name of ['Anna','Boris']){await page.getByTestId('person-name').fill(name);await page.getByTestId('add-person').click();}
-  await page.getByTestId('nav-programs').click();await page.getByTestId('plan-agent-seat').first().click();
+  await page.getByTestId('nav-programs').click();
+  await page.getByTestId('open-corporate-seat-registry').click();
+  await page.getByTestId('corporate-seat-route-guide').waitFor();
+  assert.equal(await page.getByTestId('corporate-panel').count(),1);
+  await page.getByTestId('nav-programs').click();
+  await page.getByTestId('plan-agent-seat').first().click();
   assert.equal(await page.getByTestId('planned-agent-seats').textContent(),'1');checks.push('manager-plans-agent-seat-no-license-claim');
   assert.equal(await page.getByTestId('cen04-select-test-iwxa').count(),0);
   assert.equal(await page.getByTestId('cen04-import-verified-age').isEnabled(),false);
+  assert.equal(await page.getByTestId('cen04-corporate-native-intake').count(),1);
+  assert.equal(await page.getByTestId('cen04-corporate-native-receive').isEnabled(),false);
+  assert.equal(await page.getByTestId('cen04-corporate-native-read').isEnabled(),false);
+  assert.equal(await page.getByTestId('cen04-corporate-enroll-trust').count(),0);
+  assert.ok((await page.getByTestId('cen04-corporate-organization-id').inputValue()).length>0);
+  assert.equal(await page.getByTestId('cen04-corporate-organization-copy').isEnabled(),true);
+  assert.match(await page.getByTestId('cen04-corporate-native-intake').innerText(),/Оригинальный корпоративный T3 недоступен/);
+  assert.equal(await page.getByTestId('cen04-corporate-original-received').count(),0);
+
   assert.equal(await page.getByTestId('cen04-import-verified-iwxa').isEnabled(),false);
   assert.equal(await page.getByTestId('cen04-enroll-trust').count(),0);
   assert.equal(await page.getByTestId('center-age-exchange').count(),1);
@@ -195,8 +218,10 @@ try{
   assert.ok(await page.getByTestId('refresh-assignment-atlas').isVisible());
   await page.getByTestId('task-title').fill('Unsaved editor text');
   await page.getByTestId('nav-resources').click();
-  await page.getByTestId('atlas-file-work-to-assignment').first().click();
-  assert.ok(await page.getByRole('alert').isVisible());
+  // The new explicit workspace gate correctly refuses a stale source before
+  // invoking the editor. Do not click an intentionally disabled control.
+  assert.equal(await page.getByTestId('atlas-file-work-to-assignment').first().isEnabled(),false);
+  assert.match(await page.getByTestId('atlas-file-binding-status').innerText(),/пока не установлена/);
   await page.getByTestId('nav-work').click();
   assert.equal(await page.getByTestId('task-title').inputValue(),'Unsaved editor text');
   await page.getByTestId('task-title').fill('Compare four suppliers');
@@ -220,6 +245,21 @@ try{
   assert.equal(await page.getByTestId('task-title').inputValue(),'Compare four suppliers');
   await page.getByTestId('save-assignment').click();
   checks.push('confirmed-revision-refresh-keeps-work-id-and-unsaved-editor');
+  // The exact current binding, as opposed to the stale revision above,
+  // reaches the original unsaved-editor guard and must not replace it.
+  await page.getByTestId('nav-resources').click();
+  await page.getByTestId('link-atlas').click();
+  assert.equal(await page.getByTestId('atlas-file-work-to-assignment').first().isEnabled(),true);
+  await page.getByTestId('nav-work').click();
+  await page.getByTestId('assignment-row').first().click();
+  await page.getByTestId('task-title').fill('Unsaved editor text');
+  await page.getByTestId('nav-resources').click();
+  await page.getByTestId('atlas-file-work-to-assignment').first().click();
+  assert.match(await page.getByRole('alert').innerText(),/Сохраните или закройте открытый редактор/);
+  await page.getByTestId('nav-work').click();
+  assert.equal(await page.getByTestId('task-title').inputValue(),'Unsaved editor text');
+  await page.getByTestId('task-title').fill('Compare four suppliers');
+  await page.getByRole('button',{name:'Закрыть редактор'}).click();
   await page.getByTestId('assignment-row').first().click();
   await page.getByTestId('task-title').fill('This unsaved next task must be retained');
   await page.getByTestId('nav-results').click();
@@ -398,6 +438,51 @@ try{
   await page.setViewportSize({width:320,height:800});assert.ok(await page.getByRole('button',{name:'Разделы'}).isVisible());await page.getByRole('button',{name:'Разделы'}).click();await page.getByTestId('nav-work').click();
   const sizes=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert.ok(sizes.scroll<=sizes.width+1,JSON.stringify(sizes));checks.push('navigation-and-no-overflow-320');
   await page.screenshot({path:'artifacts/work-320.png',fullPage:true});assert.deepEqual(errors,[]);checks.push('no-page-errors');
+  // Exercise the local native Atlas port's UI using a real serialized Atlas
+  // snapshot. This is a browser IPC fixture, not an installed Store witness.
+  const localAtlasPage=await browser.newPage({viewport:{width:820,height:650}});
+  localAtlasPage.on('pageerror',error=>errors.push('localAtlas:'+error.message));
+  const nativeAtlasCalls=[];
+  await localAtlasPage.exposeFunction('__localAtlasFixture',async(command,args={})=>{
+    if(command==='center_draft_read_local')return null;
+    if(command==='center_corporate_signed_workspace_status')return {
+      schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',open:false,visible:false,foreignOrOrphaned:false};
+    if(command==='center_atlas_open'){
+      nativeAtlasCalls.push(args.organizationId);
+      return {generation:'fixture-generation',needsConfirmation:false,snapshot:JSON.parse(atlas)};
+    }
+    if(command==='center_atlas_commit')throw Error('LINK_MUST_NOT_MUTATE_ATLAS');
+    return null;
+  });
+  await localAtlasPage.addInitScript(()=>{
+    window.__TAURI_INTERNALS__={invoke:(command,args)=>window.__localAtlasFixture(command,args)};
+  });
+  await localAtlasPage.goto('http://127.0.0.1:4173');
+  await localAtlasPage.getByTestId('org-name').fill('Local atlas scope');
+  await localAtlasPage.getByTestId('create-org').click();
+  await localAtlasPage.getByTestId('nav-resources').click();
+  for(const name of ['First area','Second area']){
+    await localAtlasPage.getByTestId('workspace-name').fill(name);
+    await localAtlasPage.getByTestId('add-workspace').click();
+  }
+  await localAtlasPage.getByTestId('native-atlas-open').click();
+  const target=localAtlasPage.getByTestId('native-atlas-workspace');
+  await target.waitFor();
+  assert.equal(await target.inputValue(),'');
+  assert.equal(await localAtlasPage.getByTestId('native-atlas-link').isEnabled(),false);
+  assert.equal(await localAtlasPage.getByTestId('native-atlas-work-to-assignment').isEnabled(),false);
+  await target.selectOption({label:'Second area'});
+  const secondArea=await target.inputValue();
+  await localAtlasPage.getByTestId('native-atlas-link').click();
+  assert.match(await localAtlasPage.getByTestId('native-atlas-binding-status').innerText(),/подтверждена/);
+  assert.equal(await localAtlasPage.getByTestId('native-atlas-link').isEnabled(),false);
+  await localAtlasPage.getByTestId('native-atlas-work-to-assignment').click();
+  await localAtlasPage.getByTestId('assignment-form').waitFor();
+  assert.equal(await localAtlasPage.getByTestId('assignment-form').getByLabel('Рабочая область').inputValue(),secondArea);
+  assert.ok((await localAtlasPage.getByTestId('assignment-atlas-binding').innerText()).includes(work.id));
+  assert.equal(nativeAtlasCalls.length,1);
+  await localAtlasPage.close();
+  checks.push('native-atlas-explicit-target-exact-binding-before-work-editor');
   // First-use UI with an available ORIGINAL native owner but no local
   // Workspace: manager must be able to create the missing draft Workspace
   // and then return to the ONE signed enrollment command. The native
@@ -506,7 +591,8 @@ try{
   const d3Page=await browser.newPage({viewport:{width:1366,height:900}});
   await d3Page.addInitScript(()=>{
     const held={epoch:7,task:null,writes:0,decisionWrites:0,decision:null,d2ReadCount:0,
-      signedOpen:false,signedVisible:false,signedCloses:0};
+      signedOpen:false,signedVisible:false,signedCloses:0,
+      applyWrites:0,applyReads:0,applied:null};
     window.__d3UiFixture=held;
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(command==='center_draft_read_local')return null;
@@ -534,15 +620,15 @@ try{
         const tasks=held.task?[{
           taskId:held.task.taskId,taskRevisionId:'a'.repeat(64),
           packageSha256:'b'.repeat(64),summary:'UI recovery task',
-          deliveryState:'NOT_CONFIRMED'
+          recipientId:'person:reviewer',deliveryState:'NOT_CONFIRMED'
         }]:[];
         return {status:'D3_OWNER_READY',snapshot:{
           product:'admin',organizationId:args.organizationId,
           workspaceId:'workspace:ui-smoke',actorId:'person:reviewer',
           contextId:'context:ui-smoke',contextEpoch:held.epoch,
           d3RecipientAvailable:true,d3TaskIssueAvailable:true,
-          d3InspectAvailable:true,d3ApplyAvailable:false,
-          d3ApplyRecoverAvailable:false,d2ActivityReaderConnected:held.signedOpen,
+          d3InspectAvailable:true,d3ApplyAvailable:held.signedOpen,
+          d3ApplyRecoverAvailable:held.signedOpen,d2ActivityReaderConnected:held.signedOpen,
           originalSignedWorkspaceAvailable:true,
           productionActivation:false,T3_READY:false,
           tasks,totalTasks:tasks.length
@@ -601,7 +687,7 @@ try{
           const resultText='Результат выполнен';
           return {schema:'IWXA_T3_RECONCILIATION_PREVIEW/1',
             packageSha256:sha,previewDigest:digest,allowedAction:'EXPLICIT_ACCEPT_ONLY',
-            classification:'NEW',entries:[{revisionId:revision}],
+            classification:'NEW',entries:[{revisionId:revision},{revisionId:'9'.repeat(64)}],
             resultInspection:{
               schema:'IWXA_T3_ORIGINAL_SIGNED_RESULT_REVIEW/1',
               packageSha256:sha,previewDigest:digest,
@@ -613,6 +699,41 @@ try{
               resultLength:resultText.length,offset:0,resultText,
               nextOffset:resultText.length,hasMore:false
             }};
+        }
+        if(['d3InspectAccepted','d3ApplyAccepted','d3RecoverApplied'].includes(args.operation)){
+          const input=args.input,acceptanceId='f'.repeat(64),revisionId='e'.repeat(64);
+          if(!held.decision||!held.signedOpen||input.acceptanceId!==acceptanceId||
+            JSON.stringify(input.revisionIds)!==JSON.stringify([revisionId]))
+            throw Error('TEST_APPLY_WRONG_ACCEPTED_SOURCE');
+          const target={consumerId:'IWXA_ADMIN_CENTER',processId:'process:admin-apply',
+            processVersion:'1',purpose:'application.apply',subjectId:args.organizationId,
+            workspaceId:'workspace:ui-smoke',dataRootId:'root:ui-smoke'};
+          if(args.operation==='d3InspectAccepted')
+            return {schema:'IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1',
+              status:'CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION',
+              source:{acceptanceId},target,applicationAttempted:false,
+              applicationAuthorized:false,externalContextCoreApplied:false,
+              changes:[{resultRevisionId:revisionId,taskId:'task:employee',
+                executorId:'person:employee',resultExcerpt:'Результат выполнен',
+                resultTruncated:false}]};
+          if(JSON.stringify(input.target)!==JSON.stringify(target))
+            throw Error('TEST_APPLY_TARGET_CHANGED');
+          if(args.operation==='d3ApplyAccepted'){
+            held.applyWrites++;held.applied={acceptanceId,revisionIds:[...input.revisionIds]};
+            held.epoch++;
+            throw Error('CEN_D3_KERNEL_COMMIT_OUTCOME_UNKNOWN');
+          }
+          held.applyReads++;
+          if(!held.applied||JSON.stringify(held.applied.revisionIds)!==JSON.stringify(input.revisionIds))
+            throw Error('TEST_APPLY_RECOVERY_WRONG_SELECTION');
+          return {status:'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED',
+            kernelWriteReadback:'CONFIRMED',effectKey:'8'.repeat(64),
+            automaticRetryAllowed:false,externalProductAcceptance:'NOT_ACCEPTED',
+            originalKernelReadback:{object:{object_id:'iwxa.admin.applied-results',
+              workspace_id:'workspace:ui-smoke',revision:1}},
+            originalEventReadback:{event_id:'event:apply',workspace_id:'workspace:ui-smoke',
+              idempotency_key:'8'.repeat(64),
+              payload:{reconciliation_acceptance_id:acceptanceId,reconciliation_revision_ids:[revisionId]}}};
         }
         if(args.operation==='d3Decide'){
           held.decisionWrites++;
@@ -735,7 +856,6 @@ try{
   await d3Page.getByLabel('Я просмотрел этот пакет и подтверждаю отдельное решение').check();
   await d3Page.getByTestId('d3-prepare-id').click();
   const pendingDecisionId=await d3Page.getByTestId('d3-operation-id').inputValue();
-  await d3Page.getByLabel('Я сохранил ID для восстановления при потере ответа').check();
   await d3Page.getByTestId('d3-accept').click();
   await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
   await d3Page.getByTestId('d3-decision-already-sent').waitFor();
@@ -752,14 +872,15 @@ try{
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
     'read-only decision recovery must not send a second ACCEPT');
   checks.push('d3-human-decision-no-replay-survives-unknown-ack-and-signed-epoch-remount');
-  // A navigation away fully unmounts CorporatePanel, losing every React
-  // decision guard. The original receipt alone must prevent a new ACCEPT.
-  // This UI fixture keeps native owner state independent of the React panel.
+  // A navigation away fully unmounts CorporatePanel and loses React guards.
+  // The exact pending operation must be restored from local continuation
+  // before any original receipt is queried, without typing or copying its ID.
   await d3Page.getByTestId('nav-overview').click();
   await d3Page.getByTestId('nav-results').click();
   await d3Page.getByTestId('d3-signed-task-workflow').waitFor();
   await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
-  await d3Page.getByTestId('d3-operation-id').fill(pendingDecisionId);
+  assert.equal(await d3Page.getByTestId('d3-operation-id').inputValue(),pendingDecisionId);
+  await d3Page.getByTestId('d3-decision-already-sent').waitFor();
   await d3Page.getByTestId('d3-recover').click();
   await d3Page.getByTestId('d3-recovered-receipt').waitFor();
   await d3Page.getByTestId('d3-review').click();
@@ -770,7 +891,38 @@ try{
     'accepted original receipt blocks Human ACCEPT after cold panel reopen');
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
     'cold panel receipt recovery must not dispatch another decision');
-  checks.push('d3-cold-react-panel-receipt-prevents-duplicate-human-accept');
+  checks.push('d3-persistent-continuation-restores-exact-operation-before-original-receipt');
+  // Choose ONE of two accepted revisions. Original Kernel may commit before
+  // the native acknowledgment is lost. A fully remounted panel cannot
+  // reconstruct the selection from the current list or dispatch a new Apply.
+  const revisionChecks=d3Page.getByTestId('d3-apply-revision');
+  assert.equal(await revisionChecks.count(),2);
+  await revisionChecks.nth(0).check();
+  await d3Page.getByTestId('d3-inspect-apply').click();
+  await d3Page.getByTestId('d3-accepted-result-readback').waitFor();
+  await d3Page.getByLabel('Отдельно подтверждаю применение выбранных редакций').check();
+  await d3Page.getByTestId('d3-apply-confirm').click();
+  await d3Page.waitForFunction(()=>window.__d3UiFixture?.applyWrites===1);
+  await d3Page.getByTestId('nav-overview').click();
+  await d3Page.getByTestId('nav-results').click();
+  await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
+  await d3Page.getByTestId('d3-recover').click();
+  await d3Page.getByTestId('d3-recovered-receipt').waitFor();
+  await d3Page.getByTestId('d3-review').click();
+  await d3Page.getByTestId('d3-apply-already-sent').waitFor();
+  assert.equal(await revisionChecks.nth(0).isChecked(),true);
+  assert.equal(await revisionChecks.nth(1).isChecked(),false);
+  assert.equal(await revisionChecks.nth(0).isEnabled(),false);
+  assert.equal(await d3Page.getByTestId('d3-inspect-apply').isEnabled(),false);
+  await d3Page.getByTestId('d3-recover-apply').click();
+  await d3Page.getByTestId('d3-kernel-recovery').waitFor();
+  assert.match(await d3Page.getByTestId('d3-kernel-recovery').innerText(),/Применение подтверждено/);
+  assert.doesNotMatch(await d3Page.getByTestId('d3-apply').innerText(),/Результат Apply не подтверждён/);
+  const applyState=await d3Page.evaluate(()=>window.__d3UiFixture);
+  assert.equal(applyState.applyWrites,1);
+  assert.equal(applyState.applyReads,1);
+  assert.deepEqual(applyState.applied.revisionIds,['e'.repeat(64)]);
+  checks.push('d3-persistent-apply-selection-no-replay-original-object-event-recovery');
   // Moving to an unrelated page must close the ORIGINAL signed child. No
   // React page may silently preserve credentials in another work domain.
   await d3Page.getByTestId('nav-people').click();
@@ -790,8 +942,10 @@ try{
     loseFirstTaskGrantAck:true,taskIssueCalls:0,signedTaskSaved:false,
     cancelFirstTask:true,loseFirstTaskAck:true,taskExports:0,
     taskOrphan:false,taskRecoveryCalls:0,cancelFirstTaskRecovery:true,
+    secondTaskId:null,wrongTaskReadback:false,
     contextEpoch:1,
-    cancelFirstInit:true,loseFirstInitAck:true};
+    seatPolicyReady:false,seatRevision:0,seatRows:[],seatWrites:0,seatReadbacks:0,seatCommands:new Map(),
+    loseFirstSeatAck:true,cancelFirstInit:true,loseFirstInitAck:true};
   const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
   await employeePage.exposeFunction('__centerEmployeeFixture',
     async(command,args={})=>{
@@ -802,8 +956,21 @@ try{
       if(command==='center_corporate_signed_workspace_status')
         return {schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',
           open:false,visible:false,foreignOrOrphaned:false};
-      if(command==='center_corporate_state')return {
-        status:'D3_OWNER_READY',snapshot:{
+      if(command==='center_corporate_state'){
+        const tasks=employeeState.ready?[
+          {taskId:'task:other-worker',recipientId:'person:other-worker',
+            taskRevisionId:'a'.repeat(64),packageSha256:'b'.repeat(64),
+            summary:'Another worker assignment',deliveryState:'NOT_CONFIRMED'},
+          ...(employeeState.signedTaskSaved&&!employeeState.taskOrphan?[{
+            taskId:'task:independent-work',recipientId:'person:independent',
+            taskRevisionId:'d'.repeat(64),packageSha256:'e'.repeat(64),
+            summary:'Review verified supplier statement',deliveryState:'NOT_CONFIRMED'}]:[]),
+          ...(employeeState.secondTaskId?[{
+            taskId:employeeState.secondTaskId,recipientId:'person:independent',
+            taskRevisionId:'f'.repeat(64),packageSha256:'9'.repeat(64),
+            summary:'Review second verified supplier statement',deliveryState:'NOT_CONFIRMED'}]:[])
+        ]:[];
+        return {status:'D3_OWNER_READY',snapshot:{
           product:'admin',organizationId:args.organizationId,
           workspaceId:'workspace:employee-fixture',
           actorId:'person:manager-fixture',
@@ -816,8 +983,10 @@ try{
           d3EmployeeEnrollmentAvailable:employeeState.ready,
           d3EmployeeTaskIssueAvailable:employeeState.ready,
           d3EmployeeWorkspaceRightsAvailable:employeeState.ready,
-          productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
+          d3EmployeeCorporateSeatsAvailable:employeeState.ready,
+          productionActivation:false,T3_READY:false,tasks,totalTasks:tasks.length
         }};
+      }
       if(command==='center_corporate_age_status')return {
         operation:'AGE_STATUS',available:false,recipient:null,
         toolchain:{ready:false},provider:'WINDOWS_TEST_UI',admitted:false};
@@ -826,6 +995,61 @@ try{
         assert.equal(args.binding?.workspaceId,'workspace:employee-fixture');
         assert.equal(args.binding?.contextEpoch,employeeState.contextEpoch,
           'requests must use the latest original signed native owner epoch');
+        const seatView=()=>{
+          const H='a'.repeat(64),s=employeeState;
+          const rows=[...s.seatRows].sort((a,b)=>Number(b.reserved)-Number(a.reserved));
+          const reservedSeats=rows.filter(r=>r.reserved).length;
+          const roster=[{personId:'person:independent',enrollmentId:'enrollment:verified'},
+            {personId:'person:second',enrollmentId:'enrollment:second'}];
+          return {schema:'IWXA_T3_ORIGINAL_CORPORATE_SEAT_VIEW/1',
+            organizationId:args.organizationId,workspaceId:'workspace:employee-fixture',
+            originalReadback:true,productionActivation:false,registryDigest:s.seatRevision.toString(16).padStart(64,'0'),
+            licenseState:'VERIFIED_CAPACITY_CANDIDATE',licenseEvidenceDigest:H,
+            seatPolicyReady:s.seatPolicyReady,withinLimits:true,existingLineageMatches:true,
+            reservedSeats,independentlyEnrolledEmployees:2,availableSeats:s.seatPolicyReady?1-reservedSeats:0,
+            seatLimit:1,employeeLimit:5,overSeatLimit:0,overEmployeeLimit:0,
+            assignmentTotal:rows.length,assignmentOffset:0,assignmentNextOffset:null,assignments:rows,
+            employeeTotal:2,employeeOffset:0,employeeNextOffset:null,
+            eligibleEmployees:roster.map(m=>({...m,reserved:rows.some(r=>r.reserved&&r.personId===m.personId)})),
+            candidate:{licenseId:'license:seat-fixture',lineageId:'lineage:seat-fixture',
+              lineageDigest:H,licenseDigest:H,seatLimit:1,employeeLimit:5,
+              expiresAt:'2099-01-01T00:00:00.000Z',statusValidUntil:'2098-12-31T00:00:00.000Z'}};
+        };
+        if(args.operation==='d3EmployeeSeatView')return seatView();
+        if(args.operation==='d3EmployeeSeatPolicyEnable'){
+          assert.equal(args.input.confirmed,true);
+          assert.equal(args.input.expectedRegistryDigest,seatView().registryDigest);
+          employeeState.seatPolicyReady=true;employeeState.seatRevision++;
+          return {outcome:'ENABLED',originalReadback:true,view:seatView()};
+        }
+        if(args.operation==='d3EmployeeSeatChange'){
+          const s=employeeState,c=args.input,v=seatView();
+          assert.equal(c.confirmed,true);assert.equal(c.expectedRegistryDigest,v.registryDigest);
+          assert.equal(c.expectedLicenseDigest,v.licenseEvidenceDigest);
+          assert.equal(s.seatCommands.has(c.commandId),false,'no mutation replay');
+          if(c.kind!=='ASSIGN'){
+            const source=s.seatRows.find(r=>r.grantId===c.fromGrantId&&r.reserved);
+            assert.ok(source);source.reserved=false;source.status='REVOKED';
+          }
+          const grantId=c.kind==='RELEASE'?null:'grant:seat:fixture:'+s.seatRevision;
+          if(grantId)s.seatRows.push({grantId,personId:c.employeePersonId,enrollmentId:c.enrollmentId,
+            workGrantId:'grant:work:'+c.employeePersonId,credentialKeyId:'key:'+c.employeePersonId,
+            lineageDigest:v.licenseEvidenceDigest,licenseDigest:v.licenseEvidenceDigest,
+            expiresAt:'2099-01-01T00:00:00.000Z',status:'ACTIVE',reserved:true});
+          s.seatRevision++;s.seatWrites++;
+          const {confirmed,...request}=c;
+          const receipt={commandId:c.commandId,originalReadback:true,outcome:'COMMITTED',
+            grantId,releasedGrantId:c.fromGrantId};
+          s.seatCommands.set(c.commandId,{request,receipt});
+          if(s.loseFirstSeatAck){s.loseFirstSeatAck=false;s.contextEpoch++;
+            throw Error('CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN')}
+          return {...receipt,view:seatView()};
+        }
+        if(args.operation==='d3EmployeeSeatCommandReadback'){
+          const s=employeeState,known=s.seatCommands.get(args.input.commandId);
+          s.seatReadbacks++;assert.ok(known);assert.deepEqual(args.input,known.request);
+          return {...known.receipt,outcome:'ALREADY_COMMITTED',automaticRetryAllowed:false,view:seatView()};
+        }
         if(args.operation==='d3EmployeeRegistryReadback'){
           assert.equal(employeeState.requiresCold,false,
             'after possibly committed graph, readback needs a cold owner');
@@ -927,7 +1151,14 @@ try{
           assert.equal(args.input.employeePersonId,'person:independent');
           assert.equal(args.input.enrollmentId,'enrollment:verified');
           const organizationId=args.organizationId,workspaceId='workspace:employee-fixture',
-            personId=employeeState.wrongTaskGrantRecipient?'person:other':'person:independent';
+            personId=employeeState.taskGrantSaved&&employeeState.wrongTaskGrantRecipient?'person:other':'person:independent';
+          if(!employeeState.taskGrantSaved)return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1',
+            state:'ORIGINAL_MANAGER_TASK_DATA_NOT_FOUND',
+            employeePersonId:'person:independent',recipientId:'person:independent',
+            managerPersonId:'person:manager-fixture',organizationId,workspaceId,
+            enrollmentId:'enrollment:verified',originalReadback:true,safeToReissue:false
+          };
           return {
             schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1',
             state:employeeState.taskGrantSaved?'ORIGINAL_MANAGER_TASK_DATA_ACTIVE':
@@ -965,6 +1196,22 @@ try{
           assert.equal(args.input.confirmed,true);
           assert.equal(args.input.employeePersonId,'person:independent');
           assert.equal(args.input.enrollmentId,'enrollment:verified');
+          if(args.input.taskId!=='task:independent-work'){
+            assert.match(args.input.taskId,/^task:[a-f0-9-]{36}$/);
+            assert.equal(args.input.task,'Review second verified supplier statement\n\nCheck the second supplier statement.\n\nКритерии приёмки: A verified comparison\n\nЧерновик Center: draft:prepared-second, редакция 1.');
+            assert.equal(employeeState.signedTaskSaved,true);
+            assert.equal(employeeState.taskOrphan,false);
+            assert.equal(employeeState.secondTaskId,null);
+            assert.equal(employeeState.taskGrantSaved,true);
+            assert.equal(employeeState.workspaceGrantSaved,true);
+            employeeState.secondTaskId=args.input.taskId;
+            employeeState.taskIssueCalls++;
+            return {schema:'IWXA_T3_ORIGINAL_EMPLOYEE_SIGNED_TASK/1',
+              state:'SIGNED_TASK_CREATED_NOT_DELIVERED',taskId:args.input.taskId,
+              recipientId:'person:independent',enrollmentId:'enrollment:verified',
+              taskRevisionId:'f'.repeat(64),packageSha256:'9'.repeat(64),
+              originalKernelStatusSequence:6,originalSigned:true,taskDelivered:false};
+          }
           assert.equal(args.input.taskId,'task:independent-work');
           assert.equal(args.input.task,'Review verified supplier statement');
           assert.equal(employeeState.taskGrantSaved,true);
@@ -987,13 +1234,19 @@ try{
         if(args.operation==='d3EmployeeTaskReadback'){
           assert.equal(args.input.employeePersonId,'person:independent');
           assert.equal(args.input.enrollmentId,'enrollment:verified');
+          if(employeeState.secondTaskId!==null&&args.input.taskId===employeeState.secondTaskId)
+            return {schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1',
+              found:true,taskId:args.input.taskId,recipientId:'person:independent',
+              enrollmentId:'enrollment:verified',taskRevisionId:'f'.repeat(64),
+              packageSha256:'9'.repeat(64),status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED',
+              originalKernelReadback:true,taskDelivered:false};
           assert.equal(args.input.taskId,'task:independent-work');
           return {
             schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1',
             found:employeeState.signedTaskSaved&&!employeeState.taskOrphan,
             taskId:'task:independent-work',recipientId:'person:independent',
             enrollmentId:'enrollment:verified',taskRevisionId:'d'.repeat(64),
-            packageSha256:'e'.repeat(64),
+            packageSha256:(employeeState.wrongTaskReadback?'a':'e').repeat(64),
             status:employeeState.taskOrphan?
               'ORIGINAL_SIGNED_CARRIER_WITHOUT_INVENTORY_HOLD':
               employeeState.signedTaskSaved?
@@ -1033,8 +1286,15 @@ try{
         if(args.operation==='d3EmployeeExportTask'){
           assert.equal(args.input.employeePersonId,'person:independent');
           assert.equal(args.input.enrollmentId,'enrollment:verified');
-          assert.equal(args.input.taskId,'task:independent-work');
           assert.equal(args.input.archivePath,undefined);
+          if(employeeState.secondTaskId!==null&&args.input.taskId===employeeState.secondTaskId){
+            employeeState.taskExports++;
+            return {schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_EXPORT/1',
+              status:'EXPORTED_UNDELIVERED',originalSigned:true,taskId:args.input.taskId,
+              recipientId:'person:independent',taskRevisionId:'f'.repeat(64),
+              packageSha256:'9'.repeat(64),bytes:4096,taskDelivered:false};
+          }
+          assert.equal(args.input.taskId,'task:independent-work');
           assert.equal(employeeState.signedTaskSaved,true);
           employeeState.taskExports++;
           return {
@@ -1105,7 +1365,12 @@ try{
   employeeState.savedDraft=JSON.stringify({
     format:'iwxa.admin-center.draft',version:1,
     organizations:[{id:employeeOrgId,name:'Independent staff test',
-      kind:'ORGANIZATION',workspaces:[],participants:[],assignments:[]}],
+      kind:'ORGANIZATION',workspaces:[{id:'workspace:employee-fixture',name:'Procurement',atlasRef:null}],
+      participants:[],assignments:[{id:'draft:prepared-second',title:'Review second verified supplier statement',
+        workspaceId:'workspace:employee-fixture',assigneeId:null,reviewerId:null,
+        description:'Check the second supplier statement.',criteria:'A verified comparison',
+        dueDate:'',priority:'normal',editNumber:1,status:'DRAFT',atlasRef:null,sourceResultRef:null,
+        createdAt:'2026-11-17T00:00:00.000Z',updatedAt:'2026-11-17T00:00:00.000Z'}]}],
     activeOrganizationId:employeeOrgId,
     updatedAt:'2026-11-17T00:00:00.000Z'
   });
@@ -1263,16 +1528,39 @@ try{
   await employeePage.reload();
   await employeePage.getByTestId('nav-results').click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
-  await employeePage.getByTestId('d3-employee-person').fill('person:independent');
-  await employeePage.getByTestId('d3-employee-key').fill('key:independent');
-  await employeePage.getByTestId('d3-employee-credential-read').click();
-  await employeePage.getByTestId('d3-employee-key-admitted').waitFor();
-  await employeePage.getByTestId('d3-employee-enrollment-id').fill('enrollment:verified');
-  await employeePage.getByTestId('d3-employee-read').click();
+  await employeePage.getByTestId('d3-employee-roster-read').click();
+  await employeePage.getByTestId('d3-employee-roster-person').selectOption('person:independent');
+  await employeePage.getByTestId('d3-employee-roster-open').click();
   await employeePage.getByTestId('d3-employee-enrolled').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-person').inputValue(),'person:independent');
+  assert.equal(await employeePage.getByTestId('d3-employee-key').inputValue(),'key:independent');
+  assert.equal(await employeePage.getByTestId('d3-employee-enrollment-id').inputValue(),'enrollment:verified');
+  assert.equal(employeeState.workspaceGrantCalls,1);
+  assert.equal(employeeState.taskGrantCalls,1);
+  assert.equal(employeeState.taskIssueCalls,1);
+  assert.equal(employeeState.inviteExports,1);
+  await employeePage.getByTestId('d3-employee-workspace-rights-confirmed').waitFor();
+  await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-workspace-grants-issue').isEnabled(),false);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-grant-issue').isEnabled(),false);
+  assert.equal(employeeState.workspaceGrantCalls,1);
+  assert.equal(employeeState.taskGrantCalls,1);
+  checks.push('d3-existing-employee-open-original-roster-exact-key-enrollment-no-reissue');
+  // A later failed read must clear the previously displayed authority.
+  employeeState.wrongTaskGrantRecipient=true;
+  await employeePage.getByTestId('d3-employee-task-grant-read').click();
+  await employeePage.getByTestId('d3-employee-task-grant-hold').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-task-grant-confirmed').count(),0);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-grant-issue').isEnabled(),false);
+  employeeState.wrongTaskGrantRecipient=false;
   await employeePage.getByTestId('d3-employee-task-grant-read').click();
   await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
-  await employeePage.getByTestId('d3-employee-task-id').fill('task:independent-work');
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-id"]')?.value==='task:independent-work');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-id').isEnabled(),false,
+    'cold restart restores the exact operation ID without allowing edits');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-new').isEnabled(),false,
+    'no next Task before original readback of the pending operation');
   assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),
     false,'after cold restart, new Task still requires fresh signed invitation');
   assert.equal(await employeePage.getByTestId('d3-employee-invitation-export-receipt').count(),
@@ -1322,6 +1610,125 @@ try{
     'exporting a saved signed invitation never reissues Kernel grants');
   assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),false,
     'original invitation cannot reissue an already signed Task');
+  // A mismatched subsequent original readback invalidates authorization
+  // to export or advance; the remembered carrier remains available for comparison.
+  employeeState.wrongTaskReadback=true;
+  await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-read"]')?.disabled===false);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-export').isEnabled(),false);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-new').isEnabled(),false);
+  employeeState.wrongTaskReadback=false;
+  await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.getByTestId('d3-employee-task-next-ready').waitFor();
+  await employeePage.getByTestId('d3-employee-workspace-grants-read').click();
+  await employeePage.getByTestId('d3-employee-workspace-rights-confirmed').waitFor();
+  await employeePage.getByTestId('d3-employee-invitation-export').click();
+  await employeePage.getByTestId('d3-employee-invitation-export-receipt').waitFor();
+  await employeePage.getByTestId('d3-employee-task-new').click();
+  await employeePage.waitForFunction(()=>
+    /^task:[a-f0-9-]{36}$/.test(document.querySelector('[data-testid="d3-employee-task-id"]')?.value??''));
+  assert.equal(await employeePage.getByTestId('d3-employee-task-receipt').count(),0);
+  await employeePage.getByTestId('d3-employee-task-from-draft').selectOption('draft:prepared-second');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),false);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-text').getAttribute('readonly'),'');
+  await employeePage.getByTestId('d3-employee-draft-recipient-consent').check();
+  await employeePage.getByTestId('d3-employee-task-create').click();
+  await employeePage.getByTestId('d3-employee-task-receipt').waitFor();
+  assert.equal(employeeState.taskIssueCalls,2);
+  assert.equal(employeeState.workspaceGrantCalls,1);
+  assert.equal(employeeState.taskGrantCalls,1);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-new').isEnabled(),false,
+    'the new issue receipt alone is not cold catalog readback');
+  await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.getByTestId('d3-employee-task-next-ready').waitFor();
+  await employeePage.getByTestId('d3-employee-task-export').click();
+  assert.equal(employeeState.taskExports,2);
+  assert.equal(employeeState.taskIssueCalls,2);
+  const history=employeePage.getByTestId('d3-employee-history-select');
+  await history.waitFor();
+  assert.equal(await history.locator('option').count(),3);
+  assert.equal(await history.locator('option[value="task:other-worker"]').count(),0);
+  assert.equal(await employeePage.getByTestId('d3-signed-task-select').count(),0);
+  await history.selectOption('task:independent-work');
+  assert.equal(await employeePage.getByTestId('d3-employee-history-export').isEnabled(),false);
+  employeeState.wrongTaskReadback=true;
+  await employeePage.getByTestId('d3-employee-history-read').click();
+  await employeePage.waitForFunction(()=>document.querySelector('[data-testid="d3-employee-history-read"]')?.disabled===false);
+  assert.equal(await employeePage.getByTestId('d3-employee-history-confirmed').count(),0);
+  assert.equal(await employeePage.getByTestId('d3-employee-history-export').isEnabled(),false);
+  employeeState.wrongTaskReadback=false;
+  await employeePage.getByTestId('d3-employee-history-read').click();
+  await employeePage.getByTestId('d3-employee-history-confirmed').waitFor();
+  await employeePage.getByTestId('d3-employee-history-export').click();
+  await employeePage.waitForFunction(()=>document.querySelector('[data-testid="d3-employee-history-export"]')?.disabled===false);
+  assert.equal(employeeState.taskExports,3);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-id').inputValue(),employeeState.secondTaskId);
+  assert.equal(employeeState.taskIssueCalls,2);
+  checks.push('d3-employee-pending-id-restored-stale-readback-blocked-successive-task-no-grant-reissue');
+  checks.push('d3-employee-original-recipient-history-old-carrier-no-pending-mutation');
+  checks.push('d3-employee-draft-exact-scope-explicit-recipient-consent-before-signing');
+  await employeePage.getByTestId('nav-overview').click();
+  await employeePage.getByTestId('manager-read-signed').click();
+  await employeePage.getByTestId('manager-signed-summary').waitFor();
+  // All search words occur in both signed assignments and the local draft.
+  // Do not conflate those records. A specific original Task ID is unambiguous.
+  await employeePage.getByTestId('overview-search').fill('Review verified supplier statement');
+  assert.equal(await employeePage.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),3);
+  await employeePage.getByTestId('overview-search').fill('task:independent-work');
+  assert.equal(await employeePage.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
+  await employeePage.getByTestId('manager-search-hit').click();
+  await employeePage.getByTestId('d3-employee-open-focused-task').waitFor();
+  await employeePage.getByTestId('d3-employee-open-focused-task').click();
+  await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-history-select').inputValue(),'task:independent-work');
+  assert.equal(await employeePage.getByTestId('d3-employee-history-export').isEnabled(),false,
+    'navigation is not a readback of the carrier');
+  await employeePage.getByTestId('d3-employee-history-read').click();
+  await employeePage.getByTestId('d3-employee-history-confirmed').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-task-id').inputValue(),employeeState.secondTaskId);
+  assert.equal(employeeState.taskIssueCalls,2);
+  assert.equal(employeeState.workspaceGrantCalls,1);
+  assert.equal(employeeState.taskGrantCalls,1);
+  checks.push('d3-global-search-opens-exact-original-employee-and-existing-task-no-write');
+  // This is a UI/IPC fixture, not an installed private T3 acceptance.
+  // Select from original roster, lose ACK, reopen, recover, transfer, release.
+  const seat=id=>employeePage.getByTestId('d3-seat-'+id);
+  const seatIdle=()=>employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-seat-view-refresh"]')?.disabled===false);
+  await seat('view-refresh').click();
+  await seat('policy-enable').waitFor();
+  await seat('policy-enable').click();
+  await employeePage.waitForFunction(()=>!document.querySelector('[data-testid="d3-seat-policy-enable"]'));
+  await seatIdle();
+  await seat('employee').selectOption('person:independent');
+  await seat('assign').click();
+  await seat('unknown').waitFor();
+  await seatIdle();
+  assert.equal(employeeState.seatWrites,1);
+  await employeePage.reload();
+  await employeePage.getByTestId('nav-results').click();
+  await seat('unknown').waitFor();
+  await seat('view-refresh').click();
+  await employeePage.waitForFunction(()=>!document.querySelector('[data-testid="d3-seat-unknown"]'));
+  await seatIdle();
+  assert.equal(employeeState.seatReadbacks,1);
+  assert.equal(employeeState.seatWrites,1);
+  await seat('employee').selectOption('person:second');
+  assert.equal(await seat('assign').isEnabled(),false,'full license cannot assign another seat');
+  await seat('source').selectOption(employeeState.seatRows.find(r=>r.reserved).grantId);
+  await seat('transfer').click();
+  await employeePage.waitForFunction(()=>document.querySelector('[data-testid="d3-seat-assignment-history"]')?.textContent?.includes('person:second'));
+  await seatIdle();
+  assert.equal(employeeState.seatWrites,2);
+  assert.equal(employeeState.seatRows.filter(r=>r.reserved).length,1);
+  await seat('source').selectOption(employeeState.seatRows.find(r=>r.reserved).grantId);
+  await seat('release').click();
+  await employeePage.waitForFunction(()=>document.querySelector('[data-testid="d3-seat-capacity"]')?.textContent?.includes('0 / 1'));
+  await seatIdle();
+  assert.equal(employeeState.seatWrites,3);
+  assert.equal(employeeState.seatRows.filter(r=>r.reserved).length,0);
+  checks.push('d3-corporate-seat-policy-roster-assign-lost-ack-cold-recovery-transfer-release');
   await employeePage.close();
   checks.push('d3-employee-original-kernel-bootstrap-human-cancel-unknown-ack-cold-readback-no-reissue');
   checks.push('d3-employee-invitation-ui-only-signed-receipt-no-grant-reissue-no-unsupported-task');

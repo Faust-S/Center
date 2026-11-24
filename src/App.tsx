@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
-import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback, compareAtlasSourceCopies, selectAtlasReferenceSource} from './atlas-integration.mjs';
+import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback, compareAtlasSourceCopies, selectAtlasReferenceSource, selectAtlasTargetWorkspace, atlasWorkspaceBindingMatches} from './atlas-integration.mjs';
 import {readAtlasSourceFile} from './atlas-file-import.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
@@ -93,6 +93,8 @@ export default function App() {
   },[page,state.activeOrganizationId]);
   const [managerOriginal,setManagerOriginal]=useState<ManagerOriginalSelection|null>(null);
   const [focusedEmployeeContact,setFocusedEmployeeContact]=useState<string|null>(null);
+  const [seatRouteOrganization,setSeatRouteOrganization]=useState<string|null>(null);
+  useEffect(()=>setSeatRouteOrganization(null),[state.activeOrganizationId]);
   // UI-only presence of the original signed child WebView; signing state,
   // Control bearer and Kernel remain owned by the private installed Host.
   const [signedWorkspaceOrg,setSignedWorkspaceOrg] = useState<string|null>(null);
@@ -223,6 +225,9 @@ export default function App() {
   const matchingNativeAtlas=nativeAtlas&&nativeAtlas.organizationId===org?.id ? nativeAtlas.view : null;
   const observedAtlas=selectAtlasReferenceSource(atlasView,matchingNativeAtlas,atlasObservationMode) as AtlasPortfolioView|null;
   const currentFile=atlasFile?.organizationId===org?.id?atlasFile:null;
+  const fileAtlasRef=atlasView?.projects.some(p=>p.id===atlasSelected)?linkableAtlasProject(atlasView,atlasSelected):null;
+  const fileAtlasTarget=selectAtlasTargetWorkspace(org?.workspaces??[],atlasWorkspace,fileAtlasRef);
+  const fileAtlasBindingCurrent=atlasWorkspaceBindingMatches(fileAtlasTarget,fileAtlasRef);
   const selectedPreview=inspectorPreviews.find(p=>p.key===activePreviewKey&&p.organizationId===org?.id);
   const previewTask=selectedPreview?.kind==='assignment'?org?.assignments.find(t=>t.id===selectedPreview.id):null;
   const previewPerson=selectedPreview?.kind==='person'?org?.participants.find(p=>p.id===selectedPreview.id):null;
@@ -341,7 +346,7 @@ export default function App() {
     setSignedWorkspaceGeneration(value=>value+1);
   };
   const go = (next: Page) => {
-    if(next!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);}
+    if(next!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);setSeatRouteOrganization(null);}
     const history=navigationHistory.current;
     if(history[navigationCursor.current]!==next){
       navigationHistory.current=[...history.slice(0,navigationCursor.current+1),next];
@@ -354,8 +359,15 @@ export default function App() {
     // Draft roster selection is only navigation; T3 grants, PROOF and native
     // Human confirmation are still handled by the existing signed owner.
     if(!org||!org.participants.some(person=>person.id===contactId))return;
+    setSeatRouteOrganization(null);
     setFocusedEmployeeContact(contactId);
     setManagerOriginal(null);
+    go('results');
+  };
+  const openCorporateSeats=()=>{
+    if(!org)return;
+    setFocusedEmployeeContact(null);setManagerOriginal(null);
+    setSeatRouteOrganization(org.id);
     go('results');
   };
   const goHistory=(delta:number)=>{
@@ -363,11 +375,12 @@ export default function App() {
     if(target<0||target>=navigationHistory.current.length)return;
     navigationCursor.current=target;
     const next=navigationHistory.current[target];
-    if(next!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);}
+    if(next!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);setSeatRouteOrganization(null);}
     setPage(next);setNavigationVersion(value=>value+1);setV8Menu('');
   };
   const openManagerOriginal=(selection:ManagerOriginalSelection)=>{
     if(!org||selection.organizationId!==org.id)return;
+    setSeatRouteOrganization(null);
     setFocusedEmployeeContact(null);
     setManagerOriginal(selection);
     go('results');
@@ -480,15 +493,15 @@ export default function App() {
     setError('');
     setMessage('Ссылка на открытую редакцию обновлена в редакторе. Чтобы сохранить её, сохраните черновик поручения.');
   };
-  const prepareAtlasWork = (ref: AtlasRef) => {
+  const prepareAtlasWork = (ref: AtlasRef, selectedWorkspaceId=atlasWorkspace) => {
     if (!org) return;
     if (editor) {
       setError('Сохраните или закройте открытый редактор перед выбором другой работы Atlas.');
       return;
     }
-    const workspace=org.workspaces.find(w=>w.atlasRef?.projectId===ref.projectId && w.atlasRef?.revision===ref.revision);
-    if (!workspace) {
-      setError('Сначала свяжите рабочую область с этой редакцией проекта Atlas.');
+    const workspace=selectAtlasTargetWorkspace(org.workspaces,selectedWorkspaceId,ref);
+    if (!workspace||!atlasWorkspaceBindingMatches(workspace,ref)) {
+      setError('Выберите рабочую область и свяжите её с этой редакцией проекта Atlas.');
       return;
     }
     editorBaselineRef.current=JSON.stringify(initialEditor(org));
@@ -752,7 +765,10 @@ export default function App() {
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает проекты и зависимости. Привязка к работе необязательна. Только проектные поручения требуют проверки точной редакции установленного Atlas перед подписанием. Обычные поручения работают через T3 без Atlas.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span><button type="button" className="secondary" onClick={()=>openInspectorPreview('workspace',w.id,w.name)}>Подробнее</button></div>)}
-        <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
+        <NativeAtlasPanel key={org.id} organizationId={org.id} workspaces={org.workspaces}
+          targetWorkspaceId={atlasWorkspace} onChooseWorkspace={setAtlasWorkspace}
+          onLink={(ref,workspaceId)=>command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref})}
+          onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
         <div className="card nested-form" data-testid="atlas-link-panel">
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
           <p className="muted">Откройте архив проектов .iwxa из Atlas. Для проверки изменений повторно выберите файл через ту же кнопку. Старые копии JSON также поддерживаются. Ссылки на поручения автоматически не меняются.</p>
@@ -789,13 +805,14 @@ export default function App() {
             <div className="atlas-project-list">{atlasView.projects.map(project=><button type="button" key={project.id} data-testid="atlas-project-card" className={`assignment-row atlas-project-card ${atlasSelected===project.id?'chosen':''}`} onClick={()=>{setAtlasSelected(project.id);openInspectorPreview('atlas-project',project.id,project.name);}}>
               <span className="task-mark">◇</span><span className="row-content"><strong>{project.name}</strong><small>{project.total} работ · {project.done} завершено · {project.blocked} заблокировано · {project.stages} этапов</small></span><span className="status neutral">{project.progress===null?'Нет работ':project.progress+'%'}</span>
             </button>)}</div>
-            {!!org.workspaces.length && !!atlasView.projects.length && <form onSubmit={e=>{e.preventDefault();if(!atlasSelected)return;const workspaceId=atlasWorkspace||org.workspaces[0].id;const link=linkableAtlasProject(atlasView,atlasSelected);command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:link});}}>
-              <h3>Связать выбранный проект с рабочей областью</h3><div className="form-grid"><label>Рабочая область<select data-testid="atlas-workspace-select" value={atlasWorkspace||org.workspaces[0].id} onChange={e=>setAtlasWorkspace(e.target.value)}>{org.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>Выбранный проект<input readOnly value={atlasView.projects.find(p=>p.id===atlasSelected)?.name??''} /></label></div>
-              <button className="secondary" data-testid="link-atlas">Связать с планом</button>
+            {!!org.workspaces.length && !!atlasView.projects.length && <form onSubmit={e=>{e.preventDefault();if(!fileAtlasTarget||!fileAtlasRef)return;if(command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId:fileAtlasTarget.id,atlasRef:fileAtlasRef}))setAtlasWorkspace(fileAtlasTarget.id);}}>
+              <h3>Связать выбранный проект с рабочей областью</h3><div className="form-grid"><label>Рабочая область<select aria-label="Рабочая область для файла Atlas" data-testid="atlas-workspace-select" value={fileAtlasTarget?.id??''} onChange={e=>setAtlasWorkspace(e.target.value)}><option value="">Выберите рабочую область</option>{org.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>Выбранный проект<input readOnly value={atlasView.projects.find(p=>p.id===atlasSelected)?.name??''} /></label></div>
+              <p role="status" data-testid="atlas-file-binding-status">{fileAtlasBindingCurrent?'Связь с редакцией файла подтверждена в черновике':fileAtlasTarget?'Связь с редакцией файла пока не установлена':'Выберите рабочую область для файла Atlas'}</p>
+              <button className="secondary" disabled={!fileAtlasTarget||!fileAtlasRef} data-testid="link-atlas">Связать с планом</button>
             </form>}
             {!!atlasSelected && atlasView.projects.find(p=>p.id===atlasSelected)?.workItems.map(item=>
-              <button type="button" key={item.id} className="secondary" data-testid="atlas-file-work-to-assignment"
-                onClick={()=>prepareAtlasWork(linkableAtlasWork(atlasView,atlasSelected,item.id))}>Подготовить поручение: {item.title}</button>)}
+              <button type="button" key={item.id} className="secondary" data-testid="atlas-file-work-to-assignment" disabled={!fileAtlasBindingCurrent}
+                onClick={()=>{if(fileAtlasTarget&&fileAtlasBindingCurrent)prepareAtlasWork(linkableAtlasWork(atlasView,atlasSelected,item.id),fileAtlasTarget.id);}}>Подготовить поручение: {item.title}</button>)}
             <p className="muted fine-print">Открыта копия портфеля Atlas, редакция {atlasView.revision}. Это снимок, а не синхронизация. Перед выдачей поручения проверьте актуальность проекта в Atlas и права на него.</p>
           </> : <Empty title="Откройте портфель Atlas" text="Когда вы выберете файл экспорта Atlas, здесь появятся проекты, прогресс и зависимости."/>}
           {org.workspaces.some(w=>w.atlasRef)&&<div className="atlas-link-readback">{org.workspaces.filter(w=>w.atlasRef).map(w=><p key={w.id}><strong>{w.name}:</strong> {w.atlasRef?.projectId} · {atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_MATCHES'?'Редакция совпадает':atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_CHANGED'?'Редакция плана изменилась':atlasView?'Проект отсутствует в открытом файле':'Файл Atlas не открыт'}</p>)}</div>}
@@ -889,16 +906,21 @@ export default function App() {
           onOpenWorkspace={()=>openSignedWorkspace(org.id)}
           focusedEmployeeName={org.participants.find(person=>person.id===focusedEmployeeContact)?.name??null}/> }
        {org && page==='results' && <CorporatePanel key={org.id} organization={org} managerOriginal={managerOriginal}
-          preferredEmployeeContactId={focusedEmployeeContact} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace}/>} 
-      {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
-        <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
+          preferredEmployeeContactId={focusedEmployeeContact} preferCorporateSeats={seatRouteOrganization===org.id}
+          signedWorkspaceOpen={signedWorkspaceOrg===org.id}
+          signedWorkspaceVisible={signedWorkspaceOrg===org.id&&signedWorkspaceVisible} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace} onOpenLicenses={()=>go('programs')}/>} 
+      {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Получите подписанную лицензию Publisher, подключите сотрудников к организации и распределите места через исходный реестр T3. План потребности не является назначением места.</p>
+        <div className="actions">
+          <button className="primary" type="button" data-testid="open-corporate-seat-registry" onClick={openCorporateSeats}>Управление корпоративными местами</button>
+        </div>
+        <div className="metrics"><div className="card metric"><span>Контакты в плане</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div></div>
         {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><div className="actions"><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button><button className="secondary" type="button" data-testid={'open-employee-t3-'+person.id} onClick={()=>openEmployeeConnection(person.id)}>Подключение T3</button></div></div>)}
         {!org.participants.length && <Empty title="Сначала добавьте сотрудников" text="Для каждого сотрудника можно подготовить план доступа к Personal Agent."/>}
-        <div className="notice subdued">Разделение ответственности: Publisher выпускает программные лицензии и издательские статусы; Admin Center распределяет подтверждённые места организации и управляет организационными полномочиями. Ни одна кнопка здесь пока не активирует программу.</div>
+        <div className="notice subdued">Разделение ответственности: Publisher выпускает программные лицензии и издательские статусы; Admin Center распределяет подтверждённые места организации и управляет организационными полномочиями. Назначение места проверяется в исходном реестре; сотрудник получает подписанное обновление отдельно.</div>
         <AgeExchangePanel invoke={nativeHost?nativeInvoke:null} prefix="center" recipientOnly/>
          <Cen04LicensePanel key={org.id} organizationId={org.id} organizationName={org.name}
           organizationKind={org.kind==='ORGANIZATION'?'ORGANIZATION':'GROUP'}
-          invoke={nativeHost?nativeInvoke:null}/>
+          participants={org.participants} invoke={nativeHost?nativeInvoke:null} onManageSeats={openCorporateSeats}/>
       </section>}
       {org && page==='data' && <section className="card padded"><h2>Черновики и защищённый обмен</h2><p>Сохраните рабочие черновики перед закрытием. Для поручений и результатов в полном выпуске используется существующий подписанный обмен IWXA с шифрованием age для выбранных получателей.</p><div className="actions"><button className="primary" disabled={saving} onClick={saveFile}>{nativeHost?'Сохранить локально':'Сохранить файл черновиков'}</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button>{nativeHost&&<button className="secondary" onClick={exportFile}>Экспортировать JSON</button>}</div><div className="notice subdued">Локальное сохранение и экспорт содержат только подготовительные черновики. Это не .iwxa и не .iwxa.age, в них нет ключей или принятых решений. Защищённый файловый обмен доступен ниже при установленном компоненте T3. Расшифровка не означает корпоративного принятия; оригинальный T3 отдельно проверяет и применяет полученный пакет.</div></section>}
       {page==='data'&&<>
