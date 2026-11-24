@@ -130,7 +130,7 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
     {selected&&selectedHolder&&<label className="publisher-followup-choice">Основание подготовки
       <select aria-label="Основание подготовки" value={selectedSource?.id||''} onChange={e=>setPreviousProposalId(e.target.value)}>
         <option value="">Новая подготовка</option>
-        {eligibleSources.map(p=><option key={p.id} value={p.id}>{p.tariffSnapshot?.name} · редакция {p.tariffSnapshot?.revision} · прежняя подготовка</option>)}
+        {eligibleSources.map(p=><option key={p.id} value={p.id}>{p.tariffSnapshot?.name} · редакция {p.tariffSnapshot?.revision} · {p.id}</option>)}
       </select>
     </label>}
     {selected&&<p className="muted">{selected.holderType==='PERSON'?
@@ -140,10 +140,11 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
       selected.productId==='IWXA_ADMIN_CENTER'?
         'После сохранения условий откройте корпоративную выдачу T3 в разделе «Лицензии». Издатель подписывает LICENSE и STATUS, а установленный Admin Center получает и проверяет .iwxa. TEST оставлен для совместимости.':
         'Оригинальный T3 TEST Owner не подписывает произвольные организационные продукты. Подготовка останется черновиком.'}</p>}
-    {selectedSource&&<p className="muted">Новая подготовка будет связана с прежним запросом. Это не продлевает и не изменяет действующие права без отдельной подписи издателя.</p>}
+    {selectedSource&&<div role="status" data-testid="publisher-followup-readback"><p><strong>Предыдущая подготовка:</strong> {selectedSource.id}</p><p className="muted">Новая подготовка будет связана с прежним запросом. Это не продлевает и не изменяет действующие права без отдельной подписи издателя.</p></div>}
     {selected&&selectedHolder&&<div className="publisher-offer-review" data-testid="publisher-offline-offer-preview" role="status">
       <strong>Условия для проверки</strong>
       <p>{draft.holders.find(h=>h.id===selectedHolder)?.name} · {draft.products.find(p=>p.id===selected.productId)?.name||selected.productId}</p>
+      <p>Выбранный тариф: {selected.id}, редакция {selected.revision}</p>
       <div className="publisher-offer-limits">
         <span>Места продукта: <b>{selected.productSeats}</b></span>
         {selected.holderType==='ORGANIZATION'?<span>Сотрудники: <b>{selected.employeeLimit}</b></span>:<span>Устройства: <b>{selected.deviceLimit}</b></span>}

@@ -512,6 +512,34 @@ function Select-FirstReal($process,[string]$name){
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   Start-Sleep -Milliseconds 160
 }
+# Fixed fixture option positions are used only after explicit readiness;
+# subsequent ordinary UI readback must prove the exact selected value.
+# TAB commits a closed WebView2 select without pressing a neighboring submit.
+function Select-ComboIndex($process,[string]$name,[int]$index){
+  Gui-Step 'COMBO'
+  Focus-App $process
+  if($index -lt 1 -or $index -gt 10){throw 'CORPORATE_GUI_COMBO_INDEX_INVALID'}
+  $element=$null
+  for($attempt=0;$attempt -lt 80;$attempt++){
+    $candidate=Control $process $name 'ComboBox'
+    if($candidate.Current.IsEnabled){$element=$candidate;break}
+    Start-Sleep -Milliseconds 200
+  }
+  if($null -eq $element){throw 'CORPORATE_GUI_COMBO_NOT_READY'}
+  $element.SetFocus()
+  Start-Sleep -Milliseconds 120
+  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  if(!$focused -or ![System.Windows.Automation.Automation]::Compare($focused,$element)){
+    throw 'CORPORATE_GUI_COMBO_FOCUS_NOT_CONFIRMED'
+  }
+  [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+  for($i=0;$i -lt $index;$i++){
+    [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+    Start-Sleep -Milliseconds 120
+  }
+  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+  Start-Sleep -Milliseconds 220
+}
 function Wait-Text($process,[string]$contains,[int]$attempts=70){
   Gui-Step 'WAIT_TEXT'
   for($i=0;$i -lt $attempts;$i++){
@@ -1199,10 +1227,17 @@ try{
   Enter $pub 'Сотрудники организации' '6'
   Press $pub 'Сохранить редакцию тарифа'
   $null=Wait-Preparation $publisherDraft {param($x) @($x.tariffs).Count -eq 2}
+  Phase 'PUBLISHER_RENEWAL_BASIS'
   Press $pub 'Лицензии'
-  Select-Last $pub 'Тариф'
-  Select-FirstReal $pub 'Клиент'
-  Select-Last $pub 'Основание подготовки'
+  Wait-Text $pub 'Подготовить лицензию'
+  Select-ComboIndex $pub 'Тариф' 2
+  Select-ComboIndex $pub 'Клиент' 1
+  Wait-Text $pub 'Выбранный тариф: TEAM, редакция 2'
+  Wait-Text $pub 'Места продукта: 1'
+  Wait-Text $pub 'Сотрудники: 6'
+  Select-ComboIndex $pub 'Основание подготовки' 1
+  Wait-Text $pub $request
+  Wait-Text $pub 'Новая подготовка будет связана с прежним запросом'
   Press $pub 'Создать следующую подготовку'
   $nextPrep=Wait-Preparation $publisherDraft {param($x) @($x.proposals).Count -eq 2}
   $followup=@($nextPrep.proposals|Where-Object {$_.previousProposalId -ceq $request})

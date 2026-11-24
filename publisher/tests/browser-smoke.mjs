@@ -1283,6 +1283,20 @@ try {
     .selectOption('11111111-1111-4111-8111-111111111111');
   await page.getByRole('combobox',{name:'Основание подготовки'}).selectOption(firstOffer.id);
   assert.match(await page.getByTestId('publisher-offline-offer-preview').innerText(),/Места продукта: 7/);
+  assert.match(await page.getByTestId('publisher-offline-offer-preview').innerText(),/Выбранный тариф: TEAM, редакция 2/);
+  assert.ok((await page.getByTestId('publisher-followup-readback').innerText()).includes(firstOffer.id));
+  assert.ok((await page.getByRole('combobox',{name:'Основание подготовки'}).locator('option:checked').innerText()).includes(firstOffer.id));
+  // Changing the tariff must remove the old follow-up basis; selecting the
+  // new basis again remains a deliberate action.
+  await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
+    .selectOption('IWXA_ADMIN_CENTER:ORGANIZATION:TEAM:1');
+  assert.equal(await page.getByTestId('publisher-followup-readback').count(),0);
+  assert.equal(await page.getByRole('button',{name:'Сохранить подготовку по тарифу'}).isDisabled(),true);
+  await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
+    .selectOption([newer.productId,newer.holderType,newer.id,newer.revision].join(':'));
+  await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Клиент'})
+    .selectOption('11111111-1111-4111-8111-111111111111');
+  await page.getByRole('combobox',{name:'Основание подготовки'}).selectOption(firstOffer.id);
   await page.getByRole('button',{name:'Создать следующую подготовку'}).click();
   const linked=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')));
   assert.equal(linked.proposals.length,3);
