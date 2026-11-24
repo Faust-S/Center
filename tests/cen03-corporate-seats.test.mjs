@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery}
+import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent}
  from '../runtime/cen03-corporate-seats.mjs';
 const H='a'.repeat(64),org='org:one',ws='workspace:one';
 const member={personId:'person:one',enrollmentId:'enrollment:one'};
@@ -75,4 +75,17 @@ test('verified roster selection and uncertain command recovery require exact ori
  assert.throws(()=>readOriginalSeatCommandRecovery({...absent,view:{...v,registryDigest:'b'.repeat(64)}},a,org,ws),/OUTCOME_UNKNOWN/);
  assert.equal(readOriginalSeatCommandRecovery({...absent,outcome:'OUTCOME_UNKNOWN'},a,org,ws).outcome,'OUTCOME_UNKNOWN');
  assert.throws(()=>readOriginalSeatCommandRecovery({...recovered,automaticRetryAllowed:true},a,org,ws),/OUTCOME_UNKNOWN/);
+});
+
+test('pending UI intent persists across remounts, isolates actors, and never overwrites unknown command',()=>{
+ const values=new Map(),storage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
+ const key=seatIntentKey(org,ws,'person:manager'),other=seatIntentKey(org,ws,'person:other');
+ const a=prepareOriginalSeatCommand(read(view()),'ASSIGN','seat:uncertain',member);
+ assert.equal(readSeatIntent(storage,key),null);saveSeatIntent(storage,key,a);
+ assert.deepEqual(readSeatIntent(storage,key),a);assert.equal(readSeatIntent(storage,other),null);
+ assert.throws(()=>saveSeatIntent(storage,key,{...a,commandId:'seat:second'}),/ALREADY_PENDING/);
+ assert.throws(()=>clearSeatIntent(storage,key,{...a,commandId:'seat:other'}),/CHANGED/);
+ assert.throws(()=>saveSeatIntent(storage,other,{...a,employeePersonId:null}),/INTENT_INVALID/);
+ clearSeatIntent(storage,key,a);assert.equal(readSeatIntent(storage,key),null);
+ storage.setItem(key,'{"confirmed":true}');assert.throws(()=>readSeatIntent(storage,key),/INTENT_INVALID/);
 });

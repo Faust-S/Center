@@ -119,3 +119,38 @@ export function readOriginalSeatCommandRecovery(result,command,organizationId,wo
    'CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN');
  return {outcome:result.outcome,view};
 }
+
+// UI continuation only. Never stores a roster, license, proof, assignment,
+// or decision. The original owner determines the command outcome.
+export function seatIntentKey(organizationId,workspaceId,actorId){
+ check([organizationId,workspaceId,actorId].every(id),'CEN_D3_CORPORATE_SEAT_INTENT_SCOPE_INVALID');
+ return 'iwxa.center.pending-seat.v1:'+JSON.stringify([organizationId,workspaceId,actorId]);
+}
+export function validateSeatIntent(v){
+ check(v&&Object.keys(v).sort().join(',')==='commandId,confirmed,employeePersonId,enrollmentId,expectedLicenseDigest,expectedRegistryDigest,fromGrantId,kind'&&
+  v.confirmed===true&&id(v.commandId)&&sha(v.expectedRegistryDigest)&&
+  (v.expectedLicenseDigest===null||sha(v.expectedLicenseDigest))&&
+  ['ASSIGN','RELEASE','TRANSFER'].includes(v.kind),'CEN_D3_CORPORATE_SEAT_INTENT_INVALID');
+ const assign=v.kind!=='RELEASE',release=v.kind!=='ASSIGN';
+ check(assign?(id(v.employeePersonId)&&id(v.enrollmentId)&&sha(v.expectedLicenseDigest)):
+  (v.employeePersonId===null&&v.enrollmentId===null),'CEN_D3_CORPORATE_SEAT_INTENT_INVALID');
+ check(release?id(v.fromGrantId):v.fromGrantId===null,'CEN_D3_CORPORATE_SEAT_INTENT_INVALID');
+ return v;
+}
+export function readSeatIntent(storage,key){
+ const raw=storage.getItem(key);
+ return raw===null?null:validateSeatIntent(JSON.parse(raw));
+}
+export function saveSeatIntent(storage,key,command){
+ const v=validateSeatIntent(command);
+ check(storage.getItem(key)===null,'CEN_D3_CORPORATE_SEAT_INTENT_ALREADY_PENDING');
+ storage.setItem(key,JSON.stringify(v));
+ check(JSON.stringify(readSeatIntent(storage,key))===JSON.stringify(v),'CEN_D3_CORPORATE_SEAT_INTENT_NOT_SAVED');
+ return v;
+}
+export function clearSeatIntent(storage,key,command){
+ const current=readSeatIntent(storage,key);
+ check(current===null||JSON.stringify(current)===JSON.stringify(validateSeatIntent(command)),
+  'CEN_D3_CORPORATE_SEAT_INTENT_CHANGED');
+ if(current!==null)storage.removeItem(key);
+}

@@ -760,7 +760,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
     </div>}
    </div>}
   </div>}
-  <CorporateSeatAssignments organizationId={session.organizationId} workspaceId={session.workspaceId}
+  <CorporateSeatAssignments key={JSON.stringify([session.organizationId,session.workspaceId,session.actorId])}
+    organizationId={session.organizationId} workspaceId={session.workspaceId} actorId={session.actorId}
    employee={enrolled?{personId,enrollmentId:enrollmentReceipt.enrollmentId}:null}
    available={available&&session.d3EmployeeCorporateSeatsAvailable===true}
    execute={execute} run={run} busy={busy}/>

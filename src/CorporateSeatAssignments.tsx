@@ -1,5 +1,5 @@
 import React,{useEffect,useState} from 'react';
-import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery}
+import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent}
  from '../runtime/cen03-corporate-seats.mjs';
 
 type Employee={personId:string;enrollmentId:string};
@@ -15,28 +15,39 @@ const labels:Record<string,string>={
 };
 const statusLabels:Record<string,string>={ACTIVE:'Назначено',SUSPENDED:'Приостановлено',
  REVOKED:'Освобождено',SUPERSEDED:'Заменено'};
-export default function CorporateSeatAssignments({organizationId,workspaceId,employee,
+export default function CorporateSeatAssignments({organizationId,workspaceId,actorId,employee,
  available,execute,run,busy}:{
- organizationId:string;workspaceId:string;employee:Employee|null;available:boolean;
+ organizationId:string;workspaceId:string;actorId:string;employee:Employee|null;available:boolean;
  execute:Exec;run:Run;busy:boolean;
 }){
  const [view,setView]=useState<any>(null);
- const [pending,setPending]=useState<string|null>(null);
- const [pendingCommand,setPendingCommand]=useState<any>(null);
+ const intentKey=seatIntentKey(organizationId,workspaceId,actorId);
+ const [restored]=useState(()=>{
+  try{return {command:readSeatIntent(localStorage,intentKey),blocked:false}}
+  catch{return {command:null,blocked:true}}
+ });
+ const [pending,setPending]=useState<string|null>(restored.command?.commandId??null);
+ const [intentBlocked,setIntentBlocked]=useState(restored.blocked);
  const [employeeChoice,setEmployeeChoice]=useState('');
  const [source,setSource]=useState('');
  const [receipt,setReceipt]=useState('');
  const refresh=(offset=0,employeeOffset=0)=>run('Распределение мест перечитано из исходного T3.',async()=>{
   setSource('');
-  if(pendingCommand){
+  // Reopen the exact outstanding intent even if the signed owner epoch changed.
+  let outstanding;
+  try{outstanding=readSeatIntent(localStorage,intentKey);setIntentBlocked(false)}
+  catch(e){setIntentBlocked(true);throw e}
+  if(outstanding){
+   setPending(outstanding.commandId);
    // Recovery is a separate original read-only verb; it cannot sign or
    // repeat the pending command. Unknown remains visible and blocks writes.
-   const {confirmed,...request}=pendingCommand;
+   const {confirmed,...request}=outstanding;
    const result=readOriginalSeatCommandRecovery(await execute('d3EmployeeSeatCommandReadback',request),
-    pendingCommand,organizationId,workspaceId);
+    outstanding,organizationId,workspaceId);
    setView(result.view);
    if(result.outcome==='OUTCOME_UNKNOWN')return false;
-   setPending(null);setPendingCommand(null);
+   clearSeatIntent(localStorage,intentKey,outstanding);
+   setPending(null);
    setReceipt(result.outcome==='ALREADY_COMMITTED'?'Подтверждено исходным чтением: '+request.commandId:
     'Исходный реестр не изменился. Команда не записана; автоматического повтора нет.');
    return;
@@ -44,7 +55,7 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,emp
   const result=readOriginalSeatView(await execute('d3EmployeeSeatView',{offset,employeeOffset}),organizationId,workspaceId);
   setView(result);setEmployeeChoice('');setPending(null);
  });
- const locked=busy||!available||!view||pending!==null;
+ const locked=busy||!available||!view||pending!==null||intentBlocked;
  const rosterEmployee=view?.eligibleEmployees.find((r:any)=>r.personId===employeeChoice&&!r.reserved);
  const target:Employee|null=employeeChoice?(rosterEmployee??null):employee;
  const assigned=!!target&&(view?.assignments.some((r:any)=>r.reserved&&r.personId===target.personId)||
@@ -77,15 +88,19 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,emp
   const commandId='seat:'+crypto.randomUUID();
   const command=prepareOriginalSeatCommand(view,kind,commandId,target,
    kind==='ASSIGN'?null:source);
-  setPending(commandId);setPendingCommand(command);setReceipt('');
+  try{saveSeatIntent(localStorage,intentKey,command)}
+  catch(e){setIntentBlocked(true);throw e}
+  setPending(commandId);setReceipt('');
   try{
    const result=await execute('d3EmployeeSeatChange',command);
    setView(readOriginalSeatChange(result,command,organizationId,workspaceId));
-   setSource('');setEmployeeChoice('');setPending(null);setPendingCommand(null);
+   clearSeatIntent(localStorage,intentKey,command);
+   setSource('');setEmployeeChoice('');setPending(null);
    setReceipt('Подтверждённая операция: '+commandId);
   }catch(e){
    if(String(e).includes('CEN_D3_CORPORATE_SEAT_HUMAN_CANCELLED')){
-    setPending(null);setPendingCommand(null);
+    clearSeatIntent(localStorage,intentKey,command);
+    setPending(null);
    }
    throw e;
   }
@@ -96,7 +111,8 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,emp
   {!available?<p role="status">Подключите исходный реестр сотрудников и совместимый T3 Host.</p>:<>
    <button className="secondary" data-testid="d3-seat-view-refresh" disabled={busy}
     onClick={()=>void refresh()}>Перечитать распределение</button>
-   {pending&&<p role="alert">Результат операции {pending} не подтверждён. Перечитайте исходный реестр для восстановления результата. Пока он неизвестен, новые действия заблокированы; автоматического повтора нет.</p>}
+   {intentBlocked&&<p role="alert">Не удалось прочитать сохранённое намерение операции. Назначения заблокированы до восстановления чтения.</p>}
+   {pending&&<p role="alert" data-testid="d3-seat-unknown">Результат операции {pending} не подтверждён. Перечитайте исходный реестр для восстановления результата. Пока он неизвестен, новые действия заблокированы; автоматического повтора нет.</p>}
    {view&&<>
     <p role="status">{view.candidate&&!currentLicense?'Срок последней подписанной проверки истёк. Перечитайте распределение.':labels[view.licenseState]??view.licenseState}</p>
     <div className="form-grid" data-testid="d3-seat-capacity">
