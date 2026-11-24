@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 83850ffffc27caf6a0c3e6b595fcd41f480041339
+          ref: 83850ffffc27caf6a0c3e6b595fcd85b277c5fd4
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: original-t3
           persist-credentials: false
@@ -57,7 +57,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $PSNativeCommandUseErrorActionPreference=$false
-          foreach($p in @(@('original-t3','83850ffffc27caf6a0c3e6b595fcd41f480041339'),@('agent','b8e99831495810a4a52fd49f2fdc3b135addbaaf'),@('one-core','39c32cda211a7d351de553fe4fc9528848c274cd'))){
+          foreach($p in @(@('original-t3','83850ffffc27caf6a0c3e6b595fcd85b277c5fd4'),@('agent','b8e99831495810a4a52fd49f2fdc3b135addbaaf'),@('one-core','39c32cda211a7d351de553fe4fc9528848c274cd'))){
             if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'SOURCE_PIN_MISMATCH'}
           }
           Write-Host 'ORIGINAL_SOURCE_PINS=PASS'
@@ -110,7 +110,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          foreach($p in @(@('original-t3','83850ffffc27caf6a0c3e6b595fcd41f480041339'),@('agent','b8e99831495810a4a52fd49f2fdc3b135addbaaf'),@('one-core','39c32cda211a7d351de553fe4fc9528848c274cd'))){
+          foreach($p in @(@('original-t3','83850ffffc27caf6a0c3e6b595fcd85b277c5fd4'),@('agent','b8e99831495810a4a52fd49f2fdc3b135addbaaf'),@('one-core','39c32cda211a7d351de553fe4fc9528848c274cd'))){
             if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'SOURCE_PIN_MISMATCH'}
           }
           $log=Join-Path $env:RUNNER_TEMP 'admin-workspace-jit-private.log'
@@ -167,7 +167,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 83850ffffc27caf6a0c3e6b595fcd41f480041339
+          ref: 83850ffffc27caf6a0c3e6b595fcd85b277c5fd4
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: original-t3
           persist-credentials: false
@@ -179,7 +179,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((& git -C original-t3 rev-parse HEAD).Trim() -cne '83850ffffc27caf6a0c3e6b595fcd41f480041339'){throw 'SOURCE_PIN_MISMATCH'}
+          if((& git -C original-t3 rev-parse HEAD).Trim() -cne '83850ffffc27caf6a0c3e6b595fcd85b277c5fd4'){throw 'SOURCE_PIN_MISMATCH'}
           $log=Join-Path $env:RUNNER_TEMP 'admin-context-regression-private.log'
           Push-Location original-t3
           try{
