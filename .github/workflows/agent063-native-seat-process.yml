@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 48ad4d4b6a4a26bada18b34f61dbd20911649d0f
+          ref: 83850ffffc27caf6a0c3e6b595fcd41f480041339
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: original-t3
           persist-credentials: false
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: eba8cbaafd1880b34b5327db4ea106ca4e1d1803
+          ref: b8e99831495810a4a52fd49f2fdc3b135addbaaf
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: agent
           persist-credentials: false
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: e4eddf4369db5a7d6efe9a979210b9d80448ba71
+          ref: 39c32cda211a7d351de553fe4fc9528848c274cd
           path: one-core
           persist-credentials: false
           show-progress: false
@@ -57,7 +57,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $PSNativeCommandUseErrorActionPreference=$false
-          foreach($p in @(@('original-t3','48ad4d4b6a4a26bada18b34f61dbd20911649d0f'),@('agent','eba8cbaafd1880b34b5327db4ea106ca4e1d1803'),@('one-core','e4eddf4369db5a7d6efe9a979210b9d80448ba71'))){
+          foreach($p in @(@('original-t3','83850ffffc27caf6a0c3e6b595fcd41f480041339'),@('agent','b8e99831495810a4a52fd49f2fdc3b135addbaaf'),@('one-core','39c32cda211a7d351de553fe4fc9528848c274cd'))){
             if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'SOURCE_PIN_MISMATCH'}
           }
           Write-Host 'ORIGINAL_SOURCE_PINS=PASS'
@@ -79,9 +79,10 @@ jobs:
              $r.originalConsumer -ne $true -or $r.realKernel -ne $false -or
              $r.installedGui -ne $false -or $r.independentWindowsSids -ne $false -or
              $r.productionActivation -ne $false){throw 'ORIGINAL_EMPLOYEE_SEAT_PROCESS_RECEIPT_INVALID'}
-          foreach($required in @('manager_public_profile_exact_original_readback','employee_first_use_proof_via_original_agent_ipc')){
+          foreach($required in @('manager_public_profile_exact_original_readback','employee_first_use_proof_via_original_agent_ipc','independent_employee_workspace_rights_signed_and_read_back')){
             if($r.cases -cnotcontains $required){throw 'ORIGINAL_EMPLOYEE_BOOTSTRAP_CASE_MISSING'}
           }
+          Write-Host 'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_SOURCE_PROCESS=PASS'
           Write-Host 'ORIGINAL_EMPLOYEE_BOOTSTRAP_SOURCE_PROCESS=PASS'
           Write-Host ('ORIGINAL_EMPLOYEE_SEAT_SOURCE_PROCESS_CHECKS='+[int]$r.checks)
           Write-Host 'ORIGINAL_EMPLOYEE_SEAT_SOURCE_PROCESS=PASS'
@@ -90,7 +91,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if((& git -C baseline-t3 rev-parse HEAD).Trim() -cne 'f0f1737e0cfbb03f21834acea1cbd894ffd395da'){throw 'SOURCE_PIN_MISMATCH'}
-          if((& git -C one-core rev-parse HEAD).Trim() -cne 'e4eddf4369db5a7d6efe9a979210b9d80448ba71'){throw 'SOURCE_PIN_MISMATCH'}
+          if((& git -C one-core rev-parse HEAD).Trim() -cne '39c32cda211a7d351de553fe4fc9528848c274cd'){throw 'SOURCE_PIN_MISMATCH'}
           $log=Join-Path $env:RUNNER_TEMP 'admin-workspace-baseline-private.log'
           $out=Join-Path $env:RUNNER_TEMP 'admin-workspace-baseline-private.json'
           & node qualification/corporate-installed/original-admin-workspace-jit.mjs (Resolve-Path baseline-t3).Path (Resolve-Path one-core/packages/t3-core).Path 1>$out 2>$log
@@ -109,7 +110,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          foreach($p in @(@('original-t3','48ad4d4b6a4a26bada18b34f61dbd20911649d0f'),@('agent','eba8cbaafd1880b34b5327db4ea106ca4e1d1803'),@('one-core','e4eddf4369db5a7d6efe9a979210b9d80448ba71'))){
+          foreach($p in @(@('original-t3','83850ffffc27caf6a0c3e6b595fcd41f480041339'),@('agent','b8e99831495810a4a52fd49f2fdc3b135addbaaf'),@('one-core','39c32cda211a7d351de553fe4fc9528848c274cd'))){
             if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'SOURCE_PIN_MISMATCH'}
           }
           $log=Join-Path $env:RUNNER_TEMP 'admin-workspace-jit-private.log'
@@ -166,7 +167,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 48ad4d4b6a4a26bada18b34f61dbd20911649d0f
+          ref: 83850ffffc27caf6a0c3e6b595fcd41f480041339
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: original-t3
           persist-credentials: false
@@ -178,7 +179,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((& git -C original-t3 rev-parse HEAD).Trim() -cne '48ad4d4b6a4a26bada18b34f61dbd20911649d0f'){throw 'SOURCE_PIN_MISMATCH'}
+          if((& git -C original-t3 rev-parse HEAD).Trim() -cne '83850ffffc27caf6a0c3e6b595fcd41f480041339'){throw 'SOURCE_PIN_MISMATCH'}
           $log=Join-Path $env:RUNNER_TEMP 'admin-context-regression-private.log'
           Push-Location original-t3
           try{
@@ -186,7 +187,7 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'CONTEXT_REGISTRY_SYNTAX_FAILED'}
             & node --check interop/runtime.mjs *> $log
             if($LASTEXITCODE -ne 0){throw 'CONTEXT_RUNTIME_SYNTAX_FAILED'}
-            & node --test tests/access-control.test.mjs tests/admin-original-host-port.test.mjs tests/access-organizational-operation.test.mjs tests/access-status-chronology.test.mjs tests/access-revocation-tombstone-integrity.test.mjs *> $log
+            & node --test tests/access-control.test.mjs tests/admin-original-host-port.test.mjs tests/access-organizational-operation.test.mjs tests/access-status-chronology.test.mjs tests/access-revocation-tombstone-integrity.test.mjs tests/t3-signed-workspace-exchange-owner.test.mjs tests/t3-signed-exchange-http-invite.test.mjs *> $log
             $exit=$LASTEXITCODE
             $raw=Get-Content -LiteralPath $log -Raw
             foreach($n in @('tests','pass','fail','cancelled','skipped')){
@@ -215,7 +216,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: eba8cbaafd1880b34b5327db4ea106ca4e1d1803
+          ref: b8e99831495810a4a52fd49f2fdc3b135addbaaf
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: agent
           persist-credentials: false
@@ -237,7 +238,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C agent rev-parse HEAD)" = 'eba8cbaafd1880b34b5327db4ea106ca4e1d1803'
+          test "$(git -C agent rev-parse HEAD)" = 'b8e99831495810a4a52fd49f2fdc3b135addbaaf'
           test "$(git -C center rev-parse HEAD)" = 'ee343b1dc6306fb7dddd5f015c02497dbaa96284'
           umask 077
           log="$RUNNER_TEMP/employee-bootstrap-private.log"
