@@ -15,9 +15,9 @@ concurrency:
 env:
   T3_PIN: '6745f64dc92575ba8567e9fad838bb5206967656'
   CORE_PIN: 'd89ec3ead3e660a7865043d1ecacd7f2b259f6cc'
-  CENTER_PIN: '1cc901a98c1bea478aa5866b55bf788211ef9173'
-  PUBLISHER_PIN: '331c3d8e5f218ee9eaa0f7f7e1f36240eb359218'
-  AGENT_PIN: 'a44f1dd1056e7212e4c4037b7a06c8f07ae6f652'
+  CENTER_PIN: 'dd368b1fb36ff2750e1923cb5aec73e3551c801a'
+  PUBLISHER_PIN: 'b1067959e8ecc01f40131d5e29e6c86be82ea27a'
+  AGENT_PIN: '16c2d165046a22c069a19e83d920faed3b1ded20'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -316,6 +316,18 @@ jobs:
           [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'private-agent/tools/build_setup_core_windows_candidate.ps1').Path,[ref]$tokens,[ref]$errors)
           if($errors.Count -ne 0){throw 'CORPORATE_AGENT_SETUP_SCRIPT_PARSE_FAILED'}
           Write-Host 'CORPORATE_AGENT_SETUP_SCRIPT_PARSE=PASS'
+          # The product's package admission owns the exact original source
+          # revision and all three tree digests. Catch pin drift BEFORE Rust
+          # compilation, not behind a generic package-build failure.
+          $pinSource=Get-Content -LiteralPath 'private-agent/tools/t3_one_core_payload.py' -Raw
+          $m=[regex]::Match($pinSource,'(?s)ORIGINAL_NATIVE_EMPLOYEE_OWNER_SHA\s*=\s*\(\s*"([a-f0-9]{40})"\s*\)')
+          if(!$m.Success -or $m.Groups[1].Value -cne $env:T3_PIN){throw 'CORPORATE_AGENT_PACKAGE_OWNER_PIN_MISMATCH'}
+          foreach($subtree in @('access-control','interop','reconciliation')){
+            $expected=[regex]::Match($pinSource,('"'+[regex]::Escape($subtree)+'":\s*"([a-f0-9]{40})"'))
+            $actual=(& git -C private-t3 rev-parse ('HEAD:'+$subtree)).Trim()
+            if(!$expected.Success -or $actual -cne $expected.Groups[1].Value){throw 'CORPORATE_AGENT_PACKAGE_OWNER_TREE_MISMATCH'}
+          }
+          Write-Host 'CORPORATE_AGENT_PACKAGE_ORIGINAL_OWNER_PINS=PASS'
           $out=Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'
           $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-agent-build-private.log'
           try{
@@ -327,6 +339,61 @@ jobs:
             $raw=(Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue)+[string]$_.Exception.Message
             $codes=@([regex]::Matches($raw,'(?<![A-Za-z0-9_])(?:private_setup|original_t3|native_candidate|agent_setup|CORPORATE_AGENT)_[a-zA-Z0-9_]{4,100}(?![A-Za-z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Last 25)
             Write-Host ('CORPORATE_AGENT_INSTALLED_CODES='+($codes -join ','))
+            # The private child has a structured failure receipt. Expose
+            # stage and recognized machine-code prefix only; no private path,
+            # package bytes, identity, exception detail or raw log.
+            $gate=Join-Path $out 'logs/package/package-gate-failure.json'
+            if(Test-Path -LiteralPath $gate -PathType Leaf){
+              try{
+                $g=Get-Content -LiteralPath $gate -Raw|ConvertFrom-Json
+                $stage=[string]$g.stage
+                if($stage -cmatch '^[a-z][a-z0-9_]{2,63}
+            # and allowlisted failure enums. Never upload the receipt or logs.
+            $witness=Join-Path $out 'temporary-installed-fixture/installed-witness.json'
+            if(Test-Path -LiteralPath $witness -PathType Leaf){
+              try{
+                $r=Get-Content -LiteralPath $witness -Raw|ConvertFrom-Json
+                $phases=@('SHORTCUT_READBACK','COLD_GUI_BOOT','FIRST_CORE','CORE_QUERIES','DRAFT_CREATE','GUI_DRAFT_EDIT','GUI_DRAFT_READBACK','QWEN_EXECUTE','COLD_RESTART','COLD_CORE_QUERIES','GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT','GUI_RESULT','GUI_TASK_SUBMIT','GUI_TASK_RESULT','GUI_TASK_REVIEW','GUI_TASK_REVIEW_READBACK','GUI_COLD_RESTART','GUI_COLD_IMPORT','K03_TASK_EXECUTE','K03_TASK_COLD_RESTART','K03_TASK_COLD_READBACK','CLEAN_STOP','WITNESS_RECEIPT')
+                if($r.status -ceq 'FAIL' -and $r.phase -cin $phases){
+                  Write-Host ('CORPORATE_AGENT_NATIVE_WITNESS_PHASE='+$r.phase)
+                  foreach($key in @('failure_code','last_checkpoint','last_operation','background_state','background_error_class')){
+                    $prop=$r.PSObject.Properties[$key]
+                    if($prop -and [string]$prop.Value -cmatch '^[A-Z0-9_]{1,100}$'){
+                      Write-Host ('CORPORATE_AGENT_NATIVE_'+$key.ToUpperInvariant()+'='+$prop.Value)
+                    }
+                  }
+                }elseif($r.status -ceq 'PASS'){Write-Host 'CORPORATE_AGENT_NATIVE_WITNESS=PASS_SETUP_REMAINS_UNQUALIFIED'}
+              }catch{Write-Host 'CORPORATE_AGENT_NATIVE_WITNESS_DIAGNOSTIC_UNAVAILABLE'}
+            }else{Write-Host 'CORPORATE_AGENT_NATIVE_WITNESS_RECEIPT_ABSENT'}
+            $acceptLog=Join-Path $out 'logs/public-test-local-result.txt'
+            if(Test-Path -LiteralPath $acceptLog -PathType Leaf){
+              $safe=@([regex]::Matches((Get-Content -LiteralPath $acceptLog -Raw),'(?<![A-Z0-9_])(?:IWXA_SETUP_LOCAL|SETUP_LOCAL)_[A-Z0-9_]{4,100}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Last 20)
+              Write-Host ('CORPORATE_AGENT_SETUP_RECEIPT_CODES='+($safe -join ','))
+            }
+            throw 'CORPORATE_AGENT_ORIGINAL_SETUP_HOLD'
+          }
+      - name: Discard private Agent checkout and installed test resources
+        if: always()
+        shell: pwsh
+        run: |
+          foreach($dir in @('private-t3','private-agent','one-core','setup-core',(Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'),(Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache'))){
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'corporate-installed-agent-build-private.log') -Force -ErrorAction SilentlyContinue
+          Write-Host 'CORPORATE_AGENT_PRIVATE_CLEANUP=COMPLETE'
+){
+                  Write-Host ('CORPORATE_AGENT_PACKAGE_GATE_STAGE='+$stage.ToUpperInvariant())
+                }
+                $detail=[string]$g.error_code
+                $match=[regex]::Match($detail,'(?<![A-Za-z0-9_])(?:agent06_original_t3|phase1_package|agent06_t3|native_candidate)_[a-zA-Z0-9_]{3,95}(?![A-Za-z0-9_])')
+                if($match.Success){Write-Host ('CORPORATE_AGENT_PACKAGE_GATE_CODE='+$match.Value.ToUpperInvariant())}
+              }catch{Write-Host 'CORPORATE_AGENT_PACKAGE_GATE_DIAGNOSTIC_UNAVAILABLE'}
+            }
+            $packageLog=Join-Path $out 'logs/package/package-a.log'
+            if(Test-Path -LiteralPath $packageLog -PathType Leaf){
+              $safe=@([regex]::Matches((Get-Content -LiteralPath $packageLog -Raw),'(?<![A-Za-z0-9_])agent06_original_t3_[a-zA-Z0-9_]{3,95}(?![A-Za-z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique)
+              if($safe.Count){Write-Host ('CORPORATE_AGENT_PACKAGE_ADMISSION_CODES='+($safe -join ','))}
+            }
             # The original installed witness writes ONLY a finite phase
             # and allowlisted failure enums. Never upload the receipt or logs.
             $witness=Join-Path $out 'temporary-installed-fixture/installed-witness.json'
