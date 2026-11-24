@@ -142,9 +142,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
           "$($installer.Name) SHA256=$($sha.Hash) SIZE=$($installer.Length)" | Set-Content 'artifacts/installer-sha256.txt'
           Write-Host "IWXA_SETUP_CORE_BUNDLE_READY: $($installer.Name), size=$($installer.Length), SHA256=$($sha.Hash)"
-      - name: Qualify installed Windows GUI Atlas and manager draft persistence
+      - name: Qualify installed Windows GUI Atlas, manager persistence and all 23 V8 routes
         shell: pwsh
-        timeout-minutes: 5
+        timeout-minutes: 8
         run: ./tests/installed-windows-center.ps1
       # U05: both real installed Windows products on the SAME hosted profile.
       # Reuse Atlas's own GUI acceptance driver and native persistence.
@@ -244,6 +244,8 @@ jobs:
             artifacts/installer-sha256.txt
             artifacts/installed-gui-result.json
             artifacts/installed-gui-failure.png
+            artifacts/v8-native-*.png
+            artifacts/v8-native-route-report.json
             artifacts/u05-two-installed-result.json
             artifacts/atlas05-center-iwxa-result.json
             vendor/atlas/artifacts/IWXA-Atlas-0.9.0-dev.1-Setup.exe.sha256

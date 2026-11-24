@@ -17,6 +17,12 @@ public static class CenterNativeWindow {
   public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll", SetLastError=true)]
   public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+  [DllImport("user32.dll")]
+  public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")]
+  public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindow(IntPtr hWnd, int command);
 }
 '@
 
@@ -372,6 +378,110 @@ function Visible-ButtonContaining([string]$name){
   }
   return $false
 }
+# Capture only the real installed public Center window. This runner contains
+# generated CenterGUI organizations, not the private T3 distribution.
+function Capture-V8Route([string]$id){
+  $proc.Refresh()
+  $handle=$proc.MainWindowHandle
+  [void][CenterNativeWindow]::SetForegroundWindow($handle)
+  Start-Sleep -Milliseconds 250
+  if([CenterNativeWindow]::GetForegroundWindow() -ne $handle){
+    throw "V8_NATIVE_CAPTURE_NOT_FOREGROUND_$id"
+  }
+  $box=(Root-Element).Current.BoundingRectangle
+  $windowRect=[System.Drawing.Rectangle]::new(
+    [int][Math]::Ceiling($box.Left),[int][Math]::Ceiling($box.Top),
+    [int][Math]::Floor($box.Width),[int][Math]::Floor($box.Height))
+  $screen=[System.Windows.Forms.Screen]::FromHandle($handle).Bounds
+  $rect=[System.Drawing.Rectangle]::Intersect($windowRect,$screen)
+  if($rect.Width -lt 650 -or $rect.Height -lt 450){
+    throw "V8_NATIVE_CAPTURE_WINDOW_TOO_SMALL_$id"
+  }
+  $bmp=[System.Drawing.Bitmap]::new($rect.Width,$rect.Height)
+  $gfx=[System.Drawing.Graphics]::FromImage($bmp)
+  try{
+    $gfx.CopyFromScreen($rect.Location,[System.Drawing.Point]::Empty,$rect.Size)
+    $name="v8-native-$id.png"
+    $bmp.Save((Join-Path $artifactDir $name),[System.Drawing.Imaging.ImageFormat]::Png)
+  }finally{$gfx.Dispose();$bmp.Dispose()}
+  Write-Host "V8_NATIVE_ROUTE_CAPTURE_PASS $id"
+  return [pscustomobject]@{route=$id;file=$name;width=$rect.Width;height=$rect.Height}
+}
+function Has-V8FormText([string]$text){
+  $all=(Root-Element).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition)
+  foreach($node in $all){
+    try{
+      if($node.Current.ControlType -eq [System.Windows.Automation.ControlType]::Text -and
+         ([string]$node.Current.Name).Contains($text)){return $true}
+    }catch{}
+  }
+  return $false
+}
+function Qualify-V8Routes {
+  $proc.Refresh()
+  [void][CenterNativeWindow]::ShowWindow($proc.MainWindowHandle,3)
+  [void][CenterNativeWindow]::SetForegroundWindow($proc.MainWindowHandle)
+  Start-Sleep -Milliseconds 350
+  # The exact root or subroute is selected using the actual Windows UI.
+  # Unique form text, not the left navigation label, confirms its workbench.
+  $routeGroups=@(
+    @{root='Обзор · Admin Center';routes=@(
+      @{id='overview';text='Что нужно найти или решить?'})},
+    @{root='Контекст организации';routes=@(
+      @{id='context';text='Поиск по доступному контексту'})},
+    @{root='Поручения';routes=@(
+      @{id='work';button='Новое поручение';contains=$true})},
+    @{root='Результаты';routes=@(
+      @{id='results';text='Одна Workspace. Вся работа организации.'},
+      @{id='signed-workspace';nav='Workspace T3';text='Одна Workspace. Вся работа организации.';absent='1. Выдать подписанное поручение'},
+      @{id='employees-t3';nav='Подключение сотрудника T3';text='Ответственные в организации';absent='1. Выдать подписанное поручение'},
+      @{id='signed-tasks';nav='Подписанные Task';text='1. Выдать подписанное поручение';absent='3. Отдельное применение'},
+      @{id='receive';nav='Получение .iwxa';text='2. Result сотрудника и Review';absent='1. Выдать подписанное поручение'},
+      @{id='review';nav='Human Review';text='2. Result сотрудника и Review';absent='3. Отдельное применение'},
+      @{id='apply';nav='Отдельное применение';text='3. Отдельное применение';absent='1. Выдать подписанное поручение'},
+      @{id='reuse';nav='Использовать Result';text='4. Использовать применённый Result';absent='3. Отдельное применение'},
+      @{id='recovery';nav='Восстановление';text='2. Result сотрудника и Review';absent='1. Выдать подписанное поручение'})},
+    @{root='Сотрудники и роли';routes=@(
+      @{id='people';text='Структура компании'})},
+    @{root='Планы Atlas';routes=@(
+      @{id='resources';text='Планы Atlas и рабочие области'},
+      @{id='atlas-native';nav='Установленный Atlas';button='Открыть Atlas Desktop';absent='Проекты Atlas'},
+      @{id='atlas-file';nav='Файл Atlas';text='Проекты Atlas';absent='Планы Atlas и рабочие области'})},
+    @{root='Personal Agent и лицензии';routes=@(
+      @{id='programs';text='Personal Agent и рабочие лицензии'},
+      @{id='license';nav='Лицензии Publisher';text='Лицензии Admin Center от Publisher';absent='Ключ получателя для защищённой лицензии'},
+      @{id='license-age';nav='Получатель лицензий';text='Ключ получателя для защищённой лицензии';absent='Лицензии Admin Center от Publisher'})},
+    @{root='Профиль и настройки';routes=@(
+      @{id='data';text='Версия программы: 0.4.1'},
+      @{id='settings';nav='Локальные черновики';button='Сохранить локально';absent='Версия программы: 0.4.1'},
+      @{id='age-exchange';nav='Защищённый обмен';text='Защищённый обмен .iwxa.age';absent='Версия программы: 0.4.1'},
+      @{id='guide';nav='Справка';text='Рабочие разделы Admin Center';absent='Версия программы: 0.4.1'})}
+  )
+  $screens=@()
+  foreach($group in $routeGroups){
+    Click-Control $group.root
+    foreach($route in $group.routes){
+      if($route.nav){Click-Control ('Раздел: '+$route.nav)}
+      if($route.text){[void](Find-TextContaining $route.text)}
+      if($route.button){
+        if($route.contains){[void](Find-ProjectButton $route.button)}
+        else{[void](Find-Control $route.button 'Button')}
+      }
+      if($route.absent -and (Has-V8FormText $route.absent)){
+        throw "V8_NATIVE_HIDDEN_FORM_VISIBLE_$($route.id)"
+      }
+      $screens+=Capture-V8Route $route.id
+    }
+  }
+  if($screens.Count -ne 23){throw 'V8_NATIVE_ROUTE_COVERAGE_INCOMPLETE'}
+  [pscustomobject]@{status='V8_PUBLIC_INSTALLED_NATIVE_23_ROUTES_PASS';
+    scope='Public installed Center; original signed T3 qualified separately';
+    count=$screens.Count;captures=$screens}|ConvertTo-Json -Depth 6|
+    Set-Content (Join-Path $artifactDir 'v8-native-route-report.json')
+  Write-Host 'V8_PUBLIC_INSTALLED_NATIVE_23_ROUTES_PASS'
+}
+
 function Close-Center {
   $proc.Refresh()
   if($proc.HasExited){throw 'Installed GUI exited before deliberate close'}
@@ -638,6 +748,7 @@ try {
   Write-Host "CENTER_INSTALLED_GUI_UNSAVED_CONTEXT_CLOSE_CANCEL_PASS"
   Click-Control 'Сохранить на компьютере'
   [void](Find-TextContaining 'Черновики сохранены на этом компьютере')
+  Qualify-V8Routes
   Close-Center
   [pscustomobject]@{status='INSTALLED_GUI_TWO_ORG_ATLAS_RESTART_PASS';
     orgId=$saved.organizationId;generation=$saved.generation;revision=$saved.revision;
