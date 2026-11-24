@@ -30,6 +30,8 @@ const why=(e:unknown)=>{
    return 'Оригинальный реестр уже может существовать. Не повторяйте запись: используйте «Проверить реестр без записи».';
  if(/T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN|T3_D3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK_HOLD/.test(message))
    return 'Исход подключения реестра неизвестен. Не повторяйте запись: перечитайте оригинальный Kernel без записи.';
+ if(message.includes('CEN_D3_REVIEW_CONTINUATION_HOLD'))
+   return 'Не удалось подтвердить локальное сохранение ID решения или редакций. Запись не отправляется повторно. Проверьте исходную квитанцию или Kernel.';
  if(message.includes('CEN_D3_HUMAN_REVIEW_CANCELLED'))
    return 'Решение отменено в системном окне Windows. Оно не отправлялось.';
  if(message.includes('CEN_D3_SEPARATE_HUMAN_APPLY_CANCELLED'))

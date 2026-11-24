@@ -794,7 +794,6 @@ try{
   await d3Page.getByLabel('Я просмотрел этот пакет и подтверждаю отдельное решение').check();
   await d3Page.getByTestId('d3-prepare-id').click();
   const pendingDecisionId=await d3Page.getByTestId('d3-operation-id').inputValue();
-  await d3Page.getByLabel('Я сохранил ID для восстановления при потере ответа').check();
   await d3Page.getByTestId('d3-accept').click();
   await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
   await d3Page.getByTestId('d3-decision-already-sent').waitFor();
@@ -811,14 +810,15 @@ try{
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
     'read-only decision recovery must not send a second ACCEPT');
   checks.push('d3-human-decision-no-replay-survives-unknown-ack-and-signed-epoch-remount');
-  // A navigation away fully unmounts CorporatePanel, losing every React
-  // decision guard. The original receipt alone must prevent a new ACCEPT.
-  // This UI fixture keeps native owner state independent of the React panel.
+  // A navigation away fully unmounts CorporatePanel and loses React guards.
+  // The exact pending operation must be restored from local continuation
+  // before any original receipt is queried, without typing or copying its ID.
   await d3Page.getByTestId('nav-overview').click();
   await d3Page.getByTestId('nav-results').click();
   await d3Page.getByTestId('d3-signed-task-workflow').waitFor();
   await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
-  await d3Page.getByTestId('d3-operation-id').fill(pendingDecisionId);
+  assert.equal(await d3Page.getByTestId('d3-operation-id').inputValue(),pendingDecisionId);
+  await d3Page.getByTestId('d3-decision-already-sent').waitFor();
   await d3Page.getByTestId('d3-recover').click();
   await d3Page.getByTestId('d3-recovered-receipt').waitFor();
   await d3Page.getByTestId('d3-review').click();
@@ -829,7 +829,7 @@ try{
     'accepted original receipt blocks Human ACCEPT after cold panel reopen');
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
     'cold panel receipt recovery must not dispatch another decision');
-  checks.push('d3-cold-react-panel-receipt-prevents-duplicate-human-accept');
+  checks.push('d3-persistent-continuation-restores-exact-operation-before-original-receipt');
   // Moving to an unrelated page must close the ORIGINAL signed child. No
   // React page may silently preserve credentials in another work domain.
   await d3Page.getByTestId('nav-people').click();
