@@ -1,5 +1,5 @@
 # Public runner; private test output never printed or uploaded in plaintext.
-name: Agent V8 isolated baseline failure diagnostics
+name: Agent V8 regression repair full source qualification
 on:
   push:
     branches:
@@ -17,13 +17,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: e80e7e5c60d510982628d66d89f2372d7bf4be9f
-      PRIVATE_TREE: faa10f168ea0fa00028a2fd30623697c308e1e3a
+      PRIVATE_PIN: 962994995f76217cedba9d4f51af1a59e86715d9
+      PRIVATE_TREE: 3eb012290a15f42afd7a0d91ecab7d5afa33690d
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: e80e7e5c60d510982628d66d89f2372d7bf4be9f
+          ref: 962994995f76217cedba9d4f51af1a59e86715d9
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
           show-progress: false
@@ -79,6 +79,10 @@ jobs:
             console.log("DIAG_PLATFORM="+result.platform);
             for(const k of ["tests","pass","fail"])console.log("DIAG_"+k.toUpperCase()+"="+counts[k]);
             console.log("DIAG_FAILURE_BLOCKS="+result.failures.length);
+            const build=run("build",process.platform==="win32"?"npm.cmd":"npm",["run","build"],process.platform==="win32");
+            result.buildExit=build.exit;result.buildSignal=build.signal;result.buildError=build.error;
+            if(build.exit!==0){result.buildStdout=build.stdout.slice(-300000);result.buildStderr=build.stderr.slice(-300000);}
+            console.log("DIAG_BUILD="+(build.exit===0?"PASS":"FAIL"));
           }else{
             result.installError=install.error;result.installStdout=install.stdout.slice(-250000);result.installStderr=install.stderr.slice(-250000);
             console.log("DIAG_INSTALL_FAILED");
@@ -93,7 +97,7 @@ jobs:
           const hash=b=>crypto.createHash("sha256").update(b).digest("hex");
           fs.writeFileSync(path.join(out,"diagnostics.enc"),encrypted,{flag:"wx"});
           fs.writeFileSync(path.join(out,"envelope.json"),JSON.stringify({schema:"IWXA_DIAGNOSTICS_ENVELOPE/1",source,tree,platform:process.platform,sha256:hash(encrypted),plainSha256:hash(plain),nonce:nonce.toString("base64"),tag:cipher.getAuthTag().toString("base64"),wrappedKey:wrapped.toString("base64")},null,2),{flag:"wx"});
-          if(install.exit!==0||!tests||tests.signal||tests.error||tests.exit===null||result.counts.tests===null||result.counts.fail===null||result.counts.pass===null||(result.counts.fail===0)!==(tests.exit===0))process.exitCode=1;
+          if(install.exit!==0||!tests||tests.signal||tests.error||tests.exit!==0||!result.counts||result.counts.fail!==0||result.counts.tests!==result.counts.pass||result.buildExit!==0)process.exitCode=1;
           '@
           [System.IO.File]::WriteAllText($script,$js,[System.Text.Encoding]::UTF8)
           & node $script $env:GITHUB_WORKSPACE $out $env:PRIVATE_PIN $env:PRIVATE_TREE
