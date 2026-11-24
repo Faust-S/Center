@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: cd7942d8a6687855815b9ef96ac5668a51dfcfcd
-      PRIVATE_TREE: 04d8c21711d020dc47d17ec06f83befcfe1622f7
+      PRIVATE_PIN: 8cfde07ee1dc4f3d5e7a14491354d6b47c89361c
+      PRIVATE_TREE: 60c5b99e114f3a8698fc5b7187bc923f994687a8
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
     steps:
       - uses: actions/setup-python@v5
@@ -107,6 +107,9 @@ jobs:
                       if re.search(r"(?<![A-Za-z0-9_])"+code+r"(?![A-Za-z0-9_])",out):
                           status("QWEN_PRODUCT_DIAGNOSTIC",code)
                   for line in out.splitlines():
+                      remote=re.fullmatch(r"QWEN_PRODUCT_REMOTE=(INITIALIZE|SESSION_NEW|SESSION_LOAD|SESSION_RESUME|SESSION_PROMPT|SESSION_CONFIG|OTHER):(-?[0-9]{1,5}):(PATH_LENGTH|PATH_MISSING|PATH_ACCESS|UNTRUSTED_WORKSPACE|AUTH_REQUIRED|MODEL_CONFIGURATION|TOOL_CONFIGURATION|MODEL_HTTP_FAILURE|OTHER)",line.strip())
+                      if remote:
+                          status("QWEN_PRODUCT_REMOTE",":".join(remote.groups()))
                       match=re.fullmatch(r"QWEN_PRODUCT_BLOCKED=([A-Z][A-Z_0-9]{1,100})",line.strip())
                       if match:
                           status("QWEN_PRODUCT_BLOCKED",match.group(1))
