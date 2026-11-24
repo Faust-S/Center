@@ -77,14 +77,37 @@ function Check-SeatCapacity($process,[int]$reserved){
  Wait-ExactText $process ('Зарезервированные места: '+$reserved+' / 2')
  Wait-ExactText $process ('Свободно для назначения: '+(2-$reserved))
 }
+# Inspect the accessibility tree regardless of scrolling. A hidden-by-scroll
+# submit control still counts as an offered duplicate action. Navigation uses
+# the visible-button helper, but job readback must not depend on it.
+function Agent-HasJobButton($process,[string]$name){
+ $items=(Window $process).FindAll(
+  [System.Windows.Automation.TreeScope]::Descendants,
+  [System.Windows.Automation.PropertyCondition]::new(
+   [System.Windows.Automation.AutomationElement]::NameProperty,$name))
+ foreach($item in $items){
+  try{if($item.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button){return $true}}catch{}
+ }
+ return $false
+}
 function Wait-ExistingJob($process){
  # Only an existing bound job exposes these buttons, not a received file.
  for($i=0;$i -lt 360;$i++){
-  if((Agent-VisibleButton $process 'Отслеживать выполнение') -or
-     (Agent-VisibleButton $process 'Открыть работу в Agent')){return}
+  if((Agent-HasJobButton $process 'Отслеживать выполнение') -or
+     (Agent-HasJobButton $process 'Открыть работу в Agent')){return}
   Start-Sleep -Milliseconds 250
  }
  throw 'EMPLOYEE_LICENSED_ORIGINAL_AGENT_JOB_NOT_OBSERVED'
+}
+function Check-ExactTask($process,[string]$text,[string]$id,[string]$sha,[string]$executor){
+ Wait-Text $process $text 360
+ # The section can already be open after a cold read; do not toggle it shut.
+ if(!(Has-Text $process $id) -or !(Has-Text $process $sha) -or !(Has-Text $process $executor)){
+  Press $process 'Происхождение поручения'
+ }
+ Wait-Text $process $id 240
+ Wait-Text $process $sha 240
+ Wait-Text $process $executor 240
 }
 $handoff=Join-Path $env:RUNNER_TEMP 'iwxa-licensed-employee-handoff'
 $trust=Join-Path $handoff 'publisher-trust.json'
@@ -174,11 +197,7 @@ try{
  Wait-Text $agent 'Рабочие данные находятся в локальном пространстве домена' 360
  Enter $agent 'Файл поручения .iwxa' $taskFile
  Press $agent 'Получить поручение'
- Wait-Text $agent $taskText 360
- Press $agent 'Происхождение поручения'
- Wait-Text $agent $taskId 240
- Wait-Text $agent $taskSha 240
- Wait-Text $agent $person 240
+ Check-ExactTask $agent $taskText $taskId $taskSha $person
  Record 'AGENT_EXACT_SIGNED_TASK_RECEIVED'
  Stage 'AGENT_ADMIT_LICENSED_JOB'
  Press $agent 'Выполнить в Agent'
@@ -192,9 +211,9 @@ try{
   Wait-Text $agent 'Пространство открыто' 360
  }
  Press $agent 'Прочитать сохранённое поручение'
- Wait-Text $agent $taskText 360
+ Check-ExactTask $agent $taskText $taskId $taskSha $person
  Wait-ExistingJob $agent
- Need (!(Agent-VisibleButton $agent 'Выполнить в Agent')) 'EMPLOYEE_LICENSED_COLD_JOB_OFFERS_DUPLICATE_SUBMISSION'
+ Need (!(Agent-HasJobButton $agent 'Выполнить в Agent')) 'EMPLOYEE_LICENSED_COLD_JOB_OFFERS_DUPLICATE_SUBMISSION'
  Record 'AGENT_COLD_EXISTING_JOB_NO_RESUBMISSION'
  Write-Host ('EMPLOYEE_LICENSED_ADMISSION=PASS checks='+$checks.Count)
  Write-Host 'EMPLOYEE_LICENSED_RESULT_ACCEPTANCE=NOT_RUN'
