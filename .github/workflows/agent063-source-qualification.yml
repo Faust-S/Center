@@ -16,13 +16,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: a822b8a37cd75fd7bc70af00eda1b74780441ddf
-      PRIVATE_TREE: 5010d78e666badb263b1cedd4c86e24fd960d447
+      PRIVATE_PIN: 411315aa6fe2219ad927be18aa1e537fe4f85612
+      PRIVATE_TREE: e07fc0cf7c9dede04cf214e6acfb5c576db8fcee
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: a822b8a37cd75fd7bc70af00eda1b74780441ddf
+          ref: 411315aa6fe2219ad927be18aa1e537fe4f85612
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
           show-progress: false
@@ -60,10 +60,11 @@ jobs:
             console.log('NODE_'+k.toUpperCase()+'='+(m?m[1]:'UNKNOWN'));
           }
           console.log('NODE_SUITE='+(tests.ok?'PASS':'FAIL'));
+          for(const m of tests.text.matchAll(/^not ok (\d+) - /gm)) console.log('FAILED_TEST_INDEX='+m[1]);
           const build=run('build',npm,['run','build'],process.platform==='win32');
           console.log('BUILD='+(build.ok?'PASS':'FAIL'));
           // Only fixed file aliases, line/column numbers and diagnostic codes.
-          const aliases={'workbench.tsx':'WORKBENCH','product-controls.tsx':'CONTROLS','app-help.tsx':'HELP','work-areas-control.tsx':'AREAS','ui-preferences.tsx':'PREFS'};
+          const aliases={'workbench.tsx':'WORKBENCH','product-controls.tsx':'CONTROLS','app-help.tsx':'HELP','work-areas-control.tsx':'AREAS','ui-preferences.tsx':'PREFS','preview-dock.tsx':'PREVIEW','preview-dock-model.ts':'PREVIEW_MODEL','files-control.tsx':'FILES'};
           for(const m of build.text.matchAll(/(?:^|\n)(?:[^\r\n]*\/)?([a-z0-9-]+\.tsx?)\((\d+),(\d+)\): error (TS\d+)/g)){
             console.log('BUILD_DIAGNOSTIC='+(aliases[m[1]]||'OTHER')+':'+m[2]+':'+m[3]+':'+m[4]);
           }
