@@ -17,7 +17,7 @@ env:
   CORE_PIN: 'd89ec3ead3e660a7865043d1ecacd7f2b259f6cc'
   CENTER_PIN: 'a20552fedbdec9122cdd56217cfd4e0665186eb5'
   PUBLISHER_PIN: 'f7f79480180347b5847842ab64f35088c0548554'
-  AGENT_PIN: '5741ebbccf75e7013606fd58e62b850762fec2ae'
+  AGENT_PIN: '971e7b5a3407dfae9b4257a7d3e7c4cf71d2c9c5'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -25,7 +25,7 @@ env:
 jobs:
   admin-publisher:
     runs-on: windows-2022
-    timeout-minutes: 85
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
         with:
@@ -127,6 +127,7 @@ jobs:
             throw 'CORPORATE_INSTALLED_ADMIN_BUILD_HOLD'
           }
       - name: Install exact Admin Setup Core and verify installed native bytes
+        id: admin_setup
         shell: pwsh
         timeout-minutes: 8
         run: |
@@ -170,6 +171,7 @@ jobs:
             throw 'CORPORATE_INSTALLED_ADMIN_UI_HOLD'
           }
       - name: Build and install current Publisher with the same original compiled Owner
+        if: ${{ !cancelled() && steps.admin_setup.outcome == 'success' }}
         shell: pwsh
         timeout-minutes: 22
         run: |
@@ -191,7 +193,12 @@ jobs:
           New-Item -ItemType Directory -Path (Join-Path $payload 't3') -Force|Out-Null
           Copy-Item -LiteralPath 'publisher/publisher/src-tauri/target/release/iwxa-publisher.exe' -Destination $payload
           Get-ChildItem -LiteralPath $source -File|Where-Object {$_.Name -ne 'iwxa-t3-product-consumer.exe'}|Copy-Item -Destination (Join-Path $payload 't3')
-          $stub=(Resolve-Path 'admin/artifacts/iwxa-setup-core-stub.exe').Path
+          # Use the same Setup Core implementation, but the actual Publisher
+          # product icon, not the red Admin Center stub.
+          $stub=Join-Path $out 'publisher-setup-core-stub.exe'
+          $icon=(Resolve-Path 'publisher/publisher/src-tauri/icons/icon.ico').Path
+          & ./admin/installer/windows/build-stub.ps1 -Output $stub -Icon $icon *> $log
+          if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $stub)){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_STUB_FAILED'}
           $product=(Resolve-Path 'publisher/publisher/setup/product.json').Path
           $tree=(& git -C publisher rev-parse 'HEAD^{tree}').Trim()
           $setup=Join-Path $out 'publisher-private-setup.exe'
@@ -205,7 +212,7 @@ jobs:
           if(!$p.WaitForExit(180000)){$p.Kill();throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_TIMEOUT'}
           if($p.ExitCode -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_FAILED'}
           $r=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
-          if($r.status -ne 'INSTALLED_NOT_LAUNCHED' -or $r.product -ne 'iwxa.publisher'){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_RECEIPT_INVALID'}
+          if($r.status -ne 'INSTALLED_NOT_LAUNCHED' -or $r.product -ne 'iwxa.publisher' -or $r.version -ne '0.5.0-dev.1'){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_RECEIPT_INVALID'}
           $root=[IO.Path]::GetFullPath([string]$r.installRoot)
           foreach($f in (Get-ChildItem -LiteralPath $payload -Recurse -File)){
             $relative=[IO.Path]::GetRelativePath($payload,$f.FullName)
@@ -285,7 +292,7 @@ jobs:
           $out=Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'
           $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-agent-build-private.log'
           try{
-            & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Resolve-Path 'private-agent/tools/build_setup_core_windows_candidate.ps1').Path -CenterRoot (Resolve-Path setup-core).Path -CenterCommit $env:AGENT_SETUP_PIN -OutputRoot $out -ReleaseCacheRoot (Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache') -PublicT3CoreRoot (Resolve-Path one-core).Path -OriginalT3OwnerRoot (Resolve-Path private-t3).Path -RequireOriginalT3 *> $log
+            & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Resolve-Path 'private-agent/tools/build_setup_core_windows_candidate.ps1').Path -CenterRoot (Resolve-Path setup-core).Path -CenterCommit $env:AGENT_SETUP_PIN -OutputRoot $out -ReleaseCacheRoot (Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache') -PublicT3CoreRoot (Resolve-Path 'one-core/packages/t3-core').Path -OriginalT3OwnerRoot (Resolve-Path private-t3).Path -RequireOriginalT3 *> $log
             if($LASTEXITCODE -ne 0){throw 'CORPORATE_AGENT_INSTALLED_BUILD_FAILED'}
             if(!(Test-Path -LiteralPath (Join-Path $out 'IWXA-Private-SetupCore-Candidate.exe'))){throw 'CORPORATE_AGENT_INSTALLED_SETUP_MISSING'}
             Write-Host 'CORPORATE_AGENT_ORIGINAL_SETUP_PIPELINE=PASS'
