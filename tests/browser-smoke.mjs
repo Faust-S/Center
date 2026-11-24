@@ -108,7 +108,10 @@ try{
   assert.equal(await page.getByTestId('cen04-corporate-native-intake').count(),1);
   assert.equal(await page.getByTestId('cen04-corporate-native-receive').isEnabled(),false);
   assert.equal(await page.getByTestId('cen04-corporate-native-read').isEnabled(),false);
-  assert.equal(await page.getByTestId('cen04-corporate-enroll-trust').isEnabled(),false);
+  assert.equal(await page.getByTestId('cen04-corporate-enroll-trust').count(),0);
+  assert.ok((await page.getByTestId('cen04-corporate-organization-id').inputValue()).length>0);
+  assert.equal(await page.getByTestId('cen04-corporate-organization-copy').isEnabled(),true);
+  assert.match(await page.getByTestId('cen04-corporate-native-intake').innerText(),/Оригинальный корпоративный T3 недоступен/);
   assert.equal(await page.getByTestId('cen04-corporate-original-received').count(),0);
 
   assert.equal(await page.getByTestId('cen04-import-verified-iwxa').isEnabled(),false);
