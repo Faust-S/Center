@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     env:
-      PRIVATE_PIN: 521169d0a569099354ea03e93ddd214af2f7819b
-      PRIVATE_TREE: b69f3a8b2f2ac35f4ef7f88c3eb346a3cfd095ec
+      PRIVATE_PIN: a430a8940e8caa75acfbbad66f90e290dc1fd7c1
+      PRIVATE_TREE: 8286796386c173f0b73bec1ecb5c66ec71d34da2
       QUALIFY_SCOPE: ADAPTER_PRODUCT
     steps:
       - uses: actions/setup-python@v5
@@ -167,6 +167,7 @@ jobs:
                           "PROGRAMS_SESSION":depth[14:19],
                           "CORE_ADAPTERS":depth[19:],
                       })
+                  groups={"PRODUCT_ROUTE":groups["PRODUCT_ROUTE"]}
                   failed = False
                   for group, files in groups.items():
                       if not files or any(not (source / f.split("::",1)[0]).is_file() for f in files):
@@ -193,6 +194,7 @@ jobs:
                       failed = failed or not success
                   if os.environ.get("QUALIFY_SCOPE") in {"TASK_TRANSPORT","ADAPTER_DEPTH"}:
                       return int(failed)
+                  return int(failed)
                   # Compile the complete existing desktop; publish only results.
                   desktop=source / "desktop"
                   npm=["cmd.exe","/d","/c","npm"] if os.name=="nt" else ["npm"]
