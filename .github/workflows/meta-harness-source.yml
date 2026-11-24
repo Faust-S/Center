@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: 0f13e87dcb1e6dd1847f29bcd23a6797719d7638
-      PRIVATE_TREE: d681114d2f17c66f9d4bba4c72c08907563106cd
+      PRIVATE_PIN: 0225ac0487af56e6deb1c82f8076ef7931e29a87
+      PRIVATE_TREE: 39951e1247ec9481a0f3afc29f1f068709056cc2
     steps:
       - uses: actions/setup-python@v5
         with:
