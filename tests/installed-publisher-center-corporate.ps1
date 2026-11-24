@@ -1231,7 +1231,25 @@ try{
   Press $pub 'Лицензии'
   Wait-Text $pub 'Подготовить лицензию'
   Press $pub 'Выбрать продление по предыдущей подготовке'
-  Press $pub ('Продлить подготовку '+$request+' по редакции 2')
+  $renewalName='Продлить подготовку '+$request+' по редакции 2'
+  Gui-Step 'BUTTON'
+  Focus-App $pub
+  $renewalChoice=Control $pub $renewalName
+  if(!$renewalChoice.Current.IsEnabled){throw 'CORPORATE_GUI_RENEWAL_CHOICE_DISABLED'}
+  if($renewalChoice.Current.IsOffscreen){
+    try{$renewalChoice.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()}catch{}
+  }
+  $renewalChoice.SetFocus()
+  $focused=$false
+  for($attempt=0;$attempt -lt 20;$attempt++){
+    try{
+      if([System.Windows.Automation.AutomationElement]::FocusedElement.Current.Name -ceq $renewalName -and
+         $renewalChoice.Current.HasKeyboardFocus){$focused=$true;break}
+    }catch{}
+    Start-Sleep -Milliseconds 100
+  }
+  if(!$focused){throw 'CORPORATE_GUI_RENEWAL_CHOICE_FOCUS_NOT_CONFIRMED'}
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   Wait-Text $pub 'Выбранный тариф: TEAM, редакция 2'
   Wait-Text $pub 'Места продукта: 1'
   Wait-Text $pub 'Сотрудники: 6'

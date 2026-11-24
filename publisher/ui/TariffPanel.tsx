@@ -14,9 +14,9 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  const [revision,setRevision]=useState('1');const [features,setFeatures]=useState('');
  const [termDays,setTermDays]=useState('365');const [productSeats,setProductSeats]=useState('5');
  const [employeeLimit,setEmployeeLimit]=useState('10');const [deviceLimit,setDeviceLimit]=useState('0');
- const [quotas,setQuotas]=useState<Quota[]>([]);const [choice,setChoice]=useState('');
- const [holderId,setHolderId]=useState('');
- const [previousProposalId,setPreviousProposalId]=useState('');
+ const [quotas,setQuotas]=useState<Quota[]>([]);
+ const [offerSelection,setOfferSelection]=useState({choice:'',holderId:'',previousProposalId:''});
+ const {choice,holderId,previousProposalId}=offerSelection;
  const [renewalOpen,setRenewalOpen]=useState(false);
  const [editionNotice,setEditionNotice]=useState('');
  const [tariffFeedback,setTariffFeedback]=useState<SaveResult|null>(null);
@@ -24,6 +24,15 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  const tariffFeedbackRef=useRef<HTMLParagraphElement>(null);
  const proposalFeedbackRef=useRef<HTMLParagraphElement>(null);
  const editorRef=useRef<HTMLFormElement>(null);
+ const renewalReadbackRef=useRef<HTMLDivElement>(null);
+ const focusRenewalReadback=useRef(false);
+ useEffect(()=>{
+   if(focusRenewalReadback.current&&renewalReadbackRef.current){
+     focusRenewalReadback.current=false;
+     renewalReadbackRef.current.focus({preventScroll:true});
+     renewalReadbackRef.current.scrollIntoView({block:'nearest',behavior:'auto'});
+   }
+ },[offerSelection]);
  useEffect(()=>{
    if(tariffFeedback)tariffFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});
  },[tariffFeedback]);
@@ -65,7 +74,8 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  function selectRenewal(p:Proposal,t:Tariff,h:Holder){
    if(busy||!renewalOptions.some(x=>x.previous.id===p.id&&
       tariffKey(x.tariff)===tariffKey(t)&&x.holder.id===h.id))return;
-   setChoice(tariffKey(t));setHolderId(h.id);setPreviousProposalId(p.id);
+   focusRenewalReadback.current=true;
+   setOfferSelection({choice:tariffKey(t),holderId:h.id,previousProposalId:p.id});
    setProposalFeedback(null);setRenewalOpen(false);
  }
  async function saveTariff(e:React.FormEvent){
@@ -154,13 +164,13 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
    </div>}
    {draft.tariffs.length===0?<p className="muted">Сначала создайте тариф.</p>:<>
     <div className="form-grid">
-     <label>Тариф<select value={selected?tariffKey(selected):''} onChange={e=>{setChoice(e.target.value);setHolderId('');setPreviousProposalId('');}}><option value="">Выберите тариф</option>{draft.tariffs.map(t=><option key={tariffKey(t)} value={tariffKey(t)}>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.name} · редакция {t.revision} · {t.holderType==='PERSON'?'Личный':'Для организации'}</option>)}</select></label>
-     <label>Клиент<select value={selectedHolder} disabled={!selected||holders.length===0} onChange={e=>{setHolderId(e.target.value);setPreviousProposalId('');}}><option value="">Выберите клиента</option>{holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
+     <label>Тариф<select value={selected?tariffKey(selected):''} onChange={e=>setOfferSelection({choice:e.target.value,holderId:'',previousProposalId:''})}><option value="">Выберите тариф</option>{draft.tariffs.map(t=><option key={tariffKey(t)} value={tariffKey(t)}>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.name} · редакция {t.revision} · {t.holderType==='PERSON'?'Личный':'Для организации'}</option>)}</select></label>
+     <label>Клиент<select value={selectedHolder} disabled={!selected||holders.length===0} onChange={e=>setOfferSelection({...offerSelection,holderId:e.target.value,previousProposalId:''})}><option value="">Выберите клиента</option>{holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
     </div>
     {!selected&&<p className="muted" role="status">Выберите тариф и клиента, чтобы проверить условия до сохранения.</p>}
     {selected&&holders.length===0&&<p className="muted" role="status">Нет клиентов нужного типа. Добавьте получателя в разделе «Клиенты».</p>}
     {selected&&selectedHolder&&<label className="publisher-followup-choice">Основание подготовки
-      <select aria-label="Основание подготовки" value={selectedSource?.id||''} onChange={e=>setPreviousProposalId(e.target.value)}>
+      <select aria-label="Основание подготовки" value={selectedSource?.id||''} onChange={e=>setOfferSelection({...offerSelection,previousProposalId:e.target.value})}>
         <option value="">Новая подготовка</option>
         {eligibleSources.map(p=><option key={p.id} value={p.id}>{p.tariffSnapshot?.name} · редакция {p.tariffSnapshot?.revision} · {p.id}</option>)}
       </select>
@@ -173,7 +183,7 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
         'После сохранения условий откройте корпоративную выдачу T3 в разделе «Лицензии». Издатель подписывает LICENSE и STATUS, а установленный Admin Center получает и проверяет .iwxa. TEST оставлен для совместимости.':
         'Оригинальный T3 TEST Owner не подписывает произвольные организационные продукты. Подготовка останется черновиком.'}</p>}
     {selectedSource&&<div role="status" data-testid="publisher-followup-readback"><p><strong>Предыдущая подготовка:</strong> {selectedSource.id}</p><p className="muted">Новая подготовка будет связана с прежним запросом. Это не продлевает и не изменяет действующие права без отдельной подписи издателя.</p></div>}
-    {selected&&selectedHolder&&<div className="publisher-offer-review" data-testid="publisher-offline-offer-preview" role="status">
+    {selected&&selectedHolder&&<div ref={renewalReadbackRef} tabIndex={-1} id="publisher-selected-offer-review" className="publisher-offer-review" data-testid="publisher-offline-offer-preview" role="status" aria-label={`Выбранный тариф: ${selected.id}, редакция ${selected.revision}`}>
       <strong>Условия для проверки</strong>
       <p>{draft.holders.find(h=>h.id===selectedHolder)?.name} · {draft.products.find(p=>p.id===selected.productId)?.name||selected.productId}</p>
       <p>Выбранный тариф: {selected.id}, редакция {selected.revision}</p>
