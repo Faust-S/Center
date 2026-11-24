@@ -1,0 +1,1 @@
+Synthetic technology fixture, byte-for-byte from public knowledge Actions run 45400489953, artifact 14923216947. Original T2 Kernel export, independently imported and reopened. SHA-256 f410d2850749f90433350f1342a22f2b2737c693942c85aae0233463f8a52b5a. No private source code or real personal data. Used only to qualify the native Agent consumer.

@@ -22,6 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          path: center-public
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
           repository: Faust-S/iwxa-personal-agent
           ref: d89feff67f9ae1422fd463b3892e9b4ea12756e7
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -57,6 +62,9 @@ jobs:
           $ErrorActionPreference='Stop'
           $PSNativeCommandUseErrorActionPreference=$false
           $env:IWXA_ACTIVITY_PUBLIC_ROOT=(Resolve-Path activity-public).Path
+          $env:IWXA_ACTIVITY_PERSONAL_PACKAGE=(Resolve-Path center-public/qualification/activity/personal-technology.iwxa).Path
+          if((Get-FileHash -Algorithm SHA256 -LiteralPath $env:IWXA_ACTIVITY_PERSONAL_PACKAGE).Hash.ToLowerInvariant() -cne 'f410d2850749f90433350f1342a22f2b2737c693942c85aae0233463f8a52b5a'){throw 'ORIGINAL_PACKAGE_DIGEST_MISMATCH'}
+          Write-Host 'ORIGINAL_PACKAGE_PIN=PASS'
           Push-Location private-agent
           try{
             $install=Join-Path $env:RUNNER_TEMP 'activity-private-pip.out'
@@ -64,14 +72,14 @@ jobs:
             python -m pip install -q -r requirements-ci.txt *> $install
             if($LASTEXITCODE -ne 0){throw 'PYTHON_INSTALL_FAILED'}
             Write-Host 'PYTHON_INSTALL=PASS'
-            python -m pytest -q --tb=short tests/test_activity_routine_source.py tests/test_activity_personal_extraction.py *> $log
+            python -m pytest -q --tb=short tests/test_activity_routine_source.py tests/test_activity_personal_extraction.py tests/test_activity_technology_consumer.py *> $log
             $exit=$LASTEXITCODE
             $raw=Get-Content -LiteralPath $log -Raw
             $last=($raw -split '\r?\n' | Where-Object {$_ -match '[0-9]+ (passed|failed|skipped|errors?)\b' -and $_ -match ' in [0-9.]+s'} | Select-Object -Last 1)
             foreach($key in @('passed','failed','skipped','errors')){
               if($last){$match=[regex]::Match($last,'\b([0-9]+) '+$key+'\b');if($match.Success){Write-Host ('PYTHON_'+$key.ToUpperInvariant()+'='+$match.Groups[1].Value)}}
             }
-            foreach($m in [regex]::Matches($raw,'(?m)^FAILED tests/(test_activity_(?:routine_source|personal_extraction)\.py)::([A-Za-z0-9_]+)')){
+            foreach($m in [regex]::Matches($raw,'(?m)^FAILED tests/(test_activity_(?:routine_source|personal_extraction|technology_consumer)\.py)::([A-Za-z0-9_]+)')){
               Write-Host ('FAILED_TEST='+$m.Groups[1].Value+'::'+$m.Groups[2].Value)
             }
             foreach($m in [regex]::Matches($raw,'(?m)^((?:runtime/activity_[a-z_]+|tests/test_activity_[a-z_]+)\.py):(\d+): ([A-Za-z]+Error)\b')){
