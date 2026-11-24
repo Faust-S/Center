@@ -18,7 +18,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      AGENT_PIN: '2d5eaa64b11e11d0ba047956dabe7c127064e960'
+      AGENT_PIN: '722c1b9d1e759d5d117f6811650c64c731ba753a'
       CORE_PIN: 'd89ec3ead3e660a7865043d1ecacd7f2b259f6cc'
     steps:
       - name: Require the existing authorized source grant
