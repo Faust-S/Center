@@ -1,0 +1,23 @@
+name: AKIS private access preflight
+on:
+  push:
+    branches:
+      - work/2026-11-24-akis-private-access-preflight
+    paths:
+      - .github/workflows/akis-private-access-preflight.yml
+      - .github/scripts/akis_private_access_preflight.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check read access without downloading source
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: python .github/scripts/akis_private_access_preflight.py
