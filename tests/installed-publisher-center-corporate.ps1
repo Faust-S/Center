@@ -339,18 +339,62 @@ function Focus-App($process){
 }
 function Enter($process,[string]$name,[string]$value){
   Gui-Step 'EDIT'
+  # Navigation starts a real asynchronous original-owner read. The exact
+  # React-controlled input may be present but disabled until it finishes.
+  # Wait for the editable control, then do one ordinary keyboard input.
+  $element=$null
+  for($attempt=0;$attempt -lt 120;$attempt++){
+    $current=Control $process $name 'Edit'
+    $pattern=$null
+    try{
+      if($current.Current.IsEnabled -and
+         $current.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern) -and
+         !$pattern.Current.IsReadOnly){
+        $element=$current
+        break
+      }
+    }catch{}
+    Start-Sleep -Milliseconds 250
+  }
+  if($null -eq $element){throw 'CORPORATE_GUI_EDIT_NOT_READY'}
   Focus-App $process
   $element=Control $process $name 'Edit'
+  if(!$element.Current.IsEnabled){throw 'CORPORATE_GUI_EDIT_DISABLED_AFTER_NAVIGATION'}
   $element.SetFocus()
+  $focused=$false
+  for($attempt=0;$attempt -lt 20;$attempt++){
+    try{
+      if($element.Current.HasKeyboardFocus){
+        $focused=$true
+        break
+      }
+      # WebView may expose a number field as Spinner with focused Edit child.
+      $active=[System.Windows.Automation.AutomationElement]::FocusedElement
+      if($active -and $active.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit){
+        $parent=[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($active)
+        if($parent -and $element.Current.ControlType -eq [System.Windows.Automation.ControlType]::Spinner -and
+          [System.Windows.Automation.Automation]::Compare($parent,$element)){
+          $focused=$true
+          break
+        }
+      }
+    }catch{}
+    Start-Sleep -Milliseconds 100
+  }
+  if(!$focused){throw 'CORPORATE_GUI_EDIT_FOCUS_NOT_CONFIRMED'}
   [System.Windows.Forms.Clipboard]::SetText($value)
   try{
     [System.Windows.Forms.SendKeys]::SendWait('^a')
     [System.Windows.Forms.SendKeys]::SendWait('^v')
-    Start-Sleep -Milliseconds 220
-    $observed=Read-Edit $process $name
-    if($observed -cne $value -and ($observed -replace "`r`n","`n") -cne ($value -replace "`r`n","`n")){
-      throw 'CORPORATE_GUI_EDIT_READBACK_MISMATCH'
+    # Read-only observation, never repeat the keyboard write after a mismatch.
+    for($attempt=0;$attempt -lt 20;$attempt++){
+      $observed=Read-Edit $process $name
+      if($observed -ceq $value -or ($observed -replace "`r`n","`n") -ceq ($value -replace "`r`n","`n")){
+        return
+      }
+      Start-Sleep -Milliseconds 100
     }
+    throw 'CORPORATE_GUI_EDIT_READBACK_MISMATCH'
   }finally{[System.Windows.Forms.Clipboard]::Clear()}
 }
 function Read-Edit($process,[string]$name){
@@ -1092,6 +1136,7 @@ try{
     Write-Host 'CORPORATE_LICENSED_EMPLOYEE_PREPARATION=PASS checks=9'
     return
   }
+  Phase 'CENTER_IDENTICAL_REPLAY'
   Center-Receive $handoff $activeFile
   Wait-Text $cen 'Новая запись не создана'
   $null=Verify-Center $org $active 1 (Digest $activeFile)
@@ -1104,9 +1149,11 @@ try{
   $index=[int][Math]::Floor($bad.Length/2)
   $bad[$index]=[byte]($bad[$index] -bxor 1)
   [IO.File]::WriteAllBytes($tamperedFile,$bad)
+  Phase 'CENTER_TAMPERED_CARRIER'
   Center-Receive $handoff $tamperedFile $false
   $null=Verify-Center $org $active 1 (Digest $activeFile)
   Record-Check 'CENTER_TAMPERED_PHYSICAL_CARRIER_DENIED_STORE_UNCHANGED'
+  Phase 'PUBLISHER_COLD_READBACK'
   # Reopening Publisher must use the original signed journal, not the
   # in-memory delivery receipt or an unsigned preparation.
   Stop-App $pub
@@ -1124,6 +1171,7 @@ try{
   Record-Check 'PUBLISHER_COLD_RESTART_ORIGINAL_SIGNED_JOURNAL'
   $reexport=Publisher-Export $reexportFile $active
   if((Digest $activeFile) -ceq (Digest $reexportFile)){throw 'CORPORATE_REEXPORT_EXPECTED_DIFFERENT_CARRIER'}
+  Phase 'CENTER_REEXPORTED_SIGNED_PAIR'
   Center-Receive $reexport $reexportFile
   Wait-Text $cen 'Новая запись не создана'
   $null=Verify-Center $org $active 1 (Digest $activeFile)
@@ -1138,6 +1186,7 @@ try{
     Center-SeatProjection $false -1 -1
     Record-Check 'CENTER_INSTALLED_REGISTRY_SUSPENSION_REMOVES_AVAILABLE_CAPACITY'
   }
+  Phase 'CENTER_SUSPENSION_REPLAY'
   Center-Receive $handoff $activeFile $false
   $null=Verify-Center $org $suspended 2 (Digest $suspendedFile)
   Record-Check 'CENTER_SUSPENSION_CANNOT_BE_ROLLED_BACK_BY_OLD_ACTIVE'
@@ -1188,6 +1237,7 @@ try{
   Wait-Text $pub 'STATUS: NOT_ACTIVATED, последовательность 0'
   $renewed=Publisher-Status 'ACTIVE' $nextId 1
   $renewalHandoff=Publisher-Export $renewedFile $renewed
+  Phase 'CENTER_RENEWAL_INTAKE'
   Center-Receive $renewalHandoff $renewedFile
   $null=Verify-Center $org $renewed 3 (Digest $renewedFile) 2 1 6 1
   Wait-CenterTariff 'TEAM' 2
@@ -1206,6 +1256,7 @@ try{
   $cen=Start-App $centerPath
   Press $cen 'Personal Agent и лицензии'
   Wait-CenterTariff 'TEAM' 2
+  Phase 'CENTER_RENEWAL_COLD_REPLAY'
   Center-Receive $suspendedHandoff $suspendedFile
   $null=Verify-Center $org $renewed 3 (Digest $renewedFile) 2 1 6 1
   if((Consumer-Read $org).capacity.candidateLicenseId -cne $nextId){
@@ -1230,6 +1281,7 @@ try{
   Wait-Text $pub 'STATUS: SUSPENDED, последовательность 2'
   $revoked=Publisher-Status 'REVOKED' $id 3
   $revokedHandoff=Publisher-Export $revokedFile $revoked
+  Phase 'CENTER_PREDECESSOR_REVOCATION'
   Center-Receive $revokedHandoff $revokedFile
   $null=Verify-Center $org $revoked 5 (Digest $revokedFile) 2
   if((Consumer-Read $org).capacity.state -ne 'NO_CURRENT_LICENSE'){throw 'CORPORATE_NATIVE_REVOKED_CHAIN_CAPACITY_INVALID'}
@@ -1238,6 +1290,7 @@ try{
   $cen=Start-App $centerPath
   Press $cen 'Personal Agent и лицензии'
   Wait-Text $cen 'STATUS: REVOKED'
+  Phase 'CENTER_FINAL_REVOKED_REPLAY'
   Center-Receive $handoff $activeFile $false
   $null=Verify-Center $org $revoked 5 (Digest $revokedFile) 2
   if((Consumer-Read $org).capacity.state -ne 'NO_CURRENT_LICENSE'){throw 'CORPORATE_NATIVE_REVOKED_CHAIN_CAPACITY_INVALID'}
