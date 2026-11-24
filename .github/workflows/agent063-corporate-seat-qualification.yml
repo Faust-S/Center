@@ -18,7 +18,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      AGENT_PIN: '2b757eae313651db5f5c7e60b92b8e168c25304e'
+      AGENT_PIN: '5741ebbccf75e7013606fd58e62b850762fec2ae'
       CORE_PIN: 'd89ec3ead3e660a7865043d1ecacd7f2b259f6cc'
     steps:
       - name: Require the existing authorized source grant
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 2b757eae313651db5f5c7e60b92b8e168c25304e
+          ref: 5741ebbccf75e7013606fd58e62b850762fec2ae
           path: agent
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
@@ -174,7 +174,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      IWXA_EXPECTED_T3: 'aaa4255f572ba714292fad81ce2391383a62f686'
+      IWXA_EXPECTED_T3: 'e5b66db0cb9859fb83db66168a1ebaea1832d2cb'
       IWXA_EXPECTED_ONE_CORE: 'd89ec3ead3e660a7865043d1ecacd7f2b259f6cc'
     steps:
       - name: Require the previously authorized private source grant
@@ -195,7 +195,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: aaa4255f572ba714292fad81ce2391383a62f686
+          ref: e5b66db0cb9859fb83db66168a1ebaea1832d2cb
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
