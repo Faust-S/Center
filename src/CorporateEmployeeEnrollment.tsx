@@ -47,8 +47,8 @@ function keyRecord(raw:string,personId:string){
     throw Error('CEN_D3_EMPLOYEE_PUBLIC_KEY_RECORD_INVALID');
   return k;
 }
-export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,autoReadSeats=false,requireRegistryAbsence=false,registryAbsent=false,execute,run,busy}:{
- session:Session;contacts:Contact[];preferredContactId?:string|null;autoReadSeats?:boolean;requireRegistryAbsence?:boolean;registryAbsent?:boolean;execute:Exec;run:Run;busy:boolean;
+export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,autoReadSeats=false,requireRegistryAbsence=false,registryAbsent=false,execute,run,busy,onOpenLicenses}:{
+ session:Session;contacts:Contact[];preferredContactId?:string|null;autoReadSeats?:boolean;requireRegistryAbsence?:boolean;registryAbsent?:boolean;execute:Exec;run:Run;busy:boolean;onOpenLicenses?:()=>void;
 }){
  // A preselected organizational contact is only a local draft hint;
  // never infer an employee PROOF key, signed identity or active grant.
@@ -760,6 +760,6 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
     organizationId={session.organizationId} workspaceId={session.workspaceId} actorId={session.actorId}
    employee={enrolled?{personId,enrollmentId:enrollmentReceipt.enrollmentId}:null}
    available={available&&session.d3EmployeeCorporateSeatsAvailable===true} autoRead={autoReadSeats}
-   execute={execute} run={run} busy={busy}/>
+   execute={execute} run={run} busy={busy} onOpenLicenses={onOpenLicenses}/>
  </section>;
 }

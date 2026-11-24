@@ -16,9 +16,9 @@ const labels:Record<string,string>={
 const statusLabels:Record<string,string>={ACTIVE:'Назначено',SUSPENDED:'Приостановлено',
  REVOKED:'Освобождено',SUPERSEDED:'Заменено'};
 export default function CorporateSeatAssignments({organizationId,workspaceId,actorId,employee,
- available,autoRead=false,execute,run,busy}:{
+ available,autoRead=false,execute,run,busy,onOpenLicenses}:{
  organizationId:string;workspaceId:string;actorId:string;employee:Employee|null;available:boolean;autoRead?:boolean;
- execute:Exec;run:Run;busy:boolean;
+ execute:Exec;run:Run;busy:boolean;onOpenLicenses?:()=>void;
 }){
  const [view,setView]=useState<any>(null);
  const autoReadAttempted=useRef(false);
@@ -65,7 +65,8 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
  // No automatic policy write, assignment, release, transfer or delivery.
  useEffect(()=>{
   if(!available){autoReadAttempted.current=false;setView(null);return;}
-  if(!autoRead||busy||autoReadAttempted.current)return;
+  if(!autoRead){autoReadAttempted.current=false;return;}
+  if(busy||autoReadAttempted.current)return;
   autoReadAttempted.current=true;
   void refresh();
  },[available,autoRead,busy]);
@@ -141,10 +142,12 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
     {!view.candidate&&<p className="muted" data-testid="d3-seat-license-next-step">{view.licenseState==='NO_CURRENT_LICENSE'
       ?'Получите действующую подписанную лицензию и статус Publisher в разделе «Personal Agent и лицензии». Существующие назначения остаются в истории.'
       :'Проверьте источник, историю продлений и подписанные статусы в разделе «Personal Agent и лицензии».'}</p>}
+    {(!view.candidate||!currentLicense)&&onOpenLicenses&&
+     <button className="secondary" type="button" disabled={busy} onClick={onOpenLicenses}>Открыть лицензии Publisher</button>}
     <div className="form-grid" data-testid="d3-seat-capacity">
-     <div><small>Зарегистрированные сотрудники / лимит</small><strong>{' '}{view.independentlyEnrolledEmployees} / {view.employeeLimit??'—'}</strong></div>
-     <div><small>Зарезервированные места / лимит</small><strong>{' '}{view.reservedSeats} / {view.seatLimit??'—'}</strong></div>
-     <div><small>Свободно для назначения</small><strong>{' '}{currentLicense?view.availableSeats:0}</strong></div>
+     <div role="group" aria-label={'Зарегистрированные сотрудники: '+view.independentlyEnrolledEmployees+' / '+(view.employeeLimit??'—')}><small>Зарегистрированные сотрудники / лимит</small><strong>{' '}{view.independentlyEnrolledEmployees} / {view.employeeLimit??'—'}</strong></div>
+     <div role="group" aria-label={'Зарезервированные места: '+view.reservedSeats+' / '+(view.seatLimit??'—')}><small>Зарезервированные места / лимит</small><strong>{' '}{view.reservedSeats} / {view.seatLimit??'—'}</strong></div>
+     <div role="group" aria-label={'Свободно для назначения: '+(currentLicense?view.availableSeats:0)}><small>Свободно для назначения</small><strong>{' '}{currentLicense?view.availableSeats:0}</strong></div>
     </div>
     {(view.overSeatLimit>0||view.overEmployeeLimit>0)&&<p role="alert">Лимит превышен. Сотрудники: {view.overEmployeeLimit??0}; места: {view.overSeatLimit??0}. Сохранённые назначения не удалены. Сократите распределение или уточните тариф.</p>}
     {view.candidate&&!view.existingLineageMatches&&<p role="alert">Сохранённые места относятся к другой цепочке лицензии. Проверьте основания перед назначением.</p>}
