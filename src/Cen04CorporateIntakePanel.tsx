@@ -39,9 +39,17 @@ export default function Cen04CorporateIntakePanel({organizationId,participants,i
  useEffect(()=>{
    const update=()=>setDisplayNow(previous=>Math.max(previous,Date.now()));
    update();
-   const timer=window.setInterval(update,1000);
-   window.addEventListener('focus',update);
-   return()=>{window.clearInterval(timer);window.removeEventListener('focus',update);};
+   const candidate=corporateRead?.licenses.find(row=>row.licenseId===corporateRead.capacity.candidateLicenseId);
+   const deadline=candidate?Math.min(Date.parse(candidate.expiresAt),Date.parse(candidate.statusValidUntil)):null;
+   let timer:number|undefined;
+   const schedule=()=>{
+     if(timer!==undefined)window.clearTimeout(timer);
+     update();
+     if(deadline!==null&&deadline>Date.now())timer=window.setTimeout(schedule,Math.min(deadline-Date.now()+1,3600000));
+   };
+   schedule();
+   window.addEventListener('focus',schedule);
+   return()=>{if(timer!==undefined)window.clearTimeout(timer);window.removeEventListener('focus',schedule);};
  },[corporateRead]);
  const seatPlan=projectCorporateSeatPlan(corporateRead,participants,displayNow);
  const latestOrgRef=useRef(organizationId);
