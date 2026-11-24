@@ -1,0 +1,98 @@
+name: ArtBazy W5 private source qualification
+on:
+  push:
+    branches:
+      - work/2026-11-24-artbazy-w5-source-qualification
+    paths:
+      - .github/workflows/artbazy-w5-source-qualification.yml
+permissions:
+  contents: read
+jobs:
+  source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PRIVATE_PIN: 684a646b9d845b90b44ee8bcf96dceca0fdfb3ba
+      PRIVATE_TREE: c3fcd6d9eb6c1ca39764ed5a2bb550e249f07998
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazy
+          ref: 684a646b9d845b90b44ee8bcf96dceca0fdfb3ba
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact private source pin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:PRIVATE_PIN -or
+              (& git rev-parse 'HEAD^{tree}').Trim() -cne $env:PRIVATE_TREE) { throw 'SOURCE_PIN_MISMATCH' }
+          Write-Host 'SOURCE_PIN=PASS'
+      - name: Native original source qualification (fixed counters only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $js=@'
+          const path=require('node:path'),cp=require('node:child_process');
+          const cwd=path.join(process.cwd(),'PROGRAM','2026-11-21','OS_SERVICES');
+          let failed=false;
+          const run=(label,args)=>{
+            const p=cp.spawnSync(process.execPath,args,{cwd,encoding:'utf8',maxBuffer:64*1024*1024,windowsHide:true,env:{...process.env,CI:'true'}});
+            const ok=p.status===0&&!p.error&&!p.signal;
+            console.log(label+'='+(ok?'PASS':'FAIL'));
+            if(!ok)failed=true;
+            return {ok,out:p.stdout||'',err:p.stderr||''};
+          };
+          const tests=run('FIXTURES',['--test','--test-reporter=tap','verify-w5-classical-self-service.mjs','verify-w4-source-reuse.mjs','verify-w5-collection-variants.mjs','verify-w5-research-step.mjs']);
+          for(const k of ['tests','pass','fail','cancelled','skipped','todo']){
+            const m=tests.out.match(new RegExp('^# '+k+' (\\d+)\\s*$','m'));
+            console.log('NODE_'+k.toUpperCase()+'='+(m?m[1]:'UNKNOWN'));
+          }
+          for(const m of tests.out.matchAll(/^not ok (\d+) - /gm))console.log('FAILED_TEST_INDEX='+m[1]);
+          const jobs=[
+            ['CLASSICAL','verify-w5-full-catalog-field-guides.mjs',['packets','diagnostic_rows','additional_central_procedures','open_semantic_guides','accepted_methods']],
+            ['STAGES','verify-w5-staged-collection.mjs',['methods','routes','proof_gate_records','negative_cases','accepted_methods']],
+            ['REUSE','verify-w5-reuse-catalog.mjs',['families','links','unique_questions','overlapping_questions']],
+            ['VARIANTS','verify-w5-full-catalog-variants.mjs',['methods','diagnostic_rows','additional_rows','scenario_runs','accepted_methods']],
+            ['DPS','verify-w5-dps-minimum.mjs',['methods','fields','exact_links','open_links','scopes','negative_cases','accepted_methods']],
+            ['NEXT_STEP','verify-w5-research-step-original.mjs',['methods','original_scopes','focus_scopes','scenario_runs','accepted_methods']]
+          ];
+          for(const [label,file,keys] of jobs){
+            const p=run(label,[file]);
+            if(p.ok){
+              try{
+                const d=JSON.parse(p.out);
+                for(const k of keys){
+                  const v=d.totals?.[k];
+                  console.log(label+'_'+k.toUpperCase()+'='+(Number.isSafeInteger(v)&&v>=0?v:'UNKNOWN'));
+                  if(!Number.isSafeInteger(v)||v<0)failed=true;
+                }
+              }catch{console.log(label+'_REPORT=FAIL');failed=true;}
+            }else{
+              // Do not publish raw source or method names. Log only fixed error prefix and line/column.
+              const m=p.err.match(/(?:Error|TypeError|SyntaxError|RangeError): ([A-Z][A-Z_]{2,80})(?=[:\r\n ])/);
+              if(m)console.log(label+'_ERROR_CODE='+m[1]);
+              const pos=p.err.match(/\.mjs:(\d+):(\d+)\)?/);
+              if(pos)console.log(label+'_ERROR_POSITION='+pos[1]+':'+pos[2]);
+            }
+          }
+          if(failed)process.exitCode=1;
+          '@
+          $script=Join-Path $env:RUNNER_TEMP 'artbazy-w5-source.cjs'
+          [System.IO.File]::WriteAllText($script,$js,[System.Text.UTF8Encoding]::new($false))
+          node $script
+          if ($LASTEXITCODE -ne 0) { throw 'ARTBAZY_SOURCE_QUALIFICATION_FAILED' }
+      - name: Remove private checkout and temporary output
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'artbazy-w5-*' -Force | Remove-Item -Force -ErrorAction SilentlyContinue
