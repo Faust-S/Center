@@ -179,3 +179,17 @@ test('read-only recovery stops on error, cancellation and bounded timeout withou
   readRegistry:async()=>assert.fail('unattached Kernel read')}),'TIMEOUT');
  assert.equal(calls,1);
 });
+
+test('original registry placement is explicit and contradictory readbacks are refused',()=>{
+ const value={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1',
+  state:'ORIGINAL_KERNEL_REGISTRY_CONFIRMED',organizationId:'org:placement',
+  workspaceId:'ws:placement',originalReadback:true,originalKernel:true,
+  signatureVerified:true,automaticRetryAllowed:false};
+ const read=v=>readOriginalEmployeeRegistryReceipt(v,value.organizationId,value.workspaceId);
+ assert.equal(read({...value,registryStorageMode:'SEPARATE',registrySeparated:true}),'CONFIRMED');
+ assert.equal(read({...value,registryStorageMode:'LEGACY',registrySeparated:false}),'CONFIRMED');
+ for(const fields of [{registryStorageMode:'SEPARATE',registrySeparated:false},
+   {registryStorageMode:'LEGACY',registrySeparated:true},{registryStorageMode:'NOT_CREATED',registrySeparated:false},
+   {registrySeparated:true},{registryStorageMode:'OTHER',registrySeparated:false}])
+  assert.throws(()=>read({...value,...fields}),/READBACK_INVALID/);
+});

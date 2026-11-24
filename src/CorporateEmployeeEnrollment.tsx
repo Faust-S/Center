@@ -24,6 +24,8 @@ type Session={organizationId:string;workspaceId:string;actorId:string;contextId:
   d3EmployeeEnrollmentAvailable?:boolean;
   d3EmployeeRegistryBootstrapAvailable?:boolean;
   d3EmployeeRegistryReadbackAvailable?:boolean;
+  d3EmployeeRegistryStorageMode?:string;
+  d3EmployeeRegistrySeparated?:boolean;
   d3EmployeeTaskIssueAvailable?:boolean;
   d3EmployeeWorkspaceRightsAvailable?:boolean;
   d3EmployeeCorporateSeatsAvailable?:boolean};
@@ -471,10 +473,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
          setRegistryInitAttempted(true);
          try{
            const result=await execute('d3EmployeeRegistryInitialize',{confirmed:true});
-           if(result?.state!=='ORIGINAL_KERNEL_REGISTRY_CONFIRMED'||
-              result.organizationId!==session.organizationId||
-              result.workspaceId!==session.workspaceId||
-              result.originalReadback!==true||result.originalKernel!==true)
+           if(readOriginalEmployeeRegistryReceipt(result,session.organizationId,session.workspaceId)!=='CONFIRMED')
              throw Error('CEN_D3_EMPLOYEE_REGISTRY_READBACK_UNCONFIRMED');
          }catch(e){
            // Only an exact Windows refusal BEFORE original dispatch permits
@@ -488,6 +487,10 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      </div>}
     </div>:
   <>
+  {session.d3EmployeeRegistrySeparated===true&&session.d3EmployeeRegistryStorageMode==='SEPARATE'&&
+   <p role="status" data-testid="d3-employee-registry-separated">Административный реестр отделён от рабочей Workspace.</p>}
+  {session.d3EmployeeRegistryStorageMode==='LEGACY'&&
+   <p className="notice subdued" role="status" data-testid="d3-employee-registry-legacy">Реестр сохранён в прежней Workspace. Полномочия действуют; перенос этого пространства пока недоступен.</p>}
   {session.d3EmployeeCorporateSeatsAvailable===true&&<div className="nested-form" data-testid="d3-employee-roster">
    <h4>Ранее подключённые сотрудники</h4>
    {focusedTask&&<div className="notice subdued" data-testid="d3-employee-focused-task">

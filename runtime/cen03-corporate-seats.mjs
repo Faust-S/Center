@@ -202,6 +202,13 @@ export function readOriginalEmployeeRegistryReceipt(receipt,organizationId,works
   receipt.originalReadback===true&&receipt.originalKernel===true&&
   receipt.signatureVerified===confirmed&&receipt.automaticRetryAllowed===false,
   'CEN_D3_EMPLOYEE_REGISTRY_READBACK_INVALID');
+ // New installed owners report physical placement. Older confirmed
+ // receipts remain readable, but never imply the registry is separated.
+ if(receipt.registryStorageMode!==undefined||receipt.registrySeparated!==undefined)
+  check(['NOT_CREATED','LEGACY','SEPARATE'].includes(receipt.registryStorageMode)&&
+   receipt.registrySeparated===(receipt.registryStorageMode==='SEPARATE')&&
+   (!confirmed||receipt.registryStorageMode!=='NOT_CREATED'),
+   'CEN_D3_EMPLOYEE_REGISTRY_READBACK_INVALID');
  return confirmed?'CONFIRMED':receipt.state==='ORIGINAL_KERNEL_WORKSPACE_NOT_READY'?'WORKSPACE_NOT_READY':'NOT_FOUND';
 }
 
