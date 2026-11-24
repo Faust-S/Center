@@ -301,7 +301,7 @@ pub async fn publisher_t3_corporate_export(
 // The public bridge MUST NOT infer a Personal Agent entitlement from draft.
 const CORPORATE_DRAFT_BINDING_ERROR:&str="PUBLISHER_CORPORATE_REQUEST_DRAFT_MISMATCH";
 fn verify_corporate_request_matches_preparation(root:&Path,request:&Value)
- ->Result<(),String>{
+ ->Result<Option<String>,String>{
     let raw=crate::read_preparation(root)
         .map_err(|_|"PUBLISHER_CORPORATE_DRAFT_SOURCE_UNAVAILABLE")?
         .ok_or("PUBLISHER_CORPORATE_DRAFT_SOURCE_UNAVAILABLE")?;
@@ -352,7 +352,21 @@ fn verify_corporate_request_matches_preparation(root:&Path,request:&Value)
         "status":"UNSIGNED_REQUEST"
     });
     if &expected!=request{return Err(CORPORATE_DRAFT_BINDING_ERROR.into());}
-    Ok(())
+    if let Some(previous)=proposal.get("previousProposalId"){
+        let prior=previous.as_str().filter(|id|t3::valid_identifier(id))
+            .ok_or(CORPORATE_DRAFT_BINDING_ERROR)?;
+        let source=person_draft_record(&draft,"proposals",previous)
+            .map_err(|_|CORPORATE_DRAFT_BINDING_ERROR.to_string())?;
+        if previous==&proposal["id"]||source["holderId"]!=proposal["holderId"]||
+           source["productId"]!=proposal["productId"]||
+           source["tariffSnapshot"]["holderType"]!="ORGANIZATION"||
+           source["createdAt"].as_str().is_none()||
+           source["createdAt"].as_str()>proposal["createdAt"].as_str(){
+            return Err(CORPORATE_DRAFT_BINDING_ERROR.into());
+        }
+        return Ok(Some(prior.to_owned()));
+    }
+    Ok(None)
 }
 
 async fn call_corporate(app:AppHandle,action:&'static str,values:Vec<String>)
@@ -415,6 +429,8 @@ pub async fn publisher_t3_corporate_signed_readback(
        !v.get("organizationId").and_then(Value::as_str)
           .is_some_and(t3::valid_identifier)||
        v.get("productId").and_then(Value::as_str)!=Some("IWXA_ADMIN_CENTER")||
+       !v.get("lineageId").and_then(Value::as_str).is_some_and(t3::valid_identifier)||
+       !v.get("renewalOf").is_some_and(|p|p.is_null()||p.as_str().is_some_and(|id|t3::valid_identifier(id)&&id!=license_id.as_str()))||
        !hex("licenseEnvelopeSha256")||
        v.get("licenseSignatureVerifiedAtIssuance")!=Some(&Value::Bool(true))||
        v.get("recipientConfirmed")!=Some(&Value::Bool(false))||
@@ -440,7 +456,7 @@ pub async fn publisher_t3_corporate_signed_readback(
 #[tauri::command]
 pub async fn publisher_t3_corporate_issue(
     app:AppHandle,request_json:String,issuer_authority_id:String,
-    expected_draft_sha256:String
+    expected_draft_sha256:String,expected_renewal_license_id:Option<String>
 )->Result<Value,String>{
     crate::validate_corporate_request(&request_json)?;
     let request:Value=serde_json::from_str(&request_json)
@@ -452,7 +468,12 @@ pub async fn publisher_t3_corporate_issue(
     }
     let root=crate::publisher_root(&app)?;
     verify_person_draft_source(&root,&expected_draft_sha256)?;
-    verify_corporate_request_matches_preparation(&root,&request)?;
+    let predecessor=verify_corporate_request_matches_preparation(&root,&request)?;
+    if predecessor.is_some()!=expected_renewal_license_id.is_some()||
+       expected_renewal_license_id.as_deref().is_some_and(|id|!t3::valid_identifier(id)){
+        return Err("PUBLISHER_CORPORATE_RENEWAL_SOURCE_REQUIRED".into());
+    }
+    let expected_parent=expected_renewal_license_id.clone();
     if !t3::availability(&app,"owner-corporate"){
         return Err("PUBLISHER_CORPORATE_ORIGINAL_OWNER_NOT_ENROLLED".into());
     }
@@ -473,14 +494,19 @@ pub async fn publisher_t3_corporate_issue(
         let actual_root=crate::publisher_root(&app)?;
         with_stable_person_draft_source(
           &actual_root,&expected_draft_sha256,||{
-            verify_corporate_request_matches_preparation(&actual_root,&request)?;
-            t3::run(&app,"owner-corporate","corporate-issue", &[
-              file.to_string_lossy().into_owned(),issuer_authority_id
-            ])
+            let prior=verify_corporate_request_matches_preparation(&actual_root,&request)?;
+            if prior!=predecessor{return Err(CORPORATE_DRAFT_BINDING_ERROR.into());}
+            let mut args=vec![file.to_string_lossy().into_owned(),issuer_authority_id];
+            if let (Some(request_id),Some(license_id))=(prior,expected_renewal_license_id){
+                args.push(request_id);args.push(license_id);
+            }
+            t3::run(&app,"owner-corporate","corporate-issue",&args)
           })
     }).await.map_err(|_|"PUBLISHER_CORPORATE_WORKER_FAILED".to_string())??;
     t3::validate_test_result(&v,"CORPORATE_ISSUE")?;
-    if v.get("requestId").and_then(Value::as_str)!=Some(request_id.as_str())||
+    if v.get("renewalOf")!=Some(&serde_json::json!(expected_parent))||
+       !v.get("lineageId").and_then(Value::as_str).is_some_and(t3::valid_identifier)||
+       v.get("requestId").and_then(Value::as_str)!=Some(request_id.as_str())||
        !v.get("licenseId").and_then(Value::as_str)
          .is_some_and(t3::valid_identifier)||
        !matches!(v.get("outcome").and_then(Value::as_str),
