@@ -91,6 +91,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const [enrollmentReceipt,setEnrollmentReceipt]=useState<any>(null);
  const [employeeInviteReceipt,setEmployeeInviteReceipt]=useState<any>(null);
  const [workspaceRightsAttempted,setWorkspaceRightsAttempted]=useState(false);
+ const [returnExportAttempted,setReturnExportAttempted]=useState(false);
  const [workspaceRightsReceipt,setWorkspaceRightsReceipt]=useState<any>(null);
  const [workspaceReadHold,setWorkspaceReadHold]=useState(false);
  const [taskGrantAttempted,setTaskGrantAttempted]=useState(false);
@@ -149,10 +150,14 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  }
  const workspaceRightsOk=enrolled&&!workspaceReadHold&&
    inspected('workspace',workspaceRightsReceipt)==='ACTIVE';
+ const returnExportSupported=workspaceRightsOk&&
+   typeof workspaceRightsReceipt?.returnExportAvailable==='boolean';
+ const returnExportOk=returnExportSupported&&workspaceRightsReceipt.returnExportAvailable===true;
  const managerTaskGrantOk=enrolled&&!taskGrantReadHold&&
    inspected('task',taskGrantReceipt)==='ACTIVE';
  const taskGrantKnownHold=inspected('task',taskGrantReceipt)==='HOLD';
- async function readGrant(kind:'workspace'|'task',scope=grantScope){
+ async function readGrant(kind:'workspace'|'task',scope=grantScope,
+   onReadback?:(receipt:any)=>void){
    const workspace=kind==='workspace';
    const setHold=workspace?setWorkspaceReadHold:setTaskGrantReadHold;
    const setReceipt=workspace?setWorkspaceRightsReceipt:setTaskGrantReceipt;
@@ -163,6 +168,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    const state=workspace?inspectOriginalEmployeeWorkspaceRights(result,scope):
      inspectOriginalEmployeeTaskGrant(result,scope);
    setReceipt(result);setHold(false);
+   onReadback?.(result);
    return state;
  }
  // The employee must import the current signed manager DATA + STATUS.
@@ -267,7 +273,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    setEnrollmentProof('');
    setEnrollmentAttempted(false);setEnrollmentReceipt(null);
    setEmployeeInviteReceipt(null);
-   setWorkspaceRightsAttempted(false);setWorkspaceRightsReceipt(null);setWorkspaceReadHold(false);
+   setWorkspaceRightsAttempted(false);setReturnExportAttempted(false);setWorkspaceRightsReceipt(null);setWorkspaceReadHold(false);
    setTaskGrantAttempted(false);setTaskGrantReceipt(null);setTaskGrantReadHold(false);
    clearDraftSource();setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);
@@ -739,8 +745,49 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
            })}>Проверить выданные права</button>
        </div>
        {workspaceRightsOk&&<p role="status" data-testid="d3-employee-workspace-rights-confirmed">
-         Четыре права подтверждены исходным Kernel. Импорт будет разрешён
+         Четыре базовых права подтверждены исходным Kernel. Импорт разрешён
          только в выбранную корпоративную Workspace.</p>}
+       {returnExportSupported&&<div className="nested-form" data-testid="d3-employee-workspace-return">
+         <h4>Возврат полной Workspace</h4>
+         <p>Это отдельное разрешение сотруднику передать обратно полный архив выбранной
+           корпоративной Workspace через исходный Exchange. Оно не является приёмкой
+           результата руководителем и не даёт доступа к личной области.</p>
+         <button data-testid="d3-employee-workspace-return-issue"
+           disabled={busy||returnExportOk||returnExportAttempted||workspaceReadHold}
+           onClick={()=>void run('Исходный Kernel подтвердил отдельное право возврата Workspace.',async()=>{
+             if(returnExportAttempted||workspaceReadHold)
+               throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_USE_READBACK');
+             let prior:any=null;
+             if(await readGrant('workspace',grantScope,r=>{prior=r})!=='ACTIVE')
+               throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
+             if(prior?.returnExportAvailable===true)return;
+             if(prior?.returnExportAvailable!==false)
+               throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RETURN_EXPORT_UNAVAILABLE');
+             setReturnExportAttempted(true);setEmployeeInviteReceipt(null);
+             let r:any;
+             try{
+               r=await execute('d3EmployeeWorkspaceGrantIssue',{
+                 employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId,
+                 confirmed:true,returnExport:true
+               });
+             }catch(e){
+               if(String(e).replace(/^Error:\s*/,'').trim()===
+                 'CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_HUMAN_CANCELLED')setReturnExportAttempted(false);
+               throw e;
+             }
+             if(inspectOriginalEmployeeWorkspaceRights(r,grantScope)!=='ACTIVE'||
+               r.returnExportAvailable!==true)
+               throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
+             let observed:any=null;
+             if(await readGrant('workspace',grantScope,value=>{observed=value})!=='ACTIVE'||
+               observed?.returnExportAvailable!==true)
+               throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
+           })}>Разрешить возврат полной Workspace</button>
+         {returnExportOk&&<p role="status" data-testid="d3-employee-workspace-return-confirmed">
+           Отдельное право DATA подтверждено. Передайте сотруднику обновлённое подписанное приглашение.</p>}
+         {returnExportAttempted&&!returnExportOk&&<p role="status">
+           Повторная выдача заблокирована. Сначала проверьте исходные права.</p>}
+       </div>}
        {workspaceReadHold&&<p role="alert" data-testid="d3-employee-workspace-rights-hold">
          Не удалось подтвердить состояние прав Workspace. Перечитайте исходные права перед новой выдачей.</p>}
        {workspaceRightsAttempted&&!workspaceRightsOk&&<p className="notice subdued">

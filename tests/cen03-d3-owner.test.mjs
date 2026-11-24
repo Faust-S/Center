@@ -141,6 +141,17 @@ test('original employee rights restore exact active grants, distinguish absence 
    assert.throws(()=>inspectOriginalEmployeeWorkspaceRights({...activeW,...patch},scope),/READBACK_REQUIRED/);
    assert.throws(()=>inspectOriginalEmployeeTaskGrant({...activeD,...patch},scope),/READBACK_HOLD/);
  }
+ const extra=structuredClone(attachments.readAccess);
+ extra.grantId='grant:exportAccess';extra.binding.grantId=extra.grantId;
+ extra.binding.actions=['workspace.exchange.export'];extra.binding.purposes=['workspace.exchange.export'];
+ const returned={...activeW,returnExportAvailable:true,statusSequence:8,
+   attachments:{...attachments,exportAccess:extra},
+   grantIds:[...activeW.grantIds,extra.grantId]};
+ assert.equal(inspectOriginalEmployeeWorkspaceRights(returned,scope),'ACTIVE');
+ assert.throws(()=>inspectOriginalEmployeeWorkspaceRights({...returned,returnExportAvailable:false},scope),/READBACK_REQUIRED/);
+ assert.throws(()=>inspectOriginalEmployeeWorkspaceRights({...activeW,returnExportAvailable:true},scope),/READBACK_REQUIRED/);
+ assert.throws(()=>inspectOriginalEmployeeWorkspaceRights({...returned,attachments:{...returned.attachments,
+   exportAccess:{...extra,credential:{publicKeyRef:'key:other'}}}},scope),/READBACK_REQUIRED/);
  assert.throws(()=>inspectOriginalEmployeeWorkspaceRights({...activeW,attachments:{}},scope),/READBACK_REQUIRED/);
  assert.throws(()=>inspectOriginalEmployeeWorkspaceRights({...activeW,grantIds:['grant:foreign']},scope),/READBACK_REQUIRED/);
  assert.throws(()=>inspectOriginalEmployeeWorkspaceRights({...w,attachments},scope),/READBACK_REQUIRED/);

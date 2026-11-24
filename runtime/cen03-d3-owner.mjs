@@ -291,17 +291,22 @@ function employeeGrantScopeMatches(value,scope){
 export function inspectOriginalEmployeeWorkspaceRights(value,scope){
  const code='CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED';
  need(employeeGrantScopeMatches(value,scope)&&
-   value.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1',code);
+   value.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1'&&
+   (value.returnExportAvailable===undefined||typeof value.returnExportAvailable==='boolean'),code);
  if(value.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_NOT_FOUND'){
-   need((value.attachments===undefined||Object.keys(value.attachments??{}).length===0)&&
+   need(value.returnExportAvailable!==true&&
+     (value.attachments===undefined||Object.keys(value.attachments??{}).length===0)&&
      (value.grantIds===undefined||Array.isArray(value.grantIds)&&value.grantIds.length===0),code);
    return 'NOT_FOUND';
  }
+ const spec=value.returnExportAvailable===true?{...employeeWorkspaceGrantSpec,
+   exportAccess:['workspace.exchange.export','workspace.exchange.export']}:employeeWorkspaceGrantSpec;
+ const count=Object.keys(spec).length;
  need(value.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'&&
    Number.isSafeInteger(value.statusSequence)&&value.statusSequence>0&&
-   Object.keys(value.attachments??{}).length===4,code);
+   Object.keys(value.attachments??{}).length===count,code);
  const ids=new Set();
- for(const [name,[action,purpose]] of Object.entries(employeeWorkspaceGrantSpec)){
+ for(const [name,[action,purpose]] of Object.entries(spec)){
    const a=value.attachments[name];
    need(validId(a?.grantId)&&!ids.has(a.grantId)&&a.grantId===a.binding?.grantId&&
      a.membership?.personId===scope.employeePersonId&&
@@ -314,7 +319,7 @@ export function inspectOriginalEmployeeWorkspaceRights(value,scope){
    ids.add(a.grantId);
  }
  if(value.grantIds!==undefined)need(Array.isArray(value.grantIds)&&
-   value.grantIds.length===4&&new Set(value.grantIds).size===4&&
+   value.grantIds.length===count&&new Set(value.grantIds).size===count&&
    value.grantIds.every(id=>ids.has(id)),code);
  return 'ACTIVE';
 }

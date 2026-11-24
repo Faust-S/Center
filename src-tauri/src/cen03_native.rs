@@ -168,6 +168,11 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
           if operation=="d3EmployeeWorkspaceGrantIssue"&&input["confirmed"]!=true{
               return Err("CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_CONFIRMATION_REQUIRED".into());
           }
+          if let Some(value)=input.get("returnExport"){
+              if operation!="d3EmployeeWorkspaceGrantIssue"||!value.is_boolean(){
+                  return Err("CEN_D3_EMPLOYEE_WORKSPACE_RETURN_EXPORT_OPTION_INVALID".into());
+              }
+          }
       },
       "d3EmployeeTaskGrantIssue"|"d3EmployeeTaskGrantReadback"=>{
           if !input["employeePersonId"].as_str().is_some_and(t3::valid_identifier)||
@@ -1333,10 +1338,14 @@ pub async fn center_corporate_action(
     if operation=="d3EmployeeWorkspaceGrantIssue"{
         let who=input["employeePersonId"].as_str().unwrap_or("");
         let enrollment=input["enrollmentId"].as_str().unwrap_or("");
+        let description=if input["returnExport"]==true{
+            format!("Добавить сотруднику {} (подключение {}) отдельное подписанное право DATA на экспорт полной корпоративной Workspace через T2 Exchange? Уже выданные четыре права сохраняются. Это не приёмка результата и не разрешение передавать личные данные. После отправки сначала перечитайте исходный Kernel.",who,enrollment)
+        }else{
+            format!("Выдать сотруднику {} (подключение {}) четыре отдельных подписанных полномочия исходного Kernel: чтение Workspace, запись объектов, создание Workspace и импорт полного архива через T2 Exchange? Личная область сотрудника и права руководителя не изменяются. После отправки повторная выдача запрещена до чтения исходного Kernel.",who,enrollment)
+        };
         let answer=rfd::MessageDialog::new()
             .set_title("IWXA T3: права сотрудника в Workspace")
-            .set_description(&format!(
-                "Выдать сотруднику {} (подключение {}) четыре отдельных подписанных полномочия исходного Kernel: чтение Workspace, запись объектов, создание Workspace и импорт полного архива через T2 Exchange? Личная область сотрудника и права руководителя не изменяются. После отправки повторная выдача запрещена до чтения исходного Kernel.",who,enrollment))
+            .set_description(&description)
             .set_buttons(rfd::MessageButtons::YesNo)
             .set_level(rfd::MessageLevel::Warning)
             .show();
@@ -1965,6 +1974,12 @@ mod tests{
             "d3EmployeeWorkspaceGrantIssue").is_ok());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one","confirmed":false}),
+            "d3EmployeeWorkspaceGrantIssue").is_err());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","confirmed":true,"returnExport":true}),
+            "d3EmployeeWorkspaceGrantIssue").is_ok());
+        assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
+            "enrollmentId":"enrollment:one","confirmed":true,"returnExport":"yes"}),
             "d3EmployeeWorkspaceGrantIssue").is_err());
         assert!(check_bound_request(&json!({"employeePersonId":"person:worker",
             "enrollmentId":"enrollment:one"}),
