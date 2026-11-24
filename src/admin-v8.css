@@ -462,3 +462,22 @@ body{padding:11px;background:#172238}
 @media(max-width:570px){
  .v8-app .v8-start-actions{grid-template-columns:1fr;}
 }
+
+/* Focused routes preserve the original owner components inside a root. */
+.v8-app .main [hidden]{display:none!important}
+.v8-route-workbench,.v8-route-region{min-width:0}
+.v8-route-workbench>.card,.v8-route-region>.card{margin-bottom:14px}
+.v8-compact-section{display:none}
+.v8-guide-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.v8-guide-group{display:flex;flex-direction:column;gap:7px;min-width:0;padding:13px;border:1px solid #dce6f2;border-radius:11px;background:#f9fcff}
+.v8-guide-group h3{margin:0 0 5px;color:#294968}
+.v8-guide-group button{text-align:left;white-space:normal}
+.v8-app.menu-open .v8-compact-section{display:flex;gap:8px;align-items:center;margin:0 0 15px}
+.v8-compact-section select{flex:1;min-width:0}
+@media(max-width:900px){
+ .v8-app.with-inspector .v8-compact-section{display:flex;gap:8px;align-items:center;margin:0 0 15px}
+ .v8-guide-grid{grid-template-columns:1fr}
+}
+@media(max-width:650px){
+ .v8-app .v8-compact-section{display:flex;gap:8px;align-items:center;margin:0 0 15px}
+}

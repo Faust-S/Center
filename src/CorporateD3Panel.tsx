@@ -1,3 +1,4 @@
+import {routeAllows,type AdminRouteId} from './admin-navigation';
 import React,{useEffect,useRef,useState} from 'react';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
@@ -36,7 +37,9 @@ function requireAgeStatus(value:any):AgeStatus{
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts,managerOriginal=null}:{
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts,managerOriginal=null,route='results',onNavigate}:{
+ route?:AdminRouteId;
+ onNavigate?:(route:AdminRouteId)=>void;
  owner:Owner;execute:Exec;run:Run;busy:boolean;organizationName:string;
  dispatchedApplications:React.RefObject<Map<string,string[]>>;
  taskAttempts:React.RefObject<Map<string,{taskId:string;attempted:boolean}>>;
@@ -560,7 +563,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
   <p className="muted">Подтверждённый субъект: {session.actorId} · Workspace: {session.workspaceId}.
    Оригинальный получатель проверяет подпись и полномочия. Приём не означает ACCEPT;
    ACCEPT не означает запись в Kernel.</p>
-  <div className="nested-form" data-testid="d3-signed-task-workflow">
+  <div className="nested-form" data-testid="d3-signed-task-workflow" hidden={!routeAllows(route,'signed-tasks')}>
    <h3>Подписанные поручения T3</h3>
    <p className="muted">Текущий получатель: {session.actorId}.
     Это локальный участник организации. Выдача другому сотруднику требует
@@ -704,7 +707,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      Проверка не создаёт второе поручение.</p>
    </>}
   </div>
-  <div className="nested-form" data-testid="d3-organization-age-recipient">
+  <div className="v8-route-region" hidden={!routeAllows(route,'receive','review','recovery')}>
+  <div className="nested-form" data-testid="d3-organization-age-recipient" hidden={route==='recovery'}>
    <h3>Защищённое получение Result</h3>
    <p className="muted">Ключ age1 привязан к выбранной организации. Расшифрование
     само по себе не означает ACCEPT и не изменяет Kernel.</p>
@@ -723,7 +727,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     Криптографический владелец недоступен: {ageUnavailable}
    </p>}
   </div>
-  <div className="actions">
+  <div className="actions" hidden={route==='recovery'}>
    <button className="secondary" data-testid="d3-receive" disabled={busy}
     onClick={()=>receiveResult(false)}>Получить .iwxa</button>
    <button className="secondary" data-testid="d3-receive-age"
@@ -760,7 +764,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
   {lastReceiveState&&lastReceiveState!=='NOT_ACCEPTED'&&
    <p data-testid="d3-already-decided">В исходном журнале найдено решение: {lastReceiveState}.
     Повторный ACCEPT/REJECT не требуется. Откройте исходную квитанцию.</p>}
-  {preview&&<div data-testid="d3-preview">
+  </div>
+   {preview&&<div data-testid="d3-preview" hidden={!routeAllows(route,'review')}>
    <p>Классификация: {preview.classification??'нет сведений'} ·
     Решение: {preview.allowedAction??'нет сведений'} ·
     Редакции: {revisions.length}</p>
@@ -821,7 +826,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      onClick={()=>decide('REJECT')}>REJECT</button>
    </div>
   </div>}
-  <div className="nested-form" data-testid="d3-receipt-recovery">
+  <div className="nested-form" data-testid="d3-receipt-recovery" hidden={!routeAllows(route,'review','recovery')}>
    <h3>Восстановить решение без повтора</h3>
    <p className="muted">ID фиксируется перед ACCEPT/REJECT. Если связь оборвалась,
     проверяйте исходную квитанцию по ID и SHA-256. Повторный ACCEPT/REJECT запрещён.
@@ -854,7 +859,11 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    </p>}
    {decisionType&&<p className="muted">Отправленное решение: {decisionType}.</p>}
   </div>
-  {accepted&&<div className="nested-form" data-testid="d3-apply">
+  {route==='apply'&&!accepted&&<div className="notice subdued" data-testid="v8-apply-needs-review">
+    <p>Для отдельного применения сначала прочитайте исходный Result и подтвердите решение ACCEPT.</p>
+    <button type="button" className="secondary" onClick={()=>onNavigate?.('review')}>Перейти к Human Review</button>
+  </div>}
+  {accepted&&<div className="nested-form" data-testid="d3-apply" hidden={!routeAllows(route,'apply','recovery')}>
    <h3>Отдельное применение в оригинальный Kernel</h3>
    {workspacePreflight&&<p role="status"
      data-testid="d3-apply-workspace-preflight" className="notice subdued">

@@ -1,3 +1,4 @@
+import {routeAllows,type AdminRouteId} from './admin-navigation';
 import React,{useEffect,useRef,useState} from 'react';
 import CorporateD3Panel from './CorporateD3Panel';
 import type {ManagerOriginalSelection} from './manager-original-selection';
@@ -57,7 +58,7 @@ const why=(e:unknown)=>{
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null,route='results',onNavigate}:{organization:Org;route?:AdminRouteId;onNavigate?:(route:AdminRouteId)=>void;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
@@ -197,7 +198,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
   <p className="notice subdued" data-testid="corporate-owner-status">{d3Ready?'Подписанный T3 D3 получатель доступен. Это не статус готовности всего T3.':ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; проверьте состояние владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
-  {!ready&&enrollmentAvailable&&invoke&&<div className="nested-form" data-testid="d3-org-onboarding">
+  {!ready&&enrollmentAvailable&&invoke&&<div className="nested-form" data-testid="d3-org-onboarding" hidden={!routeAllows(route,'signed-workspace')}>
    <h3>Подключить подписанную организацию T3</h3>
    <p className="muted">Создать собственный подписанный организационный контур
     с оригинальным AccessRegistry, ключами Ed25519 и Windows DPAPI.
@@ -229,11 +230,11 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
         throw Error('CEN_D3_SIGNED_ENROLLMENT_UNCONFIRMED');
     })}>Подключить организацию</button>
   </div>}
-  {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={'employee|'+(signedD3EmployeeScopeFingerprint(owner,organizationId)??'unknown')}
+  {d3Ready&&invoke&&<div className="v8-route-region" hidden={!routeAllows(route,'employees-t3')}><CorporateEmployeeEnrollment key={'employee|'+(signedD3EmployeeScopeFingerprint(owner,organizationId)??'unknown')}
     session={owner.snapshot} contacts={organization.participants??[]}
     preferredContactId={preferredEmployeeContactId}
-    execute={execute} run={act} busy={busy}/>}
-  {d3Ready&&invoke ? <CorporateD3Panel key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
+    execute={execute} run={act} busy={busy}/></div>}
+  {d3Ready&&invoke ? <div className="v8-route-region" hidden={!routeAllows(route,'signed-tasks','receive','review','apply','recovery')}><CorporateD3Panel route={route} onNavigate={onNavigate} key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
     dispatchedApplications={dispatchedD3Applications}
     taskAttempts={attemptedD3Tasks}
     decisionAttempts={attemptedD3Decisions}
@@ -244,8 +245,8 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
         editNumber:a.editNumber??0,description:a.description??'',
         criteria:a.criteria??'',dueDate:a.dueDate??'',
         atlasRef:a.atlasRef??null
-      }))}/> : <>
-  <div className="nested-form" data-testid="cen02-owner-people">
+      }))}/></div> : <>
+  <div className="nested-form" data-testid="cen02-owner-people" hidden={!routeAllows(route,'employees-t3')}>
    <h3>Ответственные в организации</h3>
    <p className="muted">Выбор выполняется только из подтверждённого реестра T3. Черновики сотрудников и запланированные места Personal Agent не дают полномочий.</p>
    <div className="form-grid">
@@ -273,7 +274,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
     </label>
    </div>
   </div>
-  <div className="nested-form" data-testid="cen02-section">
+  <div className="nested-form" data-testid="cen02-section" hidden={!routeAllows(route,'signed-tasks')}>
    <h3>1. Выдать подписанное поручение</h3>
    <label>Черновик<select value={selected} onChange={e=>setSelected(e.target.value)} data-testid="corporate-assignment"><option value="">Выберите поручение</option>{organization.assignments.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}</select></label>
    <div className="actions">
@@ -297,7 +298,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
      })}>Сохранить .iwxa</button>
    </div>
   </div>
-  <div className="nested-form" data-testid="cen03-section">
+  <div className="nested-form" data-testid="cen03-section" hidden={!routeAllows(route,'receive','review','recovery')}>
    <h3>2. Result сотрудника и Review</h3>
    <p className="muted">Выберите файл результата через системный диалог Windows. Приёмка и проверка подписи выполняются отдельно.</p>
    <button className="secondary" data-testid="corporate-receive" disabled={!ready||busy}
@@ -376,7 +377,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
     </div>
    </div>}
   </div>
-  <div className="nested-form" data-testid="cen03-apply">
+  <div className="nested-form" data-testid="cen03-apply" hidden={!routeAllows(route,'apply','recovery')}>
    <h3>3. Отдельное применение</h3>
    <p>Текущее состояние Store/Journal: {owner?.snapshot?.application?.status??'нет сведений'}</p>
    <button className="secondary" data-testid="corporate-apply-preview" disabled={!canApply||busy} onClick={()=>act('Предварительный просмотр без записи.',async()=>{
@@ -416,7 +417,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
     </div>
    </div>}
   </div>
-  <div className="nested-form" data-testid="cen03-reuse">
+  <div className="nested-form" data-testid="cen03-reuse" hidden={!routeAllows(route,'reuse')}>
    <h3>4. Использовать применённый Result</h3>
    <p className="muted">Только из подтверждённого Store T3, после повторного чтения. Новое поручение требует отдельной выдачи и подписи.</p>
    <p data-testid="corporate-applied-status">{applied.status}</p>
@@ -432,5 +433,17 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
     catch(e){setError(why(e))}}}>Вставить в новый черновик</button>
   </div>
   </>}
+  {d3Ready&&route==='reuse'&&<div className="nested-form" data-testid="v8-original-result-continuation">
+    <h3>Продолжить работу в исходной Workspace</h3>
+    <p>Применённые результаты и история принадлежат оригинальной Workspace T2. Откройте её, чтобы работать с сохранённым результатом. Список старого маршрута CEN03 не подменяет подписанный D3.</p>
+    <button className="secondary" type="button" disabled={busy||owner?.snapshot?.originalSignedWorkspaceAvailable!==true}
+      onClick={()=>act('Подписанная Workspace открыта.',async()=>onOpenSignedWorkspace(organizationId))}>Открыть исходную Workspace</button>
+    <button className="secondary" type="button" onClick={onPrepare}>Подготовить новый черновик</button>
+    <p className="muted">Новый черновик не получает ссылку на применённый Result автоматически.</p>
+  </div>}
+  {route!=='results'&&route!=='signed-workspace'&&!ready&&<div className="notice subdued">
+    Для подписанной операции сначала подключите организацию и исходную Workspace.
+    <button type="button" className="secondary" onClick={()=>onNavigate?.('signed-workspace')}>Подключение Workspace T3</button>
+  </div>}
  </section>;
 }

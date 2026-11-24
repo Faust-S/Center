@@ -1,24 +1,27 @@
+import type {AdminRouteId} from './admin-navigation';
 import React,{useState} from 'react';
 
 // UX navigation over the ORIGINAL T3 corporate forms. No duplicate owner,
 // signer, IAM, Reconciliation, Kernel or Task/Result state is created here.
 const STEPS=[
- {id:'workspace',label:'1 · Организация',targets:['d3-org-onboarding','d3-open-signed-workspace','corporate-panel'],
+ {id:'workspace',label:'1 · Организация',route:'signed-workspace',
   help:'Подключите выбранную корпоративную Workspace исходного T3. Черновые рабочие области не заменяют подписанную Workspace.'},
- {id:'employees',label:'2 · Сотрудники',targets:['d3-independent-employee','cen02-owner-people','corporate-panel'],
+ {id:'employees',label:'2 · Сотрудники',route:'employees-t3',
   help:'Сотрудник подтверждает свой ключ отдельно. Контакт в черновике не выдаёт права.'},
- {id:'task',label:'3 · Task',targets:['d3-signed-task-workflow','cen02-section','corporate-panel'],
+ {id:'task',label:'3 · Task',route:'signed-tasks',
   help:'Подготовьте поручение в корпоративном контексте, подтвердите адресата и права. Обычная работа относится к выбранной Workspace.'},
- {id:'result',label:'4 · Result',targets:['d3-organization-age-recipient','cen03-section','corporate-panel'],
+ {id:'result',label:'4 · Result',route:'receive',
   help:'Корпоративная передача охватывает целую Workspace через штатный T2 Exchange. Ниже остаются исходные операции Reconciliation ранее выданных отдельных пакетов.'},
- {id:'review',label:'5 · Review',targets:['d3-original-signed-review','cen03-section','corporate-panel'],
+ {id:'review',label:'5 · Review',route:'review',
   help:'Там, где требуется Human Review, проверьте исходный Result до решения ACCEPT или REJECT. Само решение не переносит данные из личной области.'},
- {id:'apply',label:'6 · Apply',targets:['d3-apply','cen03-apply','corporate-panel'],
+ {id:'apply',label:'6 · Apply',route:'apply',
   help:'ACCEPT и APPLY разные действия. Отдельный APPLY нужен только для разрешённого изменения исходного Kernel.'},
- {id:'reuse',label:'7 · Продолжить',targets:['cen03-reuse','corporate-panel'],
+ {id:'reuse',label:'7 · Продолжить',route:'reuse',
   help:'Начните следующую Task от сохранённого корпоративного результата в той же Workspace. История и связи остаются у исходного T2.'}
 ] as const;
 type Props={
+ route:AdminRouteId;
+ onNavigate:(route:AdminRouteId)=>void;
  organizationName:string;
  nativeHost:boolean;
  signedWorkspaceOpen:boolean;
@@ -26,8 +29,7 @@ type Props={
  onOpenWorkspace:()=>Promise<void>;
  focusedEmployeeName?:string|null;
 };
-export default function AdminResultRoute({organizationName,nativeHost,signedWorkspaceOpen,signedWorkspaceVisible,onOpenWorkspace,focusedEmployeeName}:Props){
- const [selected,setSelected]=useState<string>(focusedEmployeeName?'employees':'');
+export default function AdminResultRoute({route,onNavigate,organizationName,nativeHost,signedWorkspaceOpen,signedWorkspaceVisible,onOpenWorkspace,focusedEmployeeName}:Props){
  const [opening,setOpening]=useState(false);
  const [openIssue,setOpenIssue]=useState('');
  const openWorkspace=async()=>{
@@ -37,22 +39,15 @@ export default function AdminResultRoute({organizationName,nativeHost,signedWork
   catch{setOpenIssue('Нативная Workspace не открыта. Проверьте подключение исходного T3 и выбранную организацию в корпоративных операциях.');}
   finally{setOpening(false);}
  };
- const current=STEPS.find(item=>item.id===selected);
- const open=(step:typeof STEPS[number])=>{
-  setSelected(step.id);
-  const element=step.targets.map(id=>document.querySelector<HTMLElement>(`[data-testid="${id}"]`))
-    .find((node):node is HTMLElement=>!!node);
-  element?.scrollIntoView({block:'start',behavior:'smooth'});
-  // Only native original-owner components enable the signed actions.
-  // A rendered section never proves the operation is authorized.
- };
+ const current=STEPS.find(item=>item.route===route);
+ const open=(step:typeof STEPS[number])=>onNavigate(step.route);
  return <div className="v8-result-layout">
   {focusedEmployeeName&&<div className="v8-employee-target" data-testid="v8-employee-focus">
     <strong>Подключение сотрудника: {focusedEmployeeName}</strong>
     <span>Выбран контакт организации. Подписанный T3 отдельно проверяет личность, ключ и полномочия. Никакие права при переходе не выдаются.</span>
     <button type="button" className="secondary" onClick={()=>open(STEPS[1])}>К подключению T3</button>
    </div>}
-  <section className="v8-workspace-entry" data-testid="v8-workspace-entry">
+  <section className="v8-workspace-entry" data-testid="v8-workspace-entry" hidden={route!=='results'&&route!=='signed-workspace'}>
    <div className="v8-workspace-heading">
     <div><small>КОРПОРАТИВНАЯ РАБОТА IWXA</small><h2>Одна Workspace. Вся работа организации.</h2>
      <p>Поручения, результаты, связи, документы и история принадлежат исходной Workspace T2.
@@ -84,13 +79,13 @@ export default function AdminResultRoute({organizationName,nativeHost,signedWork
      <small>Используются существующие операции оригинального T3</small>
    </div>
    <nav className="v8-result-journey-steps" aria-label="Маршрут Task и Result">
-    {STEPS.map(step=><button key={step.id} type="button" aria-pressed={selected===step.id}
-       className={selected===step.id?'active':''} data-testid={'v8-result-step-'+step.id}
+    {STEPS.map(step=><button key={step.id} type="button" aria-pressed={route===step.route}
+       className={route===step.route?'active':''} data-testid={'v8-result-step-'+step.id}
        onClick={()=>open(step)}>{step.label}</button>)}
    </nav>
    {current&&<div className="v8-result-journey-hint" role="status">
       <span>{current.help}</span>
-      <button type="button" aria-label="Закрыть пояснение" onClick={()=>setSelected('')}>×</button>
+      <button type="button" aria-label="Все корпоративные операции" onClick={()=>onNavigate('results')}>×</button>
     </div>}
  </section>
  </div>;

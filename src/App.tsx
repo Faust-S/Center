@@ -7,6 +7,7 @@ import CorporatePanel from './CorporatePanel';
 import ManagerContextPanel from './ManagerContextPanel';
 import AdminDashboard, {AdminCompanyStructure} from './AdminDashboard';
 import AdminResultRoute from './AdminResultRoute';
+import {ADMIN_ROUTES,ADMIN_NAV_GROUPS,routeRoot,routeAllows,visibleAdminRoutes,type AdminRouteId,type AdminPage} from './admin-navigation';
 import {retainSignedWorkspaceForPage,mayOpenSignedWorkspaceOnPage} from './signed-workspace-navigation.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import Cen04LicensePanel from './Cen04LicensePanel';
@@ -24,7 +25,7 @@ type Draft = {format: string; version: number; organizations: Organization[]; ac
 type AtlasPortfolioView = {source:string;revision:string;authorization:string;mode:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
 type AtlasCopyDelta={previousRevision:string;revision:string;sharedProjects:number;addedProjects:number;removedProjects:number;changedProjects:number;addedWorks:number;removedWorks:number;changedWorks:number;changedDependencies:number;revisionRelation:string;contentChanged:boolean};
 type Editor = {sourceResultRef:SourceResultRef|null;assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
-type Page = 'overview'|'context'|'work'|'results'|'resources'|'people'|'programs'|'data';
+type Page = AdminPage;
 type InspectorPreview = {key:string;kind:'assignment'|'person'|'workspace'|'atlas-project';id:string;organizationId:string;label:string};
 const pages: [Page, string, string][] = [['overview','Главная','⌂'],['context','Контекст организации','◎'],['work','Поручения','☷'],['results','Результаты','▤'],['people','Сотрудники и роли','♧'],['resources','Планы Atlas','◇'],['programs','Personal Agent и лицензии','▦'],['data','Профиль и данные','◈']];
 const workStatusLabels:Record<string,string>={
@@ -84,13 +85,14 @@ export default function App() {
   const nativeHost = Boolean((window as any).__TAURI_INTERNALS__);
   const [nativeRestoring,setNativeRestoring] = useState(nativeHost);
   const [state,setState] = useState<Draft>(() => emptyDraft() as Draft);
-  const [page,setPage] = useState<Page>('overview');
+  const [route,setRoute] = useState<AdminRouteId>('overview');
+  const page=routeRoot(route);
   const mainScrollRef=useRef<HTMLElement|null>(null);
   // Desktop navigation is not a website. A new section or organization
   // opens from the top, rather than inheriting the previous long-form scroll.
   React.useLayoutEffect(()=>{
     if(mainScrollRef.current)mainScrollRef.current.scrollTop=0;
-  },[page,state.activeOrganizationId]);
+  },[route,state.activeOrganizationId]);
   const [managerOriginal,setManagerOriginal]=useState<ManagerOriginalSelection|null>(null);
   const [focusedEmployeeContact,setFocusedEmployeeContact]=useState<string|null>(null);
   // UI-only presence of the original signed child WebView; signing state,
@@ -132,7 +134,7 @@ export default function App() {
     catch{return 355;}
   });
   const inspectorPointer=useRef<{x:number;width:number}|null>(null);
-  const navigationHistory=useRef<Page[]>(['overview']);
+  const navigationHistory=useRef<AdminRouteId[]>(['overview']);
   const navigationCursor=useRef(0);
   const [navigationVersion,setNavigationVersion]=useState(0);
   const [dirty,setDirty] = useState(false);
@@ -231,17 +233,9 @@ export default function App() {
   const fileLinksToReview=atlasView?(org?.assignments??[]).filter(a=>
     a.atlasRef?.workId&&atlasWorkReadback(atlasView,a.atlasRef)!=='SOURCE_REVISION_MATCHES').length:0;
   const stats = overview(state);
-  const title = pages.find(row => row[0] === page)![1];
-  const navGroups:Record<Page,Page[]>={
-    overview:['overview','context'],context:['context','overview'],
-    work:['work','resources','results'],results:['results','work','people'],
-    people:['people','programs','results'],resources:['resources','work','context'],
-    programs:['programs','people'],data:['data','programs','results']
-  };
+  const title=ADMIN_ROUTES[route].label;
   const queryText=navQuery.trim().toLocaleLowerCase('ru');
-  const contextualPages=pages.filter(([id,label])=>
-    queryText?label.toLocaleLowerCase('ru').includes(queryText)
-      :navGroups[page].includes(id));
+  const contextualRoutes=visibleAdminRoutes(page,navQuery);
   const draftMatches=queryText&&org?[
     ...org.participants.map(p=>({key:'p:'+p.id,name:p.name,label:'Сотрудник',page:'people' as Page})),
     ...org.workspaces.map(w=>({key:'w:'+w.id,name:w.name,label:'Рабочая область',page:'resources' as Page})),
@@ -284,7 +278,8 @@ export default function App() {
       }else if(info.open===true&&active){
         setSignedWorkspaceOrg(org.id);
         setSignedWorkspaceVisible(info.visible===true);
-        setPage('results');
+        setRoute('results');navigationHistory.current=['results'];navigationCursor.current=0;
+        setNavigationVersion(value=>value+1);setNavQuery('');
         setSignedWorkspaceGeneration(n=>n+1);
       }
     }).catch(()=>{
@@ -340,15 +335,15 @@ export default function App() {
     // No native event is emitted if an already-destroyed child was absent.
     setSignedWorkspaceGeneration(value=>value+1);
   };
-  const go = (next: Page) => {
-    if(next!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);}
+  const go = (next: AdminRouteId) => {
+    if(routeRoot(next)!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);}
     const history=navigationHistory.current;
     if(history[navigationCursor.current]!==next){
       navigationHistory.current=[...history.slice(0,navigationCursor.current+1),next];
       navigationCursor.current=navigationHistory.current.length-1;
       setNavigationVersion(value=>value+1);
     }
-    setPage(next);setMenuOpen(false);setV8Menu('');
+    setRoute(next);setMenuOpen(false);setV8Menu('');setNavQuery('');
   };
   const openEmployeeConnection=(contactId:string)=>{
     // Draft roster selection is only navigation; T3 grants, PROOF and native
@@ -356,21 +351,21 @@ export default function App() {
     if(!org||!org.participants.some(person=>person.id===contactId))return;
     setFocusedEmployeeContact(contactId);
     setManagerOriginal(null);
-    go('results');
+    go('employees-t3');
   };
   const goHistory=(delta:number)=>{
     const target=navigationCursor.current+delta;
     if(target<0||target>=navigationHistory.current.length)return;
     navigationCursor.current=target;
     const next=navigationHistory.current[target];
-    if(next!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);}
-    setPage(next);setNavigationVersion(value=>value+1);setV8Menu('');
+    if(routeRoot(next)!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);}
+    setRoute(next);setNavigationVersion(value=>value+1);setV8Menu('');setNavQuery('');setMenuOpen(false);
   };
   const openManagerOriginal=(selection:ManagerOriginalSelection)=>{
     if(!org||selection.organizationId!==org.id)return;
     setFocusedEmployeeContact(null);
     setManagerOriginal(selection);
-    go('results');
+    go(selection.kind==='signed-task'?'signed-tasks':'review');
   };
   const openInspectorPreview=(kind:InspectorPreview['kind'],id:string,label:string)=>{
     if(!org)return;
@@ -600,7 +595,7 @@ export default function App() {
       if(pendingCloseRef.current&&!window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.'))return;
       revisionRef.current++;
       editorBaselineRef.current=null;
-      setState(next);setFocusedEmployeeContact(null);setDirty(nativeHost);atlasFileRequest.current++;setAtlasFile(null);setNativeAtlas(null);setAtlasObservationMode('file');setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
+      setState(next);setFocusedEmployeeContact(null);setDirty(nativeHost);atlasFileRequest.current++;setAtlasFile(null);setNativeAtlas(null);setAtlasObservationMode('file');setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setRoute('overview');navigationHistory.current=['overview'];navigationCursor.current=0;setNavigationVersion(value=>value+1);setNavQuery('');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
     } catch(e) {problem(e);}
   }
   async function openFile() {
@@ -681,11 +676,15 @@ export default function App() {
         value={navQuery} onChange={e=>setNavQuery(e.target.value)} aria-label="Найти раздел"
         placeholder="Найти работу или команду"/></div>
       <div className="v8-nav-caption">{queryText?'РЕЗУЛЬТАТЫ ПОИСКА':'РАЗДЕЛ'}</div>
-      <nav>{contextualPages.map(([id,label])=>
-        <button key={id} className={`nav-link ${page===id?'active':''}`} aria-current={page===id?'page':undefined}
-          onClick={()=>{setNavQuery('');go(id);}}>
-          <span className="nav-icon" aria-hidden="true"><V8RailIcon name={id}/></span><span>{label}</span>{id==='work'&&!!stats.drafts&&<em>{stats.drafts}</em>}
-        </button>)}
+      <nav>{contextualRoutes.map(id=>{
+        const label=ADMIN_ROUTES[id].label;
+        const subroute=id!==routeRoot(id);
+        return <button key={id} type="button" data-testid={'subnav-'+id}
+          className={`nav-link ${route===id?'active':''}`}
+          aria-label={subroute?'Раздел: '+label:undefined}
+          aria-current={route===id?'page':undefined} onClick={()=>go(id)}>
+          <span className="nav-icon" aria-hidden="true"><V8RailIcon name={routeRoot(id)}/></span><span>{label}</span>{id==='work'&&!!stats.drafts&&<em>{stats.drafts}</em>}
+        </button>})}
         {draftMatches.length>0&&<div className="v8-nav-caption">ЧЕРНОВИКИ ОРГАНИЗАЦИИ</div>}
         {draftMatches.map(hit=><button key={hit.key} className="nav-link" type="button"
           onClick={()=>{setNavQuery('');if(hit.key.startsWith('a:')){
@@ -707,7 +706,7 @@ export default function App() {
       </div>
     </aside>
 
-    <main ref={mainScrollRef} className="main">
+    <main ref={mainScrollRef} className="main" data-admin-route={route}>
       <header className="top" aria-label="Текущий раздел"><div className="v8-page-location"><strong>{title}</strong><small>{org?.name??'IWXA Admin Center · рабочее место руководителя'}</small></div>
        {signedWorkspaceOrg&&<>
         {signedWorkspaceVisible
@@ -720,7 +719,11 @@ export default function App() {
           onClick={()=>{void closeSignedWorkspace().catch(()=>setError('Не удалось завершить Workspace T3.'));}}>×</button>
        </>}
        <button className="secondary top-save" onClick={saveFile} disabled={!org||saving}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
-      {page!=='overview'&&page!=='results'&&<div className="page-heading"><div><div className="eyebrow">РАБОЧЕЕ МЕСТО РУКОВОДИТЕЛЯ</div><h1>{title}</h1></div><span className="status neutral">Черновики</span></div>}
+      {ADMIN_NAV_GROUPS[page].length>1&&<label className="v8-compact-section">
+        <span>Раздел</span><select aria-label="Подраздел" value={route} onChange={e=>go(e.target.value as AdminRouteId)}>
+          {ADMIN_NAV_GROUPS[page].map(id=><option key={id} value={id}>{ADMIN_ROUTES[id].label}</option>)}
+        </select></label>}
+      {route!=='overview'&&route!=='results'&&<div className="page-heading"><div><h1>{title}</h1></div></div>}
       {error && <div className="notice error" role="alert">{error}</div>}
       {message && <div className="notice" role="status">{message}</div>}
       {page==='overview'&&<AdminDashboard key={org?.id??'_start'} organization={org}
@@ -740,7 +743,7 @@ export default function App() {
         onEnrollEmployee={openEmployeeConnection}
         onOpenAssignment={id=>{const found=org?.assignments.find(t=>t.id===id);if(found)startAssignment(found);}}
       />}
-      {(!org || creatingOrg) && organizationForm}
+      {((!org&&page!=='data') || creatingOrg) && organizationForm}
 
       {org && page==='context' && <ManagerContextPanel key={'context|'+org.id} organization={org}
         atlasView={observedAtlas} view="context" atlasStatus={ref=>atlasWorkReadback(observedAtlas,ref)}
@@ -749,11 +752,16 @@ export default function App() {
         onNavigate={go} onOpenEntry={openContextEntry} onOpenAttention={openContextAttention}
         onOpenOriginal={openManagerOriginal}/>}
 
-      {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает проекты и зависимости. Привязка к работе необязательна. Только проектные поручения требуют проверки точной редакции установленного Atlas перед подписанием. Обычные поручения работают через T3 без Atlas.</p>
+      {org && page==='resources' && <div className="v8-route-workbench">
+       <section className="card padded" data-testid="v8-workspace-drafts" hidden={!routeAllows(route)}><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает проекты и зависимости. Привязка к работе необязательна. Только проектные поручения требуют проверки точной редакции установленного Atlas перед подписанием. Обычные поручения работают через T3 без Atlas.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span><button type="button" className="secondary" onClick={()=>openInspectorPreview('workspace',w.id,w.name)}>Подробнее</button></div>)}
+        </section>
+       <div className="v8-route-region" data-testid="v8-atlas-native-region" hidden={!routeAllows(route,'atlas-native')}>
+        {route==='atlas-native'&&!nativeHost&&<section className="card padded"><h2>Установленный Atlas</h2><p>Чтение Atlas Desktop и переход в его окно доступны в установленном Admin Center.</p><button type="button" className="secondary" onClick={()=>go('atlas-file')}>Открыть файл Atlas</button></section>}
         <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
-        <div className="card nested-form" data-testid="atlas-link-panel">
+        </div>
+        <div className="card padded" data-testid="atlas-link-panel" hidden={!routeAllows(route,'atlas-file')}>
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
           <p className="muted">Откройте архив проектов .iwxa из Atlas. Для проверки изменений повторно выберите файл через ту же кнопку. Старые копии JSON также поддерживаются. Ссылки на поручения автоматически не меняются.</p>
           <input type="file" hidden ref={atlasInput} accept=".iwxa,.json,application/json,application/octet-stream" data-testid="atlas-import-file" onChange={async e=>{const file=e.target.files?.[0];if(file)await importAtlas(file);e.target.value='';}} />
@@ -801,7 +809,7 @@ export default function App() {
           {org.workspaces.some(w=>w.atlasRef)&&<div className="atlas-link-readback">{org.workspaces.filter(w=>w.atlasRef).map(w=><p key={w.id}><strong>{w.name}:</strong> {w.atlasRef?.projectId} · {atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_MATCHES'?'Редакция совпадает':atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_CHANGED'?'Редакция плана изменилась':atlasView?'Проект отсутствует в открытом файле':'Файл Atlas не открыт'}</p>)}</div>}
         </div>
         <div className="notice subdued">Atlas подключается для проектных работ. Обычное поручение и приёмка Result не требуют Atlas. Проекты, зависимости и портфели остаются у Atlas.</div>
-      </section>}
+      </div>}
 
       {org && page==='people' && <>
         <section className="card v8-people-structure">
@@ -884,32 +892,53 @@ export default function App() {
         </form> : <section className="card padded">{org.assignments.map(a=><AssignmentRow key={a.id} item={a} org={org} atlasView={observedAtlas} onClick={()=>startAssignment(a)}/>)}{!org.assignments.length && <Empty title="Начните с первого поручения" text={org.workspaces.length?'Укажите цель, ожидаемый результат и срок.':'Сначала добавьте рабочую область в разделе «Проекты и ресурсы».'}/>}</section>}
       </>}
 
-       {org && page==='results' && <AdminResultRoute organizationName={org.name} nativeHost={nativeHost}
+       {org && page==='results' && <AdminResultRoute route={route} onNavigate={go} organizationName={org.name} nativeHost={nativeHost}
           signedWorkspaceOpen={signedWorkspaceOrg===org.id} signedWorkspaceVisible={signedWorkspaceOrg===org.id&&signedWorkspaceVisible}
           onOpenWorkspace={()=>openSignedWorkspace(org.id)}
           focusedEmployeeName={org.participants.find(person=>person.id===focusedEmployeeContact)?.name??null}/> }
-       {org && page==='results' && <CorporatePanel key={org.id} organization={org} managerOriginal={managerOriginal}
+       {org && page==='results' && <CorporatePanel key={org.id} route={route} onNavigate={go} organization={org} managerOriginal={managerOriginal}
           preferredEmployeeContactId={focusedEmployeeContact} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace}/>} 
-      {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
+      {org && page==='programs' && <div className="v8-route-workbench">
+       <section className="card padded" data-testid="v8-agent-seats" hidden={!routeAllows(route)}><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Руководитель определяет, каким сотрудникам нужен Personal Agent. В этой версии можно подготовить распределение мест. Настоящее предоставление лицензии требует подтверждённого права организации, а выдача организационных полномочий - отдельного действия.</p>
         <div className="metrics"><div className="card metric"><span>Сотрудники</span><strong>{org.participants.length}</strong></div><div className="card metric"><span>Места запланированы</span><strong data-testid="planned-agent-seats">{org.participants.filter(p=>p.personalAgentPlan==='PLANNED').length}</strong></div><div className="card metric"><span>Выданные лицензии</span><strong>—</strong></div></div>
         {org.participants.map(person=><div className="simple-row" key={person.id}><span className="avatar">{person.name.slice(0,1)}</span><div><strong>{person.name}</strong><small>{person.personalAgentPlan==='PLANNED'?'Место запланировано - лицензия ещё не выдана':'Доступ к Personal Agent пока не запланирован'}</small></div><div className="actions"><button className="secondary" data-testid="plan-agent-seat" onClick={()=>command({type:'PLAN_PERSONAL_AGENT_ACCESS',organizationId:org.id,participantId:person.id,plan:person.personalAgentPlan==='PLANNED'?'NONE':'PLANNED'})}>{person.personalAgentPlan==='PLANNED'?'Убрать план':'Запланировать место'}</button><button className="secondary" type="button" data-testid={'open-employee-t3-'+person.id} onClick={()=>openEmployeeConnection(person.id)}>Подключение T3</button></div></div>)}
         {!org.participants.length && <Empty title="Сначала добавьте сотрудников" text="Для каждого сотрудника можно подготовить план доступа к Personal Agent."/>}
         <div className="notice subdued">Разделение ответственности: Publisher выпускает программные лицензии и издательские статусы; Admin Center распределяет подтверждённые места организации и управляет организационными полномочиями. Ни одна кнопка здесь пока не активирует программу.</div>
+       </section>
+       <div className="v8-route-region" hidden={!routeAllows(route,'license-age')}>
         <AgeExchangePanel invoke={nativeHost?nativeInvoke:null} prefix="center" recipientOnly/>
-         <Cen04LicensePanel key={org.id} organizationId={org.id} organizationName={org.name}
+        {route==='license-age'&&<button type="button" className="secondary" onClick={()=>go('license')}>Лицензии Publisher</button>}
+       </div>
+       <div className="v8-route-region" hidden={!routeAllows(route,'license')}>
+        <Cen04LicensePanel key={org.id} organizationId={org.id} organizationName={org.name}
           organizationKind={org.kind==='ORGANIZATION'?'ORGANIZATION':'GROUP'}
           invoke={nativeHost?nativeInvoke:null}/>
-      </section>}
-      {org && page==='data' && <section className="card padded"><h2>Черновики и защищённый обмен</h2><p>Сохраните рабочие черновики перед закрытием. Для поручений и результатов в полном выпуске используется существующий подписанный обмен IWXA с шифрованием age для выбранных получателей.</p><div className="actions"><button className="primary" disabled={saving} onClick={saveFile}>{nativeHost?'Сохранить локально':'Сохранить файл черновиков'}</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button>{nativeHost&&<button className="secondary" onClick={exportFile}>Экспортировать JSON</button>}</div><div className="notice subdued">Локальное сохранение и экспорт содержат только подготовительные черновики. Это не .iwxa и не .iwxa.age, в них нет ключей или принятых решений. Защищённый файловый обмен доступен ниже при установленном компоненте T3. Расшифровка не означает корпоративного принятия; оригинальный T3 отдельно проверяет и применяет полученный пакет.</div></section>}
+        {route==='license'&&<button type="button" className="secondary" onClick={()=>go('license-age')}>Получатель защищённых лицензий</button>}
+       </div>
+      </div>}
+      {page==='data' && <section className="card padded" data-testid="v8-local-drafts" hidden={!routeAllows(route,'settings')}><h2>Локальные черновики</h2><p>Сохраните рабочие черновики перед закрытием. Для поручений и результатов в полном выпуске используется существующий подписанный обмен IWXA с шифрованием age для выбранных получателей.</p><div className="actions"><button className="primary" disabled={saving} onClick={saveFile}>{nativeHost?'Сохранить локально':'Сохранить файл черновиков'}</button><button className="secondary" onClick={openFile}>Открыть файл черновиков</button>{nativeHost&&<button className="secondary" onClick={exportFile}>Экспортировать JSON</button>}</div><div className="notice subdued">Локальное сохранение и экспорт содержат только подготовительные черновики. Это не .iwxa и не .iwxa.age, в них нет ключей или принятых решений. Защищённый файловый обмен доступен ниже при установленном компоненте T3. Расшифровка не означает корпоративного принятия; оригинальный T3 отдельно проверяет и применяет полученный пакет.</div></section>}
       {page==='data'&&<>
-        <section className="card padded" data-testid="admin-profile-settings">
+        <section className="card padded" data-testid="admin-profile-settings" hidden={route!=='data'}>
           <h2>Профиль, настройки и сведения о программе</h2>
           <div className="v8-profile-details"><strong>IWXA Admin Center</strong>
             <p>Версия программы: 0.4.1</p>
             <p>Источник: действующая ветка Center. Управленческие данные и подписанные права остаются в оригинальных T2/T3 и связанных приложениях.</p>
           </div>
         </section>
-        <AgeExchangePanel invoke={nativeHost?nativeInvoke:null} prefix="center"/>
+        <div className="v8-route-region" hidden={!routeAllows(route,'age-exchange')}>
+          <AgeExchangePanel invoke={nativeHost?nativeInvoke:null} prefix="center"/>
+        </div>
+        {route==='guide'&&<section className="card padded" data-testid="v8-route-guide">
+          <h2>Рабочие разделы Admin Center</h2>
+          <p className="muted">Выберите действие. Программа откроет существующий рабочий раздел, а подписанные права и данные проверит исходный владелец T3.</p>
+          <div className="v8-guide-grid">
+            {(['overview','context','work','results','people','resources','programs','data'] as Page[]).map(root=>
+              <div className="v8-guide-group" key={root}><h3>{ADMIN_ROUTES[root].label}</h3>
+                {ADMIN_NAV_GROUPS[root].filter(id=>id!=='guide').map(id=>
+                  <button className="secondary" type="button" key={id} onClick={()=>go(id)}>{ADMIN_ROUTES[id].label}</button>)}
+              </div>)}
+          </div>
+        </section>}
       </>}
       {!org && <div className="landing-actions"><button className="secondary" onClick={openFile}>Открыть файл черновиков</button><p className="muted">Работа руководителя связана с Atlas и Personal Agent сотрудников. Сейчас доступна подготовка структуры, без реальной отправки поручений.</p></div>}
       <input ref={fileInput} type="file" accept=".json,application/json" hidden data-testid="open-draft" onChange={async e=>{const file=e.target.files?.[0];if(file)await readDraft(await file.text());e.target.value='';}}/>
