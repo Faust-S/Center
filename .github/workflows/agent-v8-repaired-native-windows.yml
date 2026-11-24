@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: 'a1f78e504209d9ffef74f9955801d59476542762'
-      PRIVATE_TREE_PIN: '8e31a5600b808948583a7bbe159763790e1a86ab'
+      PRIVATE_SOURCE_PIN: 'c4b02f79002812c8ea16395845a98469e35cc3c9'
+      PRIVATE_TREE_PIN: 'edf60394bfde72ec2504b9fb73436303e3d30d5d'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -178,6 +178,7 @@ jobs:
           try{$manifest=Get-Content -LiteralPath $buildReceipt -Raw -Encoding UTF8|ConvertFrom-Json}
           catch{throw 'AGENT06_ONLINE_ORIGINAL_SETUP_CORE_RECEIPT_INVALID'}
           if($manifest.status -ne 'BUILT_UNQUALIFIED' -or
+             $manifest.version -cne '0.6.3' -or
              $manifest.private_source_commit -cne $env:PRIVATE_SOURCE_PIN -or
              $manifest.private_source_tree -cne $env:PRIVATE_TREE_PIN -or
              $manifest.public_setup_core_commit -cne $env:CENTER_OWNER_PIN -or
@@ -223,6 +224,7 @@ jobs:
                  $w.project_created_and_board_opened_via_gui -eq $true -and
                  $w.instruction_saved_and_cold_loaded_via_gui -eq $true -and
                  $w.project_reopened_after_cold_restart -eq $true -and
+                 $w.native_application_version_063_verified -eq $true -and
                  $w.appearance_persisted_after_cold_restart -eq $true -and
                  $w.compact_window_820x650_verified -eq $true -and
                  [int]$w.compact_window_observed_dpi -ge 96 -and
@@ -249,6 +251,7 @@ jobs:
                 $historyWitness=$true
                 Write-Host 'AGENT063_WORKSPACE_COMPACT_COLD_ROUNDTRIP_PASS'
                 Write-Host 'AGENT063_PRODUCT_EDITORS_COLD_PASS'
+                Write-Host 'AGENT063_NATIVE_VERSION_063_PASS'
                 Write-Host ('AGENT063_WORKSPACE_OBSERVED_DPI='+[int]$w.compact_window_observed_dpi)
                 Write-Host 'AGENT062_V8_DASHBOARD_HISTORY_CONFIRMED'
                 Write-Host 'AGENT06_ONLINE_INSTALLED_GUI_AND_COLD_READBACK_PASS'
@@ -273,6 +276,7 @@ jobs:
                   'agent063_product_editor_value_missing',
                   'agent063_product_editor_plan_missing',
                   'agent063_product_editor_board_missing',
+                  'agent063_native_version_readback_missing',
                   'agent063_native_graceful_close_unverified',
                   'agent063_profile_cold_route_not_restored',
                   'agent063_dashboard_workspace_unverified',
@@ -421,7 +425,7 @@ jobs:
                    $safeLine -ge 1 -and $safeLine -le 2000){
                   Write-Host ('AGENT062_WITNESS_SAFE_LINE='+$safeLine)
                 }
-                $safeCheckpoints=@('NOT_STARTED','LOOKUP_INITIAL_TITLE','LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON','CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE','LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE','DASHBOARD_HOME','DASHBOARD_HOME_CLICK','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD','DASHBOARD_DRAG','DASHBOARD_KEYBOARD','DASHBOARD_DONE','DASHBOARD_WIDGET','DASHBOARD_COLD_DRAG','GROUPS_NAVIGATION','GROUPS_CREATE','GROUPS_NEW_CONVERSATION','GROUPS_RENAME','GROUPS_DELETE','PROFILE_MENU','PROFILE_DISPLAY_NAME','PROFILE_SAVE','PROFILE_COLD_RESTORED_ROUTE','PROFILE_COLD_READBACK','PROFILE_READBACK','V8_DASHBOARD_HISTORY_ROUTE','V8_MODELS_ROUTE','V8_FILES_ROUTE','V8_WORKSPACES_ROUTE','V8_SETTINGS_ROUTE','V8_APPROVALS_ROUTE','V8_GRAPH_ROUTE','V8_ROUTES_COMPLETE','V8_SEARCH_COMMAND','V8_HISTORY_ROUNDTRIP','V8_PREVIEW_PANEL','V8_NAVIGATION_COMPLETE','WORKSPACE_PERSONAL','WORKSPACE_CREATE','WORKSPACE_SWITCH','WORKSPACE_APPEARANCE','WORKSPACE_COMPACT','WORKSPACE_COLD_REOPEN','WORKSPACE_COMPLETE','PRODUCT_EDITOR_SHORTCUTS','PRODUCT_EDITOR_PROJECT','PRODUCT_EDITOR_INSTRUCTIONS','PRODUCT_EDITOR_COLD','PRODUCT_EDITOR_COMPLETE')
+                $safeCheckpoints=@('NOT_STARTED','LOOKUP_INITIAL_TITLE','LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON','CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE','LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE','DASHBOARD_HOME','DASHBOARD_HOME_CLICK','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD','DASHBOARD_DRAG','DASHBOARD_KEYBOARD','DASHBOARD_DONE','DASHBOARD_WIDGET','DASHBOARD_COLD_DRAG','GROUPS_NAVIGATION','GROUPS_CREATE','GROUPS_NEW_CONVERSATION','GROUPS_RENAME','GROUPS_DELETE','PROFILE_MENU','PROFILE_DISPLAY_NAME','PROFILE_SAVE','PROFILE_COLD_RESTORED_ROUTE','PROFILE_COLD_READBACK','PROFILE_READBACK','V8_DASHBOARD_HISTORY_ROUTE','V8_MODELS_ROUTE','V8_FILES_ROUTE','V8_WORKSPACES_ROUTE','V8_SETTINGS_ROUTE','V8_APPROVALS_ROUTE','V8_GRAPH_ROUTE','V8_ROUTES_COMPLETE','V8_SEARCH_COMMAND','V8_HISTORY_ROUNDTRIP','V8_PREVIEW_PANEL','V8_NAVIGATION_COMPLETE','WORKSPACE_PERSONAL','WORKSPACE_CREATE','WORKSPACE_SWITCH','WORKSPACE_APPEARANCE','WORKSPACE_COMPACT','WORKSPACE_COLD_REOPEN','WORKSPACE_COMPLETE','PRODUCT_EDITOR_SHORTCUTS','PRODUCT_EDITOR_PROJECT','PRODUCT_EDITOR_INSTRUCTIONS','PRODUCT_EDITOR_COLD','PRODUCT_VERSION','PRODUCT_EDITOR_COMPLETE')
                 if([string]$w.ui_checkpoint -cin $safeCheckpoints){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_GUI_CHECKPOINT='+[string]$w.ui_checkpoint)
                 }
