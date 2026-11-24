@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     env:
-      PRIVATE_PIN: d573a173b723a64678b91e8e0e3b4190293006c8
-      PRIVATE_TREE: 1f1ae4ab6b756dc3b5ae067f4b3e07015e857a17
+      PRIVATE_PIN: 70b64f6946b9e2ce1daff29e084ae0adf68baa6b
+      PRIVATE_TREE: c9952d728628b700b34040dc3e28bccc29d7fdfc
       QUALIFY_SCOPE: FULL
     steps:
       - uses: actions/setup-python@v5
@@ -122,7 +122,9 @@ jobs:
                                      if p.name not in {"test_meta_harness_contextual_handoff_graph.py","test_meta_harness_original_task_workflow.py","test_meta_harness_strategy_history.py"}),
                       "GRAPH": sorted(str(p.relative_to(source)) for p in source.glob("tests/test_fc6_graph*.py")),
                       "ADAPTERS": ["tests/test_goose_agent_runtime_user_ready.py",
-                                   "tests/test_agent06_claude_code_cli.py"],
+                                   "tests/test_agent06_claude_code_cli.py",
+                                   "tests/test_codex_chatgpt_cli_adapter.py",
+                                   "tests/test_antigravity_agent_runtime.py"],
                   }
                   if os.environ.get("QUALIFY_SCOPE")=="TASK_TRANSPORT":
                       groups={"TASK_TRANSPORT":["tests/test_meta_harness_original_task_workflow.py"]}
