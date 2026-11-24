@@ -19,13 +19,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 718f9eeb2e767451af54dbf71c57f4cb38f4b43c
+          ref: 4beb9eb9381b234b2ea4b40ee0e82a096ecd80ac
           path: public-one-core
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 8f60f667931f34f82724e28bce0c872514f0a6a3
+          ref: c22a85e2b9726f69039ff56b070f6dd19d9e056d
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -36,11 +36,11 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if ((& git -C private-t3 rev-parse HEAD).Trim() -cne '8f60f667931f34f82724e28bce0c872514f0a6a3' -or
-              (& git -C public-one-core rev-parse HEAD).Trim() -cne '718f9eeb2e767451af54dbf71c57f4cb38f4b43c') {
+          if ((& git -C private-t3 rev-parse HEAD).Trim() -cne 'c22a85e2b9726f69039ff56b070f6dd19d9e056d' -or
+              (& git -C public-one-core rev-parse HEAD).Trim() -cne '4beb9eb9381b234b2ea4b40ee0e82a096ecd80ac') {
             throw 'ORIGINAL_RETURN_EXCHANGE_SOURCE_PIN_MISMATCH'
           }
-          & node --test public-one-core/packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-control-http.test.mjs
+          & node --test public-one-core/packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-control-http.test.mjs public-one-core/packages/t3-core/tests/t3-subject-kernel-scope.test.mjs public-one-core/packages/t3-core/tests/t3-corporate-business-exchange.test.mjs public-one-core/packages/t3-core/tests/t3-d1-signed-control-dist.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_ENROLLMENT_REGRESSION_FAILED' }
       - name: Original signed Exchange and Control HTTP regression
         shell: pwsh
