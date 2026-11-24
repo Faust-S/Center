@@ -21,8 +21,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     env:
-      PRIVATE_PIN: '535939d8880c0eb5bf865210b133f71b7693c3f6'
-      PRIVATE_TREE: '9b17afc8b6d40a9e0c02e8cf467b43451f0a1fc6'
+      PRIVATE_PIN: 'c9b1bee1581040986d2f7f51b4de648edaf8368b'
+      PRIVATE_TREE: '81a826b8b69147732fee215dd11b74d19a10d846'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -120,6 +120,11 @@ jobs:
               }catch{Write-Host 'PYTEST_FAILURE_CODE=P_L000000'}
             }
             $raw=Get-Content -LiteralPath (Join-Path $out 'pytest.log') -Raw
+            # Only fixed-format numeric coordinates, never traceback text.
+            $witness=[regex]::Matches([string]$raw,'(?m)^\s*tests[/\\]test_work_areas_interaction\.py:([0-9]{1,6}):')
+            @($witness|ForEach-Object {$_.Groups[1].Value}|Sort-Object -Unique)|ForEach-Object {
+              Write-Host ('PYTEST_WITNESS_LINE=P_L'+([int]$_).ToString('D6'))
+            }
             foreach($k in @('passed','failed','errors','skipped','deselected')){
               $match=[regex]::Match([string]$raw,'(?m)([0-9]+) '+$k+'\b')
               if($match.Success){Write-Host ('PYTEST_'+$k.ToUpperInvariant()+'='+$match.Groups[1].Value)}
