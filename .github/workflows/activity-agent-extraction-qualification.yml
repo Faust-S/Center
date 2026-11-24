@@ -20,6 +20,7 @@ jobs:
       PRIVATE_TREE: 3ecc456481b3827f146edc7427fd6c5c63769aca
       PUBLIC_PIN: ae12dcdcb1defaa7899ced73e46ca4439ba9e122
       BASELINE_PIN: 57b701c6b7a1ede36dca70b2b0d2065b1ec577e0
+      BASELINE_TREE: 5c4307bd83a81c9555d2f8c55309f42b2a05f50a
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,6 +34,15 @@ jobs:
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private-agent
           fetch-depth: 8
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 57b701c6b7a1ede36dca70b2b0d2065b1ec577e0
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private-baseline
+          fetch-depth: 1
           persist-credentials: false
           show-progress: false
       - uses: actions/checkout@v4
@@ -54,6 +64,8 @@ jobs:
           $ErrorActionPreference='Stop'
           if((& git -C private-agent rev-parse HEAD).Trim() -cne $env:PRIVATE_PIN -or
              (& git -C private-agent rev-parse 'HEAD^{tree}').Trim() -cne $env:PRIVATE_TREE -or
+             (& git -C private-baseline rev-parse HEAD).Trim() -cne $env:BASELINE_PIN -or
+             (& git -C private-baseline rev-parse 'HEAD^{tree}').Trim() -cne $env:BASELINE_TREE -or
              (& git -C activity-public rev-parse HEAD).Trim() -cne $env:PUBLIC_PIN){
             throw 'SOURCE_PIN_MISMATCH'
           }
@@ -134,11 +146,15 @@ jobs:
             Write-Host ('NODE_SUITE='+$(if($testExit -eq 0){'PASS'}else{'FAIL'}))
             if($testExit -ne 0){
               $baseline=Join-Path $env:RUNNER_TEMP 'activity-private-baseline-node.out'
-              $checkout=Join-Path $env:RUNNER_TEMP 'activity-private-baseline-checkout.out'
-              git -c advice.detachedHead=false checkout --detach $env:BASELINE_PIN *> $checkout
-              if($LASTEXITCODE -ne 0 -or ((& git rev-parse HEAD).Trim() -cne $env:BASELINE_PIN)){throw 'BASELINE_PIN_UNAVAILABLE'}
-              node --test --test-reporter=tap *> $baseline
-              $baseExit=$LASTEXITCODE
+              $baseInstall=Join-Path $env:RUNNER_TEMP 'activity-private-baseline-install.out'
+              Push-Location (Join-Path $env:GITHUB_WORKSPACE 'private-baseline/desktop')
+              try{
+                if(((& git rev-parse HEAD).Trim() -cne $env:BASELINE_PIN)){throw 'BASELINE_PIN_UNAVAILABLE'}
+                npm ci --no-audit --no-fund *> $baseInstall
+                if($LASTEXITCODE -ne 0){throw 'BASELINE_NPM_INSTALL_FAILED'}
+                node --test --test-reporter=tap *> $baseline
+                $baseExit=$LASTEXITCODE
+              }finally{Pop-Location}
               $baseRaw=Get-Content -LiteralPath $baseline -Raw
               $currentNames=@([regex]::Matches($raw,'(?m)^not ok \d+ - ([^\r\n]+)') | ForEach-Object {$_.Groups[1].Value})
               $baseNames=@([regex]::Matches($baseRaw,'(?m)^not ok \d+ - ([^\r\n]+)') | ForEach-Object {$_.Groups[1].Value})
@@ -156,4 +172,5 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'private-agent') -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'private-baseline') -Recurse -Force -ErrorAction SilentlyContinue
           Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'activity-private-*' -Force | Remove-Item -Force -ErrorAction SilentlyContinue
