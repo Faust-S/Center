@@ -187,8 +187,8 @@ export function reconcileCorporateReceiveWithRead(receipt,view){
 
 // Compare the existing organization preparation to the single T3-verified
 // capacity candidate. This is a planning calculation, never seat admission.
-export function projectCorporateSeatPlan(read,participants){
- if(!Array.isArray(participants))denied();
+export function projectCorporateSeatPlan(read,participants,displayNow=null){
+ if(!Array.isArray(participants)||(displayNow!==null&&!Number.isSafeInteger(displayNow)))denied();
  const seen=new Set();
  let planned=0;
  for(const person of participants){
@@ -198,9 +198,14 @@ export function projectCorporateSeatPlan(read,participants){
    if(person.personalAgentPlan==='PLANNED')planned++;
  }
  const base={employeeCount:seen.size,planned,assigned:null};
- const row=read?.capacity?.state==='VERIFIED_CAPACITY_CANDIDATE'?
+ const candidate=read?.capacity?.state==='VERIFIED_CAPACITY_CANDIDATE'?
    read.licenses.find(x=>x.licenseId===read.capacity.candidateLicenseId):null;
- if(!row)return Object.freeze({...base,state:read?.capacity?.state??'NOT_READ',
+ // UI time may invalidate a cached comparison but never make a native
+ // stale/denied read current. Only another original T3 read can do that.
+ const expired=candidate&&displayNow!==null&&
+   displayNow>=Math.min(Date.parse(candidate.expiresAt),Date.parse(candidate.statusValidUntil));
+ const row=expired?null:candidate;
+ if(!row)return Object.freeze({...base,state:expired?'READBACK_EXPIRED':read?.capacity?.state??'NOT_READ',
    employeeLimit:null,seatLimit:null,employeeOverLimit:null,seatOverLimit:null,
    remainingPlannedSeats:null,licenseId:null});
  const l=row.signedTerms.limits;
