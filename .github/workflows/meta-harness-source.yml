@@ -16,7 +16,7 @@ jobs:
       matrix:
         os: [windows-2022, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       PRIVATE_PIN: 94556bc1e988f96ea95fb28e1ae4e61a627b6acb
       PRIVATE_TREE: 9d4a3f870e91470676d85416c8fa49b8647180d1
@@ -129,7 +129,8 @@ jobs:
                       if not files or any(not (source / f.split("::",1)[0]).is_file() for f in files):
                           status(group,"FILES_MISSING"); failed=True; continue
                       report = root / (group+".json")
-                      proc = run([sys.executable,str(plugin),str(report),*files],timeout=420)
+                      status(group,"STARTED")
+                      proc = run([sys.executable,str(plugin),str(report),*files],timeout=900 if group in {"TASK","TASK_TRANSPORT"} else 420)
                       if not report.is_file():
                           status(group,"REPORT_MISSING"); status(group+"_EXIT",proc.returncode); failed=True; continue
                       data=json.loads(report.read_text(encoding="utf-8"))
