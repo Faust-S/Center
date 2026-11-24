@@ -119,7 +119,7 @@ try{
     return row;
   }})});
  client=transport.createIsolatedKernelClient({port:port2,timeoutMs:120000});
- assert.equal((await measured('messagePortRead',()=>client.call('getWorkspace',workspace))).workspace_id,workspace);
+ assert.equal((await measured('messagePortRead',()=>client.invoke('getWorkspace',workspace))).workspace_id,workspace);
  assert.equal(reads,3);assert.equal(creates,1);checks++;
  process.stdout.write(JSON.stringify({result:'PASS',checks,reads,creates,timings,
   originalControlHttp:true,windowsDpapi:true,realKernel:false,productionActivation:false})+'\n');
