@@ -8,7 +8,7 @@ import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
  appendOriginalResultReview,readCompleteOriginalResult,
  validateOriginalSignedTaskReadback,validateOriginalEmployeeTaskIssueReceipt,
  isDefiniteUndispatchedD3Failure,
- readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
+ readOriginalApplicationTarget,readOriginalAppliedResult,originalResultTaskText} from '../runtime/cen03-d3-owner.mjs';
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
 
 const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64);
@@ -609,4 +609,62 @@ test('same-employee original Task epoch retains enrollment recovery form but a f
  assert.equal(signedD3EmployeeScopeFingerprint(view,'org:foreign'),null);
  const unsigned=clone();unsigned.snapshot.d3RecipientAvailable=false;
  assert.equal(signedD3EmployeeScopeFingerprint(unsigned,'org:north'),null);
+});
+
+test('original D3 continuation requires exact signed accepted revision AND original Kernel Object/Event',async()=>{
+ const session={organizationId:'org:reuse',workspaceId:'workspace:reuse'};
+ const source={...session,taskId:'task:first',taskRevisionId:A,resultRevisionId:B,acceptanceId:C};
+ const effect='d'.repeat(64),result='Проверено и применено. '+'Р'.repeat(800);
+ const target={consumerId:'IWXA_ADMIN_CENTER',processId:'admin.applied-results',
+   processVersion:'1',purpose:'application',subjectId:session.organizationId,
+   workspaceId:session.workspaceId,dataRootId:'root:reuse'};
+ const item={taskId:source.taskId,taskRevisionId:A,resultRevisionId:B,
+   executorId:'person:worker',resultExcerpt:result.slice(0,500),resultTruncated:true};
+ const candidate={schema:'IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1',
+   status:'CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION',
+   source:{acceptanceId:C},target,changes:[item],applicationAttempted:false,
+   applicationAuthorized:false,externalContextCoreApplied:false};
+ const object={object_id:'result:applied:'+effect,workspace_id:session.workspaceId,
+   schema_id:'iwxa.admin.applied-results',schema_version:'1.0.0',revision:1,
+   data:{schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',records:[{...source,executorId:item.executorId,result}]}};
+ const event={event_id:'event:applied',workspace_id:session.workspaceId,
+   object_id:object.object_id,revision:1,event_type:'iwxa.admin.result.applied',
+   idempotency_key:effect,payload:{reconciliation_acceptance_id:C,reconciliation_revision_ids:[B]}};
+ const confirmed={status:'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED',effectKey:effect,
+   automaticRetryAllowed:false,kernelWriteReadback:'CONFIRMED',externalProductAcceptance:'NOT_ACCEPTED',
+   originalKernelReadback:{object},originalEventReadback:event};
+ const calls=[];
+ const execute=async(op,input)=>{calls.push({op,input});return structuredClone(op==='d3InspectAccepted'?candidate:confirmed)};
+ const proven=await readOriginalAppliedResult(execute,session,source);
+ assert.deepEqual(proven.source,source);
+ assert.equal(proven.result,result);
+ assert.deepEqual(calls.map(x=>x.op),['d3InspectAccepted','d3RecoverApplied']);
+ assert.deepEqual(calls[1].input,{acceptanceId:C,revisionIds:[B],target});
+ for(const alter of [
+   x=>{x.status='OUTCOME_UNKNOWN';x.kernelWriteReadback='NOT_CONFIRMED';x.originalKernelReadback=null;x.originalEventReadback=null},
+   x=>{x.originalEventReadback.payload.reconciliation_revision_ids=[A]},
+   x=>{x.originalEventReadback.event_type='other'},
+   x=>{x.originalKernelReadback.object.data.records[0].taskRevisionId=C},
+   x=>{x.originalKernelReadback.object.data.records[0].result='Different result'},
+   x=>{x.originalKernelReadback.object.data.records[0].organizationId='org:foreign'},
+   x=>{x.originalKernelReadback.object.data.records.push({...source,executorId:item.executorId,result})}
+ ]){
+   const bad=structuredClone(confirmed);alter(bad);
+   await assert.rejects(()=>readOriginalAppliedResult(async op=>
+     op==='d3InspectAccepted'?candidate:bad,session,source),
+     /CEN_D3_(?:REUSE_ORIGINAL_RESULT_NOT_CONFIRMED|KERNEL_RECOVERY_READBACK_INVALID)/);
+ }
+ let touched=false;
+ await assert.rejects(()=>readOriginalAppliedResult(async()=>{touched=true},
+   session,{...source,workspaceId:'workspace:other'}),/CEN_D3_REUSE_ORIGINAL_RESULT_NOT_CONFIRMED/);
+ assert.equal(touched,false);
+ await assert.rejects(()=>readOriginalAppliedResult(async op=>{
+   assert.equal(op,'d3InspectAccepted');
+   return {...candidate,changes:[{...item,taskId:'task:other'}]};
+ },session,source),/CEN_D3_REUSE_ORIGINAL_RESULT_NOT_CONFIRMED/);
+ const text=originalResultTaskText(' Следующее поручение ',source);
+ assert.match(text,/Следующее поручение/);
+ for(const value of [source.taskId,A,B,C,source.workspaceId])assert.ok(text.includes(value));
+ assert.throws(()=>originalResultTaskText('Я'.repeat(10000),source),/CEN_D3_SIGNED_TASK_TEXT_REQUIRED/);
+ assert.equal(originalResultTaskText('Обычное поручение',null),'Обычное поручение');
 });

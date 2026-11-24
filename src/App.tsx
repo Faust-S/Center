@@ -446,7 +446,7 @@ export default function App() {
     }
     editorBaselineRef.current=JSON.stringify(initialEditor(org));
     setEditor({...initialEditor(org),workspaceId:workspace.id,
-      atlasRef:workspace.atlasRef??null,sourceResultRef:source,description});
+      atlasRef:null,assigneeId:'',reviewerId:'',sourceResultRef:source,description});
     setError('');go('work');
   };
   const startAssignment = (item?: Assignment) => {
@@ -922,7 +922,7 @@ export default function App() {
               ? 'Проверка по выбранной копии проекта. Файл не обновляется автоматически.'
               : 'Источник Atlas для проверки не открыт. Локальный план Center не заменяет установленный Atlas.'}</p>
           <p className="muted" data-testid="assignment-atlas-currentness">{workStatusLabels[atlasWorkReadback(observedAtlas,editor.atlasRef)]}</p>
-          {editor.sourceResultRef&&<p className="muted" data-testid="assignment-source-result">Источник: Task {editor.sourceResultRef.taskId}, Result revision {editor.sourceResultRef.resultRevisionId}. Ссылка будет проверена перед выпуском новой подписанной Task.
+          {editor.sourceResultRef&&<p className="muted" data-testid="assignment-source-result">Источник: Task {editor.sourceResultRef.taskId}, редакция Result {editor.sourceResultRef.resultRevisionId}. При подписании через T3 исходные Object и Event проверяются повторно.
             <button type="button" className="quiet" onClick={()=>setEditor(old=>old?{...old,sourceResultRef:null}:old)}>Убрать связь</button>
           </p>}
           {editor.atlasRef?.workId && observedAtlas &&

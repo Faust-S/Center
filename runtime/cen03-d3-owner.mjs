@@ -145,6 +145,65 @@ function checkedKernelRecovery(result,context,selection){
  return result;
 }
 
+// Read the exact single original interop.result.v2 revision. ACCEPT is
+// not Apply. No Store, signature, authorization or write is created here.
+export async function readOriginalAppliedResult(execute,session,source){
+ const bad='CEN_D3_REUSE_ORIGINAL_RESULT_NOT_CONFIRMED';
+ const {organizationId,workspaceId}=session??{};
+ need(typeof execute==='function'&&validId(organizationId)&&validId(workspaceId)&&
+   source?.organizationId===organizationId&&source?.workspaceId===workspaceId&&
+   typeof source.taskId==='string'&&/^task:[A-Za-z0-9-]{1,100}$/.test(source.taskId)&&
+   validSha(source.taskRevisionId)&&validSha(source.resultRevisionId)&&
+   validSha(source.acceptanceId),bad);
+ const selection={acceptanceId:source.acceptanceId,revisionIds:[source.resultRevisionId]};
+ const candidate=await execute('d3InspectAccepted',selection);
+ need(candidate?.schema==='IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1'&&
+   candidate.status==='CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION'&&
+   candidate.source?.acceptanceId===source.acceptanceId&&
+   candidate.applicationAttempted===false&&candidate.applicationAuthorized===false&&
+   candidate.externalContextCoreApplied===false&&
+   Array.isArray(candidate.changes)&&candidate.changes.length===1,bad);
+ const target=readOriginalApplicationTarget(candidate.target,organizationId,workspaceId);
+ const item=candidate.changes[0];
+ need(item?.taskId===source.taskId&&item.taskRevisionId===source.taskRevisionId&&
+   item.resultRevisionId===source.resultRevisionId&&validId(item.executorId)&&
+   typeof item.resultExcerpt==='string'&&item.resultExcerpt.length<=500&&
+   typeof item.resultTruncated==='boolean',bad);
+ const observed=checkedKernelRecovery(await execute('d3RecoverApplied',{...selection,target}),
+   {workspace_id:workspaceId,organization_id:organizationId},selection);
+ need(observed.status==='ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED',bad);
+ const object=observed.originalKernelReadback.object,event=observed.originalEventReadback;
+ const rows=object.data?.records;
+ need(object.object_id==='result:applied:'+observed.effectKey&&
+   object.schema_id==='iwxa.admin.applied-results'&&object.schema_version==='1.0.0'&&
+   object.revision===1&&event.event_type==='iwxa.admin.result.applied'&&
+   object.data?.schema==='IWXA_T3_ADMIN_APPLIED_RESULTS/1'&&
+   Array.isArray(rows)&&rows.length===1,bad);
+ const row=rows[0];
+ need(row?.organizationId===organizationId&&row.workspaceId===workspaceId&&
+   row.taskId===source.taskId&&row.taskRevisionId===source.taskRevisionId&&
+   row.resultRevisionId===source.resultRevisionId&&row.acceptanceId===source.acceptanceId&&
+   row.executorId===item.executorId&&typeof row.result==='string'&&
+   row.result.length<=100000&&row.result.slice(0,500)===item.resultExcerpt&&
+   (row.result.length>500)===item.resultTruncated,bad);
+ return {source:copy({organizationId,workspaceId,taskId:row.taskId,
+   taskRevisionId:row.taskRevisionId,resultRevisionId:row.resultRevisionId,
+   acceptanceId:row.acceptanceId},bad),result:row.result,
+   objectId:object.object_id,eventId:event.event_id,effectKey:observed.effectKey};
+}
+// The existing interop.task.v1 carrier signs TEXT. Preserve the source IDs
+// in that signed text, not a fabricated graph edge. Never truncate content.
+export function originalResultTaskText(text,source){
+ need(typeof text==='string'&&text.trim().length>0,'CEN_D3_SIGNED_TASK_TEXT_REQUIRED');
+ const suffix=source?'\n\nИсточник применённого Result: Task '+source.taskId+
+   '; редакция Task '+source.taskRevisionId+
+   '; редакция Result '+source.resultRevisionId+'; ACCEPT '+source.acceptanceId+
+   '; Workspace '+source.workspaceId+'.':'';
+ const value=text.trim()+suffix;
+ need(value.length<=10000,'CEN_D3_SIGNED_TASK_TEXT_REQUIRED');
+ return value;
+}
+
 // Only display ORIGINAL recipient-verified selected Result text.
 // The original verifier owns signatures, Task binding, content and currentness;
 // this is a UI shape check, not another Reconciliation.

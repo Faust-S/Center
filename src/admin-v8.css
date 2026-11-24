@@ -531,3 +531,5 @@ body{padding:11px;background:#172238}
 .v8-work-filters button{border:1px solid #d9e6f4;background:#f8fbff;color:#43688c;border-radius:8px;padding:7px 10px;font-size:12px}
 .v8-work-filters button.active{border-color:#83aedc;background:#eaf4ff;color:#244968;font-weight:600}
 .v8-work-filters button small{margin-left:4px;color:#607c99;font-size:10px}
+
+.v8-reuse-full-result{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;font:inherit;line-height:1.5;margin:8px 0}

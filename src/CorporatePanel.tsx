@@ -1,6 +1,6 @@
 import {routeAllows,type AdminRouteId} from './admin-navigation';
 import React,{useEffect,useRef,useState} from 'react';
-import CorporateD3Panel from './CorporateD3Panel';
+import CorporateD3Panel,{type SourceResultRef} from './CorporateD3Panel';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import CorporateEmployeeEnrollment from './CorporateEmployeeEnrollment';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
@@ -10,7 +10,7 @@ import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerp
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
 type Invoke=(command:string,args?:Record<string,unknown>)=>Promise<any>;
-type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;participants?:Array<{id:string;name:string}>;assignments:Array<{id:string;title:string;workspaceId?:string;assigneeId?:string|null;editNumber?:number;description?:string;criteria?:string;dueDate?:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
+type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;participants?:Array<{id:string;name:string}>;assignments:Array<{id:string;title:string;workspaceId?:string;assigneeId?:string|null;editNumber?:number;description?:string;criteria?:string;dueDate?:string;sourceResultRef?:SourceResultRef|null;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
 const hex=/^[a-f0-9]{64}$/;
 const why=(e:unknown)=>{
  const message=e instanceof Error?e.message:String(e);
@@ -52,6 +52,8 @@ const why=(e:unknown)=>{
    return 'Пакет не найден в свежем оригинальном Reconciliation. Вернитесь к поиску и перечитайте источник. Решение не отправлялось.';
  if(message.includes('CEN_D3_MANAGER_SOURCE_CONTEXT_CHANGED'))
    return 'Подписанный контекст T3 изменился. Перечитайте корпоративные сведения и выберите источник заново.';
+ if(message.includes('CEN_D3_REUSE_ORIGINAL_RESULT_NOT_CONFIRMED'))
+    return 'Применённый Result не подтверждён исходным Kernel. Перечитайте точную редакцию в той же Workspace; новый черновик или подпись не создавались.';
  if(message.includes('CEN_D3_ORIGINAL_TASK_ALREADY_ISSUED'))
    return 'У этого поручения уже есть подписанный ID. Откройте сохранённую Task или подготовьте новый ID.';
  if(/CEN_D3_ORIGINAL_TASK_WRITE_READBACK_UNKNOWN|T3_D3_OWNER_CONTEXT_CHANGED_OUTCOME_UNKNOWN/.test(message))
@@ -235,7 +237,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
     session={owner.snapshot} contacts={organization.participants??[]}
     preferredContactId={preferredEmployeeContactId}
     execute={execute} run={act} busy={busy}/></div>}
-  {d3Ready&&invoke ? <div className="v8-route-region" hidden={!routeAllows(route,'signed-tasks','receive','review','apply','recovery')}><CorporateD3Panel route={route} onNavigate={onNavigate} key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
+  {d3Ready&&invoke ? <div className="v8-route-region" hidden={!routeAllows(route,'signed-tasks','receive','review','apply','recovery','reuse')}><CorporateD3Panel route={route} onNavigate={onNavigate} onReuse={onReuse} key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
     dispatchedApplications={dispatchedD3Applications}
     taskAttempts={attemptedD3Tasks}
     decisionAttempts={attemptedD3Decisions}
@@ -245,7 +247,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
         id:a.id,title:a.title,assigneeId:a.assigneeId??'',
         editNumber:a.editNumber??0,description:a.description??'',
         criteria:a.criteria??'',dueDate:a.dueDate??'',
-        atlasRef:a.atlasRef??null
+        atlasRef:a.atlasRef??null,sourceResultRef:a.sourceResultRef??null
       }))}/></div> : <>
   <div className="nested-form" data-testid="cen02-owner-people" hidden={!routeAllows(route,'employees-t3')}>
    <h3>Ответственные в организации</h3>
@@ -442,12 +444,12 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   </div>
   </>}
   {d3Ready&&route==='reuse'&&<div className="nested-form" data-testid="v8-original-result-continuation">
-    <h3>Продолжить работу в исходной Workspace</h3>
-    <p>Применённые результаты и история принадлежат оригинальной Workspace T2. Откройте её, чтобы работать с сохранённым результатом. Список старого маршрута CEN03 не подменяет подписанный D3.</p>
+    <h3>Другие действия в Workspace</h3>
+    <p>Откройте исходную Workspace или начните поручение без связи с Result.</p>
     <button className="secondary" type="button" disabled={busy||owner?.snapshot?.originalSignedWorkspaceAvailable!==true}
       onClick={()=>act('Подписанная Workspace открыта.',async()=>onOpenSignedWorkspace(organizationId))}>Открыть исходную Workspace</button>
     <button className="secondary" type="button" onClick={onPrepare}>Подготовить новый черновик</button>
-    <p className="muted">Новый черновик не получает ссылку на применённый Result автоматически.</p>
+    <p className="muted">Черновик без выбранного источника не получает ссылку на Result автоматически.</p>
   </div>}
   {route!=='results'&&route!=='signed-workspace'&&!ready&&<div className="notice subdued">
     Для подписанной операции сначала подключите организацию и исходную Workspace.

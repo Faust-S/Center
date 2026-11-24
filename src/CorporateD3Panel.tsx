@@ -5,7 +5,7 @@ import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
 import {readOriginalResultReview,readCompleteOriginalResult,
  validateOriginalSignedTaskReadback,
  isDefiniteUndispatchedD3Failure,
- readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
+ readOriginalApplicationTarget,readOriginalAppliedResult,originalResultTaskText} from '../runtime/cen03-d3-owner.mjs';
 
 // D3 UI is deliberately limited to the ORIGINAL recipient and signed D1 Host.
 // It cannot issue a task, sign a grant, interpret an ACCEPT as Apply, or
@@ -18,8 +18,9 @@ type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   d3InspectAvailable?:boolean;
   d3TaskIssueAvailable?:boolean;d3ApplyRecoverAvailable?:boolean;
   tasks?:SignedTask[];totalTasks?:number}};
+export type SourceResultRef={organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string};
 type AssignmentDraft={id:string;title:string;assigneeId:string;editNumber:number;
- description:string;criteria:string;dueDate:string;
+ description:string;criteria:string;dueDate:string;sourceResultRef?:SourceResultRef|null;
  atlasRef:{projectId:string;revision:string;workId?:string}|null};
 type AgeStatus={operation:'AGE_STATUS';available:boolean;recipient:string|null;
   toolchain:{ready:boolean;reason?:string};provider:string;admitted:false};
@@ -37,9 +38,10 @@ function requireAgeStatus(value:any):AgeStatus{
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts,managerOriginal=null,route='results',onNavigate}:{
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts,managerOriginal=null,route='results',onNavigate,onReuse}:{
  route?:AdminRouteId;
  onNavigate?:(route:AdminRouteId)=>void;
+ onReuse:(selection:{description:string;source:SourceResultRef})=>void;
  owner:Owner;execute:Exec;run:Run;busy:boolean;organizationName:string;
  dispatchedApplications:React.RefObject<Map<string,string[]>>;
  taskAttempts:React.RefObject<Map<string,{taskId:string;attempted:boolean}>>;
@@ -80,6 +82,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [kernelResult,setKernelResult]=useState<any>(null);
  const [applySelection,setApplySelection]=useState<{acceptanceId:string;revisionIds:string[]}|null>(null);
  const [kernelRecovery,setKernelRecovery]=useState<any>(null);
+ const [reuseReadback,setReuseReadback]=useState<any>(null);
+ const [reuseFragment,setReuseFragment]=useState('');
  const [recoverPrevious,setRecoverPrevious]=useState(false);
  // Only a definite refusal before the original Kernel write can unlock a
  // new separate Human APPLY after the manager repairs the SAME Workspace.
@@ -135,7 +139,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setSelectedRevisions([]);setApplication(null);setApplyConsent(false);
    setApplyAttempted(false);setKernelResult(null);
    setApplySelection(null);setKernelRecovery(null);setRecoverPrevious(false);
-   setWorkspacePreflight(null);
+   setWorkspacePreflight(null);setReuseReadback(null);setReuseFragment('');
  };
  useEffect(()=>{
    if(previous.current!==sessionKey){
@@ -171,9 +175,12 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const draftAssigneeUnbound=!!chosenDraft?.assigneeId;
  const draftStale=!!draftId&&(
    !chosenDraft||JSON.stringify(chosenDraft)!==draftSnapshot);
+ const linkedResult=chosenDraft?.sourceResultRef??null;
+ let finalTaskText:string|null=null;
+ try{finalTaskText=originalResultTaskText(taskText,linkedResult)}catch{}
  const createSignedTask=()=>run('Подписанная Task сохранена. Передача получателю ещё не подтверждена.',async()=>{
-   if(session.d3TaskIssueAvailable!==true||!taskText.trim()||
-     taskText.length>10000)throw Error('CEN_D3_SIGNED_TASK_TEXT_REQUIRED');
+   if(session.d3TaskIssueAvailable!==true||!finalTaskText)
+     throw Error('CEN_D3_SIGNED_TASK_TEXT_REQUIRED');
    if(draftStale)throw Error('CEN_D3_DRAFT_CHANGED_BEFORE_SIGNING');
    if(draftAssigneeUnbound)throw Error('CEN_D3_DRAFT_ASSIGNEE_NOT_SIGNED');
    if(!/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)||
@@ -203,6 +210,12 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      if(current!=='SOURCE_REVISION_MATCHES')
        throw Error('CEN_D3_ATLAS_SOURCE_REVISION_STALE');
    }
+   // Re-read the original signed projection and Kernel Object/Event.
+   // A local draft reference is not evidence of application.
+   if(linkedResult){
+     if(session.d3ApplyRecoverAvailable!==true)throw Error('CEN_D3_REUSE_ORIGINAL_RESULT_NOT_CONFIRMED');
+     await readOriginalAppliedResult(execute,session,linkedResult);
+   }
    // The operation ID is saved before the original signer may write. Even if
    // this call loses its reply, the same ID can be queried without re-signing.
    const immutableId=taskOperationId;
@@ -211,7 +224,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    let result:any;
    try{
      result=await execute('d3CreateTask',{
-       task:taskText.trim(),taskId:immutableId});
+       task:finalTaskText,taskId:immutableId});
    }catch(error){
      // The native owner was never dispatched only for these exact public
      // Rust preflight errors. Other errors may follow a successful signing:
@@ -546,8 +559,35 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    // unconfirmed original outcome cannot enable another commit here.
    setKernelRecovery(result);
  });
+ const readReuse=()=>run('Применённый Result перечитан из исходного Kernel без новой записи.',async()=>{
+   setReuseReadback(null);setReuseFragment('');
+   if(session.d3ApplyRecoverAvailable!==true||!hex(hash)||!opPattern.test(operationId))
+     throw Error('CEN_D3_REUSE_ORIGINAL_RESULT_NOT_CONFIRMED');
+   const originalReceipt=await execute('d3Receipt',{operationId,packageSha256:hash});
+   const acceptedReceipt=originalReceipt?.receipt;
+   if(originalReceipt?.found!==true||
+     originalReceipt.kernelApplication!=='NOT_ATTESTED_BY_RECONCILIATION_RECEIPT'||
+     acceptedReceipt?.schema!=='IWXA_T3_ACCEPTANCE_RECEIPT/1'||
+     acceptedReceipt.acceptanceState!=='ACCEPTED'||acceptedReceipt.packageSha256!==hash||
+     acceptedReceipt.operationId!==operationId||acceptedReceipt.decisionBy!==session.actorId||
+     !hex(acceptedReceipt.acceptanceId))
+     throw Error('CEN_D3_REUSE_ORIGINAL_RESULT_NOT_CONFIRMED');
+   const originalPreview=await execute('d3Preview',{packageSha256:hash});
+   const reviewed=readOriginalResultReview(originalPreview,session.organizationId,session.workspaceId);
+   if(!reviewed||reviewed.packageSha256!==hash)
+     throw Error('CEN_D3_REUSE_ORIGINAL_RESULT_NOT_CONFIRMED');
+   const source={organizationId:session.organizationId,workspaceId:session.workspaceId,
+     taskId:reviewed.taskId,taskRevisionId:reviewed.taskRevisionId,
+     resultRevisionId:reviewed.resultRevisionId,acceptanceId:acceptedReceipt.acceptanceId};
+   const readback=await readOriginalAppliedResult(execute,session,source);
+   if(readback.result.length!==reviewed.resultLength||
+     !readback.result.startsWith(reviewed.resultText))
+     throw Error('CEN_D3_REUSE_ORIGINAL_RESULT_NOT_CONFIRMED');
+   setReuseReadback(readback);
+   setReuseFragment(readback.result.length<=6000?readback.result:'');
+ });
  return <div className="nested-form" data-testid="cen03-d3-original">
-  <h3>Подписанный T3: получение и принятие Result</h3>
+  <h3>{route==='reuse'?'Продолжить работу в исходной Workspace':'Подписанный T3: получение и принятие Result'}</h3>
   {managerOriginal&&(route==='results'||(managerOriginal.kind==='signed-task'?route==='signed-tasks':route==='review'||route==='receive'||route==='recovery'))&&<div className="notice subdued" data-testid="d3-manager-original-link">
     {exactFocus?<>
       <strong>Переход из корпоративного поиска</strong>
@@ -563,7 +603,51 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
   <p className="muted">Подтверждённый субъект: {session.actorId} · Workspace: {session.workspaceId}.
    Оригинальный получатель проверяет подпись и полномочия. Приём не означает ACCEPT;
    ACCEPT не означает запись в Kernel.</p>
-  <div className="nested-form" data-testid="d3-signed-task-workflow" hidden={!routeAllows(route,'signed-tasks')}>
+  {route==='reuse'&&<section className="nested-form" data-testid="d3-original-reuse">
+     <p>Выберите принятый пакет. Только повторное чтение исходных Object и Event подтверждает применение Result. Затем подготовьте следующее поручение.</p>
+     <button type="button" className="secondary" data-testid="d3-reuse-refresh" disabled={busy}
+       onClick={()=>{void refreshInbox()}}>Обновить список принятых Result</button>
+     {inbox&&<label>Принятый пакет
+       <select data-testid="d3-reuse-package" disabled={busy} value={hash}
+         onChange={e=>{const item=inbox.items.find(x=>x.packageSha256===e.target.value);
+           choose(e.target.value);if(item?.operationId)setOperationId(item.operationId);}}>
+         <option value="">Выберите пакет</option>
+         {inbox.items.filter(x=>x.status==='ACCEPTED'&&hex(x.acceptanceId)&&opPattern.test(x.operationId??''))
+           .map(x=><option value={x.packageSha256} key={x.packageSha256}>{x.packageSha256.slice(0,20)}…</option>)}
+       </select>
+     </label>}
+     <label>SHA-256 исходного пакета
+       <input data-testid="d3-reuse-sha" maxLength={64} disabled={busy} value={hash}
+         onChange={e=>choose(e.target.value.trim().toLowerCase())}/>
+     </label>
+     <label>ID исходного решения ACCEPT
+       <input data-testid="d3-reuse-operation" maxLength={160} disabled={busy} value={operationId}
+         onChange={e=>{setOperationId(e.target.value.trim());setReuseReadback(null);setReuseFragment('');}}/>
+     </label>
+     {session.d3ApplyRecoverAvailable!==true&&<p className="muted">Откройте исходную Workspace T3, затем вернитесь к приёмке для чтения Kernel.</p>}
+     <button type="button" className="primary" data-testid="d3-reuse-read"
+       disabled={busy||session.d3ApplyRecoverAvailable!==true||!hex(hash)||!opPattern.test(operationId)}
+       onClick={readReuse}>Прочитать применённый Result</button>
+     {reuseReadback&&<div data-testid="d3-reuse-confirmed">
+       <p><strong>Object и Event подтверждены</strong> · {reuseReadback.source.taskId}</p>
+       <p className="muted">Редакция Result: {reuseReadback.source.resultRevisionId}</p>
+       <details><summary>Полный исходный Result</summary>
+         <pre className="v8-reuse-full-result">{reuseReadback.result}</pre>
+       </details>
+       <label>Фрагмент для нового поручения
+         <textarea rows={4} data-testid="d3-reuse-text" maxLength={6000}
+           disabled={busy} value={reuseFragment} onChange={e=>setReuseFragment(e.target.value)}/>
+       </label>
+       <p className="muted">{reuseFragment.length}/6000 символов.
+         {reuseReadback.result.length>6000?' Исходный Result длиннее поля: выберите нужный фрагмент вручную.':''}</p>
+       <button type="button" className="primary" data-testid="d3-reuse-create-draft"
+         disabled={busy||!reuseFragment.trim()||reuseFragment.length>6000}
+         onClick={()=>onReuse({description:reuseFragment,source:reuseReadback.source})}>
+         Вставить в новый черновик
+       </button>
+     </div>}
+   </section>}
+   <div className="nested-form" data-testid="d3-signed-task-workflow" hidden={!routeAllows(route,'signed-tasks')}>
    <h3>Подписанные поручения T3</h3>
    <p className="muted">Текущий получатель: {session.actorId}.
     Это локальный участник организации. Выдача другому сотруднику требует
@@ -585,7 +669,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
            atlas&&'Ссылка на проект Atlas (из черновика, не доказательство полномочий): '+
              atlas.projectId+' @ '+atlas.revision+
              (atlas.workId?', работа: '+atlas.workId:'')].filter(Boolean).join('\n\n');
-         setTaskText(content.slice(0,10000));
+         setTaskText(content);
        }else{
          // Do not retain a previous employee-assigned draft in manual mode.
          setTaskText('');
@@ -602,6 +686,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     </p>}
     {draftStale&&<p role="status" data-testid="d3-draft-changed">
       Черновик изменился после выбора. Выберите его повторно перед подписанием.
+    </p>}
+    {linkedResult&&<div className="notice subdued" data-testid="d3-task-source-result">
+      <strong>Источник: применённый Result</strong>
+      <p>Перед подписанием исходный T3 повторно проверит Object и Event. Идентификаторы источника включаются в подписанный текст Task.</p>
+      <small>{linkedResult.taskId} · {linkedResult.resultRevisionId}</small>
+    </div>}
+    {taskText.trim()&&!finalTaskText&&<p role="status" data-testid="d3-task-text-too-long">
+      Полный текст, включая ссылку на источник, превышает 10 000 символов. Сократите его вручную. Текст не обрезан.
     </p>}
     <label>Поручение и критерии результата
      <textarea data-testid="d3-task-text" rows={3} maxLength={10000}
@@ -649,7 +741,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        disabled={busy||!/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)}
        onClick={recoverTask}>Проверить выпуск без повтора</button>
       <button className="primary" data-testid="d3-create-task"
-       disabled={busy||!taskText.trim()||draftAssigneeUnbound||draftStale||
+       disabled={busy||!finalTaskText||draftAssigneeUnbound||draftStale||
          !taskIdSaved||taskAttempted||
          signedTasks.some(t=>t.taskId===taskOperationId)||
          !/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)}
