@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {checkCorporateCarrierExpectation,checkCorporateCarrierMatch,
- parseCorporateDeliveryHandoff,matchesCorporateDeliveryReceipt}
+ parseCorporateDeliveryHandoff,matchesCorporateDeliveryReceipt,matchesCorporateSignedPair}
  from '../runtime/cen04-corporate-carrier.mjs';
 import {inspectCorporateEnrollment,inspectCorporateCapabilities,
  inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived,
@@ -21,6 +21,9 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
  const [handoff,setHandoff]=useState<ReturnType<typeof parseCorporateDeliveryHandoff>|null>(null);
  const [corporateTrustSha,setCorporateTrustSha]=useState('');
  const [corporateReady,setCorporateReady]=useState(false);
+ const [nativeFingerprint,setNativeFingerprint]=useState('');
+ const [nativeNeedsTrust,setNativeNeedsTrust]=useState(false);
+ const organizationField=useRef<HTMLInputElement>(null);
  const [corporateRead,setCorporateRead]=useState<ReturnType<typeof inspectCorporateRead>|null>(null);
  const [corporateLatest,setCorporateLatest]=useState<ReturnType<typeof inspectCorporateReceived>|null>(null);
  const [corporateFile,setCorporateFile]=useState<{
@@ -32,31 +35,61 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
  const latestOrgRef=useRef(organizationId);
  latestOrgRef.current=organizationId;
  const sameOrg=()=>latestOrgRef.current===organizationId;
- useEffect(()=>{
-  setCorporateFile(null);setCorporateSha('');setCorporateBytes('');
-  setHandoff(null);setHandoffText('');
-  setCorporateMessage('');setCorporateFailure('');setCorporateTrustSha('');
-  setCorporateReady(false);setCorporateRead(null);setCorporateLatest(null);
-  let live=true;
-  if(invoke){
-   (async()=>{
-    try{
-     const caps=await invoke('center_cen04_corporate_t3_capabilities',{organizationId});
-     inspectCorporateCapabilities(caps,organizationId);
-     if(!live)return;
-     setCorporateReady(true);
-     try{
-      const value=await invoke('center_cen04_corporate_t3_read',{organizationId});
-      const evidence=inspectCorporateRead(value,organizationId);
-      if(live)setCorporateRead(evidence);
-     }catch(e){
-      if(live)setCorporateFailure('Не удалось прочитать корпоративный T3: '+error(e));
+ const missingRecipient=(e:unknown)=>error(e).includes('CORPORATE_RECIPIENT_NOT_ENROLLED');
+ async function readOriginalCorporate(isLive:()=>boolean){
+   if(!invoke)return null;
+   let caps;
+   try{
+     caps=inspectCorporateCapabilities(
+       await invoke('center_cen04_corporate_t3_capabilities',{organizationId}),organizationId);
+   }catch(e){
+     if(isLive()){
+       setCorporateReady(false);setNativeFingerprint('');setCorporateRead(null);
+       setNativeNeedsTrust(missingRecipient(e));
+       if(!missingRecipient(e))setCorporateFailure('Корпоративный T3 недоступен: '+error(e));
      }
-    }catch{if(live)setCorporateReady(false);}
+     return null;
+   }
+   if(!isLive())return null;
+   setCorporateReady(true);setNativeFingerprint(caps.fingerprint);setNativeNeedsTrust(false);
+   const value=await invoke('center_cen04_corporate_t3_read',{organizationId});
+   const evidence=inspectCorporateRead(value,organizationId);
+   return isLive()?evidence:null;
+ }
+ useEffect(()=>{
+   setCorporateFile(null);setCorporateSha('');setCorporateBytes('');
+   setHandoff(null);setHandoffText('');
+   setCorporateMessage('');setCorporateFailure('');setCorporateTrustSha('');
+   setCorporateReady(false);setCorporateRead(null);setCorporateLatest(null);
+   setNativeNeedsTrust(false);setNativeFingerprint('');
+   if(!invoke){actionRef.current=false;setBusy(false);return;}
+   let live=true;
+   // Do not let the initial read race a user's first enrollment/import.
+   actionRef.current=true;setBusy(true);
+   (async()=>{
+     try{
+       const evidence=await readOriginalCorporate(()=>live);
+       if(live&&evidence)setCorporateRead(evidence);
+     }catch(e){
+       if(live){setCorporateRead(null);setCorporateFailure('Не удалось прочитать корпоративный T3: '+error(e));}
+     }finally{
+       if(live){actionRef.current=false;setBusy(false);}
+     }
    })();
-  }
-  return()=>{live=false;};
+   return()=>{live=false;};
  },[organizationId,invoke]);
+ async function copyOrganizationId(){
+   const field=organizationField.current;
+   if(!field)return;
+   field.focus();field.select();
+   try{
+     await navigator.clipboard.writeText(organizationId);
+     if(sameOrg())setCorporateMessage('Идентификатор скопирован. Используйте его в карточке клиента Publisher.');
+   }catch{
+     if(sameOrg())setCorporateMessage('Идентификатор выделен. Нажмите Ctrl+C.');
+   }
+ }
+
  // Only the chosen organization may use the pasted transfer details.
  // Editing either manual field discards the previously applied clipboard data.
  function resetCarrierEvidence(){
@@ -107,7 +140,7 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
  }
  // First use installs a PUBLIC corporate issuer fingerprint, never rights.
  async function enrollCorporateTrust(){
-   if(!invoke||corporateReady||busy||actionRef.current)return;
+   if(!invoke||corporateReady||!nativeNeedsTrust||busy||actionRef.current)return;
    const fingerprint=corporateTrustSha.trim().toLowerCase();
    if(!/^[a-f0-9]{64}$/.test(fingerprint)){
      setCorporateFailure('Введите SHA-256 публичного доверия издателя, полученный независимо от .iwxa.');
@@ -125,7 +158,7 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
      const caps=await invoke('center_cen04_corporate_t3_capabilities',{organizationId});
      inspectCorporatePinnedTrust(caps,organizationId,fingerprint);
      if(!sameOrg())return;
-     setCorporateReady(true);setCorporateTrustSha('');
+     setCorporateReady(true);setNativeNeedsTrust(false);setNativeFingerprint(fingerprint);setCorporateTrustSha('');
      setCorporateMessage('Доверие корпоративного издателя установлено в оригинальном T3. '+
        'Лицензия ещё не получена, права и места не назначены.');
      try{
@@ -142,7 +175,7 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
        const caps=await invoke('center_cen04_corporate_t3_capabilities',{organizationId});
        inspectCorporatePinnedTrust(caps,organizationId,fingerprint);
        if(!sameOrg())return;
-       setCorporateReady(true);setCorporateTrustSha('');
+       setCorporateReady(true);setNativeNeedsTrust(false);setNativeFingerprint(fingerprint);setCorporateTrustSha('');
        setCorporateMessage('Исходный T3 подтвердил уже установленное доверие по SHA-256. '+
          'Повторное создание ключей или Store не требуется.');
        try{
@@ -205,19 +238,36 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
          setCorporateFailure('Лицензия подтверждена исходной квитанцией, но общий readback не удался: '+error(e));
        }
      }
-   }catch(e){if(sameOrg())setCorporateFailure('T3 не принял корпоративную лицензию: '+error(e));}
+   }catch(e){
+     if(!sameOrg())return;
+     // The native write may have committed before an IPC error or lost ACK.
+     // A matching signed pair recovered from Store is not evidence that the
+     // newly chosen physical carrier was itself successfully verified.
+     setCorporateFailure('Результат получения файла не подтверждён: '+error(e));
+     setCorporateRead(null);
+     try{
+       const evidence=await readOriginalCorporate(sameOrg);
+       if(!sameOrg()||!evidence)return;
+       setCorporateRead(evidence);
+       if(handoff&&evidence.licenses.some(row=>matchesCorporateSignedPair(row,handoff))){
+         setCorporateMessage('В T3 уже сохранены те же подписанные LICENSE и STATUS. Получение именно выбранного файла не подтверждено.');
+       }
+     }catch(readError){
+       if(sameOrg())setCorporateFailure('Результат получения не подтверждён. Чтение T3 недоступно: '+error(readError));
+     }
+   }
    finally{actionRef.current=false;setBusy(false);}
  }
  async function refreshCorporate(){
-   if(!invoke||!corporateReady||busy||actionRef.current)return;
+   if(!invoke||busy||actionRef.current)return;
    actionRef.current=true;setBusy(true);
-   setCorporateFailure('');
+   setCorporateFailure('');setCorporateMessage('');
    try{
-     const value=await invoke('center_cen04_corporate_t3_read',{organizationId});
-     const evidence=inspectCorporateRead(value,organizationId);
-     if(sameOrg()){
+     const evidence=await readOriginalCorporate(sameOrg);
+     if(sameOrg()&&evidence){
        if(corporateLatest)reconcileCorporateReceiveWithRead(corporateLatest,evidence);
        setCorporateRead(evidence);
+       setCorporateMessage('Подписанные сведения T3 обновлены.');
      }
    }catch(e){if(sameOrg()){
      setCorporateRead(null);setCorporateFailure('Корпоративное чтение T3: '+error(e));
@@ -230,7 +280,14 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
      <h4>Корпоративная лицензия: сверка файла</h4>
      <p className="muted">Корпоративное получение выполняет исключительно
        оригинальный T3 Consumer, отдельно от TEST-лицензий.</p>
-     {!corporateReady&&<div className="nested-form"
+     <label>Идентификатор организации для Publisher
+       <input ref={organizationField} readOnly value={organizationId}
+         data-testid="cen04-corporate-organization-id"/>
+     </label>
+     <button type="button" className="secondary"
+       onClick={()=>void copyOrganizationId()}
+       data-testid="cen04-corporate-organization-copy">Скопировать идентификатор организации</button>
+     {!corporateReady&&nativeNeedsTrust&&<div className="nested-form"
        data-testid="cen04-corporate-native-first-use">
        <strong>1. Подключение корпоративного издателя</strong>
        <p className="muted">Получите SHA-256 файла publisher-corporate-trust.json
@@ -251,10 +308,17 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
          Установить доверие корпоративного издателя
        </button>
      </div>}
-     {corporateReady&&<p className="muted"
-       data-testid="cen04-corporate-original-ready">
-       Корпоративный T3 Consumer подключён к выбранной организации.
-       Получение подписанного файла выполняется отдельно.</p>}
+     {corporateReady&&<div data-testid="cen04-corporate-original-ready">
+       <p className="muted">Корпоративный T3 Consumer подключён к выбранной организации.
+         Получение подписанного файла выполняется отдельно.</p>
+       <details><summary>Закреплённое доверие издателя</summary>
+         <code className="cen04-sha">{nativeFingerprint}</code>
+       </details>
+     </div>}
+     {!corporateReady&&!nativeNeedsTrust&&<p className="muted">
+       {busy?'Проверяем подключение T3.':
+         'Оригинальный корпоративный T3 недоступен. Проверьте установленный компонент и обновите состояние.'}
+     </p>}
      <p className="muted">2. Скопируйте контрольные данные из Publisher,
        вставьте их сюда и выберите полученный .iwxa. Подпись и STATUS проверит T3.</p>
      <label>Контрольные данные из Publisher
@@ -317,7 +381,7 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
      </button>
      <button type="button" className="secondary"
        data-testid="cen04-corporate-native-read"
-       disabled={!invoke||!corporateReady||busy}
+       disabled={!invoke||busy}
        onClick={()=>void refreshCorporate()}>
        Обновить корпоративные лицензии из T3
      </button>

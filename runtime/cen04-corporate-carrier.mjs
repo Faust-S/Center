@@ -69,11 +69,15 @@ export function parseCorporateDeliveryHandoff(text,organizationId){
 }
 // This comparison is made only AFTER the original T3 native receipt has
 // passed inspectCorporateReceived. Clipboard metadata never decides admission.
-export function matchesCorporateDeliveryReceipt(receipt,handoff){
+export function matchesCorporateSignedPair(receipt,handoff){
  return !!receipt&&!!handoff&&
   receipt.signedStatus===handoff.status&&
   ['organizationId','productId','licenseId','requestId','issuerAuthorityId',
-   'tariffId','tariffRevision','sequence','packageSha256',
+   'tariffId','tariffRevision','sequence',
    'licenseEnvelopeSha256','statusEnvelopeSha256']
    .every(key=>receipt[key]===handoff[key]);
+}
+export function matchesCorporateDeliveryReceipt(receipt,handoff){
+ return matchesCorporateSignedPair(receipt,handoff)&&
+  receipt.packageSha256===handoff.packageSha256;
 }

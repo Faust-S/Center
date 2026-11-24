@@ -4,7 +4,7 @@ import {inspectCorporateEnrollment,inspectCorporateCapabilities,
  inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived,
  reconcileCorporateReceiveWithRead}
  from '../runtime/cen04-corporate-receipt.mjs';
-import {parseCorporateDeliveryHandoff,matchesCorporateDeliveryReceipt} from '../runtime/cen04-corporate-carrier.mjs';
+import {parseCorporateDeliveryHandoff,matchesCorporateDeliveryReceipt,matchesCorporateSignedPair} from '../runtime/cen04-corporate-carrier.mjs';
 const ORG='org:company',SHA='a'.repeat(64),STORED='b'.repeat(64);
 const base=(operation,rest={})=>({
  schema:'IWXA_T3_CORPORATE_CONSUMER_NATIVE_RECEIPT/1',operation,
@@ -191,4 +191,13 @@ test('native receipt reconciles with exact cold read, never stale revision or di
  const copied=parseCorporateDeliveryHandoff(JSON.stringify(publisherTransfer()),ORG);
  const historical=inspectCorporateReceived({...received(),status:'STATUS_STALE'},ORG,SHA);
  assert.equal(matchesCorporateDeliveryReceipt(historical,copied),true);
+});
+
+test('lost receive ACK can recover the same signed pair but never assert a different carrier was received',()=>{
+ const expected=parseCorporateDeliveryHandoff(JSON.stringify(publisherTransfer()),ORG);
+ const row=inspectCorporateRead(view(),ORG).licenses[0];
+ assert.equal(matchesCorporateSignedPair(row,expected),true);
+ assert.equal(matchesCorporateDeliveryReceipt(row,expected),false);
+ const other=view();other.view.licenses[0].statusEnvelopeSha256='f'.repeat(64);
+ assert.equal(matchesCorporateSignedPair(inspectCorporateRead(other,ORG).licenses[0],expected),false);
 });
