@@ -1,0 +1,81 @@
+name: Activity original CehoVod recipient
+on:
+  push:
+    branches:
+      - work/2026-11-24-activity-d05-qualification
+    paths:
+      - .github/workflows/activity-d05-qualification.yml
+permissions:
+  contents: read
+jobs:
+  source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/cehovod.ru
+          ref: 74d2401f515d92c6dc0bb3007688aeefc65793b3
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private-d05
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify pinned source and shared Activity contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd private-d05
+          test "$(git rev-parse HEAD)" = "74d2401f515d92c6dc0bb3007688aeefc65793b3"
+          test "$(git rev-parse 'HEAD^{tree}')" = "09f019ec1bc717021f1155af908b98aceb72f3dd"
+          node --input-type=module - <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const root='src/lib/activity-technology/';
+          const pins=JSON.parse(readFileSync(root+'source-pin.json','utf8'));
+          for(const [p,sha] of Object.entries(pins.git_blobs)){
+            if(execFileSync('git',['rev-parse','HEAD:'+root+p],{encoding:'utf8'}).trim()!==sha)throw Error('ACTIVITY_VENDOR_PIN_CHANGED');
+          }
+          console.log('ACTIVITY_VENDOR_PIN=PASS');
+          NODE
+          echo SOURCE_PIN=PASS
+      - name: Install dependencies and qualify existing domain services
+        shell: bash
+        run: |
+          set -u
+          cd private-d05
+          log="$RUNNER_TEMP/activity-d05-install.log"
+          if ! npm ci --no-audit --no-fund > "$log" 2>&1; then echo NPM_CI=FAIL; exit 1; fi
+          echo NPM_CI=PASS
+          export CI=true
+          npm run typecheck > "$RUNNER_TEMP/activity-d05-type.log" 2>&1; type=$?
+          npx --no-install vitest run src/host/activity-technology-recipient.test.ts src/lib/operation-route.test.ts src/lib/quality-plan.session.test.ts src/lib/quality-plan.route-sources.test.ts src/host/draft-source-handoff.test.ts > "$RUNNER_TEMP/activity-d05-tests.log" 2>&1; tests=$?
+          npm run build:host-module > "$RUNNER_TEMP/activity-d05-build.log" 2>&1; build=$?
+          node --input-type=module - <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {join} from 'node:path';
+          const read=n=>readFileSync(join(process.env.RUNNER_TEMP,'activity-d05-'+n+'.log'),'utf8').replace(/\x1b\[[0-9;]*m/g,'');
+          const types=read('type'),tests=read('tests'),build=read('build');
+          for(const m of types.matchAll(/([A-Za-z0-9_./-]+\.tsx?)\((\d+),(\d+)\): error (TS\d+)/g))console.log('TYPE_DIAGNOSTIC='+m[1].split('/').at(-1)+':'+m[2]+':'+m[3]+':'+m[4]);
+          for(const line of tests.split(/\r?\n/)) {
+            if(/^\s*(?:Test Files|Tests)\s+/.test(line))console.log(line.trim().replace(/[^A-Za-z0-9 ()|]/g,''));
+            if(/activity-technology-recipient\.test\.ts:\d+:\d+/.test(line))console.log('TRACE='+line.match(/activity-technology-recipient\.test\.ts:\d+:\d+/)[0]);
+          }
+          for(const code of new Set((tests+'\n'+build).match(/\b(?:CEHOVOD_ACTIVITY_[A-Z_]+|TECHNOLOGY_D05_[A-Z_]+|TECHNOLOGY_[A-Z_]+|TypeError|AssertionError|ReferenceError)\b/g)||[]))console.log('FIXED_DIAGNOSTIC='+code);
+          NODE
+          echo "TYPECHECK=$([ "$type" -eq 0 ] && echo PASS || echo FAIL)"
+          echo "ADDRESSED_TESTS=$([ "$tests" -eq 0 ] && echo PASS || echo FAIL)"
+          echo "HOST_BUNDLE=$([ "$build" -eq 0 ] && echo PASS || echo FAIL)"
+          test "$type" -eq 0 && test "$tests" -eq 0 && test "$build" -eq 0
+      - name: Remove private source and logs
+        if: always()
+        shell: bash
+        run: |
+          rm -rf private-d05
+          rm -f "$RUNNER_TEMP"/activity-d05-*.log
