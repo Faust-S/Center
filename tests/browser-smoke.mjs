@@ -122,6 +122,17 @@ try{
   assert.equal(await page.getByTestId('assignment-row').count(),1);
   assert.ok((await page.getByTestId('assignment-atlas-status').textContent()).includes('совпадают'));
   checks.push('organization-workspace-two-participants-assignment');
+  // Exercise the positive Atlas filter using a real canonical model WorkRef.
+  await page.getByTestId('work-filter-atlas').click();
+  assert.equal(await page.getByTestId('assignment-row').count(),1);
+  assert.match(await page.getByTestId('assignment-row').innerText(),/Compare three suppliers/);
+  await page.getByTestId('work-filter-ordinary').click();
+  assert.equal(await page.getByTestId('assignment-row').count(),0);
+  assert.equal(await page.getByTestId('work-filter-empty').isVisible(),true);
+  await page.getByTestId('work-filter-all').click();
+  assert.equal(await page.getByTestId('assignment-row').count(),1);
+  assert.match(await page.getByTestId('assignment-atlas-status').textContent(),/совпадают/);
+  checks.push('v8-atlas-filter-real-workref-and-ordinary-exclusion');
   assert.equal(await page.getByTestId('nav-overview').getAttribute('aria-label'),
     'Обзор · Admin Center',
     'the native sidebar has a unique accessible Overview target alongside original T3');
@@ -515,6 +526,9 @@ try{
   await onboardPage.evaluate(()=>{window.__onboardD3Fixture.failSave=false;});
   await onboardPage.getByTestId('d3-enroll').click();
   try{
+    await onboardPage.waitForFunction(()=>document.querySelector('[data-testid="corporate-owner-status"]')?.textContent?.includes('Подписанный T3 D3 получатель доступен'),null,{timeout:8000});
+    assert.equal(await onboardPage.getByTestId('d3-enroll').count(),0,'successful enrollment must remove the enrollment action');
+    await onboardPage.getByTestId('subnav-review').click();
     await onboardPage.getByTestId('cen03-d3-original').waitFor({timeout:8000});
   }catch(e){
     // Preserve the precise original owner response and React UI state:
