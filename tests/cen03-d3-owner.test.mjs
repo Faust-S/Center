@@ -164,7 +164,7 @@ test('employee UI persists exact Task ID before signing and permits next Task on
  const save=issue.indexOf('saveEmployeeTaskContinuation(localStorage,taskScope,taskId)');
  const send=issue.indexOf("execute('d3EmployeeCreateTask'");
  assert.ok(save>=0&&send>save);
- assert.match(ui,/const freshTaskReadback=taskReceipt\?\.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK\/1'/);
+ assert.match(ui,/const freshTaskReadback=taskReadbackCurrent&&taskReceipt\?\.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK\/1'/);
  assert.match(ui,/taskAttempted&&!freshTaskReadback/);
  assert.match(ui,/const pending=readEmployeeTaskContinuation\(localStorage,taskScope\)/);
  assert.match(ui,/setTaskId\('task:'\+crypto\.randomUUID\(\)\)/);
