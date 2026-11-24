@@ -71,7 +71,9 @@ export function parseCorporateDeliveryHandoff(text,organizationId){
 // passed inspectCorporateReceived. Clipboard metadata never decides admission.
 export function matchesCorporateDeliveryReceipt(receipt,handoff){
  return !!receipt&&!!handoff&&
+  receipt.signedStatus===handoff.status&&
   ['organizationId','productId','licenseId','requestId','issuerAuthorityId',
-   'tariffId','tariffRevision','status','sequence','packageSha256']
+   'tariffId','tariffRevision','sequence','packageSha256',
+   'licenseEnvelopeSha256','statusEnvelopeSha256']
    .every(key=>receipt[key]===handoff[key]);
 }

@@ -289,6 +289,14 @@ const CORPORATE_NATIVE_SCHEMA:&str="IWXA_T3_CORPORATE_CONSUMER_NATIVE_RECEIPT/1"
 fn corporate_hex(s:&str)->bool{
   s.len()==64&&s.bytes().all(|x|x.is_ascii_digit()||(b'a'..=b'f').contains(&x))
 }
+fn corporate_envelope_identity(v:&Value)->bool{
+  let signed=v["signedStatus"].as_str().unwrap_or("");
+  let status=v["status"].as_str().unwrap_or("");
+  matches!(signed,"ACTIVE"|"SUSPENDED"|"REVOKED")&&
+    (status==signed||(signed!="REVOKED"&&matches!(status,"EXPIRED"|"STATUS_STALE")))&&
+    corporate_hex(v["licenseEnvelopeSha256"].as_str().unwrap_or(""))&&
+    corporate_hex(v["statusEnvelopeSha256"].as_str().unwrap_or(""))
+}
 fn corporate_opaque_read(receipt:&Value,org:&str)->Result<(),String>{
   if receipt["schema"]!=CORPORATE_NATIVE_SCHEMA||
      receipt["operation"]!="CORPORATE_READ"||
@@ -328,6 +336,11 @@ fn corporate_opaque_read(receipt:&Value,org:&str)->Result<(),String>{
        row["recipientConfirmed"]!=true||
        row["originalHolderReceiptRequired"]!=true||
        row["current"].as_bool().is_none()||
+       !corporate_envelope_identity(row)||
+       row["signedTerms"].as_object().is_none()||
+       row["expiresAt"].as_str().is_none()||
+       row["statusValidUntil"].as_str().is_none()||
+       !corporate_hex(row["packageSha256"].as_str().unwrap_or(""))||
        row["activeSeats"]!=0||
        row["assignablePersonalAgentSeats"]!=0||
        row["productionActivation"]!=false {
@@ -343,6 +356,7 @@ fn corporate_received(receipt:&Value,org:&str,sha:&str)->Result<(),String>{
      receipt["productId"]!="IWXA_ADMIN_CENTER"||
      receipt["packageSha256"]!=sha||
      !corporate_hex(receipt["storedPackageSha256"].as_str().unwrap_or(""))||
+     !corporate_envelope_identity(receipt)||
      !matches!(receipt["outcome"].as_str(),
        Some("VERIFIED_CORPORATE_SAVED"|"ALREADY_RECEIVED"))||
      !matches!(receipt["status"].as_str(),
@@ -540,7 +554,8 @@ mod tests {
       "productId":"IWXA_ADMIN_CENTER",
       "licenseId":"license:one","requestId":"request:one",
       "issuerAuthorityId":"publisher:original","tariffId":"TEAM",
-      "tariffRevision":2,"status":"ACTIVE","sequence":1,"revision":1,
+      "tariffRevision":2,"status":"ACTIVE","signedStatus":"ACTIVE","sequence":1,"revision":1,
+      "licenseEnvelopeSha256":"c".repeat(64),"statusEnvelopeSha256":"d".repeat(64),
       "outcome":"VERIFIED_CORPORATE_SAVED","packageSha256":sha,
       "storedPackageSha256":original,
       "trustOrigin":"HOST_PREINSTALLED_PUBLIC_POLICY",
@@ -565,6 +580,9 @@ mod tests {
       ("activeSeats",Value::from(1)),
       ("assignablePersonalAgentSeats",Value::from(1)),
       ("status",Value::String("NOT_SIGNED".into())),
+      ("signedStatus",Value::String("SUSPENDED".into())),
+      ("licenseEnvelopeSha256",Value::String("bad".into())),
+      ("statusEnvelopeSha256",Value::String("bad".into())),
       ("revision",Value::from(0))
     ]{
       let mut invalid=good.clone();
@@ -586,7 +604,12 @@ mod tests {
           "licenseId":"license:one","requestId":"request:one",
           "issuerAuthorityId":"publisher:original","organizationId":"org:company",
           "productId":"IWXA_ADMIN_CENTER","tariffId":"TEAM","tariffRevision":1,
-          "status":"STATUS_STALE","sequence":2,
+          "status":"STATUS_STALE","signedStatus":"ACTIVE","sequence":2,
+          "licenseEnvelopeSha256":"c".repeat(64),"statusEnvelopeSha256":"d".repeat(64),
+          "packageSha256":"a".repeat(64),
+          "signedTerms":{"productVersion":"0.4.1","featureIds":["WORKSPACE"],
+            "limits":{"adminCenterSeats":2,"employeeLimit":10,"personalAgentSeats":0,"quotas":[]}},
+          "expiresAt":"2026-12-23T10:00:00.000Z","statusValidUntil":"2026-11-24T10:00:00.000Z",
           "signatureVerified":true,"statusVerified":true,
           "recipientConfirmed":true,"originalHolderReceiptRequired":true,
           "current":false,"activeSeats":0,

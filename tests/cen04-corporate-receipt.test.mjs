@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {inspectCorporateEnrollment,inspectCorporateCapabilities,
- inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived}
+ inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived,
+ reconcileCorporateReceiveWithRead}
  from '../runtime/cen04-corporate-receipt.mjs';
 import {parseCorporateDeliveryHandoff,matchesCorporateDeliveryReceipt} from '../runtime/cen04-corporate-carrier.mjs';
 const ORG='org:company',SHA='a'.repeat(64),STORED='b'.repeat(64);
@@ -23,7 +24,8 @@ const received=()=>base('CORPORATE_RECEIVE',{
  organizationId:ORG,productId:'IWXA_ADMIN_CENTER',
  licenseId:'license:company',requestId:'request:company',
  issuerAuthorityId:'publisher:original',tariffId:'TEAM',tariffRevision:2,
- status:'ACTIVE',sequence:3,revision:4,outcome:'ALREADY_RECEIVED',
+ status:'ACTIVE',signedStatus:'ACTIVE',sequence:3,revision:4,outcome:'ALREADY_RECEIVED',
+ licenseEnvelopeSha256:'c'.repeat(64),statusEnvelopeSha256:'d'.repeat(64),
  packageSha256:SHA,storedPackageSha256:STORED,
  trustOrigin:'HOST_PREINSTALLED_PUBLIC_POLICY',
  signatureVerified:true,statusVerified:true,statusFloorVerified:true,
@@ -38,7 +40,13 @@ const view=()=>base('CORPORATE_READ',{view:{
  licenses:[{licenseId:'license:company',requestId:'request:company',
  issuerAuthorityId:'publisher:original',organizationId:ORG,
  productId:'IWXA_ADMIN_CENTER',tariffId:'TEAM',tariffRevision:2,
- status:'STATUS_STALE',sequence:3,current:false,
+ status:'STATUS_STALE',signedStatus:'ACTIVE',sequence:3,current:false,
+ licenseEnvelopeSha256:'c'.repeat(64),statusEnvelopeSha256:'d'.repeat(64),
+ packageSha256:STORED,expiresAt:'2026-12-23T10:00:00.000Z',
+ statusValidUntil:'2026-11-24T10:00:00.000Z',
+ signedTerms:{productVersion:'0.4.1',featureIds:['WORKSPACE','PERSONAL_AGENT_CORPORATE'],
+  limits:{adminCenterSeats:2,employeeLimit:10,personalAgentSeats:4,
+   quotas:[{metric:'REPORTS',service:'LOCAL',unit:'COUNT',period:'MONTH',max:700}]}},
  signatureVerified:true,statusVerified:true,recipientConfirmed:true,
  originalHolderReceiptRequired:true,activeSeats:0,
  assignablePersonalAgentSeats:0,productionActivation:false}]
@@ -139,8 +147,48 @@ test('an original T3 receipt cannot be displayed as the exact Publisher transfer
  const handoff=parseCorporateDeliveryHandoff(JSON.stringify(publisherTransfer()),ORG);
  for(const change of [{licenseId:'license:other'},{requestId:'request:other'},
    {issuerAuthorityId:'publisher:other'},{tariffId:'OTHER'},{tariffRevision:3},
-   {status:'SUSPENDED'},{sequence:4}]){
+   {status:'SUSPENDED',signedStatus:'SUSPENDED'},{sequence:4},
+   {licenseEnvelopeSha256:'e'.repeat(64)},{statusEnvelopeSha256:'f'.repeat(64)}]){
   const native=inspectCorporateReceived({...received(),...change},ORG,SHA);
   assert.equal(matchesCorporateDeliveryReceipt(native,handoff),false);
  }
+});
+
+test('only actual signed terms are shown, historical STATUS does not replace signed identity',()=>{
+ const v=inspectCorporateRead(view(),ORG),row=v.licenses[0];
+ assert.equal(row.signedTerms.limits.adminCenterSeats,2);
+ assert.equal(row.signedTerms.limits.personalAgentSeats,4);
+ assert.equal(row.signedTerms.limits.quotas[0].max,700);
+ assert.equal(row.signedStatus,'ACTIVE');
+ assert.equal(row.status,'STATUS_STALE');
+ assert.equal(Object.isFrozen(row.signedTerms.limits.quotas[0]),true);
+ assert.equal(v.assignablePersonalAgentSeats,0);
+ for(const change of [{signedStatus:'EXPIRED'},{signedTerms:null},
+   {signedTerms:{...view().view.licenses[0].signedTerms,limits:{adminCenterSeats:0}}},
+   {expiresAt:'unknown'},{statusValidUntil:'2027-01-01T00:00:00.000Z'},
+   {statusEnvelopeSha256:'bad'},{current:true}]){
+   const invalid=view();Object.assign(invalid.view.licenses[0],change);
+   assert.throws(()=>inspectCorporateRead(invalid,ORG));
+ }
+});
+test('native receipt reconciles with exact cold read, never stale revision or different signed envelope',()=>{
+ const rec=inspectCorporateReceived(received(),ORG,SHA);
+ assert.equal(reconcileCorporateReceiveWithRead(rec,inspectCorporateRead(view(),ORG)).newer,false);
+ const newer=view();newer.view.revision++;
+ Object.assign(newer.view.licenses[0],{sequence:4,status:'SUSPENDED',signedStatus:'SUSPENDED',
+   current:true,statusEnvelopeSha256:'f'.repeat(64)});
+ assert.equal(reconcileCorporateReceiveWithRead(rec,inspectCorporateRead(newer,ORG)).newer,true);
+ const old=view();old.view.revision--;
+ assert.throws(()=>reconcileCorporateReceiveWithRead(rec,inspectCorporateRead(old,ORG)));
+ const absent=view();absent.view.licenses=[];
+ assert.throws(()=>reconcileCorporateReceiveWithRead(rec,inspectCorporateRead(absent,ORG)));
+ for(const change of [{licenseEnvelopeSha256:'f'.repeat(64)},
+   {statusEnvelopeSha256:'f'.repeat(64)},{packageSha256:SHA},
+   {requestId:'request:other'},{sequence:2}]){
+  const invalid=view();Object.assign(invalid.view.licenses[0],change);
+  assert.throws(()=>reconcileCorporateReceiveWithRead(rec,inspectCorporateRead(invalid,ORG)));
+ }
+ const copied=parseCorporateDeliveryHandoff(JSON.stringify(publisherTransfer()),ORG);
+ const historical=inspectCorporateReceived({...received(),status:'STATUS_STALE'},ORG,SHA);
+ assert.equal(matchesCorporateDeliveryReceipt(historical,copied),true);
 });

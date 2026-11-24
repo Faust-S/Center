@@ -3,7 +3,8 @@ import {checkCorporateCarrierExpectation,checkCorporateCarrierMatch,
  parseCorporateDeliveryHandoff,matchesCorporateDeliveryReceipt}
  from '../runtime/cen04-corporate-carrier.mjs';
 import {inspectCorporateEnrollment,inspectCorporateCapabilities,
- inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived}
+ inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived,
+ reconcileCorporateReceiveWithRead}
  from '../runtime/cen04-corporate-receipt.mjs';
 
 // This is only the UI of the ORIGINAL T3 corporate Consumer profile.
@@ -186,14 +187,17 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
        const read=await invoke('center_cen04_corporate_t3_read',{organizationId});
        const evidence=inspectCorporateRead(read,organizationId);
        if(!sameOrg())return;
+       const checked=reconcileCorporateReceiveWithRead(saved,evidence);
        setCorporateRead(evidence);
        if(!handoffMatched){
          // A genuine T3 write already happened; do not claim that it failed.
          setCorporateFailure('T3 сохранил подписанный файл, но его данные не совпали с вставленными данными Publisher. Проверьте исходную выдачу.');
        }else{
-         setCorporateMessage(saved.outcome==='ALREADY_RECEIVED'
-           ?'Исходные LICENSE и STATUS уже сохранены в T3. Новая запись не создана.'
-           :'Подписи LICENSE и STATUS проверены оригинальным T3, запись сохранена и прочитана.');
+         setCorporateMessage(checked.newer
+           ?'Лицензия получена. В T3 уже сохранён более новый STATUS, показан актуальный.'
+           :saved.outcome==='ALREADY_RECEIVED'
+             ?'Исходные LICENSE и STATUS уже сохранены в T3. Новая запись не создана.'
+             :'Подписи LICENSE и STATUS проверены оригинальным T3, запись сохранена и прочитана.');
        }
      }catch(e){
        if(sameOrg()){
@@ -211,7 +215,10 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
    try{
      const value=await invoke('center_cen04_corporate_t3_read',{organizationId});
      const evidence=inspectCorporateRead(value,organizationId);
-     if(sameOrg())setCorporateRead(evidence);
+     if(sameOrg()){
+       if(corporateLatest)reconcileCorporateReceiveWithRead(corporateLatest,evidence);
+       setCorporateRead(evidence);
+     }
    }catch(e){if(sameOrg()){
      setCorporateRead(null);setCorporateFailure('Корпоративное чтение T3: '+error(e));
    }}
@@ -343,20 +350,43 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
          Лицензий: {corporateRead.licenses.length}.
          Редакция Store: {corporateRead.revision}.
          Назначаемых мест Personal Agent: 0.</p>
-       {corporateRead.licenses.map((row:{licenseId:string;issuerAuthorityId:string;
-         tariffId:string;status:string;sequence:number;current:boolean})=><div className="simple-row"
-         key={row.licenseId}>
-         <div><strong>{row.licenseId}</strong>
-           <small>Издатель: {row.issuerAuthorityId};
-             тариф: {row.tariffId};
-             STATUS: {row.status};
-             последовательность: {row.sequence}.
-             {row.current?' Подпись действительна на момент чтения.':
-               ' Сохранена история, текущие права не подтверждены.'}
-           </small>
+       {corporateRead.licenses.map(row=><section className="nested-form"
+         data-testid="cen04-corporate-license-terms" key={row.licenseId}>
+         <div className="simple-row">
+           <div><strong>Тариф {row.tariffId}, редакция {row.tariffRevision}</strong>
+             <small>STATUS: {row.status}; последовательность: {row.sequence}.</small>
+             <small>{row.current?'STATUS проверен на момент чтения.':
+               'Историческая запись, срок действия или срок STATUS истёк.'}</small>
+           </div>
+           <span className="status neutral">Получено T3</span>
          </div>
-         <span className="status neutral">Получено T3</span>
-       </div>)}
+         <div className="form-grid" aria-label="Подписанные условия лицензии">
+           <div><small>Места Admin Center по лицензии</small>
+             <strong>{' '}{row.signedTerms.limits.adminCenterSeats}</strong></div>
+           <div><small>Лимит сотрудников</small>
+             <strong>{' '}{row.signedTerms.limits.employeeLimit}</strong></div>
+           <div><small>Места Personal Agent по лицензии</small>
+             <strong>{' '}{row.signedTerms.limits.personalAgentSeats}</strong></div>
+         </div>
+         <p>Доступно к назначению: 0. Подписанные лимиты ещё не применены.</p>
+         <p>Лицензия до: {row.expiresAt.replace('T',' ').replace('.000Z',' UTC')}.
+           {' '}STATUS до: {row.statusValidUntil.replace('T',' ').replace('.000Z',' UTC')}.</p>
+         <details>
+           <summary>Функции, квоты и данные подписанной лицензии</summary>
+           <p>Версия продукта: {row.signedTerms.productVersion}.</p>
+           <p>Функции: {row.signedTerms.featureIds.join(', ')||'Не указаны'}.</p>
+           {row.signedTerms.limits.quotas.length>0?<div>
+             {row.signedTerms.limits.quotas.map(q=><p key={q.service+':'+q.metric+':'+q.period}>
+               {q.metric}: {q.max} {q.unit} / {q.period} ({q.service})
+             </p>)}
+           </div>:<p>Квоты ресурсов не указаны.</p>}
+           <p>Лицензия: {row.licenseId}.</p>
+           <p>Запрос: {row.requestId}. Издатель: {row.issuerAuthorityId}.</p>
+           <p>Подписанный STATUS: {row.signedStatus}.</p>
+           <p>SHA-256 LICENSE: <code className="cen04-sha">{row.licenseEnvelopeSha256}</code></p>
+           <p>SHA-256 STATUS: <code className="cen04-sha">{row.statusEnvelopeSha256}</code></p>
+         </details>
+       </section>)}
      </div>}
      {!invoke&&<p className="muted">
        Выбор файла доступен в установленном Admin Center.</p>}
