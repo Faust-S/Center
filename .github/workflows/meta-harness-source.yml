@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: 74e85f1031c22ef5cd5a9c5ff92749771212cc9d
-      PRIVATE_TREE: df46ad7b2d180661087774d0b93962705bb65a0a
+      PRIVATE_PIN: e1c903c09a451acbc82954db1ba6da29b7dea168
+      PRIVATE_TREE: 9f996cdd0d142cb0750e8b32bbc5cba3cdbd84b3
       QUALIFY_SCOPE: TASK_TRANSPORT
     steps:
       - uses: actions/setup-python@v5
@@ -123,7 +123,7 @@ jobs:
                                    "tests/test_agent06_claude_code_cli.py"],
                   }
                   if os.environ.get("QUALIFY_SCOPE")=="TASK_TRANSPORT":
-                      groups={"TASK_TRANSPORT":["tests/test_meta_harness_original_task_workflow.py::test_original_task_uses_production_goose_and_claude_adapter_transports"]}
+                      groups={"TASK_TRANSPORT":["tests/test_meta_harness_original_task_workflow.py"]}
                   failed = False
                   for group, files in groups.items():
                       if not files or any(not (source / f.split("::",1)[0]).is_file() for f in files):
