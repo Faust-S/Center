@@ -21,24 +21,28 @@ test('corporate UI states that Atlas is optional for an ordinary T3 Task',()=>{
 });
 
 test('D3 generic signed Task UI does not eagerly import Atlas product modules',()=>{
-  const source=readFileSync(new URL('../src/CorporateD3Panel.tsx',import.meta.url),'utf8');
-  const head=source.slice(0,source.indexOf('export default function CorporateD3Panel'));
-  assert.doesNotMatch(head,/from ['"]\.\/atlas-(?:native|integration)\.mjs['"]/,
-    'a generic signed Task cannot depend on Atlas UI module startup');
-  const begin=source.indexOf('const createSignedTask=');
-  const end=source.indexOf('const recoverTaskById=',begin);
-  assert.ok(begin>0&&end>begin,'original independent Task UI must still exist');
-  const issue=source.slice(begin,end);
-  const sourceSelection=issue.indexOf('const source=assignmentDrafts.find');
-  const linkedOnly=issue.indexOf('if(source){',sourceSelection);
-  const imports=issue.indexOf("import('./atlas-native.mjs')",linkedOnly);
-  const strictRead=issue.indexOf("current!=='SOURCE_REVISION_MATCHES'",imports);
-  const originalSigner=issue.indexOf("execute('d3CreateTask'",strictRead);
-  assert.ok(sourceSelection>=0&&linkedOnly>sourceSelection&&imports>linkedOnly&&
-    strictRead>imports&&originalSigner>strictRead,
+  const manager=readFileSync(new URL('../src/CorporateD3Panel.tsx',import.meta.url),'utf8');
+  const employee=readFileSync(new URL('../src/CorporateEmployeeEnrollment.tsx',import.meta.url),'utf8');
+  const common=readFileSync(new URL('../src/signed-draft-task.ts',import.meta.url),'utf8');
+  for(const source of [manager,employee,common])
+    assert.doesNotMatch(source,/from ['"]\.\/atlas-(?:native|integration)\.mjs['"]/,
+      'a generic signed Task cannot depend on Atlas UI module startup');
+  const verify=common.slice(common.indexOf('export async function verifyDraftSigningSources'));
+  const linkedOnly=verify.indexOf('if(atlas){');
+  const imports=verify.indexOf("import('./atlas-native.mjs')",linkedOnly);
+  const strictRead=verify.indexOf("current!=='SOURCE_REVISION_MATCHES'",imports);
+  assert.ok(linkedOnly>=0&&imports>linkedOnly&&strictRead>imports,
     'only an explicit AtlasRef may load native Atlas and must preserve the currentness gate');
-  assert.match(issue,/import\('\.\/atlas-integration\.mjs'\)/);
-  assert.match(issue,/throw Error\('CEN_D3_ATLAS_SOURCE_REVISION_STALE'\)/);
+  assert.match(verify,/import\('\.\/atlas-integration\.mjs'\)/);
+  assert.match(verify,/throw Error\('CEN_D3_ATLAS_SOURCE_REVISION_STALE'\)/);
+  assert.match(verify,/draft\.workspaceId!==session\.workspaceId/);
+  assert.match(verify,/await readOriginalAppliedResult\(execute,session,draft\.sourceResultRef\)/);
+  for(const [source,operation] of [[manager,'d3CreateTask'],[employee,'d3EmployeeCreateTask']]){
+    const checked=source.indexOf('await verifyDraftSigningSources(');
+    const originalSigner=source.indexOf("execute('"+operation+"'",checked);
+    assert.ok(checked>=0&&originalSigner>checked,
+      operation+' must await the same original-source gate before dispatch');
+  }
 });
 test('independent employee signed Task accepts original native state, never first-person status',()=>{
  const scope={taskId:'task:work-verified',employeePersonId:'person:employee',
