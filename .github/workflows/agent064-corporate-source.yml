@@ -16,8 +16,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      AGENT_PIN: '83495d1e733428947ce58a9789d79dce37a6ccf5'
-      AGENT_TREE: 'b68fdf20b4870f725ee497ee6fdab3869253cbbc'
+      AGENT_PIN: '21a1a9b52bdf866ae7ec02b71e92a76866f72eae'
+      AGENT_TREE: '4efd9b6e0b097c3bdd811cf228c2e80e0062034e'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
