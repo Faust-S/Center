@@ -18,8 +18,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: ce6978a8e6205a3692adb60072e949fca3ae6bbc
-      PRIVATE_TREE: 1b6c1b8c8b6b2936e37ffc92dd18363f252e0f9e
+      PRIVATE_PIN: 2b94d02aefde707efab6a6a3a3943dff82d8db06
+      PRIVATE_TREE: fe733cff26512004629d75f0faa75e36fd9ddeb8
+      QUALIFY_SCOPE: TASK_TRANSPORT
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -117,9 +118,11 @@ jobs:
                       "ADAPTERS": ["tests/test_goose_agent_runtime_user_ready.py",
                                    "tests/test_agent06_claude_code_cli.py"],
                   }
+                  if os.environ.get("QUALIFY_SCOPE")=="TASK_TRANSPORT":
+                      groups={"TASK_TRANSPORT":["tests/test_meta_harness_original_task_workflow.py::test_original_task_uses_production_goose_and_claude_adapter_transports"]}
                   failed = False
                   for group, files in groups.items():
-                      if not files or any(not (source / f).is_file() for f in files):
+                      if not files or any(not (source / f.split("::",1)[0]).is_file() for f in files):
                           status(group,"FILES_MISSING"); failed=True; continue
                       report = root / (group+".json")
                       proc = run([sys.executable,str(plugin),str(report),*files],timeout=420)
@@ -134,6 +137,8 @@ jobs:
                       success = proc.returncode==0 and data["counts"]["passed"]>0 and not data["counts"]["failed"] and not data["counts"]["collection_errors"]
                       status(group,"PASS" if success else "FAIL")
                       failed = failed or not success
+                  if os.environ.get("QUALIFY_SCOPE")=="TASK_TRANSPORT":
+                      return int(failed)
                   # Compile the complete existing desktop; publish only results.
                   desktop=source / "desktop"
                   npm=["cmd.exe","/d","/c","npm"] if os.name=="nt" else ["npm"]
