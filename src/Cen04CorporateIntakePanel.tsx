@@ -1,5 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
-import {checkCorporateCarrierExpectation,checkCorporateCarrierMatch}
+import {checkCorporateCarrierExpectation,checkCorporateCarrierMatch,
+ parseCorporateDeliveryHandoff,matchesCorporateDeliveryReceipt}
  from '../runtime/cen04-corporate-carrier.mjs';
 import {inspectCorporateEnrollment,inspectCorporateCapabilities,
  inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived}
@@ -15,6 +16,8 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
  const actionRef=useRef(false);
  const [corporateSha,setCorporateSha]=useState('');
  const [corporateBytes,setCorporateBytes]=useState('');
+ const [handoffText,setHandoffText]=useState('');
+ const [handoff,setHandoff]=useState<ReturnType<typeof parseCorporateDeliveryHandoff>|null>(null);
  const [corporateTrustSha,setCorporateTrustSha]=useState('');
  const [corporateReady,setCorporateReady]=useState(false);
  const [corporateRead,setCorporateRead]=useState<ReturnType<typeof inspectCorporateRead>|null>(null);
@@ -30,6 +33,7 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
  const sameOrg=()=>latestOrgRef.current===organizationId;
  useEffect(()=>{
   setCorporateFile(null);setCorporateSha('');setCorporateBytes('');
+  setHandoff(null);setHandoffText('');
   setCorporateMessage('');setCorporateFailure('');setCorporateTrustSha('');
   setCorporateReady(false);setCorporateRead(null);setCorporateLatest(null);
   let live=true;
@@ -52,6 +56,27 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
   }
   return()=>{live=false;};
  },[organizationId,invoke]);
+ // Only the chosen organization may use the pasted transfer details.
+ // Editing either manual field discards the previously applied clipboard data.
+ function resetCarrierEvidence(){
+   setCorporateFile(null);setCorporateLatest(null);
+   setCorporateMessage('');setCorporateFailure('');
+ }
+ function applyHandoff(){
+   if(busy)return;
+   resetCarrierEvidence();
+   setHandoff(null);setCorporateSha('');setCorporateBytes('');
+   try{
+     const data=parseCorporateDeliveryHandoff(handoffText,organizationId);
+     setHandoff(data);setCorporateSha(data.packageSha256);
+     setCorporateBytes(String(data.bytes));
+     setCorporateMessage('Контрольные данные перенесены. Выберите полученный .iwxa.');
+   }catch(e){
+     setCorporateFailure(error(e).includes('WRONG_ORGANIZATION')
+       ?'Данные Publisher относятся к другой организации. Выберите нужную организацию.'
+       :'Не удалось прочитать контрольные данные. Скопируйте их из Publisher ещё раз.');
+   }
+ }
  async function verifyCorporateFile(){
    if(!invoke||busy||actionRef.current)return;
    const expectedSha256=corporateSha.trim().toLowerCase();
@@ -156,14 +181,20 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
      if(result===null){setCorporateMessage('Получение корпоративного файла отменено.');return;}
      const saved=inspectCorporateReceived(result,organizationId,expectedSha256);
      setCorporateLatest(saved);
+     const handoffMatched=!handoff||matchesCorporateDeliveryReceipt(saved,handoff);
      try{
        const read=await invoke('center_cen04_corporate_t3_read',{organizationId});
        const evidence=inspectCorporateRead(read,organizationId);
        if(!sameOrg())return;
        setCorporateRead(evidence);
-       setCorporateMessage(saved.outcome==='ALREADY_RECEIVED'
-         ?'Исходные LICENSE и STATUS уже сохранены в T3. Новая запись не создана.'
-         :'Подписи LICENSE и STATUS проверены оригинальным T3, запись сохранена и прочитана.');
+       if(!handoffMatched){
+         // A genuine T3 write already happened; do not claim that it failed.
+         setCorporateFailure('T3 сохранил подписанный файл, но его данные не совпали с вставленными данными Publisher. Проверьте исходную выдачу.');
+       }else{
+         setCorporateMessage(saved.outcome==='ALREADY_RECEIVED'
+           ?'Исходные LICENSE и STATUS уже сохранены в T3. Новая запись не создана.'
+           :'Подписи LICENSE и STATUS проверены оригинальным T3, запись сохранена и прочитана.');
+       }
      }catch(e){
        if(sameOrg()){
          setCorporateRead(null);
@@ -217,25 +248,39 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
        data-testid="cen04-corporate-original-ready">
        Корпоративный T3 Consumer подключён к выбранной организации.
        Получение подписанного файла выполняется отдельно.</p>}
-     <p className="muted">2. После выпуска лицензии в Publisher перенесите
-       контрольную сумму и размер сохранённого .iwxa. Admin Center сравнит
-       их с выбранным файлом. Это первый этап передачи, до получения и
-       проверки подписанной лицензии в корпоративном T3 Consumer.</p>
+     <p className="muted">2. Скопируйте контрольные данные из Publisher,
+       вставьте их сюда и выберите полученный .iwxa. Подпись и STATUS проверит T3.</p>
+     <label>Контрольные данные из Publisher
+       <textarea rows={3} maxLength={8192} spellCheck={false} autoComplete="off"
+         data-testid="cen04-corporate-handoff-text"
+         value={handoffText} disabled={busy}
+         placeholder="Вставьте скопированные данные"
+         onChange={e=>{
+           setHandoffText(e.target.value);setHandoff(null);
+           setCorporateSha('');setCorporateBytes('');resetCarrierEvidence();
+         }}/>
+     </label>
+     <button type="button" className="secondary"
+       data-testid="cen04-corporate-handoff-apply"
+       disabled={busy||!handoffText.trim()}
+       onClick={applyHandoff}>Перенести контрольные данные</button>
+     {handoff&&<p data-testid="cen04-corporate-handoff-summary" className="muted">
+       Лицензия: {handoff.licenseId}. STATUS: {handoff.status},
+       последовательность: {handoff.sequence}. Данные ещё не проверены T3.
+     </p>}
      <label>SHA-256 корпоративного .iwxa из Publisher
        <input data-testid="cen04-corporate-sha256" value={corporateSha}
          autoComplete="off" spellCheck={false} disabled={busy}
          placeholder="64 символа"
-         onChange={e=>{setCorporateSha(e.target.value);setCorporateFile(null);
-           setCorporateLatest(null);
-           setCorporateMessage('');setCorporateFailure('');}}/>
+         onChange={e=>{setCorporateSha(e.target.value);setHandoff(null);
+           setHandoffText('');resetCarrierEvidence();}}/>
      </label>
      <label>Размер файла из Publisher (байт)
        <input data-testid="cen04-corporate-bytes" value={corporateBytes}
          inputMode="numeric" autoComplete="off" disabled={busy}
          placeholder="Например, 7312"
-         onChange={e=>{setCorporateBytes(e.target.value);setCorporateFile(null);
-           setCorporateLatest(null);
-           setCorporateMessage('');setCorporateFailure('');}}/>
+         onChange={e=>{setCorporateBytes(e.target.value);setHandoff(null);
+           setHandoffText('');resetCarrierEvidence();}}/>
      </label>
      <button type="button" className="secondary"
        data-testid="cen04-corporate-verify-carrier"

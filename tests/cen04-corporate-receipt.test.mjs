@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {inspectCorporateEnrollment,inspectCorporateCapabilities,
  inspectCorporatePinnedTrust,inspectCorporateRead,inspectCorporateReceived}
  from '../runtime/cen04-corporate-receipt.mjs';
+import {parseCorporateDeliveryHandoff,matchesCorporateDeliveryReceipt} from '../runtime/cen04-corporate-carrier.mjs';
 const ORG='org:company',SHA='a'.repeat(64),STORED='b'.repeat(64);
 const base=(operation,rest={})=>({
  schema:'IWXA_T3_CORPORATE_CONSUMER_NATIVE_RECEIPT/1',operation,
@@ -101,4 +102,45 @@ test('corporate read preserves expired history and rejects forged license row',(
  assert.throws(()=>inspectCorporateRead(duplicate,ORG));
  const bypass=view();bypass.view.licenses[0].activeSeats=2;
  assert.throws(()=>inspectCorporateRead(bypass,ORG));
+});
+
+const publisherTransfer=()=>({
+ licenseId:'license:company',requestId:'request:company',
+ issuerAuthorityId:'publisher:original',organizationId:ORG,
+ productId:'IWXA_ADMIN_CENTER',tariffId:'TEAM',tariffRevision:2,
+ status:'ACTIVE',sequence:3,
+ licenseEnvelopeSha256:'c'.repeat(64),statusEnvelopeSha256:'d'.repeat(64),
+ packageSha256:SHA,bytes:7312,
+ recipientConfirmed:false,assignablePersonalAgentSeats:0
+});
+test('existing Publisher handoff transfers file evidence and exact signed identity in one paste',()=>{
+ const handoff=parseCorporateDeliveryHandoff(JSON.stringify(publisherTransfer()),ORG);
+ assert.equal(handoff.packageSha256,SHA);
+ assert.equal(handoff.bytes,7312);
+ assert.equal(handoff.recipientConfirmed,false);
+ assert.equal(Object.isFrozen(handoff),true);
+ const native=inspectCorporateReceived(received(),ORG,SHA);
+ assert.equal(matchesCorporateDeliveryReceipt(native,handoff),true);
+});
+test('Publisher handoff is never accepted for another organization or as a grant',()=>{
+ const valid=publisherTransfer();
+ assert.throws(()=>parseCorporateDeliveryHandoff(JSON.stringify(valid),'org:other'),
+  /CEN04_PUBLISHER_HANDOFF_WRONG_ORGANIZATION/);
+ for(const change of [{productId:'OTHER'},{status:'NOT_ACTIVATED'},
+   {sequence:0},{tariffRevision:0},{recipientConfirmed:true},
+   {assignablePersonalAgentSeats:1},{signature:'forged'},
+   {packageSha256:'bad'},{bytes:4194305},{licenseEnvelopeSha256:'bad'}]){
+  assert.throws(()=>parseCorporateDeliveryHandoff(JSON.stringify({...valid,...change}),ORG));
+ }
+ for(const raw of ['','not json','[]','null','x'.repeat(8193)])
+   assert.throws(()=>parseCorporateDeliveryHandoff(raw,ORG));
+});
+test('an original T3 receipt cannot be displayed as the exact Publisher transfer if its signed identity differs',()=>{
+ const handoff=parseCorporateDeliveryHandoff(JSON.stringify(publisherTransfer()),ORG);
+ for(const change of [{licenseId:'license:other'},{requestId:'request:other'},
+   {issuerAuthorityId:'publisher:other'},{tariffId:'OTHER'},{tariffRevision:3},
+   {status:'SUSPENDED'},{sequence:4}]){
+  const native=inspectCorporateReceived({...received(),...change},ORG,SHA);
+  assert.equal(matchesCorporateDeliveryReceipt(native,handoff),false);
+ }
 });

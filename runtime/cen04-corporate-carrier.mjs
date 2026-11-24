@@ -35,3 +35,43 @@ export function checkCorporateCarrierMatch(receipt,expectation){
    signedLicenseAccepted:false,assignablePersonalAgentSeats:0
  });
 }
+
+// Paste the existing Publisher export projection in one action instead of
+// typing its SHA-256 and size separately. This is untrusted transfer metadata,
+// NOT a new exchange format, signed document, trust root or entitlement.
+const HANDOFF_FIELDS=[
+ 'licenseId','requestId','issuerAuthorityId','organizationId','productId',
+ 'tariffId','tariffRevision','status','sequence','licenseEnvelopeSha256',
+ 'statusEnvelopeSha256','packageSha256','bytes','recipientConfirmed',
+ 'assignablePersonalAgentSeats'
+];
+const HANDOFF_STATES=new Set(['ACTIVE','SUSPENDED','REVOKED']);
+export function parseCorporateDeliveryHandoff(text,organizationId){
+ const code='CEN04_PUBLISHER_HANDOFF_INVALID';
+ ensure(typeof text==='string'&&text.length>0&&text.length<=8192,code);
+ let data;
+ try{data=JSON.parse(text);}catch{throw Error(code);}
+ ensure(data!==null&&typeof data==='object'&&!Array.isArray(data)&&
+   Object.keys(data).length===HANDOFF_FIELDS.length&&
+   HANDOFF_FIELDS.every(k=>Object.hasOwn(data,k)),code);
+ for(const key of ['licenseId','requestId','issuerAuthorityId','organizationId','tariffId'])
+   ensure(typeof data[key]==='string'&&ID.test(data[key]),code);
+ ensure(data.organizationId===organizationId,'CEN04_PUBLISHER_HANDOFF_WRONG_ORGANIZATION');
+ ensure(data.productId==='IWXA_ADMIN_CENTER'&&
+   Number.isSafeInteger(data.tariffRevision)&&data.tariffRevision>0&&
+   Number.isSafeInteger(data.sequence)&&data.sequence>0&&
+   HANDOFF_STATES.has(data.status)&&
+   typeof data.licenseEnvelopeSha256==='string'&&HEX.test(data.licenseEnvelopeSha256)&&
+   typeof data.statusEnvelopeSha256==='string'&&HEX.test(data.statusEnvelopeSha256)&&
+   data.recipientConfirmed===false&&data.assignablePersonalAgentSeats===0,code);
+ checkCorporateCarrierExpectation({organizationId,sha256:data.packageSha256,bytes:data.bytes});
+ return Object.freeze(data);
+}
+// This comparison is made only AFTER the original T3 native receipt has
+// passed inspectCorporateReceived. Clipboard metadata never decides admission.
+export function matchesCorporateDeliveryReceipt(receipt,handoff){
+ return !!receipt&&!!handoff&&
+  ['organizationId','productId','licenseId','requestId','issuerAuthorityId',
+   'tariffId','tariffRevision','status','sequence','packageSha256']
+   .every(key=>receipt[key]===handoff[key]);
+}

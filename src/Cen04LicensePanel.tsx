@@ -253,7 +253,7 @@ export default function Cen04LicensePanel({organizationId,organizationName,organ
        <span className="status neutral">Подпись T3 проверена</span>
      </div>)}
    </div>}
-   <Cen04CorporateIntakePanel organizationId={organizationId} invoke={invoke}/>
+   <Cen04CorporateIntakePanel key={organizationId} organizationId={organizationId} invoke={invoke}/>
     <div className="notice subdued">
      TEST-лицензии не дают права назначать места Personal Agent. Активных мест: 0.
    </div>

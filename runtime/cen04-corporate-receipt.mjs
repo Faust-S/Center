@@ -80,7 +80,9 @@ export function inspectCorporateReceived(v,organizationId,expectedSha256){
     v.recipientConfirmed!==true||v.originalHolderReceiptRequired!==true||
     v.holderApplied!==false)denied();
  return Object.freeze({
-   organizationId,licenseId:v.licenseId,issuerAuthorityId:v.issuerAuthorityId,
+   organizationId,productId:v.productId,licenseId:v.licenseId,
+   requestId:v.requestId,issuerAuthorityId:v.issuerAuthorityId,
+   tariffId:v.tariffId,tariffRevision:v.tariffRevision,
    status:v.status,sequence:v.sequence,revision:v.revision,
    outcome:v.outcome,packageSha256:v.packageSha256,
    signedLicenseAccepted:true,holderApplied:false,
