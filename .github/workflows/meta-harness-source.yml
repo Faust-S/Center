@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: 2b94d02aefde707efab6a6a3a3943dff82d8db06
-      PRIVATE_TREE: fe733cff26512004629d75f0faa75e36fd9ddeb8
+      PRIVATE_PIN: 74e85f1031c22ef5cd5a9c5ff92749771212cc9d
+      PRIVATE_TREE: df46ad7b2d180661087774d0b93962705bb65a0a
       QUALIFY_SCOPE: TASK_TRANSPORT
     steps:
       - uses: actions/setup-python@v5
@@ -92,8 +92,12 @@ jobs:
                   if rep.failed:
                       counts["failed"]+=1
                       crash=getattr(rep.longrepr,"reprcrash",None)
+                      detail=str(rep.longrepr)
+                      match=re.search(r"TRANSPORT_DIAGNOSTIC:([A-Za-z0-9_:]+)",detail)
+                      allowed={"FIRST","SECOND","CLI_ENTERED","BEFORE_CLI","NONE","OTHER","AssertionError","OSError","FileNotFoundError","TypeError","ValueError","RuntimeError","PORT_UNAVAILABLE","PORT_PROTOCOL_ERROR","AUTHORITY_REQUIRED","PRIVACY_DENIED","TIMED_OUT","CANCELLED","AGENT_RUNTIME_TIMEOUT","AGENT_RUNTIME_PRIVACY_DENIED","AGENT_RUNTIME_RESPONSE_INVALID","AGENT_RUNTIME_UNAVAILABLE","AGENT_RUNTIME_INVOCATION_FAILED","AGENT_RUNTIME_RESULT_AFTER_CANCEL_UNCONFIRMED","AGENT_RUNTIME_OUTCOME_UNKNOWN","AGENT_HANDOFF_PREVIEW_CHANGED","goose_runtime_not_selected","goose_local_model_not_configured","goose_local_model_not_ready","goose_local_agent_runtime_failed","goose_agent_runtime_failed","goose_agent_runtime_launch_failed","goose_executable_identity_changed_during_execution","goose_model_identity_changed_during_execution","goose_local_model_endpoint_invalid","goose_non_loopback_model_endpoint_forbidden","goose_executable_invalid","goose_runtime_executable_invalid","goose_output_secret_pattern","goose_agent_runtime_empty_output","goose_cancelled_before_dispatch","goose_user_cancelled","goose_local_cli_stop_unconfirmed","goose_agent_runtime_timeout","explicit_agent_runtime_usage_confirmation_required","goose_system_secret_pattern","goose_prompt_secret_pattern","goose_system_local_user_path","goose_prompt_local_user_path","claude_cli_execution_failed","claude_cli_launch_failed","claude_result_event_missing","claude_result_failed","claude_empty_result","claude_user_login_required","claude_user_cancelled","claude_result_secret_pattern","claude_runtime_id_mismatch","agent_runtime_route_mismatch","agent_runtime_binding_digest_mismatch"}
+                      diag=":".join(x if x in allowed else "OTHER" for x in match.group(1).split(":")[:6]) if match else ""
                       failures.append({"id":fingerprint(rep.nodeid),"phase":rep.when,
-                          "line":int(getattr(crash,"lineno",0) or 0)})
+                          "line":int(getattr(crash,"lineno",0) or 0),"diag":diag})
               def pytest_collectreport(self,report):
                   rep=report
                   if rep.failed:
@@ -134,6 +138,7 @@ jobs:
                       for row in data["failures"][:80]:
                           if re.fullmatch("[0-9a-f]{16}",row["id"]) and row["phase"] in {"setup","call","teardown","collect"}:
                               status(group+"_CASE",row["id"]+":"+row["phase"]+":"+str(int(row["line"])))
+                              if row.get("diag"): status(group+"_DIAGNOSTIC",row["diag"])
                       success = proc.returncode==0 and data["counts"]["passed"]>0 and not data["counts"]["failed"] and not data["counts"]["collection_errors"]
                       status(group,"PASS" if success else "FAIL")
                       failed = failed or not success
