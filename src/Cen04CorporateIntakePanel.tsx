@@ -33,7 +33,17 @@ export default function Cen04CorporateIntakePanel({organizationId,participants,i
  }|null>(null);
  const [corporateMessage,setCorporateMessage]=useState('');
  const [corporateFailure,setCorporateFailure]=useState('');
- const seatPlan=projectCorporateSeatPlan(corporateRead,participants);
+ const [displayNow,setDisplayNow]=useState(()=>Date.now());
+ // Expiry while the window remains open must not keep showing available
+ // planned capacity. The local clock can only invalidate this readback.
+ useEffect(()=>{
+   const update=()=>setDisplayNow(previous=>Math.max(previous,Date.now()));
+   update();
+   const timer=window.setInterval(update,1000);
+   window.addEventListener('focus',update);
+   return()=>{window.clearInterval(timer);window.removeEventListener('focus',update);};
+ },[corporateRead]);
+ const seatPlan=projectCorporateSeatPlan(corporateRead,participants,displayNow);
  const latestOrgRef=useRef(organizationId);
  latestOrgRef.current=organizationId;
  const sameOrg=()=>latestOrgRef.current===organizationId;
@@ -434,7 +444,9 @@ export default function Cen04CorporateIntakePanel({organizationId,participants,i
            'История продления неполна. Для расчёта лимитов требуется недостающая лицензия.':
            seatPlan.state==='MULTIPLE_CURRENT_LICENSES'?
              'Получено несколько действующих независимых лицензий. Их лимиты не складываются; уточните основание у Publisher.':
-             'Нет текущей подписанной лицензии ACTIVE. Лимиты плана не определены.'}</p>}
+             seatPlan.state==='READBACK_EXPIRED'?
+               'Срок последней проверки LICENSE или STATUS истёк. Обновите подписанные сведения T3; доступный остаток больше не отображается.':
+               'Нет текущей подписанной лицензии ACTIVE. Лимиты плана не определены.'}</p>}
        </section>
        {corporateRead.licenses.map(row=><section className="nested-form"
          data-testid="cen04-corporate-license-terms" key={row.licenseId}>
@@ -446,7 +458,8 @@ export default function Cen04CorporateIntakePanel({organizationId,participants,i
            </div>
            <span className="status neutral">{row.superseded?'Заменена новой редакцией':
              !row.lineageResolved?'История неполна':
-             row.licenseId===corporateRead.capacity.candidateLicenseId?'Актуальный тариф':'Получено T3'}</span>
+             row.licenseId===corporateRead.capacity.candidateLicenseId?
+               seatPlan.state==='READBACK_EXPIRED'?'Требуется обновление STATUS':'Актуальный тариф':'Получено T3'}</span>
          </div>
          <div className="form-grid" aria-label="Подписанные условия лицензии">
            <div><small>Места Admin Center по лицензии</small>
