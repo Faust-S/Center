@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {inspectCorporateIssuePreflight as inspect,
-  inspectUnknownCorporateMutationReadback as reconcile}
+  inspectUnknownCorporateMutationReadback as reconcile,
+  inspectCorporateRenewalPreflight as renewal,inspectCorporateIssueLineage as lineage}
   from '../src/corporate-owner-readback.mjs';
 
 const requestId='proposal:company:one';
@@ -71,6 +72,7 @@ const verified=(o={})=>({
  licenseId:'license:corporate:one',issuerAuthorityId:'issuer:corporate:one',
  organizationId:'org:company',productId:'IWXA_ADMIN_CENTER',
  tariffId:'TEAM',tariffRevision:2,status:'ACTIVE',sequence:1,
+ lineageId:'lineage:one',renewalOf:null,activeSeats:0,productionActivation:false,recipientConfirmed:false,
  ...o
 });
 const issuePending={kind:'ISSUE',requestId,issuerId:'issuer:corporate:one',
@@ -107,4 +109,26 @@ test('lost STATUS ACK must not be cleared by stale or unrelated original readbac
  assert.throws(()=>reconcile({...statusPending,kind:'MISSING'},verified()),
   {code:'CORPORATE_UNKNOWN_OPERATION_INVALID'});
  assert.throws(()=>reconcile(null,verified()),/CORPORATE_UNKNOWN_/);
+});
+
+test('renewal must resolve the signed predecessor in the exact issuer organization scope',()=>{
+ const scope={priorRequestId:requestId,issuerId:'issuer:corporate:one',organizationId:'org:company'};
+ const prior=renewal(signed(),verified(),scope);
+ assert.deepEqual(prior,{licenseId:'license:corporate:one',lineageId:'lineage:one'});
+ assert.equal(Object.isFrozen(prior),true);
+ for(const invalid of [verified({status:'REVOKED'}),verified({organizationId:'org:other'}),
+  verified({issuerAuthorityId:'issuer:other'}),verified({lineageId:null}),verified({licenseId:'license:other'}),
+  verified({activeSeats:1}),verified({productionActivation:true})]){
+  assert.throws(()=>renewal(signed(),invalid,scope),/CORPORATE_RENEWAL_/);
+ }
+ assert.throws(()=>renewal(empty(),verified(),scope),/CORPORATE_RENEWAL_/);
+ const successor=verified({licenseId:'license:corporate:two',renewalOf:prior.licenseId});
+ assert.equal(lineage(successor,prior),successor);
+ for(const invalid of [verified(),{...successor,lineageId:'lineage:other'},
+  {...successor,renewalOf:'license:unrelated'}]){
+  assert.throws(()=>lineage(invalid,prior),/CORPORATE_ISSUE_LINEAGE_MISMATCH/);
+ }
+ assert.throws(()=>lineage(successor,null),/CORPORATE_ISSUE_LINEAGE_MISMATCH/);
+ assert.equal(reconcile({...issuePending,renewal:prior},successor).state,'ORIGINAL_COMMIT_CONFIRMED');
+ assert.throws(()=>reconcile({...issuePending,renewal:prior},verified()),/CORPORATE_ISSUE_LINEAGE_MISMATCH/);
 });
