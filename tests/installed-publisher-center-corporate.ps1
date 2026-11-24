@@ -780,7 +780,40 @@ function Publisher-Status([string]$state,[string]$id,[int]$sequence){
   Enter $pub 'STATUS действителен до (UTC, ISO 8601)' $until
   Confirm-Checkbox $pub 'Подтверждаю отдельную подпись STATUS; отзыв необратим' 'Подписать новый STATUS через T3'
   Press $pub 'Подписать новый STATUS через T3'
-  Wait-Text $pub "STATUS: $state, последовательность $sequence"
+  # The GUI acknowledgement is required, but the original ledger is also
+  # independently read on failure. Do not retry a consequential write.
+  try{
+    Wait-Text $pub "STATUS: $state, последовательность $sequence" 240
+  }catch{
+    $observed=$null
+    try{$observed=Owner-Read $id}catch{}
+    if($null -ne $observed -and $observed.sequence -eq $sequence -and
+       $observed.status -ceq $state -and
+       $observed.statusSignatureVerifiedAtIssuance -eq $true -and
+       $observed.statusFloorVerified -eq $true){
+      throw 'CORPORATE_GUI_STATUS_COMMITTED_ACK_NOT_VISIBLE'
+    }
+    if($null -ne $observed -and $observed.sequence -eq ($sequence-1)){
+      # Emit only a bounded error code from the actual Publisher alert.
+      # Never write the UI text, identifier, signed envelope or private data.
+      $codes=@()
+      $all=(Window $pub).FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+      foreach($item in $all){
+        try{
+          $label=[string]$item.Current.Name
+          if(!$label.Contains('Неизвестный исход STATUS.')){continue}
+          foreach($match in [regex]::Matches($label,'(?<![A-Z0-9_])(?:PUBLISHER_CORPORATE|CORPORATE_OWNER|CORPORATE_STATUS|PRODUCT_OWNER|PRODUCT_STATUS|PRODUCT_LICENSE|T3_PRODUCT|T3_CORPORATE)_[A-Z0-9_]{3,80}(?![A-Z0-9_])')){
+            $codes+=,$match.Value
+          }
+        }catch{}
+      }
+      $codes=@($codes|Select-Object -Unique|Select-Object -First 6)
+      throw ('CORPORATE_GUI_STATUS_NOT_COMMITTED '+($codes -join ','))
+    }
+    throw 'CORPORATE_GUI_STATUS_ORIGINAL_OUTCOME_UNCONFIRMED'
+  }
   $proof=Owner-Read $id
   if($proof.status -cne $state -or $proof.sequence -ne $sequence -or
      $proof.statusSignatureVerifiedAtIssuance -ne $true -or $proof.statusFloorVerified -ne $true){
