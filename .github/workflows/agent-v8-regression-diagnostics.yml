@@ -1,6 +1,6 @@
-# Differential qualification of identical historical test modules on pinned
-# candidate and stable sources. Only aggregate outcomes and numeric ordinals leave the runner.
-name: Agent 0.6.3 versus stable 0.6.2 regression provenance
+# Address the four differential failures on the original owner contracts.
+# Private source and unredacted test output stay inside a disposable runner.
+name: Agent 0.6.3 differential regression correction
 on:
   push:
     branches:
@@ -10,17 +10,15 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: agent063-baseline-${{ github.ref }}
+  group: agent063-differential-correction-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  compare:
+  correction:
     runs-on: ubuntu-24.04
-    timeout-minutes: 65
+    timeout-minutes: 18
     env:
-      PRIVATE_PIN: '12433fa69a5451f4819403144e5fd7961be102f7'
-      PRIVATE_TREE: '6e45c33057fa51607bd2abefb2c7d518f8758114'
-      STABLE_PIN: 'e80e7e5c60d510982628d66d89f2372d7bf4be9f'
-      STABLE_TREE: 'faa10f168ea0fa00028a2fd30623697c308e1e3a'
+      PRIVATE_PIN: 'c47ca92d746e9e65535e4cea882ba7e2e4820008'
+      PRIVATE_TREE: '4caaf7f39cb0c0d8fb6b43123230cfa46c169dcb'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -33,113 +31,43 @@ jobs:
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
           show-progress: false
-          path: candidate
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/iwxa-personal-agent
-          ref: ${{ env.STABLE_PIN }}
-          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
-          persist-credentials: false
-          show-progress: false
-          path: baseline
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Compare outcomes for the historical failure catalogue without exporting private tests
+      - name: Verify corrected source and run owner contract regressions
         shell: pwsh
         run: |
-          $ErrorActionPreference='Stop'
-          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
-          $baseline=Join-Path $env:GITHUB_WORKSPACE 'baseline'
-          foreach($entry in @(@{root=$candidate;pin=$env:PRIVATE_PIN;tree=$env:PRIVATE_TREE},@{root=$baseline;pin=$env:STABLE_PIN;tree=$env:STABLE_TREE})){
-            if((& git -C $entry.root rev-parse HEAD).Trim() -cne $entry.pin -or
-              (& git -C $entry.root rev-parse 'HEAD^{tree}').Trim() -cne $entry.tree){
-              throw 'DIFFERENTIAL_SOURCE_PIN_MISMATCH'
-            }
-          }
-          $all=[string[]]@(& git -C $candidate ls-files -- tests/|Where-Object {$_ -cmatch '^tests/(?:[a-zA-Z0-9_]+/)*test_[a-zA-Z0-9_]+\.py$'})
-          [Array]::Sort($all,[StringComparer]::Ordinal)
-          if($all.Count -ne 440){throw 'DIFFERENTIAL_CATALOGUE_INVALID'}
-          # Coordinates originate from the completed full Linux regression.
-          $ordinals=@(3,10,15,17,41,47,58,59,98,104,126,149,230,232,240,241,294,359,373,376,377,388,396,408)
-          $suites=[string[]]@($ordinals|ForEach-Object {$all[$_-1]})
-          foreach($relative in @($suites+'requirements-ci.txt')){
-            $a=Join-Path $candidate $relative
-            $b=Join-Path $baseline $relative
-            if(!(Test-Path -LiteralPath $a -PathType Leaf) -or !(Test-Path -LiteralPath $b -PathType Leaf) -or
-               (Get-FileHash -LiteralPath $a -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $b -Algorithm SHA256).Hash){
-              throw 'DIFFERENTIAL_TEST_OR_DEPENDENCY_INPUT_CHANGED'
-            }
-          }
-          $out=Join-Path $env:RUNNER_TEMP 'agent063-differential-private'
-          New-Item -ItemType Directory -Path $out -Force|Out-Null
-          Write-Host ('DIFFERENTIAL_MODULES='+$suites.Count)
-          & python -m pip install --disable-pip-version-check -r (Join-Path $candidate 'requirements-ci.txt') *> (Join-Path $out 'pip.log')
-          if($LASTEXITCODE -ne 0){throw 'DIFFERENTIAL_DEPENDENCIES_FAILED'}
           $ErrorActionPreference='Continue'
-          foreach($variant in @('baseline','candidate')){
-            $root=Join-Path $env:GITHUB_WORKSPACE $variant
-            $report=Join-Path $out ($variant+'.xml')
-            Push-Location $root
-            try{
-              & python -m pytest -q @suites -o junit_family=xunit1 "--junitxml=$report" *> (Join-Path $out ($variant+'.log'))
-              $code=$LASTEXITCODE
-              Write-Host ('DIFFERENTIAL_'+$variant.ToUpperInvariant()+'_PYTEST_EXIT='+$code)
-              if($code -notin @(0,1) -or !(Test-Path -LiteralPath $report -PathType Leaf)){
-                throw 'DIFFERENTIAL_COLLECTION_OR_EXECUTION_INVALID'
-              }
-            }finally{Pop-Location}
+          if((& git rev-parse HEAD).Trim() -cne $env:PRIVATE_PIN -or
+             (& git rev-parse 'HEAD^{tree}').Trim() -cne $env:PRIVATE_TREE){throw 'SOURCE_PIN_MISMATCH'}
+          $manifest=Get-Content -LiteralPath 'qualification/agent063/source-regression.json' -Raw -Encoding UTF8|ConvertFrom-Json
+          $suites=[string[]]@('tests/cells/test_memory_context_human_knowledge.py','tests/test_programs_center_execution.py','tests/test_current_model_readiness.py','tests/test_ollama_user_readiness.py','tests/test_p01_obsidian_toolruntime.py')
+          foreach($p in $suites){
+            if($p -cnotin $manifest.python -or !(Test-Path -LiteralPath $p -PathType Leaf)){throw 'CORRECTION_SUITE_MISSING'}
           }
-          # Parse only private XML inside the disposable runner; compare exact
-          # testcase names internally and never publish them.
-          $script=@'
-          import collections
-          import pathlib
-          import sys
-          import xml.etree.ElementTree as ET
-          root = pathlib.Path(sys.argv[1])
-          catalogue = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8").splitlines()
-          coordinates = {path: i + 1 for i, path in enumerate(catalogue)}
-          def read(variant):
-              cases = {}
-              for c in ET.parse(root / (variant + ".xml")).iter("testcase"):
-                  key = (c.get("classname", ""), c.get("name", ""))
-                  if key in cases:
-                      raise ValueError("duplicate")
-                  state = ("FAIL" if c.find("failure") is not None or c.find("error") is not None
-                           else "SKIP" if c.find("skipped") is not None else "PASS")
-                  path = c.get("file", "").replace(chr(92), "/")
-                  cases[key] = (state, coordinates.get(path, 0))
-              if not cases:
-                  raise ValueError("empty")
-              return cases
-          try:
-              baseline, candidate = read("baseline"), read("candidate")
-              common = baseline.keys() & candidate.keys()
-              missing = baseline.keys() ^ candidate.keys()
-              shared = [k for k in common if baseline[k][0] == candidate[k][0] == "FAIL"]
-              regressed = [k for k in common if candidate[k][0] == "FAIL" and baseline[k][0] != "FAIL"]
-              resolved = [k for k in common if baseline[k][0] == "FAIL" and candidate[k][0] != "FAIL"]
-              for label, table in (("BASELINE", baseline), ("CANDIDATE", candidate)):
-                  counts = collections.Counter(v[0] for v in table.values())
-                  for state in ("PASS", "FAIL", "SKIP"):
-                      print(f"DIFFERENTIAL_{label}_{state}={counts[state]}")
-              print(f"DIFFERENTIAL_COMMON_CASES={len(common)}")
-              print(f"DIFFERENTIAL_SHARED_FAILURES={len(shared)}")
-              print(f"DIFFERENTIAL_NEW_FAILURES={len(regressed)}")
-              print(f"DIFFERENTIAL_RESOLVED_FAILURES={len(resolved)}")
-              print(f"DIFFERENTIAL_MISSING_CASES={len(missing)}")
-              for ordinal, n in sorted(collections.Counter(candidate[k][1] for k in regressed).items()):
-                  print(f"DIFFERENTIAL_NEW_FAILURE_MODULE=P{ordinal:03d}_COUNT={n}")
-              print("PRIVATE_ARTIFACT_UPLOADS=0")
-              sys.exit(1 if regressed or missing else 0)
-          except Exception:
-              print("DIFFERENTIAL_XML_INVALID")
-              sys.exit(2)
-          '@
-          $parser=Join-Path $out 'compare.py'
-          $cataloguePath=Join-Path $out 'catalogue.txt'
-          Set-Content -LiteralPath $parser -Value $script -Encoding utf8
-          Set-Content -LiteralPath $cataloguePath -Value $all -Encoding utf8
-          & python -B $parser $out $cataloguePath
-          if($LASTEXITCODE -ne 0){throw 'DIFFERENTIAL_REQUIRES_REVIEW'}
+          $out=Join-Path $env:RUNNER_TEMP 'agent063-correction-private'
+          New-Item -ItemType Directory -Path $out -Force|Out-Null
+          & python -m pip install --disable-pip-version-check -r requirements-ci.txt *> (Join-Path $out 'pip.log')
+          if($LASTEXITCODE -ne 0){throw 'CORRECTION_DEPENDENCIES_FAILED'}
+          $junit=Join-Path $out 'corrected.xml'
+          & python -m pytest -q @suites -o junit_family=xunit1 "--junitxml=$junit" *> (Join-Path $out 'pytest.log')
+          $exitCode=$LASTEXITCODE
+          if(!(Test-Path -LiteralPath $junit -PathType Leaf)){throw 'CORRECTION_XML_MISSING'}
+          [xml]$doc=Get-Content -LiteralPath $junit -Raw -Encoding UTF8
+          $cases=@($doc.SelectNodes('//testcase'))
+          $fail=@($cases|Where-Object {$_.SelectSingleNode('failure|error')})
+          $skip=@($cases|Where-Object {$_.SelectSingleNode('skipped')})
+          Write-Host ('CORRECTION_MODULES='+$suites.Count)
+          Write-Host ('CORRECTION_PASS='+($cases.Count-$fail.Count-$skip.Count))
+          Write-Host ('CORRECTION_FAIL='+$fail.Count)
+          Write-Host ('CORRECTION_SKIP='+$skip.Count)
+          Write-Host ('CORRECTION_EXIT='+$exitCode)
+          foreach($case in $fail){
+            $relative=([string]$case.file).Replace('\','/')
+            $idx=[array]::IndexOf($suites,$relative)+1
+            $line=0
+            if([string]$case.line -match '^[0-9]{1,6}$'){$line=[int]$case.line+1}
+            Write-Host ('CORRECTION_FAILURE=P'+$idx.ToString('D3')+'_L'+$line.ToString('D6'))
+          }
+          Write-Host 'PRIVATE_ARTIFACT_UPLOADS=0'
+          if($cases.Count -eq 0 -or $fail.Count -ne 0 -or $exitCode -ne 0){throw 'CORRECTION_REQUIRES_REVIEW'}
