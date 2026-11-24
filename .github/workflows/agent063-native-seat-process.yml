@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 342c1e215337db57d05a2c3e099e488a24d510c2
+          ref: 48ad4d4b6a4a26bada18b34f61dbd20911649d0f
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: original-t3
           persist-credentials: false
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 186edcd4fb5fca733a5a35b639a7e6771ec7456e
+          ref: eba8cbaafd1880b34b5327db4ea106ca4e1d1803
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: agent
           persist-credentials: false
@@ -57,7 +57,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $PSNativeCommandUseErrorActionPreference=$false
-          foreach($p in @(@('original-t3','342c1e215337db57d05a2c3e099e488a24d510c2'),@('agent','186edcd4fb5fca733a5a35b639a7e6771ec7456e'),@('one-core','e4eddf4369db5a7d6efe9a979210b9d80448ba71'))){
+          foreach($p in @(@('original-t3','48ad4d4b6a4a26bada18b34f61dbd20911649d0f'),@('agent','eba8cbaafd1880b34b5327db4ea106ca4e1d1803'),@('one-core','e4eddf4369db5a7d6efe9a979210b9d80448ba71'))){
             if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'SOURCE_PIN_MISMATCH'}
           }
           Write-Host 'ORIGINAL_SOURCE_PINS=PASS'
@@ -74,11 +74,15 @@ jobs:
             throw 'ORIGINAL_EMPLOYEE_SEAT_PROCESS_FAILED'
           }
           $r=Get-Content -LiteralPath $out -Raw|ConvertFrom-Json
-          if($r.result -ne 'PASS' -or $r.checks -lt 7 -or $r.windowsDpapi -ne $true -or
+          if($r.result -ne 'PASS' -or $r.checks -lt 10 -or $r.windowsDpapi -ne $true -or
              $r.originalAdminOwner -ne $true -or $r.originalAgentIpc -ne $true -or
              $r.originalConsumer -ne $true -or $r.realKernel -ne $false -or
              $r.installedGui -ne $false -or $r.independentWindowsSids -ne $false -or
              $r.productionActivation -ne $false){throw 'ORIGINAL_EMPLOYEE_SEAT_PROCESS_RECEIPT_INVALID'}
+          foreach($required in @('manager_public_profile_exact_original_readback','employee_first_use_proof_via_original_agent_ipc')){
+            if($r.cases -cnotcontains $required){throw 'ORIGINAL_EMPLOYEE_BOOTSTRAP_CASE_MISSING'}
+          }
+          Write-Host 'ORIGINAL_EMPLOYEE_BOOTSTRAP_SOURCE_PROCESS=PASS'
           Write-Host ('ORIGINAL_EMPLOYEE_SEAT_SOURCE_PROCESS_CHECKS='+[int]$r.checks)
           Write-Host 'ORIGINAL_EMPLOYEE_SEAT_SOURCE_PROCESS=PASS'
       - name: Same runner baseline of native signed Workspace latency
@@ -105,7 +109,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          foreach($p in @(@('original-t3','342c1e215337db57d05a2c3e099e488a24d510c2'),@('agent','186edcd4fb5fca733a5a35b639a7e6771ec7456e'),@('one-core','e4eddf4369db5a7d6efe9a979210b9d80448ba71'))){
+          foreach($p in @(@('original-t3','48ad4d4b6a4a26bada18b34f61dbd20911649d0f'),@('agent','eba8cbaafd1880b34b5327db4ea106ca4e1d1803'),@('one-core','e4eddf4369db5a7d6efe9a979210b9d80448ba71'))){
             if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'SOURCE_PIN_MISMATCH'}
           }
           $log=Join-Path $env:RUNNER_TEMP 'admin-workspace-jit-private.log'
@@ -162,7 +166,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 342c1e215337db57d05a2c3e099e488a24d510c2
+          ref: 48ad4d4b6a4a26bada18b34f61dbd20911649d0f
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: original-t3
           persist-credentials: false
@@ -174,7 +178,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if((& git -C original-t3 rev-parse HEAD).Trim() -cne '342c1e215337db57d05a2c3e099e488a24d510c2'){throw 'SOURCE_PIN_MISMATCH'}
+          if((& git -C original-t3 rev-parse HEAD).Trim() -cne '48ad4d4b6a4a26bada18b34f61dbd20911649d0f'){throw 'SOURCE_PIN_MISMATCH'}
           $log=Join-Path $env:RUNNER_TEMP 'admin-context-regression-private.log'
           Push-Location original-t3
           try{
@@ -203,3 +207,76 @@ jobs:
           Remove-Item -LiteralPath original-t3 -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'admin-context-regression-private.log') -Force -ErrorAction SilentlyContinue
           Write-Host 'PRIVATE_CLEANUP=COMPLETE'
+
+  product-boundary-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: eba8cbaafd1880b34b5327db4ea106ca4e1d1803
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: agent
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: ee343b1dc6306fb7dddd5f015c02497dbaa96284
+          path: center
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify original product pins and bounded interface contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C agent rev-parse HEAD)" = 'eba8cbaafd1880b34b5327db4ea106ca4e1d1803'
+          test "$(git -C center rev-parse HEAD)" = 'ee343b1dc6306fb7dddd5f015c02497dbaa96284'
+          umask 077
+          log="$RUNNER_TEMP/employee-bootstrap-private.log"
+          if ! (cd center && node --test tests/cen03-d3-owner.test.mjs) >"$log" 2>&1; then
+            grep -E '^not ok [0-9]+' "$log" | awk '{print "CENTER_BOOTSTRAP_FAILED_ORDINAL="$3}' || true
+            exit 1
+          fi
+          grep -E '^# (tests|pass|fail) [0-9]+$' "$log"
+          echo CENTER_BOOTSTRAP_SOURCE=PASS
+          if ! (cd agent/desktop && npm ci --ignore-scripts --no-audit --no-fund) >"$log" 2>&1; then
+            echo AGENT_BOOTSTRAP_NPM=FAIL
+            exit 1
+          fi
+          if ! (cd agent/desktop && node --test tests/corporate-work-flow.test.mjs) >"$log" 2>&1; then
+            grep -E '^not ok [0-9]+' "$log" | awk '{print "AGENT_BOOTSTRAP_FAILED_ORDINAL="$3}' || true
+            exit 1
+          fi
+          grep -E '^# (tests|pass|fail) [0-9]+$' "$log"
+          echo AGENT_BOOTSTRAP_UI_CONTRACT=PASS
+          if ! (cd agent/desktop && npm run build) >"$log" 2>&1; then
+            grep -oE 'TS[0-9]{4}' "$log" | sort -u | head -20 || true
+            echo AGENT_BOOTSTRAP_BUILD=FAIL
+            exit 1
+          fi
+          echo AGENT_BOOTSTRAP_BUILD=PASS
+          if ! python -m pip install -r agent/requirements-ci.txt >"$log" 2>&1; then
+            echo AGENT_BOOTSTRAP_PYTHON_DEPENDENCIES=FAIL
+            exit 1
+          fi
+          if ! (cd agent && python -m pytest -q tests/test_agent063_employee_bootstrap.py tests/test_agent063_employee_path_picker.py tests/test_agent06_corporate_t3_employee.py) >"$log" 2>&1; then
+            grep -oE 'T3_EMPLOYEE_[A-Z0-9_]{4,100}|t3_employee_[a-z0-9_]{4,100}|[0-9]+ failed|[0-9]+ passed|[0-9]+ errors?' "$log" | sort -u | head -35 || true
+            echo AGENT_BOOTSTRAP_PYTHON=FAIL
+            exit 1
+          fi
+          grep -oE '[0-9]+ passed' "$log" | tail -1
+          echo AGENT_BOOTSTRAP_PYTHON=PASS
+      - name: Discard private source and output
+        if: always()
+        shell: bash
+        run: |
+          rm -rf agent "$RUNNER_TEMP/employee-bootstrap-private.log"
+          echo PRIVATE_CLEANUP=COMPLETE
