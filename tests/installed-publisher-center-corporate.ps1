@@ -531,53 +531,167 @@ function Center-SeatProjection([bool]$first,[int]$seatLimit,[int]$employeeLimit)
   # Receiving a license does not enroll an employee or assign a seat.
   Press $cen 'Personal Agent и лицензии' $true
 }
+function Picker-Foreground([IntPtr]$handle){
+  if(![CorporateQualificationGui]::IsWindow($handle)){
+    throw 'CORPORATE_GUI_NATIVE_PICKER_CLOSED_BEFORE_CONFIRMATION'
+  }
+  for($attempt=0;$attempt -lt 8;$attempt++){
+    [void][CorporateQualificationGui]::SetForegroundWindow($handle)
+    Start-Sleep -Milliseconds 150
+    if([CorporateQualificationGui]::GetForegroundWindow() -eq $handle){return}
+  }
+  throw 'CORPORATE_GUI_NATIVE_PICKER_FOREGROUND_NOT_CONFIRMED'
+}
+
 function Native-FileDialog($process,[string]$button,[string]$file,[bool]$exists){
   Gui-Step 'FILE_DIALOG'
   if((Test-Path -LiteralPath $file -PathType Leaf) -ne $exists){
     throw "CORPORATE_GUI_DIALOG_PRECONDITION_FAILED $button"
   }
+  # These are the native rfd titles from the original installed Rust commands.
+  # Never select the first additional window of the process: WebView2 and
+  # asynchronous native dialog creation can expose unrelated/unfinished windows.
+  $title=switch -CaseSensitive ($button){
+    'Экспортировать публичное доверие для независимого Admin Center' {'Publisher: публичное доверие корпоративного издателя'}
+    'Экспортировать подписанный .iwxa через исходный T3' {'Publisher: корпоративная лицензия IWXA Admin Center'}
+    'Установить доверие корпоративного издателя' {'Admin Center - выбрать публичное доверие корпоративного издателя'}
+    'Получить подписанную корпоративную лицензию через T3' {'Admin Center - получить подписанный корпоративный .iwxa через T3'}
+    default {throw 'CORPORATE_GUI_NATIVE_PICKER_UNKNOWN_ROUTE'}
+  }
+  $process.Refresh()
+  $mainHandle=$process.MainWindowHandle
+  if($mainHandle -eq [IntPtr]::Zero){throw 'CORPORATE_GUI_GUI_WINDOW_LOST'}
   Press $process $button
-  $dialog=$null
-  for($i=0;$i -lt 75;$i++){
+  $script:guiLastKind='FILE_DIALOG'
+  $dialogHandle=[IntPtr]::Zero
+  for($i=0;$i -lt 150;$i++){
     $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
       [System.Windows.Automation.TreeScope]::Children,
       [System.Windows.Automation.Condition]::TrueCondition)
+    $matches=@()
     foreach($window in $windows){
       try{
+        $handle=[IntPtr]$window.Current.NativeWindowHandle
         if($window.Current.ProcessId -eq $process.Id -and
            $window.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window -and
-           $window.Current.NativeWindowHandle -ne $process.MainWindowHandle){
-          $dialog=$window;break
+           $window.Current.Name -ceq $title -and
+           $handle -ne [IntPtr]::Zero -and $handle -ne $mainHandle -and
+           [CorporateQualificationGui]::IsWindow($handle)){
+          $matches+=,$handle
         }
       }catch{}
     }
-    if($dialog){break}
+    $matches=@($matches|Select-Object -Unique)
+    if($matches.Count -gt 1){throw 'CORPORATE_GUI_NATIVE_PICKER_AMBIGUOUS'}
+    if($matches.Count -eq 1){$dialogHandle=$matches[0];break}
     Start-Sleep -Milliseconds 200
   }
-  if(!$dialog){throw "CORPORATE_GUI_NATIVE_FILE_DIALOG_NOT_FOUND $button"}
-  # Native selected paths may include +, ^, % or braces. SendKeys treats
-  # those as commands; write the chosen filename literally with Windows UIA.
-  $field=$dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-    [System.Windows.Automation.PropertyCondition]::new(
-      [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'1148'))
-  if(!$field){throw 'CORPORATE_GUI_NATIVE_PICKER_FILENAME_FIELD_MISSING'}
-  if($field.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit){
-    $field=$field.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-      [System.Windows.Automation.PropertyCondition]::new(
-        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-        [System.Windows.Automation.ControlType]::Edit))
+  if($dialogHandle -eq [IntPtr]::Zero){
+    throw 'CORPORATE_GUI_NATIVE_PICKER_EXACT_WINDOW_NOT_FOUND'
   }
-  if(!$field){throw 'CORPORATE_GUI_NATIVE_PICKER_EDIT_MISSING'}
-  $pattern=$null
-  if(-not $field.TryGetCurrentPattern(
-      [System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)){
-    throw 'CORPORATE_GUI_NATIVE_PICKER_VALUE_PATTERN_REQUIRED'
+  Picker-Foreground $dialogHandle
+  $entered=$false
+  $idCondition=[System.Windows.Automation.PropertyCondition]::new(
+    [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'1148')
+  $editCondition=[System.Windows.Automation.PropertyCondition]::new(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Edit)
+  # Wait for the filename control and re-resolve the exact dialog each time.
+  # Some Win32 implementations expose the editable child rather than 1148
+  # itself, or omit this automation ID entirely.
+  for($attempt=0;$attempt -lt 25 -and !$entered;$attempt++){
+    if(![CorporateQualificationGui]::IsWindow($dialogHandle)){
+      throw 'CORPORATE_GUI_NATIVE_PICKER_CLOSED_BEFORE_CONFIRMATION'
+    }
+    try{
+      $dialog=[System.Windows.Automation.AutomationElement]::FromHandle($dialogHandle)
+      $container=$dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$idCondition)
+      if(!$container){
+        $nativeField=[CorporateQualificationGui]::GetDlgItem($dialogHandle,1148)
+        if($nativeField -ne [IntPtr]::Zero){
+          $container=[System.Windows.Automation.AutomationElement]::FromHandle($nativeField)
+        }
+      }
+      if($container){
+        $fields=if($container.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit){
+          @($container)
+        }else{
+          @($container.FindAll([System.Windows.Automation.TreeScope]::Descendants,$editCondition))
+        }
+        if(@($fields).Count -eq 1){
+          $field=@($fields)[0]
+          $pattern=$null
+          if($field.Current.IsEnabled -and
+             $field.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern) -and
+             !$pattern.Current.IsReadOnly){
+            Picker-Foreground $dialogHandle
+            $field.SetFocus()
+            $pattern.SetValue($file)
+            if($pattern.Current.Value -ceq $file){$entered=$true}
+          }
+        }
+      }
+    }catch{
+      # Transient UIA elements are expected while the shell initializes.
+      # No confirmation or success is emitted before exact readback.
+    }
+    if(!$entered){Start-Sleep -Milliseconds 200}
   }
-  ([System.Windows.Automation.ValuePattern]$pattern).SetValue($file)
-  $field.SetFocus()
+  if(!$entered){
+    # The existing native Publisher witness uses the Windows File name
+    # accelerator when UIA cannot expose the field. Paste literal text instead
+    # of interpreting +, %, ^ or braces as SendKeys commands. This is a
+    # dedicated STA test profile; restore its clipboard on every exit.
+    $previousClipboard=[System.Windows.Forms.Clipboard]::GetDataObject()
+    try{
+      for($attempt=0;$attempt -lt 4 -and !$entered;$attempt++){
+        Picker-Foreground $dialogHandle
+        [System.Windows.Forms.SendKeys]::SendWait('%n')
+        Start-Sleep -Milliseconds 150
+        if([CorporateQualificationGui]::GetForegroundWindow() -ne $dialogHandle){
+          throw 'CORPORATE_GUI_NATIVE_PICKER_FOREGROUND_NOT_CONFIRMED'
+        }
+        [System.Windows.Forms.Clipboard]::SetText($file)
+        [System.Windows.Forms.SendKeys]::SendWait('^a')
+        [System.Windows.Forms.SendKeys]::SendWait('^v')
+        Start-Sleep -Milliseconds 250
+        if([CorporateQualificationGui]::GetForegroundWindow() -ne $dialogHandle){
+          throw 'CORPORATE_GUI_NATIVE_PICKER_FOREGROUND_NOT_CONFIRMED'
+        }
+        [System.Windows.Forms.Clipboard]::Clear()
+        [System.Windows.Forms.SendKeys]::SendWait('^a')
+        [System.Windows.Forms.SendKeys]::SendWait('^c')
+        for($clipAttempt=0;$clipAttempt -lt 8;$clipAttempt++){
+          Start-Sleep -Milliseconds 100
+          if([System.Windows.Forms.Clipboard]::ContainsText()){
+            $entered=([System.Windows.Forms.Clipboard]::GetText() -ceq $file)
+            break
+          }
+        }
+      }
+    }finally{
+      if($null -ne $previousClipboard){
+        [System.Windows.Forms.Clipboard]::SetDataObject($previousClipboard,$true)
+      }else{
+        [System.Windows.Forms.Clipboard]::Clear()
+      }
+    }
+  }
+  if(!$entered){throw 'CORPORATE_GUI_NATIVE_PICKER_EXACT_PATH_READBACK_FAILED'}
+  # The selected path must be read back and the same native window must own
+  # keyboard focus before the actual UI confirmation. No direct file write or
+  # direct Owner/Consumer mutation is allowed in this witness.
+  Picker-Foreground $dialogHandle
   [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  for($i=0;$i -lt 120;$i++){
+    if(![CorporateQualificationGui]::IsWindow($dialogHandle)){break}
+    Start-Sleep -Milliseconds 250
+  }
+  if([CorporateQualificationGui]::IsWindow($dialogHandle)){
+    throw 'CORPORATE_GUI_NATIVE_PICKER_CONFIRMATION_NOT_CLOSED'
+  }
   if(!$exists){
-    for($i=0;$i -lt 70;$i++){
+    for($i=0;$i -lt 120;$i++){
       if(Test-Path -LiteralPath $file -PathType Leaf){break}
       Start-Sleep -Milliseconds 250
     }
