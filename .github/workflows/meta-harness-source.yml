@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     env:
-      PRIVATE_PIN: 281a1102584fd04a7bec0e2cb13e8219640baf0b
-      PRIVATE_TREE: 17dd81c489a35c1f8dda8625c67a09ccab83b439
+      PRIVATE_PIN: 636cda189ba4ff06950e7f0efa83e266ea6c463b
+      PRIVATE_TREE: f566d54e26d3cd3e96dc21f2006a8210828f3eb3
       QUALIFY_SCOPE: ADAPTER_PRODUCT
     steps:
       - uses: actions/setup-python@v5
@@ -132,6 +132,9 @@ jobs:
                       groups={"ADAPTER_DEPTH":["tests/test_meta_harness_acp_v1.py",
                           "tests/test_meta_harness_acp_port.py",
                           "tests/test_meta_harness_acp_exchange.py",
+                          "tests/test_meta_harness_native_session.py",
+                          "tests/test_meta_harness_native_observation.py",
+                          "tests/test_session_runtime_state_transaction.py",
                           "tests/test_meta_harness_original_core.py",
                           "tests/test_meta_harness_adapter_depth.py",
                           "tests/test_meta_harness_adapter_controls.py",
