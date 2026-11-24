@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     env:
-      PRIVATE_PIN: 1212cd9fd5c9d8233c4d65269769cbd57f42c8f4
-      PRIVATE_TREE: 48e2e5a3198da53e6d2ae7689237d08e62a5ade5
+      PRIVATE_PIN: d28bbdda4b10a7898fd33c418ae43d6cbcf4c154
+      PRIVATE_TREE: 77c96699ddfdd0f6cf761e92d857381eb5f44559
       QUALIFY_SCOPE: ADAPTER_PRODUCT
     steps:
       - uses: actions/setup-python@v5
@@ -137,6 +137,9 @@ jobs:
                           "tests/test_meta_harness_acp_product_owner.py",
                           "tests/test_meta_harness_acp_host_owner.py",
                           "tests/test_meta_harness_qwen_install.py",
+                          "tests/test_meta_harness_graph_acp_dispatch.py",
+                          "tests/test_meta_harness_original_task_workflow.py",
+                          "tests/test_meta_harness_contextual_handoff_graph.py",
                           "tests/test_existing_software_discovery.py",
                           "tests/test_agent06_obscura_user_install.py",
                           "tests/test_programs_center_execution.py",
