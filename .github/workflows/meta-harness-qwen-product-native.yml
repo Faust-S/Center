@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: 521169d0a569099354ea03e93ddd214af2f7819b
-      PRIVATE_TREE: b69f3a8b2f2ac35f4ef7f88c3eb346a3cfd095ec
+      PRIVATE_PIN: a430a8940e8caa75acfbbad66f90e290dc1fd7c1
+      PRIVATE_TREE: 8286796386c173f0b73bec1ecb5c66ec71d34da2
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
     steps:
       - uses: actions/setup-python@v5
@@ -102,6 +102,10 @@ jobs:
                   for code in ("t3_external_execution_disabled","ACP_ORIGINAL_TASK_ROUTE_REQUIRED","ACP_GRAPH_ATTEMPT_CHANGED","AGENT_RUNTIME_UNAVAILABLE","AGENT_RUNTIME_INVOCATION_FAILED","AGENT_RUNTIME_RESPONSE_INVALID","AGENT_RUNTIME_TIMEOUT","AUTHORITY_REQUIRED","acp_session_state_denied","acp_native_route_not_ready","acp_reviewed_graph_attempt_required","acp_native_launch_not_authorized","acp_native_state_changed","META_HARNESS_ROLE_BINDING_CHANGED","agent_runtime_requires_reviewed_task_graph","qwen_installation_or_local_model_required","qwen_graph_owns_model_and_session","qwen_task_workspace_link_required","acp_local_process_tree_stop_unconfirmed"):
                       if re.search(r"(?<![A-Za-z0-9_])"+code+r"(?![A-Za-z0-9_])",out):
                           status("QWEN_PRODUCT_DIAGNOSTIC",code)
+                  for line in out.splitlines():
+                      match=re.fullmatch(r"QWEN_PRODUCT_BLOCKED=([A-Z][A-Z_0-9]{1,100})",line.strip())
+                      if match:
+                          status("QWEN_PRODUCT_BLOCKED",match.group(1))
                   passed = proc.returncode == 0 and set(stages) == allowed
                   status("QWEN_PRODUCT_NATIVE","PASS" if passed else "FAIL")
                   return 0 if passed else 1
