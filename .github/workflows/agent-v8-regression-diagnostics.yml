@@ -21,8 +21,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     env:
-      PRIVATE_PIN: 'c9b1bee1581040986d2f7f51b4de648edaf8368b'
-      PRIVATE_TREE: '81a826b8b69147732fee215dd11b74d19a10d846'
+      PRIVATE_PIN: 'dcac9748851d330ab3f005f874759c8cd98d902b'
+      PRIVATE_TREE: 'cc26c356187718d0010817a48bcda61bb9aa8a2f'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -61,31 +61,22 @@ jobs:
             # Only fixed numeric coordinates are public: file ordinal in the
             # sorted private test inventory and test declaration line. Never
             # emit a path, test name, assertion, message or stack trace.
-            $reporter=Join-Path $out 'numeric-reporter.mjs'
-            @'
-            import {readdirSync} from 'node:fs';
-            import {resolve} from 'node:path';
-            const files=readdirSync('tests',{withFileTypes:true})
-              .filter(x=>x.isFile()&&x.name.endsWith('.test.mjs')).map(x=>x.name).sort()
-              .map(name=>resolve('tests',name));
-            export default async function* reporter(source){
-              for await(const event of source){
-                if(event.type!=='test:fail')continue;
-                const d=event.data;
-                const i=typeof d.file==='string'?files.indexOf(resolve(d.file))+1:0;
-                const n=Number.isSafeInteger(d.line)&&d.line>=0&&d.line<=999999?d.line:0;
-                yield 'NODE_FAILURE_CODE=N'+String(i).padStart(3,'0')+'_L'+String(n).padStart(6,'0')+'\n';
+            $nodeLog=Join-Path $out 'node.log'
+            & node --test --test-reporter=tap *> $nodeLog
+            $test=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $nodeLog -Raw -ErrorAction SilentlyContinue
+            # TAP location is processed locally on both platforms. Never echo
+            # any test name, location path, assertion or source excerpt.
+            $files=[string[]]@(Get-ChildItem -LiteralPath 'tests' -File -Filter '*.test.mjs'|ForEach-Object {$_.Name})
+            [Array]::Sort($files,[StringComparer]::Ordinal)
+            $locations=[regex]::Matches([string]$raw,'(?m)^\s*location:\s+''?(?:[^\r\n]*[/\\])?([^/\\:\r\n]+\.test\.mjs):([0-9]{1,6}):[0-9]{1,6}''?\s*$')
+            foreach($loc in $locations){
+              $ordinal=[Array]::IndexOf($files,$loc.Groups[1].Value)+1
+              $line=[int]$loc.Groups[2].Value
+              if($ordinal -gt 0 -and $line -gt 0){
+                Write-Host ('NODE_FAILURE_CODE=N'+$ordinal.ToString('D3')+'_L'+$line.ToString('D6'))
               }
             }
-          '@ | Set-Content -LiteralPath $reporter -Encoding utf8
-            $nodeLog=Join-Path $out 'node.log'
-            $nodeCodes=Join-Path $out 'node-codes.log'
-            & node --test --test-reporter=tap "--test-reporter-destination=$nodeLog" "--test-reporter=$reporter" "--test-reporter-destination=$nodeCodes" *> (Join-Path $out 'node-invocation.log')
-            $test=$LASTEXITCODE
-            if(Test-Path -LiteralPath $nodeCodes){
-              @(Get-Content -LiteralPath $nodeCodes | Where-Object {$_ -cmatch '^NODE_FAILURE_CODE=N[0-9]{3,4}_L[0-9]{6}$'}) | Sort-Object -Unique | ForEach-Object {Write-Host $_}
-            }
-            $raw=Get-Content -LiteralPath $nodeLog -Raw -ErrorAction SilentlyContinue
             foreach($k in @('tests','pass','fail','cancelled','skipped','todo')){
               if($raw -match ('(?m)^# '+$k+' ([0-9]+)\s*$')){
                 Write-Host ('NODE_'+$k.ToUpperInvariant()+'='+$Matches[1])
