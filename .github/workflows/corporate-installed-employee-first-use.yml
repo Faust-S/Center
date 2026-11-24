@@ -1,7 +1,7 @@
 # First-use integration on a single disposable Windows runner.
 # Original license lifecycle and this employee gate are intentionally separate.
 # No private checkout, raw log, evidence, keys, installer or .iwxa uploaded.
-name: Installed Admin Center and Personal Agent original employee first use
+name: Installed Publisher Center Agent original employee and licensed admission
 on:
   push:
     branches: ['work/2026-11-24-corporate-installed-one-core']
@@ -10,13 +10,13 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: corporate-installed-employee-first-use-${{ github.ref }}
+  group: corporate-installed-employee-first-use-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 env:
   T3_PIN: 'aaef813dd06ef29b681d4ad080960433613d985d'
   CORE_PIN: '0cb5bc0379e18c3a94e64346fafaedcc105b4e62'
-  CENTER_PIN: '8804e6ef1b1d0cafbc5c69fb558e1e97cd6cad5c'
-  PUBLISHER_PIN: 'a540bee2427bf2471c5b9e7dc99848034319557c'
+  CENTER_PIN: 'd696ae109ce5b59d60d922fcca6f6b9ac83c1af0'
+  PUBLISHER_PIN: '1209bfb2ed6558eb6a88cb4a8e9382c39fcf7391'
   AGENT_PIN: 'b1b7d93bf82c27f639f6a862399693764e617ee9'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
@@ -25,7 +25,7 @@ env:
 jobs:
   first-use:
     runs-on: windows-2022
-    timeout-minutes: 200
+    timeout-minutes: 270
     steps:
       - uses: actions/checkout@v4
         with:
@@ -133,6 +133,35 @@ jobs:
             throw 'EMPLOYEE_INSTALLED_RECEIPT_CONTRACT_DRIFT'
           }
           Write-Host 'EMPLOYEE_INSTALLED_WITNESS_CONTRACT=PASS'
+      - name: Validate licensed employee witness and shared GUI driver
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $shared=(Resolve-Path 'qualification/corporate-employee-first-use/gui-driver.ps1').Path
+          $tokens=$null;$errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($shared,[ref]$tokens,[ref]$errors)
+          if($errors.Count){throw 'EMPLOYEE_LICENSED_SHARED_GUI_DRIVER_PARSE_FAILED'}
+          $path=(Resolve-Path 'qualification/corporate-employee-first-use/installed-licensed.ps1').Path
+          $tokens=$null;$errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if($errors.Count){throw 'EMPLOYEE_LICENSED_WITNESS_PARSE_FAILED'}
+          $manifest=@(Get-Content -LiteralPath 'qualification/corporate-employee-first-use/required-licensed-receipts.json' -Raw|ConvertFrom-Json)
+          $calls=@($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Record'
+          },$true))
+          $declared=@(foreach($call in $calls){
+            if($call.CommandElements.Count -ne 2 -or $call.CommandElements[1] -isnot [System.Management.Automation.Language.StringConstantExpressionAst]){
+              throw 'EMPLOYEE_LICENSED_RECEIPT_NOT_LITERAL'
+            }
+            [string]$call.CommandElements[1].Value
+          })
+          if($declared.Count -ne 9 -or $manifest.Count -ne 9 -or
+             @($manifest|Sort-Object -CaseSensitive -Unique).Count -ne 9 -or
+             @(Compare-Object -ReferenceObject $manifest -DifferenceObject $declared -CaseSensitive).Count -ne 0){
+            throw 'EMPLOYEE_LICENSED_RECEIPT_CONTRACT_DRIFT'
+          }
+          Write-Host 'EMPLOYEE_LICENSED_WITNESS_CONTRACT=PASS'
       - name: Build canonical One Core and Admin dependencies
         shell: pwsh
         timeout-minutes: 15
@@ -357,6 +386,132 @@ jobs:
           }
           "CORPORATE_EMPLOYEE_AGENT_ROOT=$root"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'EMPLOYEE_INSTALLED_AGENT_SAME_RUNNER=PASS'
+      - name: Build and install current Publisher with the same original compiled Owner
+        shell: pwsh
+        timeout-minutes: 22
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-publisher-build-private.log'
+          $out=Join-Path $env:RUNNER_TEMP 'corporate-publisher-setup'
+          New-Item -ItemType Directory -Path $out|Out-Null
+          Push-Location publisher
+          try{
+            & npm.cmd install --no-audit --no-fund *> $log
+            if($LASTEXITCODE -ne 0){
+              $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              $codes=@([regex]::Matches($raw,'(?m)^npm (?:ERR!|error) code ([A-Z0-9_-]+)')|ForEach-Object {$_.Groups[1].Value}|Select-Object -Unique)
+              Write-Host ('CORPORATE_INSTALLED_PUBLISHER_NPM_CODES='+($codes -join ','))
+              throw 'CORPORATE_INSTALLED_PUBLISHER_NPM_FAILED'
+            }
+          }finally{Pop-Location}
+          $source=(Resolve-Path 'admin/artifacts/private-t3-d3-payload/t3').Path
+          $env:IWXA_T3_PRODUCT_OWNER_SHA256=(Get-FileHash -LiteralPath (Join-Path $source 'iwxa-t3-product-owner.exe')).Hash.ToLowerInvariant()
+          $env:IWXA_T3_AGE_DESKTOP_OWNER_SHA256=(Get-FileHash -LiteralPath (Join-Path $source 'iwxa-t3-age-desktop.exe')).Hash.ToLowerInvariant()
+          Push-Location publisher
+          try{
+            & npm.cmd run publisher:desktop:exe *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_NATIVE_BUILD_FAILED'}
+          }finally{Pop-Location}
+          $payload=Join-Path $out 'payload'
+          New-Item -ItemType Directory -Path (Join-Path $payload 't3') -Force|Out-Null
+          Copy-Item -LiteralPath 'publisher/publisher/src-tauri/target/release/iwxa-publisher.exe' -Destination $payload
+          Get-ChildItem -LiteralPath $source -File|Where-Object {$_.Name -ne 'iwxa-t3-product-consumer.exe'}|Copy-Item -Destination (Join-Path $payload 't3')
+          # Use the same Setup Core implementation, but the actual Publisher
+          # product icon, not the red Admin Center stub.
+          $stub=Join-Path $out 'publisher-setup-core-stub.exe'
+          $icon=(Resolve-Path 'publisher/publisher/src-tauri/icons/icon.ico').Path
+          & ./admin/installer/windows/build-stub.ps1 -Output $stub -Icon $icon *> $log
+          if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $stub)){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_STUB_FAILED'}
+          $product=(Resolve-Path 'publisher/publisher/setup/product.json').Path
+          $tree=(& git -C publisher rev-parse 'HEAD^{tree}').Trim()
+          $setup=Join-Path $out 'publisher-private-setup.exe'
+          Push-Location admin
+          try{
+            & python -m installer.build_bundle build --product $product --payload $payload --stub $stub --output $setup --source-commit $env:PUBLISHER_PIN --source-tree $tree *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_BUILD_FAILED'}
+          }finally{Pop-Location}
+          $report=Join-Path $out 'install-private.json'
+          $p=Start-Process -FilePath $setup -ArgumentList ('--install-file "{0}"' -f $report) -PassThru
+          if(!$p.WaitForExit(180000)){$p.Kill();throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_TIMEOUT'}
+          if($p.ExitCode -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_FAILED'}
+          $r=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
+          if($r.status -ne 'INSTALLED_NOT_LAUNCHED' -or $r.product -ne 'iwxa.publisher' -or $r.version -ne '0.5.0-dev.1'){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_RECEIPT_INVALID'}
+          $root=[IO.Path]::GetFullPath([string]$r.installRoot)
+          foreach($f in (Get-ChildItem -LiteralPath $payload -Recurse -File)){
+            $relative=[IO.Path]::GetRelativePath($payload,$f.FullName)
+            if((Get-FileHash -LiteralPath (Join-Path $root $relative)).Hash -cne (Get-FileHash -LiteralPath $f.FullName).Hash){throw 'CORPORATE_INSTALLED_PUBLISHER_NATIVE_BYTES_CHANGED'}
+          }
+          $reg=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher'
+          if($reg.InstallLocation -ine $root -or $reg.DataLocation -ieq $env:CORPORATE_ADMIN_DATA){throw 'CORPORATE_INSTALLED_PUBLISHER_REGISTRATION_INVALID'}
+          "CORPORATE_PUBLISHER_INSTALL=$root"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CORPORATE_PUBLISHER_DATA=$($reg.DataLocation)"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'CORPORATE_INSTALLED_PUBLISHER_SAME_ORIGINAL_OWNER=PASS'
+      - name: Provision disposable original Publisher owner in the already qualified Windows profile
+        shell: pwsh
+        timeout-minutes: 5
+        env:
+          IWXA_T3_SYNTHETIC_PROVISION: CORPORATE_CENTER_CI_FIXTURE_ONLY
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-seed-private.log'
+          $out=Join-Path $env:RUNNER_TEMP 'corporate-installed-seed-private.json'
+          foreach($file in @('corporate-publisher-installed-seed-fixture.mjs','corporate-publisher-installed-seed-local.mjs','corporate-publisher-installed-seed-center-ci.mjs')){
+            & node --check ('private-t3/qualification/'+$file) *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_SEED_SYNTAX_FAILED'}
+          }
+          & node private-t3/qualification/corporate-publisher-installed-seed-center-ci.mjs $env:CORPORATE_PUBLISHER_DATA $env:CORPORATE_ADMIN_DATA 1>$out 2>$log
+          if($LASTEXITCODE -ne 0){
+            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+            $safe=@([regex]::Matches($raw,'(?<![A-Z0-9_])CORPORATE_SEED_[A-Z0-9_]{4,90}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique)
+            Write-Host ('CORPORATE_INSTALLED_SEED_CODES='+($safe -join ','))
+            throw 'CORPORATE_INSTALLED_SEED_HOLD'
+          }
+          $r=Get-Content -LiteralPath $out -Raw|ConvertFrom-Json
+          if($r.status -cne 'PRIVATE_CENTER_CI_SYNTHETIC_OWNER_READY' -or
+             $r.syntheticOnly -ne $true -or $r.commercialAuthorityProven -ne $false -or
+             $r.productionActivation -ne $false -or $r.activeSeats -ne 0 -or $r.recipientEnrolled -ne $false -or
+             $r.issuerAuthorityId -cne 'publisher:synthetic:corporate:installed'){throw 'CORPORATE_INSTALLED_SEED_RECEIPT_INVALID'}
+          Write-Host 'CORPORATE_INSTALLED_DISPOSABLE_PUBLISHER_OWNER_READY=PASS'
+      - name: Prepare original ACTIVE license for installed employee admission
+        shell: pwsh
+        timeout-minutes: 24
+        env:
+          IWXA_T3_SYNTHETIC_PROVISION: CORPORATE_CENTER_CI_FIXTURE_ONLY
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-license-gui-private.log'
+          $witness=(Resolve-Path 'publisher/tests/installed-publisher-center-corporate.ps1').Path
+          $tokens=$null;$errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($witness,[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){throw 'CORPORATE_INSTALLED_LICENSE_WITNESS_PARSE_FAILED'}
+          $adminPayload=(Resolve-Path 'admin/artifacts/private-t3-d3-payload').Path
+          $publisherExe=Join-Path $env:CORPORATE_PUBLISHER_INSTALL 'iwxa-publisher.exe'
+          $adminExe=Join-Path $env:CORPORATE_ADMIN_INSTALL 'iwxa-admin-center.exe'
+          $publisherHash=(Get-FileHash -LiteralPath 'publisher/publisher/src-tauri/target/release/iwxa-publisher.exe').Hash
+          $centerHash=(Get-FileHash -LiteralPath (Join-Path $adminPayload 'iwxa-admin-center.exe')).Hash
+          $ownerHash=(Get-FileHash -LiteralPath (Join-Path $adminPayload 't3/iwxa-t3-product-owner.exe')).Hash
+          $consumerHash=(Get-FileHash -LiteralPath (Join-Path $adminPayload 't3/iwxa-t3-product-consumer.exe')).Hash
+          & pwsh.exe -NoLogo -NoProfile -STA -File $witness -PublisherExe $publisherExe -AdminCenterExe $adminExe -ExpectedPublisherSha256 $publisherHash -ExpectedCenterSha256 $centerHash -ExpectedOwnerSha256 $ownerHash -ExpectedConsumerSha256 $consumerHash -IssuerAuthorityId 'publisher:synthetic:corporate:installed' -DedicatedTestProfile -QualifySeatProjection -ResumeQualifiedCenterCI -PrepareLicensedEmployee *> $log
+          $exit=$LASTEXITCODE
+          $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+          $checks=@([regex]::Matches($raw,'(?m)^CORPORATE_TWO_INSTALLED_CHECK=([A-Z0-9_]{3,100})\s*$')|ForEach-Object {$_.Groups[1].Value})
+          foreach($check in $checks){Write-Host ('CORPORATE_TWO_INSTALLED_CHECK='+$check)}
+          foreach($m in [regex]::Matches($raw,'(?m)^CORPORATE_TWO_INSTALLED_(PHASE|FAILURE_PHASE|FAILURE_STEP|FAILURE_KIND)=([A-Z0-9_]{1,80})\s*$')){
+            Write-Host ('CORPORATE_TWO_INSTALLED_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+          }
+          $m=[regex]::Match($raw,'(?m)^CORPORATE_LICENSED_EMPLOYEE_PREPARATION=PASS checks=(\d{1,3})\s*$')
+          if($exit -ne 0 -or !$m.Success -or [int]$m.Groups[1].Value -ne 9 -or $checks.Count -ne 9){
+            $safe=@([regex]::Matches($raw,'(?<![A-Z0-9_])CORPORATE_(?:GUI|NATIVE|INSTALLED|SEAT|TWO_INSTALLED)_[A-Z0-9_]{4,100}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
+            Write-Host ('CORPORATE_INSTALLED_LICENSE_CODES='+($safe -join ','))
+            throw 'CORPORATE_INSTALLED_LICENSE_GUI_HOLD'
+          }
+          $expected=@(Get-Content -LiteralPath 'qualification/corporate-installed/publisher-center-required-receipts.json' -Raw|ConvertFrom-Json|Select-Object -First 9)
+          if($expected.Count -ne 9 -or @($checks|Sort-Object -CaseSensitive -Unique).Count -ne 9 -or
+             @(Compare-Object -ReferenceObject $expected -DifferenceObject $checks -CaseSensitive).Count -ne 0){
+            throw 'CORPORATE_INSTALLED_LICENSE_RECEIPT_SET_MISMATCH'
+          }
+          if(!(Test-Path -LiteralPath (Join-Path $env:RUNNER_TEMP 'iwxa-licensed-employee-handoff/receipt.json') -PathType Leaf)){throw 'EMPLOYEE_LICENSED_HANDOFF_MISSING'}
+          Write-Host 'EMPLOYEE_LICENSED_PREPARATION=PASS'
       - name: Connect genuine installed independent employee through both native applications
         shell: pwsh
         timeout-minutes: 40
@@ -383,15 +538,41 @@ jobs:
             throw 'EMPLOYEE_INSTALLED_FIRST_USE_HOLD'
           }
           Write-Host 'EMPLOYEE_INSTALLED_ORIGINAL_FIRST_USE=PASS'
-          Write-Host 'EMPLOYEE_INSTALLED_LICENSED_EXECUTION=NOT_RUN'
+      - name: Assign original seat and admit exact signed Task in installed Agent
+        shell: pwsh
+        timeout-minutes: 30
+        env:
+          IWXA_T3_SYNTHETIC_PROVISION: CORPORATE_CENTER_CI_FIXTURE_ONLY
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-employee-licensed-private.log'
+          $witness=(Resolve-Path 'qualification/corporate-employee-first-use/installed-licensed.ps1').Path
+          $driver=(Resolve-Path 'publisher/tests/installed-publisher-center-corporate.ps1').Path
+          & pwsh.exe -NoLogo -NoProfile -STA -File $witness -CenterExe (Join-Path $env:CORPORATE_ADMIN_INSTALL 'iwxa-admin-center.exe') -AgentRoot $env:CORPORATE_EMPLOYEE_AGENT_ROOT -GuiDriver $driver *> $log
+          $exit=$LASTEXITCODE
+          $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+          $checks=@([regex]::Matches($raw,'(?m)^EMPLOYEE_LICENSED_CHECK=([A-Z0-9_]{4,80})\s*$')|ForEach-Object {$_.Groups[1].Value})
+          foreach($check in $checks){Write-Host ('EMPLOYEE_LICENSED_CHECK='+$check)}
+          foreach($m in [regex]::Matches($raw,'(?m)^EMPLOYEE_LICENSED_FAILURE_(STAGE|STEP|KIND)=([A-Z0-9_]{1,80})\s*$')){
+            Write-Host ('EMPLOYEE_LICENSED_FAILURE_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+          }
+          $manifest=@(Get-Content -LiteralPath 'qualification/corporate-employee-first-use/required-licensed-receipts.json' -Raw|ConvertFrom-Json)
+          if($exit -ne 0 -or $raw -notmatch '(?m)^EMPLOYEE_LICENSED_ADMISSION=PASS checks=9\s*$' -or
+             $checks.Count -ne 9 -or @(Compare-Object -ReferenceObject $manifest -DifferenceObject $checks -CaseSensitive).Count -ne 0){
+            $codes=@([regex]::Matches($raw,'(?<![A-Z0-9_])(?:EMPLOYEE_INSTALLED|CORPORATE_GUI|CORPORATE_SEAT)_[A-Z0-9_]{4,95}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
+            Write-Host ('EMPLOYEE_LICENSED_CODES='+($codes -join ','))
+            throw 'EMPLOYEE_LICENSED_ADMISSION_HOLD'
+          }
+          Write-Host 'EMPLOYEE_LICENSED_ORIGINAL_ADMISSION_AND_COLD_RECOVERY=PASS'
+          Write-Host 'EMPLOYEE_LICENSED_RESULT_ACCEPTANCE=NOT_RUN'
       - name: Discard transient private sources packages and employee profile
         if: always()
         shell: pwsh
         run: |
-          foreach($name in @('IWXA Personal','iwxa-admin-center','iwxa-t3-product-owner','iwxa-t3-product-consumer')){
+          foreach($name in @('IWXA Personal','iwxa-admin-center','iwxa-publisher','iwxa-t3-product-owner','iwxa-t3-product-consumer')){
             Get-Process -Name $name -ErrorAction SilentlyContinue|Stop-Process -Force -ErrorAction SilentlyContinue
           }
-          foreach($product in @('iwxa.admin-center','iwxa.personal-agent')){
+          foreach($product in @('iwxa.admin-center','iwxa.personal-agent','iwxa.publisher')){
             $key='HKCU:\Software\IWXA\SetupCore\Products\'+$product
             $reg=Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
             if($reg){
@@ -404,9 +585,13 @@ jobs:
           foreach($dir in @('private-t3','private-agent','admin','publisher','one-core','setup-core',
              (Join-Path $env:RUNNER_TEMP 'corporate-original-k036'),
              (Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'),
-             (Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache'))){
+             (Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache'),
+             (Join-Path $env:RUNNER_TEMP 'corporate-publisher-setup'),
+             (Join-Path $env:RUNNER_TEMP 'iwxa-licensed-employee-handoff'))){
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
           }
           Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Directory -Filter 'iwxa-employee-first-use-*' -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Directory -Filter 'iwxa-employee-licensed-*' -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'iwxa-corporate-witness-*' -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
           Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'corporate-installed-*-private.*' -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue
           Write-Host 'EMPLOYEE_INSTALLED_PRIVATE_CLEANUP=COMPLETE'
