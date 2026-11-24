@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     env:
-      PRIVATE_PIN: 7de99fac44c1c0ba7ab8d3381874044bf14d2783
-      PRIVATE_TREE: ad6f9eee27c3f563e32ef0b5c671e5caa9069ed3
+      PRIVATE_PIN: d573a173b723a64678b91e8e0e3b4190293006c8
+      PRIVATE_TREE: 1f1ae4ab6b756dc3b5ae067f4b3e07015e857a17
       QUALIFY_SCOPE: FULL
     steps:
       - uses: actions/setup-python@v5
@@ -155,7 +155,18 @@ jobs:
                   if deps:
                       tests=ok(["node","--test","tests/meta-harness-host.test.mjs"],cwd=desktop,timeout=120)
                       status("DESKTOP_META_TESTS","PASS" if tests else "FAIL")
-                      build=ok(npm+["run","build"],cwd=desktop,timeout=420)
+                      compiled=run(npm+["run","build"],cwd=desktop,timeout=420)
+                      build=compiled.returncode==0
+                      if not build:
+                          # No source text, filenames, messages or private path publication.
+                          data=(compiled.stdout+compiled.stderr).decode("utf-8",errors="replace")
+                          seen=set()
+                          for match in re.finditer(r"(?m)^([^\r\n(]{1,260})\((\d{1,7}),(\d{1,7})\): error TS(\d{4,6}):",data):
+                              path=match.group(1).replace("\\","/")
+                              if not path.startswith("src/"): continue
+                              key=hashlib.sha256(path.encode()).hexdigest()[:16]+":"+":".join(match.groups()[1:])
+                              if key not in seen and len(seen)<50:
+                                  seen.add(key);status("DESKTOP_TSC_CASE",key)
                       status("DESKTOP_BUILD","PASS" if build else "FAIL")
                       failed=failed or not tests or not build
                   else:
