@@ -745,7 +745,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
            })}>Проверить выданные права</button>
        </div>
        {workspaceRightsOk&&<p role="status" data-testid="d3-employee-workspace-rights-confirmed">
-         Четыре базовых права подтверждены исходным Kernel. Импорт разрешён
+         Четыре права подтверждены исходным Kernel. Импорт будет разрешён
          только в выбранную корпоративную Workspace.</p>}
        {returnExportSupported&&<div className="nested-form" data-testid="d3-employee-workspace-return">
          <h4>Возврат полной Workspace</h4>

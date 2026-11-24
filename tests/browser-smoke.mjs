@@ -937,6 +937,7 @@ try{
   const employeeState={registered:false,ready:false,reads:0,
     initializations:0,inviteExports:0,savedDraft:null,requiresCold:false,
     wrongReadKey:true,workspaceGrantCalls:0,workspaceGrantSaved:false,
+    returnExportCalls:0,returnExportSaved:false,cancelFirstReturnExport:true,
     taskGrantCalls:0,taskGrantSaved:false,
     wrongTaskGrantRecipient:true,cancelFirstTaskGrant:true,
     loseFirstTaskGrantAck:true,taskIssueCalls:0,signedTaskSaved:false,
@@ -1105,6 +1106,19 @@ try{
           assert.equal(args.input.confirmed,true);
           assert.equal(args.input.employeePersonId,'person:independent');
           assert.equal(args.input.enrollmentId,'enrollment:verified');
+          if(args.input.returnExport===true){
+            assert.equal(employeeState.workspaceGrantSaved,true,
+              'additive return needs the original four rights');
+            assert.equal(employeeState.returnExportSaved,false,
+              'the signed return DATA grant must not be reissued');
+            if(employeeState.cancelFirstReturnExport){
+              employeeState.cancelFirstReturnExport=false;
+              throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_HUMAN_CANCELLED');
+            }
+            employeeState.returnExportSaved=true;
+            employeeState.returnExportCalls++;
+            throw Error('T3_D3_ORIGINAL_KERNEL_OUTCOME_UNKNOWN');
+          }
           assert.equal(employeeState.workspaceGrantSaved,false,
             'one signed set must not be reissued');
           employeeState.workspaceGrantCalls++;
@@ -1124,7 +1138,9 @@ try{
             readAccess:['workspace.read','workspace.read'],
             writeAccess:['object.write','workspace.work'],
             createAccess:['workspace.create','workspace.onboarding'],
-            importAccess:['workspace.exchange.import','workspace.exchange.import']
+            importAccess:['workspace.exchange.import','workspace.exchange.import'],
+            ...(employeeState.returnExportSaved?{exportAccess:[
+              'workspace.exchange.export','workspace.exchange.export']}: {})
           };
           const attachments=Object.fromEntries(Object.entries(spec).map(([key,[action,purpose]])=>{
             const grantId='grant:'+key;
@@ -1143,7 +1159,8 @@ try{
               'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_NOT_FOUND',
             organizationId,workspaceId,employeePersonId:'person:independent',
             enrollmentId:'enrollment:verified',originalReadback:true,
-            safeToReissue:false,statusSequence:5,
+            safeToReissue:false,statusSequence:employeeState.returnExportSaved?8:5,
+            returnExportAvailable:employeeState.returnExportSaved,
             attachments:employeeState.workspaceGrantSaved?attachments:{}
           };
         }
@@ -1321,7 +1338,7 @@ try{
             recipientId:'person:independent',
             workspaceId:'workspace:employee-fixture',
             originalSigned:true,originalKernelReadback:true,
-             statusSequence:employeeState.taskGrantSaved?6:3,
+             statusSequence:employeeState.returnExportSaved?8:employeeState.taskGrantSaved?6:3,
              invitationDelivered:false,packageSha256:'c'.repeat(64),bytes:2048
           };
         }
@@ -1691,6 +1708,32 @@ try{
   assert.equal(employeeState.workspaceGrantCalls,1);
   assert.equal(employeeState.taskGrantCalls,1);
   checks.push('d3-global-search-opens-exact-original-employee-and-existing-task-no-write');
+  // UI-only fixture: explicit separate native confirmation, unknown ACK,
+  // authoritative original readback and re-export of current invitation.
+  const returnIssue=employeePage.getByTestId('d3-employee-workspace-return-issue');
+  await returnIssue.waitFor();
+  const invitesBeforeReturn=employeeState.inviteExports;
+  await returnIssue.click();
+  await employeePage.waitForFunction(()=>document.querySelector(
+    '[data-testid="d3-employee-workspace-return-issue"]')?.disabled===false);
+  assert.equal(employeeState.returnExportCalls,0,'native cancel must not issue');
+  await returnIssue.click();
+  await employeePage.waitForFunction(()=>document.querySelector(
+    '[data-testid="d3-employee-workspace-grants-read"]')?.disabled===false);
+  assert.equal(employeeState.returnExportCalls,1);
+  assert.equal(await returnIssue.isEnabled(),false,'unknown ACK must not replay');
+  assert.equal(await employeePage.getByTestId('d3-employee-workspace-return-confirmed').count(),0);
+  await employeePage.getByTestId('d3-employee-workspace-grants-read').click();
+  await employeePage.getByTestId('d3-employee-workspace-return-confirmed').waitFor();
+  assert.equal(await returnIssue.isEnabled(),false);
+  assert.equal(employeeState.workspaceGrantCalls,1);
+  assert.equal(employeeState.returnExportCalls,1);
+  await employeePage.getByTestId('d3-employee-invitation-export').click();
+  await employeePage.waitForFunction(()=>document.querySelector(
+    '[data-testid="d3-employee-invitation-export"]')?.disabled===false);
+  assert.equal(employeeState.inviteExports,invitesBeforeReturn+1);
+  assert.equal(employeeState.returnExportCalls,1);
+  checks.push('d3-employee-additive-return-export-native-cancel-lost-ack-readback-current-invite-ui-only');
   // This is a UI/IPC fixture, not an installed private T3 acceptance.
   // Select from original roster, lose ACK, reopen, recover, transfer, release.
   const seat=id=>employeePage.getByTestId('d3-seat-'+id);
