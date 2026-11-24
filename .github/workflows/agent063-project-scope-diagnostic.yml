@@ -1,0 +1,59 @@
+name: Agent merged candidate scoped project diagnostic
+on:
+  push:
+    branches: ['work/2026-11-24-agent063-corporate-seat-qualification']
+    paths: ['.github/workflows/agent063-project-scope-diagnostic.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      AGENT_PIN: 'e46fba7adb389286002604f3a5c0dddf0351bb41'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_PIN }}
+          path: agent
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Execute only original project membership test and emit bounded source location
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $PSNativeCommandUseErrorActionPreference=$false
+          if((& git -C agent rev-parse HEAD).Trim() -cne $env:AGENT_PIN){throw 'PROJECT_SCOPE_SOURCE_PIN_MISMATCH'}
+          Push-Location agent
+          try{
+            $log=Join-Path $env:RUNNER_TEMP 'agent-scope-diagnostic-private.log'
+            & python -m pip install -q -r requirements-ci.txt *> $log
+            if($LASTEXITCODE -ne 0){throw 'PROJECT_SCOPE_DEPENDENCIES_FAILED'}
+            & python -m pytest -q --tb=short tests/test_work_areas_interaction.py::test_scoped_project_catalog_and_board_follow_original_owner *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            if($exit -eq 0 -and $raw -match '(?m)\b1 passed\b'){
+              Write-Host 'PROJECT_SCOPE_ORIGINAL_TEST=PASS'
+            }else{
+              $sites=@([regex]::Matches($raw,'(?m)^(?:.*[/\\])?((?:test_work_areas_interaction|daily_driver_engine|session_runtime|goal_runtime|work_board_runtime)\.py):(\d+):')|ForEach-Object {$_.Groups[1].Value+':'+$_.Groups[2].Value}|Select-Object -Unique)
+              Write-Host ('PROJECT_SCOPE_FAILURE_SITES='+($sites -join ','))
+              $types=@([regex]::Matches($raw,'(?m)^E\s+([A-Za-z]+(?:Error|Exception))(?::|\b)')|ForEach-Object {$_.Groups[1].Value}|Select-Object -Unique)
+              Write-Host ('PROJECT_SCOPE_FAILURE_TYPES='+($types -join ','))
+              $codes=@([regex]::Matches($raw,'(?m)^E\s+(?:ValueError|RuntimeError|KeyError):\s+[''"]?((?:goal_|work_area_|work_board_|document_source_|source_task_)[a-z0-9_]{3,80})[''"]?\s*$')|ForEach-Object {$_.Groups[1].Value}|Select-Object -Unique)
+              Write-Host ('PROJECT_SCOPE_FAILURE_CODES='+($codes -join ','))
+              throw 'PROJECT_SCOPE_ORIGINAL_TEST_FAILED'
+            }
+          }finally{Pop-Location}
+      - name: Delete private source and transient diagnostic
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath agent -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'agent-scope-diagnostic-private.log') -Force -ErrorAction SilentlyContinue
