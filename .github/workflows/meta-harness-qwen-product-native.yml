@@ -1,0 +1,108 @@
+# Scoped read-only qualification of the private Agent. No artifacts or logs
+# from the private checkout may be published.
+name: Meta Harness Qwen native product qualification
+on:
+  push:
+    branches:
+      - work/2026-11-24-meta-harness-source-qualification
+    paths:
+      - .github/workflows/meta-harness-qwen-product-native.yml
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    env:
+      PRIVATE_PIN: 8905640ec87121b2272cd730144b1837ed67b9cb
+      PRIVATE_TREE: 27ca12a3b340e752f490de8c93578d46511c1fb7
+      IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Read pinned source, qualify and remove temporary checkout
+        shell: bash
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json, os, pathlib, re, subprocess, sys, tempfile
+          def status(label, value):
+              print(label + "=" + str(value), flush=True)
+          def main():
+              pin = os.environ["PRIVATE_PIN"]
+              tree = os.environ["PRIVATE_TREE"]
+              token = os.environ.pop("IWXA_TEMP_READ_TOKEN", "")
+              if not token:
+                  status("PRIVATE_READ", "TOKEN_UNAVAILABLE")
+                  return 1
+              clean = dict(os.environ)
+              clean.update({"GIT_TERMINAL_PROMPT":"0", "GIT_LFS_SKIP_SMUDGE":"1", "PYTHONUTF8":"1"})
+              with tempfile.TemporaryDirectory(prefix="iwxa-private-", dir=os.environ.get("RUNNER_TEMP")) as td:
+                  root = pathlib.Path(td)
+                  source = root / "source"
+                  source.mkdir()
+                  def run(args, cwd=source, env=clean, timeout=600):
+                      return subprocess.run(args, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE, timeout=timeout)
+                  def ok(args, cwd=source, env=clean, timeout=600):
+                      return run(args,cwd,env,timeout).returncode == 0
+                  if not ok(["git","init","-q"]):
+                      status("PRIVATE_READ","INIT_FAIL"); return 1
+                  auth = dict(clean)
+                  auth.update({"GIT_CONFIG_COUNT":"1",
+                      "GIT_CONFIG_KEY_0":"http.https://github.com/.extraheader",
+                      "GIT_CONFIG_VALUE_0":"AUTHORIZATION: basic "+base64.b64encode(
+                          ("x-access-token:"+token).encode()).decode()})
+                  fetched = ok(["git","fetch","--no-tags","--depth","1",
+                                "https://github.com/Faust-S/iwxa-personal-agent.git",pin],
+                               env=auth,timeout=180)
+                  del auth, token
+                  if not fetched or not ok(["git","checkout","--detach","-q",pin]):
+                      status("PRIVATE_READ","FETCH_FAIL"); return 1
+                  if (run(["git","rev-parse","HEAD"]).stdout.decode().strip()!=pin
+                      or run(["git","rev-parse","HEAD^{tree}"]).stdout.decode().strip()!=tree):
+                      status("PRIVATE_READ","PIN_MISMATCH"); return 1
+                  status("PRIVATE_READ","PASS"); status("SOURCE_PIN",pin)
+                  if not ok([sys.executable,"-m","pip","install","--disable-pip-version-check",
+                             "-r","requirements-ci.txt"],timeout=420):
+                      status("PYTHON_DEPS","FAIL"); return 1
+                  status("PYTHON_DEPS","PASS")
+                  allowed = {"START","QWEN_INSTALL_PASS","OLLAMA_RELEASE_PASS","GGUF_DIGEST_PASS",
+                             "OLLAMA_SERVER_PASS","ORIGINAL_MODEL_SELECTION_PASS","REAL_MODEL_SMOKE_PASS",
+                             "ORIGINAL_GRAPH_PREVIEW_PASS","REAL_QWEN_GRAPH_RESULT_PASS",
+                             "ORIGINAL_RESULT_RESTART_PASS","PROCESS_CLEANUP_PASS"}
+                  proc = run([sys.executable,"-m","pytest","-q","-s","--tb=short",
+                      "-p","no:cacheprovider","tests/test_meta_harness_qwen_native_product.py",
+                      "--basetemp",str(root/"native-test")],timeout=2400)
+                  out = proc.stdout.decode("utf-8","replace")
+                  stages = []
+                  for line in out.splitlines():
+                      if line.startswith("QWEN_PRODUCT_STAGE="):
+                          stage = line.split("=",1)[1].strip()
+                          if stage in allowed:
+                              stages.append(stage)
+                              status("QWEN_PRODUCT_STAGE",stage)
+                      elif re.fullmatch(r"QWEN_PRODUCT_FIRST_MS=[0-9]{1,10}",line.strip()):
+                          print(line.strip(),flush=True)
+                  passed = proc.returncode == 0 and set(stages) == allowed
+                  status("QWEN_PRODUCT_NATIVE","PASS" if passed else "FAIL")
+                  return 0 if passed else 1
+          try:
+              sys.exit(main())
+          except subprocess.TimeoutExpired:
+              status("QWEN_PRODUCT_NATIVE","TIMEOUT")
+              sys.exit(1)
+          except Exception as exc:
+              status("QWEN_PRODUCT_NATIVE","ERROR")
+              status("ERROR_KIND",type(exc).__name__ if type(exc).__name__ in {"PermissionError","OSError","ValueError","FileNotFoundError"} else "OTHER")
+              sys.exit(1)
+          PY
