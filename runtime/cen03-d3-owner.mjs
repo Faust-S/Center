@@ -394,6 +394,52 @@ export function validateOriginalEmployeeTaskReadback(receipt,{taskId,employeePer
  return copy(receipt,code);
 }
 
+// Display the existing original inventory as recipient-specific lists.
+// Every selected employee carrier still requires independent native readback.
+export function readOriginalTaskCatalog(snapshot){
+ const code='CEN_MANAGER_SIGNED_TASK_INVENTORY_INVALID';
+ need(validId(snapshot?.organizationId)&&validId(snapshot?.workspaceId)&&
+   validId(snapshot?.actorId)&&Array.isArray(snapshot.tasks)&&
+   Number.isSafeInteger(snapshot.totalTasks)&&snapshot.totalTasks>=snapshot.tasks.length&&
+   snapshot.totalTasks<=256,code);
+ const ids=new Set(),rows=[];
+ for(const row of snapshot.tasks){
+  need(employeeTaskId(row?.taskId)&&validId(row?.recipientId)&&
+   validSha(row?.taskRevisionId)&&validSha(row?.packageSha256)&&
+   typeof row?.summary==='string'&&row.summary.length<=10000&&
+   row.deliveryState==='NOT_CONFIRMED','CEN_MANAGER_SIGNED_TASK_INVALID');
+  need(!ids.has(row.taskId),'CEN_MANAGER_SIGNED_TASK_DUPLICATE');
+  ids.add(row.taskId);
+  rows.push({taskId:row.taskId,recipientId:row.recipientId,
+    taskRevisionId:row.taskRevisionId,packageSha256:row.packageSha256,
+    summary:row.summary,deliveryState:'NOT_CONFIRMED'});
+ }
+ return {rows,totalTasks:snapshot.totalTasks,truncated:rows.length<snapshot.totalTasks};
+}
+export function validateOriginalEmployeeCatalogReadback(receipt,row,enrollmentId){
+ const code='CEN_D3_EMPLOYEE_TASK_CATALOG_READBACK_HOLD';
+ need(row?.deliveryState==='NOT_CONFIRMED'&&validId(row.recipientId)&&
+   validId(enrollmentId)&&employeeTaskId(row.taskId)&&validSha(row.taskRevisionId)&&
+   validSha(row.packageSha256),code);
+ return validateOriginalEmployeeTaskReadback(receipt,{
+   employeePersonId:row.recipientId,enrollmentId,taskId:row.taskId
+ },{...row,enrollmentId});
+}
+export function validateOriginalEmployeeTaskExportReceipt(result,source){
+ const code='CEN_D3_EMPLOYEE_TASK_EXPORT_READBACK_HOLD';
+ need(source?.found===true&&source.originalKernelReadback===true&&
+   source.status==='SIGNED_TASK_PERSISTED_NOT_DELIVERED'&&
+   employeeTaskId(source.taskId)&&validId(source.recipientId)&&
+   validSha(source.taskRevisionId)&&validSha(source.packageSha256)&&
+   result?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_EXPORT/1'&&
+   result.status==='EXPORTED_UNDELIVERED'&&result.originalSigned===true&&
+   result.taskDelivered===false&&result.taskId===source.taskId&&
+   result.recipientId===source.recipientId&&result.taskRevisionId===source.taskRevisionId&&
+   result.packageSha256===source.packageSha256&&Number.isSafeInteger(result.bytes)&&
+   result.bytes>0,code);
+ return copy(result,code);
+}
+
 export function appendOriginalResultReview(previous,preview,organizationId,
  workspaceId){
  const bad='CEN_D3_SIGNED_RESULT_REVIEW_STALE';

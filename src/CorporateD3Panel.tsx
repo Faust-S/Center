@@ -2,7 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
 import {readOriginalResultReview,readCompleteOriginalResult,
- validateOriginalSignedTaskReadback,
+ validateOriginalSignedTaskReadback,readOriginalTaskCatalog,
  isDefiniteUndispatchedD3Failure,
  readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
 
@@ -11,7 +11,7 @@ import {readOriginalResultReview,readCompleteOriginalResult,
 // automatically repeat a decision whose native acknowledgment was lost.
 type Exec=(operation:string,input?:Record<string,unknown>)=>Promise<any>;
 type Run=(success:string,work:()=>Promise<void|boolean>)=>Promise<void>;
-type SignedTask={taskId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:'NOT_CONFIRMED'};
+type SignedTask={taskId:string;recipientId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:'NOT_CONFIRMED'};
 type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   contextId:string;contextEpoch:number;d3ApplyAvailable:boolean;
   d3InspectAvailable?:boolean;
@@ -161,8 +161,11 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      setDecisionAttempted(true);setDecisionType(pending.decision);
    }
  };
- const signedTasks=Array.isArray(session.tasks)?session.tasks.filter(t=>
-   opPattern.test(t.taskId)&&hex(t.taskRevisionId)&&hex(t.packageSha256)):[];
+ const catalog=(()=>{
+   try{return readOriginalTaskCatalog(session)}catch{return null}
+ })();
+ const allSignedTasks:SignedTask[]=catalog?.rows??[];
+ const signedTasks=allSignedTasks.filter(t=>t.recipientId===session.actorId);
  const selectedTask=signedTasks.find(t=>t.taskId===taskId)??signedTasks.at(-1);
  const chosenDraft=assignmentDrafts.find(a=>a.id===draftId);
  const draftAssigneeUnbound=!!chosenDraft?.assigneeId;
@@ -175,7 +178,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    if(draftAssigneeUnbound)throw Error('CEN_D3_DRAFT_ASSIGNEE_NOT_SIGNED');
    if(!/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)||
      !taskIdSaved||taskAttempted||
-     signedTasks.some(t=>t.taskId===taskOperationId))
+     (!catalog||allSignedTasks.some(t=>t.taskId===taskOperationId)))
      throw Error('CEN_D3_SIGNED_TASK_OPERATION_REQUIRED');
    // A draft Atlas link is not automatically a valid current source. Before
    // original T3 signs it, reread the installed Atlas Desktop owner in its
@@ -551,6 +554,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       <p>Исходный {exactFocus.kind==='signed-task'?'Task':'пакет Result'}: {exactFocus.id}.
         Подписанный владелец проверит источник заново перед действием.
         Этот переход ничего не подписывает, не принимает и не применяет.</p>
+      {exactFocus.kind==='signed-task'&&allSignedTasks.some(t=>t.taskId===exactFocus.id&&t.recipientId!==session.actorId)&&<p>Это поручение независимого сотрудника. Выберите сотрудника в исходном реестре выше.</p>}
       {exactFocus.kind==='signed-result-package'&&<button className="secondary"
         type="button" data-testid="d3-manager-recheck-package" disabled={busy}
         onClick={()=>{void refreshInbox(exactFocus.id)}}>Перечитать Reconciliation и выбрать точный пакет</button>}
@@ -648,7 +652,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       <button className="primary" data-testid="d3-create-task"
        disabled={busy||!taskText.trim()||draftAssigneeUnbound||draftStale||
          !taskIdSaved||taskAttempted||
-         signedTasks.some(t=>t.taskId===taskOperationId)||
+         (!catalog||allSignedTasks.some(t=>t.taskId===taskOperationId))||
          !/^task:[A-Za-z0-9-]{1,100}$/.test(taskOperationId)}
        onClick={createSignedTask}>Подписать и сохранить Task</button>
      </div>
@@ -677,8 +681,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        throw Error('CEN_D3_FIRST_USE_COMPLETION_UNCONFIRMED');
      })}>Завершить подключение подписанных Task</button>
    </div>}
+   {catalog===null&&<p role="alert">Исходный каталог поручений не подтверждён.</p>}
    {!!signedTasks.length&&<>
-    <label>Сохранённая Task
+    <label>Сохранённая Task руководителя
      <select data-testid="d3-signed-task-select" value={selectedTask?.taskId??''}
       onChange={e=>setTaskId(e.target.value)}>
       {signedTasks.map(t=><option key={t.taskId} value={t.taskId}>

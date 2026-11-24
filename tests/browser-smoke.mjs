@@ -548,7 +548,7 @@ try{
         const tasks=held.task?[{
           taskId:held.task.taskId,taskRevisionId:'a'.repeat(64),
           packageSha256:'b'.repeat(64),summary:'UI recovery task',
-          deliveryState:'NOT_CONFIRMED'
+          recipientId:'person:reviewer',deliveryState:'NOT_CONFIRMED'
         }]:[];
         return {status:'D3_OWNER_READY',snapshot:{
           product:'admin',organizationId:args.organizationId,
@@ -818,8 +818,21 @@ try{
       if(command==='center_corporate_signed_workspace_status')
         return {schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',
           open:false,visible:false,foreignOrOrphaned:false};
-      if(command==='center_corporate_state')return {
-        status:'D3_OWNER_READY',snapshot:{
+      if(command==='center_corporate_state'){
+        const tasks=employeeState.ready?[
+          {taskId:'task:other-worker',recipientId:'person:other-worker',
+            taskRevisionId:'a'.repeat(64),packageSha256:'b'.repeat(64),
+            summary:'Another worker assignment',deliveryState:'NOT_CONFIRMED'},
+          ...(employeeState.signedTaskSaved&&!employeeState.taskOrphan?[{
+            taskId:'task:independent-work',recipientId:'person:independent',
+            taskRevisionId:'d'.repeat(64),packageSha256:'e'.repeat(64),
+            summary:'Review verified supplier statement',deliveryState:'NOT_CONFIRMED'}]:[]),
+          ...(employeeState.secondTaskId?[{
+            taskId:employeeState.secondTaskId,recipientId:'person:independent',
+            taskRevisionId:'f'.repeat(64),packageSha256:'9'.repeat(64),
+            summary:'Review second verified supplier statement',deliveryState:'NOT_CONFIRMED'}]:[])
+        ]:[];
+        return {status:'D3_OWNER_READY',snapshot:{
           product:'admin',organizationId:args.organizationId,
           workspaceId:'workspace:employee-fixture',
           actorId:'person:manager-fixture',
@@ -833,8 +846,9 @@ try{
           d3EmployeeTaskIssueAvailable:employeeState.ready,
           d3EmployeeWorkspaceRightsAvailable:employeeState.ready,
           d3EmployeeCorporateSeatsAvailable:employeeState.ready,
-          productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
+          productionActivation:false,T3_READY:false,tasks,totalTasks:tasks.length
         }};
+      }
       if(command==='center_corporate_age_status')return {
         operation:'AGE_STATUS',available:false,recipient:null,
         toolchain:{ready:false},provider:'WINDOWS_TEST_UI',admitted:false};
@@ -1485,7 +1499,28 @@ try{
   await employeePage.getByTestId('d3-employee-task-export').click();
   assert.equal(employeeState.taskExports,2);
   assert.equal(employeeState.taskIssueCalls,2);
+  const history=employeePage.getByTestId('d3-employee-history-select');
+  await history.waitFor();
+  assert.equal(await history.locator('option').count(),3);
+  assert.equal(await history.locator('option[value="task:other-worker"]').count(),0);
+  assert.equal(await employeePage.getByTestId('d3-signed-task-select').count(),0);
+  await history.selectOption('task:independent-work');
+  assert.equal(await employeePage.getByTestId('d3-employee-history-export').isEnabled(),false);
+  employeeState.wrongTaskReadback=true;
+  await employeePage.getByTestId('d3-employee-history-read').click();
+  await employeePage.waitForFunction(()=>document.querySelector('[data-testid="d3-employee-history-read"]')?.disabled===false);
+  assert.equal(await employeePage.getByTestId('d3-employee-history-confirmed').count(),0);
+  assert.equal(await employeePage.getByTestId('d3-employee-history-export').isEnabled(),false);
+  employeeState.wrongTaskReadback=false;
+  await employeePage.getByTestId('d3-employee-history-read').click();
+  await employeePage.getByTestId('d3-employee-history-confirmed').waitFor();
+  await employeePage.getByTestId('d3-employee-history-export').click();
+  await employeePage.waitForFunction(()=>document.querySelector('[data-testid="d3-employee-history-export"]')?.disabled===false);
+  assert.equal(employeeState.taskExports,3);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-id').inputValue(),employeeState.secondTaskId);
+  assert.equal(employeeState.taskIssueCalls,2);
   checks.push('d3-employee-pending-id-restored-stale-readback-blocked-successive-task-no-grant-reissue');
+  checks.push('d3-employee-original-recipient-history-old-carrier-no-pending-mutation');
   // This is a UI/IPC fixture, not an installed private T3 acceptance.
   // Select from original roster, lose ACK, reopen, recover, transfer, release.
   const seat=id=>employeePage.getByTestId('d3-seat-'+id);

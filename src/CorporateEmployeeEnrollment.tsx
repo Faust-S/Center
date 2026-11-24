@@ -4,7 +4,8 @@ import {readOriginalEmployeeRegistryReceipt,readOriginalSeatView} from '../runti
 import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskReadback,readOriginalEmployeeBootstrap,readOriginalEmployeePublicCandidate,
  employeeTaskContinuationKey,readEmployeeTaskContinuation,saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
  readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,
- inspectOriginalEmployeeWorkspaceRights,inspectOriginalEmployeeTaskGrant}
+ inspectOriginalEmployeeWorkspaceRights,inspectOriginalEmployeeTaskGrant,
+ readOriginalTaskCatalog,validateOriginalEmployeeCatalogReadback,validateOriginalEmployeeTaskExportReceipt}
  from '../runtime/cen03-d3-owner.mjs';
 
 // This is a manager's view of the ORIGINAL installed T3 employee enrollment.
@@ -13,7 +14,9 @@ import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskRea
 type Exec=(operation:string,input?:Record<string,unknown>)=>Promise<any>;
 type Run=(message:string,task:()=>Promise<void|boolean>)=>Promise<void>;
 type Contact={id:string;name:string};
-type Session={organizationId:string;workspaceId:string;actorId:string;
+type TaskCatalogRow={taskId:string;recipientId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:string};
+type Session={organizationId:string;workspaceId:string;actorId:string;contextEpoch:number;
+  tasks?:TaskCatalogRow[];totalTasks?:number;
   d3EmployeeEnrollmentAvailable?:boolean;
   d3EmployeeRegistryBootstrapAvailable?:boolean;
   d3EmployeeRegistryReadbackAvailable?:boolean;
@@ -89,6 +92,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const [taskGrantReceipt,setTaskGrantReceipt]=useState<any>(null);
  const [taskGrantReadHold,setTaskGrantReadHold]=useState(false);
  const [taskText,setTaskText]=useState('');
+ const [historyChoice,setHistoryChoice]=useState<{scope:string;id:string}|null>(null);
+ const [historyReadback,setHistoryReadback]=useState<{scope:string;epoch:number;receipt:any}|null>(null);
  const [taskId,setTaskId]=useState('');
  const [taskAttempted,setTaskAttempted]=useState(false);
  const [taskReceipt,setTaskReceipt]=useState<any>(null);
@@ -165,6 +170,35 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const taskScope=enrolled?employeeTaskContinuationKey(session.organizationId,
    session.workspaceId,session.actorId,personId,enrollmentReceipt.enrollmentId):null;
  const taskScopeReady=taskScope!==null&&loadedTaskScope===taskScope&&!taskContinuationBlocked;
+ const catalog=(()=>{
+   try{return readOriginalTaskCatalog(session)}catch{return null}
+ })();
+ const historyRows:TaskCatalogRow[]=enrolled?(catalog?.rows.filter((row:TaskCatalogRow)=>row.recipientId===personId)??[]):[];
+ const selectedHistory=historyChoice&&historyChoice.scope===taskScope?
+   historyRows.find(row=>row.taskId===historyChoice.id):undefined;
+ const verifiedHistory=(()=>{
+   if(!selectedHistory||!historyReadback||historyReadback.scope!==taskScope||
+     historyReadback.epoch!==session.contextEpoch||!enrolled)return null;
+   try{return validateOriginalEmployeeCatalogReadback(historyReadback.receipt,
+     selectedHistory,recoveryEnrollmentId)}catch{return null}
+ })();
+ const readHistory=()=>run('Подписанное поручение перечитано без новой выдачи.',async()=>{
+   setHistoryReadback(null);
+   if(!enrolled||!selectedHistory||!taskScope||!taskIssueAvailable)
+     throw Error('CEN_D3_EMPLOYEE_TASK_CATALOG_READBACK_HOLD');
+   const result=await execute('d3EmployeeTaskReadback',{
+     taskId:selectedHistory.taskId,employeePersonId:personId,enrollmentId:recoveryEnrollmentId});
+   const receipt=validateOriginalEmployeeCatalogReadback(result,selectedHistory,recoveryEnrollmentId);
+   setHistoryReadback({scope:taskScope,epoch:session.contextEpoch,receipt});
+ });
+ const exportHistory=()=>run('Ранее подписанный файл сохранён. Доставка не подтверждена.',async()=>{
+   if(!verifiedHistory||!selectedHistory||!enrolled||!taskIssueAvailable)
+     throw Error('CEN_D3_EMPLOYEE_TASK_CATALOG_READBACK_HOLD');
+   const result=await execute('d3EmployeeExportTask',{
+     taskId:selectedHistory.taskId,employeePersonId:personId,enrollmentId:recoveryEnrollmentId});
+   if(result?.status==='CANCELLED')return false;
+   validateOriginalEmployeeTaskExportReceipt(result,verifiedHistory);
+ });
  useEffect(()=>{
    setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);setTaskNeedsRebind(false);
@@ -208,6 +242,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);
    setTaskNeedsRebind(false);setLoadedTaskScope(null);setTaskContinuationBlocked(false);
+   setHistoryChoice(null);setHistoryReadback(null);
  };
  const refreshRoster=(employeeOffset=0)=>run('Исходный список сотрудников перечитан.',async()=>{
    setRoster(null);setRosterChoice('');
@@ -739,6 +774,40 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        Оригинальный Kernel сейчас не подключён к владельцу Task.
         Откройте доверенную Workspace и перечитайте адресный DATA-грант.</p>}
      <h3>Поручения сотруднику</h3>
+     <div className="nested-form" data-testid="d3-employee-task-history">
+      <h4>Ранее подписанные поручения</h4>
+      {catalog===null?<p role="alert">Исходный список поручений не подтверждён. Обновите корпоративную сессию.</p>:
+        <>
+        <p className="muted">В исходном списке этого сотрудника: {historyRows.length}.
+          {catalog.truncated?' Показана доступная часть исходного каталога.':''}
+          {' '}Доставка и приёмка не следуют из подписания.</p>
+        {!!historyRows.length&&<>
+         <label>Выберите сохранённое поручение
+          <select value={selectedHistory?.taskId??''} disabled={busy}
+            data-testid="d3-employee-history-select"
+            onChange={e=>{setHistoryReadback(null);setHistoryChoice(taskScope?{scope:taskScope,id:e.target.value}:null)}}>
+           <option value="">Выберите поручение</option>
+           {historyRows.map(row=><option key={row.taskId} value={row.taskId}>
+            {row.summary||row.taskId} · {row.taskId.slice(0,24)}
+           </option>)}
+          </select>
+         </label>
+         {selectedHistory&&<div data-testid="d3-employee-history-selection">
+          <p>{selectedHistory.summary||selectedHistory.taskId}</p>
+          <p className="muted">Редакция: {selectedHistory.taskRevisionId.slice(0,16)}… · SHA-256:
+            {' '}{selectedHistory.packageSha256.slice(0,16)}…</p>
+          <div className="actions">
+           <button type="button" className="secondary" data-testid="d3-employee-history-read"
+             disabled={busy||!taskIssueAvailable} onClick={()=>void readHistory()}>Проверить сохранённое поручение</button>
+           <button type="button" className="secondary" data-testid="d3-employee-history-export"
+             disabled={busy||!taskIssueAvailable||!verifiedHistory} onClick={()=>void exportHistory()}>Сохранить ранее подписанный файл .iwxa</button>
+          </div>
+          {verifiedHistory&&<p role="status" data-testid="d3-employee-history-confirmed">
+           Исходные подписанные байты подтверждены. Доставка не подтверждена.</p>}
+         </div>}
+        </>}
+        </>}
+     </div>
      <p>Подготовьте новое поручение или восстановите ранее подписанное по исходному ID.
        Повторное подключение сотрудника для следующего поручения не требуется.</p>
      {taskContinuationBlocked&&<p role="alert" data-testid="d3-employee-task-continuation-blocked">
@@ -761,10 +830,12 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        принадлежат оригинальному T3. При потере ответа сначала перечитайте Task.</p>
      <button data-testid="d3-employee-task-create" disabled={!taskIssueAvailable||
         !invitationCurrentForTask||busy||taskAttempted||!taskScopeReady||
-       !/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||!taskText.trim()}
+       !/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||!taskText.trim()||
+       catalog===null||catalog.rows.some((row:TaskCatalogRow)=>row.taskId===taskId)}
        onClick={()=>void run('Оригинальная Task подписана адресату, доставка не подтверждена.',async()=>{
         if(taskAttempted||!managerTaskGrantOk||!invitationCurrentForTask||
-            !taskScopeReady||!taskScope||!ID.test(enrollmentReceipt.enrollmentId))
+            !taskScopeReady||!taskScope||!ID.test(enrollmentReceipt.enrollmentId)||
+            catalog===null||catalog.rows.some((row:TaskCatalogRow)=>row.taskId===taskId))
            throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_DATA_GRANT_REQUIRED');
          // Persist only the exact operation ID before an irreversible
          // native call. Any write failure prevents dispatch.
@@ -880,14 +951,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
            enrollmentId:enrollmentReceipt.enrollmentId,taskId
          });
          if(result?.status==='CANCELLED')return false;
-         if(result?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_EXPORT/1'||
-            result.status!=='EXPORTED_UNDELIVERED'||
-            result.originalSigned!==true||result.taskDelivered!==false||
-            result.taskId!==taskId||result.recipientId!==personId||
-            result.taskRevisionId!==taskReceipt.taskRevisionId||
-            result.packageSha256!==taskReceipt.packageSha256||
-            !Number.isSafeInteger(result.bytes)||result.bytes<=0)
-           throw Error('CEN_D3_EMPLOYEE_TASK_EXPORT_READBACK_HOLD');
+         validateOriginalEmployeeTaskExportReceipt(result,taskReceipt);
         })}>Сохранить подписанную Task .iwxa</button>
       {taskAttempted&&!taskReceipt&&<p className="notice subdued" data-testid="d3-employee-task-awaiting-readback">
        Task могла быть подписана до потери ответа. Сохранён её исходный ID.

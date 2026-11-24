@@ -11,6 +11,7 @@ import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
  saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
  readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,
  inspectOriginalEmployeeWorkspaceRights,inspectOriginalEmployeeTaskGrant,
+ readOriginalTaskCatalog,validateOriginalEmployeeCatalogReadback,validateOriginalEmployeeTaskExportReceipt,
  isDefiniteUndispatchedD3Failure,
  readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
@@ -165,6 +166,47 @@ test('employee rights are read before issue, with both existing grants restored 
    assert.ok(pre>=0&&segment.indexOf("execute('"+operation+"'")>pre);
    assert.match(segment.slice(pre,pre+300),/before!=='NOT_FOUND'/);
  }
+});
+
+test('original Task catalog separates recipients and requires exact carrier readback',()=>{
+ const rows=[{taskId:'task:manager',recipientId:'person:manager',taskRevisionId:A,packageSha256:B,
+   summary:'Manager work',deliveryState:'NOT_CONFIRMED'},
+  {taskId:'task:employee',recipientId:'person:employee',taskRevisionId:B,packageSha256:C,
+   summary:'Employee work',deliveryState:'NOT_CONFIRMED'}];
+ const snapshot={organizationId:'org:one',workspaceId:'workspace:one',actorId:'person:manager',totalTasks:2,tasks:rows};
+ const catalog=readOriginalTaskCatalog(snapshot);
+ assert.deepEqual(catalog.rows.filter(x=>x.recipientId==='person:employee'),[rows[1]]);
+ assert.equal(catalog.truncated,false);
+ assert.equal(readOriginalTaskCatalog({...snapshot,totalTasks:3}).truncated,true);
+ assert.throws(()=>readOriginalTaskCatalog({...snapshot,tasks:[rows[0],rows[0]]}),/DUPLICATE/);
+ assert.throws(()=>readOriginalTaskCatalog({...snapshot,tasks:[rows[0],{...rows[1],recipientId:undefined}]}),/TASK_INVALID/);
+ assert.throws(()=>readOriginalTaskCatalog({...snapshot,tasks:[rows[0],{...rows[1],deliveryState:'DELIVERED'}]}),/TASK_INVALID/);
+ const receipt={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1',found:true,
+  taskId:'task:employee',recipientId:'person:employee',enrollmentId:'enrollment:employee',
+  status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED',originalKernelReadback:true,taskDelivered:false,
+  taskRevisionId:B,packageSha256:C};
+ assert.deepEqual(validateOriginalEmployeeCatalogReadback(receipt,rows[1],'enrollment:employee'),receipt);
+ for(const patch of [{recipientId:'person:manager'},{taskRevisionId:A},{packageSha256:A},{found:false}]){
+   assert.throws(()=>validateOriginalEmployeeCatalogReadback({...receipt,...patch},rows[1],'enrollment:employee'),/READBACK_HOLD/);
+ }
+ assert.throws(()=>validateOriginalEmployeeCatalogReadback(receipt,rows[0],'enrollment:employee'),/READBACK_HOLD/);
+ const exported={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_EXPORT/1',status:'EXPORTED_UNDELIVERED',
+   taskId:receipt.taskId,recipientId:receipt.recipientId,taskRevisionId:B,packageSha256:C,
+   originalSigned:true,taskDelivered:false,bytes:512};
+ assert.deepEqual(validateOriginalEmployeeTaskExportReceipt(exported,receipt),exported);
+ assert.throws(()=>validateOriginalEmployeeTaskExportReceipt(exported,rows[1]),/EXPORT_READBACK_HOLD/);
+ assert.throws(()=>validateOriginalEmployeeTaskExportReceipt({...exported,recipientId:'person:other'},receipt),/EXPORT_READBACK_HOLD/);
+ assert.throws(()=>validateOriginalEmployeeTaskExportReceipt({...exported,packageSha256:A},receipt),/EXPORT_READBACK_HOLD/);
+});
+test('employee history is independent of a pending Task and first-person route filters its recipient',()=>{
+ const ui=readFileSync(new URL('../src/CorporateEmployeeEnrollment.tsx',import.meta.url),'utf8');
+ const history=ui.slice(ui.indexOf('const readHistory='),ui.indexOf('useEffect(()=>'));
+ assert.match(history,/d3EmployeeTaskReadback/);
+ assert.match(history,/d3EmployeeExportTask/);
+ assert.doesNotMatch(history,/saveEmployeeTaskContinuation|clearEmployeeTaskContinuation|d3EmployeeCreateTask/);
+ assert.match(ui,/historyReadback.epoch!==session.contextEpoch/);
+ const owner=readFileSync(new URL('../src/CorporateD3Panel.tsx',import.meta.url),'utf8');
+ assert.match(owner,/allSignedTasks.filter\(t=>t.recipientId===session.actorId\)/);
 });
 
 test('independent employee Task continuation saves only the operation ID, restores after reopening and isolates exact enrollments',()=>{
