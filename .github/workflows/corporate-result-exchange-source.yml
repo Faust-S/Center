@@ -1,0 +1,76 @@
+name: Original T3 corporate return Exchange source qualification
+on:
+  push:
+    branches: ['work/2026-11-24-corporate-result-exchange-source']
+permissions:
+  contents: read
+concurrency:
+  group: original-return-exchange-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  original-signed-exchange:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 06b56c6f2c1c3164e4a2e92bdcbe8706929216b5
+          path: public-one-core
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: a6b98eef231003bd52da2125686011d35a8b622f
+          path: private-t3
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Confirm exact source and original enrollment regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git -C private-t3 rev-parse HEAD).Trim() -cne 'a6b98eef231003bd52da2125686011d35a8b622f' -or
+              (& git -C public-one-core rev-parse HEAD).Trim() -cne '06b56c6f2c1c3164e4a2e92bdcbe8706929216b5') {
+            throw 'ORIGINAL_RETURN_EXCHANGE_SOURCE_PIN_MISMATCH'
+          }
+          & node --test public-one-core/packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_ENROLLMENT_REGRESSION_FAILED' }
+      - name: Original signed Exchange and Control HTTP regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'original-exchange-private.log'
+          Push-Location private-t3
+          try {
+            & node --test tests/t3-signed-workspace-exchange-owner.test.mjs tests/t3-signed-exchange-http-invite.test.mjs *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            foreach($n in @('tests','pass','fail','cancelled','skipped')){
+              $m=[regex]::Matches($raw,"(?m)^# $n (\d+)\s*$")
+              if($m.Count -gt 0){Write-Host ("EXCHANGE_TEST_"+$n.ToUpperInvariant()+"="+$m[$m.Count-1].Groups[1].Value)}
+            }
+            if($exit -ne 0){
+              $indices=@([regex]::Matches($raw,'(?m)^not ok (\d+)') | ForEach-Object {$_.Groups[1].Value})
+              Write-Host ("EXCHANGE_FAILED_ORDINALS="+($indices -join ','))
+              foreach($name in @('t3-signed-workspace-exchange-owner','t3-signed-exchange-http-invite','runtime','server')){
+                $lines=@([regex]::Matches($raw,([regex]::Escape($name)+'\.mjs:(\d+):(\d+)')) | ForEach-Object {$_.Groups[1].Value} | Sort-Object -Unique)
+                if($lines.Count -gt 0){Write-Host ("EXCHANGE_PRIVATE_LINE_"+$name+"="+($lines -join ','))}
+              }
+              throw 'ORIGINAL_SIGNED_EXCHANGE_SOURCE_FAILED'
+            }
+            Write-Host 'ORIGINAL_SIGNED_EXCHANGE_SOURCE_PASS'
+          } finally {Pop-Location}
+      - name: Discard private checkout and logs
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath private-t3 -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'original-exchange-private.log') -Force -ErrorAction SilentlyContinue
+# No private artifacts, test fixtures, source, logs, keys or builds are uploaded.
