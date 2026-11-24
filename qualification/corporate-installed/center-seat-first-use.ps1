@@ -43,24 +43,35 @@ function OpenSeatRoute(){
  Check (WaitForText 'К приёмке' 100) 'CORPORATE_INSTALLED_SEAT_WORKSPACE_NOT_OPEN'
 }
 function WaitWorkspaceGate(){
- # A signed corporate Workspace can be created automatically by original T3.
- # Positive original Overview content is rendered only after the selected
- # signed Workspace gate has returned its verified readback.
- for($i=0;$i -lt 240;$i++){
-  if((HasText 'Control не подтвердил чтение выбранной Workspace') -or
-     (HasText 'Не удалось открыть изолированную подписанную Workspace') -or
-     (HasText 'Подписанный доступ Control отозван')){
-   throw 'CORPORATE_INSTALLED_SEAT_WORKSPACE_DENIED'
-  }
-  if((HasText 'Рабочие данные находятся в локальном пространстве домена') -and
-     (-not (HasText 'Проверяем выбранную подписанную Workspace')) -and
-     (-not (HasText 'Создаём и проверяем'))){
+ # Positive original Overview content is rendered only after verified readback.
+ # One UIA traversal per poll; bounded wall time, never a forced sleep on success.
+ $watch=[System.Diagnostics.Stopwatch]::StartNew()
+ try{
+  while($watch.Elapsed.TotalSeconds -lt 300){
+   $elements=(DesktopRoot).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+      [System.Windows.Automation.Condition]::TrueCondition)
+   $ready=$false;$checking=$false;$denied=$false
+   foreach($item in $elements){
+    try{$name=[string]$item.Current.Name}catch{continue}
+    if($name.Contains('Control не подтвердил чтение выбранной Workspace') -or
+       $name.Contains('Не удалось открыть изолированную подписанную Workspace') -or
+       $name.Contains('Подписанный доступ Control отозван')){$denied=$true}
+    if($name.Contains('Рабочие данные находятся в локальном пространстве домена')){$ready=$true}
+    if($name.Contains('Проверяем выбранную подписанную Workspace') -or
+       $name.Contains('Создаём и проверяем')){$checking=$true}
+   }
+   if($denied){throw 'CORPORATE_INSTALLED_SEAT_WORKSPACE_DENIED'}
+   if($ready -and !$checking){
     Write-Host 'CORPORATE_INSTALLED_SEAT_WORKSPACE_GATE_READY_PASS'
     return
+   }
+   Start-Sleep -Milliseconds 350
   }
-  Start-Sleep -Milliseconds 350
+  throw 'CORPORATE_INSTALLED_SEAT_WORKSPACE_GATE_NOT_READY'
+ }finally{
+  $watch.Stop()
+  Write-Host ('CORPORATE_INSTALLED_SEAT_GATE_MS='+[long]$watch.ElapsedMilliseconds)
  }
- throw 'CORPORATE_INSTALLED_SEAT_WORKSPACE_GATE_NOT_READY'
 }
 function WriteSeatDiagnostics(){
  # Only fixed presence codes. Never publish names, IDs, payloads or UI trees.
@@ -83,6 +94,20 @@ function WriteSeatDiagnostics(){
  foreach($signal in $signals){
   if(HasText $signal[1]){Write-Host ('CORPORATE_INSTALLED_SEAT_DIAG_'+$signal[0])}
  }
+ # Only exact bounded diagnostic protocol tokens, not raw UI text.
+ $codes=[System.Collections.Generic.HashSet[string]]::new()
+ $elements=(DesktopRoot).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+   [System.Windows.Automation.Condition]::TrueCondition)
+ foreach($item in $elements){
+  try{
+   $name=[string]$item.Current.Name
+   foreach($m in [regex]::Matches($name,'IWXA: (READ_CONTEXT|READ_KERNEL|VERIFY_RECORD|LIST_KERNEL): (T3_[A-Z0-9_]{3,96}|WORKSPACE_NOT_FOUND|PERMISSION_DENIED|OPERATION_NOT_GRANTED|KERNEL_UNAVAILABLE)(?![A-Z0-9_])')){
+    [void]$codes.Add($m.Groups[1].Value+':'+$m.Groups[2].Value)
+   }
+  }catch{}
+ }
+ foreach($code in $codes){Write-Host ('CORPORATE_INSTALLED_SEAT_GATE_DETAIL='+$code)}
+
 }
 function WaitSeatProjection(){
  Check (WaitForText 'Зарезервированные места / лимит' 240) 'CORPORATE_INSTALLED_SEAT_ORIGINAL_VIEW_NOT_OBSERVED'
