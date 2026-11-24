@@ -15,9 +15,9 @@ concurrency:
 env:
   T3_PIN: 'aaef813dd06ef29b681d4ad080960433613d985d'
   CORE_PIN: '0cb5bc0379e18c3a94e64346fafaedcc105b4e62'
-  CENTER_PIN: 'dbed05cf93a0c60b156ba08e14d2bcac53a9948e'
-  PUBLISHER_PIN: 'cb36cb167f5e339815ddf8eeb7444365af621cf5'
-  AGENT_PIN: 'b1b7d93bf82c27f639f6a862399693764e617ee9'
+  CENTER_PIN: '77aab1fc11f9db46cca1e180edb3fe4ac6fa2f69'
+  PUBLISHER_PIN: '169852046184e33eb631a037c7b616ade39e13b0'
+  AGENT_PIN: 'e1da1ce2b162a9f4dd7496ebf72a9a436fd002d6'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -262,6 +262,28 @@ jobs:
               Write-Host ('CORPORATE_INSTALLED_SEAT_GATE_MS='+$m.Groups[1].Value)
             }
             throw 'CORPORATE_INSTALLED_ADMIN_UI_HOLD'
+          }
+      - name: Original T3 installed server startup regression before packaging
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-agent-startup-regression-private.log'
+          Push-Location private-agent
+          try{
+            if((& git rev-parse HEAD).Trim() -cne $env:AGENT_PIN){throw 'CORPORATE_AGENT_STARTUP_PIN_MISMATCH'}
+            & python -m pip install pytest -r requirements.txt *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_AGENT_STARTUP_TEST_ENV_FAILED'}
+            & python -m pytest -q tests/test_agent06_t3_installed_kernel_origin.py *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            $counts=@([regex]::Matches($raw,'\b\d+ (?:passed|failed|errors?|deselected|skipped)\b')|ForEach-Object {$_.Value}|Select-Object -Unique)
+            Write-Host ('CORPORATE_AGENT_STARTUP_REGRESSION_COUNTS='+($counts -join ','))
+            if($exit -ne 0 -or $raw -notmatch '\b2 passed\b'){throw 'CORPORATE_AGENT_STARTUP_REGRESSION_FAILED'}
+            Write-Host 'CORPORATE_AGENT_SUPERVISED_ORIGINAL_T3_STARTUP=PASS'
+          }finally{
+            Pop-Location
+            Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
           }
       - name: Build and qualify original Agent Setup Core with actual installed T3
         shell: pwsh
