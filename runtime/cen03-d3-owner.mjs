@@ -443,3 +443,54 @@ export function createCenD3OwnerHost({admission,access,apply=null,
  }
  return Object.freeze({state,action,close(){closed=true;}});
 }
+
+// Public original employee bootstrap projection. It carries no grant, private
+// key or new authority. The original native owner computes the fingerprint;
+// the employee confirms it independently before creating DPAPI custody.
+const employeeBootstrapFields=['audience','authorityId','confirmedIssuerSha256','issuerKeyId',
+ 'issuerPublicKey','managerPersonId','organizationDataRootId','organizationId','organizationName',
+ 'realmId','reviewKeyId','reviewPublicKey','workspaceId'];
+const publicEmployeePem=v=>typeof v==='string'&&v.length<4096&&
+ v.startsWith('-----BEGIN PUBLIC KEY-----')&&v.includes('-----END PUBLIC KEY-----')&&!v.includes('PRIVATE KEY');
+const exactEmployeeFields=(value,fields)=>value&&typeof value==='object'&&!Array.isArray(value)&&
+ Object.keys(value).length===fields.length&&fields.every(k=>Object.hasOwn(value,k));
+export function readOriginalEmployeeBootstrap(value,scope){
+ const p=value?.profile;
+ need(value?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_BOOTSTRAP/1'&&
+   value.organizationId===scope.organizationId&&value.workspaceId===scope.workspaceId&&
+   value.originalReadback===true&&value.employeeEnrolled===false&&value.grantIssued===false&&
+   validSha(value.profileDigest)&&exactEmployeeFields(p,employeeBootstrapFields)&&
+   p.organizationId===scope.organizationId&&p.workspaceId===scope.workspaceId&&
+   p.managerPersonId===scope.actorId&&
+   employeeBootstrapFields.filter(k=>!['confirmedIssuerSha256','issuerPublicKey','reviewPublicKey','organizationName'].includes(k))
+    .every(k=>validId(p[k]))&&
+   typeof p.organizationName==='string'&&p.organizationName.trim()===p.organizationName&&
+   p.organizationName.length>0&&p.organizationName.length<=120&&
+   validSha(p.confirmedIssuerSha256)&&publicEmployeePem(p.issuerPublicKey)&&publicEmployeePem(p.reviewPublicKey)&&
+   p.issuerKeyId!==p.reviewKeyId&&p.issuerPublicKey!==p.reviewPublicKey,
+   'CEN_D3_EMPLOYEE_BOOTSTRAP_READBACK_INVALID');
+ return {profile:copy(p,'CEN_D3_EMPLOYEE_BOOTSTRAP_READBACK_INVALID'),profileDigest:value.profileDigest};
+}
+export function readOriginalEmployeePublicCandidate(raw,scope,bootstrap){
+ need(typeof raw==='string'&&raw.length<=32768&&bootstrap&&validSha(bootstrap.profileDigest),
+  'CEN_D3_EMPLOYEE_PUBLIC_CANDIDATE_INVALID');
+ let c;try{c=JSON.parse(raw)}catch{fail('CEN_D3_EMPLOYEE_PUBLIC_CANDIDATE_INVALID')}
+ const k=c?.employeeProofKeyRecord;
+ need(exactEmployeeFields(c,['schema','state','profileDigest','organizationId','workspaceId','employeePersonId',
+   'managerPersonId','credentialKeyId','employeeProofKeyRecord','originalKernelEnrollment','originalSignedGrant',
+   'automaticTransfer','T3_READY'])&&
+  c.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_WINDOWS_CANDIDATE/1'&&
+  c.state==='AWAITING_ORIGINAL_MANAGER_ENROLLMENT'&&c.profileDigest===bootstrap.profileDigest&&
+  c.organizationId===scope.organizationId&&c.workspaceId===scope.workspaceId&&c.managerPersonId===scope.actorId&&
+  validId(c.employeePersonId)&&c.employeePersonId!==scope.actorId&&validId(c.credentialKeyId)&&
+  c.originalKernelEnrollment===false&&c.originalSignedGrant===false&&c.automaticTransfer===false&&c.T3_READY===false&&
+  exactEmployeeFields(k,['subjectId','environment','publicKey','status','uses','notBefore','expiresAt'])&&
+  k.subjectId===c.employeePersonId&&k.environment==='PRODUCTION'&&k.status==='ACTIVE'&&publicEmployeePem(k.publicKey)&&
+  Array.isArray(k.uses)&&k.uses.length===1&&k.uses[0]==='PROOF'&&
+  typeof k.notBefore==='string'&&typeof k.expiresAt==='string'&&
+  Number.isFinite(Date.parse(k.notBefore))&&Date.parse(k.expiresAt)>Date.parse(k.notBefore),
+  'CEN_D3_EMPLOYEE_PUBLIC_CANDIDATE_INVALID');
+ // Populating the draft fields does NOT admit the PROOF key.
+ return {employeePersonId:c.employeePersonId,credentialKeyId:c.credentialKeyId,
+  keyRecord:copy(k,'CEN_D3_EMPLOYEE_PUBLIC_CANDIDATE_INVALID')};
+}

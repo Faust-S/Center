@@ -610,3 +610,32 @@ test('same-employee original Task epoch retains enrollment recovery form but a f
  const unsigned=clone();unsigned.snapshot.d3RecipientAvailable=false;
  assert.equal(signedD3EmployeeScopeFingerprint(unsigned,'org:north'),null);
 });
+
+test('employee public bootstrap binds exact original organization, manager and candidate; never grants authority',async()=>{
+ const {readOriginalEmployeeBootstrap,readOriginalEmployeePublicCandidate}=await import('../runtime/cen03-d3-owner.mjs');
+ const scope={organizationId:'org:one',workspaceId:'workspace:one',actorId:'person:manager'};
+ const pem='-----BEGIN PUBLIC KEY-----\npublic\n-----END PUBLIC KEY-----\n';
+ const profile={audience:'iwxa.local.admin',authorityId:'authority:one',confirmedIssuerSha256:A,
+  issuerKeyId:'key:issuer',issuerPublicKey:pem,managerPersonId:scope.actorId,
+  organizationDataRootId:'root:org',organizationId:scope.organizationId,organizationName:'Company',
+  realmId:'realm:one',reviewKeyId:'key:review',reviewPublicKey:pem.replace('public','review'),
+  workspaceId:scope.workspaceId};
+ const receipt={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_BOOTSTRAP/1',organizationId:scope.organizationId,
+  workspaceId:scope.workspaceId,profile,profileDigest:B,originalReadback:true,employeeEnrolled:false,grantIssued:false};
+ const checked=readOriginalEmployeeBootstrap(receipt,scope);
+ assert.deepEqual(checked,{profile,profileDigest:B});
+ for(const patch of [{grantIssued:true},{employeeEnrolled:true},{originalReadback:false},
+  {profile:{...profile,managerPersonId:'person:other'}},{profile:{...profile,privateKey:'hidden'}}])
+  assert.throws(()=>readOriginalEmployeeBootstrap({...receipt,...patch},scope),/CEN_D3_EMPLOYEE_BOOTSTRAP_READBACK_INVALID/);
+ const candidate={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_WINDOWS_CANDIDATE/1',state:'AWAITING_ORIGINAL_MANAGER_ENROLLMENT',
+  profileDigest:B,organizationId:scope.organizationId,workspaceId:scope.workspaceId,
+  employeePersonId:'person:employee',managerPersonId:scope.actorId,credentialKeyId:'key:employee',
+  originalKernelEnrollment:false,originalSignedGrant:false,automaticTransfer:false,T3_READY:false,
+  employeeProofKeyRecord:{subjectId:'person:employee',environment:'PRODUCTION',publicKey:pem,status:'ACTIVE',
+   uses:['PROOF'],notBefore:'2026-11-23T00:00:00Z',expiresAt:'2027-11-23T00:00:00Z'}};
+ assert.equal(readOriginalEmployeePublicCandidate(JSON.stringify(candidate),scope,checked).employeePersonId,'person:employee');
+ for(const patch of [{profileDigest:C},{workspaceId:'workspace:foreign'},{originalKernelEnrollment:true},
+  {employeePersonId:scope.actorId},{employeeProofKeyRecord:{...candidate.employeeProofKeyRecord,privateKey:'hidden'}}])
+  assert.throws(()=>readOriginalEmployeePublicCandidate(JSON.stringify({...candidate,...patch}),scope,checked),
+   /CEN_D3_EMPLOYEE_PUBLIC_CANDIDATE_INVALID/);
+});

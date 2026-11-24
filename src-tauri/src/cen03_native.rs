@@ -89,6 +89,11 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
           };
           if !valid{return Err("CEN_D3_CORPORATE_SEAT_COMMAND_SCOPE_INVALID".into());}
       },
+      "d3EmployeeBootstrapProfile"=>{
+          if !input.as_object().is_some_and(|m|m.is_empty()){
+              return Err("CEN_D3_EMPLOYEE_BOOTSTRAP_INPUT_INVALID".into());
+          }
+      },
       "d3EmployeeRegistryReadback"=>{},
       "d3EmployeeRegistryInitialize"=>{
           if input["confirmed"]!=true{
@@ -344,6 +349,7 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
         "d3EmployeeWorkspaceGrantIssue"|"d3EmployeeWorkspaceGrantReadback"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true&&
             snapshot["d3EmployeeWorkspaceRightsAvailable"]==true,
+        "d3EmployeeBootstrapProfile"|
         "d3EmployeeCredentialBegin"|"d3EmployeeCredentialCancel"|
         "d3EmployeeCredentialAdmit"|
         "d3EmployeeCredentialRead"|"d3EmployeeBegin"|
@@ -1489,6 +1495,28 @@ pub async fn center_corporate_action(
         // Age decryption is NOT admission. The original T3 recipient must
         // prove it received the same signed archive as the age tool verified.
         let mut result=output["result"].clone();
+        if operation=="d3EmployeeBootstrapProfile"{
+            let p=&result["profile"];
+            let fields=["audience","authorityId","confirmedIssuerSha256","issuerKeyId",
+              "issuerPublicKey","managerPersonId","organizationDataRootId",
+              "organizationId","organizationName","realmId","reviewKeyId","reviewPublicKey","workspaceId"];
+            let pem=|v:&Value|v.as_str().is_some_and(|s|s.len()<4096&&
+                s.starts_with("-----BEGIN PUBLIC KEY-----")&&s.contains("-----END PUBLIC KEY-----")&&
+                !s.contains("PRIVATE KEY"));
+            if result["schema"]!="IWXA_T3_ORIGINAL_EMPLOYEE_BOOTSTRAP/1"||
+               result["organizationId"]!=organization_id||
+               result["workspaceId"]!=observed["snapshot"]["workspaceId"]||
+               result["originalReadback"]!=true||result["employeeEnrolled"]!=false||
+               result["grantIssued"]!=false||!validate_hex(result["profileDigest"].as_str())||
+               !p.as_object().is_some_and(|m|m.len()==fields.len()&&fields.iter().all(|k|m.contains_key(*k)))||
+               p["organizationId"]!=organization_id||p["workspaceId"]!=result["workspaceId"]||
+               p["managerPersonId"]!=observed["snapshot"]["actorId"]||
+               !validate_hex(p["confirmedIssuerSha256"].as_str())||
+               !pem(&p["issuerPublicKey"])||!pem(&p["reviewPublicKey"])||
+               p["issuerKeyId"]==p["reviewKeyId"]||p["issuerPublicKey"]==p["reviewPublicKey"]{
+                return Err("CEN_D3_EMPLOYEE_BOOTSTRAP_READBACK_INVALID".into());
+            }
+        }
         if matches!(operation.as_str(),"d3EmployeeSeatView"|"d3EmployeeSeatPolicyEnable"|"d3EmployeeSeatChange"|"d3EmployeeSeatCommandReadback"){
             if let Err(error)=verify_corporate_seat_readback(&result,&input,&operation,&organization_id,&observed){
                 let _=close_original_owner(&app);
@@ -1885,6 +1913,8 @@ mod tests{
           "publicKey":"-----BEGIN PUBLIC KEY-----known-----END PUBLIC KEY-----",
           "status":"ACTIVE","uses":["PROOF"],"notBefore":"2026-11-16T00:00:00Z",
           "expiresAt":"2026-12-16T00:00:00Z"});
+        assert!(check_bound_request(&json!({}),"d3EmployeeBootstrapProfile").is_ok());
+        assert!(check_bound_request(&json!({"organizationId":"org:foreign"}),"d3EmployeeBootstrapProfile").is_err());
         assert!(check_bound_request(&json!({}),"d3EmployeeRegistryReadback").is_ok());
         assert!(check_bound_request(&json!({"confirmed":true}),
             "d3EmployeeRegistryInitialize").is_ok());
@@ -1970,8 +2000,10 @@ mod tests{
             "task":"  "}),"d3EmployeeCreateTask").is_err());
         let mut absent=json!({"snapshot":{"d3EmployeeEnrollmentAvailable":false}});
         assert!(!exact_kernel_apply_capability(&absent,"d3EmployeeBegin"));
+        assert!(!exact_kernel_apply_capability(&absent,"d3EmployeeBootstrapProfile"));
         absent["snapshot"]["d3EmployeeEnrollmentAvailable"]=Value::Bool(true);
         assert!(exact_kernel_apply_capability(&absent,"d3EmployeeBegin"));
+        assert!(exact_kernel_apply_capability(&absent,"d3EmployeeBootstrapProfile"));
     }
     #[test]
     fn first_kernel_apply_requires_original_committed_object_event_and_result(){

@@ -1,7 +1,7 @@
 import React,{useState} from 'react';
 import CorporateSeatAssignments from './CorporateSeatAssignments';
 import {readOriginalEmployeeRegistryReceipt} from '../runtime/cen03-corporate-seats.mjs';
-import {validateOriginalEmployeeTaskIssueReceipt}
+import {validateOriginalEmployeeTaskIssueReceipt,readOriginalEmployeeBootstrap,readOriginalEmployeePublicCandidate}
  from '../runtime/cen03-d3-owner.mjs';
 
 // This is a manager's view of the ORIGINAL installed T3 employee enrollment.
@@ -56,6 +56,13 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const [personId,setPersonId]=useState('');
  const [keyId,setKeyId]=useState('');
  const [publicRecord,setPublicRecord]=useState('');
+ const [bootstrapProfile,setBootstrapProfile]=useState<{profile:Record<string,unknown>;profileDigest:string}|null>(null);
+ const [publicCandidate,setPublicCandidate]=useState('');
+ const [copyNotice,setCopyNotice]=useState('');
+ async function copyPublic(value:string){
+  try{await navigator.clipboard.writeText(value);setCopyNotice('Скопировано.')}
+  catch{setCopyNotice('Выделите и скопируйте текст вручную.')}
+ }
  const [credentialChallenge,setCredentialChallenge]=useState<any>(null);
  const [credentialProof,setCredentialProof]=useState('');
  const [credentialAttempted,setCredentialAttempted]=useState(false);
@@ -333,6 +340,39 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        })}>Подключить исходный реестр T3</button>
      </div>}
     </div>:
+  <>
+  <div className="nested-form" data-testid="d3-employee-bootstrap">
+   <h4>Первое подключение сотрудника</h4>
+   <p>Передайте сотруднику исходный публичный профиль организации. Контрольный отпечаток сообщите отдельно. Agent создаст собственные ключи на компьютере сотрудника.</p>
+   <button type="button" data-testid="d3-employee-bootstrap-profile" disabled={busy}
+    onClick={()=>void run('Исходный профиль подключения прочитан.',async()=>{
+     setBootstrapProfile(null);setPublicCandidate('');setCopyNotice('');
+     const receipt=await execute('d3EmployeeBootstrapProfile',{});
+     setBootstrapProfile(readOriginalEmployeeBootstrap(receipt,session));
+    })}>Получить профиль подключения</button>
+   {bootstrapProfile&&<>
+    <label>Публичный профиль для Agent
+     <textarea readOnly rows={4} value={JSON.stringify(bootstrapProfile.profile,null,2)}
+      onFocus={e=>e.currentTarget.select()} data-testid="d3-employee-bootstrap-profile-json"/></label>
+    <button className="secondary" type="button" onClick={()=>void copyPublic(JSON.stringify(bootstrapProfile.profile,null,2))}>Скопировать профиль</button>
+    <label>Контрольный отпечаток SHA-256
+     <input readOnly value={bootstrapProfile.profileDigest} onFocus={e=>e.currentTarget.select()}
+      data-testid="d3-employee-bootstrap-fingerprint"/></label>
+    <button type="button" className="secondary" onClick={()=>void copyPublic(bootstrapProfile.profileDigest)}>Скопировать отпечаток</button>
+    <label>Публичная запись, полученная от Agent
+     <textarea rows={4} maxLength={32768} value={publicCandidate} disabled={busy}
+      onChange={e=>setPublicCandidate(e.target.value)} data-testid="d3-employee-bootstrap-candidate"/></label>
+    <button type="button" disabled={busy||!publicCandidate.trim()||!!credentialChallenge||!!enrollmentChallenge||
+      credentialAttempted||enrollmentAttempted}
+      data-testid="d3-employee-bootstrap-candidate-read"
+      onClick={()=>void run('Публичная запись перенесена. Ключ ещё не подтверждён.',async()=>{
+       const c=readOriginalEmployeePublicCandidate(publicCandidate,session,bootstrapProfile);
+       setPersonId(c.employeePersonId);setKeyId(c.credentialKeyId);
+       setPublicRecord(JSON.stringify(c.keyRecord,null,2));reset();
+      })}>Перенести публичную запись</button>
+    {copyNotice&&<p role="status">{copyNotice}</p>}
+   </>}
+  </div>
   <div className="form-grid">
    <label>Контакт в черновике
     <select data-testid="d3-employee-contact" value={contact} disabled={busy}
@@ -354,7 +394,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
     <input data-testid="d3-employee-key" value={keyId} disabled={busy}
       placeholder="key:..." onChange={e=>{setKeyId(e.target.value.trim());reset();}}/>
    </label>
-  </div>}
+  </div></>}
   {available&&<div data-testid="d3-employee-steps">
    <label>Публичная запись ключа, полученная от сотрудника
     <textarea data-testid="d3-employee-key-record" value={publicRecord} rows={3}
@@ -383,7 +423,9 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
     отмените только ещё не отправленный запрос и создайте новый.</p>
     <textarea data-testid="d3-employee-credential-challenge" readOnly rows={4}
       value={JSON.stringify({request:credentialChallenge.employeeRequest,
-        challenge:credentialChallenge.employeeChallenge},null,2)}/>
+        challenge:credentialChallenge.employeeChallenge},null,2)} onFocus={e=>e.currentTarget.select()}/>
+    <button className="secondary" type="button" onClick={()=>void copyPublic(JSON.stringify({request:credentialChallenge.employeeRequest,
+      challenge:credentialChallenge.employeeChallenge},null,2))}>Скопировать запрос ключа</button>
     <label>Оригинальный подписанный ответ сотрудника
      <textarea data-testid="d3-employee-credential-proof" rows={3}
       value={credentialProof} disabled={busy||credentialAttempted}
@@ -434,7 +476,9 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        ещё не отправил ответ, прежний вызов можно отменить без Kernel-записи.</p>
      <textarea data-testid="d3-employee-enrollment-challenge" readOnly rows={4}
        value={JSON.stringify({request:enrollmentChallenge.request,
-         challenge:enrollmentChallenge.challenge},null,2)}/>
+         challenge:enrollmentChallenge.challenge},null,2)} onFocus={e=>e.currentTarget.select()}/>
+     <button className="secondary" type="button" onClick={()=>void copyPublic(JSON.stringify({request:enrollmentChallenge.request,
+       challenge:enrollmentChallenge.challenge},null,2))}>Скопировать запрос подключения</button>
      <label>Подписанный ответ сотрудника
       <textarea data-testid="d3-employee-enrollment-proof" rows={3}
         value={enrollmentProof} disabled={busy||enrollmentAttempted}
