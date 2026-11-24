@@ -865,6 +865,136 @@ try{
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
     'cold panel receipt recovery must not dispatch another decision');
   checks.push('d3-cold-react-panel-receipt-prevents-duplicate-human-accept');
+
+  // UI contract fixture only: the real installed T3 proof remains a separate
+  // native qualification. Here the full original Object/Event shape exercises
+  // the user route, local draft persistence and signing-time revalidation.
+  const reusePage=await browser.newPage({viewport:{width:1366,height:900}});
+  reusePage.on('pageerror',e=>errors.push(e.message));
+  await reusePage.addInitScript(()=>{
+    const org='org:reuse-ui',workspace='workspace:reuse-ui',actor='person:manager';
+    const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64),D='d'.repeat(64),E='e'.repeat(64);
+    const result='Поставщик подтвердил цену и срок. Документы проверены.';
+    const at='2026-11-24T08:00:00.000Z';
+    const source={organizationId:org,workspaceId:workspace,taskId:'task:prior',
+      taskRevisionId:A,resultRevisionId:B,acceptanceId:C};
+    const target={consumerId:'IWXA_ADMIN_CENTER',processId:'admin.applied-results',
+      processVersion:'1',purpose:'application',subjectId:org,workspaceId:workspace,dataRootId:'root:reuse-ui'};
+    const fixture={applied:false,readbacks:0,writes:0,lastTask:null,
+      draft:JSON.stringify({format:'iwxa.admin-center.draft',version:1,activeOrganizationId:org,
+        updatedAt:at,organizations:[{id:org,name:'Original continuation',kind:'GROUP',
+          workspaces:[{id:workspace,name:'Procurement',atlasRef:null}],participants:[],assignments:[]}]})};
+    window.__reuseFixture=fixture;
+    window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
+      if(command==='center_draft_read_local')return fixture.draft;
+      if(command==='center_draft_save_local'){fixture.draft=args.content;return true;}
+      if(command==='center_corporate_signed_workspace_status')return {
+        schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',open:false,visible:false,foreignOrOrphaned:false};
+      if(command==='center_corporate_age_status')return {operation:'AGE_STATUS',available:false,
+        recipient:null,toolchain:{ready:false},provider:'WINDOWS_UI_FIXTURE',admitted:false};
+      if(command==='center_corporate_state')return {status:'D3_OWNER_READY',snapshot:{
+        product:'admin',organizationId:org,workspaceId:workspace,actorId:actor,
+        contextId:'context:reuse-ui',contextEpoch:1,d3RecipientAvailable:true,
+        d3TaskIssueAvailable:true,d3InspectAvailable:true,d3ApplyAvailable:true,
+        d3ApplyRecoverAvailable:true,originalSignedWorkspaceAvailable:true,
+        productionActivation:false,T3_READY:false,tasks:[],totalTasks:0}};
+      if(command!=='center_corporate_action')return null;
+      if(args.organizationId!==org||args.binding.workspaceId!==workspace)
+        throw Error('CEN_D3_CONTEXT_CHANGED');
+      switch(args.operation){
+        case 'd3Inbox':return {schema:'IWXA_T3_ORIGINAL_RECIPIENT_INBOX/1',
+          organizationId:org,workspaceId:workspace,total:1,truncated:false,
+          items:[{packageSha256:D,status:'ACCEPTED',acceptanceId:C,operationId:'decision:prior'}]};
+        case 'd3Receipt':return {kernelApplication:'NOT_ATTESTED_BY_RECONCILIATION_RECEIPT',
+          found:true,receipt:{schema:'IWXA_T3_ACCEPTANCE_RECEIPT/1',operationId:'decision:prior',
+            packageSha256:D,decisionBy:actor,acceptanceState:'ACCEPTED',acceptanceId:C}};
+        case 'd3Preview':return {schema:'IWXA_T3_RECONCILIATION_PREVIEW/1',packageSha256:D,
+          previewDigest:E,entries:[{revisionId:B}],allowedAction:'READ_ONLY',
+          resultInspection:{schema:'IWXA_T3_ORIGINAL_SIGNED_RESULT_REVIEW/1',...source,
+            packageSha256:D,previewDigest:E,executorId:'person:worker',
+            signatureVerified:true,taskBindingProven:true,taskCatalogVerified:true,
+            assignmentText:'Проверить предложение поставщика',resultLength:result.length,
+            offset:0,resultText:result,nextOffset:result.length,hasMore:false}};
+        case 'd3InspectAccepted':return {schema:'IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1',
+          status:'CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION',source:{acceptanceId:C},target,
+          applicationAttempted:false,applicationAuthorized:false,externalContextCoreApplied:false,
+          changes:[{taskId:source.taskId,taskRevisionId:A,resultRevisionId:B,executorId:'person:worker',
+            resultExcerpt:result,resultTruncated:false}]};
+        case 'd3RecoverApplied':{
+          fixture.readbacks++;
+          if(args.input.acceptanceId!==C||args.input.revisionIds?.join()!==B)
+            throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
+          if(!fixture.applied)return {status:'OUTCOME_UNKNOWN',effectKey:E,automaticRetryAllowed:false,
+            kernelWriteReadback:'NOT_CONFIRMED',originalKernelReadback:null,originalEventReadback:null};
+          const object={object_id:'result:applied:'+E,workspace_id:workspace,revision:1,
+            schema_id:'iwxa.admin.applied-results',schema_version:'1.0.0',
+            data:{schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',records:[{...source,executorId:'person:worker',result}]}};
+          return {status:'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED',effectKey:E,automaticRetryAllowed:false,
+            kernelWriteReadback:'CONFIRMED',externalProductAcceptance:'NOT_ACCEPTED',originalKernelReadback:{object},
+            originalEventReadback:{workspace_id:workspace,event_id:'event:prior',object_id:object.object_id,
+              revision:1,event_type:'iwxa.admin.result.applied',idempotency_key:E,
+              payload:{reconciliation_acceptance_id:C,reconciliation_revision_ids:[B]}}};
+        }
+        case 'd3CreateTask':
+          fixture.writes++;fixture.lastTask=args.input.task;
+          return {schema:'IWXA_T3_ORIGINAL_SIGNED_TASK/1',status:'SIGNED_TASK_CREATED_NOT_DELIVERED',
+            taskId:args.input.taskId,taskRevisionId:A,packageSha256:B,recipientId:actor};
+        default:throw Error('Unexpected reuse UI operation: '+args.operation);
+      }
+    }};
+  });
+  await reusePage.goto('http://127.0.0.1:4173');
+  await reusePage.getByTestId('nav-results').click();
+  await reusePage.getByTestId('subnav-reuse').click();
+  await reusePage.getByTestId('d3-reuse-refresh').click();
+  await reusePage.getByTestId('d3-reuse-package').selectOption('d'.repeat(64));
+  await reusePage.getByTestId('d3-reuse-read').click();
+  await reusePage.getByTestId('corporate-panel').getByRole('alert').waitFor();
+  assert.equal(await reusePage.getByTestId('d3-reuse-create-draft').count(),0);
+  assert.equal(await reusePage.evaluate(()=>window.__reuseFixture.writes),0);
+  await reusePage.evaluate(()=>{window.__reuseFixture.applied=true});
+  await reusePage.getByTestId('d3-reuse-read').click();
+  await reusePage.getByTestId('d3-reuse-confirmed').waitFor();
+  assert.match(await reusePage.getByTestId('d3-reuse-text').inputValue(),/Поставщик подтвердил/);
+  await reusePage.screenshot({path:'artifacts/v8-original-result-reuse.png',fullPage:true});
+  await reusePage.getByTestId('d3-reuse-create-draft').click();
+  await reusePage.getByTestId('assignment-source-result').waitFor();
+  assert.match(await reusePage.getByTestId('assignment-source-result').innerText(),/task:prior/);
+  assert.match(await reusePage.getByTestId('assignment-form').getByLabel('Описание').inputValue(),/Поставщик подтвердил/);
+  assert.equal(await reusePage.getByTestId('assignment-form').getByLabel('Исполнитель').inputValue(),'');
+  await reusePage.getByTestId('task-title').fill('Согласовать договор поставки');
+  await reusePage.getByTestId('save-assignment').click();
+  await reusePage.getByTestId('assignment-row').waitFor();
+  await reusePage.getByRole('button',{name:'Сохранить на компьютере',exact:true}).click();
+  await reusePage.getByText('Черновики сохранены на этом компьютере.',{exact:true}).waitFor();
+  const savedReuse=await reusePage.evaluate(()=>JSON.parse(window.__reuseFixture.draft).organizations[0].assignments[0]);
+  assert.equal(savedReuse.sourceResultRef.taskId,'task:prior');
+  assert.equal(savedReuse.sourceResultRef.resultRevisionId,'b'.repeat(64));
+  assert.equal(savedReuse.atlasRef,null);
+  assert.equal(savedReuse.status,'DRAFT');
+  await reusePage.getByTestId('nav-results').click();
+  await reusePage.getByTestId('subnav-signed-tasks').click();
+  await reusePage.getByTestId('d3-task-from-draft').selectOption(savedReuse.id);
+  await reusePage.getByTestId('d3-task-source-result').waitFor();
+  await reusePage.getByTestId('d3-task-prepare-id').click();
+  await reusePage.getByLabel('Я сохранил этот ID до подписания').check();
+  await reusePage.evaluate(()=>{window.__reuseFixture.applied=false});
+  await reusePage.getByTestId('d3-create-task').click();
+  await reusePage.getByTestId('corporate-panel').getByRole('alert').waitFor();
+  assert.equal(await reusePage.evaluate(()=>window.__reuseFixture.writes),0);
+  assert.equal(await reusePage.getByTestId('d3-task-operation-attempted').count(),0);
+  await reusePage.evaluate(()=>{window.__reuseFixture.applied=true});
+  await reusePage.getByTestId('d3-create-task').click();
+  await reusePage.waitForFunction(()=>window.__reuseFixture.writes===1);
+  const continued=await reusePage.evaluate(()=>window.__reuseFixture);
+  assert.equal(continued.readbacks,4);
+  assert.match(continued.lastTask,/Согласовать договор поставки/);
+  assert.match(continued.lastTask,/Источник применённого Result: Task task:prior/);
+  assert.ok(continued.lastTask.includes('b'.repeat(64)));
+  assert.ok(continued.lastTask.includes('c'.repeat(64)));
+  await reusePage.close();
+  checks.push('d3-original-applied-result-to-saved-draft-signing-revalidates-same-source-no-apply');
+
   // Moving to an unrelated page must close the ORIGINAL signed child. No
   // React page may silently preserve credentials in another work domain.
   await d3Page.getByTestId('nav-people').click();
