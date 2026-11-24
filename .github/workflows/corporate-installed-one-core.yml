@@ -17,7 +17,7 @@ env:
   CORE_PIN: '39c32cda211a7d351de553fe4fc9528848c274cd'
   CENTER_PIN: 'ee343b1dc6306fb7dddd5f015c02497dbaa96284'
   PUBLISHER_PIN: 'e0a7b8b23605cc596d95318a0e15a7b46f495507'
-  AGENT_PIN: 'b8e99831495810a4a52fd49f2fdc3b135addbaaf'
+  AGENT_PIN: 'a3e6af4b429ecf9fc81a9fb0b0d9c7380ec9063a'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -378,6 +378,28 @@ jobs:
         with:
           node-version: '22.16.0'
       - uses: dtolnay/rust-toolchain@stable
+      - name: Exact cold CLI literal Task transport regression
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C private-agent rev-parse HEAD).Trim() -cne $env:AGENT_PIN){throw 'CORPORATE_AGENT_TEST_PIN_MISMATCH'}
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-agent-cli-regression-private.log'
+          Push-Location private-agent
+          try{
+            & python -m pip install pytest *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_AGENT_CLI_TEST_ENV_FAILED'}
+            & python -m pytest -q tests/test_iwxa_basic_model_binding.py -k 'adapter_no_shell_no_prompt_in_args_no_network or cold_cli_preserves_literal_task_data' *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            $counts=@([regex]::Matches($raw,'\b\d+ (?:passed|failed|errors?|deselected|skipped)\b')|ForEach-Object {$_.Value}|Select-Object -Unique)
+            Write-Host ('CORPORATE_AGENT_CLI_REGRESSION_COUNTS='+($counts -join ','))
+            if($exit -ne 0 -or $raw -notmatch '\b12 passed\b'){throw 'CORPORATE_AGENT_CLI_REGRESSION_FAILED'}
+            Write-Host 'CORPORATE_AGENT_CLI_LITERAL_TASK_TRANSPORT=PASS'
+          }finally{
+            Pop-Location
+            Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+          }
       - name: Build and qualify original Agent Setup Core with actual installed T3
         shell: pwsh
         timeout-minutes: 90
