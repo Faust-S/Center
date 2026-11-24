@@ -125,6 +125,21 @@ function Record-Check([string]$name){
 }
 $pub=$null
 $cen=$null
+$script:guiPhase='START'
+$script:guiOrdinal=0
+$script:guiLastKind='NONE'
+function Phase([string]$value){
+  if($value -cnotmatch '^[A-Z0-9_]{3,80}$'){throw 'CORPORATE_GUI_PHASE_INVALID'}
+  $script:guiPhase=$value
+  $script:guiOrdinal=0
+  $script:guiLastKind='NONE'
+  if($ResumeQualifiedCenterCI){Write-Host ('CORPORATE_TWO_INSTALLED_PHASE='+$value)}
+}
+function Gui-Step([string]$kind){
+  if($kind -cnotin @('BUTTON','EDIT','COMBO','CHECKBOX','COPY','FILE_DIALOG','WAIT_TEXT','NATIVE_CONFIRM')){throw 'CORPORATE_GUI_STEP_INVALID'}
+  $script:guiOrdinal++
+  $script:guiLastKind=$kind
+}
 # Read-only direct process calls, independent of the WebView or its cache.
 function Read-Native([string]$exe,[string[]]$arguments){
   $info=[Diagnostics.ProcessStartInfo]::new()
@@ -193,12 +208,29 @@ function Start-App([string]$file) {
 }
 function Window($process) {
   $process.Refresh()
-  if($process.HasExited -or $process.MainWindowHandle -eq [IntPtr]::Zero){
-    throw 'CORPORATE_GUI_GUI_WINDOW_LOST'
+  if($process.HasExited){throw 'CORPORATE_GUI_GUI_WINDOW_LOST'}
+  if($process.MainWindowHandle -ne [IntPtr]::Zero){
+    try{return [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)}catch{}
   }
-  return [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+  # Recover the original native window by process identity, as the ordinary
+  # installed Publisher witness does after a native dialog.
+  $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+    [System.Windows.Automation.TreeScope]::Children,
+    [System.Windows.Automation.Condition]::TrueCondition)
+  $match=@()
+  foreach($candidate in $windows){
+    try{
+      if($candidate.Current.ProcessId -eq $process.Id -and
+         $candidate.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window -and
+         $candidate.Current.Name -cmatch '^IWXA (?:Publisher|Admin Center)(?:$|\s)'){
+        $match+=,$candidate
+      }
+    }catch{}
+  }
+  if($match.Count -eq 1){return $match[0]}
+  throw 'CORPORATE_GUI_GUI_WINDOW_LOST'
 }
-function Control($process,[string]$name,[string]$kind='Button',[int]$attempts=60) {
+function Control($process,[string]$name,[string]$kind='Button',[int]$attempts=120) {
   $expected=switch($kind){
     'Edit' {[System.Windows.Automation.ControlType]::Edit}
     'ComboBox' {[System.Windows.Automation.ControlType]::ComboBox}
@@ -210,16 +242,48 @@ function Control($process,[string]$name,[string]$kind='Button',[int]$attempts=60
   for($i=0;$i -lt $attempts;$i++){
     $items=(Window $process).FindAll(
       [System.Windows.Automation.TreeScope]::Descendants,$condition)
+    $exact=@()
     foreach($item in $items){
       try {
-        if($item.Current.ControlType -eq $expected){return $item}
+        if($item.Current.ControlType -eq $expected){$exact+=,$item;continue}
+        # HTML number fields may be exposed as UIA Spinner by WebView2.
+        # The exact accessible name and editable ValuePattern are required.
+        if($kind -ceq 'Edit' -and $item.Current.ControlType -eq [System.Windows.Automation.ControlType]::Spinner){
+          $value=$null
+          if($item.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$value) -and !$value.Current.IsReadOnly){
+            $exact+=,$item
+          }else{
+            $edits=$item.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+              [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Edit))
+            if($edits.Count -eq 1){$exact+=,$edits[0]}
+          }
+        }
       }catch{}
     }
-    Start-Sleep -Milliseconds 200
+    if($exact.Count -eq 1){return $exact[0]}
+    if($exact.Count -gt 1){
+      # Navigation can also appear in the right-side context dock. Prefer the
+      # actual on-screen, enabled control, not a hidden or stale duplicate.
+      $visible=@($exact|Where-Object {!$_.Current.IsOffscreen -and $_.Current.IsEnabled})
+      if($visible.Count -eq 1){return $visible[0]}
+      # Do not guess which of two different edit controls to mutate.
+      if($kind -cne 'Button'){throw 'CORPORATE_GUI_UI_CONTROL_AMBIGUOUS'}
+      if($visible.Count -gt 0){return $visible[0]}
+      return $exact[0]
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  if($process.ProcessName -ceq 'iwxa-publisher'){
+    if(Has-Text $process 'Загрузка интерфейса'){throw 'CORPORATE_GUI_PUBLISHER_RENDERER_NOT_READY'}
+    if(Has-Text $process 'Не удалось открыть интерфейс Publisher'){throw 'CORPORATE_GUI_PUBLISHER_RENDERER_FAILED'}
+    if(Has-Text $process 'Не удалось открыть сохранённые черновики'){throw 'CORPORATE_GUI_PUBLISHER_DRAFT_LOAD_FAILED'}
   }
   throw "CORPORATE_GUI_UI_CONTROL_MISSING $kind $name"
 }
 function Press($process,[string]$name,[bool]$physical=$false){
+  Gui-Step 'BUTTON'
   Focus-App $process
   $element=Control $process $name
   for($retry=0;$retry -lt 60 -and !$element.Current.IsEnabled;$retry++){
@@ -260,13 +324,20 @@ function Focus-App($process){
   }
 }
 function Enter($process,[string]$name,[string]$value){
+  Gui-Step 'EDIT'
   Focus-App $process
   $element=Control $process $name 'Edit'
   $element.SetFocus()
   [System.Windows.Forms.Clipboard]::SetText($value)
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  [System.Windows.Forms.SendKeys]::SendWait('^v')
-  Start-Sleep -Milliseconds 220
+  try{
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Start-Sleep -Milliseconds 220
+    $observed=Read-Edit $process $name
+    if($observed -cne $value -and ($observed -replace "`r`n","`n") -cne ($value -replace "`r`n","`n")){
+      throw 'CORPORATE_GUI_EDIT_READBACK_MISMATCH'
+    }
+  }finally{[System.Windows.Forms.Clipboard]::Clear()}
 }
 function Read-Edit($process,[string]$name){
   $element=Control $process $name 'Edit'
@@ -279,6 +350,7 @@ function Read-Edit($process,[string]$name){
 # Exercise the user-visible Copy action. If WebView refuses direct clipboard
 # access, the UI explicitly selects the value and offers Ctrl+C.
 function Copy-FromGui($process,[string]$button,[string]$field){
+  Gui-Step 'COPY'
   Focus-App $process
   $expected=Read-Edit $process $field
   if([string]::IsNullOrEmpty($expected)){throw 'CORPORATE_GUI_COPY_SOURCE_EMPTY'}
@@ -301,6 +373,7 @@ function Copy-FromGui($process,[string]$button,[string]$field){
   return $expected
 }
 function Confirm-Checkbox($process,[string]$name){
+  Gui-Step 'CHECKBOX'
   Focus-App $process
   $element=Control $process $name 'CheckBox'
   $pattern=$element.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
@@ -310,6 +383,7 @@ function Confirm-Checkbox($process,[string]$name){
   }
 }
 function Select-Last($process,[string]$name){
+  Gui-Step 'COMBO'
   Focus-App $process
   $element=Control $process $name 'ComboBox'
   $element.SetFocus()
@@ -318,6 +392,7 @@ function Select-Last($process,[string]$name){
   Start-Sleep -Milliseconds 160
 }
 function Select-FirstReal($process,[string]$name){
+  Gui-Step 'COMBO'
   Focus-App $process
   $element=Control $process $name 'ComboBox'
   $element.SetFocus()
@@ -327,6 +402,7 @@ function Select-FirstReal($process,[string]$name){
   Start-Sleep -Milliseconds 160
 }
 function Wait-Text($process,[string]$contains,[int]$attempts=70){
+  Gui-Step 'WAIT_TEXT'
   for($i=0;$i -lt $attempts;$i++){
     $all=(Window $process).FindAll(
       [System.Windows.Automation.TreeScope]::Descendants,
@@ -355,6 +431,7 @@ function Has-Text($process,[string]$contains,[bool]$exact=$false){
   return $false
 }
 function Original-Confirm($process,[string]$title){
+  Gui-Step 'NATIVE_CONFIRM'
   for($i=0;$i -lt 100;$i++){
     $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
       [System.Windows.Automation.TreeScope]::Children,
@@ -455,6 +532,7 @@ function Center-SeatProjection([bool]$first,[int]$seatLimit,[int]$employeeLimit)
   Press $cen 'Personal Agent и лицензии' $true
 }
 function Native-FileDialog($process,[string]$button,[string]$file,[bool]$exists){
+  Gui-Step 'FILE_DIALOG'
   if((Test-Path -LiteralPath $file -PathType Leaf) -ne $exists){
     throw "CORPORATE_GUI_DIALOG_PRECONDITION_FAILED $button"
   }
@@ -627,19 +705,27 @@ try{
   }else{
   Record-Check 'CENTER_CREATES_DURABLE_ORGANIZATION_AND_EXPOSES_EXACT_ID'
   }
+  Phase 'PUBLISHER_BOOT'
   $pub=Start-App $publisherPath
+  Wait-Text $pub 'Локально сохранено' 240
+  Phase 'PUBLISHER_PRODUCT'
   Press $pub 'Продукты'
+  Wait-Text $pub 'Новый продукт в локальном черновике каталога' 120
   Enter $pub 'Идентификатор продукта' 'IWXA_ADMIN_CENTER'
   Enter $pub 'Название' 'IWXA Admin Center'
   Enter $pub 'Версия' '0.4.1'
   Press $pub 'Сохранить продукт'
   $null=Wait-Preparation $publisherDraft {param($x) @($x.products).Count -eq 1}
+  Phase 'PUBLISHER_HOLDER'
   Press $pub 'Клиенты'
+  Wait-Text $pub 'Новый клиент' 120
   Enter $pub 'Идентификатор клиента' $org
   Enter $pub 'Название / имя' 'IWXA Corporate Qualification'
   Press $pub 'Сохранить клиента'
   $null=Wait-Preparation $publisherDraft {param($x) @($x.holders).Count -eq 1}
+  Phase 'PUBLISHER_TARIFF'
   Press $pub 'Тарифы и лимиты'
+  Wait-Text $pub 'Один каталог для организаций и физических лиц' 120
   Select-FirstReal $pub 'Продукт'
   Enter $pub 'Код тарифа' 'TEAM'
   Enter $pub 'Название тарифа' 'Qualified Team'
@@ -648,13 +734,16 @@ try{
   Enter $pub 'Места продукта' '2'
   Enter $pub 'Сотрудники организации' '10'
   Enter $pub 'Функции и модули' 'WORKSPACE, PERSONAL_AGENT_CORPORATE'
+  Phase 'PUBLISHER_QUOTA'
   Press $pub 'Добавить квоту'
   Enter $pub 'Ресурс' 'REPORTS'
   Enter $pub 'Предел' '700'
   Select-Last $pub 'Период'
   Press $pub 'Сохранить редакцию тарифа'
   $null=Wait-Preparation $publisherDraft {param($x) @($x.tariffs).Count -eq 1}
+  Phase 'PUBLISHER_PROPOSAL'
   Press $pub 'Лицензии'
+  Wait-Text $pub 'Подготовить лицензию' 120
   Select-FirstReal $pub 'Тариф'
   Select-FirstReal $pub 'Клиент'
   Press $pub 'Сохранить подготовку по тарифу'
@@ -662,6 +751,7 @@ try{
   if($prep.proposals[0].holderId -cne $org){throw 'CORPORATE_GUI_WRONG_DRAFT_HOLDER'}
   $request=[string]$prep.proposals[0].id
   Record-Check 'PUBLISHER_PREPARES_EXACT_ORGANIZATION_TARIFF_QUOTA'
+  Phase 'PUBLISHER_TRUST'
   Press $pub 'Доверие и ключи'
   Press $pub 'Проверить зарегистрированного издателя T3'
   Native-FileDialog $pub 'Экспортировать публичное доверие для независимого Admin Center' $trustFile $false
@@ -670,6 +760,7 @@ try{
   if((Copy-FromGui $pub 'Скопировать SHA-256 доверия' 'SHA-256 публичного доверия издателя') -cne $trustSha){
     throw 'CORPORATE_GUI_PUBLIC_TRUST_FINGERPRINT_MISMATCH'
   }
+  Phase 'PUBLISHER_ISSUE'
   Select-FirstReal $pub 'Зарегистрированный издатель'
   Select-FirstReal $pub 'Подготовленное предложение организации'
   Enter $pub 'Корпоративные места Personal Agent (явно)' '2'
@@ -686,9 +777,11 @@ try{
     throw 'CORPORATE_NATIVE_ISSUE_TERMS_NOT_CONFIRMED'
   }
   Record-Check 'PUBLISHER_GUI_ORIGINAL_SIGNED_ISSUE'
+  Phase 'PUBLISHER_ACTIVATE_EXPORT'
   $active=Publisher-Status 'ACTIVE' $id 1
   $handoff=Publisher-Export $activeFile $active
   Record-Check 'PUBLISHER_GUI_ACTIVE_STATUS_AND_EXACT_IWXA_EXPORT'
+  Phase 'CENTER_TRUST_RECEIVE'
   Enter $cen 'SHA-256 публичного доверия' $trustSha
   Native-FileDialog $cen 'Установить доверие корпоративного издателя' $trustFile $true
   Wait-Text $cen 'Корпоративный T3 Consumer подключён'
@@ -706,6 +799,7 @@ try{
   Wait-Text $cen 'Фактические назначения и свободные места определяются по исходному реестру T3.'
   Wait-Text $cen 'Перейти к распределению мест'
   Record-Check 'CENTER_ORIGINAL_SIGNATURES_AND_SIGNED_TERMS_READBACK'
+  Phase 'CENTER_CAPACITY'
   if($QualifySeatProjection){
     Center-SeatProjection (-not $ResumeQualifiedCenterCI) 2 10
     Record-Check 'CENTER_INSTALLED_ORIGINAL_REGISTRY_USES_SIGNED_TARIFF_2_10'
@@ -756,6 +850,7 @@ try{
   Wait-Text $cen 'Новая запись не создана'
   $null=Verify-Center $org $active 1 (Digest $activeFile)
   Record-Check 'CENTER_REEXPORT_SAME_SIGNED_PAIR_NEW_CARRIER'
+  Phase 'PUBLISHER_SUSPEND'
   $suspended=Publisher-Status 'SUSPENDED' $id 2
   $suspendedHandoff=Publisher-Export $suspendedFile $suspended
   Center-Receive $suspendedHandoff $suspendedFile
@@ -770,6 +865,7 @@ try{
   Record-Check 'CENTER_SUSPENSION_CANNOT_BE_ROLLED_BACK_BY_OLD_ACTIVE'
   # Replace the suspended tariff with a deliberately smaller signed successor
   # through the same existing Publisher tariff preparation and native Owner.
+  Phase 'PUBLISHER_RENEWAL_TARIFF'
   Press $pub 'Тарифы и лимиты'
   Press $pub 'Новая редакция'
   Enter $pub 'Места продукта' '1'
@@ -838,6 +934,7 @@ try{
     throw 'CORPORATE_NATIVE_RENEWAL_OLD_PACKAGE_RESTORED_CAPACITY'
   }
   Record-Check 'CENTER_RENEWAL_COLD_RESTART_AND_OLD_CARRIER_NO_REPLACEMENT'
+  Phase 'PUBLISHER_REVOKE_SUCCESSOR'
   $nextRevoked=Publisher-Status 'REVOKED' $nextId 2
   $nextRevokedHandoff=Publisher-Export $renewedRevokedFile $nextRevoked
   Center-Receive $nextRevokedHandoff $renewedRevokedFile
@@ -891,7 +988,15 @@ try{
   }else{
     Write-Host "CORPORATE_TWO_INSTALLED_NATIVE_PASS checks=$($checks.Count) localEvidence=$artifact"
   }
+}catch{
+  if($ResumeQualifiedCenterCI){
+    Write-Host ('CORPORATE_TWO_INSTALLED_FAILURE_PHASE='+$script:guiPhase)
+    Write-Host ('CORPORATE_TWO_INSTALLED_FAILURE_STEP='+$script:guiOrdinal)
+    Write-Host ('CORPORATE_TWO_INSTALLED_FAILURE_KIND='+$script:guiLastKind)
+  }
+  throw
 }finally{
+  [System.Windows.Forms.Clipboard]::Clear()
   foreach($p in @($cen,$pub)){
     if($null -ne $p){
       try{Stop-App $p}catch{
