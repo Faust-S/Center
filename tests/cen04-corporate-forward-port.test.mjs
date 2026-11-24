@@ -24,3 +24,16 @@ test('original Windows Consumer remains single SHA-256-pinned executable',()=>{
  assert.match(main,/t3_consumer::center_cen04_corporate_t3_receive/);
  assert.match(main,/center_export_publisher_test_request/);
 });
+
+test('commercial license terms link to the existing signed seat manager without inventing a zero seat balance',()=>{
+ const parent=readFileSync('src/Cen04LicensePanel.tsx','utf8');
+ const child=readFileSync('src/Cen04CorporateIntakePanel.tsx','utf8');
+ const app=readFileSync('src/App.tsx','utf8');
+ assert.match(child,/seatPlan\.state==='VERIFIED_CAPACITY_CANDIDATE'\?/);
+ assert.match(child,/data-testid="cen04-open-original-seat-registry"/);
+ assert.match(child,/onClick=\{onManageSeats\} disabled=\{busy\|\|!invoke\}/);
+ assert.match(parent,/onManageSeats=\{onManageSeats\}/);
+ assert.match(app,/onManageSeats=\{openCorporateSeats\}/);
+ assert.doesNotMatch(child,/Доступно к назначению: 0|Доступных к назначению мест: 0/);
+ assert.doesNotMatch(child,/d3EmployeeSeatChange|d3EmployeeSeatPolicyEnable/);
+});

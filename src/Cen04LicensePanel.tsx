@@ -12,9 +12,10 @@ type View={organizationId:string;productId:string;licenses:License[];
 type Props={organizationId:string;organizationName:string;
  organizationKind:'GROUP'|'ORGANIZATION';
  participants:readonly {id:string;personalAgentPlan?:'NONE'|'PLANNED'}[];
+ onManageSeats:()=>void;
  invoke:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function Cen04LicensePanel({organizationId,organizationName,organizationKind,participants,invoke}:Props){
+export default function Cen04LicensePanel({organizationId,organizationName,organizationKind,participants,invoke,onManageSeats}:Props){
  const [testSeats,setTestSeats]=useState('1');
  const [testTerm,setTestTerm]=useState('30');
  const [testVersion,setTestVersion]=useState('0.4.1');
@@ -255,9 +256,9 @@ export default function Cen04LicensePanel({organizationId,organizationName,organ
      </div>)}
    </div>}
    <Cen04CorporateIntakePanel key={organizationId} organizationId={organizationId}
-     participants={participants} invoke={invoke}/>
+     participants={participants} invoke={invoke} onManageSeats={onManageSeats}/>
     <div className="notice subdued">
-     TEST-лицензии не дают права назначать места Personal Agent. Активных мест: 0.
+     TEST-лицензии не дают права назначать места Personal Agent. По TEST-лицензиям места не выдаются.
    </div>
  </section>;
 }

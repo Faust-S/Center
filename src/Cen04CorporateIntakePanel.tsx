@@ -11,9 +11,10 @@ import {inspectCorporateEnrollment,inspectCorporateCapabilities,
 // Admin Center 0.4.1 retains its separate Publisher TEST request workflow.
 type PlanParticipant={id:string;personalAgentPlan?:'NONE'|'PLANNED'};
 type Props={organizationId:string;participants:readonly PlanParticipant[];
+ onManageSeats:()=>void;
  invoke:((command:string,args?:Record<string,unknown>)=>Promise<any>)|null};
 const error=(e:unknown)=>e instanceof Error?e.message:String(e);
-export default function Cen04CorporateIntakePanel({organizationId,participants,invoke}:Props){
+export default function Cen04CorporateIntakePanel({organizationId,participants,invoke,onManageSeats}:Props){
  const [busy,setBusy]=useState(false);
  const actionRef=useRef(false);
  const [corporateSha,setCorporateSha]=useState('');
@@ -414,7 +415,7 @@ export default function Cen04CorporateIntakePanel({organizationId,participants,i
          {corporateFile.packageSha256}</code></p>
        <p>Принадлежность пакета этой организации, подпись, STATUS
          и получение лицензии пока не проверены оригинальным T3.
-         Доступных к назначению мест: 0.</p>
+         Этот файл ещё не является основанием для назначения места.</p>
      </div>}
      {corporateMessage&&<p role="status">{corporateMessage}</p>}
      {corporateFailure&&<p role="alert">{corporateFailure}</p>}
@@ -438,7 +439,7 @@ export default function Cen04CorporateIntakePanel({organizationId,participants,i
          <strong>План мест по актуальному тарифу</strong>
          {seatPlan.state==='VERIFIED_CAPACITY_CANDIDATE'?<>
            <div className="form-grid">
-             <div><small>Сотрудники / лимит</small><strong>{' '}{seatPlan.employeeCount} / {seatPlan.employeeLimit}</strong></div>
+             <div><small>Контакты в плане / лимит</small><strong>{' '}{seatPlan.employeeCount} / {seatPlan.employeeLimit}</strong></div>
              <div><small>Запланированные места Agent / лимит</small><strong>{' '}{seatPlan.planned} / {seatPlan.seatLimit}</strong></div>
              <div><small>Остаток для планирования</small><strong>{' '}{seatPlan.remainingPlannedSeats}</strong></div>
            </div>
@@ -447,7 +448,9 @@ export default function Cen04CorporateIntakePanel({organizationId,participants,i
                Мест Agent сверх лимита: {seatPlan.seatOverLimit}. Уточните тариф или план.</p>:
              <p>Текущий план укладывается в подписанные лимиты.</p>}
            <p className="muted">Используется только одна актуальная лицензия: {seatPlan.licenseId}.
-             Это сравнение плана, не выдача мест или прав. Для назначения откройте раздел независимого сотрудника организации.</p>
+             Это сравнение плана с тарифом. Фактические назначения и свободные места определяются по исходному реестру T3.</p>
+           <button type="button" className="primary" data-testid="cen04-open-original-seat-registry"
+             onClick={onManageSeats} disabled={busy||!invoke}>Перейти к распределению мест</button>
          </>:<p role="status">{seatPlan.state==='LINEAGE_INCOMPLETE'?
            'История продления неполна. Для расчёта лимитов требуется недостающая лицензия.':
            seatPlan.state==='MULTIPLE_CURRENT_LICENSES'?
@@ -477,7 +480,7 @@ export default function Cen04CorporateIntakePanel({organizationId,participants,i
            <div><small>Места Personal Agent по лицензии</small>
              <strong>{' '}{row.signedTerms.limits.personalAgentSeats}</strong></div>
          </div>
-         <p>Доступно к назначению: 0. Подписанные лимиты ещё не применены.</p>
+         <p>Фактически занятые и свободные места проверяются в подписанном реестре организации. Получение лицензии не назначает место автоматически.</p>
          <p>Лицензия до: {row.expiresAt.replace('T',' ').replace('.000Z',' UTC')}.
            {' '}STATUS до: {row.statusValidUntil.replace('T',' ').replace('.000Z',' UTC')}.</p>
          <details>
