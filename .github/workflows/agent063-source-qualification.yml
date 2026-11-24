@@ -16,19 +16,22 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: 411315aa6fe2219ad927be18aa1e537fe4f85612
-      PRIVATE_TREE: e07fc0cf7c9dede04cf214e6acfb5c576db8fcee
+      PRIVATE_PIN: 45e006964167c9e8233cb331f3fb988b64f6ed02
+      PRIVATE_TREE: b9c9e092de2d118048fd618fc58c6febab0883ac
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 411315aa6fe2219ad927be18aa1e537fe4f85612
+          ref: 45e006964167c9e8233cb331f3fb988b64f6ed02
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
           show-progress: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Exact private source qualification (fixed status output only)
         shell: pwsh
         run: |
@@ -60,11 +63,16 @@ jobs:
             console.log('NODE_'+k.toUpperCase()+'='+(m?m[1]:'UNKNOWN'));
           }
           console.log('NODE_SUITE='+(tests.ok?'PASS':'FAIL'));
-          for(const m of tests.text.matchAll(/^not ok (\d+) - /gm)) console.log('FAILED_TEST_INDEX='+m[1]);
+          const testFiles=fs.readdirSync(path.join(cwd,'tests')).filter(x=>x.endsWith('.test.mjs')).sort();
+          for(const m of tests.text.matchAll(/^not ok (\d+) - [^\r\n]*\r?\n([\s\S]*?)(?=^ok \d+ - |^not ok \d+ - |^# tests |$(?![\s\S]))/gm)){
+            console.log('FAILED_TEST_INDEX='+m[1]);
+            const loc=m[2].match(/location:\s*['"]?[^\r\n]*[\\/]([^\\/\r\n:'"]+\.test\.mjs):(\d+):(\d+)/);
+            if(loc&&testFiles.includes(loc[1]))console.log('FAILED_TEST_FILE_ORDINAL='+testFiles.indexOf(loc[1])+':'+loc[2]+':'+loc[3]);
+          }
           const build=run('build',npm,['run','build'],process.platform==='win32');
           console.log('BUILD='+(build.ok?'PASS':'FAIL'));
           // Only fixed file aliases, line/column numbers and diagnostic codes.
-          const aliases={'workbench.tsx':'WORKBENCH','product-controls.tsx':'CONTROLS','app-help.tsx':'HELP','work-areas-control.tsx':'AREAS','ui-preferences.tsx':'PREFS','preview-dock.tsx':'PREVIEW','preview-dock-model.ts':'PREVIEW_MODEL','files-control.tsx':'FILES'};
+          const aliases={'workbench.tsx':'WORKBENCH','product-controls.tsx':'CONTROLS','app-help.tsx':'HELP','work-areas-control.tsx':'AREAS','ui-preferences.tsx':'PREFS','preview-dock.tsx':'PREVIEW','preview-dock-model.ts':'PREVIEW_MODEL','personal-profile-view.ts':'PROFILE','files-control.tsx':'FILES'};
           for(const m of build.text.matchAll(/(?:^|\n)(?:[^\r\n]*\/)?([a-z0-9-]+\.tsx?)\((\d+),(\d+)\): error (TS\d+)/g)){
             console.log('BUILD_DIAGNOSTIC='+(aliases[m[1]]||'OTHER')+':'+m[2]+':'+m[3]+':'+m[4]);
           }
@@ -74,6 +82,38 @@ jobs:
           [System.IO.File]::WriteAllText($script,$js,[System.Text.UTF8Encoding]::new($false))
           node $script
           if($LASTEXITCODE -ne 0){throw 'SOURCE_QUALIFICATION_FAILED'}
+      - name: Original Core profile and T3 regression (fixed status output only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $installLog=Join-Path $env:RUNNER_TEMP 'agent063-python-install.out'
+          $testLog=Join-Path $env:RUNNER_TEMP 'agent063-python-profile.out'
+          python -m pip install -q -r requirements-ci.txt *> $installLog
+          if($LASTEXITCODE -ne 0){throw 'PYTHON_INSTALL_FAILED'}
+          Write-Host 'PYTHON_INSTALL=PASS'
+          python -m pytest -q tests/test_personal_profile_display.py tests/test_t3_mode.py tests/test_work_areas_interaction.py *> $testLog
+          $exit=$LASTEXITCODE
+          $raw=Get-Content -LiteralPath $testLog -Raw
+          foreach($key in @('passed','failed','skipped','errors')){
+            $match=[regex]::Match($raw,'(?m)^=+[^\r\n]*?\b([0-9]+) '+$key+'\b[^\r\n]*?=+ and temporary output
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent063-*' -Force | Remove-Item -Force -ErrorAction SilentlyContinue
+)
+            if(!$match.Success){$match=[regex]::Match($raw,'(?m)^([0-9]+) '+$key+'\b[^\r\n]* in [0-9.]+s and temporary output
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent063-*' -Force | Remove-Item -Force -ErrorAction SilentlyContinue
+)}
+            if($match.Success){Write-Host ('PYTHON_'+$key.ToUpperInvariant()+'='+$match.Groups[1].Value)}
+          }
+          $outcome=if($exit -eq 0){'PASS'}else{'FAIL'}
+          Write-Host ('PYTHON_PROFILE='+$outcome)
+          if($exit -ne 0){throw 'PYTHON_PROFILE_QUALIFICATION_FAILED'}
       - name: Remove private checkout and temporary output
         if: always()
         shell: pwsh
