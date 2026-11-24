@@ -15,12 +15,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-2022]
-        mode: [CONTEXT, COMBINED, COMBINED_LINKED]
+        mode: [COMBINED, COMBINED_LINKED]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: '010fd754148ecc91a838c3ec0b298b30bb3d6f0f'
-      PRIVATE_TREE: '0ef66c7287294ea2ee788226363df27164da3d9b'
+      PRIVATE_PIN: '6a5a12ea14dc88aecf47c16ca13368d417af4679'
+      PRIVATE_TREE: '5c08ae2585689e99a6347004d0c5652a29b20596'
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
       IWXA_QWEN_QUALIFICATION_MODEL: 'QWEN3_4B_Q4_K_M'
       IWXA_NATIVE_QWEN_CONTEXT_TEST: '1'

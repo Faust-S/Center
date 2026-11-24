@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 65
     env:
-      PRIVATE_PIN: '010fd754148ecc91a838c3ec0b298b30bb3d6f0f'
-      PRIVATE_TREE: '0ef66c7287294ea2ee788226363df27164da3d9b'
+      PRIVATE_PIN: '6a5a12ea14dc88aecf47c16ca13368d417af4679'
+      PRIVATE_TREE: '5c08ae2585689e99a6347004d0c5652a29b20596'
       QUALIFY_SCOPE: ADAPTER_PRODUCT
     steps:
       - uses: actions/setup-python@v5
@@ -106,12 +106,18 @@ jobs:
           sys.path.insert(0,os.getcwd())
           counts={"passed":0,"failed":0,"skipped":0,"collection_errors":0}
           failures=[]
+          request_volumes=[]
           def fingerprint(value):
               return hashlib.sha256(value.encode()).hexdigest()[:16]
           class Plugin:
               def pytest_runtest_logreport(self,report):
                   rep=report
-                  if rep.when=="call" and rep.passed: counts["passed"]+=1
+                  if rep.when=="call" and rep.passed:
+                      counts["passed"]+=1
+                      for mode,count,total,evidence in re.findall(r"(?m)^META_HARNESS_REQUEST_VOLUME=(FOCUSED_V1|FOCUSED_V2|FULL_V1):([1-6]):([0-9]{1,7}):([0-9]{1,7})$",getattr(rep,"capstdout","") or ""):
+                          count,total,evidence=int(count),int(total),int(evidence)
+                          if 0<evidence<=total<=(count+2)*256000:
+                              request_volumes.append({"mode":mode,"count":count,"total":total,"evidence":evidence})
                   if rep.skipped: counts["skipped"]+=1
                   if rep.failed:
                       counts["failed"]+=1
@@ -147,7 +153,7 @@ jobs:
                       counts["collection_errors"]+=1
                       failures.append({"id":fingerprint(rep.nodeid),"phase":"collect","line":0})
           result=pytest.main(sys.argv[2:]+["-q","--tb=short","--continue-on-collection-errors","-p","no:cacheprovider"],plugins=[Plugin()])
-          pathlib.Path(sys.argv[1]).write_text(json.dumps({"counts":counts,"failures":failures,"exit":int(result)}),encoding="utf-8")
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({"counts":counts,"failures":failures,"request_volumes":request_volumes,"exit":int(result)}),encoding="utf-8")
           sys.exit(int(result))
           ''',encoding="utf-8")
                   groups = {
@@ -197,7 +203,7 @@ jobs:
                           "tests/test_meta_harness_preview_performance.py",
                           "tests/test_fc2_agent_runtime_portfolio.py"]}
                   if os.environ.get("QUALIFY_SCOPE")=="ADAPTER_PRODUCT":
-                      groups={"PRODUCT_ROUTE":["tests/test_meta_harness_qwen_graph_product.py","tests/test_meta_harness_qwen_native_state.py","tests/test_meta_harness_acp_process_job.py"],**groups}
+                      groups={"PRODUCT_ROUTE":["tests/test_meta_harness_qwen_graph_product.py","tests/test_meta_harness_qwen_native_state.py","tests/test_meta_harness_acp_process_job.py","tests/test_meta_harness_qwen_native_product.py"],**groups}
                   if os.environ.get("QUALIFY_SCOPE")=="ADAPTER_PRODUCT":
                       depth=groups.pop("ADAPTER_DEPTH")
                       # Isolate long-running test files. A timeout in one file
@@ -243,6 +249,11 @@ jobs:
                               if row.get("diag"): status(group+"_DIAGNOSTIC",row["diag"])
                               if re.fullmatch("[0-9a-f]{16}",row.get("file","")) and re.fullmatch("[A-Za-z]{1,40}",row.get("kind","")):
                                   status(group+"_EXCEPTION",row["id"]+":"+row["file"]+":"+row["kind"])
+                      for item in data.get("request_volumes",[])[:20]:
+                          mode=item.get("mode")
+                          count,total,evidence=(item.get(k) for k in ("count","total","evidence"))
+                          if mode in ("FOCUSED_V1","FOCUSED_V2","FULL_V1") and all(type(v) is int for v in (count,total,evidence)) and 1<=count<=6 and 0<evidence<=total<=(count+2)*256000:
+                              status("REQUEST_VOLUME",":".join(map(str,(mode,count,total,evidence))))
                       success = proc.returncode==0 and data["counts"]["passed"]>0 and not data["counts"]["failed"] and not data["counts"]["collection_errors"]
                       status(group,"PASS" if success else "FAIL")
                       failed = failed or not success
