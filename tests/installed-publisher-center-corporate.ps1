@@ -14,11 +14,22 @@ param(
   [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedConsumerSha256,
   [Parameter(Mandatory=$true)][string]$IssuerAuthorityId,
   [Parameter(Mandatory=$true)][switch]$DedicatedTestProfile,
-  [switch]$QualifySeatProjection
+  [switch]$QualifySeatProjection,
+  [switch]$ResumeQualifiedCenterCI
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
-if(!$IsWindows -or !$DedicatedTestProfile -or $env:GITHUB_ACTIONS -eq 'true'){
+if(!$IsWindows -or !$DedicatedTestProfile){
+  throw 'CORPORATE_INSTALLED_LOCAL_DEDICATED_WINDOWS_REQUIRED'
+}
+if($ResumeQualifiedCenterCI){
+  if($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REPOSITORY -cne 'Faust-S/Center' -or
+     $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+     $env:GITHUB_REF -cne 'refs/heads/work/2026-11-24-corporate-installed-one-core' -or
+     $env:IWXA_T3_SYNTHETIC_PROVISION -cne 'CORPORATE_CENTER_CI_FIXTURE_ONLY' -or !$QualifySeatProjection){
+    throw 'CORPORATE_INSTALLED_DISPOSABLE_CENTER_CI_REQUIRED'
+  }
+}elseif($env:GITHUB_ACTIONS -eq 'true'){
   throw 'CORPORATE_INSTALLED_LOCAL_DEDICATED_WINDOWS_REQUIRED'
 }
 if([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA'){
@@ -77,8 +88,23 @@ $ownerRoot=Join-Path $publisherData 't3-owner-person'
 $consumerRoot=Join-Path $centerData 't3-consumer-test'
 $centerDraft=Join-Path $centerData 'atlas-store-v1/preparation/draft.json'
 $publisherDraft=Join-Path $publisherData 'publisher-preparation-v1.json'
-if((Test-Path -LiteralPath $centerDraft) -or (Test-Path -LiteralPath $publisherDraft) -or
+if((Test-Path -LiteralPath $publisherDraft) -or
    (Test-Path -LiteralPath (Join-Path $consumerRoot 'corporate'))){
+  throw 'CORPORATE_INSTALLED_FRESH_DEDICATED_PROFILE_REQUIRED'
+}
+if($ResumeQualifiedCenterCI){
+  if($publisherData -ine [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'ru.iwxa.publisher')) -or
+     $centerData -ine [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center'))){
+    throw 'CORPORATE_INSTALLED_DISPOSABLE_SETUP_ROOT_REQUIRED'
+  }
+  $prior=Get-Content -LiteralPath $centerDraft -Raw|ConvertFrom-Json -Depth 80
+  $orgs=@($prior.organizations)
+  if($prior.format -cne 'iwxa.admin-center.draft' -or $prior.version -ne 1 -or
+     $orgs.Count -ne 1 -or $orgs[0].id -cne $prior.activeOrganizationId -or
+     $orgs[0].kind -cne 'ORGANIZATION' -or $orgs[0].name -cne 'G4WindowsOrganization'){
+    throw 'CORPORATE_INSTALLED_QUALIFIED_CENTER_DRAFT_REQUIRED'
+  }
+}elseif(Test-Path -LiteralPath $centerDraft){
   throw 'CORPORATE_INSTALLED_FRESH_DEDICATED_PROFILE_REQUIRED'
 }
 $artifact=Join-Path ([IO.Path]::GetTempPath()) ('iwxa-corporate-witness-'+[guid]::NewGuid().ToString('N'))
@@ -92,6 +118,11 @@ $suspendedFile=Join-Path $artifact 'suspended.iwxa'
 $revokedFile=Join-Path $artifact 'revoked.iwxa'
 $tamperedFile=Join-Path $artifact 'tampered.iwxa'
 $checks=[System.Collections.Generic.List[string]]::new()
+function Record-Check([string]$name){
+  if($name -cnotmatch '^[A-Z0-9_]{3,100}$'){throw 'CORPORATE_INSTALLED_CHECK_NAME_INVALID'}
+  $checks.Add($name)
+  if($ResumeQualifiedCenterCI){Write-Host ('CORPORATE_TWO_INSTALLED_CHECK='+$name)}
+}
 $pub=$null
 $cen=$null
 # Read-only direct process calls, independent of the WebView or its cache.
@@ -398,7 +429,8 @@ function Center-SeatProjection([bool]$first,[int]$seatLimit,[int]$employeeLimit)
     Original-Confirm $cen 'IWXA T3: исходный корпоративный реестр'
   }
   Wait-Text $cen 'Зарезервированные места / лимит' 240
-  if($first -and (Has-Text $cen 'Подключить распределение мест' $true)){
+  if(($first -or $ResumeQualifiedCenterCI) -and $seatLimit -ge 0 -and
+     (Has-Text $cen 'Подключить распределение мест' $true)){
     Press $cen 'Подключить распределение мест' $true
     Original-Confirm $cen 'IWXA T3: распределение корпоративных мест'
     Wait-Text $cen 'Продуктовая политика подтверждена исходным T3.' 240
@@ -562,19 +594,26 @@ try{
     throw 'CORPORATE_INSTALLED_DISPOSABLE_ISSUER_NOT_READY_OR_LEDGER_NOT_EMPTY'
   }
   $cen=Start-App $centerPath
-  Enter $cen 'Название' 'IWXA Corporate Qualification'
-  Select-Last $cen 'Тип'
-  Press $cen 'Создать черновик организации'
-  if($QualifySeatProjection){
-    Press $cen 'Планы Atlas' $true
-    Wait-Text $cen 'Планы Atlas и рабочие области'
-    Enter $cen 'Название рабочей области' 'CorporateQualificationWorkspace'
-    Press $cen 'Добавить' $true
-    Wait-Text $cen 'CorporateQualificationWorkspace'
-    Wait-Text $cen 'План Atlas пока не указан'
+  if($ResumeQualifiedCenterCI){
+    # Reuse the SAME already qualified installed organization and signed
+    # registry. No deletion, draft substitution or second enrollment.
+    $draft=Wait-Preparation $centerDraft {param($x) @($x.organizations).Count -eq 1}
+    Wait-Text $cen 'G4WindowsOrganization' 120
+  }else{
+    Enter $cen 'Название' 'IWXA Corporate Qualification'
+    Select-Last $cen 'Тип'
+    Press $cen 'Создать черновик организации'
+    if($QualifySeatProjection){
+      Press $cen 'Планы Atlas' $true
+      Wait-Text $cen 'Планы Atlas и рабочие области'
+      Enter $cen 'Название рабочей области' 'CorporateQualificationWorkspace'
+      Press $cen 'Добавить' $true
+      Wait-Text $cen 'CorporateQualificationWorkspace'
+      Wait-Text $cen 'План Atlas пока не указан'
+    }
+    Press $cen 'Сохранить на компьютере'
+    $draft=Wait-Preparation $centerDraft {param($x) @($x.organizations).Count -eq 1}
   }
-  Press $cen 'Сохранить на компьютере'
-  $draft=Wait-Preparation $centerDraft {param($x) @($x.organizations).Count -eq 1}
   $org=[string]$draft.organizations[0].id
   if($draft.organizations[0].kind -ne 'ORGANIZATION' -or $org -cnotmatch '^[A-Za-z0-9_-]{7,100}$'){
     throw 'CORPORATE_GUI_ORGANIZATION_INVALID'
@@ -583,7 +622,11 @@ try{
   if((Copy-FromGui $cen 'Скопировать идентификатор организации' 'Идентификатор организации для Publisher') -cne $org){
     throw 'CORPORATE_GUI_ORGANIZATION_ID_MISMATCH'
   }
-  $checks.Add('CENTER_CREATES_DURABLE_ORGANIZATION_AND_EXPOSES_EXACT_ID')
+  if($ResumeQualifiedCenterCI){
+    Record-Check 'CENTER_RESUMES_QUALIFIED_ORGANIZATION_AND_EXPOSES_EXACT_ID'
+  }else{
+  Record-Check 'CENTER_CREATES_DURABLE_ORGANIZATION_AND_EXPOSES_EXACT_ID'
+  }
   $pub=Start-App $publisherPath
   Press $pub 'Продукты'
   Enter $pub 'Идентификатор продукта' 'IWXA_ADMIN_CENTER'
@@ -618,7 +661,7 @@ try{
   $prep=Wait-Preparation $publisherDraft {param($x) @($x.proposals).Count -eq 1}
   if($prep.proposals[0].holderId -cne $org){throw 'CORPORATE_GUI_WRONG_DRAFT_HOLDER'}
   $request=[string]$prep.proposals[0].id
-  $checks.Add('PUBLISHER_PREPARES_EXACT_ORGANIZATION_TARIFF_QUOTA')
+  Record-Check 'PUBLISHER_PREPARES_EXACT_ORGANIZATION_TARIFF_QUOTA'
   Press $pub 'Доверие и ключи'
   Press $pub 'Проверить зарегистрированного издателя T3'
   Native-FileDialog $pub 'Экспортировать публичное доверие для независимого Admin Center' $trustFile $false
@@ -642,10 +685,10 @@ try{
      $issued.issuerAuthorityId -cne $IssuerAuthorityId -or $issued.status -ne 'NOT_ACTIVATED'){
     throw 'CORPORATE_NATIVE_ISSUE_TERMS_NOT_CONFIRMED'
   }
-  $checks.Add('PUBLISHER_GUI_ORIGINAL_SIGNED_ISSUE')
+  Record-Check 'PUBLISHER_GUI_ORIGINAL_SIGNED_ISSUE'
   $active=Publisher-Status 'ACTIVE' $id 1
   $handoff=Publisher-Export $activeFile $active
-  $checks.Add('PUBLISHER_GUI_ACTIVE_STATUS_AND_EXACT_IWXA_EXPORT')
+  Record-Check 'PUBLISHER_GUI_ACTIVE_STATUS_AND_EXACT_IWXA_EXPORT'
   Enter $cen 'SHA-256 публичного доверия' $trustSha
   Native-FileDialog $cen 'Установить доверие корпоративного издателя' $trustFile $true
   Wait-Text $cen 'Корпоративный T3 Consumer подключён'
@@ -653,7 +696,7 @@ try{
   if($pin.fingerprint -cne $trustSha -or $pin.organizationId -cne $org){
     throw 'CORPORATE_NATIVE_PIN_NOT_CONFIRMED'
   }
-  $checks.Add('CENTER_ORIGINAL_CURRENTUSER_DPAPI_TRUST')
+  Record-Check 'CENTER_ORIGINAL_CURRENTUSER_DPAPI_TRUST'
   Center-Receive $handoff $activeFile
   $null=Verify-Center $org $active 1 (Digest $activeFile)
   Wait-Text $cen 'Тариф TEAM, редакция 1'
@@ -662,25 +705,25 @@ try{
   # Consumer's independent receipt: this intake did not allocate any seat.
   Wait-Text $cen 'Фактические назначения и свободные места определяются по исходному реестру T3.'
   Wait-Text $cen 'Перейти к распределению мест'
-  $checks.Add('CENTER_ORIGINAL_SIGNATURES_AND_SIGNED_TERMS_READBACK')
+  Record-Check 'CENTER_ORIGINAL_SIGNATURES_AND_SIGNED_TERMS_READBACK'
   if($QualifySeatProjection){
-    Center-SeatProjection $true 2 10
-    $checks.Add('CENTER_INSTALLED_ORIGINAL_REGISTRY_USES_SIGNED_TARIFF_2_10')
+    Center-SeatProjection (-not $ResumeQualifiedCenterCI) 2 10
+    Record-Check 'CENTER_INSTALLED_ORIGINAL_REGISTRY_USES_SIGNED_TARIFF_2_10'
   }
   Stop-App $cen
   $cen=Start-App $centerPath
   Press $cen 'Personal Agent и лицензии'
   Wait-Text $cen 'Тариф TEAM, редакция 1'
   $null=Verify-Center $org $active 1 (Digest $activeFile)
-  $checks.Add('CENTER_COLD_RESTART_ORIGINAL_STORE')
+  Record-Check 'CENTER_COLD_RESTART_ORIGINAL_STORE'
   if($QualifySeatProjection){
     Center-SeatProjection $false 2 10
-    $checks.Add('CENTER_INSTALLED_REGISTRY_AND_LICENSE_COLD_READBACK')
+    Record-Check 'CENTER_INSTALLED_REGISTRY_AND_LICENSE_COLD_READBACK'
   }
   Center-Receive $handoff $activeFile
   Wait-Text $cen 'Новая запись не создана'
   $null=Verify-Center $org $active 1 (Digest $activeFile)
-  $checks.Add('CENTER_IDENTICAL_IWXA_REPLAY_NO_SECOND_REVISION')
+  Record-Check 'CENTER_IDENTICAL_IWXA_REPLAY_NO_SECOND_REVISION'
   # A mutated carrier must fail even if an identical signed pair is already
   # stored and the original receipt can be recovered. Never treat that
   # recovery as proof that this physical file was accepted.
@@ -691,7 +734,7 @@ try{
   [IO.File]::WriteAllBytes($tamperedFile,$bad)
   Center-Receive $handoff $tamperedFile $false
   $null=Verify-Center $org $active 1 (Digest $activeFile)
-  $checks.Add('CENTER_TAMPERED_PHYSICAL_CARRIER_DENIED_STORE_UNCHANGED')
+  Record-Check 'CENTER_TAMPERED_PHYSICAL_CARRIER_DENIED_STORE_UNCHANGED'
   # Reopening Publisher must use the original signed journal, not the
   # in-memory delivery receipt or an unsigned preparation.
   Stop-App $pub
@@ -706,25 +749,25 @@ try{
      $readAgain.sequence -ne 1){
     throw 'CORPORATE_GUI_PUBLISHER_COLD_READBACK_MISMATCH'
   }
-  $checks.Add('PUBLISHER_COLD_RESTART_ORIGINAL_SIGNED_JOURNAL')
+  Record-Check 'PUBLISHER_COLD_RESTART_ORIGINAL_SIGNED_JOURNAL'
   $reexport=Publisher-Export $reexportFile $active
   if((Digest $activeFile) -ceq (Digest $reexportFile)){throw 'CORPORATE_REEXPORT_EXPECTED_DIFFERENT_CARRIER'}
   Center-Receive $reexport $reexportFile
   Wait-Text $cen 'Новая запись не создана'
   $null=Verify-Center $org $active 1 (Digest $activeFile)
-  $checks.Add('CENTER_REEXPORT_SAME_SIGNED_PAIR_NEW_CARRIER')
+  Record-Check 'CENTER_REEXPORT_SAME_SIGNED_PAIR_NEW_CARRIER'
   $suspended=Publisher-Status 'SUSPENDED' $id 2
   $suspendedHandoff=Publisher-Export $suspendedFile $suspended
   Center-Receive $suspendedHandoff $suspendedFile
   $null=Verify-Center $org $suspended 2 (Digest $suspendedFile)
-  $checks.Add('CENTER_RECEIVES_SIGNED_SUSPENSION')
+  Record-Check 'CENTER_RECEIVES_SIGNED_SUSPENSION'
   if($QualifySeatProjection){
     Center-SeatProjection $false -1 -1
-    $checks.Add('CENTER_INSTALLED_REGISTRY_SUSPENSION_REMOVES_AVAILABLE_CAPACITY')
+    Record-Check 'CENTER_INSTALLED_REGISTRY_SUSPENSION_REMOVES_AVAILABLE_CAPACITY'
   }
   Center-Receive $handoff $activeFile $false
   $null=Verify-Center $org $suspended 2 (Digest $suspendedFile)
-  $checks.Add('CENTER_SUSPENSION_CANNOT_BE_ROLLED_BACK_BY_OLD_ACTIVE')
+  Record-Check 'CENTER_SUSPENSION_CANNOT_BE_ROLLED_BACK_BY_OLD_ACTIVE'
   # Replace the suspended tariff with a deliberately smaller signed successor
   # through the same existing Publisher tariff preparation and native Owner.
   Press $pub 'Тарифы и лимиты'
@@ -762,7 +805,7 @@ try{
   if($nextId -ceq $id -or $nextProof.renewalOf -cne $id -or
      $nextProof.lineageId -cne $issued.lineageId -or $nextProof.requestId -cne $nextRequest -or
      $nextProof.tariffRevision -ne 2){throw 'CORPORATE_NATIVE_RENEWAL_SIGNATURE_LINK_INVALID'}
-  $checks.Add('PUBLISHER_GUI_RENEWAL_BINDS_EXACT_PREVIOUS_SIGNED_LICENSE')
+  Record-Check 'PUBLISHER_GUI_RENEWAL_BINDS_EXACT_PREVIOUS_SIGNED_LICENSE'
   Stop-App $pub
   $pub=Start-App $publisherPath
   Press $pub 'Доверие и ключи'
@@ -780,10 +823,10 @@ try{
     @($view.licenses|Where-Object {$_.licenseId -ceq $id -and $_.superseded -eq $true}).Count -ne 1){
     throw 'CORPORATE_NATIVE_REPLACEMENT_NOT_SINGLE_CAPACITY'
   }
-  $checks.Add('CENTER_RENEWAL_REPLACES_OLD_LIMITS_WITHOUT_SUMMING')
+  Record-Check 'CENTER_RENEWAL_REPLACES_OLD_LIMITS_WITHOUT_SUMMING'
   if($QualifySeatProjection){
     Center-SeatProjection $false 1 6
-    $checks.Add('CENTER_INSTALLED_REGISTRY_USES_RENEWAL_LIMIT_1_6')
+    Record-Check 'CENTER_INSTALLED_REGISTRY_USES_RENEWAL_LIMIT_1_6'
   }
   Stop-App $cen
   $cen=Start-App $centerPath
@@ -794,7 +837,7 @@ try{
   if((Consumer-Read $org).capacity.candidateLicenseId -cne $nextId){
     throw 'CORPORATE_NATIVE_RENEWAL_OLD_PACKAGE_RESTORED_CAPACITY'
   }
-  $checks.Add('CENTER_RENEWAL_COLD_RESTART_AND_OLD_CARRIER_NO_REPLACEMENT')
+  Record-Check 'CENTER_RENEWAL_COLD_RESTART_AND_OLD_CARRIER_NO_REPLACEMENT'
   $nextRevoked=Publisher-Status 'REVOKED' $nextId 2
   $nextRevokedHandoff=Publisher-Export $renewedRevokedFile $nextRevoked
   Center-Receive $nextRevokedHandoff $renewedRevokedFile
@@ -802,10 +845,10 @@ try{
   if((Consumer-Read $org).capacity.state -ne 'NO_CURRENT_LICENSE'){
     throw 'CORPORATE_NATIVE_REVOKED_SUCCESSOR_REVIVES_OLD_TARIFF'
   }
-  $checks.Add('CENTER_REVOKED_SUCCESSOR_DOES_NOT_RESTORE_PREDECESSOR')
+  Record-Check 'CENTER_REVOKED_SUCCESSOR_DOES_NOT_RESTORE_PREDECESSOR'
   if($QualifySeatProjection){
     Center-SeatProjection $false -1 -1
-    $checks.Add('CENTER_INSTALLED_REGISTRY_REVOKED_SUCCESSOR_NO_CAPACITY')
+    Record-Check 'CENTER_INSTALLED_REGISTRY_REVOKED_SUCCESSOR_NO_CAPACITY'
   }
   Enter $pub 'Точный requestId, licenseId или organizationId исходного T3' $id
   Press $pub 'Прочитать подписанный журнал T3'
@@ -815,7 +858,7 @@ try{
   Center-Receive $revokedHandoff $revokedFile
   $null=Verify-Center $org $revoked 5 (Digest $revokedFile) 2
   if((Consumer-Read $org).capacity.state -ne 'NO_CURRENT_LICENSE'){throw 'CORPORATE_NATIVE_REVOKED_CHAIN_CAPACITY_INVALID'}
-  $checks.Add('CENTER_RECEIVES_SIGNED_REVOCATION')
+  Record-Check 'CENTER_RECEIVES_SIGNED_REVOCATION'
   Stop-App $cen
   $cen=Start-App $centerPath
   Press $cen 'Personal Agent и лицензии'
@@ -823,7 +866,7 @@ try{
   Center-Receive $handoff $activeFile $false
   $null=Verify-Center $org $revoked 5 (Digest $revokedFile) 2
   if((Consumer-Read $org).capacity.state -ne 'NO_CURRENT_LICENSE'){throw 'CORPORATE_NATIVE_REVOKED_CHAIN_CAPACITY_INVALID'}
-  $checks.Add('CENTER_DURABLE_REVOKE_AND_OLD_ACTIVE_REPLAY_DENIED')
+  Record-Check 'CENTER_DURABLE_REVOKE_AND_OLD_ACTIVE_REPLAY_DENIED'
   $report=[ordered]@{
     schema='IWXA_CENTER_PUBLISHER_INSTALLED_CORPORATE_QUALIFICATION/1'
     status='PASS_ORIGINAL_TWO_INSTALLED_CORPORATE_PRODUCTS'
@@ -843,7 +886,11 @@ try{
     productionActivation=$false
   }
   $report|ConvertTo-Json -Depth 8|Set-Content -LiteralPath (Join-Path $artifact 'result.json') -Encoding UTF8
-  Write-Host "CORPORATE_TWO_INSTALLED_NATIVE_PASS checks=$($checks.Count) localEvidence=$artifact"
+  if($ResumeQualifiedCenterCI){
+    Write-Host "CORPORATE_TWO_INSTALLED_NATIVE_PASS checks=$($checks.Count)"
+  }else{
+    Write-Host "CORPORATE_TWO_INSTALLED_NATIVE_PASS checks=$($checks.Count) localEvidence=$artifact"
+  }
 }finally{
   foreach($p in @($cen,$pub)){
     if($null -ne $p){
@@ -856,5 +903,8 @@ try{
   # Transfer files are disposable, not a production export or public artifact.
   foreach($file in @($trustFile,$activeFile,$reexportFile,$suspendedFile,$revokedFile,$tamperedFile,$renewedFile,$renewedRevokedFile)){
     Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+  }
+  if($ResumeQualifiedCenterCI){
+    Remove-Item -LiteralPath $artifact -Recurse -Force -ErrorAction SilentlyContinue
   }
 }
