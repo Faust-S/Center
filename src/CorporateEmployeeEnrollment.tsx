@@ -86,6 +86,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const [taskId,setTaskId]=useState('');
  const [taskAttempted,setTaskAttempted]=useState(false);
  const [taskReceipt,setTaskReceipt]=useState<any>(null);
+ const [taskReadbackCurrent,setTaskReadbackCurrent]=useState(false);
  const [taskRecoveryHold,setTaskRecoveryHold]=useState(false);
  const [taskRecoveryAttempted,setTaskRecoveryAttempted]=useState(false);
  const [taskNeedsRebind,setTaskNeedsRebind]=useState(false);
@@ -210,7 +211,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    session.workspaceId,session.actorId,personId,enrollmentReceipt.enrollmentId):null;
  const taskScopeReady=taskScope!==null&&loadedTaskScope===taskScope&&!taskContinuationBlocked;
  useEffect(()=>{
-   setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);
+   setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);setTaskNeedsRebind(false);
    setLoadedTaskScope(null);setTaskContinuationBlocked(false);
    if(!taskScope)return;
@@ -220,7 +221,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      setLoadedTaskScope(taskScope);
    }catch{setTaskContinuationBlocked(true);}
  },[taskScope]);
- const freshTaskReadback=taskReceipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1'&&
+ const freshTaskReadback=taskReadbackCurrent&&taskReceipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1'&&
    taskReceipt.found===true&&taskReceipt.originalKernelReadback===true&&
    taskReceipt.taskId===taskId&&taskReceipt.recipientId===personId&&
    taskReceipt.enrollmentId===enrollmentReceipt?.enrollmentId&&
@@ -238,7 +239,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      }catch(e){setTaskContinuationBlocked(true);throw e}
    }
    setTaskId('task:'+crypto.randomUUID());setTaskText('');
-   setTaskAttempted(false);setTaskReceipt(null);setTaskRecoveryHold(false);
+   setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);setTaskRecoveryHold(false);
    setTaskRecoveryAttempted(false);setTaskNeedsRebind(false);
  });
  const reset=()=>{
@@ -249,7 +250,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    setEmployeeInviteReceipt(null);
    setWorkspaceRightsAttempted(false);setWorkspaceRightsReceipt(null);
    setTaskGrantAttempted(false);setTaskGrantReceipt(null);
-   setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);
+   setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);
    setTaskNeedsRebind(false);setLoadedTaskScope(null);setTaskContinuationBlocked(false);
  };
@@ -718,7 +719,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        Повторное подключение сотрудника для следующего поручения не требуется.</p>
      {taskContinuationBlocked&&<p role="alert" data-testid="d3-employee-task-continuation-blocked">
        Не удалось прочитать или сохранить идентификатор операции. Новая подпись заблокирована.
-       Проверьте исходное поручение и восстановите локальное чтение.</p>}
+       Перечитайте исходное поручение. После устранения ошибки хранения заново откройте раздел сотрудника.</p>}
      <button type="button" className="secondary" data-testid="d3-employee-task-new"
        disabled={busy||!taskScopeReady||(taskAttempted&&!freshTaskReadback)}
        onClick={()=>void prepareNextTask()}>Новое поручение</button>
@@ -769,6 +770,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        })}>3. Подписать Task этому сотруднику</button>
      <button data-testid="d3-employee-task-read" disabled={!taskIssueAvailable||busy||!/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)}
        onClick={()=>void run('Состояние исходной подписанной Task проверено без повторного выпуска.',async()=>{
+        setTaskReadbackCurrent(false);
         const result=await execute('d3EmployeeTaskReadback',{
           enrollmentId:enrollmentReceipt.enrollmentId,
            employeePersonId:personId,taskId});
@@ -789,12 +791,12 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
            }catch(e){setTaskContinuationBlocked(true);throw e}
          }
          if(!observed.found){
-           setTaskAttempted(true);setTaskReceipt(null);
+           setTaskAttempted(true);setTaskReceipt(null);setTaskReadbackCurrent(false);
            setTaskRecoveryHold(true);
            return;
          }
         setTaskRecoveryHold(false);setTaskReceipt(observed);setTaskAttempted(true);
-        setTaskNeedsRebind(false);
+        setTaskNeedsRebind(false);setTaskReadbackCurrent(true);
        })}>Перечитать подписанную Task</button>
      {taskRecoveryHold&&<div data-testid="d3-employee-task-orphan-recovery">
        <p className="notice subdued">Исходный подписанный .iwxa найден, но
@@ -847,9 +849,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
         Каталог восстановлен без новой подписи. Откройте доверенную
         Workspace заново и перечитайте Task перед сохранением .iwxa.</p>}
      <button className="secondary" data-testid="d3-employee-task-export"
-        disabled={busy||taskNeedsRebind||!taskIssueAvailable||
-          taskReceipt?.originalKernelReadback!==true||
-          taskReceipt?.taskId!==taskId||taskReceipt?.recipientId!==personId}
+        disabled={busy||!taskIssueAvailable||!freshTaskReadback}
         onClick={()=>void run('Оригинальный подписанный .iwxa сохранён, доставка не подтверждена.',async()=>{
          const result=await execute('d3EmployeeExportTask',{
            employeePersonId:personId,

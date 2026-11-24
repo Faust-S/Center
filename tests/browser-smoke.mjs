@@ -804,6 +804,7 @@ try{
     loseFirstTaskGrantAck:true,taskIssueCalls:0,signedTaskSaved:false,
     cancelFirstTask:true,loseFirstTaskAck:true,taskExports:0,
     taskOrphan:false,taskRecoveryCalls:0,cancelFirstTaskRecovery:true,
+    secondTaskId:null,wrongTaskReadback:false,
     contextEpoch:1,
     seatPolicyReady:false,seatRevision:0,seatRows:[],seatWrites:0,seatReadbacks:0,seatCommands:new Map(),
     loseFirstSeatAck:true,cancelFirstInit:true,loseFirstInitAck:true};
@@ -1036,6 +1037,22 @@ try{
           assert.equal(args.input.confirmed,true);
           assert.equal(args.input.employeePersonId,'person:independent');
           assert.equal(args.input.enrollmentId,'enrollment:verified');
+          if(args.input.taskId!=='task:independent-work'){
+            assert.match(args.input.taskId,/^task:[a-f0-9-]{36}$/);
+            assert.equal(args.input.task,'Review second verified supplier statement');
+            assert.equal(employeeState.signedTaskSaved,true);
+            assert.equal(employeeState.taskOrphan,false);
+            assert.equal(employeeState.secondTaskId,null);
+            assert.equal(employeeState.taskGrantSaved,true);
+            assert.equal(employeeState.workspaceGrantSaved,true);
+            employeeState.secondTaskId=args.input.taskId;
+            employeeState.taskIssueCalls++;
+            return {schema:'IWXA_T3_ORIGINAL_EMPLOYEE_SIGNED_TASK/1',
+              state:'SIGNED_TASK_CREATED_NOT_DELIVERED',taskId:args.input.taskId,
+              recipientId:'person:independent',enrollmentId:'enrollment:verified',
+              taskRevisionId:'f'.repeat(64),packageSha256:'9'.repeat(64),
+              originalKernelStatusSequence:6,originalSigned:true,taskDelivered:false};
+          }
           assert.equal(args.input.taskId,'task:independent-work');
           assert.equal(args.input.task,'Review verified supplier statement');
           assert.equal(employeeState.taskGrantSaved,true);
@@ -1058,13 +1075,19 @@ try{
         if(args.operation==='d3EmployeeTaskReadback'){
           assert.equal(args.input.employeePersonId,'person:independent');
           assert.equal(args.input.enrollmentId,'enrollment:verified');
+          if(employeeState.secondTaskId!==null&&args.input.taskId===employeeState.secondTaskId)
+            return {schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1',
+              found:true,taskId:args.input.taskId,recipientId:'person:independent',
+              enrollmentId:'enrollment:verified',taskRevisionId:'f'.repeat(64),
+              packageSha256:'9'.repeat(64),status:'SIGNED_TASK_PERSISTED_NOT_DELIVERED',
+              originalKernelReadback:true,taskDelivered:false};
           assert.equal(args.input.taskId,'task:independent-work');
           return {
             schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_READBACK/1',
             found:employeeState.signedTaskSaved&&!employeeState.taskOrphan,
             taskId:'task:independent-work',recipientId:'person:independent',
             enrollmentId:'enrollment:verified',taskRevisionId:'d'.repeat(64),
-            packageSha256:'e'.repeat(64),
+            packageSha256:(employeeState.wrongTaskReadback?'a':'e').repeat(64),
             status:employeeState.taskOrphan?
               'ORIGINAL_SIGNED_CARRIER_WITHOUT_INVENTORY_HOLD':
               employeeState.signedTaskSaved?
@@ -1104,8 +1127,15 @@ try{
         if(args.operation==='d3EmployeeExportTask'){
           assert.equal(args.input.employeePersonId,'person:independent');
           assert.equal(args.input.enrollmentId,'enrollment:verified');
-          assert.equal(args.input.taskId,'task:independent-work');
           assert.equal(args.input.archivePath,undefined);
+          if(employeeState.secondTaskId!==null&&args.input.taskId===employeeState.secondTaskId){
+            employeeState.taskExports++;
+            return {schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_EXPORT/1',
+              status:'EXPORTED_UNDELIVERED',originalSigned:true,taskId:args.input.taskId,
+              recipientId:'person:independent',taskRevisionId:'f'.repeat(64),
+              packageSha256:'9'.repeat(64),bytes:4096,taskDelivered:false};
+          }
+          assert.equal(args.input.taskId,'task:independent-work');
           assert.equal(employeeState.signedTaskSaved,true);
           employeeState.taskExports++;
           return {
@@ -1343,7 +1373,12 @@ try{
   await employeePage.getByTestId('d3-employee-enrolled').waitFor();
   await employeePage.getByTestId('d3-employee-task-grant-read').click();
   await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
-  await employeePage.getByTestId('d3-employee-task-id').fill('task:independent-work');
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-id"]')?.value==='task:independent-work');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-id').isEnabled(),false,
+    'cold restart restores the exact operation ID without allowing edits');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-new').isEnabled(),false,
+    'no next Task before original readback of the pending operation');
   assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),
     false,'after cold restart, new Task still requires fresh signed invitation');
   assert.equal(await employeePage.getByTestId('d3-employee-invitation-export-receipt').count(),
@@ -1393,6 +1428,39 @@ try{
     'exporting a saved signed invitation never reissues Kernel grants');
   assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),false,
     'original invitation cannot reissue an already signed Task');
+  // A mismatched subsequent original readback invalidates authorization
+  // to export or advance; the remembered carrier remains available for comparison.
+  employeeState.wrongTaskReadback=true;
+  await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-employee-task-read"]')?.disabled===false);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-export').isEnabled(),false);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-new').isEnabled(),false);
+  employeeState.wrongTaskReadback=false;
+  await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.getByTestId('d3-employee-task-next-ready').waitFor();
+  await employeePage.getByTestId('d3-employee-workspace-grants-read').click();
+  await employeePage.getByTestId('d3-employee-workspace-rights-confirmed').waitFor();
+  await employeePage.getByTestId('d3-employee-invitation-export').click();
+  await employeePage.getByTestId('d3-employee-invitation-export-receipt').waitFor();
+  await employeePage.getByTestId('d3-employee-task-new').click();
+  await employeePage.waitForFunction(()=>
+    /^task:[a-f0-9-]{36}$/.test(document.querySelector('[data-testid="d3-employee-task-id"]')?.value??''));
+  assert.equal(await employeePage.getByTestId('d3-employee-task-receipt').count(),0);
+  await employeePage.getByTestId('d3-employee-task-text').fill('Review second verified supplier statement');
+  await employeePage.getByTestId('d3-employee-task-create').click();
+  await employeePage.getByTestId('d3-employee-task-receipt').waitFor();
+  assert.equal(employeeState.taskIssueCalls,2);
+  assert.equal(employeeState.workspaceGrantCalls,1);
+  assert.equal(employeeState.taskGrantCalls,1);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-new').isEnabled(),false,
+    'the new issue receipt alone is not cold catalog readback');
+  await employeePage.getByTestId('d3-employee-task-read').click();
+  await employeePage.getByTestId('d3-employee-task-next-ready').waitFor();
+  await employeePage.getByTestId('d3-employee-task-export').click();
+  assert.equal(employeeState.taskExports,2);
+  assert.equal(employeeState.taskIssueCalls,2);
+  checks.push('d3-employee-pending-id-restored-stale-readback-blocked-successive-task-no-grant-reissue');
   // This is a UI/IPC fixture, not an installed private T3 acceptance.
   // Select from original roster, lose ACK, reopen, recover, transfer, release.
   const seat=id=>employeePage.getByTestId('d3-seat-'+id);
