@@ -14,13 +14,13 @@ concurrency:
 jobs:
   online-installed-gui:
     runs-on: windows-2022
-    timeout-minutes: 85
+    timeout-minutes: 100
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: 'e968856315c503c95601d475b418c79221ae95f0'
-      PRIVATE_TREE_PIN: 'b2d0bb3d8ebfc346e4634d725b3156922fbd0278'
+      PRIVATE_SOURCE_PIN: '7272418c5b635939420068309d981b8ab57d5171'
+      PRIVATE_TREE_PIN: '772a2f31a1ad55e47e961029422c23257b7be043'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -96,6 +96,14 @@ jobs:
           }
           & python -B -c 'import ast,pathlib,sys;ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))' $python *> (Join-Path $env:RUNNER_TEMP 'agent06-private-parse.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_ONLINE_PY_PARSE_FAIL'}
+          $workspaceScript=Join-Path $repo 'qualification/agent063/workspace_ui_witness.ps1'
+          $workspaceProbe=Join-Path $repo 'qualification/agent063/qualify_workspace_view_installed.py'
+          $tokens=$null;$errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($workspaceScript,[ref]$tokens,[ref]$errors)|Out-Null
+          if(@($errors).Count -ne 0){throw 'AGENT063_WORKSPACE_PS_PARSE_FAIL'}
+          & python -B -c 'import ast,pathlib,sys;ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))' $workspaceProbe *> (Join-Path $env:RUNNER_TEMP 'agent063-workspace-private-parse.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT063_WORKSPACE_PY_PARSE_FAIL'}
+          Write-Host 'AGENT063_WORKSPACE_WITNESS_PARSE_PASS'
           Write-Host ('AGENT06_ONLINE_PRIVATE_PIN='+$head)
           Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_PARSE_PASS'
       - name: Verify pre-release Agent dashboard and conversation groups in pinned private source
@@ -180,7 +188,7 @@ jobs:
           Write-Host 'AGENT06_ONLINE_ORIGINAL_NATIVE_SETUP_BUILT'
       - name: Install actual Setup Core, exercise GUI accounts and cold restart, repair and uninstall
         shell: pwsh
-        timeout-minutes: 24
+        timeout-minutes: 37
         run: |
           $ErrorActionPreference='Continue'
           $privateRoot=Join-Path $env:RUNNER_TEMP 'agent06-installed-private'
@@ -191,7 +199,7 @@ jobs:
           $witness=Join-Path $repo 'qualification/agent062/qualify_dashboard_installed.ps1'
           $sandbox=Join-Path $privateRoot 'temporary-installed'
           $log=Join-Path $privateRoot 'local-online-acceptance.private.log'
-          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Setup $setup -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit $env:PRIVATE_SOURCE_PIN -WitnessScript $witness -WitnessTimeoutSeconds 1100 *> $log
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Setup $setup -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit $env:PRIVATE_SOURCE_PIN -WitnessScript $witness -WitnessTimeoutSeconds 1900 *> $log
           $exit=$LASTEXITCODE
           $witnessReceipt=Join-Path $sandbox 'installed-witness.json'
           $historyWitness=$false
@@ -209,6 +217,12 @@ jobs:
                  $w.personal_profile_restored_after_cold_restart -eq $true -and
                  $w.personal_profile_route_restored_without_menu_click -eq $true -and
                  $w.native_graceful_close_verified -eq $true -and
+                 $w.two_workspaces_created_and_switched_via_gui -eq $true -and
+                 $w.workspace_drafts_isolated_after_cold_restart -eq $true -and
+                 $w.appearance_persisted_after_cold_restart -eq $true -and
+                 $w.compact_window_820x650_verified -eq $true -and
+                 [int]$w.compact_window_observed_dpi -ge 96 -and
+                 [int]$w.compact_window_observed_dpi -le 480 -and
                  $w.personal_profile_t4_unintegrated_state_visible -eq $true -and
                  $w.groups_created_and_renamed_via_gui -eq $true -and
                  $w.groups_chat_preserved_after_delete -eq $true -and
@@ -229,14 +243,28 @@ jobs:
                  $w.public_artifacts_uploaded -eq $false -and
                  $w.real_external_effects_performed -eq $false){
                 $historyWitness=$true
+                Write-Host 'AGENT063_WORKSPACE_COMPACT_COLD_ROUNDTRIP_PASS'
+                Write-Host ('AGENT063_WORKSPACE_OBSERVED_DPI='+[int]$w.compact_window_observed_dpi)
                 Write-Host 'AGENT062_V8_DASHBOARD_HISTORY_CONFIRMED'
                 Write-Host 'AGENT06_ONLINE_INSTALLED_GUI_AND_COLD_READBACK_PASS'
               }elseif($w.status -ceq 'FAIL'){
-                $phases=@('VALIDATE','NATIVE_FIRST','V8_RENDER','CREATE','GUI_FIRST','DASHBOARD_FIRST','GROUPS_FIRST','PROFILE_FIRST','NATIVE_COLD_REOPEN','COLD_READBACK','DASHBOARD_COLD','GROUPS_COLD','PROFILE_COLD','REMOVE','NATIVE_COLD_REMOVE_REOPEN','COLD_REMOVE_READBACK','GUI_COLD_REMOVE','V8_INTERNAL_ROUTES','RESULT')
+                $phases=@('VALIDATE','NATIVE_FIRST','V8_RENDER','CREATE','GUI_FIRST','DASHBOARD_FIRST','GROUPS_FIRST','PROFILE_FIRST','NATIVE_COLD_REOPEN','COLD_READBACK','DASHBOARD_COLD','GROUPS_COLD','PROFILE_COLD','REMOVE','NATIVE_COLD_REMOVE_REOPEN','COLD_REMOVE_READBACK','GUI_COLD_REMOVE','V8_INTERNAL_ROUTES','WORKSPACE_ROUNDTRIP','WORKSPACE_COLD','RESULT')
                 if([string]$w.phase -cin $phases){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_PHASE='+[string]$w.phase)
                 }
                 $safeReasons=@(
+                  'agent063_workspace_probe_missing',
+                  'agent063_workspace_probe_failed',
+                  'agent063_workspace_probe_receipt_invalid',
+                  'agent063_workspace_control_missing',
+                  'agent063_workspace_editor_missing',
+                  'agent063_workspace_editor_value_mismatch',
+                  'agent063_workspace_compact_size_unavailable',
+                  'agent063_workspace_compact_geometry_invalid',
+                  'agent063_workspace_preview_not_closed',
+                  'agent063_workspace_core_stop_failed',
+                  'agent063_workspace_cold_editor_missing',
+                  'agent063_workspace_extension_missing',
                   'agent063_native_graceful_close_unverified',
                   'agent063_profile_cold_route_not_restored',
                   'agent063_dashboard_workspace_unverified',
@@ -352,6 +380,10 @@ jobs:
                 if([string]$w.failure_code -cin $safeReasons){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_CODE='+[string]$w.failure_code)
                 }
+                $workspaceProbeCodes=@('workspace_active_mismatch','workspace_catalog_invalid','workspace_draft_mismatch','workspace_draft_context_invalid','workspace_appearance_mismatch','workspace_mode_invalid','workspace_appearance_not_persisted','workspace_unexpected_tasks','workspace_changed_during_readback','workspace_metadata_mismatch','workspace_phase_invalid','workspace_existing_witness','workspace_proof_missing','workspace_phase_order_invalid','workspace_creation_unverified','workspace_identity_invalid','workspace_draft_identity_mismatch','workspace_draft_digest_changed','windows_required','owner_not_installed','owner_session_missing','owner_readback_invalid','projection_invalid','unclassified','other')
+                if([string]$w.workspace_probe_failure -cin $workspaceProbeCodes){
+                  Write-Host ('AGENT063_WORKSPACE_PROBE_FAILURE='+[string]$w.workspace_probe_failure)
+                }
                 if($w.v8_ui_structure){
                   $d=$w.v8_ui_structure
                   foreach($key in @('total','buttons','documents')){
@@ -380,7 +412,7 @@ jobs:
                    $safeLine -ge 1 -and $safeLine -le 2000){
                   Write-Host ('AGENT062_WITNESS_SAFE_LINE='+$safeLine)
                 }
-                $safeCheckpoints=@('NOT_STARTED','LOOKUP_INITIAL_TITLE','LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON','CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE','LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE','DASHBOARD_HOME','DASHBOARD_HOME_CLICK','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD','DASHBOARD_DRAG','DASHBOARD_KEYBOARD','DASHBOARD_DONE','DASHBOARD_WIDGET','DASHBOARD_COLD_DRAG','GROUPS_NAVIGATION','GROUPS_CREATE','GROUPS_NEW_CONVERSATION','GROUPS_RENAME','GROUPS_DELETE','PROFILE_MENU','PROFILE_DISPLAY_NAME','PROFILE_SAVE','PROFILE_COLD_RESTORED_ROUTE','PROFILE_COLD_READBACK','PROFILE_READBACK','V8_DASHBOARD_HISTORY_ROUTE','V8_MODELS_ROUTE','V8_FILES_ROUTE','V8_WORKSPACES_ROUTE','V8_SETTINGS_ROUTE','V8_APPROVALS_ROUTE','V8_GRAPH_ROUTE','V8_ROUTES_COMPLETE','V8_SEARCH_COMMAND','V8_HISTORY_ROUNDTRIP','V8_PREVIEW_PANEL','V8_NAVIGATION_COMPLETE')
+                $safeCheckpoints=@('NOT_STARTED','LOOKUP_INITIAL_TITLE','LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON','CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE','LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE','DASHBOARD_HOME','DASHBOARD_HOME_CLICK','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD','DASHBOARD_DRAG','DASHBOARD_KEYBOARD','DASHBOARD_DONE','DASHBOARD_WIDGET','DASHBOARD_COLD_DRAG','GROUPS_NAVIGATION','GROUPS_CREATE','GROUPS_NEW_CONVERSATION','GROUPS_RENAME','GROUPS_DELETE','PROFILE_MENU','PROFILE_DISPLAY_NAME','PROFILE_SAVE','PROFILE_COLD_RESTORED_ROUTE','PROFILE_COLD_READBACK','PROFILE_READBACK','V8_DASHBOARD_HISTORY_ROUTE','V8_MODELS_ROUTE','V8_FILES_ROUTE','V8_WORKSPACES_ROUTE','V8_SETTINGS_ROUTE','V8_APPROVALS_ROUTE','V8_GRAPH_ROUTE','V8_ROUTES_COMPLETE','V8_SEARCH_COMMAND','V8_HISTORY_ROUNDTRIP','V8_PREVIEW_PANEL','V8_NAVIGATION_COMPLETE','WORKSPACE_PERSONAL','WORKSPACE_CREATE','WORKSPACE_SWITCH','WORKSPACE_APPEARANCE','WORKSPACE_COMPACT','WORKSPACE_COLD_REOPEN','WORKSPACE_COMPLETE')
                 if([string]$w.ui_checkpoint -cin $safeCheckpoints){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_GUI_CHECKPOINT='+[string]$w.ui_checkpoint)
                 }
