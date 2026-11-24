@@ -77,7 +77,7 @@ jobs:
                 yield 'NODE_FAILURE_CODE=N'+String(i).padStart(3,'0')+'_L'+String(n).padStart(6,'0')+'\n';
               }
             }
-            '@ | Set-Content -LiteralPath $reporter -Encoding utf8
+          '@ | Set-Content -LiteralPath $reporter -Encoding utf8
             $nodeLog=Join-Path $out 'node.log'
             $nodeCodes=Join-Path $out 'node-codes.log'
             & node --test --test-reporter=tap "--test-reporter-destination=$nodeLog" "--test-reporter=$reporter" "--test-reporter-destination=$nodeCodes" *> (Join-Path $out 'node-invocation.log')
