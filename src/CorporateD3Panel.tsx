@@ -897,8 +897,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     <p>Исходный подписанный получатель не поддерживает просмотр принятого Result.</p>:<>
     <p>Выберите принятые редакции:</p>
     {revisions.map(id=><label key={id}>
-      <input type="checkbox" checked={selectedRevisions.includes(id)}
-       disabled={busy||applyAttempted||applyPreviouslySent}
+      <input type="checkbox" data-testid="d3-apply-revision" checked={(observedApply.pending??selectedRevisions).includes(id)}
+       disabled={busy||applyAttempted||applyPreviouslySent||applyBlocked}
        onChange={e=>toggleRevision(id,e.target.checked)}/>
       {label(preview.entries.find((x:any)=>same(x.revisionId,id)))} · {id.slice(0,16)}
     </label>)}
@@ -956,7 +956,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       Kernel пока не подключено. ACCEPT не означает Apply.
      </p>}
    </>}
-   {applyAttempted&&!kernelResult&&<p className="notice subdued">
+   {applyAttempted&&!kernelResult&&!kernelRecovery&&<p className="notice subdued">
     Результат Apply не подтверждён. Требуется независимое чтение исходного Kernel
     и журнала владельца. Второй Apply здесь заблокирован.</p>}
    {kernelResult&&<p data-testid="d3-kernel-readback">

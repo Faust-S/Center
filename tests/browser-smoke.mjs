@@ -565,7 +565,8 @@ try{
   const d3Page=await browser.newPage({viewport:{width:1366,height:900}});
   await d3Page.addInitScript(()=>{
     const held={epoch:7,task:null,writes:0,decisionWrites:0,decision:null,d2ReadCount:0,
-      signedOpen:false,signedVisible:false,signedCloses:0};
+      signedOpen:false,signedVisible:false,signedCloses:0,
+      applyWrites:0,applyReads:0,applied:null};
     window.__d3UiFixture=held;
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
       if(command==='center_draft_read_local')return null;
@@ -600,8 +601,8 @@ try{
           workspaceId:'workspace:ui-smoke',actorId:'person:reviewer',
           contextId:'context:ui-smoke',contextEpoch:held.epoch,
           d3RecipientAvailable:true,d3TaskIssueAvailable:true,
-          d3InspectAvailable:true,d3ApplyAvailable:false,
-          d3ApplyRecoverAvailable:false,d2ActivityReaderConnected:held.signedOpen,
+          d3InspectAvailable:true,d3ApplyAvailable:held.signedOpen,
+          d3ApplyRecoverAvailable:held.signedOpen,d2ActivityReaderConnected:held.signedOpen,
           originalSignedWorkspaceAvailable:true,
           productionActivation:false,T3_READY:false,
           tasks,totalTasks:tasks.length
@@ -660,7 +661,7 @@ try{
           const resultText='Результат выполнен';
           return {schema:'IWXA_T3_RECONCILIATION_PREVIEW/1',
             packageSha256:sha,previewDigest:digest,allowedAction:'EXPLICIT_ACCEPT_ONLY',
-            classification:'NEW',entries:[{revisionId:revision}],
+            classification:'NEW',entries:[{revisionId:revision},{revisionId:'9'.repeat(64)}],
             resultInspection:{
               schema:'IWXA_T3_ORIGINAL_SIGNED_RESULT_REVIEW/1',
               packageSha256:sha,previewDigest:digest,
@@ -672,6 +673,41 @@ try{
               resultLength:resultText.length,offset:0,resultText,
               nextOffset:resultText.length,hasMore:false
             }};
+        }
+        if(['d3InspectAccepted','d3ApplyAccepted','d3RecoverApplied'].includes(args.operation)){
+          const input=args.input,acceptanceId='f'.repeat(64),revisionId='e'.repeat(64);
+          if(!held.decision||!held.signedOpen||input.acceptanceId!==acceptanceId||
+            JSON.stringify(input.revisionIds)!==JSON.stringify([revisionId]))
+            throw Error('TEST_APPLY_WRONG_ACCEPTED_SOURCE');
+          const target={consumerId:'IWXA_ADMIN_CENTER',processId:'process:admin-apply',
+            processVersion:'1',purpose:'application.apply',subjectId:args.organizationId,
+            workspaceId:'workspace:ui-smoke',dataRootId:'root:ui-smoke'};
+          if(args.operation==='d3InspectAccepted')
+            return {schema:'IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1',
+              status:'CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION',
+              source:{acceptanceId},target,applicationAttempted:false,
+              applicationAuthorized:false,externalContextCoreApplied:false,
+              changes:[{resultRevisionId:revisionId,taskId:'task:employee',
+                executorId:'person:employee',resultExcerpt:'Результат выполнен',
+                resultTruncated:false}]};
+          if(JSON.stringify(input.target)!==JSON.stringify(target))
+            throw Error('TEST_APPLY_TARGET_CHANGED');
+          if(args.operation==='d3ApplyAccepted'){
+            held.applyWrites++;held.applied={acceptanceId,revisionIds:[...input.revisionIds]};
+            held.epoch++;
+            throw Error('CEN_D3_KERNEL_COMMIT_OUTCOME_UNKNOWN');
+          }
+          held.applyReads++;
+          if(!held.applied||JSON.stringify(held.applied.revisionIds)!==JSON.stringify(input.revisionIds))
+            throw Error('TEST_APPLY_RECOVERY_WRONG_SELECTION');
+          return {status:'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED',
+            kernelWriteReadback:'CONFIRMED',effectKey:'8'.repeat(64),
+            automaticRetryAllowed:false,externalProductAcceptance:'NOT_ACCEPTED',
+            originalKernelReadback:{object:{object_id:'iwxa.admin.applied-results',
+              workspace_id:'workspace:ui-smoke',revision:1}},
+            originalEventReadback:{event_id:'event:apply',workspace_id:'workspace:ui-smoke',
+              idempotency_key:'8'.repeat(64),
+              payload:{reconciliation_acceptance_id:acceptanceId,reconciliation_revision_ids:[revisionId]}}};
         }
         if(args.operation==='d3Decide'){
           held.decisionWrites++;
@@ -830,6 +866,37 @@ try{
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).decisionWrites,1,
     'cold panel receipt recovery must not dispatch another decision');
   checks.push('d3-persistent-continuation-restores-exact-operation-before-original-receipt');
+  // Choose ONE of two accepted revisions. Original Kernel may commit before
+  // the native acknowledgment is lost. A fully remounted panel cannot
+  // reconstruct the selection from the current list or dispatch a new Apply.
+  const revisionChecks=d3Page.getByTestId('d3-apply-revision');
+  assert.equal(await revisionChecks.count(),2);
+  await revisionChecks.nth(0).check();
+  await d3Page.getByTestId('d3-inspect-apply').click();
+  await d3Page.getByTestId('d3-accepted-result-readback').waitFor();
+  await d3Page.getByLabel('Отдельно подтверждаю применение выбранных редакций').check();
+  await d3Page.getByTestId('d3-apply-confirm').click();
+  await d3Page.waitForFunction(()=>window.__d3UiFixture?.applyWrites===1);
+  await d3Page.getByTestId('nav-overview').click();
+  await d3Page.getByTestId('nav-results').click();
+  await d3Page.getByTestId('d3-package-sha').fill(decisionSha);
+  await d3Page.getByTestId('d3-recover').click();
+  await d3Page.getByTestId('d3-recovered-receipt').waitFor();
+  await d3Page.getByTestId('d3-review').click();
+  await d3Page.getByTestId('d3-apply-already-sent').waitFor();
+  assert.equal(await revisionChecks.nth(0).isChecked(),true);
+  assert.equal(await revisionChecks.nth(1).isChecked(),false);
+  assert.equal(await revisionChecks.nth(0).isEnabled(),false);
+  assert.equal(await d3Page.getByTestId('d3-inspect-apply').isEnabled(),false);
+  await d3Page.getByTestId('d3-recover-apply').click();
+  await d3Page.getByTestId('d3-kernel-recovery').waitFor();
+  assert.match(await d3Page.getByTestId('d3-kernel-recovery').innerText(),/Применение подтверждено/);
+  assert.doesNotMatch(await d3Page.getByTestId('d3-apply').innerText(),/Результат Apply не подтверждён/);
+  const applyState=await d3Page.evaluate(()=>window.__d3UiFixture);
+  assert.equal(applyState.applyWrites,1);
+  assert.equal(applyState.applyReads,1);
+  assert.deepEqual(applyState.applied.revisionIds,['e'.repeat(64)]);
+  checks.push('d3-persistent-apply-selection-no-replay-original-object-event-recovery');
   // Moving to an unrelated page must close the ORIGINAL signed child. No
   // React page may silently preserve credentials in another work domain.
   await d3Page.getByTestId('nav-people').click();
