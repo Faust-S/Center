@@ -1,0 +1,100 @@
+# Run only the existing pinned IWXA local provider on disposable public
+# qualification material. Private source and raw output never leave the runner.
+name: Activity genuine local extraction
+on:
+  push:
+    branches:
+      - work/2026-11-24-activity-agent-extraction-qualification
+    paths:
+      - .github/workflows/activity-real-local-extraction.yml
+permissions:
+  contents: read
+jobs:
+  native-local-extraction:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    env:
+      PRIVATE_PIN: 2ee4b1021f6e529bc6e58a97ad181fd0c799c7e2
+      PRIVATE_TREE: 1d5b080a59936058892fad9942291f1b75b37352
+      PUBLIC_PIN: b85354e08bc370cfaa50548c40c5cbb6183187ac
+      PUBLIC_TREE: d7a0eb20a7668556b125f753b663e67e29bbb45d
+      IWXA_ACTIVITY_REAL_LOCAL_MODEL: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 2ee4b1021f6e529bc6e58a97ad181fd0c799c7e2
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private-agent
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: b85354e08bc370cfaa50548c40c5cbb6183187ac
+          path: activity-public
+          fetch-depth: 1
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Confirm exact source revisions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C private-agent rev-parse HEAD).Trim() -cne $env:PRIVATE_PIN -or
+             (& git -C private-agent rev-parse 'HEAD^{tree}').Trim() -cne $env:PRIVATE_TREE -or
+             (& git -C activity-public rev-parse HEAD).Trim() -cne $env:PUBLIC_PIN -or
+             (& git -C activity-public rev-parse 'HEAD^{tree}').Trim() -cne $env:PUBLIC_TREE){
+            throw 'SOURCE_PIN_MISMATCH'
+          }
+          Write-Host 'SOURCE_PIN=PASS'
+      - name: Install dependencies and exercise the original local model Task
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $PSNativeCommandUseErrorActionPreference=$false
+          $env:IWXA_ACTIVITY_PUBLIC_ROOT=(Resolve-Path activity-public).Path
+          $install=Join-Path $env:RUNNER_TEMP 'activity-real-private-install.out'
+          $log=Join-Path $env:RUNNER_TEMP 'activity-real-private-test.out'
+          $scratch=Join-Path $env:RUNNER_TEMP 'activity-real-private-scratch'
+          Push-Location private-agent
+          try {
+            python -m pip install -q -r requirements-ci.txt *> $install
+            if($LASTEXITCODE -ne 0){throw 'PYTHON_INSTALL_FAILED'}
+            Write-Host 'PYTHON_INSTALL=PASS'
+            python -m pytest -q -s --tb=short -p no:cacheprovider --basetemp $scratch tests/test_activity_d05_real_local_model.py *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -Raw -LiteralPath $log
+            $stages='START|EXACT_SOURCE_READY|PINNED_RUNTIME_READY|PINNED_MODEL_ACTIVE|SMOKE_PASS|TASK_REQUEST_READY|REAL_ORIGINAL_RESULT_SAVED|STRUCTURED_MODEL_RESULT|PUBLIC_VALIDATION_COMPLETE|ORIGINAL_COLD_READBACK_PASS|STRUCTURAL_PRODUCT_PASS'
+            foreach($m in [regex]::Matches($raw,"(?m)^ACTIVITY_LOCAL_MODEL_STAGE=($stages)\s*$")){
+              Write-Host ('ACTIVITY_LOCAL_MODEL_STAGE='+$m.Groups[1].Value)
+            }
+            foreach($m in [regex]::Matches($raw,'(?m)^ACTIVITY_LOCAL_MODEL_(ELAPSED_MS|FIELD_COUNT|NONMISSING_COUNT|SOURCE_SUPPORTED_COUNT|DIRECTLY_DECLARED_COUNT|DIRECTLY_DECLARED_NONMISSING_COUNT|DIRECT_REFERENCE_COUNT|PROPOSED_COUNT|MISSING_COUNT)=([0-9]{1,10})\s*$')){
+              Write-Host ('ACTIVITY_LOCAL_MODEL_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+            }
+            foreach($m in [regex]::Matches($raw,'(?m)^ACTIVITY_LOCAL_MODEL_(PRODUCT_CONSTRUCTED|TECHNICAL_CONTROLS_PRESERVED)=(YES|NO)\s*$')){
+              Write-Host ('ACTIVITY_LOCAL_MODEL_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+            }
+            foreach($m in [regex]::Matches($raw,'(?m)^(?:E\s+)?(?:[A-Za-z_.]*Error|AssertionError):\s*((?:activity_d05_real_|activity_d05_|activity_extraction_|basic_model_|basic_runtime_|addon_)[a-z_]{1,100})\b')){
+              Write-Host ('ACTIVITY_LOCAL_MODEL_DIAGNOSTIC='+$m.Groups[1].Value)
+            }
+            foreach($m in [regex]::Matches($raw,'(?m)^(tests/test_activity_d05_real_local_model\.py|runtime/activity_d05_extraction\.py|runtime/activity_personal_extraction\.py):(\d+):')){
+              Write-Host ('ACTIVITY_LOCAL_MODEL_FAILURE_LOCATION='+$m.Groups[1].Value+':'+$m.Groups[2].Value)
+            }
+            Write-Host ('ACTIVITY_LOCAL_MODEL_TEST_EXIT='+$exit)
+            if($exit -ne 0 -or -not $raw.Contains('ACTIVITY_LOCAL_MODEL_STAGE=STRUCTURAL_PRODUCT_PASS')){
+              throw 'ACTIVITY_REAL_LOCAL_EXTRACTION_NOT_QUALIFIED'
+            }
+          }finally{Pop-Location}
+      - name: Remove local qualification state and private checkout
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'private-agent') -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'activity-real-private-*' -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
