@@ -16,13 +16,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: 45e006964167c9e8233cb331f3fb988b64f6ed02
-      PRIVATE_TREE: b9c9e092de2d118048fd618fc58c6febab0883ac
+      PRIVATE_PIN: d8c1370882ba56c379437f08c90ab104998bcea3
+      PRIVATE_TREE: f824710c3aa0b5bb757871fc98f6948f89dd1450
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 45e006964167c9e8233cb331f3fb988b64f6ed02
+          ref: d8c1370882ba56c379437f08c90ab104998bcea3
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
           show-progress: false
@@ -32,7 +32,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Exact private source qualification (fixed status output only)
+      - name: Verify exact private source pin
+        id: pin
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -40,6 +41,11 @@ jobs:
              (& git rev-parse 'HEAD^{tree}').Trim() -cne $env:PRIVATE_TREE){
              throw 'SOURCE_PIN_MISMATCH'
           }
+          Write-Host 'SOURCE_PIN=PASS'
+      - name: Exact private source qualification (fixed status output only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
           $js=@'
           const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
           const cwd=path.join(process.cwd(),'desktop');
@@ -83,9 +89,11 @@ jobs:
           node $script
           if($LASTEXITCODE -ne 0){throw 'SOURCE_QUALIFICATION_FAILED'}
       - name: Original Core profile and T3 regression (fixed status output only)
+        if: ${{ !cancelled() && steps.pin.outcome == 'success' }}
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          $PSNativeCommandUseErrorActionPreference=$false
           $installLog=Join-Path $env:RUNNER_TEMP 'agent063-python-install.out'
           $testLog=Join-Path $env:RUNNER_TEMP 'agent063-python-profile.out'
           python -m pip install -q -r requirements-ci.txt *> $installLog
@@ -94,22 +102,12 @@ jobs:
           python -m pytest -q tests/test_personal_profile_display.py tests/test_t3_mode.py tests/test_work_areas_interaction.py *> $testLog
           $exit=$LASTEXITCODE
           $raw=Get-Content -LiteralPath $testLog -Raw
+          $last=($raw -split '\r?\n' | Where-Object {$_ -match '[0-9]+ (passed|failed|skipped|errors?)\b' -and $_ -match ' in [0-9.]+s'} | Select-Object -Last 1)
           foreach($key in @('passed','failed','skipped','errors')){
-            $match=[regex]::Match($raw,'(?m)^=+[^\r\n]*?\b([0-9]+) '+$key+'\b[^\r\n]*?=+ and temporary output
-        if: always()
-        shell: pwsh
-        run: |
-          Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent063-*' -Force | Remove-Item -Force -ErrorAction SilentlyContinue
-)
-            if(!$match.Success){$match=[regex]::Match($raw,'(?m)^([0-9]+) '+$key+'\b[^\r\n]* in [0-9.]+s and temporary output
-        if: always()
-        shell: pwsh
-        run: |
-          Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent063-*' -Force | Remove-Item -Force -ErrorAction SilentlyContinue
-)}
-            if($match.Success){Write-Host ('PYTHON_'+$key.ToUpperInvariant()+'='+$match.Groups[1].Value)}
+            if($last){
+              $match=[regex]::Match($last,'\b([0-9]+) '+$key+'\b')
+              if($match.Success){Write-Host ('PYTHON_'+$key.ToUpperInvariant()+'='+$match.Groups[1].Value)}
+            }
           }
           $outcome=if($exit -eq 0){'PASS'}else{'FAIL'}
           Write-Host ('PYTHON_PROFILE='+$outcome)
