@@ -323,7 +323,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
     })}>Подключить организацию</button>
   </div>}
   {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={'employee|'+(signedD3EmployeeScopeFingerprint(owner,organizationId)??'unknown')}
-    session={owner.snapshot} contacts={organization.participants??[]}
+    session={owner.snapshot} contacts={organization.participants??[]} managerOriginal={managerOriginal}
     preferredContactId={preferredEmployeeContactId} autoReadSeats={preferCorporateSeats&&!signedWorkspaceVisible}
     requireRegistryAbsence={preferCorporateSeats} registryAbsent={registryState==='NOT_FOUND'}
     execute={execute} run={act} busy={busy} onOpenLicenses={onOpenLicenses}/>}

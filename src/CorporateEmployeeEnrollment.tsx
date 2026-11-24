@@ -1,5 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import CorporateSeatAssignments from './CorporateSeatAssignments';
+import type {ManagerOriginalSelection} from './manager-original-selection';
+import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
 import {readOriginalEmployeeRegistryReceipt,readOriginalSeatView} from '../runtime/cen03-corporate-seats.mjs';
 import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskReadback,readOriginalEmployeeBootstrap,readOriginalEmployeePublicCandidate,
  employeeTaskContinuationKey,readEmployeeTaskContinuation,saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
@@ -15,7 +17,7 @@ type Exec=(operation:string,input?:Record<string,unknown>)=>Promise<any>;
 type Run=(message:string,task:()=>Promise<void|boolean>)=>Promise<void>;
 type Contact={id:string;name:string};
 type TaskCatalogRow={taskId:string;recipientId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:string};
-type Session={organizationId:string;workspaceId:string;actorId:string;contextEpoch:number;
+type Session={organizationId:string;workspaceId:string;actorId:string;contextId:string;contextEpoch:number;
   tasks?:TaskCatalogRow[];totalTasks?:number;
   d3EmployeeEnrollmentAvailable?:boolean;
   d3EmployeeRegistryBootstrapAvailable?:boolean;
@@ -53,8 +55,8 @@ function keyRecord(raw:string,personId:string){
     throw Error('CEN_D3_EMPLOYEE_PUBLIC_KEY_RECORD_INVALID');
   return k;
 }
-export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,autoReadSeats=false,requireRegistryAbsence=false,registryAbsent=false,execute,run,busy,onOpenLicenses}:{
- session:Session;contacts:Contact[];preferredContactId?:string|null;autoReadSeats?:boolean;requireRegistryAbsence?:boolean;registryAbsent?:boolean;execute:Exec;run:Run;busy:boolean;onOpenLicenses?:()=>void;
+export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,autoReadSeats=false,requireRegistryAbsence=false,registryAbsent=false,execute,run,busy,onOpenLicenses,managerOriginal=null}:{
+ session:Session;contacts:Contact[];preferredContactId?:string|null;autoReadSeats?:boolean;requireRegistryAbsence?:boolean;registryAbsent?:boolean;execute:Exec;run:Run;busy:boolean;onOpenLicenses?:()=>void;managerOriginal?:ManagerOriginalSelection|null;
 }){
  // A preselected organizational contact is only a local draft hint;
  // never infer an employee PROOF key, signed identity or active grant.
@@ -176,6 +178,10 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const historyRows:TaskCatalogRow[]=enrolled?(catalog?.rows.filter((row:TaskCatalogRow)=>row.recipientId===personId)??[]):[];
  const selectedHistory=historyChoice&&historyChoice.scope===taskScope?
    historyRows.find(row=>row.taskId===historyChoice.id):undefined;
+ const focusedTask=managerOriginal?.kind==='signed-task'&&
+   managerOriginalSelectionMatches(managerOriginal,session)&&
+   managerOriginal.recipientId!==session.actorId?
+   catalog?.rows.find((row:TaskCatalogRow)=>row.taskId===managerOriginal.id):undefined;
  const verifiedHistory=(()=>{
    if(!selectedHistory||!historyReadback||historyReadback.scope!==taskScope||
      historyReadback.epoch!==session.contextEpoch||!enrolled)return null;
@@ -250,18 +256,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      session.organizationId,session.workspaceId);
    setRoster(result);
  });
- const restoreRosterEmployee=()=>run('Подключённый сотрудник восстановлен из исходного T3 без выдачи новых прав.',async()=>{
-   const selected=roster?.eligibleEmployees.find((row:any)=>row.personId===rosterChoice);
-   if(!selected)throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_REQUIRED');
-   // A selected row is only a locator, not an authorization. Read the
-   // current same page, enrollment and exact independent PROOF key.
-   setRoster(null);
-   const current=readOriginalSeatView(await execute('d3EmployeeSeatView',{
-     offset:0,employeeOffset:roster.employeeOffset}),session.organizationId,session.workspaceId);
-   setRoster(current);
-   const row=current.eligibleEmployees.find((m:any)=>m.personId===selected.personId&&
-     m.enrollmentId===selected.enrollmentId);
-   if(!row)throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_STALE');
+ const openRosterRow=async(row:{personId:string;enrollmentId:string})=>{
    const same=personId===row.personId&&recoveryEnrollmentId===row.enrollmentId;
    // Failed reads of the active selection must invalidate its authority
    // presentation. Pending Task identity survives in the scoped continuation.
@@ -296,6 +291,48 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      try{await readGrant('task',scope)}catch{held=true}
    }
    if(held)throw Error('CEN_D3_EMPLOYEE_EXISTING_RIGHTS_READBACK_HOLD');
+ };
+ const restoreRosterEmployee=()=>run('Подключённый сотрудник восстановлен из исходного T3 без выдачи новых прав.',async()=>{
+   const selected=roster?.eligibleEmployees.find((row:any)=>row.personId===rosterChoice);
+   if(!selected)throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_REQUIRED');
+   // A selected row is only a locator, not an authorization. Read the
+   // current same page, enrollment and exact independent PROOF key.
+   setRoster(null);
+   const current=readOriginalSeatView(await execute('d3EmployeeSeatView',{
+     offset:0,employeeOffset:roster.employeeOffset}),session.organizationId,session.workspaceId);
+   setRoster(current);
+   const row=current.eligibleEmployees.find((m:any)=>m.personId===selected.personId&&
+     m.enrollmentId===selected.enrollmentId);
+   if(!row)throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_STALE');
+   await openRosterRow(row);
+ });
+ const openFocusedEmployeeTask=()=>run('Адресат исходного поручения открыт. Поручение готово к независимому чтению.',async()=>{
+   if(!focusedTask||!available||!session.d3EmployeeCorporateSeatsAvailable)
+     throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_REQUIRED');
+   let offset=0,digest:string|null=null,total:number|null=null;
+   setRoster(null);setRosterChoice('');
+   // Page through the existing original roster with one consistent digest.
+   // A signed Task's recipient alone cannot establish an enrollment.
+   for(let page=0;page<64;page++){
+     const view=readOriginalSeatView(await execute('d3EmployeeSeatView',{
+       offset:0,employeeOffset:offset}),session.organizationId,session.workspaceId);
+     if(view.employeeOffset!==offset||(digest!==null&&view.registryDigest!==digest)||
+       (total!==null&&view.employeeTotal!==total))throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_STALE');
+     digest=view.registryDigest;total=view.employeeTotal;setRoster(view);
+     const row=view.eligibleEmployees.find((item:any)=>item.personId===focusedTask.recipientId);
+     if(row){
+       setRosterChoice(row.personId);
+       await openRosterRow(row);
+       setHistoryReadback(null);
+       setHistoryChoice({scope:employeeTaskContinuationKey(session.organizationId,
+         session.workspaceId,session.actorId,row.personId,row.enrollmentId),id:focusedTask.taskId});
+       return;
+     }
+     if(view.employeeNextOffset===null)
+       throw Error('CEN_D3_EMPLOYEE_TASK_RECIPIENT_NOT_IN_CURRENT_ROSTER');
+     offset=view.employeeNextOffset;
+   }
+   throw Error('CEN_D3_EMPLOYEE_ROSTER_PAGE_LIMIT');
  });
  const confirmCredential=()=>run('Подлинность ключа перечитана из оригинального Kernel.',async()=>{
    if(!credentialChallenge)throw Error('CEN_D3_EMPLOYEE_KEY_PROOF_NOT_PREPARED');
@@ -430,6 +467,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
   <>
   {session.d3EmployeeCorporateSeatsAvailable===true&&<div className="nested-form" data-testid="d3-employee-roster">
    <h4>Ранее подключённые сотрудники</h4>
+   {focusedTask&&<div className="notice subdued" data-testid="d3-employee-focused-task">
+    <p>Из поиска выбрано поручение: {focusedTask.summary||focusedTask.taskId}.</p>
+    <button type="button" disabled={busy} data-testid="d3-employee-open-focused-task"
+      onClick={()=>void openFocusedEmployeeTask()}>Открыть сотрудника и поручение</button>
+   </div>}
    <p>Откройте сотрудника из подписанного реестра, чтобы восстановить его полномочия и поручения.
      Повторное подключение или выдача ключей не требуются.</p>
    <button type="button" className="secondary" data-testid="d3-employee-roster-read" disabled={busy}

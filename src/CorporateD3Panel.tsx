@@ -11,7 +11,7 @@ import {readOriginalResultReview,readCompleteOriginalResult,
 // automatically repeat a decision whose native acknowledgment was lost.
 type Exec=(operation:string,input?:Record<string,unknown>)=>Promise<any>;
 type Run=(success:string,work:()=>Promise<void|boolean>)=>Promise<void>;
-type SignedTask={taskId:string;recipientId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:'NOT_CONFIRMED'};
+type SignedTask={taskId:string;recipientId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:string};
 type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   contextId:string;contextEpoch:number;d3ApplyAvailable:boolean;
   d3InspectAvailable?:boolean;
@@ -53,7 +53,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [taskText,setTaskText]=useState('');
  const [draftId,setDraftId]=useState('');
  const [draftSnapshot,setDraftSnapshot]=useState('');
- const [taskId,setTaskId]=useState(()=>exactFocus?.kind==='signed-task'?exactFocus.id:'');
+ const [taskId,setTaskId]=useState(()=>exactFocus?.kind==='signed-task'&&exactFocus.recipientId===session.actorId?exactFocus.id:'');
  const [taskOperationId,setTaskOperationId]=useState(
    ()=>taskAttempts.current.get(taskAttemptKey)?.taskId??'');
  const [taskIdSaved,setTaskIdSaved]=useState(false);
@@ -166,7 +166,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  })();
  const allSignedTasks:SignedTask[]=catalog?.rows??[];
  const signedTasks=allSignedTasks.filter(t=>t.recipientId===session.actorId);
- const selectedTask=signedTasks.find(t=>t.taskId===taskId)??signedTasks.at(-1);
+ const employeeFocus=exactFocus?.kind==='signed-task'&&exactFocus.recipientId!==session.actorId;
+ const selectedTask=signedTasks.find(t=>t.taskId===taskId)??(employeeFocus?undefined:signedTasks.at(-1));
  const chosenDraft=assignmentDrafts.find(a=>a.id===draftId);
  const draftAssigneeUnbound=!!chosenDraft?.assigneeId;
  const draftStale=!!draftId&&(
@@ -237,6 +238,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    'Исходная подписанная Task перечитана без нового выпуска.',async()=>{
    if(!/^task:[A-Za-z0-9-]{1,100}$/.test(knownId))
      throw Error('CEN_D3_ORIGINAL_TASK_OPERATION_ID_REQUIRED');
+   if(allSignedTasks.some(t=>t.taskId===knownId&&t.recipientId!==session.actorId))
+     throw Error('CEN_D3_EMPLOYEE_TASK_USE_RECIPIENT_HISTORY');
    // The original recipient verifies stored signed .iwxa bytes and exact
    // revision. The UI never re-signs a Task to discover a lost ACK.
    const result=await execute('d3TaskReadback',{taskId:knownId});
@@ -554,7 +557,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       <p>Исходный {exactFocus.kind==='signed-task'?'Task':'пакет Result'}: {exactFocus.id}.
         Подписанный владелец проверит источник заново перед действием.
         Этот переход ничего не подписывает, не принимает и не применяет.</p>
-      {exactFocus.kind==='signed-task'&&allSignedTasks.some(t=>t.taskId===exactFocus.id&&t.recipientId!==session.actorId)&&<p>Это поручение независимого сотрудника. Выберите сотрудника в исходном реестре выше.</p>}
+      {exactFocus.kind==='signed-task'&&allSignedTasks.some(t=>t.taskId===exactFocus.id&&t.recipientId!==session.actorId)&&<p>Это поручение независимого сотрудника. Нажмите «Открыть сотрудника и поручение» в исходном реестре выше.</p>}
       {exactFocus.kind==='signed-result-package'&&<button className="secondary"
         type="button" data-testid="d3-manager-recheck-package" disabled={busy}
         onClick={()=>{void refreshInbox(exactFocus.id)}}>Перечитать Reconciliation и выбрать точный пакет</button>}
@@ -686,6 +689,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     <label>Сохранённая Task руководителя
      <select data-testid="d3-signed-task-select" value={selectedTask?.taskId??''}
       onChange={e=>setTaskId(e.target.value)}>
+      {employeeFocus&&<option value="">Выберите поручение руководителя</option>}
       {signedTasks.map(t=><option key={t.taskId} value={t.taskId}>
        {t.summary.slice(0,90)} · {t.taskId.slice(0,23)}
       </option>)}
@@ -701,7 +705,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       disabled={busy||!selectedTask} onClick={()=>{
        if(selectedTask)recoverTaskById(selectedTask.taskId,selectedTask);
       }}>Проверить сохранённую Task</button>
-     <button className="secondary" data-testid="d3-export-task" disabled={busy}
+     <button className="secondary" data-testid="d3-export-task" disabled={busy||!selectedTask}
       onClick={exportTask}>Сохранить подписанную Task в .iwxa</button>
     </div>
     <p className="muted">После перезапуска или потерянного ответа выберите

@@ -153,7 +153,7 @@ test('original employee rights restore exact active grants, distinguish absence 
 
 test('employee rights are read before issue, with both existing grants restored on roster open',()=>{
  const ui=readFileSync(new URL('../src/CorporateEmployeeEnrollment.tsx',import.meta.url),'utf8');
- const restore=ui.slice(ui.indexOf('const restoreRosterEmployee='),ui.indexOf('const confirmCredential='));
+ const restore=ui.slice(ui.indexOf('const openRosterRow='),ui.indexOf('const restoreRosterEmployee='));
  assert.match(restore,/await readGrant\('workspace',scope\)/);
  assert.match(restore,/await readGrant\('task',scope\)/);
  const read=ui.slice(ui.indexOf('async function readGrant('),ui.indexOf('// The employee must import'));

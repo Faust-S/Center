@@ -4,6 +4,7 @@
 // strict organization/Workspace checks before surfacing any rows to React.
 import {signedD3SessionFingerprint} from '../runtime/cen03-review.mjs';
 import {managerSearchRow} from './manager-context.mjs';
+import {readOriginalTaskCatalog} from '../runtime/cen03-d3-owner.mjs';
 
 const HEX=/^[a-f0-9]{64}$/;
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
@@ -19,24 +20,16 @@ const empty=()=>({
 export function readManagerSignedContext(view,organizationId,inbox=null){
  if(signedD3SessionFingerprint(view,organizationId)===null)return empty();
  const s=view.snapshot;
- need(Array.isArray(s.tasks) && Number.isSafeInteger(s.totalTasks) &&
-   s.totalTasks>=s.tasks.length && s.totalTasks<=256 &&
-   s.tasks.length<=256,'CEN_MANAGER_SIGNED_TASK_INVENTORY_INVALID');
- const keys=new Set(),entries=[],attention=[];
- for(const task of s.tasks){
-   need(task && ID.test(task.taskId) && HEX.test(task.taskRevisionId) &&
-     HEX.test(task.packageSha256) &&
-     typeof task.summary==='string' && task.summary.length<=10000 &&
-     task.deliveryState==='NOT_CONFIRMED',
-     'CEN_MANAGER_SIGNED_TASK_INVALID');
-   need(!keys.has(task.taskId),'CEN_MANAGER_SIGNED_TASK_DUPLICATE');
-   keys.add(task.taskId);
+ const catalog=readOriginalTaskCatalog(s);
+ const entries=[],attention=[];
+ for(const task of catalog.rows){
    entries.push({...managerSearchRow('signed-task',task.taskId,
      task.summary.trim().slice(0,180)||task.taskId,
-     'Подписанная Task в оригинальной Workspace. Доставка получателю не подтверждена; Result и приёмка не следуют из этой записи.',
+     'Подписанная Task в оригинальной Workspace. Адресат: '+task.recipientId+
+     '. Доставка получателю не подтверждена; Result и приёмка не следуют из этой записи.',
      'Оригинальный T3 D3 · подписанный список Task',
-     [task.taskId,task.taskRevisionId,task.packageSha256,task.summary].join(' ')),
-     taskRevisionId:task.taskRevisionId,packageSha256:task.packageSha256});
+     [task.taskId,task.taskRevisionId,task.packageSha256,task.summary,task.recipientId].join(' ')),
+     taskRevisionId:task.taskRevisionId,packageSha256:task.packageSha256,recipientId:task.recipientId});
  }
  const base={status:'SIGNED_D3_READBACK',organizationId,
    workspaceId:s.workspaceId,actorId:s.actorId,contextId:s.contextId,
@@ -110,11 +103,11 @@ export function prepareManagerOriginalSelection(owner,organizationId,kind,id){
  if(kind==='signed-result-package'&&!HEX.test(id))return null;
  const matching=owner.entries.find(row=>row.kind===kind&&row.id===id);
  if(kind==='signed-task'&&(!ID.test(id)||!HEX.test(matching?.taskRevisionId)||
-   !HEX.test(matching?.packageSha256)))return null;
+   !HEX.test(matching?.packageSha256)||!ID.test(matching?.recipientId)))return null;
  return {kind,id,organizationId,workspaceId:owner.workspaceId,
    actorId:owner.actorId,contextId:owner.contextId,contextEpoch:owner.contextEpoch,
    ...(kind==='signed-task'?{
-      taskRevisionId:matching.taskRevisionId,packageSha256:matching.packageSha256
+      taskRevisionId:matching.taskRevisionId,packageSha256:matching.packageSha256,recipientId:matching.recipientId
    }:{})};
 }
 export function managerOriginalSelectionMatches(selection,session){
@@ -132,8 +125,8 @@ export function managerOriginalSelectionMatches(selection,session){
    typeof selection.id==='string'&&
    (selection.kind==='signed-result-package'?HEX.test(selection.id):
      ID.test(selection.id)&&HEX.test(selection.taskRevisionId)&&
-     HEX.test(selection.packageSha256)&&Array.isArray(session.tasks)&&
+     HEX.test(selection.packageSha256)&&ID.test(selection.recipientId)&&Array.isArray(session.tasks)&&
      session.tasks.some(task=>task.taskId===selection.id&&
        task.taskRevisionId===selection.taskRevisionId&&
-       task.packageSha256===selection.packageSha256)));
+       task.packageSha256===selection.packageSha256&&task.recipientId===selection.recipientId)));
 }

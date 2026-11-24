@@ -1521,6 +1521,25 @@ try{
   assert.equal(employeeState.taskIssueCalls,2);
   checks.push('d3-employee-pending-id-restored-stale-readback-blocked-successive-task-no-grant-reissue');
   checks.push('d3-employee-original-recipient-history-old-carrier-no-pending-mutation');
+  await employeePage.getByTestId('nav-overview').click();
+  await employeePage.getByTestId('manager-read-signed').click();
+  await employeePage.getByTestId('manager-signed-summary').waitFor();
+  await employeePage.getByTestId('overview-search').fill('Review verified supplier statement');
+  assert.equal(await employeePage.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
+  await employeePage.getByTestId('manager-search-hit').click();
+  await employeePage.getByTestId('d3-employee-open-focused-task').waitFor();
+  await employeePage.getByTestId('d3-employee-open-focused-task').click();
+  await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-history-select').inputValue(),'task:independent-work');
+  assert.equal(await employeePage.getByTestId('d3-employee-history-export').isEnabled(),false,
+    'navigation is not a readback of the carrier');
+  await employeePage.getByTestId('d3-employee-history-read').click();
+  await employeePage.getByTestId('d3-employee-history-confirmed').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-task-id').inputValue(),employeeState.secondTaskId);
+  assert.equal(employeeState.taskIssueCalls,2);
+  assert.equal(employeeState.workspaceGrantCalls,1);
+  assert.equal(employeeState.taskGrantCalls,1);
+  checks.push('d3-global-search-opens-exact-original-employee-and-existing-task-no-write');
   // This is a UI/IPC fixture, not an installed private T3 acceptance.
   // Select from original roster, lose ACK, reopen, recover, transfer, release.
   const seat=id=>employeePage.getByTestId('d3-seat-'+id);
