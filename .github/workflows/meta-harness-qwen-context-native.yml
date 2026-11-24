@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: c55c06e4825440f5ffc3ffdee5bf7532911722f6
-      PRIVATE_TREE: d7dd1a6bbf8f164097facb43a3ef17e40354b3f8
+      PRIVATE_PIN: dbd38161e4ba7236722a9fd44e649f9747a4214b
+      PRIVATE_TREE: e8a03c1e2eb88856d6396f8eef1f70d542497dfb
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
       IWXA_NATIVE_QWEN_CONTEXT_TEST: '1'
     steps:
@@ -116,6 +116,8 @@ jobs:
                       if re.fullmatch(r"QWEN_PRODUCT_CHAT_SHAPE=(?:INVALID|TOOLS_(?:NONEMPTY|EMPTY|ABSENT):STREAM_(?:YES|NO):MODEL_(?:MATCH|OTHER):RESPONSE_FORMAT_(?:YES|NO):MESSAGES_[0-9]{1,5})",line.strip()) or re.fullmatch(r"QWEN_PRODUCT_OPENAI_ERROR=[45][0-9]{2}:(TOOLS_UNSUPPORTED|TOOL_INVALID|CONTEXT_LIMIT|MODEL_NOT_FOUND|MESSAGES_INVALID|PARAMETER_INVALID|OUT_OF_MEMORY|OTHER)",line.strip()):
                           print(line.strip(),flush=True)
                       if re.fullmatch(r"QWEN_PRODUCT_OPENAI_DETAIL=(?:OTHER|JSON_UNMARSHAL:(?:TOOLS|REASONING|MESSAGES|RESPONSE_FORMAT|STREAM_OPTIONS|NUMERIC|OTHER)|REASONING_INVALID|MESSAGE_INVALID|TOOLS_UNSUPPORTED)",line.strip()):
+                          print(line.strip(),flush=True)
+                      if re.fullmatch(r"QWEN_PRODUCT_(?:(?:REVIEWED_MCP_VISIBLE|CONTEXT_TOOL_VISIBLE|MODEL_TOOL_RESULT)=(?:YES|NO)|CONTEXT_PERMISSION=OBSERVED|CONTEXT_RPC=(?:OBSERVED|RESOLVED|REFUSED)|MCP_SCHEMA=(?:OBJECT|OTHER):(?:EMPTY|NONEMPTY|MISSING))",line.strip()):
                           print(line.strip(),flush=True)
                       match=re.fullmatch(r"QWEN_PRODUCT_BLOCKED=([A-Z][A-Z_0-9]{1,100})",line.strip())
                       if match:
