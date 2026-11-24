@@ -187,6 +187,7 @@ export function reconcileCorporateReceiveWithRead(receipt,view){
 
 // Compare the existing organization preparation to the single T3-verified
 // capacity candidate. This is a planning calculation, never seat admission.
+/** @param {number|null} [displayNow] UI time can only expire a prior verified read. */
 export function projectCorporateSeatPlan(read,participants,displayNow=null){
  if(!Array.isArray(participants)||(displayNow!==null&&!Number.isSafeInteger(displayNow)))denied();
  const seen=new Set();
