@@ -13,11 +13,11 @@ concurrency:
   group: corporate-installed-one-core-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 env:
-  T3_PIN: '83850ffffc27caf6a0c3e6b595fcd85b277c5fd4'
-  CORE_PIN: '39c32cda211a7d351de553fe4fc9528848c274cd'
-  CENTER_PIN: 'ee343b1dc6306fb7dddd5f015c02497dbaa96284'
-  PUBLISHER_PIN: '429f7ab6832cd7ca1c47856d74016f5f88e44ceb'
-  AGENT_PIN: 'a3e6af4b429ecf9fc81a9fb0b0d9c7380ec9063a'
+  T3_PIN: 'aaef813dd06ef29b681d4ad080960433613d985d'
+  CORE_PIN: '0cb5bc0379e18c3a94e64346fafaedcc105b4e62'
+  CENTER_PIN: 'f5db5dacfedb5ae64a220d3bfa7979be8cc6e886'
+  PUBLISHER_PIN: '80bdd8bc766e5c01d8c0d22d8f51eb43c968d4b2'
+  AGENT_PIN: 'b1b7d93bf82c27f639f6a862399693764e617ee9'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -95,6 +95,38 @@ jobs:
           if(!(Test-Path -LiteralPath (Join-Path $q '_iwxa/runtime/0.3.6/runtime.js'))){throw 'CORPORATE_INSTALLED_QUALIFIED_T2_MISSING'}
           "CORPORATE_ORIGINAL_T2=$q"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'CORPORATE_INSTALLED_SOURCE_PINS=PASS'
+      - name: Validate exact installed license witness and receipt contract before build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $witness=(Resolve-Path 'publisher/tests/installed-publisher-center-corporate.ps1').Path
+          $tokens=$null;$errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile($witness,[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){throw 'CORPORATE_INSTALLED_LICENSE_WITNESS_PARSE_FAILED'}
+          $expected=@(Get-Content -LiteralPath 'qualification/corporate-installed/publisher-center-required-receipts.json' -Raw|ConvertFrom-Json)
+          if($expected.Count -ne 24 -or @($expected|Sort-Object -CaseSensitive -Unique).Count -ne 24){
+            throw 'CORPORATE_INSTALLED_LICENSE_RECEIPT_MANIFEST_INVALID'
+          }
+          $calls=@($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Record-Check'
+          },$true))
+          $declared=@(foreach($call in $calls){
+            if($call.CommandElements.Count -ne 2 -or
+               $call.CommandElements[1] -isnot [System.Management.Automation.Language.StringConstantExpressionAst]){
+              throw 'CORPORATE_INSTALLED_LICENSE_RECEIPT_NOT_LITERAL'
+            }
+            [string]$call.CommandElements[1].Value
+          })
+          if($declared.Count -ne 25 -or @($declared|Sort-Object -CaseSensitive -Unique).Count -ne 25 -or
+             $declared -cnotcontains 'CENTER_CREATES_DURABLE_ORGANIZATION_AND_EXPOSES_EXACT_ID'){
+            throw 'CORPORATE_INSTALLED_LICENSE_DECLARED_RECEIPTS_INVALID'
+          }
+          $resumed=@($declared|Where-Object {$_ -cne 'CENTER_CREATES_DURABLE_ORGANIZATION_AND_EXPOSES_EXACT_ID'})
+          if(@(Compare-Object -ReferenceObject $expected -DifferenceObject $resumed -CaseSensitive).Count -ne 0){
+            throw 'CORPORATE_INSTALLED_LICENSE_RECEIPT_CONTRACT_DRIFT'
+          }
+          Write-Host 'CORPORATE_INSTALLED_LICENSE_WITNESS_RECEIPT_CONTRACT=PASS'
       - name: Build canonical One Core and Admin dependencies
         shell: pwsh
         timeout-minutes: 15
@@ -316,8 +348,10 @@ jobs:
             Write-Host ('CORPORATE_INSTALLED_LICENSE_CODES='+($safe -join ','))
             throw 'CORPORATE_INSTALLED_LICENSE_GUI_HOLD'
           }
-          foreach($required in @('CENTER_RESUMES_QUALIFIED_ORGANIZATION_AND_EXPOSES_EXACT_ID','PUBLISHER_GUI_ORIGINAL_SIGNED_ISSUE','CENTER_INSTALLED_REGISTRY_USES_SIGNED_TARIFF_2_10','CENTER_INSTALLED_REGISTRY_AND_LICENSE_COLD_READBACK','CENTER_RENEWAL_REPLACES_OLD_LIMITS_WITHOUT_SUMMING','CENTER_DURABLE_REVOKE_AND_OLD_ACTIVE_REPLAY_DENIED')){
-            if($checks -cnotcontains $required){throw 'CORPORATE_INSTALLED_LICENSE_RECEIPT_MISSING'}
+          $expected=@(Get-Content -LiteralPath 'qualification/corporate-installed/publisher-center-required-receipts.json' -Raw|ConvertFrom-Json)
+          if($expected.Count -ne 24 -or @($checks|Sort-Object -CaseSensitive -Unique).Count -ne 24 -or
+             @(Compare-Object -ReferenceObject $expected -DifferenceObject $checks -CaseSensitive).Count -ne 0){
+            throw 'CORPORATE_INSTALLED_LICENSE_RECEIPT_SET_MISMATCH'
           }
           Write-Host 'CORPORATE_INSTALLED_PUBLISHER_CENTER_LICENSE_LIFECYCLE=PASS'
       - name: Discard all private sources native packages test profile and diagnostics
