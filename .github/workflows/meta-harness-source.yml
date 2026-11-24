@@ -18,9 +18,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     env:
-      PRIVATE_PIN: 8e63d4f1264f64dc9a4e6629ffe69dedfcad47dd
-      PRIVATE_TREE: e8915484f4496eeb24045e236429734870d51a13
-      QUALIFY_SCOPE: ADAPTER_DEPTH
+      PRIVATE_PIN: e3e7b890a3a102548323912308757401260badaa
+      PRIVATE_TREE: b8ffdd95ef0ab46da9cafc9da0c6fe99d4bf255e
+      QUALIFY_SCOPE: ADAPTER_PRODUCT
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -128,8 +128,9 @@ jobs:
                   }
                   if os.environ.get("QUALIFY_SCOPE")=="TASK_TRANSPORT":
                       groups={"TASK_TRANSPORT":["tests/test_meta_harness_original_task_workflow.py"]}
-                  if os.environ.get("QUALIFY_SCOPE")=="ADAPTER_DEPTH":
+                  if os.environ.get("QUALIFY_SCOPE") in {"ADAPTER_DEPTH","ADAPTER_PRODUCT"}:
                       groups={"ADAPTER_DEPTH":["tests/test_meta_harness_acp_v1.py",
+                          "tests/test_meta_harness_acp_port.py",
                           "tests/test_meta_harness_acp_exchange.py",
                           "tests/test_meta_harness_original_core.py",
                           "tests/test_meta_harness_adapter_depth.py",
