@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
-import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback, compareAtlasSourceCopies, selectAtlasReferenceSource} from './atlas-integration.mjs';
+import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback, compareAtlasSourceCopies, selectAtlasReferenceSource, selectAtlasTargetWorkspace, atlasWorkspaceBindingMatches} from './atlas-integration.mjs';
 import {readAtlasSourceFile} from './atlas-file-import.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
@@ -490,15 +490,15 @@ export default function App() {
     setError('');
     setMessage('Ссылка на открытую редакцию обновлена в редакторе. Чтобы сохранить её, сохраните черновик поручения.');
   };
-  const prepareAtlasWork = (ref: AtlasRef) => {
+  const prepareAtlasWork = (ref: AtlasRef, selectedWorkspaceId=atlasWorkspace) => {
     if (!org) return;
     if (editor) {
       setError('Сохраните или закройте открытый редактор перед выбором другой работы Atlas.');
       return;
     }
-    const workspace=org.workspaces.find(w=>w.atlasRef?.projectId===ref.projectId && w.atlasRef?.revision===ref.revision);
-    if (!workspace) {
-      setError('Сначала свяжите рабочую область с этой редакцией проекта Atlas.');
+    const workspace=selectAtlasTargetWorkspace(org.workspaces,selectedWorkspaceId,ref);
+    if (!atlasWorkspaceBindingMatches(workspace,ref)) {
+      setError('Выберите рабочую область и свяжите её с этой редакцией проекта Atlas.');
       return;
     }
     editorBaselineRef.current=JSON.stringify(initialEditor(org));
@@ -762,7 +762,10 @@ export default function App() {
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает проекты и зависимости. Привязка к работе необязательна. Только проектные поручения требуют проверки точной редакции установленного Atlas перед подписанием. Обычные поручения работают через T3 без Atlas.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span><button type="button" className="secondary" onClick={()=>openInspectorPreview('workspace',w.id,w.name)}>Подробнее</button></div>)}
-        <NativeAtlasPanel organizationId={org.id} onLink={ref=>{const workspaceId=org.workspaces.some(w=>w.id===atlasWorkspace)?atlasWorkspace:org.workspaces[0]?.id;if(workspaceId)command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref});}} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
+        <NativeAtlasPanel key={org.id} organizationId={org.id} workspaces={org.workspaces}
+          targetWorkspaceId={atlasWorkspace} onChooseWorkspace={setAtlasWorkspace}
+          onLink={(ref,workspaceId)=>command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref})}
+          onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
         <div className="card nested-form" data-testid="atlas-link-panel">
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
           <p className="muted">Откройте архив проектов .iwxa из Atlas. Для проверки изменений повторно выберите файл через ту же кнопку. Старые копии JSON также поддерживаются. Ссылки на поручения автоматически не меняются.</p>

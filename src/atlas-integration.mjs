@@ -61,6 +61,23 @@ export function linkableAtlasWork(view, projectId, workId) {
   return {...link, workId: work.id};
 }
 
+// An explicit manager choice takes precedence. Never silently link the
+// first of several unrelated areas. A unique existing exact link may be
+// offered as a default; a sole workspace is unambiguous.
+export function selectAtlasTargetWorkspace(workspaces,selectedId,reference=null){
+ if(!Array.isArray(workspaces)||!workspaces.length)return null;
+ if(selectedId)return workspaces.find(w=>w.id===selectedId)??null;
+ if(workspaces.length===1)return workspaces[0];
+ const matches=reference?workspaces.filter(w=>
+   w.atlasRef?.projectId===reference.projectId&&w.atlasRef?.revision===reference.revision):[];
+ return matches.length===1?matches[0]:null;
+}
+export function atlasWorkspaceBindingMatches(workspace,reference){
+ return !!workspace&&!!reference&&
+   workspace.atlasRef?.projectId===reference.projectId&&
+   workspace.atlasRef?.revision===reference.revision;
+}
+
 export function atlasLinkReadback(view, link) {
   if (!link || !view) return 'NOT_OBSERVED';
   const p = view.projects.find(p => p.id === link.projectId);

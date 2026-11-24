@@ -412,6 +412,51 @@ try{
   await page.setViewportSize({width:320,height:800});assert.ok(await page.getByRole('button',{name:'Разделы'}).isVisible());await page.getByRole('button',{name:'Разделы'}).click();await page.getByTestId('nav-work').click();
   const sizes=await page.evaluate(()=>({width:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert.ok(sizes.scroll<=sizes.width+1,JSON.stringify(sizes));checks.push('navigation-and-no-overflow-320');
   await page.screenshot({path:'artifacts/work-320.png',fullPage:true});assert.deepEqual(errors,[]);checks.push('no-page-errors');
+  // Exercise the local native Atlas port's UI using a real serialized Atlas
+  // snapshot. This is a browser IPC fixture, not an installed Store witness.
+  const localAtlasPage=await browser.newPage({viewport:{width:820,height:650}});
+  localAtlasPage.on('pageerror',error=>errors.push('localAtlas:'+error.message));
+  const nativeAtlasCalls=[];
+  await localAtlasPage.exposeFunction('__localAtlasFixture',async(command,args={})=>{
+    if(command==='center_draft_read_local')return null;
+    if(command==='center_corporate_signed_workspace_status')return {
+      schema:'IWXA_CEN_D3_SIGNED_WORKSPACE_UI/1',open:false,visible:false,foreignOrOrphaned:false};
+    if(command==='center_atlas_open'){
+      nativeAtlasCalls.push(args.organizationId);
+      return {generation:'fixture-generation',needsConfirmation:false,snapshot:JSON.parse(atlas)};
+    }
+    if(command==='center_atlas_commit')throw Error('LINK_MUST_NOT_MUTATE_ATLAS');
+    return null;
+  });
+  await localAtlasPage.addInitScript(()=>{
+    window.__TAURI_INTERNALS__={invoke:(command,args)=>window.__localAtlasFixture(command,args)};
+  });
+  await localAtlasPage.goto('http://127.0.0.1:4173');
+  await localAtlasPage.getByTestId('org-name').fill('Local atlas scope');
+  await localAtlasPage.getByTestId('create-org').click();
+  await localAtlasPage.getByTestId('nav-resources').click();
+  for(const name of ['First area','Second area']){
+    await localAtlasPage.getByTestId('workspace-name').fill(name);
+    await localAtlasPage.getByTestId('add-workspace').click();
+  }
+  await localAtlasPage.getByTestId('native-atlas-open').click();
+  const target=localAtlasPage.getByTestId('native-atlas-workspace');
+  await target.waitFor();
+  assert.equal(await target.inputValue(),'');
+  assert.equal(await localAtlasPage.getByTestId('native-atlas-link').isEnabled(),false);
+  assert.equal(await localAtlasPage.getByTestId('native-atlas-work-to-assignment').isEnabled(),false);
+  await target.selectOption({label:'Second area'});
+  const secondArea=await target.inputValue();
+  await localAtlasPage.getByTestId('native-atlas-link').click();
+  assert.match(await localAtlasPage.getByTestId('native-atlas-binding-status').innerText(),/подтверждена/);
+  assert.equal(await localAtlasPage.getByTestId('native-atlas-link').isEnabled(),false);
+  await localAtlasPage.getByTestId('native-atlas-work-to-assignment').click();
+  await localAtlasPage.getByTestId('assignment-form').waitFor();
+  assert.equal(await localAtlasPage.getByTestId('assignment-form').getByLabel('Рабочая область').inputValue(),secondArea);
+  assert.ok((await localAtlasPage.getByTestId('assignment-atlas-binding').innerText()).includes(work.id));
+  assert.equal(nativeAtlasCalls.length,1);
+  await localAtlasPage.close();
+  checks.push('native-atlas-explicit-target-exact-binding-before-work-editor');
   // First-use UI with an available ORIGINAL native owner but no local
   // Workspace: manager must be able to create the missing draft Workspace
   // and then return to the ONE signed enrollment command. The native
