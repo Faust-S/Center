@@ -81,7 +81,8 @@ jobs:
           def fingerprint(value):
               return hashlib.sha256(value.encode()).hexdigest()[:16]
           class Plugin:
-              def pytest_runtest_logreport(self,rep):
+              def pytest_runtest_logreport(self,report):
+                  rep=report
                   if rep.when=="call" and rep.passed: counts["passed"]+=1
                   if rep.skipped: counts["skipped"]+=1
                   if rep.failed:
@@ -89,11 +90,12 @@ jobs:
                       crash=getattr(rep.longrepr,"reprcrash",None)
                       failures.append({"id":fingerprint(rep.nodeid),"phase":rep.when,
                           "line":int(getattr(crash,"lineno",0) or 0)})
-              def pytest_collectreport(self,rep):
+              def pytest_collectreport(self,report):
+                  rep=report
                   if rep.failed:
                       counts["collection_errors"]+=1
                       failures.append({"id":fingerprint(rep.nodeid),"phase":"collect","line":0})
-          result=pytest.main(sys.argv[2:]+["-q","--tb=short","-p","no:cacheprovider"],plugins=[Plugin()])
+          result=pytest.main(sys.argv[2:]+["-q","--tb=short","--continue-on-collection-errors","-p","no:cacheprovider"],plugins=[Plugin()])
           pathlib.Path(sys.argv[1]).write_text(json.dumps({"counts":counts,"failures":failures,"exit":int(result)}),encoding="utf-8")
           sys.exit(int(result))
           ''',encoding="utf-8")
@@ -112,7 +114,7 @@ jobs:
                       report = root / (group+".json")
                       proc = run([sys.executable,str(plugin),str(report),*files],timeout=420)
                       if not report.is_file():
-                          status(group,"REPORT_MISSING"); failed=True; continue
+                          status(group,"REPORT_MISSING"); status(group+"_EXIT",proc.returncode); failed=True; continue
                       data=json.loads(report.read_text(encoding="utf-8"))
                       for key in ("passed","failed","skipped","collection_errors"):
                           status(group+"_"+key.upper(),int(data["counts"][key]))
