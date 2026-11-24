@@ -100,6 +100,7 @@ try {
           (window.__publisherMockCorporateSignCount||0)+1;
         const entry={licenseId:'license:corporate:fixture',requestId:request.requestId,
           organizationId:request.subject.id,productId:'IWXA_ADMIN_CENTER',
+          lineageId:'lineage:corporate:fixture',renewalOf:null,
           status:'NOT_ACTIVATED',sequence:0};
         sessionStorage.setItem('publisher-corporate-mock-signed',JSON.stringify(entry));
         if(window.__publisherMockCorporateLoseNextIssueReceipt===true){
