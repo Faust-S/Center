@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     env:
-      PRIVATE_PIN: ec1fd81a497a42a797eb80321eaf703e3224c086
-      PRIVATE_TREE: ef03a2bd187b5497b0808e2d31c8156197b02429
+      PRIVATE_PIN: bf688683cb491b2d9266ebb1c7fe945343f00257
+      PRIVATE_TREE: e4617b61b133c4da6d7082c08d7a4e116506cf41
       QUALIFY_SCOPE: ADAPTER_PRODUCT
     steps:
       - uses: actions/setup-python@v5
@@ -153,13 +153,15 @@ jobs:
                           "tests/test_meta_harness_adapter_controls.py",
                           "tests/test_meta_harness_preview_performance.py",
                           "tests/test_fc2_agent_runtime_portfolio.py"]}
+                  if os.environ.get("QUALIFY_SCOPE")=="ADAPTER_PRODUCT":
+                      groups={"PRODUCT_ROUTE":["tests/test_meta_harness_qwen_graph_product.py","tests/test_meta_harness_qwen_native_state.py","tests/test_meta_harness_acp_process_job.py"],**groups}
                   failed = False
                   for group, files in groups.items():
                       if not files or any(not (source / f.split("::",1)[0]).is_file() for f in files):
                           status(group,"FILES_MISSING"); failed=True; continue
                       report = root / (group+".json")
                       status(group,"STARTED")
-                      proc = run([sys.executable,str(plugin),str(report),*files],timeout=900 if group in {"TASK","TASK_TRANSPORT","STRATEGY","WORK_BOARD"} else 420)
+                      proc = run([sys.executable,str(plugin),str(report),*files],timeout=900 if group in {"TASK","TASK_TRANSPORT","STRATEGY","WORK_BOARD","ADAPTER_DEPTH"} else 420)
                       if not report.is_file():
                           status(group,"REPORT_MISSING"); status(group+"_EXIT",proc.returncode); failed=True; continue
                       data=json.loads(report.read_text(encoding="utf-8"))
