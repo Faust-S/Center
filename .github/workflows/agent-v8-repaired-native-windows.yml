@@ -1,7 +1,7 @@
 # Public qualification code ONLY. Private Agent is checked out read-only
 # at one fixed SHA onto a disposable GitHub-hosted Windows runner.
 # Do not publish source, logs, binaries, credentials, screenshots or receipts.
-name: Agent V8 repaired native history and installed qualification
+name: Agent 0.6.3 development candidate installed V8 qualification
 on:
   push:
     branches:
@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '01d8df37bf12b0691adf39230a088bf49bc7745f'
-      PRIVATE_TREE_PIN: '8056ee96e8681396538b031964313b48546a6329'
+      PRIVATE_SOURCE_PIN: '57ccb17463c1ae443d08c7d4c18c7de2e17f3dd5'
+      PRIVATE_TREE_PIN: '49fe3a88c81a37864cf4946afd36d2be885ada3a'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -98,7 +98,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'AGENT06_ONLINE_PY_PARSE_FAIL'}
           Write-Host ('AGENT06_ONLINE_PRIVATE_PIN='+$head)
           Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_PARSE_PASS'
-      - name: Verify Agent 0.6.2 dashboard and conversation groups in pinned private source
+      - name: Verify pre-release Agent dashboard and conversation groups in pinned private source
         shell: pwsh
         run: |
           $repo=Join-Path $env:GITHUB_WORKSPACE 'private-agent'
@@ -115,7 +115,7 @@ jobs:
             throw 'AGENT062_RELEASE_VERSION_MISMATCH'
           }
           Write-Host 'AGENT062_RELEASE061_BASE_AND_UX_SOURCE_PRESENT'
-      - name: Build native Agent 0.6.2 candidate using original product pipeline
+      - name: Build pre-release Agent candidate using original product pipeline
         shell: pwsh
         timeout-minutes: 47
         run: |
@@ -181,16 +181,6 @@ jobs:
       - name: Install actual Setup Core, exercise GUI accounts and cold restart, repair and uninstall
         shell: pwsh
         timeout-minutes: 24
-        env:
-          AGENT062_V8_SCREENSHOT_INITIAL: ${{ runner.temp }}/agent062-v8-initial.png
-          AGENT062_V8_SCREENSHOT_HOME: ${{ runner.temp }}/agent062-v8-home.png
-          AGENT062_V8_SCREENSHOT_DIALOGUE: ${{ runner.temp }}/agent062-v8-dialogue.png
-          AGENT062_V8_SCREENSHOT_MODELS: ${{ runner.temp }}/agent062-v8-models.png
-          AGENT062_V8_SCREENSHOT_FILES: ${{ runner.temp }}/agent062-v8-files.png
-          AGENT062_V8_SCREENSHOT_WORKSPACES: ${{ runner.temp }}/agent062-v8-workspaces.png
-          AGENT062_V8_SCREENSHOT_SETTINGS: ${{ runner.temp }}/agent062-v8-settings.png
-          AGENT062_V8_SCREENSHOT_APPROVALS: ${{ runner.temp }}/agent062-v8-approvals.png
-          AGENT062_V8_SCREENSHOT_GRAPH: ${{ runner.temp }}/agent062-v8-graph.png
         run: |
           $ErrorActionPreference='Continue'
           $privateRoot=Join-Path $env:RUNNER_TEMP 'agent06-installed-private'
@@ -213,6 +203,14 @@ jobs:
                  $w.dashboard_added_via_gui -eq $true -and
                  $w.dashboard_restored_after_cold_restart -eq $true -and
                  $w.dashboard_reordered_via_gui -eq $true -and
+                 $w.dashboard_keyboard_reordered_via_gui -eq $true -and
+                 $w.guided_model_default_and_manual_roundtrip_via_gui -eq $true -and
+                 $w.personal_profile_saved_via_gui -eq $true -and
+                 $w.personal_profile_restored_after_cold_restart -eq $true -and
+                 $w.personal_profile_t4_unintegrated_state_visible -eq $true -and
+                 $w.groups_created_and_renamed_via_gui -eq $true -and
+                 $w.groups_chat_preserved_after_delete -eq $true -and
+                 $w.groups_restored_after_cold_restart -eq $true -and
                  $w.dashboard_order_restored_after_cold_restart -eq $true -and
                  $w.dashboard_history_opened_via_gui -eq $true -and
                  $w.native_window_first_opened -eq $true -and
@@ -223,23 +221,30 @@ jobs:
                  $w.online_multiaccount_removal_confirmed -eq $true -and
                  $w.online_cold_removal_readback -eq $true -and
                  $w.online_gui_deletion_visible -eq $true -and
+                 $w.public_artifacts_uploaded -eq $false -and
                  $w.real_external_effects_performed -eq $false){
                 $historyWitness=$true
                 Write-Host 'AGENT062_V8_DASHBOARD_HISTORY_CONFIRMED'
                 Write-Host 'AGENT06_ONLINE_INSTALLED_GUI_AND_COLD_READBACK_PASS'
               }elseif($w.status -ceq 'FAIL'){
-                $phases=@('VALIDATE','NATIVE_FIRST','CREATE','GUI_FIRST','DASHBOARD_FIRST',
-                  'NATIVE_COLD_REOPEN','COLD_READBACK','DASHBOARD_COLD','REMOVE',
-                  'NATIVE_COLD_REMOVE_REOPEN','COLD_REMOVE_READBACK',
-                  'GUI_COLD_REMOVE','V8_INTERNAL_ROUTES','RESULT')
+                $phases=@('VALIDATE','NATIVE_FIRST','CREATE','GUI_FIRST','DASHBOARD_FIRST','NATIVE_COLD_REOPEN','COLD_READBACK','DASHBOARD_COLD','GROUPS_FIRST','GROUPS_COLD','REMOVE','NATIVE_COLD_REMOVE_REOPEN','COLD_REMOVE_READBACK','GUI_COLD_REMOVE','PROFILE_FIRST','PROFILE_COLD','RESULT')
                 if([string]$w.phase -cin $phases){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_PHASE='+[string]$w.phase)
                 }
                 $safeReasons=@(
+                  'agent062_v8_shell_never_rendered',
+                  'agent062_v8_rail_ordinal_invalid',
                   'agent062_v8_capabilities_rail_missing',
                   'agent062_v8_models_navigation_missing',
                   'agent062_v8_models_workflow_missing',
                   'agent062_v8_models_choice_missing',
+                  'agent063_dashboard_keyboard_handle_missing',
+                  'agent063_dashboard_keyboard_focus_missing',
+                  'agent063_dashboard_keyboard_order_changed',
+                  'agent063_dashboard_keyboard_focus_lost',
+                  'agent063_guided_model_default_missing',
+                  'agent063_guided_model_manual_missing',
+                  'agent063_guided_model_automatic_missing',
                   'agent062_v8_files_navigation_missing',
                   'agent062_v8_files_reader_missing',
                   'agent062_v8_workspaces_navigation_missing',
@@ -250,6 +255,12 @@ jobs:
                   'agent062_v8_settings_editor_missing',
                   'agent063_profile_menu_missing',
                   'agent063_profile_identity_state_missing',
+                  'agent063_profile_display_field_missing',
+                  'agent063_profile_network_section_missing',
+                  'agent063_profile_network_state_missing',
+                  'agent063_profile_save_missing',
+                  'agent063_profile_save_readback_missing',
+                  'agent063_profile_display_name_readback_missing',
                   'agent062_v8_approvals_navigation_missing',
                   'agent062_v8_approvals_inbox_missing',
                   'agent062_v8_approvals_readback_missing',
@@ -279,6 +290,25 @@ jobs:
                   'agent062_dashboard_cold_customize_missing',
                   'agent062_dashboard_drag_cold_order_changed',
                   'agent062_dashboard_cold_finish_missing',
+                  'agent062_groups_editor_missing',
+                  'agent062_groups_editor_value_missing',
+                  'agent062_groups_navigation_missing',
+                  'agent062_groups_page_missing',
+                  'agent062_groups_list_menu_missing',
+                  'agent062_groups_create_action_missing',
+                  'agent062_groups_create_save_missing',
+                  'agent062_groups_created_not_visible',
+                  'agent062_groups_new_conversation_missing',
+                  'agent062_groups_new_chat_not_visible',
+                  'agent062_groups_rename_menu_missing',
+                  'agent062_groups_rename_action_missing',
+                  'agent062_groups_rename_save_missing',
+                  'agent062_groups_renamed_not_visible',
+                  'agent062_groups_conversation_not_visible',
+                  'agent062_groups_delete_action_missing',
+                  'agent062_groups_delete_confirmation_missing',
+                  'agent062_groups_deleted_still_visible',
+                  'agent062_groups_chat_removed_with_group',
                   'agent06_online_ui_button_missing',
                   'agent06_online_native_core_unavailable',
                   'agent06_online_native_exited_before_ready',
@@ -320,9 +350,7 @@ jobs:
                   'ArgumentException','InvalidOperationException','COMException',
                   'ElementNotAvailableException','MethodException','ItemNotFoundException',
                   'IndexOutOfRangeException','InvalidCastException','other')
-                if([string]$w.exception_class -cin $safeExceptions -or
-                   ([string]$w.exception_class -match 'Exception' -and
-                    ([string]$w.exception_class).Length -le 64)){
+                if([string]$w.exception_class -cin $safeExceptions){
                   Write-Host ('AGENT062_WITNESS_SAFE_EXCEPTION='+[string]$w.exception_class)
                 }
                 $safeLine=0
@@ -330,15 +358,7 @@ jobs:
                    $safeLine -ge 1 -and $safeLine -le 2000){
                   Write-Host ('AGENT062_WITNESS_SAFE_LINE='+$safeLine)
                 }
-                $safeCheckpoints=@(
-                  'DASHBOARD_HOME','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD',
-                  'DASHBOARD_DONE','DASHBOARD_WIDGET',
-                  'DASHBOARD_DRAG','DASHBOARD_COLD_DRAG',
-                  'NOT_STARTED','LOOKUP_INITIAL_TITLE',
-                  'LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON',
-                  'CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE',
-                  'LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE','V8_DASHBOARD_HISTORY_ROUTE','V8_MODELS_ROUTE','V8_FILES_ROUTE','V8_WORKSPACES_ROUTE','V8_SETTINGS_ROUTE','V8_APPROVALS_ROUTE','V8_GRAPH_ROUTE','V8_ROUTES_COMPLETE'
-                )
+                $safeCheckpoints=@('NOT_STARTED','LOOKUP_INITIAL_TITLE','LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON','CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE','LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE','DASHBOARD_HOME','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD','DASHBOARD_DRAG','DASHBOARD_KEYBOARD','DASHBOARD_DONE','DASHBOARD_WIDGET','DASHBOARD_COLD_DRAG','GROUPS_NAVIGATION','GROUPS_CREATE','GROUPS_NEW_CONVERSATION','GROUPS_RENAME','GROUPS_DELETE','PROFILE_MENU','PROFILE_DISPLAY_NAME','PROFILE_SAVE','PROFILE_COLD_READBACK','PROFILE_READBACK')
                 if([string]$w.ui_checkpoint -cin $safeCheckpoints){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_GUI_CHECKPOINT='+[string]$w.ui_checkpoint)
                 }
@@ -379,21 +399,3 @@ jobs:
           }
           Write-Host 'AGENT06_ONLINE_SETUP_REPAIR_UNINSTALL_PASS'
           Write-Host 'AGENT06_PRIVATE_ARTIFACTS_UPLOADED=0'
-      - name: Upload clean UI-only screenshots for independent visual comparison
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: IWXA-Agent062-V8-clean-Windows-screens
-          path: |
-            ${{ runner.temp }}/agent062-v8-initial.png
-            ${{ runner.temp }}/agent062-v8-home.png
-            ${{ runner.temp }}/agent062-v8-dialogue.png
-            ${{ runner.temp }}/agent062-v8-models.png
-            ${{ runner.temp }}/agent062-v8-files.png
-            ${{ runner.temp }}/agent062-v8-workspaces.png
-            ${{ runner.temp }}/agent062-v8-settings.png
-            ${{ runner.temp }}/agent062-v8-approvals.png
-            ${{ runner.temp }}/agent062-v8-graph.png
-          if-no-files-found: warn
-          retention-days: 1
-      # Synthetic isolated Windows UI only. No EXE, source, logs or user profiles.
