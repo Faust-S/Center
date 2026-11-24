@@ -1,4 +1,4 @@
-import React,{useState} from 'react';
+import React,{useEffect,useState} from 'react';
 import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy}
  from '../runtime/cen03-corporate-seats.mjs';
 
@@ -32,8 +32,16 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,emp
  const locked=busy||!available||!view||pending!==null;
  const assigned=!!employee&&view?.assignments.some((r:any)=>r.reserved&&r.personId===employee.personId);
  const from=view?.assignments.find((r:any)=>r.reserved&&r.grantId===source);
+ const [clock,setClock]=useState(Date.now);
+ // A suspended window may outlive a signed license or STATUS. The native
+ // owner always rechecks; also remove stale apparent availability in UI.
+ useEffect(()=>{
+  setClock(Date.now());
+  const timer=setInterval(()=>setClock(Date.now()),1000);
+  return ()=>clearInterval(timer);
+ },[]);
  const currentLicense=!!view?.candidate&&
-  Date.parse(view.candidate.expiresAt)>Date.now()&&Date.parse(view.candidate.statusValidUntil)>Date.now();
+  Date.parse(view.candidate.expiresAt)>clock&&Date.parse(view.candidate.statusValidUntil)>clock;
  const enable=()=>run('Продуктовая политика подтверждена исходным T3.',async()=>{
   if(locked)throw Error('CEN_D3_CORPORATE_SEAT_READBACK_REQUIRED');
   setPending('Подключение продуктовой политики');setReceipt('');
@@ -69,7 +77,7 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,emp
     onClick={()=>void refresh()}>Перечитать распределение</button>
    {pending&&<p role="alert">Результат операции {pending} не подтверждён. Перед новым действием перечитайте исходный реестр. Автоматического повтора нет.</p>}
    {view&&<>
-    <p role="status">{labels[view.licenseState]??view.licenseState}</p>
+    <p role="status">{view.candidate&&!currentLicense?'Срок последней подписанной проверки истёк. Перечитайте распределение.':labels[view.licenseState]??view.licenseState}</p>
     <div className="form-grid" data-testid="d3-seat-capacity">
      <div><small>Зарегистрированные сотрудники / лимит</small><strong>{' '}{view.independentlyEnrolledEmployees} / {view.employeeLimit??'—'}</strong></div>
      <div><small>Зарезервированные места / лимит</small><strong>{' '}{view.reservedSeats} / {view.seatLimit??'—'}</strong></div>

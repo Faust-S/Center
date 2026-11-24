@@ -13,7 +13,7 @@ const view=()=>({schema:'IWXA_T3_ORIGINAL_CORPORATE_SEAT_VIEW/1',organizationId:
  reservedSeats:1,independentlyEnrolledEmployees:2,availableSeats:1,seatLimit:2,employeeLimit:5,
  overSeatLimit:0,overEmployeeLimit:0,assignmentTotal:1,assignmentOffset:0,assignmentNextOffset:null,
  candidate:{licenseId:'license:one',lineageId:'lineage:one',lineageDigest:H,licenseDigest:H,
- seatLimit:2,employeeLimit:5},assignments:[{...row}]});
+ seatLimit:2,employeeLimit:5,expiresAt:'2030-01-01T00:00:00.000Z',statusValidUntil:'2029-12-31T00:00:00.000Z'},assignments:[{...row}]});
 const read=v=>readOriginalSeatView(v,org,ws);
 test('only exact original organization and workspace projection is accepted',()=>{
  assert.equal(read(view()).reservedSeats,1);

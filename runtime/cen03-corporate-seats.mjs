@@ -33,7 +33,10 @@ export function readOriginalSeatView(value,organizationId,workspaceId){
  }else{
   check(v.licenseState==='VERIFIED_CAPACITY_CANDIDATE'&&sha(v.licenseEvidenceDigest)&&
    id(c?.licenseId)&&id(c?.lineageId)&&sha(c?.lineageDigest)&&sha(c?.licenseDigest)&&
-   count(c?.seatLimit)&&count(c?.employeeLimit)&&c.seatLimit===v.seatLimit&&
+   count(c?.seatLimit)&&count(c?.employeeLimit)&&
+   typeof c.expiresAt==='string'&&Number.isFinite(Date.parse(c.expiresAt))&&
+   typeof c.statusValidUntil==='string'&&Number.isFinite(Date.parse(c.statusValidUntil))&&
+   c.seatLimit===v.seatLimit&&
    c.employeeLimit===v.employeeLimit&&
    v.overSeatLimit===Math.max(0,v.reservedSeats-v.seatLimit)&&
    v.overEmployeeLimit===Math.max(0,v.independentlyEnrolledEmployees-v.employeeLimit)&&
@@ -54,6 +57,8 @@ export function readOriginalSeatView(value,organizationId,workspaceId){
 }
 // Return a fresh command bound to the exact independently-read native state.
 // No price/seat calculations, actor selection, or proof keys are sent by UI.
+/** @param {any} view @param {string} kind @param {string} commandId
+ * @param {{personId:string,enrollmentId:string}|null} employee @param {string|null} [fromGrantId] */
 export function prepareOriginalSeatCommand(view,kind,commandId,employee,fromGrantId=null){
  check(view?.originalReadback===true&&id(commandId)&&['ASSIGN','RELEASE','TRANSFER'].includes(kind),
   'CEN_D3_CORPORATE_SEAT_COMMAND_INVALID');
