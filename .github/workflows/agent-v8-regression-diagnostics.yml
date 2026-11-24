@@ -1,0 +1,111 @@
+# Public runner; private test output never printed or uploaded in plaintext.
+name: Agent V8 isolated baseline failure diagnostics
+on:
+  push:
+    branches:
+      - work/2026-11-24-agent-v8-regression-diagnostics
+    paths:
+      - .github/workflows/agent-v8-regression-diagnostics.yml
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PRIVATE_PIN: e80e7e5c60d510982628d66d89f2372d7bf4be9f
+      PRIVATE_TREE: faa10f168ea0fa00028a2fd30623697c308e1e3a
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: e80e7e5c60d510982628d66d89f2372d7bf4be9f
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Run exact desktop suite and seal failure diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git rev-parse HEAD).Trim() -cne $env:PRIVATE_PIN -or
+             (& git rev-parse 'HEAD^{tree}').Trim() -cne $env:PRIVATE_TREE){
+             throw 'SOURCE_PIN_MISMATCH'
+          }
+          $out=Join-Path $env:RUNNER_TEMP 'agent-v8-sealed'
+          New-Item -ItemType Directory -Path $out -Force|Out-Null
+          $script=Join-Path $env:RUNNER_TEMP 'agent-v8-diagnose.cjs'
+          $js=@'
+          const fs=require("node:fs"),path=require("node:path"),cp=require("node:child_process"),crypto=require("node:crypto"),zlib=require("node:zlib");
+          const [root,out,source,tree]=process.argv.slice(2);
+          const cwd=path.join(root,"desktop"),work=path.dirname(out);
+          const run=(label,cmd,args,shell=false)=>{
+            const stdout=path.join(work,"agent-v8-"+label+".stdout"),stderr=path.join(work,"agent-v8-"+label+".stderr");
+            const a=fs.openSync(stdout,"w"),b=fs.openSync(stderr,"w");
+            let r;
+            try{r=cp.spawnSync(cmd,args,{cwd,shell,stdio:["ignore",a,b],windowsHide:true,env:{...process.env,CI:"true"}});}
+            finally{fs.closeSync(a);fs.closeSync(b);}
+            return {exit:r.status,signal:r.signal,error:r.error?.code||null,stdout:fs.readFileSync(stdout,"utf8"),stderr:fs.readFileSync(stderr,"utf8")};
+          };
+          const install=run("install",process.platform==="win32"?"npm.cmd":"npm",["ci","--no-audit","--no-fund"],process.platform==="win32");
+          const result={schema:"IWXA_PRIVATE_DIAGNOSTICS/1",source,tree,platform:process.platform,node:process.version,installExit:install.exit};
+          let tests=null;
+          if(install.exit===0){
+            tests=run("test",process.execPath,["--test","--test-reporter=tap"]);
+            const tap=tests.stdout.replace(/\r\n/g,"\n");
+            const counts={};
+            for(const k of ["tests","pass","fail","cancelled","skipped","todo"]){
+              const m=tap.match(new RegExp("^# "+k+" ([0-9]+)\\s*$","m"));
+              counts[k]=m?Number(m[1]):null;
+            }
+            result.counts=counts;
+            result.testExit=tests.exit;
+            result.testSignal=tests.signal;
+            result.testError=tests.error;
+            result.stderr=tests.stderr.slice(-250000);
+            result.failures=[];
+            const blocks=[...tap.matchAll(/^not ok ([0-9]+) - (.*)\n([\s\S]*?)(?=^(?:ok|not ok) [0-9]+ - |^# tests |(?![\s\S]))/gm)];
+            for(const b of blocks){
+              const d=b[3];
+              result.failures.push({index:Number(b[1]),title:b[2],detail:d.length>250000?d.slice(0,230000)+"\n[bounded]\n"+d.slice(-20000):d});
+            }
+            if(result.failures.length!==counts.fail)result.tapFallback=tap.slice(-2000000);
+            console.log("DIAG_PLATFORM="+result.platform);
+            for(const k of ["tests","pass","fail"])console.log("DIAG_"+k.toUpperCase()+"="+counts[k]);
+            console.log("DIAG_FAILURE_BLOCKS="+result.failures.length);
+          }else{
+            result.installError=install.error;result.installStdout=install.stdout.slice(-250000);result.installStderr=install.stderr.slice(-250000);
+            console.log("DIAG_INSTALL_FAILED");
+          }
+          const publicKey=crypto.createPublicKey({key:Buffer.from("MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAyHRYeqmqbeIoPPvHkFxwyVr7qirEKmReqcwv2oYk5Q4YWxJ+Urdj6D6wULRw95WgqIFftFkGPvVOIJRaZHYfJzfWbayy1HuqPnzzpTUClcU5ovfa5AmCTwP7rKPJjWD2xspAUBqXzpl0sxe4SUzT5Dencd+K8MDXevIGXkjMTVEkvRs3xz89vK6N523w1aRZf/JNPhXNZJFYkLlECf/tYZ8d2hYKecgpT6yeyrSxeeFF5viASN7p893v0f+yVrquJ/l/xpL7y3RroftIWAwQYO+Jhffp0YMZpulRsJjlcqGYUgf9nKUdRrj4Xwc6L2PGI7ZowLP5eLcnTd/ofZRuasqF0EdVtQ7LI+UI43ztwrJnQKB9kiHrLoW1quMF5OYWYROw4nxvTbbqY7q0UTuvzFlvvq0DFF6UhP8siPCAhiXoQami1rtLG5WS08H41Uwfj5l3x7NsOFqa+IS/3WIOuW5veI/lhhJrQMkYUsSPdoLCov9ptnAKUnQJ6T8tZmQBAgMBAAE=","base64"),format:"der",type:"spki"});
+          const plain=zlib.gzipSync(Buffer.from(JSON.stringify(result),"utf8"));
+          const key=crypto.randomBytes(32),nonce=crypto.randomBytes(12);
+          const cipher=crypto.createCipheriv("aes-256-gcm",key,nonce);
+          const aad=Buffer.from(source+":"+tree+":"+process.platform,"utf8");cipher.setAAD(aad);
+          const encrypted=Buffer.concat([cipher.update(plain),cipher.final()]);
+          const wrapped=crypto.publicEncrypt({key:publicKey,padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,oaepHash:"sha256"},key);
+          const hash=b=>crypto.createHash("sha256").update(b).digest("hex");
+          fs.writeFileSync(path.join(out,"diagnostics.enc"),encrypted,{flag:"wx"});
+          fs.writeFileSync(path.join(out,"envelope.json"),JSON.stringify({schema:"IWXA_DIAGNOSTICS_ENVELOPE/1",source,tree,platform:process.platform,sha256:hash(encrypted),plainSha256:hash(plain),nonce:nonce.toString("base64"),tag:cipher.getAuthTag().toString("base64"),wrappedKey:wrapped.toString("base64")},null,2),{flag:"wx"});
+          if(install.exit!==0||!tests||tests.signal||tests.error||tests.exit===null||result.counts.tests===null||result.counts.fail===null||result.counts.pass===null||(result.counts.fail===0)!==(tests.exit===0))process.exitCode=1;
+          '@
+          [System.IO.File]::WriteAllText($script,$js,[System.Text.Encoding]::UTF8)
+          & node $script $env:GITHUB_WORKSPACE $out $env:PRIVATE_PIN $env:PRIVATE_TREE
+          if($LASTEXITCODE -ne 0){throw 'DIAGNOSTICS_INCOMPLETE'}
+      - name: Upload authenticated encrypted diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-v8-private-diagnostic-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/agent-v8-sealed/diagnostics.enc
+            ${{ runner.temp }}/agent-v8-sealed/envelope.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
