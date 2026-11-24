@@ -12,20 +12,20 @@ permissions:
   actions: read
 concurrency:
   group: agent063-final-candidate-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   final-installed:
     runs-on: windows-2022
-    timeout-minutes: 145
+    timeout-minutes: 165
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '4b50990cad2c93c1e97fca6f6b8465251b653e58'
-      PRIVATE_TREE_PIN: '8aaa49eadee72b27bc95652b12045a5514eed76b'
+      PRIVATE_SOURCE_PIN: '6cb73852d719ffb2d165a2eacce59d4f3be87499'
+      PRIVATE_TREE_PIN: '8a6894c34e8f996ae7a2776e70e7408025c49e6f'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
-      SOURCE_RUN_ID: '45445455236'
-      SOURCE_WORKFLOW_HEAD: 'fe1aedb972b93a4415898d3ff8ea75eae6d114ed'
+      SOURCE_RUN_ID: '45448697988'
+      SOURCE_WORKFLOW_HEAD: 'e714514cbc32e00534e29471776f632da3f1120d'
       DELIVERY_PUBLIC_KEY_SHA256: 'a97d584172e7e6cc67bcd589404685c1cf465df437991efe7c9483375bbd0f86'
       DELIVERY_PUBLIC_KEY_DER: 'MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAshVAuHxi0zUvzdKEQPoYtt8xW/c8IkQ5X7WF+judUM5pIinbFLmlYU6h0t9klxtE90jnvAsLYaa4MKMSTdVEuPWhAL7JqnK48Ay235s07IZz8jnp+MI+wDQtvSR4Q9y8G5M1ZvXz/+AlzhHyScl8MNInDNy9jV/xJXndVHCzL5J5LNr68yTX5g5I0lmBjzQO9GMKwY9FFNAweiEP2IQRSdhTDbA/xGJqTRz0y/SSHt/b2tCIjYKBUm/T9tWx6TDVpFNVN+n2c0ebWis/Lq9u8/dr0CMxwa+xUTxsKZaHqoTU524Hi34arOsnWpR7BcU0Rx9l+IQZGRDByDgNPFI6DfhLm++xpwN5ZUiiYn6D0RpS4PaJdmB7DZGUW4ysAeAyhSJBTZSOglPcRgR3IjINi/gWD5XD5/Ygx6BTfXw6I6saRkOehj3SJ2YCQ0ZRdeDnRWVdtniCLiILhAklCc7JJf9Ktmz9eX9XNfUkmJUyzPUNtiXcbVVNH+FtNmajf72ZAgMBAAE='
     steps:
@@ -38,11 +38,18 @@ jobs:
           $headers=@{Authorization=('Bearer '+$env:GH_TOKEN);Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28'}
           $base='https://api.github.com/repos/Faust-S/Center/actions/runs/'+$env:SOURCE_RUN_ID
           try{
-            $r=Invoke-RestMethod -Uri $base -Headers $headers
-            if([string]$r.id -cne $env:SOURCE_RUN_ID -or $r.head_sha -cne $env:SOURCE_WORKFLOW_HEAD -or
-               $r.path -cne '.github/workflows/agent-v8-regression-diagnostics.yml' -or
-               $r.head_branch -cne 'work/2026-11-24-agent-v8-regression-diagnostics' -or
-               $r.status -cne 'completed' -or $r.conclusion -cne 'success'){
+            $deadline=[DateTime]::UtcNow.AddMinutes(20)
+            do{
+              $r=Invoke-RestMethod -Uri $base -Headers $headers
+              if([string]$r.id -cne $env:SOURCE_RUN_ID -or $r.head_sha -cne $env:SOURCE_WORKFLOW_HEAD -or
+                 $r.path -cne '.github/workflows/agent-v8-regression-diagnostics.yml' -or
+                 $r.head_branch -cne 'work/2026-11-24-agent-v8-regression-diagnostics'){
+                throw 'EXACT_SOURCE_PROOF_INVALID'
+              }
+              if($r.status -ceq 'completed'){break}
+              Start-Sleep -Seconds 15
+            }while([DateTime]::UtcNow -lt $deadline)
+            if($r.status -cne 'completed' -or $r.conclusion -cne 'success'){
               throw 'EXACT_SOURCE_PROOF_INVALID'
             }
             $j=Invoke-RestMethod -Uri ($base+'/attempts/'+$r.run_attempt+'/jobs?per_page=100') -Headers $headers
@@ -452,6 +459,10 @@ jobs:
                 if([string]$w.workspace_probe_failure -cin $workspaceProbeCodes){
                   Write-Host ('AGENT063_WORKSPACE_PROBE_FAILURE='+[string]$w.workspace_probe_failure)
                 }
+                $closeCodes=@('TASK_OPERATION','WORKSPACE','APPEARANCE','NAVIGATION','TASK_DRAFT','DOCUMENT','CONVERSATION','LISTENER','OTHER','WAITING','SAVING','NO_VISIBLE_STATUS','CLOSE_REQUEST_NOT_POSTED')
+                if([string]$w.native_close_observation -cin $closeCodes){
+                  Write-Host ('AGENT063_NATIVE_CLOSE_OBSERVATION='+[string]$w.native_close_observation)
+                }
                 if($w.v8_ui_structure){
                   $d=$w.v8_ui_structure
                   foreach($key in @('total','buttons','documents')){
@@ -577,6 +588,10 @@ jobs:
                 $prepCodes=@('INTERRUPTED','PLAN_CHANGED','ROUTE_CHANGED','READ_TIMEOUT','SESSION_UNAVAILABLE','OUTCOME_UNKNOWN','NETWORK_REQUIRED','DOWNLOAD_TRANSPORT','DOWNLOAD_INTEGRITY','STORAGE','INFERENCE_FAILED','READBACK_UNVERIFIED','PENDING','OTHER')
                 if([string]$w.model_preparation_stage -cin $stages){Write-Host ('AGENT063_MODEL_PREPARATION_STAGE='+[string]$w.model_preparation_stage)}
                 if([string]$w.model_preparation_failure -cin $prepCodes){Write-Host ('AGENT063_MODEL_PREPARATION_REASON='+[string]$w.model_preparation_failure)}
+                $closeCodes=@('TASK_OPERATION','WORKSPACE','APPEARANCE','NAVIGATION','TASK_DRAFT','DOCUMENT','CONVERSATION','LISTENER','OTHER','WAITING','SAVING','NO_VISIBLE_STATUS','CLOSE_REQUEST_NOT_POSTED')
+                if([string]$w.native_close_observation -cin $closeCodes){
+                  Write-Host ('AGENT063_NATIVE_CLOSE_OBSERVATION='+[string]$w.native_close_observation)
+                }
                 $line=0
                 if([int]::TryParse([string]$w.exception_line,[ref]$line) -and $line -ge 1 -and $line -le 2000){Write-Host ('AGENT063_REAL_MODEL_WITNESS_LINE='+$line)}
               }
