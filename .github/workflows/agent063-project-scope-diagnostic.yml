@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     env:
-      AGENT_PIN: 'e46fba7adb389286002604f3a5c0dddf0351bb41'
+      AGENT_PIN: '8b1a14ab6fb0f5db9d58b582915020f11b033dfe'
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@v4
