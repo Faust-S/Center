@@ -266,8 +266,15 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
        onClick={applyHandoff}>Перенести контрольные данные</button>
      {handoff&&<p data-testid="cen04-corporate-handoff-summary" className="muted">
        Лицензия: {handoff.licenseId}. STATUS: {handoff.status},
-       последовательность: {handoff.sequence}. Данные ещё не проверены T3.
+       последовательность: {handoff.sequence}.
+       {' '}{corporateLatest
+         ?matchesCorporateDeliveryReceipt(corporateLatest,handoff)
+           ?'Данные совпадают с квитанцией оригинального T3.'
+           :'Данные не совпадают с квитанцией оригинального T3.'
+         :'Данные ещё не проверены T3.'}
      </p>}
+     <details>
+       <summary>Контрольная сумма и размер (ручной ввод)</summary>
      <label>SHA-256 корпоративного .iwxa из Publisher
        <input data-testid="cen04-corporate-sha256" value={corporateSha}
          autoComplete="off" spellCheck={false} disabled={busy}
@@ -282,6 +289,7 @@ export default function Cen04CorporateIntakePanel({organizationId,invoke}:Props)
          onChange={e=>{setCorporateBytes(e.target.value);setHandoff(null);
            setHandoffText('');resetCarrierEvidence();}}/>
      </label>
+     </details>
      <button type="button" className="secondary"
        data-testid="cen04-corporate-verify-carrier"
        disabled={!invoke||busy||
