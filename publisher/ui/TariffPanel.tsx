@@ -17,6 +17,7 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  const [quotas,setQuotas]=useState<Quota[]>([]);const [choice,setChoice]=useState('');
  const [holderId,setHolderId]=useState('');
  const [previousProposalId,setPreviousProposalId]=useState('');
+ const [renewalOpen,setRenewalOpen]=useState(false);
  const [editionNotice,setEditionNotice]=useState('');
  const [tariffFeedback,setTariffFeedback]=useState<SaveResult|null>(null);
  const [proposalFeedback,setProposalFeedback]=useState<SaveResult|null>(null);
@@ -51,6 +52,22 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  const eligibleSources=draft.proposals.filter(p=>p.tariffSnapshot&&
    p.productId===selected?.productId&&p.holderId===selectedHolder);
  const selectedSource=eligibleSources.find(p=>p.id===previousProposalId);
+ // Offer the exact previous request and newer revision as one explicit
+ // user selection. This is only a form prefill, not a preparation or issue.
+ const renewalOptions=draft.proposals.flatMap(p=>{
+   const previous=p.tariffSnapshot;
+   const holder=draft.holders.find(h=>h.id===p.holderId&&h.type===previous?.holderType);
+   if(!previous||!holder||p.productId!==previous.productId)return [];
+   return draft.tariffs.filter(t=>t.productId===previous.productId&&
+     t.holderType===holder.type&&t.id===previous.id&&t.revision>previous.revision)
+     .sort((a,b)=>b.revision-a.revision).map(t=>({previous:p,holder,tariff:t}));
+ });
+ function selectRenewal(p:Proposal,t:Tariff,h:Holder){
+   if(busy||!renewalOptions.some(x=>x.previous.id===p.id&&
+      tariffKey(x.tariff)===tariffKey(t)&&x.holder.id===h.id))return;
+   setChoice(tariffKey(t));setHolderId(h.id);setPreviousProposalId(p.id);
+   setProposalFeedback(null);setRenewalOpen(false);
+ }
  async function saveTariff(e:React.FormEvent){
   e.preventDefault();
   if(!selectedProduct)return;
@@ -120,6 +137,21 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
   </>}
   <section className="card form-panel" data-testid="publisher-tariff-proposal" onChangeCapture={()=>setProposalFeedback(null)}><h2>Подготовить лицензию</h2>
    <p className="muted">Условия выбранной редакции сохраняются в запросе. Лицензия без подписи не действует.</p>
+   {renewalOptions.length>0&&<div className="publisher-followup-choice" data-testid="publisher-direct-renewal">
+     <button type="button" className="secondary" aria-expanded={renewalOpen}
+       onClick={()=>setRenewalOpen(x=>!x)} disabled={busy}>Выбрать продление по предыдущей подготовке</button>
+     {renewalOpen&&<div className="publisher-offer-review">
+       <p className="muted">Выберите прежний запрос и новую редакцию. Условия можно проверить перед сохранением.</p>
+       {renewalOptions.map(({previous,holder,tariff})=><div className="simple-row"
+         key={previous.id+'|'+tariffKey(tariff)}>
+         <div><strong>{holder.name} · {tariff.name}</strong>
+           <small>{previous.id} · редакция {previous.tariffSnapshot?.revision} → {tariff.revision}</small></div>
+         <button type="button" className="secondary" disabled={busy}
+           aria-label={'Продлить подготовку '+previous.id+' по редакции '+tariff.revision}
+           onClick={()=>selectRenewal(previous,tariff,holder)}>Выбрать редакцию {tariff.revision}</button>
+       </div>)}
+     </div>}
+   </div>}
    {draft.tariffs.length===0?<p className="muted">Сначала создайте тариф.</p>:<>
     <div className="form-grid">
      <label>Тариф<select value={selected?tariffKey(selected):''} onChange={e=>{setChoice(e.target.value);setHolderId('');setPreviousProposalId('');}}><option value="">Выберите тариф</option>{draft.tariffs.map(t=><option key={tariffKey(t)} value={tariffKey(t)}>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.name} · редакция {t.revision} · {t.holderType==='PERSON'?'Личный':'Для организации'}</option>)}</select></label>

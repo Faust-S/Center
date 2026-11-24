@@ -1230,12 +1230,11 @@ try{
   Phase 'PUBLISHER_RENEWAL_BASIS'
   Press $pub 'Лицензии'
   Wait-Text $pub 'Подготовить лицензию'
-  Select-ComboIndex $pub 'Тариф' 2
-  Select-ComboIndex $pub 'Клиент' 1
+  Press $pub 'Выбрать продление по предыдущей подготовке'
+  Press $pub ('Продлить подготовку '+$request+' по редакции 2')
   Wait-Text $pub 'Выбранный тариф: TEAM, редакция 2'
   Wait-Text $pub 'Места продукта: 1'
   Wait-Text $pub 'Сотрудники: 6'
-  Select-ComboIndex $pub 'Основание подготовки' 1
   Wait-Text $pub $request
   Wait-Text $pub 'Новая подготовка будет связана с прежним запросом'
   Press $pub 'Создать следующую подготовку'

@@ -1292,11 +1292,13 @@ try {
     .selectOption('IWXA_ADMIN_CENTER:ORGANIZATION:TEAM:1');
   assert.equal(await page.getByTestId('publisher-followup-readback').count(),0);
   assert.equal(await page.getByRole('button',{name:'Сохранить подготовку по тарифу'}).isDisabled(),true);
-  await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
-    .selectOption([newer.productId,newer.holderType,newer.id,newer.revision].join(':'));
-  await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Клиент'})
-    .selectOption('11111111-1111-4111-8111-111111111111');
-  await page.getByRole('combobox',{name:'Основание подготовки'}).selectOption(firstOffer.id);
+  await page.getByRole('button',{name:'Выбрать продление по предыдущей подготовке'}).click();
+  await page.getByRole('button',{name:'Продлить подготовку '+firstOffer.id+' по редакции 2',exact:true}).click();
+  assert.match(await page.getByTestId('publisher-offline-offer-preview').innerText(),/Выбранный тариф: TEAM, редакция 2/);
+  assert.match(await page.getByTestId('publisher-offline-offer-preview').innerText(),/Места продукта: 7/);
+  assert.ok((await page.getByTestId('publisher-followup-readback').innerText()).includes(firstOffer.id));
+  assert.deepEqual(JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft'))),firstSaved,
+    'Selecting a previous offer and revision must not write a new preparation');
   await page.getByRole('button',{name:'Создать следующую подготовку'}).click();
   const linked=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')));
   assert.equal(linked.proposals.length,3);
