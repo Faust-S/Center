@@ -109,6 +109,36 @@ function WriteSeatDiagnostics(){
  foreach($code in $codes){Write-Host ('CORPORATE_INSTALLED_SEAT_GATE_DETAIL='+$code)}
 
 }
+function ReadBootstrapValue([string]$name){
+ $field=FindName $name 'Edit'
+ $pattern=$null
+ Check ($field.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_VALUE_UNAVAILABLE'
+ return [string]$pattern.Current.Value
+}
+function ReadEmployeeBootstrap(){
+ ClickButton 'Получить профиль подключения'
+ $raw=ReadBootstrapValue 'Публичный профиль для Agent'
+ $fingerprint=ReadBootstrapValue 'Контрольный отпечаток SHA-256'
+ Check ($fingerprint -cmatch '^[a-f0-9]{64}$') 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_DIGEST_INVALID'
+ try{$profile=$raw|ConvertFrom-Json -Depth 20}catch{throw 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_JSON_INVALID'}
+ Check ($profile.PSObject.Properties.Count -eq 13) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_FIELDS_INVALID'
+ $draft=Get-Content -LiteralPath (Join-Path $env:CORPORATE_ADMIN_DATA 'atlas-store-v1/preparation/draft.json') -Raw|ConvertFrom-Json -Depth 60
+ $org=[string]$draft.activeOrganizationId
+ $identity=Get-Content -LiteralPath (Join-Path $env:CORPORATE_ADMIN_DATA ('t3-admin/organizations/'+$org+'/identity.json')) -Raw|ConvertFrom-Json -Depth 20
+ Check ($profile.organizationId -ceq $org -and $profile.workspaceId -ceq $identity.workspace -and
+    $profile.managerPersonId -ceq $identity.reviewer -and $profile.issuerKeyId -ceq $identity.issuer -and
+    $profile.reviewKeyId -ceq $identity.reviewKey -and $profile.organizationName -ceq $identity.organizationName) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_SCOPE_INVALID'
+ Check ($profile.issuerPublicKey -cmatch '^-----BEGIN PUBLIC KEY-----' -and
+   $profile.reviewPublicKey -cmatch '^-----BEGIN PUBLIC KEY-----' -and
+   !$raw.Contains('PRIVATE KEY')) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_PUBLIC_KEYS_INVALID'
+ # Independent digest of the exact original public profile. No credential,
+ # raw profile, organization ID or digest is printed to the public run.
+ $json=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($raw))
+ $code="const p=JSON.parse(Buffer.from(process.argv[1],'base64').toString('utf8'));const c='{'+Object.keys(p).sort().map(k=>JSON.stringify(k)+':'+JSON.stringify(p[k])).join(',')+'}';process.stdout.write(require('node:crypto').createHash('sha256').update(c).digest('hex'))"
+ $actual=(& node -e $code $json)
+ Check ($LASTEXITCODE -eq 0 -and $actual -ceq $fingerprint) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_DIGEST_MISMATCH'
+ return $fingerprint
+}
 function WaitSeatProjection(){
  Check (WaitForText 'Зарезервированные места / лимит' 240) 'CORPORATE_INSTALLED_SEAT_ORIGINAL_VIEW_NOT_OBSERVED'
  Check ((HasText 'Нет действующей лицензии') -or (HasText 'Исходный Consumer недоступен')) 'CORPORATE_INSTALLED_SEAT_UNLICENSED_STATE_NOT_OBSERVED'
@@ -138,6 +168,9 @@ try{
  RegistryChoice $true
  WaitSeatProjection
  Write-Host 'CORPORATE_INSTALLED_SEAT_REGISTRY_INITIALIZED_PASS'
+ $script:phase='READ_EMPLOYEE_BOOTSTRAP'
+ $bootstrapBefore=ReadEmployeeBootstrap
+ Write-Host 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_FIRST_PASS'
  $script:phase='COLD_CLOSE_SEAT_WORKSPACE'
  CloseCenter
  $script:phase='COLD_OPEN_SEAT_WORKSPACE'
@@ -150,6 +183,10 @@ try{
  WaitSeatProjection
  Check (-not (HasText 'Подключить исходный реестр T3')) 'CORPORATE_INSTALLED_SEAT_COLD_REGISTRY_NOT_RESTORED'
  Write-Host 'CORPORATE_INSTALLED_SEAT_COLD_READ_PASS'
+ $script:phase='COLD_EMPLOYEE_BOOTSTRAP'
+ $bootstrapAfter=ReadEmployeeBootstrap
+ Check ($bootstrapAfter -ceq $bootstrapBefore) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_COLD_CHANGED'
+ Write-Host 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_COLD_PASS'
 }catch{
  try{WriteSeatDiagnostics}catch{Write-Host 'CORPORATE_INSTALLED_SEAT_DIAG_UNAVAILABLE'}
  Write-Host ('CORPORATE_INSTALLED_SEAT_PHASE_'+$script:phase)
