@@ -52,8 +52,9 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
           }
       },
       "d3EmployeeSeatView"=>{
-          if !input.as_object().is_some_and(|m|m.is_empty()||
-             (m.len()==1&&m.get("offset").and_then(Value::as_u64).is_some_and(|n|n<=9_007_199_254_740_991))){
+          if !input.as_object().is_some_and(|m|m.iter().all(|(k,v)|
+             matches!(k.as_str(),"offset"|"employeeOffset")&&
+             v.as_u64().is_some_and(|n|n<=9_007_199_254_740_991))){
               return Err("CEN_D3_CORPORATE_SEAT_VIEW_INPUT_INVALID".into());
           }
       },
@@ -63,12 +64,13 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               return Err("CEN_D3_CORPORATE_SEAT_POLICY_CONFIRMATION_REQUIRED".into());
           }
       },
-      "d3EmployeeSeatChange"=>{
-          let fields=["confirmed","kind","commandId","expectedRegistryDigest",
+      "d3EmployeeSeatChange"|"d3EmployeeSeatCommandReadback"=>{
+          let mut fields=vec!["kind","commandId","expectedRegistryDigest",
              "expectedLicenseDigest","employeePersonId","enrollmentId","fromGrantId"];
+          if operation=="d3EmployeeSeatChange"{fields.push("confirmed");}
           if !input.as_object().is_some_and(|m|m.len()==fields.len()&&
              fields.iter().all(|k|m.contains_key(*k)))||
-             input["confirmed"]!=true||
+             (operation=="d3EmployeeSeatChange"&&input["confirmed"]!=true)||
              !input["commandId"].as_str().is_some_and(t3::valid_identifier)||
              !validate_hex(input["expectedRegistryDigest"].as_str())||
              !(input["expectedLicenseDigest"].is_null()||validate_hex(input["expectedLicenseDigest"].as_str())){
@@ -333,7 +335,8 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
         "d3EmployeeExportTask"|"d3EmployeeRecoverOrphanTask"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true&&
             snapshot["d3EmployeeTaskIssueAvailable"]==true,
-        "d3EmployeeSeatView"|"d3EmployeeSeatPolicyEnable"|"d3EmployeeSeatChange"=>
+        "d3EmployeeSeatView"|"d3EmployeeSeatPolicyEnable"|"d3EmployeeSeatChange"|
+        "d3EmployeeSeatCommandReadback"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true&&
             snapshot["d3EmployeeCorporateSeatsAvailable"]==true,
         "d3EmployeeTaskGrantIssue"|"d3EmployeeTaskGrantReadback"=>
@@ -364,12 +367,14 @@ fn verify_corporate_seat_readback(result:&Value,input:&Value,operation:&str,
        !validate_hex(view["registryDigest"].as_str())||
        !view["seatPolicyReady"].is_boolean()||
        !view["reservedSeats"].as_u64().is_some_and(|n|n<=9_007_199_254_740_991)||
-       !view["assignments"].as_array().is_some_and(|rows|rows.len()<=64){
+       !view["assignments"].as_array().is_some_and(|rows|rows.len()<=64)||
+       !view["eligibleEmployees"].as_array().is_some_and(|rows|rows.len()<=64){
         return Err("CEN_D3_CORPORATE_SEAT_READBACK_INVALID".into());
     }
     match operation{
         "d3EmployeeSeatView"=>{
-            if view["assignmentOffset"].as_u64()!=Some(input["offset"].as_u64().unwrap_or(0)){
+            if view["assignmentOffset"].as_u64()!=Some(input["offset"].as_u64().unwrap_or(0))||
+               view["employeeOffset"].as_u64()!=Some(input["employeeOffset"].as_u64().unwrap_or(0)){
                 return Err("CEN_D3_CORPORATE_SEAT_PAGE_INVALID".into());
             }
         },
@@ -387,6 +392,24 @@ fn verify_corporate_seat_readback(result:&Value,input:&Value,operation:&str,
                (if input["kind"]=="RELEASE"{!result["grantId"].is_null()}else{
                    !result["grantId"].as_str().is_some_and(t3::valid_identifier)}){
                 return Err("CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN".into());
+            }
+        },
+        "d3EmployeeSeatCommandReadback"=>{
+            if result["originalReadback"]!=true||result["automaticRetryAllowed"]!=false||
+               result["commandId"]!=input["commandId"]{
+                return Err("CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN".into());
+            }
+            match result["outcome"].as_str(){
+                Some("ALREADY_COMMITTED")=>{
+                    verify_corporate_seat_readback(result,input,"d3EmployeeSeatChange",organization_id,observed)?;
+                },
+                Some("NOT_COMMITTED"|"OUTCOME_UNKNOWN")=>{
+                    if !result["grantId"].is_null()||!result["releasedGrantId"].is_null()||
+                       (result["outcome"]=="NOT_COMMITTED"&&view["registryDigest"]!=input["expectedRegistryDigest"]){
+                        return Err("CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN".into());
+                    }
+                },
+                _=>return Err("CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN".into())
             }
         },
         _=>return Err("CEN_D3_CORPORATE_SEAT_OPERATION_INVALID".into())
@@ -1201,7 +1224,7 @@ pub async fn center_corporate_action(
             return Err("CEN_D3_ORIGINAL_KERNEL_APPLY_NOT_CONNECTED".into());
         }
     }
-    if matches!(operation.as_str(),"d3EmployeeSeatView"|"d3EmployeeSeatPolicyEnable"|"d3EmployeeSeatChange"){
+    if matches!(operation.as_str(),"d3EmployeeSeatView"|"d3EmployeeSeatPolicyEnable"|"d3EmployeeSeatChange"|"d3EmployeeSeatCommandReadback"){
         if app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_none(){
             return Err("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING".into());
         }
@@ -1210,7 +1233,7 @@ pub async fn center_corporate_action(
            !exact_kernel_apply_capability(&verified,&operation){
             return Err("CEN_D3_CONTEXT_CHANGED".into());
         }
-        if operation!="d3EmployeeSeatView"{
+        if matches!(operation.as_str(),"d3EmployeeSeatPolicyEnable"|"d3EmployeeSeatChange"){
             let description=if operation=="d3EmployeeSeatPolicyEnable"{
                 "Подключить продуктовые места в исходной политике организации? Существующие сотрудники, ключи и права доступа к данным и задачам сохраняются.".to_owned()
             }else{
@@ -1466,7 +1489,7 @@ pub async fn center_corporate_action(
         // Age decryption is NOT admission. The original T3 recipient must
         // prove it received the same signed archive as the age tool verified.
         let mut result=output["result"].clone();
-        if matches!(operation.as_str(),"d3EmployeeSeatView"|"d3EmployeeSeatPolicyEnable"|"d3EmployeeSeatChange"){
+        if matches!(operation.as_str(),"d3EmployeeSeatView"|"d3EmployeeSeatPolicyEnable"|"d3EmployeeSeatChange"|"d3EmployeeSeatCommandReadback"){
             if let Err(error)=verify_corporate_seat_readback(&result,&input,&operation,&organization_id,&observed){
                 let _=close_original_owner(&app);
                 return Err(error);
@@ -2118,7 +2141,10 @@ mod corporate_seat_boundary_tests{
         command["employeePersonId"]=Value::Null;
         command["enrollmentId"]=Value::Null;
         assert!(check_bound_request(&command,"d3EmployeeSeatChange").is_ok());
-        assert!(check_bound_request(&json!({"offset":64}),"d3EmployeeSeatView").is_ok());
+        assert!(check_bound_request(&json!({"offset":64,"employeeOffset":128}),"d3EmployeeSeatView").is_ok());
+        command.as_object_mut().unwrap().remove("confirmed");
+        assert!(check_bound_request(&command,"d3EmployeeSeatCommandReadback").is_ok());
+        assert!(check_bound_request(&command,"d3EmployeeSeatChange").is_err());
         assert!(check_bound_request(&json!({"offset":-1}),"d3EmployeeSeatView").is_err());
         assert!(check_bound_request(&json!({"confirmed":true,"expectedRegistryDigest":"a".repeat(64)}),
             "d3EmployeeSeatPolicyEnable").is_ok());
@@ -2131,7 +2157,8 @@ mod corporate_seat_boundary_tests{
         let view=json!({"schema":"IWXA_T3_ORIGINAL_CORPORATE_SEAT_VIEW/1",
             "organizationId":"org:one","workspaceId":"workspace:one","originalReadback":true,
             "productionActivation":false,"registryDigest":"a".repeat(64),
-            "seatPolicyReady":true,"reservedSeats":1,"assignments":[],"assignmentOffset":0});
+            "seatPolicyReady":true,"reservedSeats":1,"assignments":[],"assignmentOffset":0,
+            "eligibleEmployees":[],"employeeOffset":0});
         assert!(verify_corporate_seat_readback(&view,&json!({}),"d3EmployeeSeatView","org:one",&observed).is_ok());
         let mut receipt=json!({"originalReadback":true,"outcome":"COMMITTED","commandId":"seat:one",
             "grantId":"grant:seat:one","releasedGrantId":null,"view":view});

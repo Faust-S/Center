@@ -1,5 +1,5 @@
 import React,{useEffect,useState} from 'react';
-import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy}
+import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery}
  from '../runtime/cen03-corporate-seats.mjs';
 
 type Employee={personId:string;enrollmentId:string};
@@ -22,15 +22,33 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,emp
 }){
  const [view,setView]=useState<any>(null);
  const [pending,setPending]=useState<string|null>(null);
+ const [pendingCommand,setPendingCommand]=useState<any>(null);
+ const [employeeChoice,setEmployeeChoice]=useState('');
  const [source,setSource]=useState('');
  const [receipt,setReceipt]=useState('');
- const refresh=(offset=0)=>run('Распределение мест перечитано из исходного T3.',async()=>{
-  setView(null);setSource('');
-  const result=readOriginalSeatView(await execute('d3EmployeeSeatView',{offset}),organizationId,workspaceId);
-  setView(result);setPending(null);
+ const refresh=(offset=0,employeeOffset=0)=>run('Распределение мест перечитано из исходного T3.',async()=>{
+  setSource('');
+  if(pendingCommand){
+   // Recovery is a separate original read-only verb; it cannot sign or
+   // repeat the pending command. Unknown remains visible and blocks writes.
+   const {confirmed,...request}=pendingCommand;
+   const result=readOriginalSeatCommandRecovery(await execute('d3EmployeeSeatCommandReadback',request),
+    pendingCommand,organizationId,workspaceId);
+   setView(result.view);
+   if(result.outcome==='OUTCOME_UNKNOWN')return false;
+   setPending(null);setPendingCommand(null);
+   setReceipt(result.outcome==='ALREADY_COMMITTED'?'Подтверждено исходным чтением: '+request.commandId:
+    'Исходный реестр не изменился. Команда не записана; автоматического повтора нет.');
+   return;
+  }
+  const result=readOriginalSeatView(await execute('d3EmployeeSeatView',{offset,employeeOffset}),organizationId,workspaceId);
+  setView(result);setEmployeeChoice('');setPending(null);
  });
  const locked=busy||!available||!view||pending!==null;
- const assigned=!!employee&&view?.assignments.some((r:any)=>r.reserved&&r.personId===employee.personId);
+ const rosterEmployee=view?.eligibleEmployees.find((r:any)=>r.personId===employeeChoice&&!r.reserved);
+ const target:Employee|null=employeeChoice?(rosterEmployee??null):employee;
+ const assigned=!!target&&(view?.assignments.some((r:any)=>r.reserved&&r.personId===target.personId)||
+  view?.eligibleEmployees.some((r:any)=>r.personId===target.personId&&r.reserved));
  const from=view?.assignments.find((r:any)=>r.reserved&&r.grantId===source);
  const [clock,setClock]=useState(Date.now);
  // A suspended window may outlive a signed license or STATUS. The native
@@ -57,15 +75,18 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,emp
  const change=(kind:Kind)=>run('Изменение мест подтверждено исходным T3.',async()=>{
   if(locked)throw Error('CEN_D3_CORPORATE_SEAT_READBACK_REQUIRED');
   const commandId='seat:'+crypto.randomUUID();
-  const command=prepareOriginalSeatCommand(view,kind,commandId,employee,
+  const command=prepareOriginalSeatCommand(view,kind,commandId,target,
    kind==='ASSIGN'?null:source);
-  setPending(commandId);setReceipt('');
+  setPending(commandId);setPendingCommand(command);setReceipt('');
   try{
    const result=await execute('d3EmployeeSeatChange',command);
    setView(readOriginalSeatChange(result,command,organizationId,workspaceId));
-   setSource('');setPending(null);setReceipt(commandId);
+   setSource('');setEmployeeChoice('');setPending(null);setPendingCommand(null);
+   setReceipt('Подтверждённая операция: '+commandId);
   }catch(e){
-   if(String(e).includes('CEN_D3_CORPORATE_SEAT_HUMAN_CANCELLED'))setPending(null);
+   if(String(e).includes('CEN_D3_CORPORATE_SEAT_HUMAN_CANCELLED')){
+    setPending(null);setPendingCommand(null);
+   }
    throw e;
   }
  });
@@ -75,7 +96,7 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,emp
   {!available?<p role="status">Подключите исходный реестр сотрудников и совместимый T3 Host.</p>:<>
    <button className="secondary" data-testid="d3-seat-view-refresh" disabled={busy}
     onClick={()=>void refresh()}>Перечитать распределение</button>
-   {pending&&<p role="alert">Результат операции {pending} не подтверждён. Перед новым действием перечитайте исходный реестр. Автоматического повтора нет.</p>}
+   {pending&&<p role="alert">Результат операции {pending} не подтверждён. Перечитайте исходный реестр для восстановления результата. Пока он неизвестен, новые действия заблокированы; автоматического повтора нет.</p>}
    {view&&<>
     <p role="status">{view.candidate&&!currentLicense?'Срок последней подписанной проверки истёк. Перечитайте распределение.':labels[view.licenseState]??view.licenseState}</p>
     <div className="form-grid" data-testid="d3-seat-capacity">
@@ -89,9 +110,23 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,emp
      <p>Организация создана до подключения продуктовых мест. Требуется однократное расширение исходной политики; сотрудники и их права сохраняются.</p>
      <button data-testid="d3-seat-policy-enable" disabled={locked} onClick={()=>void enable()}>Подключить распределение мест</button>
     </div>}
-    {employee?<p>Подтверждённый сотрудник для назначения: <strong>{employee.personId}</strong>.</p>:
-     <p className="muted">Для назначения или передачи сначала перечитайте подтверждённое подключение нужного сотрудника выше.</p>}
-    <button data-testid="d3-seat-assign" disabled={locked||!employee||assigned||!currentLicense||
+    <label>Подтверждённый сотрудник
+     <select data-testid="d3-seat-employee" value={employeeChoice} disabled={locked}
+      onChange={e=>setEmployeeChoice(e.target.value)}>
+      <option value="">{employee?'Сотрудник из подключения: '+employee.personId:'Выберите из исходного реестра'}</option>
+      {view.eligibleEmployees.map((m:any)=><option key={m.personId} value={m.personId}
+       disabled={m.reserved}>{m.personId}{m.reserved?' (место уже назначено)':''}</option>)}
+     </select>
+    </label>
+    <div className="form-actions">
+     <button className="secondary" disabled={locked||view.employeeOffset===0}
+      onClick={()=>void refresh(view.assignmentOffset,Math.max(0,view.employeeOffset-64))}>Предыдущие сотрудники</button>
+     <small>{view.employeeTotal?view.employeeOffset+1:0}–{view.employeeOffset+view.eligibleEmployees.length} из {view.employeeTotal}</small>
+     <button className="secondary" disabled={locked||view.employeeNextOffset===null}
+      onClick={()=>void refresh(view.assignmentOffset,view.employeeNextOffset)}>Следующие сотрудники</button>
+    </div>
+    {!target&&<p className="muted">Для назначения выберите зарегистрированного сотрудника из реестра T3.</p>}
+    <button data-testid="d3-seat-assign" disabled={locked||!target||assigned||!currentLicense||
       !view.seatPolicyReady||!view.withinLimits||view.availableSeats<=0} onClick={()=>void change('ASSIGN')}>Назначить место</button>
     <label>Назначение для освобождения или передачи
      <select data-testid="d3-seat-source" value={source} disabled={locked}
@@ -104,7 +139,7 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,emp
     <div className="form-actions">
      <button className="secondary" data-testid="d3-seat-release" disabled={locked||!from}
       onClick={()=>void change('RELEASE')}>Освободить место</button>
-     <button className="secondary" data-testid="d3-seat-transfer" disabled={locked||!from||!employee||
+     <button className="secondary" data-testid="d3-seat-transfer" disabled={locked||!from||!target||
       assigned||!currentLicense||!view.seatPolicyReady||!view.withinLimits}
       onClick={()=>void change('TRANSFER')}>Передать выбранному сотруднику</button>
     </div>
@@ -115,13 +150,13 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,emp
        r.status==='ACTIVE'||r.status==='SUSPENDED'?'Срок истёк':statusLabels[r.status]} · до {new Date(r.expiresAt).toLocaleString('ru-RU')}</li>)}</ul>}
     <div className="form-actions">
      <button className="secondary" disabled={busy||!!pending||view.assignmentOffset===0}
-      onClick={()=>void refresh(Math.max(0,view.assignmentOffset-64))}>Предыдущие</button>
+      onClick={()=>void refresh(Math.max(0,view.assignmentOffset-64),view.employeeOffset)}>Предыдущие</button>
      <span>{view.assignmentTotal?view.assignmentOffset+1:0}–{view.assignmentOffset+view.assignments.length} из {view.assignmentTotal}</span>
      <button className="secondary" disabled={busy||!!pending||view.assignmentNextOffset===null}
-      onClick={()=>void refresh(view.assignmentNextOffset)}>Следующие</button>
+      onClick={()=>void refresh(view.assignmentNextOffset,view.employeeOffset)}>Следующие</button>
     </div>
    </>}
-   {receipt&&<p role="status">Подтверждённая операция: {receipt}.</p>}
+   {receipt&&<p role="status">{receipt}</p>}
   </>}
  </div>;
 }

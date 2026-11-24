@@ -24,7 +24,11 @@ export function readOriginalSeatView(value,organizationId,workspaceId){
   v.assignmentOffset<=v.assignmentTotal&&v.reservedSeats<=v.assignmentTotal&&
   Array.isArray(v.assignments)&&v.assignments.length<=64&&
   v.assignments.length===Math.min(64,v.assignmentTotal-v.assignmentOffset)&&
-  v.assignmentNextOffset===(v.assignmentOffset+64<v.assignmentTotal?v.assignmentOffset+64:null));
+  v.assignmentNextOffset===(v.assignmentOffset+64<v.assignmentTotal?v.assignmentOffset+64:null)&&
+  count(v.employeeTotal)&&v.employeeTotal<=v.independentlyEnrolledEmployees&&count(v.employeeOffset)&&
+  v.employeeOffset<=v.employeeTotal&&Array.isArray(v.eligibleEmployees)&&
+  v.eligibleEmployees.length===Math.min(64,v.employeeTotal-v.employeeOffset)&&
+  v.employeeNextOffset===(v.employeeOffset+64<v.employeeTotal?v.employeeOffset+64:null));
  const c=v.candidate;
  if(c===null){
   check(v.licenseState!=='VERIFIED_CAPACITY_CANDIDATE'&&v.availableSeats===0&&
@@ -53,6 +57,15 @@ export function readOriginalSeatView(value,organizationId,workspaceId){
    (!row.reserved||(['ACTIVE','SUSPENDED'].includes(row.status)&&!reservedPeople.has(row.personId))));
   grants.add(row.grantId);if(row.reserved)reservedPeople.add(row.personId);
  }
+ const roster=new Set();
+ for(const m of v.eligibleEmployees){
+  check(id(m?.personId)&&id(m?.enrollmentId)&&typeof m.reserved==='boolean'&&
+    !roster.has(m.personId));
+  const row=v.assignments.find(r=>r.personId===m.personId&&r.reserved);
+  check(!row||m.reserved);
+  if(v.assignmentOffset===0&&v.assignmentNextOffset===null)check(m.reserved===!!row);
+  roster.add(m.personId);
+ }
  return v;
 }
 // Return a fresh command bound to the exact independently-read native state.
@@ -70,7 +83,9 @@ export function prepareOriginalSeatCommand(view,kind,commandId,employee,fromGran
   check(id(employee?.personId)&&id(employee?.enrollmentId)&&
    view.seatPolicyReady===true&&view.withinLimits===true&&sha(view.licenseEvidenceDigest)&&
    (kind!=='ASSIGN'||view.availableSeats>0)&&
-   !view.assignments.some(r=>r.personId===employee.personId&&r.reserved),
+   !view.assignments.some(r=>r.personId===employee.personId&&r.reserved)&&
+   !view.eligibleEmployees.some(r=>r.personId===employee.personId&&
+    (r.reserved||r.enrollmentId!==employee.enrollmentId)),
    'CEN_D3_CORPORATE_SEAT_ASSIGNMENT_NOT_AVAILABLE');
  }
  return {confirmed:true,kind,commandId,expectedRegistryDigest:view.registryDigest,
@@ -90,4 +105,17 @@ export function readOriginalSeatPolicy(result,organizationId,workspaceId){
   'CEN_D3_CORPORATE_SEAT_POLICY_OUTCOME_UNKNOWN');
  const view=readOriginalSeatView(result.view,organizationId,workspaceId);
  check(view.seatPolicyReady,'CEN_D3_CORPORATE_SEAT_POLICY_OUTCOME_UNKNOWN');return view;
+}
+
+export function readOriginalSeatCommandRecovery(result,command,organizationId,workspaceId){
+ check(result?.originalReadback===true&&result.automaticRetryAllowed===false&&
+   result.commandId===command.commandId&&['ALREADY_COMMITTED','NOT_COMMITTED','OUTCOME_UNKNOWN'].includes(result.outcome),
+   'CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN');
+ if(result.outcome==='ALREADY_COMMITTED')
+   return {outcome:result.outcome,view:readOriginalSeatChange(result,command,organizationId,workspaceId)};
+ check(result.grantId===null&&result.releasedGrantId===null,'CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN');
+ const view=readOriginalSeatView(result.view,organizationId,workspaceId);
+ check(result.outcome!=='NOT_COMMITTED'||view.registryDigest===command.expectedRegistryDigest,
+   'CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN');
+ return {outcome:result.outcome,view};
 }

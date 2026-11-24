@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy}
+import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery}
  from '../runtime/cen03-corporate-seats.mjs';
 const H='a'.repeat(64),org='org:one',ws='workspace:one';
 const member={personId:'person:one',enrollmentId:'enrollment:one'};
@@ -12,6 +12,8 @@ const view=()=>({schema:'IWXA_T3_ORIGINAL_CORPORATE_SEAT_VIEW/1',organizationId:
  licenseEvidenceDigest:H,seatPolicyReady:true,withinLimits:true,existingLineageMatches:true,
  reservedSeats:1,independentlyEnrolledEmployees:2,availableSeats:1,seatLimit:2,employeeLimit:5,
  overSeatLimit:0,overEmployeeLimit:0,assignmentTotal:1,assignmentOffset:0,assignmentNextOffset:null,
+ eligibleEmployees:[{...member,reserved:false},{personId:row.personId,enrollmentId:row.enrollmentId,reserved:true}],
+ employeeTotal:2,employeeOffset:0,employeeNextOffset:null,
  candidate:{licenseId:'license:one',lineageId:'lineage:one',lineageDigest:H,licenseDigest:H,
  seatLimit:2,employeeLimit:5,expiresAt:'2030-01-01T00:00:00.000Z',statusValidUntil:'2029-12-31T00:00:00.000Z'},assignments:[{...row}]});
 const read=v=>readOriginalSeatView(v,org,ws);
@@ -59,4 +61,18 @@ test('old policy, over-capacity and non-reserved history cannot authorize new as
   overSeatLimit:1,withinLimits:false,availableSeats:0});
  assert.throws(()=>prepareOriginalSeatCommand(over,'TRANSFER','seat:a',member,row.grantId),/NOT_AVAILABLE/);
  assert.equal(prepareOriginalSeatCommand(over,'RELEASE','seat:r',null,row.grantId).fromGrantId,row.grantId);
+});
+
+test('verified roster selection and uncertain command recovery require exact original scope',()=>{
+ const v=read(view()),a=prepareOriginalSeatCommand(v,'ASSIGN','seat:recovery',member);
+ assert.throws(()=>read({...view(),eligibleEmployees:[{...member,reserved:true},{personId:row.personId,enrollmentId:row.enrollmentId,reserved:true}]}),/READBACK_INVALID/);
+ assert.throws(()=>prepareOriginalSeatCommand(v,'ASSIGN','seat:bad',{...member,enrollmentId:'enrollment:wrong'}),/NOT_AVAILABLE/);
+ const recovered={outcome:'ALREADY_COMMITTED',commandId:a.commandId,originalReadback:true,
+  automaticRetryAllowed:false,grantId:'grant:seat:received',releasedGrantId:null,view:v};
+ assert.equal(readOriginalSeatCommandRecovery(recovered,a,org,ws).outcome,'ALREADY_COMMITTED');
+ const absent={...recovered,outcome:'NOT_COMMITTED',grantId:null};
+ assert.equal(readOriginalSeatCommandRecovery(absent,a,org,ws).outcome,'NOT_COMMITTED');
+ assert.throws(()=>readOriginalSeatCommandRecovery({...absent,view:{...v,registryDigest:'b'.repeat(64)}},a,org,ws),/OUTCOME_UNKNOWN/);
+ assert.equal(readOriginalSeatCommandRecovery({...absent,outcome:'OUTCOME_UNKNOWN'},a,org,ws).outcome,'OUTCOME_UNKNOWN');
+ assert.throws(()=>readOriginalSeatCommandRecovery({...recovered,automaticRetryAllowed:true},a,org,ws),/OUTCOME_UNKNOWN/);
 });
