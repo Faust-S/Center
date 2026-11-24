@@ -58,7 +58,7 @@ const why=(e:unknown)=>{
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null,preferCorporateSeats=false}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null;preferCorporateSeats?:boolean}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null,preferCorporateSeats=false,signedWorkspaceVisible=false}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null;preferCorporateSeats?:boolean;signedWorkspaceVisible?:boolean}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
@@ -107,11 +107,16 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    SEAT_CONTRACT_UNAVAILABLE:'Реестр сотрудников доступен, но установленный T3 не поддерживает корпоративные места. Обновите программу.',
    SEATS:'Актуальные назначения перечитываются из исходного T3. Выберите сотрудника или назначение для изменения.'
  };
- React.useLayoutEffect(()=>{
-   if(!preferCorporateSeats)return;
-   const target=document.querySelector<HTMLElement>(`[data-testid="${seatNavigationTarget}"]`);
-   if(target){target.scrollIntoView({block:'start',behavior:'auto'});target.focus({preventScroll:true});}
- },[preferCorporateSeats,seatNavigationTarget]);
+ useEffect(()=>{
+   if(!preferCorporateSeats||signedWorkspaceVisible)return;
+   // Run after the parent's section-scroll reset. Never focus a hidden
+   // manager control while the signed native child Workspace is visible.
+   const frame=requestAnimationFrame(()=>{
+     const target=document.querySelector<HTMLElement>(`[data-testid="${seatNavigationTarget}"]`);
+     if(target){target.scrollIntoView({block:'start',behavior:'auto'});target.focus({preventScroll:true});}
+   });
+   return()=>cancelAnimationFrame(frame);
+ },[preferCorporateSeats,seatNavigationTarget,signedWorkspaceVisible]);
  const resetReview=()=>{setReview(null);setConsent(false);setRejectReason('');setPreview(null);setApplyConsent(false);setApplyDecided(false)};
  const adoptOwner=(candidate:any)=>{
    const fingerprint=ownerSessionFingerprint(candidate,organizationId)??
@@ -183,7 +188,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  // for the bound organization/actor/workspace generation. A missing
  // registry is a readback, never permission to initialize it.
  useEffect(()=>{
-   if(!preferCorporateSeats||seatStage!=='READ_REGISTRY'||!registryReadKey||
+   if(!preferCorporateSeats||signedWorkspaceVisible||seatStage!=='READ_REGISTRY'||!registryReadKey||
       busy||actionRef.current||automaticRegistryRead.current===registryReadKey)return;
    automaticRegistryRead.current=registryReadKey;
    void act('Исходный реестр сотрудников перечитан.',async()=>{
@@ -194,7 +199,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
        return false;
      }
    });
- },[preferCorporateSeats,seatStage,registryReadKey,busy]);
+ },[preferCorporateSeats,signedWorkspaceVisible,seatStage,registryReadKey,busy]);
  const applied=(()=>{
    if(!legacyReady)return {status:'NOT_CONNECTED',records:[] as any[]};
    try{return readAppliedResults(owner.snapshot,organizationId,owner.snapshot.workspaceId)}
@@ -269,7 +274,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   </div>}
   {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={'employee|'+(signedD3EmployeeScopeFingerprint(owner,organizationId)??'unknown')}
     session={owner.snapshot} contacts={organization.participants??[]}
-    preferredContactId={preferredEmployeeContactId} autoReadSeats={preferCorporateSeats}
+    preferredContactId={preferredEmployeeContactId} autoReadSeats={preferCorporateSeats&&!signedWorkspaceVisible}
     execute={execute} run={act} busy={busy}/>}
   {d3Ready&&invoke ? <CorporateD3Panel key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
     dispatchedApplications={dispatchedD3Applications}
