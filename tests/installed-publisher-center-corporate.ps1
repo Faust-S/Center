@@ -862,6 +862,30 @@ function Center-Receive([string]$raw,[string]$file,[bool]$expectAccepted=$true){
   if($expectAccepted){Wait-Text $cen 'Подписанные LICENSE и STATUS получены оригинальным T3'}
   else{Wait-Text $cen 'Результат получения файла не подтверждён'}
 }
+# Capture only predetermined public UI states, never the original receipt,
+# raw WebView text, license id, signature, or an employee's information.
+# This does not change the readback or repeat any mutation.
+function Wait-CenterTariff([string]$tariff,[int]$revision){
+  Gui-Step 'WAIT_TEXT'
+  $expected="Тариф $tariff, редакция $revision"
+  for($i=0;$i -lt 120;$i++){
+    if(Has-Text $cen $expected $true){return}
+    Start-Sleep -Milliseconds 250
+  }
+  if(Has-Text $cen 'Лицензия подтверждена исходной квитанцией, но общий readback не удался'){
+    throw 'CORPORATE_GUI_CENTER_RECEIVED_BUT_LIST_READBACK_FAILED'
+  }
+  if(Has-Text $cen 'Корпоративное чтение T3:'){
+    throw 'CORPORATE_GUI_CENTER_ORIGINAL_REFRESH_FAILED'
+  }
+  if(Has-Text $cen 'Не удалось прочитать корпоративный T3:'){
+    throw 'CORPORATE_GUI_CENTER_COLD_READBACK_FAILED'
+  }
+  if(Has-Text $cen 'Исходное корпоративное чтение T3.'){
+    throw 'CORPORATE_GUI_CENTER_VERIFIED_LIST_TARIFF_HEADING_NOT_OBSERVED'
+  }
+  throw 'CORPORATE_GUI_CENTER_VERIFIED_LIST_NOT_OBSERVED'
+}
 function Verify-Center([string]$org,$proof,[int]$revision,[string]$storedSha,[int]$expectedCount=1,[int]$adminSeats=2,[int]$employees=10,[int]$agentSeats=2){
   $view=Consumer-Read $org
   $rows=@($view.licenses)
@@ -871,6 +895,7 @@ function Verify-Center([string]$org,$proof,[int]$revision,[string]$storedSha,[in
   if($r.lineageId -cne $proof.lineageId -or $r.renewalOf -cne $proof.renewalOf){throw 'CORPORATE_NATIVE_LINEAGE_MISMATCH'}
   if($r.licenseId -cne $proof.licenseId -or $r.requestId -cne $proof.requestId -or
      $r.issuerAuthorityId -cne $proof.issuerAuthorityId -or $r.organizationId -cne $org -or
+     $r.tariffId -cne $proof.tariffId -or $r.tariffRevision -ne $proof.tariffRevision -or
      $r.status -cne $proof.status -or $r.signedStatus -cne $proof.status -or
      $r.sequence -ne $proof.sequence -or $r.licenseEnvelopeSha256 -cne $proof.licenseEnvelopeSha256 -or
      $r.statusEnvelopeSha256 -cne $proof.statusEnvelopeSha256 -or $r.packageSha256 -cne $storedSha -or
@@ -1012,7 +1037,7 @@ try{
   Record-Check 'CENTER_ORIGINAL_CURRENTUSER_DPAPI_TRUST'
   Center-Receive $handoff $activeFile
   $null=Verify-Center $org $active 1 (Digest $activeFile)
-  Wait-Text $cen 'Тариф TEAM, редакция 1'
+  Wait-CenterTariff 'TEAM' 1
   # The new Center tariff panel projects signed limits, not the registry's
   # actual allocation count. Verify-Center above still checks the original
   # Consumer's independent receipt: this intake did not allocate any seat.
@@ -1027,7 +1052,7 @@ try{
   Stop-App $cen
   $cen=Start-App $centerPath
   Press $cen 'Personal Agent и лицензии'
-  Wait-Text $cen 'Тариф TEAM, редакция 1'
+  Wait-CenterTariff 'TEAM' 1
   $null=Verify-Center $org $active 1 (Digest $activeFile)
   Record-Check 'CENTER_COLD_RESTART_ORIGINAL_STORE'
   if($QualifySeatProjection){
@@ -1165,7 +1190,7 @@ try{
   $renewalHandoff=Publisher-Export $renewedFile $renewed
   Center-Receive $renewalHandoff $renewedFile
   $null=Verify-Center $org $renewed 3 (Digest $renewedFile) 2 1 6 1
-  Wait-Text $cen 'Тариф TEAM, редакция 2'
+  Wait-CenterTariff 'TEAM' 2
   $view=Consumer-Read $org
   if($view.capacity.state -ne 'VERIFIED_CAPACITY_CANDIDATE' -or
     $view.capacity.candidateLicenseId -cne $nextId -or $view.capacity.activeLicenseCount -ne 1 -or
@@ -1180,7 +1205,7 @@ try{
   Stop-App $cen
   $cen=Start-App $centerPath
   Press $cen 'Personal Agent и лицензии'
-  Wait-Text $cen 'Тариф TEAM, редакция 2'
+  Wait-CenterTariff 'TEAM' 2
   Center-Receive $suspendedHandoff $suspendedFile
   $null=Verify-Center $org $renewed 3 (Digest $renewedFile) 2 1 6 1
   if((Consumer-Read $org).capacity.candidateLicenseId -cne $nextId){
