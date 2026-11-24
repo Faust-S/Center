@@ -15,13 +15,16 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-2022]
+        linked: ['0', '1']
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: b93f9d5443840541cde903469434686229d19edf
-      PRIVATE_TREE: 9e67dc1a07a455093feaa8e443e2ad760d6fa93a
+      PRIVATE_PIN: '24b597f269c9881929509e1a25ec3def265cd70e'
+      PRIVATE_TREE: '936d4bf880ae3f7127fd96c8123ca8fa4e4004ab'
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
+      IWXA_QWEN_QUALIFICATION_MODEL: 'QWEN3_4B_Q4_K_M'
       IWXA_NATIVE_QWEN_TOOL_TEST: '1'
+      IWXA_NATIVE_QWEN_LINKED_TEST: ${{ matrix.linked }}
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -85,7 +88,10 @@ jobs:
                       "-p","no:cacheprovider","tests/test_meta_harness_qwen_native_product.py",
                       "--basetemp",str(root/"native-test")],timeout=2400)
                   out = proc.stdout.decode("utf-8","replace")
+                  if clean.get("IWXA_NATIVE_QWEN_LINKED_TEST")=="1":
+                      allowed.add("REAL_QWEN_LINKED_READ_PASS")
                   stages = []
+                  status("QUALIFICATION_MODEL", "QWEN3_4B_Q4_K_M")
                   for line in out.splitlines():
                       if line.startswith("QWEN_PRODUCT_STAGE="):
                           stage = line.split("=",1)[1].strip()
@@ -119,7 +125,7 @@ jobs:
                           print(line.strip(),flush=True)
                       if re.fullmatch(r"QWEN_PRODUCT_(?:(?:REVIEWED_MCP_VISIBLE|CONTEXT_TOOL_VISIBLE|MODEL_TOOL_RESULT)=(?:YES|NO)|CONTEXT_PERMISSION=OBSERVED|CONTEXT_RPC=(?:OBSERVED|RESOLVED|REFUSED)|MCP_SCHEMA=(?:OBJECT|OTHER):(?:EMPTY|NONEMPTY|MISSING))",line.strip()):
                           print(line.strip(),flush=True)
-                      if re.fullmatch(r"QWEN_PRODUCT_MODEL_CALL=(?:NONE|CONTEXT|REVIEWED_MCP|OTHER|MULTIPLE|INVALID):(?:NONE|STOP|TOOL_CALLS|LENGTH|CONTENT_FILTER|FUNCTION_CALL|OTHER|MULTIPLE)",line.strip()):
+                      if re.fullmatch(r"QWEN_PRODUCT_(?:MODEL_CALL|DIRECT_STREAM_CALL)=(?:NONE|CONTEXT|REVIEWED_MCP|OTHER|MULTIPLE|INVALID):(?:NONE|STOP|TOOL_CALLS|LENGTH|CONTENT_FILTER|FUNCTION_CALL|OTHER|MULTIPLE)",line.strip()):
                           print(line.strip(),flush=True)
                       match=re.fullmatch(r"QWEN_PRODUCT_BLOCKED=([A-Z][A-Z_0-9]{1,100})",line.strip())
                       if match:
