@@ -140,6 +140,8 @@ export default function App() {
     window.addEventListener('resize',update);
     return ()=>window.removeEventListener('resize',update);
   },[]);
+  const compactNavigation=viewportWidth<=650?!menuOpen:
+    menuOpen||(viewportWidth<=900&&inspectorVisible);
   const inspectorBounds=inspectorLayout(viewportWidth,menuOpen);
   const effectiveInspectorWidth=clampInspectorWidth(inspectorWidth,inspectorBounds);
   const inspectorPointer=useRef<{x:number;width:number;last:number}|null>(null);
@@ -356,6 +358,7 @@ export default function App() {
     if(routeRoot(next)!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);}
     const history=navigationHistory.current;
     if(history[navigationCursor.current]!==next){
+      setMessage('');
       navigationHistory.current=[...history.slice(0,navigationCursor.current+1),next];
       navigationCursor.current=navigationHistory.current.length-1;
       setNavigationVersion(value=>value+1);
@@ -376,6 +379,7 @@ export default function App() {
     navigationCursor.current=target;
     const next=navigationHistory.current[target];
     if(routeRoot(next)!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);}
+    setMessage('');
     setRoute(next);setNavigationVersion(value=>value+1);setV8Menu('');setNavQuery('');setMenuOpen(false);
   };
   const openManagerOriginal=(selection:ManagerOriginalSelection)=>{
@@ -598,7 +602,7 @@ export default function App() {
       if(!saved)throw Error('Не удалось сохранить черновик');
       if(revisionRef.current===revision){
         setDirty(false);setError('');
-        setMessage('Черновики сохранены на этом компьютере. Подписанные полномочия T3 пока не подключены.');
+        setMessage('Черновики сохранены на этом компьютере.');
       }else{
         setDirty(true);setError('');
         setMessage('Черновики изменены во время сохранения. Сохраните новую редакцию повторно.');
@@ -678,13 +682,17 @@ export default function App() {
     <nav className="v8-rail" aria-label="Основные разделы">
       {pages.filter(([id])=>id!=='data').map(([id,label])=><button key={id} type="button"
         className={page===id?'active':''} aria-label={id==='overview'?'Обзор · Admin Center':label}
-        title={label} data-testid={`nav-${id}`} onClick={()=>go(id)}>
+        title={label} aria-current={page===id?'page':undefined} data-testid={`nav-${id}`} onClick={()=>go(id)}>
         <V8RailIcon name={id}/>
       </button>)}
       <div className="v8-rail-space"/>
       <div className="v8-rail-rule"/>
-      <button type="button" title="Выбрать организацию" aria-label="Выбрать организацию" onClick={()=>go('overview')}><V8RailIcon name="context"/></button>
-      <button type="button" className="v8-rail-profile" data-testid="nav-data" aria-label="Профиль и настройки" title="Профиль и настройки" onClick={()=>go('data')}>
+      <button type="button" title="Выбрать организацию" aria-label="Выбрать организацию"
+        onClick={()=>document.getElementById(compactNavigation?'compact-active-organization':'active-organization')?.focus()}>
+        <V8RailIcon name="context"/>
+      </button>
+      <button type="button" className={`v8-rail-profile ${page==='data'?'active':''}`} data-testid="nav-data"
+        aria-current={page==='data'?'page':undefined} aria-label="Профиль и настройки" title="Профиль и настройки" onClick={()=>go('data')}>
         <img className="v8-profile-mark" src={iwxaBrandMark} alt="IWXA Admin Center"/>
       </button>
     </nav>
@@ -695,10 +703,9 @@ export default function App() {
       <div className="v8-nav-caption">{queryText?'РЕЗУЛЬТАТЫ ПОИСКА':'РАЗДЕЛ'}</div>
       <nav>{contextualRoutes.map(id=>{
         const label=ADMIN_ROUTES[id].label;
-        const subroute=id!==routeRoot(id);
         return <button key={id} type="button" data-testid={'subnav-'+id}
           className={`nav-link ${route===id?'active':''}`}
-          aria-label={subroute?'Раздел: '+label:undefined}
+          aria-label={'Раздел: '+label}
           aria-current={route===id?'page':undefined} onClick={()=>go(id)}>
           <span className="nav-icon" aria-hidden="true"><V8RailIcon name={routeRoot(id)}/></span><span>{label}</span>{id==='work'&&!!stats.drafts&&<em>{stats.drafts}</em>}
         </button>})}
@@ -724,7 +731,10 @@ export default function App() {
     </aside>
 
     <main ref={mainScrollRef} className="main" data-admin-route={route}>
-      <header className="top" aria-label="Текущий раздел"><div className="v8-page-location"><strong>{title}</strong><small>{org?.name??'IWXA Admin Center · рабочее место руководителя'}</small></div>
+      <header className="top" aria-label="Текущий раздел"><div className="v8-page-location">
+        {route==='overview'?<strong>{org?.name??'IWXA Admin Center'}</strong>:<h1 data-testid="admin-route-title">{title}</h1>}
+        <small>{route==='overview'?'Рабочее место руководителя':org?.name??'IWXA Admin Center'}</small>
+      </div>
        {signedWorkspaceOrg&&<>
         {signedWorkspaceVisible
           ? <button className="secondary" data-testid="d3-return-to-review"
@@ -736,13 +746,27 @@ export default function App() {
           onClick={()=>{void closeSignedWorkspace().catch(()=>setError('Не удалось завершить Workspace T3.'));}}>×</button>
        </>}
        <button className="secondary top-save" onClick={saveFile} disabled={!org||saving}>{nativeHost?'Сохранить на компьютере':'Сохранить файл'}</button></header>
-      {ADMIN_NAV_GROUPS[page].length>1&&<label className="v8-compact-section">
-        <span>Раздел</span><select aria-label="Подраздел" value={route} onChange={e=>go(e.target.value as AdminRouteId)}>
-          {ADMIN_NAV_GROUPS[page].map(id=><option key={id} value={id}>{ADMIN_ROUTES[id].label}</option>)}
-        </select></label>}
-      {route!=='overview'&&route!=='results'&&<div className="page-heading"><div><h1>{title}</h1></div></div>}
+      {compactNavigation&&<div className="v8-compact-navigation" data-testid="compact-navigation">
+        <label className="v8-compact-section">
+          <span>Раздел</span><select aria-label="Подраздел" value={route} onChange={e=>go(e.target.value as AdminRouteId)}>
+            {ADMIN_NAV_GROUPS[page].map(id=><option key={id} value={id}>{ADMIN_ROUTES[id].label}</option>)}
+          </select>
+        </label>
+        <div className="v8-compact-organization">
+          <label htmlFor="compact-active-organization">Организация</label>
+          <select id="compact-active-organization" aria-label="Текущая организация в компактном окне" value={state.activeOrganizationId??''}
+            onChange={e=>selectOrg(e.target.value)}>
+            {!org&&<option value="">Организация не выбрана</option>}
+            {state.organizations.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+          <button type="button" className="secondary" aria-label="Добавить организацию в компактном окне"
+            title="Добавить организацию" onClick={()=>{if(editor){setError('Сначала сохраните открытый редактор.');return;}setCreatingOrg(true);go('overview');}}>＋</button>
+        </div>
+      </div>}
       {error && <div className="notice error" role="alert">{error}</div>}
-      {message && <div className="notice" role="status">{message}</div>}
+      {message && <div className="notice v8-action-message" role="status"><span>{message}</span>
+        <button type="button" aria-label="Закрыть сообщение" onClick={()=>setMessage('')}>×</button>
+      </div>}
       {page==='overview'&&<AdminDashboard key={org?.id??'_start'} organization={org}
         nativeHost={nativeHost} atlasView={observedAtlas}
         managerContext={org?<ManagerContextPanel key={'home|'+org.id}

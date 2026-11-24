@@ -536,7 +536,7 @@ try{
   // owner changes its epoch after a write and the ACK disappears.
   const d3Page=await browser.newPage({viewport:{width:1366,height:900}});
   await d3Page.addInitScript(()=>{
-    const held={epoch:7,task:null,writes:0,decisionWrites:0,decision:null,d2ReadCount:0,
+    const held={epoch:7,task:null,writes:0,decisionWrites:0,decision:null,d2ReadCount:0,stateReads:0,
       signedOpen:false,signedVisible:false,signedCloses:0};
     window.__d3UiFixture=held;
     window.__TAURI_INTERNALS__={invoke:async(command,args={})=>{
@@ -562,6 +562,7 @@ try{
         return true;
       }
       if(command==='center_corporate_state'){
+        held.stateReads++;
         const tasks=held.task?[{
           taskId:held.task.taskId,taskRevisionId:'a'.repeat(64),
           packageSha256:'b'.repeat(64),summary:'UI recovery task',
@@ -724,8 +725,11 @@ try{
   // The real Windows run must additionally prove the signed data authorization.
   await d3Page.getByTestId('manager-read-signed').click();
   await d3Page.getByTestId('manager-signed-summary').waitFor();
+  const stateReadsBeforeD2=await d3Page.evaluate(()=>window.__d3UiFixture.stateReads);
   await d3Page.getByTestId('manager-read-activity').click();
   await d3Page.getByTestId('manager-activity-summary').waitFor();
+  assert.equal(await d3Page.evaluate(()=>window.__d3UiFixture.stateReads),stateReadsBeforeD2,
+    'D2 must not repeat the state round-trip already done in the native action');
   assert.match(await d3Page.getByTestId('manager-data-read-timing').innerText(),
     /Время ожидания интерфейса.*Kernel/);
   await d3Page.getByTestId('manager-question-events').click();
@@ -739,6 +743,16 @@ try{
     'original Kernel must still be running after authorized D2 metadata read');
   await d3Page.getByTestId('manager-question-events').click();
   checks.push('manager-source-grounded-original-D2-read-only-ui-no-private-payload');
+  await d3Page.evaluate(()=>{window.__d3UiFixture.epoch++});
+  await d3Page.getByTestId('manager-read-activity').click();
+  await d3Page.getByTestId('manager-activity-issue').waitFor();
+  assert.match(await d3Page.getByTestId('manager-activity-issue').innerText(),/CEN_D3_CONTEXT_CHANGED/);
+  assert.equal(await d3Page.getByTestId('manager-activity-summary').count(),0);
+  assert.equal(await d3Page.getByTestId('manager-signed-summary').count(),0);
+  assert.equal(await d3Page.evaluate(()=>window.__d3UiFixture.d2ReadCount),1);
+  await d3Page.getByTestId('manager-read-signed').click();
+  await d3Page.getByTestId('manager-signed-summary').waitFor();
+  checks.push('v8-D2-single-native-roundtrip-refuses-changed-owner-and-clears-old-observation');
   await d3Page.getByTestId('overview-search').fill('UI recovery task');
   assert.equal(await d3Page.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
   await d3Page.getByTestId('manager-search-hit').click();
@@ -1633,6 +1647,34 @@ try{
   await v8Page.getByTestId('admin-profile-settings').waitFor();
   assert.match(await v8Page.getByTestId('admin-profile-settings').innerText(),/0\.4\.1/);
   checks.push('v8-real-draft-company-structure-and-version-only-inside-profile');
+  // The actual profile icon and every other rail action must be physically
+  // inside the native minimum-height viewport, not merely in its UI tree.
+  await v8Page.setViewportSize({width:720,height:500});
+  if(await v8Page.locator('.app.v8-app.with-inspector').count()===0)
+    await v8Page.getByRole('button',{name:'Панель просмотра',exact:true}).click();
+  const railGeometry=await v8Page.evaluate(()=>{
+    const rail=document.querySelector('.v8-rail').getBoundingClientRect();
+    return Array.from(document.querySelectorAll('.v8-rail>button')).map(button=>{
+      const b=button.getBoundingClientRect();
+      return {name:button.getAttribute('aria-label'),inside:b.top>=rail.top&&b.bottom<=rail.bottom+1,
+        height:b.height,visible:b.bottom<=innerHeight&&b.top>=0};
+    });
+  });
+  assert.ok(railGeometry.length===9&&railGeometry.every(b=>b.inside&&b.visible&&b.height>=30),
+    'all native minimum-height rail actions are physically reachable: '+JSON.stringify(railGeometry));
+  await v8Page.getByTestId('nav-programs').click();
+  await v8Page.getByTestId('nav-data').click();
+  assert.equal(await v8Page.getByTestId('admin-route-title').innerText(),'Профиль и данные');
+  await v8Page.getByLabel('Подраздел').selectOption('settings');
+  assert.equal(await v8Page.getByTestId('v8-local-drafts').isVisible(),true);
+  assert.equal(await v8Page.getByTestId('admin-profile-settings').isVisible(),false);
+  await v8Page.getByRole('button',{name:'Выбрать организацию',exact:true}).click();
+  assert.equal(await v8Page.evaluate(()=>document.activeElement.id),'compact-active-organization');
+  assert.equal(await v8Page.getByLabel('Текущая организация в компактном окне').isVisible(),true);
+  assert.equal(await v8Page.locator('.app.v8-app.with-inspector').count(),1);
+  assert.equal(await v8Page.locator('main h1').count(),1);
+  await v8Page.screenshot({path:'artifacts/v8-profile-compact-720.png',fullPage:true});
+  checks.push('v8-minimum-height-profile-and-organization-switcher-reachable-with-inspector');
   await v8Page.close();
   writeFileSync('artifacts/ui-report.json',JSON.stringify({status:'PASS_BROWSER_DRAFT_SCOPE',browser:'Firefox',checks,errors,t3RuntimeIntegrated:false,installedWindowsGui:false},null,2));
   console.log('CENTER_DRAFT_UI_PASS',checks.length);

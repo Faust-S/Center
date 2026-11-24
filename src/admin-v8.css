@@ -481,3 +481,35 @@ body{padding:11px;background:#172238}
 @media(max-width:650px){
  .v8-app .v8-compact-section{display:flex;gap:8px;align-items:center;margin:0 0 15px}
 }
+
+/* One reachable rail at the native minimum height. The profile and
+   organization controls must not fall beneath the window or taskbar. */
+.v8-rail{overflow-y:auto;overflow-x:hidden;scrollbar-width:none}
+.v8-rail::-webkit-scrollbar{display:none}
+@media(max-height:650px){
+ .v8-rail{gap:4px;padding:8px 0}
+ .v8-rail>button{width:38px;height:36px;border-radius:9px}
+ .v8-rail .v8-rail-rule{margin:3px}
+}
+@media(max-height:470px){
+ .v8-rail{gap:2px;padding:5px 0}
+ .v8-rail>button{width:34px;height:31px}
+ .v8-rail .v8-rail-rule{margin:2px}
+}
+.v8-app .main .v8-page-location h1{
+ display:block;font-size:16px;font-weight:720;line-height:1.25;
+ margin:0;color:#294768;overflow:hidden;white-space:nowrap;text-overflow:ellipsis
+}
+.v8-app .main .top{margin-bottom:14px}
+.v8-app .main .v8-action-message{display:flex;align-items:center;gap:8px;justify-content:space-between;padding:7px 10px;margin:0 0 10px}
+.v8-action-message button{flex:0 0 25px;padding:2px 5px;min-height:25px;border:0;background:transparent;color:#526f8d}
+.v8-compact-navigation{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;margin:0 0 10px;padding:7px 9px;border:1px solid #d5e1ef;border-radius:9px;background:#f7faff;font-size:11px}
+.v8-app .v8-compact-navigation .v8-compact-section{display:flex;gap:6px;align-items:center;margin:0}
+.v8-compact-navigation .v8-compact-section>span,.v8-compact-organization>label{flex:0 0 76px;font-size:11px;color:#536e8a}
+.v8-compact-navigation select{flex:1;min-width:0;max-width:100%;min-height:30px;padding:4px 6px}
+.v8-compact-organization{display:flex;gap:6px;align-items:center}
+.v8-compact-organization>button{min-height:30px;padding:3px 8px;flex:none}
+.v8-result-journey-steps{flex-wrap:wrap;white-space:normal;overflow:visible}
+.v8-app .main .v8-corporate-compact-head{justify-content:flex-end;margin-bottom:5px}
+.v8-app .main .v8-corporate-compact-head .actions{margin:0}
+@media(max-width:900px){.v8-app .main .v8-page-location h1{font-size:14px}}

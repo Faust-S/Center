@@ -187,7 +187,8 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  const canApply=legacyReady&&!!acceptedSelection&&
    owner.snapshot?.application?.status!=='HOLD_FOR_EXPLICIT_RECOVERY';
  return <section className="card padded" data-testid="corporate-panel">
-  <div className="section-head"><h2>Поручения и корпоративная приёмка</h2>
+  <div className={'section-head'+(route==='results'?'':' v8-corporate-compact-head')}>
+   {route==='results'&&<h2>Поручения и корпоративная приёмка</h2>}
    <div className="actions">
     {d3Ready&&invoke&&owner?.snapshot?.originalSignedWorkspaceAvailable===true&&
       <button className="secondary" data-testid="d3-open-signed-workspace" disabled={busy}
@@ -195,7 +196,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
           onOpenSignedWorkspace(organizationId))}>Открыть Workspace T3</button>}
     <button className="secondary" disabled={busy} onClick={()=>act('Состояние перечитано.',async()=>{await refresh();resetReview()})}>Обновить</button>
    </div></div>
-  <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
+  <p className="muted" hidden={route!=='results'}>Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
   <p className="notice subdued" data-testid="corporate-owner-status">{d3Ready?'Подписанный T3 D3 получатель доступен. Это не статус готовности всего T3.':ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; проверьте состояние владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
   {!ready&&enrollmentAvailable&&invoke&&<div className="nested-form" data-testid="d3-org-onboarding" hidden={!routeAllows(route,'signed-workspace')}>
