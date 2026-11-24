@@ -125,7 +125,7 @@ try {
           tariffId:'TEAM',tariffRevision:1,productVersion:'0.5.0',
           licenseEnvelopeSha256:'e'.repeat(64),
           licenseSignatureVerifiedAtIssuance:true,
-          statusEnvelopeSha256:withStatus?'f'.repeat(64):null,
+          statusEnvelopeSha256:withStatus?(observed.sequence%2?'f':'d').repeat(64):null,
           statusSignatureVerifiedAtIssuance:withStatus,
           statusFloorVerified:withStatus,stateRevision:observed.sequence+1,
           ledgerRevision:observed.sequence+1,recipientConfirmed:false,activeSeats:0,
@@ -137,7 +137,7 @@ try {
            entry.sequence!==args.expectedSequence)
           throw Error('CORPORATE_STATUS_SEQUENCE_CONFLICT');
         window.__publisherMockCorporateStatusCalls=(window.__publisherMockCorporateStatusCalls||0)+1;
-        entry.sequence+=1;entry.status=args.nextStatus;
+        entry.sequence+=1;entry.status=args.nextStatus;entry.statusValidUntil=args.validUntil;
         sessionStorage.setItem('publisher-corporate-mock-signed',JSON.stringify(entry));
         if(window.__publisherMockCorporateLoseNextStatusReceipt===true){
           window.__publisherMockCorporateLoseNextStatusReceipt=false;
@@ -867,7 +867,10 @@ try {
   await coldCorp.getByRole('checkbox',{
     name:'Подтверждаю отдельную подпись STATUS; отзыв необратим'
   }).check();
-  await page.evaluate(()=>{window.__publisherMockCorporateLoseNextStatusReceipt=true;});
+  await page.evaluate(()=>{
+    window.__publisherMockCorporateLoseNextStatusReceipt=true;
+    window.__publisherMockCorporateStaleStatusReadbackCount=2;
+  });
   await coldCorp.getByRole('button',{name:'Подписать новый STATUS через T3'}).click();
   await coldCorp.getByTestId('publisher-corporate-outcome-unknown').waitFor();
   assert.equal(await page.evaluate(()=>window.__publisherMockCorporateStatusCalls||0),1);
@@ -907,8 +910,14 @@ try {
   await coldCorp.getByRole('checkbox',{
     name:'Подтверждаю отдельную подпись STATUS; отзыв необратим'
   }).check();
+  await page.evaluate(()=>{window.__publisherMockCorporateLoseNextStatusReceipt=true;});
   await coldCorp.getByRole('button',{name:'Подписать новый STATUS через T3'}).click();
   await coldCorp.getByText('Подписанный STATUS сохранён в оригинальном T3.',{exact:false}).waitFor();
+  await coldCorp.getByText('Ответ команды восстановлен точным чтением журнала без повторной подписи.',{exact:false}).waitFor();
+  assert.equal(await coldCorp.getByTestId('publisher-corporate-signed-status').getAttribute('aria-label'),
+    'STATUS: SUSPENDED, последовательность 2');
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateStatusCalls||0),2);
+  assert.equal(await coldCorp.getByTestId('publisher-corporate-outcome-unknown').count(),0);
   assert.equal(await handoff.count(),0,
     'An export of STATUS sequence 1 must not remain current after sequence 2');
   assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);

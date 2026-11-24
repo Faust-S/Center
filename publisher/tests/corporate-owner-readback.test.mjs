@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {inspectCorporateIssuePreflight as inspect,
   inspectUnknownCorporateMutationReadback as reconcile,
-  inspectCorporateRenewalPreflight as renewal,inspectCorporateIssueLineage as lineage}
+  inspectCorporateRenewalPreflight as renewal,inspectCorporateIssueLineage as lineage,
+  confirmCorporateStatusCommit as confirmStatus,changeCorporateStatusWithReadback as changeStatus}
   from '../src/corporate-owner-readback.mjs';
 
 const requestId='proposal:company:one';
@@ -131,4 +132,50 @@ test('renewal must resolve the signed predecessor in the exact issuer organizati
  assert.throws(()=>lineage(successor,null),/CORPORATE_ISSUE_LINEAGE_MISMATCH/);
  assert.equal(reconcile({...issuePending,renewal:prior},successor).state,'ORIGINAL_COMMIT_CONFIRMED');
  assert.throws(()=>reconcile({...issuePending,renewal:prior},verified()),/CORPORATE_ISSUE_LINEAGE_MISMATCH/);
+});
+
+const until='2030-12-01T12:00:00.000Z';
+const beforeStatus=verified({source:'ORIGINAL_T3_PRODUCT_ISSUE_LEDGER',
+ status:'NOT_ACTIVATED',sequence:0,statusEnvelopeSha256:null,
+ licenseEnvelopeSha256:'a'.repeat(64),stateRevision:3,ledgerRevision:1,
+ productVersion:'0.4.1',statusValidUntil:null});
+const afterStatus={...beforeStatus,status:'ACTIVE',sequence:1,statusValidUntil:until,
+ statusEnvelopeSha256:'b'.repeat(64),stateRevision:4,
+ licenseSignatureVerifiedAtIssuance:true,statusSignatureVerifiedAtIssuance:true,
+ statusFloorVerified:true,assignablePersonalAgentSeats:0};
+test('STATUS confirmation binds next sequence, unchanged license and exact signed deadline',()=>{
+ assert.equal(confirmStatus(beforeStatus,'ACTIVE',until,afterStatus),afterStatus);
+ for(const patch of [
+  {sequence:0},{sequence:2},{status:'SUSPENDED'},
+  {statusValidUntil:'2030-12-01T12:01:00.000Z'},
+  {licenseEnvelopeSha256:'c'.repeat(64)},{statusEnvelopeSha256:null},
+  {statusFloorVerified:false},{statusSignatureVerifiedAtIssuance:false},
+  {stateRevision:3},{ledgerRevision:0},{organizationId:'org:foreign'},
+  {lineageId:'lineage:foreign'},{assignablePersonalAgentSeats:1},
+  {recipientConfirmed:true},{source:'OTHER'}
+ ])assert.throws(()=>confirmStatus(beforeStatus,'ACTIVE',until,{...afterStatus,...patch}),
+   /CORPORATE_(UNKNOWN|STATUS)_/);
+});
+test('committed original STATUS survives lost or malformed acknowledgement without repeat mutation',async()=>{
+ for(const ack of ['normal','lost','malformed']){
+   let writes=0,reads=0;
+   const result=await changeStatus(beforeStatus,'ACTIVE',until,async()=>{
+     writes++;
+     if(ack==='lost')throw Error('ACK_LOST');
+     return {operation:'CORPORATE_STATUS',licenseId:beforeStatus.licenseId,
+       sequence:ack==='normal'?1:0,state:'ACTIVE'};
+   },async()=>{reads++;return afterStatus;});
+   assert.equal(result.signed,afterStatus);
+   assert.equal(result.recovered,ack!=='normal');
+   assert.equal(writes,1);
+   assert.equal(reads,1);
+ }
+});
+test('unconfirmed write stays blocked after stale or unavailable original readback',async()=>{
+ for(const read of [async()=>beforeStatus,async()=>{throw Error('UNAVAILABLE');}]){
+   let writes=0;
+   await assert.rejects(changeStatus(beforeStatus,'ACTIVE',until,
+     async()=>{writes++;throw Error('ACK_LOST');},read));
+   assert.equal(writes,1);
+ }
 });

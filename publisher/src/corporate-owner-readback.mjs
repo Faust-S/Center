@@ -81,3 +81,50 @@ export function inspectCorporateIssueLineage(signed,expected){
    deny('CORPORATE_ISSUE_LINEAGE_MISMATCH');
  return signed;
 }
+
+const hex=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+// Acknowledgement is transport information, not the signed result. Verify
+// the exact next STATUS and the unchanged LICENSE against the original Owner.
+export function confirmCorporateStatusCommit(previous,expectedStatus,validUntil,signed){
+ const pending={kind:'STATUS',requestId:previous?.requestId,
+   licenseId:previous?.licenseId,expectedStatus,expectedSequence:previous?.sequence+1};
+ inspectUnknownCorporateMutationReadback(pending,signed);
+ if(previous?.operation!=='CORPORATE_SIGNED_READBACK'||
+    previous.source!=='ORIGINAL_T3_PRODUCT_ISSUE_LEDGER'||
+    signed.source!=='ORIGINAL_T3_PRODUCT_ISSUE_LEDGER'||
+    !hex(previous.licenseEnvelopeSha256)||
+    signed.licenseEnvelopeSha256!==previous.licenseEnvelopeSha256||
+    !hex(signed.statusEnvelopeSha256)||
+    signed.statusEnvelopeSha256===previous.statusEnvelopeSha256||
+    signed.licenseSignatureVerifiedAtIssuance!==true||
+    signed.statusSignatureVerifiedAtIssuance!==true||
+    signed.statusFloorVerified!==true||
+    !Number.isSafeInteger(previous.stateRevision)||
+    !Number.isSafeInteger(signed.stateRevision)||signed.stateRevision<=previous.stateRevision||
+    !Number.isSafeInteger(previous.ledgerRevision)||
+    !Number.isSafeInteger(signed.ledgerRevision)||signed.ledgerRevision<previous.ledgerRevision||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(validUntil)||
+    signed.statusValidUntil!==validUntil||
+    signed.productionActivation!==false||signed.activeSeats!==0||
+    signed.assignablePersonalAgentSeats!==0||signed.recipientConfirmed!==false)
+   deny('CORPORATE_STATUS_EXACT_SIGNED_READBACK_REQUIRED');
+ for(const field of ['organizationId','issuerAuthorityId','productId','productVersion',
+    'tariffId','tariffRevision','lineageId','renewalOf']){
+   if(signed[field]!==previous[field])deny('CORPORATE_STATUS_LICENSE_BINDING_CHANGED');
+ }
+ return signed;
+}
+// Only one mutation call. Even a thrown or malformed ACK can mean the
+// original journal committed. Read it, never sign again to get a response.
+// The supplied readback must be the product's stable double cold read.
+export async function changeCorporateStatusWithReadback(previous,expectedStatus,validUntil,mutate,readback){
+ let acknowledged=false;
+ try{
+   const ack=await mutate();
+   acknowledged=ack?.operation==='CORPORATE_STATUS'&&
+     ack.licenseId===previous.licenseId&&ack.sequence===previous.sequence+1&&
+     ack.state===expectedStatus;
+ }catch{}
+ const signed=confirmCorporateStatusCommit(previous,expectedStatus,validUntil,await readback());
+ return {signed,recovered:!acknowledged};
+}

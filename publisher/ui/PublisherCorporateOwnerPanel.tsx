@@ -3,7 +3,8 @@ import {projectCorporateSigningOffers} from '../src/corporate-offer-review.mjs';
 import {prepareCorporateLicenseRequest,encodeCorporateLicenseRequest}
   from '../src/corporate-license-request.mjs';
 import {inspectCorporateIssuePreflight,inspectUnknownCorporateMutationReadback,
-  inspectCorporateRenewalPreflight,inspectCorporateIssueLineage}
+  inspectCorporateRenewalPreflight,inspectCorporateIssueLineage,
+  confirmCorporateStatusCommit,changeCorporateStatusWithReadback}
   from '../src/corporate-owner-readback.mjs';
 import {projectCorporateDeliveryHandoff}
   from '../src/corporate-delivery-handoff.mjs';
@@ -17,6 +18,8 @@ type OwnerCaps={issuers:string[];operation:string;
 type IssuerReadback={operation:string;licenseId:string;requestId:string;
   organizationId:string;issuerAuthorityId:string;productId:string;
   tariffId:string;tariffRevision:number;status:string;sequence:number;
+  source:string;productVersion:string;statusValidUntil:string|null;
+  licenseSignatureVerifiedAtIssuance:boolean;statusSignatureVerifiedAtIssuance:boolean;statusFloorVerified:boolean;
   licenseEnvelopeSha256:string;statusEnvelopeSha256:string|null;
   lineageId:string;renewalOf:string|null;
   stateRevision:number;ledgerRevision:number;
@@ -64,7 +67,8 @@ export default function PublisherCorporateOwnerPanel({
     |{kind:'ISSUE';requestId:string;issuerId:string;organizationId:string;
        tariffId:string;tariffRevision:number;renewal:{licenseId:string;lineageId:string}|null}
     |{kind:'STATUS';requestId:string;licenseId:string;
-       expectedSequence:number;expectedStatus:'ACTIVE'|'SUSPENDED'|'REVOKED'}
+       expectedSequence:number;expectedStatus:'ACTIVE'|'SUSPENDED'|'REVOKED';
+       validUntil:string;previous:IssuerReadback}
     |null>(null);
   const [busy,setBusy]=useState(false);
   const [feedback,setFeedback]=useState('');
@@ -295,6 +299,8 @@ export default function PublisherCorporateOwnerPanel({
         // confirm a lost STATUS write. Compare its EXACT committed revision,
         // not merely the license ID, before re-enabling any issuer action.
         inspectUnknownCorporateMutationReadback(unconfirmed,signedRead);
+        if(unconfirmed?.kind==='STATUS')confirmCorporateStatusCommit(
+          unconfirmed.previous,unconfirmed.expectedStatus,unconfirmed.validUntil,signedRead);
       }
       setSigned(signedRead);setUnknown(false);setUnconfirmed(null);setReview(null);
       setConfirmIssue(false);setConfirmStatus(false);
@@ -311,25 +317,21 @@ export default function PublisherCorporateOwnerPanel({
     setBusy(true);setProblem('');setFeedback('');
     const previous=signed;
     try{
-      const result=await invoke('publisher_t3_corporate_change_status',{
-        licenseId:previous.licenseId,nextStatus:statusAction,
-        expectedSequence:previous.sequence,validUntil
-      });
-      if(result.operation!=='CORPORATE_STATUS'||
-         result.licenseId!==previous.licenseId||
-         result.sequence!==previous.sequence+1||
-         result.state!==statusAction)
-        throw Error('CORPORATE_OWNER_STATUS_COMMIT_NOT_CONFIRMED');
-      const verified=await coldSignedReadback(previous.licenseId,previous.requestId);
-      if(verified.sequence!==result.sequence||verified.status!==statusAction)
-        throw Error('CORPORATE_STATUS_SIGNED_READBACK_MISMATCH');
-      setSigned(verified);setConfirmStatus(false);
-      setFeedback('Подписанный STATUS сохранён в оригинальном T3. Получение изменения устройствами сотрудников ещё не подтверждено.');
+      const result=await changeCorporateStatusWithReadback(previous,statusAction,validUntil,
+        ()=>invoke('publisher_t3_corporate_change_status',{
+          licenseId:previous.licenseId,nextStatus:statusAction,
+          expectedSequence:previous.sequence,validUntil
+        }),
+        ()=>coldSignedReadback(previous.licenseId,previous.requestId));
+      setSigned(result.signed);setConfirmStatus(false);
+      setFeedback('Подписанный STATUS сохранён в оригинальном T3. '+
+        (result.recovered?'Ответ команды восстановлен точным чтением журнала без повторной подписи. ':'')+
+        'Получение изменения устройствами сотрудников ещё не подтверждено.');
     }catch(e){
       setSigned(null);setUnknown(true);
       setUnconfirmed({kind:'STATUS',requestId:previous.requestId,
         licenseId:previous.licenseId,expectedSequence:previous.sequence+1,
-        expectedStatus:statusAction});
+        expectedStatus:statusAction,validUntil,previous});
       setLookup(previous.licenseId);
       setProblem('Неизвестный исход STATUS. Нельзя повторно подписывать без точного исходного readback: '+error(e));
     }finally{setBusy(false);}
@@ -476,8 +478,11 @@ export default function PublisherCorporateOwnerPanel({
       <p>Лицензия: {signed.licenseId}; организация: {signed.organizationId};
         тариф {signed.tariffId} / {signed.tariffRevision}.</p>
       <p>Цепочка: {signed.lineageId}. Предыдущая лицензия: {signed.renewalOf??'нет'}.</p>
-      <p>STATUS: {signed.status}, последовательность {signed.sequence}.
-        SHA-256 LICENSE: {signed.licenseEnvelopeSha256}.</p>
+      <p role="status" data-testid="publisher-corporate-signed-status"
+        aria-label={'STATUS: '+signed.status+', последовательность '+signed.sequence}>
+        {'STATUS: '+signed.status+', последовательность '+signed.sequence+'.'}
+      </p>
+      <p>SHA-256 LICENSE: {signed.licenseEnvelopeSha256}.</p>
       <p>Получение Admin Center: не подтверждено. Назначаемых мест: 0.</p>
       {signed.status!=='NOT_ACTIVATED'&&
         <button type="button" className="secondary"
