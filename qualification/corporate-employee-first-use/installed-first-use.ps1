@@ -262,6 +262,8 @@ try{
  Wait-Text $agent 'Закрыть Workspace компании' 240
  Wait-Text $agent 'Рабочие данные находятся в локальном пространстве домена' 360
  Record 'AGENT_ORIGINAL_CORPORATE_WORKSPACE_OPEN'
+ Wait-Text $agent 'Право возврата Workspace подтверждено' 240
+ Record 'AGENT_ORIGINAL_WORKSPACE_RETURN_GRANT_IMPORTED'
  Stage 'CENTER_COLD_ROSTER'
  Stop-App $cen;$cen=Start-App $CenterExe
  Open-CenterRegistry $cen
