@@ -248,3 +248,18 @@ test('unknown or incomplete license cannot claim capacity or turn preparation in
  assert.equal(projectCorporateSeatPlan(inspectCorporateRead(v,ORG),roster).state,'LINEAGE_INCOMPLETE');
  assert.throws(()=>projectCorporateSeatPlan(null,[...roster,...roster]));
 });
+
+test('cached verified planning expires while window remains open and cannot be promoted by UI time',()=>{
+ const v=view(),row=v.view.licenses[0];
+ Object.assign(row,{status:'ACTIVE',current:true});
+ v.view.capacity=capacity('VERIFIED_CAPACITY_CANDIDATE',row.licenseId,1);
+ const read=inspectCorporateRead(v,ORG),roster=[{id:'person:one',personalAgentPlan:'PLANNED'}];
+ const expiry=Date.parse(row.statusValidUntil);
+ assert.equal(projectCorporateSeatPlan(read,roster,expiry-1).seatLimit,4);
+ const expired=projectCorporateSeatPlan(read,roster,expiry);
+ assert.equal(expired.state,'READBACK_EXPIRED');
+ assert.equal(expired.seatLimit,null);
+ assert.equal(expired.remainingPlannedSeats,null);
+ assert.equal(expired.assigned,null);
+ assert.equal(projectCorporateSeatPlan(inspectCorporateRead(view(),ORG),roster,expiry-1).state,'NO_CURRENT_LICENSE');
+});
