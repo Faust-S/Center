@@ -1,0 +1,306 @@
+# Owner-authorized disposable public Center qualification. The private
+# checkout, executable, install data and diagnostics remain on the runner.
+# No artifact upload, cache, release or private GitHub Actions.
+name: Corporate installed original One Core and Setup Core
+on:
+  push:
+    branches: ['work/2026-11-24-corporate-installed-one-core']
+    paths: ['.github/workflows/corporate-installed-one-core.yml','qualification/corporate-installed/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: corporate-installed-one-core-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  T3_PIN: 'e5b66db0cb9859fb83db66168a1ebaea1832d2cb'
+  CORE_PIN: 'd89ec3ead3e660a7865043d1ecacd7f2b259f6cc'
+  CENTER_PIN: 'a20552fedbdec9122cdd56217cfd4e0665186eb5'
+  PUBLISHER_PIN: 'f7f79480180347b5847842ab64f35088c0548554'
+  AGENT_PIN: '5741ebbccf75e7013606fd58e62b850762fec2ae'
+  AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
+  PYTHONDONTWRITEBYTECODE: '1'
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+  PIP_NO_CACHE_DIR: '1'
+jobs:
+  admin-publisher:
+    runs-on: windows-2022
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: ${{ env.CORE_PIN }}
+          path: one-core
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: ${{ env.T3_PIN }}
+          path: private-t3
+          persist-credentials: false
+          show-progress: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: ${{ env.CENTER_PIN }}
+          path: admin
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Atlas
+          ref: c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08
+          path: admin/vendor/atlas
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Br-test
+          ref: 7cfb17870042cac824644140b7f0a587e244a20e
+          path: admin/vendor/brtest
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: ${{ env.PUBLISHER_PIN }}
+          path: publisher
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.4'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify immutable current source and original T2 bytes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($r in @(@('private-t3',$env:T3_PIN),@('one-core',$env:CORE_PIN),@('admin',$env:CENTER_PIN),@('publisher',$env:PUBLISHER_PIN))){
+            if((& git -C $r[0] rev-parse HEAD).Trim() -cne $r[1]){throw 'CORPORATE_INSTALLED_SOURCE_PIN_MISMATCH'}
+          }
+          foreach($dir in @('private-t3','one-core')){
+            if(@(& git -C $dir status --porcelain | Where-Object {$_}).Count -ne 0){throw 'CORPORATE_INSTALLED_SOURCE_DIRTY'}
+          }
+          $q=Join-Path $env:RUNNER_TEMP 'corporate-original-k036'
+          Expand-Archive -LiteralPath 'one-core/packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip' -DestinationPath $q
+          if(!(Test-Path -LiteralPath (Join-Path $q '_iwxa/runtime/0.3.6/runtime.js'))){throw 'CORPORATE_INSTALLED_QUALIFIED_T2_MISSING'}
+          "CORPORATE_ORIGINAL_T2=$q"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'CORPORATE_INSTALLED_SOURCE_PINS=PASS'
+      - name: Build canonical One Core and Admin dependencies
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-deps-private.log'
+          & npm.cmd ci --prefix one-core/packages/t3-core --ignore-scripts --no-audit --no-fund *> $log
+          if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_ONE_CORE_NPM_FAILED'}
+          & npm.cmd run build --prefix one-core/packages/t3-core *> $log
+          if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_ONE_CORE_BUILD_FAILED'}
+          & npm.cmd ci --prefix admin --no-audit --no-fund *> $log
+          if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_ADMIN_NPM_FAILED'}
+          Write-Host 'CORPORATE_INSTALLED_ONE_CORE_BUILD=PASS'
+      - name: Build actual signed Owner Consumer Admin and unified Setup Core
+        shell: pwsh
+        timeout-minutes: 45
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-admin-build-private.log'
+          try{
+            & ./private-t3/scripts/build-admin-center-d3-owner.ps1 -CenterRoot (Resolve-Path admin).Path -OneCoreRoot (Resolve-Path one-core).Path -QualifiedT2Dist $env:CORPORATE_ORIGINAL_T2 -BunCommand bun -BuildCenter *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_ADMIN_BUILD_FAILED'}
+            $raw=Get-Content -LiteralPath $log -Raw
+            foreach($code in @('T3_D3_ORIGINAL_ADMIN_T2_PRODUCT_STAGE_CONFIRMED','ORIGINAL_T3_D3_ONE_DIST_ASSEMBLED','ORIGINAL_T3_D3_OWNER_BUILD_DONE','T3_D3_ORIGINAL_COMPILED_ENROLL_ENTRY_VERIFIED','CENTER_PRIVATE_T3_D3_SETUP_CORE_READY')){
+              if(!$raw.Contains($code)){throw 'CORPORATE_INSTALLED_ADMIN_BUILD_RECEIPT_MISSING'}
+            }
+            Write-Host 'CORPORATE_INSTALLED_ADMIN_SETUP_BUILD=PASS'
+          }catch{
+            $raw=(Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue)+[string]$_.Exception.Message
+            $codes=@([regex]::Matches($raw,'(?<![A-Z0-9_])(?:T3_D3|ORIGINAL_T3|CENTER_PRIVATE|CORPORATE_INSTALLED|SETUP)_[A-Z0-9_]{4,95}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Last 18)
+            Write-Host ('CORPORATE_INSTALLED_ADMIN_BUILD_CODES='+($codes -join ','))
+            throw 'CORPORATE_INSTALLED_ADMIN_BUILD_HOLD'
+          }
+      - name: Install exact Admin Setup Core and verify installed native bytes
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference='Stop'
+          $setup=(Resolve-Path 'admin/artifacts/iwxa-setup-core-center-private-d3.exe').Path
+          $payload=(Resolve-Path 'admin/artifacts/private-t3-d3-payload').Path
+          $report=Join-Path $env:RUNNER_TEMP 'corporate-installed-admin-receipt-private.json'
+          $p=Start-Process -FilePath $setup -ArgumentList ('--install-file "{0}"' -f $report) -PassThru
+          if(!$p.WaitForExit(180000)){ $p.Kill();throw 'CORPORATE_INSTALLED_ADMIN_SETUP_TIMEOUT' }
+          if($p.ExitCode -ne 0){throw 'CORPORATE_INSTALLED_ADMIN_SETUP_FAILED'}
+          $r=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
+          if($r.status -ne 'INSTALLED_NOT_LAUNCHED' -or $r.product -ne 'iwxa.admin-center' -or $r.version -ne '0.4.1'){throw 'CORPORATE_INSTALLED_ADMIN_SETUP_RECEIPT_INVALID'}
+          $root=[IO.Path]::GetFullPath([string]$r.installRoot)
+          foreach($rel in @('iwxa-admin-center.exe','t3/iwxa-t3-product-owner.exe','t3/iwxa-t3-product-consumer.exe','t3/iwxa-t3-age-desktop.exe','t3/age.exe','t3/age-keygen.exe','t3/age-toolchain.json','t3/one-dist/_iwxa/loader.js','t3/one-dist/_iwxa/runtime/0.3.6/runtime.js')){
+            if((Get-FileHash -LiteralPath (Join-Path $root $rel)).Hash -cne (Get-FileHash -LiteralPath (Join-Path $payload $rel)).Hash){throw 'CORPORATE_INSTALLED_ADMIN_NATIVE_BYTES_CHANGED'}
+          }
+          foreach($rel in @('_iwxa/loader.js','_iwxa/runtime/0.3.6/runtime.js')){
+            if((Get-FileHash -LiteralPath (Join-Path $root ('t3/one-dist/'+$rel))).Hash -cne (Get-FileHash -LiteralPath (Join-Path $env:CORPORATE_ORIGINAL_T2 $rel)).Hash){throw 'CORPORATE_INSTALLED_ORIGINAL_KERNEL_BYTES_CHANGED'}
+          }
+          $reg=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center'
+          if($reg.InstallLocation -ine $root){throw 'CORPORATE_INSTALLED_ADMIN_REGISTRATION_INVALID'}
+          "CORPORATE_ADMIN_INSTALL=$root"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CORPORATE_ADMIN_DATA=$($reg.DataLocation)"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'CORPORATE_INSTALLED_ADMIN_AND_ORIGINAL_KERNEL_BYTES=PASS'
+      - name: Original installed Admin first use, native cancellation and cold Owner
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-admin-ui-private.log'
+          try{
+            & ./one-core/packages/t3-core/tests/g4-installed-original-center-first-use.ps1 -InstallRoot $env:CORPORATE_ADMIN_INSTALL *> $log
+            $raw=Get-Content -LiteralPath $log -Raw
+            foreach($marker in @('G4_INSTALLED_FIRST_USE_NATIVE_CANCEL_NO_OWNER_PASS','G4_INSTALLED_FIRST_USE_NATIVE_WINDOWS_ENROLL_PASS','G4_INSTALLED_COLD_ORIGINAL_DPAPI_INDEPENDENT_PROCESS_PASS','G4_INSTALLED_FIRST_USE_ORIGINAL_DPAPI_COLD_RESTART_PASS')){
+              if(!$raw.Contains($marker)){throw 'CORPORATE_INSTALLED_ADMIN_UI_RECEIPT_MISSING'}
+            }
+            Write-Host 'CORPORATE_INSTALLED_ADMIN_NATIVE_FIRST_USE_COLD=PASS'
+          }catch{
+            $raw=(Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue)+[string]$_.Exception.Message
+            $codes=@([regex]::Matches($raw,'(?<![A-Z0-9_])(?:G4_INSTALLED|CORPORATE_INSTALLED)_[A-Z0-9_]{4,100}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Last 20)
+            Write-Host ('CORPORATE_INSTALLED_ADMIN_UI_CODES='+($codes -join ','))
+            throw 'CORPORATE_INSTALLED_ADMIN_UI_HOLD'
+          }
+      - name: Build and install current Publisher with the same original compiled Owner
+        shell: pwsh
+        timeout-minutes: 22
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-publisher-build-private.log'
+          $out=Join-Path $env:RUNNER_TEMP 'corporate-publisher-setup'
+          New-Item -ItemType Directory -Path $out|Out-Null
+          & npm.cmd ci --prefix publisher --no-audit --no-fund *> $log
+          if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_NPM_FAILED'}
+          $source=(Resolve-Path 'admin/artifacts/private-t3-d3-payload/t3').Path
+          $env:IWXA_T3_PRODUCT_OWNER_SHA256=(Get-FileHash -LiteralPath (Join-Path $source 'iwxa-t3-product-owner.exe')).Hash.ToLowerInvariant()
+          $env:IWXA_T3_AGE_DESKTOP_OWNER_SHA256=(Get-FileHash -LiteralPath (Join-Path $source 'iwxa-t3-age-desktop.exe')).Hash.ToLowerInvariant()
+          Push-Location publisher
+          try{
+            & npm.cmd run publisher:desktop:exe *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_NATIVE_BUILD_FAILED'}
+          }finally{Pop-Location}
+          $payload=Join-Path $out 'payload'
+          New-Item -ItemType Directory -Path (Join-Path $payload 't3') -Force|Out-Null
+          Copy-Item -LiteralPath 'publisher/publisher/src-tauri/target/release/iwxa-publisher.exe' -Destination $payload
+          Get-ChildItem -LiteralPath $source -File|Where-Object {$_.Name -ne 'iwxa-t3-product-consumer.exe'}|Copy-Item -Destination (Join-Path $payload 't3')
+          $stub=(Resolve-Path 'admin/artifacts/iwxa-setup-core-stub.exe').Path
+          $product=(Resolve-Path 'publisher/publisher/setup/product.json').Path
+          $tree=(& git -C publisher rev-parse 'HEAD^{tree}').Trim()
+          $setup=Join-Path $out 'publisher-private-setup.exe'
+          Push-Location admin
+          try{
+            & python -m installer.build_bundle build --product $product --payload $payload --stub $stub --output $setup --source-commit $env:PUBLISHER_PIN --source-tree $tree *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_BUILD_FAILED'}
+          }finally{Pop-Location}
+          $report=Join-Path $out 'install-private.json'
+          $p=Start-Process -FilePath $setup -ArgumentList ('--install-file "{0}"' -f $report) -PassThru
+          if(!$p.WaitForExit(180000)){$p.Kill();throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_TIMEOUT'}
+          if($p.ExitCode -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_FAILED'}
+          $r=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
+          if($r.status -ne 'INSTALLED_NOT_LAUNCHED' -or $r.product -ne 'iwxa.publisher'){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_RECEIPT_INVALID'}
+          $root=[IO.Path]::GetFullPath([string]$r.installRoot)
+          foreach($f in (Get-ChildItem -LiteralPath $payload -Recurse -File)){
+            $relative=[IO.Path]::GetRelativePath($payload,$f.FullName)
+            if((Get-FileHash -LiteralPath (Join-Path $root $relative)).Hash -cne (Get-FileHash -LiteralPath $f.FullName).Hash){throw 'CORPORATE_INSTALLED_PUBLISHER_NATIVE_BYTES_CHANGED'}
+          }
+          $reg=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.publisher'
+          if($reg.InstallLocation -ine $root -or $reg.DataLocation -ieq $env:CORPORATE_ADMIN_DATA){throw 'CORPORATE_INSTALLED_PUBLISHER_REGISTRATION_INVALID'}
+          "CORPORATE_PUBLISHER_INSTALL=$root"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'CORPORATE_INSTALLED_PUBLISHER_SAME_ORIGINAL_OWNER=PASS'
+      - name: Discard all private sources native packages test profile and diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          foreach($process in @('iwxa-admin-center','iwxa-publisher','iwxa-t3-product-owner','iwxa-t3-product-consumer')){
+            Get-Process -Name $process -ErrorAction SilentlyContinue|Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+          foreach($product in @('iwxa.admin-center','iwxa.publisher')){
+            $key='HKCU:\Software\IWXA\SetupCore\Products\'+$product
+            $reg=Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
+            if($reg){foreach($dir in @($reg.InstallLocation,$reg.DataLocation)){
+              if($dir -and [IO.Path]::IsPathFullyQualified([string]$dir)){Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue}
+            }}
+            Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          foreach($dir in @('private-t3','admin','publisher','one-core',(Join-Path $env:RUNNER_TEMP 'corporate-publisher-setup'),(Join-Path $env:RUNNER_TEMP 'corporate-original-k036'))){
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'corporate-installed-*-private.*' -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue
+          Write-Host 'CORPORATE_INSTALLED_PRIVATE_CLEANUP=COMPLETE'
+  agent:
+    runs-on: windows-2022
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: ${{ env.CORE_PIN }}
+          path: one-core
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: ${{ env.T3_PIN }}
+          path: private-t3
+          persist-credentials: false
+          show-progress: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_PIN }}
+          path: private-agent
+          persist-credentials: false
+          show-progress: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: ${{ env.AGENT_SETUP_PIN }}
+          path: setup-core
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build and qualify original Agent Setup Core with actual installed T3
+        shell: pwsh
+        timeout-minutes: 90
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($p in @(@('private-t3',$env:T3_PIN),@('private-agent',$env:AGENT_PIN),@('one-core',$env:CORE_PIN),@('setup-core',$env:AGENT_SETUP_PIN))){
+            if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'CORPORATE_AGENT_INSTALLED_SOURCE_PIN_MISMATCH'}
+          }
+          $out=Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-agent-build-private.log'
+          try{
+            & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Resolve-Path 'private-agent/tools/build_setup_core_windows_candidate.ps1').Path -CenterRoot (Resolve-Path setup-core).Path -CenterCommit $env:AGENT_SETUP_PIN -OutputRoot $out -ReleaseCacheRoot (Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache') -PublicT3CoreRoot (Resolve-Path one-core).Path -OriginalT3OwnerRoot (Resolve-Path private-t3).Path -RequireOriginalT3 *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_AGENT_INSTALLED_BUILD_FAILED'}
+            if(!(Test-Path -LiteralPath (Join-Path $out 'IWXA-Private-SetupCore-Candidate.exe'))){throw 'CORPORATE_AGENT_INSTALLED_SETUP_MISSING'}
+            Write-Host 'CORPORATE_AGENT_ORIGINAL_SETUP_PIPELINE=PASS'
+          }catch{
+            $raw=(Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue)+[string]$_.Exception.Message
+            $codes=@([regex]::Matches($raw,'(?<![A-Za-z0-9_])(?:private_setup|original_t3|native_candidate|agent_setup|CORPORATE_AGENT)_[a-zA-Z0-9_]{4,100}(?![A-Za-z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Last 25)
+            Write-Host ('CORPORATE_AGENT_INSTALLED_CODES='+($codes -join ','))
+            throw 'CORPORATE_AGENT_ORIGINAL_SETUP_HOLD'
+          }
+      - name: Discard private Agent checkout and installed test resources
+        if: always()
+        shell: pwsh
+        run: |
+          foreach($dir in @('private-t3','private-agent','one-core','setup-core',(Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'),(Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache'))){
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'corporate-installed-agent-build-private.log') -Force -ErrorAction SilentlyContinue
+          Write-Host 'CORPORATE_AGENT_PRIVATE_CLEANUP=COMPLETE'
