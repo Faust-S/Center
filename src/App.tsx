@@ -225,6 +225,9 @@ export default function App() {
   const matchingNativeAtlas=nativeAtlas&&nativeAtlas.organizationId===org?.id ? nativeAtlas.view : null;
   const observedAtlas=selectAtlasReferenceSource(atlasView,matchingNativeAtlas,atlasObservationMode) as AtlasPortfolioView|null;
   const currentFile=atlasFile?.organizationId===org?.id?atlasFile:null;
+  const fileAtlasRef=atlasView?.projects.some(p=>p.id===atlasSelected)?linkableAtlasProject(atlasView,atlasSelected):null;
+  const fileAtlasTarget=selectAtlasTargetWorkspace(org?.workspaces??[],atlasWorkspace,fileAtlasRef);
+  const fileAtlasBindingCurrent=atlasWorkspaceBindingMatches(fileAtlasTarget,fileAtlasRef);
   const selectedPreview=inspectorPreviews.find(p=>p.key===activePreviewKey&&p.organizationId===org?.id);
   const previewTask=selectedPreview?.kind==='assignment'?org?.assignments.find(t=>t.id===selectedPreview.id):null;
   const previewPerson=selectedPreview?.kind==='person'?org?.participants.find(p=>p.id===selectedPreview.id):null;
@@ -802,13 +805,14 @@ export default function App() {
             <div className="atlas-project-list">{atlasView.projects.map(project=><button type="button" key={project.id} data-testid="atlas-project-card" className={`assignment-row atlas-project-card ${atlasSelected===project.id?'chosen':''}`} onClick={()=>{setAtlasSelected(project.id);openInspectorPreview('atlas-project',project.id,project.name);}}>
               <span className="task-mark">◇</span><span className="row-content"><strong>{project.name}</strong><small>{project.total} работ · {project.done} завершено · {project.blocked} заблокировано · {project.stages} этапов</small></span><span className="status neutral">{project.progress===null?'Нет работ':project.progress+'%'}</span>
             </button>)}</div>
-            {!!org.workspaces.length && !!atlasView.projects.length && <form onSubmit={e=>{e.preventDefault();if(!atlasSelected)return;const workspaceId=atlasWorkspace||org.workspaces[0].id;const link=linkableAtlasProject(atlasView,atlasSelected);command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:link});}}>
-              <h3>Связать выбранный проект с рабочей областью</h3><div className="form-grid"><label>Рабочая область<select data-testid="atlas-workspace-select" value={atlasWorkspace||org.workspaces[0].id} onChange={e=>setAtlasWorkspace(e.target.value)}>{org.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>Выбранный проект<input readOnly value={atlasView.projects.find(p=>p.id===atlasSelected)?.name??''} /></label></div>
-              <button className="secondary" data-testid="link-atlas">Связать с планом</button>
+            {!!org.workspaces.length && !!atlasView.projects.length && <form onSubmit={e=>{e.preventDefault();if(!fileAtlasTarget||!fileAtlasRef)return;if(command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId:fileAtlasTarget.id,atlasRef:fileAtlasRef}))setAtlasWorkspace(fileAtlasTarget.id);}}>
+              <h3>Связать выбранный проект с рабочей областью</h3><div className="form-grid"><label>Рабочая область<select aria-label="Рабочая область для файла Atlas" data-testid="atlas-workspace-select" value={fileAtlasTarget?.id??''} onChange={e=>setAtlasWorkspace(e.target.value)}><option value="">Выберите рабочую область</option>{org.workspaces.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>Выбранный проект<input readOnly value={atlasView.projects.find(p=>p.id===atlasSelected)?.name??''} /></label></div>
+              <p role="status" data-testid="atlas-file-binding-status">{fileAtlasBindingCurrent?'Связь с редакцией файла подтверждена в черновике':fileAtlasTarget?'Связь с редакцией файла пока не установлена':'Выберите рабочую область для файла Atlas'}</p>
+              <button className="secondary" disabled={!fileAtlasTarget||!fileAtlasRef} data-testid="link-atlas">Связать с планом</button>
             </form>}
             {!!atlasSelected && atlasView.projects.find(p=>p.id===atlasSelected)?.workItems.map(item=>
-              <button type="button" key={item.id} className="secondary" data-testid="atlas-file-work-to-assignment"
-                onClick={()=>prepareAtlasWork(linkableAtlasWork(atlasView,atlasSelected,item.id))}>Подготовить поручение: {item.title}</button>)}
+              <button type="button" key={item.id} className="secondary" data-testid="atlas-file-work-to-assignment" disabled={!fileAtlasBindingCurrent}
+                onClick={()=>{if(fileAtlasTarget&&fileAtlasBindingCurrent)prepareAtlasWork(linkableAtlasWork(atlasView,atlasSelected,item.id),fileAtlasTarget.id);}}>Подготовить поручение: {item.title}</button>)}
             <p className="muted fine-print">Открыта копия портфеля Atlas, редакция {atlasView.revision}. Это снимок, а не синхронизация. Перед выдачей поручения проверьте актуальность проекта в Atlas и права на него.</p>
           </> : <Empty title="Откройте портфель Atlas" text="Когда вы выберете файл экспорта Atlas, здесь появятся проекты, прогресс и зависимости."/>}
           {org.workspaces.some(w=>w.atlasRef)&&<div className="atlas-link-readback">{org.workspaces.filter(w=>w.atlasRef).map(w=><p key={w.id}><strong>{w.name}:</strong> {w.atlasRef?.projectId} · {atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_MATCHES'?'Редакция совпадает':atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_CHANGED'?'Редакция плана изменилась':atlasView?'Проект отсутствует в открытом файле':'Файл Atlas не открыт'}</p>)}</div>}

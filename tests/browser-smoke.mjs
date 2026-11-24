@@ -74,6 +74,7 @@ try{
   assert.match(await page.getByTestId('center-age-exchange').innerText(),/установленном Windows-приложении/);
   checks.push('encrypted-iwxa-file-transport-not-executed-in-browser');
   await page.getByTestId('nav-resources').click();await page.getByTestId('workspace-name').fill('Procurement');await page.getByTestId('add-workspace').click();
+  await page.getByTestId('workspace-name').fill('Independent operations');await page.getByTestId('add-workspace').click();
   // Build a real Atlas snapshot through its pinned domain module, never a fake project record.
   const {empty,createProject,createItem,editProject,serialize}=await import('../vendor/atlas/src/core.mjs');
   const first=createProject(empty(),{name:'Supply programme',type:'business'});
@@ -97,7 +98,15 @@ try{
   assert.equal(await page.getByTestId('atlas-project-count').textContent(),'1');
   assert.equal(await page.getByTestId('atlas-revision').textContent(),String(work.state.revision));
   checks.push('atlas-iwxa-real-file-picker-valid-and-tampered-archive-rejected');
+  const fileTarget=page.getByTestId('atlas-workspace-select');
+  assert.equal(await fileTarget.inputValue(),'');
+  assert.equal(await page.getByTestId('link-atlas').isEnabled(),false);
+  assert.equal(await page.getByTestId('atlas-file-work-to-assignment').first().isEnabled(),false);
+  await fileTarget.selectOption({label:'Procurement'});
+  assert.equal(await page.getByTestId('atlas-file-work-to-assignment').first().isEnabled(),false);
   await page.getByTestId('link-atlas').click();
+  assert.match(await page.getByTestId('atlas-file-binding-status').innerText(),/Связь с редакцией файла подтверждена/);
+  assert.equal(await page.getByTestId('atlas-file-work-to-assignment').first().isEnabled(),true);
   checks.push('atlas-real-portfolio-project-selection-and-link');
   await page.getByTestId('nav-people').click();
   for(const name of ['Anna','Boris']){await page.getByTestId('person-name').fill(name);await page.getByTestId('add-person').click();}
