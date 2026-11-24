@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: 8cfde07ee1dc4f3d5e7a14491354d6b47c89361c
-      PRIVATE_TREE: 60c5b99e114f3a8698fc5b7187bc923f994687a8
+      PRIVATE_PIN: dae2280d94383f8ccc7962b7798f72936f0e8c2e
+      PRIVATE_TREE: b30909cccd911226a0623b3c64abc010008ccc40
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
     steps:
       - uses: actions/setup-python@v5
@@ -77,7 +77,7 @@ jobs:
                       status("PYTHON_DEPS","FAIL"); return 1
                   status("PYTHON_DEPS","PASS")
                   allowed = {"START","QWEN_INSTALL_PASS","OLLAMA_RELEASE_PASS","GGUF_DIGEST_PASS",
-                             "OLLAMA_SERVER_PASS","ORIGINAL_MODEL_SELECTION_PASS","REAL_MODEL_SMOKE_PASS",
+                             "OLLAMA_SERVER_PASS","ORIGINAL_MODEL_SELECTION_PASS","REAL_MODEL_SMOKE_PASS","REAL_OPENAI_CHAT_SMOKE_PASS",
                              "ORIGINAL_GRAPH_PREVIEW_PASS","REAL_QWEN_GRAPH_RESULT_PASS",
                              "ORIGINAL_RESULT_RESTART_PASS","PROCESS_CLEANUP_PASS"}
                   proc = run([sys.executable,"-m","pytest","-q","-s","--tb=short",
@@ -107,9 +107,11 @@ jobs:
                       if re.search(r"(?<![A-Za-z0-9_])"+code+r"(?![A-Za-z0-9_])",out):
                           status("QWEN_PRODUCT_DIAGNOSTIC",code)
                   for line in out.splitlines():
-                      remote=re.fullmatch(r"QWEN_PRODUCT_REMOTE=(INITIALIZE|SESSION_NEW|SESSION_LOAD|SESSION_RESUME|SESSION_PROMPT|SESSION_CONFIG|OTHER):(-?[0-9]{1,5}):(PATH_LENGTH|PATH_MISSING|PATH_ACCESS|UNTRUSTED_WORKSPACE|AUTH_REQUIRED|MODEL_CONFIGURATION|TOOL_CONFIGURATION|MODEL_HTTP_FAILURE|OTHER)",line.strip())
+                      remote=re.fullmatch(r"QWEN_PRODUCT_REMOTE=(INITIALIZE|SESSION_NEW|SESSION_LOAD|SESSION_RESUME|SESSION_PROMPT|SESSION_CONFIG|OTHER):(-?[0-9]{1,5}):(PATH_LENGTH|PATH_MISSING|PATH_ACCESS|UNTRUSTED_WORKSPACE|AUTH_REQUIRED|MODEL_CONFIGURATION|TOOL_CONFIGURATION|MODEL_HTTP_FAILURE|TOOLS_UNSUPPORTED|CONTEXT_LIMIT|STREAM_FAILURE|OUT_OF_MEMORY|OTHER)",line.strip())
                       if remote:
                           status("QWEN_PRODUCT_REMOTE",":".join(remote.groups()))
+                      if re.fullmatch(r"QWEN_PRODUCT_HTTP=(OPENAI_CHAT|OPENAI_MODELS|GENERATE|CHAT|TAGS|SHOW|VERSION):[1-5][0-9]{2}",line.strip()) or re.fullmatch(r"QWEN_PRODUCT_OLLAMA_KIND=(TOOLS_UNSUPPORTED|CONTEXT_LIMIT|MODEL_LOAD|OUT_OF_MEMORY)",line.strip()):
+                          print(line.strip(),flush=True)
                       match=re.fullmatch(r"QWEN_PRODUCT_BLOCKED=([A-Z][A-Z_0-9]{1,100})",line.strip())
                       if match:
                           status("QWEN_PRODUCT_BLOCKED",match.group(1))
