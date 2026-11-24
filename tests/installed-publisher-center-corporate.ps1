@@ -81,7 +81,9 @@ $artifact=Join-Path ([IO.Path]::GetTempPath()) ('iwxa-corporate-witness-'+[guid]
 $trustFile=Join-Path $artifact 'publisher-corporate-trust.json'
 $activeFile=Join-Path $artifact 'active.iwxa'
 $reexportFile=Join-Path $artifact 'active-reexport.iwxa'
+$suspendedFile=Join-Path $artifact 'suspended.iwxa'
 $revokedFile=Join-Path $artifact 'revoked.iwxa'
+$tamperedFile=Join-Path $artifact 'tampered.iwxa'
 $checks=[System.Collections.Generic.List[string]]::new()
 $pub=$null
 $cen=$null
@@ -236,6 +238,30 @@ function Read-Edit($process,[string]$name){
   }
   return ([System.Windows.Automation.ValuePattern]$pattern).Current.Value
 }
+# Exercise the user-visible Copy action. If WebView refuses direct clipboard
+# access, the UI explicitly selects the value and offers Ctrl+C.
+function Copy-FromGui($process,[string]$button,[string]$field){
+  Focus-App $process
+  $expected=Read-Edit $process $field
+  if([string]::IsNullOrEmpty($expected)){throw 'CORPORATE_GUI_COPY_SOURCE_EMPTY'}
+  [System.Windows.Forms.Clipboard]::Clear()
+  Press $process $button
+  for($i=0;$i -lt 15;$i++){
+    if([System.Windows.Forms.Clipboard]::GetText() -ceq $expected){return $expected}
+    Start-Sleep -Milliseconds 100
+  }
+  # Do not synthesize the clipboard value. Copy the visible readonly field
+  # using the same documented keyboard fallback as an interactive user.
+  $element=Control $process $field 'Edit'
+  $element.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('^a')
+  [System.Windows.Forms.SendKeys]::SendWait('^c')
+  Start-Sleep -Milliseconds 200
+  if([System.Windows.Forms.Clipboard]::GetText() -cne $expected){
+    throw 'CORPORATE_GUI_COPY_FALLBACK_NOT_EXACT'
+  }
+  return $expected
+}
 function Confirm-Checkbox($process,[string]$name){
   Focus-App $process
   $element=Control $process $name 'CheckBox'
@@ -343,7 +369,12 @@ function Stop-App($process){
 }
 
 function Publisher-Status([string]$state,[string]$id,[int]$sequence){
-  if($state -eq 'REVOKED'){Select-Last $pub 'Действие STATUS'}
+  switch($state){
+    'ACTIVE' { }
+    'SUSPENDED' {Select-FirstReal $pub 'Действие STATUS'}
+    'REVOKED' {Select-Last $pub 'Действие STATUS'}
+    default {throw 'CORPORATE_GUI_UNSUPPORTED_STATUS'}
+  }
   # The fresh form defaults to ACTIVE.
   $until=[DateTime]::UtcNow.AddMinutes(15).ToString("yyyy-MM-ddTHH:mm:ss.fffZ",[Globalization.CultureInfo]::InvariantCulture)
   Enter $pub 'STATUS действителен до (UTC, ISO 8601)' $until
@@ -360,7 +391,7 @@ function Publisher-Status([string]$state,[string]$id,[int]$sequence){
 function Publisher-Export([string]$file,$proof){
   Native-FileDialog $pub 'Экспортировать подписанный .iwxa через исходный T3' $file $false
   Wait-Text $pub 'Подписанный файл готов к передаче'
-  $raw=Read-Edit $pub 'Контрольные данные для Admin Center'
+  $raw=Copy-FromGui $pub 'Скопировать контрольные данные' 'Контрольные данные для Admin Center'
   $h=$raw|ConvertFrom-Json -Depth 20
   if($h.organizationId -cne $proof.organizationId -or $h.licenseId -cne $proof.licenseId -or
      $h.requestId -cne $proof.requestId -or $h.status -cne $proof.status -or
@@ -419,7 +450,7 @@ try{
     throw 'CORPORATE_GUI_ORGANIZATION_INVALID'
   }
   Press $cen 'Personal Agent и лицензии'
-  if((Read-Edit $cen 'Идентификатор организации для Publisher') -cne $org){
+  if((Copy-FromGui $cen 'Скопировать идентификатор организации' 'Идентификатор организации для Publisher') -cne $org){
     throw 'CORPORATE_GUI_ORGANIZATION_ID_MISMATCH'
   }
   $checks.Add('CENTER_CREATES_DURABLE_ORGANIZATION_AND_EXPOSES_EXACT_ID')
@@ -463,7 +494,7 @@ try{
   Native-FileDialog $pub 'Экспортировать публичное доверие для независимого Admin Center' $trustFile $false
   $trustSha=Digest $trustFile
   Wait-Text $pub 'Публичное доверие оригинального издателя сохранено'
-  if((Read-Edit $pub 'SHA-256 публичного доверия издателя') -cne $trustSha){
+  if((Copy-FromGui $pub 'Скопировать SHA-256 доверия' 'SHA-256 публичного доверия издателя') -cne $trustSha){
     throw 'CORPORATE_GUI_PUBLIC_TRUST_FINGERPRINT_MISMATCH'
   }
   Select-FirstReal $pub 'Зарегистрированный издатель'
@@ -508,23 +539,57 @@ try{
   Wait-Text $cen 'Новая запись не создана'
   $null=Verify-Center $org $active 1 (Digest $activeFile)
   $checks.Add('CENTER_IDENTICAL_IWXA_REPLAY_NO_SECOND_REVISION')
+  # A mutated carrier must fail even if an identical signed pair is already
+  # stored and the original receipt can be recovered. Never treat that
+  # recovery as proof that this physical file was accepted.
+  $bad=[IO.File]::ReadAllBytes($activeFile)
+  if($bad.Length -lt 16){throw 'CORPORATE_GUI_CARRIER_TOO_SMALL'}
+  $index=[int][Math]::Floor($bad.Length/2)
+  $bad[$index]=[byte]($bad[$index] -bxor 1)
+  [IO.File]::WriteAllBytes($tamperedFile,$bad)
+  Center-Receive $handoff $tamperedFile $false
+  $null=Verify-Center $org $active 1 (Digest $activeFile)
+  $checks.Add('CENTER_TAMPERED_PHYSICAL_CARRIER_DENIED_STORE_UNCHANGED')
+  # Reopening Publisher must use the original signed journal, not the
+  # in-memory delivery receipt or an unsigned preparation.
+  Stop-App $pub
+  $pub=Start-App $publisherPath
+  Press $pub 'Доверие и ключи'
+  Enter $pub 'Точный requestId, licenseId или organizationId исходного T3' $id
+  Press $pub 'Прочитать подписанный журнал T3'
+  Wait-Text $pub 'STATUS: ACTIVE, последовательность 1'
+  $readAgain=Owner-Read $id
+  if($readAgain.licenseEnvelopeSha256 -cne $active.licenseEnvelopeSha256 -or
+     $readAgain.statusEnvelopeSha256 -cne $active.statusEnvelopeSha256 -or
+     $readAgain.sequence -ne 1){
+    throw 'CORPORATE_GUI_PUBLISHER_COLD_READBACK_MISMATCH'
+  }
+  $checks.Add('PUBLISHER_COLD_RESTART_ORIGINAL_SIGNED_JOURNAL')
   $reexport=Publisher-Export $reexportFile $active
   if((Digest $activeFile) -ceq (Digest $reexportFile)){throw 'CORPORATE_REEXPORT_EXPECTED_DIFFERENT_CARRIER'}
   Center-Receive $reexport $reexportFile
   Wait-Text $cen 'Новая запись не создана'
   $null=Verify-Center $org $active 1 (Digest $activeFile)
   $checks.Add('CENTER_REEXPORT_SAME_SIGNED_PAIR_NEW_CARRIER')
-  $revoked=Publisher-Status 'REVOKED' $id 2
+  $suspended=Publisher-Status 'SUSPENDED' $id 2
+  $suspendedHandoff=Publisher-Export $suspendedFile $suspended
+  Center-Receive $suspendedHandoff $suspendedFile
+  $null=Verify-Center $org $suspended 2 (Digest $suspendedFile)
+  $checks.Add('CENTER_RECEIVES_SIGNED_SUSPENSION')
+  Center-Receive $handoff $activeFile $false
+  $null=Verify-Center $org $suspended 2 (Digest $suspendedFile)
+  $checks.Add('CENTER_SUSPENSION_CANNOT_BE_ROLLED_BACK_BY_OLD_ACTIVE')
+  $revoked=Publisher-Status 'REVOKED' $id 3
   $revokedHandoff=Publisher-Export $revokedFile $revoked
   Center-Receive $revokedHandoff $revokedFile
-  $null=Verify-Center $org $revoked 2 (Digest $revokedFile)
+  $null=Verify-Center $org $revoked 3 (Digest $revokedFile)
   $checks.Add('CENTER_RECEIVES_SIGNED_REVOCATION')
   Stop-App $cen
   $cen=Start-App $centerPath
   Press $cen 'Personal Agent и лицензии'
   Wait-Text $cen 'STATUS: REVOKED'
   Center-Receive $handoff $activeFile $false
-  $null=Verify-Center $org $revoked 2 (Digest $revokedFile)
+  $null=Verify-Center $org $revoked 3 (Digest $revokedFile)
   $checks.Add('CENTER_DURABLE_REVOKE_AND_OLD_ACTIVE_REPLAY_DENIED')
   $report=[ordered]@{
     schema='IWXA_CENTER_PUBLISHER_INSTALLED_CORPORATE_QUALIFICATION/1'
@@ -554,7 +619,7 @@ try{
     }
   }
   # Transfer files are disposable, not a production export or public artifact.
-  foreach($file in @($trustFile,$activeFile,$reexportFile,$revokedFile)){
+  foreach($file in @($trustFile,$activeFile,$reexportFile,$suspendedFile,$revokedFile,$tamperedFile)){
     Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
   }
 }
