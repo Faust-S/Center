@@ -1,0 +1,123 @@
+name: Activity and original Agent extraction
+on:
+  push:
+    branches:
+      - work/2026-11-24-activity-agent-extraction-qualification
+    paths:
+      - .github/workflows/activity-agent-extraction-qualification.yml
+permissions:
+  contents: read
+jobs:
+  extraction:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      PRIVATE_PIN: d89feff67f9ae1422fd463b3892e9b4ea12756e7
+      PRIVATE_TREE: 50a8c487a03f303065c9b1b62edcebade98bc539
+      PUBLIC_PIN: 1b9ceda616a35f15078751d4d65729d17edf9e4b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: d89feff67f9ae1422fd463b3892e9b4ea12756e7
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private-agent
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 1b9ceda616a35f15078751d4d65729d17edf9e4b
+          path: activity-public
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify source identities
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C private-agent rev-parse HEAD).Trim() -cne $env:PRIVATE_PIN -or
+             (& git -C private-agent rev-parse 'HEAD^{tree}').Trim() -cne $env:PRIVATE_TREE -or
+             (& git -C activity-public rev-parse HEAD).Trim() -cne $env:PUBLIC_PIN){
+            throw 'SOURCE_PIN_MISMATCH'
+          }
+          Write-Host 'SOURCE_PIN=PASS'
+      - name: Original Core source tests and public Activity parity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $PSNativeCommandUseErrorActionPreference=$false
+          $env:IWXA_ACTIVITY_PUBLIC_ROOT=(Resolve-Path activity-public).Path
+          Push-Location private-agent
+          try{
+            $install=Join-Path $env:RUNNER_TEMP 'activity-private-pip.out'
+            $log=Join-Path $env:RUNNER_TEMP 'activity-private-tests.out'
+            python -m pip install -q -r requirements-ci.txt *> $install
+            if($LASTEXITCODE -ne 0){throw 'PYTHON_INSTALL_FAILED'}
+            Write-Host 'PYTHON_INSTALL=PASS'
+            python -m pytest -q --tb=short tests/test_activity_routine_source.py tests/test_activity_personal_extraction.py *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            $last=($raw -split '\r?\n' | Where-Object {$_ -match '[0-9]+ (passed|failed|skipped|errors?)\b' -and $_ -match ' in [0-9.]+s'} | Select-Object -Last 1)
+            foreach($key in @('passed','failed','skipped','errors')){
+              if($last){$match=[regex]::Match($last,'\b([0-9]+) '+$key+'\b');if($match.Success){Write-Host ('PYTHON_'+$key.ToUpperInvariant()+'='+$match.Groups[1].Value)}}
+            }
+            foreach($m in [regex]::Matches($raw,'(?m)^FAILED tests/(test_activity_(?:routine_source|personal_extraction)\.py)::([A-Za-z0-9_]+)')){
+              Write-Host ('FAILED_TEST='+$m.Groups[1].Value+'::'+$m.Groups[2].Value)
+            }
+            foreach($m in [regex]::Matches($raw,'(?m)^((?:runtime/activity_[a-z_]+|tests/test_activity_[a-z_]+)\.py):(\d+): ([A-Za-z]+Error)\b')){
+              Write-Host ('FAILURE_LOCATION='+$m.Groups[1].Value+':'+$m.Groups[2].Value+':'+$m.Groups[3].Value)
+            }
+            foreach($code in @('activity_cross_runtime_request_failed','activity_cross_runtime_document_mismatch','activity_cross_runtime_digest_mismatch','activity_extraction_selection_unavailable','activity_extraction_acceptance_unverified','activity_extraction_task_scope_changed','activity_extraction_source_content_limit','activity_extraction_source_empty')){
+              if($raw.Contains($code)){Write-Host ('DIAGNOSTIC='+$code)}
+            }
+            Write-Host ('ORIGINAL_CORE_EXTRACTION='+$(if($exit -eq 0){'PASS'}else{'FAIL'}))
+            if($exit -ne 0){throw 'ORIGINAL_CORE_EXTRACTION_FAILED'}
+          }finally{Pop-Location}
+      - name: Existing desktop build and regression
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $PSNativeCommandUseErrorActionPreference=$false
+          Push-Location private-agent/desktop
+          try{
+            $install=Join-Path $env:RUNNER_TEMP 'activity-private-npm.out'
+            $build=Join-Path $env:RUNNER_TEMP 'activity-private-build.out'
+            $tests=Join-Path $env:RUNNER_TEMP 'activity-private-node.out'
+            npm ci --no-audit --no-fund *> $install
+            if($LASTEXITCODE -ne 0){throw 'NPM_INSTALL_FAILED'}
+            Write-Host 'NPM_INSTALL=PASS'
+            npm run build *> $build
+            $buildExit=$LASTEXITCODE
+            Write-Host ('BUILD='+$(if($buildExit -eq 0){'PASS'}else{'FAIL'}))
+            $raw=Get-Content -LiteralPath $build -Raw
+            foreach($m in [regex]::Matches($raw,'(?m)(activity-routine-extraction|automations-control)\.tsx\((\d+),(\d+)\): error (TS\d+)')){
+              Write-Host ('BUILD_DIAGNOSTIC='+$m.Groups[1].Value+':'+$m.Groups[2].Value+':'+$m.Groups[3].Value+':'+$m.Groups[4].Value)
+            }
+            node --test --test-reporter=tap *> $tests
+            $testExit=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $tests -Raw
+            foreach($key in @('tests','pass','fail','cancelled','skipped','todo')){
+              $m=[regex]::Match($raw,'(?m)^# '+$key+' (\d+)\s*$')
+              if($m.Success){Write-Host ('NODE_'+$key.ToUpperInvariant()+'='+$m.Groups[1].Value)}
+            }
+            foreach($m in [regex]::Matches($raw,'(?m)^not ok (\d+) - ')){Write-Host ('FAILED_TEST_INDEX='+$m.Groups[1].Value)}
+            Write-Host ('NODE_SUITE='+$(if($testExit -eq 0){'PASS'}else{'FAIL'}))
+            if($buildExit -ne 0 -or $testExit -ne 0){throw 'DESKTOP_QUALIFICATION_FAILED'}
+          }finally{Pop-Location}
+      - name: Remove private source and temporary logs
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'private-agent') -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'activity-private-*' -Force | Remove-Item -Force -ErrorAction SilentlyContinue
