@@ -1,26 +1,26 @@
 # Public qualification code ONLY. Private Agent is checked out read-only
 # at one fixed SHA onto a disposable GitHub-hosted Windows runner.
 # Do not publish source, logs, binaries, credentials, screenshots or receipts.
-name: Agent 0.6.3 development candidate installed V8 qualification
+name: Agent 0.6.3 installed first-run real local model qualification
 on:
   push:
     branches:
-      - work/2026-11-24-agent-v8-regression-native
+      - work/2026-11-24-agent-v8-model-first-run
 permissions:
   contents: read
 concurrency:
-  group: agent062-release061-integrated-${{ github.ref }}
+  group: agent063-real-model-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  online-installed-gui:
+  real-model-installed-gui:
     runs-on: windows-2022
-    timeout-minutes: 85
+    timeout-minutes: 110
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: 'e968856315c503c95601d475b418c79221ae95f0'
-      PRIVATE_TREE_PIN: 'b2d0bb3d8ebfc346e4634d725b3156922fbd0278'
+      PRIVATE_SOURCE_PIN: '5637e93b2c9c0586d6399c30c2326cd30a5d83b3'
+      PRIVATE_TREE_PIN: '23ad83096f4efaaae8884b1c1b7307c614fe5ecd'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -96,6 +96,14 @@ jobs:
           }
           & python -B -c 'import ast,pathlib,sys;ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))' $python *> (Join-Path $env:RUNNER_TEMP 'agent06-private-parse.log')
           if($LASTEXITCODE -ne 0){throw 'AGENT06_ONLINE_PY_PARSE_FAIL'}
+          $modelScript=Join-Path $repo 'qualification/agent063/guided_model_ui_witness.ps1'
+          $modelProbe=Join-Path $repo 'qualification/agent063/qualify_guided_model_installed.py'
+          $modelTokens=$null;$modelErrors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($modelScript,[ref]$modelTokens,[ref]$modelErrors)|Out-Null
+          if(@($modelErrors).Count -ne 0){throw 'AGENT063_REAL_MODEL_PS_PARSE_FAIL'}
+          & python -B -c 'import ast,pathlib,sys;ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))' $modelProbe *> (Join-Path $env:RUNNER_TEMP 'agent063-model-private-parse.log')
+          if($LASTEXITCODE -ne 0){throw 'AGENT063_REAL_MODEL_PY_PARSE_FAIL'}
+          Write-Host 'AGENT063_REAL_MODEL_WITNESS_PARSE_PASS'
           Write-Host ('AGENT06_ONLINE_PRIVATE_PIN='+$head)
           Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_PARSE_PASS'
       - name: Verify pre-release Agent dashboard and conversation groups in pinned private source
@@ -178,9 +186,11 @@ jobs:
              throw 'AGENT06_ONLINE_ORIGINAL_SETUP_CORE_IDENTITY_INVALID'
           }
           Write-Host 'AGENT06_ONLINE_ORIGINAL_NATIVE_SETUP_BUILT'
-      - name: Install actual Setup Core, exercise GUI accounts and cold restart, repair and uninstall
+      - name: Install actual product and qualify fresh real model through native UI
         shell: pwsh
-        timeout-minutes: 24
+        timeout-minutes: 55
+        env:
+          AGENT063_REAL_MODEL_WITNESS: '1'
         run: |
           $ErrorActionPreference='Continue'
           $privateRoot=Join-Path $env:RUNNER_TEMP 'agent06-installed-private'
@@ -189,235 +199,43 @@ jobs:
           $setup=Join-Path $privateRoot 'IWXA-Private-Online-SetupCore.exe'
           $test=Join-Path $center 'installer/windows/qualify-local-bundle.ps1'
           $witness=Join-Path $repo 'qualification/agent062/qualify_dashboard_installed.ps1'
-          $sandbox=Join-Path $privateRoot 'temporary-installed'
-          $log=Join-Path $privateRoot 'local-online-acceptance.private.log'
-          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Setup $setup -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit $env:PRIVATE_SOURCE_PIN -WitnessScript $witness -WitnessTimeoutSeconds 1100 *> $log
+          $sandbox=Join-Path $privateRoot 'temporary-real-model-installed'
+          $log=Join-Path $privateRoot 'real-model-installed.private.log'
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Setup $setup -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit $env:PRIVATE_SOURCE_PIN -WitnessScript $witness -WitnessTimeoutSeconds 2700 *> $log
           $exit=$LASTEXITCODE
-          $witnessReceipt=Join-Path $sandbox 'installed-witness.json'
-          $historyWitness=$false
-          if(Test-Path -LiteralPath $witnessReceipt -PathType Leaf){
+          $receipt=Join-Path $sandbox 'installed-witness.json'
+          $verified=$false
+          if(Test-Path -LiteralPath $receipt -PathType Leaf){
             try{
-              $w=Get-Content -LiteralPath $witnessReceipt -Raw -Encoding UTF8|ConvertFrom-Json
-              if($w.status -ceq 'PASS' -and
-                 $w.schema -ceq 'IWXA_AGENT062_INSTALLED_GUI_AND_HOME_WITNESS/1' -and
-                 $w.dashboard_added_via_gui -eq $true -and
-                 $w.dashboard_restored_after_cold_restart -eq $true -and
-                 $w.dashboard_reordered_via_gui -eq $true -and
-                 $w.dashboard_keyboard_reordered_via_gui -eq $true -and
-                 $w.guided_model_default_and_manual_roundtrip_via_gui -eq $true -and
-                 $w.personal_profile_saved_via_gui -eq $true -and
-                 $w.personal_profile_restored_after_cold_restart -eq $true -and
-                 $w.personal_profile_route_restored_without_menu_click -eq $true -and
-                 $w.native_graceful_close_verified -eq $true -and
-                 $w.personal_profile_t4_unintegrated_state_visible -eq $true -and
-                 $w.groups_created_and_renamed_via_gui -eq $true -and
-                 $w.groups_chat_preserved_after_delete -eq $true -and
-                 $w.groups_restored_after_cold_restart -eq $true -and
-                 $w.dashboard_order_restored_after_cold_restart -eq $true -and
-                 $w.dashboard_history_opened_via_gui -eq $true -and
-                 $w.search_new_request_opened_via_gui -eq $true -and
-                 $w.navigation_history_draft_preserved_via_gui -eq $true -and
-                 $w.preview_panel_shortcut_and_close_via_gui -eq $true -and
-                 $w.native_window_first_opened -eq $true -and
-                 $w.original_core_connected -eq $true -and
-                 $w.online_account_create_confirmed -eq $true -and
-                 $w.online_gui_accounts_visible -eq $true -and
-                 $w.online_cold_profile_readback -eq $true -and
-                 $w.online_multiaccount_removal_confirmed -eq $true -and
-                 $w.online_cold_removal_readback -eq $true -and
-                 $w.online_gui_deletion_visible -eq $true -and
-                 $w.public_artifacts_uploaded -eq $false -and
-                 $w.real_external_effects_performed -eq $false){
-                $historyWitness=$true
-                Write-Host 'AGENT062_V8_DASHBOARD_HISTORY_CONFIRMED'
-                Write-Host 'AGENT06_ONLINE_INSTALLED_GUI_AND_COLD_READBACK_PASS'
+              $w=Get-Content -LiteralPath $receipt -Raw -Encoding UTF8|ConvertFrom-Json
+              if($w.schema -ceq 'IWXA_AGENT063_GUIDED_MODEL_WITNESS/1' -and $w.status -ceq 'PASS' -and $w.public_artifacts_uploaded -eq $false){
+                $required=@('fresh_profile_verified','explicit_network_consent_via_gui','automatic_real_model_preparation_via_gui','real_local_inference_receipt_verified','offline_restored_via_gui','original_draft_preserved','real_task_submitted_via_gui','human_review_saved_via_gui','accepted_task_restored_after_cold_restart','no_duplicate_task_verified','no_external_task_effects_verified')
+                $verified=$true
+                foreach($key in $required){
+                  if($w.$key -ne $true){$verified=$false;break}
+                }
               }elseif($w.status -ceq 'FAIL'){
-                $phases=@('VALIDATE','NATIVE_FIRST','V8_RENDER','CREATE','GUI_FIRST','DASHBOARD_FIRST','GROUPS_FIRST','PROFILE_FIRST','NATIVE_COLD_REOPEN','COLD_READBACK','DASHBOARD_COLD','GROUPS_COLD','PROFILE_COLD','REMOVE','NATIVE_COLD_REMOVE_REOPEN','COLD_REMOVE_READBACK','GUI_COLD_REMOVE','V8_INTERNAL_ROUTES','RESULT')
-                if([string]$w.phase -cin $phases){
-                  Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_PHASE='+[string]$w.phase)
-                }
-                $safeReasons=@(
-                  'agent063_native_graceful_close_unverified',
-                  'agent063_profile_cold_route_not_restored',
-                  'agent063_dashboard_workspace_unverified',
-                  'agent063_dashboard_view_restore_failed',
-                  'agent063_search_button_missing',
-                  'agent063_search_query_missing',
-                  'agent063_search_command_missing',
-                  'agent063_search_request_editor_missing',
-                  'agent063_search_request_draft_missing',
-                  'agent063_history_back_missing',
-                  'agent063_history_back_destination_missing',
-                  'agent063_history_forward_missing',
-                  'agent063_history_draft_readback_missing',
-                  'agent063_preview_shortcut_missing',
-                  'agent063_preview_content_missing',
-                  'agent063_preview_close_failed',
-                  'agent063_preview_draft_changed',
-                  'agent062_v8_shell_never_rendered',
-                  'agent062_v8_rail_ordinal_invalid',
-                  'agent062_v8_capabilities_rail_missing',
-                  'agent062_v8_models_navigation_missing',
-                  'agent062_v8_models_workflow_missing',
-                  'agent062_v8_models_choice_missing',
-                  'agent063_dashboard_keyboard_handle_missing',
-                  'agent063_dashboard_keyboard_focus_missing',
-                  'agent063_dashboard_keyboard_order_changed',
-                  'agent063_dashboard_keyboard_focus_lost',
-                  'agent063_guided_model_default_missing',
-                  'agent063_guided_model_manual_missing',
-                  'agent063_guided_model_automatic_missing',
-                  'agent062_v8_files_navigation_missing',
-                  'agent062_v8_files_reader_missing',
-                  'agent062_v8_workspaces_navigation_missing',
-                  'agent062_v8_workspaces_create_missing',
-                  'agent062_v8_workspaces_editor_missing',
-                  'agent062_v8_settings_navigation_missing',
-                  'agent062_v8_settings_categories_missing',
-                  'agent062_v8_settings_editor_missing',
-                  'agent063_profile_menu_missing',
-                  'agent063_profile_identity_state_missing',
-                  'agent063_profile_display_field_missing',
-                  'agent063_profile_network_section_missing',
-                  'agent063_profile_network_state_missing',
-                  'agent063_profile_save_missing',
-                  'agent063_profile_save_readback_missing',
-                  'agent063_profile_display_name_readback_missing',
-                  'agent062_v8_approvals_navigation_missing',
-                  'agent062_v8_approvals_inbox_missing',
-                  'agent062_v8_approvals_readback_missing',
-                  'agent062_v8_tasks_navigation_missing',
-                  'agent062_v8_history_documents_view_missing',
-                  'agent062_v8_history_shortcut_missing',
-                  'agent062_v8_history_readback_missing',
-                  'agent062_v8_graph_navigation_missing',
-                  'agent062_v8_graph_workspace_missing',
-                  'agent062_v8_capture_window_missing',
-                  'agent062_v8_capture_window_bounds_invalid',
-                  'agent062_v8_capture_missing',
-                  'agent062_dashboard_native_window_closed',
-                  'agent062_dashboard_home_navigation_missing',
-                  'agent062_dashboard_home_missing',
-                  'agent062_dashboard_customize_missing',
-                  'agent062_dashboard_add_missing',
-                  'agent062_dashboard_catalog_widget_missing',
-                  'agent062_dashboard_finish_missing',
-                  'agent062_dashboard_widget_missing',
-                  'agent062_dashboard_drag_native_window_missing',
-                  'agent062_dashboard_drag_handle_order_missing',
-                  'agent062_dashboard_drag_default_order_invalid',
-                  'agent062_dashboard_drag_handles_not_visible',
-                  'agent062_dashboard_drag_handles_offscreen',
-                  'agent062_dashboard_drag_reorder_missing',
-                  'agent062_dashboard_cold_customize_missing',
-                  'agent062_dashboard_drag_cold_order_changed',
-                  'agent062_dashboard_cold_finish_missing',
-                  'agent062_groups_editor_missing',
-                  'agent062_groups_editor_value_missing',
-                  'agent062_groups_navigation_missing',
-                  'agent062_groups_page_missing',
-                  'agent062_groups_list_menu_missing',
-                  'agent062_groups_create_action_missing',
-                  'agent062_groups_create_save_missing',
-                  'agent062_groups_created_not_visible',
-                  'agent062_groups_new_conversation_missing',
-                  'agent062_groups_new_chat_not_visible',
-                  'agent062_groups_rename_menu_missing',
-                  'agent062_groups_rename_action_missing',
-                  'agent062_groups_rename_save_missing',
-                  'agent062_groups_renamed_not_visible',
-                  'agent062_groups_conversation_not_visible',
-                  'agent062_groups_delete_action_missing',
-                  'agent062_groups_delete_confirmation_missing',
-                  'agent062_groups_deleted_still_visible',
-                  'agent062_groups_chat_removed_with_group',
-                  'agent06_online_ui_button_missing',
-                  'agent06_online_native_core_unavailable',
-                  'agent06_online_native_exited_before_ready',
-                  'agent06_online_native_window_closed',
-                  'agent06_online_gui_section_unavailable',
-                  'agent06_online_gui_remaining_account_absent',
-                  'agent06_online_gui_first_account_absent',
-                  'agent06_online_gui_deleted_account_still_present',
-                  'agent06_online_phase_create_failed',
-                  'agent06_online_phase_create_receipt_invalid',
-                  'agent06_online_phase_readback_failed',
-                  'agent06_online_phase_readback_receipt_invalid',
-                  'agent06_online_phase_remove_failed',
-                  'agent06_online_phase_remove_receipt_invalid',
-                  'agent06_online_phase_postremove_failed',
-                  'agent06_online_phase_postremove_receipt_invalid',
-                  'other'
-                )
-                if([string]$w.failure_code -cin $safeReasons){
-                  Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_CODE='+[string]$w.failure_code)
-                }
-                if($w.v8_ui_structure){
-                  $d=$w.v8_ui_structure
-                  foreach($key in @('total','buttons','documents')){
-                    $n=0
-                    if([int]::TryParse([string]$d.$key,[ref]$n) -and $n -ge 0 -and $n -le 10000){
-                      Write-Host ('AGENT062_V8_UIA_'+$key.ToUpperInvariant()+'='+$n)
-                    }
-                  }
-                  foreach($key in @('models_name','title_name','rail_name','observation_failed')){
-                    if($null -ne $d.$key){
-                      $val=if($d.$key -eq $true){'YES'}else{'NO'}
-                      Write-Host ('AGENT062_V8_UIA_'+$key.ToUpperInvariant()+'='+$val)
-                    }
-                  }
-                }
-                $safeExceptions=@('ParameterBindingException','MethodInvocationException',
-                  'RuntimeException','PropertyNotFoundException','NullReferenceException',
-                  'ArgumentException','InvalidOperationException','COMException',
-                  'ElementNotAvailableException','MethodException','ItemNotFoundException',
-                  'IndexOutOfRangeException','InvalidCastException','other')
-                if([string]$w.exception_class -cin $safeExceptions){
-                  Write-Host ('AGENT062_WITNESS_SAFE_EXCEPTION='+[string]$w.exception_class)
-                }
-                $safeLine=0
-                if([int]::TryParse([string]$w.exception_line,[ref]$safeLine) -and
-                   $safeLine -ge 1 -and $safeLine -le 2000){
-                  Write-Host ('AGENT062_WITNESS_SAFE_LINE='+$safeLine)
-                }
-                $safeCheckpoints=@('NOT_STARTED','LOOKUP_INITIAL_TITLE','LOOKUP_CAPABILITIES_DISCLOSURE','LOOKUP_INTEGRATIONS_BUTTON','CLICK_INTEGRATIONS','LOOKUP_FINAL_TITLE','LOOKUP_MAIL_B','LOOKUP_MAIL_A','CHECK_REMOVAL','COMPLETE','DASHBOARD_HOME','DASHBOARD_HOME_CLICK','DASHBOARD_CUSTOMIZE','DASHBOARD_ADD','DASHBOARD_DRAG','DASHBOARD_KEYBOARD','DASHBOARD_DONE','DASHBOARD_WIDGET','DASHBOARD_COLD_DRAG','GROUPS_NAVIGATION','GROUPS_CREATE','GROUPS_NEW_CONVERSATION','GROUPS_RENAME','GROUPS_DELETE','PROFILE_MENU','PROFILE_DISPLAY_NAME','PROFILE_SAVE','PROFILE_COLD_RESTORED_ROUTE','PROFILE_COLD_READBACK','PROFILE_READBACK','V8_DASHBOARD_HISTORY_ROUTE','V8_MODELS_ROUTE','V8_FILES_ROUTE','V8_WORKSPACES_ROUTE','V8_SETTINGS_ROUTE','V8_APPROVALS_ROUTE','V8_GRAPH_ROUTE','V8_ROUTES_COMPLETE','V8_SEARCH_COMMAND','V8_HISTORY_ROUNDTRIP','V8_PREVIEW_PANEL','V8_NAVIGATION_COMPLETE')
-                if([string]$w.ui_checkpoint -cin $safeCheckpoints){
-                  Write-Host ('AGENT06_ONLINE_INSTALLED_GUI_CHECKPOINT='+[string]$w.ui_checkpoint)
-                }
+                $phases=@('VALIDATE','NATIVE_FIRST','V8_RENDER','MODEL_INITIAL','MODEL_DRAFT','MODEL_NETWORK','MODEL_PREPARING','MODEL_OFFLINE','MODEL_TASK','MODEL_REVIEW','MODEL_COLD')
+                if([string]$w.phase -cin $phases){Write-Host ('AGENT063_REAL_MODEL_PHASE='+[string]$w.phase)}
+                $reasons=@('other','agent063_native_graceful_close_unverified','agent063_real_model_probe_missing','agent063_real_model_probe_failed','agent063_real_model_probe_receipt_invalid','agent063_real_model_editor_missing','agent063_real_model_prepare_missing','agent063_real_model_network_choice_missing','agent063_real_model_network_confirm_missing','agent063_real_model_automatic_missing','agent063_real_model_preparation_unconfirmed','agent063_real_model_offline_missing','agent063_real_model_continue_missing','agent063_real_model_return_editor_missing','agent063_real_model_return_draft_changed','agent063_real_model_send_missing','agent063_real_model_review_missing','agent063_real_model_decision_missing','agent063_real_model_accept_missing','agent063_real_model_accepted_ui_missing','agent063_real_model_core_stop_failed','agent063_real_model_cold_ui_missing')
+                if([string]$w.failure_code -cin $reasons){Write-Host ('AGENT063_REAL_MODEL_REASON='+[string]$w.failure_code)}
+                $probe=@('other','projection_invalid','workspace_changed','workspace_tasks_invalid','route_unverified','t3_mode_mismatch','draft_not_preserved','draft_context_invalid','local_route_not_active','model_not_verified','inference_receipt_invalid','duplicate_task','task_id_invalid','task_identity_mismatch','task_execution_failed','task_result_not_ready','task_result_unverified','job_identity_invalid','premature_acceptance','human_review_unverified','phase_invalid','existing_witness','not_fresh_route','not_fresh_model','unexpected_task','proof_missing','phase_order_invalid','draft_digest_changed','premature_model_selection','premature_runtime_install','model_changed','task_changed_during_review','cold_task_changed','windows_required','owner_not_installed','owner_session_missing','owner_readback_invalid','unclassified')
+                if([string]$w.model_probe_failure -cin $probe){Write-Host ('AGENT063_REAL_MODEL_PROBE_REASON='+[string]$w.model_probe_failure)}
+                $line=0
+                if([int]::TryParse([string]$w.exception_line,[ref]$line) -and $line -ge 1 -and $line -le 2000){Write-Host ('AGENT063_REAL_MODEL_WITNESS_LINE='+$line)}
               }
-            }catch{
-              Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_RECEIPT_UNREADABLE'
-            }
-          }else{
-            Write-Host 'AGENT06_ONLINE_INSTALLED_WITNESS_RECEIPT_MISSING'
-          }
+            }catch{Write-Host 'AGENT063_REAL_MODEL_RECEIPT_UNREADABLE'}
+          }else{Write-Host 'AGENT063_REAL_MODEL_RECEIPT_MISSING'}
+          $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
           if($exit -ne 0){
-            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
-            foreach($code in @('SETUP_LOCAL_WITNESS_EXIT_FAILED',
-              'SETUP_LOCAL_WITNESS_TIMEOUT','SETUP_LOCAL_WITNESS_RECEIPT_MISSING',
-              'SETUP_LOCAL_WITNESS_READBACK_INVALID',
-              'SETUP_LOCAL_PRODUCT_IDENTITY_INVALID',
-              'SETUP_LOCAL_SOURCE_IDENTITY_INVALID',
-              'SETUP_LOCAL_ACTIVATION_INVALID',
-              'SETUP_LOCAL_ON_DISK_IDENTITY_INVALID',
-              'SETUP_LOCAL_REPAIR_NOT_ACTIVATED',
-              'SETUP_LOCAL_REPAIR_READBACK_INVALID',
-              'SETUP_LOCAL_UNINSTALL_OR_DATA_LOSS',
-              'SETUP_LOCAL_PRODUCT_ID_INVALID')){
-              if(([string]$raw).Contains($code)){
-                Write-Host ('AGENT06_ONLINE_INSTALLED_SAFE_SETUP_REASON='+$code)
-              }
+            foreach($reason in @('SETUP_LOCAL_WITNESS_TIMEOUT','SETUP_LOCAL_WITNESS_EXIT_FAILED','SETUP_LOCAL_WITNESS_READBACK_INVALID','SETUP_LOCAL_SOURCE_IDENTITY_INVALID','SETUP_LOCAL_REPAIR_READBACK_INVALID','SETUP_LOCAL_UNINSTALL_OR_DATA_LOSS')){
+              if(([string]$raw).Contains($reason)){Write-Host ('AGENT063_REAL_MODEL_SETUP_REASON='+$reason)}
             }
-            throw 'AGENT06_ONLINE_INSTALLED_QUALIFICATION_FAILED'
+            throw 'AGENT063_REAL_MODEL_INSTALLED_FAIL'
           }
-          if(!$historyWitness){throw 'AGENT062_V8_DASHBOARD_HISTORY_WITNESS_MISSING'}
-          foreach($marker in @('IWXA_SETUP_LOCAL_NATIVE_INSTALL_AND_PRESERVE_PASS',
-              'IWXA_SETUP_LOCAL_REPAIR_AND_CONFIRM_PASS',
-              'IWXA_SETUP_LOCAL_RUNTIME_WITNESS_PASS')){
-            $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
-            if(-not ([string]$raw).Contains($marker)){
-              throw 'AGENT06_ONLINE_INSTALLED_EXPECTED_PUBLIC_WITNESS_MISSING'
-            }
+          if(!$verified){throw 'AGENT063_REAL_MODEL_RECEIPT_INCOMPLETE'}
+          foreach($marker in @('IWXA_SETUP_LOCAL_NATIVE_INSTALL_AND_PRESERVE_PASS','IWXA_SETUP_LOCAL_REPAIR_AND_CONFIRM_PASS','IWXA_SETUP_LOCAL_RUNTIME_WITNESS_PASS')){
+            if(-not ([string]$raw).Contains($marker)){throw 'AGENT063_REAL_MODEL_SETUP_PROOF_MISSING'}
           }
-          Write-Host 'AGENT06_ONLINE_SETUP_REPAIR_UNINSTALL_PASS'
-          Write-Host 'AGENT06_PRIVATE_ARTIFACTS_UPLOADED=0'
+          Write-Host 'AGENT063_REAL_MODEL_INSTALLED_PASS'
+          Write-Host 'AGENT063_PRIVATE_ARTIFACTS_UPLOADED=0'
