@@ -43,18 +43,25 @@ function OpenSeatRoute(){
  Check (WaitForText 'К приёмке' 100) 'CORPORATE_INSTALLED_SEAT_WORKSPACE_NOT_OPEN'
 }
 function WaitWorkspaceGate(){
- # Gate disappearance alone is NOT qualification: next operations must
- # independently read and initialize the real signed registry in its Kernel.
- Start-Sleep -Milliseconds 1200
- $settled=0
+ # A signed corporate Workspace can be created automatically by original T3.
+ # Absence of a create button is not proof of readiness. The subsequent
+ # original registry readback is mandatory and is the actual Kernel witness.
  for($i=0;$i -lt 240;$i++){
+  if((HasText 'Control не подтвердил чтение выбранной Workspace') -or
+     (HasText 'Не удалось открыть изолированную подписанную Workspace') -or
+     (HasText 'Подписанный доступ Control отозван')){
+   throw 'CORPORATE_INSTALLED_SEAT_WORKSPACE_DENIED'
+  }
   if((HasText 'Подписанная Workspace недоступна') -or
      (HasText 'Проверяем выбранную подписанную Workspace') -or
      (HasText 'Создать выбранную Workspace') -or
      (HasText 'Создаём и проверяем')){
-   $settled=0
-  }else{$settled++;if($settled -ge 5){return}}
-  Start-Sleep -Milliseconds 300
+    Start-Sleep -Milliseconds 350
+    continue
+  }
+  # Returning to the manager does not assert Workspace readiness. The
+  # mandatory registry read below must independently prove the signed Kernel.
+  return
  }
  throw 'CORPORATE_INSTALLED_SEAT_WORKSPACE_GATE_NOT_READY'
 }
@@ -68,7 +75,8 @@ try{
  $script:phase='OPEN_SEAT_FIRST_USE'
  OpenSeatRoute
  $script:phase='CREATE_ORIGINAL_WORKSPACE'
- ClickButton 'Создать выбранную Workspace'
+ # Corporate creation is handled by the original signed first-run gate.
+ # Never race its automatic create with a second manual write.
  WaitWorkspaceGate
  ClickButton 'К приёмке'
  $script:phase='AUTO_READ_MISSING_REGISTRY'
