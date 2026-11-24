@@ -1,4 +1,5 @@
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
+import {prepareEmployeeDraftTask,employeeDraftSelectionCurrent,verifyEmployeeDraftSources} from './corporate-draft-task.mjs';
 import CorporateSeatAssignments from './CorporateSeatAssignments';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
@@ -16,6 +17,7 @@ import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskRea
 type Exec=(operation:string,input?:Record<string,unknown>)=>Promise<any>;
 type Run=(message:string,task:()=>Promise<void|boolean>)=>Promise<void>;
 type Contact={id:string;name:string};
+type DraftSource={id:string;title:string;workspaceId?:string;assigneeId?:string|null;reviewerId?:string|null;status?:string;editNumber?:number;description?:string;criteria?:string;dueDate?:string;atlasRef:{projectId:string;revision:string;workId?:string}|null;sourceResultRef?:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}|null};
 type TaskCatalogRow={taskId:string;recipientId:string;taskRevisionId:string;packageSha256:string;summary:string;deliveryState:string};
 type Session={organizationId:string;workspaceId:string;actorId:string;contextId:string;contextEpoch:number;
   tasks?:TaskCatalogRow[];totalTasks?:number;
@@ -55,8 +57,9 @@ function keyRecord(raw:string,personId:string){
     throw Error('CEN_D3_EMPLOYEE_PUBLIC_KEY_RECORD_INVALID');
   return k;
 }
-export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,autoReadSeats=false,requireRegistryAbsence=false,registryAbsent=false,execute,run,busy,onOpenLicenses,managerOriginal=null}:{
+export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,autoReadSeats=false,requireRegistryAbsence=false,registryAbsent=false,execute,run,busy,onOpenLicenses,managerOriginal=null,assignmentDrafts,invoke,onEnsureDraftSaved}:{
  session:Session;contacts:Contact[];preferredContactId?:string|null;autoReadSeats?:boolean;requireRegistryAbsence?:boolean;registryAbsent?:boolean;execute:Exec;run:Run;busy:boolean;onOpenLicenses?:()=>void;managerOriginal?:ManagerOriginalSelection|null;
+ assignmentDrafts:DraftSource[];invoke:Exec;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;
 }){
  // A preselected organizational contact is only a local draft hint;
  // never infer an employee PROOF key, signed identity or active grant.
@@ -94,6 +97,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const [taskGrantReceipt,setTaskGrantReceipt]=useState<any>(null);
  const [taskGrantReadHold,setTaskGrantReadHold]=useState(false);
  const [taskText,setTaskText]=useState('');
+ const [draftSource,setDraftSource]=useState<ReturnType<typeof prepareEmployeeDraftTask>|null>(null);
+ const [draftConsent,setDraftConsent]=useState(false);
+ const [draftProblem,setDraftProblem]=useState('');
+ const mounted=useRef(true);
+ useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[]);
  const [historyChoice,setHistoryChoice]=useState<{scope:string;id:string}|null>(null);
  const [historyReadback,setHistoryReadback]=useState<{scope:string;epoch:number;receipt:any}|null>(null);
  const [taskId,setTaskId]=useState('');
@@ -172,6 +180,22 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const taskScope=enrolled?employeeTaskContinuationKey(session.organizationId,
    session.workspaceId,session.actorId,personId,enrollmentReceipt.enrollmentId):null;
  const taskScopeReady=taskScope!==null&&loadedTaskScope===taskScope&&!taskContinuationBlocked;
+ const draftScope={...grantScope,contextId:session.contextId,contextEpoch:session.contextEpoch};
+ const chosenDraft=draftSource?assignmentDrafts.find(d=>d.id===draftSource.id):undefined;
+ const draftSelectionCurrent=!!draftSource&&employeeDraftSelectionCurrent(draftSource,chosenDraft,draftScope,taskText,true);
+ const draftReady=!draftSource||draftSelectionCurrent&&draftConsent;
+ const draftGate=useRef({ready:false,source:null as typeof draftSource});
+ draftGate.current={ready:draftReady,source:draftSource};
+ const clearDraftSource=()=>{setDraftSource(null);setDraftConsent(false);setDraftProblem('')};
+ function chooseDraft(id:string){
+   clearDraftSource();setTaskText('');
+   if(!id)return;
+   try{
+     if(!enrolled||!taskScopeReady||taskAttempted)throw Error('CEN_D3_EMPLOYEE_DRAFT_SOURCE_INVALID');
+     const source=prepareEmployeeDraftTask(assignmentDrafts.find(d=>d.id===id),draftScope);
+     setDraftSource(source);setTaskText(source.text);
+   }catch(e){setDraftProblem(String(e))}
+ }
  const catalog=(()=>{
    try{return readOriginalTaskCatalog(session)}catch{return null}
  })();
@@ -206,7 +230,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    validateOriginalEmployeeTaskExportReceipt(result,verifiedHistory);
  });
  useEffect(()=>{
-   setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
+   clearDraftSource();setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);setTaskNeedsRebind(false);
    setLoadedTaskScope(null);setTaskContinuationBlocked(false);
    if(!taskScope)return;
@@ -233,7 +257,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
          throw Error('CEN_D3_EMPLOYEE_TASK_CONTINUATION_ALREADY_PENDING');
      }catch(e){setTaskContinuationBlocked(true);throw e}
    }
-   setTaskId('task:'+crypto.randomUUID());setTaskText('');
+   clearDraftSource();setTaskId('task:'+crypto.randomUUID());setTaskText('');
    setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);setTaskRecoveryHold(false);
    setTaskRecoveryAttempted(false);setTaskNeedsRebind(false);
  });
@@ -245,7 +269,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    setEmployeeInviteReceipt(null);
    setWorkspaceRightsAttempted(false);setWorkspaceRightsReceipt(null);setWorkspaceReadHold(false);
    setTaskGrantAttempted(false);setTaskGrantReceipt(null);setTaskGrantReadHold(false);
-   setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
+   clearDraftSource();setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);
    setTaskNeedsRebind(false);setLoadedTaskScope(null);setTaskContinuationBlocked(false);
    setHistoryChoice(null);setHistoryReadback(null);
@@ -858,10 +882,29 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      <button type="button" className="secondary" data-testid="d3-employee-task-new"
        disabled={busy||!taskScopeReady||(taskAttempted&&!freshTaskReadback)}
        onClick={()=>void prepareNextTask()}>Новое поручение</button>
+     {!!assignmentDrafts.length&&<label>Подготовить из черновика этой рабочей области
+      <select data-testid="d3-employee-task-from-draft" value={draftSource?.id??''}
+        disabled={busy||taskAttempted||!taskScopeReady} onChange={e=>chooseDraft(e.target.value)}>
+       <option value="">Ввести поручение вручную</option>
+       {assignmentDrafts.map(d=><option key={d.id} value={d.id}>{d.title}</option>)}
+      </select>
+     </label>}
+     {draftProblem&&<p role="alert">{draftProblem}</p>}
+     {draftSource&&<>
+      <p className="muted">Черновик: редакция {chosenDraft?.editNumber??'не подтверждена'}.
+       {' '}Исполнитель в черновике: {contacts.find(c=>c.id===chosenDraft?.assigneeId)?.name??'не назначен'}.
+       {' '}Подписанный адресат: {personId}. Черновой контакт не удостоверяет личность T3.</p>
+      {!draftSelectionCurrent&&<p role="alert" data-testid="d3-employee-draft-stale">
+       Черновик или контекст изменился. Выберите актуальный черновик повторно.</p>}
+      <label><input type="checkbox" data-testid="d3-employee-draft-recipient-consent"
+        checked={draftConsent} disabled={busy||taskAttempted||!draftSelectionCurrent}
+        onChange={e=>setDraftConsent(e.target.checked)}/>
+       Подтверждаю, что этот черновик предназначен выбранному подписанному сотруднику</label>
+     </>}
      <label>Текст поручения
       <textarea data-testid="d3-employee-task-text" rows={3} maxLength={10000}
         value={taskText} disabled={busy||taskAttempted||!taskScopeReady}
-        onChange={e=>setTaskText(e.target.value)}/>
+        readOnly={!!draftSource} onChange={e=>setTaskText(e.target.value)}/>
      </label>
      <label>Исходный ID поручения
       <input data-testid="d3-employee-task-id" value={taskId}
@@ -871,14 +914,20 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      <p className="muted">Перед отправкой ID сохраняется локально. Содержимое, подпись и каталог Task
        принадлежат оригинальному T3. При потере ответа сначала перечитайте Task.</p>
      <button data-testid="d3-employee-task-create" disabled={!taskIssueAvailable||
-        !invitationCurrentForTask||busy||taskAttempted||!taskScopeReady||
+        !invitationCurrentForTask||busy||taskAttempted||!taskScopeReady||!draftReady||
        !/^task:[A-Za-z0-9-]{1,100}$/.test(taskId)||!taskText.trim()||
        catalog===null||catalog.rows.some((row:TaskCatalogRow)=>row.taskId===taskId)}
        onClick={()=>void run('Оригинальная Task подписана адресату, доставка не подтверждена.',async()=>{
         if(taskAttempted||!managerTaskGrantOk||!invitationCurrentForTask||
-            !taskScopeReady||!taskScope||!ID.test(enrollmentReceipt.enrollmentId)||
+            !taskScopeReady||!taskScope||!draftReady||!ID.test(enrollmentReceipt.enrollmentId)||
             catalog===null||catalog.rows.some((row:TaskCatalogRow)=>row.taskId===taskId))
            throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_DATA_GRANT_REQUIRED');
+         if(draftSource){
+           await onEnsureDraftSaved(session.organizationId,session.workspaceId);
+           await verifyEmployeeDraftSources(draftSource,draftScope,invoke);
+           if(!mounted.current||!draftGate.current.ready||draftGate.current.source!==draftSource)
+             throw Error('CEN_D3_EMPLOYEE_DRAFT_CHANGED_BEFORE_SIGNING');
+         }
          // Persist only the exact operation ID before an irreversible
          // native call. Any write failure prevents dispatch.
          try{saveEmployeeTaskContinuation(localStorage,taskScope,taskId)}

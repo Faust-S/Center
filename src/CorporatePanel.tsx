@@ -10,7 +10,7 @@ import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerp
 // CEN02/CEN03 GUI consumes an approved host implementation. Private T3 code,
 // keys, permissions, signing, Reconciliation and Store never run in this WebView.
 type Invoke=(command:string,args?:Record<string,unknown>)=>Promise<any>;
-type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;participants?:Array<{id:string;name:string}>;assignments:Array<{id:string;title:string;workspaceId?:string;assigneeId?:string|null;editNumber?:number;description?:string;criteria?:string;dueDate?:string;atlasRef:{projectId:string;revision:string;workId?:string}|null}>};
+type Org={id:string;name:string;workspaces:Array<{id:string;name:string}>;participants?:Array<{id:string;name:string}>;assignments:Array<{id:string;title:string;workspaceId?:string;assigneeId?:string|null;reviewerId?:string|null;status?:string;editNumber?:number;description?:string;criteria?:string;dueDate?:string;atlasRef:{projectId:string;revision:string;workId?:string}|null;sourceResultRef?:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}|null}>};
 const hex=/^[a-f0-9]{64}$/;
 const why=(e:unknown)=>{
  const message=e instanceof Error?e.message:String(e);
@@ -40,6 +40,8 @@ const why=(e:unknown)=>{
    return 'Файл .iwxa с таким именем уже существует. Выберите новое имя: исходный подписанный файл не перезаписывается.';
  if(message.includes('T3_D3_DESTINATION_UNAVAILABLE'))
    return 'Папка для сохранения .iwxa недоступна. Выберите другой каталог.';
+ if(/CEN_D3_EMPLOYEE_DRAFT_(?:CHANGED_BEFORE_SIGNING|SOURCE_INVALID|RESULT_SOURCE_CHANGED)/.test(message))
+   return 'Черновик, его источник или подписанный контекст изменился. Выберите актуальный черновик и подтвердите адресата заново. Task не подписана.';
  if(message.includes('CEN_D3_ATLAS_OWNER_NOT_AVAILABLE'))
    return 'Установленный Atlas не открыл источник проекта. Не подписывайте Task по старой копии. Откройте проект в Atlas и проверьте связь.';
  if(message.includes('CEN_D3_ATLAS_SOURCE_REVISION_STALE'))
@@ -324,6 +326,8 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   </div>}
   {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={'employee|'+(signedD3EmployeeScopeFingerprint(owner,organizationId)??'unknown')}
     session={owner.snapshot} contacts={organization.participants??[]} managerOriginal={managerOriginal}
+    assignmentDrafts={organization.assignments.filter(a=>a.workspaceId===owner.snapshot.workspaceId)}
+    invoke={invoke} onEnsureDraftSaved={onEnsureDraftSaved}
     preferredContactId={preferredEmployeeContactId} autoReadSeats={preferCorporateSeats&&!signedWorkspaceVisible}
     requireRegistryAbsence={preferCorporateSeats} registryAbsent={registryState==='NOT_FOUND'}
     execute={execute} run={act} busy={busy} onOpenLicenses={onOpenLicenses}/>}

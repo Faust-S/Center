@@ -1105,7 +1105,7 @@ try{
           assert.equal(args.input.enrollmentId,'enrollment:verified');
           if(args.input.taskId!=='task:independent-work'){
             assert.match(args.input.taskId,/^task:[a-f0-9-]{36}$/);
-            assert.equal(args.input.task,'Review second verified supplier statement');
+            assert.equal(args.input.task,'Review second verified supplier statement\n\nCheck the second supplier statement.\n\nКритерии приёмки: A verified comparison\n\nЧерновик Center: draft:prepared-second, редакция 1.');
             assert.equal(employeeState.signedTaskSaved,true);
             assert.equal(employeeState.taskOrphan,false);
             assert.equal(employeeState.secondTaskId,null);
@@ -1272,7 +1272,12 @@ try{
   employeeState.savedDraft=JSON.stringify({
     format:'iwxa.admin-center.draft',version:1,
     organizations:[{id:employeeOrgId,name:'Independent staff test',
-      kind:'ORGANIZATION',workspaces:[],participants:[],assignments:[]}],
+      kind:'ORGANIZATION',workspaces:[{id:'workspace:employee-fixture',name:'Procurement',atlasRef:null}],
+      participants:[],assignments:[{id:'draft:prepared-second',title:'Review second verified supplier statement',
+        workspaceId:'workspace:employee-fixture',assigneeId:null,reviewerId:null,
+        description:'Check the second supplier statement.',criteria:'A verified comparison',
+        dueDate:'',priority:'normal',editNumber:1,status:'DRAFT',atlasRef:null,sourceResultRef:null,
+        createdAt:'2026-11-17T00:00:00.000Z',updatedAt:'2026-11-17T00:00:00.000Z'}]}],
     activeOrganizationId:employeeOrgId,
     updatedAt:'2026-11-17T00:00:00.000Z'
   });
@@ -1531,7 +1536,10 @@ try{
   await employeePage.waitForFunction(()=>
     /^task:[a-f0-9-]{36}$/.test(document.querySelector('[data-testid="d3-employee-task-id"]')?.value??''));
   assert.equal(await employeePage.getByTestId('d3-employee-task-receipt').count(),0);
-  await employeePage.getByTestId('d3-employee-task-text').fill('Review second verified supplier statement');
+  await employeePage.getByTestId('d3-employee-task-from-draft').selectOption('draft:prepared-second');
+  assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),false);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-text').getAttribute('readonly'),'');
+  await employeePage.getByTestId('d3-employee-draft-recipient-consent').check();
   await employeePage.getByTestId('d3-employee-task-create').click();
   await employeePage.getByTestId('d3-employee-task-receipt').waitFor();
   assert.equal(employeeState.taskIssueCalls,2);
@@ -1566,13 +1574,14 @@ try{
   assert.equal(employeeState.taskIssueCalls,2);
   checks.push('d3-employee-pending-id-restored-stale-readback-blocked-successive-task-no-grant-reissue');
   checks.push('d3-employee-original-recipient-history-old-carrier-no-pending-mutation');
+  checks.push('d3-employee-draft-exact-scope-explicit-recipient-consent-before-signing');
   await employeePage.getByTestId('nav-overview').click();
   await employeePage.getByTestId('manager-read-signed').click();
   await employeePage.getByTestId('manager-signed-summary').waitFor();
-  // All search words occur in both signed assignments; do not conflate
-  // similar descriptions. A specific original Task ID is unambiguous.
+  // All search words occur in both signed assignments and the local draft.
+  // Do not conflate those records. A specific original Task ID is unambiguous.
   await employeePage.getByTestId('overview-search').fill('Review verified supplier statement');
-  assert.equal(await employeePage.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),2);
+  assert.equal(await employeePage.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),3);
   await employeePage.getByTestId('overview-search').fill('task:independent-work');
   assert.equal(await employeePage.getByTestId('overview-hits').getByTestId('manager-search-hit').count(),1);
   await employeePage.getByTestId('manager-search-hit').click();
