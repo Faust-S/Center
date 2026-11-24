@@ -64,6 +64,13 @@ export function linkableAtlasWork(view, projectId, workId) {
 // An explicit manager choice takes precedence. Never silently link the
 // first of several unrelated areas. A unique existing exact link may be
 // offered as a default; a sole workspace is unambiguous.
+/**
+ * @template {{id:string,atlasRef?:{projectId:string,revision:string}|null}} W
+ * @param {W[]} workspaces
+ * @param {string} selectedId
+ * @param {{projectId:string,revision:string}|null} reference
+ * @returns {W|null}
+ */
 export function selectAtlasTargetWorkspace(workspaces,selectedId,reference=null){
  if(!Array.isArray(workspaces)||!workspaces.length)return null;
  if(selectedId)return workspaces.find(w=>w.id===selectedId)??null;

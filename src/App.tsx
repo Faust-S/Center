@@ -497,7 +497,7 @@ export default function App() {
       return;
     }
     const workspace=selectAtlasTargetWorkspace(org.workspaces,selectedWorkspaceId,ref);
-    if (!atlasWorkspaceBindingMatches(workspace,ref)) {
+    if (!workspace||!atlasWorkspaceBindingMatches(workspace,ref)) {
       setError('Выберите рабочую область и свяжите её с этой редакцией проекта Atlas.');
       return;
     }
