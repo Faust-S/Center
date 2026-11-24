@@ -18,9 +18,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     env:
-      PRIVATE_PIN: e69aeb6383bbea5ac41bee626e5332fe8e352285
-      PRIVATE_TREE: 3df8565215a84fa65ee69ea53c5d0683fac54996
-      QUALIFY_SCOPE: FULL
+      PRIVATE_PIN: 8e63d4f1264f64dc9a4e6629ffe69dedfcad47dd
+      PRIVATE_TREE: e8915484f4496eeb24045e236429734870d51a13
+      QUALIFY_SCOPE: ADAPTER_DEPTH
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -128,6 +128,14 @@ jobs:
                   }
                   if os.environ.get("QUALIFY_SCOPE")=="TASK_TRANSPORT":
                       groups={"TASK_TRANSPORT":["tests/test_meta_harness_original_task_workflow.py"]}
+                  if os.environ.get("QUALIFY_SCOPE")=="ADAPTER_DEPTH":
+                      groups={"ADAPTER_DEPTH":["tests/test_meta_harness_acp_v1.py",
+                          "tests/test_meta_harness_acp_exchange.py",
+                          "tests/test_meta_harness_original_core.py",
+                          "tests/test_meta_harness_adapter_depth.py",
+                          "tests/test_meta_harness_adapter_controls.py",
+                          "tests/test_meta_harness_preview_performance.py",
+                          "tests/test_fc2_agent_runtime_portfolio.py"]}
                   failed = False
                   for group, files in groups.items():
                       if not files or any(not (source / f.split("::",1)[0]).is_file() for f in files):
@@ -147,7 +155,7 @@ jobs:
                       success = proc.returncode==0 and data["counts"]["passed"]>0 and not data["counts"]["failed"] and not data["counts"]["collection_errors"]
                       status(group,"PASS" if success else "FAIL")
                       failed = failed or not success
-                  if os.environ.get("QUALIFY_SCOPE")=="TASK_TRANSPORT":
+                  if os.environ.get("QUALIFY_SCOPE") in {"TASK_TRANSPORT","ADAPTER_DEPTH"}:
                       return int(failed)
                   # Compile the complete existing desktop; publish only results.
                   desktop=source / "desktop"
