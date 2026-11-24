@@ -77,7 +77,9 @@ export async function preserveSignedCorporateSources(current,replacement,readOri
   try{after=prepareCorporateLicenseRequest(replacement,{
    proposalId:proposal.id,personalAgentSeats:0
   });}catch{/* A removed or changed source cannot be reconstructed. */}
-  if(after&&JSON.stringify(after)===JSON.stringify(request))continue;
+  const successor=replacement.proposals.find(p=>p.id===proposal.id);
+  if(after&&JSON.stringify(after)===JSON.stringify(request)&&
+     (successor?.previousProposalId??null)===(proposal.previousProposalId??null))continue;
   let inventory;
   try{inventory=await readOriginalInventory(proposal.id);}
   catch{deny('CORPORATE_SOURCE_ORIGINAL_LEDGER_UNAVAILABLE');}
