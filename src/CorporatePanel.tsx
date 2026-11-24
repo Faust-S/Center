@@ -301,7 +301,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   <div className="nested-form" data-testid="cen03-section" hidden={!routeAllows(route,'receive','review','recovery')}>
    <h3>2. Result сотрудника и Review</h3>
    <p className="muted">Выберите файл результата через системный диалог Windows. Приёмка и проверка подписи выполняются отдельно.</p>
-   <button className="secondary" data-testid="corporate-receive" disabled={!ready||busy}
+   <button className="secondary" data-testid="corporate-receive" hidden={!routeAllows(route,'receive')} disabled={!ready||busy}
     onClick={()=>act('Пакет получен. Корпоративное принятие ещё не выполнено.',async()=>{
       if(!invoke)throw Error('CEN_NATIVE_FILE_DIALOG_UNAVAILABLE');
       const bytes=await invoke('center_open_iwxa_file');
@@ -328,13 +328,15 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
     {hash&&!inbox.items.some((item:{packageSha256:string;status:string;acceptanceId:string|null})=>item.packageSha256===hash)&&
       <option value={hash}>Недавно полученный пакет · {hash.slice(0,16)}…</option>}
    </select></label>
-   <button className="secondary" data-testid="corporate-review" disabled={!ready||!hash||busy}
+   <button className="secondary" data-testid="corporate-review" hidden={!routeAllows(route,'review','recovery')} disabled={!ready||!hash||busy}
     onClick={()=>act('Проверка подписи, редакций и конфликтов выполнена владельцем.',async()=>{
      resetReview();const r=await execute('inspect',{packageSha256:hash});
      if(r.preview?.packageSha256!==hash)throw Error('T3_REVIEW_PACKAGE_CHANGED');
      setReview(r);
     })}>Review</button>
-   {review&&<div data-testid="corporate-review-readback">
+   {route==='receive'&&<button type="button" className="secondary" data-testid="v8-legacy-receive-to-review"
+     disabled={!hash||busy} onClick={()=>onNavigate?.('review')}>Открыть Human Review</button>}
+   {review&&<div data-testid="corporate-review-readback" hidden={!routeAllows(route,'review','recovery')}>
     <p>Подпись: {review.verificationState??'не подтверждена'} · тип: {review.preview?.classification??'неизвестен'}</p>
     <p>Task revision: {review.taskBinding?.proven?review.taskBinding.taskRevisionId:'не доказана'} · конфликт: {review.causalReview?.classification??'нет сведений'}</p>
     <p>Приёмка: {review.receipt?.acceptanceState??'ожидается'}. ACCEPT не означает Apply.</p>
@@ -342,6 +344,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
       <p data-testid="corporate-apply-readiness">{acceptedSelection
         ? 'Принятая редакция подтверждена повторным Review. Применение требует отдельного решения.'
         : 'Решение ACCEPT существует, но актуальность редакции для применения не подтверждена.'}</p>}
+    <div hidden={route==='recovery'}>
     <label><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/> Я проверил пакет и подтверждаю решение</label>
     <label>Причина отказа (обязательна для REJECT)
       <textarea data-testid="corporate-reject-reason" rows={2} maxLength={1000} value={rejectReason}
@@ -375,12 +378,15 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
        setReview(confirmed);
       })}>REJECT</button>
     </div>
+    </div>
+    {route==='review'&&canApply&&<button type="button" className="primary" disabled={busy}
+      onClick={()=>onNavigate?.('apply')}>Перейти к отдельному применению</button>}
    </div>}
   </div>
   <div className="nested-form" data-testid="cen03-apply" hidden={!routeAllows(route,'apply','recovery')}>
    <h3>3. Отдельное применение</h3>
    <p>Текущее состояние Store/Journal: {owner?.snapshot?.application?.status??'нет сведений'}</p>
-   <button className="secondary" data-testid="corporate-apply-preview" disabled={!canApply||busy} onClick={()=>act('Предварительный просмотр без записи.',async()=>{
+   <button className="secondary" data-testid="corporate-apply-preview" hidden={route==='recovery'} disabled={!canApply||busy} onClick={()=>act('Предварительный просмотр без записи.',async()=>{
      setPreview(null);setApplyConsent(false);setApplyDecided(false);
      const selected=acceptedApplicationSelection(review,hash);
      if(!selected)throw Error('T3_APPLICATION_SOURCE_NOT_CURRENT');
@@ -394,7 +400,8 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
        throw Error('T3_APPLICATION_PREVIEW_SOURCE_MISMATCH');
      setPreview(r);
    })}>Посмотреть применение</button>
-   {preview&&<div>
+   {route==='recovery'&&<p className="muted">Состояние перечитывается исходным владельцем. Для нового применения откройте отдельный раздел. Не повторяйте запись при неизвестном исходе.</p>}
+   {preview&&<div hidden={route==='recovery'}>
     <p>Предварительный просмотр: {preview.previewId}. Запись ещё не выполнялась.</p>
     <label><input type="checkbox" checked={applyConsent} onChange={e=>{setApplyConsent(e.target.checked);setApplyDecided(false)}}/> Отдельно подтверждаю применение</label>
     <div className="actions">

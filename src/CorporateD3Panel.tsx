@@ -465,7 +465,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setApplication({...result,target});setApplyConsent(false);
  });
  const apply=()=>run('Исходный T3 Kernel вернул квитанцию записи и повторное чтение.',async()=>{
-   if(!accepted||!application||!applyConsent||applyAttempted||
+   if(!routeAllows(route,'apply')||!accepted||!application||!applyConsent||applyAttempted||
       applyPreviouslySent||recoverPrevious)
      throw Error('CEN_D3_SEPARATE_HUMAN_APPLY_REQUIRED');
    const selection={acceptanceId:receipt.receipt.acceptanceId as string,
@@ -548,7 +548,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  });
  return <div className="nested-form" data-testid="cen03-d3-original">
   <h3>Подписанный T3: получение и принятие Result</h3>
-  {managerOriginal&&<div className="notice subdued" data-testid="d3-manager-original-link">
+  {managerOriginal&&(route==='results'||(managerOriginal.kind==='signed-task'?route==='signed-tasks':route==='review'||route==='receive'||route==='recovery'))&&<div className="notice subdued" data-testid="d3-manager-original-link">
     {exactFocus?<>
       <strong>Переход из корпоративного поиска</strong>
       <p>Исходный {exactFocus.kind==='signed-task'?'Task':'пакет Result'}: {exactFocus.id}.
@@ -708,7 +708,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    </>}
   </div>
   <div className="v8-route-region" hidden={!routeAllows(route,'receive','review','recovery')}>
-  <div className="nested-form" data-testid="d3-organization-age-recipient" hidden={route==='recovery'}>
+  <div className="nested-form" data-testid="d3-organization-age-recipient" hidden={!routeAllows(route,'receive')}>
    <h3>Защищённое получение Result</h3>
    <p className="muted">Ключ age1 привязан к выбранной организации. Расшифрование
     само по себе не означает ACCEPT и не изменяет Kernel.</p>
@@ -727,16 +727,19 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     Криптографический владелец недоступен: {ageUnavailable}
    </p>}
   </div>
-  <div className="actions" hidden={route==='recovery'}>
-   <button className="secondary" data-testid="d3-receive" disabled={busy}
+  {route==='recovery'&&<p className="notice subdued">Найдите исходный пакет и квитанцию. Здесь выполняется только чтение. Для восстановления Apply перечитайте исходные редакции и укажите ранее отправленное действие.</p>}
+  <div className="actions">
+   <button className="secondary" data-testid="d3-receive" hidden={!routeAllows(route,'receive')} disabled={busy}
     onClick={()=>receiveResult(false)}>Получить .iwxa</button>
-   <button className="secondary" data-testid="d3-receive-age"
+   <button className="secondary" data-testid="d3-receive-age" hidden={!routeAllows(route,'receive')}
     disabled={busy||!orgAge?.available||!orgAge.toolchain.ready}
     onClick={()=>receiveResult(true)}>Получить .iwxa.age</button>
-   <button className="secondary" data-testid="d3-review" disabled={busy||!hex(hash)}
-    onClick={review}>Review</button>
+   <button className="secondary" data-testid="d3-review" hidden={!routeAllows(route,'review','recovery')} disabled={busy||!hex(hash)}
+    onClick={review}>{route==='recovery'?'Прочитать редакции Result':'Review'}</button>
    <button className="secondary" data-testid="d3-inbox-refresh" disabled={busy}
     onClick={()=>{void refreshInbox()}}>Открыть полученные</button>
+   {route==='receive'&&<button type="button" className="primary" data-testid="v8-receive-to-review"
+     disabled={busy||!hex(hash)} onClick={()=>onNavigate?.('review')}>Открыть Human Review</button>}
   </div>
   {inbox&&<div data-testid="d3-original-inbox">
    <p>Оригинальный журнал получателя: {inbox.total} пакетов.
@@ -858,6 +861,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       :'Для этой операции и пакета подтверждённая квитанция не найдена. Это не доказывает, что запись не выполнялась.'}
    </p>}
    {decisionType&&<p className="muted">Отправленное решение: {decisionType}.</p>}
+   {route==='review'&&accepted&&<button type="button" className="primary" data-testid="v8-review-to-apply"
+      disabled={busy} onClick={()=>onNavigate?.('apply')}>Перейти к отдельному применению</button>}
+   {route==='review'&&decisionAttempted&&!receipt&&<button type="button" className="secondary"
+      onClick={()=>onNavigate?.('recovery')}>Открыть восстановление</button>}
   </div>
   {route==='apply'&&!accepted&&<div className="notice subdued" data-testid="v8-apply-needs-review">
     <p>Для отдельного применения сначала прочитайте исходный Result и подтвердите решение ACCEPT.</p>
@@ -873,9 +880,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
          ?'Исходная Workspace удалена. Не создавайте другую с новым ID. Восстановите исходную Workspace разрешённым способом и повторите проверку.'
          :'Исходная Workspace доступна только для чтения. Восстановите право записи в этой же Workspace и отдельно подтвердите Apply.'}
    </p>}
-   <p className="muted">ACCEPT подтверждён только в Reconciliation.
-    Применение требует отдельного Human APPLY и подписанного D1 JIT.
-    Неизвестный результат не повторяется автоматически.</p>
+   <p className="muted">{route==='recovery'
+    ?'Восстановление проверяет ранее отправленный Apply. Новая запись из этого раздела недоступна.'
+    :'ACCEPT подтверждён только в Reconciliation. Применение требует отдельного Human APPLY и подписанного D1 JIT. Неизвестный результат не повторяется автоматически.'}</p>
    {!session.d3InspectAvailable&&!session.d3ApplyAvailable?
     <p>Исходный подписанный получатель не поддерживает просмотр принятого Result.</p>:<>
     <p>Выберите принятые редакции:</p>
@@ -886,7 +893,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
       {label(preview.entries.find((x:any)=>same(x.revisionId,id)))} · {id.slice(0,16)}
     </label>)}
     <div className="actions">
-     <button className="secondary" data-testid="d3-inspect-apply"
+     <button className="secondary" data-testid="d3-inspect-apply" hidden={route==='recovery'}
       disabled={busy||selectedRevisions.length===0||applyAttempted||applyPreviouslySent}
       onClick={inspectApplication}>Проверить принятый Result</button>
     </div>
@@ -923,7 +930,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
         Результат: {item.resultExcerpt}
         {item.resultTruncated?' (показан фрагмент)':''}
        </p>)}
-     {session.d3ApplyAvailable===true&&<>
+     {session.d3ApplyAvailable===true&&route!=='recovery'&&<>
      <label><input type="checkbox" checked={applyConsent}
        disabled={applyAttempted||applyPreviouslySent||recoverPrevious}
        onChange={e=>setApplyConsent(e.target.checked)}/>

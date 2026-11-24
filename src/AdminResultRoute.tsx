@@ -42,7 +42,7 @@ export default function AdminResultRoute({route,onNavigate,organizationName,nati
  const current=STEPS.find(item=>item.route===route);
  const open=(step:typeof STEPS[number])=>onNavigate(step.route);
  return <div className="v8-result-layout">
-  {focusedEmployeeName&&<div className="v8-employee-target" data-testid="v8-employee-focus">
+  {focusedEmployeeName&&(route==='employees-t3'||route==='results')&&<div className="v8-employee-target" data-testid="v8-employee-focus">
     <strong>Подключение сотрудника: {focusedEmployeeName}</strong>
     <span>Выбран контакт организации. Подписанный T3 отдельно проверяет личность, ключ и полномочия. Никакие права при переходе не выдаются.</span>
     <button type="button" className="secondary" onClick={()=>open(STEPS[1])}>К подключению T3</button>

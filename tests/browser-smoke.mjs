@@ -756,11 +756,27 @@ try{
   assert.equal(await d3Page.locator('main').getAttribute('data-admin-route'),'review');
   assert.equal(await d3Page.getByTestId('d3-signed-task-workflow').isVisible(),false);
   const selectedOriginalHash=await d3Page.getByTestId('d3-package-sha').inputValue();
+  const beforeRouteChange=await d3Page.evaluate(()=>window.__d3UiFixture);
   await d3Page.getByTestId('subnav-receive').click();
   assert.equal(await d3Page.getByTestId('d3-package-sha').inputValue(),selectedOriginalHash);
-  await d3Page.getByTestId('subnav-review').click();
+  assert.equal(await d3Page.getByTestId('d3-receive').isVisible(),true);
+  assert.equal(await d3Page.getByTestId('d3-review').isVisible(),false);
+  await d3Page.getByTestId('v8-receive-to-review').click();
+  assert.equal(await d3Page.locator('main').getAttribute('data-admin-route'),'review');
+  assert.equal(await d3Page.getByTestId('d3-receive').isVisible(),false);
+  assert.equal(await d3Page.getByTestId('d3-organization-age-recipient').isVisible(),false);
   assert.equal(await d3Page.getByTestId('d3-package-sha').inputValue(),selectedOriginalHash,
     'focused corporate routes retain the SAME original component and package');
+  await d3Page.getByTestId('subnav-recovery').click();
+  assert.equal(await d3Page.getByTestId('d3-inbox-refresh').isVisible(),true);
+  assert.equal(await d3Page.getByTestId('d3-review').isVisible(),true);
+  assert.equal(await d3Page.getByTestId('d3-receive').isVisible(),false);
+  assert.equal(await d3Page.getByTestId('d3-package-sha').inputValue(),selectedOriginalHash);
+  const afterRouteChange=await d3Page.evaluate(()=>window.__d3UiFixture);
+  assert.equal(afterRouteChange.writes,beforeRouteChange.writes);
+  assert.equal(afterRouteChange.decisionWrites,beforeRouteChange.decisionWrites);
+  await d3Page.getByTestId('subnav-review').click();
+  checks.push('v8-receive-review-recovery-distinct-actions-no-write-on-navigation');
   checks.push('v8-signed-result-routes-retain-original-package-without-new-write');
   assert.equal(await d3Page.getByTestId('d3-package-sha').inputValue(),'c'.repeat(64));
   assert.equal((await d3Page.evaluate(()=>window.__d3UiFixture)).writes,1);
@@ -1211,7 +1227,9 @@ try{
   const employeeMapButton=employeePage.locator('[data-testid^="company-person-"]').first();
   const employeeContactId=(await employeeMapButton.getAttribute('data-testid')).slice('company-person-'.length);
   await employeeMapButton.click();
-  await employeePage.getByRole('button',{name:'Подключение сотрудника T3'}).click();
+  await employeePage.getByTestId('company-selection-detail')
+    .getByRole('button',{name:'Подключение сотрудника T3',exact:true}).click();
+  assert.equal(await employeePage.locator('main').getAttribute('data-admin-route'),'employees-t3');
   assert.match(await employeePage.getByTestId('v8-employee-focus').innerText(),
     /Independent colleague/);
   assert.equal(await employeePage.getByTestId('d3-employee-contact').inputValue(),
@@ -1557,6 +1575,9 @@ try{
   await v8Page.getByTestId('subnav-recovery').click();
   assert.equal(await v8Page.locator('main').getAttribute('data-admin-route'),'recovery');
   assert.equal(await v8Page.getByTestId('cen02-section').isVisible(),false);
+  assert.equal(await v8Page.getByTestId('corporate-receive').isVisible(),false);
+  assert.equal(await v8Page.getByTestId('corporate-apply-preview').isVisible(),false);
+  assert.equal(await v8Page.getByTestId('corporate-review').isVisible(),true);
   await v8Page.getByTestId('subnav-reuse').click();
   assert.equal(await v8Page.getByTestId('cen03-reuse').isVisible(),true);
   assert.equal(await v8Page.getByTestId('cen03-apply').isVisible(),false);
