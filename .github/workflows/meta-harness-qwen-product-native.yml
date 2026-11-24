@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: 8905640ec87121b2272cd730144b1837ed67b9cb
-      PRIVATE_TREE: 27ca12a3b340e752f490de8c93578d46511c1fb7
+      PRIVATE_PIN: 521169d0a569099354ea03e93ddd214af2f7819b
+      PRIVATE_TREE: b69f3a8b2f2ac35f4ef7f88c3eb346a3cfd095ec
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
     steps:
       - uses: actions/setup-python@v5
@@ -93,6 +93,15 @@ jobs:
                               status("QWEN_PRODUCT_STAGE",stage)
                       elif re.fullmatch(r"QWEN_PRODUCT_FIRST_MS=[0-9]{1,10}",line.strip()):
                           print(line.strip(),flush=True)
+                  # Short traceback locations only, never paths, source lines or exception messages.
+                  for line in out.splitlines():
+                      m=re.fullmatch(r"[^\\r\\n:]*[/\\\\]?([A-Za-z_][A-Za-z0-9_]*\\.py):(\\d{1,6}): in ([A-Za-z_][A-Za-z0-9_]{0,90})",line.strip())
+                      if m:
+                          key=hashlib.sha256(m.group(1).encode()).hexdigest()[:16]
+                          status("QWEN_PRODUCT_CASE",key+":"+m.group(2)+":"+hashlib.sha256(m.group(3).encode()).hexdigest()[:12])
+                  for code in ("t3_external_execution_disabled","ACP_ORIGINAL_TASK_ROUTE_REQUIRED","ACP_GRAPH_ATTEMPT_CHANGED","AGENT_RUNTIME_UNAVAILABLE","AGENT_RUNTIME_INVOCATION_FAILED","AGENT_RUNTIME_RESPONSE_INVALID","AGENT_RUNTIME_TIMEOUT","AUTHORITY_REQUIRED","acp_session_state_denied","acp_native_route_not_ready","acp_reviewed_graph_attempt_required","acp_native_launch_not_authorized","acp_native_state_changed","META_HARNESS_ROLE_BINDING_CHANGED","agent_runtime_requires_reviewed_task_graph","qwen_installation_or_local_model_required","qwen_graph_owns_model_and_session","qwen_task_workspace_link_required","acp_local_process_tree_stop_unconfirmed"):
+                      if re.search(r"(?<![A-Za-z0-9_])"+code+r"(?![A-Za-z0-9_])",out):
+                          status("QWEN_PRODUCT_DIAGNOSTIC",code)
                   passed = proc.returncode == 0 and set(stages) == allowed
                   status("QWEN_PRODUCT_NATIVE","PASS" if passed else "FAIL")
                   return 0 if passed else 1
