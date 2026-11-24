@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      AGENT_PIN: '722c1b9d1e759d5d117f6811650c64c731ba753a'
-      CORE_PIN: 'd89ec3ead3e660a7865043d1ecacd7f2b259f6cc'
+      AGENT_PIN: '186edcd4fb5fca733a5a35b639a7e6771ec7456e'
+      CORE_PIN: '60996ca3171b8fd853c6bd8fb58d2990ea54e4b9'
     steps:
       - name: Require the existing authorized source grant
         shell: pwsh
@@ -174,8 +174,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      IWXA_EXPECTED_T3: '6745f64dc92575ba8567e9fad838bb5206967656'
-      IWXA_EXPECTED_ONE_CORE: 'd89ec3ead3e660a7865043d1ecacd7f2b259f6cc'
+      IWXA_EXPECTED_T3: 'f0f1737e0cfbb03f21834acea1cbd894ffd395da'
+      IWXA_EXPECTED_ONE_CORE: '60996ca3171b8fd853c6bd8fb58d2990ea54e4b9'
     steps:
       - name: Require the previously authorized private source grant
         shell: pwsh
@@ -189,13 +189,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: d89ec3ead3e660a7865043d1ecacd7f2b259f6cc
+          ref: 60996ca3171b8fd853c6bd8fb58d2990ea54e4b9
           path: public-one-core
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 6745f64dc92575ba8567e9fad838bb5206967656
+          ref: f0f1737e0cfbb03f21834acea1cbd894ffd395da
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -221,7 +221,7 @@ jobs:
           try {
             $files=@(Get-ChildItem -LiteralPath tests -Filter 'access-product-license*.test.mjs' -File |
               Sort-Object Name | ForEach-Object {$_.FullName})
-            $files+=@('tests/control-admin-interop.test.mjs','tests/multi-employee-provisioning.test.mjs')
+            $files+=@('tests/control-admin-interop.test.mjs','tests/multi-employee-provisioning.test.mjs','tests/admin-original-host-port.test.mjs')
             if($files.Count -lt 15){throw 'T3_CORPORATE_REGRESSION_SOURCE_MISSING'}
             & node --test @files *> $log
             $exit=$LASTEXITCODE
@@ -309,4 +309,27 @@ jobs:
           Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'iwxa-t3-corporate-*' -ErrorAction SilentlyContinue |
             Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
           Write-Host 'T3_CORPORATE_PRIVATE_CLEANUP_FINISHED'
+  public-workspace-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: public-one-core/packages/t3-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 60996ca3171b8fd853c6bd8fb58d2990ea54e4b9
+          path: public-one-core
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: npm ci --no-audit --no-fund
+      - name: Selected Workspace and original signed transport
+        run: |
+          npx vitest run tests/t3-d1-signed-selected-workspace.dom.test.tsx tests/t3-d1-mounted-signed-workspace.dom.test.tsx tests/module-kernel-facade.test.ts
+          node --test tests/t3-d1-origin-isolated-kernel.test.mjs tests/t3-control-loopback-owner.test.mjs
+      - name: Build actual One Core
+        run: npm run build
 # No private artifacts, logs, caches, releases, installers or source publication.
