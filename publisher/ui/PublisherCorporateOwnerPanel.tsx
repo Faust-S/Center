@@ -2,12 +2,13 @@ import React,{useMemo,useRef,useState} from 'react';
 import {projectCorporateSigningOffers} from '../src/corporate-offer-review.mjs';
 import {prepareCorporateLicenseRequest,encodeCorporateLicenseRequest}
   from '../src/corporate-license-request.mjs';
-import {inspectCorporateIssuePreflight,inspectUnknownCorporateMutationReadback}
+import {inspectCorporateIssuePreflight,inspectUnknownCorporateMutationReadback,
+  inspectCorporateRenewalPreflight,inspectCorporateIssueLineage}
   from '../src/corporate-owner-readback.mjs';
 import {projectCorporateDeliveryHandoff}
   from '../src/corporate-delivery-handoff.mjs';
 
-type Offer={proposalId:string;organization:{id:string;name:string};
+type Offer={proposalId:string;priorPreparationId:string|null;organization:{id:string;name:string};
   tariff:{id:string;name:string;revision:number};
   product:{id:string};featureIds:string[];
   limits:{employeeLimit:number;adminCenterProductSeats:number}};
@@ -17,6 +18,7 @@ type IssuerReadback={operation:string;licenseId:string;requestId:string;
   organizationId:string;issuerAuthorityId:string;productId:string;
   tariffId:string;tariffRevision:number;status:string;sequence:number;
   licenseEnvelopeSha256:string;statusEnvelopeSha256:string|null;
+  lineageId:string;renewalOf:string|null;
   stateRevision:number;ledgerRevision:number;
   recipientConfirmed:boolean;activeSeats:number;
   assignablePersonalAgentSeats:number;productionActivation:boolean};
@@ -39,7 +41,7 @@ export default function PublisherCorporateOwnerPanel({
   const [proposalId,setProposalId]=useState(focusProposal?.proposalId??'');
   const [seatInput,setSeatInput]=useState(focusProposal?.seats??'');
   const [review,setReview]=useState<{request:any;raw:string;
-    sourceSha256:string;issuerId:string}|null>(null);
+    sourceSha256:string;issuerId:string;renewal:{licenseId:string;lineageId:string}|null}|null>(null);
   const [confirmIssue,setConfirmIssue]=useState(false);
   const [signed,setSigned]=useState<IssuerReadback|null>(null);
   const [delivery,setDelivery]=useState<null|{
@@ -60,7 +62,7 @@ export default function PublisherCorporateOwnerPanel({
   const [unknown,setUnknown]=useState(false);
   const [unconfirmed,setUnconfirmed]=useState<
     |{kind:'ISSUE';requestId:string;issuerId:string;organizationId:string;
-       tariffId:string;tariffRevision:number}
+       tariffId:string;tariffRevision:number;renewal:{licenseId:string;lineageId:string}|null}
     |{kind:'STATUS';requestId:string;licenseId:string;
        expectedSequence:number;expectedStatus:'ACTIVE'|'SUSPENDED'|'REVOKED'}
     |null>(null);
@@ -151,17 +153,27 @@ export default function PublisherCorporateOwnerPanel({
     }
   }
 
-  function prepare(){
-    if(unknown||!selected||!issuer||!seatsInput(seatInput))return;
-    setProblem('');setFeedback('');setSigned(null);
+  async function prepare(){
+    if(busy||unknown||!selected||!issuer||!seatsInput(seatInput))return;
+    setBusy(true);setProblem('');setFeedback('');setSigned(null);setReview(null);setConfirmIssue(false);
     try{
       const request=prepareCorporateLicenseRequest(draft,{
         proposalId:selected.proposalId,personalAgentSeats:Number(seatInput)
       });
       const raw=encodeCorporateLicenseRequest(request);
-      setReview({request,raw,sourceSha256:expectedDraftSha256,issuerId:issuer});
+      let renewal:{licenseId:string;lineageId:string}|null=null;
+      if(selected.priorPreparationId!==null){
+        const inventory=await invoke('publisher_t3_corporate_inventory',{lookupId:selected.priorPreparationId});
+        const preflight=inspectCorporateIssuePreflight(inventory,selected.priorPreparationId);
+        if(preflight.state!=='ALREADY_SIGNED')throw Error('CORPORATE_RENEWAL_SIGNED_PREDECESSOR_REQUIRED');
+        const prior=await coldSignedReadback(preflight.licenseId,selected.priorPreparationId);
+        renewal=inspectCorporateRenewalPreflight(inventory,prior,{
+          priorRequestId:selected.priorPreparationId,issuerId:issuer,organizationId:request.subject.id});
+      }
+      setReview({request,raw,sourceSha256:expectedDraftSha256,issuerId:issuer,renewal});
       setConfirmIssue(false);
     }catch(e){setReview(null);setProblem('Не удалось проверить запрос: '+error(e));}
+    finally{setBusy(false);}
   }
 
   async function coldSignedReadback(id:string,requestId?:string){
@@ -172,6 +184,8 @@ export default function PublisherCorporateOwnerPanel({
          (requestId!==undefined&&v.requestId!==requestId)||
          v.productId!=='IWXA_ADMIN_CENTER'||
          !HEX.test(v.licenseEnvelopeSha256)||
+         typeof v.lineageId!=='string'||!v.lineageId||
+         !(v.renewalOf===null||(typeof v.renewalOf==='string'&&v.renewalOf!==v.licenseId&&v.renewalOf.length>0))||
          !Number.isSafeInteger(v.sequence)||v.sequence<0||
          v.productionActivation!==false||v.activeSeats!==0||
          v.assignablePersonalAgentSeats!==0||v.recipientConfirmed!==false)
@@ -182,7 +196,8 @@ export default function PublisherCorporateOwnerPanel({
        first.sequence!==second.sequence||
        first.status!==second.status||
        first.stateRevision!==second.stateRevision||
-       first.ledgerRevision!==second.ledgerRevision)
+       first.ledgerRevision!==second.ledgerRevision||
+       first.lineageId!==second.lineageId||first.renewalOf!==second.renewalOf)
       throw Error('CORPORATE_OWNER_CONCURRENT_CHANGE_REQUIRES_REFRESH');
     return second;
   }
@@ -209,6 +224,7 @@ export default function PublisherCorporateOwnerPanel({
            read.tariffRevision!==review.request.tariff.revision||
            read.issuerAuthorityId!==review.issuerId)
           throw Error('CORPORATE_PREFLIGHT_SIGNED_TERMS_MISMATCH');
+        inspectCorporateIssueLineage(read,review.renewal);
         setSigned(read);setLookup(read.licenseId);
         setReview(null);setConfirmIssue(false);
         setFeedback('Исходный журнал T3 уже содержит подпись этого запроса. '+
@@ -221,7 +237,8 @@ export default function PublisherCorporateOwnerPanel({
       irreversibleStarted=true;
       const result=await invoke('publisher_t3_corporate_issue',{
         requestJson:review.raw,issuerAuthorityId:issuer,
-        expectedDraftSha256:review.sourceSha256
+        expectedDraftSha256:review.sourceSha256,
+        expectedRenewalLicenseId:review.renewal?.licenseId??null
       });
       if(result.operation!=='CORPORATE_ISSUE'||
         !['ISSUED_NEW','ALREADY_ISSUED'].includes(result.outcome)||
@@ -234,6 +251,7 @@ export default function PublisherCorporateOwnerPanel({
          read.tariffRevision!==review.request.tariff.revision||
          read.issuerAuthorityId!==review.issuerId)
         throw Error('CORPORATE_OWNER_READBACK_TERMS_MISMATCH');
+      inspectCorporateIssueLineage(read,review.renewal);
       setSigned(read);setLookup(read.licenseId);setReview(null);setConfirmIssue(false);
       setFeedback('Лицензия подписана и сохранена в оригинальном журнале T3. '+
         'Получение в Admin Center и места сотрудников не подтверждены.');
@@ -245,7 +263,7 @@ export default function PublisherCorporateOwnerPanel({
         setUnconfirmed({kind:'ISSUE',requestId:review.request.requestId,
           issuerId:review.issuerId,organizationId:review.request.subject.id,
           tariffId:review.request.tariff.id,
-          tariffRevision:review.request.tariff.revision});
+          tariffRevision:review.request.tariff.revision,renewal:review.renewal});
         setUnknown(true);
         setProblem('Исход операции не подтверждён. Не повторяйте подписание. '+
           'Проверьте точный requestId в журнале T3: '+error(e));
@@ -411,7 +429,7 @@ export default function PublisherCorporateOwnerPanel({
         </label>
         <button type="button" className="secondary"
           disabled={!issuer||!seatsInput(seatInput)||busy||unknown}
-          onClick={prepare}>Проверить условия перед подписью</button>
+          onClick={()=>void prepare()}>Проверить условия перед подписью</button>
       </div>}
       {review&&<div className="publisher-test-request"
         data-testid="publisher-corporate-signing-preview">
@@ -421,6 +439,9 @@ export default function PublisherCorporateOwnerPanel({
           тариф: {review.request.tariff.id}, редакция {review.request.tariff.revision};
           Personal Agent: {review.request.limits.personalAgentSeats} мест;
           срок: {review.request.termDays} дней.</p>
+        <p data-testid="publisher-corporate-renewal-preview">{review.renewal?
+          `Продление / смена тарифа. Предыдущая лицензия: ${review.renewal.licenseId}. После подтверждённого получения новой редакции лимиты не суммируются.`:
+          'Первая выдача, без связи с предыдущей лицензией.'}</p>
         <p>Функции: {review.request.featureIds.join(', ')||'не выбраны'}.
           Запрос пока не подписан. Исходный T3 отдельно проверит полномочия издателя.</p>
         <label><input type="checkbox" checked={confirmIssue} disabled={busy}
@@ -454,6 +475,7 @@ export default function PublisherCorporateOwnerPanel({
       <strong>Подписано издателем T3, не принято получателем</strong>
       <p>Лицензия: {signed.licenseId}; организация: {signed.organizationId};
         тариф {signed.tariffId} / {signed.tariffRevision}.</p>
+      <p>Цепочка: {signed.lineageId}. Предыдущая лицензия: {signed.renewalOf??'нет'}.</p>
       <p>STATUS: {signed.status}, последовательность {signed.sequence}.
         SHA-256 LICENSE: {signed.licenseEnvelopeSha256}.</p>
       <p>Получение Admin Center: не подтверждено. Назначаемых мест: 0.</p>
