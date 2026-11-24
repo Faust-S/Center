@@ -82,17 +82,7 @@ jobs:
           & node qualification/corporate-installed/original-admin-workspace-jit.mjs (Resolve-Path original-t3).Path (Resolve-Path one-core/packages/t3-core).Path 1>$out 2>$log
           if($LASTEXITCODE -ne 0){
             $raw=Get-Content -LiteralPath $log -Raw
-            foreach($m in [regex]::Matches($raw,'(?m)^ADMIN_WORKSPACE_JIT_(PHASE|CODE)=([A-Z0-9_]{3,100})\s*
-        if: always()
-        shell: pwsh
-        run: |
-          foreach($p in @('original-t3','agent')){Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}
-          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Include 'employee-seat-process-private.*','admin-workspace-jit-private.*' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-          Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Include 'iwxa-corporate-employee-process-*','iwxa-admin-workspace-jit-*' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          Write-Host 'PRIVATE_CLEANUP=COMPLETE'
-# Test-only original registry fixture, not a real Kernel or installed GUI.
-# No publication, cache, private log or binary artifact.
-)){
+            foreach($m in [regex]::Matches($raw,'(?m)^ADMIN_WORKSPACE_JIT_(PHASE|CODE)=([A-Z0-9_]{3,100})\s*$')){
               Write-Host ('ADMIN_WORKSPACE_JIT_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
             }
             throw 'ORIGINAL_ADMIN_WORKSPACE_JIT_FAILED'
@@ -108,8 +98,12 @@ jobs:
         shell: pwsh
         run: |
           foreach($p in @('original-t3','agent')){Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}
-          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'employee-seat-process-private.*' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-          Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'iwxa-corporate-employee-process-*' -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          foreach($pattern in @('employee-seat-process-private.*','admin-workspace-jit-private.*')){
+            Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter $pattern -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+          }
+          foreach($pattern in @('iwxa-corporate-employee-process-*','iwxa-admin-workspace-jit-*')){
+            Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter $pattern -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          }
           Write-Host 'PRIVATE_CLEANUP=COMPLETE'
 # Test-only original registry fixture, not a real Kernel or installed GUI.
 # No publication, cache, private log or binary artifact.
