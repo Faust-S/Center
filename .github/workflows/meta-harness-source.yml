@@ -18,12 +18,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: 91b110cf9cc590c234e3bdc97431175734173658
-      PRIVATE_TREE: b261fbe86ab02723411968729dfa6cb480c8c594
+      PRIVATE_PIN: ce6978a8e6205a3692adb60072e949fca3ae6bbc
+      PRIVATE_TREE: 1b6c1b8c8b6b2936e37ffc92dd18363f252e0f9e
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
       - name: Read pinned source, qualify and remove temporary checkout
         shell: bash
         env:
@@ -131,6 +134,19 @@ jobs:
                       success = proc.returncode==0 and data["counts"]["passed"]>0 and not data["counts"]["failed"] and not data["counts"]["collection_errors"]
                       status(group,"PASS" if success else "FAIL")
                       failed = failed or not success
+                  # Compile the complete existing desktop; publish only results.
+                  desktop=source / "desktop"
+                  npm=["cmd.exe","/d","/c","npm"] if os.name=="nt" else ["npm"]
+                  deps=ok(npm+["ci","--no-audit","--no-fund"],cwd=desktop,timeout=420)
+                  status("DESKTOP_DEPS","PASS" if deps else "FAIL")
+                  if deps:
+                      tests=ok(["node","--test","tests/meta-harness-host.test.mjs"],cwd=desktop,timeout=120)
+                      status("DESKTOP_META_TESTS","PASS" if tests else "FAIL")
+                      build=ok(npm+["run","build"],cwd=desktop,timeout=420)
+                      status("DESKTOP_BUILD","PASS" if build else "FAIL")
+                      failed=failed or not tests or not build
+                  else:
+                      failed=True
                   return int(failed)
           try:
               code=main()
