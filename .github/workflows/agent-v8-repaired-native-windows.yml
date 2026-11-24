@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: 'a1f78e504209d9ffef74f9955801d59476542762'
-      PRIVATE_TREE_PIN: '8e31a5600b808948583a7bbe159763790e1a86ab'
+      PRIVATE_SOURCE_PIN: 'c4b02f79002812c8ea16395845a98469e35cc3c9'
+      PRIVATE_TREE_PIN: 'edf60394bfde72ec2504b9fb73436303e3d30d5d'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -178,6 +178,7 @@ jobs:
           try{$manifest=Get-Content -LiteralPath $buildReceipt -Raw -Encoding UTF8|ConvertFrom-Json}
           catch{throw 'AGENT06_ONLINE_ORIGINAL_SETUP_CORE_RECEIPT_INVALID'}
           if($manifest.status -ne 'BUILT_UNQUALIFIED' -or
+             $manifest.version -cne '0.6.3' -or
              $manifest.private_source_commit -cne $env:PRIVATE_SOURCE_PIN -or
              $manifest.private_source_tree -cne $env:PRIVATE_TREE_PIN -or
              $manifest.public_setup_core_commit -cne $env:CENTER_OWNER_PIN -or
@@ -221,6 +222,10 @@ jobs:
                 if([string]$w.failure_code -cin $reasons){Write-Host ('AGENT063_REAL_MODEL_REASON='+[string]$w.failure_code)}
                 $probe=@('other','projection_invalid','workspace_changed','workspace_tasks_invalid','route_unverified','t3_mode_mismatch','draft_not_preserved','draft_context_invalid','local_route_not_active','model_not_verified','inference_receipt_invalid','duplicate_task','task_id_invalid','task_identity_mismatch','task_execution_failed','task_result_not_ready','task_result_unverified','job_identity_invalid','premature_acceptance','human_review_unverified','phase_invalid','existing_witness','not_fresh_route','not_fresh_model','unexpected_task','proof_missing','phase_order_invalid','draft_digest_changed','premature_model_selection','premature_runtime_install','model_changed','task_changed_during_review','cold_task_changed','windows_required','owner_not_installed','owner_session_missing','owner_readback_invalid','unclassified')
                 if([string]$w.model_probe_failure -cin $probe){Write-Host ('AGENT063_REAL_MODEL_PROBE_REASON='+[string]$w.model_probe_failure)}
+                $stages=@('other','plan','mode','install','download','select','connect','start','activate','test','check-runtime','adopt-runtime','launch-runtime')
+                $prepCodes=@('INTERRUPTED','PLAN_CHANGED','ROUTE_CHANGED','READ_TIMEOUT','SESSION_UNAVAILABLE','OUTCOME_UNKNOWN','NETWORK_REQUIRED','DOWNLOAD_TRANSPORT','DOWNLOAD_INTEGRITY','STORAGE','INFERENCE_FAILED','READBACK_UNVERIFIED','PENDING','OTHER')
+                if([string]$w.model_preparation_stage -cin $stages){Write-Host ('AGENT063_MODEL_PREPARATION_STAGE='+[string]$w.model_preparation_stage)}
+                if([string]$w.model_preparation_failure -cin $prepCodes){Write-Host ('AGENT063_MODEL_PREPARATION_REASON='+[string]$w.model_preparation_failure)}
                 $line=0
                 if([int]::TryParse([string]$w.exception_line,[ref]$line) -and $line -ge 1 -and $line -le 2000){Write-Host ('AGENT063_REAL_MODEL_WITNESS_LINE='+$line)}
               }
