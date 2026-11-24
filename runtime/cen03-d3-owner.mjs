@@ -271,6 +271,76 @@ export function readOriginalEmployeeCredentialIdentity(receipt,identity){
  return copy(receipt,code);
 }
 
+// Interpret only the original owner's exact scoped grant readback. Missing
+// is not a permission; it merely allows a first explicitly approved issue.
+// A revoked, malformed or unknown grant must not be treated as missing.
+const employeeWorkspaceGrantSpec=Object.freeze({
+ readAccess:['workspace.read','workspace.read'],
+ writeAccess:['object.write','workspace.work'],
+ createAccess:['workspace.create','workspace.onboarding'],
+ importAccess:['workspace.exchange.import','workspace.exchange.import'],
+});
+function employeeGrantScopeMatches(value,scope){
+ return [scope?.organizationId,scope?.workspaceId,scope?.actorId,
+   scope?.employeePersonId,scope?.enrollmentId,scope?.credentialKeyId].every(validId)&&
+   scope.actorId!==scope.employeePersonId&&
+   value?.organizationId===scope.organizationId&&value.workspaceId===scope.workspaceId&&
+   value.employeePersonId===scope.employeePersonId&&value.enrollmentId===scope.enrollmentId&&
+   value.originalReadback===true&&value.safeToReissue===false;
+}
+export function inspectOriginalEmployeeWorkspaceRights(value,scope){
+ const code='CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED';
+ need(employeeGrantScopeMatches(value,scope)&&
+   value.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1',code);
+ if(value.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_NOT_FOUND'){
+   need((value.attachments===undefined||Object.keys(value.attachments??{}).length===0)&&
+     (value.grantIds===undefined||Array.isArray(value.grantIds)&&value.grantIds.length===0),code);
+   return 'NOT_FOUND';
+ }
+ need(value.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'&&
+   Number.isSafeInteger(value.statusSequence)&&value.statusSequence>0&&
+   Object.keys(value.attachments??{}).length===4,code);
+ const ids=new Set();
+ for(const [name,[action,purpose]] of Object.entries(employeeWorkspaceGrantSpec)){
+   const a=value.attachments[name];
+   need(validId(a?.grantId)&&!ids.has(a.grantId)&&a.grantId===a.binding?.grantId&&
+     a.membership?.personId===scope.employeePersonId&&
+     a.membership?.workspaceId===scope.workspaceId&&
+     a.binding.holderPersonId===scope.employeePersonId&&
+     a.credential?.publicKeyRef===scope.credentialKeyId&&
+     a.enrollment?.payload?.credentialPublicKeyRef===scope.credentialKeyId&&
+     JSON.stringify(a.binding.actions)===JSON.stringify([action])&&
+     JSON.stringify(a.binding.purposes)===JSON.stringify([purpose]),code);
+   ids.add(a.grantId);
+ }
+ if(value.grantIds!==undefined)need(Array.isArray(value.grantIds)&&
+   value.grantIds.length===4&&new Set(value.grantIds).size===4&&
+   value.grantIds.every(id=>ids.has(id)),code);
+ return 'ACTIVE';
+}
+export function inspectOriginalEmployeeTaskGrant(value,scope){
+ const code='CEN_D3_EMPLOYEE_TASK_DATA_READBACK_HOLD';
+ need(employeeGrantScopeMatches(value,scope)&&
+   value.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1'&&
+   value.recipientId===scope.employeePersonId&&value.managerPersonId===scope.actorId,code);
+ if(value.state==='ORIGINAL_MANAGER_TASK_DATA_NOT_FOUND'){
+   need(value.grant===undefined&&value.grantId===undefined,code);
+   return 'NOT_FOUND';
+ }
+ if(value.state==='ORIGINAL_MANAGER_TASK_DATA_REVOKED_OR_EXPIRED'||
+    value.state==='ORIGINAL_MANAGER_TASK_DATA_STATUS_UNKNOWN_HOLD')return 'HOLD';
+ const g=value.grant?.payload;
+ need(value.state==='ORIGINAL_MANAGER_TASK_DATA_ACTIVE'&&
+   Number.isSafeInteger(value.statusSequence)&&value.statusSequence>0&&validId(g?.id)&&
+   (value.grantId===undefined||value.grantId===g.id)&&
+   g.holderId===scope.actorId&&g.roleId==='assigner'&&g.rightClass==='DATA'&&
+   JSON.stringify(g.actions)==='["package.export"]'&&
+   JSON.stringify(g.purposes)==='["assignment"]'&&
+   JSON.stringify(g.resources)===JSON.stringify(['workspace:'+scope.workspaceId,
+     'subject:'+scope.organizationId,'recipient:'+scope.employeePersonId,'field:task','operation:UPSERT']),code);
+ return 'ACTIVE';
+}
+
 // UI continuation only, following the existing pending seat intent pattern.
 // Do not store Task content, a signature, receipt, grant or organizational
 // authority here. The original owner remains the only Task inventory.

@@ -999,7 +999,14 @@ try{
           assert.equal(args.input.employeePersonId,'person:independent');
           assert.equal(args.input.enrollmentId,'enrollment:verified');
           const organizationId=args.organizationId,workspaceId='workspace:employee-fixture',
-            personId=employeeState.wrongTaskGrantRecipient?'person:other':'person:independent';
+            personId=employeeState.taskGrantSaved&&employeeState.wrongTaskGrantRecipient?'person:other':'person:independent';
+          if(!employeeState.taskGrantSaved)return {
+            schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1',
+            state:'ORIGINAL_MANAGER_TASK_DATA_NOT_FOUND',
+            employeePersonId:'person:independent',recipientId:'person:independent',
+            managerPersonId:'person:manager-fixture',organizationId,workspaceId,
+            enrollmentId:'enrollment:verified',originalReadback:true,safeToReissue:false
+          };
           return {
             schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1',
             state:employeeState.taskGrantSaved?'ORIGINAL_MANAGER_TASK_DATA_ACTIVE':
@@ -1375,7 +1382,20 @@ try{
   assert.equal(employeeState.taskGrantCalls,1);
   assert.equal(employeeState.taskIssueCalls,1);
   assert.equal(employeeState.inviteExports,1);
+  await employeePage.getByTestId('d3-employee-workspace-rights-confirmed').waitFor();
+  await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-workspace-grants-issue').isEnabled(),false);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-grant-issue').isEnabled(),false);
+  assert.equal(employeeState.workspaceGrantCalls,1);
+  assert.equal(employeeState.taskGrantCalls,1);
   checks.push('d3-existing-employee-open-original-roster-exact-key-enrollment-no-reissue');
+  // A later failed read must clear the previously displayed authority.
+  employeeState.wrongTaskGrantRecipient=true;
+  await employeePage.getByTestId('d3-employee-task-grant-read').click();
+  await employeePage.getByTestId('d3-employee-task-grant-hold').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-task-grant-confirmed').count(),0);
+  assert.equal(await employeePage.getByTestId('d3-employee-task-grant-issue').isEnabled(),false);
+  employeeState.wrongTaskGrantRecipient=false;
   await employeePage.getByTestId('d3-employee-task-grant-read').click();
   await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
   await employeePage.waitForFunction(()=>

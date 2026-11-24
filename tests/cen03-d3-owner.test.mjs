@@ -10,6 +10,7 @@ import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
  validateOriginalEmployeeTaskReadback,employeeTaskContinuationKey,readEmployeeTaskContinuation,
  saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
  readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,
+ inspectOriginalEmployeeWorkspaceRights,inspectOriginalEmployeeTaskGrant,
  isDefiniteUndispatchedD3Failure,
  readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
@@ -103,6 +104,67 @@ test('existing independent employee identity is recovered only from exact origin
  for(const changed of [{credentialKeyId:'key:other'},{employeePersonId:'person:other'},
    {originalReadback:false},{safeToRetry:true},{state:'AWAITING_EMPLOYEE_PROOF'}])
    assert.throws(()=>readOriginalEmployeeCredentialIdentity({...proof,...changed},identity),/READBACK_REQUIRED/);
+});
+
+test('original employee rights restore exact active grants, distinguish absence and reject a stale/foreign or partial receipt',()=>{
+ const scope={organizationId:'org:north',workspaceId:'workspace:north',actorId:'person:manager',
+  employeePersonId:'person:worker',enrollmentId:'enrollment:worker',credentialKeyId:'key:worker'};
+ const {organizationId,workspaceId,employeePersonId,enrollmentId,credentialKeyId,actorId}=scope;
+ const base={organizationId,workspaceId,employeePersonId,enrollmentId,originalReadback:true,safeToReissue:false};
+ const w={...base,schema:'IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1',
+  state:'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_NOT_FOUND'};
+ const d={...base,schema:'IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1',
+  state:'ORIGINAL_MANAGER_TASK_DATA_NOT_FOUND',recipientId:employeePersonId,managerPersonId:actorId};
+ assert.equal(inspectOriginalEmployeeWorkspaceRights(w,scope),'NOT_FOUND');
+ assert.equal(inspectOriginalEmployeeTaskGrant(d,scope),'NOT_FOUND');
+ const spec={readAccess:['workspace.read','workspace.read'],writeAccess:['object.write','workspace.work'],
+   createAccess:['workspace.create','workspace.onboarding'],importAccess:['workspace.exchange.import','workspace.exchange.import']};
+ const attachments=Object.fromEntries(Object.entries(spec).map(([name,[action,purpose]])=>{
+   const grantId='grant:'+name;
+   return [name,{grantId,membership:{personId:employeePersonId,workspaceId},
+    binding:{grantId,holderPersonId:employeePersonId,actions:[action],purposes:[purpose]},
+    credential:{publicKeyRef:credentialKeyId},enrollment:{payload:{credentialPublicKeyRef:credentialKeyId}}}];
+ }));
+ const activeW={...w,state:'ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE',statusSequence:7,
+   attachments,grantIds:Object.values(attachments).map(x=>x.grantId)};
+ const activeD={...d,state:'ORIGINAL_MANAGER_TASK_DATA_ACTIVE',statusSequence:7,grantId:'grant:task',
+   grant:{payload:{id:'grant:task',holderId:actorId,roleId:'assigner',rightClass:'DATA',
+    actions:['package.export'],purposes:['assignment'],resources:['workspace:'+workspaceId,
+     'subject:'+organizationId,'recipient:'+employeePersonId,'field:task','operation:UPSERT']}}};
+ assert.equal(inspectOriginalEmployeeWorkspaceRights(activeW,scope),'ACTIVE');
+ assert.equal(inspectOriginalEmployeeTaskGrant(activeD,scope),'ACTIVE');
+ for(const state of ['ORIGINAL_MANAGER_TASK_DATA_REVOKED_OR_EXPIRED','ORIGINAL_MANAGER_TASK_DATA_STATUS_UNKNOWN_HOLD'])
+  assert.equal(inspectOriginalEmployeeTaskGrant({...d,state},scope),'HOLD');
+ for(const patch of [{workspaceId:'workspace:foreign'},{employeePersonId:'person:foreign'},
+   {enrollmentId:'enrollment:foreign'},{originalReadback:false},{safeToReissue:true}]){
+   assert.throws(()=>inspectOriginalEmployeeWorkspaceRights({...activeW,...patch},scope),/READBACK_REQUIRED/);
+   assert.throws(()=>inspectOriginalEmployeeTaskGrant({...activeD,...patch},scope),/READBACK_HOLD/);
+ }
+ assert.throws(()=>inspectOriginalEmployeeWorkspaceRights({...activeW,attachments:{}},scope),/READBACK_REQUIRED/);
+ assert.throws(()=>inspectOriginalEmployeeWorkspaceRights({...activeW,grantIds:['grant:foreign']},scope),/READBACK_REQUIRED/);
+ assert.throws(()=>inspectOriginalEmployeeWorkspaceRights({...w,attachments},scope),/READBACK_REQUIRED/);
+ assert.throws(()=>inspectOriginalEmployeeTaskGrant({...d,grant:activeD.grant},scope),/READBACK_HOLD/);
+ assert.throws(()=>inspectOriginalEmployeeTaskGrant({...activeD,recipientId:'person:foreign'},scope),/READBACK_HOLD/);
+ assert.throws(()=>inspectOriginalEmployeeTaskGrant({...activeD,managerPersonId:'person:foreign'},scope),/READBACK_HOLD/);
+ assert.throws(()=>inspectOriginalEmployeeTaskGrant({...activeD,statusSequence:0},scope),/READBACK_HOLD/);
+ assert.throws(()=>inspectOriginalEmployeeTaskGrant({...activeD,state:'UNKNOWN'},scope),/READBACK_HOLD/);
+});
+
+test('employee rights are read before issue, with both existing grants restored on roster open',()=>{
+ const ui=readFileSync(new URL('../src/CorporateEmployeeEnrollment.tsx',import.meta.url),'utf8');
+ const restore=ui.slice(ui.indexOf('const restoreRosterEmployee='),ui.indexOf('const confirmCredential='));
+ assert.match(restore,/await readGrant\('workspace',scope\)/);
+ assert.match(restore,/await readGrant\('task',scope\)/);
+ const read=ui.slice(ui.indexOf('async function readGrant('),ui.indexOf('// The employee must import'));
+ assert.match(read,/setHold\(true\);setReceipt\(null\)/);
+ assert.match(read,/setReceipt\(result\);setHold\(false\)/);
+ for(const [kind,id,operation] of [['workspace','d3-employee-workspace-grants-issue','d3EmployeeWorkspaceGrantIssue'],
+   ['task','d3-employee-task-grant-issue','d3EmployeeTaskGrantIssue']]){
+   const segment=ui.slice(ui.indexOf('data-testid="'+id+'"'));
+   const pre=segment.indexOf("await readGrant('"+kind+"')");
+   assert.ok(pre>=0&&segment.indexOf("execute('"+operation+"'")>pre);
+   assert.match(segment.slice(pre,pre+300),/before!=='NOT_FOUND'/);
+ }
 });
 
 test('independent employee Task continuation saves only the operation ID, restores after reopening and isolates exact enrollments',()=>{

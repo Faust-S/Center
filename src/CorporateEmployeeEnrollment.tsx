@@ -3,7 +3,8 @@ import CorporateSeatAssignments from './CorporateSeatAssignments';
 import {readOriginalEmployeeRegistryReceipt,readOriginalSeatView} from '../runtime/cen03-corporate-seats.mjs';
 import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskReadback,readOriginalEmployeeBootstrap,readOriginalEmployeePublicCandidate,
  employeeTaskContinuationKey,readEmployeeTaskContinuation,saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
- readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity}
+ readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,
+ inspectOriginalEmployeeWorkspaceRights,inspectOriginalEmployeeTaskGrant}
  from '../runtime/cen03-d3-owner.mjs';
 
 // This is a manager's view of the ORIGINAL installed T3 employee enrollment.
@@ -83,8 +84,10 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  const [employeeInviteReceipt,setEmployeeInviteReceipt]=useState<any>(null);
  const [workspaceRightsAttempted,setWorkspaceRightsAttempted]=useState(false);
  const [workspaceRightsReceipt,setWorkspaceRightsReceipt]=useState<any>(null);
+ const [workspaceReadHold,setWorkspaceReadHold]=useState(false);
  const [taskGrantAttempted,setTaskGrantAttempted]=useState(false);
  const [taskGrantReceipt,setTaskGrantReceipt]=useState<any>(null);
+ const [taskGrantReadHold,setTaskGrantReadHold]=useState(false);
  const [taskText,setTaskText]=useState('');
  const [taskId,setTaskId]=useState('');
  const [taskAttempted,setTaskAttempted]=useState(false);
@@ -119,60 +122,34 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      enrolled=identity.credentialKeyId===keyId;
    }catch{/* No original bound enrollment: no employee authority in this form. */}
  }
- // The independent employee's four T2 rights come from a separate original
- // Kernel grant write. Neither work.prepare nor package.export is an import.
- const rightsSpec:Record<string,[string,string]>={
-   readAccess:['workspace.read','workspace.read'],
-   writeAccess:['object.write','workspace.work'],
-   createAccess:['workspace.create','workspace.onboarding'],
-   importAccess:['workspace.exchange.import','workspace.exchange.import'],
- };
- const workspaceRightsOk=enrolled&&
-   workspaceRightsReceipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS/1'&&
-   workspaceRightsReceipt.state==='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'&&
-   workspaceRightsReceipt.organizationId===session.organizationId&&
-   workspaceRightsReceipt.workspaceId===session.workspaceId&&
-   workspaceRightsReceipt.employeePersonId===personId&&
-   workspaceRightsReceipt.enrollmentId===enrollmentReceipt.enrollmentId&&
-   workspaceRightsReceipt.originalReadback===true&&
-   workspaceRightsReceipt.safeToReissue===false&&
-   Number.isSafeInteger(workspaceRightsReceipt.statusSequence)&&
-   Object.entries(rightsSpec).every(([key,[action,purpose]])=>{
-     const a=workspaceRightsReceipt.attachments?.[key];
-     return a?.grantId===a?.binding?.grantId&&
-       a?.membership?.personId===personId&&
-       a?.membership?.workspaceId===session.workspaceId&&
-       a?.binding?.holderPersonId===personId&&
-       a?.credential?.publicKeyRef===keyId&&
-       a?.enrollment?.payload?.credentialPublicKeyRef===keyId&&
-       a?.binding?.actions?.length===1&&a.binding.actions[0]===action&&
-       a?.binding?.purposes?.length===1&&a.binding.purposes[0]===purpose;
-   });
- // A second signed DATA grant belongs to the manager, not the worker.
- const managerTaskResources=[
-   'workspace:'+session.workspaceId,'subject:'+session.organizationId,
-   'recipient:'+personId,'field:task','operation:UPSERT'
- ];
- const managerTaskGrantOk=enrolled&&
-   taskGrantReceipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1'&&
-   taskGrantReceipt.state==='ORIGINAL_MANAGER_TASK_DATA_ACTIVE'&&
-   taskGrantReceipt.organizationId===session.organizationId&&
-   taskGrantReceipt.workspaceId===session.workspaceId&&
-   taskGrantReceipt.recipientId===personId&&
-   taskGrantReceipt.employeePersonId===personId&&
-   taskGrantReceipt.managerPersonId===session.actorId&&
-   taskGrantReceipt.enrollmentId===enrollmentReceipt.enrollmentId&&
-   taskGrantReceipt.originalReadback===true&&
-   taskGrantReceipt.safeToReissue===false&&
-   taskGrantReceipt.grant?.payload?.holderId===session.actorId&&
-   taskGrantReceipt.grant?.payload?.roleId==='assigner'&&
-   taskGrantReceipt.grant?.payload?.rightClass==='DATA'&&
-   JSON.stringify(taskGrantReceipt.grant?.payload?.actions)==='["package.export"]'&&
-   JSON.stringify(taskGrantReceipt.grant?.payload?.purposes)==='["assignment"]'&&
-   JSON.stringify(taskGrantReceipt.grant?.payload?.resources)===
-     JSON.stringify(managerTaskResources)&&
-   Number.isSafeInteger(taskGrantReceipt.statusSequence)&&
-   taskGrantReceipt.statusSequence>0;
+ // A card is only a projection of current original signed readback, never
+ // a second grant evaluator or local source of authority.
+ const grantScope={organizationId:session.organizationId,workspaceId:session.workspaceId,
+   actorId:session.actorId,employeePersonId:personId,
+   enrollmentId:recoveryEnrollmentId,credentialKeyId:keyId};
+ function inspected(kind:'workspace'|'task',receipt:any,scope=grantScope){
+   try{return kind==='workspace'?inspectOriginalEmployeeWorkspaceRights(receipt,scope):
+     inspectOriginalEmployeeTaskGrant(receipt,scope)}
+   catch{return 'UNVERIFIED'}
+ }
+ const workspaceRightsOk=enrolled&&!workspaceReadHold&&
+   inspected('workspace',workspaceRightsReceipt)==='ACTIVE';
+ const managerTaskGrantOk=enrolled&&!taskGrantReadHold&&
+   inspected('task',taskGrantReceipt)==='ACTIVE';
+ const taskGrantKnownHold=inspected('task',taskGrantReceipt)==='HOLD';
+ async function readGrant(kind:'workspace'|'task',scope=grantScope){
+   const workspace=kind==='workspace';
+   const setHold=workspace?setWorkspaceReadHold:setTaskGrantReadHold;
+   const setReceipt=workspace?setWorkspaceRightsReceipt:setTaskGrantReceipt;
+   // Old receipts cannot survive a failed current read.
+   setHold(true);setReceipt(null);
+   const result=await execute(workspace?'d3EmployeeWorkspaceGrantReadback':'d3EmployeeTaskGrantReadback',{
+     employeePersonId:scope.employeePersonId,enrollmentId:scope.enrollmentId});
+   const state=workspace?inspectOriginalEmployeeWorkspaceRights(result,scope):
+     inspectOriginalEmployeeTaskGrant(result,scope);
+   setReceipt(result);setHold(false);
+   return state;
+ }
  // The employee must import the current signed manager DATA + STATUS.
  const invitationCurrentForTask=managerTaskGrantOk&&workspaceRightsOk&&
    employeeInviteReceipt?.originalSigned===true&&
@@ -226,8 +203,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    setEnrollmentProof('');
    setEnrollmentAttempted(false);setEnrollmentReceipt(null);
    setEmployeeInviteReceipt(null);
-   setWorkspaceRightsAttempted(false);setWorkspaceRightsReceipt(null);
-   setTaskGrantAttempted(false);setTaskGrantReceipt(null);
+   setWorkspaceRightsAttempted(false);setWorkspaceRightsReceipt(null);setWorkspaceReadHold(false);
+   setTaskGrantAttempted(false);setTaskGrantReceipt(null);setTaskGrantReadHold(false);
    setTaskId('');setTaskText('');setTaskAttempted(false);setTaskReceipt(null);setTaskReadbackCurrent(false);
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);
    setTaskNeedsRebind(false);setLoadedTaskScope(null);setTaskContinuationBlocked(false);
@@ -254,6 +231,9 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    // Failed reads of the active selection must invalidate its authority
    // presentation. Pending Task identity survives in the scoped continuation.
    if(same)setEnrollmentReceipt(null);
+   setWorkspaceRightsReceipt(null);setWorkspaceReadHold(true);
+   setTaskGrantReceipt(null);setTaskGrantReadHold(true);
+   setEmployeeInviteReceipt(null);setTaskReadbackCurrent(false);
    const result=await execute('d3EmployeeRead',{
      employeePersonId:row.personId,enrollmentId:row.enrollmentId});
    const identity=readOriginalEmployeeEnrollmentIdentity(result,{
@@ -268,6 +248,19 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    setPersonId(identity.employeePersonId);setKeyId(identity.credentialKeyId);
    setRecoveryEnrollmentId(identity.enrollmentId);setCredentialReceipt(credential);
    setEnrollmentReceipt(result);
+   // Reopen the exact employee and both independent rights in one action.
+   // A missing right is different from a revoked or unreadable right.
+   const scope={organizationId:session.organizationId,workspaceId:session.workspaceId,
+     actorId:session.actorId,employeePersonId:identity.employeePersonId,
+     enrollmentId:identity.enrollmentId,credentialKeyId:identity.credentialKeyId};
+   let held=false;
+   if(workspaceRightsAvailable){
+     try{await readGrant('workspace',scope)}catch{held=true}
+   }
+   if(taskIssueAvailable){
+     try{await readGrant('task',scope)}catch{held=true}
+   }
+   if(held)throw Error('CEN_D3_EMPLOYEE_EXISTING_RIGHTS_READBACK_HOLD');
  });
  const confirmCredential=()=>run('Подлинность ключа перечитана из оригинального Kernel.',async()=>{
    if(!credentialChallenge)throw Error('CEN_D3_EMPLOYEE_KEY_PROOF_NOT_PREPARED');
@@ -611,10 +604,13 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        <div className="actions">
          <button data-testid="d3-employee-workspace-grants-issue"
            disabled={!workspaceRightsAvailable||busy||
-             workspaceRightsAttempted||workspaceRightsOk}
+             workspaceRightsAttempted||workspaceRightsOk||workspaceReadHold}
            onClick={()=>void run('Исходный Kernel подтвердил четыре права Workspace.',async()=>{
-             if(workspaceRightsAttempted)
+             if(workspaceRightsAttempted||workspaceReadHold)
                throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_USE_READBACK');
+             const before=await readGrant('workspace');
+             if(before==='ACTIVE')return;
+             if(before!=='NOT_FOUND')throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
              setWorkspaceRightsAttempted(true);
              let r:any;
              try {
@@ -632,25 +628,20 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
              if(r?.state!=='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE'||
                r.originalReadback!==true||r.safeToReissue!==false)
                throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
-             const read=await execute('d3EmployeeWorkspaceGrantReadback',{
-               employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
-             });
-             setWorkspaceRightsReceipt(read);
-             if(read?.state!=='ORIGINAL_EMPLOYEE_WORKSPACE_RIGHTS_ACTIVE')
+             if(await readGrant('workspace')!=='ACTIVE')
                throw Error('CEN_D3_EMPLOYEE_WORKSPACE_RIGHTS_READBACK_REQUIRED');
            })}>Разрешить работу и перенос Workspace</button>
          <button className="secondary" data-testid="d3-employee-workspace-grants-read"
            disabled={!workspaceRightsAvailable||busy}
            onClick={()=>void run('Подписанные права перечитаны без новой выдачи.',async()=>{
-             const r=await execute('d3EmployeeWorkspaceGrantReadback',{
-               employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
-             });
-             setWorkspaceRightsReceipt(r);
+             await readGrant('workspace');
            })}>Проверить выданные права</button>
        </div>
        {workspaceRightsOk&&<p role="status" data-testid="d3-employee-workspace-rights-confirmed">
          Четыре права подтверждены исходным Kernel. Импорт будет разрешён
          только в выбранную корпоративную Workspace.</p>}
+       {workspaceReadHold&&<p role="alert" data-testid="d3-employee-workspace-rights-hold">
+         Не удалось подтвердить состояние прав Workspace. Перечитайте исходные права перед новой выдачей.</p>}
        {workspaceRightsAttempted&&!workspaceRightsOk&&<p className="notice subdued">
          Ответ мог потеряться после записи. Не выдавайте права повторно.
          Используйте проверку выданных прав.</p>}
@@ -697,9 +688,13 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
          этого сотрудника. Это не создаёт Task и не доставляет файл.</p>
       <div className="actions">
        <button data-testid="d3-employee-task-grant-issue"
-        disabled={busy||taskGrantAttempted||managerTaskGrantOk}
+        disabled={busy||!taskIssueAvailable||taskGrantAttempted||managerTaskGrantOk||taskGrantReadHold||taskGrantKnownHold}
         onClick={()=>void run('Оригинальный Kernel подтвердил адресный DATA-грант.',async()=>{
-          if(taskGrantAttempted)throw Error('CEN_D3_EMPLOYEE_TASK_DATA_USE_READBACK');
+          if(taskGrantAttempted||taskGrantReadHold||taskGrantKnownHold)
+            throw Error('CEN_D3_EMPLOYEE_TASK_DATA_USE_READBACK');
+          const before=await readGrant('task');
+          if(before==='ACTIVE')return;
+          if(before!=='NOT_FOUND')throw Error('CEN_D3_EMPLOYEE_TASK_DATA_READBACK_HOLD');
           setTaskGrantAttempted(true);
           let result:any;
           try{
@@ -718,29 +713,17 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
              result.recipientId!==personId||result.taskSigned!==false||
              result.taskDelivered!==false)
             throw Error('CEN_D3_EMPLOYEE_TASK_DATA_UNKNOWN_READBACK_REQUIRED');
-          const cold=await execute('d3EmployeeTaskGrantReadback',{
-            employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
-          });
-          setTaskGrantReceipt(cold);
-          if(cold?.state!=='ORIGINAL_MANAGER_TASK_DATA_ACTIVE')
+          if(await readGrant('task')!=='ACTIVE')
             throw Error('CEN_D3_EMPLOYEE_TASK_DATA_UNKNOWN_READBACK_REQUIRED');
         })}>Выдать адресное право на Task</button>
        <button className="secondary" data-testid="d3-employee-task-grant-read"
         disabled={busy} onClick={()=>void run('Адресный DATA-грант перечитан без записи.',async()=>{
-          const cold=await execute('d3EmployeeTaskGrantReadback',{
-            employeePersonId:personId,enrollmentId:enrollmentReceipt.enrollmentId
-          });
-          if(cold?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_TASK_DATA_READBACK/1'||
-             cold.originalReadback!==true||cold.safeToReissue!==false||
-             cold.organizationId!==session.organizationId||
-             cold.workspaceId!==session.workspaceId||
-             cold.employeePersonId!==personId||cold.recipientId!==personId||
-             cold.managerPersonId!==session.actorId||
-             cold.enrollmentId!==enrollmentReceipt.enrollmentId)
-            throw Error('CEN_D3_EMPLOYEE_TASK_DATA_READBACK_HOLD');
-          setTaskGrantReceipt(cold);
+          await readGrant('task');
         })}>Перечитать исходный DATA-грант</button>
       </div>
+      {(taskGrantReadHold||taskGrantKnownHold)&&<p role="alert" data-testid="d3-employee-task-grant-hold">
+        Адресное право не подтверждено, отозвано или истекло. Перечитайте исходный грант.
+        Новая выдача и подписание поручений недоступны.</p>}
       {taskGrantAttempted&&!managerTaskGrantOk&&<p className="notice subdued">
          После отправки запись могла завершиться без ответа. Повторное
          подтверждение запрещено; только оригинальный readback.</p>}
