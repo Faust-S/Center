@@ -16,7 +16,7 @@ env:
   T3_PIN: '83850ffffc27caf6a0c3e6b595fcd85b277c5fd4'
   CORE_PIN: '39c32cda211a7d351de553fe4fc9528848c274cd'
   CENTER_PIN: 'ee343b1dc6306fb7dddd5f015c02497dbaa96284'
-  PUBLISHER_PIN: 'e0a7b8b23605cc596d95318a0e15a7b46f495507'
+  PUBLISHER_PIN: '429f7ab6832cd7ca1c47856d74016f5f88e44ceb'
   AGENT_PIN: 'a3e6af4b429ecf9fc81a9fb0b0d9c7380ec9063a'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
@@ -307,6 +307,9 @@ jobs:
           $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
           $checks=@([regex]::Matches($raw,'(?m)^CORPORATE_TWO_INSTALLED_CHECK=([A-Z0-9_]{3,100})\s*$')|ForEach-Object {$_.Groups[1].Value})
           foreach($check in $checks){Write-Host ('CORPORATE_TWO_INSTALLED_CHECK='+$check)}
+          foreach($m in [regex]::Matches($raw,'(?m)^CORPORATE_TWO_INSTALLED_(PHASE|FAILURE_PHASE|FAILURE_STEP|FAILURE_KIND)=([A-Z0-9_]{1,80})\s*$')){
+            Write-Host ('CORPORATE_TWO_INSTALLED_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+          }
           $m=[regex]::Match($raw,'(?m)^CORPORATE_TWO_INSTALLED_NATIVE_PASS checks=(\d{1,3})\s*$')
           if($exit -ne 0 -or !$m.Success -or [int]$m.Groups[1].Value -ne 24 -or $checks.Count -ne 24){
             $safe=@([regex]::Matches($raw,'(?<![A-Z0-9_])CORPORATE_(?:GUI|NATIVE|INSTALLED|SEAT|TWO_INSTALLED)_[A-Z0-9_]{4,100}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
