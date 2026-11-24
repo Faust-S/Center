@@ -1,0 +1,135 @@
+# Scoped read-only qualification of the private Agent. No artifacts or logs
+# from the private checkout may be published.
+name: Meta Harness Qwen native ToolRuntime qualification
+on:
+  push:
+    branches:
+      - work/2026-11-24-meta-harness-source-qualification
+    paths:
+      - .github/workflows/meta-harness-qwen-tool-native.yml
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    env:
+      PRIVATE_PIN: bfbad988944504df657e2043bd54d54d11b42361
+      PRIVATE_TREE: f42b6db19c076de94d3353b86206d3705652d86f
+      IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
+      IWXA_NATIVE_QWEN_TOOL_TEST: '1'
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Read pinned source, qualify and remove temporary checkout
+        shell: bash
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json, os, pathlib, re, subprocess, sys, tempfile
+          def status(label, value):
+              print(label + "=" + str(value), flush=True)
+          def main():
+              pin = os.environ["PRIVATE_PIN"]
+              tree = os.environ["PRIVATE_TREE"]
+              token = os.environ.pop("IWXA_TEMP_READ_TOKEN", "")
+              if not token:
+                  status("PRIVATE_READ", "TOKEN_UNAVAILABLE")
+                  return 1
+              clean = dict(os.environ)
+              clean.update({"GIT_TERMINAL_PROMPT":"0", "GIT_LFS_SKIP_SMUDGE":"1", "PYTHONUTF8":"1"})
+              with tempfile.TemporaryDirectory(prefix="iwxa-private-", dir=os.environ.get("RUNNER_TEMP")) as td:
+                  root = pathlib.Path(td)
+                  source = root / "source"
+                  source.mkdir()
+                  def run(args, cwd=source, env=clean, timeout=600):
+                      return subprocess.run(args, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE, timeout=timeout)
+                  def ok(args, cwd=source, env=clean, timeout=600):
+                      return run(args,cwd,env,timeout).returncode == 0
+                  if not ok(["git","init","-q"]):
+                      status("PRIVATE_READ","INIT_FAIL"); return 1
+                  auth = dict(clean)
+                  auth.update({"GIT_CONFIG_COUNT":"1",
+                      "GIT_CONFIG_KEY_0":"http.https://github.com/.extraheader",
+                      "GIT_CONFIG_VALUE_0":"AUTHORIZATION: basic "+base64.b64encode(
+                          ("x-access-token:"+token).encode()).decode()})
+                  fetched = ok(["git","fetch","--no-tags","--depth","1",
+                                "https://github.com/Faust-S/iwxa-personal-agent.git",pin],
+                               env=auth,timeout=180)
+                  del auth, token
+                  if not fetched or not ok(["git","checkout","--detach","-q",pin]):
+                      status("PRIVATE_READ","FETCH_FAIL"); return 1
+                  if (run(["git","rev-parse","HEAD"]).stdout.decode().strip()!=pin
+                      or run(["git","rev-parse","HEAD^{tree}"]).stdout.decode().strip()!=tree):
+                      status("PRIVATE_READ","PIN_MISMATCH"); return 1
+                  status("PRIVATE_READ","PASS"); status("SOURCE_PIN",pin)
+                  if not ok([sys.executable,"-m","pip","install","--disable-pip-version-check",
+                             "-r","requirements-ci.txt"],timeout=420):
+                      status("PYTHON_DEPS","FAIL"); return 1
+                  status("PYTHON_DEPS","PASS")
+                  allowed = {"START","QWEN_INSTALL_PASS","OLLAMA_RELEASE_PASS","GGUF_DIGEST_PASS",
+                             "OLLAMA_SERVER_PASS","ORIGINAL_MODEL_SELECTION_PASS","REAL_MODEL_SMOKE_PASS","REAL_OPENAI_CHAT_SMOKE_PASS",
+                             "REAL_MODEL_TOOL_SMOKE_PASS","ORIGINAL_GRAPH_PREVIEW_PASS","REAL_QWEN_GRAPH_RESULT_PASS","REAL_QWEN_TOOL_READ_PASS",
+                             "ORIGINAL_RESULT_RESTART_PASS","PROCESS_CLEANUP_PASS"}
+                  proc = run([sys.executable,"-m","pytest","-q","-s","--tb=short",
+                      "-p","no:cacheprovider","tests/test_meta_harness_qwen_native_product.py",
+                      "--basetemp",str(root/"native-test")],timeout=2400)
+                  out = proc.stdout.decode("utf-8","replace")
+                  stages = []
+                  for line in out.splitlines():
+                      if line.startswith("QWEN_PRODUCT_STAGE="):
+                          stage = line.split("=",1)[1].strip()
+                          if stage in allowed:
+                              stages.append(stage)
+                              status("QWEN_PRODUCT_STAGE",stage)
+                      elif re.fullmatch(r"QWEN_PRODUCT_FIRST_MS=[0-9]{1,10}",line.strip()):
+                          print(line.strip(),flush=True)
+                  # Short traceback locations only, never paths, source lines or exception messages.
+                  for line in out.splitlines():
+                      m=re.fullmatch(r"[^\\r\\n:]*[/\\\\]?([A-Za-z_][A-Za-z0-9_]*\\.py):(\\d{1,6}): in ([A-Za-z_][A-Za-z0-9_]{0,90})",line.strip())
+                      if m:
+                          key=hashlib.sha256(m.group(1).encode()).hexdigest()[:16]
+                          status("QWEN_PRODUCT_CASE",key+":"+m.group(2)+":"+hashlib.sha256(m.group(3).encode()).hexdigest()[:12])
+                  allowed_diagnostics=set(["ACP_ABSOLUTE_WORKSPACE_REQUIRED","ACP_ALREADY_INITIALIZED","ACP_CANCELLED_BEFORE_SEND","ACP_CANCEL_OUTCOME_UNKNOWN","ACP_CLOSE_NOT_ADVERTISED","ACP_CONCURRENT_OPERATION","ACP_CONNECTION_OUTCOME_UNKNOWN","ACP_DISCONNECTED_OUTCOME_UNKNOWN","ACP_FRAME_LIMIT","ACP_FRAME_LIMIT_OR_TRUNCATED","ACP_INITIALIZE_REQUIRED","ACP_INVALID_CANCEL_EVENT","ACP_INVALID_CONFIG_OPTIONS","ACP_INVALID_CONTENT","ACP_INVALID_ENVELOPE","ACP_INVALID_JSON","ACP_INVALID_MODE_UPDATE","ACP_INVALID_SERVER_REQUEST","ACP_INVALID_SESSION","ACP_INVALID_STOP_REASON","ACP_INVALID_TIMEOUT","ACP_INVALID_UPDATE","ACP_LIST_NOT_ADVERTISED","ACP_LOAD_NOT_ADVERTISED","ACP_MODEL_NOT_ADVERTISED","ACP_MODEL_OPTION_UNAVAILABLE_OR_AMBIGUOUS","ACP_MODEL_SELECTION_UNCONFIRMED","ACP_PROMPT_CAPABILITY_REQUIRED","ACP_REMOTE_ERROR","ACP_RESPONSE_ID_MISMATCH","ACP_RESUME_NOT_ADVERTISED","ACP_SESSION_ALREADY_SELECTED","ACP_SESSION_MISMATCH","ACP_TIMEOUT_OUTCOME_UNKNOWN","ACP_TRANSPORT_DETACHED","ACP_TURN_LIMIT","ACP_UNEXPECTED_SESSION_UPDATE","ACP_UNKNOWN_CONTENT_TYPE","ACP_UNSUPPORTED_PROTOCOL","ACP_WRITE_OUTCOME_UNKNOWN","acp_cancelled_before_dispatch","acp_cancelled_before_next_operation","acp_cancelled_before_prompt","acp_context_blocks_required","acp_explicit_proposal_required","acp_native_cancelled","acp_native_option_owner_not_bound","acp_native_process_authority_denied","acp_observation_receipt_required","acp_outcome_not_confirmed","acp_outcome_unknown","acp_payload_authority_denied","acp_private_transfer_not_admitted","acp_prompt_not_sent","acp_request_deadline","acp_runtime_binding_mismatch","acp_session_binding_unconfirmed","acp_session_receipt_required","acp_session_state_denied","acp_transport_required","PORT_PROTOCOL_ERROR","AUTHORITY_REQUIRED","PORT_UNAVAILABLE","CANCELLED","TIMED_OUT","PRIVACY_DENIED","AGENT_RUNTIME_RESPONSE_INVALID","AGENT_RUNTIME_INVOCATION_FAILED","AGENT_RUNTIME_UNAVAILABLE","AGENT_RUNTIME_FAILED","AGENT_RUNTIME_TIMEOUT","ACP_GRAPH_ATTEMPT_CHANGED","ACP_ORIGINAL_TASK_ROUTE_REQUIRED"])
+                  for line in out.splitlines():
+                      if line.startswith("QWEN_PRODUCT_DIAGNOSTIC=") and line.split("=",1)[1].strip() in allowed_diagnostics:
+                          status("QWEN_PRODUCT_DIAGNOSTIC",line.split("=",1)[1].strip())
+                  for code in ("t3_external_execution_disabled","ACP_ORIGINAL_TASK_ROUTE_REQUIRED","ACP_GRAPH_ATTEMPT_CHANGED","AGENT_RUNTIME_UNAVAILABLE","AGENT_RUNTIME_INVOCATION_FAILED","AGENT_RUNTIME_RESPONSE_INVALID","AGENT_RUNTIME_TIMEOUT","AUTHORITY_REQUIRED","acp_session_state_denied","acp_native_route_not_ready","acp_reviewed_graph_attempt_required","acp_native_launch_not_authorized","acp_native_state_changed","META_HARNESS_ROLE_BINDING_CHANGED","agent_runtime_requires_reviewed_task_graph","qwen_installation_or_local_model_required","qwen_graph_owns_model_and_session","qwen_task_workspace_link_required","acp_local_process_tree_stop_unconfirmed"):
+                      if re.search(r"(?<![A-Za-z0-9_])"+code+r"(?![A-Za-z0-9_])",out):
+                          status("QWEN_PRODUCT_DIAGNOSTIC",code)
+                  for line in out.splitlines():
+                      remote=re.fullmatch(r"QWEN_PRODUCT_REMOTE=(INITIALIZE|SESSION_NEW|SESSION_LOAD|SESSION_RESUME|SESSION_PROMPT|SESSION_CONFIG|OTHER):(-?[0-9]{1,5}):(PATH_LENGTH|PATH_MISSING|PATH_ACCESS|UNTRUSTED_WORKSPACE|AUTH_REQUIRED|MODEL_CONFIGURATION|TOOL_CONFIGURATION|MODEL_HTTP_FAILURE|TOOLS_UNSUPPORTED|CONTEXT_LIMIT|STREAM_FAILURE|OUT_OF_MEMORY|OTHER)",line.strip())
+                      if remote:
+                          status("QWEN_PRODUCT_REMOTE",":".join(remote.groups()))
+                      if re.fullmatch(r"QWEN_PRODUCT_HTTP=(OPENAI_CHAT|OPENAI_MODELS|GENERATE|CHAT|TAGS|SHOW|VERSION):[1-5][0-9]{2}",line.strip()) or re.fullmatch(r"QWEN_PRODUCT_OLLAMA_KIND=(TOOLS_UNSUPPORTED|CONTEXT_LIMIT|MODEL_LOAD|OUT_OF_MEMORY)",line.strip()):
+                          print(line.strip(),flush=True)
+                      if re.fullmatch(r"QWEN_PRODUCT_CHAT_SHAPE=(?:INVALID|TOOLS_(?:NONEMPTY|EMPTY|ABSENT):STREAM_(?:YES|NO):MODEL_(?:MATCH|OTHER):RESPONSE_FORMAT_(?:YES|NO):MESSAGES_[0-9]{1,5})",line.strip()) or re.fullmatch(r"QWEN_PRODUCT_OPENAI_ERROR=[45][0-9]{2}:(TOOLS_UNSUPPORTED|TOOL_INVALID|CONTEXT_LIMIT|MODEL_NOT_FOUND|MESSAGES_INVALID|PARAMETER_INVALID|OUT_OF_MEMORY|OTHER)",line.strip()):
+                          print(line.strip(),flush=True)
+                      if re.fullmatch(r"QWEN_PRODUCT_OPENAI_DETAIL=(?:OTHER|JSON_UNMARSHAL:(?:TOOLS|REASONING|MESSAGES|RESPONSE_FORMAT|STREAM_OPTIONS|NUMERIC|OTHER)|REASONING_INVALID|MESSAGE_INVALID|TOOLS_UNSUPPORTED)",line.strip()):
+                          print(line.strip(),flush=True)
+                      match=re.fullmatch(r"QWEN_PRODUCT_BLOCKED=([A-Z][A-Z_0-9]{1,100})",line.strip())
+                      if match:
+                          status("QWEN_PRODUCT_BLOCKED",match.group(1))
+                  passed = proc.returncode == 0 and set(stages) == allowed
+                  status("QWEN_PRODUCT_NATIVE","PASS" if passed else "FAIL")
+                  return 0 if passed else 1
+          try:
+              sys.exit(main())
+          except subprocess.TimeoutExpired:
+              status("QWEN_PRODUCT_NATIVE","TIMEOUT")
+              sys.exit(1)
+          except Exception as exc:
+              status("QWEN_PRODUCT_NATIVE","ERROR")
+              status("ERROR_KIND",type(exc).__name__ if type(exc).__name__ in {"PermissionError","OSError","ValueError","FileNotFoundError"} else "OTHER")
+              sys.exit(1)
+          PY
