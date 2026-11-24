@@ -18,7 +18,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      AGENT_PIN: '1fabe161b278de032cddfbe37b1da7cbd52decba'
+      AGENT_PIN: 'c1b4871f1a86175e40ca2e1086de7eb6450f889f'
       CORE_PIN: 'd89ec3ead3e660a7865043d1ecacd7f2b259f6cc'
     steps:
       - name: Require the existing authorized source grant
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 1fabe161b278de032cddfbe37b1da7cbd52decba
+          ref: c1b4871f1a86175e40ca2e1086de7eb6450f889f
           path: agent
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
@@ -45,7 +45,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Verify exact source revisions
+        id: pins
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -84,7 +88,31 @@ jobs:
           $results+=Run-Suite 'AGENT_WORKER' 'agent' @('tests/test_agent063_original_registry_refresh.test.mjs','tests/test_agent06_original_t3_large_ipc.test.mjs','tests/test_agent063_original_task_catalog.test.mjs')
           $results+=Run-Suite 'ONE_CORE_SEATS' 'one-core/packages/t3-core' @('tests/t3-corporate-product-license.test.mjs')
           if($results -contains $false){throw 'CORPORATE_SOURCE_REGRESSION_FAILED'}
+      - name: Execute Python employee port, native chooser and interaction tests
+        if: ${{ !cancelled() && steps.pins.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $PSNativeCommandUseErrorActionPreference=$false
+          Push-Location agent
+          try{
+            $log=Join-Path $env:RUNNER_TEMP 'agent-seat-pip-private.log'
+            & python -m pip install -q -r requirements-ci.txt *> $log
+            if($LASTEXITCODE -ne 0){throw 'PYTHON_DEPENDENCIES_FAILED'}
+            $log=Join-Path $env:RUNNER_TEMP 'agent-seat-python-private.log'
+            & python -m pytest -q tests/test_agent06_corporate_t3_employee.py tests/test_agent063_employee_path_picker.py *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            foreach($key in @('passed','failed','skipped','errors')){
+              $m=[regex]::Matches($raw,"(\d+) $key\b")
+              Write-Host ('PYTHON_'+$key.ToUpperInvariant()+'='+$(if($m.Count){$m[$m.Count-1].Groups[1].Value}else{'0'}))
+            }
+            $failures=@([regex]::Matches($raw,'(?m)^FAILED (?:tests[/\\])?(test_agent06_corporate_t3_employee|test_agent063_employee_path_picker)\.py::([A-Za-z0-9_]+)(?:::([A-Za-z0-9_]+))?')|ForEach-Object{$_.Groups[1].Value+':'+$_.Groups[2].Value+':'+$_.Groups[3].Value})
+            if($failures.Count){Write-Host ('PYTHON_CASES='+($failures -join ','))}
+            if($exit -ne 0){throw 'PYTHON_QUALIFICATION_FAILED'}
+          }finally{Pop-Location}
       - name: Execute original desktop UI flow and full desktop build
+        if: ${{ !cancelled() && steps.pins.outcome == 'success' }}
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -96,6 +124,14 @@ jobs:
             & $npm ci --no-audit --no-fund *> $install
             if($LASTEXITCODE -ne 0){throw 'DESKTOP_INSTALL_FAILED'}
             Write-Host 'DESKTOP_INSTALL=PASS'
+            $focused=Join-Path $env:RUNNER_TEMP 'agent-seat-desktop-focused-private.log'
+            & node --test tests/corporate-work-flow.test.mjs *> $focused
+            $focusedExit=$LASTEXITCODE
+            $focusedRaw=Get-Content -LiteralPath $focused -Raw
+            foreach($key in @('tests','pass','fail')){
+              $m=[regex]::Matches($focusedRaw,"(?m)^# $key (\d+)\s*$")
+              if($m.Count){Write-Host ('CORPORATE_UI_'+$key.ToUpperInvariant()+'='+$m[$m.Count-1].Groups[1].Value)}
+            }
             $log=Join-Path $env:RUNNER_TEMP 'agent-seat-desktop-private.log'
             & node --test *> $log
             $exit=$LASTEXITCODE
@@ -107,6 +143,9 @@ jobs:
             if($exit -ne 0){
               $indices=@([regex]::Matches($raw,'(?m)^not ok (\d+)') | ForEach-Object {$_.Groups[1].Value} | Select-Object -First 20)
               Write-Host ('DESKTOP_FAILED_ORDINALS='+($indices -join ','))
+              foreach($match in [regex]::Matches($raw,'(?ms)^not ok (\d+)[^\n]*\n.*?location: [^\r\n]*[/\\]([A-Za-z0-9_.-]+\.test\.mjs):(\d+):(\d+)')){
+                Write-Host ('DESKTOP_FAILED_LOCATION='+$match.Groups[1].Value+':'+$match.Groups[2].Value+':'+$match.Groups[3].Value+':'+$match.Groups[4].Value)
+              }
             }
             $build=Join-Path $env:RUNNER_TEMP 'agent-seat-build-private.log'
             & $npm run build *> $build
@@ -118,7 +157,7 @@ jobs:
                 Write-Host ('CORPORATE_BUILD_DIAGNOSTIC='+$m.Groups[1].Value+':'+$m.Groups[2].Value+':'+$m.Groups[3].Value+':'+$m.Groups[4].Value)
               }
             }
-            if($exit -ne 0 -or !$built){throw 'DESKTOP_QUALIFICATION_FAILED'}
+            if($exit -ne 0 -or $focusedExit -ne 0 -or !$built){throw 'DESKTOP_QUALIFICATION_FAILED'}
           }finally{Pop-Location}
       - name: Remove transient private checkouts and private logs
         if: always()
