@@ -109,19 +109,32 @@ function WriteSeatDiagnostics(){
  foreach($code in $codes){Write-Host ('CORPORATE_INSTALLED_SEAT_GATE_DETAIL='+$code)}
 
 }
-function ReadBootstrapValue([string]$name){
- $field=FindName $name 'Edit'
- $pattern=$null
- Check ($field.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_VALUE_UNAVAILABLE'
- return [string]$pattern.Current.Value
+function ReadBootstrapClipboard([string]$button,[string]$code){
+ # The actual customer-facing copy button is the proof. Do not assume
+ # WebView2 exposes a read-only HTML textarea as a UIA Edit control.
+ $sentinel='IWXA_TEST_COPY_PENDING_'+[Guid]::NewGuid().ToString('N')
+ Set-Clipboard -Value $sentinel
+ try{
+  ClickButton $button
+  for($i=0;$i -lt 80;$i++){
+   try{$value=[string](Get-Clipboard -Raw -ErrorAction Stop)}catch{$value=''}
+   if($value -and $value -cne $sentinel){return $value}
+   Start-Sleep -Milliseconds 200
+  }
+  throw $code
+ }finally{Set-Clipboard -Value ''}
 }
 function ReadEmployeeBootstrap(){
  ClickButton 'Получить профиль подключения'
- $raw=ReadBootstrapValue 'Публичный профиль для Agent'
- $fingerprint=ReadBootstrapValue 'Контрольный отпечаток SHA-256'
+ Write-Host 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_READ_REQUESTED'
+ Check (WaitForText 'Скопировать профиль' 100) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_PROFILE_NOT_SHOWN'
+ $raw=ReadBootstrapClipboard 'Скопировать профиль' 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_PROFILE_COPY_FAILED'
+ Write-Host 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_PROFILE_COPIED'
+ $fingerprint=(ReadBootstrapClipboard 'Скопировать отпечаток' 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_DIGEST_COPY_FAILED').Trim()
+ Write-Host 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_DIGEST_COPIED'
  Check ($fingerprint -cmatch '^[a-f0-9]{64}$') 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_DIGEST_INVALID'
  try{$profile=$raw|ConvertFrom-Json -Depth 20}catch{throw 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_JSON_INVALID'}
- Check ($profile.PSObject.Properties.Count -eq 13) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_FIELDS_INVALID'
+ Check (@($profile.PSObject.Properties).Count -eq 13) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_FIELDS_INVALID'
  $draft=Get-Content -LiteralPath (Join-Path $env:CORPORATE_ADMIN_DATA 'atlas-store-v1/preparation/draft.json') -Raw|ConvertFrom-Json -Depth 60
  $org=[string]$draft.activeOrganizationId
  $identity=Get-Content -LiteralPath (Join-Path $env:CORPORATE_ADMIN_DATA ('t3-admin/organizations/'+$org+'/identity.json')) -Raw|ConvertFrom-Json -Depth 20
@@ -190,6 +203,9 @@ try{
 }catch{
  try{WriteSeatDiagnostics}catch{Write-Host 'CORPORATE_INSTALLED_SEAT_DIAG_UNAVAILABLE'}
  Write-Host ('CORPORATE_INSTALLED_SEAT_PHASE_'+$script:phase)
+ if($_.Exception.Message -cmatch '^(?:CORPORATE_INSTALLED|G4_INSTALLED)_[A-Z0-9_]{4,100}$'){
+  Write-Host ('CORPORATE_INSTALLED_SEAT_FAILURE_CODE='+$_.Exception.Message)
+ }
  throw
 }finally{
  if($global:appProcess){try{CloseCenter -strict $false}catch{Write-Host 'CORPORATE_INSTALLED_SEAT_CLEANUP_NONBLOCKING'}}

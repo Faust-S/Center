@@ -13,11 +13,11 @@ concurrency:
   group: corporate-installed-one-core-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 env:
-  T3_PIN: '48ad4d4b6a4a26bada18b34f61dbd20911649d0f'
-  CORE_PIN: 'c01903da9a7c792b97f344aeb546466c6d57e9a3'
+  T3_PIN: '83850ffffc27caf6a0c3e6b595fcd85b277c5fd4'
+  CORE_PIN: '39c32cda211a7d351de553fe4fc9528848c274cd'
   CENTER_PIN: 'ee343b1dc6306fb7dddd5f015c02497dbaa96284'
   PUBLISHER_PIN: 'e0a7b8b23605cc596d95318a0e15a7b46f495507'
-  AGENT_PIN: 'eba8cbaafd1880b34b5327db4ea106ca4e1d1803'
+  AGENT_PIN: 'b8e99831495810a4a52fd49f2fdc3b135addbaaf'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -184,6 +184,9 @@ jobs:
             $raw=(Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue)+[string]$_.Exception.Message
             $codes=@([regex]::Matches($raw,'(?<![A-Z0-9_])(?:G4_INSTALLED|CORPORATE_INSTALLED)_[A-Z0-9_]{4,100}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Last 20)
             Write-Host ('CORPORATE_INSTALLED_ADMIN_UI_CODES='+($codes -join ','))
+            foreach($m in [regex]::Matches($raw,'(?m)^CORPORATE_INSTALLED_SEAT_FAILURE_CODE=((?:CORPORATE_INSTALLED|G4_INSTALLED)_[A-Z0-9_]{4,100})\s*$')){
+              Write-Host ('CORPORATE_INSTALLED_SEAT_FAILURE_CODE='+$m.Groups[1].Value)
+            }
             # Only bounded original diagnostic code and phase; never raw UI.
             foreach($m in [regex]::Matches($raw,'(?m)^CORPORATE_INSTALLED_SEAT_GATE_DETAIL=(READ_CONTEXT|READ_KERNEL|VERIFY_RECORD|LIST_KERNEL):(T3_[A-Z0-9_]{3,96}|WORKSPACE_NOT_FOUND|PERMISSION_DENIED|OPERATION_NOT_GRANTED|KERNEL_UNAVAILABLE)\s*$')){
               Write-Host ('CORPORATE_INSTALLED_SEAT_GATE_DETAIL='+$m.Groups[1].Value+':'+$m.Groups[2].Value)
