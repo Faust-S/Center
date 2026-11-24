@@ -23,6 +23,10 @@ public static class CenterNativeWindow {
   public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")]
   public static extern bool ShowWindow(IntPtr hWnd, int command);
+  [DllImport("user32.dll")]
+  public static extern bool MoveWindow(IntPtr hWnd,int x,int y,int width,int height,bool repaint);
+  [DllImport("user32.dll")]
+  public static extern uint GetDpiForWindow(IntPtr hWnd);
 }
 '@
 
@@ -320,19 +324,19 @@ function Read-SelectedOrganization([System.Windows.Automation.AutomationElement]
   }catch{}
   return ''
 }
-function Select-OrganizationByKeyboard([string]$movement,[string]$expectedName){
+function Select-OrganizationByKeyboard([string]$movement,[string]$expectedName,[string]$pickerName='Организация'){
   # React's native organization select remains the single selected context.
   # A SendKeys command alone does not prove that WebView2 dispatched change.
   # Explicitly observe the selected option after the real keyboard action.
   for($attempt=1;$attempt -le 3;$attempt++){
-    $picker=Find-Control 'Организация' 'ComboBox'
+    $picker=Find-Control $pickerName 'ComboBox'
     $picker.SetFocus()
     Start-Sleep -Milliseconds 150
     [System.Windows.Forms.SendKeys]::SendWait($movement)
     [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
     for($poll=0;$poll -lt 20;$poll++){
       Start-Sleep -Milliseconds 120
-      $current=Read-SelectedOrganization (Find-Control 'Организация' 'ComboBox' 1)
+      $current=Read-SelectedOrganization (Find-Control $pickerName 'ComboBox' 1)
       if($current -eq $expectedName){
         Write-Host "CENTER_INSTALLED_ORGANIZATION_UIA_SELECTION_PASS attempt=$attempt"
         return
@@ -480,6 +484,62 @@ function Qualify-V8Routes {
     count=$screens.Count;captures=$screens}|ConvertTo-Json -Depth 6|
     Set-Content (Join-Path $artifactDir 'v8-native-route-report.json')
   Write-Host 'V8_PUBLIC_INSTALLED_NATIVE_23_ROUTES_PASS'
+}
+
+# Native compact-window acceptance: a real profile-icon click, selection of
+# a distinct focused form, then two actual organization changes while the
+# adjacent inspector remains open. No direct mutation of local draft files.
+function Qualify-V8CompactProfile {
+  $proc.Refresh()
+  $hwnd=$proc.MainWindowHandle
+  $area=[System.Windows.Forms.Screen]::FromHandle($hwnd).WorkingArea
+  [void][CenterNativeWindow]::ShowWindow($hwnd,9)
+  $dpi=[CenterNativeWindow]::GetDpiForWindow($hwnd)
+  if($dpi -lt 96){$dpi=96}
+  $width=[Math]::Min($area.Width,[int][Math]::Ceiling(780*$dpi/96))
+  $height=[Math]::Min($area.Height,[int][Math]::Ceiling(550*$dpi/96))
+  if(-not [CenterNativeWindow]::MoveWindow($hwnd,$area.Left,$area.Top,$width,$height,$true)){
+    throw 'V8_NATIVE_COMPACT_RESIZE_FAILED'
+  }
+  [void][CenterNativeWindow]::SetForegroundWindow($hwnd)
+  Start-Sleep -Milliseconds 450
+  Click-Control 'Панель просмотра'
+  $profile=Find-Control 'Профиль и настройки' 'Button'
+  $profileRect=$profile.Current.BoundingRectangle
+  $windowRect=(Root-Element).Current.BoundingRectangle
+  if($profileRect.IsEmpty -or $profile.Current.IsOffscreen -or
+     $profileRect.Top -lt $windowRect.Top -or $profileRect.Bottom -gt $windowRect.Bottom -or
+     $profileRect.Bottom -gt $area.Bottom){
+    throw 'V8_NATIVE_COMPACT_PROFILE_OUTSIDE_VISIBLE_WINDOW'
+  }
+  Click-VisibleUiButton $profile 'Профиль и настройки'
+  [void](Find-TextContaining 'Версия программы: 0.4.1')
+  $routePicker=Find-Control 'Подраздел' 'ComboBox'
+  $routePicker.SetFocus()
+  Start-Sleep -Milliseconds 150
+  [System.Windows.Forms.SendKeys]::SendWait('{HOME}')
+  [System.Windows.Forms.SendKeys]::SendWait('{DOWN}')
+  [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+  [void](Find-Control 'Сохранить локально' 'Button')
+  # The selected subroute must not be the old aggregate profile, which
+  # also contains the local-save button.
+  for($poll=0;$poll -lt 25 -and (Has-V8FormText 'Версия программы: 0.4.1');$poll++){
+    Start-Sleep -Milliseconds 120
+  }
+  if(Has-V8FormText 'Версия программы: 0.4.1'){throw 'V8_NATIVE_COMPACT_SUBROUTE_NOT_ACKNOWLEDGED'}
+  [void](Find-TextContaining 'Просмотр')
+  $pickerName='Текущая организация в компактном окне'
+  [void](Find-Control $pickerName 'ComboBox')
+  Select-OrganizationByKeyboard '{END}' $expectedSecondOrganization $pickerName
+  Select-OrganizationByKeyboard '{HOME}' 'CenterGUIOrganization' $pickerName
+  [void](Find-TextContaining 'Просмотр')
+  $capture=Capture-V8Route 'compact-profile'
+  $capture|ConvertTo-Json -Depth 4|Set-Content (Join-Path $artifactDir 'v8-native-compact-profile-report.json')
+  Click-Control 'Сохранить на компьютере'
+  [void](Find-TextContaining 'Черновики сохранены на этом компьютере')
+  Click-Control 'Панель просмотра'
+  [void][CenterNativeWindow]::ShowWindow($hwnd,3)
+  Write-Host 'V8_NATIVE_COMPACT_PROFILE_SUBROUTE_TWO_ORG_SWITCH_PASS'
 }
 
 function Close-Center {
@@ -749,6 +809,7 @@ try {
   Click-Control 'Сохранить на компьютере'
   [void](Find-TextContaining 'Черновики сохранены на этом компьютере')
   Qualify-V8Routes
+  Qualify-V8CompactProfile
   Close-Center
   [pscustomobject]@{status='INSTALLED_GUI_TWO_ORG_ATLAS_RESTART_PASS';
     orgId=$saved.organizationId;generation=$saved.generation;revision=$saved.revision;

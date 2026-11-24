@@ -246,6 +246,7 @@ jobs:
             artifacts/installed-gui-failure.png
             artifacts/v8-native-*.png
             artifacts/v8-native-route-report.json
+            artifacts/v8-native-compact-profile-report.json
             artifacts/u05-two-installed-result.json
             artifacts/atlas05-center-iwxa-result.json
             vendor/atlas/artifacts/IWXA-Atlas-0.9.0-dev.1-Setup.exe.sha256
