@@ -1,6 +1,7 @@
-# Authorized read-only qualification on disposable public runners.
-# No private artifacts, source, screenshots, unredacted test output or credentials are uploaded.
-name: Agent 0.6.3 complete Python catalogue regression
+# Full same-run baseline comparison; no private output or artifacts leave the runner.
+# Compare every test of both pinned original catalogues. A removed test or
+# PASS -> SKIP is an explicit coverage regression, not a successful comparison.
+name: Agent 0.6.3 full Python catalogue versus stable 0.6.2
 on:
   push:
     branches:
@@ -10,10 +11,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: agent063-full-python-${{ github.ref }}
+  group: agent063-full-differential-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  qualify:
+  compare:
     strategy:
       fail-fast: false
       matrix:
@@ -23,8 +24,10 @@ jobs:
     timeout-minutes: 120
     env:
       TEST_SHARD: ${{ matrix.shard }}
-      PRIVATE_PIN: '12433fa69a5451f4819403144e5fd7961be102f7'
-      PRIVATE_TREE: '6e45c33057fa51607bd2abefb2c7d518f8758114'
+      PRIVATE_PIN: '3ac79f9768336e4df5c7ff62c632843f94d5479b'
+      PRIVATE_TREE: '8f74b7f3caa386a90b9506f048d9aa041f87d501'
+      STABLE_PIN: 'e80e7e5c60d510982628d66d89f2372d7bf4be9f'
+      STABLE_TREE: 'faa10f168ea0fa00028a2fd30623697c308e1e3a'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -37,58 +40,142 @@ jobs:
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
           show-progress: false
+          path: candidate
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.STABLE_PIN }}
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+          path: baseline
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Run existing Python test catalogue in its isolated pytest profile
+      - name: Compare the complete original Python catalogues privately
         shell: pwsh
         run: |
+          $ErrorActionPreference='Stop'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'candidate'
+          $baseline=Join-Path $env:GITHUB_WORKSPACE 'baseline'
+          foreach($entry in @(@{root=$candidate;pin=$env:PRIVATE_PIN;tree=$env:PRIVATE_TREE},@{root=$baseline;pin=$env:STABLE_PIN;tree=$env:STABLE_TREE})){
+            if((& git -C $entry.root rev-parse HEAD).Trim() -cne $entry.pin -or
+               (& git -C $entry.root rev-parse 'HEAD^{tree}').Trim() -cne $entry.tree){
+              throw 'FULL_DIFFERENTIAL_SOURCE_PIN_MISMATCH'
+            }
+          }
+          function TestCatalogue([string]$root){
+            $files=[string[]]@(& git -C $root ls-files -- tests/ | Where-Object {$_ -cmatch '^tests/(?:[a-zA-Z0-9_]+/)*test_[a-zA-Z0-9_]+\.py$'})
+            if($LASTEXITCODE -ne 0 -or $files.Count -lt 400 -or
+               @($files|Sort-Object -CaseSensitive -Unique).Count -ne $files.Count){
+              throw 'FULL_DIFFERENTIAL_CATALOGUE_INVALID'
+            }
+            [Array]::Sort($files,[StringComparer]::Ordinal)
+            return $files
+          }
+          $baseModules=[string[]]@(TestCatalogue $baseline)
+          $newModules=[string[]]@(TestCatalogue $candidate)
+          $union=[string[]]@(($baseModules+$newModules)|Sort-Object -CaseSensitive -Unique)
+          [Array]::Sort($union,[StringComparer]::Ordinal)
+          $shared=[string[]]@($union|Where-Object {$_ -cin $baseModules -and $_ -cin $newModules})
+          $changed=0
+          foreach($relative in $shared){
+            if((Get-FileHash -LiteralPath (Join-Path $baseline $relative) -Algorithm SHA256).Hash -cne
+               (Get-FileHash -LiteralPath (Join-Path $candidate $relative) -Algorithm SHA256).Hash){$changed++}
+          }
+          $dependency='requirements-ci.txt'
+          if((Get-FileHash -LiteralPath (Join-Path $baseline $dependency) -Algorithm SHA256).Hash -cne
+             (Get-FileHash -LiteralPath (Join-Path $candidate $dependency) -Algorithm SHA256).Hash){
+            throw 'FULL_DIFFERENTIAL_DEPENDENCY_INPUT_CHANGED'
+          }
+          Write-Host ('FULL_BASELINE_MODULES='+$baseModules.Count)
+          Write-Host ('FULL_CANDIDATE_MODULES='+$newModules.Count)
+          Write-Host ('FULL_COMMON_MODULES='+$shared.Count)
+          Write-Host ('FULL_CHANGED_COMMON_MODULES='+$changed)
+          Write-Host ('FULL_NEW_MODULES='+($newModules.Count-$shared.Count))
+          Write-Host ('FULL_REMOVED_MODULES='+($baseModules.Count-$shared.Count))
+          Write-Host ('FULL_SHARD='+$env:TEST_SHARD)
+          $shard=[string[]]@($union|Where-Object {([Array]::IndexOf($union,$_ )%2) -eq [int]$env:TEST_SHARD})
+          $out=Join-Path $env:RUNNER_TEMP 'agent063-full-differential-private'
+          New-Item -ItemType Directory -Path $out -Force|Out-Null
           $ErrorActionPreference='Continue'
-          if((& git rev-parse HEAD).Trim() -cne $env:PRIVATE_PIN -or
-             (& git rev-parse 'HEAD^{tree}').Trim() -cne $env:PRIVATE_TREE){
-            throw 'SOURCE_PIN_MISMATCH'
-          }
-          $all=[string[]]@(& git ls-files -- tests/ | Where-Object {$_ -cmatch '^tests/(?:[a-zA-Z0-9_]+/)*test_[a-zA-Z0-9_]+\.py$'})
-          [Array]::Sort($all,[StringComparer]::Ordinal)
-          if($all.Count -lt 400 -or @($all|Sort-Object -Unique).Count -ne $all.Count){throw 'PYTHON_CATALOGUE_INVALID'}
-          $suites=[string[]]@($all | Where-Object { ([Array]::IndexOf($all,$_ ) % 2) -eq [int]$env:TEST_SHARD })
-          foreach($path in $suites){if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw 'PYTHON_CATALOGUE_MISSING'}}
-          Write-Host ('PYTHON_CATALOGUE_MODULES='+$all.Count)
-          Write-Host ('PYTHON_SHARD_MODULES='+$suites.Count)
-          Write-Host ('PYTHON_SHARD='+$env:TEST_SHARD)
-          $out=Join-Path $env:RUNNER_TEMP 'agent063-full-private'
-          New-Item -ItemType Directory -Path $out -Force | Out-Null
-          & python -m pip install --disable-pip-version-check -r requirements-ci.txt *> (Join-Path $out 'pip.log')
-          $pip=$LASTEXITCODE
-          Write-Host ('PIP_EXIT='+$pip)
-          if($pip -ne 0){throw 'PYTHON_DEPENDENCIES_FAILED'}
-          $junit=Join-Path $out 'pytest.xml'
-          & python -m pytest -q @suites -o junit_family=xunit1 "--junitxml=$junit" *> (Join-Path $out 'pytest.log')
-          $py=$LASTEXITCODE
-          if(Test-Path -LiteralPath $junit){
+          & python -m pip install --disable-pip-version-check -r (Join-Path $candidate $dependency) *> (Join-Path $out 'pip.log')
+          if($LASTEXITCODE -ne 0){throw 'FULL_DIFFERENTIAL_DEPENDENCIES_FAILED'}
+          foreach($variant in @('baseline','candidate')){
+            $root=Join-Path $env:GITHUB_WORKSPACE $variant
+            $inventory=if($variant -eq 'baseline'){$baseModules}else{$newModules}
+            $suites=[string[]]@($shard|Where-Object {$_ -cin $inventory})
+            if(!$suites.Count){throw 'FULL_DIFFERENTIAL_SHARD_EMPTY'}
+            Write-Host ('FULL_'+$variant.ToUpperInvariant()+'_SHARD_MODULES='+$suites.Count)
+            $report=Join-Path $out ($variant+'.xml')
+            Push-Location $root
             try{
-              [xml]$report=Get-Content -LiteralPath $junit -Raw
-              foreach($case in $report.SelectNodes('//testcase[failure or error]')){
-                $line=[string]$case.GetAttribute('line')
-                $file=([string]$case.GetAttribute('file')).Replace('\','/')
-                $ordinal=[Array]::IndexOf($all,$file)+1
-                if($ordinal -gt 0 -and $line -cmatch '^[0-9]{1,6}$'){
-                  Write-Host ('PYTEST_FAILURE_CODE=P'+$ordinal.ToString('D3')+'_L'+(([int]$line+1).ToString('D6')))
-                }else{Write-Host 'PYTEST_FAILURE_CODE=P000_L000000'}
+              & python -m pytest -q @suites -o junit_family=xunit1 "--junitxml=$report" *> (Join-Path $out ($variant+'.log'))
+              $code=$LASTEXITCODE
+              Write-Host ('FULL_'+$variant.ToUpperInvariant()+'_PYTEST_EXIT='+$code)
+              if($code -notin @(0,1) -or !(Test-Path -LiteralPath $report -PathType Leaf)){
+                throw 'FULL_DIFFERENTIAL_COLLECTION_OR_EXECUTION_INVALID'
               }
-            }catch{Write-Host 'PYTEST_FAILURE_CODE=P000_L000000'}
+            }finally{Pop-Location}
           }
-          $raw=Get-Content -LiteralPath (Join-Path $out 'pytest.log') -Raw
-          $witness=[regex]::Matches([string]$raw,'(?m)^\s*(tests[/\\](?:[a-zA-Z0-9_]+[/\\])*test_[a-zA-Z0-9_]+\.py):([0-9]{1,6}):')
-          foreach($item in $witness){
-            $file=$item.Groups[1].Value.Replace('\','/')
-            $ordinal=[Array]::IndexOf($all,$file)+1
-            if($ordinal -gt 0){Write-Host ('PYTEST_WITNESS_LINE=P'+$ordinal.ToString('D3')+'_L'+([int]$item.Groups[2].Value).ToString('D6'))}
-          }
-          foreach($k in @('passed','failed','errors','skipped','deselected')){
-            $match=[regex]::Match([string]$raw,'(?m)([0-9]+) '+$k+'\b')
-            if($match.Success){Write-Host ('PYTEST_'+$k.ToUpperInvariant()+'='+$match.Groups[1].Value)}
-          }
-          Write-Host ('PYTEST_EXIT='+$py)
-          Write-Host 'PRIVATE_ARTIFACT_UPLOADS=0'
-          if($py -ne 0){throw 'AGENT063_COMPLETE_PYTHON_REGRESSION_FAILED'}
+          $script=@'
+          import collections
+          import pathlib
+          import sys
+          import xml.etree.ElementTree as ET
+          root = pathlib.Path(sys.argv[1])
+          catalogue = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8-sig").splitlines()
+          coordinates = {path: i + 1 for i, path in enumerate(catalogue)}
+          def read(variant):
+              cases = {}
+              for c in ET.parse(root / (variant + ".xml")).iter("testcase"):
+                  key = (c.get("classname", ""), c.get("name", ""))
+                  if key in cases:
+                      raise ValueError("duplicate")
+                  state = ("FAIL" if c.find("failure") is not None or c.find("error") is not None
+                           else "SKIP" if c.find("skipped") is not None else "PASS")
+                  path = c.get("file", "").replace(chr(92), "/")
+                  ordinal = coordinates.get(path, 0)
+                  if not ordinal:
+                      module = key[0].replace(".", "/")
+                      ordinal = next((coordinates[v] for v in (module + ".py", module.rsplit("/", 1)[0] + ".py")
+                                      if v in coordinates), 0)
+                  cases[key] = (state, ordinal)
+              if not cases:
+                  raise ValueError("empty")
+              return cases
+          try:
+              baseline, candidate = read("baseline"), read("candidate")
+              common = baseline.keys() & candidate.keys()
+              removed = baseline.keys() - candidate.keys()
+              added = candidate.keys() - baseline.keys()
+              shared = [k for k in common if baseline[k][0] == candidate[k][0] == "FAIL"]
+              regressed = [k for k in common if candidate[k][0] == "FAIL" and baseline[k][0] != "FAIL"]
+              resolved = [k for k in common if baseline[k][0] == "FAIL" and candidate[k][0] == "PASS"]
+              lost_coverage = [k for k in common if candidate[k][0] == "SKIP" and baseline[k][0] != "SKIP"]
+              new_fail = [k for k in added if candidate[k][0] == "FAIL"]
+              for label, table in (("BASELINE", baseline), ("CANDIDATE", candidate)):
+                  counts = collections.Counter(v[0] for v in table.values())
+                  for state in ("PASS", "FAIL", "SKIP"):
+                      print(f"FULL_{label}_{state}={counts[state]}")
+              for label, cases in (("COMMON_CASES", common), ("SHARED_FAILURES", shared),
+                                   ("NEW_FAILURES", regressed), ("RESOLVED_FAILURES", resolved),
+                                   ("REMOVED_CASES", removed), ("ADDED_CASES", added),
+                                   ("NEW_CASE_FAILURES", new_fail), ("LOST_COVERAGE", lost_coverage)):
+                  print(f"FULL_{label}={len(cases)}")
+              for label, cases, table in (("REGRESSION", regressed, candidate), ("NEW_CASE_FAILURE", new_fail, candidate),
+                                          ("REMOVED_CASE", removed, baseline), ("LOST_COVERAGE", lost_coverage, candidate)):
+                  for ordinal, count in sorted(collections.Counter(table[k][1] for k in cases).items()):
+                      print(f"FULL_{label}_MODULE=P{ordinal:03d}_COUNT={count}")
+              print("PRIVATE_ARTIFACT_UPLOADS=0")
+              sys.exit(1 if regressed or removed or new_fail or lost_coverage else 0)
+          except Exception:
+              print("FULL_DIFFERENTIAL_XML_INVALID")
+              sys.exit(2)
+          '@
+          $parser=Join-Path $out 'compare.py'
+          $cataloguePath=Join-Path $out 'catalogue.txt'
+          Set-Content -LiteralPath $parser -Value $script -Encoding utf8
+          Set-Content -LiteralPath $cataloguePath -Value $union -Encoding utf8
+          & python -B $parser $out $cataloguePath
+          if($LASTEXITCODE -ne 0){throw 'FULL_DIFFERENTIAL_REQUIRES_REVIEW'}
