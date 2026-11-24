@@ -800,7 +800,8 @@ try{
     cancelFirstTask:true,loseFirstTaskAck:true,taskExports:0,
     taskOrphan:false,taskRecoveryCalls:0,cancelFirstTaskRecovery:true,
     contextEpoch:1,
-    cancelFirstInit:true,loseFirstInitAck:true};
+    seatPolicyReady:false,seatRevision:0,seatRows:[],seatWrites:0,seatReadbacks:0,seatCommands:new Map(),
+    loseFirstSeatAck:true,cancelFirstInit:true,loseFirstInitAck:true};
   const employeePage=await browser.newPage({viewport:{width:1366,height:900}});
   await employeePage.exposeFunction('__centerEmployeeFixture',
     async(command,args={})=>{
@@ -825,6 +826,7 @@ try{
           d3EmployeeEnrollmentAvailable:employeeState.ready,
           d3EmployeeTaskIssueAvailable:employeeState.ready,
           d3EmployeeWorkspaceRightsAvailable:employeeState.ready,
+          d3EmployeeCorporateSeatsAvailable:employeeState.ready,
           productionActivation:false,T3_READY:false,tasks:[],totalTasks:0
         }};
       if(command==='center_corporate_age_status')return {
@@ -835,6 +837,61 @@ try{
         assert.equal(args.binding?.workspaceId,'workspace:employee-fixture');
         assert.equal(args.binding?.contextEpoch,employeeState.contextEpoch,
           'requests must use the latest original signed native owner epoch');
+        const seatView=()=>{
+          const H='a'.repeat(64),s=employeeState;
+          const rows=[...s.seatRows].sort((a,b)=>Number(b.reserved)-Number(a.reserved));
+          const reservedSeats=rows.filter(r=>r.reserved).length;
+          const roster=[{personId:'person:independent',enrollmentId:'enrollment:verified'},
+            {personId:'person:second',enrollmentId:'enrollment:second'}];
+          return {schema:'IWXA_T3_ORIGINAL_CORPORATE_SEAT_VIEW/1',
+            organizationId:args.organizationId,workspaceId:'workspace:employee-fixture',
+            originalReadback:true,productionActivation:false,registryDigest:s.seatRevision.toString(16).padStart(64,'0'),
+            licenseState:'VERIFIED_CAPACITY_CANDIDATE',licenseEvidenceDigest:H,
+            seatPolicyReady:s.seatPolicyReady,withinLimits:true,existingLineageMatches:true,
+            reservedSeats,independentlyEnrolledEmployees:2,availableSeats:s.seatPolicyReady?1-reservedSeats:0,
+            seatLimit:1,employeeLimit:5,overSeatLimit:0,overEmployeeLimit:0,
+            assignmentTotal:rows.length,assignmentOffset:0,assignmentNextOffset:null,assignments:rows,
+            employeeTotal:2,employeeOffset:0,employeeNextOffset:null,
+            eligibleEmployees:roster.map(m=>({...m,reserved:rows.some(r=>r.reserved&&r.personId===m.personId)})),
+            candidate:{licenseId:'license:seat-fixture',lineageId:'lineage:seat-fixture',
+              lineageDigest:H,licenseDigest:H,seatLimit:1,employeeLimit:5,
+              expiresAt:'2099-01-01T00:00:00.000Z',statusValidUntil:'2098-12-31T00:00:00.000Z'}};
+        };
+        if(args.operation==='d3EmployeeSeatView')return seatView();
+        if(args.operation==='d3EmployeeSeatPolicyEnable'){
+          assert.equal(args.input.confirmed,true);
+          assert.equal(args.input.expectedRegistryDigest,seatView().registryDigest);
+          employeeState.seatPolicyReady=true;employeeState.seatRevision++;
+          return {outcome:'ENABLED',originalReadback:true,view:seatView()};
+        }
+        if(args.operation==='d3EmployeeSeatChange'){
+          const s=employeeState,c=args.input,v=seatView();
+          assert.equal(c.confirmed,true);assert.equal(c.expectedRegistryDigest,v.registryDigest);
+          assert.equal(c.expectedLicenseDigest,v.licenseEvidenceDigest);
+          assert.equal(s.seatCommands.has(c.commandId),false,'no mutation replay');
+          if(c.kind!=='ASSIGN'){
+            const source=s.seatRows.find(r=>r.grantId===c.fromGrantId&&r.reserved);
+            assert.ok(source);source.reserved=false;source.status='REVOKED';
+          }
+          const grantId=c.kind==='RELEASE'?null:'grant:seat:fixture:'+s.seatRevision;
+          if(grantId)s.seatRows.push({grantId,personId:c.employeePersonId,enrollmentId:c.enrollmentId,
+            workGrantId:'grant:work:'+c.employeePersonId,credentialKeyId:'key:'+c.employeePersonId,
+            lineageDigest:v.licenseEvidenceDigest,licenseDigest:v.licenseEvidenceDigest,
+            expiresAt:'2099-01-01T00:00:00.000Z',status:'ACTIVE',reserved:true});
+          s.seatRevision++;s.seatWrites++;
+          const {confirmed,...request}=c;
+          const receipt={commandId:c.commandId,originalReadback:true,outcome:'COMMITTED',
+            grantId,releasedGrantId:c.fromGrantId};
+          s.seatCommands.set(c.commandId,{request,receipt});
+          if(s.loseFirstSeatAck){s.loseFirstSeatAck=false;s.contextEpoch++;
+            throw Error('CEN_D3_CORPORATE_SEAT_OUTCOME_UNKNOWN')}
+          return {...receipt,view:seatView()};
+        }
+        if(args.operation==='d3EmployeeSeatCommandReadback'){
+          const s=employeeState,known=s.seatCommands.get(args.input.commandId);
+          s.seatReadbacks++;assert.ok(known);assert.deepEqual(args.input,known.request);
+          return {...known.receipt,outcome:'ALREADY_COMMITTED',automaticRetryAllowed:false,view:seatView()};
+        }
         if(args.operation==='d3EmployeeRegistryReadback'){
           assert.equal(employeeState.requiresCold,false,
             'after possibly committed graph, readback needs a cold owner');
@@ -1331,6 +1388,44 @@ try{
     'exporting a saved signed invitation never reissues Kernel grants');
   assert.equal(await employeePage.getByTestId('d3-employee-task-create').isEnabled(),false,
     'original invitation cannot reissue an already signed Task');
+  // This is a UI/IPC fixture, not an installed private T3 acceptance.
+  // Select from original roster, lose ACK, reopen, recover, transfer, release.
+  const seat=id=>employeePage.getByTestId('d3-seat-'+id);
+  const seatIdle=()=>employeePage.waitForFunction(()=>
+    document.querySelector('[data-testid="d3-seat-view-refresh"]')?.disabled===false);
+  await seat('view-refresh').click();
+  await seat('policy-enable').waitFor();
+  await seat('policy-enable').click();
+  await employeePage.waitForFunction(()=>!document.querySelector('[data-testid="d3-seat-policy-enable"]'));
+  await seatIdle();
+  await seat('employee').selectOption('person:independent');
+  await seat('assign').click();
+  await seat('unknown').waitFor();
+  await seatIdle();
+  assert.equal(employeeState.seatWrites,1);
+  await employeePage.reload();
+  await employeePage.getByTestId('nav-results').click();
+  await seat('unknown').waitFor();
+  await seat('view-refresh').click();
+  await employeePage.waitForFunction(()=>!document.querySelector('[data-testid="d3-seat-unknown"]'));
+  await seatIdle();
+  assert.equal(employeeState.seatReadbacks,1);
+  assert.equal(employeeState.seatWrites,1);
+  await seat('employee').selectOption('person:second');
+  assert.equal(await seat('assign').isEnabled(),false,'full license cannot assign another seat');
+  await seat('source').selectOption(employeeState.seatRows.find(r=>r.reserved).grantId);
+  await seat('transfer').click();
+  await employeePage.waitForFunction(()=>document.querySelector('[data-testid="d3-seat-assignment-history"]')?.textContent?.includes('person:second'));
+  await seatIdle();
+  assert.equal(employeeState.seatWrites,2);
+  assert.equal(employeeState.seatRows.filter(r=>r.reserved).length,1);
+  await seat('source').selectOption(employeeState.seatRows.find(r=>r.reserved).grantId);
+  await seat('release').click();
+  await employeePage.waitForFunction(()=>document.querySelector('[data-testid="d3-seat-capacity"]')?.textContent?.includes('0 / 1'));
+  await seatIdle();
+  assert.equal(employeeState.seatWrites,3);
+  assert.equal(employeeState.seatRows.filter(r=>r.reserved).length,0);
+  checks.push('d3-corporate-seat-policy-roster-assign-lost-ack-cold-recovery-transfer-release');
   await employeePage.close();
   checks.push('d3-employee-original-kernel-bootstrap-human-cancel-unknown-ack-cold-readback-no-reissue');
   checks.push('d3-employee-invitation-ui-only-signed-receipt-no-grant-reissue-no-unsupported-task');
