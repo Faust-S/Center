@@ -44,7 +44,7 @@ jobs:
           if((& git -C agent rev-parse HEAD).Trim() -cne $env:AGENT_PIN -or
              (& git -C agent rev-parse 'HEAD^{tree}').Trim() -cne $env:AGENT_TREE){throw 'AGENT064_PIN_MISMATCH'}
           foreach($p in @('desktop/package.json','desktop/package-lock.json','desktop/src-tauri/tauri.conf.json')){
-            if((Get-Content -Raw -LiteralPath (Join-Path agent $p)|ConvertFrom-Json).version -cne '0.6.4'){throw 'AGENT064_VERSION_MISMATCH'}
+            if((Get-Content -Raw -LiteralPath (Join-Path agent $p)|ConvertFrom-Json -AsHashtable).version -cne '0.6.4'){throw 'AGENT064_VERSION_MISMATCH'}
           }
           Write-Host 'AGENT064_SOURCE_AND_VERSION=PASS'
       - name: Complete Desktop regression and actual TypeScript/Vite build
