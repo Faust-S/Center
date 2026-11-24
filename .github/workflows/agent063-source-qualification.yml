@@ -1,0 +1,81 @@
+name: Agent 0.6.3 source qualification
+on:
+  push:
+    branches:
+      - work/2026-11-24-agent-063-source-qualification
+    paths:
+      - .github/workflows/agent063-source-qualification.yml
+permissions:
+  contents: read
+jobs:
+  source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PRIVATE_PIN: a822b8a37cd75fd7bc70af00eda1b74780441ddf
+      PRIVATE_TREE: 5010d78e666badb263b1cedd4c86e24fd960d447
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: a822b8a37cd75fd7bc70af00eda1b74780441ddf
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact private source qualification (fixed status output only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git rev-parse HEAD).Trim() -cne $env:PRIVATE_PIN -or
+             (& git rev-parse 'HEAD^{tree}').Trim() -cne $env:PRIVATE_TREE){
+             throw 'SOURCE_PIN_MISMATCH'
+          }
+          $js=@'
+          const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
+          const cwd=path.join(process.cwd(),'desktop');
+          const npm=process.platform==='win32'?'npm.cmd':'npm';
+          function run(label,cmd,args,shell=false){
+            const out=path.join(process.env.RUNNER_TEMP,'agent063-'+label+'.out');
+            const err=path.join(process.env.RUNNER_TEMP,'agent063-'+label+'.err');
+            const a=fs.openSync(out,'w'),b=fs.openSync(err,'w');
+            let p;
+            try{p=cp.spawnSync(cmd,args,{cwd,shell,windowsHide:true,stdio:['ignore',a,b],env:{...process.env,CI:'true'}});}
+            finally{fs.closeSync(a);fs.closeSync(b);}
+            const text=fs.readFileSync(out,'utf8')+'\n'+fs.readFileSync(err,'utf8');
+            return {ok:p.status===0&&!p.error&&!p.signal,text};
+          }
+          const install=run('install',npm,['ci','--no-audit','--no-fund'],process.platform==='win32');
+          console.log('INSTALL='+(install.ok?'PASS':'FAIL'));
+          if(!install.ok)process.exit(1);
+          const tests=run('test',process.execPath,['--test','--test-reporter=tap']);
+          for(const k of ['tests','pass','fail','cancelled','skipped','todo']){
+            const m=tests.text.match(new RegExp('^# '+k+' (\\d+)\\s*$','m'));
+            console.log('NODE_'+k.toUpperCase()+'='+(m?m[1]:'UNKNOWN'));
+          }
+          console.log('NODE_SUITE='+(tests.ok?'PASS':'FAIL'));
+          const build=run('build',npm,['run','build'],process.platform==='win32');
+          console.log('BUILD='+(build.ok?'PASS':'FAIL'));
+          // Only fixed file aliases, line/column numbers and diagnostic codes.
+          const aliases={'workbench.tsx':'WORKBENCH','product-controls.tsx':'CONTROLS','app-help.tsx':'HELP','work-areas-control.tsx':'AREAS','ui-preferences.tsx':'PREFS'};
+          for(const m of build.text.matchAll(/(?:^|\n)(?:[^\r\n]*\/)?([a-z0-9-]+\.tsx?)\((\d+),(\d+)\): error (TS\d+)/g)){
+            console.log('BUILD_DIAGNOSTIC='+(aliases[m[1]]||'OTHER')+':'+m[2]+':'+m[3]+':'+m[4]);
+          }
+          if(!tests.ok||!build.ok)process.exitCode=1;
+          '@
+          $script=Join-Path $env:RUNNER_TEMP 'agent063-source.cjs'
+          [System.IO.File]::WriteAllText($script,$js,[System.Text.UTF8Encoding]::new($false))
+          node $script
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_QUALIFICATION_FAILED'}
+      - name: Remove private checkout and temporary output
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'agent063-*' -Force | Remove-Item -Force -ErrorAction SilentlyContinue
