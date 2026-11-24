@@ -16,10 +16,10 @@ jobs:
       matrix:
         os: [windows-2022, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
-      PRIVATE_PIN: f351c266105f6c15b6b367bc4a53b43cef766b36
-      PRIVATE_TREE: a55a657ca8318d8d08c0f0d37b0ed0350045d2c2
+      PRIVATE_PIN: fe1d5edff9e30de50d8aec0a3b4c2d72383e1c78
+      PRIVATE_TREE: 265ace99cbe01aec75b0c445d004c3d136da0d58
       QUALIFY_SCOPE: FULL
     steps:
       - uses: actions/setup-python@v5
@@ -109,6 +109,7 @@ jobs:
           ''',encoding="utf-8")
                   groups = {
                       "TASK": ["tests/test_meta_harness_original_task_workflow.py"],
+                      "STRATEGY": ["tests/test_meta_harness_strategy_history.py"],
                       "HOST": ["tests/test_fc6_configured_chain_interaction.py",
                                "tests/test_fc6_daily_driver_graph_binding_m10.py",
                                "tests/test_fc6_initial_chain_interaction_integration.py",
@@ -117,7 +118,7 @@ jobs:
                                "tests/test_graph_result_readback_integrity.py"],
                       "HANDOFF": ["tests/test_meta_harness_contextual_handoff_graph.py"],
                       "META": sorted(str(p.relative_to(source)) for p in source.glob("tests/test_meta_harness_*.py")
-                                     if p.name not in {"test_meta_harness_contextual_handoff_graph.py","test_meta_harness_original_task_workflow.py"}),
+                                     if p.name not in {"test_meta_harness_contextual_handoff_graph.py","test_meta_harness_original_task_workflow.py","test_meta_harness_strategy_history.py"}),
                       "GRAPH": sorted(str(p.relative_to(source)) for p in source.glob("tests/test_fc6_graph*.py")),
                       "ADAPTERS": ["tests/test_goose_agent_runtime_user_ready.py",
                                    "tests/test_agent06_claude_code_cli.py"],
@@ -130,7 +131,7 @@ jobs:
                           status(group,"FILES_MISSING"); failed=True; continue
                       report = root / (group+".json")
                       status(group,"STARTED")
-                      proc = run([sys.executable,str(plugin),str(report),*files],timeout=900 if group in {"TASK","TASK_TRANSPORT"} else 420)
+                      proc = run([sys.executable,str(plugin),str(report),*files],timeout=900 if group in {"TASK","TASK_TRANSPORT","STRATEGY"} else 420)
                       if not report.is_file():
                           status(group,"REPORT_MISSING"); status(group+"_EXIT",proc.returncode); failed=True; continue
                       data=json.loads(report.read_text(encoding="utf-8"))
