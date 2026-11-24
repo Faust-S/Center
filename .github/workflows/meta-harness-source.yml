@@ -1,0 +1,134 @@
+# Scoped read-only qualification of the private Agent. No artifacts or logs
+# from the private checkout may be published.
+name: Meta Harness original source qualification
+on:
+  push:
+    branches:
+      - work/2026-11-24-meta-harness-source-qualification
+    paths:
+      - .github/workflows/meta-harness-source.yml
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PRIVATE_PIN: 0f13e87dcb1e6dd1847f29bcd23a6797719d7638
+      PRIVATE_TREE: d681114d2f17c66f9d4bba4c72c08907563106cd
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Read pinned source, qualify and remove temporary checkout
+        shell: bash
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json, os, pathlib, re, subprocess, sys, tempfile
+          def status(label, value):
+              print(label + "=" + str(value), flush=True)
+          def main():
+              pin = os.environ["PRIVATE_PIN"]
+              tree = os.environ["PRIVATE_TREE"]
+              token = os.environ.pop("IWXA_TEMP_READ_TOKEN", "")
+              if not token:
+                  status("PRIVATE_READ", "TOKEN_UNAVAILABLE")
+                  return 1
+              clean = dict(os.environ)
+              clean.update({"GIT_TERMINAL_PROMPT":"0", "GIT_LFS_SKIP_SMUDGE":"1", "PYTHONUTF8":"1"})
+              with tempfile.TemporaryDirectory(prefix="iwxa-private-", dir=os.environ.get("RUNNER_TEMP")) as td:
+                  root = pathlib.Path(td)
+                  source = root / "source"
+                  source.mkdir()
+                  def run(args, cwd=source, env=clean, timeout=600):
+                      return subprocess.run(args, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE, timeout=timeout)
+                  def ok(args, cwd=source, env=clean, timeout=600):
+                      return run(args,cwd,env,timeout).returncode == 0
+                  if not ok(["git","init","-q"]):
+                      status("PRIVATE_READ","INIT_FAIL"); return 1
+                  auth = dict(clean)
+                  auth.update({"GIT_CONFIG_COUNT":"1",
+                      "GIT_CONFIG_KEY_0":"http.https://github.com/.extraheader",
+                      "GIT_CONFIG_VALUE_0":"AUTHORIZATION: basic "+base64.b64encode(
+                          ("x-access-token:"+token).encode()).decode()})
+                  fetched = ok(["git","fetch","--no-tags","--depth","1",
+                                "https://github.com/Faust-S/iwxa-personal-agent.git",pin],
+                               env=auth,timeout=180)
+                  del auth, token
+                  if not fetched or not ok(["git","checkout","--detach","-q",pin]):
+                      status("PRIVATE_READ","FETCH_FAIL"); return 1
+                  if (run(["git","rev-parse","HEAD"]).stdout.decode().strip()!=pin
+                      or run(["git","rev-parse","HEAD^{tree}"]).stdout.decode().strip()!=tree):
+                      status("PRIVATE_READ","PIN_MISMATCH"); return 1
+                  status("PRIVATE_READ","PASS"); status("SOURCE_PIN",pin)
+                  if not ok([sys.executable,"-m","pip","install","--disable-pip-version-check",
+                             "-r","requirements-ci.txt"],timeout=420):
+                      status("PYTHON_DEPS","FAIL"); return 1
+                  status("PYTHON_DEPS","PASS")
+                  plugin = root / "run_qualification.py"
+                  plugin.write_text('''import hashlib,json,os,pathlib,re,sys
+          import pytest
+          sys.path.insert(0,os.getcwd())
+          counts={"passed":0,"failed":0,"skipped":0,"collection_errors":0}
+          failures=[]
+          def fingerprint(value):
+              return hashlib.sha256(value.encode()).hexdigest()[:16]
+          class Plugin:
+              def pytest_runtest_logreport(self,rep):
+                  if rep.when=="call" and rep.passed: counts["passed"]+=1
+                  if rep.skipped: counts["skipped"]+=1
+                  if rep.failed:
+                      counts["failed"]+=1
+                      crash=getattr(rep.longrepr,"reprcrash",None)
+                      failures.append({"id":fingerprint(rep.nodeid),"phase":rep.when,
+                          "line":int(getattr(crash,"lineno",0) or 0)})
+              def pytest_collectreport(self,rep):
+                  if rep.failed:
+                      counts["collection_errors"]+=1
+                      failures.append({"id":fingerprint(rep.nodeid),"phase":"collect","line":0})
+          result=pytest.main(sys.argv[2:]+["-q","--tb=short","-p","no:cacheprovider"],plugins=[Plugin()])
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({"counts":counts,"failures":failures,"exit":int(result)}),encoding="utf-8")
+          sys.exit(int(result))
+          ''',encoding="utf-8")
+                  groups = {
+                      "HANDOFF": ["tests/test_meta_harness_contextual_handoff_graph.py"],
+                      "META": sorted(str(p.relative_to(source)) for p in source.glob("tests/test_meta_harness_*.py")
+                                     if p.name!="test_meta_harness_contextual_handoff_graph.py"),
+                      "GRAPH": sorted(str(p.relative_to(source)) for p in source.glob("tests/test_fc6_graph*.py")),
+                      "ADAPTERS": ["tests/test_goose_agent_runtime_user_ready.py",
+                                   "tests/test_agent06_claude_code_cli.py"],
+                  }
+                  failed = False
+                  for group, files in groups.items():
+                      if not files or any(not (source / f).is_file() for f in files):
+                          status(group,"FILES_MISSING"); failed=True; continue
+                      report = root / (group+".json")
+                      proc = run([sys.executable,str(plugin),str(report),*files],timeout=420)
+                      if not report.is_file():
+                          status(group,"REPORT_MISSING"); failed=True; continue
+                      data=json.loads(report.read_text(encoding="utf-8"))
+                      for key in ("passed","failed","skipped","collection_errors"):
+                          status(group+"_"+key.upper(),int(data["counts"][key]))
+                      for row in data["failures"][:80]:
+                          if re.fullmatch("[0-9a-f]{16}",row["id"]) and row["phase"] in {"setup","call","teardown","collect"}:
+                              status(group+"_CASE",row["id"]+":"+row["phase"]+":"+str(int(row["line"])))
+                      success = proc.returncode==0 and data["counts"]["passed"]>0 and not data["counts"]["failed"] and not data["counts"]["collection_errors"]
+                      status(group,"PASS" if success else "FAIL")
+                      failed = failed or not success
+                  return int(failed)
+          try:
+              code=main()
+          except subprocess.TimeoutExpired:
+              status("QUALIFICATION","TIMEOUT"); code=1
+          except Exception:
+              status("QUALIFICATION","INTERNAL_ERROR"); code=1
+          status("TEMP_CHECKOUT","CLEANUP_ATTEMPTED")
+          sys.exit(code)
+          PY
