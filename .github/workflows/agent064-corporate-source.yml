@@ -1,0 +1,122 @@
+name: Agent 0.6.4 source and corporate regression
+on:
+  push:
+    branches: ['work/2026-11-24-agent064-source-qualification']
+permissions:
+  contents: read
+concurrency:
+  group: agent064-source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      AGENT_PIN: 'e9079f788496c04b4addbb23b81b850e37f8a217'
+      AGENT_TREE: 'e6eb723ae0c848916f1e190260bf629aba7e6cfd'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PIP_NO_CACHE_DIR: '1'
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: ${{ env.AGENT_PIN }}
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+          path: agent
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact stable-derived 0.6.4 source and locked product versions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C agent rev-parse HEAD).Trim() -cne $env:AGENT_PIN -or
+             (& git -C agent rev-parse 'HEAD^{tree}').Trim() -cne $env:AGENT_TREE){throw 'AGENT064_PIN_MISMATCH'}
+          foreach($p in @('desktop/package.json','desktop/package-lock.json','desktop/src-tauri/tauri.conf.json')){
+            if((Get-Content -Raw -LiteralPath (Join-Path agent $p)|ConvertFrom-Json).version -cne '0.6.4'){throw 'AGENT064_VERSION_MISMATCH'}
+          }
+          Write-Host 'AGENT064_SOURCE_AND_VERSION=PASS'
+      - name: Complete Desktop regression and actual TypeScript/Vite build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'agent064-desktop-private.log'
+          Push-Location agent/desktop
+          try{
+            & npm ci --no-audit --no-fund *> $log
+            if($LASTEXITCODE -ne 0){throw 'AGENT064_NPM_FAILED'}
+            & npm test *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -Raw -LiteralPath $log
+            foreach($name in @('tests','pass','fail','cancelled','skipped')){
+              $m=[regex]::Matches($raw,"(?m)^# $name (\d+)\s*$")
+              if($m.Count){Write-Host ('AGENT064_DESKTOP_'+$name.ToUpperInvariant()+'='+$m[$m.Count-1].Groups[1].Value)}
+            }
+            if($exit -ne 0){
+              $idx=@([regex]::Matches($raw,'(?m)^not ok (\d+)')|ForEach-Object {$_.Groups[1].Value})
+              Write-Host ('AGENT064_DESKTOP_FAILED_ORDINALS='+($idx -join ','))
+              throw 'AGENT064_DESKTOP_TEST_FAILED'
+            }
+            & npm run build *> $log
+            if($LASTEXITCODE -ne 0){
+              $raw=Get-Content -Raw -LiteralPath $log
+              $idx=@([regex]::Matches($raw,'(?m)^([^\r\n]+?\(\d+,\d+\)): error (TS\d+)')|ForEach-Object {$_.Groups[2].Value}|Sort-Object -Unique)
+              Write-Host ('AGENT064_TYPESCRIPT_CODES='+($idx -join ','))
+              throw 'AGENT064_DESKTOP_BUILD_FAILED'
+            }
+            Write-Host 'AGENT064_DESKTOP_BUILD=PASS'
+          }finally{Pop-Location;Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue}
+      - name: Corporate employee and preserved local model/runtime regression
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'agent064-python-private.log'
+          $xml=Join-Path $env:RUNNER_TEMP 'agent064-python-private.xml'
+          Push-Location agent
+          try{
+            & python -m pip install -r requirements-ci.txt *> $log
+            if($LASTEXITCODE -ne 0){throw 'AGENT064_PYTHON_ENV_FAILED'}
+            $suites=@('tests/test_agent063_employee_bootstrap.py','tests/test_agent063_employee_path_picker.py',
+              'tests/test_agent06_corporate_t3_employee.py','tests/test_agent06_t3_installed_kernel_origin.py',
+              'tests/test_agent06_t3_setup_payload.py','tests/test_agent06_original_t3_result_owner.py',
+              'tests/test_agent06_original_t3_denied_ipc.py','tests/test_agent06_k03_finite_failure_sidecar.py',
+              'tests/test_iwxa_basic_model_binding.py')
+            & python -m pytest -q @suites -o junit_family=xunit1 "--junitxml=$xml" *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -Raw -LiteralPath $log
+            $counts=@([regex]::Matches($raw,'\b\d+ (?:passed|failed|errors?|skipped|deselected)\b')|ForEach-Object {$_.Value}|Select-Object -Unique)
+            Write-Host ('AGENT064_PYTHON_COUNTS='+($counts -join ','))
+            if($exit -ne 0 -and (Test-Path -LiteralPath $xml)){
+              [xml]$report=Get-Content -Raw -LiteralPath $xml
+              $failed=@($report.SelectNodes('//testcase[failure or error]'))
+              foreach($case in $failed){
+                $module=[string]$case.file
+                $i=[Array]::IndexOf($suites,($module -replace '\\','/'))
+                if($i -ge 0){Write-Host ('AGENT064_PYTHON_FAILED_MODULE='+($i+1))}
+                $message=[string]$case.failure.message
+                $codes=@([regex]::Matches($message,'\b(?:T3_[A-Z0-9_]+|basic_runtime_[a-z_]+|AssertionError|TypeError|AttributeError|ImportError)\b')|ForEach-Object {$_.Value}|Select-Object -Unique)
+                if($codes.Count){Write-Host ('AGENT064_PYTHON_FAILURE_CODES='+($codes -join ','))}
+              }
+            }
+            if($exit -ne 0){throw 'AGENT064_PYTHON_REGRESSION_FAILED'}
+            Write-Host 'AGENT064_CORPORATE_RUNTIME=PASS'
+          }finally{Pop-Location;Remove-Item -LiteralPath $log,$xml -Force -ErrorAction SilentlyContinue}
+      - name: Clean disposable private sources
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath agent -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host 'PRIVATE_CLEANUP=COMPLETE'
+# No private source, test log, binary, or user data is uploaded.
