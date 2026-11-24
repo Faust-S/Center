@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: '94995e485d6b5e087ef7435f3ffb1e4f4f5b9f9b'
-      PRIVATE_TREE_PIN: '132b12602c41fe000ecc5324024537343c2fb8c5'
+      PRIVATE_SOURCE_PIN: '01d8df37bf12b0691adf39230a088bf49bc7745f'
+      PRIVATE_TREE_PIN: '8056ee96e8681396538b031964313b48546a6329'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -248,6 +248,8 @@ jobs:
                   'agent062_v8_settings_navigation_missing',
                   'agent062_v8_settings_categories_missing',
                   'agent062_v8_settings_editor_missing',
+                  'agent063_profile_menu_missing',
+                  'agent063_profile_identity_state_missing',
                   'agent062_v8_approvals_navigation_missing',
                   'agent062_v8_approvals_inbox_missing',
                   'agent062_v8_approvals_readback_missing',
