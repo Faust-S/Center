@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     env:
-      PRIVATE_PIN: 0934a7a33dff132b927b66897fe7de3f5130bde2
-      PRIVATE_TREE: fd6e6a93fd3f76f3a71629d3c3e8c48f48b12acd
+      PRIVATE_PIN: b93f9d5443840541cde903469434686229d19edf
+      PRIVATE_TREE: 9e67dc1a07a455093feaa8e443e2ad760d6fa93a
       QUALIFY_SCOPE: ADAPTER_PRODUCT
     steps:
       - uses: actions/setup-python@v5
@@ -105,7 +105,7 @@ jobs:
                       allowed.update({"MODEL_PROBED","NO_MODEL_PROBE","READY","RUNNING","COMPLETED","FAILED","CANCELLED","CANCELLING","BLOCKED","STEP_LIMIT_REACHED","WIN_PATH_LENGTH","WIN_PATH_MISSING","WIN_ACCESS_DENIED","WIN_SHARING_VIOLATION","PermissionError","TimeoutExpired","TimeoutError","GRAPH_NODE_EXECUTION_CONFLICT","AGENT_RUNTIME_NOT_READY"})
                       allowed.update({"BrokenPipeError","ProgramProcessStopUnconfirmed","ProgramProcessCancelled","UnicodeDecodeError","acp_program_launch_invalid","acp_program_shell_launcher_forbidden","acp_program_executable_digest_required","acp_program_file_unavailable","acp_program_identity_changed","acp_local_process_tree_stop_unconfirmed","windows_process_job_create_failed","windows_process_job_limit_failed","windows_process_job_assignment_failed","windows_process_job_readback_failed"})
                       diag=":".join(x if x in allowed else "OTHER" for x in match.group(1).split(":")[:12]) if match else ""
-                      fixture=re.findall(r"(?m)^QWEN_FIXTURE_PROCESS=(START|OPENED):(ACP_ERROR|STOP_UNCONFIRMED|CANCELLED|VALUE_ERROR|OS_ERROR|PERMISSION_ERROR|FILE_NOT_FOUND|BROKEN_PIPE|ASSERTION_ERROR|OTHER)\s*$",getattr(rep,"capstdout","") or "")
+                      fixture=re.findall(r"(?m)^QWEN_FIXTURE_PROCESS=(START|OPENED):(ACP_ERROR|STOP_UNCONFIRMED|CANCELLED|VALUE_ERROR|OS_ERROR|PERMISSION_ERROR|FILE_NOT_FOUND|BROKEN_PIPE|ASSERTION_ERROR|OTHER|WIN_PATH_LENGTH|WIN_CWD_INVALID|WIN_PATH_MISSING|WIN_ACCESS_DENIED|WIN_SHARING_VIOLATION|WIN_INVALID_PARAMETER|NOT_DIRECTORY|TIMEOUT|UNICODE_ERROR|TYPE_ERROR|RUNTIME_ERROR)\s*$",getattr(rep,"capstdout","") or "")
                       if fixture:
                           diag=(diag+":" if diag else "")+":".join(fixture[-1])
                       failures.append({"id":fingerprint(rep.nodeid),"phase":rep.when,
