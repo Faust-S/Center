@@ -197,10 +197,46 @@ export function readOriginalEmployeeRegistryReceipt(receipt,organizationId,works
  const confirmed=receipt?.state==='ORIGINAL_KERNEL_REGISTRY_CONFIRMED';
  check(id(organizationId)&&id(workspaceId)&&
   receipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1'&&
-  (confirmed||receipt?.state==='ORIGINAL_KERNEL_REGISTRY_NOT_FOUND')&&
+  (confirmed||['ORIGINAL_KERNEL_REGISTRY_NOT_FOUND','ORIGINAL_KERNEL_WORKSPACE_NOT_READY'].includes(receipt?.state))&&
   receipt.organizationId===organizationId&&receipt.workspaceId===workspaceId&&
   receipt.originalReadback===true&&receipt.originalKernel===true&&
   receipt.signatureVerified===confirmed&&receipt.automaticRetryAllowed===false,
   'CEN_D3_EMPLOYEE_REGISTRY_READBACK_INVALID');
- return confirmed?'CONFIRMED':'NOT_FOUND';
+ return confirmed?'CONFIRMED':receipt.state==='ORIGINAL_KERNEL_WORKSPACE_NOT_READY'?'WORKSPACE_NOT_READY':'NOT_FOUND';
 }
+
+// A bounded read-only continuation of the SAME original native owner.
+// Merely attaching a WebView does not prove the selected Workspace exists.
+// No bootstrap, assignment, signer or registry write can enter this loop.
+export function originalSeatRegistryScopeMatches(owner,scope){
+ const s=owner?.snapshot;
+ return owner?.status==='D3_OWNER_READY'&&s?.product==='admin'&&
+  s?.d3RecipientAvailable===true&&s?.productionActivation===false&&s?.T3_READY===false&&
+  ['organizationId','workspaceId','actorId','contextId'].every(key=>id(scope?.[key])&&s[key]===scope[key])&&
+  Number.isSafeInteger(scope.contextEpoch)&&scope.contextEpoch>0&&s.contextEpoch===scope.contextEpoch;
+}
+/** @param {{scope:any,readOwner:()=>Promise<any>,readRegistry:(owner:any)=>Promise<any>,
+ * isCurrent:()=>boolean,wait:()=>Promise<void>,maxReads?:number}} options */
+export async function observeOriginalEmployeeRegistry({scope,readOwner,readRegistry,isCurrent,wait,maxReads=80}){
+ check(Number.isSafeInteger(maxReads)&&maxReads>=1&&maxReads<=120,
+  'CEN_D3_EMPLOYEE_REGISTRY_READ_LIMIT_INVALID');
+ for(let attempt=0;attempt<maxReads;attempt++){
+  if(!isCurrent())return 'CANCELLED';
+  const owner=await readOwner();
+  if(!isCurrent())return 'CANCELLED';
+  check(originalSeatRegistryScopeMatches(owner,scope),
+    'CEN_D3_EMPLOYEE_REGISTRY_SCOPE_CHANGED');
+  if(owner.snapshot.d3EmployeeRegistryReadbackAvailable===true){
+   const receipt=await readRegistry(owner);
+   if(!isCurrent())return 'CANCELLED';
+   const observed=readOriginalEmployeeRegistryReceipt(receipt,scope.organizationId,scope.workspaceId);
+   if(observed!=='WORKSPACE_NOT_READY')return observed;
+  }else check(owner.snapshot.originalSignedWorkspaceAvailable===true,
+    'CEN_D3_ORIGINAL_EMPLOYEE_OWNER_NOT_CONNECTED');
+  // Retry ONLY attachment/confirmed missing Workspace. A denied read,
+  // malformed receipt or changed scope throws and stops immediately.
+  if(attempt+1<maxReads)await wait();
+ }
+ return 'TIMEOUT';
+}
+

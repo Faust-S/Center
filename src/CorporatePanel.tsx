@@ -2,7 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import CorporateD3Panel from './CorporateD3Panel';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import CorporateEmployeeEnrollment from './CorporateEmployeeEnrollment';
-import {corporateSeatRouteStage,readOriginalEmployeeRegistryReceipt} from '../runtime/cen03-corporate-seats.mjs';
+import {corporateSeatRouteStage,observeOriginalEmployeeRegistry,originalSeatRegistryScopeMatches} from '../runtime/cen03-corporate-seats.mjs';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
 import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox,signedD3SessionFingerprint,
  signedD3EmployeeScopeFingerprint} from '../runtime/cen03-review.mjs';
@@ -58,7 +58,7 @@ const why=(e:unknown)=>{
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null,preferCorporateSeats=false,signedWorkspaceVisible=false}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null;preferCorporateSeats?:boolean;signedWorkspaceVisible?:boolean}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null,preferCorporateSeats=false,signedWorkspaceVisible=false,signedWorkspaceOpen=false}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null;preferCorporateSeats?:boolean;signedWorkspaceVisible?:boolean;signedWorkspaceOpen?:boolean}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
@@ -96,12 +96,16 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  const seatNavigationTarget=seatStage==='SEATS'?'d3-corporate-seat-assignments':
    seatStage==='READ_REGISTRY'||seatStage==='SEAT_CONTRACT_UNAVAILABLE'?'d3-independent-employee':'corporate-panel';
  const automaticRegistryRead=useRef<string|null>(null);
- const registryReadKey=d3Ready?JSON.stringify([organizationId,owner.snapshot.workspaceId,owner.snapshot.actorId,signedWorkspaceGeneration]):null;
+ const [registryRetry,setRegistryRetry]=useState(0);
+ const [registryObservation,setRegistryObservation]=useState<{key:string;state:'CHECKING'|'NOT_FOUND'|'CONFIRMED'|'FAILED'|'TIMEOUT'}|null>(null);
+ const registryReadKey=d3Ready?JSON.stringify([organizationId,owner.snapshot.workspaceId,owner.snapshot.actorId,
+   owner.snapshot.contextId,owner.snapshot.contextEpoch,signedWorkspaceGeneration]):null;
+ const registryState=registryObservation?.key===registryReadKey?registryObservation?.state:null;
  const seatGuidance:Record<string,string>={
    NATIVE_REQUIRED:'Распределение мест доступно в установленном Admin Center.',
    OWNER_READ_FAILED:'Не удалось прочитать состояние организации. Обновите сведения перед продолжением.',
    CONNECT_ORGANIZATION:'Подключите организацию. Если рабочая область ещё не создана, добавьте её перед подключением.',
-   OPEN_WORKSPACE:'Откройте Workspace T3. Если она ещё не создана, подтвердите её создание внутри Workspace и вернитесь к приёмке.',
+   OPEN_WORKSPACE:signedWorkspaceOpen?'Подключаем исходную Workspace T3 и проверяем реестр.':'Откройте Workspace T3. Исходная система проверит выбранную рабочую область.',
    KERNEL_UNAVAILABLE:'Исходная Workspace T3 недоступна. Обновите состояние организации и проверьте установленный компонент.',
    READ_REGISTRY:'Проверяем существующий реестр сотрудников. Если его нет, подключите реестр отдельным подтверждаемым действием.',
    SEAT_CONTRACT_UNAVAILABLE:'Реестр сотрудников доступен, но установленный T3 не поддерживает корпоративные места. Обновите программу.',
@@ -184,22 +188,52 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    catch(e){setError(why(e))}
    finally{await refresh();actionRef.current=false;setBusy(false)}
  };
- // The direct seat route automatically restores an existing registry ONCE
- // for the bound organization/actor/workspace generation. A missing
- // registry is a readback, never permission to initialize it.
+ // Opening/parking the native child and attaching its original Kernel are
+ // asynchronous. Resume the same signed scope and read-only registry until
+ // the ORIGINAL workspace/registry observation arrives, never an automatic write.
  useEffect(()=>{
-   if(!preferCorporateSeats||signedWorkspaceVisible||seatStage!=='READ_REGISTRY'||!registryReadKey||
-      busy||actionRef.current||automaticRegistryRead.current===registryReadKey)return;
-   automaticRegistryRead.current=registryReadKey;
-   void act('Исходный реестр сотрудников перечитан.',async()=>{
-     const result=readOriginalEmployeeRegistryReceipt(await execute('d3EmployeeRegistryReadback',{}),
-       organizationId,owner.snapshot.workspaceId);
-     if(result==='NOT_FOUND'){
-       setNotice('Исходный реестр сотрудников ещё не создан. Подключите его отдельным подтверждаемым действием.');
-       return false;
-     }
-   });
- },[preferCorporateSeats,signedWorkspaceVisible,seatStage,registryReadKey,busy]);
+   if(!preferCorporateSeats||signedWorkspaceVisible||!signedWorkspaceOpen||
+      !registryReadKey||!invoke||!owner||
+      !['OPEN_WORKSPACE','READ_REGISTRY'].includes(seatStage))return;
+   const key=registryReadKey,attemptKey=JSON.stringify([key,registryRetry]);
+   if(automaticRegistryRead.current===attemptKey)return;
+   const scope={...owner.snapshot};
+   let active=true,timer:number|undefined;
+   const begin=()=>{
+     if(!active)return;
+     if(actionRef.current){timer=window.setTimeout(begin,150);return;}
+     automaticRegistryRead.current=attemptKey;
+     actionRef.current=true;setBusy(true);setError('');setNotice('');
+     setRegistryObservation({key,state:'CHECKING'});
+     void (async()=>{
+       try{
+         const observed=await observeOriginalEmployeeRegistry({
+           scope,isCurrent:()=>active,
+           readOwner:()=>invoke('center_corporate_state',{organizationId}),
+           readRegistry:candidate=>{const s=candidate.snapshot;return invoke('center_corporate_action',{
+             organizationId,operation:'d3EmployeeRegistryReadback',input:{},
+             binding:{organizationId:s.organizationId,workspaceId:s.workspaceId,
+               contextEpoch:s.contextEpoch,actorId:s.actorId,contextId:s.contextId}})},
+           wait:()=>new Promise<void>(resolve=>window.setTimeout(resolve,600)),
+         });
+         if(!active||observed==='CANCELLED')return;
+         if(observed==='TIMEOUT'){setRegistryObservation({key,state:'TIMEOUT'});return;}
+         // The native receipt can change available operations without a
+         // context epoch change. Re-read that exact owner, not a UI guess.
+         const next=await invoke('center_corporate_state',{organizationId});
+         if(!active)return;
+         if(!originalSeatRegistryScopeMatches(next,scope))
+           throw Error('CEN_D3_EMPLOYEE_REGISTRY_SCOPE_CHANGED');
+         adoptOwner(next);
+         setRegistryObservation({key,state:observed==='CONFIRMED'?'CONFIRMED':'NOT_FOUND'});
+       }catch(e){
+         if(active){setRegistryObservation({key,state:'FAILED'});setError(why(e));}
+       }finally{actionRef.current=false;setBusy(false);}
+     })();
+   };
+   timer=window.setTimeout(begin,0);
+   return()=>{active=false;if(timer!==undefined)window.clearTimeout(timer)};
+ },[preferCorporateSeats,signedWorkspaceVisible,signedWorkspaceOpen,registryReadKey,registryRetry,invoke]);
  const applied=(()=>{
    if(!legacyReady)return {status:'NOT_CONNECTED',records:[] as any[]};
    try{return readAppliedResults(owner.snapshot,organizationId,owner.snapshot.workspaceId)}
@@ -236,7 +270,14 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
           onOpenSignedWorkspace(organizationId))}>Открыть Workspace T3</button>}
     <button className="secondary" disabled={busy} onClick={()=>act('Состояние перечитано.',async()=>{await refresh();resetReview()})}>Обновить</button>
    </div></div>
-  {preferCorporateSeats&&<p role="status" data-testid="corporate-seat-route-guide">{seatGuidance[seatStage]}</p>}
+  {preferCorporateSeats&&<div data-testid="corporate-seat-route-guide">
+   <p role="status">{registryState==='CHECKING'?'Проверяем выбранную Workspace и читаем исходный реестр сотрудников.':
+     registryState==='NOT_FOUND'&&seatStage==='READ_REGISTRY'?'Исходный реестр сотрудников ещё не создан. Подключите его отдельным подтверждаемым действием.':
+     registryState==='TIMEOUT'?'Исходная Workspace ещё не подтвердила готовность. Откройте её или повторите чтение.':
+     registryState==='FAILED'?'Чтение реестра не подтверждено. Новые назначения недоступны.':seatGuidance[seatStage]}</p>
+   {(registryState==='TIMEOUT'||registryState==='FAILED')&&
+     <button type="button" className="secondary" disabled={busy} onClick={()=>setRegistryRetry(value=>value+1)}>Повторить чтение реестра</button>}
+  </div>}
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
   <p className="notice subdued" data-testid="corporate-owner-status">{d3Ready?'Подписанный T3 D3 получатель доступен. Это не статус готовности всего T3.':ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; проверьте состояние владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
@@ -275,6 +316,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={'employee|'+(signedD3EmployeeScopeFingerprint(owner,organizationId)??'unknown')}
     session={owner.snapshot} contacts={organization.participants??[]}
     preferredContactId={preferredEmployeeContactId} autoReadSeats={preferCorporateSeats&&!signedWorkspaceVisible}
+    requireRegistryAbsence={preferCorporateSeats} registryAbsent={registryState==='NOT_FOUND'}
     execute={execute} run={act} busy={busy}/>}
   {d3Ready&&invoke ? <CorporateD3Panel key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
     dispatchedApplications={dispatchedD3Applications}

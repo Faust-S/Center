@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent,prepareOriginalSeatDelivery,readOriginalSeatDelivery,corporateSeatRouteStage,readOriginalEmployeeRegistryReceipt}
+import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent,prepareOriginalSeatDelivery,readOriginalSeatDelivery,corporateSeatRouteStage,readOriginalEmployeeRegistryReceipt,observeOriginalEmployeeRegistry,originalSeatRegistryScopeMatches}
  from '../runtime/cen03-corporate-seats.mjs';
 const H='a'.repeat(64),org='org:one',ws='workspace:one';
 const member={personId:'person:one',enrollmentId:'enrollment:one'};
@@ -136,4 +136,46 @@ test('cold registry read distinguishes exact signed registry from genuine absenc
   {state:'ORIGINAL_KERNEL_REGISTRY_NOT_FOUND'},{signatureVerified:false}]){
   assert.throws(()=>readOriginalEmployeeRegistryReceipt({...receipt,...bad},org,ws),/READBACK_INVALID/);
  }
+});
+
+const scope={organizationId:org,workspaceId:ws,actorId:'person:manager',contextId:'context:one',contextEpoch:7};
+const owner=(attached=true,extra={})=>({status:'D3_OWNER_READY',snapshot:{product:'admin',...scope,
+ d3RecipientAvailable:true,productionActivation:false,T3_READY:false,originalSignedWorkspaceAvailable:true,
+ d3EmployeeRegistryReadbackAvailable:attached,...extra}});
+const registryReceipt=state=>({schema:'IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1',state,
+ organizationId:org,workspaceId:ws,originalReadback:true,originalKernel:true,
+ signatureVerified:state==='ORIGINAL_KERNEL_REGISTRY_CONFIRMED',automaticRetryAllowed:false});
+test('original registry recovery waits for attachment and verified Workspace, without writes or arbitrary sleeps',async()=>{
+ const events=[],owners=[owner(false),owner(),owner()];
+ const receipts=[registryReceipt('ORIGINAL_KERNEL_WORKSPACE_NOT_READY'),registryReceipt('ORIGINAL_KERNEL_REGISTRY_NOT_FOUND')];
+ const state=await observeOriginalEmployeeRegistry({scope,isCurrent:()=>true,
+  readOwner:async()=>{events.push('state');return owners.shift()},
+  readRegistry:async()=>{events.push('registry-read');return receipts.shift()},
+  wait:async()=>{events.push('wait')},maxReads:3});
+ assert.equal(state,'NOT_FOUND');
+ assert.deepEqual(events,['state','wait','state','registry-read','wait','state','registry-read']);
+ assert.equal(readOriginalEmployeeRegistryReceipt(registryReceipt('ORIGINAL_KERNEL_WORKSPACE_NOT_READY'),org,ws),'WORKSPACE_NOT_READY');
+});
+test('cold registry recovery confirms the exact scope and stops after a single valid receipt',async()=>{
+ let reads=0;
+ assert.equal(await observeOriginalEmployeeRegistry({scope,isCurrent:()=>true,
+  readOwner:async()=>owner(),readRegistry:async()=>{reads++;return registryReceipt('ORIGINAL_KERNEL_REGISTRY_CONFIRMED')},
+  wait:async()=>assert.fail('unexpected retry')}),'CONFIRMED');
+ assert.equal(reads,1);
+ for(const bad of [{contextEpoch:8},{contextId:'context:other'},{workspaceId:'workspace:other'},{actorId:'person:other'},{organizationId:'org:other'}]){
+  assert.equal(originalSeatRegistryScopeMatches(owner(true,bad),scope),false);
+  await assert.rejects(observeOriginalEmployeeRegistry({scope,isCurrent:()=>true,readOwner:async()=>owner(true,bad),
+   readRegistry:async()=>assert.fail('foreign read'),wait:async()=>assert.fail('foreign retry')}),/SCOPE_CHANGED/);
+ }
+});
+test('read-only recovery stops on error, cancellation and bounded timeout without classifying them as missing',async()=>{
+ let calls=0,active=true;
+ const base={scope,isCurrent:()=>active,readOwner:async()=>owner(),wait:async()=>{}};
+ await assert.rejects(observeOriginalEmployeeRegistry({...base,readRegistry:async()=>{calls++;throw Error('permission_denied')}}),/permission_denied/);
+ assert.equal(calls,1);
+ assert.equal(await observeOriginalEmployeeRegistry({...base,readRegistry:async()=>{active=false;return registryReceipt('ORIGINAL_KERNEL_REGISTRY_NOT_FOUND')}}),'CANCELLED');
+ active=true;
+ assert.equal(await observeOriginalEmployeeRegistry({...base,maxReads:3,readOwner:async()=>owner(false),
+  readRegistry:async()=>assert.fail('unattached Kernel read')}),'TIMEOUT');
+ assert.equal(calls,1);
 });

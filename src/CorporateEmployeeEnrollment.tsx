@@ -47,8 +47,8 @@ function keyRecord(raw:string,personId:string){
     throw Error('CEN_D3_EMPLOYEE_PUBLIC_KEY_RECORD_INVALID');
   return k;
 }
-export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,autoReadSeats=false,execute,run,busy}:{
- session:Session;contacts:Contact[];preferredContactId?:string|null;autoReadSeats?:boolean;execute:Exec;run:Run;busy:boolean;
+export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,autoReadSeats=false,requireRegistryAbsence=false,registryAbsent=false,execute,run,busy}:{
+ session:Session;contacts:Contact[];preferredContactId?:string|null;autoReadSeats?:boolean;requireRegistryAbsence?:boolean;registryAbsent?:boolean;execute:Exec;run:Run;busy:boolean;
 }){
  // A preselected organizational contact is only a local draft hint;
  // never infer an employee PROOF key, signed identity or active grant.
@@ -299,11 +299,13 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        onClick={()=>void run('Исходный реестр перечитан без повторной записи.',async()=>{
          const result=readOriginalEmployeeRegistryReceipt(await execute('d3EmployeeRegistryReadback',{}),
            session.organizationId,session.workspaceId);
+         if(result==='WORKSPACE_NOT_READY')
+           throw Error('CEN_D3_ORIGINAL_EMPLOYEE_WORKSPACE_NOT_READY');
          if(result==='NOT_FOUND')
            throw Error('CEN_D3_EMPLOYEE_REGISTRY_NOT_PRESENT_USE_EXPLICIT_INITIALIZE');
        })}>Проверить реестр без записи</button>
      </div>}
-     {bootstrap&&<div>
+     {bootstrap&&(!requireRegistryAbsence||registryAbsent)&&<div>
       <p>Откройте оригинальную T3 Workspace, затем подтвердите подключение
       исходного реестра в отдельном нативном окне Windows.
       После записи будет выполнено чтение того же Kernel.</p>
