@@ -119,10 +119,10 @@ jobs:
             }
           }
           $package=Get-Content -LiteralPath (Join-Path $repo 'desktop/package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-          if($package.version -cne '0.6.2'){
-            throw 'AGENT062_RELEASE_VERSION_MISMATCH'
+          if($package.version -cne '0.6.3'){
+            throw 'AGENT063_RELEASE_VERSION_MISMATCH'
           }
-          Write-Host 'AGENT062_RELEASE061_BASE_AND_UX_SOURCE_PRESENT'
+          Write-Host 'AGENT063_RELEASE_METADATA_AND_UX_SOURCE_PRESENT'
       - name: Build pre-release Agent candidate using original product pipeline
         shell: pwsh
         timeout-minutes: 47
