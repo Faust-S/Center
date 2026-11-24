@@ -19,8 +19,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
-      PRIVATE_SOURCE_PIN: 'd2ef0c8278681dd077ceb317961a690a958126d2'
-      PRIVATE_TREE_PIN: '013e74553b512ef46c6bfd9bbc8062fa5279ae26'
+      PRIVATE_SOURCE_PIN: 'b18b8b5badae7f095b0660c5c9b2a86b670b2db2'
+      PRIVATE_TREE_PIN: 'e9fbb38316c6efb0c021884c193d8675b40250f8'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
     steps:
       - uses: actions/checkout@v4
@@ -381,7 +381,7 @@ jobs:
                 if([string]$w.failure_code -cin $safeReasons){
                   Write-Host ('AGENT06_ONLINE_INSTALLED_FAILURE_CODE='+[string]$w.failure_code)
                 }
-                $workspaceProbeCodes=@('workspace_active_mismatch','workspace_catalog_invalid','workspace_draft_mismatch','workspace_draft_context_invalid','workspace_appearance_mismatch','workspace_mode_invalid','workspace_appearance_not_persisted','workspace_unexpected_tasks','workspace_changed_during_readback','workspace_metadata_mismatch','workspace_phase_invalid','workspace_existing_witness','workspace_proof_missing','workspace_phase_order_invalid','workspace_creation_unverified','workspace_identity_invalid','workspace_draft_identity_mismatch','workspace_draft_digest_changed','windows_required','owner_not_installed','owner_session_missing','owner_readback_invalid','projection_invalid','unclassified','other')
+                $workspaceProbeCodes=@('workspace_active_mismatch','workspace_catalog_invalid','workspace_draft_mismatch','workspace_draft_context_invalid','workspace_appearance_mismatch','workspace_mode_invalid','workspace_appearance_not_persisted','workspace_unexpected_tasks','workspace_changed_during_readback','workspace_metadata_mismatch','workspace_phase_invalid','workspace_existing_witness','workspace_proof_missing','workspace_phase_order_invalid','workspace_creation_unverified','workspace_identity_invalid','workspace_draft_identity_mismatch','workspace_draft_digest_changed','windows_required','owner_not_installed','owner_session_missing','owner_readback_invalid','projection_invalid','probe_dependency_missing','unclassified','other')
                 if([string]$w.workspace_probe_failure -cin $workspaceProbeCodes){
                   Write-Host ('AGENT063_WORKSPACE_PROBE_FAILURE='+[string]$w.workspace_probe_failure)
                 }
