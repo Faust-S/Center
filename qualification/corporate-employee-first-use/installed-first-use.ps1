@@ -212,7 +212,8 @@ try{
  $keyChallenge=Copy-Visible $cen 'Скопировать запрос ключа'
  $keyProof=Sign-EmployeeChallenge $agent $keyChallenge $candidate
  Enter $cen 'Оригинальный подписанный ответ сотрудника' $keyProof
- Press $cen 'Подтвердить ключ и перечитать Kernel' $true
+ Wait-Text $cen 'Ответ ключа соответствует текущему запросу' 120
+ Press-VerifiedEmployeeButton $cen 'Подтвердить ключ и перечитать Kernel'
  Original-Confirm $cen 'IWXA T3: подтвердить ключ сотрудника'
  Wait-Text $cen 'Публичный PROOF-ключ подтверждён оригинальным Kernel' 240
  Record 'ORIGINAL_PROOF_ADMISSION_THROUGH_INSTALLED_UI'
@@ -224,17 +225,18 @@ try{
   ($keyChallenge|ConvertFrom-Json -Depth 20).challenge) 'EMPLOYEE_INSTALLED_CHALLENGE_REUSED'
  $memberProof=Sign-EmployeeChallenge $agent $memberChallenge $candidate
  Enter $cen 'Подписанный ответ сотрудника' $memberProof
- Press $cen 'Выдать ACTION/DATA и перечитать STATUS' $true
+ Wait-Text $cen 'Ответ подключения соответствует текущему запросу' 120
+ Press-VerifiedEmployeeButton $cen 'Выдать ACTION/DATA и перечитать STATUS'
  Original-Confirm $cen 'IWXA T3: выдать полномочия сотруднику'
  Wait-Text $cen 'Подтверждены отдельные ACTION work.prepare и DATA package.export' 240
  Record 'ORIGINAL_DISTINCT_MEMBERSHIP_PROOF_AND_GRANTS'
  Stage 'WORKSPACE_RIGHTS'
- Press $cen 'Разрешить работу и перенос Workspace' $true
+ Press-VerifiedEmployeeButton $cen 'Разрешить работу и перенос Workspace'
  Original-Confirm $cen 'IWXA T3: права сотрудника в Workspace'
  Wait-Text $cen 'Четыре права подтверждены исходным Kernel' 240
  Record 'ORIGINAL_FOUR_WORKSPACE_GRANTS'
  Stage 'MANAGER_TASK_RIGHT'
- Press $cen 'Выдать адресное право на Task' $true
+ Press-VerifiedEmployeeButton $cen 'Выдать адресное право на Task'
  Original-Confirm $cen 'IWXA T3: право выдачи поручений сотруднику'
  Wait-Text $cen 'Подтверждено отдельное DATA-право руководителя' 240
  Record 'ORIGINAL_MANAGER_ADDRESSED_TASK_GRANT'

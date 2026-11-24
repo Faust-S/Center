@@ -76,3 +76,33 @@ function Enter-AgentCompanyPage($process){
  Press $process 'Работа в организации'
  Wait-Text $process 'Работа в организации' 240
 }
+
+# Consent-bearing employee operations must activate the exact focused button.
+# One ordinary keyboard activation; never re-dispatch when the outcome is unknown.
+function Press-VerifiedEmployeeButton($process,[string]$name){
+ Gui-Step 'BUTTON'
+ Focus-App $process
+ $element=Control $process $name
+ for($i=0;$i -lt 60 -and !$element.Current.IsEnabled;$i++){
+  Start-Sleep -Milliseconds 200
+  $element=Control $process $name
+ }
+ if(!$element.Current.IsEnabled){throw 'EMPLOYEE_INSTALLED_CONSENT_BUTTON_DISABLED'}
+ try{$element.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()}catch{}
+ $element.SetFocus()
+ $focused=$false
+ for($i=0;$i -lt 20;$i++){
+  try{
+   $active=[System.Windows.Automation.AutomationElement]::FocusedElement
+   if($element.Current.HasKeyboardFocus -or ($active -and [System.Windows.Automation.Automation]::Compare($active,$element))){
+    $focused=$true
+    break
+   }
+  }catch{}
+  Start-Sleep -Milliseconds 100
+ }
+ if(!$focused -or !$element.Current.IsEnabled -or [CorporateQualificationGui]::GetForegroundWindow() -ne $process.MainWindowHandle){
+  throw 'EMPLOYEE_INSTALLED_CONSENT_FOCUS_NOT_CONFIRMED'
+ }
+ [System.Windows.Forms.SendKeys]::SendWait(' ')
+}
