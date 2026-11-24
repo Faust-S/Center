@@ -1,16 +1,16 @@
 # Authorized read-only qualification on disposable public runners.
 # No private artifacts, source, screenshots, unredacted test output or credentials are uploaded.
-name: Agent 0.6.3 exact source qualification
+name: Agent 0.6.3 complete Python catalogue regression
 on:
   push:
     branches:
-      - work/2026-11-24-agent-v8-regression-diagnostics
+      - work/2026-11-24-agent-v8-complete-python-regression
     paths:
       - .github/workflows/agent-v8-regression-diagnostics.yml
 permissions:
   contents: read
 concurrency:
-  group: agent063-source-${{ github.ref }}
+  group: agent063-full-python-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   qualify:
@@ -18,9 +18,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-2022, ubuntu-24.04]
+        shard: [0, 1]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 120
     env:
+      TEST_SHARD: ${{ matrix.shard }}
       PRIVATE_PIN: '12433fa69a5451f4819403144e5fd7961be102f7'
       PRIVATE_TREE: '6e45c33057fa51607bd2abefb2c7d518f8758114'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -35,13 +37,10 @@ jobs:
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
           show-progress: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify pinned source and run original tests without publishing logs
+      - name: Run existing Python test catalogue in its isolated pytest profile
         shell: pwsh
         run: |
           $ErrorActionPreference='Continue'
@@ -49,110 +48,47 @@ jobs:
              (& git rev-parse 'HEAD^{tree}').Trim() -cne $env:PRIVATE_TREE){
             throw 'SOURCE_PIN_MISMATCH'
           }
-          $manifest=Get-Content -LiteralPath 'qualification/agent063/source-regression.json' -Raw -Encoding UTF8|ConvertFrom-Json
-          if($manifest.schema -cne 'IWXA_AGENT063_SOURCE_REGRESSION/1'){throw 'SOURCE_REGRESSION_MANIFEST_INVALID'}
-          $pythonSuites=[string[]]@($manifest.python)
-          $extraNode=[string[]]@($manifest.node_extra)
-          if($pythonSuites.Count -lt 1 -or $pythonSuites.Count -gt 100 -or $extraNode.Count -gt 20){throw 'SOURCE_REGRESSION_SCOPE_INVALID'}
-          foreach($p in $pythonSuites){
-            if($p -cnotmatch '^tests/(?:[a-zA-Z0-9_]+/)*test_[a-zA-Z0-9_]+\.py$' -or !(Test-Path -LiteralPath $p -PathType Leaf)){throw 'SOURCE_REGRESSION_MODULE_INVALID'}
-          }
-          foreach($p in $extraNode){
-            if($p -cnotmatch '^tests/(?:[a-zA-Z0-9_]+/)*test_[a-zA-Z0-9_]+\.test\.mjs$' -or !(Test-Path -LiteralPath $p -PathType Leaf)){throw 'SOURCE_REGRESSION_NODE_MODULE_INVALID'}
-          }
-          if(@($pythonSuites|Sort-Object -Unique).Count -ne $pythonSuites.Count -or @($extraNode|Sort-Object -Unique).Count -ne $extraNode.Count){throw 'SOURCE_REGRESSION_SCOPE_DUPLICATED'}
-          Write-Host ('PYTEST_MODULES='+$pythonSuites.Count)
-          $out=Join-Path $env:RUNNER_TEMP 'agent063-private'
+          $all=[string[]]@(& git ls-files -- tests/ | Where-Object {$_ -cmatch '^tests/(?:[a-zA-Z0-9_]+/)*test_[a-zA-Z0-9_]+\.py$'})
+          [Array]::Sort($all,[StringComparer]::Ordinal)
+          if($all.Count -lt 400 -or @($all|Sort-Object -Unique).Count -ne $all.Count){throw 'PYTHON_CATALOGUE_INVALID'}
+          $suites=[string[]]@($all | Where-Object { ([Array]::IndexOf($all,$_ ) % 2) -eq [int]$env:TEST_SHARD })
+          foreach($path in $suites){if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw 'PYTHON_CATALOGUE_MISSING'}}
+          Write-Host ('PYTHON_CATALOGUE_MODULES='+$all.Count)
+          Write-Host ('PYTHON_SHARD_MODULES='+$suites.Count)
+          Write-Host ('PYTHON_SHARD='+$env:TEST_SHARD)
+          $out=Join-Path $env:RUNNER_TEMP 'agent063-full-private'
           New-Item -ItemType Directory -Path $out -Force | Out-Null
-          $npm=if($IsWindows){'npm.cmd'}else{'npm'}
-          Push-Location desktop
-          & $npm ci --no-audit --no-fund *> (Join-Path $out 'npm.log')
-          $install=$LASTEXITCODE
-          Write-Host ('NPM_CI_EXIT='+$install)
-          $test=99;$build=99
-          if($install -eq 0){
-            # Only fixed numeric coordinates are public: file ordinal in the
-            # sorted private test inventory and test declaration line. Never
-            # emit a path, test name, assertion, message or stack trace.
-            $nodeLog=Join-Path $out 'node.log'
-            & node --test --test-reporter=tap *> $nodeLog
-            $test=$LASTEXITCODE
-            $raw=Get-Content -LiteralPath $nodeLog -Raw -ErrorAction SilentlyContinue
-            # TAP location is processed locally on both platforms. Never echo
-            # any test name, location path, assertion or source excerpt.
-            $files=[string[]]@(Get-ChildItem -LiteralPath 'tests' -File -Filter '*.test.mjs'|ForEach-Object {$_.Name})
-            [Array]::Sort($files,[StringComparer]::Ordinal)
-            $locations=[regex]::Matches([string]$raw,'(?m)^\s*location:\s+''?(?:[^\r\n]*[/\\])?([^/\\:\r\n]+\.test\.mjs):([0-9]{1,6}):[0-9]{1,6}''?\s*$')
-            foreach($loc in $locations){
-              $ordinal=[Array]::IndexOf($files,$loc.Groups[1].Value)+1
-              $line=[int]$loc.Groups[2].Value
-              if($ordinal -gt 0 -and $line -gt 0){
-                Write-Host ('NODE_FAILURE_CODE=N'+$ordinal.ToString('D3')+'_L'+$line.ToString('D6'))
-              }
-            }
-            foreach($k in @('tests','pass','fail','cancelled','skipped','todo')){
-              if($raw -match ('(?m)^# '+$k+' ([0-9]+)\s*$')){
-                Write-Host ('NODE_'+$k.ToUpperInvariant()+'='+$Matches[1])
-              }
-            }
-            & $npm run build *> (Join-Path $out 'build.log')
-            $build=$LASTEXITCODE
-            $raw=Get-Content -LiteralPath (Join-Path $out 'build.log') -Raw
-            $codes=[regex]::Matches([string]$raw,'error TS[0-9]{4}:')
-            $codes|ForEach-Object {$_.Value}|Group-Object|ForEach-Object {Write-Host ('TS_ERROR_CODE='+$_.Name+' COUNT='+$_.Count)}
-          }
-          Pop-Location
-          $extra=99
-          if($install -eq 0){
-            if($extraNode.Count -eq 0){$extra=0}else{
-              $extraLog=Join-Path $out 'node-extra.log'
-              & node --test --test-reporter=tap @extraNode *> $extraLog
-              $extra=$LASTEXITCODE
-              $raw=Get-Content -LiteralPath $extraLog -Raw -ErrorAction SilentlyContinue
-              foreach($k in @('tests','pass','fail','cancelled','skipped','todo')){
-                if($raw -match ('(?m)^# '+$k+' ([0-9]+)\s*$')){Write-Host ('NODE_EXTRA_'+$k.ToUpperInvariant()+'='+$Matches[1])}
-              }
-            }
-          }
-          Write-Host ('NODE_EXTRA_EXIT='+$extra)
           & python -m pip install --disable-pip-version-check -r requirements-ci.txt *> (Join-Path $out 'pip.log')
           $pip=$LASTEXITCODE
           Write-Host ('PIP_EXIT='+$pip)
-          $py=99
-          if($pip -eq 0){
-            $junit=Join-Path $out 'pytest.xml'
-            & python -m pytest -q @pythonSuites -o junit_family=xunit1 "--junitxml=$junit" *> (Join-Path $out 'pytest.log')
-            $py=$LASTEXITCODE
-            # JUnit stays on the disposable runner. Only the numeric line of
-            # a failed case in this already specified module is emitted.
-            if(Test-Path -LiteralPath $junit){
-              try{
-                [xml]$report=Get-Content -LiteralPath $junit -Raw
-                foreach($case in $report.SelectNodes('//testcase[failure or error]')){
-                  $line=[string]$case.GetAttribute('line')
-                  $file=([string]$case.GetAttribute('file')).Replace('\','/')
-                  $ordinal=[Array]::IndexOf($pythonSuites,$file)+1
-                  if($ordinal -gt 0 -and $line -cmatch '^[0-9]{1,6}$'){
-                    Write-Host ('PYTEST_FAILURE_CODE=P'+$ordinal.ToString('D3')+'_L'+(([int]$line+1).ToString('D6')))
-                  }else{Write-Host 'PYTEST_FAILURE_CODE=P000_L000000'}
-                }
-              }catch{Write-Host 'PYTEST_FAILURE_CODE=P000_L000000'}
-            }
-            $raw=Get-Content -LiteralPath (Join-Path $out 'pytest.log') -Raw
-            # Only fixed-format numeric coordinates, never traceback text.
-            $witness=[regex]::Matches([string]$raw,'(?m)^\s*(tests[/\\](?:[a-zA-Z0-9_]+[/\\])*test_[a-zA-Z0-9_]+\.py):([0-9]{1,6}):')
-            foreach($item in $witness){
-              $file=$item.Groups[1].Value.Replace('\','/')
-              $ordinal=[Array]::IndexOf($pythonSuites,$file)+1
-              if($ordinal -gt 0){Write-Host ('PYTEST_WITNESS_LINE=P'+$ordinal.ToString('D3')+'_L'+([int]$item.Groups[2].Value).ToString('D6'))}
-            }
-            foreach($k in @('passed','failed','errors','skipped','deselected')){
-              $match=[regex]::Match([string]$raw,'(?m)([0-9]+) '+$k+'\b')
-              if($match.Success){Write-Host ('PYTEST_'+$k.ToUpperInvariant()+'='+$match.Groups[1].Value)}
-            }
+          if($pip -ne 0){throw 'PYTHON_DEPENDENCIES_FAILED'}
+          $junit=Join-Path $out 'pytest.xml'
+          & python -m pytest -q @suites -o junit_family=xunit1 "--junitxml=$junit" *> (Join-Path $out 'pytest.log')
+          $py=$LASTEXITCODE
+          if(Test-Path -LiteralPath $junit){
+            try{
+              [xml]$report=Get-Content -LiteralPath $junit -Raw
+              foreach($case in $report.SelectNodes('//testcase[failure or error]')){
+                $line=[string]$case.GetAttribute('line')
+                $file=([string]$case.GetAttribute('file')).Replace('\','/')
+                $ordinal=[Array]::IndexOf($all,$file)+1
+                if($ordinal -gt 0 -and $line -cmatch '^[0-9]{1,6}$'){
+                  Write-Host ('PYTEST_FAILURE_CODE=P'+$ordinal.ToString('D3')+'_L'+(([int]$line+1).ToString('D6')))
+                }else{Write-Host 'PYTEST_FAILURE_CODE=P000_L000000'}
+              }
+            }catch{Write-Host 'PYTEST_FAILURE_CODE=P000_L000000'}
           }
-          Write-Host ('NODE_EXIT='+$test)
-          Write-Host ('BUILD_EXIT='+$build)
+          $raw=Get-Content -LiteralPath (Join-Path $out 'pytest.log') -Raw
+          $witness=[regex]::Matches([string]$raw,'(?m)^\s*(tests[/\\](?:[a-zA-Z0-9_]+[/\\])*test_[a-zA-Z0-9_]+\.py):([0-9]{1,6}):')
+          foreach($item in $witness){
+            $file=$item.Groups[1].Value.Replace('\','/')
+            $ordinal=[Array]::IndexOf($all,$file)+1
+            if($ordinal -gt 0){Write-Host ('PYTEST_WITNESS_LINE=P'+$ordinal.ToString('D3')+'_L'+([int]$item.Groups[2].Value).ToString('D6'))}
+          }
+          foreach($k in @('passed','failed','errors','skipped','deselected')){
+            $match=[regex]::Match([string]$raw,'(?m)([0-9]+) '+$k+'\b')
+            if($match.Success){Write-Host ('PYTEST_'+$k.ToUpperInvariant()+'='+$match.Groups[1].Value)}
+          }
           Write-Host ('PYTEST_EXIT='+$py)
           Write-Host 'PRIVATE_ARTIFACT_UPLOADS=0'
-          if($install -ne 0 -or $test -ne 0 -or $build -ne 0 -or $extra -ne 0 -or $pip -ne 0 -or $py -ne 0){throw 'AGENT063_SOURCE_QUALIFICATION_FAILED'}
+          if($py -ne 0){throw 'AGENT063_COMPLETE_PYTHON_REGRESSION_FAILED'}
