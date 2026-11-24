@@ -80,6 +80,8 @@ $artifact=Join-Path ([IO.Path]::GetTempPath()) ('iwxa-corporate-witness-'+[guid]
 [void][IO.Directory]::CreateDirectory($artifact)
 $trustFile=Join-Path $artifact 'publisher-corporate-trust.json'
 $activeFile=Join-Path $artifact 'active.iwxa'
+$renewedFile=Join-Path $artifact 'renewed.iwxa'
+$renewedRevokedFile=Join-Path $artifact 'renewed-revoked.iwxa'
 $reexportFile=Join-Path $artifact 'active-reexport.iwxa'
 $suspendedFile=Join-Path $artifact 'suspended.iwxa'
 $revokedFile=Join-Path $artifact 'revoked.iwxa'
@@ -412,18 +414,20 @@ function Center-Receive([string]$raw,[string]$file,[bool]$expectAccepted=$true){
   if($expectAccepted){Wait-Text $cen 'Подписанные LICENSE и STATUS получены оригинальным T3'}
   else{Wait-Text $cen 'Результат получения файла не подтверждён'}
 }
-function Verify-Center([string]$org,$proof,[int]$revision,[string]$storedSha){
+function Verify-Center([string]$org,$proof,[int]$revision,[string]$storedSha,[int]$expectedCount=1,[int]$adminSeats=2,[int]$employees=10,[int]$agentSeats=2){
   $view=Consumer-Read $org
-  $row=@($view.licenses)
-  if($view.revision -ne $revision -or $row.Count -ne 1){throw 'CORPORATE_NATIVE_STORE_REVISION_OR_COUNT_INVALID'}
+  $rows=@($view.licenses)
+  $row=@($rows|Where-Object {$_.licenseId -ceq $proof.licenseId})
+  if($view.revision -ne $revision -or $rows.Count -ne $expectedCount -or $row.Count -ne 1){throw 'CORPORATE_NATIVE_STORE_REVISION_OR_COUNT_INVALID'}
   $r=$row[0]
+  if($r.lineageId -cne $proof.lineageId -or $r.renewalOf -cne $proof.renewalOf){throw 'CORPORATE_NATIVE_LINEAGE_MISMATCH'}
   if($r.licenseId -cne $proof.licenseId -or $r.requestId -cne $proof.requestId -or
      $r.issuerAuthorityId -cne $proof.issuerAuthorityId -or $r.organizationId -cne $org -or
      $r.status -cne $proof.status -or $r.signedStatus -cne $proof.status -or
      $r.sequence -ne $proof.sequence -or $r.licenseEnvelopeSha256 -cne $proof.licenseEnvelopeSha256 -or
      $r.statusEnvelopeSha256 -cne $proof.statusEnvelopeSha256 -or $r.packageSha256 -cne $storedSha -or
-     $r.signedTerms.productVersion -cne '0.4.1' -or $r.signedTerms.limits.adminCenterSeats -ne 2 -or
-     $r.signedTerms.limits.employeeLimit -ne 10 -or $r.signedTerms.limits.personalAgentSeats -ne 2 -or
+     $r.signedTerms.productVersion -cne '0.4.1' -or $r.signedTerms.limits.adminCenterSeats -ne $adminSeats -or
+     $r.signedTerms.limits.employeeLimit -ne $employees -or $r.signedTerms.limits.personalAgentSeats -ne $agentSeats -or
      @($r.signedTerms.limits.quotas).Count -ne 1 -or $r.signedTerms.limits.quotas[0].max -ne 700 -or
      $r.signatureVerified -ne $true -or $r.statusVerified -ne $true -or
      $r.recipientConfirmed -ne $true -or $r.activeSeats -ne 0 -or $r.assignablePersonalAgentSeats -ne 0){
@@ -579,17 +583,96 @@ try{
   Center-Receive $handoff $activeFile $false
   $null=Verify-Center $org $suspended 2 (Digest $suspendedFile)
   $checks.Add('CENTER_SUSPENSION_CANNOT_BE_ROLLED_BACK_BY_OLD_ACTIVE')
+  # Replace the suspended tariff with a deliberately smaller signed successor
+  # through the same existing Publisher tariff preparation and native Owner.
+  Press $pub 'Тарифы и лимиты'
+  Press $pub 'Новая редакция'
+  Enter $pub 'Места продукта' '1'
+  Enter $pub 'Сотрудники организации' '6'
+  Press $pub 'Сохранить редакцию тарифа'
+  $null=Wait-Preparation $publisherDraft {param($x) @($x.tariffs).Count -eq 2}
+  Press $pub 'Лицензии'
+  Select-Last $pub 'Тариф'
+  Select-FirstReal $pub 'Клиент'
+  Select-Last $pub 'Основание подготовки'
+  Press $pub 'Создать следующую подготовку'
+  $nextPrep=Wait-Preparation $publisherDraft {param($x) @($x.proposals).Count -eq 2}
+  $followup=@($nextPrep.proposals|Where-Object {$_.previousProposalId -ceq $request})
+  if($followup.Count -ne 1 -or $followup[0].tariffSnapshot.revision -ne 2 -or
+    $followup[0].tariffSnapshot.productSeats -ne 1 -or $followup[0].tariffSnapshot.employeeLimit -ne 6){
+    throw 'CORPORATE_GUI_RENEWAL_PREPARATION_MISMATCH'
+  }
+  $nextRequest=[string]$followup[0].id
+  Press $pub 'Доверие и ключи'
+  Press $pub 'Проверить зарегистрированного издателя T3'
+  Select-FirstReal $pub 'Зарегистрированный издатель'
+  Select-FirstReal $pub 'Подготовленное предложение организации'
+  Enter $pub 'Корпоративные места Personal Agent (явно)' '1'
+  Press $pub 'Проверить условия перед подписью'
+  Wait-Text $pub "Предыдущая лицензия: $id"
+  Confirm-Checkbox $pub 'Подтверждаю выдачу организации по этим условиям'
+  Press $pub 'Подписать через оригинальный T3'
+  Wait-Text $pub 'Лицензия подписана и сохранена в оригинальном журнале T3'
+  $nextInventory=Read-Native $ownerPath @('corporate-inventory',$ownerRoot,$nextRequest)
+  if($nextInventory.matches -ne 1){throw 'CORPORATE_NATIVE_RENEWAL_ISSUE_COUNT_INVALID'}
+  $nextId=[string]$nextInventory.licenses[0].licenseId
+  $nextProof=Owner-Read $nextId
+  if($nextId -ceq $id -or $nextProof.renewalOf -cne $id -or
+     $nextProof.lineageId -cne $issued.lineageId -or $nextProof.requestId -cne $nextRequest -or
+     $nextProof.tariffRevision -ne 2){throw 'CORPORATE_NATIVE_RENEWAL_SIGNATURE_LINK_INVALID'}
+  $checks.Add('PUBLISHER_GUI_RENEWAL_BINDS_EXACT_PREVIOUS_SIGNED_LICENSE')
+  Stop-App $pub
+  $pub=Start-App $publisherPath
+  Press $pub 'Доверие и ключи'
+  Enter $pub 'Точный requestId, licenseId или organizationId исходного T3' $nextId
+  Press $pub 'Прочитать подписанный журнал T3'
+  Wait-Text $pub 'STATUS: NOT_ACTIVATED, последовательность 0'
+  $renewed=Publisher-Status 'ACTIVE' $nextId 1
+  $renewalHandoff=Publisher-Export $renewedFile $renewed
+  Center-Receive $renewalHandoff $renewedFile
+  $null=Verify-Center $org $renewed 3 (Digest $renewedFile) 2 1 6 1
+  Wait-Text $cen 'Тариф TEAM, редакция 2'
+  $view=Consumer-Read $org
+  if($view.capacity.state -ne 'VERIFIED_CAPACITY_CANDIDATE' -or
+    $view.capacity.candidateLicenseId -cne $nextId -or $view.capacity.activeLicenseCount -ne 1 -or
+    @($view.licenses|Where-Object {$_.licenseId -ceq $id -and $_.superseded -eq $true}).Count -ne 1){
+    throw 'CORPORATE_NATIVE_REPLACEMENT_NOT_SINGLE_CAPACITY'
+  }
+  $checks.Add('CENTER_RENEWAL_REPLACES_OLD_LIMITS_WITHOUT_SUMMING')
+  Stop-App $cen
+  $cen=Start-App $centerPath
+  Press $cen 'Personal Agent и лицензии'
+  Wait-Text $cen 'Тариф TEAM, редакция 2'
+  Center-Receive $suspendedHandoff $suspendedFile
+  $null=Verify-Center $org $renewed 3 (Digest $renewedFile) 2 1 6 1
+  if((Consumer-Read $org).capacity.candidateLicenseId -cne $nextId){
+    throw 'CORPORATE_NATIVE_RENEWAL_OLD_PACKAGE_RESTORED_CAPACITY'
+  }
+  $checks.Add('CENTER_RENEWAL_COLD_RESTART_AND_OLD_CARRIER_NO_REPLACEMENT')
+  $nextRevoked=Publisher-Status 'REVOKED' $nextId 2
+  $nextRevokedHandoff=Publisher-Export $renewedRevokedFile $nextRevoked
+  Center-Receive $nextRevokedHandoff $renewedRevokedFile
+  $null=Verify-Center $org $nextRevoked 4 (Digest $renewedRevokedFile) 2 1 6 1
+  if((Consumer-Read $org).capacity.state -ne 'NO_CURRENT_LICENSE'){
+    throw 'CORPORATE_NATIVE_REVOKED_SUCCESSOR_REVIVES_OLD_TARIFF'
+  }
+  $checks.Add('CENTER_REVOKED_SUCCESSOR_DOES_NOT_RESTORE_PREDECESSOR')
+  Enter $pub 'Точный requestId, licenseId или organizationId исходного T3' $id
+  Press $pub 'Прочитать подписанный журнал T3'
+  Wait-Text $pub 'STATUS: SUSPENDED, последовательность 2'
   $revoked=Publisher-Status 'REVOKED' $id 3
   $revokedHandoff=Publisher-Export $revokedFile $revoked
   Center-Receive $revokedHandoff $revokedFile
-  $null=Verify-Center $org $revoked 3 (Digest $revokedFile)
+  $null=Verify-Center $org $revoked 5 (Digest $revokedFile) 2
+  if((Consumer-Read $org).capacity.state -ne 'NO_CURRENT_LICENSE'){throw 'CORPORATE_NATIVE_REVOKED_CHAIN_CAPACITY_INVALID'}
   $checks.Add('CENTER_RECEIVES_SIGNED_REVOCATION')
   Stop-App $cen
   $cen=Start-App $centerPath
   Press $cen 'Personal Agent и лицензии'
   Wait-Text $cen 'STATUS: REVOKED'
   Center-Receive $handoff $activeFile $false
-  $null=Verify-Center $org $revoked 3 (Digest $revokedFile)
+  $null=Verify-Center $org $revoked 5 (Digest $revokedFile) 2
+  if((Consumer-Read $org).capacity.state -ne 'NO_CURRENT_LICENSE'){throw 'CORPORATE_NATIVE_REVOKED_CHAIN_CAPACITY_INVALID'}
   $checks.Add('CENTER_DURABLE_REVOKE_AND_OLD_ACTIVE_REPLAY_DENIED')
   $report=[ordered]@{
     schema='IWXA_CENTER_PUBLISHER_INSTALLED_CORPORATE_QUALIFICATION/1'
@@ -619,7 +702,7 @@ try{
     }
   }
   # Transfer files are disposable, not a production export or public artifact.
-  foreach($file in @($trustFile,$activeFile,$reexportFile,$suspendedFile,$revokedFile,$tamperedFile)){
+  foreach($file in @($trustFile,$activeFile,$reexportFile,$suspendedFile,$revokedFile,$tamperedFile,$renewedFile,$renewedRevokedFile)){
     Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
   }
 }
