@@ -1116,7 +1116,7 @@ try{
       throw 'CORPORATE_INSTALLED_EMPLOYEE_LICENSE_RECEIPT_INVALID'
     }
     [void][IO.Directory]::CreateDirectory($employeeHandoff)
-    $trustOut=Join-Path $employeeHandoff 'publisher-trust.json'
+    $trustOut=Join-Path $employeeHandoff 'publisher-corporate-trust.json'
     $licenseOut=Join-Path $employeeHandoff 'corporate-active.iwxa'
     [IO.File]::Copy($trustFile,$trustOut,$false)
     [IO.File]::Copy($activeFile,$licenseOut,$false)
