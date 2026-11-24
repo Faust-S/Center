@@ -179,3 +179,28 @@ export function clearSeatIntent(storage,key,command){
   'CEN_D3_CORPORATE_SEAT_INTENT_CHANGED');
  if(current!==null)storage.removeItem(key);
 }
+
+// Read-only first-use navigation over capabilities already reported by the
+// signed native Owner. This never opens a Workspace or initializes a registry.
+export function corporateSeatRouteStage({nativeHost,ownerReadFailed,d3Ready,snapshot}){
+ if(!nativeHost)return 'NATIVE_REQUIRED';
+ if(ownerReadFailed)return 'OWNER_READ_FAILED';
+ if(!d3Ready)return 'CONNECT_ORGANIZATION';
+ if(snapshot?.d3EmployeeEnrollmentAvailable===true&&
+    snapshot?.d3EmployeeCorporateSeatsAvailable===true)return 'SEATS';
+ if(snapshot?.d3EmployeeEnrollmentAvailable===true)return 'SEAT_CONTRACT_UNAVAILABLE';
+ if(snapshot?.d3EmployeeRegistryReadbackAvailable===true)return 'READ_REGISTRY';
+ if(snapshot?.originalSignedWorkspaceAvailable===true)return 'OPEN_WORKSPACE';
+ return 'KERNEL_UNAVAILABLE';
+}
+export function readOriginalEmployeeRegistryReceipt(receipt,organizationId,workspaceId){
+ const confirmed=receipt?.state==='ORIGINAL_KERNEL_REGISTRY_CONFIRMED';
+ check(id(organizationId)&&id(workspaceId)&&
+  receipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1'&&
+  (confirmed||receipt?.state==='ORIGINAL_KERNEL_REGISTRY_NOT_FOUND')&&
+  receipt.organizationId===organizationId&&receipt.workspaceId===workspaceId&&
+  receipt.originalReadback===true&&receipt.originalKernel===true&&
+  receipt.signatureVerified===confirmed&&receipt.automaticRetryAllowed===false,
+  'CEN_D3_EMPLOYEE_REGISTRY_READBACK_INVALID');
+ return confirmed?'CONFIRMED':'NOT_FOUND';
+}

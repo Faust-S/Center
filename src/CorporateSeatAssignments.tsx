@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useRef,useState} from 'react';
 import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent,prepareOriginalSeatDelivery,readOriginalSeatDelivery}
  from '../runtime/cen03-corporate-seats.mjs';
 
@@ -16,11 +16,12 @@ const labels:Record<string,string>={
 const statusLabels:Record<string,string>={ACTIVE:'Назначено',SUSPENDED:'Приостановлено',
  REVOKED:'Освобождено',SUPERSEDED:'Заменено'};
 export default function CorporateSeatAssignments({organizationId,workspaceId,actorId,employee,
- available,execute,run,busy}:{
- organizationId:string;workspaceId:string;actorId:string;employee:Employee|null;available:boolean;
+ available,autoRead=false,execute,run,busy}:{
+ organizationId:string;workspaceId:string;actorId:string;employee:Employee|null;available:boolean;autoRead?:boolean;
  execute:Exec;run:Run;busy:boolean;
 }){
  const [view,setView]=useState<any>(null);
+ const autoReadAttempted=useRef(false);
  const intentKey=seatIntentKey(organizationId,workspaceId,actorId);
  const [restored]=useState(()=>{
   try{return {command:readSeatIntent(localStorage,intentKey),blocked:false}}
@@ -35,7 +36,8 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
  const [deliveryReceipt,setDeliveryReceipt]=useState('');
  const selectedDelivery=view?.eligibleEmployees.find((r:any)=>r.personId===deliveryChoice);
  const refresh=(offset=0,employeeOffset=0)=>run('Распределение мест перечитано из исходного T3.',async()=>{
-  setSource('');setDeliveryChoice('');setDeliveryReceipt('');
+  // A failed fresh read must not leave a stale view actionable.
+  setView(null);setSource('');setDeliveryChoice('');setDeliveryReceipt('');
   // Reopen the exact outstanding intent even if the signed owner epoch changed.
   let outstanding;
   try{outstanding=readSeatIntent(localStorage,intentKey);setIntentBlocked(false)}
@@ -58,6 +60,15 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
   const result=readOriginalSeatView(await execute('d3EmployeeSeatView',{offset,employeeOffset}),organizationId,workspaceId);
   setView(result);setEmployeeChoice('');setPending(null);
  });
+ // Only direct entry into the seat manager triggers an automatic read.
+ // Pending commands follow the same receipt-only recovery as manual refresh.
+ // No automatic policy write, assignment, release, transfer or delivery.
+ useEffect(()=>{
+  if(!available){autoReadAttempted.current=false;setView(null);return;}
+  if(!autoRead||busy||autoReadAttempted.current)return;
+  autoReadAttempted.current=true;
+  void refresh();
+ },[available,autoRead,busy]);
  const locked=busy||!available||!view||pending!==null||intentBlocked;
  const rosterEmployee=view?.eligibleEmployees.find((r:any)=>r.personId===employeeChoice&&!r.reserved);
  const target:Employee|null=employeeChoice?(rosterEmployee??null):employee;
@@ -127,6 +138,9 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
    {pending&&<p role="alert" data-testid="d3-seat-unknown">Результат операции {pending} не подтверждён. Перечитайте исходный реестр для восстановления результата. Пока он неизвестен, новые действия заблокированы; автоматического повтора нет.</p>}
    {view&&<>
     <p role="status">{view.candidate&&!currentLicense?'Срок последней подписанной проверки истёк. Перечитайте распределение.':labels[view.licenseState]??view.licenseState}</p>
+    {!view.candidate&&<p className="muted" data-testid="d3-seat-license-next-step">{view.licenseState==='NO_CURRENT_LICENSE'
+      ?'Получите действующую подписанную лицензию и статус Publisher в разделе «Personal Agent и лицензии». Существующие назначения остаются в истории.'
+      :'Проверьте источник, историю продлений и подписанные статусы в разделе «Personal Agent и лицензии».'}</p>}
     <div className="form-grid" data-testid="d3-seat-capacity">
      <div><small>Зарегистрированные сотрудники / лимит</small><strong>{' '}{view.independentlyEnrolledEmployees} / {view.employeeLimit??'—'}</strong></div>
      <div><small>Зарезервированные места / лимит</small><strong>{' '}{view.reservedSeats} / {view.seatLimit??'—'}</strong></div>

@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import CorporateD3Panel from './CorporateD3Panel';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import CorporateEmployeeEnrollment from './CorporateEmployeeEnrollment';
+import {corporateSeatRouteStage,readOriginalEmployeeRegistryReceipt} from '../runtime/cen03-corporate-seats.mjs';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
 import {canDecideReviewedResult,acceptedApplicationSelection,ownerSessionFingerprint,receivedResultInbox,signedD3SessionFingerprint,
  signedD3EmployeeScopeFingerprint} from '../runtime/cen03-review.mjs';
@@ -91,8 +92,21 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
  const legacyReady=ownerSessionFingerprint(owner,organizationId)!==null;
  const d3Ready=signedD3SessionFingerprint(owner,organizationId)!==null;
  const ready=legacyReady||d3Ready;
- const seatNavigationTarget=d3Ready?(owner?.snapshot?.d3EmployeeCorporateSeatsAvailable===true
-   ?'d3-corporate-seat-assignments':'d3-independent-employee'):'corporate-panel';
+ const seatStage=corporateSeatRouteStage({nativeHost:!!invoke,ownerReadFailed:ownerAvailability==='OWNER_READ_FAILED',d3Ready,snapshot:owner?.snapshot});
+ const seatNavigationTarget=seatStage==='SEATS'?'d3-corporate-seat-assignments':
+   seatStage==='READ_REGISTRY'||seatStage==='SEAT_CONTRACT_UNAVAILABLE'?'d3-independent-employee':'corporate-panel';
+ const automaticRegistryRead=useRef<string|null>(null);
+ const registryReadKey=d3Ready?JSON.stringify([organizationId,owner.snapshot.workspaceId,owner.snapshot.actorId,signedWorkspaceGeneration]):null;
+ const seatGuidance:Record<string,string>={
+   NATIVE_REQUIRED:'Распределение мест доступно в установленном Admin Center.',
+   OWNER_READ_FAILED:'Не удалось прочитать состояние организации. Обновите сведения перед продолжением.',
+   CONNECT_ORGANIZATION:'Подключите организацию. Если рабочая область ещё не создана, добавьте её перед подключением.',
+   OPEN_WORKSPACE:'Откройте Workspace T3. Если она ещё не создана, подтвердите её создание внутри Workspace и вернитесь к приёмке.',
+   KERNEL_UNAVAILABLE:'Исходная Workspace T3 недоступна. Обновите состояние организации и проверьте установленный компонент.',
+   READ_REGISTRY:'Проверяем существующий реестр сотрудников. Если его нет, подключите реестр отдельным подтверждаемым действием.',
+   SEAT_CONTRACT_UNAVAILABLE:'Реестр сотрудников доступен, но установленный T3 не поддерживает корпоративные места. Обновите программу.',
+   SEATS:'Актуальные назначения перечитываются из исходного T3. Выберите сотрудника или назначение для изменения.'
+ };
  React.useLayoutEffect(()=>{
    if(!preferCorporateSeats)return;
    const target=document.querySelector<HTMLElement>(`[data-testid="${seatNavigationTarget}"]`);
@@ -165,6 +179,22 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    catch(e){setError(why(e))}
    finally{await refresh();actionRef.current=false;setBusy(false)}
  };
+ // The direct seat route automatically restores an existing registry ONCE
+ // for the bound organization/actor/workspace generation. A missing
+ // registry is a readback, never permission to initialize it.
+ useEffect(()=>{
+   if(!preferCorporateSeats||seatStage!=='READ_REGISTRY'||!registryReadKey||
+      busy||actionRef.current||automaticRegistryRead.current===registryReadKey)return;
+   automaticRegistryRead.current=registryReadKey;
+   void act('Исходный реестр сотрудников перечитан.',async()=>{
+     const result=readOriginalEmployeeRegistryReceipt(await execute('d3EmployeeRegistryReadback',{}),
+       organizationId,owner.snapshot.workspaceId);
+     if(result==='NOT_FOUND'){
+       setNotice('Исходный реестр сотрудников ещё не создан. Подключите его отдельным подтверждаемым действием.');
+       return false;
+     }
+   });
+ },[preferCorporateSeats,seatStage,registryReadKey,busy]);
  const applied=(()=>{
    if(!legacyReady)return {status:'NOT_CONNECTED',records:[] as any[]};
    try{return readAppliedResults(owner.snapshot,organizationId,owner.snapshot.workspaceId)}
@@ -201,7 +231,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
           onOpenSignedWorkspace(organizationId))}>Открыть Workspace T3</button>}
     <button className="secondary" disabled={busy} onClick={()=>act('Состояние перечитано.',async()=>{await refresh();resetReview()})}>Обновить</button>
    </div></div>
-  {preferCorporateSeats&&<p role="status" data-testid="corporate-seat-route-guide">{d3Ready?(owner?.snapshot?.d3EmployeeCorporateSeatsAvailable===true?'Перечитайте подписанные назначения и распределите места в текущей организации.':'Откройте Workspace T3, вернитесь к приёмке и подключите или перечитайте исходный реестр сотрудников. Затем доступны корпоративные места.'):'Подключите подписанную организацию T3, чтобы перейти к её сотрудникам и корпоративным местам.'}</p>}
+  {preferCorporateSeats&&<p role="status" data-testid="corporate-seat-route-guide">{seatGuidance[seatStage]}</p>}
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
   <p className="notice subdued" data-testid="corporate-owner-status">{d3Ready?'Подписанный T3 D3 получатель доступен. Это не статус готовности всего T3.':ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; проверьте состояние владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
@@ -239,7 +269,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   </div>}
   {d3Ready&&invoke&&<CorporateEmployeeEnrollment key={'employee|'+(signedD3EmployeeScopeFingerprint(owner,organizationId)??'unknown')}
     session={owner.snapshot} contacts={organization.participants??[]}
-    preferredContactId={preferredEmployeeContactId}
+    preferredContactId={preferredEmployeeContactId} autoReadSeats={preferCorporateSeats}
     execute={execute} run={act} busy={busy}/>}
   {d3Ready&&invoke ? <CorporateD3Panel key={'review|'+(signedD3SessionFingerprint(owner,organizationId)??'unknown')} owner={owner} execute={execute}
     dispatchedApplications={dispatchedD3Applications}

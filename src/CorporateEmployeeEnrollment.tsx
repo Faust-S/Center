@@ -1,5 +1,6 @@
 import React,{useState} from 'react';
 import CorporateSeatAssignments from './CorporateSeatAssignments';
+import {readOriginalEmployeeRegistryReceipt} from '../runtime/cen03-corporate-seats.mjs';
 import {validateOriginalEmployeeTaskIssueReceipt}
  from '../runtime/cen03-d3-owner.mjs';
 
@@ -46,8 +47,8 @@ function keyRecord(raw:string,personId:string){
     throw Error('CEN_D3_EMPLOYEE_PUBLIC_KEY_RECORD_INVALID');
   return k;
 }
-export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,execute,run,busy}:{
- session:Session;contacts:Contact[];preferredContactId?:string|null;execute:Exec;run:Run;busy:boolean;
+export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,autoReadSeats=false,execute,run,busy}:{
+ session:Session;contacts:Contact[];preferredContactId?:string|null;autoReadSeats?:boolean;execute:Exec;run:Run;busy:boolean;
 }){
  // A preselected organizational contact is only a local draft hint;
  // never infer an employee PROOF key, signed identity or active grant.
@@ -283,7 +284,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      throw Error('CEN_D3_EMPLOYEE_ORIGINAL_KEY_READBACK_REQUIRED');
    setCredentialReceipt(result);
  });
- return <section className="nested-form" data-testid="d3-independent-employee">
+ return <section className="nested-form" data-testid="d3-independent-employee" tabIndex={-1}>
   <h3>Независимый сотрудник организации</h3>
   <p className="muted">Подписывает только оригинальный T3 в доверенном Host. Сотрудник подтверждает
    собственный Ed25519-ключ в установленном Agent; руководитель никогда не получает закрытый ключ.
@@ -296,16 +297,9 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
       не создаёт гранты, не выполняет запись и не повторяет потерянную команду.</p>
       <button data-testid="d3-employee-registry-readback" disabled={busy}
        onClick={()=>void run('Исходный реестр перечитан без повторной записи.',async()=>{
-         const receipt=await execute('d3EmployeeRegistryReadback',{});
-         if(receipt?.schema!=='IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1'||
-            receipt.organizationId!==session.organizationId||
-            receipt.workspaceId!==session.workspaceId||
-            receipt.originalReadback!==true||receipt.originalKernel!==true||
-            !['ORIGINAL_KERNEL_REGISTRY_CONFIRMED',
-              'ORIGINAL_KERNEL_REGISTRY_NOT_FOUND'].includes(receipt.state)||
-            receipt.automaticRetryAllowed!==false)
-           throw Error('CEN_D3_EMPLOYEE_REGISTRY_READBACK_INVALID');
-         if(receipt.state!=='ORIGINAL_KERNEL_REGISTRY_CONFIRMED')
+         const result=readOriginalEmployeeRegistryReceipt(await execute('d3EmployeeRegistryReadback',{}),
+           session.organizationId,session.workspaceId);
+         if(result==='NOT_FOUND')
            throw Error('CEN_D3_EMPLOYEE_REGISTRY_NOT_PRESENT_USE_EXPLICIT_INITIALIZE');
        })}>Проверить реестр без записи</button>
      </div>}
@@ -763,7 +757,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
   <CorporateSeatAssignments key={JSON.stringify([session.organizationId,session.workspaceId,session.actorId])}
     organizationId={session.organizationId} workspaceId={session.workspaceId} actorId={session.actorId}
    employee={enrolled?{personId,enrollmentId:enrollmentReceipt.enrollmentId}:null}
-   available={available&&session.d3EmployeeCorporateSeatsAvailable===true}
+   available={available&&session.d3EmployeeCorporateSeatsAvailable===true} autoRead={autoReadSeats}
    execute={execute} run={run} busy={busy}/>
  </section>;
 }

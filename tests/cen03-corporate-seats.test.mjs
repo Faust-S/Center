@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent,prepareOriginalSeatDelivery,readOriginalSeatDelivery}
+import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent,prepareOriginalSeatDelivery,readOriginalSeatDelivery,corporateSeatRouteStage,readOriginalEmployeeRegistryReceipt}
  from '../runtime/cen03-corporate-seats.mjs';
 const H='a'.repeat(64),org='org:one',ws='workspace:one';
 const member={personId:'person:one',enrollmentId:'enrollment:one'};
@@ -110,4 +110,30 @@ test('seat delivery uses existing signed invitation export for both reserved and
  }
  assert.throws(()=>prepareOriginalSeatDelivery(v,'person:foreign'),/DELIVERY_EMPLOYEE_REQUIRED/);
  assert.throws(()=>prepareOriginalSeatDelivery({...v,originalReadback:false},member.personId),/DELIVERY_SCOPE_INVALID/);
+});
+
+test('seat route automatically selects only a read-only next stage from the existing native owner',()=>{
+ const route=(snapshot,more={})=>corporateSeatRouteStage({nativeHost:true,ownerReadFailed:false,d3Ready:true,snapshot,...more});
+ assert.equal(route({}, {nativeHost:false}),'NATIVE_REQUIRED');
+ assert.equal(route({}, {ownerReadFailed:true}),'OWNER_READ_FAILED');
+ assert.equal(route({}, {d3Ready:false}),'CONNECT_ORGANIZATION');
+ assert.equal(route({}),'KERNEL_UNAVAILABLE');
+ assert.equal(route({originalSignedWorkspaceAvailable:true}),'OPEN_WORKSPACE');
+ assert.equal(route({originalSignedWorkspaceAvailable:true,d3EmployeeRegistryReadbackAvailable:true}),'READ_REGISTRY');
+ assert.equal(route({d3EmployeeEnrollmentAvailable:true}),'SEAT_CONTRACT_UNAVAILABLE');
+ assert.equal(route({d3EmployeeCorporateSeatsAvailable:true}),'KERNEL_UNAVAILABLE');
+ assert.equal(route({d3EmployeeEnrollmentAvailable:true,d3EmployeeCorporateSeatsAvailable:true}),'SEATS');
+});
+test('cold registry read distinguishes exact signed registry from genuine absence; never authorizes a replay',()=>{
+ const receipt={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_REGISTRY_READBACK/1',state:'ORIGINAL_KERNEL_REGISTRY_CONFIRMED',
+  organizationId:org,workspaceId:ws,originalReadback:true,originalKernel:true,
+  signatureVerified:true,automaticRetryAllowed:false};
+ assert.equal(readOriginalEmployeeRegistryReceipt(receipt,org,ws),'CONFIRMED');
+ const missing={...receipt,state:'ORIGINAL_KERNEL_REGISTRY_NOT_FOUND',signatureVerified:false};
+ assert.equal(readOriginalEmployeeRegistryReceipt(missing,org,ws),'NOT_FOUND');
+ for(const bad of [{workspaceId:'workspace:other'},{organizationId:'org:other'},
+  {originalReadback:false},{originalKernel:false},{automaticRetryAllowed:true},
+  {state:'ORIGINAL_KERNEL_REGISTRY_NOT_FOUND'},{signatureVerified:false}]){
+  assert.throws(()=>readOriginalEmployeeRegistryReceipt({...receipt,...bad},org,ws),/READBACK_INVALID/);
+ }
 });
