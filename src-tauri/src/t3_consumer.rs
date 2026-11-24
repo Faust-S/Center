@@ -626,24 +626,7 @@ mod tests {
     })
   }
 
-  fn valid_read()->Value{
-    serde_json::json!({
-      "operation":"TEST_READ","activeSeats":0,"productionActivation":false,
-      "view":{
-        "schema":"IWXA_T3_PRODUCT_LICENSE_CONSUMER_VIEW/1",
-        "organizationId":"org:one","productId":"IWXA_ADMIN_CENTER",
-        "trustOrigin":"HOST_PREINSTALLED_PUBLIC_POLICY","revision":1,
-        "activeSeats":0,"assignableSeats":0,"productionActivation":false,
-        "licenses":[{
-          "licenseId":"license:test:one","organizationId":"org:one",
-          "productId":"IWXA_ADMIN_CENTER","status":"ACTIVE",
-          "sequence":1,"claimedSeats":2,"signatureVerified":true,
-          "statusVerified":true,"commercialAuthorityProven":false,
-          "productionActivation":false,"activeSeats":0,"assignableSeats":0
-        }]
-      }
-    })
-  }
+
   #[test]
   fn readback_refuses_unverified_license_rows_and_duplicates(){
     let good=valid_read();
