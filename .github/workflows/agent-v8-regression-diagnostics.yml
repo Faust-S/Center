@@ -21,8 +21,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     env:
-      PRIVATE_PIN: '12433fa69a5451f4819403144e5fd7961be102f7'
-      PRIVATE_TREE: '6e45c33057fa51607bd2abefb2c7d518f8758114'
+      PRIVATE_PIN: '0ec30d948993be9b2ee270c517225277e6decb0b'
+      PRIVATE_TREE: 'c489184b3ab6285c5faa669f8d5e2b77550314f2'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
