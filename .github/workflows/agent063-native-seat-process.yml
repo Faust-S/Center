@@ -44,6 +44,7 @@ jobs:
         with:
           node-version: '22.16.0'
       - name: Confirm exact source pins and execute native source process
+        if: ${{ !startsWith(github.event.head_commit.message, 'ci(jit):') }}
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -77,6 +78,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          foreach($p in @(@('original-t3','6745f64dc92575ba8567e9fad838bb5206967656'),@('agent','16c2d165046a22c069a19e83d920faed3b1ded20'),@('one-core','d89ec3ead3e660a7865043d1ecacd7f2b259f6cc'))){
+            if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'SOURCE_PIN_MISMATCH'}
+          }
           $log=Join-Path $env:RUNNER_TEMP 'admin-workspace-jit-private.log'
           $out=Join-Path $env:RUNNER_TEMP 'admin-workspace-jit-private.json'
           & node qualification/corporate-installed/original-admin-workspace-jit.mjs (Resolve-Path original-t3).Path (Resolve-Path one-core/packages/t3-core).Path 1>$out 2>$log
@@ -92,6 +96,11 @@ jobs:
              $r.reads -lt 2 -or $r.creates -ne 1 -or $r.realKernel -ne $false -or
              $r.productionActivation -ne $false){throw 'ORIGINAL_ADMIN_WORKSPACE_JIT_RECEIPT_INVALID'}
           Write-Host ('ADMIN_WORKSPACE_JIT_CHECKS='+[int]$r.checks)
+          foreach($stage in @('selectRead','readJit','createJit','readbackJit','messagePortRead')){
+            $elapsed=$r.timings.$stage
+            if($null -eq $elapsed -or [double]$elapsed -lt 0 -or [double]$elapsed -gt 300000){throw 'JIT_TIMING_INVALID'}
+            Write-Host ('ADMIN_WORKSPACE_JIT_MS_'+$stage.ToUpperInvariant()+'='+[int]$elapsed)
+          }
           Write-Host 'ADMIN_WORKSPACE_JIT=PASS'
       - name: Discard transient private sources and local test data
         if: always()

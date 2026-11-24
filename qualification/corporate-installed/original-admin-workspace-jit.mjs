@@ -2,6 +2,8 @@
 // GUI or a real T2 Kernel witness. The only fixture is the Kernel transport.
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
+import {MessageChannel} from 'node:worker_threads';
+import {performance} from 'node:perf_hooks';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {mkdtempSync,rmSync,writeFileSync,realpathSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -11,19 +13,22 @@ const [privateRoot,coreRoot,...extra]=process.argv.slice(2);
 assert.equal(process.platform,'win32');
 assert.ok(extra.length===0&&isAbsolute(privateRoot)&&isAbsolute(coreRoot));
 const load=(root,path)=>import(pathToFileURL(join(root,path)).href);
-const [native,access,http,loopback,subject]=await Promise.all([
+const [native,access,http,loopback,subject,transport]=await Promise.all([
  load(privateRoot,'interop/native-admin-d3.mjs'),
  load(coreRoot,'src/t3/signed-access-host-port.mjs'),
  load(coreRoot,'src/t3/original-control-http-handler.mjs'),
  load(coreRoot,'src/t3/control-loopback-owner.mjs'),
  load(coreRoot,'src/t3/subject-access-binding.mjs'),
+ load(coreRoot,'src/t3/origin-isolated-kernel-transport.mjs'),
 ]);
 const root=realpathSync(mkdtempSync(join(tmpdir(),'iwxa-admin-workspace-jit-')));
 const org=randomUUID(),workspace=randomUUID(),managerRoot=join(root,'owner');
 const token=randomBytes(32).toString('base64url');
 const listeners=new Set();
 let manager=null,server=null,stop=null,handler=null,epoch=1,phase='ENROLL',checks=0;
-let stored=null,reads=0,creates=0;
+let stored=null,reads=0,creates=0,receiver=null,client=null;
+const timings={};
+const measured=async(name,fn)=>{const start=performance.now();try{return await fn()}finally{timings[name]=Math.round(performance.now()-start)}};
 const fixture={
  sessionInfo:{contract_version:'1.3.0',runtime_version:'0.3.6'},
  hasOperation:op=>['t1.getWorkspace','t1.createWorkspace'].includes(op),
@@ -67,7 +72,7 @@ try{
   fetchImpl:(url,options={})=>fetch(url,{...options,headers:{...options.headers,Origin:origin}})});
  stop=browser.subscribeSignedAccessInvalidation(()=>{});
  phase='SIGNED_READ_CONTEXT';
- const read=await browser.signedKernelAccess('getWorkspace');
+ const read=await measured('selectRead',()=>browser.signedKernelAccess('getWorkspace'));
  assert.ok(read);
  const rc=await read.currentContext();
  assert.equal(rc.kind,'CORP');assert.equal(rc.organization_id,org);assert.equal(rc.workspace_id,workspace);
@@ -75,7 +80,7 @@ try{
  checks++;
  phase='SIGNED_READ_JIT';
  const readPort=subject.createSubjectKernelBinding({kernel:fixture,access:read});
- assert.equal(await readPort.getWorkspace(workspace),null);
+ assert.equal(await measured('readJit',()=>readPort.getWorkspace(workspace)),null);
  assert.equal(reads,1);assert.equal(creates,0);checks++;
  phase='CROSS_SCOPE_DENIED';
  await assert.rejects(readPort.getWorkspace(randomUUID()),{code:'T3_SUBJECT_WORKSPACE_OUT_OF_SCOPE'});
@@ -90,21 +95,39 @@ try{
  assert.notEqual(wc.grant_id,rc.grant_id);checks++;
  phase='SIGNED_CREATE_JIT';
  const writePort=subject.createSubjectKernelBinding({kernel:fixture,access:writer});
- assert.equal((await writePort.createWorkspace({workspace_id:workspace,profile:'generic'})).workspace_id,workspace);
+ assert.equal((await measured('createJit',()=>writePort.createWorkspace({workspace_id:workspace,profile:'generic'}))).workspace_id,workspace);
  assert.equal(creates,1);checks++;
  phase='SIGNED_READBACK_JIT';
- assert.equal((await readPort.getWorkspace(workspace)).workspace_id,workspace);
+ assert.equal((await measured('readbackJit',()=>readPort.getWorkspace(workspace))).workspace_id,workspace);
  assert.equal(reads,2);assert.equal(creates,1);checks++;
  phase='NO_UNSCOPED_WRITES';
  assert.equal(await browser.signedKernelAccess('putObject'),null);
  assert.equal(await browser.signedKernelAccess('commitObjectGraph'),null);checks++;
- process.stdout.write(JSON.stringify({result:'PASS',checks,reads,creates,
+ phase='SIGNED_MESSAGE_PORT_READ';
+ const {port1,port2}=new MessageChannel();
+ // Same transport as the installed trusted realm. The original native JIT
+ // is exercised on every call; storage is still explicitly a fixture.
+ receiver=transport.bindSignedOriginalKernelPort({port:port1,isActive:()=>true,
+  createSignedFacade:async()=>({getWorkspace:async(id)=>{
+    const owner=await browser.signedKernelAccess('getWorkspace');
+    assert.ok(owner);
+    const initial=await owner.currentContext();
+    const bound=subject.createSubjectKernelBinding({kernel:fixture,access:owner});
+    const row=await bound.getWorkspace(id);
+    const current=await browser.signedKernelAccess('getWorkspace');
+    assert.deepEqual(await current.currentContext(),initial);
+    return row;
+  }})});
+ client=transport.createIsolatedKernelClient({port:port2,timeoutMs:120000});
+ assert.equal((await measured('messagePortRead',()=>client.call('getWorkspace',workspace))).workspace_id,workspace);
+ assert.equal(reads,3);assert.equal(creates,1);checks++;
+ process.stdout.write(JSON.stringify({result:'PASS',checks,reads,creates,timings,
   originalControlHttp:true,windowsDpapi:true,realKernel:false,productionActivation:false})+'\n');
 }catch(e){
  process.stderr.write('ADMIN_WORKSPACE_JIT_PHASE='+phase+'\nADMIN_WORKSPACE_JIT_CODE='+failCode(e)+'\n');
  process.exitCode=1;
 }finally{
- stop?.();
+ client?.close();receiver?.close();stop?.();
  if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
  await manager?.close();
  rmSync(root,{recursive:true,force:true});
