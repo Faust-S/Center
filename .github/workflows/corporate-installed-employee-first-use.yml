@@ -13,11 +13,11 @@ concurrency:
   group: corporate-installed-employee-first-use-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 env:
-  T3_PIN: '365c7dcefeb6bbe4e6f71567749bdfd85e24ce87'
-  CORE_PIN: '06b56c6f2c1c3164e4a2e92bdcbe8706929216b5'
-  CENTER_PIN: '95ee2e984ba59861c4367e26d9d9d66fbe11918b'
+  T3_PIN: '8f60f667931f34f82724e28bce0c872514f0a6a3'
+  CORE_PIN: '7ce69e0e92c1dde2a3da985f5a973675d324121b'
+  CENTER_PIN: '180e81b4d12920341fe53ba0b11fb22c85ea77d1'
   PUBLISHER_PIN: '3f8eefd2220fa3de04a3d5ccf622c26116b4a6a1'
-  AGENT_PIN: '21a1a9b52bdf866ae7ec02b71e92a76866f72eae'
+  AGENT_PIN: '5d1b1cf792af061936417d452a12a570cbca9d7a'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -127,8 +127,8 @@ jobs:
             }
             [string]$call.CommandElements[1].Value
           })
-          if($declared.Count -ne 12 -or $manifest.Count -ne 12 -or
-             @($manifest|Sort-Object -CaseSensitive -Unique).Count -ne 12 -or
+          if($declared.Count -ne 14 -or $manifest.Count -ne 14 -or
+             @($manifest|Sort-Object -CaseSensitive -Unique).Count -ne 14 -or
              @(Compare-Object -ReferenceObject $manifest -DifferenceObject $declared -CaseSensitive).Count -ne 0){
             throw 'EMPLOYEE_INSTALLED_RECEIPT_CONTRACT_DRIFT'
           }

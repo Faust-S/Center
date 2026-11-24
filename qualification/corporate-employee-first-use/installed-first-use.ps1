@@ -166,6 +166,8 @@ try{
  Press $cen 'Добавить участника'
  Wait-Text $cen 'Installed employee qualification' 120
  Open-CenterRegistry $cen
+ Wait-Text $cen 'Административный реестр отделён от рабочей Workspace' 240
+ Record 'ORIGINAL_REGISTRY_SEPARATE_WORKSPACE'
  Select-FirstReal $cen 'Сотрудник в организации'
  Press $cen 'Получить профиль подключения'
  Wait-Text $cen 'Скопировать профиль' 240
@@ -267,6 +269,8 @@ try{
  Stage 'CENTER_COLD_ROSTER'
  Stop-App $cen;$cen=Start-App $CenterExe
  Open-CenterRegistry $cen
+ Wait-Text $cen 'Административный реестр отделён от рабочей Workspace' 240
+ Record 'CENTER_COLD_ORIGINAL_SEPARATE_REGISTRY'
  Press $cen 'Прочитать подключённых сотрудников'
  Select-FirstReal $cen 'Сотрудник из исходного T3'
  Press $cen 'Открыть подключённого сотрудника'
