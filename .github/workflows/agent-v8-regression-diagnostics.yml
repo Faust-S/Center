@@ -21,8 +21,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     env:
-      PRIVATE_PIN: 'c7b3577da116f9281e168a3482978e13396eaf71'
-      PRIVATE_TREE: '9a62b0b080c1427a406e4bd5a46edbf0e6de7ddb'
+      PRIVATE_PIN: '535939d8880c0eb5bf865210b133f71b7693c3f6'
+      PRIVATE_TREE: '9b17afc8b6d40a9e0c02e8cf467b43451f0a1fc6'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
@@ -58,9 +58,34 @@ jobs:
           Write-Host ('NPM_CI_EXIT='+$install)
           $test=99;$build=99
           if($install -eq 0){
-            & node --test --test-reporter=tap *> (Join-Path $out 'node.log')
+            # Only fixed numeric coordinates are public: file ordinal in the
+            # sorted private test inventory and test declaration line. Never
+            # emit a path, test name, assertion, message or stack trace.
+            $reporter=Join-Path $out 'numeric-reporter.mjs'
+            @'
+            import {readdirSync} from 'node:fs';
+            import {resolve} from 'node:path';
+            const files=readdirSync('tests',{withFileTypes:true})
+              .filter(x=>x.isFile()&&x.name.endsWith('.test.mjs')).map(x=>x.name).sort()
+              .map(name=>resolve('tests',name));
+            export default async function* reporter(source){
+              for await(const event of source){
+                if(event.type!=='test:fail')continue;
+                const d=event.data;
+                const i=typeof d.file==='string'?files.indexOf(resolve(d.file))+1:0;
+                const n=Number.isSafeInteger(d.line)&&d.line>=0&&d.line<=999999?d.line:0;
+                yield 'NODE_FAILURE_CODE=N'+String(i).padStart(3,'0')+'_L'+String(n).padStart(6,'0')+'\n';
+              }
+            }
+            '@ | Set-Content -LiteralPath $reporter -Encoding utf8
+            $nodeLog=Join-Path $out 'node.log'
+            $nodeCodes=Join-Path $out 'node-codes.log'
+            & node --test --test-reporter=tap "--test-reporter-destination=$nodeLog" "--test-reporter=$reporter" "--test-reporter-destination=$nodeCodes" *> (Join-Path $out 'node-invocation.log')
             $test=$LASTEXITCODE
-            $raw=Get-Content -LiteralPath (Join-Path $out 'node.log') -Raw
+            if(Test-Path -LiteralPath $nodeCodes){
+              @(Get-Content -LiteralPath $nodeCodes | Where-Object {$_ -cmatch '^NODE_FAILURE_CODE=N[0-9]{3,4}_L[0-9]{6}$'}) | Sort-Object -Unique | ForEach-Object {Write-Host $_}
+            }
+            $raw=Get-Content -LiteralPath $nodeLog -Raw -ErrorAction SilentlyContinue
             foreach($k in @('tests','pass','fail','cancelled','skipped','todo')){
               if($raw -match ('(?m)^# '+$k+' ([0-9]+)\s*$')){
                 Write-Host ('NODE_'+$k.ToUpperInvariant()+'='+$Matches[1])
@@ -78,8 +103,22 @@ jobs:
           Write-Host ('PIP_EXIT='+$pip)
           $py=99
           if($pip -eq 0){
-            & python -m pytest -q tests/test_work_areas_interaction.py *> (Join-Path $out 'pytest.log')
+            $junit=Join-Path $out 'pytest.xml'
+            & python -m pytest -q tests/test_work_areas_interaction.py -o junit_family=xunit1 "--junitxml=$junit" *> (Join-Path $out 'pytest.log')
             $py=$LASTEXITCODE
+            # JUnit stays on the disposable runner. Only the numeric line of
+            # a failed case in this already specified module is emitted.
+            if(Test-Path -LiteralPath $junit){
+              try{
+                [xml]$report=Get-Content -LiteralPath $junit -Raw
+                foreach($case in $report.SelectNodes('//testcase[failure or error]')){
+                  $line=[string]$case.GetAttribute('line')
+                  if($line -cmatch '^[0-9]{1,6}$'){
+                    Write-Host ('PYTEST_FAILURE_CODE=P_L'+(([int]$line+1).ToString('D6')))
+                  }else{Write-Host 'PYTEST_FAILURE_CODE=P_L000000'}
+                }
+              }catch{Write-Host 'PYTEST_FAILURE_CODE=P_L000000'}
+            }
             $raw=Get-Content -LiteralPath (Join-Path $out 'pytest.log') -Raw
             foreach($k in @('passed','failed','errors','skipped','deselected')){
               $match=[regex]::Match([string]$raw,'(?m)([0-9]+) '+$k+'\b')
