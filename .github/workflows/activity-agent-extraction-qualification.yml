@@ -19,6 +19,7 @@ jobs:
       PRIVATE_PIN: d89feff67f9ae1422fd463b3892e9b4ea12756e7
       PRIVATE_TREE: 50a8c487a03f303065c9b1b62edcebade98bc539
       PUBLIC_PIN: 1b9ceda616a35f15078751d4d65729d17edf9e4b
+      BASELINE_PIN: 57b701c6b7a1ede36dca70b2b0d2065b1ec577e0
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,6 +32,7 @@ jobs:
           ref: d89feff67f9ae1422fd463b3892e9b4ea12756e7
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private-agent
+          fetch-depth: 8
           persist-credentials: false
           show-progress: false
       - uses: actions/checkout@v4
@@ -88,6 +90,16 @@ jobs:
             foreach($code in @('activity_cross_runtime_request_failed','activity_cross_runtime_document_mismatch','activity_cross_runtime_digest_mismatch','activity_extraction_selection_unavailable','activity_extraction_acceptance_unverified','activity_extraction_task_scope_changed','activity_extraction_source_content_limit','activity_extraction_source_empty')){
               if($raw.Contains($code)){Write-Host ('DIAGNOSTIC='+$code)}
             }
+            # Only known code file aliases, line numbers and error types.
+            foreach($m in [regex]::Matches($raw,'(?m)(test_activity_(?:routine_source|personal_extraction|technology_consumer)\.py|activity_(?:routine_source|personal_extraction|technology_consumer)\.py):(\d+):')){
+              Write-Host ('TRACE_LINE='+$m.Groups[1].Value+':'+$m.Groups[2].Value)
+            }
+            foreach($m in [regex]::Matches($raw,'(?m)^\s*E\s+([A-Za-z]+Error)\b')){
+              Write-Host ('EXCEPTION_TYPE='+$m.Groups[1].Value)
+            }
+            foreach($m in [regex]::Matches($raw,'(?m)^\s*E\s+(?:ValueError|AssertionError|KeyError):\s*(activity_[a-z_]{1,100})\b')){
+              Write-Host ('FIXED_ACTIVITY_CODE='+$m.Groups[1].Value)
+            }
             Write-Host ('ORIGINAL_CORE_EXTRACTION='+$(if($exit -eq 0){'PASS'}else{'FAIL'}))
             if($exit -ne 0){throw 'ORIGINAL_CORE_EXTRACTION_FAILED'}
           }finally{Pop-Location}
@@ -121,6 +133,23 @@ jobs:
             }
             foreach($m in [regex]::Matches($raw,'(?m)^not ok (\d+) - ')){Write-Host ('FAILED_TEST_INDEX='+$m.Groups[1].Value)}
             Write-Host ('NODE_SUITE='+$(if($testExit -eq 0){'PASS'}else{'FAIL'}))
+            if($testExit -ne 0){
+              $baseline=Join-Path $env:RUNNER_TEMP 'activity-private-baseline-node.out'
+              $checkout=Join-Path $env:RUNNER_TEMP 'activity-private-baseline-checkout.out'
+              git -c advice.detachedHead=false checkout --detach $env:BASELINE_PIN *> $checkout
+              if($LASTEXITCODE -ne 0 -or ((& git rev-parse HEAD).Trim() -cne $env:BASELINE_PIN)){throw 'BASELINE_PIN_UNAVAILABLE'}
+              node --test --test-reporter=tap *> $baseline
+              $baseExit=$LASTEXITCODE
+              $baseRaw=Get-Content -LiteralPath $baseline -Raw
+              $currentNames=@([regex]::Matches($raw,'(?m)^not ok \d+ - ([^\r\n]+)') | ForEach-Object {$_.Groups[1].Value})
+              $baseNames=@([regex]::Matches($baseRaw,'(?m)^not ok \d+ - ([^\r\n]+)') | ForEach-Object {$_.Groups[1].Value})
+              Write-Host ('BASELINE_NODE_FAILED='+$baseNames.Count)
+              $new=@($currentNames | Where-Object {$_ -cnotin $baseNames})
+              $resolved=@($baseNames | Where-Object {$_ -cnotin $currentNames})
+              Write-Host ('NEW_NODE_FAILURES='+$new.Count)
+              Write-Host ('RESOLVED_NODE_FAILURES='+$resolved.Count)
+              if($baseExit -ne 0 -and $baseNames.Count -eq 0){throw 'BASELINE_TEST_OUTCOME_UNAVAILABLE'}
+            }
             if($buildExit -ne 0 -or $testExit -ne 0){throw 'DESKTOP_QUALIFICATION_FAILED'}
           }finally{Pop-Location}
       - name: Remove private source and temporary logs
