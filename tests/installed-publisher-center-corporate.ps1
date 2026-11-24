@@ -13,7 +13,8 @@ param(
   [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedOwnerSha256,
   [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$ExpectedConsumerSha256,
   [Parameter(Mandatory=$true)][string]$IssuerAuthorityId,
-  [Parameter(Mandatory=$true)][switch]$DedicatedTestProfile
+  [Parameter(Mandatory=$true)][switch]$DedicatedTestProfile,
+  [switch]$QualifySeatProjection
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -35,6 +36,10 @@ public static class CorporateQualificationGui {
  [DllImport("user32.dll")] public static extern void mouse_event(uint flags,uint dx,uint dy,uint data,UIntPtr extra);
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+ [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h, int id);
+ [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+ [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out Rect r);
+ [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
 }
 '@
 $publisherPath=[IO.Path]::GetFullPath($PublisherExe)
@@ -304,6 +309,119 @@ function Wait-Text($process,[string]$contains,[int]$attempts=70){
   }
   throw "CORPORATE_GUI_GUI_CONFIRMATION_NOT_FOUND $contains"
 }
+# Optional cross-product installed seat projection. The existing local-only
+# gate remains mandatory. All writes use the normal human-confirmed GUI.
+function Has-Text($process,[string]$contains,[bool]$exact=$false){
+  $all=(Window $process).FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition)
+  foreach($entry in $all){
+    try{
+      $name=([string]$entry.Current.Name).Trim()
+      if(($exact -and $name -ceq $contains) -or (!$exact -and $name.Contains($contains))){return $true}
+    }catch{}
+  }
+  return $false
+}
+function Original-Confirm($process,[string]$title){
+  for($i=0;$i -lt 100;$i++){
+    $windows=[System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+      [System.Windows.Automation.TreeScope]::Children,
+      [System.Windows.Automation.Condition]::TrueCondition)
+    $matching=@()
+    foreach($window in $windows){
+      try{
+        if($window.Current.ProcessId -eq $process.Id -and
+           $window.Current.Name -ceq $title -and
+           $window.Current.NativeWindowHandle -ne $process.MainWindowHandle){
+          $matching+=,$window
+        }
+      }catch{}
+    }
+    if($matching.Count -gt 1){throw 'CORPORATE_SEAT_NATIVE_DIALOG_AMBIGUOUS'}
+    if($matching.Count -eq 1){
+      $dialog=[IntPtr]$matching[0].Current.NativeWindowHandle
+      [void][CorporateQualificationGui]::SetForegroundWindow($dialog)
+      Start-Sleep -Milliseconds 180
+      if([CorporateQualificationGui]::GetForegroundWindow() -ne $dialog){
+        throw 'CORPORATE_SEAT_NATIVE_DIALOG_NOT_FOREGROUND'
+      }
+      # Exact rfd YesNo TaskDialog, button IDYES=6.
+      $button=[CorporateQualificationGui]::GetDlgItem($dialog,6)
+      $rect=[CorporateQualificationGui+Rect]::new()
+      if($button -eq [IntPtr]::Zero -or
+         ![CorporateQualificationGui]::GetWindowRect($button,[ref]$rect) -or
+         ($rect.Right-$rect.Left) -lt 4 -or ($rect.Bottom-$rect.Top) -lt 4){
+        throw 'CORPORATE_SEAT_NATIVE_DIALOG_BUTTON_INVALID'
+      }
+      [System.Windows.Forms.Cursor]::Position=[System.Drawing.Point]::new(
+        [int][Math]::Round(($rect.Left+$rect.Right)/2),
+        [int][Math]::Round(($rect.Top+$rect.Bottom)/2))
+      [CorporateQualificationGui]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 80
+      [CorporateQualificationGui]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+      for($j=0;$j -lt 80;$j++){
+        if(![CorporateQualificationGui]::IsWindow($dialog)){return}
+        Start-Sleep -Milliseconds 150
+      }
+      throw 'CORPORATE_SEAT_NATIVE_DIALOG_NOT_DISMISSED'
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  throw 'CORPORATE_SEAT_NATIVE_DIALOG_NOT_FOUND'
+}
+function Wait-ExactText($process,[string]$value,[int]$attempts=240){
+  for($i=0;$i -lt $attempts;$i++){
+    if(Has-Text $process $value $true){return}
+    Start-Sleep -Milliseconds 250
+  }
+  throw 'CORPORATE_SEAT_EXACT_CAPACITY_READBACK_NOT_OBSERVED'
+}
+function Center-SeatProjection([bool]$first,[int]$seatLimit,[int]$employeeLimit){
+  if($seatLimit -ge 0){
+    Press $cen 'Перейти к распределению мест' $true
+  }else{
+    Press $cen 'Управление корпоративными местами' $true
+  }
+  if($first){
+    Press $cen 'Подключить организацию' $true
+    Original-Confirm $cen 'IWXA T3: подключить организацию'
+  }
+  Wait-Text $cen 'Подписанный T3 D3 получатель доступен' 360
+  Press $cen 'Открыть Workspace T3' $true
+  Wait-Text $cen 'К приёмке' 160
+  Wait-Text $cen 'Рабочие данные находятся в локальном пространстве домена' 240
+  Press $cen 'К приёмке' $true
+  if($first){
+    Wait-Text $cen 'Исходный реестр сотрудников ещё не создан' 240
+    Press $cen 'Подключить исходный реестр T3' $true
+    Original-Confirm $cen 'IWXA T3: исходный корпоративный реестр'
+  }
+  Wait-Text $cen 'Зарезервированные места / лимит' 240
+  if($first -and (Has-Text $cen 'Подключить распределение мест' $true)){
+    Press $cen 'Подключить распределение мест' $true
+    Original-Confirm $cen 'IWXA T3: распределение корпоративных мест'
+    Wait-Text $cen 'Продуктовая политика подтверждена исходным T3.' 240
+  }
+  # Exact accessible metric groups from the real Center seat view. No
+  # similarly named draft metric or copied license data counts as evidence.
+  if($seatLimit -ge 0){
+    Wait-Text $cen 'Подписанная лицензия актуальна' 240
+    Wait-ExactText $cen ('Зарезервированные места: 0 / '+$seatLimit)
+    Wait-ExactText $cen ('Зарегистрированные сотрудники: 0 / '+$employeeLimit)
+    Wait-ExactText $cen ('Свободно для назначения: '+$seatLimit)
+  }else{
+    Wait-Text $cen 'Нет действующей лицензии' 240
+    Wait-ExactText $cen 'Зарезервированные места: 0 / —'
+    Wait-ExactText $cen 'Свободно для назначения: 0'
+    if(Has-Text $cen 'Подписанная лицензия актуальна'){
+      throw 'CORPORATE_SEAT_STALE_LICENSE_VISIBLE'
+    }
+  }
+  Wait-Text $cen 'Назначений нет.' 240
+  # Receiving a license does not enroll an employee or assign a seat.
+  Press $cen 'Personal Agent и лицензии' $true
+}
 function Native-FileDialog($process,[string]$button,[string]$file,[bool]$exists){
   if((Test-Path -LiteralPath $file -PathType Leaf) -ne $exists){
     throw "CORPORATE_GUI_DIALOG_PRECONDITION_FAILED $button"
@@ -447,6 +565,14 @@ try{
   Enter $cen 'Название' 'IWXA Corporate Qualification'
   Select-Last $cen 'Тип'
   Press $cen 'Создать черновик организации'
+  if($QualifySeatProjection){
+    Press $cen 'Планы Atlas' $true
+    Wait-Text $cen 'Планы Atlas и рабочие области'
+    Enter $cen 'Название рабочей области' 'CorporateQualificationWorkspace'
+    Press $cen 'Добавить' $true
+    Wait-Text $cen 'CorporateQualificationWorkspace'
+    Wait-Text $cen 'План Atlas пока не указан'
+  }
   Press $cen 'Сохранить на компьютере'
   $draft=Wait-Preparation $centerDraft {param($x) @($x.organizations).Count -eq 1}
   $org=[string]$draft.organizations[0].id
@@ -537,12 +663,20 @@ try{
   Wait-Text $cen 'Фактические назначения и свободные места определяются по исходному реестру T3.'
   Wait-Text $cen 'Перейти к распределению мест'
   $checks.Add('CENTER_ORIGINAL_SIGNATURES_AND_SIGNED_TERMS_READBACK')
+  if($QualifySeatProjection){
+    Center-SeatProjection $true 2 10
+    $checks.Add('CENTER_INSTALLED_ORIGINAL_REGISTRY_USES_SIGNED_TARIFF_2_10')
+  }
   Stop-App $cen
   $cen=Start-App $centerPath
   Press $cen 'Personal Agent и лицензии'
   Wait-Text $cen 'Тариф TEAM, редакция 1'
   $null=Verify-Center $org $active 1 (Digest $activeFile)
   $checks.Add('CENTER_COLD_RESTART_ORIGINAL_STORE')
+  if($QualifySeatProjection){
+    Center-SeatProjection $false 2 10
+    $checks.Add('CENTER_INSTALLED_REGISTRY_AND_LICENSE_COLD_READBACK')
+  }
   Center-Receive $handoff $activeFile
   Wait-Text $cen 'Новая запись не создана'
   $null=Verify-Center $org $active 1 (Digest $activeFile)
@@ -584,6 +718,10 @@ try{
   Center-Receive $suspendedHandoff $suspendedFile
   $null=Verify-Center $org $suspended 2 (Digest $suspendedFile)
   $checks.Add('CENTER_RECEIVES_SIGNED_SUSPENSION')
+  if($QualifySeatProjection){
+    Center-SeatProjection $false -1 -1
+    $checks.Add('CENTER_INSTALLED_REGISTRY_SUSPENSION_REMOVES_AVAILABLE_CAPACITY')
+  }
   Center-Receive $handoff $activeFile $false
   $null=Verify-Center $org $suspended 2 (Digest $suspendedFile)
   $checks.Add('CENTER_SUSPENSION_CANNOT_BE_ROLLED_BACK_BY_OLD_ACTIVE')
@@ -643,6 +781,10 @@ try{
     throw 'CORPORATE_NATIVE_REPLACEMENT_NOT_SINGLE_CAPACITY'
   }
   $checks.Add('CENTER_RENEWAL_REPLACES_OLD_LIMITS_WITHOUT_SUMMING')
+  if($QualifySeatProjection){
+    Center-SeatProjection $false 1 6
+    $checks.Add('CENTER_INSTALLED_REGISTRY_USES_RENEWAL_LIMIT_1_6')
+  }
   Stop-App $cen
   $cen=Start-App $centerPath
   Press $cen 'Personal Agent и лицензии'
@@ -661,6 +803,10 @@ try{
     throw 'CORPORATE_NATIVE_REVOKED_SUCCESSOR_REVIVES_OLD_TARIFF'
   }
   $checks.Add('CENTER_REVOKED_SUCCESSOR_DOES_NOT_RESTORE_PREDECESSOR')
+  if($QualifySeatProjection){
+    Center-SeatProjection $false -1 -1
+    $checks.Add('CENTER_INSTALLED_REGISTRY_REVOKED_SUCCESSOR_NO_CAPACITY')
+  }
   Enter $pub 'Точный requestId, licenseId или organizationId исходного T3' $id
   Press $pub 'Прочитать подписанный журнал T3'
   Wait-Text $pub 'STATUS: SUSPENDED, последовательность 2'
@@ -689,6 +835,8 @@ try{
     originalEd25519=$true
     originalWindowsDpapi=$true
     commercialAuthorityProven=$false
+    originalSeatProjectionQualified=[bool]$QualifySeatProjection
+    employeeSeatAssignmentsQualified=$false
     holderApplied=$false
     activeSeats=0
     assignablePersonalAgentSeats=0
