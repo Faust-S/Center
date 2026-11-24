@@ -10,12 +10,12 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: corporate-installed-one-core-${{ github.ref }}
+  group: corporate-installed-one-core-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 env:
   T3_PIN: 'e5b66db0cb9859fb83db66168a1ebaea1832d2cb'
   CORE_PIN: 'd89ec3ead3e660a7865043d1ecacd7f2b259f6cc'
-  CENTER_PIN: 'a20552fedbdec9122cdd56217cfd4e0665186eb5'
+  CENTER_PIN: '19d01e80107fe6b2e348706f474ba32d5f110c4c'
   PUBLISHER_PIN: 'f7f79480180347b5847842ab64f35088c0548554'
   AGENT_PIN: 'a0b36742f69b6ddc243d3da1c2b2a998f868be2c'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
@@ -106,8 +106,17 @@ jobs:
           & npm.cmd run build --prefix one-core/packages/t3-core *> $log
           if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_ONE_CORE_BUILD_FAILED'}
           Write-Host 'CORPORATE_INSTALLED_ONE_CORE_BUILD=PASS'
-          & npm.cmd install --prefix admin --no-audit --no-fund *> $log
-          if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_ADMIN_NPM_FAILED'}
+          Push-Location admin
+          try{
+            if(!(Test-Path -LiteralPath 'package.json' -PathType Leaf)){throw 'CORPORATE_INSTALLED_ADMIN_MANIFEST_MISSING'}
+            & npm.cmd install --no-audit --no-fund *> $log
+            if($LASTEXITCODE -ne 0){
+              $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              $codes=@([regex]::Matches($raw,'(?m)^npm (?:ERR!|error) code ([A-Z0-9_-]+)')|ForEach-Object {$_.Groups[1].Value}|Select-Object -Unique)
+              Write-Host ('CORPORATE_INSTALLED_ADMIN_NPM_CODES='+($codes -join ','))
+              throw 'CORPORATE_INSTALLED_ADMIN_NPM_FAILED'
+            }
+          }finally{Pop-Location}
           Write-Host 'CORPORATE_INSTALLED_ADMIN_DEPENDENCIES=PASS'
       - name: Build actual signed Owner Consumer Admin and unified Setup Core
         shell: pwsh
@@ -182,8 +191,16 @@ jobs:
           $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-publisher-build-private.log'
           $out=Join-Path $env:RUNNER_TEMP 'corporate-publisher-setup'
           New-Item -ItemType Directory -Path $out|Out-Null
-          & npm.cmd install --prefix publisher --no-audit --no-fund *> $log
-          if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_NPM_FAILED'}
+          Push-Location publisher
+          try{
+            & npm.cmd install --no-audit --no-fund *> $log
+            if($LASTEXITCODE -ne 0){
+              $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+              $codes=@([regex]::Matches($raw,'(?m)^npm (?:ERR!|error) code ([A-Z0-9_-]+)')|ForEach-Object {$_.Groups[1].Value}|Select-Object -Unique)
+              Write-Host ('CORPORATE_INSTALLED_PUBLISHER_NPM_CODES='+($codes -join ','))
+              throw 'CORPORATE_INSTALLED_PUBLISHER_NPM_FAILED'
+            }
+          }finally{Pop-Location}
           $source=(Resolve-Path 'admin/artifacts/private-t3-d3-payload/t3').Path
           $env:IWXA_T3_PRODUCT_OWNER_SHA256=(Get-FileHash -LiteralPath (Join-Path $source 'iwxa-t3-product-owner.exe')).Hash.ToLowerInvariant()
           $env:IWXA_T3_AGE_DESKTOP_OWNER_SHA256=(Get-FileHash -LiteralPath (Join-Path $source 'iwxa-t3-age-desktop.exe')).Hash.ToLowerInvariant()
@@ -246,6 +263,7 @@ jobs:
           Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'corporate-installed-*-private.*' -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue
           Write-Host 'CORPORATE_INSTALLED_PRIVATE_CLEANUP=COMPLETE'
   agent:
+    if: ${{ github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'ci(admin):') }}
     runs-on: windows-2022
     timeout-minutes: 100
     steps:
