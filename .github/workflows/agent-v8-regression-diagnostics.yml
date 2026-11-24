@@ -11,7 +11,7 @@ permissions:
   contents: read
 concurrency:
   group: agent063-source-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   qualify:
     strategy:
@@ -21,8 +21,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     env:
-      PRIVATE_PIN: 'd718e6ee0d9ce5ad8a94aad0d5a0ebd50675c843'
-      PRIVATE_TREE: 'ed2b1a17e51299087a7d9f1d2b8dee391242affa'
+      PRIVATE_PIN: '441189aaae42a1f1ca861d23a2f92fa52430201a'
+      PRIVATE_TREE: '6074929241eb73e3e030960aa1bd8ecdb0fee32c'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
       PIP_NO_CACHE_DIR: '1'
