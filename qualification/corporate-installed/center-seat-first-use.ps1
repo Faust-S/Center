@@ -44,26 +44,45 @@ function OpenSeatRoute(){
 }
 function WaitWorkspaceGate(){
  # A signed corporate Workspace can be created automatically by original T3.
- # Absence of a create button is not proof of readiness. The subsequent
- # original registry readback is mandatory and is the actual Kernel witness.
+ # Positive original Overview content is rendered only after the selected
+ # signed Workspace gate has returned its verified readback.
  for($i=0;$i -lt 240;$i++){
   if((HasText 'Control не подтвердил чтение выбранной Workspace') -or
      (HasText 'Не удалось открыть изолированную подписанную Workspace') -or
      (HasText 'Подписанный доступ Control отозван')){
    throw 'CORPORATE_INSTALLED_SEAT_WORKSPACE_DENIED'
   }
-  if((HasText 'Подписанная Workspace недоступна') -or
-     (HasText 'Проверяем выбранную подписанную Workspace') -or
-     (HasText 'Создать выбранную Workspace') -or
-     (HasText 'Создаём и проверяем')){
-    Start-Sleep -Milliseconds 350
-    continue
+  if((HasText 'Рабочие данные находятся в локальном пространстве домена') -and
+     (-not (HasText 'Проверяем выбранную подписанную Workspace')) -and
+     (-not (HasText 'Создаём и проверяем'))){
+    Write-Host 'CORPORATE_INSTALLED_SEAT_WORKSPACE_GATE_READY_PASS'
+    return
   }
-  # Returning to the manager does not assert Workspace readiness. The
-  # mandatory registry read below must independently prove the signed Kernel.
-  return
+  Start-Sleep -Milliseconds 350
  }
  throw 'CORPORATE_INSTALLED_SEAT_WORKSPACE_GATE_NOT_READY'
+}
+function WriteSeatDiagnostics(){
+ # Only fixed presence codes. Never publish names, IDs, payloads or UI trees.
+ $signals=@(
+  @('OWNER_READY','Подписанный T3 D3 получатель доступен'),
+  @('WORKSPACE_CHECKING','Проверяем выбранную подписанную Workspace'),
+  @('WORKSPACE_MISSING','Подписанная Workspace недоступна'),
+  @('WORKSPACE_CREATE','Создать выбранную Workspace'),
+  @('WORKSPACE_CREATING','Создаём и проверяем'),
+  @('WORKSPACE_DENIED','Control не подтвердил чтение выбранной Workspace'),
+  @('WORKSPACE_ISOLATED_ERROR','Не удалось открыть изолированную подписанную Workspace'),
+  @('WORKSPACE_READY','Рабочие данные находятся в локальном пространстве домена'),
+  @('REGISTRY_CHECKING','Проверяем выбранную Workspace и читаем исходный реестр'),
+  @('REGISTRY_MISSING','Исходный реестр сотрудников ещё не создан'),
+  @('REGISTRY_FAILED','Чтение реестра не подтверждено'),
+  @('REGISTRY_TIMEOUT','Исходная Workspace ещё не подтвердила готовность'),
+  @('REGISTRY_INIT','Подключить исходный реестр T3'),
+  @('SEATS_VIEW','Зарезервированные места / лимит')
+ )
+ foreach($signal in $signals){
+  if(HasText $signal[1]){Write-Host ('CORPORATE_INSTALLED_SEAT_DIAG_'+$signal[0])}
+ }
 }
 function WaitSeatProjection(){
  Check (WaitForText 'Зарезервированные места / лимит' 240) 'CORPORATE_INSTALLED_SEAT_ORIGINAL_VIEW_NOT_OBSERVED'
@@ -106,6 +125,10 @@ try{
  WaitSeatProjection
  Check (-not (HasText 'Подключить исходный реестр T3')) 'CORPORATE_INSTALLED_SEAT_COLD_REGISTRY_NOT_RESTORED'
  Write-Host 'CORPORATE_INSTALLED_SEAT_COLD_READ_PASS'
+}catch{
+ try{WriteSeatDiagnostics}catch{Write-Host 'CORPORATE_INSTALLED_SEAT_DIAG_UNAVAILABLE'}
+ Write-Host ('CORPORATE_INSTALLED_SEAT_PHASE_'+$script:phase)
+ throw
 }finally{
  if($global:appProcess){try{CloseCenter -strict $false}catch{Write-Host 'CORPORATE_INSTALLED_SEAT_CLEANUP_NONBLOCKING'}}
 }
