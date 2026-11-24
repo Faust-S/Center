@@ -20,9 +20,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: f0f1737e0cfbb03f21834acea1cbd894ffd395da
+          ref: 342c1e215337db57d05a2c3e099e488a24d510c2
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: original-t3
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: f0f1737e0cfbb03f21834acea1cbd894ffd395da
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: baseline-t3
           persist-credentials: false
           show-progress: false
       - uses: actions/checkout@v4
@@ -36,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 60996ca3171b8fd853c6bd8fb58d2990ea54e4b9
+          ref: e4eddf4369db5a7d6efe9a979210b9d80448ba71
           path: one-core
           persist-credentials: false
           show-progress: false
@@ -49,7 +57,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $PSNativeCommandUseErrorActionPreference=$false
-          foreach($p in @(@('original-t3','f0f1737e0cfbb03f21834acea1cbd894ffd395da'),@('agent','186edcd4fb5fca733a5a35b639a7e6771ec7456e'),@('one-core','60996ca3171b8fd853c6bd8fb58d2990ea54e4b9'))){
+          foreach($p in @(@('original-t3','342c1e215337db57d05a2c3e099e488a24d510c2'),@('agent','186edcd4fb5fca733a5a35b639a7e6771ec7456e'),@('one-core','e4eddf4369db5a7d6efe9a979210b9d80448ba71'))){
             if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'SOURCE_PIN_MISMATCH'}
           }
           Write-Host 'ORIGINAL_SOURCE_PINS=PASS'
@@ -73,12 +81,31 @@ jobs:
              $r.productionActivation -ne $false){throw 'ORIGINAL_EMPLOYEE_SEAT_PROCESS_RECEIPT_INVALID'}
           Write-Host ('ORIGINAL_EMPLOYEE_SEAT_SOURCE_PROCESS_CHECKS='+[int]$r.checks)
           Write-Host 'ORIGINAL_EMPLOYEE_SEAT_SOURCE_PROCESS=PASS'
+      - name: Same runner baseline of native signed Workspace latency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C baseline-t3 rev-parse HEAD).Trim() -cne 'f0f1737e0cfbb03f21834acea1cbd894ffd395da'){throw 'SOURCE_PIN_MISMATCH'}
+          if((& git -C one-core rev-parse HEAD).Trim() -cne 'e4eddf4369db5a7d6efe9a979210b9d80448ba71'){throw 'SOURCE_PIN_MISMATCH'}
+          $log=Join-Path $env:RUNNER_TEMP 'admin-workspace-baseline-private.log'
+          $out=Join-Path $env:RUNNER_TEMP 'admin-workspace-baseline-private.json'
+          & node qualification/corporate-installed/original-admin-workspace-jit.mjs (Resolve-Path baseline-t3).Path (Resolve-Path one-core/packages/t3-core).Path 1>$out 2>$log
+          if($LASTEXITCODE -ne 0){throw 'ORIGINAL_ADMIN_WORKSPACE_BASELINE_FAILED'}
+          $r=Get-Content -LiteralPath $out -Raw|ConvertFrom-Json
+          if($r.result -ne 'PASS' -or $r.originalControlHttp -ne $true -or $r.windowsDpapi -ne $true -or
+             $r.creates -ne 1 -or $r.realKernel -ne $false -or $r.productionActivation -ne $false){throw 'ORIGINAL_ADMIN_WORKSPACE_BASELINE_RECEIPT_INVALID'}
+          foreach($stage in @('selectRead','readJit','createJit','readbackJit','messagePortRead')){
+            $elapsed=$r.timings.$stage
+            if($null -eq $elapsed -or [double]$elapsed -lt 0 -or [double]$elapsed -gt 300000){throw 'JIT_TIMING_INVALID'}
+            Write-Host ('ADMIN_WORKSPACE_BASELINE_MS_'+$stage.ToUpperInvariant()+'='+[int]$elapsed)
+          }
+          Write-Host 'ADMIN_WORKSPACE_BASELINE=PASS'
       - name: Original DPAPI Admin first-run signed read/create through Control HTTP
         if: ${{ !cancelled() }}
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          foreach($p in @(@('original-t3','f0f1737e0cfbb03f21834acea1cbd894ffd395da'),@('agent','186edcd4fb5fca733a5a35b639a7e6771ec7456e'),@('one-core','60996ca3171b8fd853c6bd8fb58d2990ea54e4b9'))){
+          foreach($p in @(@('original-t3','342c1e215337db57d05a2c3e099e488a24d510c2'),@('agent','186edcd4fb5fca733a5a35b639a7e6771ec7456e'),@('one-core','e4eddf4369db5a7d6efe9a979210b9d80448ba71'))){
             if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'SOURCE_PIN_MISMATCH'}
           }
           $log=Join-Path $env:RUNNER_TEMP 'admin-workspace-jit-private.log'
@@ -102,12 +129,19 @@ jobs:
             Write-Host ('ADMIN_WORKSPACE_JIT_MS_'+$stage.ToUpperInvariant()+'='+[int]$elapsed)
           }
           Write-Host 'ADMIN_WORKSPACE_JIT=PASS'
+          # The original 15-second user-route budget is an explicit performance
+          # target, not a substitute for the functional acceptance above.
+          if([double]$r.timings.messagePortRead -lt 15000){
+            Write-Host 'ADMIN_WORKSPACE_JIT_PREVIOUS_15S_BUDGET=PASS'
+          }else{
+            Write-Host 'ADMIN_WORKSPACE_JIT_PREVIOUS_15S_BUDGET=HOLD'
+          }
       - name: Discard transient private sources and local test data
         if: always()
         shell: pwsh
         run: |
-          foreach($p in @('original-t3','agent')){Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}
-          foreach($pattern in @('employee-seat-process-private.*','admin-workspace-jit-private.*')){
+          foreach($p in @('original-t3','baseline-t3','agent')){Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue}
+          foreach($pattern in @('employee-seat-process-private.*','admin-workspace-jit-private.*','admin-workspace-baseline-private.*')){
             Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter $pattern -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
           }
           foreach($pattern in @('iwxa-corporate-employee-process-*','iwxa-admin-workspace-jit-*')){
@@ -116,3 +150,56 @@ jobs:
           Write-Host 'PRIVATE_CLEANUP=COMPLETE'
 # Test-only original registry fixture, not a real Kernel or installed GUI.
 # No publication, cache, private log or binary artifact.
+
+  original-context-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 342c1e215337db57d05a2c3e099e488a24d510c2
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: original-t3
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Original AccessRegistry and native Admin context regressions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C original-t3 rev-parse HEAD).Trim() -cne '342c1e215337db57d05a2c3e099e488a24d510c2'){throw 'SOURCE_PIN_MISMATCH'}
+          $log=Join-Path $env:RUNNER_TEMP 'admin-context-regression-private.log'
+          Push-Location original-t3
+          try{
+            & node --check access-control/registry.mjs *> $log
+            if($LASTEXITCODE -ne 0){throw 'CONTEXT_REGISTRY_SYNTAX_FAILED'}
+            & node --check interop/runtime.mjs *> $log
+            if($LASTEXITCODE -ne 0){throw 'CONTEXT_RUNTIME_SYNTAX_FAILED'}
+            & node --test tests/access-control.test.mjs tests/admin-original-host-port.test.mjs tests/access-organizational-operation.test.mjs tests/access-status-chronology.test.mjs tests/access-revocation-tombstone-integrity.test.mjs *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            foreach($n in @('tests','pass','fail','cancelled','skipped')){
+              $m=[regex]::Matches($raw,"(?m)^# $n (\d+)\s*$")
+              if($m.Count -gt 0){Write-Host ("ADMIN_CONTEXT_"+$n.ToUpperInvariant()+"="+$m[$m.Count-1].Groups[1].Value)}
+            }
+            if($exit -ne 0){
+              $indices=@([regex]::Matches($raw,'(?m)^not ok (\d+)')|ForEach-Object {$_.Groups[1].Value}|Select-Object -First 20)
+              Write-Host ('ADMIN_CONTEXT_FAILED_TEST_ORDINALS='+($indices -join ','))
+              throw 'ADMIN_CONTEXT_REGRESSION_FAILED'
+            }
+            Write-Host 'ADMIN_CONTEXT_REGRESSION=PASS'
+          }finally{Pop-Location}
+      - name: Discard private sources and private test output
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath original-t3 -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'admin-context-regression-private.log') -Force -ErrorAction SilentlyContinue
+          Write-Host 'PRIVATE_CLEANUP=COMPLETE'
