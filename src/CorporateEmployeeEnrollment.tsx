@@ -1,8 +1,9 @@
 import React,{useEffect,useState} from 'react';
 import CorporateSeatAssignments from './CorporateSeatAssignments';
-import {readOriginalEmployeeRegistryReceipt} from '../runtime/cen03-corporate-seats.mjs';
+import {readOriginalEmployeeRegistryReceipt,readOriginalSeatView} from '../runtime/cen03-corporate-seats.mjs';
 import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskReadback,readOriginalEmployeeBootstrap,readOriginalEmployeePublicCandidate,
- employeeTaskContinuationKey,readEmployeeTaskContinuation,saveEmployeeTaskContinuation,clearEmployeeTaskContinuation}
+ employeeTaskContinuationKey,readEmployeeTaskContinuation,saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
+ readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity}
  from '../runtime/cen03-d3-owner.mjs';
 
 // This is a manager's view of the ORIGINAL installed T3 employee enrollment.
@@ -54,6 +55,8 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  // A preselected organizational contact is only a local draft hint;
  // never infer an employee PROOF key, signed identity or active grant.
  const [contact,setContact]=useState(()=>contacts.some(c=>c.id===preferredContactId)?preferredContactId??'':'');
+ const [roster,setRoster]=useState<any>(null);
+ const [rosterChoice,setRosterChoice]=useState('');
  const [personId,setPersonId]=useState('');
  const [keyId,setKeyId]=useState('');
  const [publicRecord,setPublicRecord]=useState('');
@@ -106,41 +109,16 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
  // A status flag alone must never display another employee's corporate
  // rights as belonging to the currently selected identity. Original T3
  // verifies every signed envelope; the UI binds its exact public readback.
- const exportResources=[
-   'workspace:'+session.workspaceId,'subject:'+session.organizationId,
-   'recipient:'+session.organizationId,'field:result','operation:UPSERT'
- ];
- const enrolled=credentialOk&&personOk&&
-   enrollmentReceipt?.state==='ORIGINAL_GRANTS_ACTIVE'&&
-   enrollmentReceipt.employeePersonId===personId&&
-   enrollmentReceipt.organizationId===session.organizationId&&
-   enrollmentReceipt.originalReadback===true&&
-   enrollmentReceipt.originalSigned===true&&
-   enrollmentReceipt.safeToReissue===false&&
-   enrollmentReceipt.membership?.personId===personId&&
-   enrollmentReceipt.membership?.organizationId===session.organizationId&&
-   enrollmentReceipt.membership?.workspaceId===session.workspaceId&&
-   enrollmentReceipt.credential?.holderPersonId===personId&&
-   enrollmentReceipt.credential?.publicKeyRef===keyId&&
-   enrollmentReceipt.binding?.holderPersonId===personId&&
-   enrollmentReceipt.binding?.organizationId===session.organizationId&&
-   enrollmentReceipt.binding?.grantId===enrollmentReceipt.workGrant?.payload?.id&&
-   enrollmentReceipt.workGrant?.payload?.holderId===personId&&
-   enrollmentReceipt.workGrant?.payload?.rightClass==='ACTION'&&
-   JSON.stringify(enrollmentReceipt.workGrant?.payload?.actions)==='["work.prepare"]'&&
-   JSON.stringify(enrollmentReceipt.workGrant?.payload?.resources)===
-     JSON.stringify([session.workspaceId])&&
-   enrollmentReceipt.exportGrant?.payload?.holderId===personId&&
-   enrollmentReceipt.exportGrant?.payload?.rightClass==='DATA'&&
-   JSON.stringify(enrollmentReceipt.exportGrant?.payload?.actions)==='["package.export"]'&&
-   JSON.stringify(enrollmentReceipt.exportGrant?.payload?.resources)===
-     JSON.stringify(exportResources)&&
-   enrollmentReceipt.originalEnrollment?.payload?.personId===personId&&
-   enrollmentReceipt.originalEnrollment?.payload?.organizationId===session.organizationId&&
-   enrollmentReceipt.originalEnrollment?.payload?.workspaceId===session.workspaceId&&
-   enrollmentReceipt.originalEnrollment?.payload?.credentialPublicKeyRef===keyId&&
-   Number.isSafeInteger(enrollmentReceipt.statusSequence)&&
-   enrollmentReceipt.statusSequence>0;
+ let enrolled=false;
+ if(credentialOk&&personOk){
+   try{
+     const identity=readOriginalEmployeeEnrollmentIdentity(enrollmentReceipt,{
+       organizationId:session.organizationId,workspaceId:session.workspaceId,
+       actorId:session.actorId,employeePersonId:personId,enrollmentId:recoveryEnrollmentId
+     });
+     enrolled=identity.credentialKeyId===keyId;
+   }catch{/* No original bound enrollment: no employee authority in this form. */}
+ }
  // The independent employee's four T2 rights come from a separate original
  // Kernel grant write. Neither work.prepare nor package.export is an import.
  const rightsSpec:Record<string,[string,string]>={
@@ -254,6 +232,43 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    setTaskRecoveryHold(false);setTaskRecoveryAttempted(false);
    setTaskNeedsRebind(false);setLoadedTaskScope(null);setTaskContinuationBlocked(false);
  };
+ const refreshRoster=(employeeOffset=0)=>run('Исходный список сотрудников перечитан.',async()=>{
+   setRoster(null);setRosterChoice('');
+   const result=readOriginalSeatView(await execute('d3EmployeeSeatView',{offset:0,employeeOffset}),
+     session.organizationId,session.workspaceId);
+   setRoster(result);
+ });
+ const restoreRosterEmployee=()=>run('Подключённый сотрудник восстановлен из исходного T3 без выдачи новых прав.',async()=>{
+   const selected=roster?.eligibleEmployees.find((row:any)=>row.personId===rosterChoice);
+   if(!selected)throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_REQUIRED');
+   // A selected row is only a locator, not an authorization. Read the
+   // current same page, enrollment and exact independent PROOF key.
+   setRoster(null);
+   const current=readOriginalSeatView(await execute('d3EmployeeSeatView',{
+     offset:0,employeeOffset:roster.employeeOffset}),session.organizationId,session.workspaceId);
+   setRoster(current);
+   const row=current.eligibleEmployees.find((m:any)=>m.personId===selected.personId&&
+     m.enrollmentId===selected.enrollmentId);
+   if(!row)throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_STALE');
+   const same=personId===row.personId&&recoveryEnrollmentId===row.enrollmentId;
+   // Failed reads of the active selection must invalidate its authority
+   // presentation. Pending Task identity survives in the scoped continuation.
+   if(same)setEnrollmentReceipt(null);
+   const result=await execute('d3EmployeeRead',{
+     employeePersonId:row.personId,enrollmentId:row.enrollmentId});
+   const identity=readOriginalEmployeeEnrollmentIdentity(result,{
+     organizationId:session.organizationId,workspaceId:session.workspaceId,
+     actorId:session.actorId,employeePersonId:row.personId,enrollmentId:row.enrollmentId});
+   const credential=readOriginalEmployeeCredentialIdentity(
+     await execute('d3EmployeeCredentialRead',{
+       employeePersonId:identity.employeePersonId,credentialKeyId:identity.credentialKeyId}),identity);
+   if(!same||keyId!==identity.credentialKeyId){
+     reset();setContact('');setPublicRecord('');setPublicCandidate('');setCopyNotice('');
+   }
+   setPersonId(identity.employeePersonId);setKeyId(identity.credentialKeyId);
+   setRecoveryEnrollmentId(identity.enrollmentId);setCredentialReceipt(credential);
+   setEnrollmentReceipt(result);
+ });
  const confirmCredential=()=>run('Подлинность ключа перечитана из оригинального Kernel.',async()=>{
    if(!credentialChallenge)throw Error('CEN_D3_EMPLOYEE_KEY_PROOF_NOT_PREPARED');
    // Once sent, a lost ACK is read-only recovery, never another admission.
@@ -385,6 +400,32 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      </div>}
     </div>:
   <>
+  {session.d3EmployeeCorporateSeatsAvailable===true&&<div className="nested-form" data-testid="d3-employee-roster">
+   <h4>Ранее подключённые сотрудники</h4>
+   <p>Откройте сотрудника из подписанного реестра, чтобы восстановить его полномочия и поручения.
+     Повторное подключение или выдача ключей не требуются.</p>
+   <button type="button" className="secondary" data-testid="d3-employee-roster-read" disabled={busy}
+     onClick={()=>void refreshRoster()}>Прочитать подключённых сотрудников</button>
+   {roster&&<>
+    <label>Сотрудник из исходного T3
+     <select value={rosterChoice} data-testid="d3-employee-roster-person" disabled={busy}
+       onChange={e=>setRosterChoice(e.target.value)}>
+      <option value="">Выберите сотрудника</option>
+      {roster.eligibleEmployees.filter((m:any)=>m.personId!==session.actorId).map((m:any)=>
+        <option key={m.personId} value={m.personId}>{m.personId}</option>)}
+     </select>
+    </label>
+    <div className="actions">
+     <button type="button" className="secondary" disabled={busy||roster.employeeOffset===0}
+       onClick={()=>void refreshRoster(Math.max(0,roster.employeeOffset-64))}>Предыдущие</button>
+     <span>{roster.employeeTotal===0?'0':roster.employeeOffset+1}–{roster.employeeOffset+roster.eligibleEmployees.length} из {roster.employeeTotal}</span>
+     <button type="button" className="secondary" disabled={busy||roster.employeeNextOffset===null}
+       onClick={()=>void refreshRoster(roster.employeeNextOffset)}>Следующие</button>
+     <button type="button" data-testid="d3-employee-roster-open" disabled={busy||!rosterChoice}
+       onClick={()=>void restoreRosterEmployee()}>Открыть подключённого сотрудника</button>
+    </div>
+   </>}
+  </div>}
   <div className="nested-form" data-testid="d3-employee-bootstrap">
    <h4>Первое подключение сотрудника</h4>
    <label>Сотрудник в организации
@@ -471,7 +512,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
     <p>Передайте запрос сотруднику. Agent подписывает его собственным
     Ed25519-ключом. Подпись действует ограниченное время: при истечении срока
     отмените только ещё не отправленный запрос и создайте новый.</p>
-    <textarea data-testid="d3-employee-credential-challenge" readOnly rows={4}
+    <textarea aria-label="Запрос подтверждения ключа" data-testid="d3-employee-credential-challenge" readOnly rows={4}
       value={JSON.stringify({request:credentialChallenge.employeeRequest,
         challenge:credentialChallenge.employeeChallenge},null,2)} onFocus={e=>e.currentTarget.select()}/>
     <button className="secondary" type="button" onClick={()=>void copyPublic(JSON.stringify({request:credentialChallenge.employeeRequest,
@@ -524,7 +565,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
     {enrollmentChallenge&&<div>
      <p>Испытание ключа действует ограниченное время. Если сотрудник
        ещё не отправил ответ, прежний вызов можно отменить без Kernel-записи.</p>
-     <textarea data-testid="d3-employee-enrollment-challenge" readOnly rows={4}
+     <textarea aria-label="Запрос подтверждения подключения" data-testid="d3-employee-enrollment-challenge" readOnly rows={4}
        value={JSON.stringify({request:enrollmentChallenge.request,
          challenge:enrollmentChallenge.challenge},null,2)} onFocus={e=>e.currentTarget.select()}/>
      <button className="secondary" type="button" onClick={()=>void copyPublic(JSON.stringify({request:enrollmentChallenge.request,

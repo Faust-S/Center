@@ -1364,13 +1364,18 @@ try{
   await employeePage.reload();
   await employeePage.getByTestId('nav-results').click();
   await employeePage.getByTestId('d3-employee-steps').waitFor();
-  await employeePage.getByTestId('d3-employee-person').fill('person:independent');
-  await employeePage.getByTestId('d3-employee-key').fill('key:independent');
-  await employeePage.getByTestId('d3-employee-credential-read').click();
-  await employeePage.getByTestId('d3-employee-key-admitted').waitFor();
-  await employeePage.getByTestId('d3-employee-enrollment-id').fill('enrollment:verified');
-  await employeePage.getByTestId('d3-employee-read').click();
+  await employeePage.getByTestId('d3-employee-roster-read').click();
+  await employeePage.getByTestId('d3-employee-roster-person').selectOption('person:independent');
+  await employeePage.getByTestId('d3-employee-roster-open').click();
   await employeePage.getByTestId('d3-employee-enrolled').waitFor();
+  assert.equal(await employeePage.getByTestId('d3-employee-person').inputValue(),'person:independent');
+  assert.equal(await employeePage.getByTestId('d3-employee-key').inputValue(),'key:independent');
+  assert.equal(await employeePage.getByTestId('d3-employee-enrollment-id').inputValue(),'enrollment:verified');
+  assert.equal(employeeState.workspaceGrantCalls,1);
+  assert.equal(employeeState.taskGrantCalls,1);
+  assert.equal(employeeState.taskIssueCalls,1);
+  assert.equal(employeeState.inviteExports,1);
+  checks.push('d3-existing-employee-open-original-roster-exact-key-enrollment-no-reissue');
   await employeePage.getByTestId('d3-employee-task-grant-read').click();
   await employeePage.getByTestId('d3-employee-task-grant-confirmed').waitFor();
   await employeePage.waitForFunction(()=>

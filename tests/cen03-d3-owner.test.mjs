@@ -9,6 +9,7 @@ import {MAX_CEN_D3_IWXA_CARRIER_BYTES,readOriginalResultReview,
  validateOriginalSignedTaskReadback,validateOriginalEmployeeTaskIssueReceipt,
  validateOriginalEmployeeTaskReadback,employeeTaskContinuationKey,readEmployeeTaskContinuation,
  saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
+ readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,
  isDefiniteUndispatchedD3Failure,
  readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
 import {MAX_CEN_IWXA_CARRIER_BYTES} from '../runtime/cen-corporate-owner-host.mjs';
@@ -69,6 +70,39 @@ test('independent employee signed Task accepts original native state, never firs
    ()=>validateOriginalEmployeeTaskIssueReceipt({...real,...changed},scope),
    /CEN_D3_EMPLOYEE_TASK_ORIGINAL_SIGNING_UNCONFIRMED/,
    'the public UI cannot accept a foreign/unsigned/legacy Task receipt');
+});
+
+test('existing independent employee identity is recovered only from exact original enrollment and PROOF readback',()=>{
+ const scope={organizationId:'org:employee',workspaceId:'workspace:employee',
+   actorId:'person:manager',employeePersonId:'person:employee',enrollmentId:'enrollment:employee'};
+ const {organizationId,workspaceId,employeePersonId:personId,enrollmentId}=scope;
+ const keyId='key:employee';
+ const real={state:'ORIGINAL_GRANTS_ACTIVE',originalSigned:true,originalReadback:true,safeToReissue:false,
+   organizationId,employeePersonId:personId,enrollmentId,statusSequence:5,
+   membership:{organizationId,personId,workspaceId},credential:{holderPersonId:personId,publicKeyRef:keyId},
+   binding:{organizationId,holderPersonId:personId,grantId:'grant:work'},
+   workGrant:{payload:{id:'grant:work',holderId:personId,rightClass:'ACTION',
+     actions:['work.prepare'],resources:[workspaceId]}},
+   exportGrant:{payload:{holderId:personId,rightClass:'DATA',actions:['package.export'],
+     resources:['workspace:'+workspaceId,'subject:'+organizationId,'recipient:'+organizationId,
+       'field:result','operation:UPSERT']}},
+   originalEnrollment:{payload:{personId,organizationId,workspaceId,credentialPublicKeyRef:keyId}}};
+ const identity=readOriginalEmployeeEnrollmentIdentity(real,scope);
+ assert.deepEqual(identity,{employeePersonId:personId,enrollmentId,credentialKeyId:keyId});
+ const proof={state:'ORIGINAL_PROOF_CREDENTIAL_ADMITTED',employeePersonId:personId,credentialKeyId:keyId,
+   originalReadback:true,safeToRetry:false};
+ assert.deepEqual(readOriginalEmployeeCredentialIdentity(proof,identity),proof);
+ for(const changed of [{organizationId:'org:other'},{workspaceId:'workspace:other'},
+   {actorId:personId},{employeePersonId:'person:other'},{enrollmentId:'enrollment:other'}])
+   assert.throws(()=>readOriginalEmployeeEnrollmentIdentity(real,{...scope,...changed}),/READBACK_HOLD/);
+ for(const changed of [{originalSigned:false},{originalReadback:false},{safeToReissue:true},
+   {statusSequence:0},{credential:{...real.credential,publicKeyRef:'key:other'}},
+   {binding:{...real.binding,grantId:'grant:other'}},{membership:{...real.membership,workspaceId:'workspace:other'}},
+   {exportGrant:{payload:{...real.exportGrant.payload,resources:['workspace:other']}}}])
+   assert.throws(()=>readOriginalEmployeeEnrollmentIdentity({...real,...changed},scope),/READBACK_HOLD/);
+ for(const changed of [{credentialKeyId:'key:other'},{employeePersonId:'person:other'},
+   {originalReadback:false},{safeToRetry:true},{state:'AWAITING_EMPLOYEE_PROOF'}])
+   assert.throws(()=>readOriginalEmployeeCredentialIdentity({...proof,...changed},identity),/READBACK_REQUIRED/);
 });
 
 test('independent employee Task continuation saves only the operation ID, restores after reopening and isolates exact enrollments',()=>{

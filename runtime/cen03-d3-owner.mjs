@@ -227,6 +227,50 @@ export function validateOriginalEmployeeTaskIssueReceipt(
  return copy(receipt,code);
 }
 
+// Presentation of an existing original enrollment. The caller must first read
+// the ORIGINAL signed roster, enrollment and PROOF credential. Neither an
+// organizational contact nor a local continuation is proof of these rights.
+export function readOriginalEmployeeEnrollmentIdentity(receipt,
+ {organizationId,workspaceId,actorId,employeePersonId:personId,enrollmentId}){
+ const code='CEN_D3_EMPLOYEE_ORIGINAL_ENROLLMENT_READBACK_HOLD';
+ const keyId=receipt?.credential?.publicKeyRef;
+ const exportResources=['workspace:'+workspaceId,'subject:'+organizationId,
+   'recipient:'+organizationId,'field:result','operation:UPSERT'];
+ const work=receipt?.workGrant?.payload,exp=receipt?.exportGrant?.payload,
+   original=receipt?.originalEnrollment?.payload;
+ need([organizationId,workspaceId,actorId,personId,enrollmentId,keyId].every(validId)&&
+   personId!==actorId&&receipt?.state==='ORIGINAL_GRANTS_ACTIVE'&&
+   receipt.employeePersonId===personId&&receipt.enrollmentId===enrollmentId&&
+   receipt.organizationId===organizationId&&receipt.originalReadback===true&&
+   receipt.originalSigned===true&&receipt.safeToReissue===false&&
+   receipt.membership?.personId===personId&&
+   receipt.membership?.organizationId===organizationId&&
+   receipt.membership?.workspaceId===workspaceId&&
+   receipt.credential?.holderPersonId===personId&&
+   receipt.binding?.holderPersonId===personId&&
+   receipt.binding?.organizationId===organizationId&&
+   validId(work?.id)&&receipt.binding?.grantId===work.id&&
+   work.holderId===personId&&work.rightClass==='ACTION'&&
+   JSON.stringify(work.actions)==='["work.prepare"]'&&
+   JSON.stringify(work.resources)===JSON.stringify([workspaceId])&&
+   exp?.holderId===personId&&exp?.rightClass==='DATA'&&
+   JSON.stringify(exp.actions)==='["package.export"]'&&
+   JSON.stringify(exp.resources)===JSON.stringify(exportResources)&&
+   original?.personId===personId&&original?.organizationId===organizationId&&
+   original?.workspaceId===workspaceId&&original?.credentialPublicKeyRef===keyId&&
+   Number.isSafeInteger(receipt.statusSequence)&&receipt.statusSequence>0,code);
+ return Object.freeze({employeePersonId:personId,enrollmentId,credentialKeyId:keyId});
+}
+export function readOriginalEmployeeCredentialIdentity(receipt,identity){
+ const code='CEN_D3_EMPLOYEE_ORIGINAL_KEY_READBACK_REQUIRED';
+ need(validId(identity?.employeePersonId)&&validId(identity?.credentialKeyId)&&
+   receipt?.state==='ORIGINAL_PROOF_CREDENTIAL_ADMITTED'&&
+   receipt.employeePersonId===identity.employeePersonId&&
+   receipt.credentialKeyId===identity.credentialKeyId&&
+   receipt.originalReadback===true&&receipt.safeToRetry===false,code);
+ return copy(receipt,code);
+}
+
 // UI continuation only, following the existing pending seat intent pattern.
 // Do not store Task content, a signature, receipt, grant or organizational
 // authority here. The original owner remains the only Task inventory.
