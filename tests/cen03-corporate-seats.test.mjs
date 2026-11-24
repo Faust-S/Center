@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent}
+import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent,prepareOriginalSeatDelivery,readOriginalSeatDelivery}
  from '../runtime/cen03-corporate-seats.mjs';
 const H='a'.repeat(64),org='org:one',ws='workspace:one';
 const member={personId:'person:one',enrollmentId:'enrollment:one'};
@@ -88,4 +88,26 @@ test('pending UI intent persists across remounts, isolates actors, and never ove
  assert.throws(()=>saveSeatIntent(storage,other,{...a,employeePersonId:null}),/INTENT_INVALID/);
  clearSeatIntent(storage,key,a);assert.equal(readSeatIntent(storage,key),null);
  storage.setItem(key,'{"confirmed":true}');assert.throws(()=>readSeatIntent(storage,key),/INTENT_INVALID/);
+});
+
+test('seat delivery uses existing signed invitation export for both reserved and unreserved enrolled employees',()=>{
+ const v=read(view());
+ for(const employee of v.eligibleEmployees){
+  const request=prepareOriginalSeatDelivery(v,employee.personId);
+  assert.deepEqual(request,{employeePersonId:employee.personId,enrollmentId:employee.enrollmentId});
+  const receipt={schema:'IWXA_T3_ORIGINAL_EMPLOYEE_INVITATION_EXPORT/1',
+   state:'SIGNED_INVITATION_EXPORTED_NOT_DELIVERED',employeePersonId:employee.personId,
+   recipientId:employee.personId,enrollmentId:employee.enrollmentId,workspaceId:ws,
+   originalSigned:true,originalKernelReadback:true,invitationDelivered:false,
+   automaticTransfer:false,statusSequence:5,packageSha256:H,bytes:300};
+  assert.equal(readOriginalSeatDelivery(receipt,request,ws).invitationDelivered,false);
+  for(const change of [{recipientId:'person:foreign'},{enrollmentId:'enrollment:foreign'},
+   {workspaceId:'workspace:foreign'},{invitationDelivered:true},{originalSigned:false},
+   {originalKernelReadback:false},{automaticTransfer:true},{packageSha256:'x'}]){
+   assert.throws(()=>readOriginalSeatDelivery({...receipt,...change},request,ws),/DELIVERY_READBACK_INVALID/);
+  }
+  assert.equal(readOriginalSeatDelivery({status:'CANCELLED'},request,ws),null);
+ }
+ assert.throws(()=>prepareOriginalSeatDelivery(v,'person:foreign'),/DELIVERY_EMPLOYEE_REQUIRED/);
+ assert.throws(()=>prepareOriginalSeatDelivery({...v,originalReadback:false},member.personId),/DELIVERY_SCOPE_INVALID/);
 });

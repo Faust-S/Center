@@ -1,5 +1,5 @@
 import React,{useEffect,useState} from 'react';
-import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent}
+import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent,prepareOriginalSeatDelivery,readOriginalSeatDelivery}
  from '../runtime/cen03-corporate-seats.mjs';
 
 type Employee={personId:string;enrollmentId:string};
@@ -31,8 +31,11 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
  const [employeeChoice,setEmployeeChoice]=useState('');
  const [source,setSource]=useState('');
  const [receipt,setReceipt]=useState('');
+ const [deliveryChoice,setDeliveryChoice]=useState('');
+ const [deliveryReceipt,setDeliveryReceipt]=useState('');
+ const selectedDelivery=view?.eligibleEmployees.find((r:any)=>r.personId===deliveryChoice);
  const refresh=(offset=0,employeeOffset=0)=>run('Распределение мест перечитано из исходного T3.',async()=>{
-  setSource('');
+  setSource('');setDeliveryChoice('');setDeliveryReceipt('');
   // Reopen the exact outstanding intent even if the signed owner epoch changed.
   let outstanding;
   try{outstanding=readSeatIntent(localStorage,intentKey);setIntentBlocked(false)}
@@ -83,6 +86,15 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
    throw e;
   }
  });
+ const exportUpdate=()=>run('Подписанное обновление сохранено. Получение сотрудником ещё не подтверждено.',async()=>{
+  if(locked||!selectedDelivery)throw Error('CEN_D3_CORPORATE_SEAT_DELIVERY_EMPLOYEE_REQUIRED');
+  const request=prepareOriginalSeatDelivery(view,deliveryChoice);
+  setDeliveryReceipt('');
+  const result=readOriginalSeatDelivery(await execute('d3EmployeeExportInvite',request),request,workspaceId);
+  if(!result)return false;
+  setDeliveryReceipt('Сотрудник: '+result.employeePersonId+' · статус '+result.statusSequence+
+   '. Подписанный файл сохранён, получение не подтверждено.');
+ });
  const change=(kind:Kind)=>run('Изменение мест подтверждено исходным T3.',async()=>{
   if(locked)throw Error('CEN_D3_CORPORATE_SEAT_READBACK_REQUIRED');
   const commandId='seat:'+crypto.randomUUID();
@@ -90,7 +102,7 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
    kind==='ASSIGN'?null:source);
   try{saveSeatIntent(localStorage,intentKey,command)}
   catch(e){setIntentBlocked(true);throw e}
-  setPending(commandId);setReceipt('');
+  setPending(commandId);setReceipt('');setDeliveryReceipt('');
   try{
    const result=await execute('d3EmployeeSeatChange',command);
    setView(readOriginalSeatChange(result,command,organizationId,workspaceId));
@@ -159,6 +171,18 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
       assigned||!currentLicense||!view.seatPolicyReady||!view.withinLimits}
       onClick={()=>void change('TRANSFER')}>Передать выбранному сотруднику</button>
     </div>
+    <h4>Передача обновлённых полномочий</h4>
+    <p className="muted">После назначения, освобождения или передачи места сохраните актуальное подписанное приглашение для каждого затронутого сотрудника. Повторная регистрация и выдача грантов не выполняются. Передайте также актуальные подписанные файлы LICENSE/STATUS от Publisher. Офлайн-сотрудник получает изменения после их импорта; сохранение файла не подтверждает доставку.</p>
+    <label>Получатель обновления
+     <select data-testid="d3-seat-delivery-employee" value={deliveryChoice} disabled={locked}
+      onChange={e=>{setDeliveryChoice(e.target.value);setDeliveryReceipt('')}}>
+      <option value="">Выберите сотрудника из текущей страницы реестра</option>
+      {view.eligibleEmployees.map((r:any)=><option key={r.personId} value={r.personId}>{r.personId}{r.reserved?' (место назначено)':''}</option>)}
+     </select>
+    </label>
+    <button className="secondary" data-testid="d3-seat-delivery-export" disabled={locked||!selectedDelivery}
+      onClick={()=>void exportUpdate()}>Сохранить подписанное обновление .iwxa</button>
+    {deliveryReceipt&&<p role="status" data-testid="d3-seat-delivery-receipt">{deliveryReceipt}</p>}
     <h4>История назначений</h4>
     {view.assignments.length===0?<p className="muted">Назначений нет.</p>:
      <ul data-testid="d3-seat-assignment-history">{view.assignments.map((r:any)=>

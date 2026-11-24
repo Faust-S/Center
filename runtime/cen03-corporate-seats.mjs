@@ -93,6 +93,31 @@ export function prepareOriginalSeatCommand(view,kind,commandId,employee,fromGran
   employeePersonId:assign?employee.personId:null,enrollmentId:assign?employee.enrollmentId:null,
   fromGrantId:release?fromGrantId:null};
 }
+// Delivery is a read-only selection from the original independently enrolled
+// roster. Existing invitation export re-reads the native signed registry;
+// this command does not assign, release or issue a grant.
+export function prepareOriginalSeatDelivery(view,personId){
+ check(view?.originalReadback===true&&id(personId),
+  'CEN_D3_CORPORATE_SEAT_DELIVERY_SCOPE_INVALID');
+ const employee=view.eligibleEmployees.find(row=>row.personId===personId);
+ check(employee&&id(employee.enrollmentId),'CEN_D3_CORPORATE_SEAT_DELIVERY_EMPLOYEE_REQUIRED');
+ return {employeePersonId:employee.personId,enrollmentId:employee.enrollmentId};
+}
+export function readOriginalSeatDelivery(receipt,request,workspaceId){
+ if(receipt?.status==='CANCELLED')return null;
+ check(id(workspaceId)&&id(request?.employeePersonId)&&id(request?.enrollmentId)&&
+  receipt?.schema==='IWXA_T3_ORIGINAL_EMPLOYEE_INVITATION_EXPORT/1'&&
+  receipt.state==='SIGNED_INVITATION_EXPORTED_NOT_DELIVERED'&&
+  receipt.employeePersonId===request.employeePersonId&&receipt.recipientId===request.employeePersonId&&
+  receipt.enrollmentId===request.enrollmentId&&receipt.workspaceId===workspaceId&&
+  receipt.originalSigned===true&&receipt.originalKernelReadback===true&&
+  receipt.invitationDelivered===false&&receipt.automaticTransfer===false&&
+  count(receipt.statusSequence)&&receipt.statusSequence>0&&sha(receipt.packageSha256)&&
+  count(receipt.bytes)&&receipt.bytes>0,
+  'CEN_D3_CORPORATE_SEAT_DELIVERY_READBACK_INVALID');
+ return Object.freeze({employeePersonId:request.employeePersonId,statusSequence:receipt.statusSequence,
+  packageSha256:receipt.packageSha256,invitationDelivered:false});
+}
 export function readOriginalSeatChange(result,command,organizationId,workspaceId){
  check(result?.originalReadback===true&&['COMMITTED','ALREADY_COMMITTED'].includes(result.outcome)&&
   result.commandId===command.commandId&&
