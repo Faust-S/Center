@@ -1,0 +1,147 @@
+# Read-only matched baseline/current benchmark of the private Agent.
+# Publish aggregate synthetic-route timing only; never source, payloads or logs.
+name: Meta Harness ordinary Agent route comparison
+on:
+  push:
+    branches:
+      - work/2026-11-24-meta-harness-source-qualification
+    paths:
+      - .github/workflows/meta-harness-ordinary-route.yml
+permissions:
+  contents: read
+jobs:
+  compare:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      BASELINE_PIN: 39a4f49ed9a5c0781c4a4769e9603ca8fb1e8d23
+      BASELINE_TREE: c0032bbfaed265e3d544450ea93f4e36c810dd19
+      CURRENT_PIN: e1364015b6a7fe25299f6dff9c8ad2b2e2a021ac
+      CURRENT_TREE: 14054f6acb29e2411bac538b8d80f151da81a437
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Compare pinned original routes without publishing private material
+        shell: bash
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          python - <<'PY'
+          import base64,json,os,pathlib,statistics,subprocess,sys,tempfile
+          def status(k,v):
+              print(k+"="+str(v),flush=True)
+          STAGES=("import","startup","chat","detail","review","engine_reopen","total")
+          SAMPLE_COUNT=5
+          def main():
+              token=os.environ.pop("IWXA_TEMP_READ_TOKEN","")
+              if not token:
+                  status("PRIVATE_READ","TOKEN_UNAVAILABLE");return 1
+              clean={k:v for k,v in os.environ.items() if not k.startswith("IWXA_")}
+              clean.update({"GIT_TERMINAL_PROMPT":"0","GIT_LFS_SKIP_SMUDGE":"1","PYTHONUTF8":"1"})
+              with tempfile.TemporaryDirectory(prefix="iwxa-ordinary-",dir=os.environ.get("RUNNER_TEMP")) as td:
+                  root=pathlib.Path(td)
+                  def run(args,cwd,env=clean,timeout=300):
+                      return subprocess.run(args,cwd=cwd,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
+                  sources={}
+                  for label in ("BASELINE","CURRENT"):
+                      target=root/label.lower();target.mkdir()
+                      pin=os.environ[label+"_PIN"];tree=os.environ[label+"_TREE"]
+                      auth=dict(clean)
+                      auth.update({"GIT_CONFIG_COUNT":"1","GIT_CONFIG_KEY_0":"http.https://github.com/.extraheader",
+                        "GIT_CONFIG_VALUE_0":"AUTHORIZATION: basic "+base64.b64encode(("x-access-token:"+token).encode()).decode()})
+                      if run(["git","init","-q"],target).returncode:
+                          status(label+"_READ","INIT_FAIL");return 1
+                      fetched=run(["git","fetch","--no-tags","--depth=1","https://github.com/Faust-S/iwxa-personal-agent.git",pin],target,auth,180)
+                      del auth
+                      if fetched.returncode or run(["git","checkout","--detach","-q",pin],target).returncode:
+                          status(label+"_READ","FETCH_FAIL");return 1
+                      if (run(["git","rev-parse","HEAD"],target).stdout.decode().strip()!=pin
+                          or run(["git","rev-parse","HEAD^{tree}"],target).stdout.decode().strip()!=tree):
+                          status(label+"_READ","PIN_MISMATCH");return 1
+                      status(label+"_READ","PASS");status(label+"_SOURCE_PIN",pin)
+                      sources[label]=target
+                  del token
+                  for rel in ("requirements-ci.txt","config/daily-driver.example.json"):
+                      if (sources["BASELINE"]/rel).read_bytes()!=(sources["CURRENT"]/rel).read_bytes():
+                          status("INPUT_COMPARABILITY","FAIL");return 1
+                  status("INPUT_COMPARABILITY","PASS")
+                  if run([sys.executable,"-m","pip","install","--disable-pip-version-check","-r","requirements-ci.txt"],sources["BASELINE"],timeout=420).returncode:
+                      status("PYTHON_DEPS","FAIL");return 1
+                  status("PYTHON_DEPS","PASS")
+                  driver=r'''import json,pathlib,sys,time
+          stamps=[]
+          def tick():
+              stamps.append(time.perf_counter_ns())
+          root=pathlib.Path(sys.argv[1]);root.mkdir()
+          config=json.loads(pathlib.Path("config/daily-driver.example.json").read_text(encoding="utf-8"))
+          config["instance_root"]=str(root/"instance")
+          path=root/"config.json";path.write_text(json.dumps(config),encoding="utf-8")
+          tick()
+          from runtime.daily_driver_engine import DailyDriverEngine
+          tick()
+          engine=DailyDriverEngine(path)
+          assert engine.registry.current_binding("model")["provider_id"]=="DEMO_REPLAY_V1"
+          assert engine.ui_preferences()["t3_enabled"] is True
+          tick()
+          result=engine.chat("Prepare a concise plan for tomorrow and identify the priorities.",use_memory=False)
+          tid=result["task_id"];assert tid.startswith("TASK-DD-")
+          assert result["review_required"] is True and result["performed_external_actions"] is False
+          tick()
+          assert engine.task_detail(tid)["status"]=="result_imported"
+          tick()
+          assert engine.review(tid,"approve")["status"]=="closed"
+          tick()
+          restored=DailyDriverEngine(path);assert restored.task_detail(tid)["status"]=="closed"
+          assert restored.graph_orchestrator.latest() is None
+          assert restored.native_data_plane.list_artifact_ids()==[]
+          tick()
+          print("BENCH_RESULT="+json.dumps({k:(b-a)//1000 for k,a,b in zip(("import","startup","chat","detail","review","engine_reopen"),stamps,stamps[1:])}|{"total":(stamps[-1]-stamps[0])//1000}))
+          '''
+                  def one(label,index):
+                      result=run([sys.executable,"-c",driver,str(root/("sample-"+str(index)+"-"+label.lower()))],sources[label],timeout=300)
+                      if result.returncode:
+                          status(label+"_SAMPLE_"+str(index),"FAIL");return None
+                      lines=[l[len("BENCH_RESULT="):] for l in result.stdout.decode("utf-8","replace").splitlines() if l.startswith("BENCH_RESULT=")]
+                      if len(lines)!=1:
+                          status(label+"_SAMPLE_"+str(index),"REPORT_MISSING");return None
+                      row=json.loads(lines[0])
+                      if set(row)!=set(STAGES) or any(type(v) is not int or not 0<=v<=300_000_000 for v in row.values()):
+                          status(label+"_SAMPLE_"+str(index),"REPORT_INVALID");return None
+                      return row
+                  # Warm up both installed Python paths; discard these samples.
+                  for label in ("BASELINE","CURRENT"):
+                      if one(label,0) is None:return 1
+                  samples={label:[] for label in ("BASELINE","CURRENT")}
+                  for i in range(1,SAMPLE_COUNT+1):
+                      order=("BASELINE","CURRENT") if i%2 else ("CURRENT","BASELINE")
+                      for label in order:
+                          row=one(label,i)
+                          if row is None:return 1
+                          samples[label].append(row)
+                      status("PAIRED_SAMPLE_"+str(i),"PASS")
+                  for stage in STAGES:
+                      a=[r[stage] for r in samples["BASELINE"]]
+                      b=[r[stage] for r in samples["CURRENT"]]
+                      name=stage.upper()
+                      for label,rows in (("BASELINE",a),("CURRENT",b)):
+                          status(label+"_"+name+"_MEDIAN_US",int(statistics.median(rows)))
+                          status(label+"_"+name+"_MIN_US",min(rows))
+                          status(label+"_"+name+"_MAX_US",max(rows))
+                      status("PAIRED_"+name+"_DELTA_MEDIAN_US",int(statistics.median(y-x for x,y in zip(a,b))))
+                  status("SAMPLE_PAIRS",SAMPLE_COUNT)
+                  status("ORDINARY_ROUTE_FUNCTIONAL","PASS")
+                  return 0
+          try:
+              code=main()
+          except subprocess.TimeoutExpired:
+              status("ORDINARY_ROUTE","TIMEOUT");code=1
+          except Exception:
+              status("ORDINARY_ROUTE","INTERNAL_ERROR");code=1
+          status("TEMP_CHECKOUT","CLEANUP_ATTEMPTED")
+          sys.exit(code)
+          PY
