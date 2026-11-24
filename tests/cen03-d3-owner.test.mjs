@@ -200,7 +200,10 @@ test('original Task catalog separates recipients and requires exact carrier read
 });
 test('employee history is independent of a pending Task and first-person route filters its recipient',()=>{
  const ui=readFileSync(new URL('../src/CorporateEmployeeEnrollment.tsx',import.meta.url),'utf8');
- const history=ui.slice(ui.indexOf('const readHistory='),ui.indexOf('useEffect(()=>'));
+ const start=ui.indexOf('const readHistory=');
+ const end=ui.indexOf('useEffect(()=>',start);
+ assert.ok(start>=0&&end>start,'read-only history route must exist');
+ const history=ui.slice(start,end);
  assert.match(history,/d3EmployeeTaskReadback/);
  assert.match(history,/d3EmployeeExportTask/);
  assert.doesNotMatch(history,/saveEmployeeTaskContinuation|clearEmployeeTaskContinuation|d3EmployeeCreateTask/);

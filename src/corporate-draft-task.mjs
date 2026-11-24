@@ -8,6 +8,7 @@ const bounded=(v,max,required=false)=>typeof v==='string'&&v.length<=max&&(!requ
 const scopeKey=s=>employeeTaskContinuationKey(s.organizationId,s.workspaceId,s.actorId,s.employeePersonId,s.enrollmentId);
 export function prepareEmployeeDraftTask(draft,scope){
  const code='CEN_D3_EMPLOYEE_DRAFT_SOURCE_INVALID';
+ need(validId(scope?.contextId)&&Number.isSafeInteger(scope.contextEpoch)&&scope.contextEpoch>=0,code);
  need(draft?.status==='DRAFT'&&validId(draft.id)&&draft.workspaceId===scope.workspaceId&&
    Number.isSafeInteger(draft.editNumber)&&draft.editNumber>0&&
    bounded(draft.title,200,true)&&bounded(draft.description,6000)&&bounded(draft.criteria,2000)&&
@@ -30,7 +31,7 @@ export function prepareEmployeeDraftTask(draft,scope){
      ', Result '+source.resultRevisionId+', приёмка '+source.acceptanceId
  ].filter(Boolean).join('\n\n');
  need(text.length<=10000,'CEN_D3_EMPLOYEE_DRAFT_TEXT_TOO_LARGE');
- return {id:draft.id,scope:scopeKey(scope),snapshot:JSON.stringify(draft),text,
+ return {id:draft.id,scope:scopeKey(scope),contextId:scope.contextId,contextEpoch:scope.contextEpoch,snapshot:JSON.stringify(draft),text,
    atlasRef:atlas?{...atlas}:null,sourceResultRef:source?{...source}:null};
 }
 export function employeeDraftSelectionCurrent(selection,draft,scope,text,confirmed){
@@ -38,12 +39,15 @@ export function employeeDraftSelectionCurrent(selection,draft,scope,text,confirm
  try{
    const current=prepareEmployeeDraftTask(draft,scope);
    return selection.id===current.id&&selection.scope===current.scope&&
+     selection.contextId===current.contextId&&selection.contextEpoch===current.contextEpoch&&
      selection.snapshot===current.snapshot&&selection.text===current.text&&text===current.text;
  }catch{return false;}
 }
 // Both checks only call existing source owners. A local Atlas plan or an
 // earlier visible Result cannot establish current source provenance.
 export async function verifyEmployeeDraftSources(selection,scope,invoke){
+ need(selection?.scope===scopeKey(scope)&&selection.contextId===scope.contextId&&
+   selection.contextEpoch===scope.contextEpoch,'CEN_D3_EMPLOYEE_DRAFT_CHANGED_BEFORE_SIGNING');
  if(selection.atlasRef){
    const [{createNativeAtlasPort},{atlasLinkReadback,atlasWorkReadback}]=await Promise.all([
      import('./atlas-native.mjs'),import('./atlas-integration.mjs')

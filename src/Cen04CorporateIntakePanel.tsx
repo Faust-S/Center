@@ -460,9 +460,10 @@ export default function Cen04CorporateIntakePanel({organizationId,participants,i
                'Нет текущей подписанной лицензии ACTIVE. Лимиты плана не определены.'}</p>}
        </section>
        {corporateRead.licenses.map(row=><section className="nested-form"
+         aria-label={`Тариф ${row.tariffId}, редакция ${row.tariffRevision}`}
          data-testid="cen04-corporate-license-terms" key={row.licenseId}>
          <div className="simple-row">
-           <div><strong>Тариф {row.tariffId}, редакция {row.tariffRevision}</strong>
+           <div><strong>{`Тариф ${row.tariffId}, редакция ${row.tariffRevision}`}</strong>
              <small>STATUS: {row.status}; последовательность: {row.sequence}.</small>
              <small>{row.current?'STATUS проверен на момент чтения.':
                'Историческая запись, срок действия или срок STATUS истёк.'}</small>

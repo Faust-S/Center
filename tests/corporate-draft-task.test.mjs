@@ -20,6 +20,9 @@ test('local draft prepares complete text for the exact signed employee without c
    {...draft,assigneeId:'contact:another'},{...draft,workspaceId:'workspace:foreign'}])
    assert.equal(current(source,candidate,scope,source.text,true),false);
  assert.equal(current(source,draft,{...scope,employeePersonId:'person:other'},source.text,true),false);
+ assert.equal(current(source,draft,{...scope,contextEpoch:8},source.text,true),false);
+ assert.equal(current(source,draft,{...scope,contextId:'context:other'},source.text,true),false);
+ assert.throws(()=>prepare(draft,{...scope,contextEpoch:NaN}),/SOURCE_INVALID/);
  assert.equal(current(source,draft,scope,source.text+' modified',true),false);
  assert.throws(()=>prepare({...draft,status:'SIGNED'},scope),/SOURCE_INVALID/);
 });
@@ -42,5 +45,6 @@ test('original Result source is re-read in the exact signed workspace before new
 test('ordinary draft preparation does not invoke Atlas or original Result owner',async()=>{
  let calls=0;
  await verify(prepare(draft,scope),scope,async()=>{calls++;throw Error('UNEXPECTED');});
+ await assert.rejects(verify(prepare(draft,scope),{...scope,contextEpoch:8},async()=>{calls++;}),/DRAFT_CHANGED_BEFORE_SIGNING/);
  assert.equal(calls,0);
 });
