@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 100
     env:
-      PRIVATE_PIN: 'bdcd9245b6b0ba3a87ba62a4546f1f13076fcff8'
-      PRIVATE_TREE: '20309906a790c70b33dca4201a799a5bf61d7d1a'
+      PRIVATE_PIN: 'fa089141bc9673eb03cfa1c774b6d08951645644'
+      PRIVATE_TREE: 'f789932f4627ab54c26f9227c00b1e64929f3044'
       QUALIFY_SCOPE: COMPOSER_RECOVERY
     steps:
       - uses: actions/setup-python@v5
