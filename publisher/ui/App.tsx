@@ -315,8 +315,10 @@ export default function App(){
      throw Error('PUBLISHER_DRAFT_CHANGED_ON_DISK');
    }
  }
+ const draftWriteInFlight=useRef(false);
  async function change(command:Record<string,unknown>,success:string):Promise<{ok:boolean;message:string}>{
-   if(busy||!loaded)return {ok:false,message:'Сохранение сейчас недоступно. Дождитесь завершения текущего действия.'};
+   if(busy||!loaded||draftWriteInFlight.current)return {ok:false,message:'Сохранение сейчас недоступно. Дождитесь завершения текущего действия.'};
+   draftWriteInFlight.current=true;
    setBusy(true);setError('');setMessage('');setSimulated(null);
    try{
      const next=applyPublisherDraftCommand(state,command) as Draft;
@@ -331,7 +333,7 @@ export default function App(){
      setError(reason);
      return {ok:false,message:'Не удалось сохранить: '+reason};
    }
-   finally{setBusy(false);}
+   finally{draftWriteInFlight.current=false;setBusy(false);}
  }
  async function saveProduct(e:React.FormEvent){
    e.preventDefault();setProductFeedback(null);

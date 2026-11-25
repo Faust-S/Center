@@ -21,6 +21,8 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  const [editionNotice,setEditionNotice]=useState('');
  const [tariffFeedback,setTariffFeedback]=useState<SaveResult|null>(null);
  const [proposalFeedback,setProposalFeedback]=useState<SaveResult|null>(null);
+ const offerInFlight=useRef(false);
+ const [savedOfferKey,setSavedOfferKey]=useState<string|null>(null);
  const tariffFeedbackRef=useRef<HTMLParagraphElement>(null);
  const proposalFeedbackRef=useRef<HTMLParagraphElement>(null);
  const editorRef=useRef<HTMLFormElement>(null);
@@ -61,6 +63,8 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  const eligibleSources=draft.proposals.filter(p=>p.tariffSnapshot&&
    p.productId===selected?.productId&&p.holderId===selectedHolder);
  const selectedSource=eligibleSources.find(p=>p.id===previousProposalId);
+ const offerKey=JSON.stringify([choice,holderId,previousProposalId]);
+ const offerAlreadySaved=savedOfferKey===offerKey;
  const saveOfferLabel=busy?'Сохраняем…':selectedSource?'Создать следующую подготовку':'Сохранить подготовку по тарифу';
  // Offer the exact previous request and newer revision as one explicit
  // user selection. This is only a form prefill, not a preparation or issue.
@@ -77,7 +81,7 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
       tariffKey(x.tariff)===tariffKey(t)&&x.holder.id===h.id))return;
    focusRenewalReadback.current=true;
    setOfferSelection({choice:tariffKey(t),holderId:h.id,previousProposalId:p.id});
-   setProposalFeedback(null);setRenewalOpen(false);
+   setSavedOfferKey(null);setProposalFeedback(null);setRenewalOpen(false);
  }
  async function saveTariff(e:React.FormEvent){
   e.preventDefault();
@@ -91,15 +95,21 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
   setTariffFeedback(result);
  }
  async function saveOffer(){
-  if(!selected||!selectedHolder)return;
+  if(busy||offerInFlight.current||offerAlreadySaved||!selected||!selectedHolder)return;
+  // One explicit selection can create at most one preparation. Two quick
+  // mouse/keyboard/UIA activations before React paints busy cannot duplicate it.
+  offerInFlight.current=true;
   setProposalFeedback(null);
-  const result=await change(selectedSource?{
-    kind:'prepareFollowupProposal',previousProposalId:selectedSource.id,
-    productId:selected.productId,tariffId:selected.id,revision:selected.revision
-   }:{kind:'addTariffProposal',productId:selected.productId,
-    tariffId:selected.id,revision:selected.revision,holderId:selectedHolder},
-   'Подготовка сохранена. Действующие права не изменены.');
-  setProposalFeedback(result);
+  try{
+    const result=await change(selectedSource?{
+      kind:'prepareFollowupProposal',previousProposalId:selectedSource.id,
+      productId:selected.productId,tariffId:selected.id,revision:selected.revision
+     }:{kind:'addTariffProposal',productId:selected.productId,
+      tariffId:selected.id,revision:selected.revision,holderId:selectedHolder},
+     'Подготовка сохранена. Действующие права не изменены.');
+    if(result.ok)setSavedOfferKey(offerKey);
+    setProposalFeedback(result);
+  }finally{offerInFlight.current=false;}
  }
  return <div data-testid="publisher-tariffs">
   {mode==='full'&&<>
@@ -146,7 +156,7 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
    {draft.tariffs.length===0?<p className="muted">Тарифов пока нет.</p>:draft.tariffs.map(t=><div className="simple-row" key={tariffKey(t)}><div><strong>{t.name} · редакция {t.revision}</strong><small>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.holderType==='PERSON'?'Физическое лицо':'Организация'} · {t.termDays} дней</small><small>Мест: {t.productSeats} · сотрудников: {t.employeeLimit} · устройств: {t.deviceLimit} · функций: {t.features.length} · квот: {t.quotas.length}</small></div><span className="status neutral">Черновик</span><button className="secondary" type="button" disabled={busy} onClick={()=>nextEdition(t)}>Новая редакция</button></div>)}
   </section>
   </>}
-  <section className="card form-panel" data-testid="publisher-tariff-proposal" onChangeCapture={()=>setProposalFeedback(null)}><h2>Подготовить лицензию</h2>
+  <section className="card form-panel" data-testid="publisher-tariff-proposal" onChangeCapture={()=>{setSavedOfferKey(null);setProposalFeedback(null);}}><h2>Подготовить лицензию</h2>
    <p className="muted">Условия выбранной редакции сохраняются в запросе. Лицензия без подписи не действует.</p>
    {renewalOptions.length>0&&<div className="publisher-followup-choice" data-testid="publisher-direct-renewal">
      <button type="button" className="secondary" aria-expanded={renewalOpen}
@@ -203,7 +213,8 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
       <p className="muted">Неподписанная подготовка. Права появятся только после выпуска и проверки доверенной лицензии .iwxa.</p>
     </div>}
     <div className="publisher-save-action" data-testid="publisher-proposal-save-action">
-      <button id="iwxa-publisher-save-proposal" className="primary" type="button" aria-label={saveOfferLabel} disabled={busy||!selected||!selectedHolder} onClick={()=>void saveOffer()}>{saveOfferLabel}</button>
+      <button id="iwxa-publisher-save-proposal" className="primary" type="button" aria-label={saveOfferLabel} disabled={busy||!selected||!selectedHolder||offerAlreadySaved} onClick={()=>void saveOffer()}>{saveOfferLabel}</button>
+      {offerAlreadySaved&&<p className="muted" data-testid="publisher-proposal-already-saved">Эта подготовка уже сохранена. Для следующей выберите условия заново.</p>}
       {proposalFeedback&&<p ref={proposalFeedbackRef} className={'publisher-inline-feedback '+(proposalFeedback.ok?'success':'error')}
         role={proposalFeedback.ok?'status':'alert'} data-testid="publisher-proposal-save-feedback">{proposalFeedback.message}</p>}
     </div>

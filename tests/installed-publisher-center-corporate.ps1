@@ -624,6 +624,53 @@ function Wait-ExactText($process,[string]$value,[int]$attempts=240){
   }
   throw 'CORPORATE_SEAT_EXACT_CAPACITY_READBACK_NOT_OBSERVED'
 }
+# Check the real owner lock after ordinary navigation, not just the UI.
+# Never delete, edit or recover a private lock from the witness.
+function Wait-CenterOwnerReleased(){
+  if($org -cnotmatch '^[A-Za-z0-9_-]{1,100}$'){throw 'CORPORATE_GUI_CENTER_OWNER_SCOPE_INVALID'}
+  $owner=Join-Path $centerData ('t3-admin/organizations/'+$org)
+  if(!(Test-Path -LiteralPath (Join-Path $owner 'registry.json') -PathType Leaf)){
+    throw 'CORPORATE_GUI_CENTER_ORIGINAL_OWNER_MISSING'
+  }
+  $lock=Join-Path $owner 'product.lock'
+  for($i=0;$i -lt 120;$i++){
+    if(!(Test-Path -LiteralPath $lock)){
+      Write-Host 'CORPORATE_TWO_INSTALLED_OWNER_LIFECYCLE=LOCK_RELEASED'
+      return
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  throw 'CORPORATE_GUI_CENTER_ORIGINAL_LOCK_NOT_RELEASED'
+}
+function Wait-CenterSignedOwner(){
+  Gui-Step 'WAIT_TEXT'
+  $retried=$false
+  for($i=0;$i -lt 600;$i++){
+    if(Has-Text $cen 'Подписанный T3 D3 получатель доступен'){return}
+    if(Has-Text $cen 'OWNER_READ_FAILED:'){
+      $codes=@()
+      foreach($item in (Window $cen).FindAll(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)){
+        try{
+          $m=[regex]::Match([string]$item.Current.Name,'^Код чтения: ((?:CEN|T3|INTEROP)_[A-Z0-9_]{4,95})\. Запись не выполнялась\.$')
+          if($m.Success){$codes+= $m.Groups[1].Value}
+        }catch{}
+      }
+      $codes=@($codes|Sort-Object -Unique)
+      if($codes.Count -eq 1){Write-Host ('CORPORATE_TWO_INSTALLED_OWNER_READ_CODE='+$codes[0])}
+      if(!$retried){
+        # A visible read failure permits one deliberate READ-only refresh.
+        # Never click enrollment, registry initialization or any signer again.
+        Press $cen 'Обновить подписанное состояние'
+        $retried=$true
+        Start-Sleep -Milliseconds 500
+      }
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  throw 'CORPORATE_GUI_CENTER_ORIGINAL_OWNER_NOT_CONFIRMED'
+}
 function Center-SeatProjection([bool]$first,[int]$seatLimit,[int]$employeeLimit){
   if($seatLimit -ge 0){
     Press $cen 'Перейти к распределению мест' $true
@@ -634,7 +681,7 @@ function Center-SeatProjection([bool]$first,[int]$seatLimit,[int]$employeeLimit)
     Press $cen 'Подключить организацию' $true
     Original-Confirm $cen 'IWXA T3: подключить организацию'
   }
-  Wait-Text $cen 'Подписанный T3 D3 получатель доступен' 360
+  Wait-CenterSignedOwner
   Press $cen 'Открыть Workspace T3' $true
   Wait-Text $cen 'К приёмке' 160
   Wait-Text $cen 'Рабочие данные находятся в локальном пространстве домена' 240
@@ -669,6 +716,7 @@ function Center-SeatProjection([bool]$first,[int]$seatLimit,[int]$employeeLimit)
   Wait-Text $cen 'Назначений нет.' 240
   # Receiving a license does not enroll an employee or assign a seat.
   Press $cen 'Personal Agent и лицензии' $true
+  Wait-CenterOwnerReleased
 }
 function Picker-Foreground([IntPtr]$handle){
   if(![CorporateQualificationGui]::IsWindow($handle)){

@@ -1299,13 +1299,23 @@ try {
   assert.ok((await page.getByTestId('publisher-followup-readback').innerText()).includes(firstOffer.id));
   assert.deepEqual(JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft'))),firstSaved,
     'Selecting a previous offer and revision must not write a new preparation');
-  await page.getByRole('button',{name:'Создать следующую подготовку'}).click();
+  // The existing native-command UI fixture observes two synchronous UI
+  // activations before the React busy render. One durable preparation only.
+  await page.getByRole('button',{name:'Создать следующую подготовку'}).waitFor();
+  await page.evaluate(()=>{
+    const button=document.getElementById('iwxa-publisher-save-proposal');
+    button.click();button.click();
+  });
+  await page.getByTestId('publisher-proposal-save-feedback').waitFor();
+  assert.equal(await page.getByTestId('publisher-proposal-already-saved').count(),1);
+  assert.equal(await page.getByRole('button',{name:'Создать следующую подготовку'}).isDisabled(),true);
   const linked=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')));
   assert.equal(linked.proposals.length,3);
   assert.equal(linked.proposals[2].previousProposalId,firstOffer.id);
   assert.equal(linked.proposals[2].tariffSnapshot.productSeats,7);
   assert.equal(linked.proposals[2].status,'DRAFT_NOT_ISSUED');
   checks.push('native-ui-tariff-edition-and-followup-preserve-previous-terms');
+  checks.push('native-ui-followup-double-activation-saves-exactly-once');
   // A bounded native-command double tests the confirmation UI without
   // pretending this is installed Windows, a T3 issuer or a real signed license.
   let backupDraft=emptyPublisherDraft();
