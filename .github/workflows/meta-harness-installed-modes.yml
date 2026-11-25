@@ -2,19 +2,25 @@
 name: Meta Harness installed mode qualification
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'ci/once/meta-harness-installed-modes/**'
+    paths:
+      - '.github/ci-requests/meta-harness-installed-modes.json'
 
 concurrency:
-  group: meta-harness-installed-modes-${{ github.ref }}
+  group: meta-harness-installed-modes-refs/heads/work/2026-11-24-meta-harness-source-qualification
   cancel-in-progress: false
 permissions:
   contents: read
 jobs:
   installed-modes:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     runs-on: windows-2022
     timeout-minutes: 90
     env:
-      PRIVATE_PIN: '827f9cf88c3dc124d5764d292e8e93b2a757b9ca'
-      PRIVATE_TREE: 'b5b9dbbea2381e160c4d9a46f70c52df6388c5ef'
+      PRIVATE_PIN: 'f43ec4d20905991f4b6ccdc4eb6c942048f8b290'
+      PRIVATE_TREE: '4950ec488f31d473643562fba5ccc2b7b02dda5c'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -32,6 +38,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Checkout public request guard only
+        uses: actions/checkout@v4
+        with:
+          path: ci-harness
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify deliberate immutable request before private checkout
+        working-directory: ci-harness
+        shell: bash
+        run: |
+          python tools/ci/verify_once_request.py \
+            --repository Faust-S/Center --workflow meta-harness-installed-modes \
+            --profile installed-mode-witness \
+            --revision agent=f43ec4d20905991f4b6ccdc4eb6c942048f8b290 \
+            --revision agent_tree=4950ec488f31d473643562fba5ccc2b7b02dda5c \
+            --revision center_owner=c10e193846a0ea4c73cabe3744aa7db82439d54e
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'

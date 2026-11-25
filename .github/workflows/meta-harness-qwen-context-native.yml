@@ -3,24 +3,31 @@
 name: Meta Harness Qwen native Context qualification
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'ci/once/meta-harness-qwen-context-native/**'
+    paths:
+      - '.github/ci-requests/meta-harness-qwen-context-native.json'
 
 concurrency:
-  group: meta-harness-qwen-context-native-${{ github.ref }}
+  group: meta-harness-qwen-context-native-refs/heads/work/2026-11-24-meta-harness-source-qualification
   cancel-in-progress: false
 permissions:
   contents: read
 jobs:
   qualify:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         os: [windows-2022]
         mode: [SINGLE_TEXT, SINGLE_CONTEXT, COMBINED, COMBINED_LINKED]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: '827f9cf88c3dc124d5764d292e8e93b2a757b9ca'
-      PRIVATE_TREE: 'b5b9dbbea2381e160c4d9a46f70c52df6388c5ef'
+      PRIVATE_PIN: 'f43ec4d20905991f4b6ccdc4eb6c942048f8b290'
+      PRIVATE_TREE: '4950ec488f31d473643562fba5ccc2b7b02dda5c'
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
       IWXA_QWEN_QUALIFICATION_MODEL: 'QWEN3_4B_Q4_K_M'
       IWXA_NATIVE_QWEN_CONTEXT_TEST: ${{ matrix.mode != 'SINGLE_TEXT' && '1' || '0' }}
@@ -31,6 +38,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Checkout public request guard only
+        uses: actions/checkout@v4
+        with:
+          path: ci-harness
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify deliberate immutable request before private checkout
+        working-directory: ci-harness
+        shell: bash
+        run: |
+          python tools/ci/verify_once_request.py \
+            --repository Faust-S/Center --workflow meta-harness-qwen-context-native \
+            --profile native-qwen-context-four-modes \
+            --revision agent=f43ec4d20905991f4b6ccdc4eb6c942048f8b290 \
+            --revision agent_tree=4950ec488f31d473643562fba5ccc2b7b02dda5c
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
