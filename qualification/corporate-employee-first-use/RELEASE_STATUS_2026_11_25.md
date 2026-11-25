@@ -34,7 +34,7 @@ owner on the owner's Windows PC. Codex acceptance is not required.
 The workflow pins:
 - Admin Center 5c6e3e8994eb94c46f29b126375928e0ed99e1bb
 - Publisher f51877ab77dce56af0d745f09752ce2505a521a8 (final 0.5.0 identity; no functional changes)
-- Agent 457557c51f009d21b36127d8c0db50900fdae22d (only the old 0.6.3 test expectation corrected to 0.6.4; executable source unchanged)
+- Agent 4cecffe7786a0afbf198a847d8368e4e8549e98a (exact installed K036 candidate identity recognition; previous test expectation correction retained)
 - T3 d073d9e699efc7b2d38d656a00235098bd09f308
 - One Core 8db847058cab231d2d39c34df46024b60564d2ad
 - T2 candidate packaging c28e01876f3230307b7f20449f7ef54374367c93
@@ -90,18 +90,33 @@ Agent's five native manifests already declared 0.6.4, but the release test
 expected 0.6.3. The exact one-line test correction is commit
 457557c51f009d21b36127d8c0db50900fdae22d. No executable code was changed.
 
+Knowledge run 45638915538: source admission and all native steps through
+31 passed, including exact installation of all three products and ACTIVE
+license preparation 9/9. Step 32 failed after 2/14 first-use receipts:
+AGENT_PROFILE_EXISTING_READBACK, T3_ORIGINAL_OWNER_NOT_INSTALLED for
+both CREATE and READ. No subsequent Task/Result/Exchange or lifecycle
+receipt group was executed. The runner deleted all original installers.
+
+Root cause: installed Agent's daily-driver origin gate recognized only the
+prior accepted K036 artifact ID, and consequently cleared the installed
+original employee owner environment for the new, explicitly packaged
+candidate. Commit 4cecffe7786a0afbf198a847d8368e4e8549e98a separates exact
+byte identity verification from CI-only build admission, and uses the
+same pinned verification in the installed runtime. The review candidate
+must match its canonical installed roots, installation receipt, package
+source identity, candidate receipt, inventory and all four original
+Kernel hashes. It is NOT promoted or marked accepted. The existing startup
+regression covers the detected failure without adding a new CI scenario.
+Local reconstructed fixture: exact pinned runtime identity verification
+and original build guard PASS. Full updated Windows result still pending.
+
 Single current frozen native release run:
-https://github.com/Faust-S/knowledge/actions/runs/45638915538
-Workflow commit: f677c91d56261b4ff582cd487acb43de2517f91d
+https://github.com/Faust-S/knowledge/actions/runs/45646747599
+Workflow commit: 2d97b95eef88d180172f1711618231452dcb89e9
 Exact Center orchestration: 9fd425766f34da5717e45be0b1ca77da34782c17
-Source admission job 139291802467: PASS.
-Windows job 139291906467: at the time of this record, all steps through 26
-passed, including Agent packaging and supervised original T3 startup,
-original Admin build, exact installation, Workspace, signed registry and
-cold seat readback. Step 27 (Agent Setup build and native qualification) is
-running; later installed corporate route steps have not run yet.
-Do not start another qualification or request a new T2 secret while this
-existing qualification is active.
+Source admission job 139319680934: PASS.
+Windows job 139319766361: in progress at checkout at time of this record.
+Do not start another qualification or request a new T2 secret.
 
 The product behavior, all 63 existing installed receipt criteria and the
 21 named workflow stages are unchanged. Only the CI repository/ref
@@ -118,19 +133,34 @@ not a required acceptance authority. The candidate archive and packages
 still carry releaseAccepted=false and are not stable releases. Do not
 substitute the older defective Kernel or overwrite accepted branches.
 
-Delivery is a separate gate, before personal acceptance. The running
-qualification deliberately deletes its private binaries at completion and
-uploads no installers. It cannot be modified in place. If successful,
-prepare one combined owner-only packaging/delivery pass using the same
-original builders and immutable source pins, not a second expanded test
-matrix. Rebuilt installers are a new set of binary bytes; do not claim
-bit-identical qualification without a digest comparison. Record source
-pins, exact package SHA-256s and candidate Kernel identity. Do not publish
-plaintext installers or private logs in public Actions. The prior encrypted
-installer delivery (Center run 45255798094, commit e25664ed9deea46183b276328032d96ab8133775)
-used AES-256-GCM with RSA-OAEP-SHA256. Reuse only a recipient key confirmed
-as accessible to the owner, or an explicitly authorized private delivery
-channel. Do not assume possession of the historical private key.
+Delivery is a separate gate, before personal acceptance. The owner
+explicitly authorized encrypted installer delivery through public CI and
+requested ordinary decrypted EXE downloads for personal acceptance. The
+owner supplied the existing 0.6.3 recipient key archive privately. Only
+the derived public RSA-3072 key is included in the workflow; the private
+key is never copied to GitHub. Local encryption/decryption roundtrip of
+three test files with the supplied key passed, tampered authenticated
+metadata and incorrect expected installer SHA-256 were rejected.
+
+The current workflow records each exact installer SHA-256 before its
+successful installation, then seals those same three files before cleanup
+using AES-256-GCM + RSA-3072-OAEP-SHA256, with authenticated identity,
+source pins, run ID, candidate Kernel identity, and explicit PENDING owner
+acceptance. No repeat delivery build is required. Sealing runs if all
+three installs passed, including when a later corporate route fails; such
+a package explicitly records corporate_route=INCOMPLETE and is NOT a
+stable release. Only the three ciphertexts and three envelopes are
+uploaded, retained three days. The exact sealing script was verified
+locally and its Git blob matches the tested bytes:
+f21783fc8db6e4b36e7b9a3d3892763c148b7ceb.
+The owner-only artifact is named
+IWXA-Corporate-0.4.1-0.5.0-0.6.4-encrypted-candidates.
+After it actually exists, retrieve it into the local working environment,
+verify source pins and exact SHA-256s against the CI log, authenticate and
+decrypt with the supplied key, then provide the three ordinary EXEs.
+No private source, raw logs, plaintext installers, signed fixture carriers
+or secret key may be published in public Actions. No installer delivery
+has been performed yet.
 
 Owner acceptance: install and open Admin Center 0.4.1, Publisher 0.5.0,
 Personal Agent 0.6.4. Use a separate non-production organization and a
