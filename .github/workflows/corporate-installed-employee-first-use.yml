@@ -585,7 +585,9 @@ jobs:
             Write-Host ('EMPLOYEE_LICENSED_FAILURE_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
           }
           $manifest=@(Get-Content -LiteralPath 'qualification/corporate-employee-first-use/required-licensed-receipts.json' -Raw|ConvertFrom-Json)
-          if($exit -ne 0 -or $raw -notmatch '(?m)^EMPLOYEE_LICENSED_ADMISSION=PASS checks=9\s* @(Compare-Object -ReferenceObject $manifest -DifferenceObject $checks -CaseSensitive).Count -ne 0){
+          if($exit -ne 0 -or $raw -notmatch '(?m)^EMPLOYEE_LICENSED_ADMISSION=PASS checks=9\s*$' -or
+             $raw -notmatch '(?m)^EMPLOYEE_LICENSED_RESULT_ACCEPTANCE=PASS checks=13\s*$' -or
+             $checks.Count -ne 13 -or @(Compare-Object -ReferenceObject $manifest -DifferenceObject $checks -CaseSensitive).Count -ne 0){
             $codes=@([regex]::Matches($raw,'(?<![A-Z0-9_])(?:EMPLOYEE_INSTALLED|CORPORATE_GUI|CORPORATE_SEAT)_[A-Z0-9_]{4,95}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
             Write-Host ('EMPLOYEE_LICENSED_CODES='+($codes -join ','))
             throw 'EMPLOYEE_LICENSED_ADMISSION_HOLD'
