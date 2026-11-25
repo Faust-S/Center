@@ -1,9 +1,9 @@
 {
-  "candidate": "159c906fed4f63930c0d8f57931808f474a95bf6",
-  "tree": "02d6c8ece588fa749a12b6fab35e0f90e8f76031",
-  "original_t3": "83416f405c8ea4c39591ae62e115d56b044611ab",
-  "original_t3_tree": "6c002bd6f6a65874c3a8de215074de21e754b8e0",
-  "scope": "M08_1_NATIVE_T3_D5_AND_CONNECTED_AGENT_ONE_APK",
-  "reason": "CONSOLIDATED_SOURCE_BUILD_INSTALLED_RESTART_LIFECYCLE",
+  "candidate": "0302fb2c303ccef264a4551d5981c29d0e09f5ce",
+  "tree": "38f1589511ac2810b3c328cf00c3203cb1f1cc24",
+  "original_t3": "3c2530a62ed9d7d84ca40eea500fef161393424d",
+  "original_t3_tree": "4f027d7fcdf49ced2a2e42a7795a994e1b3e6c69",
+  "scope": "M08_5_NATIVE_T3_D5_ONE_APK_INSTALLED_QUALIFICATION",
+  "reason": "FIX_GRADLE_NOTCLASS_ARGUMENT_AND_CONSOLIDATE_M08_2_TO_M08_4",
   "physical": "NOT_RUN"
 }
