@@ -906,10 +906,11 @@ export default function App(){
              p.productId==='IWXA_ADMIN_CENTER'&&
              <button className="secondary" type="button"
                data-testid="publisher-open-corporate-from-list" disabled={busy||!nativeHost}
+               aria-label={p.previousProposalId?`Открыть корпоративную выдачу T3 для запроса ${p.id}`:undefined}
                onClick={()=>go('trust','publisher-corporate-native-owner',{
                  proposalId:p.id,seats:corporateSeatInputs[p.id]??''
                })}>
-               Открыть корпоративную выдачу T3
+               {p.previousProposalId?'Открыть продление в T3':'Открыть корпоративную выдачу T3'}
              </button>}
             {p.tariffSnapshot?.holderType==='PERSON'&&
              ['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(p.productId)&&

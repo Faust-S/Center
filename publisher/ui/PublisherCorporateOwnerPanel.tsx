@@ -421,8 +421,10 @@ export default function PublisherCorporateOwnerPanel({
         </select>
       </label>
       {selected&&<div>
-        <p>Лимит сотрудников: {selected.limits.employeeLimit}.
-          Места Admin Center: {selected.limits.adminCenterProductSeats}.</p>
+        <p data-testid="publisher-corporate-selected-proposal">Выбранное предложение: {selected.proposalId}</p>
+        <p>Тариф: {selected.tariff.name}, редакция {selected.tariff.revision}.</p>
+        <p>Лимит сотрудников: {selected.limits.employeeLimit}.</p>
+        <p>Места Admin Center: {selected.limits.adminCenterProductSeats}.</p>
         <label>Корпоративные места Personal Agent (явно)
           <input type="number" min={0} max={selected.limits.employeeLimit}
             value={seatInput} disabled={busy}

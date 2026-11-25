@@ -675,6 +675,8 @@ try {
   await focusedCorporate.getByTestId('publisher-corporate-owner-check').click();
   assert.equal(await focusedCorporate.getByLabel('Подготовленное предложение организации').inputValue(),
     corporateRequest.requestId);
+  assert.equal(await focusedCorporate.getByTestId('publisher-corporate-selected-proposal').innerText(),
+    'Выбранное предложение: '+corporateRequest.requestId);
   assert.equal(await focusedCorporate.getByTestId('publisher-corporate-native-seats').inputValue(),'0',
     'Explicitly entered Personal Agent seats must follow their exact proposal');
   assert.equal(await focusedCorporate.getByTestId('publisher-corporate-native-issue').count(),0,

@@ -1383,10 +1383,13 @@ try{
   $nextRequest=[string]$followup[0].id
   if(!$nextRequest -or $nextRequest -ceq $request){throw 'CORPORATE_GUI_RENEWAL_PREPARATION_ID_INVALID'}
   Phase 'PUBLISHER_RENEWAL_ISSUE'
-  Press $pub 'Доверие и ключи'
+  # Navigate through the actual persisted proposal's own unsigned handoff.
+  # A combobox position is not the identity of a renewal. Never reselect
+  # by relative order or sign before observing the exact request.
+  Press $pub ('Открыть корпоративную выдачу T3 для запроса '+$nextRequest)
   Press $pub 'Проверить зарегистрированного издателя T3'
-  Select-FirstReal $pub 'Зарегистрированный издатель'
-  Select-FirstReal $pub 'Подготовленное предложение организации'
+  Select-ComboIndex $pub 'Зарегистрированный издатель' 1
+  Wait-Text $pub ("Выбранное предложение: "+$nextRequest)
   Wait-Text $pub 'Лимит сотрудников: 6.'
   Wait-Text $pub 'Места Admin Center: 1.'
   Enter $pub 'Корпоративные места Personal Agent (явно)' '1'
