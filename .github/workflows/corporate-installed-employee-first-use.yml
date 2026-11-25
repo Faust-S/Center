@@ -166,6 +166,35 @@ jobs:
             throw 'EMPLOYEE_LICENSED_RECEIPT_CONTRACT_DRIFT'
           }
           Write-Host 'EMPLOYEE_LICENSED_WITNESS_CONTRACT=PASS'
+      - name: Original T3 installed server startup regression before packaging
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -m unittest discover -s qualification/corporate-employee-first-use -p test_pytest_witness.py
+          if($LASTEXITCODE -ne 0){throw 'CORPORATE_AGENT_STARTUP_WITNESS_TEST_FAILED'}
+          $validator=(Resolve-Path 'qualification/corporate-employee-first-use/pytest_witness.py').Path
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-agent-startup-regression-private.log'
+          $report=Join-Path $env:RUNNER_TEMP 'corporate-agent-startup-regression-private.xml'
+          Remove-Item -LiteralPath $report -Force -ErrorAction SilentlyContinue
+          Push-Location private-agent
+          try{
+            if((& git rev-parse HEAD).Trim() -cne $env:AGENT_PIN){throw 'CORPORATE_AGENT_STARTUP_PIN_MISMATCH'}
+            & python -m pip install pytest -r requirements.txt *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_AGENT_STARTUP_TEST_ENV_FAILED'}
+            & python -m pytest -q tests/test_agent06_t3_installed_kernel_origin.py "--junitxml=$report" *> $log
+            $exit=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            $counts=@([regex]::Matches($raw,'\b\d+ (?:passed|failed|errors?|deselected|skipped)\b')|ForEach-Object {$_.Value}|Select-Object -Unique)
+            Write-Host ('CORPORATE_AGENT_STARTUP_REGRESSION_COUNTS='+($counts -join ','))
+            if($exit -ne 0){throw 'CORPORATE_AGENT_STARTUP_REGRESSION_FAILED'}
+            & python $validator $report
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_AGENT_STARTUP_REGRESSION_FAILED'}
+            Write-Host 'CORPORATE_AGENT_SUPERVISED_ORIGINAL_T3_STARTUP=PASS'
+          }finally{
+            Pop-Location
+            Remove-Item -LiteralPath $log,$report -Force -ErrorAction SilentlyContinue
+          }
       - name: Build canonical One Core and Admin dependencies
         shell: pwsh
         timeout-minutes: 15
@@ -266,28 +295,6 @@ jobs:
               Write-Host ('CORPORATE_INSTALLED_SEAT_GATE_MS='+$m.Groups[1].Value)
             }
             throw 'CORPORATE_INSTALLED_ADMIN_UI_HOLD'
-          }
-      - name: Original T3 installed server startup regression before packaging
-        shell: pwsh
-        timeout-minutes: 8
-        run: |
-          $ErrorActionPreference='Stop'
-          $log=Join-Path $env:RUNNER_TEMP 'corporate-agent-startup-regression-private.log'
-          Push-Location private-agent
-          try{
-            if((& git rev-parse HEAD).Trim() -cne $env:AGENT_PIN){throw 'CORPORATE_AGENT_STARTUP_PIN_MISMATCH'}
-            & python -m pip install pytest -r requirements.txt *> $log
-            if($LASTEXITCODE -ne 0){throw 'CORPORATE_AGENT_STARTUP_TEST_ENV_FAILED'}
-            & python -m pytest -q tests/test_agent06_t3_installed_kernel_origin.py *> $log
-            $exit=$LASTEXITCODE
-            $raw=Get-Content -LiteralPath $log -Raw
-            $counts=@([regex]::Matches($raw,'\b\d+ (?:passed|failed|errors?|deselected|skipped)\b')|ForEach-Object {$_.Value}|Select-Object -Unique)
-            Write-Host ('CORPORATE_AGENT_STARTUP_REGRESSION_COUNTS='+($counts -join ','))
-            if($exit -ne 0 -or $raw -notmatch '\b2 passed\b'){throw 'CORPORATE_AGENT_STARTUP_REGRESSION_FAILED'}
-            Write-Host 'CORPORATE_AGENT_SUPERVISED_ORIGINAL_T3_STARTUP=PASS'
-          }finally{
-            Pop-Location
-            Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
           }
       - name: Build and qualify original Agent Setup Core with actual installed T3
         shell: pwsh
