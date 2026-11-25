@@ -72,6 +72,21 @@ function Open-ExactEmployee($process,[string]$expectedPerson=''){
   (!$expectedPerson -or $person -ceq $expectedPerson)) 'EMPLOYEE_LICENSED_RESTORED_EMPLOYEE_MISMATCH'
  return $person
 }
+# Only finite codes from the actual product are emitted. Never repeat a
+# mutation when the native confirmation or its acknowledgement is missing.
+function Read-SeatDispatchDiagnostic($process){
+ $allowed=@('CEN_D3_CORPORATE_SEAT_ASSIGNMENT_NOT_AVAILABLE',
+  'CEN_D3_CORPORATE_SEAT_READBACK_REQUIRED','CEN_D3_CORPORATE_SEAT_COMMAND_INVALID',
+  'CEN_D3_CORPORATE_SEAT_INTENT_INVALID','CEN_D3_CORPORATE_SEAT_INTENT_ALREADY_PENDING',
+  'CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING','CEN_D3_ORIGINAL_EMPLOYEE_OWNER_NOT_CONNECTED',
+  'CEN_D3_CONTEXT_CHANGED','CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED','CEN_OWNER_NOT_CONNECTED')
+ foreach($code in $allowed){if(Has-Text $process $code){return $code}}
+ if(Has-Text $process 'Результат операции '){return 'OUTCOME_UNKNOWN'}
+ if(Has-Text $process 'Выполняется операция '){return 'IN_PROGRESS'}
+ if(Has-Text $process 'Исход операции неизвестен'){return 'OUTCOME_UNKNOWN'}
+ if(Has-Text $process 'Подтверждённая операция:'){return 'COMMITTED_READBACK_PRESENT'}
+ return 'NO_RECOGNIZED_STATE'
+}
 function Check-SeatCapacity($process,[int]$reserved){
  Wait-Text $process 'Подписанная лицензия актуальна' 240
  Wait-ExactText $process 'Зарегистрированные сотрудники: 1 / 10'
@@ -160,9 +175,18 @@ try{
  Stage 'CENTER_ASSIGN_ORIGINAL_SEAT'
  Press $cen 'Перечитать распределение'
  Check-SeatCapacity $cen 0
- Select-FirstReal $cen 'Подтверждённый сотрудник'
- Press $cen 'Назначить место' $true
- Original-Confirm $cen 'IWXA T3: распределение корпоративных мест'
+ # The exact employee reopened above is already the default target of
+ # the real seat panel. Verify that identity, not a positional combobox.
+ Wait-ExactText $cen ('Получатель места: '+$person)
+ Press-VerifiedEmployeeButton $cen 'Назначить место'
+ try{
+  Original-Confirm $cen 'IWXA T3: распределение корпоративных мест'
+ }catch{
+  $diagnostic='NO_RECOGNIZED_STATE'
+  try{$diagnostic=Read-SeatDispatchDiagnostic $cen}catch{}
+  Write-Host ('EMPLOYEE_LICENSED_SEAT_DISPATCH='+$diagnostic)
+  throw
+ }
  Check-SeatCapacity $cen 1
  Wait-Text $cen 'Подтверждённая операция:' 240
  Record 'CENTER_ORIGINAL_SEAT_ASSIGNED'
@@ -203,7 +227,7 @@ try{
  $taskText='Check the supplier invoice: 12 units at 45 currency units each and delivery at 80. Calculate the total and explain the calculation.'
  Enter $cen 'Исходный ID поручения' $taskId
  Enter $cen 'Текст поручения' $taskText
- Press $cen '3. Подписать Task этому сотруднику' $true
+ Press-VerifiedEmployeeButton $cen '3. Подписать Task этому сотруднику'
  Original-Confirm $cen 'IWXA T3: подписать поручение независимому сотруднику'
  Wait-Text $cen ('Подписанная Task: '+$taskId) 360
  Press $cen 'Перечитать подписанную Task'
