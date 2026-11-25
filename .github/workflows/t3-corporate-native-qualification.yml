@@ -2,8 +2,6 @@
 # private source grant. No artifact, cache, release, private logs or binaries.
 name: Original T3 corporate Consumer Ed25519 and Windows DPAPI
 on:
-  push:
-    branches: ['work/2026-11-24-t3-corporate-native-qualification']
   workflow_dispatch:
 permissions:
   contents: read
