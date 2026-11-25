@@ -25,7 +25,7 @@ No production acceptance or stable branch promotion has been performed.
 The workflow pins:
 - Admin Center 5c6e3e8994eb94c46f29b126375928e0ed99e1bb
 - Publisher 39eb7d67325f64d35a2f46d82d9de631794c0836
-- Agent 8f3c823c4713cc3b3f97e15801bc4301a4e84e8f
+- Agent 9cb0792490bd395d2d79ecbeaaf31f4d98510d26
 - T3 b25cf1dc6ef7e7a53e1fd53cd9cbb2fcd76e4fa4
 - One Core 8db847058cab231d2d39c34df46024b60564d2ad
 - T2 candidate packaging c28e01876f3230307b7f20449f7ef54374367c93
@@ -41,11 +41,20 @@ installation data or the signed fixture carriers.
 
 One Windows job performs the 9 initial license, 14 independent first-use,
 18 licensed Task/Result/Exchange, 15 reserved-seat license lifecycle, and
-6 independent Agent offline license chain receipts (62 in total).
-The last six checks deliver the exact signed suspension, renewal and
-revocation carriers from Publisher and compare the original accepted
-Task/Result after a cold Agent restart. These are implemented, not yet
+7 independent Agent offline license chain receipts (63 in total).
+The last seven checks deliver the exact signed suspension, renewal and
+revocation carriers from Publisher, reject the earlier signed ACTIVE
+successor without losing the live Agent session, and compare the original
+accepted Task/Result after a cold restart. These are implemented, not yet
 Windows-qualified.
+
+Agent's license intake distinguishes an original synchronous Consumer
+refusal (exact unchanged authenticated revision and signed floor) from
+an unknown write. No reimport is attempted. Eleven local Node.js tests
+passed; the locally tested blobs were checked against the committed blobs:
+2ed25967656e0d6d89cdd7efc266cbf3eca28056 and
+eadd44351ac6ac6840394db5016d680dfb5f7e87.
+The existing Windows preflight includes this small regression.
 
 Agent presents observed corporate seat readiness before new submission.
 The changed pure presentation logic passed 23 direct assertions; the
@@ -64,6 +73,7 @@ Existing T3/Agent access works and does not need expansion.
 Do not repeat the older Windows workflows. The cheap Linux source-admission
 job gates the one consolidated Windows job. Resume a single run of the
 latest workflow after the scoped T2 secret is available. The latest working
-branch includes a read-only navigation correction after the blocked run.
+branch includes the read-only navigation correction and exact license
+intake regression after the blocked run.
 Current status remains RELEASE HOLD pending the installed qualification
 and independent final acceptance.

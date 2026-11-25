@@ -143,6 +143,31 @@ try{
  Stage 'PREDECESSOR_REVOCATION'
  Import-OriginalLicense $agent $chain.rows[3] $false 2
  Record 'AGENT_OFFLINE_REVOKED_PREDECESSOR_NO_CAPACITY'
+ Stage 'REPLAY_REVOKED_SUCCESSOR'
+ # Replay the actual earlier signed ACTIVE successor, not synthetic bytes.
+ # The original Consumer must reject it; the same running Agent must
+ # retain its signed history and ordinary readback without a restart.
+ $oldActive=Join-Path $handoff ([string]$chain.rows[1].file)
+ Need ((Digest $oldActive) -ceq $chain.rows[1].sha256) 'EMPLOYEE_LICENSE_CHAIN_REPLAY_BYTES_CHANGED'
+ Need ([DateTimeOffset]::Parse([string]$chain.rows[1].statusValidUntil) -gt [DateTimeOffset]::UtcNow.AddMinutes(1)) 'EMPLOYEE_LICENSE_CHAIN_REPLAY_ACTIVE_STATUS_EXPIRED'
+ Enter $agent 'Подписанное обновление LICENSE/STATUS (.iwxa)' $oldActive
+ Press-VerifiedEmployeeButton $agent 'Принять подписанное обновление'
+ $denial=''
+ for($i=0;$i -lt 240;$i++){
+  foreach($code in @('CORP_STATUS_TIME_ROLLBACK_DENIED','CORP_STATUS_ROLLBACK_DENIED','CORP_STATUS_REVOKE_RESURRECTION_DENIED')){
+   if(Has-Text $agent $code){$denial=$code;break}
+  }
+  if($denial){break}
+  if(Has-Text $agent 'Исход операции неизвестен.'){throw 'EMPLOYEE_LICENSE_CHAIN_DENIED_REPLAY_MARKED_UNKNOWN'}
+  Start-Sleep -Milliseconds 250
+ }
+ Need ([bool]$denial) 'EMPLOYEE_LICENSE_CHAIN_ORIGINAL_REPLAY_REFUSAL_NOT_OBSERVED'
+ Wait-ExactText $agent 'Доступ подтверждён'
+ Check-LicenseView $agent 5 2 $false
+ Need (!(Has-Text $agent 'Исход операции неизвестен.')) 'EMPLOYEE_LICENSE_CHAIN_DENIED_REPLAY_MARKED_UNKNOWN'
+ Press $agent 'Проверить лицензию и место'
+ Check-LicenseView $agent 5 2 $false
+ Record 'AGENT_REVOKED_ACTIVE_REPLAY_DENIED_WITHOUT_LOST_WRITE_HOLD'
  Stage 'COLD_REVOKED_RESULT'
  Stop-App $agent;$agent=Start-App $agentExe $AgentRoot
  if((Open-Company $agent) -ceq 'PERSONAL'){
@@ -170,8 +195,8 @@ try{
  Compare-CompanyRecord $ready.taskRecord $task
  Compare-CompanyRecord $ready.resultRecord $result
  Record 'AGENT_COLD_REVOKED_ORIGINAL_RESULT_PRESERVED'
- Need ($checks.Count -eq 6) 'EMPLOYEE_LICENSE_CHAIN_RECEIPTS_INCOMPLETE'
- Write-Host 'EMPLOYEE_LICENSE_CHAIN_PASS checks=6'
+ Need ($checks.Count -eq 7) 'EMPLOYEE_LICENSE_CHAIN_RECEIPTS_INCOMPLETE'
+ Write-Host 'EMPLOYEE_LICENSE_CHAIN_PASS checks=7'
 }catch{
  Write-Host ('EMPLOYEE_LICENSE_CHAIN_FAILURE_STAGE='+$script:stage)
  Write-Host ('EMPLOYEE_LICENSE_CHAIN_FAILURE_STEP='+$script:guiOrdinal)

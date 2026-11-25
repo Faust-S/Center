@@ -21,7 +21,7 @@ env:
   CORE_PIN: '8db847058cab231d2d39c34df46024b60564d2ad'
   CENTER_PIN: '5c6e3e8994eb94c46f29b126375928e0ed99e1bb'
   PUBLISHER_PIN: '39eb7d67325f64d35a2f46d82d9de631794c0836'
-  AGENT_PIN: '8f3c823c4713cc3b3f97e15801bc4301a4e84e8f'
+  AGENT_PIN: '9cb0792490bd395d2d79ecbeaaf31f4d98510d26'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -213,6 +213,14 @@ jobs:
               if($exit -ne 0){throw 'CORPORATE_INSTALLED_CHANGED_PRODUCT_CONTRACTS_FAILED'}
             }finally{Pop-Location}
           }
+          $agentLog=Join-Path $env:RUNNER_TEMP 'corporate-installed-agent-license-intake-private.log'
+          & node --test 'private-agent/tests/t3-original-license-intake.test.mjs' *> $agentLog
+          $exit=$LASTEXITCODE
+          $raw=Get-Content -LiteralPath $agentLog -Raw
+          foreach($m in [regex]::Matches($raw,'(?m)^# (tests|pass|fail|skipped) (\d{1,6})\s*$')){
+            Write-Host ('CORPORATE_AGENT_LICENSE_INTAKE_'+$m.Groups[1].Value.ToUpperInvariant()+'='+$m.Groups[2].Value)
+          }
+          if($exit -ne 0){throw 'CORPORATE_AGENT_LICENSE_INTAKE_CONTRACT_FAILED'}
           Write-Host 'CORPORATE_INSTALLED_CHANGED_PRODUCT_CONTRACTS=PASS'
       - name: Validate native employee witness receipt contract
         shell: pwsh
@@ -287,8 +295,8 @@ jobs:
             }
             [string]$call.CommandElements[1].Value
           })
-          if($declared.Count -ne 6 -or $manifest.Count -ne 6 -or
-             @($manifest|Sort-Object -CaseSensitive -Unique).Count -ne 6 -or
+          if($declared.Count -ne 7 -or $manifest.Count -ne 7 -or
+             @($manifest|Sort-Object -CaseSensitive -Unique).Count -ne 7 -or
              @(Compare-Object -ReferenceObject $manifest -DifferenceObject $declared -CaseSensitive).Count -ne 0){
             throw 'EMPLOYEE_LICENSE_CHAIN_RECEIPT_CONTRACT_DRIFT'
           }
@@ -846,8 +854,8 @@ jobs:
             Write-Host ('EMPLOYEE_LICENSE_CHAIN_FAILURE_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
           }
           $manifest=@(Get-Content -LiteralPath 'qualification/corporate-employee-first-use/required-license-chain-receipts.json' -Raw|ConvertFrom-Json)
-          if($exit -ne 0 -or $raw -notmatch '(?m)^EMPLOYEE_LICENSE_CHAIN_PASS checks=6\s*$' -or
-             $checks.Count -ne 6 -or @($checks|Sort-Object -CaseSensitive -Unique).Count -ne 6 -or
+          if($exit -ne 0 -or $raw -notmatch '(?m)^EMPLOYEE_LICENSE_CHAIN_PASS checks=7\s*$' -or
+             $checks.Count -ne 7 -or @($checks|Sort-Object -CaseSensitive -Unique).Count -ne 7 -or
              @(Compare-Object -ReferenceObject $manifest -DifferenceObject $checks -CaseSensitive).Count -ne 0){
             $safe=@([regex]::Matches($raw,'(?<![A-Z0-9_])(?:EMPLOYEE_LICENSE_CHAIN|EMPLOYEE_LICENSED|CORPORATE_GUI|CORPORATE_SEAT)_[A-Z0-9_]{4,100}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
             Write-Host ('EMPLOYEE_LICENSE_CHAIN_CODES='+($safe -join ','))
