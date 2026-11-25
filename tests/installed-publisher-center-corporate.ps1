@@ -943,7 +943,7 @@ function Publisher-Status([string]$state,[string]$id,[int]$sequence){
   # The disposable fixture permits at most 3600 seconds. The longer
   # 45-minute window is only for the same-runner employee continuation;
   # the independent license-lifecycle test retains its original 15 minutes.
-  $minutes=if($PrepareLicensedEmployee){45}else{15}
+  $minutes=if($PrepareLicensedEmployee -or $ContinueLicensedEmployeeLifecycle){45}else{15}
   $until=[DateTime]::UtcNow.AddMinutes($minutes).ToString("yyyy-MM-ddTHH:mm:ss.fffZ",[Globalization.CultureInfo]::InvariantCulture)
   Enter $pub 'STATUS действителен до (UTC, ISO 8601)' $until
   Confirm-Checkbox $pub 'Подтверждаю отдельную подпись STATUS; отзыв необратим' 'Подписать новый STATUS через T3'
@@ -1582,6 +1582,52 @@ try{
   $report|ConvertTo-Json -Depth 8|Set-Content -LiteralPath (Join-Path $artifact 'result.json') -Encoding UTF8
   if($ContinueLicensedEmployeeLifecycle){
     if($checks.Count -ne 15){throw 'CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_RECEIPTS_INCOMPLETE'}
+    # Deliver the exact already exported physical chain to the independent
+    # installed employee. This is private same-runner test data, not a new
+    # issuer, Store, grant or publication of private artifacts.
+    $chainPath=Join-Path $employeeHandoff 'employee-license-chain.json'
+    if(Test-Path -LiteralPath $chainPath){throw 'CORPORATE_INSTALLED_EMPLOYEE_LICENSE_CHAIN_EXISTS'}
+    $rows=[System.Collections.Generic.List[object]]::new()
+    foreach($item in @(
+      @{name='license-suspended.iwxa';path=$suspendedFile;proof=$suspended;raw=$suspendedHandoff;status='SUSPENDED';sequence=2;revision=2;tariffRevision=1;licenseId=$id},
+      @{name='license-renewed.iwxa';path=$renewedFile;proof=$renewed;raw=$renewalHandoff;status='ACTIVE';sequence=1;revision=3;tariffRevision=2;licenseId=$nextId},
+      @{name='license-successor-revoked.iwxa';path=$renewedRevokedFile;proof=$nextRevoked;raw=$nextRevokedHandoff;status='REVOKED';sequence=2;revision=4;tariffRevision=2;licenseId=$nextId},
+      @{name='license-predecessor-revoked.iwxa';path=$revokedFile;proof=$revoked;raw=$revokedHandoff;status='REVOKED';sequence=3;revision=5;tariffRevision=1;licenseId=$id}
+    )){
+      $signed=$item.proof
+      $carrier=$item.raw|ConvertFrom-Json -Depth 20
+      $sha=Digest $item.path
+      if($signed.organizationId -cne $org -or $signed.licenseId -cne $item.licenseId -or
+         $signed.lineageId -cne $active.lineageId -or $signed.status -cne $item.status -or
+         $signed.sequence -ne $item.sequence -or $signed.tariffRevision -ne $item.tariffRevision -or
+         $signed.statusSignatureVerifiedAtIssuance -ne $true -or $signed.statusFloorVerified -ne $true -or
+         $carrier.organizationId -cne $org -or $carrier.licenseId -cne $item.licenseId -or
+         $carrier.status -cne $item.status -or $carrier.sequence -ne $item.sequence -or
+         $carrier.packageSha256 -cne $sha -or $carrier.licenseEnvelopeSha256 -cne $signed.licenseEnvelopeSha256 -or
+         $carrier.statusEnvelopeSha256 -cne $signed.statusEnvelopeSha256){
+        throw 'CORPORATE_NATIVE_EMPLOYEE_LICENSE_CHAIN_IDENTITY_INVALID'
+      }
+      if($item.status -ceq 'ACTIVE' -and [DateTimeOffset]::Parse([string]$signed.statusValidUntil) -le [DateTimeOffset]::UtcNow.AddMinutes(5)){
+        throw 'CORPORATE_NATIVE_EMPLOYEE_SUCCESSOR_STATUS_EXPIRED'
+      }
+      $destination=Join-Path $employeeHandoff $item.name
+      [IO.File]::Copy($item.path,$destination,$false)
+      if((Digest $destination) -cne $sha){throw 'CORPORATE_INSTALLED_EMPLOYEE_LICENSE_CHAIN_BYTES_CHANGED'}
+      $rows.Add([ordered]@{
+        file=$item.name;sha256=$sha;licenseId=$item.licenseId;lineageId=$signed.lineageId
+        status=$item.status;sequence=$item.sequence;revision=$item.revision;tariffRevision=$item.tariffRevision
+        statusValidUntil=$signed.statusValidUntil
+      })
+    }
+    [ordered]@{
+      schema='IWXA_DISPOSABLE_EMPLOYEE_LICENSE_CHAIN/1'
+      status='ORIGINAL_PUBLISHER_CENTER_LIFECYCLE_CONFIRMED'
+      checks=$checks.Count;organizationId=$org;employeePersonId=$resumedEmployeePerson
+      predecessorLicenseId=$id;successorLicenseId=$nextId;lineageId=$active.lineageId
+      originalHandoffSha256=(Digest $prefixPath)
+      employeeReceiptSha256=(Digest (Join-Path $employeeHandoff 'employee-lifecycle-ready.json'))
+      rows=$rows.ToArray()
+    }|ConvertTo-Json -Depth 7|Set-Content -LiteralPath $chainPath -Encoding UTF8
     Write-Host "CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_PASS checks=$($checks.Count)"
   }elseif($ResumeQualifiedCenterCI){
     Write-Host "CORPORATE_TWO_INSTALLED_NATIVE_PASS checks=$($checks.Count)"
