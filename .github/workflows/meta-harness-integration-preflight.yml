@@ -31,8 +31,8 @@ jobs:
     env:
       COMMON_PIN: '39a4f49ed9a5c0781c4a4769e9603ca8fb1e8d23'
       COMMON_TREE: 'c0032bbfaed265e3d544450ea93f4e36c810dd19'
-      HARNESS_PIN: '5b6d2a2115cba77c8a631cc86430ef2cc0b6c2a1'
-      HARNESS_TREE: 'f23a64d302fbb2b6836d70b0559024c54931d7bb'
+      HARNESS_PIN: '4c69acdbb9228cb3efcb4ee1cd780f3d33d0b10d'
+      HARNESS_TREE: '4ed100262f133fca228725bcab32208f96a624b7'
       TARGET_PIN: ${{ matrix.target_pin }}
       TARGET_TREE: ${{ matrix.target_tree }}
       TARGET_VERSION: ${{ matrix.version }}

@@ -22,8 +22,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: 'b051d973e659336a2358a243907d54607743a613'
-      PRIVATE_TREE: '2af62f33bf2e86b00ee618364bdb2b47952472a1'
+      PRIVATE_PIN: '4c69acdbb9228cb3efcb4ee1cd780f3d33d0b10d'
+      PRIVATE_TREE: '4ed100262f133fca228725bcab32208f96a624b7'
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
       IWXA_QWEN_QUALIFICATION_MODEL: 'QWEN3_4B_Q4_K_M'
       IWXA_NATIVE_QWEN_CONTEXT_TEST: ${{ matrix.mode != 'SINGLE_TEXT' && '1' || '0' }}
