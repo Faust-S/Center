@@ -3,6 +3,8 @@
 Release identities: Admin Center 0.4.1, Publisher 0.5.0, Personal Agent 0.6.4.
 Scope frozen by owner: no new functions, additional scenarios or parallel qualification runs. Only release packaging and correction of demonstrated release blockers.
 No production acceptance or stable branch promotion has been performed.
+Owner decision on 2026-11-25: final acceptance is performed personally by the
+owner on the owner's Windows PC. Codex acceptance is not required.
 
 ## Last completed evidence
 
@@ -23,17 +25,16 @@ No production acceptance or stable branch promotion has been performed.
 - Center 45626462631: final revised candidate source admission at
   d4b55e7978320ab78b237dc7d9c291efaaed0fa0 again verified T3 and Agent;
   the dedicated T2 secret was still missing. Windows was skipped.
-  After adding the secret, re-run only the failed source-admission job
-  of this exact workflow run; it gates the dependent Windows job.
+  Historical proposed retry superseded by the successful knowledge route below.
 
-- Center 45631939972: frozen Publisher 0.5.0 candidate, existing credential fallback; original T3 and Agent read PASS, original T2 read HTTP 404. Windows was skipped. No additional scenario or functional changes. Do not rerun before T2 access is restored.
+- Center 45631939972: frozen Publisher 0.5.0 candidate, existing credential fallback; original T3 and Agent read PASS, original T2 read HTTP 404. Windows was skipped. No additional scenario or functional changes. This historical run is superseded; do not retry it.
 
 ## Exact next candidate
 
 The workflow pins:
 - Admin Center 5c6e3e8994eb94c46f29b126375928e0ed99e1bb
 - Publisher f51877ab77dce56af0d745f09752ce2505a521a8 (final 0.5.0 identity; no functional changes)
-- Agent d8beca5175d390d9a8d7f78ed30ba4a20875080d
+- Agent 457557c51f009d21b36127d8c0db50900fdae22d (only the old 0.6.3 test expectation corrected to 0.6.4; executable source unchanged)
 - T3 d073d9e699efc7b2d38d656a00235098bd09f308
 - One Core 8db847058cab231d2d39c34df46024b60564d2ad
 - T2 candidate packaging c28e01876f3230307b7f20449f7ef54374367c93
@@ -82,13 +83,25 @@ The Center run 45631939972 could not read T2 (HTTP 404). The existing
 owner-authorized public knowledge CI has read access to all three original
 private sources, without creating or extending any token.
 
-Single frozen native release run:
-https://github.com/Faust-S/knowledge/actions/runs/45636761254
-Workflow commit: 679e5d341575538b0439534d6957d0e006241ee9
+First knowledge run 45636761254: source admission, exact T2 rebuild,
+changed product contracts and witness contracts passed. The Windows job
+stopped at Agent packaging (17 passed, 1 failed), before original T3 startup.
+Agent's five native manifests already declared 0.6.4, but the release test
+expected 0.6.3. The exact one-line test correction is commit
+457557c51f009d21b36127d8c0db50900fdae22d. No executable code was changed.
+
+Single current frozen native release run:
+https://github.com/Faust-S/knowledge/actions/runs/45638915538
+Workflow commit: f677c91d56261b4ff582cd487acb43de2517f91d
 Exact Center orchestration: 9fd425766f34da5717e45be0b1ca77da34782c17
-The source-admission job 139284191986 passed all three exact commits.
-Windows job 139284276136 is in progress. Do not launch another run or
-request a new T2 secret while this existing qualification is active.
+Source admission job 139291802467: PASS.
+Windows job 139291906467: at the time of this record, all steps through 26
+passed, including Agent packaging and supervised original T3 startup,
+original Admin build, exact installation, Workspace, signed registry and
+cold seat readback. Step 27 (Agent Setup build and native qualification) is
+running; later installed corporate route steps have not run yet.
+Do not start another qualification or request a new T2 secret while this
+existing qualification is active.
 
 The product behavior, all 63 existing installed receipt criteria and the
 21 named workflow stages are unchanged. Only the CI repository/ref
@@ -100,12 +113,37 @@ automatic Windows run.
 
 Keep the existing installed route and evidence set; do not expand it.
 Only a successful installed route with the corrected original Kernel and
-independent final acceptance can justify promotion. The candidate archive
-and packages still carry releaseAccepted=false and are not stable releases.
-Do not substitute the older defective Kernel or overwrite accepted branches.
-The historical encrypted installer delivery mechanism is available for the
-final owner delivery, but the current qualification deliberately does not
-publish plaintext installers or claim that an unaccepted candidate is released.
+explicit personal acceptance by the owner can justify promotion. Codex is
+not a required acceptance authority. The candidate archive and packages
+still carry releaseAccepted=false and are not stable releases. Do not
+substitute the older defective Kernel or overwrite accepted branches.
+
+Delivery is a separate gate, before personal acceptance. The running
+qualification deliberately deletes its private binaries at completion and
+uploads no installers. It cannot be modified in place. If successful,
+prepare one combined owner-only packaging/delivery pass using the same
+original builders and immutable source pins, not a second expanded test
+matrix. Rebuilt installers are a new set of binary bytes; do not claim
+bit-identical qualification without a digest comparison. Record source
+pins, exact package SHA-256s and candidate Kernel identity. Do not publish
+plaintext installers or private logs in public Actions. The prior encrypted
+installer delivery (Center run 45255798094, commit e25664ed9deea46183b276328032d96ab8133775)
+used AES-256-GCM with RSA-OAEP-SHA256. Reuse only a recipient key confirmed
+as accessible to the owner, or an explicitly authorized private delivery
+channel. Do not assume possession of the historical private key.
+
+Owner acceptance: install and open Admin Center 0.4.1, Publisher 0.5.0,
+Personal Agent 0.6.4. Use a separate non-production organization and a
+separate employee profile. Follow the existing corporate route: issue and
+import ACTIVE license, grant Workspace access, connect independent
+employee, assign seat, send addressed Task, execute and personally accept
+Result, return physical .iwxa to Center, reopen after a restart, then
+verify suspension, renewal and revocation and preservation of accepted
+Result. These are the existing product operations, not additional CI
+scenarios. Actual commercial authority is not proven by a CI fixture.
+The owner may report defects or explicitly accept the three exact delivered
+installer hashes. Until then keep OWNER_ACCEPTANCE=PENDING and do not
+promote stable branches or declare releaseAccepted=true.
 
 ## Source access route changed, release scope unchanged
 
