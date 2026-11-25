@@ -28,8 +28,12 @@ function Exchange-Action($process,[string]$value,[bool]$byId=$true){
  Focus-App $process
  $element=$null
  for($i=0;$i -lt 240;$i++){
-  $candidate=Exchange-Control $process $value $byId 1
-  if($candidate.Current.IsEnabled){$element=$candidate;break}
+  try{
+   $candidate=Exchange-Control $process $value $byId 1
+   if($candidate.Current.IsEnabled){$element=$candidate;break}
+  }catch{
+   if($_.Exception.Message -cne 'EMPLOYEE_LICENSED_EXCHANGE_CONTROL_MISSING'){throw}
+  }
   Start-Sleep -Milliseconds 250
  }
  if(!$element){throw 'EMPLOYEE_LICENSED_EXCHANGE_ACTION_DISABLED'}
