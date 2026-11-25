@@ -645,6 +645,7 @@ function Wait-CenterOwnerReleased(){
 function Wait-CenterSignedOwner(){
   Gui-Step 'WAIT_TEXT'
   $retried=$false
+  $seenCodes=[System.Collections.Generic.HashSet[string]]::new()
   for($i=0;$i -lt 600;$i++){
     if(Has-Text $cen 'Подписанный T3 D3 получатель доступен'){return}
     if(Has-Text $cen 'OWNER_READ_FAILED:'){
@@ -658,7 +659,7 @@ function Wait-CenterSignedOwner(){
         }catch{}
       }
       $codes=@($codes|Sort-Object -Unique)
-      if($codes.Count -eq 1){Write-Host ('CORPORATE_TWO_INSTALLED_OWNER_READ_CODE='+$codes[0])}
+      if($codes.Count -eq 1 -and $seenCodes.Add($codes[0])){Write-Host ('CORPORATE_TWO_INSTALLED_OWNER_READ_CODE='+$codes[0])}
       if(!$retried){
         # A visible read failure permits one deliberate READ-only refresh.
         # Never click enrollment, registry initialization or any signer again.

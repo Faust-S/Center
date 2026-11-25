@@ -156,6 +156,10 @@ test('renewal review exposes complete visible tariff and source values to Window
 test('renewal preparation keeps one stable accessible Save action bound to the existing offer handler',()=>{
  const panel=readFileSync(new URL('../ui/TariffPanel.tsx',import.meta.url),'utf8');
  assert.equal(panel.split('id="iwxa-publisher-save-proposal"').length,2);
- assert.ok(panel.includes('aria-label={saveOfferLabel} disabled={busy||!selected||!selectedHolder} onClick={()=>void saveOffer()}>{saveOfferLabel}'));
+ assert.ok(panel.includes('aria-label={saveOfferLabel} disabled={busy||!selected||!selectedHolder||offerAlreadySaved} onClick={()=>void saveOffer()}>{saveOfferLabel}'));
+ assert.ok(panel.includes('if(busy||offerInFlight.current||offerAlreadySaved||!selected||!selectedHolder)return;'));
+ assert.ok(panel.includes('offerInFlight.current=true;'));
+ assert.ok(panel.includes('if(result.ok)setSavedOfferKey(offerKey);'));
+ assert.ok(panel.includes('finally{offerInFlight.current=false;}'));
  assert.ok(panel.includes("const saveOfferLabel=busy?'Сохраняем…':selectedSource?'Создать следующую подготовку':'Сохранить подготовку по тарифу'"));
 });
