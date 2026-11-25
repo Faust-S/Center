@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {emptyPublisherDraft,applyPublisherDraftCommand,encodePublisherDraft,decodePublisherDraft} from '../src/preparation.mjs';
 import {prepareTestLicenseRequest} from '../src/test-license-request.mjs';
 const apply=(s,c)=>applyPublisherDraftCommand(s,c);
@@ -138,4 +139,16 @@ test('same-code followup chooses the preceding owner type, preserving the old sn
  assert.equal(s.proposals[3].previousProposalId,oldPerson.id);
  assert.ok(s.proposals.every(p=>p.status==='DRAFT_NOT_ISSUED'&&!('signature' in p)));
  assert.deepEqual(decodePublisherDraft(encodePublisherDraft(s)),s);
+});
+
+test('renewal review exposes complete visible tariff and source values to Windows accessibility',()=>{
+ const panel=readFileSync(new URL('../ui/TariffPanel.tsx',import.meta.url),'utf8');
+ for(const [label,field] of [['Места продукта','productSeats'],['Сотрудники','employeeLimit'],['Устройства','deviceLimit']]){
+   const content=label+': ${selected.'+field+'}';
+   assert.ok(panel.includes('role="group" aria-label={`'+content+'`}>{`'+content+'`}'));
+ }
+ assert.ok(panel.includes('aria-label={`Предыдущая подготовка: ${selectedSource.id}`}'));
+ // Selecting a new revision remains only form preparation, not signed issue.
+ assert.ok(panel.includes('setOfferSelection({choice:tariffKey(t),holderId:h.id,previousProposalId:p.id})'));
+ assert.ok(panel.includes("kind:'prepareFollowupProposal',previousProposalId:selectedSource.id"));
 });

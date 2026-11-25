@@ -182,15 +182,17 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
       selected.productId==='IWXA_ADMIN_CENTER'?
         'После сохранения условий откройте корпоративную выдачу T3 в разделе «Лицензии». Издатель подписывает LICENSE и STATUS, а установленный Admin Center получает и проверяет .iwxa. TEST оставлен для совместимости.':
         'Оригинальный T3 TEST Owner не подписывает произвольные организационные продукты. Подготовка останется черновиком.'}</p>}
-    {selectedSource&&<div role="status" data-testid="publisher-followup-readback"><p><strong>Предыдущая подготовка:</strong> {selectedSource.id}</p><p className="muted">Новая подготовка будет связана с прежним запросом. Это не продлевает и не изменяет действующие права без отдельной подписи издателя.</p></div>}
+    {selectedSource&&<div role="status" data-testid="publisher-followup-readback" aria-label={`Предыдущая подготовка: ${selectedSource.id}`}><p>{`Предыдущая подготовка: ${selectedSource.id}`}</p><p className="muted">Новая подготовка будет связана с прежним запросом. Это не продлевает и не изменяет действующие права без отдельной подписи издателя.</p></div>}
     {selected&&selectedHolder&&<div ref={renewalReadbackRef} tabIndex={-1} id="publisher-selected-offer-review" className="publisher-offer-review" data-testid="publisher-offline-offer-preview" role="status" aria-label={`Выбранный тариф: ${selected.id}, редакция ${selected.revision}`}>
       <strong>Условия для проверки</strong>
       <p>{draft.holders.find(h=>h.id===selectedHolder)?.name} · {draft.products.find(p=>p.id===selected.productId)?.name||selected.productId}</p>
       <p>Выбранный тариф: {selected.id}, редакция {selected.revision}</p>
       <div className="publisher-offer-limits">
-        <span>Места продукта: <b>{selected.productSeats}</b></span>
-        {selected.holderType==='ORGANIZATION'?<span>Сотрудники: <b>{selected.employeeLimit}</b></span>:<span>Устройства: <b>{selected.deviceLimit}</b></span>}
-        <span>Срок: <b>{selected.termDays} дней</b></span>
+        {/* UIA must read each complete label/value, not separate text and bold nodes.
+            These names describe the same visible selected tariff, never a separate state. */}
+        <span role="group" aria-label={`Места продукта: ${selected.productSeats}`}>{`Места продукта: ${selected.productSeats}`}</span>
+        {selected.holderType==='ORGANIZATION'?<span role="group" aria-label={`Сотрудники: ${selected.employeeLimit}`}>{`Сотрудники: ${selected.employeeLimit}`}</span>:<span role="group" aria-label={`Устройства: ${selected.deviceLimit}`}>{`Устройства: ${selected.deviceLimit}`}</span>}
+        <span role="group" aria-label={`Срок: ${selected.termDays} дней`}>{`Срок: ${selected.termDays} дней`}</span>
       </div>
       <p><b>Функции:</b> {selected.features.length?selected.features.join(', '):'Дополнительные функции не выбраны'}</p>
       {selected.quotas.length>0&&<div className="publisher-offer-quotas">
