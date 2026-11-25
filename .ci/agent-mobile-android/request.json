@@ -1,7 +1,7 @@
 {
-  "candidate": "830820eae6247b00305b5f60480d30430b85fc0d",
-  "tree": "6ffe2c0be4888d9c535df3e3b5f845380c7d29ea",
+  "candidate": "d6977a9209d97ee75570aadee4aecc96ea19f8f8",
+  "tree": "3e2449568b682eabdb3f67e13167a47ea4a0b3dc",
   "scope": "SOURCE_BUILD_INSTALLED_ANDROID_EMULATOR",
-  "reason": "FIRST_HOST_PREFLIGHT_FAILED",
+  "reason": "CONSOLIDATED_MODEL_DOWNLOAD_PROVIDER_REMOTE_READBACK_AND_TOOLCHAIN",
   "physical": "NOT_RUN"
 }

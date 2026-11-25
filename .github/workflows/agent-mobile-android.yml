@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     env:
-      PRIVATE_PIN: '830820eae6247b00305b5f60480d30430b85fc0d'
-      PRIVATE_TREE: '6ffe2c0be4888d9c535df3e3b5f845380c7d29ea'
+      PRIVATE_PIN: 'd6977a9209d97ee75570aadee4aecc96ea19f8f8'
+      PRIVATE_TREE: '3e2449568b682eabdb3f67e13167a47ea4a0b3dc'
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -86,19 +86,73 @@ jobs:
                           for label in ["tests","pass","fail","skipped"]:
                               matches=re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report)
                               if matches:status("NODE_"+label.upper(),matches[-1])
-                          for marker,label in [("PASS: 26 routes","PROTOTYPE"),("QA_MODEL_VERIFIED","QA_MODEL"),("ANDROID_SOURCE_PREPARED","ANDROID_PREPARED"),("DEBUG_APK_BUILT","APK"),("INSTALLED_INSTRUMENTATION_PASS","INSTALLED")]:
-                              if marker in report:status(label,"PASS")
+                          for marker,label in [
+                              (r"(?m)^PASS: 26 routes\b","PROTOTYPE"),
+                              (r"(?m)^LLAMA_AAR_BUILT=[a-f0-9]{64}\s*$","LLAMA_AAR"),
+                              (r"(?m)^QA_MODEL_VERIFIED\s*$","QA_MODEL"),
+                              (r"(?m)^ANDROID_SOURCE_PREPARED\b","ANDROID_PREPARED"),
+                              (r"(?m)^ANDROID_GRADLE_ASSEMBLY_STARTED\s*$","GRADLE_STARTED"),
+                              (r"(?m)^DEBUG_APK_BUILT\s*$","APK"),
+                              (r"(?m)^INSTALLED_INSTRUMENTATION_PASS\b","INSTALLED")]:
+                              if re.search(marker,report):status(label,"PASS")
                           if outcome.returncode:
+                              # The private checkout, raw compiler messages, paths and logs never leave
+                              # the runner. Only predetermined categories and bounded numeric locations.
                               for kind,pattern in [
-                                  ("SDK_OR_NDK","SDK location|NDK.*not found|CMake.*not found"),
-                                  ("LLAMA_AAR","LLAMA_PREPARE_FAILED|LLAMA_AAR_REQUIRED"),
-                                  ("QA_MODEL","QA_MODEL_"),
+                                  ("SDK_OR_NDK",r"SDK location|NDK.*not found|CMake.*not found"),
+                                  ("LLAMA_AAR",r"\b(?:LLAMA_PREPARE_FAILED|LLAMA_AAR_REQUIRED|LLAMA_AAR_PIN_MISMATCH)\b"),
+                                  ("QA_MODEL",r"\bQA_MODEL_(?:HASH_MISMATCH|REQUIRED|DOWNLOAD_FAILED|SIZE)\b"),
                                   ("KOTLIN_COMPILE",r"(?m)^e: .*\.kt:"),
                                   ("JAVA_COMPILE",r"(?m)^.*\.java:\d+: error:"),
-                                  ("GRADLE","BUILD FAILED"),
-                                  ("DEVICE","INSTALLED_ROUTE_TIMEOUT|NATIVE_BROWSER_CLOSE_NOT_FOUND"),
+                                  ("DEPENDENCY_RESOLUTION",r"Could not resolve all (?:files|dependencies)|Could not find [^ \r\n]+:[^ \r\n]+"),
+                                  ("JVM_TARGET_MISMATCH",r"Inconsistent JVM-target compatibility|inconsistent JVM target|Cannot inline bytecode built with JVM target"),
+                                  ("KOTLIN_METADATA",r"incompatible version of Kotlin|binary version of its metadata|Kotlin metadata version"),
+                                  ("DUPLICATE_CLASSES",r"Duplicate class|DuplicateRelativeFileException"),
+                                  ("ANDROID_RESOURCES",r"Android resource linking failed|AAPT: error"),
+                                  ("MANIFEST_MERGE",r"Manifest merger failed"),
+                                  ("DEX",r"DexArchiveMergerException|Error while dexing|D8: error"),
+                                  ("DISK_OR_MEMORY",r"No space left on device|Java heap space|OutOfMemoryError"),
+                                  ("GRADLE",r"\bBUILD FAILED\b"),
+                                  ("DEVICE",r"INSTALLED_ROUTE_TIMEOUT|NATIVE_BROWSER_CLOSE_NOT_FOUND"),
                               ]:
                                   if re.search(pattern,report,re.IGNORECASE):status("FAILURE_CLASS",kind)
+                              tasks={
+                                  "compileDebugKotlin":"APP_KOTLIN",
+                                  "compileDebugJavaWithJavac":"APP_JAVA",
+                                  "compileDebugAndroidTestKotlin":"TEST_KOTLIN",
+                                  "compileDebugAndroidTestJavaWithJavac":"TEST_JAVA",
+                                  "checkDebugAarMetadata":"AAR_METADATA",
+                                  "checkDebugDuplicateClasses":"DUPLICATE_CLASSES",
+                                  "mergeDebugJavaResource":"JAVA_RESOURCES",
+                                  "mergeDebugNativeLibs":"NATIVE_LIBS",
+                                  "mergeDebugResources":"RESOURCES",
+                                  "processDebugResources":"RESOURCE_LINK",
+                                  "processDebugMainManifest":"MANIFEST",
+                                  "mergeExtDexDebug":"EXTERNAL_DEX",
+                                  "mergeLibDexDebug":"LIBRARY_DEX",
+                                  "dexBuilderDebug":"DEX_BUILDER",
+                                  "packageDebug":"PACKAGE",
+                                  "testDebugUnitTest":"UNIT_TEST",
+                                  "connectedDebugAndroidTest":"INSTRUMENTATION",
+                              }
+                              failed=re.findall(r"Execution failed for task ':[^'\r\n]*:([A-Za-z0-9]+)'",report)
+                              for task in sorted({tasks.get(x,"OTHER") for x in failed}):status("GRADLE_FAILED_TASK",task)
+                              roles={"LocalModelPlugin.kt":"MODEL_BRIDGE","RecommendedModels.kt":"MODEL_DOWNLOAD","ModelFileIntegrity.kt":"FILE_INTEGRITY","InstalledRouteTest.java":"INSTALLED_WITNESS","MainActivity.java":"ACTIVITY"}
+                              for line in report.splitlines():
+                                  if not (line.startswith("e:") or "error:" in line):continue
+                                  loc=re.search(r"(LocalModelPlugin\.kt|RecommendedModels\.kt|ModelFileIntegrity\.kt|InstalledRouteTest\.java|MainActivity\.java):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
+                                  if not loc:continue
+                                  kind="OTHER"
+                                  for category,pattern in [
+                                      ("UNRESOLVED_REFERENCE",r"Unresolved reference|cannot find symbol"),
+                                      ("TYPE_MISMATCH",r"Type mismatch|Argument type mismatch|incompatible types"),
+                                      ("OVERRIDE",r"overrides nothing|does not override|cannot override"),
+                                      ("INFERENCE",r"Cannot infer|Not enough information to infer"),
+                                      ("VISIBILITY",r"Cannot access|has private access|has protected access"),
+                                      ("SYNTAX",r"Expecting|Syntax error|illegal start"),
+                                  ]:
+                                      if re.search(pattern,line,re.IGNORECASE):kind=category;break
+                                  status("COMPILE_LOCATION",roles[loc.group(1)]+":"+str(int(loc.group(2) or loc.group(4)))+":"+str(int(loc.group(3) or 0))+":"+kind)
                           status(name,"PASS" if outcome.returncode==0 else "FAIL")
                           return outcome.returncode==0
                       android=pathlib.Path(env.get("ANDROID_HOME") or env.get("ANDROID_SDK_ROOT") or "/usr/local/lib/android/sdk")
