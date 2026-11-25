@@ -1,0 +1,138 @@
+# Exact read-only rehearsals of incorporating the Meta-Harness into later Agent.
+# Never publish private source, merged trees, file paths or command output.
+name: Meta Harness integration feasibility on Agent 063 and 064
+on:
+  push:
+    branches:
+      - work/2026-11-24-meta-harness-source-qualification
+    paths:
+      - .github/workflows/meta-harness-integration-preflight.yml
+permissions:
+  contents: read
+jobs:
+  preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: AGENT063
+            target_pin: cc09841661e77f78b49ff9873a9cd8a9ff2073a7
+            target_tree: b056d05ee93712e85e7fa843b0c72bc3f4a2c116
+            version: '0.6.3'
+          - target: AGENT064
+            target_pin: 15827fbd135b9175c146af7931c201d51ca6ea53
+            target_tree: 971539ee249406025d56f07687e35a8d1f4071aa
+            version: '0.6.4'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      COMMON_PIN: '39a4f49ed9a5c0781c4a4769e9603ca8fb1e8d23'
+      COMMON_TREE: 'c0032bbfaed265e3d544450ea93f4e36c810dd19'
+      HARNESS_PIN: '5b6d2a2115cba77c8a631cc86430ef2cc0b6c2a1'
+      HARNESS_TREE: 'f23a64d302fbb2b6836d70b0559024c54931d7bb'
+      TARGET_PIN: ${{ matrix.target_pin }}
+      TARGET_TREE: ${{ matrix.target_tree }}
+      TARGET_VERSION: ${{ matrix.version }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Rehearse exact three-way merge without writing any branch
+        shell: bash
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          python - <<'PY'
+          import base64, json, os, pathlib, subprocess, tempfile, tomllib
+          def marker(k,v):
+              print(f"{k}={v}",flush=True)
+          token=os.environ.pop("IWXA_TEMP_READ_TOKEN","")
+          if not token:
+              marker("PRIVATE_READ","TOKEN_UNAVAILABLE")
+              raise SystemExit(1)
+          env={**os.environ,"GIT_TERMINAL_PROMPT":"0","GIT_LFS_SKIP_SMUDGE":"1"}
+          auth={**env,"GIT_CONFIG_COUNT":"1","GIT_CONFIG_KEY_0":"http.https://github.com/.extraheader",
+                "GIT_CONFIG_VALUE_0":"AUTHORIZATION: basic "+base64.b64encode(("x-access-token:"+token).encode()).decode()}
+          del token
+          families={
+              "CORE_ENGINE":{"runtime/daily_driver_engine.py"},
+              "INTERACTION":{"cells/interaction_surface.py"},
+              "ROLE_ROUTER":{"runtime/hosted_role_routing.py"},
+              "WORKBENCH":{"desktop/src/workbench.tsx"},
+              "DASHBOARD":{"desktop/src/home-dashboard.tsx"},
+              "PROGRAMS":{"desktop/src/programs-center.tsx"},
+              "SAVED_TASKS":{"desktop/src/saved-task-list.tsx"},
+              "STYLE":{"desktop/src/style.css"},
+              "INSTALLED_GUI":{"tools/qualify_setup_core_native_gui.ps1","tools/qualify_setup_core_runtime.ps1"},
+          }
+          try:
+              with tempfile.TemporaryDirectory(prefix="iwxa-merge-preflight-") as directory:
+                  repo=pathlib.Path(directory)/"repo"
+                  repo.mkdir()
+                  def git(*args,private=False,check=True,timeout=300):
+                      return subprocess.run(["git","-C",str(repo),*args],env=auth if private else env,
+                          stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=check,timeout=timeout)
+                  git("init","--quiet")
+                  for name in ("COMMON","TARGET","HARNESS"):
+                      pin=os.environ[name+"_PIN"]; tree=os.environ[name+"_TREE"]
+                      git("fetch","--no-tags","--depth=1","https://github.com/Faust-S/iwxa-personal-agent.git",pin,private=True)
+                      if git("rev-parse",pin+"^{tree}").stdout.decode().strip()!=tree:
+                          marker("PRIVATE_READ","IDENTITY_MISMATCH")
+                          raise SystemExit(1)
+                  auth.clear()
+                  marker("PRIVATE_READ","PASS")
+                  common,target,harness=(os.environ[x+"_PIN"] for x in ("COMMON","TARGET","HARNESS"))
+                  def paths(a,b):
+                      return {p for p in git("diff","--name-only","--no-renames","-z",a,b).stdout.decode().split("\x00") if p}
+                  h,t=paths(common,harness),paths(common,target)
+                  marker("HARNESS_CHANGED_FILES",len(h))
+                  marker("TARGET_CHANGED_FILES",len(t))
+                  marker("OVERLAPPING_FILES",len(h&t))
+                  # Materialize no checkout and preserve no objects beyond this temporary repo.
+                  result=git("merge-tree","--write-tree","--name-only","-z","--no-messages",
+                             "--merge-base="+common,target,harness,check=False)
+                  if result.returncode not in (0,1):
+                      marker("THREE_WAY_MERGE","UNAVAILABLE")
+                      raise SystemExit(1)
+                  fields=result.stdout.decode("utf-8","strict").split("\x00")
+                  merged=fields[0].strip()
+                  if len(merged)!=40 or any(c not in "0123456789abcdef" for c in merged):
+                      marker("THREE_WAY_MERGE","INVALID_RESULT")
+                      raise SystemExit(1)
+                  if result.returncode:
+                      conflicts={x.strip() for x in fields[1:] if x.strip()}
+                      if not conflicts or not conflicts.issubset(h&t):
+                          marker("THREE_WAY_MERGE","UNEXPECTED_CONFLICT_PROJECTION")
+                          raise SystemExit(1)
+                      marker("THREE_WAY_MERGE","CONFLICT")
+                      marker("CONFLICT_COUNT",len(conflicts))
+                      matched=set()
+                      for label,known in families.items():
+                          found=conflicts&known
+                          if found:
+                              marker("CONFLICT_"+label,len(found));matched.update(found)
+                      marker("CONFLICT_OTHER",len(conflicts-matched))
+                      marker("TARGET_BRANCH_MUTATED","NO")
+                      raise SystemExit(1)
+                  marker("THREE_WAY_MERGE","CLEAN")
+                  # A clean textual merge is not a qualified product. Check version and
+                  # retention of the original single-owner runtime + Meta-Harness entry.
+                  def show(path):
+                      return git("show",merged+":"+path).stdout
+                  versions=[json.loads(show("desktop/package.json"))["version"],
+                      json.loads(show("desktop/src-tauri/tauri.conf.json"))["version"],
+                      tomllib.loads(show("desktop/src-tauri/Cargo.toml").decode())["package"]["version"]]
+                  marker("TARGET_VERSION_PRESERVED","PASS" if all(v==os.environ["TARGET_VERSION"] for v in versions) else "FAIL")
+                  if not all(v==os.environ["TARGET_VERSION"] for v in versions):raise SystemExit(1)
+                  git("cat-file","-e",merged+":runtime/meta_harness_task_workflow.py")
+                  git("cat-file","-e",merged+":desktop/src/meta-harness-task-control.tsx")
+                  marker("HARNESS_ENTRY_RETAINED","PASS")
+                  marker("TARGET_BRANCH_MUTATED","NO")
+                  marker("FULL_PRODUCT_QUALIFICATION","NOT_RUN")
+          except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError):
+              marker("PREFLIGHT","ERROR")
+              raise SystemExit(1)
+          finally:
+              auth.clear()
+          PY
