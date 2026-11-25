@@ -457,6 +457,23 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(std::sync::Mutex::new(cen05_host::Session::default()))
         .manage(std::sync::Mutex::new(cen03_native::Session::default()))
+        .manage(cen03_native::NativeClose::default())
+        .on_window_event(|window,event|{
+            use tauri::Manager as _;
+            if window.label()!="main"{return;}
+            if let tauri::WindowEvent::CloseRequested{api,..}=event{
+                // Keep WebView2 and the UI event loop available until the
+                // original signed owner is closed. Repeated WM_CLOSE is
+                // idempotent and cannot start a second cleanup.
+                api.prevent_close();
+                let app=window.app_handle().clone();
+                if !app.state::<cen03_native::NativeClose>().begin(){return;}
+                tauri::async_runtime::spawn_blocking(move||{
+                    cen03_native::release_original_owner_on_native_close(&app);
+                    app.exit(0);
+                });
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             save_draft_file, open_draft_file, center_save_iwxa_file, center_open_iwxa_file,
             center_export_publisher_test_request,
@@ -489,10 +506,8 @@ fn main() {
         .expect("Admin Center could not start")
         .run(|app,event| {
             if matches!(event, tauri::RunEvent::Exit) {
-                // Tauri-managed state may outlive the event-loop teardown.
-                // Explicitly release the ORIGINAL signed T3 child before
-                // returning so a cold user session cannot inherit a live
-                // product.lock. Never delete lock files or bypass access.
+                // Ordinary close has already drained the original owner.
+                // Only nonblocking fallback cleanup belongs on this thread.
                 cen03_native::release_original_owner_on_native_exit(app);
             }
         });

@@ -5,7 +5,7 @@
 use serde_json::{json,Value};
  use std::{fs::{self,OpenOptions},io::{BufRead,BufReader,Read,Write},
     path::{Path,PathBuf},process::{Child,ChildStdin},
-    sync::{mpsc::{self,Receiver},Mutex},time::{Duration,Instant}};
+    sync::{mpsc::{self,Receiver},Mutex,TryLockError,atomic::{AtomicBool,Ordering}},time::{Duration,Instant}};
 use tauri::{AppHandle,Emitter,Manager};
 use uuid::Uuid;
 use crate::t3_product_component as t3;
@@ -672,6 +672,21 @@ const D3_HOST_CALL:&str="IWXA_T3_D3_NATIVE_OWNER_CALL/1";
 const D3_HOST_REPLY:&str="IWXA_T3_D3_NATIVE_OWNER_REPLY/1";
 #[derive(Default)]
 pub struct Session{owner:Option<OriginalOwner>,signed_workspace_visible:bool}
+
+// Only native window lifecycle, not a new authority or persistent Store.
+// The event loop must stay alive while an in-flight original-owner command
+// drains; that worker can be waiting for an operation on the WebView thread.
+#[derive(Default)]
+pub struct NativeClose(AtomicBool);
+impl NativeClose{
+    pub fn begin(&self)->bool{!self.0.swap(true,Ordering::AcqRel)}
+    fn closing(&self)->bool{self.0.load(Ordering::Acquire)}
+}
+fn refuse_while_closing(app:&AppHandle)->Result<(),String>{
+    if app.state::<NativeClose>().closing(){
+        Err("CEN_D3_NATIVE_WINDOW_CLOSING".into())
+    }else{Ok(())}
+}
 struct OriginalOwner{
     organization_id:String,
     child:Child,
@@ -848,9 +863,13 @@ fn definite_d3_pre_apply_workspace_refusal(
 }
 fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
     body:Value)->Result<Value,String>{
+    refuse_while_closing(app)?;
     let state=app.state::<Mutex<Session>>();
     let mut guard=state.lock()
         .map_err(|_|"CEN_D3_ORIGINAL_HOST_SESSION_UNAVAILABLE")?;
+    // A command queued before close may have acquired the mutex later.
+    // Reject it before opening a new signer or dispatching any operation.
+    refuse_while_closing(app)?;
     if guard.owner.as_ref()
         .map(|owner|owner.organization_id.as_str())!=Some(organization_id){
         // A signed Workspace must never survive a switch to another
@@ -880,14 +899,26 @@ fn release_original_owner_in_session(session:&mut Session){
     session.owner.take();
     session.signed_workspace_visible=false;
 }
-pub fn release_original_owner_on_native_exit(app:&AppHandle){
-    // Tauri's default RunEvent::Exit did not guarantee a managed Session
-    // Drop before an independent original-owner cold read. Release here.
-    // Even a previously poisoned mutex must not orphan the signed child.
+pub fn release_original_owner_on_native_close(app:&AppHandle){
+    // Called on a blocking worker BEFORE the main window is destroyed.
+    // The event loop remains available for the original WebView operation
+    // that may own this mutex. No new owner call can pass NativeClose.
     let state=app.state::<Mutex<Session>>();
     let mut guard=match state.lock(){
         Ok(guard)=>guard,
         Err(poisoned)=>poisoned.into_inner(),
+    };
+    release_original_owner_in_session(&mut guard);
+}
+pub fn release_original_owner_on_native_exit(app:&AppHandle){
+    // Fallback for non-window exit routes. Never wait for a Session mutex
+    // on the UI thread at teardown: it can be held by a worker that needs
+    // that same thread. The ordinary CloseRequested path already drained.
+    let state=app.state::<Mutex<Session>>();
+    let mut guard=match state.try_lock(){
+        Ok(guard)=>guard,
+        Err(TryLockError::Poisoned(poisoned))=>poisoned.into_inner(),
+        Err(TryLockError::WouldBlock)=>return,
     };
     release_original_owner_in_session(&mut guard);
 }
@@ -1860,12 +1891,31 @@ mod tests{
         let _=fs::remove_file(&marker);
         assert_eq!(observed.expect("child completed explicit cleanup"),"CLEAN_SHUTDOWN");
     }
+    #[test]
+    fn native_close_admission_is_single_and_never_reopens(){
+        use std::sync::{Arc,Barrier};
+        let closing=Arc::new(NativeClose::default());
+        let barrier=Arc::new(Barrier::new(8));
+        let handles=(0..8).map(|_|{
+            let closing=closing.clone();
+            let barrier=barrier.clone();
+            std::thread::spawn(move||{
+                barrier.wait();
+                closing.begin()
+            })
+        }).collect::<Vec<_>>();
+        let admitted=handles.into_iter().map(|h|h.join().unwrap())
+            .filter(|v|*v).count();
+        assert_eq!(admitted,1);
+        assert!(closing.closing());
+        assert!(!closing.begin());
+    }
     #[cfg(windows)]
     #[test]
     fn native_exit_releases_original_owner_child_before_cold_reopen(){
         use std::process::{Command,Stdio};
         // Physical Windows OS child, not a second signer or mock T2 Store.
-        // The same Session cleanup is wired to Tauri RunEvent::Exit.
+        // The same Session cleanup is wired to the native close worker.
         let child=Command::new("powershell.exe")
             .args(["-NoProfile","-NonInteractive","-Command",
                 "Start-Sleep -Seconds 30"])
