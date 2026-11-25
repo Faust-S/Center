@@ -1,6 +1,11 @@
 name: IWXA Android consolidated qualification
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'ci/once/agent-mobile-android/*'
+    paths:
+      - '.github/ci-requests/agent-mobile-android.json'
 
 permissions:
   contents: read
@@ -9,6 +14,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   qualify:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -17,6 +23,14 @@ jobs:
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
+      - name: Checkout exact public request for admission
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exactly one intentional candidate request before private access
+        run: python3 .ci/agent-mobile-android/admit-once.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
