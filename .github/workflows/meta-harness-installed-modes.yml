@@ -5,7 +5,10 @@ on:
     branches:
       - work/2026-11-24-meta-harness-source-qualification
     paths:
-      - .github/workflows/meta-harness-installed-modes.yml
+      - .ci/meta-harness/requests/installed.json
+concurrency:
+  group: meta-harness-installed-modes-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:

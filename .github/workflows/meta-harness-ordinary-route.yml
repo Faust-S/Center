@@ -6,7 +6,10 @@ on:
     branches:
       - work/2026-11-24-meta-harness-source-qualification
     paths:
-      - .github/workflows/meta-harness-ordinary-route.yml
+      - .ci/meta-harness/requests/performance.json
+concurrency:
+  group: meta-harness-ordinary-route-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:

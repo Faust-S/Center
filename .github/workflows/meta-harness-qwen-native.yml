@@ -3,8 +3,10 @@ on:
   push:
     branches: [work/2026-11-24-meta-harness-source-qualification]
     paths:
-      - '.github/workflows/meta-harness-qwen-native.yml'
-      - 'qualification/meta_harness_qwen_native.py'
+      - .ci/meta-harness/requests/diagnostic-acp.json
+concurrency:
+  group: meta-harness-qwen-native-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:

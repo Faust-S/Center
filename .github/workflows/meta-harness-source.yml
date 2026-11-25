@@ -6,7 +6,10 @@ on:
     branches:
       - work/2026-11-24-meta-harness-source-qualification
     paths:
-      - .github/workflows/meta-harness-source.yml
+      - .ci/meta-harness/requests/source.json
+concurrency:
+  group: meta-harness-source-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
@@ -16,11 +19,11 @@ jobs:
       matrix:
         os: [windows-2022, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 65
+    timeout-minutes: 120
     env:
       PRIVATE_PIN: 'b051d973e659336a2358a243907d54607743a613'
       PRIVATE_TREE: '2af62f33bf2e86b00ee618364bdb2b47952472a1'
-      QUALIFY_SCOPE: ADAPTER_PRODUCT
+      QUALIFY_SCOPE: CONSOLIDATED_SOURCE
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -156,75 +159,64 @@ jobs:
           pathlib.Path(sys.argv[1]).write_text(json.dumps({"counts":counts,"failures":failures,"request_volumes":request_volumes,"exit":int(result)}),encoding="utf-8")
           sys.exit(int(result))
           ''',encoding="utf-8")
+                  # Combined current ADAPTER_PRODUCT and COMPOSER_RECOVERY coverage.
+                  # Each selected file is executed once, except the original Task file
+                  # whose complete collected node IDs are partitioned into four shards.
                   groups = {
-                      "TASK": ["tests/test_meta_harness_original_task_workflow.py"],
-                      "STRATEGY": ["tests/test_meta_harness_strategy_history.py"],
-                      "HOST": ["tests/test_fc6_configured_chain_interaction.py",
-                               "tests/test_fc6_daily_driver_graph_binding_m10.py",
-                               "tests/test_fc6_initial_chain_interaction_integration.py",
-                               "tests/test_agent06_graph_result_task_seed.py",
-                               "tests/test_k01_accepted_result_real_cycle.py",
-                               "tests/test_graph_result_readback_integrity.py"],
-                      "HANDOFF": ["tests/test_meta_harness_contextual_handoff_graph.py"],
-                      "WORK_BOARD": ["tests/test_work_board_state_transaction.py"],
-                      "META": sorted(str(p.relative_to(source)) for p in source.glob("tests/test_meta_harness_*.py")
-                                     if p.name not in {"test_meta_harness_contextual_handoff_graph.py","test_meta_harness_original_task_workflow.py","test_meta_harness_strategy_history.py"}),
-                      "GRAPH": sorted(str(p.relative_to(source)) for p in source.glob("tests/test_fc6_graph*.py")),
-                      "ADAPTERS": ["tests/test_goose_agent_runtime_user_ready.py",
-                                   "tests/test_agent06_claude_code_cli.py",
-                                   "tests/test_codex_chatgpt_cli_adapter.py",
-                                   "tests/test_antigravity_agent_runtime.py"],
+                      "PRODUCT_ROUTE_GRAPH":["tests/test_meta_harness_qwen_graph_product.py"],
+                      "PRODUCT_ROUTE_NATIVE_STATE":["tests/test_meta_harness_qwen_native_state.py",
+                          "tests/test_meta_harness_acp_process_job.py","tests/test_meta_harness_qwen_native_product.py"],
+                      "TASK_ASSIGNMENT":["tests/test_meta_harness_task_assignment.py"],
+                      "ACP_PROTOCOL":["tests/test_meta_harness_acp_v1.py","tests/test_meta_harness_acp_port.py",
+                          "tests/test_meta_harness_acp_exchange.py","tests/test_meta_harness_native_session.py",
+                          "tests/test_meta_harness_native_observation.py","tests/test_meta_harness_acp_product_owner.py",
+                          "tests/test_meta_harness_acp_host_owner.py","tests/test_meta_harness_qwen_install.py"],
+                      "ACP_PRODUCT":["tests/test_meta_harness_graph_acp_dispatch.py","tests/test_meta_harness_qwen_local_route.py"],
+                      "STRATEGY":["tests/test_meta_harness_strategy_history.py"],
+                      "CORE_ADAPTERS":["tests/test_meta_harness_original_core.py","tests/test_meta_harness_adapter_depth.py",
+                          "tests/test_meta_harness_adapter_controls.py","tests/test_meta_harness_preview_performance.py",
+                          "tests/test_fc2_agent_runtime_portfolio.py"],
+                      "ACP_CONTEXT_READ":["tests/test_meta_harness_acp_context_read.py"],
+                      "INSTALLED_WITNESS_SOURCE":["tests/test_setup_core_installed_draft.py"],
+                      "SESSION_COMPOSER":["tests/test_session_runtime_state_transaction.py",
+                          "tests/test_workspace_composer_integration.py","tests/test_agent02_core_draft_readback.py",
+                          "tests/test_interactive_task_list_status.py"],
+                      "TOOL_READ":["tests/test_meta_harness_tool_read.py","tests/test_meta_harness_mcp_read.py"],
+                      "WORK_BOARD":["tests/test_work_board_state_transaction.py"],
+                      "ORIGINAL_HANDOFF":["tests/test_meta_harness_contextual_handoff_graph.py"],
                   }
-                  if os.environ.get("QUALIFY_SCOPE")=="TASK_TRANSPORT":
-                      groups={"TASK_TRANSPORT":["tests/test_meta_harness_original_task_workflow.py"]}
-                  if os.environ.get("QUALIFY_SCOPE") in {"ADAPTER_DEPTH","ADAPTER_PRODUCT"}:
-                      groups={"ADAPTER_DEPTH":["tests/test_meta_harness_acp_v1.py",
-                          "tests/test_meta_harness_acp_port.py",
-                          "tests/test_meta_harness_acp_exchange.py",
-                          "tests/test_meta_harness_native_session.py",
-                          "tests/test_meta_harness_native_observation.py",
-                          "tests/test_meta_harness_acp_product_owner.py",
-                          "tests/test_meta_harness_acp_host_owner.py",
-                          "tests/test_meta_harness_qwen_install.py",
-                          "tests/test_meta_harness_graph_acp_dispatch.py",
-                          "tests/test_meta_harness_qwen_local_route.py",
-                          "tests/test_meta_harness_acp_process_job.py",
-                          "tests/test_meta_harness_qwen_native_state.py",
-                          "tests/test_meta_harness_original_task_workflow.py",
-                          "tests/test_meta_harness_contextual_handoff_graph.py",
-                          "tests/test_existing_software_discovery.py",
-                          "tests/test_agent06_obscura_user_install.py",
-                          "tests/test_programs_center_execution.py",
-                          "tests/test_programs_center_task_use.py",
-                          "tests/test_session_runtime_state_transaction.py",
-                          "tests/test_meta_harness_original_core.py",
-                          "tests/test_meta_harness_adapter_depth.py",
-                          "tests/test_meta_harness_adapter_controls.py",
-                          "tests/test_meta_harness_preview_performance.py",
-                          "tests/test_fc2_agent_runtime_portfolio.py"]}
-                  if os.environ.get("QUALIFY_SCOPE")=="ADAPTER_PRODUCT":
-                      groups={"PRODUCT_ROUTE":["tests/test_meta_harness_qwen_graph_product.py","tests/test_meta_harness_qwen_native_state.py","tests/test_meta_harness_acp_process_job.py","tests/test_meta_harness_qwen_native_product.py"],**groups}
-                  if os.environ.get("QUALIFY_SCOPE")=="ADAPTER_PRODUCT":
-                      depth=groups.pop("ADAPTER_DEPTH")
-                      # Isolate long-running test files. A timeout in one file
-                      # must not hide results of all other qualification cases.
-                      groups.update({
-                          "ACP_PROTOCOL":depth[:8],
-                          "ACP_PRODUCT":depth[8:12],
-                          "ORIGINAL_TASK":[depth[12]],
-                          "ORIGINAL_HANDOFF":[depth[13]],
-                          "PROGRAMS_SESSION":depth[14:19],
-                          "CORE_ADAPTERS":depth[19:],
-                      })
-                  groups={"PRODUCT_ROUTE_GRAPH":[groups["PRODUCT_ROUTE"][0]],"PRODUCT_ROUTE_NATIVE_STATE":groups["PRODUCT_ROUTE"][1:],"TASK_ASSIGNMENT":["tests/test_meta_harness_task_assignment.py"],"ACP_PROTOCOL":groups["ACP_PROTOCOL"],"ACP_PRODUCT":groups["ACP_PRODUCT"],"STRATEGY":["tests/test_meta_harness_strategy_history.py"],"CORE_ADAPTERS":groups["CORE_ADAPTERS"],
-                          "ACP_CONTEXT_READ":["tests/test_meta_harness_acp_context_read.py"],
-                          "INSTALLED_WITNESS_SOURCE":["tests/test_setup_core_installed_draft.py"],
-                          "SESSION_COMPOSER":["tests/test_session_runtime_state_transaction.py","tests/test_workspace_composer_integration.py","tests/test_agent02_core_draft_readback.py","tests/test_interactive_task_list_status.py"],
-                        "TOOL_READ":["tests/test_meta_harness_tool_read.py","tests/test_meta_harness_mcp_read.py"],
-                          "WORK_BOARD":["tests/test_work_board_state_transaction.py"],
-                          "ORIGINAL_HANDOFF":groups["ORIGINAL_HANDOFF"],
-                          "TICKET_REGRESSION":["tests/test_meta_harness_original_task_workflow.py::test_meta_harness_ticket_reserved_execution_and_exact_dependency_snapshot",
-                                               "tests/test_meta_harness_original_task_workflow.py::test_meta_harness_ticket_rejected_task_releases_slot_and_new_attempt"]}
+                  # Collect the real pytest node IDs, including every parameter case,
+                  # inside the disposable private checkout. No IDs leave the runner.
+                  original="tests/test_meta_harness_original_task_workflow.py"
+                  collector=root/"collect_original.py"
+                  collection=root/"original_nodes.json"
+                  collector.write_text("""import json,os,pathlib,sys,pytest
+          sys.path.insert(0,os.getcwd())
+          class Collector:
+              def pytest_collection_finish(self,session):
+                  pathlib.Path(sys.argv[1]).write_text(json.dumps([item.nodeid for item in session.items]),encoding="utf-8")
+          sys.exit(int(pytest.main(["--collect-only","-q","-p","no:cacheprovider",sys.argv[2]],plugins=[Collector()])))
+          """,encoding="utf-8")
+                  collected=run([sys.executable,str(collector),str(collection),original],timeout=180)
+                  status("ORIGINAL_TASK_COLLECTION_EXIT",collected.returncode)
+                  if collected.returncode!=0 or not collection.is_file():
+                      status("ORIGINAL_TASK_COLLECTION","FAIL"); return 1
+                  nodes=json.loads(collection.read_text(encoding="utf-8"))
+                  if (not isinstance(nodes,list) or len(nodes)<4 or len(nodes)!=len(set(nodes))
+                      or any(not isinstance(n,str) or not n.startswith(original+"::") for n in nodes)):
+                      status("ORIGINAL_TASK_COLLECTION","FAIL"); return 1
+                  status("ORIGINAL_TASK_COLLECTED",len(nodes))
+                  for shard in range(4):
+                      groups["ORIGINAL_TASK_"+str(shard+1)]=nodes[shard::4]
+                  # Detect duplicate whole-file or sharded node selections before execution.
+                  selected=[f for group in groups.values() for f in group]
+                  if len(selected)!=len(set(selected)) or original in selected:
+                      status("SOURCE_SELECTION","DUPLICATE"); return 1
+                  whole={f for f in selected if "::" not in f}
+                  if any(n.split("::",1)[0] in whole for n in selected if "::" in n):
+                      status("SOURCE_SELECTION","DUPLICATE"); return 1
+                  status("SOURCE_SELECTION","PASS")
+                  status("SOURCE_UNIQUE_FILE_COUNT",len({f.split("::",1)[0] for f in selected}))
                   failed = False
                   for group, files in groups.items():
                       if not files or any(not (source / f.split("::",1)[0]).is_file() for f in files):
@@ -234,7 +226,7 @@ jobs:
                       try:
                           # A multipart Graph exercise may execute several verified steps and cold restarts.
                           # The old seven-minute group cap hid all Windows case results.
-                          limit=1500 if group=="PRODUCT_ROUTE_GRAPH" else 1200 if group in {"TASK","TASK_TRANSPORT","STRATEGY","WORK_BOARD","ORIGINAL_TASK","TICKET_REGRESSION"} else 420
+                          limit=1500 if group=="PRODUCT_ROUTE_GRAPH" else 1200 if group.startswith("ORIGINAL_TASK_") or group in {"STRATEGY","WORK_BOARD","SESSION_COMPOSER"} else 420
                           proc = run([sys.executable,str(plugin),str(report),*files],timeout=limit)
                       except subprocess.TimeoutExpired:
                           status(group,"TIMEOUT")
@@ -257,10 +249,27 @@ jobs:
                           if mode in ("FOCUSED_V1","FOCUSED_V2","FULL_V1") and all(type(v) is int for v in (count,total,evidence)) and 1<=count<=6 and 0<evidence<=total<=(count+2)*256000:
                               status("REQUEST_VOLUME",":".join(map(str,(mode,count,total,evidence))))
                       success = proc.returncode==0 and data["counts"]["passed"]>0 and not data["counts"]["failed"] and not data["counts"]["collection_errors"]
+                      if group.startswith("ORIGINAL_TASK_"):
+                          observed=data["counts"]["passed"]+data["counts"]["skipped"]
+                          status(group+"_EXPECTED",len(files))
+                          status(group+"_OBSERVED",observed)
+                          success=success and observed==len(files)
                       status(group,"PASS" if success else "FAIL")
                       failed = failed or not success
-                  if os.environ.get("QUALIFY_SCOPE") in {"TASK_TRANSPORT","ADAPTER_DEPTH"}:
-                      return int(failed)
+                  # Verify witness syntax independently of actually opening the
+                  # installed Windows GUI. Parsing is not GUI acceptance.
+                  try:
+                      witness=source/"tools"/"qualify_setup_core_installed_draft.py"
+                      compile(witness.read_text(encoding="utf-8"),str(witness),"exec")
+                      status("M24_CORE_WITNESS_SYNTAX","PASS")
+                  except Exception:
+                      status("M24_CORE_WITNESS_SYNTAX","FAIL"); failed=True
+                  if os.name=="nt":
+                      parser="$errors=$null; $tokens=$null; foreach($f in @('tools/qualify_setup_core_native_gui.ps1','tools/qualify_setup_core_runtime.ps1')) { $errors=$null; [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) $f),[ref]$tokens,[ref]$errors); if($errors.Count -gt 0){exit 1} }; exit 0"
+                      valid=ok(["powershell.exe","-NoProfile","-NonInteractive","-Command",parser],timeout=60)
+                      status("M24_UIA_WITNESS_SYNTAX","PASS" if valid else "FAIL")
+                      failed=failed or not valid
+                  status("M24_INSTALLED_GUI","NOT_RUN")
                   # Compile the complete existing desktop; publish only results.
                   desktop=source / "desktop"
                   npm=["cmd.exe","/d","/c","npm"] if os.name=="nt" else ["npm"]
