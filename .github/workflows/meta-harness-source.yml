@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 65
     env:
-      PRIVATE_PIN: 'a9539ef33348d33fae73a15e66e51b4229896f68'
-      PRIVATE_TREE: '7bf1d6b57ad006c8418c3cf23b64a9cc8497a61d'
+      PRIVATE_PIN: 'bdcd9245b6b0ba3a87ba62a4546f1f13076fcff8'
+      PRIVATE_TREE: '20309906a790c70b33dca4201a799a5bf61d7d1a'
       QUALIFY_SCOPE: ADAPTER_PRODUCT
     steps:
       - uses: actions/setup-python@v5
@@ -218,6 +218,7 @@ jobs:
                       })
                   groups={"PRODUCT_ROUTE_GRAPH":[groups["PRODUCT_ROUTE"][0]],"PRODUCT_ROUTE_NATIVE_STATE":groups["PRODUCT_ROUTE"][1:],"TASK_ASSIGNMENT":["tests/test_meta_harness_task_assignment.py"],"ACP_PROTOCOL":groups["ACP_PROTOCOL"],"ACP_PRODUCT":groups["ACP_PRODUCT"],"STRATEGY":["tests/test_meta_harness_strategy_history.py"],"CORE_ADAPTERS":groups["CORE_ADAPTERS"],
                           "ACP_CONTEXT_READ":["tests/test_meta_harness_acp_context_read.py"],
+                          "INSTALLED_WITNESS_SOURCE":["tests/test_setup_core_installed_draft.py"],
                           "SESSION_COMPOSER":["tests/test_session_runtime_state_transaction.py","tests/test_workspace_composer_integration.py","tests/test_agent02_core_draft_readback.py","tests/test_interactive_task_list_status.py"],
                         "TOOL_READ":["tests/test_meta_harness_tool_read.py","tests/test_meta_harness_mcp_read.py"],
                           "WORK_BOARD":["tests/test_work_board_state_transaction.py"],

@@ -20,8 +20,8 @@ jobs:
     env:
       BASELINE_PIN: 39a4f49ed9a5c0781c4a4769e9603ca8fb1e8d23
       BASELINE_TREE: c0032bbfaed265e3d544450ea93f4e36c810dd19
-      CURRENT_PIN: a9539ef33348d33fae73a15e66e51b4229896f68
-      CURRENT_TREE: 7bf1d6b57ad006c8418c3cf23b64a9cc8497a61d
+      CURRENT_PIN: bdcd9245b6b0ba3a87ba62a4546f1f13076fcff8
+      CURRENT_TREE: 20309906a790c70b33dca4201a799a5bf61d7d1a
     steps:
       - uses: actions/setup-python@v5
         with:
