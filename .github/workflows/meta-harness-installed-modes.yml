@@ -87,9 +87,26 @@ jobs:
             & python -m pip install --disable-pip-version-check -r requirements-ci.txt *> (Join-Path $logs 'source-witness-deps.log')
             if($LASTEXITCODE -ne 0){throw 'INSTALLED_WITNESS_DEPENDENCIES_FAIL'}
             Write-Host 'INSTALLED_WITNESS_DEPENDENCIES=PASS'
-            & python -m unittest discover -s tests -p test_setup_core_installed_draft.py *> (Join-Path $logs 'source-witness.log')
-            if($LASTEXITCODE -ne 0){throw 'INSTALLED_WITNESS_SOURCE_TEST_FAIL'}
+            # Match the consolidated original-source runner. The witness has
+            # real Core integration tests as well as unittest assertions.
+            # Keep the private transcript local; publish aggregate counts only.
+            $sourceLog=Join-Path $logs 'source-witness.log'
+            & python -m pytest -q --color=no --tb=no -p no:cacheprovider tests/test_setup_core_installed_draft.py *> $sourceLog
+            $sourceExit=$LASTEXITCODE
+            $sourceReport=Get-Content -LiteralPath $sourceLog -Raw
+            foreach($kind in @('passed','failed','skipped','error','errors')){
+              $match=[regex]::Matches($sourceReport,('\b([0-9]{1,6}) '+$kind+'\b'))
+              if($match.Count -gt 0){
+                $count=[int]$match[$match.Count-1].Groups[1].Value
+                Write-Host ('INSTALLED_WITNESS_SOURCE_'+$kind.ToUpperInvariant()+'='+$count)
+              }
+            }
+            if($sourceExit -ne 0 -or $sourceReport -notmatch '\b[1-9][0-9]* passed\b'){
+              Write-Host 'INSTALLED_WITNESS_SOURCE=FAIL'
+              throw 'INSTALLED_WITNESS_SOURCE_TEST_FAIL'
+            }
           } finally { Pop-Location }
+          Write-Host 'INSTALLED_WITNESS_SOURCE=PASS'
           Write-Host 'INSTALLED_WITNESS_SOURCE_TEST_PASS'
           $builder=Join-Path $repo 'qualification/phase1/build_native_windows_setup_candidate.ps1'
           $nativeLog=Join-Path $logs 'native-private-build.log'
