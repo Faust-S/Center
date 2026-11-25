@@ -25,7 +25,7 @@ No production acceptance or stable branch promotion has been performed.
 The workflow pins:
 - Admin Center 5c6e3e8994eb94c46f29b126375928e0ed99e1bb
 - Publisher 39eb7d67325f64d35a2f46d82d9de631794c0836
-- Agent 9cb0792490bd395d2d79ecbeaaf31f4d98510d26
+- Agent 51ce24e04a6792089c37294b6ed5b7a94b852516
 - T3 b25cf1dc6ef7e7a53e1fd53cd9cbb2fcd76e4fa4
 - One Core 8db847058cab231d2d39c34df46024b60564d2ad
 - T2 candidate packaging c28e01876f3230307b7f20449f7ef54374367c93
@@ -50,11 +50,16 @@ Windows-qualified.
 
 Agent's license intake distinguishes an original synchronous Consumer
 refusal (exact unchanged authenticated revision and signed floor) from
-an unknown write. No reimport is attempted. Eleven local Node.js tests
-passed; the locally tested blobs were checked against the committed blobs:
-2ed25967656e0d6d89cdd7efc266cbf3eca28056 and
-eadd44351ac6ac6840394db5016d680dfb5f7e87.
+an unknown write. No reimport is attempted. File selection, confirmation,
+absolute path, size and independently provided trust fingerprint are
+checked before calling the original native operator. Fourteen local
+Node.js tests passed, including real temporary file cases; the tested
+blobs were checked against the committed blobs:
+f911a0071f41d3ddda2bdbefe1f7a55dd6c4e331 and
+7da29c396e8d15ecb83275387008129fe1d3b113.
 The existing Windows preflight includes this small regression.
+Original signature verification and native DPAPI/Store behavior remain
+the responsibility of T3; the installed qualification is still required.
 
 Agent presents observed corporate seat readiness before new submission.
 The changed pure presentation logic passed 23 direct assertions; the
