@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 env:
   T3_PIN: 'c368dcdec006349124f5698471c58d2e55a6caea'
-  CORE_PIN: 'd2500d72341f0cd21c8ce23c146522d42a61af8c'
+  CORE_PIN: '24c97bc0f156ae6ce67dcdd2b299453e4dfa3986'
   CENTER_PIN: '0d812c20fc434c6166153371b7cd4419bae9b549'
   PUBLISHER_PIN: 'a082b16c46ec0ad8380f5d2034833035e010549a'
   AGENT_PIN: 'b2f1097829daa7ea1ac089241e139c56aaae36b3'
@@ -141,6 +141,10 @@ jobs:
           $tokens=$null;$errors=$null
           [void][System.Management.Automation.Language.Parser]::ParseFile($shared,[ref]$tokens,[ref]$errors)
           if($errors.Count){throw 'EMPLOYEE_LICENSED_SHARED_GUI_DRIVER_PARSE_FAILED'}
+          $exchange=(Resolve-Path 'qualification/corporate-employee-first-use/exchange-gui-driver.ps1').Path
+          $tokens=$null;$errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($exchange,[ref]$tokens,[ref]$errors)
+          if($errors.Count){throw 'EMPLOYEE_LICENSED_EXCHANGE_GUI_DRIVER_PARSE_FAILED'}
           $path=(Resolve-Path 'qualification/corporate-employee-first-use/installed-licensed.ps1').Path
           $tokens=$null;$errors=$null
           $ast=[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
@@ -156,8 +160,8 @@ jobs:
             }
             [string]$call.CommandElements[1].Value
           })
-          if($declared.Count -ne 13 -or $manifest.Count -ne 13 -or
-             @($manifest|Sort-Object -CaseSensitive -Unique).Count -ne 13 -or
+          if($declared.Count -ne 18 -or $manifest.Count -ne 18 -or
+             @($manifest|Sort-Object -CaseSensitive -Unique).Count -ne 18 -or
              @(Compare-Object -ReferenceObject $manifest -DifferenceObject $declared -CaseSensitive).Count -ne 0){
             throw 'EMPLOYEE_LICENSED_RECEIPT_CONTRACT_DRIFT'
           }
@@ -566,9 +570,9 @@ jobs:
             throw 'EMPLOYEE_INSTALLED_FIRST_USE_HOLD'
           }
           Write-Host 'EMPLOYEE_INSTALLED_ORIGINAL_FIRST_USE=PASS'
-      - name: Assign original seat admit signed Task and accept actual Result in installed Agent
+      - name: Assign seat execute Task accept Result and transfer physical archive to original Center
         shell: pwsh
-        timeout-minutes: 45
+        timeout-minutes: 60
         env:
           IWXA_T3_SYNTHETIC_PROVISION: CORPORATE_CENTER_CI_FIXTURE_ONLY
         run: |
@@ -587,14 +591,15 @@ jobs:
           $manifest=@(Get-Content -LiteralPath 'qualification/corporate-employee-first-use/required-licensed-receipts.json' -Raw|ConvertFrom-Json)
           if($exit -ne 0 -or $raw -notmatch '(?m)^EMPLOYEE_LICENSED_ADMISSION=PASS checks=9\s*$' -or
              $raw -notmatch '(?m)^EMPLOYEE_LICENSED_RESULT_ACCEPTANCE=PASS checks=13\s*$' -or
-             $checks.Count -ne 13 -or @(Compare-Object -ReferenceObject $manifest -DifferenceObject $checks -CaseSensitive).Count -ne 0){
+             $raw -notmatch '(?m)^EMPLOYEE_LICENSED_RETURN_DELIVERY=PASS checks=18\s*$' -or
+             $checks.Count -ne 18 -or @(Compare-Object -ReferenceObject $manifest -DifferenceObject $checks -CaseSensitive).Count -ne 0){
             $codes=@([regex]::Matches($raw,'(?<![A-Z0-9_])(?:EMPLOYEE_INSTALLED|CORPORATE_GUI|CORPORATE_SEAT)_[A-Z0-9_]{4,95}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
             Write-Host ('EMPLOYEE_LICENSED_CODES='+($codes -join ','))
             throw 'EMPLOYEE_LICENSED_ADMISSION_HOLD'
           }
           Write-Host 'EMPLOYEE_LICENSED_ORIGINAL_ADMISSION_AND_COLD_RECOVERY=PASS'
           Write-Host 'EMPLOYEE_LICENSED_ORIGINAL_HUMAN_RESULT_AND_COLD_READBACK=PASS'
-          Write-Host 'EMPLOYEE_LICENSED_RETURN_DELIVERY=NOT_RUN'
+          Write-Host 'EMPLOYEE_LICENSED_ORIGINAL_RETURN_DELIVERY_AND_COLD_RECOVERY=PASS'
       - name: Discard transient private sources packages and employee profile
         if: always()
         shell: pwsh

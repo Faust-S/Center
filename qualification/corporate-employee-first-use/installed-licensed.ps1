@@ -31,6 +31,7 @@ if([IO.Path]::GetFullPath($centerReg.InstallLocation) -ine (Split-Path $CenterEx
  throw 'EMPLOYEE_LICENSED_PRODUCT_SCOPE_INVALID'
 }
 . (Join-Path $PSScriptRoot 'gui-driver.ps1')
+. (Join-Path $PSScriptRoot 'exchange-gui-driver.ps1')
 $script:guiOrdinal=0;$script:guiLastKind='NONE'
 $script:stage='PREPARE'
 function Stage([string]$value){
@@ -285,7 +286,58 @@ try{
  Need (!(Agent-HasJobButton $agent 'Выполнить в Agent')) 'EMPLOYEE_LICENSED_COLD_RESULT_OFFERS_DUPLICATE_SUBMISSION'
  Record 'AGENT_COLD_COMPANY_RESULT_NO_RESUBMISSION'
  Write-Host ('EMPLOYEE_LICENSED_RESULT_ACCEPTANCE=PASS checks='+$checks.Count)
- Write-Host 'EMPLOYEE_LICENSED_RETURN_DELIVERY=NOT_RUN'
+ Stage 'AGENT_EXCHANGE_READBACK'
+ Press $agent 'Открыть Workspace для передачи'
+ Exchange-Nav $agent
+ Exchange-Action $agent 'iwxa-company-readback-refresh'
+ Wait-Text $agent 'Подтверждены рабочие записи:' 240
+ $sourceTask=Read-CompanyRecord $agent 'Поручение' $taskId $taskSha $person $taskText
+ $sourceResult=Read-CompanyRecord $agent 'Результат' $taskId $taskSha $person ([string](12*45+80))
+ Need ($sourceTask.revision -ceq $sourceResult.revision) 'EMPLOYEE_LICENSED_EXCHANGE_TASK_RESULT_REVISION_MISMATCH'
+ Record 'AGENT_ORIGINAL_EXCHANGE_EXACT_TASK_AND_RESULT'
+ Stage 'AGENT_EXCHANGE_EXPORT'
+ Exchange-Action $agent 'packages-tab-export'
+ Exchange-Action $agent 'iwxa-exchange-export-preview'
+ Exchange-Confirm $agent 'iwxa-exchange-ack-sensitive' 'iwxa-exchange-export-package'
+ Exchange-Action $agent 'iwxa-exchange-export-package'
+ $companyArchive=Join-Path $work 'company-return.iwxa'
+ $transfer=Export-CompanyArchive $agent $companyArchive
+ Exchange-Confirm $agent 'iwxa-exchange-confirm-saved-file' 'iwxa-exchange-export-confirm'
+ Exchange-Action $agent 'iwxa-exchange-export-confirm'
+ Wait-Text $agent 'Сохранение архива подтверждено вами' 240
+ Wait-Text $agent 'Она не означает, что другой получатель импортировал .iwxa.' 240
+ Record 'AGENT_ORIGINAL_EXCHANGE_PHYSICAL_ARCHIVE_SAVED'
+ Stage 'CENTER_EXCHANGE_BEFORE_IMPORT'
+ Open-CenterExchange $cen
+ Exchange-Action $cen 'iwxa-company-readback-refresh'
+ Wait-Text $cen 'Подтверждены рабочие записи:' 240
+ Need (!(Has-Text $cen ('Результат: '+$taskId) $true)) 'EMPLOYEE_LICENSED_EXCHANGE_RESULT_ALREADY_PRESENT'
+ Record 'CENTER_EXACT_RESULT_ABSENT_BEFORE_TRANSFER'
+ Stage 'CENTER_EXCHANGE_IMPORT'
+ Exchange-Action $cen 'packages-tab-import'
+ Need ((Digest $companyArchive) -ceq $transfer.fileSha256) 'EMPLOYEE_LICENSED_EXCHANGE_TRANSFER_BYTES_CHANGED'
+ Import-CompanyArchive $cen $companyArchive
+ Exchange-Action $cen 'iwxa-exchange-import-commit'
+ $receivedDigest=Exchange-ReadValue $cen 'iwxa-exchange-import-receipt-digest' '^[a-f0-9]{64}$'
+ Need ($receivedDigest -ceq $transfer.packageDigest) 'EMPLOYEE_LICENSED_EXCHANGE_PACKAGE_DIGEST_MISMATCH'
+ Need (!(Has-Text $cen 'Импорт выполнен не полностью') -and !(Has-Text $cen 'Импорт требует проверки')) 'EMPLOYEE_LICENSED_EXCHANGE_IMPORT_UNCONFIRMED'
+ Exchange-Action $cen 'iwxa-company-readback-refresh'
+ $targetTask=Read-CompanyRecord $cen 'Поручение' $taskId $taskSha $person $taskText
+ $targetResult=Read-CompanyRecord $cen 'Результат' $taskId $taskSha $person ([string](12*45+80))
+ Compare-CompanyRecord $sourceTask $targetTask
+ Compare-CompanyRecord $sourceResult $targetResult
+ Record 'CENTER_ORIGINAL_EXCHANGE_EXACT_IMPORTED_TASK_AND_RESULT'
+ Stage 'CENTER_EXCHANGE_COLD_READBACK'
+ Stop-App $cen;$cen=Start-App $CenterExe
+ $null=Open-ExactEmployee $cen $person
+ Open-CenterExchange $cen
+ Exchange-Action $cen 'iwxa-company-readback-refresh'
+ $coldTask=Read-CompanyRecord $cen 'Поручение' $taskId $taskSha $person $taskText
+ $coldResult=Read-CompanyRecord $cen 'Результат' $taskId $taskSha $person ([string](12*45+80))
+ Compare-CompanyRecord $sourceTask $coldTask
+ Compare-CompanyRecord $sourceResult $coldResult
+ Record 'CENTER_COLD_ORIGINAL_EXCHANGE_EXACT_RESULT_NO_REIMPORT'
+ Write-Host ('EMPLOYEE_LICENSED_RETURN_DELIVERY=PASS checks='+$checks.Count)
 }catch{
  Write-Host ('EMPLOYEE_LICENSED_FAILURE_STAGE='+$script:stage)
  Write-Host ('EMPLOYEE_LICENSED_FAILURE_STEP='+$script:guiOrdinal)
