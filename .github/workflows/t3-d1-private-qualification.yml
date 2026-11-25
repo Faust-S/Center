@@ -1,8 +1,5 @@
 name: IWXA T3 D1 real private Control dual-checkout qualification
 on:
-  push:
-    branches:
-      - work/2026-11-13-t3-d1-private-qualification
   workflow_dispatch:
 permissions:
   contents: read

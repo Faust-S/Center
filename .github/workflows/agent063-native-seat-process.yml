@@ -1,8 +1,5 @@
 name: Original Admin and two Agent native seat source processes
 on:
-  push:
-    branches: ['work/2026-11-24-agent063-native-seat-process']
-    paths: ['.github/workflows/agent063-native-seat-process.yml']
   workflow_dispatch:
 permissions:
   contents: read
