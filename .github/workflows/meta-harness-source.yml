@@ -3,6 +3,11 @@
 name: Meta Harness original source qualification
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - work/2026-11-24-meta-harness-source-qualification
+    paths:
+      - qualification/requests/meta-harness-source.json
 
 concurrency:
   group: meta-harness-source-${{ github.ref }}
@@ -18,8 +23,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: '890f8e4c524725c1cd5aaccdaeef0396a49601de'
-      PRIVATE_TREE: '7aba68fbc8f48860a3868e5dace71fdea6f80f73'
+      PRIVATE_PIN: '827f9cf88c3dc124d5764d292e8e93b2a757b9ca'
+      PRIVATE_TREE: 'b5b9dbbea2381e160c4d9a46f70c52df6388c5ef'
       QUALIFY_SCOPE: CONSOLIDATED_SOURCE
     steps:
       - uses: actions/setup-python@v5

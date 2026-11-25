@@ -1,0 +1,8 @@
+{
+  "schema": "IWXA_META_HARNESS_QUALIFICATION_REQUEST/1",
+  "candidate": "M28.14",
+  "source_commit": "827f9cf88c3dc124d5764d292e8e93b2a757b9ca",
+  "source_tree": "b5b9dbbea2381e160c4d9a46f70c52df6388c5ef",
+  "scope": "CONSOLIDATED_SOURCE",
+  "reason": "One accumulated source qualification, including all existing module regression files."
+}

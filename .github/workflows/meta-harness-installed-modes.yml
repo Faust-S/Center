@@ -13,8 +13,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 90
     env:
-      PRIVATE_PIN: 'ccde73208840288b2acbc9bc72b5b33efe1d4be5'
-      PRIVATE_TREE: '08c25925cbe2a5ec6321f0552ce7d841523a0b07'
+      PRIVATE_PIN: '827f9cf88c3dc124d5764d292e8e93b2a757b9ca'
+      PRIVATE_TREE: 'b5b9dbbea2381e160c4d9a46f70c52df6388c5ef'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
