@@ -76,25 +76,25 @@ candidate build. Original T3 still performs the authoritative JIT gate.
 Old completed results and personal work are not gated on commercial
 capacity. No second Kernel, IAM, ledger, Task engine or exchange was added.
 
-## Blocker and resumption
+## Resolved source access and current release run
 
-The connector can read the pinned original T2 commit; that is not proof of
-Actions permission. The successful knowledge run 45613252038 used its
-existing DOMEN credential for this T2 pin. The consolidated Center run now
-uses the dedicated IWXA_T2_SOURCE_READ_TOKEN if set, otherwise an already
-configured DOMEN or IWXA_PRIVATE_SOURCE_READ_TOKEN. The same selected token
-is used for exact-commit read admission and read-only checkout; no credential
-is printed, transferred from another repository, or granted new rights.
-If admission still fails, add the dedicated Center Actions secret with
-Contents read-only for Faust-S/T2. Existing T3/Agent access needs no change.
+The Center run 45631939972 could not read T2 (HTTP 404). The existing
+owner-authorized public knowledge CI has read access to all three original
+private sources, without creating or extending any token.
 
-Do not repeat the older Windows workflows. The cheap Linux source-admission
-job gates the one consolidated Windows job. Resume a single run of the
-latest workflow after the scoped T2 secret is available. The latest working
-branch includes the read-only navigation correction and exact license
-intake regression after the blocked run.
-Current status remains RELEASE HOLD pending the installed qualification
-and independent final acceptance.
+Single frozen native release run:
+https://github.com/Faust-S/knowledge/actions/runs/45636761254
+Workflow commit: 679e5d341575538b0439534d6957d0e006241ee9
+Exact Center orchestration: 9fd425766f34da5717e45be0b1ca77da34782c17
+The source-admission job 139284191986 passed all three exact commits.
+Windows job 139284276136 is in progress. Do not launch another run or
+request a new T2 secret while this existing qualification is active.
+
+The product behavior, all 63 existing installed receipt criteria and the
+21 named workflow stages are unchanged. Only the CI repository/ref
+admission, original T3 packaging pin and existing credential selectors
+were updated. The Center workflow is manual-only to avoid a second
+automatic Windows run.
 
 ## Release closure (scope freeze)
 
