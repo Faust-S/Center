@@ -136,7 +136,8 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
    <button className="secondary" data-testid="d3-seat-view-refresh" disabled={busy}
     onClick={()=>void refresh()}>Перечитать распределение</button>
    {intentBlocked&&<p role="alert">Не удалось прочитать сохранённое намерение операции. Назначения заблокированы до восстановления чтения.</p>}
-   {pending&&<p role="alert" data-testid="d3-seat-unknown">Результат операции {pending} не подтверждён. Перечитайте исходный реестр для восстановления результата. Пока он неизвестен, новые действия заблокированы; автоматического повтора нет.</p>}
+   {pending&&(busy?<p role="status" data-testid="d3-seat-pending">Выполняется операция {pending}. Подтвердите действие в системном окне, если оно открыто. Дождитесь исходного результата.</p>:
+    <p role="alert" data-testid="d3-seat-unknown">Результат операции {pending} не подтверждён. Перечитайте исходный реестр для восстановления результата. Пока он неизвестен, новые действия заблокированы; автоматического повтора нет.</p>)}
    {view&&<>
     <p role="status">{view.candidate&&!currentLicense?'Срок последней подписанной проверки истёк. Перечитайте распределение.':labels[view.licenseState]??view.licenseState}</p>
     {!view.candidate&&<p className="muted" data-testid="d3-seat-license-next-step">{view.licenseState==='NO_CURRENT_LICENSE'
@@ -170,7 +171,8 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
      <button className="secondary" disabled={locked||view.employeeNextOffset===null}
       onClick={()=>void refresh(view.assignmentOffset,view.employeeNextOffset)}>Следующие сотрудники</button>
     </div>
-    {!target&&<p className="muted">Для назначения выберите зарегистрированного сотрудника из реестра T3.</p>}
+    {target?<p role="status" data-testid="d3-seat-selected-employee">Получатель места: {target.personId}</p>:
+    <p className="muted">Для назначения выберите зарегистрированного сотрудника из реестра T3.</p>}
     <button data-testid="d3-seat-assign" disabled={locked||!target||assigned||!currentLicense||
       !view.seatPolicyReady||!view.withinLimits||view.availableSeats<=0} onClick={()=>void change('ASSIGN')}>Назначить место</button>
     <label>Назначение для освобождения или передачи

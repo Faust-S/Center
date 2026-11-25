@@ -318,7 +318,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
   <p className="notice subdued" role="status" id="iwxa-center-original-owner-state" data-testid="corporate-owner-status">{d3Ready?'Подписанный T3 D3 получатель доступен. Это не статус готовности всего T3.':ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='CHECKING'?'Проверяем подписанное состояние организации.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; нажмите «Обновить».':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
   {ownerAvailability==='OWNER_READ_FAILED'&&ownerReadCode&&<p role="alert" id="iwxa-center-original-owner-error"
     data-testid="corporate-owner-diagnostic" className="notice error">Код чтения: {ownerReadCode}. Запись не выполнялась.</p>}
-  {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
+  {error&&<p role="alert" data-testid="corporate-operation-error" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
   {!ready&&enrollmentAvailable&&invoke&&<div className="nested-form" data-testid="d3-org-onboarding">
    <h3>Подключить подписанную организацию T3</h3>
    <p className="muted">Создать собственный подписанный организационный контур
