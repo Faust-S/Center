@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     env:
-      PRIVATE_PIN: '07af640838d0d8aa15a4f6a3ac0de6dcaf4a38b4'
-      PRIVATE_TREE: 'd8ab7d43ff44b70743a2b0602dcdaebe11346830'
+      PRIVATE_PIN: '524b9a58d3a822a252ee4c5074b598581b8adfe3'
+      PRIVATE_TREE: '4e354b1576df56bc9d63672aa384eec43de3da96'
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -100,6 +100,23 @@ jobs:
                               passed=outcome.returncode==0 and sorted(observed)==sorted(expected) and re.search(r"(?m)^ORIGINAL_AGENT_ROUTE=PASS\s*$",report) is not None
                               status(name,"PASS" if passed else "FAIL")
                               return passed
+                          if name=="INSTALLED_AGENT_ROUTE":
+                              expected={"PREPARE","COLD_RESTART","RECOVER_AND_REVIEW"}
+                              observed=[]
+                              for value in re.findall(r"(?m)^INSTALLED_AGENT_ROUTE_PASS=([A-Z_]+)\s*$",report):
+                                  if value in expected:
+                                      observed.append(value);status("INSTALLED_AGENT_ROUTE_PASS",value)
+                              allowed_failures={"HOME","REMOTE_HOME","ORIGIN_FIELD","TOKEN_FIELD","INVALID_TOKEN","AUTH_DENIED","TOKEN_CLEARED","CONNECT","CONNECTED","DEVICE_NAME","DEVICE_SAVE","DEVICE_SAVED","MODEL_NAVIGATION","MODEL_CATALOG","CHAT_NAVIGATION","NEW_CHAT","CHAT_DRAFT","CHAT_SUBMIT","CHAT_COMPLETE","CHAT_OPEN","CHAT_HISTORY","CHAT_CLOSE","CHAT_REFERENCE_CLOSED","WORK_NAVIGATION","WORK_DRAFT","WORK_SUBMIT","WORK_COMPLETE","WORK_OPEN","WORK_RESULT","STORAGE_MINIMIZED","RECOVERY_ADDRESS","RECOVERY_SELECT","RECOVERY_TOKEN_REQUIRED","RECOVERY_OPEN","RECOVERY_RESULT","REVIEW_NOTES","REVIEW_CONTROL","REVIEW_CONFIRMATION","REVIEW_READBACK","WORK_REFERENCE_CLOSE","WORK_REFERENCE_CLOSED","CHAT_RECOVERY_NAVIGATION","CHAT_RECOVERY_CATALOG","CHAT_RECOVERED","WEBVIEW_TIMEOUT","PACKAGE","VERSION","VERSION_CODE","FIXTURE_REQUIRED"}
+                              for value in re.findall(r"(?m)^INSTALLED_AGENT_FAILURE_STAGE=([A-Z_]+)\s*$",report):
+                                  if value in allowed_failures:status("INSTALLED_AGENT_FAILURE_STAGE",value)
+                              codes={"COMMAND_FAILED","SERVER_START","SERVER_PORT","SERVER_READY","SERVER_SHUTDOWN","QUERY_CONTRACT","RESPONSE_BOUND","TASK_CATALOG","CHAT_READBACK","CHAT_COUNT","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","APK_REQUIRED","DISPOSABLE_RESET","ANDROID_VERSION_CODE","INSTRUMENTATION_FAILED","INITIAL_TASKS","TASK_COUNT","TASK_ID","TASK_READBACK","RESTART_PORT","RESTART_RESULT","RESTART_CHAT","DUPLICATE_TASK","HUMAN_REVIEW_READBACK","CHAT_REPLAY","FIXTURE_MUST_BE_OUTSIDE_SOURCE","FIXTURE_ARGUMENTS"}
+                              for value in re.findall(r"(?m)^INSTALLED_AGENT_FAILURE_CODE=([A-Z_]+)\s*$",report):
+                                  if value in codes:status("INSTALLED_AGENT_FAILURE_CODE",value)
+                              for kind in re.findall(r"(?m)^INSTALLED_AGENT_FAILURE_TYPE=(RuntimeError|ValueError|KeyError|TypeError|ImportError|ModuleNotFoundError|OSError|TimeoutExpired|CalledProcessError|FileNotFoundError|PermissionError|AssertionError|HTTPError|URLError|SSLError|ConnectionError)\s*$",report):
+                                  status("INSTALLED_AGENT_FAILURE_TYPE",kind)
+                              passed=outcome.returncode==0 and sorted(observed)==sorted(expected) and re.search(r"(?m)^INSTALLED_AGENT_ROUTE=PASS\s*$",report) is not None
+                              status(name,"PASS" if passed else "FAIL")
+                              return passed
                           for label in ["tests","pass","fail","skipped"]:
                               matches=re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report)
                               if matches:status("NODE_"+label.upper(),matches[-1])
@@ -108,6 +125,7 @@ jobs:
                               (r"(?m)^LLAMA_AAR_BUILT=[a-f0-9]{64}\s*$","LLAMA_AAR"),
                               (r"(?m)^QA_MODEL_VERIFIED\s*$","QA_MODEL"),
                               (r"(?m)^ANDROID_CONFIGURATION_PREPARED\s*$","ANDROID_CONFIGURATION_PREPARED"),
+                              (r"(?m)^INSTALLED_AGENT_DEBUG_TRUST_PREPARED\s*$","INSTALLED_AGENT_DEBUG_TRUST"),
                               (r"(?m)^ANDROID_PACKAGE_IDENTITY_TEST_PREPARED\s*$","PACKAGE_IDENTITY_TEST_PREPARED"),
                               (r"(?m)^ANDROID_GRADLE_WRAPPER_STARTED\s*$","GRADLE_WRAPPER_STARTED"),
                               (r"(?m)^ANDROID_GRADLE_WRAPPER_PASS\s*$","GRADLE_WRAPPER"),
@@ -196,10 +214,10 @@ jobs:
                               }
                               failed=re.findall(r"Execution failed for task ':[^'\r\n]*:([A-Za-z0-9]+)'",report)
                               for task in sorted({tasks.get(x,"OTHER") for x in failed}):status("GRADLE_FAILED_TASK",task)
-                              roles={"LocalModelPlugin.kt":"MODEL_BRIDGE","RecommendedModels.kt":"MODEL_DOWNLOAD","ModelFileIntegrity.kt":"FILE_INTEGRITY","InstalledRouteTest.java":"INSTALLED_WITNESS","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
+                              roles={"LocalModelPlugin.kt":"MODEL_BRIDGE","RecommendedModels.kt":"MODEL_DOWNLOAD","ModelFileIntegrity.kt":"FILE_INTEGRITY","InstalledRouteTest.java":"INSTALLED_WITNESS","OriginalAgentInstalledTest.java":"ORIGINAL_AGENT_INSTALLED_WITNESS","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
                               for line in report.splitlines():
                                   if not (line.startswith("e:") or "error:" in line):continue
-                                  loc=re.search(r"(LocalModelPlugin\.kt|RecommendedModels\.kt|ModelFileIntegrity\.kt|InstalledRouteTest\.java|MainActivity\.java|NetworkRouteSpec\.java|RoutedJsonHttp\.java|RoutedNetworkPlugin\.java|ProfileBrowserActivity\.java|NetworkRouteInstalledTest\.java|NetworkRouteSpecTest\.java):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
+                                  loc=re.search(r"(LocalModelPlugin\.kt|RecommendedModels\.kt|ModelFileIntegrity\.kt|InstalledRouteTest\.java|OriginalAgentInstalledTest\.java|MainActivity\.java|NetworkRouteSpec\.java|RoutedJsonHttp\.java|RoutedNetworkPlugin\.java|ProfileBrowserActivity\.java|NetworkRouteInstalledTest\.java|NetworkRouteSpecTest\.java):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
                                   if not loc:continue
                                   kind="OTHER"
                                   for category,pattern in [
@@ -228,6 +246,12 @@ jobs:
                           # on a candidate that cannot pass the original Core route.
                           report_stage("SOURCE",["npm","run","check:source"],mobile,120)
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
+                      # Same Android candidate, ephemeral CA scoped to the debug APK.
+                      # The private signing key is discarded by the fixture before build.
+                      fixture=root/"installed-agent-qa"
+                      if not stage("INSTALLED_AGENT_CA",[py,"mobile/qualification/installed-agent-route.py","prepare",str(fixture)],source,60):
+                          status("QUALIFICATION","FAIL");return 1
+                      env["IWXA_MOBILE_INSTALLED_QA_CA"]=str(fixture/"ca.pem")
                       android=pathlib.Path(env.get("ANDROID_HOME") or env.get("ANDROID_SDK_ROOT") or "/usr/local/lib/android/sdk")
                       env["ANDROID_HOME"]=str(android)
                       env["ANDROID_SDK_ROOT"]=str(android)
@@ -356,7 +380,14 @@ jobs:
                                   logs=run([adb,"logcat","-d","-t","1000"],timeout=20)
                                   device_failure(logs.stdout.decode("utf-8",errors="replace"))
                               except subprocess.TimeoutExpired:status("DEVICE_LOG_DIAGNOSTICS","TIMEOUT")
-                          passed=device_ok and sorted(observed)==sorted(labels.values()) and count==len(labels) and not failures and not errors and not skipped and not xml_errors
+                          native_ok=device_ok and sorted(observed)==sorted(labels.values()) and count==len(labels) and not failures and not errors and not skipped and not xml_errors
+                          remote_ok=False
+                          if native_ok:
+                              # No second source checkout, npm install, native compilation or emulator.
+                              remote_ok=report_stage("INSTALLED_AGENT_ROUTE",[py,"mobile/qualification/installed-agent-route.py","run",str(fixture),adb],source,2100)
+                          else:
+                              status("INSTALLED_AGENT_ROUTE","NOT_RUN")
+                          passed=native_ok and remote_ok
                           status("QUALIFICATION","PASS" if passed else "FAIL")
                           status("PHYSICAL_ARM64","NOT_RUN")
                           return 0 if passed else 1
