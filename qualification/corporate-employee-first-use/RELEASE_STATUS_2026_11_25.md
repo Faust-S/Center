@@ -186,3 +186,28 @@ Only exact repository/ref admission and the pinned original T3 build
 revision changed. All original owner trees and product behavior are unchanged.
 No new test scenarios or functionality. Neither private repository runs Actions.
 Do not execute both the Center and knowledge workflows in parallel.
+
+## Owner baseline freeze — 2026-11-25
+
+The owner explicitly directed that the three delivered program versions be
+fixed as stable baselines and requested data packages for personal testing.
+The exact delivered binaries are preserved by these source references:
+
+| Product | Stable source reference | Source commit | Delivered EXE SHA-256 |
+|---|---|---|---|
+| Admin Center 0.4.1 | Faust-S/Center:stable/admin-center-0.4.1 | 5c6e3e8994eb94c46f29b126375928e0ed99e1bb | 0df3d57cc305dc3631c45aa08367d704e8cf494969cced09e1816147c85073d0 |
+| Publisher 0.5.0 | Faust-S/Center:release/publisher-0.5.0 | f51877ab77dce56af0d745f09752ce2505a521a8 | f2b39d4166556fe047783a051902ffae6b0bf8aad3f654992ee0931c3806c02d |
+| Personal Agent 0.6.4 | Faust-S/iwxa-personal-agent:stable/0.6.4 | 4cecffe7786a0afbf198a847d8368e4e8549e98a | c187af35e6d8a21e4c6c82e9c03c27ab31a883568f96269130948aea696e0145 |
+
+All three refs were created and read back at the exact commits; no product
+source, Kernel or installer bytes changed, and no additional CI was requested.
+The owner-directed baseline freeze supersedes the previous branch-promotion
+hold for these three product refs only. It is not evidence that the full
+corporate route passed or that the original T2 Kernel candidate was accepted.
+Run 45646747599 completed installation of all three products, ACTIVE license
+preparation and employee first-use; the next installed step failed at
+CENTER_REOPEN_EMPLOYEE, step 11, COMBO. The subsequent license lifecycle
+was not executed. Corporate qualification remains INCOMPLETE; preserve this
+known limitation and the original releaseAccepted=false receipt unchanged.
+Personal acceptance is by the owner, not Codex. No test-only credentials,
+fixture signatures or commercial entitlement are asserted by this freeze.
