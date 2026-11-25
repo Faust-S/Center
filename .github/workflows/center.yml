@@ -1,8 +1,7 @@
 name: Center source and desktop
 on:
-  push:
-    branches: ['work/**']
   workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:
