@@ -1,6 +1,6 @@
 # Scoped read-only qualification of the private Agent. No artifacts or logs
 # from the private checkout may be published.
-name: Meta Harness composer recovery qualification
+name: Meta Harness M24 composer and original Task qualification
 on:
   push:
     branches:
@@ -16,10 +16,10 @@ jobs:
       matrix:
         os: [windows-2022, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 100
     env:
-      PRIVATE_PIN: '06843480981f120e3dbe46cf63d2a1a9ccf1d7a2'
-      PRIVATE_TREE: 'a4b837372834851e94693623931b84b4ea13e7af'
+      PRIVATE_PIN: 'b008e990d935b6132da0c98698053ca07894cc99'
+      PRIVATE_TREE: 'f807366fbcfbe3abded871eba3e885f97177a693'
       QUALIFY_SCOPE: COMPOSER_RECOVERY
     steps:
       - uses: actions/setup-python@v5
@@ -161,8 +161,27 @@ jobs:
                       "SESSION_COMPOSER":["tests/test_session_runtime_state_transaction.py",
                                           "tests/test_workspace_composer_integration.py",
                                           "tests/test_agent02_core_draft_readback.py"],
-                      "ORIGINAL_TASK":["tests/test_meta_harness_original_task_workflow.py"],
                   }
+                  # Collect the real pytest node IDs, including every parameter case,
+                  # inside the disposable private checkout. No IDs leave the runner.
+                  original="tests/test_meta_harness_original_task_workflow.py"
+                  collector=root/"collect_original.py"
+                  collection=root/"original_nodes.json"
+                  collector.write_text("""import json,pathlib,sys,pytest
+          class Collector:
+              def pytest_collection_finish(self,session):
+                  pathlib.Path(sys.argv[1]).write_text(json.dumps([item.nodeid for item in session.items]),encoding="utf-8")
+          sys.exit(int(pytest.main(["--collect-only","-q","-p","no:cacheprovider",sys.argv[2]],plugins=[Collector()])))
+          """,encoding="utf-8")
+                  if not ok([sys.executable,str(collector),str(collection),original],timeout=180) or not collection.is_file():
+                      status("ORIGINAL_TASK_COLLECTION","FAIL"); return 1
+                  nodes=json.loads(collection.read_text(encoding="utf-8"))
+                  if (not isinstance(nodes,list) or len(nodes)<4 or len(nodes)!=len(set(nodes))
+                      or any(not isinstance(n,str) or not n.startswith(original+"::") for n in nodes)):
+                      status("ORIGINAL_TASK_COLLECTION","FAIL"); return 1
+                  status("ORIGINAL_TASK_COLLECTED",len(nodes))
+                  for shard in range(4):
+                      groups["ORIGINAL_TASK_"+str(shard+1)]=nodes[shard::4]
                   failed = False
                   for group, files in groups.items():
                       if not files or any(not (source / f.split("::",1)[0]).is_file() for f in files):
@@ -199,6 +218,20 @@ jobs:
                       failed = failed or not success
                   if os.environ.get("QUALIFY_SCOPE") in {"TASK_TRANSPORT","ADAPTER_DEPTH"}:
                       return int(failed)
+                  # Verify witness syntax independently of actually opening the
+                  # installed Windows GUI. Parsing is not GUI acceptance.
+                  try:
+                      witness=source/"tools"/"qualify_setup_core_installed_draft.py"
+                      compile(witness.read_text(encoding="utf-8"),str(witness),"exec")
+                      status("M24_CORE_WITNESS_SYNTAX","PASS")
+                  except Exception:
+                      status("M24_CORE_WITNESS_SYNTAX","FAIL"); failed=True
+                  if os.name=="nt":
+                      parser="$errors=$null; $tokens=$null; foreach($f in @('tools/qualify_setup_core_native_gui.ps1','tools/qualify_setup_core_runtime.ps1')) { $errors=$null; [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) $f),[ref]$tokens,[ref]$errors); if($errors.Count -gt 0){exit 1} }; exit 0"
+                      valid=ok(["powershell.exe","-NoProfile","-NonInteractive","-Command",parser],timeout=60)
+                      status("M24_UIA_WITNESS_SYNTAX","PASS" if valid else "FAIL")
+                      failed=failed or not valid
+                  status("M24_INSTALLED_GUI","NOT_RUN")
                   # Compile the complete existing desktop; publish only results.
                   desktop=source / "desktop"
                   npm=["cmd.exe","/d","/c","npm"] if os.name=="nt" else ["npm"]
@@ -215,8 +248,8 @@ jobs:
                               status(label+"_CASE",hashlib.sha256(row.encode()).hexdigest()[:16])
                           status(label,"PASS" if proc.returncode==0 else "FAIL")
                           return proc.returncode==0
-                      tests=desktop_test("DESKTOP_META_TESTS",["tests/meta-harness-host.test.mjs"])
-                      composer=desktop_test("DESKTOP_COMPOSER_REGRESSION",["tests/task-composer-workspace.test.mjs","tests/task-model-readback-ui.test.mjs","tests/navigation-view-persistence.test.mjs","tests/native-gui-qa-labels.test.mjs"])
+                      tests=desktop_test("DESKTOP_META_TESTS",["tests/meta-harness-host.test.mjs","tests/meta-harness-task-status.test.mjs"])
+                      composer=desktop_test("DESKTOP_COMPOSER_REGRESSION",["tests/task-composer-workspace.test.mjs","tests/task-model-readback-ui.test.mjs","tests/navigation-view-persistence.test.mjs","tests/native-gui-qa-labels.test.mjs","tests/interactive-task-list-state.test.mjs","tests/saved-task-list.test.mjs"])
                       compiled=run(npm+["run","build"],cwd=desktop,timeout=420)
                       build=compiled.returncode==0
                       if not build:
