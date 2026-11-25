@@ -20,7 +20,7 @@ env:
   T3_PIN: 'b25cf1dc6ef7e7a53e1fd53cd9cbb2fcd76e4fa4'
   CORE_PIN: '8db847058cab231d2d39c34df46024b60564d2ad'
   CENTER_PIN: 'cb291087b8eede1a31bcc1a1a3e6b3f9e0acc13b'
-  PUBLISHER_PIN: '99c76b688958d2a22f1943103dbe491f60c8d693'
+  PUBLISHER_PIN: '97a644cfd09b2255055c55d959d19db2f0769ad5'
   AGENT_PIN: '4170bb32e83fdfcb45e4095675b4e0008b29f337'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
@@ -523,7 +523,7 @@ jobs:
           $payload=Join-Path $out 'payload'
           New-Item -ItemType Directory -Path (Join-Path $payload 't3') -Force|Out-Null
           Copy-Item -LiteralPath 'publisher/publisher/src-tauri/target/release/iwxa-publisher.exe' -Destination $payload
-          Get-ChildItem -LiteralPath $source -File|Where-Object {$_.Name -ne 'iwxa-t3-product-consumer.exe'}|Copy-Item -Destination (Join-Path $payload 't3')
+          Get-ChildItem -LiteralPath $source -File|Where-Object {$_.Name -notin @('iwxa-t3-product-consumer.exe','one-dist-qualification.json')}|Copy-Item -Destination (Join-Path $payload 't3')
           # Use the same Setup Core implementation, but the actual Publisher
           # product icon, not the red Admin Center stub.
           $stub=Join-Path $out 'publisher-setup-core-stub.exe'
