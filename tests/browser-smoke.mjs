@@ -1508,6 +1508,9 @@ try{
   assert.equal(await taskDataIssue.isEnabled(),false,
     'lost ACK must block a second original Kernel DATA grant');
   await employeePage.getByTestId('d3-employee-task-grant-read').click();
+  // The hold marker appears at read start; wait for actual rejected readback
+  // before changing the fixture recipient for the next independent read.
+  await employeePage.getByRole('alert').filter({hasText:'CEN_D3_EMPLOYEE_TASK_DATA_READBACK_HOLD'}).waitFor();
   await employeePage.getByTestId('d3-employee-task-grant-hold').waitFor();
   assert.equal(await employeePage.getByTestId('d3-employee-task-grant-confirmed').count(),0,
     'wrong signed recipient cannot grant task issuance');
