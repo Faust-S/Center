@@ -17,6 +17,7 @@ type SignedTask={taskId:string;recipientId:string;taskRevisionId:string;packageS
 type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   contextId:string;contextEpoch:number;d3ApplyAvailable:boolean;
   d3InspectAvailable?:boolean;
+  d3ApplicationReceiptWorkspaceId?:string;d3ApplicationReceiptWorkspaceReady?:boolean;
   d3TaskIssueAvailable?:boolean;d3ApplyRecoverAvailable?:boolean;
   tasks?:SignedTask[];totalTasks?:number}};
 type AssignmentDraft={id:string;title:string;assigneeId:string;editNumber:number;
@@ -952,8 +953,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      </>}
     </div>}
     {!session.d3ApplyAvailable&&<p role="status" data-testid="d3-original-kernel-not-connected">
-      Подписанный Result можно проверить, но применение в оригинальный
-      Kernel пока не подключено. ACCEPT не означает Apply.
+      {session.d3ApplicationReceiptWorkspaceId&&session.d3ApplicationReceiptWorkspaceReady!==true
+        ?'Для применения результата откройте раздел «Сотрудники» и подтвердите административный реестр. Рабочие данные и административные квитанции хранятся отдельно. Ранее применённый результат можно проверить без повторной записи.'
+        :'Подписанный результат можно проверить, но применение в оригинальный Kernel пока не подключено. Принятие результата не означает его применение.'}
      </p>}
    </>}
    {applyAttempted&&!kernelResult&&!kernelRecovery&&<p className="notice subdued">

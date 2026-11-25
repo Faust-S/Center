@@ -295,7 +295,12 @@ fn supported_state(result:&Value,organization_id:&str,
        (view["snapshot"]["d3ApplyRecoverAvailable"]!=Value::Null&&
         !view["snapshot"]["d3ApplyRecoverAvailable"].is_boolean())||
        (view["snapshot"]["d3ApplyRecoverAvailable"]==true&&
-        view["snapshot"]["d3ApplyAvailable"]!=true)||
+        view["snapshot"]["d3ApplyAvailable"]!=true&&
+        !valid_admin_receipt_partition(&view["snapshot"]))||
+       (!view["snapshot"]["d3ApplicationReceiptWorkspaceId"].is_null()&&
+        (!valid_admin_receipt_partition(&view["snapshot"])||
+         (view["snapshot"]["d3ApplyAvailable"]==true&&
+          view["snapshot"]["d3ApplicationReceiptWorkspaceReady"]!=true)))||
        !view["snapshot"]["d3TaskIssueAvailable"].is_boolean()||
        (view["snapshot"]["d3EmployeeEnrollmentAvailable"]!=Value::Null&&
         !view["snapshot"]["d3EmployeeEnrollmentAvailable"].is_boolean())||
@@ -334,6 +339,25 @@ fn supported_state(result:&Value,organization_id:&str,
     }
     Ok(projected)
 }
+// A physical receipt destination is advertised only by the original native
+// owner. Never accept an arbitrary Workspace prefix or a caller-supplied ID.
+fn valid_admin_receipt_partition(snapshot:&Value)->bool{
+    let Some(id)=snapshot["d3ApplicationReceiptWorkspaceId"].as_str() else{return false;};
+    id.strip_prefix("workspace:registry:").is_some_and(|s|validate_hex(Some(s)))&&
+      snapshot["workspaceId"].as_str()!=Some(id)&&
+      snapshot["d3ApplicationReceiptWorkspaceReady"].is_boolean()
+}
+fn valid_admin_receipt_location(view:&Value,physical:&Value,allow_legacy:bool)->bool{
+    let snapshot=&view["snapshot"];
+    let business=&snapshot["workspaceId"];
+    if snapshot["d3ApplicationReceiptWorkspaceId"].is_null(){
+        return physical==business;
+    }
+    valid_admin_receipt_partition(snapshot)&&
+      ((allow_legacy&&physical==business)||
+        (physical==&snapshot["d3ApplicationReceiptWorkspaceId"]&&
+          (allow_legacy||snapshot["d3ApplicationReceiptWorkspaceReady"]==true)))
+}
 fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
     let snapshot=&view["snapshot"];
     match operation{
@@ -364,7 +388,7 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
         "d2ActivityReadback"=>snapshot["d2ActivityReaderConnected"]==true,
         "d3ApplyAccepted"=>snapshot["d3ApplyAvailable"]==true,
         "d3RecoverApplied"=>snapshot["d3ApplyRecoverAvailable"]==true&&
-            snapshot["d3ApplyAvailable"]==true,
+            (snapshot["d3ApplyAvailable"]==true||valid_admin_receipt_partition(snapshot)),
         _=>true,
     }
 }
@@ -439,7 +463,7 @@ fn exact_binding(view:&Value,organization_id:&str,binding:&Value)->bool{
 // original T2 object, event and signed Result selection. A matching event
 // alone is not proof that the expected Result was stored.
 fn valid_original_applied_graph(
-    object:&Value,event:&Value,input:&Value,view:&Value
+    object:&Value,event:&Value,input:&Value,view:&Value,allow_legacy:bool
 )->bool{
     let Some(effect)=event["idempotency_key"].as_str() else{return false;};
     let Some(acceptance)=input["acceptanceId"].as_str() else{return false;};
@@ -467,13 +491,13 @@ fn valid_original_applied_graph(
     let organization=&view["snapshot"]["organizationId"];
     if !workspace.as_str().is_some_and(t3::valid_identifier)||
        !organization.as_str().is_some_and(t3::valid_identifier)||
-       object["workspace_id"]!=*workspace||
+       !valid_admin_receipt_location(view,&object["workspace_id"],allow_legacy)||
        object["object_id"]!=format!("result:applied:{effect}")||
        object["schema_id"]!="iwxa.admin.applied-results"||
        object["schema_version"]!="1.0.0"||
        object["revision"].as_u64()!=Some(1)||
        object["data"]["schema"]!="IWXA_T3_ADMIN_APPLIED_RESULTS/1"||
-       event["workspace_id"]!=*workspace||
+       event["workspace_id"]!=object["workspace_id"]||
        event["event_type"]!="iwxa.admin.result.applied"||
        !event["event_id"].as_str().is_some_and(t3::valid_identifier)||
        (!event["object_id"].is_null()&&event["object_id"]!=object["object_id"])||
@@ -508,9 +532,9 @@ fn verify_kernel_recovery(result:&Value,input:&Value,view:&Value)->Result<(),Str
     }
     let object=&result["originalKernelReadback"]["object"];
     let event=&result["originalEventReadback"];
-    let workspace=&view["snapshot"]["workspaceId"];
     if result["externalProductAcceptance"]!="NOT_ACCEPTED"||
-       object["workspace_id"]!=*workspace||event["workspace_id"]!=*workspace||
+       !valid_admin_receipt_location(view,&object["workspace_id"],true)||
+       event["workspace_id"]!=object["workspace_id"]||
        !object["object_id"].as_str().is_some_and(t3::valid_identifier)||
        !object["revision"].as_u64().is_some_and(|n|n>0&&n<=9_007_199_254_740_991)||
        !event["event_id"].as_str().is_some_and(t3::valid_identifier)||
@@ -531,7 +555,7 @@ fn verify_kernel_recovery(result:&Value,input:&Value,view:&Value)->Result<(),Str
     let mut b:Vec<_>=observed.iter().filter_map(Value::as_str).collect();
     if a.len()!=expected.len()||b.len()!=observed.len(){return Err(bad());}
     a.sort_unstable();b.sort_unstable();
-    if a!=b||!valid_original_applied_graph(object,event,input,view){
+    if a!=b||!valid_original_applied_graph(object,event,input,view,true){
         return Err(bad());
     }
     Ok(())
@@ -556,9 +580,9 @@ fn verify_kernel_apply(result:&Value,input:&Value,view:&Value)->Result<(),String
        result["reconciliationLedgerSync"]!="OWNER_FOLLOWUP_REQUIRED"||
        result["externalProductAcceptance"]!="NOT_ACCEPTED"||
        !validate_hex(Some(effect))||
-       receipt["workspace_id"]!=*workspace||
-       committed["workspace_id"]!=*workspace||
-       read["workspace_id"]!=*workspace||
+       !valid_admin_receipt_location(view,&read["workspace_id"],false)||
+       receipt["workspace_id"]!=read["workspace_id"]||
+       committed["workspace_id"]!=read["workspace_id"]||
        !read["object_id"].as_str().is_some_and(t3::valid_identifier)||
        read["object_id"]!=format!("result:applied:{effect}")||
        committed["object_id"]!=read["object_id"]||
@@ -567,7 +591,7 @@ fn verify_kernel_apply(result:&Value,input:&Value,view:&Value)->Result<(),String
        read["schema_id"]!="iwxa.admin.applied-results"||
        committed["schema_id"]!=read["schema_id"]||
        read["schema_version"]!="1.0.0"||
-       event["workspace_id"]!=*workspace||
+       event["workspace_id"]!=read["workspace_id"]||
        !event["event_id"].as_str().is_some_and(t3::valid_identifier)||
        event["event_type"]!="iwxa.admin.result.applied"||
        (!event["object_id"].is_null()&&event["object_id"]!=read["object_id"])||
@@ -576,8 +600,8 @@ fn verify_kernel_apply(result:&Value,input:&Value,view:&Value)->Result<(),String
        read["data"]["schema"]!="IWXA_T3_ADMIN_APPLIED_RESULTS/1"{
         return Err(bad());
     }
-    if !valid_original_applied_graph(read,event,input,view)||
-       !valid_original_applied_graph(read,witnessed,input,view)||
+    if !valid_original_applied_graph(read,event,input,view,false)||
+       !valid_original_applied_graph(read,witnessed,input,view,false)||
        witnessed["event_id"]!=event["event_id"]||
        witnessed["event_type"]!=event["event_type"]||
        witnessed["idempotency_key"]!=event["idempotency_key"]{
@@ -778,7 +802,9 @@ fn definite_d3_pre_apply_workspace_refusal(
     matches!(result,Err(code) if matches!(code.as_str(),
         "T3_D3_ORIGINAL_WORKSPACE_PROVISION_REQUIRED"|
         "T3_D3_ORIGINAL_WORKSPACE_DELETED"|
-        "T3_D3_ORIGINAL_WORKSPACE_READ_ONLY"))
+        "T3_D3_ORIGINAL_WORKSPACE_READ_ONLY"|
+        "T3_D3_ADMIN_RECEIPT_WORKSPACE_REQUIRED"|
+        "T3_D3_ADMIN_RECEIPT_WORKSPACE_CHANGED"))
 }
 fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
     body:Value)->Result<Value,String>{
