@@ -591,6 +591,7 @@ try{
   const d3Page=await browser.newPage({viewport:{width:1366,height:900}});
   await d3Page.addInitScript(()=>{
     const held={epoch:7,task:null,writes:0,decisionWrites:0,decision:null,d2ReadCount:0,
+      failOwnerRead:false,ownerReadError:'CEN_D3_ORIGINAL_HOST_EOF',ownerReads:0,
       signedOpen:false,signedVisible:false,signedCloses:0,
       applyWrites:0,applyReads:0,applied:null};
     window.__d3UiFixture=held;
@@ -617,6 +618,8 @@ try{
         return true;
       }
       if(command==='center_corporate_state'){
+        held.ownerReads++;
+        if(held.failOwnerRead)throw Error(held.ownerReadError);
         const tasks=held.task?[{
           taskId:held.task.taskId,taskRevisionId:'a'.repeat(64),
           packageSha256:'b'.repeat(64),summary:'UI recovery task',
@@ -762,8 +765,26 @@ try{
   await d3Page.goto('http://127.0.0.1:4173');
   await d3Page.getByTestId('org-name').fill('UI signed Task fixture');
   await d3Page.getByTestId('create-org').click();
+  await d3Page.evaluate(()=>{window.__d3UiFixture.failOwnerRead=true});
   await d3Page.getByTestId('nav-results').click();
+  await d3Page.getByTestId('corporate-owner-diagnostic').waitFor();
+  assert.match(await d3Page.getByTestId('corporate-owner-diagnostic').innerText(),/CEN_D3_ORIGINAL_HOST_EOF/);
+  assert.equal(await d3Page.getByTestId('d3-signed-task-workflow').count(),0);
+  assert.equal(await d3Page.getByTestId('d3-enroll').count(),0);
+  await d3Page.evaluate(()=>{window.__d3UiFixture.ownerReadError='private-path-and-unstructured-diagnostic'});
+  await d3Page.getByTestId('corporate-owner-refresh').click();
+  await d3Page.waitForFunction(()=>document.querySelector('[data-testid="corporate-owner-diagnostic"]')?.textContent?.includes('CEN_D3_OWNER_READ_UNCONFIRMED'));
+  assert.equal(await d3Page.getByTestId('corporate-owner-diagnostic').innerText().then(x=>x.includes('private-path')),false);
+  assert.equal(await d3Page.getByTestId('corporate-owner-status').innerText().then(x=>x.includes('OWNER_READ_FAILED')),true);
+  const readsBefore=await d3Page.evaluate(()=>window.__d3UiFixture.ownerReads);
+  await d3Page.evaluate(()=>{window.__d3UiFixture.failOwnerRead=false});
+  await d3Page.getByTestId('corporate-owner-refresh').click();
   await d3Page.getByTestId('d3-signed-task-workflow').waitFor();
+  const afterOwnerRead=await d3Page.evaluate(()=>window.__d3UiFixture);
+  assert.equal(afterOwnerRead.ownerReads,readsBefore+1,'explicit recovery must read the original owner once');
+  assert.equal(afterOwnerRead.writes,0);
+  assert.equal(await d3Page.getByTestId('corporate-owner-diagnostic').count(),0);
+  checks.push('d3-original-owner-read-failure-blocks-mutations-and-explicit-read-recovers');
   // Installed independent employee authority cannot be inferred from the
   // existing original reviewer alone. When the private owner does not
   // advertise the genuine One Core enrollment port, no UI-issued grant,

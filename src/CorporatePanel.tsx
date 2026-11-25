@@ -70,7 +70,8 @@ const why=(e:unknown)=>{
 };
 export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null,preferCorporateSeats=false,signedWorkspaceVisible=false,signedWorkspaceOpen=false,onOpenLicenses}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null;preferCorporateSeats?:boolean;signedWorkspaceVisible?:boolean;signedWorkspaceOpen?:boolean;onOpenLicenses?:()=>void}){
  const [owner,setOwner]=useState<any>(null);
- const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
+ const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'CHECKING'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
+ const [ownerReadCode,setOwnerReadCode]=useState('');
  const [enrollmentAvailable,setEnrollmentAvailable]=useState(false);
  const [enrollWorkspace,setEnrollWorkspace]=useState('');
  const [busy,setBusy]=useState(false);
@@ -144,7 +145,9 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    setEnrollmentAvailable(!valid&&candidate?.status==='NOT_CONNECTED'&&
      candidate?.enrollmentAvailable===true);
    setOwner(valid);
-    setOwnerAvailability(valid?'OWNER_READY':
+   setOwnerReadCode(!valid&&candidate!==null&&candidate?.status!=='NOT_CONNECTED'&&candidate?.status!=='REFERENCE_ONLY'
+     ?'CEN_D3_OWNER_STATE_INVALID':'');
+   setOwnerAvailability(valid?'OWNER_READY':
       candidate===null||candidate?.status==='NOT_CONNECTED'||candidate?.status==='REFERENCE_ONLY'
         ?'NOT_CONNECTED':'OWNER_READ_FAILED');
    return valid;
@@ -153,8 +156,13 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    const reason=e instanceof Error?e.message:String(e);
    adoptOwner(null);
    // Distinguish a missing Tauri command from a real owner readback failure.
-   setOwnerAvailability(/unknown command|command .*not found|center_corporate_state.*not found/i.test(reason)
-     ?'NOT_CONNECTED':'OWNER_READ_FAILED');
+   const missing=/unknown command|command .*not found|center_corporate_state.*not found/i.test(reason);
+   setOwnerAvailability(missing?'NOT_CONNECTED':'OWNER_READ_FAILED');
+   // Rust and the original native owner expose bounded diagnostic codes.
+   // Never show arbitrary exception text (paths, signed bodies or secrets).
+   const code=reason.trim().replace(/^Error:\s*/,'');
+   setOwnerReadCode(missing?'':/^(?:CEN|T3|INTEROP)_[A-Z0-9_]{4,95}$/.test(code)
+     ?code:'CEN_D3_OWNER_READ_UNCONFIRMED');
  };
 
  const refresh=async()=>{
@@ -172,6 +180,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    let cancelled=false;
    const seq=++requestRef.current;
    adoptOwner(null);setError('');setNotice('');
+   if(invoke)setOwnerAvailability('CHECKING');
    if(invoke)void invoke('center_corporate_state',{organizationId}).then(r=>{
      if(!cancelled&&seq===requestRef.current)adoptOwner(r);
    }).catch(e=>{
@@ -188,7 +197,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    if(!r||r.status==='NOT_CONNECTED')throw Error('CEN_OWNER_NOT_CONNECTED');
    return r;
  };
- const act=async(success:string,fn:()=>Promise<void|boolean>)=>{
+ const act=async(success:string,fn:()=>Promise<void|boolean>,refreshAfter=true)=>{
    // The disabled React button alone is not an atomic guard against two
    // quick event dispatches. Never dispatch Apply twice in one UI session.
    if(actionRef.current)return;
@@ -196,7 +205,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
    setBusy(true);setError('');setNotice('');
    try{const saved=await fn();if(saved!==false)setNotice(success)}
    catch(e){setError(why(e))}
-   finally{await refresh();actionRef.current=false;setBusy(false)}
+   finally{if(refreshAfter)await refresh();actionRef.current=false;setBusy(false)}
  };
  // Opening/parking the native child and attaching its original Kernel are
  // asynchronous. Resume the same signed scope and read-only registry until
@@ -287,10 +296,17 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
       <button className="secondary" data-testid="d3-open-signed-workspace" disabled={busy}
         onClick={()=>act('Подписанная Workspace открыта внутри Admin Center.',async()=>
           onOpenSignedWorkspace(organizationId))}>Открыть Workspace T3</button>}
-    <button className="secondary" disabled={busy} onClick={()=>act('Состояние перечитано.',async()=>{await refresh();resetReview()})}>Обновить</button>
+    <button className="secondary" id="iwxa-center-owner-refresh" data-testid="corporate-owner-refresh"
+      disabled={busy||ownerAvailability==='CHECKING'} onClick={()=>act('Исходное состояние подтверждено.',async()=>{
+        const next=await refresh();
+        resetReview();
+        // A failed or absent original owner is not successful readback.
+        // This explicit recovery is one read, never a second enrollment.
+        return next!==null;
+      },false)}>Обновить</button>
    </div></div>
   {preferCorporateSeats&&<div data-testid="corporate-seat-route-guide">
-   <p role="status">{registryState==='CHECKING'?'Проверяем выбранную Workspace и читаем исходный реестр сотрудников.':
+   <p role="status">{ownerAvailability==='CHECKING'?'Проверяем подписанное состояние организации.':registryState==='CHECKING'?'Проверяем выбранную Workspace и читаем исходный реестр сотрудников.':
      registryState==='NOT_FOUND'&&seatStage==='READ_REGISTRY'?'Исходный реестр сотрудников ещё не создан. Подключите его отдельным подтверждаемым действием.':
      registryState==='TIMEOUT'?'Исходная Workspace ещё не подтвердила готовность. Откройте её или повторите чтение.':
      registryState==='FAILED'?'Чтение реестра не подтверждено. Новые назначения недоступны.':seatGuidance[seatStage]}</p>
@@ -298,7 +314,9 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
      <button type="button" className="secondary" disabled={busy} onClick={()=>setRegistryRetry(value=>value+1)}>Повторить чтение реестра</button>}
   </div>}
   <p className="muted">Все подписи, проверки полномочий и записи выполняются исходными механизмами из Faust-S/T3. Черновики не дают права выдачи.</p>
-  <p className="notice subdued" data-testid="corporate-owner-status">{d3Ready?'Подписанный T3 D3 получатель доступен. Это не статус готовности всего T3.':ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; проверьте состояние владельца.':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
+  <p className="notice subdued" role="status" id="iwxa-center-original-owner-state" data-testid="corporate-owner-status">{d3Ready?'Подписанный T3 D3 получатель доступен. Это не статус готовности всего T3.':ready?'Подтверждённая организационная сессия владельца.':ownerAvailability==='CHECKING'?'Проверяем подписанное состояние организации.':ownerAvailability==='OWNER_READ_FAILED'?'OWNER_READ_FAILED: не удалось прочитать организационную сессию. Корпоративные действия заблокированы; нажмите «Обновить».':'NOT_CONNECTED: организационный механизм не активирован в установленном Admin Center. Действия недоступны.'}</p>
+  {ownerAvailability==='OWNER_READ_FAILED'&&ownerReadCode&&<p role="alert" id="iwxa-center-original-owner-error"
+    data-testid="corporate-owner-diagnostic" className="notice error">Код чтения: {ownerReadCode}. Запись не выполнялась.</p>}
   {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
   {!ready&&enrollmentAvailable&&invoke&&<div className="nested-form" data-testid="d3-org-onboarding">
    <h3>Подключить подписанную организацию T3</h3>
