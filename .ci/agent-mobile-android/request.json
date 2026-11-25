@@ -1,9 +1,9 @@
 {
-  "candidate": "0302fb2c303ccef264a4551d5981c29d0e09f5ce",
-  "tree": "38f1589511ac2810b3c328cf00c3203cb1f1cc24",
+  "candidate": "b36d82ec0e81c89a3898309b7a85e7cce21f4031",
+  "tree": "7ab16642b33b1047cb23ed2f975cc1e4c54aafe9",
   "original_t3": "3c2530a62ed9d7d84ca40eea500fef161393424d",
   "original_t3_tree": "4f027d7fcdf49ced2a2e42a7795a994e1b3e6c69",
-  "scope": "M08_5_NATIVE_T3_D5_ONE_APK_INSTALLED_QUALIFICATION",
-  "reason": "FIX_GRADLE_NOTCLASS_ARGUMENT_AND_CONSOLIDATE_M08_2_TO_M08_4",
+  "scope": "M08_7_NATIVE_OPERATION_COMPLETION_AND_MODEL_RESIDENCY",
+  "reason": "ACCUMULATE_M08_6_AND_M08_7_WITHOUT_DUPLICATE_ACTIONS",
   "physical": "NOT_RUN"
 }
