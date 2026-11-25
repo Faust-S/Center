@@ -13,11 +13,15 @@ concurrency:
   group: corporate-installed-employee-first-use-${{ github.ref }}
   cancel-in-progress: true
 env:
-  T3_PIN: '6ee165a7a0f0d701302e897220cbf50e0257709e'
-  CORE_PIN: '5474f05ff77757ba7243f1f422058880fc3e0f49'
+  T2_PIN: 'c28e01876f3230307b7f20449f7ef54374367c93'
+  KERNEL_CANDIDATE_ID: 'iwxa-kernel-k036-canonical-event-merge-20261125-candidate.1'
+  KERNEL_CANDIDATE_ARCHIVE_SHA256: '5320dcb6c42d5fca410880677c8a8b595d4c9a2a6cedf51089b5f60f4ceeb52a'
+  KERNEL_CANDIDATE_RUNTIME_SHA256: '559e8dd74988144733394114b020ea89a78d49ae5bbc8d49faafb86f9325c1e7'
+  T3_PIN: 'b25cf1dc6ef7e7a53e1fd53cd9cbb2fcd76e4fa4'
+  CORE_PIN: '8db847058cab231d2d39c34df46024b60564d2ad'
   CENTER_PIN: 'cb291087b8eede1a31bcc1a1a3e6b3f9e0acc13b'
   PUBLISHER_PIN: '99c76b688958d2a22f1943103dbe491f60c8d693'
-  AGENT_PIN: '15827fbd135b9175c146af7931c201d51ca6ea53'
+  AGENT_PIN: '4170bb32e83fdfcb45e4095675b4e0008b29f337'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -37,6 +41,14 @@ jobs:
           path: one-core
           persist-credentials: false
           show-progress: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_PIN }}
+          path: private-t2
+          persist-credentials: false
+          show-progress: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
@@ -85,7 +97,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.16.0'
+          node-version: '24.18.1'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -93,21 +105,46 @@ jobs:
         with:
           bun-version: '1.3.4'
       - uses: dtolnay/rust-toolchain@stable
-      - name: Verify immutable current source and original T2 bytes
+      - name: Verify immutable source and rebuild exact unaccepted T2 candidate
+        timeout-minutes: 20
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          foreach($r in @(@('private-t3',$env:T3_PIN),@('one-core',$env:CORE_PIN),@('admin',$env:CENTER_PIN),@('publisher',$env:PUBLISHER_PIN))){
+          foreach($r in @(@('private-t2',$env:T2_PIN),@('private-t3',$env:T3_PIN),@('one-core',$env:CORE_PIN),@('private-agent',$env:AGENT_PIN),@('admin',$env:CENTER_PIN),@('publisher',$env:PUBLISHER_PIN),@('setup-core',$env:AGENT_SETUP_PIN))){
             if((& git -C $r[0] rev-parse HEAD).Trim() -cne $r[1]){throw 'CORPORATE_INSTALLED_SOURCE_PIN_MISMATCH'}
           }
           foreach($dir in @('private-t3','one-core')){
             if(@(& git -C $dir status --porcelain | Where-Object {$_}).Count -ne 0){throw 'CORPORATE_INSTALLED_SOURCE_DIRTY'}
           }
           $q=Join-Path $env:RUNNER_TEMP 'corporate-original-k036'
-          Expand-Archive -LiteralPath 'one-core/packages/t3-core/qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip' -DestinationPath $q
+          & node qualification/corporate-employee-first-use/prepare-k036-candidate.mjs
+          if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_K036_REBUILD_HOLD'}
           if(!(Test-Path -LiteralPath (Join-Path $q '_iwxa/runtime/0.3.6/runtime.js'))){throw 'CORPORATE_INSTALLED_QUALIFIED_T2_MISSING'}
           "CORPORATE_ORIGINAL_T2=$q"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'CORPORATE_INSTALLED_SOURCE_PINS=PASS'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Validate candidate packaging before native compilation
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($file in @('private-t3/scripts/build-admin-center-d3-owner.ps1',
+            'private-agent/tools/build_setup_core_windows_candidate.ps1',
+            'private-agent/qualification/phase1/build_native_windows_setup_candidate.ps1',
+            'private-agent/tools/qualify_explorer_windows_phase1_package.ps1')){
+            $tokens=$null;$errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors)
+            if($errors.Count -ne 0){throw 'CORPORATE_INSTALLED_CANDIDATE_PACKAGING_PARSE_FAILED'}
+          }
+          Push-Location private-agent
+          try{
+            $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-candidate-python-private.log'
+            & python -m unittest discover -s tests -p test_t3_kernel_candidate.py *> $log
+            if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_CANDIDATE_PYTHON_FAILED'}
+          }finally{Pop-Location}
+          Write-Host 'CORPORATE_INSTALLED_CANDIDATE_PACKAGING_PREFLIGHT=PASS'
       - name: Validate native employee witness receipt contract
         shell: pwsh
         run: |
@@ -226,7 +263,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-admin-build-private.log'
           try{
-            & ./private-t3/scripts/build-admin-center-d3-owner.ps1 -CenterRoot (Resolve-Path admin).Path -OneCoreRoot (Resolve-Path one-core).Path -QualifiedT2Dist $env:CORPORATE_ORIGINAL_T2 -BunCommand bun -BuildCenter *> $log
+            & ./private-t3/scripts/build-admin-center-d3-owner.ps1 -CenterRoot (Resolve-Path admin).Path -OneCoreRoot (Resolve-Path one-core).Path -QualifiedT2Dist $env:CORPORATE_ORIGINAL_T2 -QualificationKernelCandidate $env:KERNEL_CANDIDATE_ID -BunCommand bun -BuildCenter *> $log
             if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_ADMIN_BUILD_FAILED'}
             $raw=Get-Content -LiteralPath $log -Raw
             foreach($code in @('T3_D3_ORIGINAL_ADMIN_T2_PRODUCT_STAGE_CONFIRMED','ORIGINAL_T3_D3_ONE_DIST_ASSEMBLED','ORIGINAL_T3_D3_OWNER_BUILD_DONE','T3_D3_ORIGINAL_COMPILED_ENROLL_ENTRY_VERIFIED','CENTER_PRIVATE_T3_D3_SETUP_CORE_READY')){
@@ -257,9 +294,22 @@ jobs:
           foreach($rel in @('iwxa-admin-center.exe','t3/iwxa-t3-product-owner.exe','t3/iwxa-t3-product-consumer.exe','t3/iwxa-t3-age-desktop.exe','t3/age.exe','t3/age-keygen.exe','t3/age-toolchain.json','t3/one-dist/_iwxa/loader.js','t3/one-dist/_iwxa/runtime/0.3.6/runtime.js')){
             if((Get-FileHash -LiteralPath (Join-Path $root $rel)).Hash -cne (Get-FileHash -LiteralPath (Join-Path $payload $rel)).Hash){throw 'CORPORATE_INSTALLED_ADMIN_NATIVE_BYTES_CHANGED'}
           }
-          foreach($rel in @('_iwxa/loader.js','_iwxa/runtime/0.3.6/runtime.js')){
+          foreach($rel in @('_iwxa/loader.js','_iwxa/validator.js','_iwxa/current.json','_iwxa/runtime/0.3.6/runtime.js')){
             if((Get-FileHash -LiteralPath (Join-Path $root ('t3/one-dist/'+$rel))).Hash -cne (Get-FileHash -LiteralPath (Join-Path $env:CORPORATE_ORIGINAL_T2 $rel)).Hash){throw 'CORPORATE_INSTALLED_ORIGINAL_KERNEL_BYTES_CHANGED'}
           }
+          $candidateReceipt='t3/one-dist-qualification.json'
+          if((Get-FileHash -LiteralPath (Join-Path $root $candidateReceipt)).Hash -cne
+             (Get-FileHash -LiteralPath (Join-Path $payload $candidateReceipt)).Hash){throw 'CORPORATE_INSTALLED_ADMIN_CANDIDATE_RECEIPT_CHANGED'}
+          $candidate=Get-Content -LiteralPath (Join-Path $root $candidateReceipt) -Raw|ConvertFrom-Json
+          if($candidate.schema -cne 'IWXA_T3_INSTALLED_KERNEL_QUALIFICATION/1' -or
+             $candidate.artifactId -cne $env:KERNEL_CANDIDATE_ID -or
+             $candidate.archiveSha256 -cne $env:KERNEL_CANDIDATE_ARCHIVE_SHA256 -or
+             $candidate.runtimeSha256 -cne $env:KERNEL_CANDIDATE_RUNTIME_SHA256 -or
+             $candidate.releaseAccepted -isnot [bool] -or $candidate.releaseAccepted -ne $false -or
+             $candidate.productionActivation -isnot [bool] -or $candidate.productionActivation -ne $false){
+            throw 'CORPORATE_INSTALLED_ADMIN_CANDIDATE_RECEIPT_INVALID'
+          }
+          Write-Host 'CORPORATE_INSTALLED_ADMIN_EXACT_UNACCEPTED_CANDIDATE=PASS'
           $reg=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center'
           if($reg.InstallLocation -ine $root){throw 'CORPORATE_INSTALLED_ADMIN_REGISTRATION_INVALID'}
           "CORPORATE_ADMIN_INSTALL=$root"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -334,7 +384,7 @@ jobs:
           $out=Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'
           $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-agent-build-private.log'
           try{
-            & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Resolve-Path 'private-agent/tools/build_setup_core_windows_candidate.ps1').Path -CenterRoot (Resolve-Path setup-core).Path -CenterCommit $env:AGENT_SETUP_PIN -OutputRoot $out -ReleaseCacheRoot (Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache') -PublicT3CoreRoot (Resolve-Path 'one-core/packages/t3-core').Path -OriginalT3OwnerRoot (Resolve-Path private-t3).Path -RequireOriginalT3 *> $log
+            & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Resolve-Path 'private-agent/tools/build_setup_core_windows_candidate.ps1').Path -CenterRoot (Resolve-Path setup-core).Path -CenterCommit $env:AGENT_SETUP_PIN -OutputRoot $out -ReleaseCacheRoot (Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache') -PublicT3CoreRoot (Resolve-Path 'one-core/packages/t3-core').Path -OriginalT3OwnerRoot (Resolve-Path private-t3).Path -OriginalQualifiedKernelDist $env:CORPORATE_ORIGINAL_T2 -CompiledT3Ui (Resolve-Path 'one-core/packages/t3-core/dist').Path -QualificationKernelCandidate $env:KERNEL_CANDIDATE_ID -RequireOriginalT3 *> $log
             if($LASTEXITCODE -ne 0){throw 'CORPORATE_AGENT_INSTALLED_BUILD_FAILED'}
             if(!(Test-Path -LiteralPath (Join-Path $out 'IWXA-Private-SetupCore-Candidate.exe'))){throw 'CORPORATE_AGENT_INSTALLED_SETUP_MISSING'}
             Write-Host 'CORPORATE_AGENT_ORIGINAL_SETUP_PIPELINE=PASS'
@@ -399,6 +449,10 @@ jobs:
           if($identity.status -cne 'BUILT_UNQUALIFIED' -or
              $identity.private_source_commit -cne $env:AGENT_PIN -or
              $identity.public_setup_core_commit -cne $env:AGENT_SETUP_PIN -or
+             $identity.t3_original_kernel_candidate_artifact -cne $env:KERNEL_CANDIDATE_ID -or
+             $identity.t3_original_kernel_candidate_archive_sha256 -cne $env:KERNEL_CANDIDATE_ARCHIVE_SHA256 -or
+             $identity.t3_original_kernel_release_accepted -isnot [bool] -or
+             $identity.t3_original_kernel_release_accepted -ne $false -or
              $identity.setup_sha256 -ine (Get-FileHash -LiteralPath $setup).Hash){
             throw 'EMPLOYEE_INSTALLED_AGENT_PACKAGE_PIN_INVALID'
           }
@@ -427,6 +481,17 @@ jobs:
              !(Test-Path -LiteralPath (Join-Path $root 'desktop/bin/IWXA Personal.exe') -PathType Leaf)){
             throw 'EMPLOYEE_INSTALLED_AGENT_SCOPE_INVALID'
           }
+          foreach($rel in @('_iwxa/loader.js','_iwxa/validator.js','_iwxa/current.json','_iwxa/runtime/0.3.6/runtime.js')){
+            if((Get-FileHash -LiteralPath (Join-Path $root ('t3-one-dist/'+$rel))).Hash -cne
+               (Get-FileHash -LiteralPath (Join-Path $env:CORPORATE_ORIGINAL_T2 $rel)).Hash){throw 'CORPORATE_INSTALLED_AGENT_CANDIDATE_BYTES_CHANGED'}
+          }
+          $candidate=Get-Content -LiteralPath (Join-Path $root 't3-one-core/one-dist-receipt.json') -Raw|ConvertFrom-Json
+          if($null -ne $candidate.original_qualified_artifact -or
+             $candidate.original_kernel_candidate_artifact -cne $env:KERNEL_CANDIDATE_ID -or
+             $candidate.original_kernel_candidate_archive_sha256 -cne $env:KERNEL_CANDIDATE_ARCHIVE_SHA256 -or
+             $candidate.original_kernel_release_accepted -isnot [bool] -or
+             $candidate.original_kernel_release_accepted -ne $false){throw 'CORPORATE_INSTALLED_AGENT_CANDIDATE_RECEIPT_INVALID'}
+          Write-Host 'CORPORATE_INSTALLED_AGENT_EXACT_UNACCEPTED_CANDIDATE=PASS'
           "CORPORATE_EMPLOYEE_AGENT_ROOT=$root"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'EMPLOYEE_INSTALLED_AGENT_SAME_RUNNER=PASS'
       - name: Build and install current Publisher with the same original compiled Owner
@@ -640,7 +705,7 @@ jobs:
             }
             Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue
           }
-          foreach($dir in @('private-t3','private-agent','admin','publisher','one-core','setup-core',
+          foreach($dir in @('private-t2','private-t3','private-agent','admin','publisher','one-core','setup-core',
              (Join-Path $env:RUNNER_TEMP 'corporate-original-k036'),
              (Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'),
              (Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache'),
@@ -648,6 +713,7 @@ jobs:
              (Join-Path $env:RUNNER_TEMP 'iwxa-licensed-employee-handoff'))){
             Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
           }
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Directory -Filter 'corporate-k036-rebuild-*' -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
           Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Directory -Filter 'iwxa-employee-first-use-*' -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
           Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Directory -Filter 'iwxa-employee-licensed-*' -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
           Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'iwxa-corporate-witness-*' -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
