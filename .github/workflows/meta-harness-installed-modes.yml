@@ -1,0 +1,163 @@
+# Read-only private source; no private material or installer leaves the runner.
+name: Meta Harness installed mode qualification
+on:
+  push:
+    branches:
+      - work/2026-11-24-meta-harness-source-qualification
+    paths:
+      - .github/workflows/meta-harness-installed-modes.yml
+permissions:
+  contents: read
+jobs:
+  installed-modes:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      PRIVATE_PIN: 'a9539ef33348d33fae73a15e66e51b4229896f68'
+      PRIVATE_TREE: '7bf1d6b57ad006c8418c3cf23b64a9cc8497a61d'
+      CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PIP_NO_CACHE_DIR: '1'
+      IWXA_AGENT06_QUALIFICATION_SCOPE: META_HARNESS_MODES
+      IWXA_META_HARNESS_GUI_MODE_WITNESS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/Center
+          ref: ${{ env.CENTER_OWNER_PIN }}
+          path: center-owner
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Read and verify exact private candidate
+        shell: bash
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          python - <<'PY'
+          import base64, os, pathlib, subprocess, sys
+          token=os.environ.pop("IWXA_TEMP_READ_TOKEN","")
+          if not token:
+              sys.exit("PRIVATE_READ=TOKEN_UNAVAILABLE")
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"meta-harness-installed"
+          root.mkdir(exist_ok=False)
+          repo=root/"source"
+          clean=dict(os.environ)
+          clean.update({"GIT_TERMINAL_PROMPT":"0","GIT_LFS_SKIP_SMUDGE":"1"})
+          def run(args,env=clean):
+              return subprocess.run(args,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True).stdout.decode("utf-8").strip()
+          try:
+              repo.mkdir()
+              run(["git","-C",str(repo),"init","--quiet"])
+              auth=dict(clean)
+              auth.update({"GIT_CONFIG_COUNT":"1","GIT_CONFIG_KEY_0":"http.https://github.com/.extraheader","GIT_CONFIG_VALUE_0":"AUTHORIZATION: basic "+base64.b64encode(("x-access-token:"+token).encode()).decode()})
+              run(["git","-C",str(repo),"fetch","--no-tags","--depth=1","https://github.com/Faust-S/iwxa-personal-agent.git",os.environ["PRIVATE_PIN"]],auth)
+              del token,auth
+              run(["git","-C",str(repo),"checkout","--detach","FETCH_HEAD"])
+              if run(["git","-C",str(repo),"rev-parse","HEAD"])!=os.environ["PRIVATE_PIN"] or run(["git","-C",str(repo),"rev-parse","HEAD^{tree}"])!=os.environ["PRIVATE_TREE"]:
+                  sys.exit("PRIVATE_READ=IDENTITY_MISMATCH")
+          except (OSError,subprocess.SubprocessError,UnicodeError):
+              sys.exit("PRIVATE_READ=FAIL")
+          print("PRIVATE_READ=PASS")
+          PY
+      - name: Qualify original source witness syntax and build native product
+        shell: pwsh
+        timeout-minutes: 52
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'meta-harness-installed'
+          $repo=Join-Path $root 'source'
+          $build=Join-Path $root 'build'
+          $logs=Join-Path $root 'logs'
+          $cache=Join-Path $root 'release-cache'
+          $center=Join-Path $env:GITHUB_WORKSPACE 'center-owner'
+          New-Item -ItemType Directory -Path $build,$logs,$cache -Force | Out-Null
+          if((& git -C $center rev-parse HEAD).Trim() -cne $env:CENTER_OWNER_PIN){throw 'CENTER_OWNER_IDENTITY_MISMATCH'}
+          $env:IWXA_META_HARNESS_GUI_MODE_WITNESS='1'
+          Push-Location $repo
+          try {
+            & python -m unittest discover -s tests -p test_setup_core_installed_draft.py *> (Join-Path $logs 'source-witness.log')
+            if($LASTEXITCODE -ne 0){throw 'INSTALLED_WITNESS_SOURCE_TEST_FAIL'}
+          } finally { Pop-Location }
+          Write-Host 'INSTALLED_WITNESS_SOURCE_TEST_PASS'
+          $builder=Join-Path $repo 'qualification/phase1/build_native_windows_setup_candidate.ps1'
+          $nativeLog=Join-Path $logs 'native-private-build.log'
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $builder -RepoRoot $repo -BuildRoot $build -LogsRoot $logs -ReleaseCache $cache -SourceCommit $env:PRIVATE_PIN -SourceTree $env:PRIVATE_TREE *> $nativeLog
+          if($LASTEXITCODE -ne 0){throw 'ORIGINAL_NATIVE_BUILD_FAILED'}
+          $pythonPathFile=Join-Path $build 'test-python/current-python.txt'
+          $package=Join-Path $build 'package/IWXA-Personal-Agent-Windows-Explorer-Prototype.zip'
+          if(!(Test-Path -LiteralPath $pythonPathFile -PathType Leaf) -or !(Test-Path -LiteralPath $package -PathType Leaf)){throw 'ORIGINAL_NATIVE_PACKAGE_MISSING'}
+          $python=(Get-Content -LiteralPath $pythonPathFile -Raw).Trim()
+          if(!(Test-Path -LiteralPath $python -PathType Leaf)){throw 'ORIGINAL_MANAGED_PYTHON_MISSING'}
+          $setup=Join-Path $root 'IWXA-Private-Meta-Harness-SetupCore.exe'
+          $receiptPath=Join-Path $logs 'setup-core.json'
+          & $python -B (Join-Path $repo 'tools/build_setup_core_release.py') --product-package $package --center-root $center --center-commit $env:CENTER_OWNER_PIN --output $setup --python $python *> $receiptPath
+          if($LASTEXITCODE -ne 0){throw 'ORIGINAL_SETUP_CORE_BUILD_FAILED'}
+          try{$receipt=Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json}catch{throw 'SETUP_CORE_RECEIPT_INVALID'}
+          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){throw 'SETUP_CORE_EXECUTABLE_MISSING'}
+          $sha=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($receipt.status -cne 'BUILT_UNQUALIFIED' -or $receipt.version -cne '0.6.2' -or
+             $receipt.private_source_commit -cne $env:PRIVATE_PIN -or $receipt.private_source_tree -cne $env:PRIVATE_TREE -or
+             $receipt.public_setup_core_commit -cne $env:CENTER_OWNER_PIN -or $receipt.setup_sha256 -cne $sha -or
+             $receipt.setup_bytes -ne (Get-Item -LiteralPath $setup).Length){throw 'EXACT_SETUP_CORE_IDENTITY_MISMATCH'}
+          Write-Host 'ORIGINAL_NATIVE_SETUP_BUILT=PASS'
+      - name: Install and exercise native mode switches twice
+        shell: pwsh
+        timeout-minutes: 28
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'meta-harness-installed'
+          $repo=Join-Path $root 'source'
+          $center=Join-Path $env:GITHUB_WORKSPACE 'center-owner'
+          $setup=Join-Path $root 'IWXA-Private-Meta-Harness-SetupCore.exe'
+          $receipt=Get-Content -LiteralPath (Join-Path $root 'logs/setup-core.json') -Raw | ConvertFrom-Json
+          $sandbox=Join-Path $root 'installed'
+          $log=Join-Path $root 'logs/installed-private.log'
+          $test=Join-Path $center 'installer/windows/qualify-local-bundle.ps1'
+          $witness=Join-Path $repo 'tools/qualify_setup_core_runtime.ps1'
+          if((Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() -cne $receipt.setup_sha256){throw 'EXACT_SETUP_CHANGED'}
+          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Setup $setup -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit $env:PRIVATE_PIN -WitnessScript $witness -WitnessTimeoutSeconds 1200 *> $log
+          $nativeExit=$LASTEXITCODE
+          $witnessReceipt=Join-Path $sandbox 'installed-witness.json'
+          if($nativeExit -ne 0){
+            if(Test-Path -LiteralPath $witnessReceipt -PathType Leaf){
+              try {
+                $failed=Get-Content -LiteralPath $witnessReceipt -Raw | ConvertFrom-Json
+                $safe=@('SHORTCUT_READBACK','COLD_GUI_BOOT','FIRST_CORE','CORE_QUERIES','DRAFT_CREATE','GUI_DRAFT_EDIT','GUI_DRAFT_READBACK','GUI_HARNESS_MODES','HARNESS_COLD_RESTART','HARNESS_COLD_GUI','HARNESS_COLD_CORE_READBACK','HARNESS_CLEAN_STOP','HARNESS_MODE_RECEIPT')
+                if($failed.phase -cin $safe){Write-Host ('INSTALLED_FAILURE_PHASE='+$failed.phase)}
+              } catch {}
+            }
+            throw 'INSTALLED_NATIVE_MODE_QUALIFICATION_FAILED'
+          }
+          if(!(Test-Path -LiteralPath $witnessReceipt -PathType Leaf)){throw 'INSTALLED_MODE_RECEIPT_MISSING'}
+          $proof=Get-Content -LiteralPath $witnessReceipt -Raw | ConvertFrom-Json
+          if($proof.schema -cne 'IWXA_META_HARNESS_INSTALLED_MODES/1' -or $proof.status -cne 'PASS' -or
+             $proof.qualification_scope -cne 'META_HARNESS_MODES' -or $proof.input -cne 'NATIVE_WINDOWS_UI_AUTOMATION' -or
+             $proof.release_qualification_completed -ne $false){throw 'INSTALLED_MODE_PROOF_IDENTITY_INVALID'}
+          foreach($key in @('installed_start_menu_shortcut_verified','installed_native_cold_launch_verified','installed_meta_harness_mode_switch_verified','cold_restart_mode_switch_verified','draft_and_core_state_unchanged','no_task_preparation_requested','clean_stop')){
+            if($proof.$key -ne $true){throw 'INSTALLED_MODE_PROOF_INCOMPLETE'}
+          }
+          if((Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() -cne $receipt.setup_sha256){throw 'EXACT_SETUP_CHANGED'}
+          Write-Host 'INSTALLED_NATIVE_MODE_SWITCH=PASS'
+          Write-Host 'INSTALLED_COLD_RESTART_MODE_SWITCH=PASS'
+          Write-Host 'INSTALLED_TASK_DRAFT_AND_ASSIGNMENTS_UNCHANGED=PASS'
+          Write-Host 'INSTALLED_CORE_CLEAN_STOP=PASS'
+          Write-Host 'SETUP_CORE_LOCAL_INSTALL_REPAIR_UNINSTALL=PASS'
+          Write-Host 'FULL_RELEASE_QUALIFICATION=NOT_RUN'
+      - name: Remove disposable private checkout and candidate
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'meta-harness-installed'
+          if(Test-Path -LiteralPath $root){
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop
+          }
+          if(Test-Path -LiteralPath $root){throw 'PRIVATE_RUNNER_CLEANUP_FAILED'}
+          Write-Host 'PRIVATE_RUNNER_CLEANUP=PASS'
