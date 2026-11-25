@@ -2,11 +2,8 @@
 # Publish aggregate synthetic-route timing only; never source, payloads or logs.
 name: Meta Harness ordinary Agent route comparison
 on:
-  push:
-    branches:
-      - work/2026-11-24-meta-harness-source-qualification
-    paths:
-      - .ci/meta-harness/requests/performance.json
+  workflow_dispatch:
+
 concurrency:
   group: meta-harness-ordinary-route-${{ github.ref }}
   cancel-in-progress: false

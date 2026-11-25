@@ -1,11 +1,8 @@
 # Read-only private source; no private material or installer leaves the runner.
 name: Meta Harness installed mode qualification
 on:
-  push:
-    branches:
-      - work/2026-11-24-meta-harness-source-qualification
-    paths:
-      - .ci/meta-harness/requests/installed.json
+  workflow_dispatch:
+
 concurrency:
   group: meta-harness-installed-modes-${{ github.ref }}
   cancel-in-progress: false

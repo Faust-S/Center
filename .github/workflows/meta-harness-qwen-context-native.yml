@@ -2,11 +2,8 @@
 # from the private checkout may be published.
 name: Meta Harness Qwen native Context qualification
 on:
-  push:
-    branches:
-      - work/2026-11-24-meta-harness-source-qualification
-    paths:
-      - .ci/meta-harness/requests/native-qwen.json
+  workflow_dispatch:
+
 concurrency:
   group: meta-harness-qwen-context-native-${{ github.ref }}
   cancel-in-progress: false

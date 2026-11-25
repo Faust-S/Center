@@ -1,9 +1,7 @@
 name: Qwen Code native ACP public qualification
 on:
-  push:
-    branches: [work/2026-11-24-meta-harness-source-qualification]
-    paths:
-      - .ci/meta-harness/requests/diagnostic-acp.json
+  workflow_dispatch:
+
 concurrency:
   group: meta-harness-qwen-native-${{ github.ref }}
   cancel-in-progress: false

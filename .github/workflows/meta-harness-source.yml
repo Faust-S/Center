@@ -2,11 +2,8 @@
 # from the private checkout may be published.
 name: Meta Harness original source qualification
 on:
-  push:
-    branches:
-      - work/2026-11-24-meta-harness-source-qualification
-    paths:
-      - .ci/meta-harness/requests/source.json
+  workflow_dispatch:
+
 concurrency:
   group: meta-harness-source-${{ github.ref }}
   cancel-in-progress: false
