@@ -1,7 +1,6 @@
 name: Original T3 corporate return Exchange source qualification
 on:
-  push:
-    branches: ['work/2026-11-24-corporate-result-exchange-source']
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
