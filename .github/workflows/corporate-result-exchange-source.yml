@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 24c97bc0f156ae6ce67dcdd2b299453e4dfa3986
+          ref: 5474f05ff77757ba7243f1f422058880fc3e0f49
           path: public-one-core
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if ((& git -C private-t3 rev-parse HEAD).Trim() -cne 'c368dcdec006349124f5698471c58d2e55a6caea' -or
-              (& git -C public-one-core rev-parse HEAD).Trim() -cne '24c97bc0f156ae6ce67dcdd2b299453e4dfa3986') {
+              (& git -C public-one-core rev-parse HEAD).Trim() -cne '5474f05ff77757ba7243f1f422058880fc3e0f49') {
             throw 'ORIGINAL_RETURN_EXCHANGE_SOURCE_PIN_MISMATCH'
           }
           & node --test public-one-core/packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-control-http.test.mjs public-one-core/packages/t3-core/tests/t3-subject-kernel-scope.test.mjs public-one-core/packages/t3-core/tests/t3-corporate-business-exchange.test.mjs public-one-core/packages/t3-core/tests/t3-d1-signed-control-dist.test.mjs public-one-core/packages/t3-core/tests/t3-original-company-workspace-persistence.test.mjs public-one-core/packages/t3-core/tests/t3-company-workspace-readback.test.mjs public-one-core/packages/t3-core/tests/t3-reconciliation-kernel-apply.test.mjs
@@ -84,7 +84,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 24c97bc0f156ae6ce67dcdd2b299453e4dfa3986
+          ref: 5474f05ff77757ba7243f1f422058880fc3e0f49
           path: public-one-core
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -94,7 +94,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if ((& git -C public-one-core rev-parse HEAD).Trim() -cne '24c97bc0f156ae6ce67dcdd2b299453e4dfa3986') { throw 'ORIGINAL_RUNTIME_SOURCE_PIN_MISMATCH' }
+          if ((& git -C public-one-core rev-parse HEAD).Trim() -cne '5474f05ff77757ba7243f1f422058880fc3e0f49') { throw 'ORIGINAL_RUNTIME_SOURCE_PIN_MISMATCH' }
           $core=Join-Path $PWD 'public-one-core/packages/t3-core'
           $artifact=Join-Path $env:RUNNER_TEMP 'iwxa-qualified-t2-company'
           Expand-Archive -LiteralPath (Join-Path $core 'qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip') -DestinationPath $artifact
