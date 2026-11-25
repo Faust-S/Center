@@ -63,7 +63,7 @@ try {
       if(command==='publisher_pick_preparation_backup')return null;
       if(command==='publisher_inspect_artifact')return window.__publisherMockInspectedArtifact??null;
       if(command==='publisher_diagnostics')return {
-        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.5.0-dev.1',
+        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.5.0',
         application:'NATIVE_RUNNING',localPreparation:'READABLE',
         webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
         licensing:'TEST_AND_PERSON_T3_BRIDGE',activeSeats:0,productionActivation:false,
@@ -458,7 +458,7 @@ try {
     'Publisher version must not be shown outside Settings');
   await page.getByRole('button',{name:'Настройки',exact:true}).click();
   assert.match(await page.getByTestId('publisher-settings').innerText(),/Версия программы/);
-  assert.match(await page.getByTestId('publisher-settings').innerText(),/0.5.0-dev.1/);
+  assert.match(await page.getByTestId('publisher-settings').innerText(),/0.5.0/);
   await page.getByRole('button',{name:'Обзор',exact:true}).click();
   checks.push('publisher-version-is-settings-only-native-setup-identity');
   const brandSvg=await (await page.request.get('http://127.0.0.1:4175/favicon.svg')).text();
@@ -501,7 +501,7 @@ try {
     window.__TAURI_INTERNALS__={invoke:async(command)=>{
       if(command==='publisher_draft_read')throw Error('PUBLISHER_DRAFT_FORMAT_INVALID');
       if(command==='publisher_diagnostics')return {
-        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.5.0-dev.1',
+        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.5.0',
         application:'NATIVE_RUNNING',localPreparation:'NEEDS_ATTENTION',
         webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
         licensing:'TEST_AND_PERSON_T3_BRIDGE',activeSeats:0,productionActivation:false,

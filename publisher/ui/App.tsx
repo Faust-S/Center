@@ -995,7 +995,7 @@ export default function App(){
          <h2>Настройки Publisher</h2>
          <p className="muted">Настройки рабочего пространства сохраняются в профиле программы.
            Рабочие документы, лицензионные данные и ключи здесь не хранятся.</p>
-         <div className="pub-settings-row"><span>Версия программы</span><strong>0.5.0-dev.1</strong></div>
+         <div className="pub-settings-row"><span>Версия программы</span><strong>0.5.0</strong></div>
          <div className="pub-settings-row"><span>Окно просмотра</span>
            <button type="button" className="secondary"
              onClick={()=>setDockVisible(!visualPrefs.dockOpen)}>
