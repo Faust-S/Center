@@ -373,6 +373,9 @@ try{
   originalHandoffSha256=(Digest (Join-Path $handoff 'receipt.json'))
   organizationId=$receipt.organizationId;licenseId=$receipt.licenseId
   employeePersonId=$person;returnArchiveSha256=$transfer.fileSha256
+  agentExecutableSha256=(Digest $agentExe)
+  taskId=$taskId;taskPackageSha256=$taskSha
+  taskRecord=$sourceTask;resultRecord=$sourceResult
  }|ConvertTo-Json -Depth 4|Set-Content -LiteralPath $ready -Encoding UTF8
  Write-Host ('EMPLOYEE_LICENSED_RETURN_DELIVERY=PASS checks='+$checks.Count)
 }catch{

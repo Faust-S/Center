@@ -20,47 +20,61 @@ env:
   T3_PIN: 'b25cf1dc6ef7e7a53e1fd53cd9cbb2fcd76e4fa4'
   CORE_PIN: '8db847058cab231d2d39c34df46024b60564d2ad'
   CENTER_PIN: '5c6e3e8994eb94c46f29b126375928e0ed99e1bb'
-  PUBLISHER_PIN: 'c5f2074f259554d06e148934d132bd32cc648e8d'
-  AGENT_PIN: '4170bb32e83fdfcb45e4095675b4e0008b29f337'
+  PUBLISHER_PIN: '39eb7d67325f64d35a2f46d82d9de631794c0836'
+  AGENT_PIN: '8f3c823c4713cc3b3f97e15801bc4301a4e84e8f'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
   PIP_NO_CACHE_DIR: '1'
 jobs:
+  source-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Verify scoped access to the three exact private source revisions
+        shell: bash
+        env:
+          IWXA_T2_SOURCE_READ_TOKEN: ${{ secrets.IWXA_T2_SOURCE_READ_TOKEN }}
+          IWXA_PRIVATE_SOURCE_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.error, urllib.request
+          def check(label, repository, pin, secret):
+              token = os.environ.get(secret, "")
+              if not token:
+                  print(label + "_SCOPED_READ_SECRET_MISSING")
+                  return False
+              request = urllib.request.Request(
+                  "https://api.github.com/repos/Faust-S/" + repository + "/git/commits/" + pin,
+                  headers={"Authorization": "Bearer " + token,
+                           "Accept": "application/vnd.github+json",
+                           "X-GitHub-Api-Version": "2022-11-28"})
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      actual = json.load(response).get("sha")
+              except urllib.error.HTTPError as error:
+                  print(label + "_SCOPED_READ_HTTP=" + str(error.code))
+                  return False
+              except Exception:
+                  print(label + "_SCOPED_READ_UNAVAILABLE")
+                  return False
+              if actual != pin:
+                  print(label + "_SCOPED_READ_PIN_MISMATCH")
+                  return False
+              print(label + "_EXACT_SOURCE_READ=PASS")
+              return True
+          results = [
+              check("CORPORATE_ORIGINAL_T2", "T2", os.environ["T2_PIN"], "IWXA_T2_SOURCE_READ_TOKEN"),
+              check("CORPORATE_ORIGINAL_T3", "T3", os.environ["T3_PIN"], "IWXA_PRIVATE_SOURCE_READ_TOKEN"),
+              check("CORPORATE_ORIGINAL_AGENT", "iwxa-personal-agent", os.environ["AGENT_PIN"], "IWXA_PRIVATE_SOURCE_READ_TOKEN"),
+          ]
+          sys.exit(0 if all(results) else 1)
+          PY
   first-use:
+    needs: source-admission
     runs-on: windows-2022
     timeout-minutes: 300
     steps:
-      - name: Verify dedicated read-only grant for the exact original T2 revision
-        shell: pwsh
-        timeout-minutes: 2
-        env:
-          IWXA_T2_SOURCE_READ_TOKEN: ${{ secrets.IWXA_T2_SOURCE_READ_TOKEN }}
-        run: |
-          $ErrorActionPreference='Stop'
-          if([string]::IsNullOrWhiteSpace($env:IWXA_T2_SOURCE_READ_TOKEN)){
-            throw 'CORPORATE_ORIGINAL_T2_SCOPED_READ_SECRET_MISSING'
-          }
-          $headers=@{
-            Authorization=('Bearer '+$env:IWXA_T2_SOURCE_READ_TOKEN)
-            Accept='application/vnd.github+json'
-            'X-GitHub-Api-Version'='2022-11-28'
-          }
-          try{
-            $commit=Invoke-RestMethod -Method Get -Headers $headers -TimeoutSec 25 -Uri ('https://api.github.com/repos/Faust-S/T2/git/commits/'+$env:T2_PIN)
-          }catch{
-            $status=0
-            try{$status=[int]$_.Exception.Response.StatusCode}catch{}
-            if($status -in @(401,403,404)){
-              Write-Host ('CORPORATE_ORIGINAL_T2_SCOPED_READ_HTTP='+$status)
-            }else{Write-Host 'CORPORATE_ORIGINAL_T2_SCOPED_READ_UNAVAILABLE'}
-            throw 'CORPORATE_ORIGINAL_T2_SCOPED_READ_HOLD'
-          }finally{
-            $headers.Clear()
-            Remove-Item Env:IWXA_T2_SOURCE_READ_TOKEN -ErrorAction SilentlyContinue
-          }
-          if($commit.sha -cne $env:T2_PIN){throw 'CORPORATE_ORIGINAL_T2_SCOPED_READ_PIN_MISMATCH'}
-          Write-Host 'CORPORATE_ORIGINAL_T2_EXACT_SOURCE_READ=PASS'
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -258,6 +272,27 @@ jobs:
             throw 'EMPLOYEE_LICENSED_RECEIPT_CONTRACT_DRIFT'
           }
           Write-Host 'EMPLOYEE_LICENSED_WITNESS_CONTRACT=PASS'
+          $chain=(Resolve-Path 'qualification/corporate-employee-first-use/installed-license-chain.ps1').Path
+          $tokens=$null;$errors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseFile($chain,[ref]$tokens,[ref]$errors)
+          if($errors.Count){throw 'EMPLOYEE_LICENSE_CHAIN_WITNESS_PARSE_FAILED'}
+          $manifest=@(Get-Content -LiteralPath 'qualification/corporate-employee-first-use/required-license-chain-receipts.json' -Raw|ConvertFrom-Json)
+          $calls=@($ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq 'Record'
+          },$true))
+          $declared=@(foreach($call in $calls){
+            if($call.CommandElements.Count -ne 2 -or $call.CommandElements[1] -isnot [System.Management.Automation.Language.StringConstantExpressionAst]){
+              throw 'EMPLOYEE_LICENSE_CHAIN_RECEIPT_NOT_LITERAL'
+            }
+            [string]$call.CommandElements[1].Value
+          })
+          if($declared.Count -ne 6 -or $manifest.Count -ne 6 -or
+             @($manifest|Sort-Object -CaseSensitive -Unique).Count -ne 6 -or
+             @(Compare-Object -ReferenceObject $manifest -DifferenceObject $declared -CaseSensitive).Count -ne 0){
+            throw 'EMPLOYEE_LICENSE_CHAIN_RECEIPT_CONTRACT_DRIFT'
+          }
+          Write-Host 'EMPLOYEE_LICENSE_CHAIN_WITNESS_CONTRACT=PASS'
       - name: Original T3 installed server startup regression before packaging
         shell: pwsh
         timeout-minutes: 8
@@ -792,6 +827,33 @@ jobs:
           }
           if($raw -notmatch '(?m)^CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_RESUMED=PASS\s*$'){throw 'CORPORATE_INSTALLED_LICENSE_CONTINUATION_MISSING'}
           Write-Host 'CORPORATE_INSTALLED_LICENSE_LIFECYCLE_WITH_RESERVED_SEAT=PASS'
+      - name: Deliver exact license lifecycle to offline employee and reopen original accepted Result
+        shell: pwsh
+        timeout-minutes: 15
+        env:
+          IWXA_T3_SYNTHETIC_PROVISION: CORPORATE_CENTER_CI_FIXTURE_ONLY
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-employee-license-chain-private.log'
+          $witness=(Resolve-Path 'qualification/corporate-employee-first-use/installed-license-chain.ps1').Path
+          $driver=(Resolve-Path 'publisher/tests/installed-publisher-center-corporate.ps1').Path
+          & pwsh.exe -NoLogo -NoProfile -STA -File $witness -AgentRoot $env:CORPORATE_EMPLOYEE_AGENT_ROOT -GuiDriver $driver *> $log
+          $exit=$LASTEXITCODE
+          $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+          $checks=@([regex]::Matches($raw,'(?m)^EMPLOYEE_LICENSE_CHAIN_CHECK=([A-Z0-9_]{4,100})\s*$')|ForEach-Object {$_.Groups[1].Value})
+          foreach($check in $checks){Write-Host ('EMPLOYEE_LICENSE_CHAIN_CHECK='+$check)}
+          foreach($m in [regex]::Matches($raw,'(?m)^EMPLOYEE_LICENSE_CHAIN_FAILURE_(STAGE|STEP|KIND)=([A-Z0-9_]{1,80})\s*$')){
+            Write-Host ('EMPLOYEE_LICENSE_CHAIN_FAILURE_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+          }
+          $manifest=@(Get-Content -LiteralPath 'qualification/corporate-employee-first-use/required-license-chain-receipts.json' -Raw|ConvertFrom-Json)
+          if($exit -ne 0 -or $raw -notmatch '(?m)^EMPLOYEE_LICENSE_CHAIN_PASS checks=6\s*$' -or
+             $checks.Count -ne 6 -or @($checks|Sort-Object -CaseSensitive -Unique).Count -ne 6 -or
+             @(Compare-Object -ReferenceObject $manifest -DifferenceObject $checks -CaseSensitive).Count -ne 0){
+            $safe=@([regex]::Matches($raw,'(?<![A-Z0-9_])(?:EMPLOYEE_LICENSE_CHAIN|EMPLOYEE_LICENSED|CORPORATE_GUI|CORPORATE_SEAT)_[A-Z0-9_]{4,100}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
+            Write-Host ('EMPLOYEE_LICENSE_CHAIN_CODES='+($safe -join ','))
+            throw 'EMPLOYEE_LICENSE_CHAIN_HOLD'
+          }
+          Write-Host 'EMPLOYEE_LICENSE_CHAIN_ORIGINAL_OFFLINE_LIFECYCLE=PASS'
       - name: Discard transient private sources packages and employee profile
         if: always()
         shell: pwsh
