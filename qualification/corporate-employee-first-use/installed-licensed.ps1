@@ -90,6 +90,26 @@ function Agent-HasJobButton($process,[string]$name){
  }
  return $false
 }
+# The review witness resolves stable V8 UIA identities, not an old combobox.
+function Wait-ReviewControl($process,[string]$id,[string]$name,[bool]$enabled){
+ for($i=0;$i -lt 120;$i++){
+  $items=(Window $process).FindAll(
+   [System.Windows.Automation.TreeScope]::Descendants,
+   [System.Windows.Automation.PropertyCondition]::new(
+    [System.Windows.Automation.AutomationElement]::AutomationIdProperty,$id))
+  $exact=@()
+  foreach($item in $items){
+   try{
+    if($item.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+       $item.Current.Name -ceq $name -and !$item.Current.IsOffscreen){$exact+=,$item}
+   }catch{}
+  }
+  if($exact.Count -gt 1){throw 'EMPLOYEE_LICENSED_REVIEW_CONTROL_AMBIGUOUS'}
+  if($exact.Count -eq 1 -and $exact[0].Current.IsEnabled -eq $enabled){return $exact[0]}
+  Start-Sleep -Milliseconds 250
+ }
+ throw 'EMPLOYEE_LICENSED_REVIEW_CONTROL_NOT_AVAILABLE'
+}
 function Wait-ExistingJob($process){
  # Only an existing bound job exposes these buttons, not a received file.
  for($i=0;$i -lt 360;$i++){
@@ -216,7 +236,56 @@ try{
  Need (!(Agent-HasJobButton $agent 'Выполнить в Agent')) 'EMPLOYEE_LICENSED_COLD_JOB_OFFERS_DUPLICATE_SUBMISSION'
  Record 'AGENT_COLD_EXISTING_JOB_NO_RESUBMISSION'
  Write-Host ('EMPLOYEE_LICENSED_ADMISSION=PASS checks='+$checks.Count)
- Write-Host 'EMPLOYEE_LICENSED_RESULT_ACCEPTANCE=NOT_RUN'
+ Stage 'AGENT_LICENSED_REAL_RESULT'
+ # Follow the existing bound job; no second submission or injected Result.
+ if(Agent-HasJobButton $agent 'Открыть работу в Agent'){
+  Press $agent 'Открыть работу в Agent'
+ }else{
+  Press $agent 'Отслеживать выполнение'
+ }
+ Wait-Text $agent $taskText 360
+ for($i=0;$i -lt 2400;$i++){
+  if(Agent-VisibleButton $agent 'Решение по результату'){break}
+  Start-Sleep -Milliseconds 250
+ }
+ Need (Agent-VisibleButton $agent 'Решение по результату') 'EMPLOYEE_LICENSED_REAL_RESULT_NOT_READY'
+ Wait-Text $agent $taskText 120
+ Wait-Text $agent ([string](12*45+80)) 240
+ Record 'AGENT_LICENSED_RESULT_REVIEW_AVAILABLE'
+ Stage 'AGENT_LICENSED_HUMAN_REVIEW'
+ Press $agent 'Решение по результату'
+ $null=Wait-ReviewControl $agent 'iwxa-review-save' 'Сохранить решение' $false
+ $approve=Wait-ReviewControl $agent 'iwxa-review-approve' 'Принять' $true
+ $approve.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+ $save=Wait-ReviewControl $agent 'iwxa-review-save' 'Сохранить решение' $true
+ $save.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+ Wait-Text $agent 'Результат принят' 480
+ Wait-Text $agent $taskText 120
+ Record 'AGENT_HUMAN_ACCEPTED_EXACT_LICENSED_RESULT'
+ Stage 'AGENT_LICENSED_ORIGINAL_COMPANY_READBACK'
+ Open-Company $agent
+ Press $agent 'Прочитать сохранённое поручение'
+ Check-ExactTask $agent $taskText $taskId $taskSha $person
+ Press $agent 'Проверить результат'
+ Wait-Text $agent 'Оригинальный T2 подтвердил Task и принятый Result в Workspace компании.' 480
+ Wait-Text $agent 'Передача получателю ещё не подтверждена.' 120
+ Record 'AGENT_ORIGINAL_COMPANY_TASK_RESULT_READBACK'
+ Stage 'AGENT_LICENSED_COLD_ACCEPTED_RESULT'
+ Stop-App $agent;$agent=Start-App $agentExe $AgentRoot
+ Open-Company $agent
+ if(Has-Text $agent 'Доступ подтверждён'){
+  Press $agent 'Открыть предоставленное пространство'
+  Wait-Text $agent 'Пространство открыто' 360
+ }
+ Press $agent 'Прочитать сохранённое поручение'
+ Check-ExactTask $agent $taskText $taskId $taskSha $person
+ Press $agent 'Проверить результат'
+ Wait-Text $agent 'Оригинальный T2 подтвердил Task и принятый Result в Workspace компании.' 480
+ Wait-Text $agent 'Передача получателю ещё не подтверждена.' 120
+ Need (!(Agent-HasJobButton $agent 'Выполнить в Agent')) 'EMPLOYEE_LICENSED_COLD_RESULT_OFFERS_DUPLICATE_SUBMISSION'
+ Record 'AGENT_COLD_COMPANY_RESULT_NO_RESUBMISSION'
+ Write-Host ('EMPLOYEE_LICENSED_RESULT_ACCEPTANCE=PASS checks='+$checks.Count)
+ Write-Host 'EMPLOYEE_LICENSED_RETURN_DELIVERY=NOT_RUN'
 }catch{
  Write-Host ('EMPLOYEE_LICENSED_FAILURE_STAGE='+$script:stage)
  Write-Host ('EMPLOYEE_LICENSED_FAILURE_STEP='+$script:guiOrdinal)
