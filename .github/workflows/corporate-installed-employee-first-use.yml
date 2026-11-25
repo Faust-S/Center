@@ -31,6 +31,36 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 300
     steps:
+      - name: Verify dedicated read-only grant for the exact original T2 revision
+        shell: pwsh
+        timeout-minutes: 2
+        env:
+          IWXA_T2_SOURCE_READ_TOKEN: ${{ secrets.IWXA_T2_SOURCE_READ_TOKEN }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if([string]::IsNullOrWhiteSpace($env:IWXA_T2_SOURCE_READ_TOKEN)){
+            throw 'CORPORATE_ORIGINAL_T2_SCOPED_READ_SECRET_MISSING'
+          }
+          $headers=@{
+            Authorization=('Bearer '+$env:IWXA_T2_SOURCE_READ_TOKEN)
+            Accept='application/vnd.github+json'
+            'X-GitHub-Api-Version'='2022-11-28'
+          }
+          try{
+            $commit=Invoke-RestMethod -Method Get -Headers $headers -TimeoutSec 25 -Uri ('https://api.github.com/repos/Faust-S/T2/git/commits/'+$env:T2_PIN)
+          }catch{
+            $status=0
+            try{$status=[int]$_.Exception.Response.StatusCode}catch{}
+            if($status -in @(401,403,404)){
+              Write-Host ('CORPORATE_ORIGINAL_T2_SCOPED_READ_HTTP='+$status)
+            }else{Write-Host 'CORPORATE_ORIGINAL_T2_SCOPED_READ_UNAVAILABLE'}
+            throw 'CORPORATE_ORIGINAL_T2_SCOPED_READ_HOLD'
+          }finally{
+            $headers.Clear()
+            Remove-Item Env:IWXA_T2_SOURCE_READ_TOKEN -ErrorAction SilentlyContinue
+          }
+          if($commit.sha -cne $env:T2_PIN){throw 'CORPORATE_ORIGINAL_T2_SCOPED_READ_PIN_MISMATCH'}
+          Write-Host 'CORPORATE_ORIGINAL_T2_EXACT_SOURCE_READ=PASS'
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -48,7 +78,7 @@ jobs:
           path: private-t2
           persist-credentials: false
           show-progress: false
-          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          token: ${{ secrets.IWXA_T2_SOURCE_READ_TOKEN }}
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
