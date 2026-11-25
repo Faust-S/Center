@@ -25,9 +25,12 @@ if(!$IsWindows -or !$DedicatedTestProfile){
   throw 'CORPORATE_INSTALLED_LOCAL_DEDICATED_WINDOWS_REQUIRED'
 }
 if($ResumeQualifiedCenterCI){
-  if($env:GITHUB_ACTIONS -cne 'true' -or $env:GITHUB_REPOSITORY -cne 'Faust-S/Center' -or
+  if($env:GITHUB_ACTIONS -cne 'true' -or
      $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
-     $env:GITHUB_REF -cne 'refs/heads/work/2026-11-24-corporate-installed-one-core' -or
+     !(($env:GITHUB_REPOSITORY -ceq 'Faust-S/Center' -and
+        $env:GITHUB_REF -ceq 'refs/heads/work/2026-11-24-corporate-installed-one-core') -or
+       ($env:GITHUB_REPOSITORY -ceq 'Faust-S/knowledge' -and
+        $env:GITHUB_REF -ceq 'refs/heads/work/2026-11-25-k036-corporate-event-qualification')) -or
      $env:IWXA_T3_SYNTHETIC_PROVISION -cne 'CORPORATE_CENTER_CI_FIXTURE_ONLY' -or !$QualifySeatProjection){
     throw 'CORPORATE_INSTALLED_DISPOSABLE_CENTER_CI_REQUIRED'
   }
