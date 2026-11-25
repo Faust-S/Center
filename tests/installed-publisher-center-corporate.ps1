@@ -1258,47 +1258,64 @@ try{
   # The original preparation action is the one stable V8 button, even
   # after the review card is scrolled into view. No repeat on unknown outcome.
   Gui-Step 'BUTTON'
+  # Resolve the one exact accessible control and tolerate UIA tree
+  # invalidation only BEFORE dispatch. Once invoked, observe the draft.
+  $script:renewalSaveStage='FOCUS'
   Focus-App $pub
-  $saveChoice=$null
+  $script:renewalSaveStage='RESOLVE'
+  $saveChoice=$null;$invoke=$null
+  $name='Создать следующую подготовку'
+  $expectedId='iwxa-publisher-save-proposal'
+  $condition=[System.Windows.Automation.PropertyCondition]::new(
+    [System.Windows.Automation.AutomationElement]::NameProperty,$name)
   for($attempt=0;$attempt -lt 120;$attempt++){
-    $items=(Window $pub).FindAll(
-      [System.Windows.Automation.TreeScope]::Descendants,
-      [System.Windows.Automation.PropertyCondition]::new(
-        [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'iwxa-publisher-save-proposal'))
     $matched=@()
-    foreach($item in $items){
-      try{
-        if($item.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
-           $item.Current.Name -ceq 'Создать следующую подготовку'){$matched+=,$item}
-      }catch{}
-    }
+    try{
+      $items=(Window $pub).FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)
+      foreach($item in $items){
+        try{
+          if($item.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+             $item.Current.Name -ceq $name -and
+             (!$item.Current.AutomationId -or $item.Current.AutomationId -ceq $expectedId)){
+            $matched+=,$item
+          }
+        }catch{}
+      }
+    }catch{Start-Sleep -Milliseconds 250;continue}
     if($matched.Count -gt 1){throw 'CORPORATE_GUI_RENEWAL_SAVE_AMBIGUOUS'}
-    if($matched.Count -eq 1 -and $matched[0].Current.IsEnabled){
-      $saveChoice=$matched[0];break
+    if($matched.Count -eq 1){
+      try{
+        $current=$matched[0]
+        if($current.Current.IsEnabled){
+          if($current.Current.IsOffscreen){
+            $scroll=$null
+            if($current.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern,[ref]$scroll)){
+              $scroll.ScrollIntoView()
+              Start-Sleep -Milliseconds 150
+              continue
+            }
+          }
+          $pattern=$null
+          if($current.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$pattern) -and $pattern){
+            $saveChoice=$current;$invoke=$pattern;break
+          }
+        }
+      }catch{}
     }
     Start-Sleep -Milliseconds 250
   }
-  if($null -eq $saveChoice){throw 'CORPORATE_GUI_RENEWAL_SAVE_UNAVAILABLE'}
-  # Preparation is not a signature or an activation. Exercise the real
-  # V8 button through native UIA InvokePattern exactly once. Keyboard focus
-  # can disappear during a React layout update; do not make it a prerequisite
-  # for this ordinary accessible action. Never fall back to a second click.
-  $invoke=$null
-  try{
-    if(!$saveChoice.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$invoke) -or !$invoke){
-      throw 'CORPORATE_GUI_RENEWAL_SAVE_INVOKE_PATTERN_REQUIRED'
-    }
-  }catch{throw 'CORPORATE_GUI_RENEWAL_SAVE_INVOKE_PATTERN_REQUIRED'}
+  if($null -eq $saveChoice -or $null -eq $invoke){throw 'CORPORATE_GUI_RENEWAL_SAVE_UNAVAILABLE'}
+  $script:renewalSaveStage='DISPATCH'
   $invokeUnknown=$false
   try{$invoke.Invoke()}catch{$invokeUnknown=$true}
-  # The original persisted proposal, not the return of Invoke(), proves
-  # that the user action completed. If ACK is uncertain, read only.
+  $script:renewalSaveStage=if($invokeUnknown){'ACK_UNKNOWN'}else{'READBACK'}
   try{
     $nextPrep=Wait-Preparation $publisherDraft {param($x) @($x.proposals).Count -eq 2}
   }catch{
     if($invokeUnknown){throw 'CORPORATE_GUI_RENEWAL_SAVE_INVOKE_OUTCOME_UNKNOWN'}
     throw 'CORPORATE_GUI_RENEWAL_SAVE_NO_PERSISTED_PREPARATION'
   }
+  $script:renewalSaveStage='PERSISTED'
   $followup=@($nextPrep.proposals|Where-Object {$_.previousProposalId -ceq $request})
   if($followup.Count -ne 1 -or $followup[0].tariffSnapshot.revision -ne 2 -or
     $followup[0].tariffSnapshot.productSeats -ne 1 -or $followup[0].tariffSnapshot.employeeLimit -ne 6){
@@ -1418,6 +1435,12 @@ try{
     Write-Host ('CORPORATE_TWO_INSTALLED_FAILURE_PHASE='+$script:guiPhase)
     Write-Host ('CORPORATE_TWO_INSTALLED_FAILURE_STEP='+$script:guiOrdinal)
     Write-Host ('CORPORATE_TWO_INSTALLED_FAILURE_KIND='+$script:guiLastKind)
+    if($script:guiPhase -ceq 'PUBLISHER_RENEWAL_BASIS'){
+      $observed=Get-Variable -Name renewalSaveStage -Scope Script -ErrorAction SilentlyContinue
+      if($observed -and $observed.Value -cin @('FOCUS','RESOLVE','DISPATCH','ACK_UNKNOWN','READBACK','PERSISTED')){
+        Write-Host ('CORPORATE_TWO_INSTALLED_RENEWAL_SAVE_STAGE='+$observed.Value)
+      }
+    }
     # Do not print private draft IDs, owner paths, license contents or raw errors.
     $failureCode=[regex]::Match([string]$_.Exception.Message,'^((?:CORPORATE_GUI|CORPORATE_NATIVE|CORPORATE_SEAT)_[A-Z0-9_]{4,95})(?:\s|$)')
     if($failureCode.Success){Write-Host ('CORPORATE_TWO_INSTALLED_FAILURE_CODE='+$failureCode.Groups[1].Value)}
