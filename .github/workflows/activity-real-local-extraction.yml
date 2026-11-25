@@ -18,16 +18,16 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 35
     env:
-      PRIVATE_PIN: a57e3c0621ad31e1a2d3d08d932eb2f7e67f71e2
-      PRIVATE_TREE: ba5f02123408354050031c5f2a512496f319f1db
-      PUBLIC_PIN: c4ee2fe279fb4d9d74c5194b702e577b53059789
-      PUBLIC_TREE: 7b32ffe7f7887151fe6f025e545e1c03ec2cee6e
+      PRIVATE_PIN: 40a3c47bbacb1b3c527d00243cd9010baa64604b
+      PRIVATE_TREE: 75b94bf071838effd90160c2300b519b705b743d
+      PUBLIC_PIN: 11e79d55f5da4d12165f534f3b981fe078be4bcb
+      PUBLIC_TREE: 24ec97930fccc3b1271b974351cf7157d66b9da6
       IWXA_ACTIVITY_REAL_LOCAL_MODEL: '1'
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: a57e3c0621ad31e1a2d3d08d932eb2f7e67f71e2
+          ref: 40a3c47bbacb1b3c527d00243cd9010baa64604b
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private-agent
           fetch-depth: 1
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: c4ee2fe279fb4d9d74c5194b702e577b53059789
+          ref: 11e79d55f5da4d12165f534f3b981fe078be4bcb
           path: activity-public
           fetch-depth: 1
           persist-credentials: false
@@ -79,7 +79,7 @@ jobs:
             foreach($m in [regex]::Matches($raw,"(?m)^ACTIVITY_LOCAL_MODEL_STAGE=($stages)\s*$")){
               Write-Host ('ACTIVITY_LOCAL_MODEL_STAGE='+$m.Groups[1].Value)
             }
-            foreach($m in [regex]::Matches($raw,'(?m)^ACTIVITY_LOCAL_MODEL_(ELAPSED_MS|FIELD_COUNT|DIRECT_FIELD_COUNT|MODEL_FIELD_COUNT|NONMISSING_COUNT|SOURCE_SUPPORTED_COUNT|DIRECTLY_DECLARED_COUNT|DIRECTLY_DECLARED_NONMISSING_COUNT|DIRECT_REFERENCE_COUNT|PROPOSED_COUNT|MISSING_COUNT)=([0-9]{1,10})\s*$')){
+            foreach($m in [regex]::Matches($raw,'(?m)^ACTIVITY_LOCAL_MODEL_(ELAPSED_MS|FIELD_COUNT|DIRECT_FIELD_COUNT|MODEL_FIELD_COUNT|NONMISSING_COUNT|SOURCE_SUPPORTED_COUNT|DIRECTLY_DECLARED_COUNT|DIRECTLY_DECLARED_NONMISSING_COUNT|DIRECT_REFERENCE_COUNT|PROPOSED_COUNT|MISSING_COUNT|RECORDED_REPORT_COUNT|RECORDED_LESSON_REF_COUNT)=([0-9]{1,10})\s*$')){
               Write-Host ('ACTIVITY_LOCAL_MODEL_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
             }
             foreach($m in [regex]::Matches($raw,'(?m)^ACTIVITY_LOCAL_MODEL_(PRODUCT_CONSTRUCTED|TECHNICAL_CONTROLS_PRESERVED)=(YES|NO)\s*$')){
