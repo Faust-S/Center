@@ -32,9 +32,9 @@ No production acceptance or stable branch promotion has been performed.
 
 The workflow pins:
 - Admin Center 5c6e3e8994eb94c46f29b126375928e0ed99e1bb
-- Publisher ce498cb430911f7f0fdfabdfaffb74c925e93373 (final 0.5.0 identity; no functional changes)
-- Agent 51ce24e04a6792089c37294b6ed5b7a94b852516
-- T3 b25cf1dc6ef7e7a53e1fd53cd9cbb2fcd76e4fa4
+- Publisher f51877ab77dce56af0d745f09752ce2505a521a8 (final 0.5.0 identity; no functional changes)
+- Agent d8beca5175d390d9a8d7f78ed30ba4a20875080d
+- T3 d073d9e699efc7b2d38d656a00235098bd09f308
 - One Core 8db847058cab231d2d39c34df46024b60564d2ad
 - T2 candidate packaging c28e01876f3230307b7f20449f7ef54374367c93
 
@@ -106,3 +106,15 @@ Do not substitute the older defective Kernel or overwrite accepted branches.
 The historical encrypted installer delivery mechanism is available for the
 final owner delivery, but the current qualification deliberately does not
 publish plaintext installers or claim that an unaccepted candidate is released.
+
+## Source access route changed, release scope unchanged
+
+The existing public knowledge runner has previously qualified private T2,
+T3 and Agent through its established read credentials. Move the single
+frozen installed qualification there rather than requesting another grant.
+The exact Center witness commit is checked out on that runner; the existing
+Center push trigger is disabled to prevent a duplicate Windows job.
+Only exact repository/ref admission and the pinned original T3 build
+revision changed. All original owner trees and product behavior are unchanged.
+No new test scenarios or functionality. Neither private repository runs Actions.
+Do not execute both the Center and knowledge workflows in parallel.

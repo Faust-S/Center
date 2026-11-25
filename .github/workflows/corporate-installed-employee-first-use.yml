@@ -3,9 +3,6 @@
 # No private checkout, raw log, evidence, keys, installer or .iwxa uploaded.
 name: Installed Publisher Center Agent original employee licensed admission and Result acceptance
 on:
-  push:
-    branches: ['work/2026-11-24-corporate-installed-one-core']
-    paths: ['.github/workflows/corporate-installed-employee-first-use.yml','qualification/corporate-employee-first-use/**']
   workflow_dispatch:
 permissions:
   contents: read
@@ -17,11 +14,11 @@ env:
   KERNEL_CANDIDATE_ID: 'iwxa-kernel-k036-canonical-event-merge-20261125-candidate.1'
   KERNEL_CANDIDATE_ARCHIVE_SHA256: '5320dcb6c42d5fca410880677c8a8b595d4c9a2a6cedf51089b5f60f4ceeb52a'
   KERNEL_CANDIDATE_RUNTIME_SHA256: '559e8dd74988144733394114b020ea89a78d49ae5bbc8d49faafb86f9325c1e7'
-  T3_PIN: 'b25cf1dc6ef7e7a53e1fd53cd9cbb2fcd76e4fa4'
+  T3_PIN: 'd073d9e699efc7b2d38d656a00235098bd09f308'
   CORE_PIN: '8db847058cab231d2d39c34df46024b60564d2ad'
   CENTER_PIN: '5c6e3e8994eb94c46f29b126375928e0ed99e1bb'
-  PUBLISHER_PIN: 'ce498cb430911f7f0fdfabdfaffb74c925e93373'
-  AGENT_PIN: '51ce24e04a6792089c37294b6ed5b7a94b852516'
+  PUBLISHER_PIN: 'f51877ab77dce56af0d745f09752ce2505a521a8'
+  AGENT_PIN: 'd8beca5175d390d9a8d7f78ed30ba4a20875080d'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'

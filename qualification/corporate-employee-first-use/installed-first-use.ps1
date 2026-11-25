@@ -10,8 +10,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 if(!$IsWindows -or $env:GITHUB_ACTIONS -cne 'true' -or
- $env:GITHUB_REPOSITORY -cne 'Faust-S/Center' -or
- $env:GITHUB_REF -cne 'refs/heads/work/2026-11-24-corporate-installed-one-core' -or
+ !(($env:GITHUB_REPOSITORY -ceq 'Faust-S/Center' -and
+    $env:GITHUB_REF -ceq 'refs/heads/work/2026-11-24-corporate-installed-one-core') -or
+   ($env:GITHUB_REPOSITORY -ceq 'Faust-S/knowledge' -and
+    $env:GITHUB_REF -ceq 'refs/heads/work/2026-11-25-k036-corporate-event-qualification')) -or
  $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
  $env:IWXA_T3_SYNTHETIC_PROVISION -cne 'CORPORATE_CENTER_CI_FIXTURE_ONLY'){
  throw 'EMPLOYEE_INSTALLED_DISPOSABLE_RUNNER_REQUIRED'

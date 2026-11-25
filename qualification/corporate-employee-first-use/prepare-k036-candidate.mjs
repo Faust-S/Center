@@ -36,8 +36,11 @@ function npm(label,args,cwd){
 
 try{
   need(process.platform==='win32'&&process.version==='v24.18.1'&&
-    process.env.GITHUB_ACTIONS==='true'&&process.env.GITHUB_REPOSITORY==='Faust-S/Center'&&
-    process.env.GITHUB_REF==='refs/heads/work/2026-11-24-corporate-installed-one-core'&&
+    process.env.GITHUB_ACTIONS==='true'&&
+    ((process.env.GITHUB_REPOSITORY==='Faust-S/Center'&&
+      process.env.GITHUB_REF==='refs/heads/work/2026-11-24-corporate-installed-one-core')||
+     (process.env.GITHUB_REPOSITORY==='Faust-S/knowledge'&&
+      process.env.GITHUB_REF==='refs/heads/work/2026-11-25-k036-corporate-event-qualification'))&&
     process.env.RUNNER_ENVIRONMENT==='github-hosted'&&Boolean(process.env.RUNNER_TEMP),
     'K036_CENTER_DISPOSABLE_RUNNER_REQUIRED');
   need(process.env.T2_PIN==='c28e01876f3230307b7f20449f7ef54374367c93'&&process.env.CORE_PIN==='8db847058cab231d2d39c34df46024b60564d2ad'&&
