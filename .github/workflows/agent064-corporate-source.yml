@@ -1,7 +1,6 @@
 name: Agent 0.6.4 source and corporate regression
 on:
-  push:
-    branches: ['work/2026-11-24-agent064-source-qualification']
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

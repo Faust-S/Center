@@ -3,9 +3,6 @@
 # No private checkout, raw log, evidence, keys, installer or .iwxa uploaded.
 name: Installed Publisher Center Agent original employee and licensed admission
 on:
-  push:
-    branches: ['work/2026-11-24-corporate-installed-one-core']
-    paths: ['.github/workflows/corporate-installed-employee-first-use.yml','qualification/corporate-employee-first-use/**']
   workflow_dispatch:
 permissions:
   contents: read
