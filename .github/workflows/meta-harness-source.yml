@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 65
     env:
-      PRIVATE_PIN: '368b4ab04ea76036e07ab836de665b40b8399c6f'
-      PRIVATE_TREE: 'c2d8452a57c1f4efdec3126e3bbed6994ccd53a8'
+      PRIVATE_PIN: 'bb8ee86487b91348d73e7c301f65d892619594b2'
+      PRIVATE_TREE: '4069fa0c2ffabb68a6cb24892bd7692b2a53a69e'
       QUALIFY_SCOPE: ADAPTER_PRODUCT
     steps:
       - uses: actions/setup-python@v5
@@ -267,6 +267,8 @@ jobs:
                   if deps:
                       tests=ok(["node","--test","tests/meta-harness-host.test.mjs"],cwd=desktop,timeout=120)
                       status("DESKTOP_META_TESTS","PASS" if tests else "FAIL")
+                      composer=ok(["node","--test","tests/task-composer-workspace.test.mjs","tests/task-model-readback-ui.test.mjs","tests/navigation-view-persistence.test.mjs","tests/native-gui-qa-labels.test.mjs"],cwd=desktop,timeout=120)
+                      status("DESKTOP_COMPOSER_REGRESSION","PASS" if composer else "FAIL")
                       compiled=run(npm+["run","build"],cwd=desktop,timeout=420)
                       build=compiled.returncode==0
                       if not build:
@@ -280,7 +282,7 @@ jobs:
                               if key not in seen and len(seen)<50:
                                   seen.add(key);status("DESKTOP_TSC_CASE",key)
                       status("DESKTOP_BUILD","PASS" if build else "FAIL")
-                      failed=failed or not tests or not build
+                      failed=failed or not tests or not composer or not build
                   else:
                       failed=True
                   return int(failed)
