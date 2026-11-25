@@ -13,10 +13,12 @@ concurrency:
 jobs:
   qualify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 100
+    timeout-minutes: 120
     env:
-      PRIVATE_PIN: '524b9a58d3a822a252ee4c5074b598581b8adfe3'
-      PRIVATE_TREE: '4e354b1576df56bc9d63672aa384eec43de3da96'
+      PRIVATE_PIN: '9017285171ab29519206c1151b069a3c44a71b05'
+      PRIVATE_TREE: '72c7ca54f27005c1b1d3a29d08b048d7ed267c93'
+      T3_PIN: '86200fcc58edbbb63619ee5baf7f48b5570a765c'
+      T3_TREE: 'b052f4730008f001cb6753601c1439953f76b4f5'
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -117,6 +119,37 @@ jobs:
                               passed=outcome.returncode==0 and sorted(observed)==sorted(expected) and re.search(r"(?m)^INSTALLED_AGENT_ROUTE=PASS\s*$",report) is not None
                               status(name,"PASS" if passed else "FAIL")
                               return passed
+                          if name=="INSTALLED_T3_ROUTE":
+                              expected={"CREATE_OFFLINE","COLD_RESTART","LIFECYCLE_RESTORE"}
+                              observed=re.findall(r"(?m)^INSTALLED_T3_ROUTE_PASS=([A-Z_]+)\s*$",report)
+                              for value in observed:
+                                  if value in expected:status("INSTALLED_T3_ROUTE_PASS",value)
+                              allowed={"WEBVIEW","OFFLINE","HOME","MORE","T3_SECTION","T3_OPEN","CATALOG","FIXTURE","CREATE_CONTROL","EMPTY_ORIGINAL_STORE","NEW_WORKSPACE","CONFIRM_CREATE","CREATED_ROUTE","CREATED_ID","CREATE_READBACK","CARD","COLD_READBACK","SOFT_DELETE","TRASH_READBACK","TRASH_PAGE","TRASH_ROW","RESTORE","RESTORE_READBACK","RETURN_HOME"}
+                              for value in re.findall(r"(?m)^INSTALLED_T3_FAILURE_STAGE=([A-Z_]+)\s*$",report):
+                                  if value in allowed:status("INSTALLED_T3_FAILURE_STAGE",value)
+                              codes={"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","WORKSPACE_ID_REQUIRED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED"}
+                              for value in re.findall(r"(?m)^INSTALLED_T3_FAILURE_CODE=([A-Z_]+)\s*$",report):
+                                  if value in codes:status("INSTALLED_T3_FAILURE_CODE",value)
+                              passed=outcome.returncode==0 and sorted(observed)==sorted(expected) and re.search(r"(?m)^INSTALLED_T3_ROUTE=PASS\s*$",report) is not None
+                              status(name,"PASS" if passed else "FAIL")
+                              return passed
+                          if name=="ORIGINAL_T3_BUILD":
+                              required={"ORIGINAL_KERNEL","ORIGINAL_BUILD","ONE_DIST"}
+                              observed=re.findall(r"(?m)^MOBILE_T3_(ORIGINAL_KERNEL|ORIGINAL_BUILD|ONE_DIST)=PASS\s*$",report)
+                              for value in observed:status("MOBILE_T3_"+value,"PASS")
+                              codes={"OUTPUT_SCOPE","SOURCE_PIN","SOURCE_LOCK","KERNEL_ARCHIVE","KERNEL_PIN","KERNEL_ARCHIVE_MEMBERS","KERNEL_ARCHIVE_ENTRY","KERNEL_BYTES","NPM_REQUIRED","SOURCE_CHANGED","ORIGINAL_RECEIPT","DIST_ROOT","DIST_ENTRY","DIST_PATH","DIST_SIZE"}
+                              for value in re.findall(r"\bMOBILE_T3_([A-Z_]+)\b",report):
+                                  if value in codes:status("ORIGINAL_T3_FAILURE",value)
+                              for value in re.findall(r"\bT3_AGENT_ONE_DIST_([A-Z_]+)\b",report):
+                                  if value in {"PRODUCT_STAGE_INPUTS_REQUIRED","PRODUCT_STAGE_MUST_BE_FRESH_AND_OUTSIDE_SOURCE","OWNING_AGENT_PRODUCT_PROFILE_INVALID","ORIGINAL_T2_DOMAIN_VALIDATION_FAILED","ORIGINAL_QUALIFIED_ASSEMBLY_REQUIRED","IMMUTABLE_OUTPUT_OUTSIDE_SOURCE_REQUIRED","PRODUCT_INPUT_MODE_INVALID","ANDROID_ASSET_OWNING_PROFILE_REQUIRED"}:status("ORIGINAL_T3_ASSEMBLER_FAILURE",value)
+                              passed=outcome.returncode==0 and sorted(observed)==sorted(required)
+                              status(name,"PASS" if passed else "FAIL")
+                              return passed
+                          if name=="ASSEMBLY":
+                              counts=re.findall(r"(?m)^MOBILE_T3_APK_ASSETS_STAGED=(\d{1,4})\s*$",report)
+                              if counts:status("MOBILE_T3_APK_ASSETS",counts[-1])
+                              if outcome.returncode==0 and not counts:
+                                  status("ASSEMBLY","T3_NOT_STAGED");return False
                           for label in ["tests","pass","fail","skipped"]:
                               matches=re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report)
                               if matches:status("NODE_"+label.upper(),matches[-1])
@@ -214,10 +247,10 @@ jobs:
                               }
                               failed=re.findall(r"Execution failed for task ':[^'\r\n]*:([A-Za-z0-9]+)'",report)
                               for task in sorted({tasks.get(x,"OTHER") for x in failed}):status("GRADLE_FAILED_TASK",task)
-                              roles={"LocalModelPlugin.kt":"MODEL_BRIDGE","RecommendedModels.kt":"MODEL_DOWNLOAD","ModelFileIntegrity.kt":"FILE_INTEGRITY","InstalledRouteTest.java":"INSTALLED_WITNESS","OriginalAgentInstalledTest.java":"ORIGINAL_AGENT_INSTALLED_WITNESS","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
+                              roles={"LocalModelPlugin.kt":"MODEL_BRIDGE","RecommendedModels.kt":"MODEL_DOWNLOAD","ModelFileIntegrity.kt":"FILE_INTEGRITY","InstalledRouteTest.java":"INSTALLED_WITNESS","OriginalAgentInstalledTest.java":"ORIGINAL_AGENT_INSTALLED_WITNESS","OriginalT3InstalledTest.java":"ORIGINAL_T3_INSTALLED_WITNESS","T3AssetWebViewClient.java":"T3_ASSET_DELIVERY","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
                               for line in report.splitlines():
                                   if not (line.startswith("e:") or "error:" in line):continue
-                                  loc=re.search(r"(LocalModelPlugin\.kt|RecommendedModels\.kt|ModelFileIntegrity\.kt|InstalledRouteTest\.java|OriginalAgentInstalledTest\.java|MainActivity\.java|NetworkRouteSpec\.java|RoutedJsonHttp\.java|RoutedNetworkPlugin\.java|ProfileBrowserActivity\.java|NetworkRouteInstalledTest\.java|NetworkRouteSpecTest\.java):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
+                                  loc=re.search(r"(LocalModelPlugin\.kt|RecommendedModels\.kt|ModelFileIntegrity\.kt|InstalledRouteTest\.java|OriginalAgentInstalledTest\.java|OriginalT3InstalledTest\.java|T3AssetWebViewClient\.java|MainActivity\.java|NetworkRouteSpec\.java|RoutedJsonHttp\.java|RoutedNetworkPlugin\.java|ProfileBrowserActivity\.java|NetworkRouteInstalledTest\.java|NetworkRouteSpecTest\.java):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
                                   if not loc:continue
                                   kind="OTHER"
                                   for category,pattern in [
@@ -246,6 +279,25 @@ jobs:
                           # on a candidate that cannot pass the original Core route.
                           report_stage("SOURCE",["npm","run","check:source"],mobile,120)
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
+                      # Build the original public Host from a separate exact source pin.
+                      # The private GitHub authorization was already discarded.
+                      t3pin,t3tree=os.environ["T3_PIN"],os.environ["T3_TREE"]
+                      t3spec=json.loads((mobile/"product/t3-source.json").read_text())
+                      if t3spec.get("repository")!="Faust-S/knowledge" or t3spec.get("revision")!=t3pin or t3spec.get("tree")!=t3tree:
+                          status("ORIGINAL_T3_SOURCE","PIN_MISMATCH");return 1
+                      shared=root/"one-core-source";shared.mkdir()
+                      if not stage("T3_GIT_INIT",["git","init","-q"],shared,60):return 1
+                      if not stage("T3_PUBLIC_FETCH",["git","fetch","--no-tags","--depth","1","https://github.com/Faust-S/knowledge.git",t3pin],shared,240):return 1
+                      if not stage("T3_CHECKOUT",["git","checkout","--detach","-q",t3pin],shared,120):return 1
+                      if run(["git","rev-parse","HEAD"],shared).stdout.decode().strip()!=t3pin or run(["git","rev-parse","HEAD^{tree}"],shared).stdout.decode().strip()!=t3tree:
+                          status("ORIGINAL_T3_SOURCE","PIN_MISMATCH");return 1
+                      status("ORIGINAL_T3_SOURCE","PASS");status("T3_SOURCE_PIN",t3pin)
+                      t3build=root/"original-t3-build"
+                      if not report_stage("ORIGINAL_T3_BUILD",[py,"mobile/scripts/prepare-original-t3.py",str(shared),str(t3build)],source,1800):
+                          report_stage("SOURCE",["npm","run","check:source"],mobile,120)
+                          status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
+                      env["IWXA_MOBILE_T3_BUILD_ROOT"]=str(t3build)
+                      env["IWXA_MOBILE_T3_REQUIRED"]="1"
                       # Same Android candidate, ephemeral CA scoped to the debug APK.
                       # The private signing key is discarded by the fixture before build.
                       fixture=root/"installed-agent-qa"
@@ -328,7 +380,7 @@ jobs:
                           import xml.etree.ElementTree as ET
                           result_dir=mobile/"android/app/build/outputs/androidTest-results/connected"
                           labels={"useAppContext":"PACKAGE_IDENTITY","installedNavigationAndNativeStatus":"NAVIGATION","embeddedBrowserOpensAndCloses":"BROWSER","originalLlamaGeneratesFromInstalledApp":"LLAMA","nativeHttpConnectNoFallback":"NETWORK_HTTP","nativeHttpProxyAuthTunnelOnly":"NETWORK_HTTP_AUTH","nativeSocksConnectNoFallback":"NETWORK_SOCKS5","installedProfileBrowserUsesProxy":"PROFILE_BROWSER_PROXY","nativeProfileCookieIsolation":"PROFILE_COOKIE_ISOLATION"}
-                          stages=["HOME","DOMAINS","MODELS","REMOTE_CONNECTION","REMOTE_WORKS_DISCONNECTED","REMOTE_CHATS_DISCONNECTED","ATTENTION_DISCONNECTED","LOCAL_STATUS","RECOMMENDED_MODELS","BROWSER_HOME","BROWSER_RETURN","LLAMA_HOME","LLAMA_FIXTURE","LLAMA_LOAD","LLAMA_GENERATE","LLAMA_UNLOAD"]
+                          stages=["HOME","DOMAINS","MODELS","REMOTE_CONNECTION","REMOTE_WORKS_DISCONNECTED","REMOTE_CHATS_DISCONNECTED","ATTENTION_DISCONNECTED","LOCAL_STATUS","RECOMMENDED_MODELS","BROWSER_HOME","BROWSER_RETURN","LLAMA_HOME","LLAMA_FIXTURE","LLAMA_LOAD","LLAMA_GENERATE","LLAMA_SECOND_TURN","LLAMA_UNLOAD"]
                           checks=["IWXA_PACKAGE_IDENTITY","DOMAIN_IDENTITIES","PROVIDER_CATALOG","REMOTE_TOKEN_MASK","LOCAL_IMPORT_CONTROL","QA_MODEL_DIRECTORY","QA_MODEL_FIXTURE_DIGEST","LLAMA_OUTPUT_PRESENT","QA_MODEL_CLEANUP","WEBVIEW_TIMEOUT","NATIVE_BROWSER_CLOSE_NOT_FOUND","NETWORK_WITNESS_HEADER_BOUND","NETWORK_DIRECT_FALLBACK","NETWORK_PROXY_REJECTION_NOT_OBSERVED","NETWORK_CONNECT_MISSING","NETWORK_CONNECT_TARGET","NETWORK_ORIGIN_SECRET_LEAKED","NETWORK_AGENT_SECRET_LEAKED","NETWORK_PROXY_AUTH_NOT_CONFIRMED","NETWORK_PROXY_AUTH_PREEMPTIVE","NETWORK_SOCKS_VERSION","NETWORK_SOCKS_CONNECT","NETWORK_SOCKS_ADDRESS","NETWORK_SOCKS_TARGET","NETWORK_BROWSER_PROFILE_WINDOW","NETWORK_BROWSER_MULTIPROFILE_REQUIRED","NETWORK_COOKIE_WRITE_TIMEOUT","NETWORK_COOKIE_WRITE_FAILED","NETWORK_COOKIE_A_MISSING","NETWORK_COOKIE_CROSS_PROFILE"]
                           def device_failure(report):
                               for key,pattern in [
@@ -387,7 +439,12 @@ jobs:
                               remote_ok=report_stage("INSTALLED_AGENT_ROUTE",[py,"mobile/qualification/installed-agent-route.py","run",str(fixture),adb],source,2100)
                           else:
                               status("INSTALLED_AGENT_ROUTE","NOT_RUN")
-                          passed=native_ok and remote_ok
+                          t3_ok=False
+                          if native_ok and remote_ok:
+                              t3_ok=report_stage("INSTALLED_T3_ROUTE",[py,"mobile/qualification/installed-t3-route.py",adb],source,2550)
+                          else:
+                              status("INSTALLED_T3_ROUTE","NOT_RUN")
+                          passed=native_ok and remote_ok and t3_ok
                           status("QUALIFICATION","PASS" if passed else "FAIL")
                           status("PHYSICAL_ARM64","NOT_RUN")
                           return 0 if passed else 1
