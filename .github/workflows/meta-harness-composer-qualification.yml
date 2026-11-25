@@ -1,0 +1,244 @@
+# Scoped read-only qualification of the private Agent. No artifacts or logs
+# from the private checkout may be published.
+name: Meta Harness composer recovery qualification
+on:
+  push:
+    branches:
+      - work/2026-11-24-meta-harness-source-qualification
+    paths:
+      - .github/workflows/meta-harness-composer-qualification.yml
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PRIVATE_PIN: '06843480981f120e3dbe46cf63d2a1a9ccf1d7a2'
+      PRIVATE_TREE: 'a4b837372834851e94693623931b84b4ea13e7af'
+      QUALIFY_SCOPE: COMPOSER_RECOVERY
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Read pinned source, qualify and remove temporary checkout
+        shell: bash
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json, os, pathlib, re, subprocess, sys, tempfile
+          def status(label, value):
+              print(label + "=" + str(value), flush=True)
+          from contextlib import contextmanager
+          import time
+          @contextmanager
+          def verified_checkout():
+              # Own exactly this disposable runner directory. Cleanup is part
+              # of qualification, not an ignored error after a passing test.
+              directory=tempfile.TemporaryDirectory(prefix="iwxa-private-",dir=os.environ.get("RUNNER_TEMP"))
+              try:
+                  yield directory.name
+              finally:
+                  for attempt in range(8):
+                      try:
+                          directory.cleanup()
+                      except OSError as exc:
+                          kind=type(exc).__name__
+                          status("TEMP_CLEANUP_RETRY",kind if kind in {"PermissionError","FileNotFoundError","OSError"} else "OTHER")
+                      if not os.path.lexists(directory.name):
+                          status("TEMP_CHECKOUT","PASS")
+                          break
+                      if attempt<7:
+                          time.sleep(min(4,0.25*(2**attempt)))
+                  else:
+                      status("TEMP_CHECKOUT","FAIL")
+                      raise RuntimeError("TEMP_CHECKOUT_CLEANUP_FAILED")
+          def main():
+              pin = os.environ["PRIVATE_PIN"]
+              tree = os.environ["PRIVATE_TREE"]
+              token = os.environ.pop("IWXA_TEMP_READ_TOKEN", "")
+              if not token:
+                  status("PRIVATE_READ", "TOKEN_UNAVAILABLE")
+                  return 1
+              clean = dict(os.environ)
+              clean.update({"GIT_TERMINAL_PROMPT":"0", "GIT_LFS_SKIP_SMUDGE":"1", "PYTHONUTF8":"1"})
+              with verified_checkout() as td:
+                  root = pathlib.Path(td)
+                  source = root / "source"
+                  source.mkdir()
+                  def run(args, cwd=source, env=clean, timeout=600):
+                      return subprocess.run(args, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE, timeout=timeout)
+                  def ok(args, cwd=source, env=clean, timeout=600):
+                      return run(args,cwd,env,timeout).returncode == 0
+                  if not ok(["git","init","-q"]):
+                      status("PRIVATE_READ","INIT_FAIL"); return 1
+                  auth = dict(clean)
+                  auth.update({"GIT_CONFIG_COUNT":"1",
+                      "GIT_CONFIG_KEY_0":"http.https://github.com/.extraheader",
+                      "GIT_CONFIG_VALUE_0":"AUTHORIZATION: basic "+base64.b64encode(
+                          ("x-access-token:"+token).encode()).decode()})
+                  fetched = ok(["git","fetch","--no-tags","--depth","1",
+                                "https://github.com/Faust-S/iwxa-personal-agent.git",pin],
+                               env=auth,timeout=180)
+                  del auth, token
+                  if not fetched or not ok(["git","checkout","--detach","-q",pin]):
+                      status("PRIVATE_READ","FETCH_FAIL"); return 1
+                  if (run(["git","rev-parse","HEAD"]).stdout.decode().strip()!=pin
+                      or run(["git","rev-parse","HEAD^{tree}"]).stdout.decode().strip()!=tree):
+                      status("PRIVATE_READ","PIN_MISMATCH"); return 1
+                  status("PRIVATE_READ","PASS"); status("SOURCE_PIN",pin)
+                  if not ok([sys.executable,"-m","pip","install","--disable-pip-version-check",
+                             "-r","requirements-ci.txt"],timeout=420):
+                      status("PYTHON_DEPS","FAIL"); return 1
+                  status("PYTHON_DEPS","PASS")
+                  plugin = root / "run_qualification.py"
+                  plugin.write_text('''import hashlib,json,os,pathlib,re,sys
+          import pytest
+          sys.path.insert(0,os.getcwd())
+          counts={"passed":0,"failed":0,"skipped":0,"collection_errors":0}
+          failures=[]
+          request_volumes=[]
+          def fingerprint(value):
+              return hashlib.sha256(value.encode()).hexdigest()[:16]
+          class Plugin:
+              def pytest_runtest_logreport(self,report):
+                  rep=report
+                  if rep.when=="call" and rep.passed:
+                      counts["passed"]+=1
+                      for mode,count,total,evidence in re.findall(r"(?m)^META_HARNESS_REQUEST_VOLUME=(FOCUSED_V1|FOCUSED_V2|FULL_V1):([1-6]):([0-9]{1,7}):([0-9]{1,7})$",getattr(rep,"capstdout","") or ""):
+                          count,total,evidence=int(count),int(total),int(evidence)
+                          if 0<evidence<=total<=(count+2)*256000:
+                              request_volumes.append({"mode":mode,"count":count,"total":total,"evidence":evidence})
+                  if rep.skipped: counts["skipped"]+=1
+                  if rep.failed:
+                      counts["failed"]+=1
+                      crash=getattr(rep.longrepr,"reprcrash",None)
+                      # Only the actual exception message, never the traceback source.
+                      detail=str(getattr(crash,"message","") or "")
+                      match=re.search(r"TRANSPORT_DIAGNOSTIC:([A-Za-z0-9_:]+)",detail)
+                      if not match:
+                          candidates=re.findall(r"(?m)^E +(?:AssertionError: +)?TRANSPORT_DIAGNOSTIC:([A-Za-z0-9_:]+)",str(rep.longrepr))
+                          match=re.search(r"([A-Za-z0-9_:]+)",candidates[-1]) if candidates else None
+                      allowed={"FIRST","SECOND","CLI_ENTERED","BEFORE_CLI","NONE","OTHER","AssertionError","OSError","FileNotFoundError","TypeError","ValueError","RuntimeError","PORT_UNAVAILABLE","PORT_PROTOCOL_ERROR","AUTHORITY_REQUIRED","PRIVACY_DENIED","TIMED_OUT","CANCELLED","AGENT_RUNTIME_TIMEOUT","AGENT_RUNTIME_PRIVACY_DENIED","AGENT_RUNTIME_RESPONSE_INVALID","AGENT_RUNTIME_UNAVAILABLE","AGENT_RUNTIME_INVOCATION_FAILED","AGENT_RUNTIME_RESULT_AFTER_CANCEL_UNCONFIRMED","AGENT_RUNTIME_OUTCOME_UNKNOWN","AGENT_HANDOFF_PREVIEW_CHANGED","goose_runtime_not_selected","goose_local_model_not_configured","goose_local_model_not_ready","goose_local_agent_runtime_failed","goose_agent_runtime_failed","goose_agent_runtime_launch_failed","goose_executable_identity_changed_during_execution","goose_model_identity_changed_during_execution","goose_local_model_endpoint_invalid","goose_non_loopback_model_endpoint_forbidden","goose_executable_invalid","goose_runtime_executable_invalid","goose_output_secret_pattern","goose_agent_runtime_empty_output","goose_cancelled_before_dispatch","goose_user_cancelled","goose_local_cli_stop_unconfirmed","goose_agent_runtime_timeout","explicit_agent_runtime_usage_confirmation_required","goose_system_secret_pattern","goose_prompt_secret_pattern","goose_system_local_user_path","goose_prompt_local_user_path","claude_cli_execution_failed","claude_cli_launch_failed","claude_result_event_missing","claude_result_failed","claude_empty_result","claude_user_login_required","claude_user_cancelled","claude_result_secret_pattern","claude_runtime_id_mismatch","agent_runtime_route_mismatch","agent_runtime_binding_digest_mismatch"}
+                      allowed.update(["ACP_ABSOLUTE_WORKSPACE_REQUIRED","ACP_ALREADY_INITIALIZED","ACP_CANCELLED_BEFORE_SEND","ACP_CANCEL_OUTCOME_UNKNOWN","ACP_CLOSE_NOT_ADVERTISED","ACP_CONCURRENT_OPERATION","ACP_CONNECTION_OUTCOME_UNKNOWN","ACP_DISCONNECTED_OUTCOME_UNKNOWN","ACP_FRAME_LIMIT","ACP_FRAME_LIMIT_OR_TRUNCATED","ACP_INITIALIZE_REQUIRED","ACP_INVALID_CANCEL_EVENT","ACP_INVALID_CONFIG_OPTIONS","ACP_INVALID_CONTENT","ACP_INVALID_ENVELOPE","ACP_INVALID_JSON","ACP_INVALID_MODE_UPDATE","ACP_INVALID_SERVER_REQUEST","ACP_INVALID_SESSION","ACP_INVALID_STOP_REASON","ACP_INVALID_TIMEOUT","ACP_INVALID_UPDATE","ACP_LIST_NOT_ADVERTISED","ACP_LOAD_NOT_ADVERTISED","ACP_MODEL_NOT_ADVERTISED","ACP_MODEL_OPTION_UNAVAILABLE_OR_AMBIGUOUS","ACP_MODEL_SELECTION_UNCONFIRMED","ACP_PROMPT_CAPABILITY_REQUIRED","ACP_REMOTE_ERROR","ACP_RESPONSE_ID_MISMATCH","ACP_RESUME_NOT_ADVERTISED","ACP_SESSION_ALREADY_SELECTED","ACP_SESSION_MISMATCH","ACP_TIMEOUT_OUTCOME_UNKNOWN","ACP_TRANSPORT_DETACHED","ACP_TURN_LIMIT","ACP_UNEXPECTED_SESSION_UPDATE","ACP_UNKNOWN_CONTENT_TYPE","ACP_UNSUPPORTED_PROTOCOL","ACP_WRITE_OUTCOME_UNKNOWN","acp_cancelled_before_dispatch","acp_cancelled_before_next_operation","acp_cancelled_before_prompt","acp_context_blocks_required","acp_explicit_proposal_required","acp_native_cancelled","acp_native_option_owner_not_bound","acp_native_process_authority_denied","acp_observation_receipt_required","acp_outcome_not_confirmed","acp_outcome_unknown","acp_payload_authority_denied","acp_private_transfer_not_admitted","acp_prompt_not_sent","acp_request_deadline","acp_runtime_binding_mismatch","acp_session_binding_unconfirmed","acp_session_receipt_required","acp_session_state_denied","acp_transport_required","PORT_PROTOCOL_ERROR","AUTHORITY_REQUIRED","PORT_UNAVAILABLE","CANCELLED","TIMED_OUT","PRIVACY_DENIED","AGENT_RUNTIME_RESPONSE_INVALID","AGENT_RUNTIME_INVOCATION_FAILED","AGENT_RUNTIME_UNAVAILABLE","AGENT_RUNTIME_FAILED","AGENT_RUNTIME_TIMEOUT","ACP_GRAPH_ATTEMPT_CHANGED","ACP_ORIGINAL_TASK_ROUTE_REQUIRED"])
+                      allowed.update({"GRAPH_NODE_CONFIG_INVALID","AGENT_HANDOFF_HUMAN_CONFIRMATION_REQUIRED","AGENT_HANDOFF_TARGET_CHANGED","AGENT_RUNTIME_NOT_READY","AGENT_RUNTIME_REQUEST_INVALID","AGENT_RUNTIME_OUTPUT_EMPTY","AGENT_RUNTIME_OUTPUT_SCHEMA_MISMATCH","META_HARNESS_TASK_ROUTE_DISABLED","META_HARNESS_ROLE_BINDING_CHANGED","AGENT_RUNTIME_ATTEMPT_CONFLICT","AGENT_RUNTIME_ATTEMPT_WRITE_FAILED","AGENT_RUNTIME_ATTEMPT_NOT_STARTED","AGENT_RUNTIME_INTENT_WRITE_FAILED","AGENT_RUNTIME_INTENT_EXISTS","GRAPH_NODE_ARTIFACT_CONFLICT","GRAPH_NODE_ARTIFACT_INVALID","GRAPH_NODE_COMPLETION_CHANGED","AGENT_RUNTIME_OUTCOME_UNKNOWN","GRAPH_NODE_EXECUTION_CONFLICT","GRAPH_NODE_CONFIG_REQUIRED","AGENT_RUNTIME_FAILED","GRAPH_EXECUTION_STATE_CHANGED"})
+                      allowed.update({"AGENT_RUNTIME_INTENT_UNAVAILABLE","AGENT_RUNTIME_INTENT_INVALID","GRAPH_AGENT_INVOCATION_INTENT_TAMPERED","GRAPH_STATE_PERSIST_FAILED","GRAPH_NODE_ARTIFACT_PERSIST_FAILED"})
+                      allowed.update({"MODEL_PROBED","NO_MODEL_PROBE","READY","RUNNING","COMPLETED","FAILED","CANCELLED","CANCELLING","BLOCKED","STEP_LIMIT_REACHED","WIN_PATH_LENGTH","WIN_PATH_MISSING","WIN_ACCESS_DENIED","WIN_SHARING_VIOLATION","PermissionError","TimeoutExpired","TimeoutError","GRAPH_NODE_EXECUTION_CONFLICT","AGENT_RUNTIME_NOT_READY"})
+                      allowed.update({"BrokenPipeError","ProgramProcessStopUnconfirmed","ProgramProcessCancelled","UnicodeDecodeError","acp_program_launch_invalid","acp_program_shell_launcher_forbidden","acp_program_executable_digest_required","acp_program_file_unavailable","acp_program_identity_changed","acp_local_process_tree_stop_unconfirmed","windows_process_job_create_failed","windows_process_job_limit_failed","windows_process_job_assignment_failed","windows_process_job_readback_failed"})
+                      diag=":".join(x if x in allowed else "OTHER" for x in match.group(1).split(":")[:12]) if match else ""
+                      fixture=re.findall(r"(?m)^QWEN_FIXTURE_PROCESS=(START|OPENED):(ACP_ERROR|STOP_UNCONFIRMED|CANCELLED|VALUE_ERROR|OS_ERROR|PERMISSION_ERROR|FILE_NOT_FOUND|BROKEN_PIPE|ASSERTION_ERROR|OTHER|WIN_PATH_LENGTH|WIN_CWD_INVALID|WIN_PATH_MISSING|WIN_ACCESS_DENIED|WIN_SHARING_VIOLATION|WIN_INVALID_PARAMETER|NOT_DIRECTORY|TIMEOUT|UNICODE_ERROR|TYPE_ERROR|RUNTIME_ERROR)\s*$",getattr(rep,"capstdout","") or "")
+                      if fixture:
+                          diag=(diag+":" if diag else "")+":".join(fixture[-1])
+                      kinds={"TimeoutError","TimeoutExpired","PermissionError","ConnectionResetError","ConnectionRefusedError",
+                             "BrokenPipeError","OSError","FileNotFoundError","HTTPError","URLError","AssertionError","ValueError",
+                             "TypeError","RuntimeError","KeyError","UnicodeDecodeError","GraphRuntimeError","ToolDenied"}
+                      kind=detail.split(":",1)[0].strip()
+                      if kind not in kinds: kind="AssertionError" if detail.startswith("assert ") else "OTHER"
+                      filename=str(getattr(crash,"path","") or "").replace(chr(92),"/").rsplit("/",1)[-1]
+                      failures.append({"id":fingerprint(rep.nodeid),"phase":rep.when,
+                          "line":int(getattr(crash,"lineno",0) or 0),"diag":diag,
+                          "kind":kind,"file":fingerprint(filename)})
+              def pytest_collectreport(self,report):
+                  rep=report
+                  if rep.failed:
+                      counts["collection_errors"]+=1
+                      failures.append({"id":fingerprint(rep.nodeid),"phase":"collect","line":0})
+          result=pytest.main(sys.argv[2:]+["-q","--tb=short","--continue-on-collection-errors","-p","no:cacheprovider"],plugins=[Plugin()])
+          pathlib.Path(sys.argv[1]).write_text(json.dumps({"counts":counts,"failures":failures,"request_volumes":request_volumes,"exit":int(result)}),encoding="utf-8")
+          sys.exit(int(result))
+          ''',encoding="utf-8")
+                  groups = {
+                      "TASK_ASSIGNMENT":["tests/test_meta_harness_task_assignment.py"],
+                      "SESSION_COMPOSER":["tests/test_session_runtime_state_transaction.py",
+                                          "tests/test_workspace_composer_integration.py",
+                                          "tests/test_agent02_core_draft_readback.py"],
+                      "ORIGINAL_TASK":["tests/test_meta_harness_original_task_workflow.py"],
+                  }
+                  failed = False
+                  for group, files in groups.items():
+                      if not files or any(not (source / f.split("::",1)[0]).is_file() for f in files):
+                          status(group,"FILES_MISSING"); failed=True; continue
+                      report = root / (group+".json")
+                      status(group,"STARTED")
+                      try:
+                          # A multipart Graph exercise may execute several verified steps and cold restarts.
+                          # The old seven-minute group cap hid all Windows case results.
+                          limit=1200
+                          proc = run([sys.executable,str(plugin),str(report),*files],timeout=limit)
+                      except subprocess.TimeoutExpired:
+                          status(group,"TIMEOUT")
+                          failed=True
+                          continue
+                      if not report.is_file():
+                          status(group,"REPORT_MISSING"); status(group+"_EXIT",proc.returncode); failed=True; continue
+                      data=json.loads(report.read_text(encoding="utf-8"))
+                      for key in ("passed","failed","skipped","collection_errors"):
+                          status(group+"_"+key.upper(),int(data["counts"][key]))
+                      for row in data["failures"][:80]:
+                          if re.fullmatch("[0-9a-f]{16}",row["id"]) and row["phase"] in {"setup","call","teardown","collect"}:
+                              status(group+"_CASE",row["id"]+":"+row["phase"]+":"+str(int(row["line"])))
+                              if row.get("diag"): status(group+"_DIAGNOSTIC",row["diag"])
+                              if re.fullmatch("[0-9a-f]{16}",row.get("file","")) and re.fullmatch("[A-Za-z]{1,40}",row.get("kind","")):
+                                  status(group+"_EXCEPTION",row["id"]+":"+row["file"]+":"+row["kind"])
+                      for item in data.get("request_volumes",[])[:20]:
+                          mode=item.get("mode")
+                          count,total,evidence=(item.get(k) for k in ("count","total","evidence"))
+                          if mode in ("FOCUSED_V1","FOCUSED_V2","FULL_V1") and all(type(v) is int for v in (count,total,evidence)) and 1<=count<=6 and 0<evidence<=total<=(count+2)*256000:
+                              status("REQUEST_VOLUME",":".join(map(str,(mode,count,total,evidence))))
+                      success = proc.returncode==0 and data["counts"]["passed"]>0 and not data["counts"]["failed"] and not data["counts"]["collection_errors"]
+                      status(group,"PASS" if success else "FAIL")
+                      failed = failed or not success
+                  if os.environ.get("QUALIFY_SCOPE") in {"TASK_TRANSPORT","ADAPTER_DEPTH"}:
+                      return int(failed)
+                  # Compile the complete existing desktop; publish only results.
+                  desktop=source / "desktop"
+                  npm=["cmd.exe","/d","/c","npm"] if os.name=="nt" else ["npm"]
+                  deps=ok(npm+["ci","--no-audit","--no-fund"],cwd=desktop,timeout=420)
+                  status("DESKTOP_DEPS","PASS" if deps else "FAIL")
+                  if deps:
+                      def desktop_test(label,files):
+                          proc=run(["node","--test","--test-reporter=tap",*files],cwd=desktop,timeout=180)
+                          out=proc.stdout.decode("utf-8",errors="replace")
+                          for key in ("tests","pass","fail","skipped"):
+                              value=re.search(r"(?m)^# "+key+r" ([0-9]{1,6})\s*$",out)
+                              if value: status(label+"_"+key.upper(),int(value.group(1)))
+                          for row in re.findall(r"(?m)^not ok \d+ - ([^\r\n]{1,512})",out)[:30]:
+                              status(label+"_CASE",hashlib.sha256(row.encode()).hexdigest()[:16])
+                          status(label,"PASS" if proc.returncode==0 else "FAIL")
+                          return proc.returncode==0
+                      tests=desktop_test("DESKTOP_META_TESTS",["tests/meta-harness-host.test.mjs"])
+                      composer=desktop_test("DESKTOP_COMPOSER_REGRESSION",["tests/task-composer-workspace.test.mjs","tests/task-model-readback-ui.test.mjs","tests/navigation-view-persistence.test.mjs","tests/native-gui-qa-labels.test.mjs"])
+                      compiled=run(npm+["run","build"],cwd=desktop,timeout=420)
+                      build=compiled.returncode==0
+                      if not build:
+                          # No source text, filenames, messages or private path publication.
+                          data=(compiled.stdout+compiled.stderr).decode("utf-8",errors="replace")
+                          seen=set()
+                          for match in re.finditer(r"(?m)^([^\r\n(]{1,260})\((\d{1,7}),(\d{1,7})\): error TS(\d{4,6}):",data):
+                              path=match.group(1).replace("\\","/")
+                              if not path.startswith("src/"): continue
+                              key=hashlib.sha256(path.encode()).hexdigest()[:16]+":"+":".join(match.groups()[1:])
+                              if key not in seen and len(seen)<50:
+                                  seen.add(key);status("DESKTOP_TSC_CASE",key)
+                      status("DESKTOP_BUILD","PASS" if build else "FAIL")
+                      failed=failed or not tests or not composer or not build
+                  else:
+                      failed=True
+                  return int(failed)
+          try:
+              code=main()
+          except subprocess.TimeoutExpired:
+              status("QUALIFICATION","TIMEOUT"); code=1
+          except Exception:
+              status("QUALIFICATION","INTERNAL_ERROR"); code=1
+          sys.exit(code)
+          PY
