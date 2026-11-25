@@ -31,8 +31,8 @@ jobs:
     env:
       COMMON_PIN: '39a4f49ed9a5c0781c4a4769e9603ca8fb1e8d23'
       COMMON_TREE: 'c0032bbfaed265e3d544450ea93f4e36c810dd19'
-      HARNESS_PIN: '4c69acdbb9228cb3efcb4ee1cd780f3d33d0b10d'
-      HARNESS_TREE: '4ed100262f133fca228725bcab32208f96a624b7'
+      HARNESS_PIN: '942966c980e1cafa123c3db58c2c96ec039e5f03'
+      HARNESS_TREE: 'bdfde27cedaadf797d300a9bc389939d71faee58'
       TARGET_PIN: ${{ matrix.target_pin }}
       TARGET_TREE: ${{ matrix.target_tree }}
       TARGET_VERSION: ${{ matrix.version }}
@@ -69,6 +69,7 @@ jobs:
               "STYLE":{"desktop/src/style.css"},
               "INSTALLED_GUI":{"tools/qualify_setup_core_native_gui.ps1","tools/qualify_setup_core_runtime.ps1"},
           }
+          phase="TEMPORARY_REPO"
           try:
               with tempfile.TemporaryDirectory(prefix="iwxa-merge-preflight-") as directory:
                   repo=pathlib.Path(directory)/"repo"
@@ -76,15 +77,20 @@ jobs:
                   def git(*args,private=False,check=True,timeout=300):
                       return subprocess.run(["git","-C",str(repo),*args],env=auth if private else env,
                           stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=check,timeout=timeout)
+                  phase="GIT_INIT"
                   git("init","--quiet")
                   for name in ("COMMON","TARGET","HARNESS"):
+                      phase="FETCH_"+name
                       pin=os.environ[name+"_PIN"]; tree=os.environ[name+"_TREE"]
                       git("fetch","--no-tags","--depth=1","https://github.com/Faust-S/iwxa-personal-agent.git",pin,private=True)
+                      phase="VERIFY_"+name
                       if git("rev-parse",pin+"^{tree}").stdout.decode().strip()!=tree:
                           marker("PRIVATE_READ","IDENTITY_MISMATCH")
+                          marker("PREFLIGHT_PHASE",phase)
                           raise SystemExit(1)
                   auth.clear()
                   marker("PRIVATE_READ","PASS")
+                  phase="CHANGE_PROJECTION"
                   common,target,harness=(os.environ[x+"_PIN"] for x in ("COMMON","TARGET","HARNESS"))
                   def paths(a,b):
                       return {p for p in git("diff","--name-only","--no-renames","-z",a,b).stdout.decode().split("\x00") if p}
@@ -93,6 +99,7 @@ jobs:
                   marker("TARGET_CHANGED_FILES",len(t))
                   marker("OVERLAPPING_FILES",len(h&t))
                   # Materialize no checkout and preserve no objects beyond this temporary repo.
+                  phase="THREE_WAY_MERGE"
                   result=git("merge-tree","--write-tree","--name-only","-z","--no-messages",
                              "--merge-base="+common,target,harness,check=False)
                   if result.returncode not in (0,1):
@@ -121,6 +128,7 @@ jobs:
                   marker("THREE_WAY_MERGE","CLEAN")
                   # A clean textual merge is not a qualified product. Check version and
                   # retention of the original single-owner runtime + Meta-Harness entry.
+                  phase="MERGED_READBACK"
                   def show(path):
                       return git("show",merged+":"+path).stdout
                   versions=[json.loads(show("desktop/package.json"))["version"],
@@ -133,8 +141,18 @@ jobs:
                   marker("HARNESS_ENTRY_RETAINED","PASS")
                   marker("TARGET_BRANCH_MUTATED","NO")
                   marker("FULL_PRODUCT_QUALIFICATION","NOT_RUN")
-          except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError):
+          except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError) as exc:
               marker("PREFLIGHT","ERROR")
+              marker("PREFLIGHT_PHASE",phase)
+              # No exception text, filenames, command arguments or credentials.
+              if isinstance(exc,subprocess.TimeoutExpired):
+                  marker("PREFLIGHT_REASON","TIMEOUT")
+              elif isinstance(exc,subprocess.CalledProcessError):
+                  marker("PREFLIGHT_REASON","GIT_COMMAND_FAILED")
+              elif isinstance(exc,OSError):
+                  marker("PREFLIGHT_REASON","OS_ERROR")
+              else:
+                  marker("PREFLIGHT_REASON","INVALID_READBACK")
               raise SystemExit(1)
           finally:
               auth.clear()

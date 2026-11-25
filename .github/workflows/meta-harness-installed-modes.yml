@@ -16,8 +16,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 90
     env:
-      PRIVATE_PIN: '4c69acdbb9228cb3efcb4ee1cd780f3d33d0b10d'
-      PRIVATE_TREE: '4ed100262f133fca228725bcab32208f96a624b7'
+      PRIVATE_PIN: '942966c980e1cafa123c3db58c2c96ec039e5f03'
+      PRIVATE_TREE: 'bdfde27cedaadf797d300a9bc389939d71faee58'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -85,6 +85,11 @@ jobs:
           $env:IWXA_META_HARNESS_GUI_MODE_WITNESS='1'
           Push-Location $repo
           try {
+            # The source witness now imports the original Core and pytest fixture.
+            # Use its declared CI dependencies before running that witness.
+            & python -m pip install --disable-pip-version-check -r requirements-ci.txt *> (Join-Path $logs 'source-witness-deps.log')
+            if($LASTEXITCODE -ne 0){throw 'INSTALLED_WITNESS_DEPENDENCIES_FAIL'}
+            Write-Host 'INSTALLED_WITNESS_DEPENDENCIES=PASS'
             & python -m unittest discover -s tests -p test_setup_core_installed_draft.py *> (Join-Path $logs 'source-witness.log')
             if($LASTEXITCODE -ne 0){throw 'INSTALLED_WITNESS_SOURCE_TEST_FAIL'}
           } finally { Pop-Location }
