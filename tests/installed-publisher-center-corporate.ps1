@@ -1279,25 +1279,26 @@ try{
     Start-Sleep -Milliseconds 250
   }
   if($null -eq $saveChoice){throw 'CORPORATE_GUI_RENEWAL_SAVE_UNAVAILABLE'}
-  try{$saveChoice.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()}catch{}
-  $saveChoice.SetFocus()
-  $focused=$false
-  for($attempt=0;$attempt -lt 20;$attempt++){
-    try{
-      $active=[System.Windows.Automation.AutomationElement]::FocusedElement
-      if($active -and $saveChoice.Current.HasKeyboardFocus -and
-         [System.Windows.Automation.Automation]::Compare($saveChoice,$active)){
-        $focused=$true;break
-      }
-    }catch{}
-    Start-Sleep -Milliseconds 100
+  # Preparation is not a signature or an activation. Exercise the real
+  # V8 button through native UIA InvokePattern exactly once. Keyboard focus
+  # can disappear during a React layout update; do not make it a prerequisite
+  # for this ordinary accessible action. Never fall back to a second click.
+  $invoke=$null
+  try{
+    if(!$saveChoice.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$invoke) -or !$invoke){
+      throw 'CORPORATE_GUI_RENEWAL_SAVE_INVOKE_PATTERN_REQUIRED'
+    }
+  }catch{throw 'CORPORATE_GUI_RENEWAL_SAVE_INVOKE_PATTERN_REQUIRED'}
+  $invokeUnknown=$false
+  try{$invoke.Invoke()}catch{$invokeUnknown=$true}
+  # The original persisted proposal, not the return of Invoke(), proves
+  # that the user action completed. If ACK is uncertain, read only.
+  try{
+    $nextPrep=Wait-Preparation $publisherDraft {param($x) @($x.proposals).Count -eq 2}
+  }catch{
+    if($invokeUnknown){throw 'CORPORATE_GUI_RENEWAL_SAVE_INVOKE_OUTCOME_UNKNOWN'}
+    throw 'CORPORATE_GUI_RENEWAL_SAVE_NO_PERSISTED_PREPARATION'
   }
-  if(!$focused -or !$saveChoice.Current.IsEnabled -or
-     [CorporateQualificationGui]::GetForegroundWindow() -ne $pub.MainWindowHandle){
-    throw 'CORPORATE_GUI_RENEWAL_SAVE_FOCUS_NOT_CONFIRMED'
-  }
-  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-  $nextPrep=Wait-Preparation $publisherDraft {param($x) @($x.proposals).Count -eq 2}
   $followup=@($nextPrep.proposals|Where-Object {$_.previousProposalId -ceq $request})
   if($followup.Count -ne 1 -or $followup[0].tariffSnapshot.revision -ne 2 -or
     $followup[0].tariffSnapshot.productSeats -ne 1 -or $followup[0].tariffSnapshot.employeeLimit -ne 6){
