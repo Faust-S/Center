@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: 'db64a5ac75a6ec397a139af62540cef7bcb22c49'
-      PRIVATE_TREE: '9edfa6ecf632d09f0e3a95966f47a2286d60f219'
+      PRIVATE_PIN: '49fcf16635c39e9f0cdf3fe353286d0943639ab0'
+      PRIVATE_TREE: 'af8a9fd1a42cc3f87c51288383dca2e6b41a7c6a'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
