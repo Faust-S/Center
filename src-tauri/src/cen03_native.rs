@@ -5,7 +5,7 @@
 use serde_json::{json,Value};
  use std::{fs::{self,OpenOptions},io::{BufRead,BufReader,Read,Write},
     path::{Path,PathBuf},process::{Child,ChildStdin},
-    sync::{mpsc::{self,Receiver},Mutex},time::Duration};
+    sync::{mpsc::{self,Receiver},Mutex},time::{Duration,Instant}};
 use tauri::{AppHandle,Emitter,Manager};
 use uuid::Uuid;
 use crate::t3_product_component as t3;
@@ -675,14 +675,29 @@ pub struct Session{owner:Option<OriginalOwner>,signed_workspace_visible:bool}
 struct OriginalOwner{
     organization_id:String,
     child:Child,
-    input:ChildStdin,
+    input:Option<ChildStdin>,
     responses:Receiver<Result<Vec<u8>,String>>,
     next_id:u64,
 }
 impl Drop for OriginalOwner{
     fn drop(&mut self){
-        // Ending the installed Center or changing organizations MUST release
-        // the original product.lock before any other owner may open it.
+        // EOF is the original host's ordinary shutdown protocol. Its
+        // finally closes Control HTTP, runtime and product.lock. Killing
+        // an otherwise healthy host leaves a stale PID lock, which cannot
+        // safely be removed if Windows has already reused that PID.
+        // Do not unlink or edit the original lock from Center.
+        drop(self.input.take());
+        let deadline=Instant::now()+Duration::from_secs(5);
+        loop{
+            match self.child.try_wait(){
+                Ok(Some(_))=>return,
+                Ok(None) if Instant::now()<deadline=>
+                    std::thread::sleep(Duration::from_millis(25)),
+                _=>break,
+            }
+        }
+        // An unresponsive child still cannot outlive this native session.
+        // A possible pending write remains uncertain; no operation is retried.
         let _=self.child.kill();
         let _=self.child.wait();
     }
@@ -761,7 +776,7 @@ impl OriginalOwner{
             }
         });
         Ok(Self{organization_id:organization_id.into(),
-            child,input,responses,next_id:0})
+            child,input:Some(input),responses,next_id:0})
     }
     fn call(&mut self,verb:&str,body:&Value)->Result<Value,String>{
         if self.child.try_wait().map_err(|_|"CEN_D3_ORIGINAL_HOST_WAIT_FAILED")?
@@ -780,7 +795,9 @@ impl OriginalOwner{
             return Err("CEN_D3_ORIGINAL_HOST_INPUT_TOO_LARGE".into());
         }
         bytes.push(b'\n');
-        self.input.write_all(&bytes).and_then(|_|self.input.flush())
+        let input=self.input.as_mut()
+            .ok_or("CEN_D3_ORIGINAL_HOST_STDIN_UNAVAILABLE")?;
+        input.write_all(&bytes).and_then(|_|input.flush())
             .map_err(|_|"CEN_D3_ORIGINAL_HOST_SEND_FAILED")?;
         let line=self.responses.recv_timeout(Duration::from_secs(90))
             .map_err(|_|"CEN_D3_ORIGINAL_HOST_OUTCOME_UNKNOWN")??;
@@ -834,8 +851,9 @@ fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
     result
 }
 fn release_original_owner_in_session(session:&mut Session){
-    // The existing OriginalOwner Drop kills/waits for the ONE original
-    // native signer and its product.lock. No lock-file unlink or new owner.
+    // OriginalOwner Drop sends EOF and waits for the ONE native signer
+    // to release its own product.lock. Only a stuck child is terminated.
+    // No lock-file unlink or new owner.
     session.owner.take();
     session.signed_workspace_visible=false;
 }
@@ -1777,7 +1795,29 @@ mod tests{
         assert_eq!(owner.next_id,2);
         assert!(owner.child.try_wait().unwrap().is_none(),
             "owner stays alive between requests");
-        drop(owner); // same original lifecycle kills the child on detach
+        drop(owner); // ordinary EOF closes the child on detach
+    }
+    #[cfg(windows)]
+    #[test]
+    fn ordinary_owner_detach_waits_for_stdin_eof_cleanup(){
+        use std::process::{Command,Stdio};
+        // Physical OS pipe fixture proves the normal EOF cleanup path.
+        // It deliberately does not impersonate a T3 lock or signer.
+        let marker=std::env::temp_dir().join(format!("iwxa-owner-eof-{}.txt",Uuid::new_v4()));
+        let script=r#"
+          $null=[Console]::In.ReadToEnd()
+          [IO.File]::WriteAllText($env:IWXA_OWNER_EOF_TEST_MARKER,'CLEAN_EOF')
+        "#;
+        let child=Command::new("powershell.exe")
+            .args(["-NoProfile","-NonInteractive","-Command",script])
+            .env("IWXA_OWNER_EOF_TEST_MARKER",&marker)
+            .stdin(Stdio::piped()).stdout(Stdio::piped())
+            .stderr(Stdio::null()).spawn().expect("Windows EOF fixture");
+        let owner=OriginalOwner::from_child(child,"org:test").unwrap();
+        drop(owner);
+        let observed=fs::read_to_string(&marker);
+        let _=fs::remove_file(&marker);
+        assert_eq!(observed.expect("child completed EOF cleanup"),"CLEAN_EOF");
     }
     #[cfg(windows)]
     #[test]
@@ -1797,7 +1837,7 @@ mod tests{
         assert!(session.owner.as_mut().unwrap().child.try_wait().unwrap().is_none());
         release_original_owner_in_session(&mut session);
         assert!(session.owner.is_none(),
-            "native exit must drop original signed child immediately");
+            "native exit must release the original signed child before returning");
         assert!(!session.signed_workspace_visible,
             "signed UI cannot remain visible after native owner exit");
     }

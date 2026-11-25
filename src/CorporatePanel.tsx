@@ -297,6 +297,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
         onClick={()=>act('Подписанная Workspace открыта внутри Admin Center.',async()=>
           onOpenSignedWorkspace(organizationId))}>Открыть Workspace T3</button>}
     <button className="secondary" id="iwxa-center-owner-refresh" data-testid="corporate-owner-refresh"
+      aria-label="Обновить подписанное состояние"
       disabled={busy||ownerAvailability==='CHECKING'} onClick={()=>act('Исходное состояние подтверждено.',async()=>{
         const next=await refresh();
         resetReview();
