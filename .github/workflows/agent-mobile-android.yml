@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: '49fcf16635c39e9f0cdf3fe353286d0943639ab0'
-      PRIVATE_TREE: 'af8a9fd1a42cc3f87c51288383dca2e6b41a7c6a'
+      PRIVATE_PIN: 'a41fc83aa5d59dc55db07e3bbff9bc1f4379519f'
+      PRIVATE_TREE: '79248ccd076931bb75b7099931ed02d6180e0de4'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -30,7 +30,9 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
       - name: Admit exactly one intentional candidate request before private access
-        run: python3 .ci/agent-mobile-android/admit-once.py
+        run: |
+          python3 .ci/agent-mobile-android/admit-once.py
+          python3 .ci/agent-mobile-android/test-t3-receipts.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
@@ -41,6 +43,8 @@ jobs:
         run: |
           python3 - <<'PY'
           import base64, hashlib, json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
+          sys.path.insert(0,str(pathlib.Path.cwd()/'.ci'/'agent-mobile-android'))
+          import t3_receipts
           def status(name, value):
               print(name+"="+str(value),flush=True)
           def main():
@@ -132,12 +136,12 @@ jobs:
                               status(name,"PASS" if passed else "FAIL")
                               return passed
                           if name=="INSTALLED_T3_ROUTE":
-                              expected={"T3_ENTRY_MODEL_RELEASE","CREATE_OFFLINE","NATIVE_DRAFT_SAVED","COLD_RESTART","NATIVE_DRAFT_REOPENED","LIFECYCLE_RESTORE","EXCHANGE_SAVE_CANCELLED","EXCHANGE_FILE_SAVED","EXCHANGE_PREVIEW_CANCELLED","EXCHANGE_IMPORTED","EXCHANGE_COLD_READBACK"}
-                              observed=re.findall(r"(?m)^INSTALLED_T3_ROUTE_PASS=([A-Z_]+)\s*$",report)
+                              expected=t3_receipts.EXPECTED
+                              observed=t3_receipts.route_receipts(report)
                               for value in observed:
                                   if value in expected:status("INSTALLED_T3_ROUTE_PASS",value)
-                              allowed={"WEBVIEW","OFFLINE","HOME","MORE","T3_SECTION","T3_OPEN","CATALOG","FIXTURE","CREATE_CONTROL","EMPTY_ORIGINAL_STORE","NEW_WORKSPACE","CONFIRM_CREATE","CREATED_ROUTE","CREATED_ID","CREATE_READBACK","CARD","COLD_READBACK","SOFT_DELETE","TRASH_READBACK","TRASH_PAGE","TRASH_ROW","RESTORE","RESTORE_READBACK","RETURN_HOME","MODEL_FIXTURE","MODEL_FIELD","NATIVE_LAUNCHER","NATIVE_PANEL","NATIVE_WORKSPACE_OPTION","NATIVE_WORKSPACE_SELECT","NATIVE_WORKSPACE_SELECTED","NATIVE_MODEL_OPTION","NATIVE_ACTIVATE","NATIVE_READY","NATIVE_GENERATE","NATIVE_GENERATED","NATIVE_EXPLICIT_SAVE","NATIVE_SAVE","NATIVE_SAVED","NATIVE_DRAFT_READBACK","NATIVE_DRAFT_ID","NATIVE_DRAFT_CONTENT","NATIVE_UNLOAD","NATIVE_UNLOADED","NATIVE_COLD_NO_MODEL","NATIVE_LIST","NATIVE_REOPEN","NATIVE_REOPENED","T3_ENTRY_LOCAL","T3_ENTRY_RESIDENCY","T3_ENTRY_BACK","EXCHANGE_AUTOMATION","EXCHANGE_RETURN","EXCHANGE_RECEIPT_READ","EXCHANGE_OPEN","EXCHANGE_ROUTE","EXCHANGE_SOURCE","EXCHANGE_PREVIEW","EXCHANGE_REPREVIEW","EXCHANGE_ACK","EXCHANGE_PACKAGE","EXCHANGE_ARTIFACT","EXCHANGE_CANCEL_PICKER","EXCHANGE_CANCELLED","EXCHANGE_SAVE_PICKER","EXCHANGE_DOWNLOADS","EXCHANGE_FILENAME","EXCHANGE_SAVE","EXCHANGE_FILE_SAVED","EXCHANGE_CONFIRM","EXCHANGE_CONFIRMED","EXCHANGE_IMPORT_TAB","EXCHANGE_FILE_INPUT","EXCHANGE_OPEN_PICKER","EXCHANGE_FILE_SELECT","EXCHANGE_IMPORT_PREVIEW","EXCHANGE_IMPORT_CANCEL","EXCHANGE_IMPORT_CANCELLED","EXCHANGE_MODE","EXCHANGE_TARGET","EXCHANGE_COMMIT","EXCHANGE_COMMITTED","EXCHANGE_RECEIPT","EXCHANGE_BOTH","EXCHANGE_CONTENT","EXCHANGE_COLD"}
-                              for kind,value in re.findall(r"(?m)^INSTALLED_T3_(FAILURE_STAGE|LAST_STAGE)=([A-Z_]+)\s*$",report):
+                              allowed={"WEBVIEW","OFFLINE","HOME","MORE","T3_SECTION","T3_OPEN","CATALOG","FIXTURE","T3_ENTRY_LOCAL","T3_ENTRY_RESIDENCY","T3_ENTRY_BACK","T3_MODEL_STAGING_RECOVERY","CREATE_CONTROL","EMPTY_ORIGINAL_STORE","NEW_WORKSPACE","CONFIRM_CREATE","CREATED_ROUTE","CREATED_ID","CREATE_READBACK","CARD","COLD_READBACK","SOFT_DELETE","TRASH_READBACK","TRASH_PAGE","TRASH_ROW","RESTORE","RESTORE_READBACK","RETURN_HOME","MODEL_FIXTURE","MODEL_FIELD","NATIVE_LAUNCHER","NATIVE_PANEL","NATIVE_WORKSPACE_OPTION","NATIVE_WORKSPACE_SELECT","NATIVE_WORKSPACE_SELECTED","NATIVE_MODEL_OPTION","NATIVE_ACTIVATE","NATIVE_READY","NATIVE_GENERATE","NATIVE_GENERATED","NATIVE_EXPLICIT_SAVE","NATIVE_SAVE","NATIVE_SAVED","NATIVE_DRAFT_READBACK","NATIVE_DRAFT_ID","NATIVE_DRAFT_CONTENT","NATIVE_UNLOAD","NATIVE_UNLOADED","NATIVE_COLD_NO_MODEL","NATIVE_LIST","NATIVE_REOPEN","NATIVE_REOPENED","EXCHANGE_AUTOMATION","EXCHANGE_RETURN","EXCHANGE_RECEIPT_READ","EXCHANGE_STAGING_RECOVERY","EXCHANGE_OPEN","EXCHANGE_ROUTE","EXCHANGE_SOURCE","EXCHANGE_PREVIEW","EXCHANGE_REPREVIEW","EXCHANGE_ACK","EXCHANGE_PACKAGE","EXCHANGE_ARTIFACT","EXCHANGE_CANCEL_PICKER","EXCHANGE_CANCELLED","EXCHANGE_SAVE_PICKER","EXCHANGE_DOWNLOADS","EXCHANGE_DOWNLOADS_PICKER_LOST","EXCHANGE_DOWNLOADS_ROOTS_UNAVAILABLE","EXCHANGE_DOWNLOADS_ROOT_UNAVAILABLE","EXCHANGE_DOWNLOADS_LOCATION_UNCONFIRMED","EXCHANGE_FILENAME","EXCHANGE_SAVE","EXCHANGE_FILE_SAVED","EXCHANGE_CONFIRM","EXCHANGE_CONFIRMED","EXCHANGE_IMPORT_TAB","EXCHANGE_FILE_INPUT","EXCHANGE_OPEN_PICKER","EXCHANGE_FILE_SELECT","EXCHANGE_IMPORT_PREVIEW","EXCHANGE_IMPORT_CANCEL","EXCHANGE_IMPORT_CANCELLED","EXCHANGE_MODE","EXCHANGE_TARGET","EXCHANGE_COMMIT","EXCHANGE_COMMITTED","EXCHANGE_RECEIPT","EXCHANGE_BOTH","EXCHANGE_CONTENT","EXCHANGE_COLD"}
+                              for kind,value in re.findall(r"(?m)^INSTALLED_T3_(FAILURE_STAGE|LAST_STAGE)=([A-Z][A-Z0-9_]*)\s*$",report):
                                   if value in allowed:status("INSTALLED_T3_"+kind,value)
                               phases={"create","recover","exchange-export","exchange-import","exchange-recover"}
                               for kind,value in re.findall(r"(?m)^INSTALLED_T3_(PHASE|FAILURE_PHASE)=([a-z-]+)\s*$",report):
@@ -145,12 +149,12 @@ jobs:
                               classes={"NATIVE_LINK","CLASS_LOADING","UI_AUTOMATION","ACTIVITY_STATE","JSON","NULL_REFERENCE","ILLEGAL_ARGUMENT","ILLEGAL_STATE","SECURITY","IO","ASSERTION","RUNNER","UNCLASSIFIED"}
                               for value in re.findall(r"(?m)^INSTALLED_T3_FAILURE_CLASS=([A-Z_]+)\s*$",report):
                                   if value in classes:status("INSTALLED_T3_FAILURE_CLASS",value)
-                              for value in re.findall(r"(?m)^INSTALLED_T3_FAILURE_LOCATION=((?:OriginalT3InstalledTest|OriginalExchangeInstalledWitness):[1-9][0-9]{0,4})\s*$",report)[:4]:
+                              for value in re.findall(r"(?m)^INSTALLED_T3_FAILURE_LOCATION=((?:OriginalT3InstalledTest|OriginalExchangeInstalledWitness|DocumentsUiWitness|DocumentsUiNavigation):[1-9][0-9]{0,4})\s*$",report)[:4]:
                                   status("INSTALLED_T3_FAILURE_LOCATION",value)
-                              codes={"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","WORKSPACE_ID_REQUIRED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED","DRAFT_RECEIPT_REQUIRED","T3_ENTRY_MODEL_RELEASE_REQUIRED","EXCHANGE_RECEIPT_REQUIRED","EXCHANGE_FILE_REQUIRED","EXCHANGE_FILE_CHANGED","EXCHANGE_FILE_ALREADY_EXISTS"}
-                              for value in re.findall(r"(?m)^INSTALLED_T3_FAILURE_CODE=([A-Z_]+)\s*$",report):
+                              codes={"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","WORKSPACE_ID_REQUIRED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED","DRAFT_RECEIPT_REQUIRED","T3_ENTRY_MODEL_RELEASE_REQUIRED","T3_MODEL_STAGING_RECOVERY_REQUIRED","EXCHANGE_STAGING_RECOVERY_REQUIRED","EXCHANGE_RECEIPT_REQUIRED","EXCHANGE_FILE_REQUIRED","EXCHANGE_FILE_CHANGED","EXCHANGE_FILE_ALREADY_EXISTS"}
+                              for value in re.findall(r"(?m)^INSTALLED_T3_FAILURE_CODE=([A-Z][A-Z0-9_]*)\s*$",report):
                                   if value in codes:status("INSTALLED_T3_FAILURE_CODE",value)
-                              passed=outcome.returncode==0 and sorted(observed)==sorted(expected) and re.search(r"(?m)^INSTALLED_T3_ROUTE=PASS\s*$",report) is not None
+                              passed=t3_receipts.route_passed(report,outcome.returncode)
                               status(name,"PASS" if passed else "FAIL")
                               return passed
                           if name=="ORIGINAL_T3_BUILD":
@@ -275,10 +279,10 @@ jobs:
                               }
                               failed=re.findall(r"Execution failed for task ':[^'\r\n]*:([A-Za-z0-9]+)'",report)
                               for task in sorted({tasks.get(x,"OTHER") for x in failed}):status("GRADLE_FAILED_TASK",task)
-                              roles={"LocalModelPlugin.kt":"MODEL_BRIDGE","RecommendedModels.kt":"MODEL_DOWNLOAD","ModelFileIntegrity.kt":"FILE_INTEGRITY","ModelPickerAdmission.kt":"MODEL_PICKER_ADMISSION","DocumentsUiWitness.java":"DOCUMENTS_UI_WITNESS","InstalledRouteTest.java":"INSTALLED_WITNESS","OriginalAgentInstalledTest.java":"ORIGINAL_AGENT_INSTALLED_WITNESS","OriginalT3InstalledTest.java":"ORIGINAL_T3_INSTALLED_WITNESS","OriginalExchangeInstalledWitness.java":"ORIGINAL_EXCHANGE_INSTALLED_WITNESS","IwxaArchiveStaging.kt":"EXCHANGE_FILE_STAGING","IwxaPackageFilePlugin.kt":"EXCHANGE_FILE_BRIDGE","T3AssetWebViewClient.java":"T3_ASSET_DELIVERY","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
+                              roles={"LocalModelPlugin.kt":"MODEL_BRIDGE","RecommendedModels.kt":"MODEL_DOWNLOAD","ModelFileIntegrity.kt":"FILE_INTEGRITY","ModelPickerAdmission.kt":"MODEL_PICKER_ADMISSION","DocumentsUiWitness.java":"DOCUMENTS_UI_WITNESS","DocumentsUiNavigation.java":"DOCUMENTS_UI_NAVIGATION","InstalledRouteTest.java":"INSTALLED_WITNESS","OriginalAgentInstalledTest.java":"ORIGINAL_AGENT_INSTALLED_WITNESS","OriginalT3InstalledTest.java":"ORIGINAL_T3_INSTALLED_WITNESS","OriginalExchangeInstalledWitness.java":"ORIGINAL_EXCHANGE_INSTALLED_WITNESS","IwxaArchiveStaging.kt":"EXCHANGE_FILE_STAGING","IwxaPackageFilePlugin.kt":"EXCHANGE_FILE_BRIDGE","T3AssetWebViewClient.java":"T3_ASSET_DELIVERY","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
                               for line in report.splitlines():
                                   if not (line.startswith("e:") or "error:" in line):continue
-                                  loc=re.search(r"(LocalModelPlugin\.kt|RecommendedModels\.kt|ModelFileIntegrity\.kt|InstalledRouteTest\.java|OriginalAgentInstalledTest\.java|OriginalT3InstalledTest\.java|T3AssetWebViewClient\.java|MainActivity\.java|NetworkRouteSpec\.java|RoutedJsonHttp\.java|RoutedNetworkPlugin\.java|ProfileBrowserActivity\.java|NetworkRouteInstalledTest\.java|NetworkRouteSpecTest\.java):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
+                                  loc=re.search(r"("+"|".join(re.escape(name) for name in roles)+r"):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
                                   if not loc:continue
                                   kind="OTHER"
                                   for category,pattern in [
