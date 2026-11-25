@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 65
     env:
-      PRIVATE_PIN: 'bb8ee86487b91348d73e7c301f65d892619594b2'
-      PRIVATE_TREE: '4069fa0c2ffabb68a6cb24892bd7692b2a53a69e'
+      PRIVATE_PIN: 'fee49439f8f1b6be5b5c49a2e9a45d3a65bd41a6'
+      PRIVATE_TREE: '70b98839cd411e3a00aefa5a10345246e52bbd56'
       QUALIFY_SCOPE: ADAPTER_PRODUCT
     steps:
       - uses: actions/setup-python@v5
@@ -218,6 +218,7 @@ jobs:
                       })
                   groups={"PRODUCT_ROUTE_GRAPH":[groups["PRODUCT_ROUTE"][0]],"PRODUCT_ROUTE_NATIVE_STATE":groups["PRODUCT_ROUTE"][1:],"TASK_ASSIGNMENT":["tests/test_meta_harness_task_assignment.py"],"ACP_PROTOCOL":groups["ACP_PROTOCOL"],"ACP_PRODUCT":groups["ACP_PRODUCT"],"STRATEGY":["tests/test_meta_harness_strategy_history.py"],"CORE_ADAPTERS":groups["CORE_ADAPTERS"],
                           "ACP_CONTEXT_READ":["tests/test_meta_harness_acp_context_read.py"],
+                          "SESSION_COMPOSER":["tests/test_session_runtime_state_transaction.py","tests/test_workspace_composer_integration.py","tests/test_agent02_core_draft_readback.py"],
                         "TOOL_READ":["tests/test_meta_harness_tool_read.py","tests/test_meta_harness_mcp_read.py"],
                           "WORK_BOARD":["tests/test_work_board_state_transaction.py"],
                           "ORIGINAL_HANDOFF":groups["ORIGINAL_HANDOFF"],
@@ -265,10 +266,18 @@ jobs:
                   deps=ok(npm+["ci","--no-audit","--no-fund"],cwd=desktop,timeout=420)
                   status("DESKTOP_DEPS","PASS" if deps else "FAIL")
                   if deps:
-                      tests=ok(["node","--test","tests/meta-harness-host.test.mjs"],cwd=desktop,timeout=120)
-                      status("DESKTOP_META_TESTS","PASS" if tests else "FAIL")
-                      composer=ok(["node","--test","tests/task-composer-workspace.test.mjs","tests/task-model-readback-ui.test.mjs","tests/navigation-view-persistence.test.mjs","tests/native-gui-qa-labels.test.mjs"],cwd=desktop,timeout=120)
-                      status("DESKTOP_COMPOSER_REGRESSION","PASS" if composer else "FAIL")
+                      def desktop_test(label,files):
+                          proc=run(["node","--test","--test-reporter=tap",*files],cwd=desktop,timeout=180)
+                          out=proc.stdout.decode("utf-8",errors="replace")
+                          for key in ("tests","pass","fail","skipped"):
+                              value=re.search(r"(?m)^# "+key+r" ([0-9]{1,6})\s*$",out)
+                              if value: status(label+"_"+key.upper(),int(value.group(1)))
+                          for row in re.findall(r"(?m)^not ok \d+ - ([^\r\n]{1,512})",out)[:30]:
+                              status(label+"_CASE",hashlib.sha256(row.encode()).hexdigest()[:16])
+                          status(label,"PASS" if proc.returncode==0 else "FAIL")
+                          return proc.returncode==0
+                      tests=desktop_test("DESKTOP_META_TESTS",["tests/meta-harness-host.test.mjs"])
+                      composer=desktop_test("DESKTOP_COMPOSER_REGRESSION",["tests/task-composer-workspace.test.mjs","tests/task-model-readback-ui.test.mjs","tests/navigation-view-persistence.test.mjs","tests/native-gui-qa-labels.test.mjs"])
                       compiled=run(npm+["run","build"],cwd=desktop,timeout=420)
                       build=compiled.returncode==0
                       if not build:

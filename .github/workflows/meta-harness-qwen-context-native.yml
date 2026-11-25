@@ -15,17 +15,17 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-2022]
-        mode: [COMBINED, COMBINED_LINKED, SINGLE_CONTEXT]
+        mode: [SINGLE_TEXT, SINGLE_CONTEXT, COMBINED, COMBINED_LINKED]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: '368b4ab04ea76036e07ab836de665b40b8399c6f'
-      PRIVATE_TREE: 'c2d8452a57c1f4efdec3126e3bbed6994ccd53a8'
+      PRIVATE_PIN: 'fee49439f8f1b6be5b5c49a2e9a45d3a65bd41a6'
+      PRIVATE_TREE: '70b98839cd411e3a00aefa5a10345246e52bbd56'
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
       IWXA_QWEN_QUALIFICATION_MODEL: 'QWEN3_4B_Q4_K_M'
-      IWXA_NATIVE_QWEN_CONTEXT_TEST: '1'
-      IWXA_NATIVE_QWEN_TOOL_TEST: ${{ matrix.mode != 'SINGLE_CONTEXT' && '1' || '0' }}
-      IWXA_NATIVE_QWEN_SINGLE_TEST: ${{ matrix.mode == 'SINGLE_CONTEXT' && '1' || '0' }}
+      IWXA_NATIVE_QWEN_CONTEXT_TEST: ${{ matrix.mode != 'SINGLE_TEXT' && '1' || '0' }}
+      IWXA_NATIVE_QWEN_TOOL_TEST: ${{ (matrix.mode == 'COMBINED' || matrix.mode == 'COMBINED_LINKED') && '1' || '0' }}
+      IWXA_NATIVE_QWEN_SINGLE_TEST: ${{ (matrix.mode == 'SINGLE_TEXT' || matrix.mode == 'SINGLE_CONTEXT') && '1' || '0' }}
       IWXA_NATIVE_QWEN_LINKED_TEST: ${{ matrix.mode == 'COMBINED_LINKED' && '1' || '0' }}
     steps:
       - uses: actions/setup-python@v5
@@ -114,6 +114,10 @@ jobs:
                       "-p","no:cacheprovider","tests/test_meta_harness_qwen_native_product.py",
                       "--basetemp",str(root/"native-test")],timeout=2400)
                   out = proc.stdout.decode("utf-8","replace")
+                  if clean.get("IWXA_NATIVE_QWEN_CONTEXT_TEST")!="1":
+                      allowed.discard("REAL_QWEN_CONTEXT_READ_PASS")
+                  if clean.get("IWXA_NATIVE_QWEN_CONTEXT_TEST")!="1" and clean.get("IWXA_NATIVE_QWEN_TOOL_TEST")!="1":
+                      allowed.discard("REAL_MODEL_TOOL_SMOKE_PASS")
                   if clean.get("IWXA_NATIVE_QWEN_TOOL_TEST")=="1":
                       allowed.update({"REAL_QWEN_TOOL_READ_PASS","REAL_QWEN_COMBINED_READ_PASS"})
                   if clean.get("IWXA_NATIVE_QWEN_LINKED_TEST")=="1":
