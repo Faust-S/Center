@@ -288,10 +288,27 @@ try{
  Record 'AGENT_ORIGINAL_SIGNED_INVITATION_IMPORTED'
  Stage 'AGENT_ORIGINAL_WORKSPACE'
  Press $agent 'Открыть предоставленное пространство'
- Wait-Text $agent 'Пространство открыто' 240
- Wait-Text $agent $candidate.workspaceId 240
- Wait-Text $agent 'Закрыть Workspace компании' 240
- Wait-Text $agent 'Рабочие данные находятся в локальном пространстве домена' 360
+ try{
+  Wait-Text $agent 'Пространство открыто' 240
+  Wait-Text $agent $candidate.workspaceId 240
+  Wait-Text $agent 'Закрыть Workspace компании' 240
+  Wait-Text $agent 'Рабочие данные находятся в локальном пространстве домена' 360
+ }catch{
+  # A failed original Host mount is not an absent invitation or a UIA
+  # retry of a signed write. Publish bounded diagnostic only.
+  $codes=@()
+  foreach($item in (Window $agent).FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition)){
+   try{
+    $m=[regex]::Match([string]$item.Current.Name,'^Исходная Workspace недоступна\. ((?:T3|INTEROP)_[A-Z0-9_]{4,95})$')
+    if($m.Success){$codes+= $m.Groups[1].Value}
+   }catch{}
+  }
+  $codes=@($codes|Sort-Object -Unique)
+  if($codes.Count -eq 1){Write-Host ('EMPLOYEE_INSTALLED_WORKSPACE_HOST_CODE='+$codes[0])}
+  throw
+ }
  Record 'AGENT_ORIGINAL_CORPORATE_WORKSPACE_OPEN'
  Wait-Text $agent 'Право возврата Workspace подтверждено' 240
  Record 'AGENT_ORIGINAL_WORKSPACE_RETURN_GRANT_IMPORTED'

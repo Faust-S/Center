@@ -13,11 +13,11 @@ concurrency:
   group: corporate-installed-employee-first-use-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: true
 env:
-  T3_PIN: 'c368dcdec006349124f5698471c58d2e55a6caea'
+  T3_PIN: '6ee165a7a0f0d701302e897220cbf50e0257709e'
   CORE_PIN: '5474f05ff77757ba7243f1f422058880fc3e0f49'
-  CENTER_PIN: '0d56347dbcfce22b9a409e465e2337dc555dd015'
-  PUBLISHER_PIN: '273282e75cf442511af1870d3a55e86fefaf2955'
-  AGENT_PIN: '5020269442e3f3d98b0965f4946ba5edb240a82e'
+  CENTER_PIN: '46a2aeeb79d03caefa70e9b15c8e7f89d5f2d61c'
+  PUBLISHER_PIN: 'b6c42a57a8e88c464ea8e90a743521ff71bcd1f8'
+  AGENT_PIN: '15827fbd135b9175c146af7931c201d51ca6ea53'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -571,6 +571,9 @@ jobs:
           }
           foreach($m in [regex]::Matches($raw,'(?m)^EMPLOYEE_INSTALLED_PROFILE_READBACK=(FIRST_ACK|RECOVERED_EXISTING)\s*$')){
             Write-Host ('EMPLOYEE_INSTALLED_PROFILE_READBACK='+$m.Groups[1].Value)
+          }
+          foreach($m in [regex]::Matches($raw,'(?m)^EMPLOYEE_INSTALLED_WORKSPACE_HOST_CODE=((?:T3|INTEROP)_[A-Z0-9_]{4,95})\s*$')){
+            Write-Host ('EMPLOYEE_INSTALLED_WORKSPACE_HOST_CODE='+$m.Groups[1].Value)
           }
           foreach($m in [regex]::Matches($raw,'(?m)^EMPLOYEE_INSTALLED_T3_READINESS_LAST_ACTION=(WAIT|CHECK|CHECK_ACK_UNKNOWN|ENABLE|ENABLE_ACK_UNKNOWN)\s*$')){
             Write-Host ('EMPLOYEE_INSTALLED_T3_READINESS_LAST_ACTION='+$m.Groups[1].Value)
