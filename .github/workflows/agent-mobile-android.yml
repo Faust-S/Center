@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: '9017285171ab29519206c1151b069a3c44a71b05'
-      PRIVATE_TREE: '72c7ca54f27005c1b1d3a29d08b048d7ed267c93'
-      T3_PIN: '86200fcc58edbbb63619ee5baf7f48b5570a765c'
-      T3_TREE: 'b052f4730008f001cb6753601c1439953f76b4f5'
+      PRIVATE_PIN: '159c906fed4f63930c0d8f57931808f474a95bf6'
+      PRIVATE_TREE: '02d6c8ece588fa749a12b6fab35e0f90e8f76031'
+      T3_PIN: '83416f405c8ea4c39591ae62e115d56b044611ab'
+      T3_TREE: '6c002bd6f6a65874c3a8de215074de21e754b8e0'
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -120,28 +120,32 @@ jobs:
                               status(name,"PASS" if passed else "FAIL")
                               return passed
                           if name=="INSTALLED_T3_ROUTE":
-                              expected={"CREATE_OFFLINE","COLD_RESTART","LIFECYCLE_RESTORE"}
+                              expected={"CREATE_OFFLINE","NATIVE_DRAFT_SAVED","COLD_RESTART","NATIVE_DRAFT_REOPENED","LIFECYCLE_RESTORE"}
                               observed=re.findall(r"(?m)^INSTALLED_T3_ROUTE_PASS=([A-Z_]+)\s*$",report)
                               for value in observed:
                                   if value in expected:status("INSTALLED_T3_ROUTE_PASS",value)
-                              allowed={"WEBVIEW","OFFLINE","HOME","MORE","T3_SECTION","T3_OPEN","CATALOG","FIXTURE","CREATE_CONTROL","EMPTY_ORIGINAL_STORE","NEW_WORKSPACE","CONFIRM_CREATE","CREATED_ROUTE","CREATED_ID","CREATE_READBACK","CARD","COLD_READBACK","SOFT_DELETE","TRASH_READBACK","TRASH_PAGE","TRASH_ROW","RESTORE","RESTORE_READBACK","RETURN_HOME"}
+                              allowed={"WEBVIEW","OFFLINE","HOME","MORE","T3_SECTION","T3_OPEN","CATALOG","FIXTURE","CREATE_CONTROL","EMPTY_ORIGINAL_STORE","NEW_WORKSPACE","CONFIRM_CREATE","CREATED_ROUTE","CREATED_ID","CREATE_READBACK","CARD","COLD_READBACK","SOFT_DELETE","TRASH_READBACK","TRASH_PAGE","TRASH_ROW","RESTORE","RESTORE_READBACK","RETURN_HOME","MODEL_FIXTURE","MODEL_FIELD","NATIVE_LAUNCHER","NATIVE_PANEL","NATIVE_WORKSPACE_OPTION","NATIVE_WORKSPACE_SELECT","NATIVE_WORKSPACE_SELECTED","NATIVE_MODEL_OPTION","NATIVE_ACTIVATE","NATIVE_READY","NATIVE_GENERATE","NATIVE_GENERATED","NATIVE_EXPLICIT_SAVE","NATIVE_SAVE","NATIVE_SAVED","NATIVE_DRAFT_READBACK","NATIVE_DRAFT_ID","NATIVE_DRAFT_CONTENT","NATIVE_UNLOAD","NATIVE_UNLOADED","NATIVE_COLD_NO_MODEL","NATIVE_LIST","NATIVE_REOPEN","NATIVE_REOPENED"}
                               for value in re.findall(r"(?m)^INSTALLED_T3_FAILURE_STAGE=([A-Z_]+)\s*$",report):
                                   if value in allowed:status("INSTALLED_T3_FAILURE_STAGE",value)
-                              codes={"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","WORKSPACE_ID_REQUIRED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED"}
+                              codes={"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","WORKSPACE_ID_REQUIRED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED","DRAFT_RECEIPT_REQUIRED"}
                               for value in re.findall(r"(?m)^INSTALLED_T3_FAILURE_CODE=([A-Z_]+)\s*$",report):
                                   if value in codes:status("INSTALLED_T3_FAILURE_CODE",value)
                               passed=outcome.returncode==0 and sorted(observed)==sorted(expected) and re.search(r"(?m)^INSTALLED_T3_ROUTE=PASS\s*$",report) is not None
                               status(name,"PASS" if passed else "FAIL")
                               return passed
                           if name=="ORIGINAL_T3_BUILD":
-                              required={"ORIGINAL_KERNEL","ORIGINAL_BUILD","ONE_DIST"}
-                              observed=re.findall(r"(?m)^MOBILE_T3_(ORIGINAL_KERNEL|ORIGINAL_BUILD|ONE_DIST)=PASS\s*$",report)
+                              required={"ORIGINAL_KERNEL","NATIVE_MODULE_STAGE","ORIGINAL_BUILD","ONE_DIST"}
+                              observed=re.findall(r"(?m)^MOBILE_T3_(ORIGINAL_KERNEL|NATIVE_MODULE_STAGE|ORIGINAL_BUILD|ONE_DIST)=PASS\s*$",report)
                               for value in observed:status("MOBILE_T3_"+value,"PASS")
-                              codes={"OUTPUT_SCOPE","SOURCE_PIN","SOURCE_LOCK","KERNEL_ARCHIVE","KERNEL_PIN","KERNEL_ARCHIVE_MEMBERS","KERNEL_ARCHIVE_ENTRY","KERNEL_BYTES","NPM_REQUIRED","SOURCE_CHANGED","ORIGINAL_RECEIPT","DIST_ROOT","DIST_ENTRY","DIST_PATH","DIST_SIZE"}
+                              codes={"OUTPUT_SCOPE","SOURCE_PIN","SOURCE_LOCK","KERNEL_ARCHIVE","KERNEL_PIN","KERNEL_ARCHIVE_MEMBERS","KERNEL_ARCHIVE_ENTRY","KERNEL_BYTES","NPM_REQUIRED","SOURCE_CHANGED","ORIGINAL_RECEIPT","DIST_ROOT","DIST_ENTRY","DIST_PATH","DIST_SIZE","NATIVE_MODULE_REQUIRED","MODULE_STAGE_FAILED","DEPENDENCIES_FAILED","TYPECHECK_FAILED","ORIGINAL_BUILD_FAILED","ASSEMBLER_FAILED"}
                               for value in re.findall(r"\bMOBILE_T3_([A-Z_]+)\b",report):
                                   if value in codes:status("ORIGINAL_T3_FAILURE",value)
                               for value in re.findall(r"\bT3_AGENT_ONE_DIST_([A-Z_]+)\b",report):
                                   if value in {"PRODUCT_STAGE_INPUTS_REQUIRED","PRODUCT_STAGE_MUST_BE_FRESH_AND_OUTSIDE_SOURCE","OWNING_AGENT_PRODUCT_PROFILE_INVALID","ORIGINAL_T2_DOMAIN_VALIDATION_FAILED","ORIGINAL_QUALIFIED_ASSEMBLY_REQUIRED","IMMUTABLE_OUTPUT_OUTSIDE_SOURCE_REQUIRED","PRODUCT_INPUT_MODE_INVALID","ANDROID_ASSET_OWNING_PROFILE_REQUIRED"}:status("ORIGINAL_T3_ASSEMBLER_FAILURE",value)
+                              for value in re.findall(r"(?m)^MOBILE_T3_ASSEMBLER_CODE=((?:T3_AGENT_ONE_DIST_|T3_D1_DIST_|T2_QUALIFIED_KERNEL_STAGE_|T3_D5_MODULE_|T2_EXTERNAL_MODULE_|FACTORY2_WITNESS_|ERR_)[A-Z0-9_]{1,100})\s*$",report):
+                                  status("ORIGINAL_T3_ASSEMBLER_CODE",value)
+                              for value in re.findall(r"(?m)^MOBILE_T3_ASSEMBLER_TYPE=(TypeError|ReferenceError|SyntaxError|RangeError)\s*$",report):
+                                  status("ORIGINAL_T3_ASSEMBLER_TYPE",value)
                               passed=outcome.returncode==0 and sorted(observed)==sorted(required)
                               status(name,"PASS" if passed else "FAIL")
                               return passed
