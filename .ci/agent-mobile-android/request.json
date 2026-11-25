@@ -1,9 +1,9 @@
 {
-  "candidate": "8b8e1234d2c0be97bc7bd76b30f487cf26b6402d",
-  "tree": "c42e9ac85e6cb6928e13bc83efd83cc72d4e3c71",
-  "original_t3": "3c2530a62ed9d7d84ca40eea500fef161393424d",
-  "original_t3_tree": "4f027d7fcdf49ced2a2e42a7795a994e1b3e6c69",
-  "scope": "M08_9_ORIGINAL_NATIVE_CANCEL_RECOVERY_AND_RECEIPT",
-  "reason": "ONE_ACCUMULATED_QUALIFICATION_M08_6_TO_M08_9_AFTER_M08_5_PASS",
+  "candidate": "8915d68d9b5f9f15524696b185b07a2de2cedcf1",
+  "tree": "520f47c0d11e3e5023481244b3be8b325e9002eb",
+  "original_t3": "a341e76bdfa6ac59b4374dff9df797107e6c4e31",
+  "original_t3_tree": "b611dd96d89c4fdb287583c6b42f1e7ed1d4b364",
+  "scope": "M09_5_ORIGINAL_ANDROID_EXCHANGE_OFFLINE_ROUNDTRIP",
+  "reason": "ONE_MANUAL_QUALIFICATION_AFTER_M08_9_PASS",
   "physical": "NOT_RUN"
 }
