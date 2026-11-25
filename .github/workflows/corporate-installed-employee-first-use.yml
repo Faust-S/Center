@@ -133,7 +133,9 @@ jobs:
           foreach($file in @('private-t3/scripts/build-admin-center-d3-owner.ps1',
             'private-agent/tools/build_setup_core_windows_candidate.ps1',
             'private-agent/qualification/phase1/build_native_windows_setup_candidate.ps1',
-            'private-agent/tools/qualify_explorer_windows_phase1_package.ps1')){
+            'private-agent/tools/qualify_explorer_windows_phase1_package.ps1',
+            'publisher/tests/installed-publisher-center-corporate.ps1')){
+
             $tokens=$null;$errors=$null
             [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path,[ref]$tokens,[ref]$errors)
             if($errors.Count -ne 0){throw 'CORPORATE_INSTALLED_CANDIDATE_PACKAGING_PARSE_FAILED'}
@@ -145,6 +147,29 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'CORPORATE_INSTALLED_CANDIDATE_PYTHON_FAILED'}
           }finally{Pop-Location}
           Write-Host 'CORPORATE_INSTALLED_CANDIDATE_PACKAGING_PREFLIGHT=PASS'
+      - name: Check changed product contracts before native compilation
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-product-contracts-private.log'
+          foreach($suite in @(
+            @{dir='admin';files=@('tests/cen03-corporate-seats.test.mjs')},
+            @{dir='publisher';files=@('publisher/tests/corporate-offer-review.test.mjs','publisher/tests/corporate-license-request.test.mjs')}
+          )){
+            Push-Location $suite.dir
+            try{
+              $files=@($suite.files)
+              & node --test @files *> $log
+              $exit=$LASTEXITCODE
+              $raw=Get-Content -LiteralPath $log -Raw
+              foreach($m in [regex]::Matches($raw,'(?m)^# (tests|pass|fail|skipped) (\d{1,6})\s*$')){
+                Write-Host ('CORPORATE_CHANGED_CONTRACTS_'+$suite.dir.ToUpperInvariant()+'_'+$m.Groups[1].Value.ToUpperInvariant()+'='+$m.Groups[2].Value)
+              }
+              if($exit -ne 0){throw 'CORPORATE_INSTALLED_CHANGED_PRODUCT_CONTRACTS_FAILED'}
+            }finally{Pop-Location}
+          }
+          Write-Host 'CORPORATE_INSTALLED_CHANGED_PRODUCT_CONTRACTS=PASS'
       - name: Validate native employee witness receipt contract
         shell: pwsh
         run: |
@@ -219,6 +244,12 @@ jobs:
             if((& git rev-parse HEAD).Trim() -cne $env:AGENT_PIN){throw 'CORPORATE_AGENT_STARTUP_PIN_MISMATCH'}
             & python -m pip install pytest -r requirements.txt *> $log
             if($LASTEXITCODE -ne 0){throw 'CORPORATE_AGENT_STARTUP_TEST_ENV_FAILED'}
+            & python -m pytest -q tests/test_agent06_t3_setup_payload.py tests/test_setup_core_release.py *> $log
+            $packageExit=$LASTEXITCODE
+            $raw=Get-Content -LiteralPath $log -Raw
+            $packageCounts=@([regex]::Matches($raw,'\b\d+ (?:passed|failed|errors?|deselected|skipped)\b')|ForEach-Object {$_.Value}|Select-Object -Unique)
+            Write-Host ('CORPORATE_AGENT_CHANGED_PACKAGING_COUNTS='+($packageCounts -join ','))
+            if($packageExit -ne 0){throw 'CORPORATE_AGENT_CHANGED_PACKAGING_FAILED'}
             & python -m pytest -q tests/test_agent06_t3_installed_kernel_origin.py "--junitxml=$report" *> $log
             $exit=$LASTEXITCODE
             $raw=Get-Content -LiteralPath $log -Raw
