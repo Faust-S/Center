@@ -1,0 +1,61 @@
+# Owner-authorized public qualification, not a private Actions run.
+# Never publish the private source, reconstructed build, logs or ZIP.
+name: Original K036 canonical Event merge source and runtime candidate
+on:
+  push:
+    branches: ['work/2026-11-25-k036-canonical-event-merge-qualification']
+    paths: ['.github/workflows/k036-canonical-event-merge-qualification.yml','qualification/k036-canonical-event-merge/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: k036-canonical-event-merge-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  T2_PIN: '8b7ce05e248fa7aa3e95559de42e2988b84da403'
+  CORE_PIN: '6986195c2a7073bb9eeabaef822034e37cf2f4f9'
+jobs:
+  source-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_PIN }}
+          path: private-t2
+          persist-credentials: false
+          show-progress: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: ${{ env.CORE_PIN }}
+          path: public-one-core
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reproduce original collision and qualify source-built original successor
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & node qualification/k036-canonical-event-merge/run.mjs private-t2 public-one-core (Join-Path $env:RUNNER_TEMP 'iwxa-k036-canonical-event-merge')
+          if($LASTEXITCODE -ne 0){throw 'K036_ORIGINAL_CANDIDATE_QUALIFICATION_FAILED'}
+      - name: Remove disposable private checkout
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath private-t2 -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'iwxa-k036-canonical-event-merge') -Recurse -Force -ErrorAction SilentlyContinue
