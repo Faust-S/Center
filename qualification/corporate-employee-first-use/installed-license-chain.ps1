@@ -123,7 +123,9 @@ try{
  $agent=Start-App $agentExe $AgentRoot
  if((Open-Company $agent) -ceq 'ORGANIZATION'){
   Press $agent 'Вернуться к личной работе'
-  Wait-ExactText $agent 'Доступ подтверждён'
+  # Context selection may reopen the primary Workbench area. Use the same
+  # already qualified company navigation rather than assuming the old panel.
+  Need ((Open-Company $agent) -ceq 'PERSONAL') 'EMPLOYEE_LICENSE_CHAIN_PERSONAL_CONTEXT_NOT_OBSERVED'
  }
  # The first ACTIVE receipt was checked before real work. It may now have
  # expired legitimately while the other two installed products were working.
