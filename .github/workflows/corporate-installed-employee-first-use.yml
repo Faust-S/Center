@@ -559,8 +559,73 @@ jobs:
             Write-Host ('EMPLOYEE_INSTALLED_PROFILE_READBACK='+$m.Groups[1].Value)
           }
           $manifest=@(Get-Content -LiteralPath 'qualification/corporate-employee-first-use/required-receipts.json' -Raw|ConvertFrom-Json)
-          if($exit -ne 0 -or $raw -notmatch '(?m)^EMPLOYEE_INSTALLED_FIRST_USE=PASS checks=9\s*$' -or
-             $checks.Count -ne 9 -or @(Compare-Object -ReferenceObject $manifest -DifferenceObject $checks -CaseSensitive).Count -ne 0){
+          if($exit -ne 0 -or $raw -notmatch '(?m)^EMPLOYEE_INSTALLED_FIRST_USE=PASS checks=14\s* -or @(Compare-Object -ReferenceObject $manifest -DifferenceObject $checks -CaseSensitive).Count -ne 0){
+            $codes=@([regex]::Matches($raw,'(?<![A-Z0-9_])(?:EMPLOYEE_INSTALLED|CORPORATE_GUI|CORPORATE_SEAT)_[A-Z0-9_]{4,95}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
+            Write-Host ('EMPLOYEE_INSTALLED_CODES='+($codes -join ','))
+            throw 'EMPLOYEE_INSTALLED_FIRST_USE_HOLD'
+          }
+          Write-Host 'EMPLOYEE_INSTALLED_ORIGINAL_FIRST_USE=PASS'
+      - name: Assign original seat admit signed Task and accept actual Result in installed Agent
+        shell: pwsh
+        timeout-minutes: 45
+        env:
+          IWXA_T3_SYNTHETIC_PROVISION: CORPORATE_CENTER_CI_FIXTURE_ONLY
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-employee-licensed-private.log'
+          $witness=(Resolve-Path 'qualification/corporate-employee-first-use/installed-licensed.ps1').Path
+          $driver=(Resolve-Path 'publisher/tests/installed-publisher-center-corporate.ps1').Path
+          & pwsh.exe -NoLogo -NoProfile -STA -File $witness -CenterExe (Join-Path $env:CORPORATE_ADMIN_INSTALL 'iwxa-admin-center.exe') -AgentRoot $env:CORPORATE_EMPLOYEE_AGENT_ROOT -GuiDriver $driver *> $log
+          $exit=$LASTEXITCODE
+          $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+          $checks=@([regex]::Matches($raw,'(?m)^EMPLOYEE_LICENSED_CHECK=([A-Z0-9_]{4,80})\s*$')|ForEach-Object {$_.Groups[1].Value})
+          foreach($check in $checks){Write-Host ('EMPLOYEE_LICENSED_CHECK='+$check)}
+          foreach($m in [regex]::Matches($raw,'(?m)^EMPLOYEE_LICENSED_FAILURE_(STAGE|STEP|KIND)=([A-Z0-9_]{1,80})\s*$')){
+            Write-Host ('EMPLOYEE_LICENSED_FAILURE_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+          }
+          $manifest=@(Get-Content -LiteralPath 'qualification/corporate-employee-first-use/required-licensed-receipts.json' -Raw|ConvertFrom-Json)
+          if($exit -ne 0 -or $raw -notmatch '(?m)^EMPLOYEE_LICENSED_ADMISSION=PASS checks=9\s*$' -or
+             $raw -notmatch '(?m)^EMPLOYEE_LICENSED_RESULT_ACCEPTANCE=PASS checks=13\s*$' -or
+             $checks.Count -ne 13 -or @(Compare-Object -ReferenceObject $manifest -DifferenceObject $checks -CaseSensitive).Count -ne 0){
+            $codes=@([regex]::Matches($raw,'(?<![A-Z0-9_])(?:EMPLOYEE_INSTALLED|CORPORATE_GUI|CORPORATE_SEAT)_[A-Z0-9_]{4,95}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
+            Write-Host ('EMPLOYEE_LICENSED_CODES='+($codes -join ','))
+            throw 'EMPLOYEE_LICENSED_ADMISSION_HOLD'
+          }
+          Write-Host 'EMPLOYEE_LICENSED_ORIGINAL_ADMISSION_AND_COLD_RECOVERY=PASS'
+          Write-Host 'EMPLOYEE_LICENSED_ORIGINAL_HUMAN_RESULT_AND_COLD_READBACK=PASS'
+          Write-Host 'EMPLOYEE_LICENSED_RETURN_DELIVERY=NOT_RUN'
+      - name: Discard transient private sources packages and employee profile
+        if: always()
+        shell: pwsh
+        run: |
+          foreach($name in @('IWXA Personal','iwxa-admin-center','iwxa-publisher','iwxa-t3-product-owner','iwxa-t3-product-consumer')){
+            Get-Process -Name $name -ErrorAction SilentlyContinue|Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+          foreach($product in @('iwxa.admin-center','iwxa.personal-agent','iwxa.publisher')){
+            $key='HKCU:\Software\IWXA\SetupCore\Products\'+$product
+            $reg=Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
+            if($reg){
+              foreach($dir in @($reg.InstallLocation,$reg.DataLocation)){
+                if($dir -and [IO.Path]::IsPathFullyQualified([string]$dir)){Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue}
+              }
+            }
+            Remove-Item -LiteralPath $key -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          foreach($dir in @('private-t3','private-agent','admin','publisher','one-core','setup-core',
+             (Join-Path $env:RUNNER_TEMP 'corporate-original-k036'),
+             (Join-Path $env:RUNNER_TEMP 'corporate-agent-installed'),
+             (Join-Path $env:RUNNER_TEMP 'corporate-agent-release-cache'),
+             (Join-Path $env:RUNNER_TEMP 'corporate-publisher-setup'),
+             (Join-Path $env:RUNNER_TEMP 'iwxa-licensed-employee-handoff'))){
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Directory -Filter 'iwxa-employee-first-use-*' -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Directory -Filter 'iwxa-employee-licensed-*' -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'iwxa-corporate-witness-*' -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'corporate-installed-*-private.*' -ErrorAction SilentlyContinue|Remove-Item -Force -ErrorAction SilentlyContinue
+          Write-Host 'EMPLOYEE_INSTALLED_PRIVATE_CLEANUP=COMPLETE'
+ -or
+             $checks.Count -ne 14 -or @(Compare-Object -ReferenceObject $manifest -DifferenceObject $checks -CaseSensitive).Count -ne 0){
             $codes=@([regex]::Matches($raw,'(?<![A-Z0-9_])(?:EMPLOYEE_INSTALLED|CORPORATE_GUI|CORPORATE_SEAT)_[A-Z0-9_]{4,95}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
             Write-Host ('EMPLOYEE_INSTALLED_CODES='+($codes -join ','))
             throw 'EMPLOYEE_INSTALLED_FIRST_USE_HOLD'
