@@ -1,9 +1,9 @@
 {
-  "candidate": "159c906fed4f63930c0d8f57931808f474a95bf6",
-  "tree": "02d6c8ece588fa749a12b6fab35e0f90e8f76031",
-  "original_t3": "83416f405c8ea4c39591ae62e115d56b044611ab",
-  "original_t3_tree": "6c002bd6f6a65874c3a8de215074de21e754b8e0",
-  "scope": "M08_1_NATIVE_T3_D5_AND_CONNECTED_AGENT_ONE_APK",
-  "reason": "CONSOLIDATED_SOURCE_BUILD_INSTALLED_RESTART_LIFECYCLE",
+  "candidate": "09f741914b75ad8a1181afe685efeca3d723a552",
+  "tree": "c4f1355e576920d40699eabcc03d9966558b44c6",
+  "original_t3": "3c2530a62ed9d7d84ca40eea500fef161393424d",
+  "original_t3_tree": "4f027d7fcdf49ced2a2e42a7795a994e1b3e6c69",
+  "scope": "M08_4_NATIVE_T3_D5_VERSION_AND_WORKSPACE_ISOLATION",
+  "reason": "NEXT_CONSOLIDATED_CANDIDATE_AFTER_M08_1_RESULT",
   "physical": "NOT_RUN"
 }

@@ -15,10 +15,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: '159c906fed4f63930c0d8f57931808f474a95bf6'
-      PRIVATE_TREE: '02d6c8ece588fa749a12b6fab35e0f90e8f76031'
-      T3_PIN: '83416f405c8ea4c39591ae62e115d56b044611ab'
-      T3_TREE: '6c002bd6f6a65874c3a8de215074de21e754b8e0'
+      PRIVATE_PIN: '09f741914b75ad8a1181afe685efeca3d723a552'
+      PRIVATE_TREE: 'c4f1355e576920d40699eabcc03d9966558b44c6'
+      T3_PIN: '3c2530a62ed9d7d84ca40eea500fef161393424d'
+      T3_TREE: '4f027d7fcdf49ced2a2e42a7795a994e1b3e6c69'
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -146,6 +146,8 @@ jobs:
                                   status("ORIGINAL_T3_ASSEMBLER_CODE",value)
                               for value in re.findall(r"(?m)^MOBILE_T3_ASSEMBLER_TYPE=(TypeError|ReferenceError|SyntaxError|RangeError)\s*$",report):
                                   status("ORIGINAL_T3_ASSEMBLER_TYPE",value)
+                              for value in re.findall(r"(?m)^MOBILE_T3_TYPE_LOCATION=((?:NativeInferencePanel\.tsx|NativeInferenceLauncher\.tsx|native-t3-session\.d\.mts|index\.ts):\d{1,5}:\d{1,4}:TS\d{4,5})\s*$",report):
+                                  status("ORIGINAL_T3_TYPE_LOCATION",value)
                               passed=outcome.returncode==0 and sorted(observed)==sorted(required)
                               status(name,"PASS" if passed else "FAIL")
                               return passed
