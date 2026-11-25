@@ -16,7 +16,8 @@ param(
   [Parameter(Mandatory=$true)][switch]$DedicatedTestProfile,
   [switch]$QualifySeatProjection,
   [switch]$ResumeQualifiedCenterCI,
-  [switch]$PrepareLicensedEmployee
+  [switch]$PrepareLicensedEmployee,
+  [switch]$ContinueLicensedEmployeeLifecycle
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -41,6 +42,17 @@ if([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA'){
 # Center CI runner. The ordinary local/full witness is unchanged.
 $employeeHandoff=$null
 $employeeHandoffReady=$false
+$resumedEmployeePerson=''
+if($ContinueLicensedEmployeeLifecycle){
+  if(!$ResumeQualifiedCenterCI -or $PrepareLicensedEmployee -or !$env:RUNNER_TEMP -or
+     ![IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP)){
+    throw 'CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_DISPOSABLE_REQUIRED'
+  }
+  $employeeHandoff=Join-Path $env:RUNNER_TEMP 'iwxa-licensed-employee-handoff'
+  if(!(Test-Path -LiteralPath $employeeHandoff -PathType Container)){
+    throw 'CORPORATE_INSTALLED_EMPLOYEE_HANDOFF_MISSING'
+  }
+}
 if($PrepareLicensedEmployee){
   if(!$ResumeQualifiedCenterCI -or !$env:RUNNER_TEMP -or ![IO.Path]::IsPathFullyQualified($env:RUNNER_TEMP)){
     throw 'CORPORATE_INSTALLED_EMPLOYEE_PREPARATION_DISPOSABLE_REQUIRED'
@@ -101,8 +113,8 @@ $ownerRoot=Join-Path $publisherData 't3-owner-person'
 $consumerRoot=Join-Path $centerData 't3-consumer-test'
 $centerDraft=Join-Path $centerData 'atlas-store-v1/preparation/draft.json'
 $publisherDraft=Join-Path $publisherData 'publisher-preparation-v1.json'
-if((Test-Path -LiteralPath $publisherDraft) -or
-   (Test-Path -LiteralPath (Join-Path $consumerRoot 'corporate'))){
+if(!$ContinueLicensedEmployeeLifecycle -and ((Test-Path -LiteralPath $publisherDraft) -or
+   (Test-Path -LiteralPath (Join-Path $consumerRoot 'corporate')))){
   throw 'CORPORATE_INSTALLED_FRESH_DEDICATED_PROFILE_REQUIRED'
 }
 if($ResumeQualifiedCenterCI){
@@ -711,20 +723,28 @@ function Center-SeatProjection([bool]$first,[int]$seatLimit,[int]$employeeLimit)
   }
   # Exact accessible metric groups from the real Center seat view. No
   # similarly named draft metric or copied license data counts as evidence.
+  $reserved=if($ContinueLicensedEmployeeLifecycle){1}else{0}
+  $employees=if($ContinueLicensedEmployeeLifecycle){1}else{0}
   if($seatLimit -ge 0){
     Wait-Text $cen 'Подписанная лицензия актуальна' 240
-    Wait-ExactText $cen ('Зарезервированные места: 0 / '+$seatLimit)
-    Wait-ExactText $cen ('Зарегистрированные сотрудники: 0 / '+$employeeLimit)
-    Wait-ExactText $cen ('Свободно для назначения: '+$seatLimit)
+    Wait-ExactText $cen ('Зарезервированные места: '+$reserved+' / '+$seatLimit)
+    Wait-ExactText $cen ('Зарегистрированные сотрудники: '+$employees+' / '+$employeeLimit)
+    Wait-ExactText $cen ('Свободно для назначения: '+($seatLimit-$reserved))
   }else{
     Wait-Text $cen 'Нет действующей лицензии' 240
-    Wait-ExactText $cen 'Зарезервированные места: 0 / —'
+    Wait-ExactText $cen ('Зарезервированные места: '+$reserved+' / —')
     Wait-ExactText $cen 'Свободно для назначения: 0'
     if(Has-Text $cen 'Подписанная лицензия актуальна'){
       throw 'CORPORATE_SEAT_STALE_LICENSE_VISIBLE'
     }
   }
-  Wait-Text $cen 'Назначений нет.' 240
+  if($ContinueLicensedEmployeeLifecycle){
+    # Suspension/revocation of a commercial license must NOT silently delete
+    # the original independently signed seat grant or the employee's data.
+    Wait-ExactText $cen $resumedEmployeePerson
+    Wait-Text $cen 'Назначено' 240
+    if(Has-Text $cen 'Назначений нет.' $true){throw 'CORPORATE_SEAT_RESERVED_HISTORY_LOST'}
+  }else{Wait-Text $cen 'Назначений нет.' 240}
   # Receiving a license does not enroll an employee or assign a seat.
   Press $cen 'Personal Agent и лицензии' $true
   Wait-CenterOwnerReleased
@@ -1042,11 +1062,77 @@ function Verify-Center([string]$org,$proof,[int]$revision,[string]$storedSha,[in
 try{
   $caps=Read-Native $ownerPath @('corporate-capabilities',$ownerRoot)
   $initial=Read-Native $ownerPath @('corporate-inventory',$ownerRoot)
+  $expectedInitial=if($ContinueLicensedEmployeeLifecycle){1}else{0}
   if($caps.operation -ne 'CORPORATE_CAPABILITIES' -or $caps.environment -ne 'PRODUCTION' -or
      @($caps.issuers).Count -ne 1 -or $caps.issuers[0] -cne $IssuerAuthorityId -or
-     $initial.operation -ne 'CORPORATE_INVENTORY' -or $initial.total -ne 0){
+     $initial.operation -ne 'CORPORATE_INVENTORY' -or $initial.total -ne $expectedInitial){
     throw 'CORPORATE_INSTALLED_DISPOSABLE_ISSUER_NOT_READY_OR_LEDGER_NOT_EMPTY'
   }
+  if($ContinueLicensedEmployeeLifecycle){
+    Phase 'RESUME_EXACT_LICENSED_EMPLOYEE'
+    $prefixPath=Join-Path $employeeHandoff 'receipt.json'
+    $prefix=Get-Content -LiteralPath $prefixPath -Raw|ConvertFrom-Json
+    $completed=Get-Content -LiteralPath (Join-Path $employeeHandoff 'employee-lifecycle-ready.json') -Raw|ConvertFrom-Json
+    $priorTrust=Join-Path $employeeHandoff 'publisher-corporate-trust.json'
+    $priorActive=Join-Path $employeeHandoff 'corporate-active.iwxa'
+    $priorHandoff=Join-Path $employeeHandoff 'publisher-handoff.json'
+    if($prefix.schema -cne 'IWXA_DISPOSABLE_LICENSED_EMPLOYEE_HANDOFF/1' -or
+       $prefix.status -cne 'ACTIVE' -or $prefix.sequence -ne 1 -or
+       $prefix.recipientConfirmed -ne $true -or $prefix.productionActivation -ne $false -or
+       $prefix.employeeSeatAssigned -ne $false -or
+       $prefix.publisherSha256 -cne (Digest $publisherPath) -or $prefix.centerSha256 -cne (Digest $centerPath) -or
+       $prefix.ownerSha256 -cne (Digest $ownerPath) -or $prefix.consumerSha256 -cne (Digest $consumerPath) -or
+       $prefix.trustSha256 -cne (Digest $priorTrust) -or $prefix.packageSha256 -cne (Digest $priorActive) -or
+       $prefix.handoffSha256 -cne (Digest $priorHandoff) -or
+       $completed.schema -cne 'IWXA_DISPOSABLE_EMPLOYEE_LIFECYCLE_READY/1' -or
+       $completed.status -cne 'ORIGINAL_RETURN_DELIVERY_CONFIRMED' -or
+       $completed.checks -ne 18 -or $completed.originalHandoffSha256 -cne (Digest $prefixPath) -or
+       $completed.organizationId -cne $prefix.organizationId -or $completed.licenseId -cne $prefix.licenseId -or
+       $completed.employeePersonId -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$' -or
+       $completed.returnArchiveSha256 -cnotmatch '^[a-f0-9]{64}$'){
+      throw 'CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_HANDOFF_INVALID'
+    }
+    $org=[string]$prefix.organizationId
+    $id=[string]$prefix.licenseId
+    $resumedEmployeePerson=[string]$completed.employeePersonId
+    if($org -cne $prior.activeOrganizationId -or $org -cnotmatch '^[A-Za-z0-9_-]{7,100}$'){
+      throw 'CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_ORGANIZATION_INVALID'
+    }
+    if([DateTimeOffset]::Parse([string]$prefix.statusValidUntil) -le [DateTimeOffset]::UtcNow.AddMinutes(3)){
+      throw 'CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_ACTIVE_STATUS_EXPIRED'
+    }
+    [IO.File]::Copy($priorTrust,$trustFile,$false)
+    [IO.File]::Copy($priorActive,$activeFile,$false)
+    $trustSha=Digest $trustFile
+    $handoff=Get-Content -LiteralPath $priorHandoff -Raw
+    $h=$handoff|ConvertFrom-Json -Depth 20
+    $active=Owner-Read $id
+    $issued=$active
+    $request=[string]$active.requestId
+    if($active.organizationId -cne $org -or $active.issuerAuthorityId -cne $IssuerAuthorityId -or
+       $active.status -cne 'ACTIVE' -or $active.sequence -ne 1 -or
+       $active.statusValidUntil -cne $prefix.statusValidUntil -or $active.statusFloorVerified -ne $true -or
+       $h.licenseId -cne $id -or $h.organizationId -cne $org -or $h.requestId -cne $request -or
+       $h.status -cne 'ACTIVE' -or $h.sequence -ne 1 -or
+       $h.licenseEnvelopeSha256 -cne $active.licenseEnvelopeSha256 -or
+       $h.statusEnvelopeSha256 -cne $active.statusEnvelopeSha256 -or
+       $h.packageSha256 -cne (Digest $activeFile) -or $h.bytes -ne (Get-Item -LiteralPath $activeFile).Length){
+      throw 'CORPORATE_NATIVE_EMPLOYEE_LIFECYCLE_EXACT_ACTIVE_REQUIRED'
+    }
+    $prep=Wait-Preparation $publisherDraft {param($x) @($x.proposals).Count -eq 1}
+    if($prep.proposals[0].id -cne $request -or $prep.proposals[0].holderId -cne $org -or
+       $prep.proposals[0].tariffSnapshot.revision -ne 1){
+      throw 'CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_PREPARATION_CHANGED'
+    }
+    $null=Verify-Center $org $active 1 (Digest $activeFile)
+    $cen=Start-App $centerPath
+    Press $cen 'Personal Agent и лицензии'
+    Wait-CenterTariff 'TEAM' 1
+    Center-SeatProjection $false 2 10
+    $pub=Start-App $publisherPath
+    Wait-Text $pub 'Локально сохранено' 240
+    Write-Host 'CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_RESUMED=PASS'
+  }else{
   $cen=Start-App $centerPath
   if($ResumeQualifiedCenterCI){
     # Reuse the SAME already qualified installed organization and signed
@@ -1210,11 +1296,13 @@ try{
     if((Digest $trustOut) -cne $trustSha -or (Digest $licenseOut) -cne (Digest $activeFile)){
       throw 'CORPORATE_INSTALLED_EMPLOYEE_HANDOFF_BYTES_CHANGED'
     }
+    $handoffOut=Join-Path $employeeHandoff 'publisher-handoff.json'
+    [IO.File]::WriteAllText($handoffOut,$handoff,([Text.UTF8Encoding]::new($false)))
     [ordered]@{
       schema='IWXA_DISPOSABLE_LICENSED_EMPLOYEE_HANDOFF/1'
       organizationId=$org;licenseId=$id;status='ACTIVE';sequence=1
       statusValidUntil=$active.statusValidUntil
-      trustSha256=$trustSha;packageSha256=(Digest $licenseOut)
+      trustSha256=$trustSha;packageSha256=(Digest $licenseOut);handoffSha256=(Digest $handoffOut)
       publisherSha256=(Digest $publisherPath);centerSha256=(Digest $centerPath)
       ownerSha256=(Digest $ownerPath);consumerSha256=(Digest $consumerPath)
       recipientConfirmed=$true;employeeSeatAssigned=$false;productionActivation=$false
@@ -1222,6 +1310,7 @@ try{
     $employeeHandoffReady=$true
     Write-Host 'CORPORATE_LICENSED_EMPLOYEE_PREPARATION=PASS checks=9'
     return
+  }
   }
   Phase 'CENTER_IDENTICAL_REPLAY'
   Center-Receive $handoff $activeFile
@@ -1484,14 +1573,17 @@ try{
     originalWindowsDpapi=$true
     commercialAuthorityProven=$false
     originalSeatProjectionQualified=[bool]$QualifySeatProjection
-    employeeSeatAssignmentsQualified=$false
+    employeeSeatAssignmentsQualified=[bool]$ContinueLicensedEmployeeLifecycle
     holderApplied=$false
     activeSeats=0
     assignablePersonalAgentSeats=0
     productionActivation=$false
   }
   $report|ConvertTo-Json -Depth 8|Set-Content -LiteralPath (Join-Path $artifact 'result.json') -Encoding UTF8
-  if($ResumeQualifiedCenterCI){
+  if($ContinueLicensedEmployeeLifecycle){
+    if($checks.Count -ne 15){throw 'CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_RECEIPTS_INCOMPLETE'}
+    Write-Host "CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_PASS checks=$($checks.Count)"
+  }elseif($ResumeQualifiedCenterCI){
     Write-Host "CORPORATE_TWO_INSTALLED_NATIVE_PASS checks=$($checks.Count)"
   }else{
     Write-Host "CORPORATE_TWO_INSTALLED_NATIVE_PASS checks=$($checks.Count) localEvidence=$artifact"
