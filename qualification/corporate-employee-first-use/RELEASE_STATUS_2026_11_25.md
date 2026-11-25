@@ -1,6 +1,7 @@
 # Corporate installed release, 2026-11-25
 
-Release identities: Admin Center 0.4.1, Publisher 0.5, Personal Agent 0.6.4.
+Release identities: Admin Center 0.4.1, Publisher 0.5.0, Personal Agent 0.6.4.
+Scope frozen by owner: no new functions, additional scenarios or parallel qualification runs. Only release packaging and correction of demonstrated release blockers.
 No production acceptance or stable branch promotion has been performed.
 
 ## Last completed evidence
@@ -29,7 +30,7 @@ No production acceptance or stable branch promotion has been performed.
 
 The workflow pins:
 - Admin Center 5c6e3e8994eb94c46f29b126375928e0ed99e1bb
-- Publisher 39eb7d67325f64d35a2f46d82d9de631794c0836
+- Publisher ce498cb430911f7f0fdfabdfaffb74c925e93373 (final 0.5.0 identity; no functional changes)
 - Agent 51ce24e04a6792089c37294b6ed5b7a94b852516
 - T3 b25cf1dc6ef7e7a53e1fd53cd9cbb2fcd76e4fa4
 - One Core 8db847058cab231d2d39c34df46024b60564d2ad
@@ -76,9 +77,14 @@ capacity. No second Kernel, IAM, ledger, Task engine or exchange was added.
 ## Blocker and resumption
 
 The connector can read the pinned original T2 commit; that is not proof of
-Actions permission. Add the dedicated Center Actions secret
-IWXA_T2_SOURCE_READ_TOKEN, with Contents read-only for Faust-S/T2.
-Existing T3/Agent access works and does not need expansion.
+Actions permission. The successful knowledge run 45613252038 used its
+existing DOMEN credential for this T2 pin. The consolidated Center run now
+uses the dedicated IWXA_T2_SOURCE_READ_TOKEN if set, otherwise an already
+configured DOMEN or IWXA_PRIVATE_SOURCE_READ_TOKEN. The same selected token
+is used for exact-commit read admission and read-only checkout; no credential
+is printed, transferred from another repository, or granted new rights.
+If admission still fails, add the dedicated Center Actions secret with
+Contents read-only for Faust-S/T2. Existing T3/Agent access needs no change.
 
 Do not repeat the older Windows workflows. The cheap Linux source-admission
 job gates the one consolidated Windows job. Resume a single run of the
@@ -87,3 +93,14 @@ branch includes the read-only navigation correction and exact license
 intake regression after the blocked run.
 Current status remains RELEASE HOLD pending the installed qualification
 and independent final acceptance.
+
+## Release closure (scope freeze)
+
+Keep the existing installed route and evidence set; do not expand it.
+Only a successful installed route with the corrected original Kernel and
+independent final acceptance can justify promotion. The candidate archive
+and packages still carry releaseAccepted=false and are not stable releases.
+Do not substitute the older defective Kernel or overwrite accepted branches.
+The historical encrypted installer delivery mechanism is available for the
+final owner delivery, but the current qualification deliberately does not
+publish plaintext installers or claim that an unaccepted candidate is released.

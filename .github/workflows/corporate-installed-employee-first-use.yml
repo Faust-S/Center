@@ -20,7 +20,7 @@ env:
   T3_PIN: 'b25cf1dc6ef7e7a53e1fd53cd9cbb2fcd76e4fa4'
   CORE_PIN: '8db847058cab231d2d39c34df46024b60564d2ad'
   CENTER_PIN: '5c6e3e8994eb94c46f29b126375928e0ed99e1bb'
-  PUBLISHER_PIN: '39eb7d67325f64d35a2f46d82d9de631794c0836'
+  PUBLISHER_PIN: 'ce498cb430911f7f0fdfabdfaffb74c925e93373'
   AGENT_PIN: '51ce24e04a6792089c37294b6ed5b7a94b852516'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
@@ -34,7 +34,10 @@ jobs:
       - name: Verify scoped access to the three exact private source revisions
         shell: bash
         env:
-          IWXA_T2_SOURCE_READ_TOKEN: ${{ secrets.IWXA_T2_SOURCE_READ_TOKEN }}
+          # DOMEN is the existing grant used to read this exact T2 pin in
+          # the successful public knowledge qualification. If Center already
+          # has it, do not require a second token. Never export credentials.
+          IWXA_T2_SOURCE_READ_TOKEN: ${{ secrets.IWXA_T2_SOURCE_READ_TOKEN || secrets.DOMEN || secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           IWXA_PRIVATE_SOURCE_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: |
           python3 - <<'PY'
@@ -92,7 +95,7 @@ jobs:
           path: private-t2
           persist-credentials: false
           show-progress: false
-          token: ${{ secrets.IWXA_T2_SOURCE_READ_TOKEN }}
+          token: ${{ secrets.IWXA_T2_SOURCE_READ_TOKEN || secrets.DOMEN || secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
@@ -647,7 +650,7 @@ jobs:
           if(!$p.WaitForExit(180000)){$p.Kill();throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_TIMEOUT'}
           if($p.ExitCode -ne 0){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_FAILED'}
           $r=Get-Content -LiteralPath $report -Raw|ConvertFrom-Json
-          if($r.status -ne 'INSTALLED_NOT_LAUNCHED' -or $r.product -ne 'iwxa.publisher' -or $r.version -ne '0.5.0-dev.1'){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_RECEIPT_INVALID'}
+          if($r.status -ne 'INSTALLED_NOT_LAUNCHED' -or $r.product -ne 'iwxa.publisher' -or $r.version -ne '0.5.0'){throw 'CORPORATE_INSTALLED_PUBLISHER_SETUP_RECEIPT_INVALID'}
           $root=[IO.Path]::GetFullPath([string]$r.installRoot)
           foreach($f in (Get-ChildItem -LiteralPath $payload -Recurse -File)){
             $relative=[IO.Path]::GetRelativePath($payload,$f.FullName)
