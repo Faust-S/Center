@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     env:
-      PRIVATE_PIN: '1f586e1a667005bffc1c7af6bf6536da05b605a6'
-      PRIVATE_TREE: 'afb45df07ff7df06181611bd6f69a2ba66bffd01'
+      PRIVATE_PIN: '830820eae6247b00305b5f60480d30430b85fc0d'
+      PRIVATE_TREE: '6ffe2c0be4888d9c535df3e3b5f845380c7d29ea'
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -77,21 +77,73 @@ jobs:
                       else:status("LOCK_STATUS","SOURCE_LOCK")
                       status("LOCK_SHA256",hashlib.sha256((mobile/"package-lock.json").read_bytes()).hexdigest())
                       if not stage("NPM_CI",["npm","ci","--no-audit","--no-fund"],mobile,600):return 1
-                      sdk=shutil.which("sdkmanager",path=env["PATH"])
-                      avd=shutil.which("avdmanager",path=env["PATH"])
-                      android=pathlib.Path(env["ANDROID_HOME"])
-                      if not sdk or not avd or not pathlib.Path("/dev/kvm").exists():
-                          status("ANDROID_HOST","SDK_OR_KVM_UNAVAILABLE");return 1
-                      if not stage("KVM",["sudo","chmod","a+rw","/dev/kvm"]):return 1
+                      # Build first: emulator/KVM availability cannot suppress source or APK checks.
+                      def report_stage(name,args,cwd,timeout):
+                          try:outcome=run(args,cwd,timeout=timeout)
+                          except subprocess.TimeoutExpired:
+                              status(name,"TIMEOUT");return False
+                          report=outcome.stdout.decode("utf-8",errors="replace")
+                          for label in ["tests","pass","fail","skipped"]:
+                              matches=re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report)
+                              if matches:status("NODE_"+label.upper(),matches[-1])
+                          for marker,label in [("PASS: 26 routes","PROTOTYPE"),("QA_MODEL_VERIFIED","QA_MODEL"),("ANDROID_SOURCE_PREPARED","ANDROID_PREPARED"),("DEBUG_APK_BUILT","APK"),("INSTALLED_INSTRUMENTATION_PASS","INSTALLED")]:
+                              if marker in report:status(label,"PASS")
+                          if outcome.returncode:
+                              for kind,pattern in [
+                                  ("SDK_OR_NDK","SDK location|NDK.*not found|CMake.*not found"),
+                                  ("LLAMA_AAR","LLAMA_PREPARE_FAILED|LLAMA_AAR_REQUIRED"),
+                                  ("QA_MODEL","QA_MODEL_"),
+                                  ("KOTLIN_COMPILE",r"(?m)^e: .*\.kt:"),
+                                  ("JAVA_COMPILE",r"(?m)^.*\.java:\d+: error:"),
+                                  ("GRADLE","BUILD FAILED"),
+                                  ("DEVICE","INSTALLED_ROUTE_TIMEOUT|NATIVE_BROWSER_CLOSE_NOT_FOUND"),
+                              ]:
+                                  if re.search(pattern,report,re.IGNORECASE):status("FAILURE_CLASS",kind)
+                          status(name,"PASS" if outcome.returncode==0 else "FAIL")
+                          return outcome.returncode==0
+                      android=pathlib.Path(env.get("ANDROID_HOME") or env.get("ANDROID_SDK_ROOT") or "/usr/local/lib/android/sdk")
+                      env["ANDROID_HOME"]=str(android)
+                      env["ANDROID_SDK_ROOT"]=str(android)
+                      def android_tool(name):
+                          candidates=[android/"cmdline-tools/latest/bin"/name,*sorted(android.glob("cmdline-tools/*/bin/"+name),reverse=True),android/"tools/bin"/name]
+                          result=shutil.which(name,path=env["PATH"])
+                          if result:return result
+                          return next((str(p) for p in candidates if p.is_file() and os.access(p,os.X_OK)),None)
+                      sdk=android_tool("sdkmanager")
+                      avd=android_tool("avdmanager")
+                      status("SDK_ROOT","PRESENT" if android.is_dir() else "MISSING")
+                      status("SDKMANAGER","PRESENT" if sdk else "MISSING")
+                      status("AVDMANAGER","PRESENT" if avd else "MISSING")
+                      status("KVM_DEVICE","PRESENT" if pathlib.Path("/dev/kvm").exists() else "MISSING")
+                      if not sdk:
+                          # Keep source coverage even if image provisioning fails.
+                          report_stage("SOURCE",["npm","run","check:source"],mobile,120)
+                          status("APK","NOT_RUN");return 1
+                      if not stage("SDK_BUILD_INPUTS",[sdk,"--install","--channel=3","platforms;android-36","build-tools;36.0.0","ndk;"+native["ndk"],"cmake;"+native["cmake"]],timeout=1200,stdin=b"y\n"*100):
+                          report_stage("SOURCE",["npm","run","check:source"],mobile,120)
+                          status("APK","NOT_RUN");return 1
+                      if not report_stage("ASSEMBLY",["npm","run","qualify:release","--","--assemble-device","--fetch-public-inputs"],mobile,3600):
+                          status("INSTALLED","NOT_RUN");return 1
+                      if not avd:
+                          status("ANDROID_EMULATOR","AVDMANAGER_MISSING");return 1
                       image="system-images;android-35;google_apis;x86_64"
-                      if not stage("SDK_INPUTS",[sdk,"--channel=3","platforms;android-36","build-tools;36.0.0","ndk;"+native["ndk"],"cmake;"+native["cmake"],"emulator",image],timeout=1200,stdin=b"y\n"*100):return 1
+                      if not stage("SDK_EMULATOR_INPUTS",[sdk,"--install","emulator",image],timeout=900,stdin=b"y\n"*100):return 1
+                      if not pathlib.Path("/dev/kvm").exists():
+                          # Standard kernel virtualization is optional for assembly.
+                          # Probe it only after APK has already been built.
+                          run(["sudo","modprobe","kvm"],timeout=20)
+                          run(["sudo","modprobe","kvm_intel"],timeout=20)
+                      accelerated=pathlib.Path("/dev/kvm").exists()
+                      if accelerated:
+                          accelerated=stage("KVM",["sudo","chmod","a+rw","/dev/kvm"])
+                      status("EMULATOR_ACCELERATION","KVM" if accelerated else "SOFTWARE")
                       pathlib.Path(env["ANDROID_AVD_HOME"]).mkdir(parents=True,exist_ok=True)
                       pathlib.Path(env["ANDROID_EMULATOR_HOME"]).mkdir(parents=True,exist_ok=True)
                       if not stage("AVD_CREATE",[avd,"create","avd","-n","iwxa_mobile_ci","-k",image,"--force"],stdin=b"no\n"):return 1
                       adb=str(android/"platform-tools/adb")
                       with (root/"emulator.log").open("wb") as elog:
-                          emulator=subprocess.Popen([str(android/"emulator/emulator"),"-avd","iwxa_mobile_ci","-no-window","-no-audio","-no-boot-anim","-no-snapshot","-gpu","swiftshader_indirect","-accel","on","-memory","4096"],env=env,stdout=elog,stderr=subprocess.STDOUT)
-                          deadline=time.monotonic()+240
+                          emulator=subprocess.Popen([str(android/"emulator/emulator"),"-avd","iwxa_mobile_ci","-no-window","-no-audio","-no-boot-anim","-no-snapshot","-gpu","swiftshader_indirect","-accel","on" if accelerated else "off","-memory","4096"],env=env,stdout=elog,stderr=subprocess.STDOUT)
+                          deadline=time.monotonic()+(300 if accelerated else 600)
                           booted=False
                           while time.monotonic()<deadline and emulator.poll() is None:
                               try:
@@ -106,32 +158,26 @@ jobs:
                           for setting in ["window_animation_scale","transition_animation_scale","animator_duration_scale"]:
                               run([adb,"shell","settings","put","global",setting,"0"],timeout=15)
                           run([adb,"shell","input","keyevent","82"],timeout=15)
-                          # Keep build/test stdout and private sources in the disposable runner.
-                          # Print only fixed statuses, aggregate counts and public content hashes.
-                          try:
-                              outcome=run(["npm","run","qualify:release","--","--device","--fetch-public-inputs"],mobile,timeout=4200)
-                          except subprocess.TimeoutExpired:
-                              status("QUALIFICATION","TIMEOUT");return 1
-                          report=outcome.stdout.decode("utf-8",errors="replace")
-                          for label in ["tests","pass","fail","skipped"]:
-                              matches=re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report)
-                              if matches:status("NODE_"+label.upper(),matches[-1])
-                          for marker in ["PASS: 26 routes","QA_MODEL_VERIFIED","ANDROID_SOURCE_PREPARED","DEBUG_APK_BUILT","INSTALLED_INSTRUMENTATION_PASS"]:
-                              status(marker.split(":")[0].split(" ")[0],"PASS" if marker in report else "NOT_CONFIRMED")
-                          if outcome.returncode:
-                              for kind,pattern in [
-                                  ("SDK_OR_NDK","SDK location|NDK.*not found|CMake.*not found"),
-                                  ("LLAMA_AAR","LLAMA_PREPARE_FAILED|LLAMA_AAR_REQUIRED"),
-                                  ("QA_MODEL","QA_MODEL_"),
-                                  ("KOTLIN_COMPILE","(?m)^e: .*\\.kt:"),
-                                  ("JAVA_COMPILE","(?m)^.*\\.java:\\d+: error:"),
-                                  ("GRADLE","BUILD FAILED"),
-                                  ("DEVICE","INSTALLED_ROUTE_TIMEOUT|NATIVE_BROWSER_CLOSE_NOT_FOUND"),
-                              ]:
-                                  if re.search(pattern,report,re.IGNORECASE):status("FAILURE_CLASS",kind)
-                          status("QUALIFICATION","PASS" if outcome.returncode==0 else "FAIL")
+                          # Same checkout and APK inputs; no repeated source suite.
+                          if not report_stage("DEVICE_EXECUTION",["npm","run","qualify:release","--","--installed-only"],mobile,1200):
+                              status("QUALIFICATION","FAIL");return 1
+                          import xml.etree.ElementTree as ET
+                          result_dir=mobile/"android/app/build/outputs/androidTest-results/connected"
+                          count=failures=errors=skipped=0
+                          for xml in result_dir.rglob("TEST-*.xml"):
+                              rootxml=ET.parse(xml).getroot()
+                              for case in rootxml.iter("testcase"):
+                                  count+=1
+                                  failures+=int(case.find("failure") is not None)
+                                  errors+=int(case.find("error") is not None)
+                                  skipped+=int(case.find("skipped") is not None)
+                          status("ANDROID_TESTS",count)
+                          status("ANDROID_FAILURES",failures+errors)
+                          status("ANDROID_SKIPPED",skipped)
+                          passed=count==3 and not failures and not errors and not skipped
+                          status("QUALIFICATION","PASS" if passed else "FAIL")
                           status("PHYSICAL_ARM64","NOT_RUN")
-                          return 0 if outcome.returncode==0 else 1
+                          return 0 if passed else 1
                   finally:
                       if emulator is not None:
                           emulator.terminate()
@@ -141,6 +187,6 @@ jobs:
               result=main()
           except (OSError,ValueError,KeyError,subprocess.TimeoutExpired) as e:
               status("HOST_ERROR",type(e).__name__);result=1
-          status("TEMP_CHECKOUT","REMOVED")
+          status("RUNNER_CLEANUP","CHECKOUT_SCOPE_EXITED")
           sys.exit(result)
           PY
