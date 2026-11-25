@@ -1,0 +1,146 @@
+name: IWXA Android consolidated qualification
+on:
+  push:
+    branches:
+      - work/2026-11-25-agent-mobile-android-qualification
+    paths:
+      - .ci/agent-mobile-android/request.json
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-agent-mobile-android-qualification
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    env:
+      PRIVATE_PIN: '1f586e1a667005bffc1c7af6bf6536da05b605a6'
+      PRIVATE_TREE: 'afb45df07ff7df06181611bd6f69a2ba66bffd01'
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: One private source, Android build and installed emulator contour
+        shell: bash
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
+          def status(name, value):
+              print(name+"="+str(value),flush=True)
+          def main():
+              token=os.environ.pop("IWXA_TEMP_READ_TOKEN","")
+              pin=os.environ["PRIVATE_PIN"]
+              tree=os.environ["PRIVATE_TREE"]
+              if not token or not re.fullmatch(r"[0-9a-f]{40}",pin) or not re.fullmatch(r"[0-9a-f]{40}",tree):
+                  status("PRIVATE_READ","TOKEN_OR_PIN_UNAVAILABLE");return 1
+              with tempfile.TemporaryDirectory(prefix="iwxa-android-",dir=os.environ["RUNNER_TEMP"]) as temporary:
+                  root=pathlib.Path(temporary)
+                  source=root/"source";source.mkdir()
+                  env=dict(os.environ)
+                  env.update({"GIT_TERMINAL_PROMPT":"0","GIT_LFS_SKIP_SMUDGE":"1","GRADLE_USER_HOME":str(root/"gradle"),"npm_config_cache":str(root/"npm-cache"),"ANDROID_AVD_HOME":str(root/"avd"),"ANDROID_EMULATOR_HOME":str(root/"emulator-home")})
+                  if env.get("JAVA_HOME_21_X64"):
+                      env["JAVA_HOME"]=env["JAVA_HOME_21_X64"]
+                      env["PATH"]=str(pathlib.Path(env["JAVA_HOME"])/"bin")+os.pathsep+env["PATH"]
+                  emulator=None
+                  def run(args,cwd=source,custom=None,timeout=600,stdin=None):
+                      return subprocess.run(args,cwd=cwd,env=custom or env,input=stdin,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=timeout)
+                  def stage(label,args,cwd=source,timeout=600,stdin=None):
+                      try:
+                          p=run(args,cwd,timeout=timeout,stdin=stdin)
+                      except subprocess.TimeoutExpired:
+                          status(label,"TIMEOUT");return False
+                      status(label,"PASS" if p.returncode==0 else "FAIL")
+                      return p.returncode==0
+                  try:
+                      if run(["git","init","-q"]).returncode:return 1
+                      auth=dict(env)
+                      auth.update({"GIT_CONFIG_COUNT":"1","GIT_CONFIG_KEY_0":"http.https://github.com/.extraheader","GIT_CONFIG_VALUE_0":"AUTHORIZATION: basic "+base64.b64encode(("x-access-token:"+token).encode()).decode()})
+                      fetched=run(["git","fetch","--no-tags","--depth","1","https://github.com/Faust-S/iwxa-personal-agent.git",pin],custom=auth,timeout=180)
+                      del auth,token
+                      if fetched.returncode or run(["git","checkout","--detach","-q",pin]).returncode:
+                          status("PRIVATE_READ","FETCH_FAIL");return 1
+                      if run(["git","rev-parse","HEAD"]).stdout.decode().strip()!=pin or run(["git","rev-parse","HEAD^{tree}"]).stdout.decode().strip()!=tree:
+                          status("PRIVATE_READ","PIN_MISMATCH");return 1
+                      status("PRIVATE_READ","PASS");status("SOURCE_PIN",pin)
+                      mobile=source/"mobile"
+                      native=json.loads((mobile/"native/llama-source.json").read_text())
+                      if native.get("revision")!="5220a2d4040aa75f52678ebf52d77a0fba85de9f":
+                          status("LLAMA_PIN","FAIL");return 1
+                      # Bootstrap a lock only when absent. This run is not a locked
+                      # release until the generated lock is separately admitted.
+                      if not (mobile/"package-lock.json").exists():
+                          if not stage("NPM_LOCK_BOOTSTRAP",["npm","install","--package-lock-only","--ignore-scripts","--no-audit","--no-fund"],mobile,600):return 1
+                          status("LOCK_STATUS","BOOTSTRAP_ONLY")
+                      else:status("LOCK_STATUS","SOURCE_LOCK")
+                      status("LOCK_SHA256",hashlib.sha256((mobile/"package-lock.json").read_bytes()).hexdigest())
+                      if not stage("NPM_CI",["npm","ci","--no-audit","--no-fund"],mobile,600):return 1
+                      sdk=shutil.which("sdkmanager",path=env["PATH"])
+                      avd=shutil.which("avdmanager",path=env["PATH"])
+                      android=pathlib.Path(env["ANDROID_HOME"])
+                      if not sdk or not avd or not pathlib.Path("/dev/kvm").exists():
+                          status("ANDROID_HOST","SDK_OR_KVM_UNAVAILABLE");return 1
+                      if not stage("KVM",["sudo","chmod","a+rw","/dev/kvm"]):return 1
+                      image="system-images;android-35;google_apis;x86_64"
+                      if not stage("SDK_INPUTS",[sdk,"--channel=3","platforms;android-36","build-tools;36.0.0","ndk;"+native["ndk"],"cmake;"+native["cmake"],"emulator",image],timeout=1200,stdin=b"y\n"*100):return 1
+                      pathlib.Path(env["ANDROID_AVD_HOME"]).mkdir(parents=True,exist_ok=True)
+                      pathlib.Path(env["ANDROID_EMULATOR_HOME"]).mkdir(parents=True,exist_ok=True)
+                      if not stage("AVD_CREATE",[avd,"create","avd","-n","iwxa_mobile_ci","-k",image,"--force"],stdin=b"no\n"):return 1
+                      adb=str(android/"platform-tools/adb")
+                      with (root/"emulator.log").open("wb") as elog:
+                          emulator=subprocess.Popen([str(android/"emulator/emulator"),"-avd","iwxa_mobile_ci","-no-window","-no-audio","-no-boot-anim","-no-snapshot","-gpu","swiftshader_indirect","-accel","on","-memory","4096"],env=env,stdout=elog,stderr=subprocess.STDOUT)
+                          deadline=time.monotonic()+240
+                          booted=False
+                          while time.monotonic()<deadline and emulator.poll() is None:
+                              try:
+                                  p=run([adb,"shell","getprop","sys.boot_completed"],timeout=10)
+                                  if p.returncode==0 and p.stdout.strip()==b"1":
+                                      booted=True;break
+                              except subprocess.TimeoutExpired:pass
+                              time.sleep(5)
+                          if not booted:
+                              status("ANDROID_EMULATOR","BOOT_FAIL");return 1
+                          status("ANDROID_EMULATOR","PASS")
+                          for setting in ["window_animation_scale","transition_animation_scale","animator_duration_scale"]:
+                              run([adb,"shell","settings","put","global",setting,"0"],timeout=15)
+                          run([adb,"shell","input","keyevent","82"],timeout=15)
+                          # Keep build/test stdout and private sources in the disposable runner.
+                          # Print only fixed statuses, aggregate counts and public content hashes.
+                          try:
+                              outcome=run(["npm","run","qualify:release","--","--device","--fetch-public-inputs"],mobile,timeout=4200)
+                          except subprocess.TimeoutExpired:
+                              status("QUALIFICATION","TIMEOUT");return 1
+                          report=outcome.stdout.decode("utf-8",errors="replace")
+                          for label in ["tests","pass","fail","skipped"]:
+                              matches=re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report)
+                              if matches:status("NODE_"+label.upper(),matches[-1])
+                          for marker in ["PASS: 26 routes","QA_MODEL_VERIFIED","ANDROID_SOURCE_PREPARED","DEBUG_APK_BUILT","INSTALLED_INSTRUMENTATION_PASS"]:
+                              status(marker.split(":")[0].split(" ")[0],"PASS" if marker in report else "NOT_CONFIRMED")
+                          if outcome.returncode:
+                              for kind,pattern in [
+                                  ("SDK_OR_NDK","SDK location|NDK.*not found|CMake.*not found"),
+                                  ("LLAMA_AAR","LLAMA_PREPARE_FAILED|LLAMA_AAR_REQUIRED"),
+                                  ("QA_MODEL","QA_MODEL_"),
+                                  ("KOTLIN_COMPILE","(?m)^e: .*\\.kt:"),
+                                  ("JAVA_COMPILE","(?m)^.*\\.java:\\d+: error:"),
+                                  ("GRADLE","BUILD FAILED"),
+                                  ("DEVICE","INSTALLED_ROUTE_TIMEOUT|NATIVE_BROWSER_CLOSE_NOT_FOUND"),
+                              ]:
+                                  if re.search(pattern,report,re.IGNORECASE):status("FAILURE_CLASS",kind)
+                          status("QUALIFICATION","PASS" if outcome.returncode==0 else "FAIL")
+                          status("PHYSICAL_ARM64","NOT_RUN")
+                          return 0 if outcome.returncode==0 else 1
+                  finally:
+                      if emulator is not None:
+                          emulator.terminate()
+                          try:emulator.wait(timeout=20)
+                          except subprocess.TimeoutExpired:emulator.kill();emulator.wait()
+          try:
+              result=main()
+          except (OSError,ValueError,KeyError,subprocess.TimeoutExpired) as e:
+              status("HOST_ERROR",type(e).__name__);result=1
+          status("TEMP_CHECKOUT","REMOVED")
+          sys.exit(result)
+          PY
