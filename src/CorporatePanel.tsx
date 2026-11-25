@@ -18,6 +18,12 @@ const why=(e:unknown)=>{
    return 'Получение не подтверждено хранилищем организации. Обновите список Result и проверьте журнал перед повторной передачей файла.';
  if(/CEN_D3_KERNEL_COMMIT_OUTCOME_UNKNOWN|CEN_D3_KERNEL_RECOVERY_READBACK_INVALID|T3_D3_KERNEL_WRITE_MAY_HAVE_COMMITTED|CEN_D3_APPLY_RECOVERY_NOT_CONNECTED|CEN_D3_PREVIOUS_APPLY_REQUIRED_FOR_RECOVERY/.test(message))
    return 'Kernel Apply не подтверждён. Не отправляйте Apply повторно: после подключения исходного владельца используйте «Проверить Kernel без повторного Apply».';
+ if(message.includes('CEN_D3_EMPLOYEE_TASK_DATA_HUMAN_CANCELLED'))
+   return 'Выдача адресного права на поручение отменена до записи. Можно подтвердить выдачу заново.';
+ if(/T3_D3_EMPLOYEE_TASK_DATA_OUTCOME_UNKNOWN|CEN_D3_EMPLOYEE_TASK_DATA_UNKNOWN_READBACK_REQUIRED/.test(message))
+   return 'Выдача адресного права на поручение не подтверждена. Не выдавайте право повторно: перечитайте исходный DATA-грант.';
+ if(/CEN_D3_EMPLOYEE_TASK_DATA_READBACK_HOLD|CEN_D3_EMPLOYEE_TASK_DATA_USE_READBACK/.test(message))
+   return 'Адресное право не подтверждено для выбранного сотрудника. Перечитайте исходный DATA-грант.';
  if(/OUTCOME_UNKNOWN|T3_D3_ORIGINAL_DECISION_READBACK_NOT_CONFIRMED/.test(message))
    return 'Исход операции неизвестен. Не повторяйте ACCEPT, REJECT или Apply. Откройте исходную квитанцию по сохранённому ID и SHA-256 пакета.';
  if(message.includes('CEN_D3_EMPLOYEE_CREDENTIAL_HUMAN_CANCELLED'))

@@ -1494,7 +1494,7 @@ try{
   // The pre-dispatch read and native consent settle asynchronously. Wait
   // for the actual cancellation marker, not merely a momentarily enabled
   // button or the completion of the browser click.
-  await employeePage.getByRole('alert').filter({hasText:'CEN_D3_EMPLOYEE_TASK_DATA_HUMAN_CANCELLED'}).waitFor();
+  await employeePage.getByRole('alert').filter({hasText:'Выдача адресного права на поручение отменена до записи. Можно подтвердить выдачу заново.'}).waitFor();
   assert.equal(employeeState.cancelFirstTaskGrant,false);
   assert.equal(employeeState.taskGrantCalls,0,
     'a native Human cancellation cannot enter original Kernel');
@@ -1503,14 +1503,14 @@ try{
   assert.equal(await taskDataIssue.isEnabled(),true,
     'a definite pre-dispatch refusal can be confirmed anew');
   await taskDataIssue.click();
-  await employeePage.getByRole('alert').filter({hasText:'T3_D3_EMPLOYEE_TASK_DATA_OUTCOME_UNKNOWN'}).waitFor();
+  await employeePage.getByRole('alert').filter({hasText:'Выдача адресного права на поручение не подтверждена. Не выдавайте право повторно: перечитайте исходный DATA-грант.'}).waitFor();
   assert.equal(employeeState.taskGrantCalls,1);
   assert.equal(await taskDataIssue.isEnabled(),false,
     'lost ACK must block a second original Kernel DATA grant');
   await employeePage.getByTestId('d3-employee-task-grant-read').click();
   // The hold marker appears at read start; wait for actual rejected readback
   // before changing the fixture recipient for the next independent read.
-  await employeePage.getByRole('alert').filter({hasText:'CEN_D3_EMPLOYEE_TASK_DATA_READBACK_HOLD'}).waitFor();
+  await employeePage.getByRole('alert').filter({hasText:'Адресное право не подтверждено для выбранного сотрудника. Перечитайте исходный DATA-грант.'}).waitFor();
   await employeePage.getByTestId('d3-employee-task-grant-hold').waitFor();
   assert.equal(await employeePage.getByTestId('d3-employee-task-grant-confirmed').count(),0,
     'wrong signed recipient cannot grant task issuance');
