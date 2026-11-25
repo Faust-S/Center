@@ -1,0 +1,11 @@
+{
+  "candidate": "a41fc83aa5d59dc55db07e3bbff9bc1f4379519f",
+  "tree": "79248ccd076931bb75b7099931ed02d6180e0de4",
+  "original_t3": "1e5d54bba065f0e82cc506a5443b96079d070608",
+  "original_t3_tree": "80f724d21d2acca0394e3694ae4a9a7fd65317bc",
+  "scope": "M09_20_ANDROID_EXCHANGE_AND_MODEL_RECOVERY",
+  "reason": "M09_14_DOWNLOADS_FAILURE_AND_M09_15_TO_M09_20_CONSOLIDATED",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "f6f24372015cd2bc2a21cd9b813ab89d3542a810"
+}
