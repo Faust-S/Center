@@ -19,8 +19,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: 'bdcd9245b6b0ba3a87ba62a4546f1f13076fcff8'
-      PRIVATE_TREE: '20309906a790c70b33dca4201a799a5bf61d7d1a'
+      PRIVATE_PIN: 'b051d973e659336a2358a243907d54607743a613'
+      PRIVATE_TREE: '2af62f33bf2e86b00ee618364bdb2b47952472a1'
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
       IWXA_QWEN_QUALIFICATION_MODEL: 'QWEN3_4B_Q4_K_M'
       IWXA_NATIVE_QWEN_CONTEXT_TEST: ${{ matrix.mode != 'SINGLE_TEXT' && '1' || '0' }}
@@ -165,6 +165,8 @@ jobs:
                       if re.fullmatch(r"QWEN_PRODUCT_(?:MODEL_CALL|DIRECT_STREAM_CALL)=(?:NONE|CONTEXT|REVIEWED_MCP|OTHER|MULTIPLE|INVALID):(?:NONE|STOP|TOOL_CALLS|LENGTH|CONTENT_FILTER|FUNCTION_CALL|OTHER|MULTIPLE)",line.strip()):
                           print(line.strip(),flush=True)
                       if re.fullmatch(r"QWEN_PRODUCT_READ_TRACE=(?:PERMISSION_REQUEST:(?:CONTEXT|REVIEWED_MCP|OTHER):(?:APPROVED_ARGS|INDEX_ARGS|FILE_ARGS|OTHER_ARGS)|TOOL_UPDATE:(?:CONTEXT|REVIEWED_MCP):(?:PENDING|IN_PROGRESS|COMPLETED|FAILED|OTHER)|CONTEXT_RPC:REQUEST|(?:MCP_PERMISSION|CONTEXT_PERMISSION):(?:ALLOWED|DENIED|ERROR)|MCP_RPC:(?:CONTEXT|REVIEWED_MCP|OTHER):(?:APPROVED_ARGS|INDEX_ARGS|FILE_ARGS|OTHER_ARGS):(?:QUEUED|DENIED)|MCP_DISPATCH:(?:RESULT|FAILED)|CONTEXT_READ:(?:PREPARED|DELIVERED|DENIED))",line.strip()):
+                          print(line.strip(),flush=True)
+                      if re.fullmatch(r"QWEN_PRODUCT_MODEL_EVIDENCE=(?:CONTEXT|WEB):(?:TOOL|OTHER_CONTENT|ABSENT)",line.strip()) or re.fullmatch(r"QWEN_PRODUCT_MODEL_EVIDENCE_TOGETHER=(?:YES|NO)",line.strip()):
                           print(line.strip(),flush=True)
                       if re.fullmatch(r"QWEN_PRODUCT_(?:PROVIDER_COUNT|DELIVERY_COUNT)=(?:[0-3]|MANY)",line.strip()):
                           print(line.strip(),flush=True)
