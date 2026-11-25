@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: 'ccde73208840288b2acbc9bc72b5b33efe1d4be5'
-      PRIVATE_TREE: '08c25925cbe2a5ec6321f0552ce7d841523a0b07'
+      PRIVATE_PIN: '890f8e4c524725c1cd5aaccdaeef0396a49601de'
+      PRIVATE_TREE: '7aba68fbc8f48860a3868e5dace71fdea6f80f73'
       QUALIFY_SCOPE: CONSOLIDATED_SOURCE
     steps:
       - uses: actions/setup-python@v5
@@ -181,10 +181,30 @@ jobs:
                       "TOOL_READ":["tests/test_meta_harness_tool_read.py","tests/test_meta_harness_mcp_read.py"],
                       "WORK_BOARD":["tests/test_work_board_state_transaction.py"],
                       "ORIGINAL_HANDOFF":["tests/test_meta_harness_contextual_handoff_graph.py"],
+                      "ORIGINAL_HUMAN_REVIEW":["tests/test_fc6_graph_control_human_review_integration.py",
+                          "tests/test_fc6_graph_control_human_review_ui.py",
+                          "tests/cells/test_interaction_surface.py::test_normal_user_work_board_verification_requires_human_authority"],
                   }
+                  # Cover every module regression, including new files, in this
+                  # one deliberate run. The private filenames never enter logs.
+                  original="tests/test_meta_harness_original_task_workflow.py"
+                  named={f.split("::",1)[0] for files in groups.values() for f in files}
+                  named.add(original)
+                  available=sorted(p.relative_to(source).as_posix()
+                                   for p in (source/"tests").glob("test_meta_harness_*.py") if p.is_file())
+                  if not available or original not in available:
+                      status("META_HARNESS_SOURCE_INVENTORY","FAIL"); return 1
+                  extra=[f for f in available if f not in named]
+                  for i in range(0,len(extra),4):
+                      groups["META_HARNESS_EXTRA_"+str(i//4+1)]=extra[i:i+4]
+                  covered=named|set(extra)
+                  if not set(available).issubset(covered):
+                      status("META_HARNESS_SOURCE_INVENTORY","FAIL"); return 1
+                  status("META_HARNESS_SOURCE_FILE_COUNT",len(available))
+                  status("META_HARNESS_EXTRA_FILE_COUNT",len(extra))
+                  status("META_HARNESS_SOURCE_INVENTORY","PASS")
                   # Collect the real pytest node IDs, including every parameter case,
                   # inside the disposable private checkout. No IDs leave the runner.
-                  original="tests/test_meta_harness_original_task_workflow.py"
                   collector=root/"collect_original.py"
                   collection=root/"original_nodes.json"
                   collector.write_text("""import json,os,pathlib,sys,pytest
@@ -223,7 +243,7 @@ jobs:
                       try:
                           # A multipart Graph exercise may execute several verified steps and cold restarts.
                           # The old seven-minute group cap hid all Windows case results.
-                          limit=1500 if group=="PRODUCT_ROUTE_GRAPH" else 1200 if group.startswith("ORIGINAL_TASK_") or group in {"STRATEGY","WORK_BOARD","SESSION_COMPOSER"} else 420
+                          limit=1500 if group=="PRODUCT_ROUTE_GRAPH" else 1200 if group.startswith(("ORIGINAL_TASK_","META_HARNESS_EXTRA_")) or group in {"STRATEGY","WORK_BOARD","SESSION_COMPOSER"} else 420
                           proc = run([sys.executable,str(plugin),str(report),*files],timeout=limit)
                       except subprocess.TimeoutExpired:
                           status(group,"TIMEOUT")
@@ -283,8 +303,14 @@ jobs:
                               status(label+"_CASE",hashlib.sha256(row.encode()).hexdigest()[:16])
                           status(label,"PASS" if proc.returncode==0 else "FAIL")
                           return proc.returncode==0
-                      tests=desktop_test("DESKTOP_META_TESTS",["tests/meta-harness-host.test.mjs","tests/meta-harness-task-status.test.mjs"])
-                      composer=desktop_test("DESKTOP_COMPOSER_REGRESSION",["tests/task-composer-workspace.test.mjs","tests/task-model-readback-ui.test.mjs","tests/navigation-view-persistence.test.mjs","tests/native-gui-qa-labels.test.mjs","tests/interactive-task-list-state.test.mjs","tests/saved-task-list.test.mjs"])
+                      meta_tests=sorted(p.relative_to(desktop).as_posix()
+                                        for p in (desktop/"tests").glob("meta-harness-*.test.mjs") if p.is_file())
+                      if not {"tests/meta-harness-host.test.mjs","tests/meta-harness-task-status.test.mjs",
+                              "tests/meta-harness-attempt-read.test.mjs"}.issubset(meta_tests):
+                          status("DESKTOP_META_INVENTORY","FAIL"); return 1
+                      status("DESKTOP_META_FILE_COUNT",len(meta_tests))
+                      tests=desktop_test("DESKTOP_META_TESTS",meta_tests)
+                      composer=desktop_test("DESKTOP_COMPOSER_REGRESSION",["tests/task-composer-workspace.test.mjs","tests/task-model-readback-ui.test.mjs","tests/navigation-view-persistence.test.mjs","tests/native-gui-qa-labels.test.mjs","tests/interactive-task-list-state.test.mjs","tests/saved-task-list.test.mjs","tests/task-review-readback.test.mjs"])
                       compiled=run(npm+["run","build"],cwd=desktop,timeout=420)
                       build=compiled.returncode==0
                       if not build:
