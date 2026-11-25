@@ -1491,19 +1491,24 @@ try{
   const taskDataIssue=employeePage.getByTestId('d3-employee-task-grant-issue');
   assert.equal(await taskDataIssue.isEnabled(),true);
   await taskDataIssue.click();
+  // The pre-dispatch read and native consent settle asynchronously. Wait
+  // for the actual cancellation marker, not merely a momentarily enabled
+  // button or the completion of the browser click.
+  await employeePage.getByRole('alert').filter({hasText:'CEN_D3_EMPLOYEE_TASK_DATA_HUMAN_CANCELLED'}).waitFor();
+  assert.equal(employeeState.cancelFirstTaskGrant,false);
   assert.equal(employeeState.taskGrantCalls,0,
     'a native Human cancellation cannot enter original Kernel');
-  // The native refusal settles asynchronously through React's run() busy
-  // state; Playwright click completion alone is not the consent callback.
   await employeePage.waitForFunction(()=>
     document.querySelector('[data-testid="d3-employee-task-grant-issue"]')?.disabled===false);
   assert.equal(await taskDataIssue.isEnabled(),true,
     'a definite pre-dispatch refusal can be confirmed anew');
   await taskDataIssue.click();
+  await employeePage.getByRole('alert').filter({hasText:'T3_D3_EMPLOYEE_TASK_DATA_OUTCOME_UNKNOWN'}).waitFor();
   assert.equal(employeeState.taskGrantCalls,1);
   assert.equal(await taskDataIssue.isEnabled(),false,
     'lost ACK must block a second original Kernel DATA grant');
   await employeePage.getByTestId('d3-employee-task-grant-read').click();
+  await employeePage.getByTestId('d3-employee-task-grant-hold').waitFor();
   assert.equal(await employeePage.getByTestId('d3-employee-task-grant-confirmed').count(),0,
     'wrong signed recipient cannot grant task issuance');
   employeeState.wrongTaskGrantRecipient=false;
