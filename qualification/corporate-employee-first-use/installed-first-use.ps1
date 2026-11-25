@@ -68,17 +68,46 @@ function Open-AgentCompany($process){
  Stage 'AGENT_V8_NAVIGATION'
  Enter-AgentCompanyPage $process
  Stage 'AGENT_T3_PROFILE_READINESS'
- # Wait for the real profile form or the actual T3 enable/read controls;
- # do not treat the page title as proof that the profile is ready.
- for($i=0;$i -lt 240;$i++){
+ # Startup preference read and explicit enable can asynchronously replace
+ # the readiness button. Resolve the current UIA element and invoke that
+ # element, not a second name lookup after React replaced it.
+ $readDispatched=$false;$enableDispatched=$false
+ $lastAction='WAIT'
+ Focus-App $process
+ for($i=0;$i -lt 360;$i++){
   if(Has-Text $process 'Первое подключение к организации'){return}
-  if(Agent-VisibleButton $process 'Проверить состояние T3'){
-   Press $process 'Проверить состояние T3'
-  }elseif(Agent-VisibleButton $process 'Включить локальную работу T3'){
-   Press $process 'Включить локальную работу T3'
+  foreach($action in @('CHECK','ENABLE')){
+   if($action -ceq 'CHECK' -and $readDispatched){continue}
+   if($action -ceq 'ENABLE' -and $enableDispatched){continue}
+   $id=if($action -ceq 'CHECK'){'iwxa-company-t3-check'}else{'iwxa-company-t3-enable'}
+   $name=if($action -ceq 'CHECK'){'Проверить состояние T3'}else{'Включить локальную работу T3'}
+   $condition=[System.Windows.Automation.PropertyCondition]::new(
+    [System.Windows.Automation.AutomationElement]::AutomationIdProperty,$id)
+   $matches=@()
+   foreach($item in (Window $process).FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)){
+    try{
+     if($item.Current.Name -ceq $name -and
+        $item.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+        $item.Current.IsEnabled -and !$item.Current.IsOffscreen){$matches+=,$item}
+    }catch{}
+   }
+   if($matches.Count -gt 1){throw 'EMPLOYEE_INSTALLED_AGENT_T3_ACTION_AMBIGUOUS'}
+   if($matches.Count -ne 1){continue}
+   $element=$matches[0];$pattern=$null
+   try{
+    if(!$element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$pattern) -or !$element.Current.IsEnabled){continue}
+   }catch{continue}
+   # Read-only Check is separate from the one explicit persisted Enable.
+   # Once Invoke is entered, a lost ACK is never permission to repeat Enable.
+   Gui-Step 'BUTTON'
+   if($action -ceq 'CHECK'){$readDispatched=$true}else{$enableDispatched=$true}
+   $lastAction=$action
+   try{$pattern.Invoke()}catch{$lastAction=$action+'_ACK_UNKNOWN'}
+   break
   }
   Start-Sleep -Milliseconds 250
  }
+ Write-Host ('EMPLOYEE_INSTALLED_T3_READINESS_LAST_ACTION='+$lastAction)
  throw 'EMPLOYEE_INSTALLED_AGENT_T3_PROFILE_NOT_READY'
 }
 # Observe finite public status markers only. Never emit a UI name, raw
