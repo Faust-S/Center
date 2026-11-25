@@ -1,10 +1,7 @@
 name: IWXA Android consolidated qualification
 on:
-  push:
-    branches:
-      - work/2026-11-25-agent-mobile-android-qualification
-    paths:
-      - .ci/agent-mobile-android/request.json
+  workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:
