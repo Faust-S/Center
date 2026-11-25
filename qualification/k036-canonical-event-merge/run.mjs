@@ -6,6 +6,7 @@ import {readFileSync,writeFileSync,mkdirSync,rmSync,existsSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 const [t2Arg,coreArg,tempArg]=process.argv.slice(2);
 const t2=resolve(t2Arg),core=resolve(coreArg),temp=resolve(tempArg);
+let ownsTemp=false;
 const fail=code=>{throw Error(code)};
 const need=(ok,code)=>{if(!ok)fail(code)};
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -45,7 +46,11 @@ try{
     const got=run('git',['rev-parse','HEAD'],root);
     need(got.code===0&&got.output.trim()===pin,'K036_SOURCE_PIN_MISMATCH');
   }
-  mkdirSync(temp,{recursive:true});
+  need(Boolean(process.env.RUNNER_TEMP)&&
+    temp===resolve(process.env.RUNNER_TEMP,'iwxa-k036-canonical-event-merge')&&
+    temp!==t2&&temp!==core&&!existsSync(temp),'K036_DISPOSABLE_TEMP_PATH_REQUIRED');
+  mkdirSync(temp,{recursive:false});
+  ownsTemp=true;
   const canonical=join(t2,'t2/current/final-successor/canonical-source');
   const predecessor=join(temp,'k035'),base=join(temp,'k036'),timestamp=join(temp,'k036-time'),
     candidate=join(temp,'k036-canonical-event-merge');
@@ -138,5 +143,5 @@ try{
   process.exitCode=1;
 }finally{
   // All private reconstructed files and build bytes are disposable.
-  rmSync(temp,{recursive:true,force:true});
+  if(ownsTemp)rmSync(temp,{recursive:true,force:true});
 }
