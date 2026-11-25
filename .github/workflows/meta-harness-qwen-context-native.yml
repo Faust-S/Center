@@ -19,8 +19,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: 'fee49439f8f1b6be5b5c49a2e9a45d3a65bd41a6'
-      PRIVATE_TREE: '70b98839cd411e3a00aefa5a10345246e52bbd56'
+      PRIVATE_PIN: '543d98e24baea3ac10828f7ee23308c6ae862031'
+      PRIVATE_TREE: '801ac6bfb403e23d3c2c0fd783c7c87f5a59581d'
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
       IWXA_QWEN_QUALIFICATION_MODEL: 'QWEN3_4B_Q4_K_M'
       IWXA_NATIVE_QWEN_CONTEXT_TEST: ${{ matrix.mode != 'SINGLE_TEXT' && '1' || '0' }}
@@ -109,7 +109,7 @@ jobs:
                   allowed = {"START","QWEN_INSTALL_PASS","OLLAMA_RELEASE_PASS","GGUF_DIGEST_PASS",
                              "OLLAMA_SERVER_PASS","ORIGINAL_MODEL_SELECTION_PASS","REAL_MODEL_SMOKE_PASS","REAL_OPENAI_CHAT_SMOKE_PASS",
                              "REAL_MODEL_TOOL_SMOKE_PASS","ORIGINAL_GRAPH_PREVIEW_PASS","REAL_QWEN_GRAPH_RESULT_PASS","REAL_QWEN_CONTEXT_READ_PASS",
-                             "ORIGINAL_RESULT_RESTART_PASS","PROCESS_CLEANUP_PASS"}
+                             "ORIGINAL_RESULT_RESTART_PASS","PROCESS_CLEANUP_PASS","REAL_QWEN_COMPACT_PROFILE_PASS"}
                   proc = run([sys.executable,"-m","pytest","-q","-s","--tb=short",
                       "-p","no:cacheprovider","tests/test_meta_harness_qwen_native_product.py",
                       "--basetemp",str(root/"native-test")],timeout=2400)
@@ -133,6 +133,9 @@ jobs:
                               stages.append(stage)
                               status("QWEN_PRODUCT_STAGE",stage)
                       elif re.fullmatch(r"QWEN_PRODUCT_FIRST_MS=[0-9]{1,10}",line.strip()):
+                          print(line.strip(),flush=True)
+                  for line in out.splitlines():
+                      if line.strip() in ("QWEN_PRODUCT_COMPACT_PROFILE_VISIBLE=YES","QWEN_PRODUCT_COMPACT_PROFILE_VISIBLE=NO"):
                           print(line.strip(),flush=True)
                   # Short traceback locations only, never paths, source lines or exception messages.
                   for line in out.splitlines():
