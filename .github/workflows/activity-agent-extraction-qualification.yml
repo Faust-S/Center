@@ -1,10 +1,14 @@
 name: Activity and original Agent extraction
+# Requested only for a consolidated candidate, not each source edit.
 on:
   push:
     branches:
       - work/2026-11-24-activity-agent-extraction-qualification
+      - work/2026-11-25-activity-grouped-qualification
     paths:
-      - .github/workflows/activity-agent-extraction-qualification.yml
+      - qualification/activity/agent-extraction-candidate.json
+  workflow_dispatch:
+
 permissions:
   contents: read
 jobs:
@@ -16,9 +20,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      PRIVATE_PIN: 8f70e3a86f59d6f60688adfc38d96f816c385bb8
-      PRIVATE_TREE: 3ecc456481b3827f146edc7427fd6c5c63769aca
-      PUBLIC_PIN: ae12dcdcb1defaa7899ced73e46ca4439ba9e122
+      PRIVATE_PIN: a57e3c0621ad31e1a2d3d08d932eb2f7e67f71e2
+      PRIVATE_TREE: ba5f02123408354050031c5f2a512496f319f1db
+      PUBLIC_PIN: c4ee2fe279fb4d9d74c5194b702e577b53059789
       BASELINE_PIN: 57b701c6b7a1ede36dca70b2b0d2065b1ec577e0
       BASELINE_TREE: 5c4307bd83a81c9555d2f8c55309f42b2a05f50a
     steps:
@@ -30,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 8f70e3a86f59d6f60688adfc38d96f816c385bb8
+          ref: a57e3c0621ad31e1a2d3d08d932eb2f7e67f71e2
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private-agent
           fetch-depth: 8
@@ -48,7 +52,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: ae12dcdcb1defaa7899ced73e46ca4439ba9e122
+          ref: c4ee2fe279fb4d9d74c5194b702e577b53059789
           path: activity-public
           persist-credentials: false
           show-progress: false

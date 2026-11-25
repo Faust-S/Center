@@ -1,12 +1,16 @@
 # Run only the existing pinned IWXA local provider on disposable public
 # qualification material. Private source and raw output never leave the runner.
 name: Activity genuine local extraction
+# Requested only for a consolidated candidate, not each source edit.
 on:
   push:
     branches:
       - work/2026-11-24-activity-agent-extraction-qualification
+      - work/2026-11-25-activity-grouped-qualification
     paths:
-      - .github/workflows/activity-real-local-extraction.yml
+      - qualification/activity/real-local-extraction-candidate.json
+  workflow_dispatch:
+
 permissions:
   contents: read
 jobs:
@@ -14,16 +18,16 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 35
     env:
-      PRIVATE_PIN: 2ee4b1021f6e529bc6e58a97ad181fd0c799c7e2
-      PRIVATE_TREE: 1d5b080a59936058892fad9942291f1b75b37352
-      PUBLIC_PIN: b85354e08bc370cfaa50548c40c5cbb6183187ac
-      PUBLIC_TREE: d7a0eb20a7668556b125f753b663e67e29bbb45d
+      PRIVATE_PIN: a57e3c0621ad31e1a2d3d08d932eb2f7e67f71e2
+      PRIVATE_TREE: ba5f02123408354050031c5f2a512496f319f1db
+      PUBLIC_PIN: c4ee2fe279fb4d9d74c5194b702e577b53059789
+      PUBLIC_TREE: 7b32ffe7f7887151fe6f025e545e1c03ec2cee6e
       IWXA_ACTIVITY_REAL_LOCAL_MODEL: '1'
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 2ee4b1021f6e529bc6e58a97ad181fd0c799c7e2
+          ref: a57e3c0621ad31e1a2d3d08d932eb2f7e67f71e2
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private-agent
           fetch-depth: 1
@@ -32,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: b85354e08bc370cfaa50548c40c5cbb6183187ac
+          ref: c4ee2fe279fb4d9d74c5194b702e577b53059789
           path: activity-public
           fetch-depth: 1
           persist-credentials: false
@@ -75,7 +79,7 @@ jobs:
             foreach($m in [regex]::Matches($raw,"(?m)^ACTIVITY_LOCAL_MODEL_STAGE=($stages)\s*$")){
               Write-Host ('ACTIVITY_LOCAL_MODEL_STAGE='+$m.Groups[1].Value)
             }
-            foreach($m in [regex]::Matches($raw,'(?m)^ACTIVITY_LOCAL_MODEL_(ELAPSED_MS|FIELD_COUNT|NONMISSING_COUNT|SOURCE_SUPPORTED_COUNT|DIRECTLY_DECLARED_COUNT|DIRECTLY_DECLARED_NONMISSING_COUNT|DIRECT_REFERENCE_COUNT|PROPOSED_COUNT|MISSING_COUNT)=([0-9]{1,10})\s*$')){
+            foreach($m in [regex]::Matches($raw,'(?m)^ACTIVITY_LOCAL_MODEL_(ELAPSED_MS|FIELD_COUNT|DIRECT_FIELD_COUNT|MODEL_FIELD_COUNT|NONMISSING_COUNT|SOURCE_SUPPORTED_COUNT|DIRECTLY_DECLARED_COUNT|DIRECTLY_DECLARED_NONMISSING_COUNT|DIRECT_REFERENCE_COUNT|PROPOSED_COUNT|MISSING_COUNT)=([0-9]{1,10})\s*$')){
               Write-Host ('ACTIVITY_LOCAL_MODEL_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
             }
             foreach($m in [regex]::Matches($raw,'(?m)^ACTIVITY_LOCAL_MODEL_(PRODUCT_CONSTRUCTED|TECHNICAL_CONTROLS_PRESERVED)=(YES|NO)\s*$')){
