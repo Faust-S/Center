@@ -678,16 +678,28 @@ struct OriginalOwner{
     input:Option<ChildStdin>,
     responses:Receiver<Result<Vec<u8>,String>>,
     next_id:u64,
+    shutdown_available:bool,
+    reply_confirmed:bool,
 }
 impl Drop for OriginalOwner{
     fn drop(&mut self){
-        // EOF is the original host's ordinary shutdown protocol. Its
-        // finally closes Control HTTP, runtime and product.lock. Killing
-        // an otherwise healthy host leaves a stale PID lock, which cannot
-        // safely be removed if Windows has already reused that PID.
-        // Do not unlink or edit the original lock from Center.
+        // Windows can retain an inherited anonymous-pipe writer. EOF
+        // alone did not release the actual original T3 product.lock.
+        // On the negotiated private stdin protocol, explicitly request a
+        // close only when the previous response was confirmed.
+        if self.shutdown_available&&self.reply_confirmed{
+            let _=self.call_with_timeout("shutdown",&Value::Null,Duration::from_secs(8))
+                .and_then(|reply|{
+                    if reply["operation"]=="D3_SHUTDOWN"&&
+                       reply["organizationId"]==self.organization_id&&
+                       reply["originalOwnerClosed"]==true {Ok(reply)}
+                    else {Err("CEN_D3_ORIGINAL_HOST_SHUTDOWN_UNCONFIRMED".into())}
+                });
+        }
+        // Old qualified owners retain their previous EOF compatibility.
+        // No caller removes or edits a lock or replays a possibly committed action.
         drop(self.input.take());
-        let deadline=Instant::now()+Duration::from_secs(5);
+        let deadline=Instant::now()+Duration::from_secs(2);
         loop{
             match self.child.try_wait(){
                 Ok(Some(_))=>return,
@@ -776,9 +788,13 @@ impl OriginalOwner{
             }
         });
         Ok(Self{organization_id:organization_id.into(),
-            child,input:Some(input),responses,next_id:0})
+            child,input:Some(input),responses,next_id:0,
+            shutdown_available:false,reply_confirmed:false})
     }
     fn call(&mut self,verb:&str,body:&Value)->Result<Value,String>{
+        self.call_with_timeout(verb,body,Duration::from_secs(90))
+    }
+    fn call_with_timeout(&mut self,verb:&str,body:&Value,timeout:Duration)->Result<Value,String>{
         if self.child.try_wait().map_err(|_|"CEN_D3_ORIGINAL_HOST_WAIT_FAILED")?
             .is_some(){
             return Err("CEN_D3_ORIGINAL_HOST_EXITED".into());
@@ -787,6 +803,7 @@ impl OriginalOwner{
             .filter(|id|*id<=9_007_199_254_740_991)
             .ok_or("CEN_D3_ORIGINAL_HOST_REQUEST_ID_EXHAUSTED")?;
         self.next_id=id;
+        self.reply_confirmed=false;
         let request=json!({"schema":D3_HOST_CALL,"id":id,"verb":verb,
             "body":body});
         let mut bytes=serde_json::to_vec(&request)
@@ -799,11 +816,17 @@ impl OriginalOwner{
             .ok_or("CEN_D3_ORIGINAL_HOST_STDIN_UNAVAILABLE")?;
         input.write_all(&bytes).and_then(|_|input.flush())
             .map_err(|_|"CEN_D3_ORIGINAL_HOST_SEND_FAILED")?;
-        let line=self.responses.recv_timeout(Duration::from_secs(90))
+        let line=self.responses.recv_timeout(timeout)
             .map_err(|_|"CEN_D3_ORIGINAL_HOST_OUTCOME_UNKNOWN")??;
         let reply:Value=serde_json::from_slice(&line)
             .map_err(|_|"CEN_D3_ORIGINAL_HOST_JSON_INVALID")?;
-        host_reply(&reply,id)
+        let result=host_reply(&reply,id)?;
+        if verb=="state"{
+            self.shutdown_available=result["snapshot"]["nativeShutdownAvailable"]==true||
+                result["view"]["snapshot"]["nativeShutdownAvailable"]==true;
+        }
+        self.reply_confirmed=true;
+        Ok(result)
     }
 }
 // These errors originate ONLY in the existing One Core D3 read-only
@@ -851,9 +874,9 @@ fn original_owner_call(app:&AppHandle,organization_id:&str,verb:&str,
     result
 }
 fn release_original_owner_in_session(session:&mut Session){
-    // OriginalOwner Drop sends EOF and waits for the ONE native signer
-    // to release its own product.lock. Only a stuck child is terminated.
-    // No lock-file unlink or new owner.
+    // OriginalOwner Drop closes the ONE native signer through its
+    // negotiated native pipe, then waits for the process. No lock-file
+    // unlink or new owner.
     session.owner.take();
     session.signed_workspace_visible=false;
 }
@@ -1799,25 +1822,43 @@ mod tests{
     }
     #[cfg(windows)]
     #[test]
-    fn ordinary_owner_detach_waits_for_stdin_eof_cleanup(){
+    fn ordinary_owner_detach_uses_explicit_shutdown_on_private_pipe(){
         use std::process::{Command,Stdio};
-        // Physical OS pipe fixture proves the normal EOF cleanup path.
-        // It deliberately does not impersonate a T3 lock or signer.
-        let marker=std::env::temp_dir().join(format!("iwxa-owner-eof-{}.txt",Uuid::new_v4()));
+        // Physical OS pipe fixture. The separate installed qualification
+        // proves the actual T3 product.lock release, not this marker.
+        let marker=std::env::temp_dir().join(format!("iwxa-owner-close-{}.txt",Uuid::new_v4()));
         let script=r#"
-          $null=[Console]::In.ReadToEnd()
-          [IO.File]::WriteAllText($env:IWXA_OWNER_EOF_TEST_MARKER,'CLEAN_EOF')
+          while($true){
+            $line=[Console]::In.ReadLine()
+            if($null -eq $line){break}
+            $q=ConvertFrom-Json -InputObject $line
+            $body=@{schema='IWXA_T3_ADMIN_D3_NATIVE/1';organizationId='org:test';
+              ownerMode='ORIGINAL_SIGNED_CORPORATE_D3';productionActivation=$false;
+              T3_READY=$false;activeSeats=0}
+            if($q.verb -eq 'state'){
+              $body.operation='D3_STATE'
+              $body.view=@{snapshot=@{nativeShutdownAvailable=$true}}
+            }elseif($q.verb -eq 'shutdown' -and $q.id -eq 2 -and $null -eq $q.body){
+              [IO.File]::WriteAllText($env:IWXA_OWNER_CLOSE_TEST_MARKER,'CLEAN_SHUTDOWN')
+              $body.operation='D3_SHUTDOWN';$body.originalOwnerClosed=$true
+            }else{exit 4}
+            $response=@{schema='IWXA_T3_D3_NATIVE_OWNER_REPLY/1';id=[long]$q.id;ok=$true;result=$body}
+            [Console]::Out.WriteLine(($response|ConvertTo-Json -Compress -Depth 6))
+            if($q.verb -eq 'shutdown'){break}
+          }
         "#;
         let child=Command::new("powershell.exe")
             .args(["-NoProfile","-NonInteractive","-Command",script])
-            .env("IWXA_OWNER_EOF_TEST_MARKER",&marker)
+            .env("IWXA_OWNER_CLOSE_TEST_MARKER",&marker)
             .stdin(Stdio::piped()).stdout(Stdio::piped())
-            .stderr(Stdio::null()).spawn().expect("Windows EOF fixture");
-        let owner=OriginalOwner::from_child(child,"org:test").unwrap();
+            .stderr(Stdio::null()).spawn().expect("Windows shutdown fixture");
+        let mut owner=OriginalOwner::from_child(child,"org:test").unwrap();
+        owner.call("state",&Value::Null).unwrap();
+        assert!(owner.shutdown_available&&owner.reply_confirmed);
         drop(owner);
         let observed=fs::read_to_string(&marker);
         let _=fs::remove_file(&marker);
-        assert_eq!(observed.expect("child completed EOF cleanup"),"CLEAN_EOF");
+        assert_eq!(observed.expect("child completed explicit cleanup"),"CLEAN_SHUTDOWN");
     }
     #[cfg(windows)]
     #[test]
