@@ -5,17 +5,18 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - work/2026-11-24-meta-harness-source-qualification
+      - 'ci/once/meta-harness-source/**'
     paths:
-      - qualification/requests/meta-harness-source.json
+      - '.github/ci-requests/meta-harness-source.json'
 
 concurrency:
-  group: meta-harness-source-${{ github.ref }}
+  group: meta-harness-source-refs/heads/work/2026-11-24-meta-harness-source-qualification
   cancel-in-progress: false
 permissions:
   contents: read
 jobs:
   qualify:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false)
     strategy:
       fail-fast: false
       matrix:
@@ -30,6 +31,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Checkout public request guard only
+        uses: actions/checkout@v4
+        with:
+          path: ci-harness
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify deliberate immutable request before private checkout
+        working-directory: ci-harness
+        shell: bash
+        run: |
+          python tools/ci/verify_once_request.py \
+            --repository Faust-S/Center --workflow meta-harness-source \
+            --profile consolidated-source \
+            --revision agent=827f9cf88c3dc124d5764d292e8e93b2a757b9ca \
+            --revision agent_tree=b5b9dbbea2381e160c4d9a46f70c52df6388c5ef
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
