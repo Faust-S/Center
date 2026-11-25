@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 4beb9eb9381b234b2ea4b40ee0e82a096ecd80ac
+          ref: a51f32546cd9cb46c654dd95e29639b710ee873f
           path: public-one-core
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -37,10 +37,10 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           if ((& git -C private-t3 rev-parse HEAD).Trim() -cne 'c22a85e2b9726f69039ff56b070f6dd19d9e056d' -or
-              (& git -C public-one-core rev-parse HEAD).Trim() -cne '4beb9eb9381b234b2ea4b40ee0e82a096ecd80ac') {
+              (& git -C public-one-core rev-parse HEAD).Trim() -cne 'a51f32546cd9cb46c654dd95e29639b710ee873f') {
             throw 'ORIGINAL_RETURN_EXCHANGE_SOURCE_PIN_MISMATCH'
           }
-          & node --test public-one-core/packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-control-http.test.mjs public-one-core/packages/t3-core/tests/t3-subject-kernel-scope.test.mjs public-one-core/packages/t3-core/tests/t3-corporate-business-exchange.test.mjs public-one-core/packages/t3-core/tests/t3-d1-signed-control-dist.test.mjs
+          & node --test public-one-core/packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-kernel-registry.test.mjs public-one-core/packages/t3-core/tests/t3-d1-original-control-http.test.mjs public-one-core/packages/t3-core/tests/t3-subject-kernel-scope.test.mjs public-one-core/packages/t3-core/tests/t3-corporate-business-exchange.test.mjs public-one-core/packages/t3-core/tests/t3-d1-signed-control-dist.test.mjs public-one-core/packages/t3-core/tests/t3-original-company-workspace-persistence.test.mjs public-one-core/packages/t3-core/tests/t3-company-workspace-readback.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_ENROLLMENT_REGRESSION_FAILED' }
       - name: Original signed Exchange and Control HTTP regression
         shell: pwsh
@@ -73,4 +73,52 @@ jobs:
         run: |
           Remove-Item -LiteralPath private-t3 -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'original-exchange-private.log') -Force -ErrorAction SilentlyContinue
+  original-runtime-archive:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: a51f32546cd9cb46c654dd95e29639b710ee873f
+          path: public-one-core
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Execute immutable original T2 with separate test IndexedDB platforms
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git -C public-one-core rev-parse HEAD).Trim() -cne 'a51f32546cd9cb46c654dd95e29639b710ee873f') { throw 'ORIGINAL_RUNTIME_SOURCE_PIN_MISMATCH' }
+          $core=Join-Path $PWD 'public-one-core/packages/t3-core'
+          $artifact=Join-Path $env:RUNNER_TEMP 'iwxa-qualified-t2-company'
+          Expand-Archive -LiteralPath (Join-Path $core 'qualified-runtime/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip') -DestinationPath $artifact
+          $idb=Join-Path $env:RUNNER_TEMP 'iwxa-indexeddb-test-platform'
+          & npm install --prefix $idb --no-save --package-lock=false --ignore-scripts fake-indexeddb@6.2.4
+          if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_RUNTIME_TEST_PLATFORM_INSTALL_FAILED' }
+          $env:IWXA_COMPANY_TEST_QUALIFIED_T2=$artifact
+          $env:IWXA_COMPANY_TEST_IDB_MODULE=Join-Path $idb 'node_modules/fake-indexeddb/build/esm/index.js'
+          Push-Location $core
+          try {
+            & node --test tests/t3-company-original-runtime-roundtrip.test.mjs
+            if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_RUNTIME_CROSS_PRODUCT_ARCHIVE_FAILED' }
+          } finally { Pop-Location }
+      - name: Compile and test actual signed Workspace facade
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location public-one-core/packages/t3-core
+          try {
+            & npm ci --ignore-scripts
+            if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_WORKSPACE_DEPENDENCIES_FAILED' }
+            & npm run typecheck
+            if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_WORKSPACE_TYPECHECK_FAILED' }
+            & npx vitest run tests/module-kernel-facade.test.ts tests/exchange/import-validate-merge.test.ts tests/exchange/import-seed-workspace-map.test.ts
+            if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_WORKSPACE_FACADE_TEST_FAILED' }
+          } finally { Pop-Location }
 # No private artifacts, test fixtures, source, logs, keys or builds are uploaded.
