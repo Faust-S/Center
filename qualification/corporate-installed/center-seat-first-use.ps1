@@ -152,6 +152,25 @@ function ReadEmployeeBootstrap(){
  Check ($LASTEXITCODE -eq 0 -and $actual -ceq $fingerprint) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_DIGEST_MISMATCH'
  return $fingerprint
 }
+function AssertOriginalOwnerReleased([string]$marker){
+ Check ($marker -cin @('CORPORATE_INSTALLED_SEAT_OWNER_GRACEFUL_CLOSE_PASS','CORPORATE_INSTALLED_SEAT_OWNER_FINAL_CLOSE_PASS')) 'CORPORATE_INSTALLED_SEAT_OWNER_MARKER_INVALID'
+ $draft=Get-Content -LiteralPath (Join-Path $env:CORPORATE_ADMIN_DATA 'atlas-store-v1/preparation/draft.json') -Raw|ConvertFrom-Json -Depth 60
+ $org=[string]$draft.activeOrganizationId
+ Check ($org -cmatch '^[A-Za-z0-9_-]{1,100}$') 'CORPORATE_INSTALLED_SEAT_OWNER_SCOPE_INVALID'
+ $owner=Join-Path $env:CORPORATE_ADMIN_DATA ('t3-admin/organizations/'+$org)
+ Check (Test-Path -LiteralPath (Join-Path $owner 'registry.json') -PathType Leaf) 'CORPORATE_INSTALLED_SEAT_OWNER_MISSING'
+ # Successful ordinary close must leave the original runtime's lock absent.
+ # No deletion, process injection or manual registry repair is allowed.
+ for($i=0;$i -lt 40;$i++){
+  if(!(Test-Path -LiteralPath (Join-Path $owner 'product.lock')) -and
+     !(Test-Path -LiteralPath (Join-Path $owner 'product.recovery.lock'))){
+   Write-Host $marker
+   return
+  }
+  Start-Sleep -Milliseconds 250
+ }
+ throw 'CORPORATE_INSTALLED_SEAT_OWNER_LOCK_RETAINED'
+}
 function WaitSeatProjection(){
  Check (WaitForText 'Зарезервированные места / лимит' 240) 'CORPORATE_INSTALLED_SEAT_ORIGINAL_VIEW_NOT_OBSERVED'
  Check ((HasText 'Нет действующей лицензии') -or (HasText 'Исходный Consumer недоступен')) 'CORPORATE_INSTALLED_SEAT_UNLICENSED_STATE_NOT_OBSERVED'
@@ -186,6 +205,7 @@ try{
  Write-Host 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_FIRST_PASS'
  $script:phase='COLD_CLOSE_SEAT_WORKSPACE'
  CloseCenter
+ AssertOriginalOwnerReleased 'CORPORATE_INSTALLED_SEAT_OWNER_GRACEFUL_CLOSE_PASS'
  $script:phase='COLD_OPEN_SEAT_WORKSPACE'
  StartCenter
  OpenSeatRoute
@@ -200,6 +220,9 @@ try{
  $bootstrapAfter=ReadEmployeeBootstrap
  Check ($bootstrapAfter -ceq $bootstrapBefore) 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_COLD_CHANGED'
  Write-Host 'CORPORATE_INSTALLED_EMPLOYEE_BOOTSTRAP_COLD_PASS'
+ $script:phase='FINAL_CLOSE_ORIGINAL_OWNER'
+ CloseCenter
+ AssertOriginalOwnerReleased 'CORPORATE_INSTALLED_SEAT_OWNER_FINAL_CLOSE_PASS'
 }catch{
  try{WriteSeatDiagnostics}catch{Write-Host 'CORPORATE_INSTALLED_SEAT_DIAG_UNAVAILABLE'}
  Write-Host ('CORPORATE_INSTALLED_SEAT_PHASE_'+$script:phase)
