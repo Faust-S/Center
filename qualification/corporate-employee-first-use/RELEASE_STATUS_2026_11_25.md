@@ -19,6 +19,11 @@ No production acceptance or stable branch promotion has been performed.
 - Center 45624698049: Linux source admission verified the exact pinned T3
   and Agent commits. IWXA_T2_SOURCE_READ_TOKEN was absent. Windows was
   skipped, so there was no additional expensive native build.
+- Center 45626462631: final revised candidate source admission at
+  d4b55e7978320ab78b237dc7d9c291efaaed0fa0 again verified T3 and Agent;
+  the dedicated T2 secret was still missing. Windows was skipped.
+  After adding the secret, re-run only the failed source-admission job
+  of this exact workflow run; it gates the dependent Windows job.
 
 ## Exact next candidate
 
