@@ -1,5 +1,5 @@
 # First-use integration on a single disposable Windows runner.
-# Original license lifecycle and this employee gate are intentionally separate.
+# Complete both employee and license lifecycle on the same original installed products.
 # No private checkout, raw log, evidence, keys, installer or .iwxa uploaded.
 name: Installed Publisher Center Agent original employee licensed admission and Result acceptance
 on:
@@ -20,7 +20,7 @@ env:
   T3_PIN: 'b25cf1dc6ef7e7a53e1fd53cd9cbb2fcd76e4fa4'
   CORE_PIN: '8db847058cab231d2d39c34df46024b60564d2ad'
   CENTER_PIN: '5c6e3e8994eb94c46f29b126375928e0ed99e1bb'
-  PUBLISHER_PIN: '97a644cfd09b2255055c55d959d19db2f0769ad5'
+  PUBLISHER_PIN: 'c5f2074f259554d06e148934d132bd32cc648e8d'
   AGENT_PIN: '4170bb32e83fdfcb45e4095675b4e0008b29f337'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
@@ -691,6 +691,46 @@ jobs:
           Write-Host 'EMPLOYEE_LICENSED_ORIGINAL_ADMISSION_AND_COLD_RECOVERY=PASS'
           Write-Host 'EMPLOYEE_LICENSED_ORIGINAL_HUMAN_RESULT_AND_COLD_READBACK=PASS'
           Write-Host 'EMPLOYEE_LICENSED_ORIGINAL_RETURN_DELIVERY_AND_COLD_RECOVERY=PASS'
+      - name: Complete renewal suspension and revocation on the same assigned employee
+        shell: pwsh
+        timeout-minutes: 35
+        env:
+          IWXA_T3_SYNTHETIC_PROVISION: CORPORATE_CENTER_CI_FIXTURE_ONLY
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP 'corporate-installed-license-continuation-private.log'
+          $witness=(Resolve-Path 'publisher/tests/installed-publisher-center-corporate.ps1').Path
+          $tokens=$null;$errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($witness,[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){throw 'CORPORATE_INSTALLED_LICENSE_WITNESS_PARSE_FAILED'}
+          $adminPayload=(Resolve-Path 'admin/artifacts/private-t3-d3-payload').Path
+          $publisherExe=Join-Path $env:CORPORATE_PUBLISHER_INSTALL 'iwxa-publisher.exe'
+          $adminExe=Join-Path $env:CORPORATE_ADMIN_INSTALL 'iwxa-admin-center.exe'
+          $publisherHash=(Get-FileHash -LiteralPath 'publisher/publisher/src-tauri/target/release/iwxa-publisher.exe').Hash
+          $centerHash=(Get-FileHash -LiteralPath (Join-Path $adminPayload 'iwxa-admin-center.exe')).Hash
+          $ownerHash=(Get-FileHash -LiteralPath (Join-Path $adminPayload 't3/iwxa-t3-product-owner.exe')).Hash
+          $consumerHash=(Get-FileHash -LiteralPath (Join-Path $adminPayload 't3/iwxa-t3-product-consumer.exe')).Hash
+          & pwsh.exe -NoLogo -NoProfile -STA -File $witness -PublisherExe $publisherExe -AdminCenterExe $adminExe -ExpectedPublisherSha256 $publisherHash -ExpectedCenterSha256 $centerHash -ExpectedOwnerSha256 $ownerHash -ExpectedConsumerSha256 $consumerHash -IssuerAuthorityId 'publisher:synthetic:corporate:installed' -DedicatedTestProfile -QualifySeatProjection -ResumeQualifiedCenterCI -ContinueLicensedEmployeeLifecycle *> $log
+          $exit=$LASTEXITCODE
+          $raw=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+          $checks=@([regex]::Matches($raw,'(?m)^CORPORATE_TWO_INSTALLED_CHECK=([A-Z0-9_]{3,100})\s*$')|ForEach-Object {$_.Groups[1].Value})
+          foreach($check in $checks){Write-Host ('CORPORATE_TWO_INSTALLED_CHECK='+$check)}
+          foreach($m in [regex]::Matches($raw,'(?m)^CORPORATE_TWO_INSTALLED_(PHASE|FAILURE_PHASE|FAILURE_STEP|FAILURE_KIND|FAILURE_CODE|OWNER_READ_CODE|OWNER_LIFECYCLE)=([A-Z0-9_]{1,100})\s*$')){
+            Write-Host ('CORPORATE_TWO_INSTALLED_'+$m.Groups[1].Value+'='+$m.Groups[2].Value)
+          }
+          $m=[regex]::Match($raw,'(?m)^CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_PASS checks=(\d{1,3})\s*$')
+          if($exit -ne 0 -or !$m.Success -or [int]$m.Groups[1].Value -ne 15 -or $checks.Count -ne 15){
+            $safe=@([regex]::Matches($raw,'(?<![A-Z0-9_])CORPORATE_(?:GUI|NATIVE|INSTALLED|SEAT|TWO_INSTALLED)_[A-Z0-9_]{4,100}(?![A-Z0-9_])')|ForEach-Object {$_.Value}|Select-Object -Unique|Select-Object -Last 25)
+            Write-Host ('CORPORATE_INSTALLED_LICENSE_CODES='+($safe -join ','))
+            throw 'CORPORATE_INSTALLED_LICENSE_GUI_HOLD'
+          }
+          $expected=@(Get-Content -LiteralPath 'qualification/corporate-installed/publisher-center-required-receipts.json' -Raw|ConvertFrom-Json|Select-Object -Skip 9)
+          if($expected.Count -ne 15 -or @($checks|Sort-Object -CaseSensitive -Unique).Count -ne 15 -or
+             @(Compare-Object -ReferenceObject $expected -DifferenceObject $checks -CaseSensitive).Count -ne 0){
+            throw 'CORPORATE_INSTALLED_LICENSE_RECEIPT_SET_MISMATCH'
+          }
+          if($raw -notmatch '(?m)^CORPORATE_INSTALLED_EMPLOYEE_LIFECYCLE_RESUMED=PASS\s*$'){throw 'CORPORATE_INSTALLED_LICENSE_CONTINUATION_MISSING'}
+          Write-Host 'CORPORATE_INSTALLED_LICENSE_LIFECYCLE_WITH_RESERVED_SEAT=PASS'
       - name: Discard transient private sources packages and employee profile
         if: always()
         shell: pwsh

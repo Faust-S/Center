@@ -361,6 +361,19 @@ try{
  Compare-CompanyRecord $sourceTask $coldTask
  Compare-CompanyRecord $sourceResult $coldResult
  Record 'CENTER_COLD_ORIGINAL_EXCHANGE_EXACT_RESULT_NO_REIMPORT'
+ # Private continuation receipt for the same installed license lifecycle.
+ # Written only after the exact cold readback; never used as a grant.
+ Need ($checks.Count -eq 18) 'EMPLOYEE_LICENSED_RETURN_RECEIPTS_INCOMPLETE'
+ $ready=Join-Path $handoff 'employee-lifecycle-ready.json'
+ Need (!(Test-Path -LiteralPath $ready)) 'EMPLOYEE_LICENSED_LIFECYCLE_RECEIPT_ALREADY_EXISTS'
+ [ordered]@{
+  schema='IWXA_DISPOSABLE_EMPLOYEE_LIFECYCLE_READY/1'
+  status='ORIGINAL_RETURN_DELIVERY_CONFIRMED'
+  checks=$checks.Count
+  originalHandoffSha256=(Digest (Join-Path $handoff 'receipt.json'))
+  organizationId=$receipt.organizationId;licenseId=$receipt.licenseId
+  employeePersonId=$person;returnArchiveSha256=$transfer.fileSha256
+ }|ConvertTo-Json -Depth 4|Set-Content -LiteralPath $ready -Encoding UTF8
  Write-Host ('EMPLOYEE_LICENSED_RETURN_DELIVERY=PASS checks='+$checks.Count)
 }catch{
  Write-Host ('EMPLOYEE_LICENSED_FAILURE_STAGE='+$script:stage)
