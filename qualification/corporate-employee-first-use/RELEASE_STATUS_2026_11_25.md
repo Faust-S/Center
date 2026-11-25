@@ -26,6 +26,8 @@ No production acceptance or stable branch promotion has been performed.
   After adding the secret, re-run only the failed source-admission job
   of this exact workflow run; it gates the dependent Windows job.
 
+- Center 45631939972: frozen Publisher 0.5.0 candidate, existing credential fallback; original T3 and Agent read PASS, original T2 read HTTP 404. Windows was skipped. No additional scenario or functional changes. Do not rerun before T2 access is restored.
+
 ## Exact next candidate
 
 The workflow pins:
