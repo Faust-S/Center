@@ -196,6 +196,16 @@ function Consumer-Read([string]$org){
   }
   return $r.view
 }
+# Initial proposals intentionally have no previousProposalId. StrictMode
+# must not turn a valid persisted renewal into a property-access failure.
+function Find-RenewalPreparation($draft,[string]$previousId){
+  foreach($proposal in @($draft.proposals)){
+    $link=$proposal.PSObject.Properties['previousProposalId']
+    if($null -ne $link -and [string]$link.Value -ceq $previousId){
+      $proposal
+    }
+  }
+}
 function Wait-Preparation([string]$path,[scriptblock]$predicate){
   for($i=0;$i -lt 80;$i++){
     if(Test-Path -LiteralPath $path -PathType Leaf){
@@ -1365,16 +1375,20 @@ try{
     throw 'CORPORATE_GUI_RENEWAL_SAVE_NO_PERSISTED_PREPARATION'
   }
   $script:renewalSaveStage='PERSISTED'
-  $followup=@($nextPrep.proposals|Where-Object {$_.previousProposalId -ceq $request})
+  $followup=@(Find-RenewalPreparation $nextPrep $request)
   if($followup.Count -ne 1 -or $followup[0].tariffSnapshot.revision -ne 2 -or
     $followup[0].tariffSnapshot.productSeats -ne 1 -or $followup[0].tariffSnapshot.employeeLimit -ne 6){
     throw 'CORPORATE_GUI_RENEWAL_PREPARATION_MISMATCH'
   }
   $nextRequest=[string]$followup[0].id
+  if(!$nextRequest -or $nextRequest -ceq $request){throw 'CORPORATE_GUI_RENEWAL_PREPARATION_ID_INVALID'}
+  Phase 'PUBLISHER_RENEWAL_ISSUE'
   Press $pub 'Доверие и ключи'
   Press $pub 'Проверить зарегистрированного издателя T3'
   Select-FirstReal $pub 'Зарегистрированный издатель'
   Select-FirstReal $pub 'Подготовленное предложение организации'
+  Wait-Text $pub 'Лимит сотрудников: 6.'
+  Wait-Text $pub 'Места Admin Center: 1.'
   Enter $pub 'Корпоративные места Personal Agent (явно)' '1'
   Press $pub 'Проверить условия перед подписью'
   Wait-Text $pub "Предыдущая лицензия: $id"
