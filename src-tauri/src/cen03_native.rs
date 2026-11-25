@@ -1900,6 +1900,22 @@ mod tests{
         assert!(!exact_kernel_apply_capability(&no_recovery,"d3RecoverApplied"));
         recovery_capable["view"]["snapshot"]["d3ApplyAvailable"]=Value::Bool(false);
         assert!(supported_state(&recovery_capable,"org:1","D3_STATE").is_err());
+        // New installed original owners can still recover a legacy effect
+        // while the independently provisioned admin partition is not ready.
+        let snapshot=&mut recovery_capable["view"]["snapshot"];
+        snapshot["d3ApplicationReceiptWorkspaceId"]=json!(format!("workspace:registry:{}", "a".repeat(64)));
+        snapshot["d3ApplicationReceiptWorkspaceReady"]=json!(false);
+        let checked=supported_state(&recovery_capable,"org:1","D3_STATE").unwrap();
+        assert!(!exact_kernel_apply_capability(&checked,"d3ApplyAccepted"));
+        assert!(exact_kernel_apply_capability(&checked,"d3RecoverApplied"));
+        recovery_capable["view"]["snapshot"]["d3ApplyAvailable"]=json!(true);
+        assert!(supported_state(&recovery_capable,"org:1","D3_STATE").is_err());
+        recovery_capable["view"]["snapshot"]["d3ApplicationReceiptWorkspaceReady"]=json!(true);
+        let checked=supported_state(&recovery_capable,"org:1","D3_STATE").unwrap();
+        assert!(exact_kernel_apply_capability(&checked,"d3ApplyAccepted"));
+        assert!(exact_kernel_apply_capability(&checked,"d3RecoverApplied"));
+        recovery_capable["view"]["snapshot"]["d3ApplicationReceiptWorkspaceId"]=json!("workspace:foreign");
+        assert!(supported_state(&recovery_capable,"org:1","D3_STATE").is_err());
         assert!(supported_state(&valid,"org:2","D3_STATE").is_err());
         let mut forged=valid.clone();
         forged["view"]["snapshot"]["T3_READY"]=Value::Bool(true);
@@ -2087,6 +2103,27 @@ mod tests{
         });
         result["originalEventReadback"]=result["originalKernelReceipt"]["event"].clone();
         assert!(verify_kernel_apply(&result,&selection,&view).is_ok());
+        let mut partition_view=view.clone();
+        let partition=json!(format!("workspace:registry:{}", "7".repeat(64)));
+        partition_view["snapshot"]["d3ApplicationReceiptWorkspaceId"]=partition.clone();
+        partition_view["snapshot"]["d3ApplicationReceiptWorkspaceReady"]=json!(true);
+        // New APPLY must never write another receipt into the business scope.
+        assert!(verify_kernel_apply(&result,&selection,&partition_view).is_err());
+        let mut partition_result=result.clone();
+        partition_result["originalKernelReceipt"]["workspace_id"]=partition.clone();
+        partition_result["originalKernelReceipt"]["object"]["workspace_id"]=partition.clone();
+        partition_result["originalKernelReceipt"]["event"]["workspace_id"]=partition.clone();
+        partition_result["originalKernelReadback"]["object"]["workspace_id"]=partition.clone();
+        partition_result["originalEventReadback"]["workspace_id"]=partition.clone();
+        assert!(verify_kernel_apply(&partition_result,&selection,&partition_view).is_ok());
+        partition_result["originalKernelReadback"]["object"]["data"]["records"][0]["workspaceId"]=partition.clone();
+        assert!(verify_kernel_apply(&partition_result,&selection,&partition_view).is_err());
+        partition_result["originalKernelReadback"]["object"]["data"]["records"][0]["workspaceId"]=json!("workspace:1");
+        partition_view["snapshot"]["d3ApplicationReceiptWorkspaceReady"]=json!(false);
+        assert!(verify_kernel_apply(&partition_result,&selection,&partition_view).is_err());
+        partition_view["snapshot"]["d3ApplicationReceiptWorkspaceReady"]=json!(true);
+        partition_result["originalEventReadback"]["workspace_id"]=json!(format!("workspace:registry:{}", "8".repeat(64)));
+        assert!(verify_kernel_apply(&partition_result,&selection,&partition_view).is_err());
         let original_event=result["originalEventReadback"].clone();
         result["originalEventReadback"]=Value::Null;
         assert!(verify_kernel_apply(&result,&selection,&view).is_err());
@@ -2149,6 +2186,17 @@ mod tests{
                     "reconciliation_revision_ids":[revision]}}
         });
         assert!(verify_kernel_recovery(&result,&input,&view).is_ok());
+        let mut partition_view=view.clone();
+        let partition=json!(format!("workspace:registry:{}", "7".repeat(64)));
+        partition_view["snapshot"]["d3ApplicationReceiptWorkspaceId"]=partition.clone();
+        partition_view["snapshot"]["d3ApplicationReceiptWorkspaceReady"]=json!(false);
+        assert!(verify_kernel_recovery(&result,&input,&partition_view).is_ok());
+        let mut separated=result.clone();
+        separated["originalKernelReadback"]["object"]["workspace_id"]=partition.clone();
+        separated["originalEventReadback"]["workspace_id"]=partition.clone();
+        assert!(verify_kernel_recovery(&separated,&input,&partition_view).is_ok());
+        separated["originalKernelReadback"]["object"]["workspace_id"]=json!(format!("workspace:registry:{}", "8".repeat(64)));
+        assert!(verify_kernel_recovery(&separated,&input,&partition_view).is_err());
         result["originalEventReadback"]["idempotency_key"]=json!("b".repeat(64));
         assert!(verify_kernel_recovery(&result,&input,&view).is_err());
         result["originalEventReadback"]["idempotency_key"]=json!(digest);
