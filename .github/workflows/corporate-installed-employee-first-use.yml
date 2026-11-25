@@ -15,9 +15,9 @@ concurrency:
 env:
   T3_PIN: 'c368dcdec006349124f5698471c58d2e55a6caea'
   CORE_PIN: '5474f05ff77757ba7243f1f422058880fc3e0f49'
-  CENTER_PIN: 'c513a5c4a24d2eff3c4551ad02ad6a4bd97cb255'
+  CENTER_PIN: '1b3838418fd324f66c310b3de00749f5dddf014e'
   PUBLISHER_PIN: 'd126194ae1444f55490986b2ee4713548a3f170b'
-  AGENT_PIN: '9332ff1ae301229b6ff67f75636daba57ba676aa'
+  AGENT_PIN: '5020269442e3f3d98b0965f4946ba5edb240a82e'
   AGENT_SETUP_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
   PYTHONDONTWRITEBYTECODE: '1'
   PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -297,6 +297,16 @@ jobs:
           foreach($p in @(@('private-t3',$env:T3_PIN),@('private-agent',$env:AGENT_PIN),@('one-core',$env:CORE_PIN),@('setup-core',$env:AGENT_SETUP_PIN))){
             if((& git -C $p[0] rev-parse HEAD).Trim() -cne $p[1]){throw 'CORPORATE_AGENT_INSTALLED_SOURCE_PIN_MISMATCH'}
           }
+          # The Agent's original build-source lock is also authoritative.
+          # Fail before packaging if CI and the installed product name different One Core revisions.
+          $lock=Get-Content -LiteralPath 'private-agent/config/public-module-sources.json' -Raw|ConvertFrom-Json
+          $core=@($lock.modules|Where-Object {$_.id -ceq 't3'})
+          if($lock.schema -cne 'IWXA_AGENT_BUILD_SOURCES/1' -or $core.Count -ne 1 -or
+             $core[0].repository -cne 'Faust-S/knowledge' -or
+             $core[0].revision -cne $env:CORE_PIN){
+            throw 'CORPORATE_AGENT_PACKAGE_ONE_CORE_PIN_MISMATCH'
+          }
+          Write-Host 'CORPORATE_AGENT_PACKAGE_ONE_CORE_PIN=PASS'
           $tokens=$null
           $errors=$null
           [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'private-agent/tools/build_setup_core_windows_candidate.ps1').Path,[ref]$tokens,[ref]$errors)
