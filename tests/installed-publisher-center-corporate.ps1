@@ -1255,7 +1255,48 @@ try{
   Wait-Text $pub 'Сотрудники: 6'
   Wait-Text $pub $request
   Wait-Text $pub 'Новая подготовка будет связана с прежним запросом'
-  Press $pub 'Создать следующую подготовку'
+  # The original preparation action is the one stable V8 button, even
+  # after the review card is scrolled into view. No repeat on unknown outcome.
+  Gui-Step 'BUTTON'
+  Focus-App $pub
+  $saveChoice=$null
+  for($attempt=0;$attempt -lt 120;$attempt++){
+    $items=(Window $pub).FindAll(
+      [System.Windows.Automation.TreeScope]::Descendants,
+      [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'iwxa-publisher-save-proposal'))
+    $matched=@()
+    foreach($item in $items){
+      try{
+        if($item.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+           $item.Current.Name -ceq 'Создать следующую подготовку'){$matched+=,$item}
+      }catch{}
+    }
+    if($matched.Count -gt 1){throw 'CORPORATE_GUI_RENEWAL_SAVE_AMBIGUOUS'}
+    if($matched.Count -eq 1 -and $matched[0].Current.IsEnabled){
+      $saveChoice=$matched[0];break
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  if($null -eq $saveChoice){throw 'CORPORATE_GUI_RENEWAL_SAVE_UNAVAILABLE'}
+  try{$saveChoice.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView()}catch{}
+  $saveChoice.SetFocus()
+  $focused=$false
+  for($attempt=0;$attempt -lt 20;$attempt++){
+    try{
+      $active=[System.Windows.Automation.AutomationElement]::FocusedElement
+      if($active -and $saveChoice.Current.HasKeyboardFocus -and
+         [System.Windows.Automation.Automation]::Compare($saveChoice,$active)){
+        $focused=$true;break
+      }
+    }catch{}
+    Start-Sleep -Milliseconds 100
+  }
+  if(!$focused -or !$saveChoice.Current.IsEnabled -or
+     [CorporateQualificationGui]::GetForegroundWindow() -ne $pub.MainWindowHandle){
+    throw 'CORPORATE_GUI_RENEWAL_SAVE_FOCUS_NOT_CONFIRMED'
+  }
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
   $nextPrep=Wait-Preparation $publisherDraft {param($x) @($x.proposals).Count -eq 2}
   $followup=@($nextPrep.proposals|Where-Object {$_.previousProposalId -ceq $request})
   if($followup.Count -ne 1 -or $followup[0].tariffSnapshot.revision -ne 2 -or
@@ -1376,6 +1417,9 @@ try{
     Write-Host ('CORPORATE_TWO_INSTALLED_FAILURE_PHASE='+$script:guiPhase)
     Write-Host ('CORPORATE_TWO_INSTALLED_FAILURE_STEP='+$script:guiOrdinal)
     Write-Host ('CORPORATE_TWO_INSTALLED_FAILURE_KIND='+$script:guiLastKind)
+    # Do not print private draft IDs, owner paths, license contents or raw errors.
+    $failureCode=[regex]::Match([string]$_.Exception.Message,'^((?:CORPORATE_GUI|CORPORATE_NATIVE|CORPORATE_SEAT)_[A-Z0-9_]{4,95})(?:\s|$)')
+    if($failureCode.Success){Write-Host ('CORPORATE_TWO_INSTALLED_FAILURE_CODE='+$failureCode.Groups[1].Value)}
   }
   throw
 }finally{

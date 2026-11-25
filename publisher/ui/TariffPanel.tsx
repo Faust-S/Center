@@ -61,6 +61,7 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  const eligibleSources=draft.proposals.filter(p=>p.tariffSnapshot&&
    p.productId===selected?.productId&&p.holderId===selectedHolder);
  const selectedSource=eligibleSources.find(p=>p.id===previousProposalId);
+ const saveOfferLabel=busy?'Сохраняем…':selectedSource?'Создать следующую подготовку':'Сохранить подготовку по тарифу';
  // Offer the exact previous request and newer revision as one explicit
  // user selection. This is only a form prefill, not a preparation or issue.
  const renewalOptions=draft.proposals.flatMap(p=>{
@@ -202,7 +203,7 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
       <p className="muted">Неподписанная подготовка. Права появятся только после выпуска и проверки доверенной лицензии .iwxa.</p>
     </div>}
     <div className="publisher-save-action" data-testid="publisher-proposal-save-action">
-      <button className="primary" type="button" disabled={busy||!selected||!selectedHolder} onClick={()=>void saveOffer()}>{busy?'Сохраняем…':selectedSource?'Создать следующую подготовку':'Сохранить подготовку по тарифу'}</button>
+      <button id="iwxa-publisher-save-proposal" className="primary" type="button" aria-label={saveOfferLabel} disabled={busy||!selected||!selectedHolder} onClick={()=>void saveOffer()}>{saveOfferLabel}</button>
       {proposalFeedback&&<p ref={proposalFeedbackRef} className={'publisher-inline-feedback '+(proposalFeedback.ok?'success':'error')}
         role={proposalFeedback.ok?'status':'alert'} data-testid="publisher-proposal-save-feedback">{proposalFeedback.message}</p>}
     </div>

@@ -152,3 +152,10 @@ test('renewal review exposes complete visible tariff and source values to Window
  assert.ok(panel.includes('setOfferSelection({choice:tariffKey(t),holderId:h.id,previousProposalId:p.id})'));
  assert.ok(panel.includes("kind:'prepareFollowupProposal',previousProposalId:selectedSource.id"));
 });
+
+test('renewal preparation keeps one stable accessible Save action bound to the existing offer handler',()=>{
+ const panel=readFileSync(new URL('../ui/TariffPanel.tsx',import.meta.url),'utf8');
+ assert.equal(panel.split('id="iwxa-publisher-save-proposal"').length,2);
+ assert.ok(panel.includes('aria-label={saveOfferLabel} disabled={busy||!selected||!selectedHolder} onClick={()=>void saveOffer()}>{saveOfferLabel}'));
+ assert.ok(panel.includes("const saveOfferLabel=busy?'Сохраняем…':selectedSource?'Создать следующую подготовку':'Сохранить подготовку по тарифу'"));
+});
