@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     env:
-      PRIVATE_PIN: 'd5a093ac2177ce7385864955aad67caf3dc3678c'
-      PRIVATE_TREE: 'cb088242ffead27141269e84d13c0bb9f93d0816'
+      PRIVATE_PIN: '05763c8226de99c62673c27d7c978afb6b4f3b17'
+      PRIVATE_TREE: '9a61556bd7c381dab4bfb430759d4310aafb2ecf'
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -69,10 +69,44 @@ jobs:
                       native=json.loads((mobile/"native/llama-source.json").read_text())
                       if native.get("revision")!="5220a2d4040aa75f52678ebf52d77a0fba85de9f":
                           status("LLAMA_PIN","FAIL");return 1
-                      # Bootstrap a lock only when absent. This run is not a locked
-                      # release until the generated lock is separately admitted.
+                      # Bootstrap only from a separately constructed PUBLIC npm
+                      # manifest. No private checkout file is emitted into the logs.
+                      # The same public lock is adapted to the private root metadata,
+                      # verified by npm ci and later admitted to the source branch.
                       if not (mobile/"package-lock.json").exists():
-                          if not stage("NPM_LOCK_BOOTSTRAP",["npm","install","--package-lock-only","--ignore-scripts","--no-audit","--no-fund"],mobile,600):return 1
+                          public_manifest={"name":"iwxa-mobile-public-dependencies","version":"1.0.0","private":True,"engines":{"node":">=22"},
+                              "dependencies":{"@capacitor/core":"8.5.3","@capacitor/android":"8.5.3","@capacitor/inappbrowser":"4.1.0"},
+                              "devDependencies":{"@capacitor/cli":"8.5.3","esbuild":"0.28.0"}}
+                          private_manifest=json.loads((mobile/"package.json").read_text())
+                          if (any(private_manifest.get(k)!=public_manifest[k] for k in ("engines","dependencies","devDependencies"))
+                              or any(k in private_manifest for k in ("optionalDependencies","peerDependencies","overrides","workspaces","resolutions"))):
+                              status("NPM_PUBLIC_MANIFEST","MISMATCH");return 1
+                          status("NPM_PUBLIC_MANIFEST","PASS")
+                          public_dir=root/"public-npm-lock";public_dir.mkdir()
+                          (public_dir/"package.json").write_text(json.dumps(public_manifest,indent=2)+"\n")
+                          if not stage("NPM_LOCK_BOOTSTRAP",["npm","install","--package-lock-only","--ignore-scripts","--no-audit","--no-fund","--registry=https://registry.npmjs.org"],public_dir,600):return 1
+                          public_bytes=(public_dir/"package-lock.json").read_bytes()
+                          public_lock=json.loads(public_bytes)
+                          packages=public_lock.get("packages",{})
+                          if len(public_bytes)>250000 or public_lock.get("lockfileVersion")!=3 or not isinstance(packages,dict) or "" not in packages:
+                              status("NPM_PUBLIC_LOCK","INVALID");return 1
+                          for key,value in packages.items():
+                              if not key:continue
+                              if (not key.startswith("node_modules/") or not isinstance(value,dict)
+                                  or value.get("link") or not str(value.get("resolved","")).startswith("https://registry.npmjs.org/")
+                                  or not re.fullmatch(r"sha(?:1|256|384|512)-[A-Za-z0-9+/=]+",str(value.get("integrity","")))):
+                                  status("NPM_PUBLIC_LOCK","UNAPPROVED_DEPENDENCY");return 1
+                          status("NPM_PUBLIC_LOCK","PASS")
+                          status("PUBLIC_NPM_LOCK_SHA256",hashlib.sha256(public_bytes).hexdigest())
+                          encoded=base64.b64encode(public_bytes).decode("ascii")
+                          chunks=[encoded[i:i+3000] for i in range(0,len(encoded),3000)]
+                          status("PUBLIC_NPM_LOCK_CHUNKS",len(chunks))
+                          for i,chunk in enumerate(chunks):status("PUBLIC_NPM_LOCK_B64_"+str(i).zfill(3),chunk)
+                          # These are the only private root fields, never emitted.
+                          public_lock["name"]=private_manifest["name"];public_lock["version"]=private_manifest["version"]
+                          public_lock["packages"][""]["name"]=private_manifest["name"]
+                          public_lock["packages"][""]["version"]=private_manifest["version"]
+                          (mobile/"package-lock.json").write_text(json.dumps(public_lock,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
                           status("LOCK_STATUS","BOOTSTRAP_ONLY")
                       else:status("LOCK_STATUS","SOURCE_LOCK")
                       status("LOCK_SHA256",hashlib.sha256((mobile/"package-lock.json").read_bytes()).hexdigest())
@@ -91,6 +125,7 @@ jobs:
                               (r"(?m)^LLAMA_AAR_BUILT=[a-f0-9]{64}\s*$","LLAMA_AAR"),
                               (r"(?m)^QA_MODEL_VERIFIED\s*$","QA_MODEL"),
                               (r"(?m)^ANDROID_CONFIGURATION_PREPARED\s*$","ANDROID_CONFIGURATION_PREPARED"),
+                              (r"(?m)^ANDROID_PACKAGE_IDENTITY_TEST_PREPARED\s*$","PACKAGE_IDENTITY_TEST_PREPARED"),
                               (r"(?m)^ANDROID_GRADLE_WRAPPER_STARTED\s*$","GRADLE_WRAPPER_STARTED"),
                               (r"(?m)^ANDROID_GRADLE_WRAPPER_PASS\s*$","GRADLE_WRAPPER"),
                               (r"(?m)^ANDROID_GRADLE_CONFIGURATION_STARTED\s*$","GRADLE_CONFIGURATION_STARTED"),
@@ -178,10 +213,10 @@ jobs:
                               }
                               failed=re.findall(r"Execution failed for task ':[^'\r\n]*:([A-Za-z0-9]+)'",report)
                               for task in sorted({tasks.get(x,"OTHER") for x in failed}):status("GRADLE_FAILED_TASK",task)
-                              roles={"LocalModelPlugin.kt":"MODEL_BRIDGE","RecommendedModels.kt":"MODEL_DOWNLOAD","ModelFileIntegrity.kt":"FILE_INTEGRITY","InstalledRouteTest.java":"INSTALLED_WITNESS","MainActivity.java":"ACTIVITY"}
+                              roles={"LocalModelPlugin.kt":"MODEL_BRIDGE","RecommendedModels.kt":"MODEL_DOWNLOAD","ModelFileIntegrity.kt":"FILE_INTEGRITY","InstalledRouteTest.java":"INSTALLED_WITNESS","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
                               for line in report.splitlines():
                                   if not (line.startswith("e:") or "error:" in line):continue
-                                  loc=re.search(r"(LocalModelPlugin\.kt|RecommendedModels\.kt|ModelFileIntegrity\.kt|InstalledRouteTest\.java|MainActivity\.java):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
+                                  loc=re.search(r"(LocalModelPlugin\.kt|RecommendedModels\.kt|ModelFileIntegrity\.kt|InstalledRouteTest\.java|MainActivity\.java|NetworkRouteSpec\.java|RoutedJsonHttp\.java|RoutedNetworkPlugin\.java|ProfileBrowserActivity\.java|NetworkRouteInstalledTest\.java|NetworkRouteSpecTest\.java):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
                                   if not loc:continue
                                   kind="OTHER"
                                   for category,pattern in [
@@ -271,9 +306,9 @@ jobs:
                           # Emit only fixed categories, no XML, names, output or raw logcat.
                           import xml.etree.ElementTree as ET
                           result_dir=mobile/"android/app/build/outputs/androidTest-results/connected"
-                          labels={"installedNavigationAndNativeStatus":"NAVIGATION","embeddedBrowserOpensAndCloses":"BROWSER","originalLlamaGeneratesFromInstalledApp":"LLAMA"}
+                          labels={"useAppContext":"PACKAGE_IDENTITY","installedNavigationAndNativeStatus":"NAVIGATION","embeddedBrowserOpensAndCloses":"BROWSER","originalLlamaGeneratesFromInstalledApp":"LLAMA","nativeHttpConnectNoFallback":"NETWORK_HTTP","nativeHttpProxyAuthTunnelOnly":"NETWORK_HTTP_AUTH","nativeSocksConnectNoFallback":"NETWORK_SOCKS5","installedProfileBrowserUsesProxy":"PROFILE_BROWSER_PROXY","nativeProfileCookieIsolation":"PROFILE_COOKIE_ISOLATION"}
                           stages=["HOME","DOMAINS","MODELS","REMOTE_CONNECTION","REMOTE_WORKS_DISCONNECTED","REMOTE_CHATS_DISCONNECTED","ATTENTION_DISCONNECTED","LOCAL_STATUS","RECOMMENDED_MODELS","BROWSER_HOME","BROWSER_RETURN","LLAMA_HOME","LLAMA_FIXTURE","LLAMA_LOAD","LLAMA_GENERATE","LLAMA_UNLOAD"]
-                          checks=["DOMAIN_IDENTITIES","PROVIDER_CATALOG","REMOTE_TOKEN_MASK","LOCAL_IMPORT_CONTROL","QA_MODEL_DIRECTORY","QA_MODEL_FIXTURE_DIGEST","LLAMA_OUTPUT_PRESENT","QA_MODEL_CLEANUP","WEBVIEW_TIMEOUT","NATIVE_BROWSER_CLOSE_NOT_FOUND"]
+                          checks=["IWXA_PACKAGE_IDENTITY","DOMAIN_IDENTITIES","PROVIDER_CATALOG","REMOTE_TOKEN_MASK","LOCAL_IMPORT_CONTROL","QA_MODEL_DIRECTORY","QA_MODEL_FIXTURE_DIGEST","LLAMA_OUTPUT_PRESENT","QA_MODEL_CLEANUP","WEBVIEW_TIMEOUT","NATIVE_BROWSER_CLOSE_NOT_FOUND","NETWORK_WITNESS_HEADER_BOUND","NETWORK_DIRECT_FALLBACK","NETWORK_PROXY_REJECTION_NOT_OBSERVED","NETWORK_CONNECT_MISSING","NETWORK_CONNECT_TARGET","NETWORK_ORIGIN_SECRET_LEAKED","NETWORK_AGENT_SECRET_LEAKED","NETWORK_PROXY_AUTH_NOT_CONFIRMED","NETWORK_PROXY_AUTH_PREEMPTIVE","NETWORK_SOCKS_VERSION","NETWORK_SOCKS_CONNECT","NETWORK_SOCKS_ADDRESS","NETWORK_SOCKS_TARGET","NETWORK_BROWSER_PROFILE_WINDOW","NETWORK_BROWSER_MULTIPROFILE_REQUIRED","NETWORK_COOKIE_WRITE_TIMEOUT","NETWORK_COOKIE_WRITE_FAILED","NETWORK_COOKIE_A_MISSING","NETWORK_COOKIE_CROSS_PROFILE"]
                           def device_failure(report):
                               for key,pattern in [
                                   ("NATIVE_LINK",r"UnsatisfiedLinkError|dlopen failed|cannot locate symbol"),
@@ -324,7 +359,7 @@ jobs:
                                   logs=run([adb,"logcat","-d","-t","1000"],timeout=20)
                                   device_failure(logs.stdout.decode("utf-8",errors="replace"))
                               except subprocess.TimeoutExpired:status("DEVICE_LOG_DIAGNOSTICS","TIMEOUT")
-                          passed=device_ok and sorted(observed)==sorted(labels.values()) and count==3 and not failures and not errors and not skipped and not xml_errors
+                          passed=device_ok and sorted(observed)==sorted(labels.values()) and count==len(labels) and not failures and not errors and not skipped and not xml_errors
                           status("QUALIFICATION","PASS" if passed else "FAIL")
                           status("PHYSICAL_ARM64","NOT_RUN")
                           return 0 if passed else 1
