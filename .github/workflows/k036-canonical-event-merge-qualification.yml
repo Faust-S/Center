@@ -2,10 +2,8 @@
 # Never publish the private source, reconstructed build, logs or ZIP.
 name: Original K036 canonical Event merge source and runtime candidate
 on:
-  push:
-    branches: ['work/2026-11-25-k036-canonical-event-merge-qualification']
-    paths: ['.github/workflows/k036-canonical-event-merge-qualification.yml','qualification/k036-canonical-event-merge/**']
   workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:
