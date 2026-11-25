@@ -315,7 +315,7 @@ export default function App(){
      throw Error('PUBLISHER_DRAFT_CHANGED_ON_DISK');
    }
  }
- const draftWriteInFlight=useRef(false);
+ const draftWriteInFlight=React.useRef(false);
  async function change(command:Record<string,unknown>,success:string):Promise<{ok:boolean;message:string}>{
    if(busy||!loaded||draftWriteInFlight.current)return {ok:false,message:'Сохранение сейчас недоступно. Дождитесь завершения текущего действия.'};
    draftWriteInFlight.current=true;
