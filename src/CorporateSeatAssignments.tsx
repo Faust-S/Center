@@ -171,7 +171,8 @@ export default function CorporateSeatAssignments({organizationId,workspaceId,act
      <button className="secondary" disabled={locked||view.employeeNextOffset===null}
       onClick={()=>void refresh(view.assignmentOffset,view.employeeNextOffset)}>Следующие сотрудники</button>
     </div>
-    {target?<p role="status" data-testid="d3-seat-selected-employee">Получатель места: {target.personId}</p>:
+    {target?<p role="status" data-testid="d3-seat-selected-employee"
+      aria-label={'Получатель места: '+target.personId}>Получатель места: {target.personId}</p>:
     <p className="muted">Для назначения выберите зарегистрированного сотрудника из реестра T3.</p>}
     <button data-testid="d3-seat-assign" disabled={locked||!target||assigned||!currentLicense||
       !view.seatPolicyReady||!view.withinLimits||view.availableSeats<=0} onClick={()=>void change('ASSIGN')}>Назначить место</button>
