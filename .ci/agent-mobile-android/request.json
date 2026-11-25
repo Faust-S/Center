@@ -1,7 +1,7 @@
 {
-  "candidate": "d6977a9209d97ee75570aadee4aecc96ea19f8f8",
-  "tree": "3e2449568b682eabdb3f67e13167a47ea4a0b3dc",
+  "candidate": "ce86c0080dd25db3aab5e36eeb8ae77fe407581d",
+  "tree": "5b7fec6c0d369ded6bd0b88210f2fc5248127f9c",
   "scope": "SOURCE_BUILD_INSTALLED_ANDROID_EMULATOR",
-  "reason": "CONSOLIDATED_MODEL_DOWNLOAD_PROVIDER_REMOTE_READBACK_AND_TOOLCHAIN",
+  "reason": "M04_2_INTERACTION_AND_CONFIG_PREFLIGHT",
   "physical": "NOT_RUN"
 }

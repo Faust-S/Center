@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 100
     env:
-      PRIVATE_PIN: 'd6977a9209d97ee75570aadee4aecc96ea19f8f8'
-      PRIVATE_TREE: '3e2449568b682eabdb3f67e13167a47ea4a0b3dc'
+      PRIVATE_PIN: 'ce86c0080dd25db3aab5e36eeb8ae77fe407581d'
+      PRIVATE_TREE: '5b7fec6c0d369ded6bd0b88210f2fc5248127f9c'
     steps:
       - uses: actions/setup-node@v4
         with:
@@ -90,16 +90,36 @@ jobs:
                               (r"(?m)^PASS: 26 routes\b","PROTOTYPE"),
                               (r"(?m)^LLAMA_AAR_BUILT=[a-f0-9]{64}\s*$","LLAMA_AAR"),
                               (r"(?m)^QA_MODEL_VERIFIED\s*$","QA_MODEL"),
+                              (r"(?m)^ANDROID_CONFIGURATION_PREPARED\s*$","ANDROID_CONFIGURATION_PREPARED"),
+                              (r"(?m)^ANDROID_GRADLE_WRAPPER_STARTED\s*$","GRADLE_WRAPPER_STARTED"),
+                              (r"(?m)^ANDROID_GRADLE_WRAPPER_PASS\s*$","GRADLE_WRAPPER"),
+                              (r"(?m)^ANDROID_GRADLE_CONFIGURATION_STARTED\s*$","GRADLE_CONFIGURATION_STARTED"),
+                              (r"(?m)^ANDROID_GRADLE_CONFIGURATION_PASS\s*$","GRADLE_CONFIGURATION"),
                               (r"(?m)^ANDROID_SOURCE_PREPARED\b","ANDROID_PREPARED"),
                               (r"(?m)^ANDROID_GRADLE_ASSEMBLY_STARTED\s*$","GRADLE_STARTED"),
                               (r"(?m)^DEBUG_APK_BUILT\s*$","APK"),
                               (r"(?m)^INSTALLED_INSTRUMENTATION_PASS\b","INSTALLED")]:
                               if re.search(marker,report):status(label,"PASS")
                           if outcome.returncode:
+                              if "ANDROID_GRADLE_ASSEMBLY_STARTED" in report:status("GRADLE_PHASE","ASSEMBLY")
+                              elif "ANDROID_GRADLE_CONFIGURATION_STARTED" in report and "ANDROID_GRADLE_CONFIGURATION_PASS" not in report:status("GRADLE_PHASE","CONFIGURATION")
+                              elif "ANDROID_GRADLE_WRAPPER_STARTED" in report and "ANDROID_GRADLE_WRAPPER_PASS" not in report:status("GRADLE_PHASE","WRAPPER")
+                              elif name=="DEVICE_EXECUTION":status("GRADLE_PHASE","INSTRUMENTATION")
+                              for code in sorted(set(re.findall(r"(?m)^RELEASE_SPAWN_ERROR=(ENOENT|EACCES|EPERM|ETIMEDOUT|OTHER)\s*$",report))):status("SPAWN_ERROR",code)
                               # The private checkout, raw compiler messages, paths and logs never leave
                               # the runner. Only predetermined categories and bounded numeric locations.
                               for kind,pattern in [
                                   ("SDK_OR_NDK",r"SDK location|NDK.*not found|CMake.*not found"),
+                                  ("GRADLE_DISTRIBUTION",r"Could not (?:install|download) Gradle distribution|Gradle distribution.*(?:failed|not found)"),
+                                  ("GRADLE_SCRIPT_COMPILE",r"Could not compile (?:build file|script|settings file)|startup failed:"),
+                                  ("GRADLE_SCRIPT_EVALUATE",r"A problem occurred evaluating (?:root project|project|script|settings)"),
+                                  ("GRADLE_PLUGIN_NOT_FOUND",r"Plugin with id .* not found|Plugin \[id: .*\] was not found"),
+                                  ("GRADLE_PLUGIN_CLASSPATH",r"plugin is already on the classpath|Plugin .* was already requested|plugin.*different version"),
+                                  ("GRADLE_DSL_METHOD",r"Could not find method|No signature of method"),
+                                  ("GRADLE_DSL_PROPERTY",r"Could not get unknown property|Could not set unknown property"),
+                                  ("GRADLE_TASK_CONFIGURATION",r"Could not create task|Could not determine the dependencies of task"),
+                                  ("GRADLE_TOOLCHAIN",r"Cannot find a Java installation|No matching toolchains found|Unsupported class file major version|Minimum supported Gradle version|requires Java"),
+                                  ("GRADLE_NETWORK",r"PKIX path building failed|UnknownHostException|ConnectException|SocketTimeoutException"),
                                   ("LLAMA_AAR",r"\b(?:LLAMA_PREPARE_FAILED|LLAMA_AAR_REQUIRED|LLAMA_AAR_PIN_MISMATCH)\b"),
                                   ("QA_MODEL",r"\bQA_MODEL_(?:HASH_MISMATCH|REQUIRED|DOWNLOAD_FAILED|SIZE)\b"),
                                   ("KOTLIN_COMPILE",r"(?m)^e: .*\.kt:"),
@@ -116,6 +136,18 @@ jobs:
                                   ("DEVICE",r"INSTALLED_ROUTE_TIMEOUT|NATIVE_BROWSER_CLOSE_NOT_FOUND"),
                               ]:
                                   if re.search(pattern,report,re.IGNORECASE):status("FAILURE_CLASS",kind)
+                              # Report known script roles and bounded numeric locations only.
+                              for line in report.splitlines():
+                                  loc=re.search(r"(?i)(?:Build file|Settings file|Script) '([^'\r\n]+)' line: (\d{1,5})",line)
+                                  if not loc:continue
+                                  path=loc.group(1).replace(chr(92),"/")
+                                  role="OTHER"
+                                  if path.endswith("/android/app/iwxa-native.gradle"):role="NATIVE_FRAGMENT"
+                                  elif path.endswith("/android/app/build.gradle"):role="APP_BUILD"
+                                  elif path.endswith("/android/build.gradle"):role="ROOT_BUILD"
+                                  elif path.endswith("/android/settings.gradle"):role="SETTINGS"
+                                  elif "/node_modules/@capacitor/" in path:role="CAPACITOR_MODULE"
+                                  status("GRADLE_CONFIG_LOCATION",role+":"+str(int(loc.group(2))))
                               tasks={
                                   "compileDebugKotlin":"APP_KOTLIN",
                                   "compileDebugJavaWithJavac":"APP_JAVA",
