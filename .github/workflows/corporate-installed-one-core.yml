@@ -3,10 +3,8 @@
 # No artifact upload, cache, release or private GitHub Actions.
 name: Corporate installed original One Core and Setup Core
 on:
-  push:
-    branches: ['work/2026-11-24-corporate-installed-one-core']
-    paths: ['.github/workflows/corporate-installed-one-core.yml','qualification/corporate-installed/**']
   workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:
