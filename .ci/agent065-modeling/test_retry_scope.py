@@ -7,7 +7,8 @@ from retry_scope import *
 
 def test_selection():
     c=[f'tests/test_{i:04}.py' for i in range(CORE_COUNT)]
-    assert len(select_modules(c,CORE_COUNT,CORE_RETRY))==30
+    assert len(select_modules(c,CORE_COUNT,CORE_RETRY))==31
+    assert c[80] in select_modules(c,CORE_COUNT,CORE_RETRY)
     m=[f'tests/test_modeling_{i:04}.py' for i in range(MODELING_COUNT)]
     assert select_modules(m,MODELING_COUNT,MODELING_RETRY)==m
     assert select_modules(c,CORE_COUNT,CORE_RETRY)[0]==c[14]
