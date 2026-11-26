@@ -147,3 +147,14 @@ def test_live_failure_diagnostics_are_finite(tmp_path):
     path.write_text(json.dumps({'status':'FAIL','phase':'MODELING_LIVE_READBACK',
         'failure_code':'untrusted private path','last_operation':'untrusted detail'}))
     assert gate.witness_diagnostics(tmp_path)=={'SETUP_WITNESS_PHASE':'MODELING_LIVE_READBACK'}
+
+
+def test_model_file_connection_diagnostics_are_bounded(tmp_path):
+    target=tmp_path/'temporary-installed-fixture'/'installed-witness.json'
+    target.parent.mkdir()
+    target.write_text(json.dumps({'status':'FAIL','phase':'MODELING_EXECUTE',
+        'failure_code':'MODEL_DOCUMENT_FOLDER_READBACK','last_operation':'PROVIDER_CONNECTION_CONFIGURE',
+        'folder':'private path'}),encoding='utf-8')
+    assert gate.witness_diagnostics(tmp_path)=={'SETUP_WITNESS_PHASE':'MODELING_EXECUTE',
+        'SETUP_WITNESS_FAILURE_CODE':'MODEL_DOCUMENT_FOLDER_READBACK',
+        'SETUP_WITNESS_OPERATION':'PROVIDER_CONNECTION_CONFIGURE'}
