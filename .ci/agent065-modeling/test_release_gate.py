@@ -243,3 +243,15 @@ def test_upgrade_group_requires_baseline_before_build(tmp_path):
     q=Q()
     assert gate.setup_gate(q,PIN,TREE,None,upgrade_only=True) is False
     assert q.results=={'UPGRADE_064_TO_065':False}
+
+@pytest.mark.parametrize('phase',['LIVE_OPEN_READBACK','LIVE_OPEN_REJECTED'])
+def test_live_open_native_ack_diagnostics(tmp_path,phase):
+    out=tmp_path/'temporary-installed-fixture';out.mkdir()
+    (out/'installed-witness.json').write_text(json.dumps({
+        'status':'FAIL','phase':'MODELING_LIVE_EXECUTE',
+        'failure_code':'MESA_LIVE_GUI_'+phase,'last_operation':'AUTOMATION_JOBS'
+    }),encoding='utf-8')
+    assert gate.witness_diagnostics(tmp_path)=={
+        'SETUP_WITNESS_PHASE':'MODELING_LIVE_EXECUTE',
+        'SETUP_WITNESS_FAILURE_CODE':'MESA_LIVE_GUI_'+phase,
+        'SETUP_WITNESS_OPERATION':'AUTOMATION_JOBS'}

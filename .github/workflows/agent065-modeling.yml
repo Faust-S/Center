@@ -1,4 +1,4 @@
-name: Agent 0.6.5 native GUI, complete regression and upgrade (I14.23)
+name: Agent 0.6.5 native GUI, complete regression and upgrade (I14.25)
 on:
   push:
     branches:
@@ -37,8 +37,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     env:
-      PRIVATE_PIN: '56eff6467a3421f53e4d89244736112498dcebbd'
-      PRIVATE_TREE: 'fe39e7950f5bf698f80fa818c2179a843b49f29d'
+      PRIVATE_PIN: '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
+      PRIVATE_TREE: '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
       QUALIFICATION_GROUP: ${{ matrix.group }}
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
