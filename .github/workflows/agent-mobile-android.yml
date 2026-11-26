@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: '552f3404136658442e5702baaae0dfe346c1bb92'
-      PRIVATE_TREE: '68bfffe3a9641c1b65cade07a13f3c95240089cf'
+      PRIVATE_PIN: '38d0c0dbffcc42f6870d1a7675cad588d2d8fd05'
+      PRIVATE_TREE: '88ae56b87736073fdb33f755f62150d6ba4ec8e8'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -137,6 +137,24 @@ jobs:
                               checkpoints=re.findall(r"(?m)^INSTALLED_AGENT_CHECKPOINT=(PASS)\s*$",report)
                               if checkpoints==["PASS"]:status("INSTALLED_AGENT_CHECKPOINT","PASS")
                               passed=outcome.returncode==0 and sorted(observed)==sorted(expected) and len(cameras)==1 and checkpoints==["PASS"] and re.search(r"(?m)^INSTALLED_AGENT_ROUTE=PASS\s*$",report) is not None
+                              status(name,"PASS" if passed else "FAIL")
+                              return passed
+                          if name=="NATIVE_REAL_VISION_ROUTE":
+                              expected=["OFFLINE_START","FIXTURES_VERIFIED","INVALID_IMAGE_REJECTED","NATIVE_IMAGE","NATIVE_FOLLOWUP","UI_IMAGE","OFFLINE_END"]
+                              stages=re.findall(r"(?m)^NATIVE_REAL_VISION_PASS=([A-Z_]+)\s*$",report)
+                              for stage in stages:
+                                  if stage in expected:status("NATIVE_REAL_VISION_PASS",stage)
+                              for stage in re.findall(r"(?m)^NATIVE_REAL_VISION_OBSERVED=([A-Z_]+)\s*$",report):
+                                  if stage in expected:status("NATIVE_REAL_VISION_OBSERVED",stage)
+                              for value in re.findall(r"(?m)^NATIVE_REAL_VISION_FAILURE_CHECK=([A-Z_]+)\s*$",report):
+                                  if value in {"OFFLINE","ANSWER_MISMATCH","FIXTURE_SIZE","FIXTURE_SHA256","IMAGE_RECEIPT","INVALID_IMAGE_CONTEXT","CONTEXT_RECEIPT","UI_PIXELS","UI_HASH","UI_CONTEXT","UI_PICKER","UI_SELECT","UI_RETURN","UI_FIXTURE","UI_FIXTURE_CLEANUP","MODEL_CLEANUP","PROJECTOR_CLEANUP","FRESH_CONTEXT","ACTIVATE","UNLOAD"}:status("NATIVE_REAL_VISION_FAILURE_CHECK",value)
+                              for value in re.findall(r"(?m)^NATIVE_REAL_VISION_FAILURE_STAGE=([A-Z_]+)\s*$",report):
+                                  if value in {"HOME","ACTIVATE","INVALID_IMAGE","IMAGE","FOLLOWUP","UNLOAD","STATUS","UI_MODELS","UI_LOCAL","UI_MODEL","UI_ACTIVATE","UI_PICKER","UI_PREVIEW","UI_PIXELS","UI_GENERATE"}:status("NATIVE_REAL_VISION_FAILURE_STAGE",value)
+                              for value in re.findall(r"(?m)^NATIVE_REAL_VISION_FAILURE_TYPE=([A-Za-z]+)\s*$",report):
+                                  if value in {"RuntimeError","ValueError","KeyError","TypeError","OSError","TimeoutExpired","CalledProcessError","AssertionError","FileNotFoundError"}:status("NATIVE_REAL_VISION_FAILURE_TYPE",value)
+                              for value in re.findall(r"(?m)^NATIVE_REAL_VISION_FAILURE_CODE=([A-Z_]+)\s*$",report):
+                                  if value in {"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED"}:status("NATIVE_REAL_VISION_FAILURE_CODE",value)
+                              passed=outcome.returncode==0 and stages==expected and re.findall(r"(?m)^NATIVE_REAL_VISION_ROUTE=(PASS|FAIL)\s*$",report)==["PASS"]
                               status(name,"PASS" if passed else "FAIL")
                               return passed
                           if name=="INSTALLED_T3_ROUTE":
@@ -320,6 +338,10 @@ jobs:
                       # Reject source regressions before T3 or Android provisioning.
                       if not report_stage("SOURCE",["npm","run","check:source"],mobile,180):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
+                      vision_policy=run(["python3","mobile/qualification/test_native_vision_receipt.py"],source,timeout=60)
+                      if vision_policy.returncode or not re.search(rb"(?m)^Ran 11 tests? in [0-9.]+s\s*$",vision_policy.stdout) or not re.search(rb"(?m)^OK\s*$",vision_policy.stdout):
+                          status("NATIVE_VISION_RECEIPT_POLICY","FAIL");status("APK","NOT_RUN");return 1
+                      status("NATIVE_VISION_RECEIPT_POLICY","11/11")
                       policy=root/"context-policy"
                       if not stage("LLAMA_CONTEXT_POLICY_BUILD",["g++","-std=c++17","-Wall","-Wextra","-Werror","-O2","qualification/llama-context-budget.test.cpp","-o",str(policy)],mobile,120):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
@@ -455,12 +477,12 @@ jobs:
                           status("PACKAGE_MANAGER","PASS" if pm_ready else "FAIL")
                           if not pm_ready:return 1
                           run([adb,"logcat","-c"],timeout=15)
-                          device_ok=report_stage("DEVICE_EXECUTION",["npm","run","qualify:release","--","--installed-only","--local-vision"],mobile,1800)
+                          device_ok=report_stage("DEVICE_EXECUTION",["npm","run","qualify:release","--","--installed-only","--local-vision"],mobile,1200)
                           # Never lose witness evidence when Gradle exits nonzero.
                           # Emit only fixed categories, no XML, names, output or raw logcat.
                           import xml.etree.ElementTree as ET
                           result_dir=mobile/"android/app/build/outputs/androidTest-results/connected"
-                          labels={"useAppContext":"PACKAGE_IDENTITY","installedNavigationAndNativeStatus":"NAVIGATION","embeddedBrowserOpensAndCloses":"BROWSER","originalLlamaGeneratesFromInstalledApp":"LLAMA","originalNativeModelAnswersTwoDifferentImages":"NATIVE_REAL_VISION","nativeJsonVisualEnvelopeFitsOriginalAgentLimit":"NETWORK_VISUAL_ENVELOPE","nativeHttpConnectNoFallback":"NETWORK_HTTP","nativeHttpProxyAuthTunnelOnly":"NETWORK_HTTP_AUTH","nativeSocksConnectNoFallback":"NETWORK_SOCKS5","installedProfileBrowserUsesProxy":"PROFILE_BROWSER_PROXY","nativeProfileCookieIsolation":"PROFILE_COOKIE_ISOLATION"}
+                          labels={"useAppContext":"PACKAGE_IDENTITY","installedNavigationAndNativeStatus":"NAVIGATION","embeddedBrowserOpensAndCloses":"BROWSER","originalLlamaGeneratesFromInstalledApp":"LLAMA","nativeJsonVisualEnvelopeFitsOriginalAgentLimit":"NETWORK_VISUAL_ENVELOPE","nativeHttpConnectNoFallback":"NETWORK_HTTP","nativeHttpProxyAuthTunnelOnly":"NETWORK_HTTP_AUTH","nativeSocksConnectNoFallback":"NETWORK_SOCKS5","installedProfileBrowserUsesProxy":"PROFILE_BROWSER_PROXY","nativeProfileCookieIsolation":"PROFILE_COOKIE_ISOLATION"}
                           stages=["HOME","DOMAINS","MODELS","REMOTE_CONNECTION","REMOTE_WORKS_DISCONNECTED","REMOTE_CHATS_DISCONNECTED","ATTENTION_DISCONNECTED","LOCAL_STATUS","RECOMMENDED_MODELS","BROWSER_HOME","BROWSER_RETURN","LLAMA_HOME","LLAMA_FIXTURE","LLAMA_LOAD","LLAMA_GENERATE","LLAMA_SECOND_TURN","LLAMA_UNLOAD","LLAMA_NATIVE_CANCEL_RECOVERY","LLAMA_NATIVE_REFRESH","LLAMA_PICKER_CANCEL","LLAMA_PICKER_RETURN","LLAMA_PICKER_IMPORT","LLAMA_PROJECTOR_IMPORT","LLAMA_PROJECTOR_REMOVE","LLAMA_VISION_REJECT","LLAMA_PICKER_CLEANUP"]
                           checks=["IWXA_PACKAGE_IDENTITY","DOMAIN_IDENTITIES","PROVIDER_CATALOG","REMOTE_TOKEN_MASK","LOCAL_IMPORT_CONTROL","QA_MODEL_DIRECTORY","QA_MODEL_FIXTURE_DIGEST","LLAMA_OUTPUT_PRESENT","QA_MODEL_CLEANUP","QA_PICKER_FIXTURE","QA_PICKER_COPY","QA_PICKER_CLEANUP","WEBVIEW_TIMEOUT","NATIVE_BROWSER_CLOSE_NOT_FOUND","NETWORK_WITNESS_HEADER_BOUND","NETWORK_DIRECT_FALLBACK","NETWORK_PROXY_REJECTION_NOT_OBSERVED","NETWORK_CONNECT_MISSING","NETWORK_CONNECT_TARGET","NETWORK_ORIGIN_SECRET_LEAKED","NETWORK_AGENT_SECRET_LEAKED","NETWORK_PROXY_AUTH_NOT_CONFIRMED","NETWORK_PROXY_AUTH_PREEMPTIVE","NETWORK_SOCKS_VERSION","NETWORK_SOCKS_CONNECT","NETWORK_SOCKS_ADDRESS","NETWORK_SOCKS_TARGET","NETWORK_BROWSER_PROFILE_WINDOW","NETWORK_BROWSER_MULTIPROFILE_REQUIRED","NETWORK_COOKIE_WRITE_TIMEOUT","NETWORK_COOKIE_WRITE_FAILED","NETWORK_COOKIE_A_MISSING","NETWORK_COOKIE_CROSS_PROFILE","NETWORK_OVERSIZED_REQUEST_ACCEPTED","NETWORK_REQUEST_TOO_LARGE"]
                           def device_failure(report):
@@ -489,7 +511,6 @@ jobs:
                                       if re.search(re.escape(prefix+s)+r"\b",report):status("NATIVE_VISION_STAGE",s)
                           count=failures=errors=skipped=xml_errors=0
                           observed=[]
-                          vision_results=[]
                           for xml in result_dir.rglob("TEST-*.xml"):
                               try:
                                   if xml.stat().st_size>16*1024*1024:raise ValueError("large XML")
@@ -502,16 +523,13 @@ jobs:
                                   observed.append(label)
                                   f=case.find("failure");e=case.find("error");s=case.find("skipped")
                                   failures+=int(f is not None);errors+=int(e is not None);skipped+=int(s is not None)
-                                  result="FAIL" if f is not None or e is not None else "SKIP" if s is not None else "PASS"
-                                  status("ANDROID_WITNESS",label+":"+result)
-                                  if label=="NATIVE_REAL_VISION":vision_results.append(result)
+                                  status("ANDROID_WITNESS",label+":"+("FAIL" if f is not None or e is not None else "SKIP" if s is not None else "PASS"))
                                   for node in [f,e]:
                                       if node is not None:device_failure(node.get("message","")+" "+node.get("type","")+" "+(node.text or ""))
                           status("ANDROID_TESTS",count)
                           status("ANDROID_FAILURES",failures+errors)
                           status("ANDROID_SKIPPED",skipped)
                           status("ANDROID_XML_ERRORS",xml_errors)
-                          status("NATIVE_REAL_VISION_ROUTE","PASS" if vision_results==["PASS"] and not xml_errors else "NOT_RUN" if not vision_results else "FAIL")
                           if not device_ok:
                               for package,label in [("ru.iwxa.agent.mobile","APP"),("ru.iwxa.agent.mobile.test","TEST")]:
                                   try:
@@ -529,13 +547,18 @@ jobs:
                               remote_ok=report_stage("INSTALLED_AGENT_ROUTE",[py,"mobile/qualification/installed-agent-route.py","run",str(fixture),adb],source,2100)
                           else:
                               status("INSTALLED_AGENT_ROUTE","NOT_RUN")
+                          vision_ok=False
+                          if native_ok:
+                              vision_ok=report_stage("NATIVE_REAL_VISION_ROUTE",[py,"mobile/qualification/installed-t3-route.py",adb,"--native-vision-only"],source,1800)
+                          else:
+                              status("NATIVE_REAL_VISION_ROUTE","NOT_RUN")
                           t3_ok=False
                           if native_ok:
                               # Independent installed T3 evidence remains useful after an Agent route failure.
                               t3_ok=report_stage("INSTALLED_T3_ROUTE",[py,"mobile/qualification/installed-t3-route.py",adb],source,2550)
                           else:
                               status("INSTALLED_T3_ROUTE","NOT_RUN")
-                          passed=native_ok and remote_ok and t3_ok
+                          passed=native_ok and remote_ok and vision_ok and t3_ok
                           status("QUALIFICATION","PASS" if passed else "FAIL")
                           status("PHYSICAL_ARM64","NOT_RUN")
                           status("REAL_VISION_ROUTE","NOT_RUN")
