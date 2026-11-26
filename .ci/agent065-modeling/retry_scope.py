@@ -19,8 +19,8 @@ def select_modules(catalog, count, ordinals):
     return [catalog[n-1] for n in ordinals]
 
 
-def read_outcomes(report, files):
-    """None means collection/infrastructure/ambiguous evidence, never a PASS."""
+def parse_outcomes(report, files):
+    """Return exact case identities and a finite diagnostic, without private data."""
     allowed = set(files)
     rows = {}
     try:
@@ -36,13 +36,25 @@ def read_outcomes(report, files):
                     name == path.removesuffix('.py').replace('/','.')):
                 cls = '__collection__'
             key = (path,cls,name)
-            if path not in allowed or not cls or not name or key in rows:
-                return None
+            if path not in allowed:
+                return None, 'UNMAPPED_FILE'
+            if not cls or not name:
+                return None, 'EMPTY_IDENTITY'
+            if key in rows:
+                return None, 'DUPLICATE_IDENTITY'
             rows[key] = ('FAIL' if c.find('failure') is not None or c.find('error') is not None
                          else 'SKIP' if c.find('skipped') is not None else 'PASS')
     except (OSError, ValueError, ET.ParseError):
-        return None
-    return rows if rows and {key[0] for key in rows} == allowed else None
+        return None, 'INVALID_REPORT'
+    if not rows:
+        return None, 'EMPTY_REPORT'
+    if {key[0] for key in rows} != allowed:
+        return None, 'MISSING_MODULE'
+    return rows, 'EXACT'
+
+
+def read_outcomes(report, files):
+    return parse_outcomes(report, files)[0]
 
 
 def failed_modules(outcomes, files):

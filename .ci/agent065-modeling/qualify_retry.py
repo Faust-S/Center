@@ -9,12 +9,12 @@ import tempfile
 
 from retry_scope import (CORE_COUNT, CORE_RETRY, MODELING_COUNT, MODELING_RETRY,
                          BASELINE_PIN, BASELINE_TREE, select_modules,
-                         read_outcomes, failed_modules, compare_failures)
+                         read_outcomes, parse_outcomes, failed_modules, compare_failures)
 
-CANDIDATE_PIN = 'e469bb82fa92e4b47ac1c3dd6cbb7d3ae6543c46'
-CANDIDATE_TREE = '1b60caa8a636d24f37277afbdeeeb9e0a5b4238d'
-SCOPE = 'I14_16_NATIVE_GUI_WORKSPACE_AND_REAL_UPGRADE'
-REASON = 'EXACT_DESKTOP_PROJECTION_RUN_NAVIGATION_CORE_ISOLATION_UPGRADE'
+CANDIDATE_PIN = '60286e5f18a5f7515ca285aa49ce8267b3433368'
+CANDIDATE_TREE = '0e8769b8e6f6596128b6ee26f38be4ffe73e4ff2'
+SCOPE = 'I14_17_MODEL_DOCUMENT_ROUNDTRIP_AND_WORKBOARD'
+REASON = 'MODEL_DOCUMENT_EXACT_WRITE_COLD_RECOVERY_AND_HISTORY_ORDER'
 GROUPS = ('python','core-remaining-1','core-remaining-2','core-remaining-3','ocr','desktop','desktop-source')
 CATALOGUE = re.compile(r'tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
@@ -165,9 +165,11 @@ def core_remaining(q, shard):
     if python is None:
         q.block('CORE_REMAINING'); return False
     good = q.pytest('CORE_REMAINING',python,remaining,timeout=3300)
-    rows = read_outcomes(q.logs/'CORE_REMAINING.xml',remaining)
-    evidence = q.pytest_exit_codes.get('CORE_REMAINING') in (0,1) and rows is not None
+    rows, reason = parse_outcomes(q.logs/'CORE_REMAINING.xml',remaining)
+    valid_exit = q.pytest_exit_codes.get('CORE_REMAINING') in (0,1)
+    evidence = valid_exit and rows is not None
     status('CORE_REMAINING_EVIDENCE','PASS' if evidence else 'UNAVAILABLE')
+    status('CORE_REMAINING_EVIDENCE_REASON',reason if valid_exit else 'PYTEST_EXIT')
     return good and evidence and all(q.results.values())
 
 

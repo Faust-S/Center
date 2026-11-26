@@ -7,7 +7,7 @@ from retry_scope import *
 
 def test_selection():
     c=[f'tests/test_{i:04}.py' for i in range(CORE_COUNT)]
-    assert len(select_modules(c,CORE_COUNT,CORE_RETRY))==27
+    assert len(select_modules(c,CORE_COUNT,CORE_RETRY))==29
     m=[f'tests/test_modeling_{i:04}.py' for i in range(MODELING_COUNT)]
     assert select_modules(m,MODELING_COUNT,MODELING_RETRY)==m
     assert select_modules(c,CORE_COUNT,CORE_RETRY)[0]==c[14]
@@ -37,3 +37,20 @@ def test_unmatched_skip_and_duplicate(tmp_path):
     r.write_text('<testsuite><testcase file="t.py" classname="m" name="a"/><testcase file="t.py" classname="m" name="a"/></testsuite>')
     assert read_outcomes(r,['t.py']) is None
     assert failed_modules(None,['t.py'])==['t.py']
+
+
+def test_finite_evidence_diagnostics(tmp_path):
+    r=tmp_path/'r.xml'
+    row='<testcase file="t.py" classname="m" name="a"/>'
+    for body,files,reason in [('', ['t.py'], 'EMPTY_REPORT'),
+            (row, ['other.py'], 'UNMAPPED_FILE'),
+            (row.replace('classname="m"','classname=""'), ['t.py'], 'EMPTY_IDENTITY'),
+            (row+row, ['t.py'], 'DUPLICATE_IDENTITY'),
+            (row, ['t.py','other.py'], 'MISSING_MODULE')]:
+        r.write_text('<testsuite>'+body+'</testsuite>')
+        assert parse_outcomes(r,files)==(None,reason)
+        assert read_outcomes(r,files) is None
+    r.write_text('<invalid>')
+    assert parse_outcomes(r,['t.py'])==(None,'INVALID_REPORT')
+    r.write_text('<testsuite>'+row+'</testsuite>')
+    assert parse_outcomes(r,['t.py'])==({('t.py','m','a'):'PASS'},'EXACT')
