@@ -194,3 +194,52 @@ def test_upgrade_failure_diagnostics_are_allowlisted():
     assert gate.upgrade_diagnostics(data+'AGENT065_UPGRADE_FAILURE_CODE=RECEIPT_UNREADABLE\n')=={'UPGRADE_WITNESS_PHASE':'BUILD_IDENTITY'}
     assert gate.upgrade_diagnostics('AGENT065_UPGRADE_PHASE=private path\nAGENT065_UPGRADE_FAILURE_CODE=private error')=={}
     assert gate.upgrade_diagnostics('prefix AGENT065_UPGRADE_PHASE=BUILD_IDENTITY')=={}
+
+
+@pytest.mark.parametrize('upgrade_only,build_ok,expected', [
+    (True,True,True),(True,False,False),(False,True,True),(False,False,False)])
+def test_independent_upgrade_and_gui_group_require_distinct_evidence(tmp_path,monkeypatch,upgrade_only,build_ok,expected):
+    import release_preflight
+    calls=[]
+    class Qualification:
+        root=tmp_path
+        src=tmp_path/'source'
+        env={'PATH':'fixture'}
+        def __init__(self):self.results={}
+        def venv(self,name,requirements):return str(tmp_path/'python.exe')
+        def run(self,label,command,**kwargs):
+            calls.append(('build',label,command))
+            return (0 if build_ok else 1,
+                    'AGENT065_UPGRADE_CANDIDATE_BUILT_UNQUALIFIED' if upgrade_only else 'full installed receipt')
+        def block(self,*labels):
+            self.results.update(dict.fromkeys(labels,False))
+        def diagnostics(self,*args):pass
+    q=Qualification()
+    monkeypatch.setattr(release_preflight,'committed_lock',lambda *args:True)
+    monkeypatch.setattr(gate,'checkout_setup_owner',lambda q:tmp_path/'owner')
+    monkeypatch.setattr(gate,'verify_receipt_preflight',lambda out:True)
+    monkeypatch.setattr(gate,'verify_setup_build',lambda *args:True)
+    monkeypatch.setattr(gate,'witness_diagnostics',lambda out:{})
+    def gui(*args):
+        calls.append(('gui',))
+        return True
+    def upgrade(*args):
+        calls.append(('upgrade',))
+        return True
+    monkeypatch.setattr(gate,'verify_setup_result',gui)
+    monkeypatch.setattr(gate,'upgrade_gate',upgrade)
+    baseline=object() if upgrade_only else None
+    assert gate.setup_gate(q,PIN,TREE,baseline,upgrade_only=upgrade_only) is expected
+    assert ('-QualificationBuildOnly' in calls[0][2]) is upgrade_only
+    assert (('upgrade',) in calls) is (upgrade_only and build_ok)
+    assert (('gui',) in calls) is (not upgrade_only and build_ok)
+    assert ('SETUP_RELEASE' in q.results) is not upgrade_only
+
+
+def test_upgrade_group_requires_baseline_before_build(tmp_path):
+    class Q:
+        def __init__(self):self.results={}
+        def block(self,*labels):self.results.update(dict.fromkeys(labels,False))
+    q=Q()
+    assert gate.setup_gate(q,PIN,TREE,None,upgrade_only=True) is False
+    assert q.results=={'UPGRADE_064_TO_065':False}

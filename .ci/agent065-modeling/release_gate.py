@@ -121,7 +121,7 @@ def verify_setup_result(data, out, pin, tree):
 # raw exception, source path, task identifier, or output.
 MODELING_FAILURES = frozenset((
     'MODEL_DOCUMENT_FOLDER_SCOPE','MODEL_DOCUMENT_FOLDER_CONNECT','MODEL_DOCUMENT_FOLDER_READBACK','MODELING_DOCUMENT_PERSONAL_FILES_REQUIRED','MODELING_DOCUMENT_WORKSPACE_CHANGED','MODELING_DOCUMENT_TASK_WORKSPACE_CHANGED','MODELING_DOCUMENT_BINDING_CHANGED','MODELING_DOCUMENT_BINDING_INVALID','MODELING_DOCUMENT_DESTINATION_EXISTS','MODELING_DOCUMENT_BASE_CHANGED','MODELING_DOCUMENT_WRITE_LIMIT','MODELING_DOCUMENT_REVISION_CHANGED','MODELING_DOCUMENT_EXISTING_TASK_CONFLICT','MODELING_DOCUMENT_PATH_INVALID','MODELING_DOCUMENT_WRITE_MODE_INVALID','MODELING_DOCUMENT_UTF8_REQUIRED','MODELING_DOCUMENT_SIZE_INVALID','MODELING_DOCUMENT_NAMESPACE_INVALID','MODELING_DOCUMENT_XML_INVALID','MODELING_DOCUMENT_XML_UNSAFE',
-    'MESA_LIVE_JOB','MESA_LIVE_COMPLETION','MESA_LIVE_HISTORY','MESA_LIVE_RECEIPT','MESA_LIVE_MEASUREMENTS','MESA_LIVE_GUI_TIMEOUT','MESA_LIVE_GUI_LIVE_BOOT','MESA_LIVE_GUI_LIVE_NAVIGATION','MESA_LIVE_GUI_LIVE_OPEN','MESA_LIVE_GUI_LIVE_STEP_1','MESA_LIVE_GUI_LIVE_STEP_2','MESA_LIVE_GUI_LIVE_FINISH','MESA_LIVE_GUI_LIVE_RECEIPT','MESA_LIVE_GUI_LIVE_RECEIPT_HASH','MESA_LIVE_GUI_LIVE_RECEIPT_WRITE','MESA_LIVE_GUI_LIVE_RECEIPT_READBACK','MESA_LIVE_GUI_LIVE_RECEIPT_COMPLETE','MESA_LIVE_GUI_RECEIPT','MESA_LIVE_COMPLETION_TIMEOUT','MESA_LIVE_PROOF','MESA_LIVE_COLD_CHANGED',
+    'MESA_LIVE_JOB','MESA_LIVE_COMPLETION','MESA_LIVE_HISTORY','MESA_LIVE_RECEIPT','MESA_LIVE_MEASUREMENTS','MESA_LIVE_GUI_TIMEOUT','MESA_LIVE_GUI_LIVE_BOOT','MESA_LIVE_GUI_LIVE_NAVIGATION','MESA_LIVE_GUI_LIVE_OPEN','MESA_LIVE_GUI_LIVE_WINDOW','MESA_LIVE_GUI_LIVE_PAGE_READY','MESA_LIVE_GUI_LIVE_INITIAL_TIME','MESA_LIVE_GUI_LIVE_STEP_1_INPUT','MESA_LIVE_GUI_LIVE_STEP_1_READBACK','MESA_LIVE_GUI_LIVE_STEP_2_INPUT','MESA_LIVE_GUI_LIVE_STEP_2_READBACK','MESA_LIVE_GUI_LIVE_FINISH_INPUT','MESA_LIVE_GUI_LIVE_STEP_1','MESA_LIVE_GUI_LIVE_STEP_2','MESA_LIVE_GUI_LIVE_FINISH','MESA_LIVE_GUI_LIVE_RECEIPT','MESA_LIVE_GUI_LIVE_RECEIPT_HASH','MESA_LIVE_GUI_LIVE_RECEIPT_WRITE','MESA_LIVE_GUI_LIVE_RECEIPT_READBACK','MESA_LIVE_GUI_LIVE_RECEIPT_COMPLETE','MESA_LIVE_GUI_RECEIPT','MESA_LIVE_COMPLETION_TIMEOUT','MESA_LIVE_PROOF','MESA_LIVE_COLD_CHANGED',
     'MODEL_DOCUMENT_STATUS','MODEL_DOCUMENT_FILES_OWNER','MODEL_DOCUMENT_EARLY_WRITE',
     'MODEL_DOCUMENT_FILE_BYTES','MODEL_DOCUMENT_NEW_INTENT','MODEL_DOCUMENT_PREPARATION',
     'MODEL_DOCUMENT_RECOVERY','MODEL_DOCUMENT_WRITE_RECEIPT','MODEL_DOCUMENT_PROOF','MODEL_DOCUMENT_COLD_TASK',
@@ -305,9 +305,14 @@ def upgrade_gate(q, baseline, owner, new_out, pin, tree):
     return accepted
 
 
-def setup_gate(q, pin, tree, baseline=None):
-    """Build and install through the existing private Setup Core pipeline."""
+def setup_gate(q, pin, tree, baseline=None, *, upgrade_only=False):
+    """One exact build on each independent, disposable Windows runner."""
     from release_preflight import committed_lock
+    if upgrade_only and baseline is None:
+        q.block('UPGRADE_064_TO_065')
+        return False
+    if not upgrade_only and baseline is not None:
+        raise ValueError('SETUP_QUALIFICATION_SCOPE_CHANGED')
     if not committed_lock(q, 'COMMITTED_NATIVE_LOCK_BEFORE'):
         return False
     owner = checkout_setup_owner(q)
@@ -326,9 +331,24 @@ def setup_gate(q, pin, tree, baseline=None):
         '-ExecutionPolicy', 'Bypass', '-File', q.src / 'tools/build_setup_core_windows_candidate.ps1',
         '-CenterRoot', owner, '-CenterCommit', SETUP_PIN,
         '-ReleaseCacheRoot', q.root / 'release-cache', '-OutputRoot', out]
-    code, data = q.run('SETUP_RELEASE', command, env=env, report=False, timeout=7200)
+    if upgrade_only:
+        command.append('-QualificationBuildOnly')
+    label = 'UPGRADE_CANDIDATE_BUILD' if upgrade_only else 'SETUP_RELEASE'
+    code, data = q.run(label, command, env=env, report=False, timeout=7200)
     preflight = verdict(q, 'MODELING_RECEIPT_PREFLIGHT', verify_receipt_preflight(out))
     built = verdict(q, 'SETUP_BUILT', verify_setup_build(out, pin, tree))
+    if upgrade_only:
+        admitted = verdict(q, 'UPGRADE_CANDIDATE_BUILD', code == 0 and preflight and built
+                          and data.strip() == 'AGENT065_UPGRADE_CANDIDATE_BUILT_UNQUALIFIED')
+        if admitted:
+            upgraded = upgrade_gate(q,baseline,owner,out,pin,tree)
+        else:
+            q.diagnostics(label,data)
+            q.block('UPGRADE_064_TO_065')
+            upgraded = False
+        unchanged = committed_lock(q, 'COMMITTED_NATIVE_LOCK_AFTER')
+        print('INSTALLED_GUI=NOT_RUN_IN_UPGRADE_GROUP',flush=True)
+        return admitted and upgraded and unchanged and all(q.results.values())
     accepted = verdict(q, 'SETUP_RELEASE', code == 0 and preflight and built and verify_setup_result(data, out, pin, tree))
     if not accepted:
         q.diagnostics('SETUP_RELEASE', data)
@@ -361,12 +381,7 @@ def setup_gate(q, pin, tree, baseline=None):
     print('MODELING_INSTALLED_CORE=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
     print('MODELING_INSTALLED_GUI=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
     print('MODELING_INSTALLED_LIVE=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
-    # The original installer may intentionally leave an owned installation on
-    # failure. Never attempt a second install in that state.
-    if accepted:
-        upgraded = upgrade_gate(q,baseline,owner,out,pin,tree)
-    else:
-        upgraded = False
-        q.block('UPGRADE_064_TO_065')
+    # Upgrade is an independent required matrix job. Never try a second
+    # installation in this fixture, and never treat upgrade as GUI acceptance.
     unchanged = committed_lock(q, 'COMMITTED_NATIVE_LOCK_AFTER')
-    return accepted and upgraded and unchanged and all(q.results.values())
+    return accepted and unchanged and all(q.results.values())
