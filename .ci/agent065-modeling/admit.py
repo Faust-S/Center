@@ -5,6 +5,8 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from qualify_retry import (CANDIDATE_PIN, CANDIDATE_TREE, BASELINE_PIN, BASELINE_TREE,
+                           SCOPE, REASON)
 
 WORKFLOW = 'agent065-modeling'
 PREFIX = 'refs/heads/ci/once/' + WORKFLOW + '/'
@@ -47,13 +49,13 @@ def admit(env, event):
     require(git('diff-tree','--no-commit-id','--name-status','-r',parent,head) == 'A\t' + REQUEST)
     require(git('ls-tree',head,'--',REQUEST).split(' ',1)[0] == '100644')
     expected = read_json(PREPARED)
-    require(set(expected) == {'candidate','tree','scope','reason','installed_gui'})
+    require(expected == {'candidate':CANDIDATE_PIN,'tree':CANDIDATE_TREE,
+                         'baseline':BASELINE_PIN,'baseline_tree':BASELINE_TREE,
+                         'scope':SCOPE,'reason':REASON,'installed_gui':'NOT_RUN'})
     require(expected['candidate'] == env.get('PRIVATE_PIN') and expected['tree'] == env.get('PRIVATE_TREE'))
-    require(all(SHA.fullmatch(expected[k]) for k in ('candidate','tree')))
-    require(expected['scope'] == 'I14_6_GROUPED_DESKTOP_RETRY' and expected['reason'] == 'NATIVE_REGISTRY_WINDOWS_UNAVAILABLE_LOCALLY')
-    require(expected['installed_gui'] == 'NOT_RUN')
+    require(all(SHA.fullmatch(expected[k]) for k in ('candidate','tree','baseline','baseline_tree')))
     require(read_json(REQUEST) == {**expected,'workflow':WORKFLOW,'prepared_sha':parent})
-    require(env.get('QUALIFICATION_GROUP') == 'desktop')
+    require(env.get('QUALIFICATION_GROUP') in ('python','desktop'))
     return head
 
 

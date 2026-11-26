@@ -1,4 +1,4 @@
-name: Agent 0.6.5 grouped Desktop qualification (I14.6)
+name: Agent 0.6.5 addressed Python and grouped Desktop qualification (I14.8)
 on:
   push:
     branches:
@@ -16,13 +16,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [desktop]
+        group: [python, desktop]
     name: qualify / ${{ matrix.group }}
     runs-on: windows-2022
     timeout-minutes: 140
     env:
-      PRIVATE_PIN: 'e86f992c61c74963999cf6bc33acc07d1211427c'
-      PRIVATE_TREE: 'e289583888a6a24fe9e3ed25553d02dfcac5e26c'
+      PRIVATE_PIN: '3b6ce870808987c3bdc666f32e92c9b31de4c594'
+      PRIVATE_TREE: 'ada8cdf4b69569117750aba61550c72fd8f137ce'
       QUALIFICATION_GROUP: ${{ matrix.group }}
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -41,6 +41,7 @@ jobs:
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v4
+        if: ${{ matrix.group == 'desktop' }}
         with:
           node-version: '22.16.0'
       - name: Resolve only public upstream npm graph (no private checkout)
@@ -62,4 +63,4 @@ jobs:
         shell: pwsh
         env:
           IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
-        run: python .ci/agent065-modeling/qualify.py
+        run: python .ci/agent065-modeling/qualify_retry.py

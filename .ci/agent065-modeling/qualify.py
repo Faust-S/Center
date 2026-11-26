@@ -18,7 +18,7 @@ from failure_coordinates import coordinate, structured_locations
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
 SAFE_NODE_ERRORS = ('E404','ETARGET','ERESOLVE','EINTEGRITY','ENOTFOUND','ECONNRESET','ETIMEDOUT','EACCES','ERR_MODULE_NOT_FOUND')
-SAFE_BUILD_ERRORS = ('MODELING_NATIVE_LOCK_MISSING','MODELING_NATIVE_MANIFEST_CHANGED','MODELING_NATIVE_LOCK_CHANGED','MODELING_NATIVE_PIN_UNVERIFIED','MODELING_NATIVE_INSTALL_CHANGED','MODELING_NATIVE_TRANSITIVE_LOCK_INVALID','MODELING_DESKTOP_REACT_PIN_CHANGED','MODELING_DESKTOP_BUILD_FAILED')
+SAFE_BUILD_ERRORS = ('MODELING_NATIVE_LOCK_MISSING','MODELING_NATIVE_LOCK_IDENTITY_CHANGED','MODELING_NATIVE_LOCK_RESOLUTION_FAILED','MODELING_NATIVE_NPM_REQUIRED','MODELING_NATIVE_MANIFEST_CHANGED','MODELING_NATIVE_LOCK_CHANGED','MODELING_NATIVE_PIN_UNVERIFIED','MODELING_NATIVE_INSTALL_CHANGED','MODELING_NATIVE_TRANSITIVE_LOCK_INVALID','MODELING_DESKTOP_REACT_PIN_CHANGED','MODELING_DESKTOP_BUILD_FAILED')
 SAFE_PYTHON_ERRORS = ('ModuleNotFoundError','ImportError','AssertionError','ValueError','TypeError','RuntimeError','OSError','PermissionError','FileNotFoundError','TimeoutError','KeyError','AttributeError','UnicodeDecodeError','JSONDecodeError')
 
 
@@ -81,6 +81,7 @@ class Qualification:
             'PYTHONDONTWRITEBYTECODE':'1',
         })
         self.results = {}
+        self.pytest_exit_codes = {}
         self.files = []
         self.coordinates = {}
 
@@ -167,12 +168,13 @@ class Qualification:
             self.results[label]=False
             status(label,'BLOCKED')
 
-    def checkout(self,token,pin,tree):
+    def checkout(self,token,pin,tree,*,status_prefix=''):
+        def emit(key,value):status(status_prefix+key,value)
         if not token or not SHA.fullmatch(pin) or not SHA.fullmatch(tree):
-            status('PRIVATE_READ','TOKEN_OR_PIN_UNAVAILABLE')
+            emit('PRIVATE_READ','TOKEN_OR_PIN_UNAVAILABLE')
             return False
         if self.run('PRIVATE_INIT',['git','init','-q'],report=False)[0]:
-            status('PRIVATE_READ','INIT_FAIL');return False
+            emit('PRIVATE_READ','INIT_FAIL');return False
         auth = dict(self.env)
         auth.update({'GIT_CONFIG_COUNT':'1',
             'GIT_CONFIG_KEY_0':'http.https://github.com/.extraheader',
@@ -180,20 +182,20 @@ class Qualification:
         fetched = self.run('PRIVATE_FETCH',['git','fetch','--no-tags','--depth','1','https://github.com/Faust-S/iwxa-personal-agent.git',pin],env=auth,timeout=300,report=False)[0]
         del auth, token
         if fetched or self.run('PRIVATE_CHECKOUT',['git','checkout','--detach','-q',pin],report=False)[0]:
-            status('PRIVATE_READ','FETCH_FAIL');return False
+            emit('PRIVATE_READ','FETCH_FAIL');return False
         head = self.run('PRIVATE_HEAD',['git','rev-parse','HEAD'],report=False)
         actual = self.run('PRIVATE_TREE',['git','rev-parse','HEAD^{tree}'],report=False)
         if head[0] or head[1].strip()!=pin:
-            status('PRIVATE_READ','PIN_MISMATCH');return False
+            emit('PRIVATE_READ','PIN_MISMATCH');return False
         if actual[0] or actual[1].strip()!=tree:
-            status('PRIVATE_READ','TREE_MISMATCH');return False
+            emit('PRIVATE_READ','TREE_MISMATCH');return False
         code,listing=self.run('SOURCE_INVENTORY',['git','ls-files'],report=False)
-        if code:status('PRIVATE_READ','INVENTORY_FAIL');return False
+        if code:emit('PRIVATE_READ','INVENTORY_FAIL');return False
         self.files=sorted(listing.splitlines())
         self.coordinates={path:i+1 for i,path in enumerate(self.files)}
-        status('PRIVATE_READ','PASS')
-        status('SOURCE_PIN',pin)
-        status('SOURCE_TREE',tree)
+        emit('PRIVATE_READ','PASS')
+        emit('SOURCE_PIN',pin)
+        emit('SOURCE_TREE',tree)
         return True
 
     def pytest(self,label,python,files,*,native=False,timeout=2400):
@@ -205,6 +207,7 @@ class Qualification:
         else:env.pop('IWXA_MODELING_NATIVE_REQUIRED',None)
         code,data=self.run(label,[python,'-m','pytest','-q',*files,'-o','junit_family=xunit1','--junitxml='+str(report)],
                            env=env,timeout=timeout,report=False)
+        self.pytest_exit_codes[label]=code
         counts={'PASS':0,'FAIL':0,'SKIP':0}
         ordinal={v:i+1 for i,v in enumerate(files)}
         skipped_native=0

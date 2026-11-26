@@ -1,7 +1,9 @@
 {
-  "candidate": "e86f992c61c74963999cf6bc33acc07d1211427c",
-  "tree": "e289583888a6a24fe9e3ed25553d02dfcac5e26c",
-  "scope": "I14_6_GROUPED_DESKTOP_RETRY",
-  "reason": "NATIVE_REGISTRY_WINDOWS_UNAVAILABLE_LOCALLY",
+  "candidate": "3b6ce870808987c3bdc666f32e92c9b31de4c594",
+  "tree": "ada8cdf4b69569117750aba61550c72fd8f137ce",
+  "baseline": "4cecffe7786a0afbf198a847d8368e4e8549e98a",
+  "baseline_tree": "a3a5ab786f4f9d31e6494e53bd3a67451b6e710d",
+  "scope": "I14_8_GROUPED_ADDRESSED_RETRY",
+  "reason": "UNRESOLVED_NATIVE_REGISTRY_AND_WINDOWS_FAILURES",
   "installed_gui": "NOT_RUN"
 }
