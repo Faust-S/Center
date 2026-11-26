@@ -1,0 +1,11 @@
+{
+  "candidate": "b8a77346a4227168958c00f4ca39b9c21f9dceb3",
+  "tree": "2c9f55e26e1f1e6aa9ac40490b5343da821118f2",
+  "original_t3": "1e5d54bba065f0e82cc506a5443b96079d070608",
+  "original_t3_tree": "80f724d21d2acca0394e3694ae4a9a7fd65317bc",
+  "scope": "M11_CONSOLIDATED_NATIVE_MTMD_PROJECTOR_AND_IMAGE_ROUTE",
+  "reason": "M11_53_QUALIFIED_M11_55_NATIVE_VISUAL_ROUTE_AND_TEXT_REGRESSION",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "3af3a21a71e201a95c6aa361fcabf512ee100c04"
+}
