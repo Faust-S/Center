@@ -1,4 +1,4 @@
-"""I14.22: full regression, native GUI, document roundtrip and original Setup upgrade."""
+"""I14.23: full regression, native GUI, document roundtrip and original Setup upgrade."""
 import hashlib
 import os
 from pathlib import Path
@@ -11,10 +11,10 @@ from retry_scope import (CORE_COUNT, CORE_RETRY, MODELING_COUNT, MODELING_RETRY,
                          BASELINE_PIN, BASELINE_TREE, select_modules,
                          read_outcomes, failed_modules, compare_failures)
 
-CANDIDATE_PIN = '226b823effabcd5ca61b30125e8ba9f9744b3ec2'
-CANDIDATE_TREE = '82856c1c532863e6204d0f7c759028955e52d0d4'
-SCOPE = 'I14_22_NATIVE_SOLARA_WIDGET_AND_INDEPENDENT_UPGRADE'
-REASON = 'NATIVE_WINDOW_AND_STEP_READBACK_INDEPENDENT_ORIGINAL_UPGRADE'
+CANDIDATE_PIN = '56eff6467a3421f53e4d89244736112498dcebbd'
+CANDIDATE_TREE = 'fe39e7950f5bf698f80fa818c2179a843b49f29d'
+SCOPE = 'I14_23_RECONCILIATION_HISTORY_NATIVE_SOLARA_AND_UPGRADE'
+REASON = 'RECONCILIATION_EQUAL_TIMESTAMPS_NATIVE_STEP_READBACK_INDEPENDENT_UPGRADE'
 GROUPS = ('python','core-remaining-1','core-remaining-2','core-remaining-3','ocr','desktop','desktop-source','upgrade')
 CATALOGUE = re.compile(r'tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
