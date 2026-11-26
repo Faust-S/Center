@@ -11,10 +11,10 @@ from retry_scope import (CORE_COUNT, CORE_RETRY, MODELING_COUNT, MODELING_RETRY,
                          BASELINE_PIN, BASELINE_TREE, select_modules,
                          read_outcomes, failed_modules, compare_failures)
 
-CANDIDATE_PIN = 'a1671856b9ce5d8c83b334a2775ecc9085923aa0'
-CANDIDATE_TREE = 'db0344ea827c38ba7ed845b0c34f61f46a672a61'
-SCOPE = 'I14_13_CORE_NATIVE_OCR_AND_PERSONAL_SETUP'
-REASON = 'PINNED_DESKTOP_STAGE_CORE_CORRECTIONS_REAL_OCR_SETUP'
+CANDIDATE_PIN = 'ebc11fb592fe24f7414a673df47dc9a29c40e65a'
+CANDIDATE_TREE = '7bf3879f5b649798e544f4c5d309969a6534c36d'
+SCOPE = 'I14_14_INSTALLED_MODELING_CORE_AND_REGRESSION'
+REASON = 'ARCHITECTURAL_BOUNDARIES_AND_INSTALLED_MODELING_COLD_READBACK'
 GROUPS = ('python','ocr','desktop')
 CATALOGUE = re.compile(r'tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')

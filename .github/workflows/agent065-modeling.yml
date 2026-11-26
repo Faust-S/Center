@@ -1,4 +1,4 @@
-name: Agent 0.6.5 corrected Core, native OCR and personal Setup (I14.13)
+name: Agent 0.6.5 installed modeling, Core and native OCR (I14.14)
 on:
   push:
     branches:
@@ -27,8 +27,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     env:
-      PRIVATE_PIN: 'a1671856b9ce5d8c83b334a2775ecc9085923aa0'
-      PRIVATE_TREE: 'db0344ea827c38ba7ed845b0c34f61f46a672a61'
+      PRIVATE_PIN: 'ebc11fb592fe24f7414a673df47dc9a29c40e65a'
+      PRIVATE_TREE: '7bf3879f5b649798e544f4c5d309969a6534c36d'
       QUALIFICATION_GROUP: ${{ matrix.group }}
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'

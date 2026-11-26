@@ -12,7 +12,9 @@ SETUP_TREE = 'f94c6cf728af3484716cdab3e624169d83db483f'
 SETUP_STATUS = 'PRIVATE_NATIVE_WINDOW_CORE_REPAIR_UNINSTALL_PASS'
 SETUP_REQUIRED = ('installed_runtime_launch_accepted', 'native_gui_window_accepted',
                   'native_same_version_repair_rollback_accepted',
-                  'native_clean_install_and_repair_accepted')
+                  'native_clean_install_and_repair_accepted',
+                  'installed_native_modeling_verified',
+                  'installed_native_modeling_cold_readback_verified')
 
 
 def verdict(q, label, good):
@@ -129,8 +131,13 @@ def setup_gate(q, pin, tree):
     owner = checkout_setup_owner(q)
     if owner is None:
         q.block('SETUP_RELEASE'); return False
+    native_python = q.venv('installedmodelqa', ['qualification/modeling-preparation/requirements.txt'])
+    if native_python is None:
+        q.block('SETUP_RELEASE'); return False
     out = q.root / 'setup-output'
     env = dict(q.env)
+    env['PATH'] = str(Path(native_python).parent) + os.pathsep + env.get('PATH', '')
+    env['IWXA_AGENT065_MODELING_PYTHON'] = str(native_python)
     env['IWXA_AGENT06_QUALIFICATION_SCOPE'] = 'PERSONAL_RELEASE'
     env.pop('CARGO_TARGET_DIR', None)
     command = ['powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive',
@@ -153,10 +160,15 @@ def setup_gate(q, pin, tree):
                        'private_setup_core_package_build_failed',
                        'private_setup_core_local_acceptance_failed',
                        'private_setup_core_installed_runtime_not_verified',
+                       'private_setup_core_installed_modeling_not_verified',
+                       'agent_setup_witness_modeling_execute_failed',
+                       'agent_setup_witness_modeling_cold_restart_failed',
+                       'agent_setup_witness_modeling_cold_readback_failed',
                        'private_setup_core_rollback_failed'):
             if marker in data:
                 print('SETUP_FAILURE_CODE=' + marker.upper(), flush=True)
     print('INSTALLED_GUI=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
+    print('MODELING_INSTALLED_CORE=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
     print('MODELING_INSTALLED_GUI=NOT_RUN', flush=True)
     print('UPGRADE_064_TO_065=NOT_RUN', flush=True)
     unchanged = committed_lock(q, 'COMMITTED_NATIVE_LOCK_AFTER')
