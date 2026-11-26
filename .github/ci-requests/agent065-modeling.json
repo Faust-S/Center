@@ -1,0 +1,11 @@
+{
+  "candidate": "226b823effabcd5ca61b30125e8ba9f9744b3ec2",
+  "tree": "82856c1c532863e6204d0f7c759028955e52d0d4",
+  "baseline": "4cecffe7786a0afbf198a847d8368e4e8549e98a",
+  "baseline_tree": "a3a5ab786f4f9d31e6494e53bd3a67451b6e710d",
+  "scope": "I14_22_NATIVE_SOLARA_WIDGET_AND_INDEPENDENT_UPGRADE",
+  "reason": "NATIVE_WINDOW_AND_STEP_READBACK_INDEPENDENT_ORIGINAL_UPGRADE",
+  "installed_gui": "NOT_RUN",
+  "workflow": "agent065-modeling",
+  "prepared_sha": "7a7c4cfd03ab7d9f2c7e0a42542e0bdf55d0c4f1"
+}
