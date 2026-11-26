@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: '0ce62ab46eb24fe70327980ea0dbc5619041480b'
-      PRIVATE_TREE: '708b814b87faeae5e547751c49b049a2124d94aa'
+      PRIVATE_PIN: '621a48fedbce5b222d742f96188f99d4fe84c0da'
+      PRIVATE_TREE: 'a46b292d150bfb4908651f03171cb61201215120'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -317,6 +317,14 @@ jobs:
                               cases=list(ET.parse(m11_xml).getroot().iter("testcase"))
                               failed=sum(c.find("failure") is not None or c.find("error") is not None for c in cases)
                               skipped=sum(c.find("skipped") is not None for c in cases)
+                              # Print only fixed group labels and numeric positions, never XML or private exception text.
+                              groups={pathlib.Path(name).stem:"P"+str(index+1) for index,name in enumerate(suites)}
+                              counts={}
+                              for index,case in enumerate(cases,1):
+                                  group=groups.get((case.get("classname") or "").split(".")[-1],"UNMAPPED")
+                                  counts[group]=counts.get(group,0)+1
+                                  outcome="ERROR" if case.find("error") is not None else "FAIL" if case.find("failure") is not None else "SKIP" if case.find("skipped") is not None else None
+                                  if outcome:status("M11_PYTHON_CASE",f"{group}:{counts[group]}:{index}:{outcome}")
                               host_ready=tested.returncode==0 and bool(cases) and not failed and not skipped
                               status("M11_PYTHON_TESTS",len(cases));status("M11_PYTHON_FAILED",failed);status("M11_PYTHON_SKIPPED",skipped)
                           except (OSError,ValueError,ET.ParseError,subprocess.TimeoutExpired):
