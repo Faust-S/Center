@@ -1,0 +1,37 @@
+name: T4 original Kernel DB9 qualification
+on:
+  push:
+    branches:
+      - 'ci/once/t4-db9/ba821f351f95b2c986e9d748a156daf7bddc2acc'
+permissions:
+  contents: read
+concurrency:
+  group: t4-db9-ba821f351f95b2c986e9d748a156daf7bddc2acc
+  cancel-in-progress: false
+jobs:
+  original-kernel-db9:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Pin original qualification npm version
+        run: |
+          if [ "$(npm --version)" != "11.16.0" ]; then
+            npm install --global npm@11.16.0 --no-audit --no-fund >/dev/null 2>&1
+          fi
+          test "$(npm --version)" = "11.16.0"
+      - name: Exact read-only source and bounded private qualification
+        env:
+          T2_SCOPED: ${{ secrets.IWXA_T2_SOURCE_READ_TOKEN }}
+          SOURCE_SCOPED: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          DOMAIN_SCOPED: ${{ secrets.DOMEN }}
+        run: python3 qualification/t4-db9/qualify.py
+      - name: Remove residual private temporary directories even after cancellation
+        if: always()
+        run: |
+          find "$RUNNER_TEMP" -maxdepth 1 -type d -name 'iwxa-t4-db9-*' -exec rm -rf -- {} +
