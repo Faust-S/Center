@@ -1,0 +1,99 @@
+name: HOP private reader source qualification
+on:
+  push:
+    branches:
+      - work/2026-11-26-hop-reader-source-qualification
+    paths:
+      - .github/workflows/hop-reader-source-qualification.yml
+permissions:
+  contents: read
+concurrency:
+  group: hop-reader-private-source
+  cancel-in-progress: true
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 'true'
+      npm_config_audit: 'false'
+      npm_config_fund: 'false'
+    steps:
+      - name: Checkout exact authorized private source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop.iwxa.ru
+          ref: 5b52865807490298c3b8b1f9c3ca4454e59249d2
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private/site
+          persist-credentials: false
+          show-progress: false
+      - name: Checkout exact authorized subject source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop
+          ref: b1f5ceb7fb54f283a1db541dd06f761c7511fa84
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private/domain
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify pins and subject parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C private/site rev-parse HEAD)" = '5b52865807490298c3b8b1f9c3ca4454e59249d2'
+          test "$(git -C private/site rev-parse 'HEAD^{tree}')" = '2c19b2ab609670b25a2d77722641675bc30b91b4'
+          test "$(git -C private/domain rev-parse HEAD)" = 'b1f5ceb7fb54f283a1db541dd06f761c7511fa84'
+          test "$(git -C private/domain rev-parse 'HEAD^{tree}')" = '21f3ca6fa43ed3a8bba4d8159b131f0cebd45bf2'
+          for f in src/lib/stage-dialogue.ts src/lib/stage-dialogue-project.ts src/lib/__tests__/stage-dialogue.test.ts src/lib/__tests__/stage-dialogue-project.test.ts; do
+            cmp -s "private/site/$f" "private/domain/$f"
+          done
+          echo SOURCE_PINS=PASS
+          echo SUBJECT_PARITY=4/4
+      - name: Install original dependency lock and run native checks
+        working-directory: private/site
+        shell: bash
+        run: |
+          node <<'NODE'
+          const {spawnSync}=require('node:child_process');
+          const paths=['src/lib/stage-dialogue.ts','src/lib/stage-dialogue-project.ts','src/lib/__tests__/stage-dialogue.test.ts','src/lib/__tests__/stage-dialogue-project.test.ts','src/components/workspace/inspector/StageDialogueStudio.tsx','src/components/player/ProjectPlayer.tsx','src/components/workspace/SceneRenderer.tsx','src/components/workspace/inspector/__tests__/StageDialogueStudio.test.tsx','src/components/player/__tests__/ProjectPlayer.stage-dialogue.test.tsx'];
+          let failed=false;
+          function run(label,cmd,args){
+            const p=spawnSync(cmd,args,{encoding:'utf8',maxBuffer:64*1024*1024,env:process.env});
+            const out=(p.stdout||'')+'\n'+(p.stderr||'');
+            const ok=p.status===0&&!p.error&&!p.signal;
+            console.log(label+'='+(ok?'PASS':'FAIL'));
+            if(!ok){
+              failed=true;
+              for(const m of out.matchAll(/(src\/[^\r\n(]+)\((\d+),(\d+)\): error (TS\d+)/g)){
+                const i=paths.indexOf(m[1]);console.log('TS_ERROR_FILE='+(i<0?'OTHER':i+1)+' POS='+m[2]+':'+m[3]+' CODE='+m[4]);
+              }
+              for(const m of out.matchAll(/(?:npm error code|npm ERR! code) ([A-Z0-9_-]+)/g))console.log('NPM_ERROR_CODE='+m[1]);
+              for(const m of out.matchAll(/(?:Error|FAIL)[^\r\n]*?(src\/[^\r\n: ]+):?(\d+)?/g)){const i=paths.indexOf(m[1]);if(i>=0)console.log('TEST_FAILURE_FILE='+(i+1)+' LINE='+(m[2]||'UNKNOWN'));}
+            }
+            const plain=out.replace(/\x1b\[[0-9;]*m/g,'');
+            for(const kind of ['Test Files','Tests']){
+              const line=plain.split(/\r?\n/).find(x=>x.trim().startsWith(kind+' '));
+              if(line){
+                const counts=[...line.matchAll(/(\d+) (passed|failed|skipped)/g)];
+                if(counts.length)console.log(label+'_'+kind.toUpperCase().replace(' ','_')+'='+counts.map(x=>x[1]+' '+x[2]).join(', '));
+              }
+            }
+            return ok;
+          }
+          if(!run('NPM_CI','npm',['ci','--no-audit','--no-fund','--silent']))process.exit(1);
+          run('TYPECHECK','npm',['run','typecheck','--silent']);
+          const focused=run('FOCUSED_VITEST','npm',['test','--silent','--',paths[2],paths[3],paths[7],paths[8]]);
+          if(focused)run('FULL_VITEST','npm',['test','--silent']);
+          if(failed)process.exitCode=1;
+          NODE
+      - name: Remove private checkouts
+        if: always()
+        shell: bash
+        run: rm -rf private
+# No private files, artifacts, raw compiler diagnostics or source logs are uploaded.
