@@ -6,12 +6,12 @@ from retry_scope import *
 
 
 def test_selection():
-    c=[f'tests/test_{i:04}.py' for i in range(444)]
-    assert len(select_modules(c,CORE_COUNT,CORE_RETRY))==17
+    c=[f'tests/test_{i:04}.py' for i in range(CORE_COUNT)]
+    assert len(select_modules(c,CORE_COUNT,CORE_RETRY))==27
     m=[f'tests/test_modeling_{i:04}.py' for i in range(MODELING_COUNT)]
     assert select_modules(m,MODELING_COUNT,MODELING_RETRY)==m
     assert select_modules(c,CORE_COUNT,CORE_RETRY)[0]==c[14]
-    for catalog,ordinals in [(c[:-1],CORE_RETRY),(c[::-1],CORE_RETRY),(c,(15,15)),(c,(0,)),(c,(True,)),(c,(445,))]:
+    for catalog,ordinals in [(c[:-1],CORE_RETRY),(c[::-1],CORE_RETRY),(c,(15,15)),(c,(0,)),(c,(True,)),(c,(CORE_COUNT+1,))]:
         with pytest.raises(ValueError):select_modules(catalog,CORE_COUNT,ordinals)
 
 

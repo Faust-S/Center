@@ -1,4 +1,4 @@
-name: Agent 0.6.5 addressed Python and grouped Desktop qualification (I14.9)
+name: Agent 0.6.5 addressed Python and grouped Desktop qualification (I14.11)
 on:
   push:
     branches:
@@ -21,8 +21,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 140
     env:
-      PRIVATE_PIN: 'd401f0d3971e00362a0afee2bd6eaaa830c936d0'
-      PRIVATE_TREE: 'c4163e720c8c7b9eb8a63a89bfbbf1ca874216cc'
+      PRIVATE_PIN: '117dbd8b358b6aed43d2308aa8ec61b61733fee0'
+      PRIVATE_TREE: 'b2b95c7a47927637069a9c34d072cb984e997ec9'
       QUALIFICATION_GROUP: ${{ matrix.group }}
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -44,21 +44,6 @@ jobs:
         if: ${{ matrix.group == 'desktop' }}
         with:
           node-version: '22.16.0'
-      - name: Resolve only public upstream npm graph (no private checkout)
-        id: public_graph
-        if: ${{ matrix.group == 'desktop' }}
-        continue-on-error: true
-        shell: pwsh
-        run: python .ci/agent065-modeling/public_lock.py
-      - name: Retain only independently generated public npm metadata
-        if: ${{ matrix.group == 'desktop' && steps.public_graph.outcome == 'success' }}
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: public-modeling-npm-graph
-          path: ${{ runner.temp }}/iwxa-public-npm-modeling-graph/package-lock.json
-          retention-days: 1
-          if-no-files-found: error
       - name: Grouped checks on private temporary checkout
         shell: pwsh
         env:

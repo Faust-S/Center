@@ -1,4 +1,4 @@
-"""I14.9: one grouped correction retry; the full release gate remains outstanding."""
+"""I14.11: one committed-lock grouped correction retry; the full release gate remains outstanding."""
 import hashlib
 import os
 from pathlib import Path
@@ -11,14 +11,15 @@ from retry_scope import (CORE_COUNT, CORE_RETRY, MODELING_COUNT, MODELING_RETRY,
                          BASELINE_PIN, BASELINE_TREE, select_modules,
                          read_outcomes, failed_modules, compare_failures)
 
-CANDIDATE_PIN = 'd401f0d3971e00362a0afee2bd6eaaa830c936d0'
-CANDIDATE_TREE = 'c4163e720c8c7b9eb8a63a89bfbbf1ca874216cc'
-SCOPE = 'I14_9_GROUPED_CORRECTION_RETRY'
-REASON = 'NATIVE_LOCK_AND_REMAINING_FAILURES'
+CANDIDATE_PIN = '117dbd8b358b6aed43d2308aa8ec61b61733fee0'
+CANDIDATE_TREE = 'b2b95c7a47927637069a9c34d072cb984e997ec9'
+SCOPE = 'I14_11_COMMITTED_LOCK_AND_GROUPED_CORRECTION'
+REASON = 'COMMITTED_LOCK_SETUP_STAGE_AND_CORE_FIXES'
 CATALOGUE = re.compile(r'tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
 FINGERPRINT = "from importlib.metadata import distributions; import hashlib,json; print(hashlib.sha256(json.dumps(sorted((d.metadata['Name'].lower(),d.version) for d in distributions()),separators=(',',':')).encode()).hexdigest())"
 from native_probe import STAGES, PUBLIC_MISSING, ERRORS as PROBE_ERRORS
+from release_preflight import desktop_retry
 
 
 def status(key, value):
@@ -157,7 +158,7 @@ def main():
                 result = python_retry(q,Qualification,token)
             else:
                 token = ''
-                result = q.desktop()
+                result = desktop_retry(q)
     except (OSError,ValueError,TypeError,KeyError,subprocess.SubprocessError):
         status('QUALIFICATION_INTERNAL','FAIL')
     finally:
