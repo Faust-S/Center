@@ -186,3 +186,11 @@ def test_receipt_failure_is_located_without_private_exception(tmp_path,phase,cod
     expected={'SETUP_WITNESS_PHASE':phase,'SETUP_WITNESS_FAILURE_CODE':code}
     if last:expected['SETUP_WITNESS_GUI_PHASE']=last
     assert gate.witness_diagnostics(tmp_path)==expected
+
+
+def test_upgrade_failure_diagnostics_are_allowlisted():
+    data='AGENT065_UPGRADE_PHASE=BUILD_IDENTITY\r\nAGENT065_UPGRADE_FAILURE_CODE=RECEIPT_UNREADABLE\r\nAGENT065_REBUILT_SOURCE_UPGRADE_FAIL\r\n'
+    assert gate.upgrade_diagnostics(data)=={'UPGRADE_WITNESS_PHASE':'BUILD_IDENTITY','UPGRADE_WITNESS_FAILURE_CODE':'RECEIPT_UNREADABLE'}
+    assert gate.upgrade_diagnostics(data+'AGENT065_UPGRADE_FAILURE_CODE=RECEIPT_UNREADABLE\n')=={'UPGRADE_WITNESS_PHASE':'BUILD_IDENTITY'}
+    assert gate.upgrade_diagnostics('AGENT065_UPGRADE_PHASE=private path\nAGENT065_UPGRADE_FAILURE_CODE=private error')=={}
+    assert gate.upgrade_diagnostics('prefix AGENT065_UPGRADE_PHASE=BUILD_IDENTITY')=={}

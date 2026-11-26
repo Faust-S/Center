@@ -264,6 +264,23 @@ def verify_upgrade_result(root, old_out, new_out, pin, tree):
         return False
 
 
+UPGRADE_PHASES = frozenset(["ADMISSION","BUILD_IDENTITY","PROFILE","INSPECTION","INSTALL_064","DRAFT_064","UPGRADE","LOCATIONS","DRAFT_065","CONFIRM","UNINSTALL","PROOF"])
+UPGRADE_FAILURE_CODES = frozenset(["RECEIPT_SIZE_INVALID","RECEIPT_UNREADABLE","RECEIPT_SHAPE_INVALID","REVISION_INVALID","SETUP_MISSING","BUILD_IDENTITY_INVALID","SETUP_INSPECTION_INVALID","RUNTIME_PATH_INVALID","RUNTIME_IDENTITY_INVALID","DRAFT_CREATE_FAILED","DRAFT_READBACK_FAILED","DRAFT_PROOF_MISSING","DISPOSABLE_CENTER_RUNNER_REQUIRED","SANDBOX_INVALID","SAME_CANDIDATE_FORBIDDEN","SAME_BINARY_FORBIDDEN","EXISTING_REGISTRATION_FORBIDDEN","EXISTING_INSTALLATION_FORBIDDEN","OLD_INSPECT","NEW_INSPECT","OLD_INSTALL","OLD_INSTALL_INVALID","OLD_VERIFY","OLD_VERIFY_INVALID","OLD_SHORTCUT_MISSING","FIXTURE_ALREADY_EXISTS","BINARY_CHANGED","UPGRADE","UPGRADE_INVALID","NEW_VERIFY","NEW_VERIFY_INVALID","LOCATIONS_READBACK","LOCATIONS_CHANGED","SHORTCUT_CHANGED","DATA_CHANGED_DURING_UPGRADE","DRAFT_PROOF_CHANGED","DATA_CHANGED_AFTER_CORE_LAUNCH","CONFIRM","CONFIRMATION_INVALID","UNINSTALL","UNINSTALL_INVALID","DATA_CHANGED_AFTER_UNINSTALL","UPGRADED_CORE_PROFILE_NOT_ISOLATED","UPGRADED_CORE_OWNER_CONTROL_MISSING","UPGRADED_NATIVE_EXECUTABLE_MISSING","UPGRADED_CORE_DIAGNOSTICS_FAILED","UPGRADED_CORE_DIAGNOSTICS_UNREADABLE","UPGRADED_CORE_DIAGNOSTICS_INVALID","UPGRADED_NATIVE_CORE_NOT_COLD","UPGRADED_NATIVE_EXITED_BEFORE_READY","UPGRADED_NATIVE_CORE_NOT_READY","UPGRADED_NATIVE_WINDOW_NOT_OBSERVED","UPGRADED_CORE_STOP_FAILED","UPGRADED_CORE_STOP_UNREADABLE","UPGRADED_CORE_STOP_INVALID","UPGRADED_NATIVE_CORE_NOT_STOPPED","OWNER_OR_ENVIRONMENT"])
+
+
+def upgrade_diagnostics(data):
+    # Accept one fixed phase/code from the disposable installed witness.
+    # Never echo arbitrary exception text, paths, user data or partial matches.
+    result = {}
+    lines = data.splitlines()
+    for prefix, allowed, label in (('AGENT065_UPGRADE_PHASE=',UPGRADE_PHASES,'UPGRADE_WITNESS_PHASE'),
+            ('AGENT065_UPGRADE_FAILURE_CODE=',UPGRADE_FAILURE_CODES,'UPGRADE_WITNESS_FAILURE_CODE')):
+        matches = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+        if len(matches) == 1 and matches[0] in allowed:
+            result[label] = matches[0]
+    return result
+
+
 def upgrade_gate(q, baseline, owner, new_out, pin, tree):
     if baseline is None:
         q.block('UPGRADE_064_TO_065')
@@ -279,9 +296,13 @@ def upgrade_gate(q, baseline, owner, new_out, pin, tree):
         '--old-setup',old_out/name,'--new-setup',new_out/name,
         '--old-receipt',old_out/receipt,'--new-receipt',new_out/receipt,
         '--qualification-root',root,'--new-source',pin,'--new-tree',tree],report=False,timeout=1200)
-    return verdict(q,'UPGRADE_064_TO_065',code==0 and
+    accepted = verdict(q,'UPGRADE_064_TO_065',code==0 and
                    data.strip()=='AGENT065_REBUILT_SOURCE_UPGRADE_PASS' and
                    verify_upgrade_result(root,old_out,new_out,pin,tree))
+    if not accepted:
+        for name,value in upgrade_diagnostics(data).items():
+            print(name+'='+value,flush=True)
+    return accepted
 
 
 def setup_gate(q, pin, tree, baseline=None):
