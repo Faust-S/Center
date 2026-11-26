@@ -10,12 +10,14 @@ def report(receipts=None, terminal=('PASS',), separator='\n'):
 
 class TestT3Receipts(unittest.TestCase):
     def test_exact_complete(self):
-        self.assertEqual(len(EXPECTED), 13)
+        self.assertEqual(len(EXPECTED), 16)
         self.assertTrue(route_passed(report(), 0))
     def test_digits(self):
         values = route_receipts(report())
         self.assertIn('T3_ENTRY_MODEL_RELEASE', values)
         self.assertIn('T3_MODEL_STAGING_RECOVERY', values)
+        self.assertIn('NATIVE_TRANSCRIPT_COLD', values)
+        self.assertIn('NATIVE_TRANSCRIPT_CLEANUP', values)
     def test_missing_receipt(self):
         for missing in EXPECTED:
             self.assertFalse(route_passed(report(sorted(EXPECTED-{missing})), 0))
