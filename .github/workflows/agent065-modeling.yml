@@ -1,0 +1,50 @@
+name: Agent 0.6.5 grouped modeling and Desktop qualification
+on:
+  push:
+    branches:
+      - 'ci/once/agent065-modeling/*'
+    paths:
+      - '.github/ci-requests/agent065-modeling.json'
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-agent065-modeling-qualification
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: ${{ github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [python, desktop]
+    name: qualify / ${{ matrix.group }}
+    runs-on: windows-2022
+    timeout-minutes: 140
+    env:
+      PRIVATE_PIN: 'f555bb88ec533e9a81b8e76ae6bc2bd29e92abe3'
+      PRIVATE_TREE: '275ed8b5b81109482763fc93386d67cd74984c63'
+      QUALIFICATION_GROUP: ${{ matrix.group }}
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      CI: 'true'
+    steps:
+      - name: Checkout public admission only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exact one-time request before private access
+        shell: pwsh
+        run: python .ci/agent065-modeling/admit.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Grouped checks on private temporary checkout
+        shell: pwsh
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: python .ci/agent065-modeling/qualify.py
