@@ -7,13 +7,14 @@ import {pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
 import {createServer} from 'node:http';
 
-const [old,candidate,root]=process.argv.slice(2).map(resolve);
+const [old,candidate,root]=process.argv.slice(2).map(value=>resolve(value));
 const fail=code=>{throw Error('DB9_WITNESS_'+code)};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const chrome=['/usr/bin/google-chrome','/usr/bin/google-chrome-stable','/usr/bin/chromium','/usr/bin/chromium-browser'].find(existsSync);
 if(!chrome)fail('BROWSER_UNAVAILABLE');
 await mkdir(root,{recursive:false});
-const esbuild=await import(pathToFileURL(join(candidate,'node_modules/esbuild/lib/main.js')).href);
+const imported=await import(pathToFileURL(join(candidate,'node_modules/esbuild/lib/main.js')).href);
+const esbuild=imported.build?imported:imported.default;
 const legacyCode=`
 import {runMigrations} from './src/local-store/internal/migrations';
 import {STORES} from './src/local-store/types';
@@ -58,10 +59,11 @@ globalThis.verifyMigration=async version=>{
   check(same(page.entries.map(e=>e.event),[event('m','source',earlier),event('a'),event('z')]),'LEGACY_EVENTS');
   check(page.entries.every(e=>e.legacyHistory)&&page.legacyHistoryCausalProven===false,'LEGACY_PROOF');
   check((await store.getObject('source','object:a'))?.revision===1,'LEGACY_OBJECT');
-  await store.transact(STORES.relations,'readonly',tx=>{
+  const relation=await store.transact(STORES.relations,'readonly',tx=>new Promise((ok,no)=>{
    const r=tx.objectStore(STORES.relations).get(['source','relation:1']);
-   r.onsuccess=()=>check(r.result?.relation_id==='relation:1','LEGACY_RELATION');
-  });
+   r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error);
+  }));
+  check(relation?.relation_id==='relation:1','LEGACY_RELATION');
   if(version===8){
    const write=await commitObjectChange(store,{workspace_id:'source',by_service:'svc.one',expectedRevision:1,
       object:{object_id:'object:a',schema_id:'demo.thing',schema_version:'1.0.0',data:{n:2}},
@@ -120,7 +122,7 @@ async function start(){
   '--disable-background-networking','--disable-component-update','--no-first-run','--no-default-browser-check',
   '--remote-debugging-port=0','--user-data-dir='+profile,url],{stdio:'ignore'});
  let port;
- for(let i=0;i<150;i++){if(proc.exitCode!==null)fail('BROWSER_EXIT');try{port=Number((await readFile(active,'utf8')).split('\n')[0]);if(port)break;}catch{}await sleep(100);}
+ for(let i=0;i<150;i++){if(proc.exitCode!==null||proc.signalCode!==null)fail('BROWSER_EXIT');try{port=Number((await readFile(active,'utf8')).split('\n')[0]);if(port)break;}catch{}await sleep(100);}
  if(!port)fail('BROWSER_START_TIMEOUT');
  let page;
  for(let i=0;i<100;i++){try{page=(await (await fetch('http://127.0.0.1:'+port+'/json/list')).json()).find(p=>p.type==='page'&&p.url.startsWith(url));if(page)break;}catch{}await sleep(100);}
@@ -153,10 +155,10 @@ async function stop(){
  if(ws){ws.close();ws=null;}
  if(!proc)return;
  const p=proc;proc=null;
- if(p.exitCode!==null)return;
+ if(p.exitCode!==null||p.signalCode!==null)return;
  // SIGTERM allows Chrome to close the persistent IndexedDB database.
  p.kill('SIGTERM');
- for(let i=0;i<100;i++){if(p.exitCode!==null)return;await sleep(100);}
+ for(let i=0;i<100;i++){if(p.exitCode!==null||p.signalCode!==null)return;await sleep(100);}
  p.kill('SIGKILL');fail('COLD_BROWSER_CLOSE_TIMEOUT');
 }
 try{
