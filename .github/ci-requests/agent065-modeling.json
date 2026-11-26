@@ -1,0 +1,11 @@
+{
+  "candidate": "4b37ea4a7a306a861931898762f44c53be75605e",
+  "tree": "42f20c19dbca78cbabbfb95f40b7b5f415634317",
+  "baseline": "4cecffe7786a0afbf198a847d8368e4e8549e98a",
+  "baseline_tree": "a3a5ab786f4f9d31e6494e53bd3a67451b6e710d",
+  "scope": "I14_15_NATIVE_MODELING_GUI_AND_FULL_CORE_COVERAGE",
+  "reason": "WITNESS_REPAIR_T3_BOUNDARY_GUI_AND_REMAINING_CORE",
+  "installed_gui": "NOT_RUN",
+  "workflow": "agent065-modeling",
+  "prepared_sha": "459f268b37f1a59e9638ac61b52a15c2c9f51d0f"
+}
