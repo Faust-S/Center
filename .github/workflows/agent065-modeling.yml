@@ -1,4 +1,4 @@
-name: Agent 0.6.5 installed modeling, Core and native OCR (I14.14)
+name: Agent 0.6.5 native modeling GUI and full Core coverage (I14.15)
 on:
   push:
     branches:
@@ -19,6 +19,8 @@ jobs:
         include:
           - group: python
             os: windows-2022
+          - group: core-remaining
+            os: windows-2022
           - group: ocr
             os: ubuntu-24.04
           - group: desktop
@@ -27,8 +29,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     env:
-      PRIVATE_PIN: 'ebc11fb592fe24f7414a673df47dc9a29c40e65a'
-      PRIVATE_TREE: '7bf3879f5b649798e544f4c5d309969a6534c36d'
+      PRIVATE_PIN: '4b37ea4a7a306a861931898762f44c53be75605e'
+      PRIVATE_TREE: '42f20c19dbca78cbabbfb95f40b7b5f415634317'
       QUALIFICATION_GROUP: ${{ matrix.group }}
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'

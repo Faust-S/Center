@@ -11,11 +11,11 @@ from retry_scope import (CORE_COUNT, CORE_RETRY, MODELING_COUNT, MODELING_RETRY,
                          BASELINE_PIN, BASELINE_TREE, select_modules,
                          read_outcomes, failed_modules, compare_failures)
 
-CANDIDATE_PIN = 'ebc11fb592fe24f7414a673df47dc9a29c40e65a'
-CANDIDATE_TREE = '7bf3879f5b649798e544f4c5d309969a6534c36d'
-SCOPE = 'I14_14_INSTALLED_MODELING_CORE_AND_REGRESSION'
-REASON = 'ARCHITECTURAL_BOUNDARIES_AND_INSTALLED_MODELING_COLD_READBACK'
-GROUPS = ('python','ocr','desktop')
+CANDIDATE_PIN = '4b37ea4a7a306a861931898762f44c53be75605e'
+CANDIDATE_TREE = '42f20c19dbca78cbabbfb95f40b7b5f415634317'
+SCOPE = 'I14_15_NATIVE_MODELING_GUI_AND_FULL_CORE_COVERAGE'
+REASON = 'WITNESS_REPAIR_T3_BOUNDARY_GUI_AND_REMAINING_CORE'
+GROUPS = ('python','core-remaining','ocr','desktop')
 CATALOGUE = re.compile(r'tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
 FINGERPRINT = "from importlib.metadata import distributions; import hashlib,json; print(hashlib.sha256(json.dumps(sorted((d.metadata['Name'].lower(),d.version) for d in distributions()),separators=(',',':')).encode()).hexdigest())"
@@ -101,7 +101,7 @@ def baseline_evidence(q, factory, token, python, files, candidate, before):
 
 
 def python_retry(q, factory, token):
-    status('FULL_PYTHON_REGRESSION','NOT_RUN')
+    status('FULL_PYTHON_REGRESSION','PARTITIONED')
     status('PYTHON_RETRY_SOURCE',CANDIDATE_PIN)
     status('PYTHON_BASELINE','3.12' if sys.version_info[:2]==(3,12) else 'UNEXPECTED')
     if sys.version_info[:2] != (3,12): return False
@@ -143,6 +143,30 @@ def python_retry(q, factory, token):
     return all(q.results.values())
 
 
+def core_remaining(q):
+    """Disjoint remainder: all Core modules outside the retry and real OCR."""
+    if sys.version_info[:2] != (3,12):
+        return False
+    catalog = [p for p in q.files if CATALOGUE.fullmatch(p)]
+    core = [p for p in catalog if not MODELING.fullmatch(p)]
+    selected = select_modules(core, CORE_COUNT, CORE_RETRY)
+    retry, ocr = split_core(selected)
+    remaining = [p for p in core if p not in selected]
+    if (len(remaining) != CORE_COUNT-len(CORE_RETRY) or
+            set(remaining) & set(retry+ocr) or len(ocr) != 1 or
+            set(remaining+retry+ocr) != set(core)):
+        raise ValueError('CORE_PARTITION_INVALID')
+    status('CORE_REMAINING_SELECTED_MODULES',len(remaining))
+    python = q.venv('remainingqa',['requirements-ci.txt'])
+    if python is None:
+        q.block('CORE_REMAINING'); return False
+    good = q.pytest('CORE_REMAINING',python,remaining,timeout=3300)
+    rows = read_outcomes(q.logs/'CORE_REMAINING.xml',remaining)
+    evidence = q.pytest_exit_codes.get('CORE_REMAINING') in (0,1) and rows is not None
+    status('CORE_REMAINING_EVIDENCE','PASS' if evidence else 'UNAVAILABLE')
+    return good and evidence and all(q.results.values())
+
+
 def main():
     from qualify import Qualification, cleanup_private
     token = os.environ.pop('IWXA_TEMP_READ_TOKEN','')
@@ -159,6 +183,9 @@ def main():
             status('QUALIFICATION_SCOPE',SCOPE)
             if group == 'python':
                 result = python_retry(q,Qualification,token)
+            elif group == 'core-remaining':
+                token = ''
+                result = core_remaining(q)
             elif group == 'ocr':
                 token = ''
                 result = ocr_gate(q)

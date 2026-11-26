@@ -67,3 +67,23 @@ def test_setup_receipt_rejects_malformed_or_missing_output(setup):
     assert not gate.verify_setup_build(out, PIN, TREE)
     exe.unlink()
     assert not gate.verify_setup_result(json.dumps(result), out, PIN, TREE)
+
+
+@pytest.mark.parametrize('phase,code,operation,expected', [
+    ('MODELING_EXECUTE','HTTP_409','PUBLIC_PROGRAM_CONNECT',
+     {'SETUP_WITNESS_PHASE':'MODELING_EXECUTE','SETUP_WITNESS_FAILURE_CODE':'HTTP_409',
+      'SETUP_WITNESS_OPERATION':'PUBLIC_PROGRAM_CONNECT'}),
+    ('MODELING_GUI','PROPEL_GRAPH','PRIVATE_SECRET',
+     {'SETUP_WITNESS_PHASE':'MODELING_GUI','SETUP_WITNESS_FAILURE_CODE':'PROPEL_GRAPH'}),
+    ('MODELING_EXECUTE','private file path','arbitrary secret',
+     {'SETUP_WITNESS_PHASE':'MODELING_EXECUTE'}),
+    ('QWEN_EXECUTE','private output','private operation',{'SETUP_WITNESS_PHASE':'QWEN_EXECUTE'}),
+    ('arbitrary phase','PROOF','STATUS',{}),
+    (['MODELING_GUI'],'PROOF','STATUS',{}),
+])
+def test_witness_diagnostics_only_admit_finite_public_codes(tmp_path,phase,code,operation,expected):
+    target=tmp_path/'temporary-installed-fixture'/'installed-witness.json'
+    target.parent.mkdir()
+    target.write_text(json.dumps({'status':'FAIL','phase':phase,'failure_code':code,
+                                  'last_operation':operation,'secret':'must never escape'}),encoding='utf-8')
+    assert gate.witness_diagnostics(tmp_path)==expected
