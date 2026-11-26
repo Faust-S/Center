@@ -1,4 +1,4 @@
-name: Agent 0.6.5 native modeling GUI and full Core coverage (I14.15)
+name: Agent 0.6.5 native GUI, complete regression and upgrade (I14.16)
 on:
   push:
     branches:
@@ -19,7 +19,13 @@ jobs:
         include:
           - group: python
             os: windows-2022
-          - group: core-remaining
+          - group: core-remaining-1
+            os: windows-2022
+          - group: core-remaining-2
+            os: windows-2022
+          - group: core-remaining-3
+            os: windows-2022
+          - group: desktop-source
             os: windows-2022
           - group: ocr
             os: ubuntu-24.04
@@ -27,10 +33,10 @@ jobs:
             os: windows-2022
     name: qualify / ${{ matrix.group }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 150
+    timeout-minutes: 180
     env:
-      PRIVATE_PIN: '4b37ea4a7a306a861931898762f44c53be75605e'
-      PRIVATE_TREE: '42f20c19dbca78cbabbfb95f40b7b5f415634317'
+      PRIVATE_PIN: 'e469bb82fa92e4b47ac1c3dd6cbb7d3ae6543c46'
+      PRIVATE_TREE: '1b60caa8a636d24f37277afbdeeeb9e0a5b4238d'
       QUALIFICATION_GROUP: ${{ matrix.group }}
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -49,7 +55,7 @@ jobs:
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v4
-        if: ${{ matrix.group == 'desktop' }}
+        if: ${{ matrix.group == 'desktop' || matrix.group == 'desktop-source' }}
         with:
           node-version: '22.16.0'
       - uses: actions/setup-dotnet@v4

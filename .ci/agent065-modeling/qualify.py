@@ -275,7 +275,7 @@ class Qualification:
         status('INSTALLED_GUI','NOT_RUN')
         return all(self.results.values())
 
-    def desktop(self):
+    def desktop(self, *, build=True):
         node=shutil.which('node')
         npm=shutil.which('npm.cmd')
         if not node or not npm:
@@ -371,6 +371,8 @@ class Qualification:
         if not node_ok:
             self.diagnostics('NODE_REGRESSION',out)
             self.node_locations(out,report)
+        if not build:
+            return gate and node_ok and all(self.results.values())
         full=gate and cmd('FULL_DESKTOP_BUILD','run','build',timeout=1200)
         if not gate:self.block('FULL_DESKTOP_BUILD')
         # Core-only dist is only a diagnostic for Rust compilation, never

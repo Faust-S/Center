@@ -76,7 +76,7 @@ def read_json(path):
     return json.loads(raw.decode('utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'))
 
 
-def verify_setup_build(out, pin, tree):
+def verify_setup_build(out, pin, tree, version='0.6.5'):
     setup = out / 'IWXA-Private-SetupCore-Candidate.exe'
     try:
         receipt = read_json(out / 'logs' / 'private-setup-core-build.json')
@@ -84,7 +84,7 @@ def verify_setup_build(out, pin, tree):
                 and receipt.get('private_source_commit') == pin
                 and receipt.get('private_source_tree') == tree
                 and receipt.get('public_setup_core_commit') == SETUP_PIN
-                and receipt.get('version') == '0.6.5'
+                and receipt.get('version') == version
                 and receipt.get('setup_sha256') == file_sha256(setup))
     except (OSError, ValueError, TypeError, AttributeError):
         return False
@@ -116,10 +116,11 @@ MODELING_FAILURES = frozenset((
     'TASK_DRAFT','TASK_DRAFT_READBACK','EARLY_EXECUTION','EXECUTION_RECEIPT','PROOF_CATALOGUE',
     'COLD_OUTPUT_CHANGED','COLD_RECEIPT_CHANGED','WINDOWS_REQUIRED','EXTERNAL_INTERPRETER_REQUIRED',
     'INSTALLED_OWNER_REQUIRED','LOCAL_SESSION_REQUIRED','PROOF_EXISTS','PROOF_SCHEMA',
-    'OWNER_OR_ENVIRONMENT','T3_MODE_READBACK','T3_MODE_RESTORE','HTTP_400','HTTP_401','HTTP_403',
+    'OWNER_OR_ENVIRONMENT','DESKTOP_PROJECTION_DEPENDENCY','DESKTOP_PROJECTION','T3_MODE_READBACK','T3_MODE_RESTORE','HTTP_400','HTTP_401','HTTP_403',
     'HTTP_404','HTTP_409','HTTP_422','HTTP_429','HTTP_500','HTTP_503','HTTP_OTHER'))
 GUI_FAILURES = frozenset(('PROOF','PROGRAMS','BPMN_REVIEW','DMN_REVIEW','RUST4PM_RESULT',
-    'RUST4PM_INSPECTION','PROPEL_GRAPH','MESA_RESULT','SIMPY_RESULT','RECEIPT'))
+    'RUST4PM_INSPECTION','PROPEL_GRAPH','MESA_RESULT','SIMPY_RESULT','RECEIPT',
+    *tuple(e+'_'+p for e in ('MESA','SIMPY') for p in ('TITLE','COUNT','POSITION','VALUE','NEXT','PREVIOUS'))))
 MODELING_OPERATIONS = frozenset(('STATUS','UI_PREFERENCES','UI_PREFERENCES_UPDATE','PUBLIC_PROGRAMS',
     'PROVIDER_SWITCH','PUBLIC_PROGRAM_CONNECT','PUBLIC_PROGRAM_TASK_DRAFT','PUBLIC_PROGRAM_TASK_STATUS',
     'REVIEW_TASK','TOOL_PREPARE','TOOL_APPROVE','TOOL_EXECUTE','PUBLIC_PROGRAM_RESULT',
@@ -176,7 +177,89 @@ def checkout_setup_owner(q):
     return owner
 
 
-def setup_gate(q, pin, tree):
+def build_frozen_baseline(q, baseline, owner):
+    """Original 0.6.4 source owner; no changes and no fake installer."""
+    from retry_scope import BASELINE_PIN, BASELINE_TREE
+    out = baseline.root / 'setup-output'
+    build, logs = out / 'build', out / 'logs'
+    build.mkdir(parents=True)
+    logs.mkdir()
+    env = dict(baseline.env)
+    for key in ('CARGO_HOME','npm_config_cache'):
+        env[key] = q.env[key]
+    env.pop('CARGO_TARGET_DIR',None)
+    env.pop('IWXA_AGENT065_MODELING_PYTHON',None)
+    ps = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+    pipeline = baseline.src / 'qualification/phase1/build_native_windows_setup_candidate.ps1'
+    args = [ps,'-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+        '-File',pipeline,'-RepoRoot',baseline.src,'-BuildRoot',build,'-LogsRoot',logs,
+        '-ReleaseCache',q.root/'release-cache','-SourceCommit',BASELINE_PIN,'-SourceTree',BASELINE_TREE]
+    code, _ = baseline.run('BASELINE_NATIVE_BUILD',args,env=env,timeout=5400)
+    if code:
+        return None
+    package = build/'package/IWXA-Personal-Agent-Windows-Explorer-Prototype.zip'
+    setup = out/'IWXA-Private-SetupCore-Candidate.exe'
+    python = Path((build/'test-python/current-python.txt').read_text(encoding='utf-8-sig').strip())
+    if not package.is_file() or not python.is_file() or not python.resolve().is_relative_to(build.resolve()):
+        return None
+    code, data = baseline.run('BASELINE_SETUP_BUILD',[python,baseline.src/'tools/build_setup_core_release.py',
+        '--product-package',package,'--center-root',owner,'--center-commit',SETUP_PIN,
+        '--output',setup,'--python',python],env=env,report=False,timeout=2400)
+    try:
+        receipt = json.loads(data)
+        if code or type(receipt) is not dict:
+            return None
+        (logs/'private-setup-core-build.json').write_text(json.dumps(receipt),encoding='utf-8')
+        if not verify_setup_build(out,BASELINE_PIN,BASELINE_TREE,'0.6.4'):
+            return None
+    except (ValueError,OSError,TypeError):
+        return None
+    return out
+
+
+def verify_upgrade_result(root, old_out, new_out, pin, tree):
+    from retry_scope import BASELINE_PIN, BASELINE_TREE
+    try:
+        value = read_json(root/'upgrade-witness.json')
+        old_setup = old_out/'IWXA-Private-SetupCore-Candidate.exe'
+        new_setup = new_out/'IWXA-Private-SetupCore-Candidate.exe'
+        fields = ('old_native_core_draft_created','new_native_core_draft_readback',
+                  'start_menu_shortcut_preserved','upgrade_confirmed','uninstall_preserved_user_data')
+        return (value.get('schema') == 'IWXA_AGENT065_REBUILT_SOURCE_UPGRADE/1'
+                and value.get('status') == 'PASS'
+                and value.get('baseline_kind') == 'REBUILT_FROM_FROZEN_SOURCE'
+                and value.get('old_source') == BASELINE_PIN and value.get('old_tree') == BASELINE_TREE
+                and value.get('new_source') == pin and value.get('new_tree') == tree
+                and value.get('old_setup_sha256') == file_sha256(old_setup)
+                and value.get('new_setup_sha256') == file_sha256(new_setup)
+                and value.get('old_setup_sha256') != value.get('new_setup_sha256')
+                and value.get('preserved_storage_roots') == 4
+                and all(value.get(k) is True for k in fields))
+    except (OSError,ValueError,TypeError,AttributeError):
+        return False
+
+
+def upgrade_gate(q, baseline, owner, new_out, pin, tree):
+    if baseline is None:
+        q.block('UPGRADE_064_TO_065')
+        return False
+    old_out = build_frozen_baseline(q,baseline,owner)
+    if not verdict(q,'UPGRADE_BASELINE_BUILT',old_out is not None):
+        q.block('UPGRADE_064_TO_065')
+        return False
+    root=q.root/'real-upgrade'
+    name='IWXA-Private-SetupCore-Candidate.exe'
+    receipt='logs/private-setup-core-build.json'
+    code,data=q.run('UPGRADE_064_TO_065',[sys.executable,q.src/'tools/qualify_setup_core_upgrade_064_to_065.py',
+        '--old-setup',old_out/name,'--new-setup',new_out/name,
+        '--old-receipt',old_out/receipt,'--new-receipt',new_out/receipt,
+        '--qualification-root',root,'--new-source',pin,'--new-tree',tree],report=False,timeout=1200)
+    return verdict(q,'UPGRADE_064_TO_065',code==0 and
+                   data.strip()=='AGENT065_REBUILT_SOURCE_UPGRADE_PASS' and
+                   verify_upgrade_result(root,old_out,new_out,pin,tree))
+
+
+def setup_gate(q, pin, tree, baseline=None):
     """Build and install through the existing private Setup Core pipeline."""
     from release_preflight import committed_lock
     if not committed_lock(q, 'COMMITTED_NATIVE_LOCK_BEFORE'):
@@ -229,6 +312,12 @@ def setup_gate(q, pin, tree):
     print('INSTALLED_GUI=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
     print('MODELING_INSTALLED_CORE=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
     print('MODELING_INSTALLED_GUI=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
-    print('UPGRADE_064_TO_065=NOT_RUN', flush=True)
+    # The original installer may intentionally leave an owned installation on
+    # failure. Never attempt a second install in that state.
+    if accepted:
+        upgraded = upgrade_gate(q,baseline,owner,out,pin,tree)
+    else:
+        upgraded = False
+        q.block('UPGRADE_064_TO_065')
     unchanged = committed_lock(q, 'COMMITTED_NATIVE_LOCK_AFTER')
-    return accepted and unchanged and all(q.results.values())
+    return accepted and upgraded and unchanged and all(q.results.values())

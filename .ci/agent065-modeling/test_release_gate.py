@@ -87,3 +87,32 @@ def test_witness_diagnostics_only_admit_finite_public_codes(tmp_path,phase,code,
     target.write_text(json.dumps({'status':'FAIL','phase':phase,'failure_code':code,
                                   'last_operation':operation,'secret':'must never escape'}),encoding='utf-8')
     assert gate.witness_diagnostics(tmp_path)==expected
+
+
+def test_baseline_build_uses_its_exact_own_version(setup):
+    out, exe, path, receipt, _ = setup
+    path.write_text(json.dumps({**receipt,'version':'0.6.4'}),encoding='utf-8')
+    assert gate.verify_setup_build(out,PIN,TREE,'0.6.4')
+    assert not gate.verify_setup_build(out,PIN,TREE)
+
+
+def test_upgrade_receipt_binds_both_installers(tmp_path):
+    from retry_scope import BASELINE_PIN, BASELINE_TREE
+    old,new,root=[tmp_path/name for name in ('old','new','upgrade')]
+    for p in (old,new,root):p.mkdir()
+    exe='IWXA-Private-SetupCore-Candidate.exe'
+    (old/exe).write_bytes(b'old-fixture')
+    (new/exe).write_bytes(b'new-fixture')
+    value={'schema':'IWXA_AGENT065_REBUILT_SOURCE_UPGRADE/1','status':'PASS',
+           'baseline_kind':'REBUILT_FROM_FROZEN_SOURCE','old_source':BASELINE_PIN,
+           'old_tree':BASELINE_TREE,'new_source':PIN,'new_tree':TREE,
+           'old_setup_sha256':gate.file_sha256(old/exe),'new_setup_sha256':gate.file_sha256(new/exe),
+           'preserved_storage_roots':4,'old_native_core_draft_created':True,
+           'new_native_core_draft_readback':True,'start_menu_shortcut_preserved':True,
+           'upgrade_confirmed':True,'uninstall_preserved_user_data':True}
+    path=root/'upgrade-witness.json'
+    path.write_text(json.dumps(value),encoding='utf-8')
+    assert gate.verify_upgrade_result(root,old,new,PIN,TREE)
+    for key in value:
+        path.write_text(json.dumps({k:v for k,v in value.items() if k!=key}),encoding='utf-8')
+        assert not gate.verify_upgrade_result(root,old,new,PIN,TREE)

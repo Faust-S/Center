@@ -2,9 +2,9 @@
 from collections import Counter
 import xml.etree.ElementTree as ET
 
-CORE_COUNT = 445
+CORE_COUNT = 446
 MODELING_COUNT = 24
-CORE_RETRY = (15,17,47,58,72,80,93,94,95,100,101,102,103,106,107,126,130,234,236,244,245,298,321,334,392,394,399)
+CORE_RETRY = (15,17,47,58,72,80,93,94,95,100,101,102,103,106,107,126,130,234,236,244,245,298,321,334,392,394,399,401,414)
 MODELING_RETRY = tuple(range(1,MODELING_COUNT+1))
 BASELINE_PIN = '4cecffe7786a0afbf198a847d8368e4e8549e98a'
 BASELINE_TREE = 'a3a5ab786f4f9d31e6494e53bd3a67451b6e710d'
@@ -27,6 +27,14 @@ def read_outcomes(report, files):
         for c in ET.parse(report).iter('testcase'):
             path = c.get('file','').replace('\\','/')
             cls, name = c.get('classname',''), c.get('name','')
+            # pytest's xunit1 report for module-level collection skips has
+            # a real file, empty classname and the module name as testcase.
+            # Count only that precise record, never arbitrary empty identities.
+            skipped = c.find('skipped')
+            if not cls and path in allowed and skipped is not None and (
+                    skipped.get('message') == 'collection skipped' and
+                    name == path.removesuffix('.py').replace('/','.')):
+                cls = '__collection__'
             key = (path,cls,name)
             if path not in allowed or not cls or not name or key in rows:
                 return None

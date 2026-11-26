@@ -11,11 +11,11 @@ from retry_scope import (CORE_COUNT, CORE_RETRY, MODELING_COUNT, MODELING_RETRY,
                          BASELINE_PIN, BASELINE_TREE, select_modules,
                          read_outcomes, failed_modules, compare_failures)
 
-CANDIDATE_PIN = '4b37ea4a7a306a861931898762f44c53be75605e'
-CANDIDATE_TREE = '42f20c19dbca78cbabbfb95f40b7b5f415634317'
-SCOPE = 'I14_15_NATIVE_MODELING_GUI_AND_FULL_CORE_COVERAGE'
-REASON = 'WITNESS_REPAIR_T3_BOUNDARY_GUI_AND_REMAINING_CORE'
-GROUPS = ('python','core-remaining','ocr','desktop')
+CANDIDATE_PIN = 'e469bb82fa92e4b47ac1c3dd6cbb7d3ae6543c46'
+CANDIDATE_TREE = '1b60caa8a636d24f37277afbdeeeb9e0a5b4238d'
+SCOPE = 'I14_16_NATIVE_GUI_WORKSPACE_AND_REAL_UPGRADE'
+REASON = 'EXACT_DESKTOP_PROJECTION_RUN_NAVIGATION_CORE_ISOLATION_UPGRADE'
+GROUPS = ('python','core-remaining-1','core-remaining-2','core-remaining-3','ocr','desktop','desktop-source')
 CATALOGUE = re.compile(r'tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
 FINGERPRINT = "from importlib.metadata import distributions; import hashlib,json; print(hashlib.sha256(json.dumps(sorted((d.metadata['Name'].lower(),d.version) for d in distributions()),separators=(',',':')).encode()).hexdigest())"
@@ -143,7 +143,7 @@ def python_retry(q, factory, token):
     return all(q.results.values())
 
 
-def core_remaining(q):
+def core_remaining(q, shard):
     """Disjoint remainder: all Core modules outside the retry and real OCR."""
     if sys.version_info[:2] != (3,12):
         return False
@@ -156,6 +156,10 @@ def core_remaining(q):
             set(remaining) & set(retry+ocr) or len(ocr) != 1 or
             set(remaining+retry+ocr) != set(core)):
         raise ValueError('CORE_PARTITION_INVALID')
+    if shard not in (1,2,3):
+        raise ValueError('CORE_SHARD_INVALID')
+    remaining = remaining[shard-1::3]
+    status('CORE_REMAINING_SHARD',shard)
     status('CORE_REMAINING_SELECTED_MODULES',len(remaining))
     python = q.venv('remainingqa',['requirements-ci.txt'])
     if python is None:
@@ -183,15 +187,23 @@ def main():
             status('QUALIFICATION_SCOPE',SCOPE)
             if group == 'python':
                 result = python_retry(q,Qualification,token)
-            elif group == 'core-remaining':
+            elif group.startswith('core-remaining-'):
                 token = ''
-                result = core_remaining(q)
+                result = core_remaining(q,int(group[-1]))
             elif group == 'ocr':
                 token = ''
                 result = ocr_gate(q)
-            else:
+            elif group == 'desktop-source':
                 token = ''
-                result = setup_gate(q,pin,tree)
+                result = q.desktop(build=False)
+            else:
+                # Pin baseline before dropping the only temporary read token.
+                old_root=q.root/'baseline'
+                old_root.mkdir()
+                baseline=Qualification(old_root)
+                old_ok=baseline.checkout(token,BASELINE_PIN,BASELINE_TREE,status_prefix='UPGRADE_BASELINE_')
+                token=''
+                result=setup_gate(q,pin,tree,baseline if old_ok else None)
     except (OSError,ValueError,TypeError,KeyError,subprocess.SubprocessError):
         status('QUALIFICATION_INTERNAL','FAIL')
     finally:
