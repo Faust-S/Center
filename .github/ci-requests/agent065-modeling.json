@@ -1,0 +1,9 @@
+{
+  "candidate": "e86f992c61c74963999cf6bc33acc07d1211427c",
+  "tree": "e289583888a6a24fe9e3ed25553d02dfcac5e26c",
+  "scope": "I14_6_GROUPED_DESKTOP_RETRY",
+  "reason": "NATIVE_REGISTRY_WINDOWS_UNAVAILABLE_LOCALLY",
+  "installed_gui": "NOT_RUN",
+  "workflow": "agent065-modeling",
+  "prepared_sha": "aa4b9e771cced8a3a152eef17e46624d2b31bac2"
+}
