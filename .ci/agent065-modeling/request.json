@@ -1,7 +1,7 @@
 {
-  "candidate": "f555bb88ec533e9a81b8e76ae6bc2bd29e92abe3",
-  "tree": "275ed8b5b81109482763fc93386d67cd74984c63",
-  "scope": "I14_4_GROUPED_NATIVE_SOURCE_DESKTOP",
+  "candidate": "e86f992c61c74963999cf6bc33acc07d1211427c",
+  "tree": "e289583888a6a24fe9e3ed25553d02dfcac5e26c",
+  "scope": "I14_6_GROUPED_DESKTOP_RETRY",
   "reason": "NATIVE_REGISTRY_WINDOWS_UNAVAILABLE_LOCALLY",
   "installed_gui": "NOT_RUN"
 }

@@ -50,10 +50,10 @@ def admit(env, event):
     require(set(expected) == {'candidate','tree','scope','reason','installed_gui'})
     require(expected['candidate'] == env.get('PRIVATE_PIN') and expected['tree'] == env.get('PRIVATE_TREE'))
     require(all(SHA.fullmatch(expected[k]) for k in ('candidate','tree')))
-    require(expected['scope'] == 'I14_4_GROUPED_NATIVE_SOURCE_DESKTOP' and expected['reason'] == 'NATIVE_REGISTRY_WINDOWS_UNAVAILABLE_LOCALLY')
+    require(expected['scope'] == 'I14_6_GROUPED_DESKTOP_RETRY' and expected['reason'] == 'NATIVE_REGISTRY_WINDOWS_UNAVAILABLE_LOCALLY')
     require(expected['installed_gui'] == 'NOT_RUN')
     require(read_json(REQUEST) == {**expected,'workflow':WORKFLOW,'prepared_sha':parent})
-    require(env.get('QUALIFICATION_GROUP') in ('python','desktop'))
+    require(env.get('QUALIFICATION_GROUP') == 'desktop')
     return head
 
 
