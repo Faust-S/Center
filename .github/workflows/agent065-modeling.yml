@@ -1,4 +1,4 @@
-name: Agent 0.6.5 addressed Python and grouped Desktop qualification (I14.8)
+name: Agent 0.6.5 addressed Python and grouped Desktop qualification (I14.9)
 on:
   push:
     branches:
@@ -21,8 +21,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 140
     env:
-      PRIVATE_PIN: '3b6ce870808987c3bdc666f32e92c9b31de4c594'
-      PRIVATE_TREE: 'ada8cdf4b69569117750aba61550c72fd8f137ce'
+      PRIVATE_PIN: 'd401f0d3971e00362a0afee2bd6eaaa830c936d0'
+      PRIVATE_TREE: 'c4163e720c8c7b9eb8a63a89bfbbf1ca874216cc'
       QUALIFICATION_GROUP: ${{ matrix.group }}
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'

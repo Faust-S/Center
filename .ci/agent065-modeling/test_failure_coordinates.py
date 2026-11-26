@@ -1,7 +1,7 @@
 from pathlib import Path
 import subprocess
 import shutil
-from failure_coordinates import coordinate,structured_locations
+from failure_coordinates import coordinate,structured_locations,python_trace_locations
 
 
 def test_windows_structured_path():
@@ -24,3 +24,10 @@ def test_real_node_structured_failure(tmp_path):
     assert 'PRIVATE_TITLE' in run.stdout
     assert structured_locations(report,src,{'desktop/tests/example.test.mjs':17},cwd='desktop')=={'17:2:1'}
     assert 'PRIVATE_TITLE' not in report.read_text() and 'PRIVATE_VALUE' not in report.read_text()
+
+
+def test_private_python_trace_coordinates():
+    root=r'D:\a\private\source'
+    inv={'tests/test_fixture.py':17,'runtime/owner.py':32}
+    data='tests/test_fixture.py:2: in test_case\n'+root+r'\runtime\owner.py'+':7: ValueError: PRIVATE_MESSAGE\nD:/other/private.py:11: in secret\n'
+    assert python_trace_locations(data,root,inv)==['17:2:1','32:7:1']

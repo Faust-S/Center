@@ -1,4 +1,4 @@
-"""I14.8: one grouped retry; the full release gate remains outstanding."""
+"""I14.9: one grouped correction retry; the full release gate remains outstanding."""
 import hashlib
 import os
 from pathlib import Path
@@ -11,10 +11,10 @@ from retry_scope import (CORE_COUNT, CORE_RETRY, MODELING_COUNT, MODELING_RETRY,
                          BASELINE_PIN, BASELINE_TREE, select_modules,
                          read_outcomes, failed_modules, compare_failures)
 
-CANDIDATE_PIN = '3b6ce870808987c3bdc666f32e92c9b31de4c594'
-CANDIDATE_TREE = 'ada8cdf4b69569117750aba61550c72fd8f137ce'
-SCOPE = 'I14_8_GROUPED_ADDRESSED_RETRY'
-REASON = 'UNRESOLVED_NATIVE_REGISTRY_AND_WINDOWS_FAILURES'
+CANDIDATE_PIN = 'd401f0d3971e00362a0afee2bd6eaaa830c936d0'
+CANDIDATE_TREE = 'c4163e720c8c7b9eb8a63a89bfbbf1ca874216cc'
+SCOPE = 'I14_9_GROUPED_CORRECTION_RETRY'
+REASON = 'NATIVE_LOCK_AND_REMAINING_FAILURES'
 CATALOGUE = re.compile(r'tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
 FINGERPRINT = "from importlib.metadata import distributions; import hashlib,json; print(hashlib.sha256(json.dumps(sorted((d.metadata['Name'].lower(),d.version) for d in distributions()),separators=(',',':')).encode()).hexdigest())"
@@ -113,7 +113,6 @@ def python_retry(q, factory, token):
     if core_python is None:
         q.block('CORE_RETRY'); status('CORE_BASELINE_COMPARISON','UNAVAILABLE')
     else:
-        before = fingerprint(q,core_python,'CORE_DEPS_BEFORE')
         good = q.pytest('CORE_RETRY',core_python,core,timeout=1500)
         rows = read_outcomes(q.logs/'CORE_RETRY.xml',core)
         if q.pytest_exit_codes.get('CORE_RETRY') not in (0,1): rows = None
@@ -122,7 +121,10 @@ def python_retry(q, factory, token):
         if good and rows is not None:
             status('CORE_BASELINE_COMPARISON','NOT_NEEDED')
         else:
-            q.results['CORE_BASELINE_EVIDENCE'] = baseline_evidence(q,factory,token,core_python,core,rows,before)
+            # The exact baseline comparison already ran in 45817956729.
+            # Do not reclassify present failures or waive their failed gate.
+            status('CORE_BASELINE_COMPARISON','PRIOR_RUN_NOT_REPEATED')
+            status('CORE_BASELINE_EVIDENCE_RUN','45817956729')
     native_python = q.venv('modelqa',['requirements-ci.txt','qualification/modeling-preparation/requirements.txt'])
     if native_python is None:
         q.block('NATIVE_VERSION_CHECK','MODELING_NATIVE_RETRY')

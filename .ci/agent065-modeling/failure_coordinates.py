@@ -50,3 +50,14 @@ def structured_locations(report,source_root,inventory,*,cwd=''):
             if value:found.add(value)
         except (ValueError,TypeError):continue
     return found
+
+
+def python_trace_locations(text,source_root,inventory):
+    """Return only pinned source coordinates from short pytest tracebacks."""
+    found=[]
+    for line in text.splitlines():
+        match=re.fullmatch(r'\s*(.+?\.py):([0-9]{1,7}):(?: in [^\r\n]+| [A-Za-z][A-Za-z0-9_]*(?::.*)?)',line)
+        if match:
+            value=coordinate(match[1],match[2],1,source_root,inventory)
+            if value and value not in found:found.append(value)
+    return found[-16:]

@@ -62,3 +62,15 @@ def test_original_qualifier_native_skip_is_not_pass(tmp_path,capsys):
     assert not q.pytest('NATIVE',sys.executable,['test_skip.py'],native=True)
     assert q.pytest_exit_codes['NATIVE']==0
     assert 'NATIVE_SKIP=1' in capsys.readouterr().out
+
+
+def test_original_qualifier_python_trace_is_private(tmp_path,capsys):
+    q=Qualification(tmp_path)
+    (q.src/'owner.py').write_text('def execute():\n    raise ValueError("PRIVATE_MESSAGE")\n')
+    (q.src/'test_fixture.py').write_text('from owner import execute\ndef test_private_case(): execute()\n')
+    q.coordinates={'owner.py':1,'test_fixture.py':2}
+    assert not q.pytest('TRACE',sys.executable,['test_fixture.py'])
+    out=capsys.readouterr().out
+    assert 'TRACE_FAILED_TRACE=2:2:1' in out and 'TRACE_FAILED_TRACE=1:2:1' in out
+    for text in ('PRIVATE_MESSAGE','test_private_case','owner.py','test_fixture.py',str(tmp_path)):
+        assert text not in out

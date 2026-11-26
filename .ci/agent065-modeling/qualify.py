@@ -13,7 +13,7 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 from public_lock import artifact_path, bind_private_root
-from failure_coordinates import coordinate, structured_locations
+from failure_coordinates import coordinate, structured_locations, python_trace_locations
 
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
@@ -205,7 +205,7 @@ class Qualification:
         env=dict(self.env)
         if native:env['IWXA_MODELING_NATIVE_REQUIRED']='1'
         else:env.pop('IWXA_MODELING_NATIVE_REQUIRED',None)
-        code,data=self.run(label,[python,'-m','pytest','-q',*files,'-o','junit_family=xunit1','--junitxml='+str(report)],
+        code,data=self.run(label,[python,'-m','pytest','-q','--tb=short',*files,'-o','junit_family=xunit1','--junitxml='+str(report)],
                            env=env,timeout=timeout,report=False)
         self.pytest_exit_codes[label]=code
         counts={'PASS':0,'FAIL':0,'SKIP':0}
@@ -225,6 +225,10 @@ class Qualification:
                     # test catalogue, without copying test names or messages.
                     key=c.get('classname','')+'::'+c.get('name','')
                     status(label+'_FAILED_CASE_SHA256',hashlib.sha256(key.encode('utf-8')).hexdigest())
+                    failure=c.find('failure')
+                    if failure is None:failure=c.find('error')
+                    for location in python_trace_locations(failure.text or '',self.src,self.coordinates):
+                        status(label+'_FAILED_TRACE',location)
                 if native and state=='SKIP':
                     skipped_native+=1
             good=code==0 and bool(tests) and not counts['FAIL'] and not skipped_native
