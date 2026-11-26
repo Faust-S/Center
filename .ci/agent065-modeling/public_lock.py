@@ -42,8 +42,11 @@ def validate_public_lock(raw):
             or data['lockfileVersion'] != 3 or data['requires'] is not True):
         raise ValueError('PUBLIC_LOCK_ROOT')
     packages = data['packages']
-    if not isinstance(packages, dict) or packages.get('') != {'name':NAME,'version':VERSION,'dependencies':PINS}:
+    root = packages.get('') if isinstance(packages,dict) else None
+    if not isinstance(root,dict) or root.get('dependencies') != PINS:
         raise ValueError('PUBLIC_LOCK_DIRECT')
+    if root != {'name':NAME,'version':VERSION,'dependencies':PINS}:
+        raise ValueError('PUBLIC_LOCK_ROOT_ENTRY')
     for name, pin in PINS.items():
         row = packages.get('node_modules/'+name)
         if not isinstance(row,dict) or row.get('version') != pin:
@@ -89,13 +92,16 @@ def generate():
         raise ValueError('PUBLIC_LOCK_NPM_REQUIRED')
     with tempfile.TemporaryDirectory(prefix='iwxa-upstream-npm-',dir=os.environ['RUNNER_TEMP']) as d:
         root=Path(d)
-        (root/'package.json').write_text(json.dumps({'name':NAME,'version':VERSION,'private':True,'dependencies':PINS}),encoding='utf-8')
+        manifest = json.dumps({'name':NAME,'version':VERSION,'private':True,'dependencies':PINS}).encode('utf-8')
+        (root/'package.json').write_bytes(manifest)
         env={k:v for k,v in os.environ.items() if not k.lower().startswith('npm_config_') and k not in ('NODE_AUTH_TOKEN','NPM_TOKEN','GITHUB_TOKEN','GH_TOKEN','IWXA_TEMP_READ_TOKEN')}
         env['npm_config_cache']=str(root/'cache')
         with (root/'npm.log').open('wb') as log:
-            result=subprocess.run([node,str(cli),'install','--prefix',str(root),'--package-lock-only','--lockfile-version=3','--ignore-scripts','--no-audit','--no-fund','--save-exact','--registry=https://registry.npmjs.org'],cwd=root,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,timeout=600)
+            result=subprocess.run([node,str(cli),'update','--no-save','--prefix',str(root),'--package-lock-only','--lockfile-version=3','--ignore-scripts','--no-audit','--no-fund','--registry=https://registry.npmjs.org'],cwd=root,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,timeout=600)
         if result.returncode:
             raise ValueError('PUBLIC_LOCK_RESOLUTION_FAILED')
+        if (root/'package.json').read_bytes() != manifest:
+            raise ValueError('PUBLIC_LOCK_MANIFEST_CHANGED')
         raw=(root/'package-lock.json').read_bytes()
         graph=validate_public_lock(raw)
         path.parent.mkdir()
@@ -112,7 +118,7 @@ if __name__=='__main__':
     except (OSError,ValueError,TypeError,KeyError,subprocess.SubprocessError) as exc:
         # Finite public-only diagnostic codes; never echo npm output.
         known={'PUBLIC_LOCK_SIZE','PUBLIC_LOCK_DUPLICATE_KEY','PUBLIC_LOCK_ROOT',
-               'PUBLIC_LOCK_DIRECT','PUBLIC_LOCK_PIN','PUBLIC_LOCK_PACKAGE',
+               'PUBLIC_LOCK_DIRECT','PUBLIC_LOCK_ROOT_ENTRY','PUBLIC_LOCK_MANIFEST_CHANGED','PUBLIC_LOCK_PIN','PUBLIC_LOCK_PACKAGE',
                'PUBLIC_LOCK_TARGET_EXISTS','PUBLIC_LOCK_NPM_REQUIRED','PUBLIC_LOCK_RESOLUTION_FAILED'}
         reason=str(exc)
         print('PUBLIC_NPM_GRAPH_CODE='+(reason if reason in known else 'PUBLIC_LOCK_INTERNAL'),flush=True)

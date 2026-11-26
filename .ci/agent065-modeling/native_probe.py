@@ -5,7 +5,7 @@ from importlib.metadata import version
 from tempfile import TemporaryDirectory
 
 PINS = {'mesa':'3.5.2','simpy':'4.1.2','r4pm':'0.6.2','solara':'1.66.3',
-        'solara-ui':'1.66.3','solara-server':'1.66.3','solara-assets2':'1.1.0'}
+        'solara-ui':'1.66.3','solara-server':'1.66.3','solara-assets2':'1.1.0','networkx':'3.6.1'}
 STAGES = ('PINS','ENVIRONMENT','MESA','SIMPY','R4PM','SOLARA','OFFLINE_VIEW')
 PUBLIC_MISSING = frozenset(('mesa','simpy','r4pm','solara','solara.server','mesa.visualization',
     'matplotlib','altair','seaborn','numpy','pandas','ipywidgets','ipyvue','ipyvuetify',
