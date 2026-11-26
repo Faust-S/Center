@@ -1,0 +1,11 @@
+{
+  "candidate": "56eff6467a3421f53e4d89244736112498dcebbd",
+  "tree": "fe39e7950f5bf698f80fa818c2179a843b49f29d",
+  "baseline": "4cecffe7786a0afbf198a847d8368e4e8549e98a",
+  "baseline_tree": "a3a5ab786f4f9d31e6494e53bd3a67451b6e710d",
+  "scope": "I14_23_RECONCILIATION_HISTORY_NATIVE_SOLARA_AND_UPGRADE",
+  "reason": "RECONCILIATION_EQUAL_TIMESTAMPS_NATIVE_STEP_READBACK_INDEPENDENT_UPGRADE",
+  "installed_gui": "NOT_RUN",
+  "workflow": "agent065-modeling",
+  "prepared_sha": "9a937159bffbea6589e6d64eeb3b3e6f609ab532"
+}
