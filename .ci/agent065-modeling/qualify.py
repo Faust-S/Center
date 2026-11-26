@@ -245,7 +245,7 @@ class Qualification:
         root=self.root/name
         if self.run(name.upper()+'_VENV',[sys.executable,'-m','venv',str(root)],timeout=180)[0]:
             return None
-        exe=root/'Scripts'/'python.exe'
+        exe=root/('Scripts/python.exe' if os.name=='nt' else 'bin/python')
         args=[exe,'-m','pip','install','--disable-pip-version-check']
         for req in requirements:args.extend(['-r',self.src/req])
         if self.run(name.upper()+'_DEPENDENCIES',args,timeout=900)[0]:

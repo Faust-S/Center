@@ -1,4 +1,4 @@
-"""I14.11: one committed-lock grouped correction retry; the full release gate remains outstanding."""
+"""I14.13: addressed Core/native OCR plus the original personal Setup pipeline."""
 import hashlib
 import os
 from pathlib import Path
@@ -11,15 +11,16 @@ from retry_scope import (CORE_COUNT, CORE_RETRY, MODELING_COUNT, MODELING_RETRY,
                          BASELINE_PIN, BASELINE_TREE, select_modules,
                          read_outcomes, failed_modules, compare_failures)
 
-CANDIDATE_PIN = '117dbd8b358b6aed43d2308aa8ec61b61733fee0'
-CANDIDATE_TREE = 'b2b95c7a47927637069a9c34d072cb984e997ec9'
-SCOPE = 'I14_11_COMMITTED_LOCK_AND_GROUPED_CORRECTION'
-REASON = 'COMMITTED_LOCK_SETUP_STAGE_AND_CORE_FIXES'
+CANDIDATE_PIN = 'a1671856b9ce5d8c83b334a2775ecc9085923aa0'
+CANDIDATE_TREE = 'db0344ea827c38ba7ed845b0c34f61f46a672a61'
+SCOPE = 'I14_13_CORE_NATIVE_OCR_AND_PERSONAL_SETUP'
+REASON = 'PINNED_DESKTOP_STAGE_CORE_CORRECTIONS_REAL_OCR_SETUP'
+GROUPS = ('python','ocr','desktop')
 CATALOGUE = re.compile(r'tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
 FINGERPRINT = "from importlib.metadata import distributions; import hashlib,json; print(hashlib.sha256(json.dumps(sorted((d.metadata['Name'].lower(),d.version) for d in distributions()),separators=(',',':')).encode()).hexdigest())"
 from native_probe import STAGES, PUBLIC_MISSING, ERRORS as PROBE_ERRORS
-from release_preflight import desktop_retry
+from release_gate import split_core, ocr_gate, setup_gate
 
 
 def status(key, value):
@@ -106,6 +107,8 @@ def python_retry(q, factory, token):
     if sys.version_info[:2] != (3,12): return False
     catalog = [p for p in q.files if CATALOGUE.fullmatch(p)]
     core = select_modules([p for p in catalog if not MODELING.fullmatch(p)],CORE_COUNT,CORE_RETRY)
+    core, ocr = split_core(core)
+    status('CORE_NATIVE_OCR_DELEGATED_TO_REQUIRED_GROUP', len(ocr))
     modeling = select_modules([p for p in catalog if MODELING.fullmatch(p)],MODELING_COUNT,MODELING_RETRY)
     status('CORE_RETRY_SELECTED_MODULES',len(core))
     status('MODELING_RETRY_SELECTED_MODULES',len(modeling))
@@ -148,7 +151,7 @@ def main():
     root = None
     result = False
     try:
-        if (pin,tree) != (CANDIDATE_PIN,CANDIDATE_TREE) or group not in ('python','desktop'):
+        if (pin,tree) != (CANDIDATE_PIN,CANDIDATE_TREE) or group not in GROUPS:
             status('QUALIFICATION_INTERNAL','PIN_OR_SCOPE_DENIED'); return 1
         root = Path(tempfile.mkdtemp(prefix='iwxa-agent065-',dir=os.environ['RUNNER_TEMP']))
         q = Qualification(root)
@@ -156,9 +159,12 @@ def main():
             status('QUALIFICATION_SCOPE',SCOPE)
             if group == 'python':
                 result = python_retry(q,Qualification,token)
+            elif group == 'ocr':
+                token = ''
+                result = ocr_gate(q)
             else:
                 token = ''
-                result = desktop_retry(q)
+                result = setup_gate(q,pin,tree)
     except (OSError,ValueError,TypeError,KeyError,subprocess.SubprocessError):
         status('QUALIFICATION_INTERNAL','FAIL')
     finally:

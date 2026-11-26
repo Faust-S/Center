@@ -31,10 +31,11 @@ def request_commit(tmp_path,monkeypatch):
     return env,event,request
 
 
-def test_exact_request_admits_only_two_groups(request_commit):
+def test_exact_request_admits_only_three_groups(request_commit):
     env,event,_=request_commit
     assert admit.admit(env,event)==env['GITHUB_SHA']
     assert admit.admit({**env,'QUALIFICATION_GROUP':'desktop'},event)==env['GITHUB_SHA']
+    assert admit.admit({**env,'QUALIFICATION_GROUP':'ocr'},event)==env['GITHUB_SHA']
     with pytest.raises(ValueError):admit.admit({**env,'QUALIFICATION_GROUP':'all'},event)
 
 

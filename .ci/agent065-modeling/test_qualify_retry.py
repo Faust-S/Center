@@ -85,7 +85,9 @@ def test_probe_fails_on_missing_or_duplicate_stage(tmp_path,capsys):
 
 def test_addressed_scope_never_claims_full_python_regression(tmp_path,monkeypatch,capsys):
     q=FixtureQualification(tmp_path)
-    core=[f'tests/test_core_{i:04}.py' for i in range(r.CORE_COUNT)]
+    from release_gate import OCR_MODULE
+    core=([f'tests/test_a_{i:04}.py' for i in range(100)] + [OCR_MODULE] +
+          [f'tests/test_z_{i:04}.py' for i in range(r.CORE_COUNT-101)])
     modeling=[f'tests/test_modeling_{i:04}.py' for i in range(r.MODELING_COUNT)]
     q.files=sorted(core+modeling)
     q.venv=lambda name,requirements: sys.executable
@@ -105,7 +107,8 @@ def test_addressed_scope_never_claims_full_python_regression(tmp_path,monkeypatc
     monkeypatch.setattr(r,'native_probe',lambda *args:True)
     assert r.python_retry(q,lambda *_: pytest.fail('unneeded baseline'),'token')
     calls={label:(args,kw) for label,args,kw in q.calls}
-    assert calls['CORE_RETRY'][0]==[core[i-1] for i in r.CORE_RETRY]
+    assert calls['CORE_RETRY'][0]==[core[i-1] for i in r.CORE_RETRY if core[i-1]!=OCR_MODULE]
+    assert OCR_MODULE not in calls['CORE_RETRY'][0]
     assert calls['MODELING_NATIVE_RETRY'][0]==[modeling[i-1] for i in r.MODELING_RETRY]
     assert calls['MODELING_NATIVE_RETRY'][1]['native'] is True
     assert 'FULL_PYTHON_REGRESSION=NOT_RUN' in capsys.readouterr().out

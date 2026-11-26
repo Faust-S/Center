@@ -6,7 +6,7 @@ import re
 import subprocess
 import sys
 from qualify_retry import (CANDIDATE_PIN, CANDIDATE_TREE, BASELINE_PIN, BASELINE_TREE,
-                           SCOPE, REASON)
+                           SCOPE, REASON, GROUPS)
 
 WORKFLOW = 'agent065-modeling'
 PREFIX = 'refs/heads/ci/once/' + WORKFLOW + '/'
@@ -55,7 +55,7 @@ def admit(env, event):
     require(expected['candidate'] == env.get('PRIVATE_PIN') and expected['tree'] == env.get('PRIVATE_TREE'))
     require(all(SHA.fullmatch(expected[k]) for k in ('candidate','tree','baseline','baseline_tree')))
     require(read_json(REQUEST) == {**expected,'workflow':WORKFLOW,'prepared_sha':parent})
-    require(env.get('QUALIFICATION_GROUP') in ('python','desktop'))
+    require(env.get('QUALIFICATION_GROUP') in GROUPS)
     return head
 
 

@@ -1,4 +1,4 @@
-name: Agent 0.6.5 addressed Python and grouped Desktop qualification (I14.11)
+name: Agent 0.6.5 corrected Core, native OCR and personal Setup (I14.13)
 on:
   push:
     branches:
@@ -16,13 +16,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [python, desktop]
+        include:
+          - group: python
+            os: windows-2022
+          - group: ocr
+            os: ubuntu-24.04
+          - group: desktop
+            os: windows-2022
     name: qualify / ${{ matrix.group }}
-    runs-on: windows-2022
-    timeout-minutes: 140
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
     env:
-      PRIVATE_PIN: '117dbd8b358b6aed43d2308aa8ec61b61733fee0'
-      PRIVATE_TREE: 'b2b95c7a47927637069a9c34d072cb984e997ec9'
+      PRIVATE_PIN: 'a1671856b9ce5d8c83b334a2775ecc9085923aa0'
+      PRIVATE_TREE: 'db0344ea827c38ba7ed845b0c34f61f46a672a61'
       QUALIFICATION_GROUP: ${{ matrix.group }}
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -35,7 +41,7 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
       - name: Admit exact one-time request before private access
-        shell: pwsh
+        shell: bash
         run: python .ci/agent065-modeling/admit.py
       - uses: actions/setup-python@v5
         with:
@@ -44,8 +50,12 @@ jobs:
         if: ${{ matrix.group == 'desktop' }}
         with:
           node-version: '22.16.0'
+      - uses: actions/setup-dotnet@v4
+        if: ${{ matrix.group == 'desktop' }}
+        with:
+          dotnet-version: '8.0.x'
       - name: Grouped checks on private temporary checkout
-        shell: pwsh
+        shell: bash
         env:
           IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: python .ci/agent065-modeling/qualify_retry.py
