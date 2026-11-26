@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: '6339490045975d0c4aacd741509c57b77ae82d68'
-      PRIVATE_TREE: '60b602db968ea6b77748b446763982637928c3c6'
+      PRIVATE_PIN: '552f3404136658442e5702baaae0dfe346c1bb92'
+      PRIVATE_TREE: '68bfffe3a9641c1b65cade07a13f3c95240089cf'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -184,6 +184,8 @@ jobs:
                               if counts:status("MOBILE_T3_APK_ASSETS",counts[-1])
                               if outcome.returncode==0 and not counts:
                                   status("ASSEMBLY","T3_NOT_STAGED");return False
+                              if outcome.returncode==0 and not re.search(r"(?m)^QA_NATIVE_VISION_FIXTURES_VERIFIED\s*$",report):
+                                  status("ASSEMBLY","NATIVE_VISION_FIXTURE_RECEIPT_MISSING");return False
                           for label in ["tests","pass","fail","skipped"]:
                               matches=re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report)
                               if matches:status("NODE_"+label.upper(),matches[-1])
@@ -191,6 +193,7 @@ jobs:
                               (r"(?m)^PASS: 26 routes\b","PROTOTYPE"),
                               (r"(?m)^LLAMA_AAR_BUILT=[a-f0-9]{64}\s*$","LLAMA_AAR"),
                               (r"(?m)^QA_MODEL_VERIFIED\s*$","QA_MODEL"),
+                              (r"(?m)^QA_NATIVE_VISION_FIXTURES_VERIFIED\s*$","QA_NATIVE_VISION_FIXTURES"),
                               (r"(?m)^ANDROID_CONFIGURATION_PREPARED\s*$","ANDROID_CONFIGURATION_PREPARED"),
                               (r"(?m)^INSTALLED_AGENT_DEBUG_TRUST_PREPARED\s*$","INSTALLED_AGENT_DEBUG_TRUST"),
                               (r"(?m)^ANDROID_PACKAGE_IDENTITY_TEST_PREPARED\s*$","PACKAGE_IDENTITY_TEST_PREPARED"),
@@ -206,11 +209,11 @@ jobs:
                           if name in ("SOURCE","ASSEMBLY") and outcome.returncode==0:
                               # Exact accumulated source suite; no skip or todo.
                               node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
-                              if any(node_counts[label]!=[value] for label,value in {"tests":"586","pass":"586","fail":"0","skipped":"0","todo":"0"}.items()):
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"599","pass":"599","fail":"0","skipped":"0","todo":"0"}.items()):
                                   status(name,"NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
-                              node_groups={"attention-monitor.test.mjs":"N01","chat-catalog-search.test.mjs":"N02","chat-history-view.test.mjs":"N03","chat-image.test.mjs":"N04","chat-task-material.test.mjs":"N05","device-book.test.mjs":"N06","device-screen.test.mjs":"N07","document-reuse.test.mjs":"N08","gradle-launch.test.mjs":"N09","mobile-product.test.mjs":"N10","model-state.test.mjs":"N11","native-wiring.test.mjs":"N12","network-routes.test.mjs":"N13","provider-probe.test.mjs":"N14","remote-agent.test.mjs":"N15","remote-attachments.test.mjs":"N16","remote-documents.test.mjs":"N17","remote-draft-navigation.test.mjs":"N18","remote-draft-resume.test.mjs":"N19","remote-drafts.test.mjs":"N20","remote-interaction.test.mjs":"N21","remote-meta-harness.test.mjs":"N22","remote-model-control.test.mjs":"N23","t3-native-session.test.mjs":"N24","t3-staging.test.mjs":"N25","visual-witness.test.mjs":"N26","voice-input.test.mjs":"N27","work-archive.test.mjs":"N28","draft-checkpoint.test.mjs":"N29","llama-adapter.test.mjs":"N30","local-transcript.test.mjs":"N31","local-transcript-checkpoint.test.mjs":"N32"}
+                              node_groups={"attention-monitor.test.mjs":"N01","chat-catalog-search.test.mjs":"N02","chat-history-view.test.mjs":"N03","chat-image.test.mjs":"N04","chat-task-material.test.mjs":"N05","device-book.test.mjs":"N06","device-screen.test.mjs":"N07","document-reuse.test.mjs":"N08","gradle-launch.test.mjs":"N09","mobile-product.test.mjs":"N10","model-state.test.mjs":"N11","native-wiring.test.mjs":"N12","network-routes.test.mjs":"N13","provider-probe.test.mjs":"N14","remote-agent.test.mjs":"N15","remote-attachments.test.mjs":"N16","remote-documents.test.mjs":"N17","remote-draft-navigation.test.mjs":"N18","remote-draft-resume.test.mjs":"N19","remote-drafts.test.mjs":"N20","remote-interaction.test.mjs":"N21","remote-meta-harness.test.mjs":"N22","remote-model-control.test.mjs":"N23","t3-native-session.test.mjs":"N24","t3-staging.test.mjs":"N25","visual-witness.test.mjs":"N26","voice-input.test.mjs":"N27","work-archive.test.mjs":"N28","draft-checkpoint.test.mjs":"N29","llama-adapter.test.mjs":"N30","local-transcript.test.mjs":"N31","local-transcript-checkpoint.test.mjs":"N32","qa-vision-fixture.test.mjs":"N33"}
                               # Known roles and bounded numeric coordinates only. Never output
                               # private test names, paths, assertion data or raw TAP.
                               for name_at,line_at,col_at in re.findall(r"(?m)^[ \t]+location: '[^'\r\n]*[\\/]qualification[\\/]([a-z0-9-]{1,80}\.test\.mjs):([1-9][0-9]{0,4}):([1-9][0-9]{0,3})'[ \t]*\r?$",report)[:32]:
@@ -246,6 +249,9 @@ jobs:
                                   ("GRADLE_NETWORK",r"PKIX path building failed|UnknownHostException|ConnectException|SocketTimeoutException"),
                                   ("LLAMA_AAR",r"\b(?:LLAMA_PREPARE_FAILED|LLAMA_AAR_REQUIRED|LLAMA_AAR_PIN_MISMATCH|LLAMA_ADAPTER_BASE_MISMATCH|LLAMA_ADAPTER_ANCHOR_MISMATCH|LLAMA_ADAPTER_PLAN_INVALID)\b"),
                                   ("QA_MODEL",r"\bQA_MODEL_(?:HASH_MISMATCH|REQUIRED|DOWNLOAD_FAILED|SIZE)\b"),
+                                  ("QA_NATIVE_VISION_FIXTURE",r"\bQA_VISION_(?:PIN_INVALID|FIXTURE_REQUIRED|DOWNLOAD_FAILED|SIZE_MISMATCH|HASH_MISMATCH)\b"),
+                                  ("NATIVE_CPP_COMPILE",r"(?m)^.*\.cpp:\d+:\d+: (?:fatal )?error:"),
+                                  ("NATIVE_CPP_LINK",r"undefined symbol|undefined reference|ld\.lld: error"),
                                   ("KOTLIN_COMPILE",r"(?m)^e: .*\.kt:"),
                                   ("JAVA_COMPILE",r"(?m)^.*\.java:\d+: error:"),
                                   ("DEPENDENCY_RESOLUTION",r"Could not resolve all (?:files|dependencies)|Could not find [^ \r\n]+:[^ \r\n]+"),
@@ -293,7 +299,7 @@ jobs:
                               }
                               failed=re.findall(r"Execution failed for task ':[^'\r\n]*:([A-Za-z0-9]+)'",report)
                               for task in sorted({tasks.get(x,"OTHER") for x in failed}):status("GRADLE_FAILED_TASK",task)
-                              roles={"DraftCheckpointPlugin.java":"DRAFT_CHECKPOINT","PhotoInputPlugin.java":"PHOTO_INPUT","PhotoInputPolicy.java":"PHOTO_INPUT_POLICY","LocalModelPlugin.kt":"MODEL_BRIDGE","RecommendedModels.kt":"MODEL_DOWNLOAD","ModelFileIntegrity.kt":"FILE_INTEGRITY","ModelProjectorFile.kt":"MODEL_PROJECTOR","ModelPickerAdmission.kt":"MODEL_PICKER_ADMISSION","DocumentsUiWitness.java":"DOCUMENTS_UI_WITNESS","DocumentsUiNavigation.java":"DOCUMENTS_UI_NAVIGATION","InstalledRouteTest.java":"INSTALLED_WITNESS","OriginalAgentInstalledTest.java":"ORIGINAL_AGENT_INSTALLED_WITNESS","OriginalT3InstalledTest.java":"ORIGINAL_T3_INSTALLED_WITNESS","OriginalExchangeInstalledWitness.java":"ORIGINAL_EXCHANGE_INSTALLED_WITNESS","IwxaArchiveStaging.kt":"EXCHANGE_FILE_STAGING","IwxaPackageFilePlugin.kt":"EXCHANGE_FILE_BRIDGE","T3AssetWebViewClient.java":"T3_ASSET_DELIVERY","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
+                              roles={"DraftCheckpointPlugin.java":"DRAFT_CHECKPOINT","PhotoInputPlugin.java":"PHOTO_INPUT","PhotoInputPolicy.java":"PHOTO_INPUT_POLICY","LocalModelPlugin.kt":"MODEL_BRIDGE","RecommendedModels.kt":"MODEL_DOWNLOAD","ModelFileIntegrity.kt":"FILE_INTEGRITY","ModelProjectorFile.kt":"MODEL_PROJECTOR","ModelPickerAdmission.kt":"MODEL_PICKER_ADMISSION","DocumentsUiWitness.java":"DOCUMENTS_UI_WITNESS","DocumentsUiNavigation.java":"DOCUMENTS_UI_NAVIGATION","InstalledRouteTest.java":"INSTALLED_WITNESS","OriginalAgentInstalledTest.java":"ORIGINAL_AGENT_INSTALLED_WITNESS","OriginalNativeVisionInstalledTest.java":"NATIVE_VISION_WITNESS","OriginalT3InstalledTest.java":"ORIGINAL_T3_INSTALLED_WITNESS","OriginalExchangeInstalledWitness.java":"ORIGINAL_EXCHANGE_INSTALLED_WITNESS","IwxaArchiveStaging.kt":"EXCHANGE_FILE_STAGING","IwxaPackageFilePlugin.kt":"EXCHANGE_FILE_BRIDGE","T3AssetWebViewClient.java":"T3_ASSET_DELIVERY","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
                               for line in report.splitlines():
                                   if not (line.startswith("e:") or "error:" in line):continue
                                   loc=re.search(r"("+"|".join(re.escape(name) for name in roles)+r"):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
@@ -400,7 +406,7 @@ jobs:
                           status("APK","NOT_RUN");return 1
                       if not stage("SDK_BUILD_INPUTS",[sdk,"--install","--channel=3","platforms;android-36","build-tools;36.0.0","ndk;"+native["ndk"],"cmake;"+native["cmake"]],timeout=1200,stdin=b"y\n"*100):
                           status("APK","NOT_RUN");return 1
-                      if not report_stage("ASSEMBLY",["npm","run","qualify:release","--","--assemble-device","--fetch-public-inputs"],mobile,3600):
+                      if not report_stage("ASSEMBLY",["npm","run","qualify:release","--","--assemble-device","--fetch-public-inputs","--local-vision"],mobile,3600):
                           status("INSTALLED","NOT_RUN");return 1
                       if not avd:
                           status("ANDROID_EMULATOR","AVDMANAGER_MISSING");return 1
@@ -449,12 +455,12 @@ jobs:
                           status("PACKAGE_MANAGER","PASS" if pm_ready else "FAIL")
                           if not pm_ready:return 1
                           run([adb,"logcat","-c"],timeout=15)
-                          device_ok=report_stage("DEVICE_EXECUTION",["npm","run","qualify:release","--","--installed-only"],mobile,1200)
+                          device_ok=report_stage("DEVICE_EXECUTION",["npm","run","qualify:release","--","--installed-only","--local-vision"],mobile,1800)
                           # Never lose witness evidence when Gradle exits nonzero.
                           # Emit only fixed categories, no XML, names, output or raw logcat.
                           import xml.etree.ElementTree as ET
                           result_dir=mobile/"android/app/build/outputs/androidTest-results/connected"
-                          labels={"useAppContext":"PACKAGE_IDENTITY","installedNavigationAndNativeStatus":"NAVIGATION","embeddedBrowserOpensAndCloses":"BROWSER","originalLlamaGeneratesFromInstalledApp":"LLAMA","nativeJsonVisualEnvelopeFitsOriginalAgentLimit":"NETWORK_VISUAL_ENVELOPE","nativeHttpConnectNoFallback":"NETWORK_HTTP","nativeHttpProxyAuthTunnelOnly":"NETWORK_HTTP_AUTH","nativeSocksConnectNoFallback":"NETWORK_SOCKS5","installedProfileBrowserUsesProxy":"PROFILE_BROWSER_PROXY","nativeProfileCookieIsolation":"PROFILE_COOKIE_ISOLATION"}
+                          labels={"useAppContext":"PACKAGE_IDENTITY","installedNavigationAndNativeStatus":"NAVIGATION","embeddedBrowserOpensAndCloses":"BROWSER","originalLlamaGeneratesFromInstalledApp":"LLAMA","originalNativeModelAnswersTwoDifferentImages":"NATIVE_REAL_VISION","nativeJsonVisualEnvelopeFitsOriginalAgentLimit":"NETWORK_VISUAL_ENVELOPE","nativeHttpConnectNoFallback":"NETWORK_HTTP","nativeHttpProxyAuthTunnelOnly":"NETWORK_HTTP_AUTH","nativeSocksConnectNoFallback":"NETWORK_SOCKS5","installedProfileBrowserUsesProxy":"PROFILE_BROWSER_PROXY","nativeProfileCookieIsolation":"PROFILE_COOKIE_ISOLATION"}
                           stages=["HOME","DOMAINS","MODELS","REMOTE_CONNECTION","REMOTE_WORKS_DISCONNECTED","REMOTE_CHATS_DISCONNECTED","ATTENTION_DISCONNECTED","LOCAL_STATUS","RECOMMENDED_MODELS","BROWSER_HOME","BROWSER_RETURN","LLAMA_HOME","LLAMA_FIXTURE","LLAMA_LOAD","LLAMA_GENERATE","LLAMA_SECOND_TURN","LLAMA_UNLOAD","LLAMA_NATIVE_CANCEL_RECOVERY","LLAMA_NATIVE_REFRESH","LLAMA_PICKER_CANCEL","LLAMA_PICKER_RETURN","LLAMA_PICKER_IMPORT","LLAMA_PROJECTOR_IMPORT","LLAMA_PROJECTOR_REMOVE","LLAMA_VISION_REJECT","LLAMA_PICKER_CLEANUP"]
                           checks=["IWXA_PACKAGE_IDENTITY","DOMAIN_IDENTITIES","PROVIDER_CATALOG","REMOTE_TOKEN_MASK","LOCAL_IMPORT_CONTROL","QA_MODEL_DIRECTORY","QA_MODEL_FIXTURE_DIGEST","LLAMA_OUTPUT_PRESENT","QA_MODEL_CLEANUP","QA_PICKER_FIXTURE","QA_PICKER_COPY","QA_PICKER_CLEANUP","WEBVIEW_TIMEOUT","NATIVE_BROWSER_CLOSE_NOT_FOUND","NETWORK_WITNESS_HEADER_BOUND","NETWORK_DIRECT_FALLBACK","NETWORK_PROXY_REJECTION_NOT_OBSERVED","NETWORK_CONNECT_MISSING","NETWORK_CONNECT_TARGET","NETWORK_ORIGIN_SECRET_LEAKED","NETWORK_AGENT_SECRET_LEAKED","NETWORK_PROXY_AUTH_NOT_CONFIRMED","NETWORK_PROXY_AUTH_PREEMPTIVE","NETWORK_SOCKS_VERSION","NETWORK_SOCKS_CONNECT","NETWORK_SOCKS_ADDRESS","NETWORK_SOCKS_TARGET","NETWORK_BROWSER_PROFILE_WINDOW","NETWORK_BROWSER_MULTIPROFILE_REQUIRED","NETWORK_COOKIE_WRITE_TIMEOUT","NETWORK_COOKIE_WRITE_FAILED","NETWORK_COOKIE_A_MISSING","NETWORK_COOKIE_CROSS_PROFILE","NETWORK_OVERSIZED_REQUEST_ACCEPTED","NETWORK_REQUEST_TOO_LARGE"]
                           def device_failure(report):
@@ -476,8 +482,14 @@ jobs:
                                   if "INSTALLED_ROUTE_TIMEOUT:"+s in report:status("DEVICE_ROUTE_STAGE",s)
                               for s in checks:
                                   if s in report:status("DEVICE_CHECK",s)
+                              for s in ["NATIVE_VISION_ACTIVATE","NATIVE_VISION_ANSWER_MISMATCH","NATIVE_VISION_CONTEXT_GROWTH","NATIVE_VISION_CONTEXT_RECEIPT","NATIVE_VISION_DIRECTORY","NATIVE_VISION_EMPTY_CONTEXT","NATIVE_VISION_FIXTURE_SIZE","NATIVE_VISION_FIXTURE_TARGET","NATIVE_VISION_FRESH_CONTEXT","NATIVE_VISION_GENERATION_IDENTITY","NATIVE_VISION_IMAGE_RECEIPT","NATIVE_VISION_INVALID_IMAGE","NATIVE_VISION_INVALID_IMAGE_CONTEXT","NATIVE_VISION_JPEG","NATIVE_VISION_JPEG_SIZE","NATIVE_VISION_MODEL_CLEANUP","NATIVE_VISION_PROJECTOR_CLEANUP","NATIVE_VISION_TEXT_RECEIPT","NATIVE_VISION_UI_ACTIVATE","NATIVE_VISION_UI_CONTEXT","NATIVE_VISION_UI_FIXTURE","NATIVE_VISION_UI_FIXTURE_CLEANUP","NATIVE_VISION_UI_HASH","NATIVE_VISION_UI_PICKER","NATIVE_VISION_UI_PIXELS","NATIVE_VISION_UI_RETURN","NATIVE_VISION_UI_SELECT","NATIVE_VISION_UNLOAD","NATIVE_VISION_WEBVIEW_TIMEOUT"]:
+                                  if re.search(r"\b"+s+r"\b",report):status("NATIVE_VISION_CHECK",s)
+                              for s in ["ACTIVATE","INVALID_IMAGE","IMAGE","FOLLOWUP","STATUS","UNLOAD","HOME","UI_MODELS","UI_LOCAL","UI_MODEL","UI_ACTIVATE","UI_PICKER","UI_PREVIEW","UI_PIXELS","UI_GENERATE"]:
+                                  for prefix in ("NATIVE_VISION_TIMEOUT:","NATIVE_VISION_BRIDGE:"):
+                                      if re.search(re.escape(prefix+s)+r"\b",report):status("NATIVE_VISION_STAGE",s)
                           count=failures=errors=skipped=xml_errors=0
                           observed=[]
+                          vision_results=[]
                           for xml in result_dir.rglob("TEST-*.xml"):
                               try:
                                   if xml.stat().st_size>16*1024*1024:raise ValueError("large XML")
@@ -490,13 +502,16 @@ jobs:
                                   observed.append(label)
                                   f=case.find("failure");e=case.find("error");s=case.find("skipped")
                                   failures+=int(f is not None);errors+=int(e is not None);skipped+=int(s is not None)
-                                  status("ANDROID_WITNESS",label+":"+("FAIL" if f is not None or e is not None else "SKIP" if s is not None else "PASS"))
+                                  result="FAIL" if f is not None or e is not None else "SKIP" if s is not None else "PASS"
+                                  status("ANDROID_WITNESS",label+":"+result)
+                                  if label=="NATIVE_REAL_VISION":vision_results.append(result)
                                   for node in [f,e]:
                                       if node is not None:device_failure(node.get("message","")+" "+node.get("type","")+" "+(node.text or ""))
                           status("ANDROID_TESTS",count)
                           status("ANDROID_FAILURES",failures+errors)
                           status("ANDROID_SKIPPED",skipped)
                           status("ANDROID_XML_ERRORS",xml_errors)
+                          status("NATIVE_REAL_VISION_ROUTE","PASS" if vision_results==["PASS"] and not xml_errors else "NOT_RUN" if not vision_results else "FAIL")
                           if not device_ok:
                               for package,label in [("ru.iwxa.agent.mobile","APP"),("ru.iwxa.agent.mobile.test","TEST")]:
                                   try:
