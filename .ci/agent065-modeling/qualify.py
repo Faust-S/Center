@@ -6,9 +6,11 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 
 SHA = re.compile(r'[0-9a-f]{40}\Z')
@@ -22,6 +24,39 @@ def status(key, value):
     print(key + '=' + str(value), flush=True)
 
 
+def cleanup_private(root):
+    """Remove readonly Git packs and long Windows dependency paths."""
+    root = Path(root).resolve()
+    # This helper only receives the fresh qualification temporary directory.
+    if not root.name.startswith('iwxa-agent065-') or root.parent == root:
+        return False
+    target = str(root)
+    if os.name == 'nt' and not target.startswith('\\\\?\\'):
+        target = '\\\\?\\UNC\\' + target[2:] if target.startswith('\\\\') else '\\\\?\\' + target
+    def retry_readonly(function, path, exception):
+        if isinstance(exception, PermissionError):
+            os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+            function(path)
+        else:
+            raise exception
+    for attempt in range(3):
+        try:
+            if sys.version_info >= (3,12):
+                shutil.rmtree(target, onexc=retry_readonly)
+            else:
+                shutil.rmtree(target, onerror=lambda f,p,e:retry_readonly(f,p,e[1]))
+        except FileNotFoundError:
+            pass
+        except OSError:
+            if attempt < 2:time.sleep(.25)
+        if not os.path.lexists(target):return True
+    return False
+
+
+def git_blob(raw):
+    return hashlib.sha1(('blob '+str(len(raw))+'\0').encode('ascii')+raw).hexdigest()
+
+
 class Qualification:
     def __init__(self, root):
         self.root = root
@@ -29,11 +64,13 @@ class Qualification:
         self.src.mkdir()
         self.logs = root / 'logs'
         self.logs.mkdir()
+        (root/'temp').mkdir()
         self.env = dict(os.environ)
         for key in ('IWXA_TEMP_READ_TOKEN','GITHUB_TOKEN','GH_TOKEN','ACTIONS_RUNTIME_TOKEN','ACTIONS_ID_TOKEN_REQUEST_TOKEN','ACTIONS_ID_TOKEN_REQUEST_URL'):
             self.env.pop(key,None)
         self.env.update({
             'GIT_TERMINAL_PROMPT':'0','GIT_LFS_SKIP_SMUDGE':'1',
+            'TMP':str(root/'temp'),'TEMP':str(root/'temp'),'TMPDIR':str(root/'temp'),
             'PIP_DISABLE_PIP_VERSION_CHECK':'1','PIP_NO_CACHE_DIR':'1',
             'npm_config_cache':str(root/'npm-cache'),
             'CARGO_TARGET_DIR':str(root/'cargo-target'),
@@ -43,6 +80,7 @@ class Qualification:
         })
         self.results = {}
         self.files = []
+        self.coordinates = {}
 
     def run(self,label,args,*,cwd=None,env=None,timeout=600,report=True):
         log = self.logs / (label + '.log')
@@ -88,6 +126,46 @@ class Qualification:
                 status(label+'_CODE',v)
         if 'No matching distribution found' in data:status(label+'_CODE','PYPI_DISTRIBUTION_UNAVAILABLE')
         if 'Could not find a version that satisfies the requirement' in data:status(label+'_CODE','PYPI_VERSION_UNAVAILABLE')
+        if 'frontendDist' in data and any(x in data.lower() for x in ('does not exist','not exist','not found')):
+            status(label+'_CODE','TAURI_FRONTEND_DIST_MISSING')
+        if 'failed to download' in data.lower():status(label+'_CODE','DEPENDENCY_DOWNLOAD_FAILED')
+        if 'could not compile' in data.lower():status(label+'_CODE','RUST_COMPILE_FAILED')
+
+    def coordinate(self, path, line, column, *, cwd=''):
+        """Return only pinned source inventory ordinal and numeric position."""
+        text=str(path).replace(chr(92),'/')
+        if text.startswith('file:///'):text=text[8:] if os.name=='nt' else text[7:]
+        root=self.src.as_posix().rstrip('/')+'/'
+        if text.casefold().startswith(root.casefold()):text=text[len(root):]
+        elif cwd and not text.startswith(cwd.rstrip('/')+'/'):
+            text=cwd.rstrip('/')+'/'+text.removeprefix('./')
+        ordinal=self.coordinates.get(text)
+        if ordinal is None:return None
+        return f'{ordinal}:{int(line)}:{int(column)}'
+
+    def node_locations(self,data):
+        locations=set()
+        for match in re.finditer(r"(?m)^\s*location: ['\"](.+):(\d{1,7}):(\d{1,5})['\"]\s*$",data):
+            value=self.coordinate(*match.groups(),cwd='desktop')
+            if value:locations.add(value)
+        for value in sorted(locations)[:100]:status('NODE_FAILED_LOCATION',value)
+        status('NODE_FAILED_LOCATIONS',len(locations))
+
+    def manifest_identity(self, label, path, expected_blob, expected_deps):
+        try:
+            raw=path.read_bytes()
+            actual=git_blob(raw)
+            deps=json.loads(raw)['dependencies']
+            changed=sum(deps.get(k)!=v for k,v in expected_deps.items()) if isinstance(deps,dict) else len(expected_deps)
+            extra=len(set(deps)-set(expected_deps)) if isinstance(deps,dict) else 0
+            status(label+'_BLOB',actual)
+            status(label+'_CHANGED_DIRECT_PINS',changed)
+            status(label+'_EXTRA_DIRECT_PINS',extra)
+            same=actual==expected_blob and not changed and not extra
+        except (OSError,ValueError,TypeError,KeyError):same=False
+        status(label,'PASS' if same else 'FAIL')
+        self.results[label]=same
+        return same
 
     def block(self,*labels):
         for label in labels:
@@ -117,6 +195,7 @@ class Qualification:
         code,listing=self.run('SOURCE_INVENTORY',['git','ls-files'],report=False)
         if code:status('PRIVATE_READ','INVENTORY_FAIL');return False
         self.files=sorted(listing.splitlines())
+        self.coordinates={path:i+1 for i,path in enumerate(self.files)}
         status('PRIVATE_READ','PASS')
         status('SOURCE_PIN',pin)
         status('SOURCE_TREE',tree)
@@ -140,8 +219,14 @@ class Qualification:
                 state='FAIL' if c.find('failure') is not None or c.find('error') is not None else 'SKIP' if c.find('skipped') is not None else 'PASS'
                 counts[state]+=1
                 path=c.get('file','').replace(chr(92),'/')
-                if state=='FAIL' and path in ordinal:
-                    status(label+'_FAILED_FILE',ordinal[path])
+                if state=='FAIL':
+                    if path in ordinal:status(label+'_FAILED_FILE',ordinal[path])
+                    line=c.get('line','')
+                    if path in ordinal and line.isdecimal():status(label+'_FAILED_LINE',int(line)+1)
+                    # Identifiable by comparing hashes to the pinned private
+                    # test catalogue, without copying test names or messages.
+                    key=c.get('classname','')+'::'+c.get('name','')
+                    status(label+'_FAILED_CASE_SHA256',hashlib.sha256(key.encode('utf-8')).hexdigest())
                 if native and state=='SKIP':
                     skipped_native+=1
             good=code==0 and bool(tests) and not counts['FAIL'] and not skipped_native
@@ -183,7 +268,7 @@ class Qualification:
             self.block('NATIVE_VERSION_CHECK','MODELING_NATIVE_REGRESSION')
         else:
             self.run('NATIVE_VERSION_CHECK',[native_python,'-c',
-                "from importlib.metadata import version; import mesa,simpy,r4pm,solara; from mesa.visualization import SolaraViz; from solara.server import starlette; pins={'mesa':'3.5.2','simpy':'4.1.2','r4pm':'0.6.2','solara':'1.66.3','solara-ui':'1.66.3','solara-server':'1.66.3','solara-assets2':'1.1.0'}; assert all(version(k)==v for k,v in pins.items()); assert callable(SolaraViz)"],timeout=120)
+                "from importlib.metadata import version; from tempfile import TemporaryDirectory; from adapters.modeling.mesa_live_dependencies import prepare_native_environment,require_native_dependencies; scratch=TemporaryDirectory(); prepare_native_environment(scratch.name); require_native_dependencies(scratch.name); import mesa,simpy,r4pm,solara; pins={'mesa':'3.5.2','simpy':'4.1.2','r4pm':'0.6.2','solara':'1.66.3','solara-ui':'1.66.3','solara-server':'1.66.3','solara-assets2':'1.1.0'}; assert all(version(k)==v for k,v in pins.items()); scratch.cleanup()"],timeout=120)
             self.pytest('MODELING_NATIVE_REGRESSION',native_python,modeling,native=True,timeout=1800)
         status('INSTALLED_GUI','NOT_RUN')
         return all(self.results.values())
@@ -197,11 +282,22 @@ class Qualification:
         if not npmcli.is_file():
             self.block('NODE_TOOLCHAIN');return False
         desktop=self.src/'desktop'
+        native_manifest=desktop/'modeling-native'/'package.json'
+        manifest_git_path='desktop/modeling-native/package.json'
+        code,entry=self.run('NATIVE_MANIFEST_GIT',['git','ls-tree','HEAD','--',manifest_git_path],report=False)
+        match=re.fullmatch(r'100644 blob ([0-9a-f]{40})\t'+re.escape(manifest_git_path)+r'\s*',entry)
+        if code or match is None:
+            self.block('NATIVE_MANIFEST_INITIAL');return False
+        expected_blob=match[1]
+        expected_deps=json.loads(native_manifest.read_bytes())['dependencies']
+        if not isinstance(expected_deps,dict) or not self.manifest_identity('NATIVE_MANIFEST_INITIAL',native_manifest,expected_blob,expected_deps):
+            return False
         def cmd(label,*args,timeout=900,env=None):
             return self.run(label,[node,npmcli,*args],cwd=desktop,timeout=timeout,env=env)[0]==0
         if not cmd('DESKTOP_NPM_CI','ci','--ignore-scripts','--no-audit','--no-fund'):
             self.block('NATIVE_LOCK','NATIVE_INSTALL','NODE_REGRESSION','FULL_DESKTOP_BUILD','RUST_TESTS','TAURI_BUILD')
             return False
+        self.manifest_identity('NATIVE_MANIFEST_AFTER_DESKTOP_CI',native_manifest,expected_blob,expected_deps)
         native_lock=desktop/'modeling-native'/'package-lock.json'
         committed='desktop/modeling-native/package-lock.json' in self.files
         if committed:
@@ -211,6 +307,7 @@ class Qualification:
         else:
             status('NATIVE_LOCK_SOURCE','TEMPORARY')
             lock_ok=cmd('NATIVE_LOCK','run','modeling:lock') and native_lock.is_file()
+        self.manifest_identity('NATIVE_MANIFEST_AFTER_LOCK',native_manifest,expected_blob,expected_deps)
         if lock_ok:status('NATIVE_LOCK_SHA256',hashlib.sha256(native_lock.read_bytes()).hexdigest())
         elif self.results.get('NATIVE_LOCK'):
             self.results['NATIVE_LOCK']=False
@@ -227,8 +324,9 @@ class Qualification:
                 status('NATIVE_PIN_'+str(i),'PASS' if code==0 and matches else 'UNAVAILABLE')
         installed=lock_ok and cmd('NATIVE_INSTALL','run','modeling:ci')
         if not lock_ok:self.block('NATIVE_INSTALL')
+        manifest_ok=self.manifest_identity('NATIVE_MANIFEST_AFTER_INSTALL',native_manifest,expected_blob,expected_deps)
         gate=False
-        if installed:
+        if installed and manifest_ok:
             gate=self.run('NATIVE_BUILD_GATE',[node,'--input-type=module','-e',"import {requireNativeModeling} from './modeling-native/build-gate.mjs'; requireNativeModeling();"],cwd=desktop,timeout=120)[0]==0
         else:self.block('NATIVE_BUILD_GATE')
         env=dict(self.env)
@@ -236,7 +334,7 @@ class Qualification:
         else:env.pop('IWXA_MODELING_NATIVE_REQUIRED',None)
         # The native test runner's four files are in the original Node suite.
         # With the gate above and required-native flag, run all once.
-        code,out=self.run('NODE_REGRESSION',[node,'--test'],cwd=desktop,env=env,timeout=1500,report=False)
+        code,out=self.run('NODE_REGRESSION',[node,'--test','--test-reporter=tap'],cwd=desktop,env=env,timeout=1500,report=False)
         counts={k:re.findall(r'(?m)^# '+k+r' (\d+)\s*$',out) for k in ('tests','pass','fail','skipped','cancelled')}
         for k,v in counts.items():
             if v:status('NODE_'+k.upper(),int(v[-1]))
@@ -246,22 +344,34 @@ class Qualification:
             status('NODE_REQUIRED_NATIVE_FLAG','SET')
         self.results['NODE_REGRESSION']=node_ok
         status('NODE_REGRESSION','PASS' if node_ok else 'FAIL')
-        if not node_ok:self.diagnostics('NODE_REGRESSION',out)
+        if not node_ok:
+            self.diagnostics('NODE_REGRESSION',out)
+            self.node_locations(out)
         full=gate and cmd('FULL_DESKTOP_BUILD','run','build',timeout=1200)
         if not gate:self.block('FULL_DESKTOP_BUILD')
         # Core-only dist is only a diagnostic for Rust compilation, never
         # evidence of a complete native modeling product.
         core_only=False
-        if not full and not gate:
+        if not full:
             core_only=cmd('CORE_ONLY_DESKTOP_BUILD','run','build:core',timeout=900)
         if full or core_only:
             status('RUST_FRONTEND_PROFILE','NATIVE' if full else 'CORE_ONLY')
             cargo=shutil.which('cargo')
             if cargo:
-                self.run('RUST_TESTS',[cargo,'test','--locked','--manifest-path',desktop/'src-tauri'/'Cargo.toml'],cwd=desktop,timeout=1800)
+                rust_env=dict(self.env)
+                rust_env.pop('TAURI_CONFIG',None)
+                if core_only:
+                    # The diagnostic Vite profile deliberately does not write dist.
+                    # Tauri's original build and codegen both merge TAURI_CONFIG.
+                    rust_env['TAURI_CONFIG']=json.dumps({'build':{'frontendDist':'../dist-core-check'}})
+                rust_dist=desktop/('dist' if full else 'dist-core-check')
+                if not (rust_dist/'index.html').is_file():
+                    self.block('RUST_TESTS')
+                else:
+                    self.run('RUST_TESTS',[cargo,'test','--locked','--manifest-path',desktop/'src-tauri'/'Cargo.toml'],cwd=desktop,env=rust_env,timeout=1800)
                 if full:
                     # Reuse the already-built original full Vite dist.
-                    self.run('TAURI_BUILD',[node,desktop/'node_modules'/'@tauri-apps'/'cli'/'tauri.js','build','--no-bundle','--ci'],cwd=desktop,timeout=2400)
+                    self.run('TAURI_BUILD',[node,desktop/'node_modules'/'@tauri-apps'/'cli'/'tauri.js','build','--no-bundle','--ci'],cwd=desktop,env=rust_env,timeout=2400)
                 else:self.block('TAURI_BUILD')
             else:self.block('RUST_TESTS','TAURI_BUILD')
         else:self.block('RUST_TESTS','TAURI_BUILD')
@@ -287,8 +397,7 @@ def main():
         status('QUALIFICATION_INTERNAL','FAIL')
     finally:
         if root is not None:
-            shutil.rmtree(root,ignore_errors=True)
-            clean=not root.exists()
+            clean=cleanup_private(root)
             status('PRIVATE_CLEANUP','PASS' if clean else 'FAIL')
             result=result and clean
     status('GROUP_QUALIFICATION','PASS' if result else 'FAIL')
