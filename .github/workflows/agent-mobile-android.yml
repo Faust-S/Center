@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: 'b55a5cbd9d9d4935b1070be7b7a9e8bd13ce2829'
-      PRIVATE_TREE: 'd965a6a9c6ef830fa9486b0b9a4c2aad8a700f96'
+      PRIVATE_PIN: '2b9268215b80bee7288d71ff12c117ac367fc80a'
+      PRIVATE_TREE: '3ed6a05a268a416afbe567bb970c72b821834817'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -201,8 +201,18 @@ jobs:
                               (r"(?m)^DEBUG_APK_BUILT\s*$","APK"),
                               (r"(?m)^INSTALLED_INSTRUMENTATION_PASS\b","INSTALLED")]:
                               if re.search(marker,report):status(label,"PASS")
+                          if name=="ASSEMBLY" and outcome.returncode==0:
+                              # The exact candidate has 487 source checks, no skip or todo.
+                              node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"487","pass":"487","fail":"0","skipped":"0","todo":"0"}.items()):
+                                  status("ASSEMBLY","NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
+                              node_groups={"attention-monitor.test.mjs":"N01","chat-catalog-search.test.mjs":"N02","chat-history-view.test.mjs":"N03","chat-image.test.mjs":"N04","chat-task-material.test.mjs":"N05","device-book.test.mjs":"N06","device-screen.test.mjs":"N07","document-reuse.test.mjs":"N08","gradle-launch.test.mjs":"N09","mobile-product.test.mjs":"N10","model-state.test.mjs":"N11","native-wiring.test.mjs":"N12","network-routes.test.mjs":"N13","provider-probe.test.mjs":"N14","remote-agent.test.mjs":"N15","remote-attachments.test.mjs":"N16","remote-documents.test.mjs":"N17","remote-draft-navigation.test.mjs":"N18","remote-draft-resume.test.mjs":"N19","remote-drafts.test.mjs":"N20","remote-interaction.test.mjs":"N21","remote-meta-harness.test.mjs":"N22","remote-model-control.test.mjs":"N23","t3-native-session.test.mjs":"N24","t3-staging.test.mjs":"N25","visual-witness.test.mjs":"N26","voice-input.test.mjs":"N27","work-archive.test.mjs":"N28"}
+                              # Known roles and bounded numeric coordinates only. Never output
+                              # private test names, paths, assertion data or raw TAP.
+                              for name_at,line_at,col_at in re.findall(r"(?m)^[ \t]+location: '[^'\r\n]*[\\/]qualification[\\/]([a-z0-9-]{1,80}\.test\.mjs):([1-9][0-9]{0,4}):([1-9][0-9]{0,3})'[ \t]*\r?$",report)[:32]:
+                                  if name_at in node_groups:status("NODE_FAILURE_LOCATION",node_groups[name_at]+":"+line_at+":"+col_at)
                               if name=="DEVICE_EXECUTION":
                                   for code in ("GRADLE_ARGUMENT_INVALID","ASSEMBLED_DEVICE_INPUTS_REQUIRED"):
                                       if code in report:status("DEVICE_EXECUTION_FAILURE_CODE",code)
