@@ -93,7 +93,7 @@ def generate():
         env={k:v for k,v in os.environ.items() if not k.lower().startswith('npm_config_') and k not in ('NODE_AUTH_TOKEN','NPM_TOKEN','GITHUB_TOKEN','GH_TOKEN','IWXA_TEMP_READ_TOKEN')}
         env['npm_config_cache']=str(root/'cache')
         with (root/'npm.log').open('wb') as log:
-            result=subprocess.run([node,str(cli),'install','--prefix',str(root),'--package-lock-only','--ignore-scripts','--no-audit','--no-fund','--save-exact','--registry=https://registry.npmjs.org'],cwd=root,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,timeout=600)
+            result=subprocess.run([node,str(cli),'install','--prefix',str(root),'--package-lock-only','--lockfile-version=3','--ignore-scripts','--no-audit','--no-fund','--save-exact','--registry=https://registry.npmjs.org'],cwd=root,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,timeout=600)
         if result.returncode:
             raise ValueError('PUBLIC_LOCK_RESOLUTION_FAILED')
         raw=(root/'package-lock.json').read_bytes()
@@ -109,6 +109,12 @@ def generate():
 if __name__=='__main__':
     try:
         generate()
-    except (OSError,ValueError,TypeError,KeyError,subprocess.SubprocessError):
+    except (OSError,ValueError,TypeError,KeyError,subprocess.SubprocessError) as exc:
+        # Finite public-only diagnostic codes; never echo npm output.
+        known={'PUBLIC_LOCK_SIZE','PUBLIC_LOCK_DUPLICATE_KEY','PUBLIC_LOCK_ROOT',
+               'PUBLIC_LOCK_DIRECT','PUBLIC_LOCK_PIN','PUBLIC_LOCK_PACKAGE',
+               'PUBLIC_LOCK_TARGET_EXISTS','PUBLIC_LOCK_NPM_REQUIRED','PUBLIC_LOCK_RESOLUTION_FAILED'}
+        reason=str(exc)
+        print('PUBLIC_NPM_GRAPH_CODE='+(reason if reason in known else 'PUBLIC_LOCK_INTERNAL'),flush=True)
         print('PUBLIC_NPM_GRAPH=FAIL',flush=True)
         raise SystemExit(1)

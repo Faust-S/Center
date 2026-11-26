@@ -13,6 +13,7 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 from public_lock import artifact_path, bind_private_root
+from failure_coordinates import coordinate, structured_locations
 
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
@@ -129,23 +130,16 @@ class Qualification:
         if 'Could not find a version that satisfies the requirement' in data:status(label+'_CODE','PYPI_VERSION_UNAVAILABLE')
         if 'frontendDist' in data and any(x in data.lower() for x in ('does not exist','not exist','not found')):
             status(label+'_CODE','TAURI_FRONTEND_DIST_MISSING')
+        for stage,reason in re.findall(r'MODELING_NATIVE_MANIFEST_CHANGED:(SOURCE|SCRATCH):(SHAPE|DIRECT_PINS|DEPENDENCY_GROUPS|JSON_INVALID|IDENTITY|BYTES)\b',data):
+            status(label+'_CODE','MODELING_NATIVE_MANIFEST_CHANGED:'+stage+':'+reason)
         if 'failed to download' in data.lower():status(label+'_CODE','DEPENDENCY_DOWNLOAD_FAILED')
         if 'could not compile' in data.lower():status(label+'_CODE','RUST_COMPILE_FAILED')
 
     def coordinate(self, path, line, column, *, cwd=''):
-        """Return only pinned source inventory ordinal and numeric position."""
-        text=str(path).replace(chr(92),'/')
-        if text.startswith('file:///'):text=text[8:] if os.name=='nt' else text[7:]
-        root=self.src.as_posix().rstrip('/')+'/'
-        if text.casefold().startswith(root.casefold()):text=text[len(root):]
-        elif cwd and not text.startswith(cwd.rstrip('/')+'/'):
-            text=cwd.rstrip('/')+'/'+text.removeprefix('./')
-        ordinal=self.coordinates.get(text)
-        if ordinal is None:return None
-        return f'{ordinal}:{int(line)}:{int(column)}'
+        return coordinate(path,line,column,self.src,self.coordinates,cwd=cwd)
 
-    def node_locations(self,data):
-        locations=set()
+    def node_locations(self,data,report=None):
+        locations=structured_locations(report,self.src,self.coordinates,cwd='desktop') if report else set()
         for match in re.finditer(r"(?m)^\s*location: ['\"](.+):(\d{1,7}):(\d{1,5})['\"]\s*$",data):
             value=self.coordinate(*match.groups(),cwd='desktop')
             if value:locations.add(value)
@@ -353,7 +347,11 @@ class Qualification:
         else:env.pop('IWXA_MODELING_NATIVE_REQUIRED',None)
         # The native test runner's four files are in the original Node suite.
         # With the gate above and required-native flag, run all once.
-        code,out=self.run('NODE_REGRESSION',[node,'--test','--test-reporter=tap'],cwd=desktop,env=env,timeout=1500,report=False)
+        report=self.logs/'node-failures.jsonl'
+        reporter=Path(__file__).with_name('node-failures.mjs').resolve().as_uri()
+        code,out=self.run('NODE_REGRESSION',[node,'--test','--test-reporter=tap',
+                          '--test-reporter='+reporter,'--test-reporter-destination=stdout',
+                          '--test-reporter-destination='+str(report)],cwd=desktop,env=env,timeout=1500,report=False)
         counts={k:re.findall(r'(?m)^# '+k+r' (\d+)\s*$',out) for k in ('tests','pass','fail','skipped','cancelled')}
         for k,v in counts.items():
             if v:status('NODE_'+k.upper(),int(v[-1]))
@@ -365,7 +363,7 @@ class Qualification:
         status('NODE_REGRESSION','PASS' if node_ok else 'FAIL')
         if not node_ok:
             self.diagnostics('NODE_REGRESSION',out)
-            self.node_locations(out)
+            self.node_locations(out,report)
         full=gate and cmd('FULL_DESKTOP_BUILD','run','build',timeout=1200)
         if not gate:self.block('FULL_DESKTOP_BUILD')
         # Core-only dist is only a diagnostic for Rust compilation, never
