@@ -77,6 +77,18 @@ def read_json(path):
     return json.loads(raw.decode('utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'))
 
 
+def verify_receipt_preflight(out):
+    """Only the exact synthetic native writer completion marker is public."""
+    try:
+        raw = (out / 'logs' / 'modeling-receipt-preflight.status').read_bytes()
+        if len(raw) > 65536:
+            return False
+        lines = raw.decode('utf-16' if raw.startswith((b'\xff\xfe',b'\xfe\xff')) else 'utf-8-sig').splitlines()
+        return lines == ['MODELING_RECEIPT_PREFLIGHT=PASS']
+    except (OSError, ValueError):
+        return False
+
+
 def verify_setup_build(out, pin, tree, version='0.6.5'):
     setup = out / 'IWXA-Private-SetupCore-Candidate.exe'
     try:
@@ -109,7 +121,7 @@ def verify_setup_result(data, out, pin, tree):
 # raw exception, source path, task identifier, or output.
 MODELING_FAILURES = frozenset((
     'MODEL_DOCUMENT_FOLDER_SCOPE','MODEL_DOCUMENT_FOLDER_CONNECT','MODEL_DOCUMENT_FOLDER_READBACK','MODELING_DOCUMENT_PERSONAL_FILES_REQUIRED','MODELING_DOCUMENT_WORKSPACE_CHANGED','MODELING_DOCUMENT_TASK_WORKSPACE_CHANGED','MODELING_DOCUMENT_BINDING_CHANGED','MODELING_DOCUMENT_BINDING_INVALID','MODELING_DOCUMENT_DESTINATION_EXISTS','MODELING_DOCUMENT_BASE_CHANGED','MODELING_DOCUMENT_WRITE_LIMIT','MODELING_DOCUMENT_REVISION_CHANGED','MODELING_DOCUMENT_EXISTING_TASK_CONFLICT','MODELING_DOCUMENT_PATH_INVALID','MODELING_DOCUMENT_WRITE_MODE_INVALID','MODELING_DOCUMENT_UTF8_REQUIRED','MODELING_DOCUMENT_SIZE_INVALID','MODELING_DOCUMENT_NAMESPACE_INVALID','MODELING_DOCUMENT_XML_INVALID','MODELING_DOCUMENT_XML_UNSAFE',
-    'MESA_LIVE_JOB','MESA_LIVE_COMPLETION','MESA_LIVE_HISTORY','MESA_LIVE_RECEIPT','MESA_LIVE_MEASUREMENTS','MESA_LIVE_GUI_TIMEOUT','MESA_LIVE_GUI_LIVE_BOOT','MESA_LIVE_GUI_LIVE_NAVIGATION','MESA_LIVE_GUI_LIVE_OPEN','MESA_LIVE_GUI_LIVE_STEP_1','MESA_LIVE_GUI_LIVE_STEP_2','MESA_LIVE_GUI_LIVE_FINISH','MESA_LIVE_GUI_LIVE_RECEIPT','MESA_LIVE_GUI_RECEIPT','MESA_LIVE_COMPLETION_TIMEOUT','MESA_LIVE_PROOF','MESA_LIVE_COLD_CHANGED',
+    'MESA_LIVE_JOB','MESA_LIVE_COMPLETION','MESA_LIVE_HISTORY','MESA_LIVE_RECEIPT','MESA_LIVE_MEASUREMENTS','MESA_LIVE_GUI_TIMEOUT','MESA_LIVE_GUI_LIVE_BOOT','MESA_LIVE_GUI_LIVE_NAVIGATION','MESA_LIVE_GUI_LIVE_OPEN','MESA_LIVE_GUI_LIVE_STEP_1','MESA_LIVE_GUI_LIVE_STEP_2','MESA_LIVE_GUI_LIVE_FINISH','MESA_LIVE_GUI_LIVE_RECEIPT','MESA_LIVE_GUI_LIVE_RECEIPT_HASH','MESA_LIVE_GUI_LIVE_RECEIPT_WRITE','MESA_LIVE_GUI_LIVE_RECEIPT_READBACK','MESA_LIVE_GUI_LIVE_RECEIPT_COMPLETE','MESA_LIVE_GUI_RECEIPT','MESA_LIVE_COMPLETION_TIMEOUT','MESA_LIVE_PROOF','MESA_LIVE_COLD_CHANGED',
     'MODEL_DOCUMENT_STATUS','MODEL_DOCUMENT_FILES_OWNER','MODEL_DOCUMENT_EARLY_WRITE',
     'MODEL_DOCUMENT_FILE_BYTES','MODEL_DOCUMENT_NEW_INTENT','MODEL_DOCUMENT_PREPARATION',
     'MODEL_DOCUMENT_RECOVERY','MODEL_DOCUMENT_WRITE_RECEIPT','MODEL_DOCUMENT_PROOF','MODEL_DOCUMENT_COLD_TASK',
@@ -125,7 +137,7 @@ MODELING_FAILURES = frozenset((
     'OWNER_OR_ENVIRONMENT','DESKTOP_PROJECTION_DEPENDENCY','DESKTOP_PROJECTION','T3_MODE_READBACK','T3_MODE_RESTORE','HTTP_400','HTTP_401','HTTP_403',
     'HTTP_404','HTTP_409','HTTP_422','HTTP_429','HTTP_500','HTTP_503','HTTP_OTHER'))
 GUI_PHASES = frozenset(('BOOT','MESA_HISTORY','SIMPY_HISTORY','PROOF','PROGRAMS','BPMN_REVIEW','DMN_REVIEW','RUST4PM_RESULT',
-    'RUST4PM_INSPECTION','PROPEL_GRAPH','MESA_RESULT','SIMPY_RESULT','RECEIPT',
+    'RUST4PM_INSPECTION','PROPEL_GRAPH','MESA_RESULT','SIMPY_RESULT','RECEIPT','RECEIPT_HASH','RECEIPT_WRITE','RECEIPT_READBACK','RECEIPT_COMPLETE',
     *tuple(e+'_'+p for e in ('MESA','SIMPY') for p in ('TITLE','COUNT','POSITION','VALUE','NEXT','PREVIOUS'))))
 GUI_FAILURES = GUI_PHASES | frozenset(('GUI_START_FAILED','GUI_TIMEOUT','GUI_EXIT_FAILED',
     'GUI_RECEIPT_MISSING','GUI_RECEIPT_INVALID','GUI_CLOSE_FAILED'))
@@ -294,8 +306,9 @@ def setup_gate(q, pin, tree, baseline=None):
         '-CenterRoot', owner, '-CenterCommit', SETUP_PIN,
         '-ReleaseCacheRoot', q.root / 'release-cache', '-OutputRoot', out]
     code, data = q.run('SETUP_RELEASE', command, env=env, report=False, timeout=7200)
+    preflight = verdict(q, 'MODELING_RECEIPT_PREFLIGHT', verify_receipt_preflight(out))
     built = verdict(q, 'SETUP_BUILT', verify_setup_build(out, pin, tree))
-    accepted = verdict(q, 'SETUP_RELEASE', code == 0 and built and verify_setup_result(data, out, pin, tree))
+    accepted = verdict(q, 'SETUP_RELEASE', code == 0 and preflight and built and verify_setup_result(data, out, pin, tree))
     if not accepted:
         q.diagnostics('SETUP_RELEASE', data)
         for name,value in witness_diagnostics(out).items():
@@ -314,6 +327,7 @@ def setup_gate(q, pin, tree, baseline=None):
                        'private_setup_core_installed_modeling_not_verified',
                        'private_setup_witness_source_missing',
                        'private_setup_witness_powershell_parse_failed',
+                       'private_setup_witness_modeling_receipt_preflight_failed',
                        'agent_setup_witness_modeling_gui_failed',
                        'agent_setup_witness_modeling_after_gui_readback_failed',
                        'agent_setup_witness_modeling_execute_failed',

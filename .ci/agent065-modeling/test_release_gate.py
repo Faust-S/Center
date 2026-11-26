@@ -158,3 +158,31 @@ def test_model_file_connection_diagnostics_are_bounded(tmp_path):
     assert gate.witness_diagnostics(tmp_path)=={'SETUP_WITNESS_PHASE':'MODELING_EXECUTE',
         'SETUP_WITNESS_FAILURE_CODE':'MODEL_DOCUMENT_FOLDER_READBACK',
         'SETUP_WITNESS_OPERATION':'PROVIDER_CONNECTION_CONFIGURE'}
+
+
+@pytest.mark.parametrize('encoding',['utf-8','utf-8-sig','utf-16'])
+def test_modeling_receipt_preflight_exact_completion(tmp_path,encoding):
+    folder=tmp_path/'logs'
+    folder.mkdir()
+    marker=folder/'modeling-receipt-preflight.status'
+    assert not gate.verify_receipt_preflight(tmp_path)
+    marker.write_text('MODELING_RECEIPT_PREFLIGHT=PASS\n',encoding=encoding)
+    assert gate.verify_receipt_preflight(tmp_path)
+    for value in ('MODELING_RECEIPT_PREFLIGHT=FAIL','MODELING_RECEIPT_PREFLIGHT=PASS\nMODELING_RECEIPT_PREFLIGHT=PASS',
+                  'private log\nMODELING_RECEIPT_PREFLIGHT=PASS'):
+        marker.write_text(value+'\n',encoding=encoding)
+        assert not gate.verify_receipt_preflight(tmp_path)
+
+
+@pytest.mark.parametrize('phase,code,last',[
+    ('MODELING_GUI','RECEIPT_WRITE','RECEIPT_WRITE'),
+    ('MODELING_GUI','GUI_EXIT_FAILED','RECEIPT_COMPLETE'),
+    ('MODELING_LIVE_EXECUTE','MESA_LIVE_GUI_LIVE_RECEIPT_READBACK',None)])
+def test_receipt_failure_is_located_without_private_exception(tmp_path,phase,code,last):
+    target=tmp_path/'temporary-installed-fixture'/'installed-witness.json'
+    target.parent.mkdir()
+    target.write_text(json.dumps({'status':'FAIL','phase':phase,'failure_code':code,
+                                  'last_gui_phase':last,'secret':'private'}),encoding='utf-8')
+    expected={'SETUP_WITNESS_PHASE':phase,'SETUP_WITNESS_FAILURE_CODE':code}
+    if last:expected['SETUP_WITNESS_GUI_PHASE']=last
+    assert gate.witness_diagnostics(tmp_path)==expected
