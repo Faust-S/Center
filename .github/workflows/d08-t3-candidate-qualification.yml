@@ -1,0 +1,243 @@
+name: D08 retained original T3 inputs and single-dist qualification
+on:
+  push:
+    branches: ['ci/once/d08-t3/c4a6a4fda98af7ccba958ba18ddbfa2ad9ad833b']
+    paths: ['.github/workflows/d08-t3-candidate-qualification.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: d08-t3-candidate-c4a6a4fd-once
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.event.before == '504d1d541a289ea014cfc2c25a9503e52853e171' && github.event.deleted != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      CI: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact private domain
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops
+          ref: '3213d07255d8347934b597366f956b6169bb60b2'
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: domain
+      - name: Checkout exact private site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/market-ops.ru
+          ref: 'c4a6a4fda98af7ccba958ba18ddbfa2ad9ad833b'
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout original released T3 source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: '326f725c44d69ac99f6b912241e9e8a6c3d716a5'
+          persist-credentials: false
+          path: original
+      - name: Checkout original assistant
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: '5e3083788aa541921559de29d3457d4a52bbba00'
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: assistant
+      - name: Checkout original Kernel support source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: '49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7'
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: t2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.5'
+      - name: Download public original portable candidate
+        id: download_public
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/knowledge
+          name: iwxa-t3-mobile-portable-candidate-326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          run-id: 45395047723
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/d08-original-platform
+      - name: Retry exact public artifact using existing scoped read permission
+        if: steps.download_public.outcome == 'failure'
+        uses: actions/download-artifact@v4
+        with:
+          repository: Faust-S/knowledge
+          name: iwxa-t3-mobile-portable-candidate-326f725c44d69ac99f6b912241e9e8a6c3d716a5
+          run-id: 45395047723
+          github-token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: ${{ runner.temp }}/d08-original-platform
+      - name: Verify exact pins and candidate scripts
+        id: pins
+        run: |
+          set -e
+          test "$(git -C domain rev-parse HEAD)" = '3213d07255d8347934b597366f956b6169bb60b2'
+          test "$(git -C site rev-parse HEAD)" = 'c4a6a4fda98af7ccba958ba18ddbfa2ad9ad833b'
+          test "$(git -C original rev-parse HEAD)" = '326f725c44d69ac99f6b912241e9e8a6c3d716a5'
+          test "$(git -C assistant rev-parse HEAD)" = '5e3083788aa541921559de29d3457d4a52bbba00'
+          test "$(git -C t2 rev-parse HEAD)" = '49b5aa53e7441793f957b4f874ad0b7a9ae0f0f7'
+          cmp -s domain/model/domain-assistant-skills.json site/public/assets/d08-assistant-skills.json
+          cmp -s domain/model/iwxa-domain-boundaries.mjs site/src/lib/iwxa-domain-boundaries.mjs
+          cmp -s domain/model/iwxa-domain-boundaries.mjs site/t2-site-module/marketops/decision/iwxa-domain-boundaries.mjs
+          for f in prepare-d08-t3-host verify-d08-t3-host prepare-d08-kernel-support assemble-d08-t3-dist build-d08-t3-candidate d08-t3-public-html d08-t3-prepared-copy retain-d08-t3-inputs; do
+            node --check "site/scripts/$f.mjs" > "$RUNNER_TEMP/d08-syntax.log" 2>&1 || { echo D08_T3_SOURCE_SYNTAX=FAIL; exit 1; }
+          done
+          cd site
+          npm run check:t3:inputs -- "$RUNNER_TEMP/d08-original-platform/platform-inputs.zip" > "$RUNNER_TEMP/d08-platform.log" 2>&1 || { echo D08_T3_PLATFORM=FAIL; exit 1; }
+          echo D08_T3_PLATFORM=PASS
+      - name: Compile exact original Host and shared assistant
+        id: host
+        if: steps.pins.outcome == 'success'
+        run: |
+          set -e
+          cd site
+          rc=0
+          npm run prepare:t3:host -- "$GITHUB_WORKSPACE/original/packages/t3-core" "$RUNNER_TEMP/d08-prepared-host" "$RUNNER_TEMP/d08-original-platform/platform-inputs.zip" "$GITHUB_WORKSPACE/assistant" > "$RUNNER_TEMP/d08-host.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo D08_T3_HOST=FAIL
+            grep -oE 'D08_T3_HOST_[A-Z0-9_]+|T2_EXTERNAL_MODULE_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-host.log" | sort -u | head -30 || true
+            grep -E '^[A-Za-z0-9_./-]+\([0-9]+,[0-9]+\): error TS[0-9]+' "$RUNNER_TEMP/d08-host.log" | sed -E 's/(: error TS[0-9]+):.*/\1/' | head -25 || true
+            exit "$rc"
+          fi
+          grep -E '^\{"status":"D08_T3_HOST_SOURCE_BUILT"' "$RUNNER_TEMP/d08-host.log"
+          npm run check:t3:host -- "$RUNNER_TEMP/d08-prepared-host" > "$RUNNER_TEMP/d08-readback.log" 2>&1 || { echo D08_T3_HOST_READBACK=FAIL; exit 1; }
+          grep -E '^\{"status":"D08_T3_PREPARED_HOST_VERIFIED"' "$RUNNER_TEMP/d08-readback.log"
+          echo D08_T3_HOST=PASS
+      - name: Prepare original Kernel publication support
+        id: kernel
+        if: always() && steps.pins.outcome == 'success' && steps.host.outcome == 'success'
+        run: |
+          set -e
+          cd site
+          rc=0
+          npm run prepare:t3:kernel -- "$GITHUB_WORKSPACE/t2" "$RUNNER_TEMP/d08-kernel-support" > "$RUNNER_TEMP/d08-kernel.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo D08_T3_KERNEL_SUPPORT=FAIL
+            grep -oE 'D08_T3_KERNEL_SUPPORT_[A-Z0-9_]+|MARKETOPS_T2_[A-Z0-9_]+|error TS[0-9]+' "$RUNNER_TEMP/d08-kernel.log" | sort -u | head -30 || true
+            exit "$rc"
+          fi
+          grep -E '^\{"status":"D08_T3_LOCAL_KERNEL_SUPPORT_PREPARED"' "$RUNNER_TEMP/d08-kernel.log"
+          echo D08_T3_KERNEL_SUPPORT=PASS
+      - name: Install existing site dependencies
+        id: install
+        if: always() && steps.pins.outcome == 'success'
+        working-directory: site
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d08-install.log" 2>&1 || { echo D08_T3_SITE_INSTALL=FAIL; exit 1; }
+          echo D08_T3_SITE_INSTALL=PASS
+      - name: Compile public TypeScript
+        id: types
+        if: always() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          npm run check:types > "$RUNNER_TEMP/d08-types.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo D08_T3_SITE_TYPES=FAIL
+            grep -E '^[A-Za-z0-9_./-]+\([0-9]+,[0-9]+\): error TS[0-9]+' "$RUNNER_TEMP/d08-types.log" | sed -E 's/(: error TS[0-9]+):.*/\1/' | head -30 || true
+            exit "$rc"
+          fi
+          echo D08_T3_SITE_TYPES=PASS
+      - name: Existing D08 subject and adapter regression
+        id: regression
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set -e
+          rc=0
+          (cd domain && node --test tests/enterprise-portfolio.test.mjs tests/business-goods-cash-coordination.test.mjs tests/business-attention-queue.test.mjs tests/business-obligation.test.mjs tests/enterprise-mixed-trade.test.mjs tests/enterprise-sector-guidance.test.mjs tests/business-navigation.test.mjs) > "$RUNNER_TEMP/d08-subject.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-subject.log" || true
+          test "$rc" = 0
+          rc=0
+          (cd site && npm run test:d08:adapters) > "$RUNNER_TEMP/d08-adapters.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-adapters.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-adapters.log" | sed -E 's/^not ok ([0-9]+).*/D08_ADAPTER_FAILED_ORDINAL=\1/' | head -30 || true
+            awk '/^not ok / {bad=1} /^ok / {bad=0} bad && /location:/ {print}' "$RUNNER_TEMP/d08-adapters.log" | grep -oE 'tests/[A-Za-z0-9_-]+\.test\.mjs:[0-9]+:[0-9]+' | head -30 || true
+            exit "$rc"
+          fi
+          echo D08_T3_REGRESSION=PASS
+      - name: Original assistant policy and actual route bindings
+        id: assistant
+        if: always() && steps.install.outcome == 'success'
+        working-directory: site
+        run: |
+          rc=0
+          IWXA_D08_ORIGINAL_ASSISTANT="$GITHUB_WORKSPACE/assistant" node --import tsx --test tests/d08-t3-assistant.test.mjs > "$RUNNER_TEMP/d08-assistant.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-assistant.log" || true
+          if [ "$rc" -ne 0 ]; then
+            grep -E '^not ok [0-9]+' "$RUNNER_TEMP/d08-assistant.log" | sed -E 's/^not ok ([0-9]+).*/D08_ASSISTANT_FAILED_ORDINAL=\1/' | head -10 || true
+            exit "$rc"
+          fi
+          echo D08_T3_ASSISTANT_POLICY=PASS
+          rc=0
+          npm run test:d08:prerender > "$RUNNER_TEMP/d08-startup.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-startup.log" || true
+          if [ "$rc" -ne 0 ]; then echo D08_T3_PUBLIC_STARTUP=FAIL; exit "$rc"; fi
+          echo D08_T3_PUBLIC_STARTUP=PASS
+          rc=0
+          npm run test:d08:t3:retention > "$RUNNER_TEMP/d08-retention.log" 2>&1 || rc=$?
+          grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d08-retention.log" || true
+          if [ "$rc" -ne 0 ]; then echo D08_T3_RETENTION_TESTS=FAIL; exit "$rc"; fi
+          echo D08_T3_RETENTION_TESTS=PASS
+      - name: Retain and independently verify actual original prepared inputs
+        id: retained
+        if: steps.host.outcome == 'success' && steps.kernel.outcome == 'success' && steps.types.outcome == 'success' && steps.regression.outcome == 'success' && steps.assistant.outcome == 'success'
+        working-directory: site
+        run: |
+          set -e
+          rc=0
+          npm run retain:t3:inputs -- "$RUNNER_TEMP/d08-prepared-host" "$RUNNER_TEMP/d08-kernel-support" "$RUNNER_TEMP/d08-original-platform/platform-inputs.zip" > "$RUNNER_TEMP/d08-retain-real.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo D08_T3_RETAIN_REAL=FAIL
+            grep -oE 'D08_T3_(RETAIN|HOST|KERNEL_SUPPORT|PLATFORM)_[A-Z0-9_]+' "$RUNNER_TEMP/d08-retain-real.log" | sort -u | head -20 || true
+            exit "$rc"
+          fi
+          grep -E '^\{"status":"D08_T3_PREPARED_PAIR_RETAINED"' "$RUNNER_TEMP/d08-retain-real.log"
+          npm run check:t3:retained > "$RUNNER_TEMP/d08-retained-readback.log" 2>&1 || { echo D08_T3_RETAINED_READBACK=FAIL; exit 1; }
+          grep -E '^\{"status":"D08_T3_RETAINED_INPUTS_VERIFIED"' "$RUNNER_TEMP/d08-retained-readback.log"
+          # Remove the original source checkouts and temporary inputs.
+          rm -rf "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/original" "$GITHUB_WORKSPACE/assistant" "$GITHUB_WORKSPACE/t2" "$RUNNER_TEMP/d08-prepared-host" "$RUNNER_TEMP/d08-kernel-support" "$RUNNER_TEMP/d08-original-platform"
+          echo D08_T3_RETAIN_REAL=PASS
+      - name: Build complete candidate using retained inputs and existing static publication pipeline
+        id: dist
+        if: steps.retained.outcome == 'success'
+        working-directory: site
+        run: |
+          set -e
+          # This is the existing production HTML generation step, NOT a browser
+          # acceptance substitute. No separate browser test suite is launched.
+          chrome="$(command -v google-chrome || command -v chromium || true)"
+          if [ -z "$chrome" ]; then echo D08_T3_EXISTING_PRERENDER_BROWSER_UNAVAILABLE=FAIL; exit 1; fi
+          export PUPPETEER_EXECUTABLE_PATH="$chrome"
+          rc=0
+          npm run build:t3:local -- "$RUNNER_TEMP/d08-t3-dist" > "$RUNNER_TEMP/d08-dist.log" 2>&1 || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo D08_T3_DIST=FAIL
+            grep -oE 'D08_T3_(BUILD|ASSEMBLY|HOST|KERNEL_SUPPORT|RETAIN)_[A-Z0-9_]+|T3_DOMAIN_OFFLINE_[A-Z0-9_]+|T3_D5_MODULE_[A-Z0-9_]+' "$RUNNER_TEMP/d08-dist.log" | sort -u | head -30 || true
+            grep -oE 'MARKETOPS_T2_[A-Z0-9_]+|MARKETOPS_PUBLIC_[A-Z0-9_]+|MARKETOPS_HOST_[A-Z0-9_]+' "$RUNNER_TEMP/d08-dist.log" | sort -u | head -30 || true
+            exit "$rc"
+          fi
+          grep -E '^\{"status":"D08_T3_CANDIDATE_BUILT_NOT_ACCEPTED"' "$RUNNER_TEMP/d08-dist.log"
+          test -f "$RUNNER_TEMP/d08-t3-dist/t3-offline-manifest.json"
+          echo D08_T3_DIST=PASS
+      - name: Discard private sources and generated output
+        if: always()
+        run: |
+          rm -rf "$GITHUB_WORKSPACE/domain" "$GITHUB_WORKSPACE/site" "$GITHUB_WORKSPACE/original" "$GITHUB_WORKSPACE/assistant" "$GITHUB_WORKSPACE/t2" "$RUNNER_TEMP/d08-prepared-host" "$RUNNER_TEMP/d08-kernel-support" "$RUNNER_TEMP/d08-original-platform" "$RUNNER_TEMP/d08-t3-dist"
+          rm -f "$RUNNER_TEMP"/d08-*.log
