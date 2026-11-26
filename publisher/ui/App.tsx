@@ -315,8 +315,10 @@ export default function App(){
      throw Error('PUBLISHER_DRAFT_CHANGED_ON_DISK');
    }
  }
+ const draftWriteInFlight=React.useRef(false);
  async function change(command:Record<string,unknown>,success:string):Promise<{ok:boolean;message:string}>{
-   if(busy||!loaded)return {ok:false,message:'Сохранение сейчас недоступно. Дождитесь завершения текущего действия.'};
+   if(busy||!loaded||draftWriteInFlight.current)return {ok:false,message:'Сохранение сейчас недоступно. Дождитесь завершения текущего действия.'};
+   draftWriteInFlight.current=true;
    setBusy(true);setError('');setMessage('');setSimulated(null);
    try{
      const next=applyPublisherDraftCommand(state,command) as Draft;
@@ -331,7 +333,7 @@ export default function App(){
      setError(reason);
      return {ok:false,message:'Не удалось сохранить: '+reason};
    }
-   finally{setBusy(false);}
+   finally{draftWriteInFlight.current=false;setBusy(false);}
  }
  async function saveProduct(e:React.FormEvent){
    e.preventDefault();setProductFeedback(null);
@@ -904,10 +906,11 @@ export default function App(){
              p.productId==='IWXA_ADMIN_CENTER'&&
              <button className="secondary" type="button"
                data-testid="publisher-open-corporate-from-list" disabled={busy||!nativeHost}
+               aria-label={p.previousProposalId?`Открыть корпоративную выдачу T3 для запроса ${p.id}`:undefined}
                onClick={()=>go('trust','publisher-corporate-native-owner',{
                  proposalId:p.id,seats:corporateSeatInputs[p.id]??''
                })}>
-               Открыть корпоративную выдачу T3
+               {p.previousProposalId?'Открыть продление в T3':'Открыть корпоративную выдачу T3'}
              </button>}
             {p.tariffSnapshot?.holderType==='PERSON'&&
              ['IWXA_ATLAS','IWXA_PERSONAL_AGENT'].includes(p.productId)&&
@@ -992,7 +995,7 @@ export default function App(){
          <h2>Настройки Publisher</h2>
          <p className="muted">Настройки рабочего пространства сохраняются в профиле программы.
            Рабочие документы, лицензионные данные и ключи здесь не хранятся.</p>
-         <div className="pub-settings-row"><span>Версия программы</span><strong>0.5.0-dev.1</strong></div>
+         <div className="pub-settings-row"><span>Версия программы</span><strong>0.5.0</strong></div>
          <div className="pub-settings-row"><span>Окно просмотра</span>
            <button type="button" className="secondary"
              onClick={()=>setDockVisible(!visualPrefs.dockOpen)}>

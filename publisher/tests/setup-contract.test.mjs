@@ -44,13 +44,13 @@ test('Publisher full release EXE is assembled with Tauri resources before Setup 
 // Publisher 0.5 must have one product identity across the native app,
 // original Setup Core package and installed acceptance tests. Admin Center's
 // independent version is deliberately excluded.
-test('Publisher development 0.5.0-dev.1 identity matches Rust, Tauri, Setup Core, UI and Windows acceptance',()=>{
+test('Publisher 0.5.0 identity matches Rust, Tauri, Setup Core, UI and Windows acceptance',()=>{
  const m=read('publisher/setup/product.json');
  const app=read('publisher/src-tauri/tauri.conf.json');
  const cargo=readFileSync('publisher/src-tauri/Cargo.toml','utf8');
  const ui=readFileSync('publisher/ui/App.tsx','utf8');
  const installed=readFileSync('publisher/tests/installed-setupcore-publisher.ps1','utf8');
- assert.equal(m.version,'0.5.0-dev.1');
+ assert.equal(m.version,'0.5.0');
  assert.equal(m.version,app.version);
  const install=readFileSync('publisher/tests/installed-setupcore-publisher.ps1','utf8');
  const workflow=readFileSync('.github/workflows/center.yml','utf8');
@@ -61,7 +61,7 @@ test('Publisher development 0.5.0-dev.1 identity matches Rust, Tauri, Setup Core
  assert.doesNotMatch(install,/PUBLISHER_SETUP_SIDEBAR_OVERLAY_LAYOUT_REJECTED/);
  assert.match(workflow,/6603a11764ff86853e5abf4d209d55f79fddd8b1/);
  assert.equal(app.version,m.version);
- assert.match(cargo,/^version\s*=\s*"0\.5\.0-dev\.1"$/m);
+ assert.match(cargo,/^version\s*=\s*"0\.5\.0"$/m);
  assert.ok(ui.includes('<strong>'+m.version+'</strong>'),'Version must appear in Settings');
  assert.ok(ui.includes("page==='settings'"),'Publisher version belongs to Settings only');
  assert.equal(app.app.windows[0].title,'IWXA Publisher',

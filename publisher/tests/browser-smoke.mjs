@@ -63,7 +63,7 @@ try {
       if(command==='publisher_pick_preparation_backup')return null;
       if(command==='publisher_inspect_artifact')return window.__publisherMockInspectedArtifact??null;
       if(command==='publisher_diagnostics')return {
-        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.5.0-dev.1',
+        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.5.0',
         application:'NATIVE_RUNNING',localPreparation:'READABLE',
         webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
         licensing:'TEST_AND_PERSON_T3_BRIDGE',activeSeats:0,productionActivation:false,
@@ -100,6 +100,7 @@ try {
           (window.__publisherMockCorporateSignCount||0)+1;
         const entry={licenseId:'license:corporate:fixture',requestId:request.requestId,
           organizationId:request.subject.id,productId:'IWXA_ADMIN_CENTER',
+          lineageId:'lineage:corporate:fixture',renewalOf:null,
           status:'NOT_ACTIVATED',sequence:0};
         sessionStorage.setItem('publisher-corporate-mock-signed',JSON.stringify(entry));
         if(window.__publisherMockCorporateLoseNextIssueReceipt===true){
@@ -124,7 +125,7 @@ try {
           tariffId:'TEAM',tariffRevision:1,productVersion:'0.5.0',
           licenseEnvelopeSha256:'e'.repeat(64),
           licenseSignatureVerifiedAtIssuance:true,
-          statusEnvelopeSha256:withStatus?'f'.repeat(64):null,
+          statusEnvelopeSha256:withStatus?(observed.sequence%2?'f':'d').repeat(64):null,
           statusSignatureVerifiedAtIssuance:withStatus,
           statusFloorVerified:withStatus,stateRevision:observed.sequence+1,
           ledgerRevision:observed.sequence+1,recipientConfirmed:false,activeSeats:0,
@@ -136,7 +137,7 @@ try {
            entry.sequence!==args.expectedSequence)
           throw Error('CORPORATE_STATUS_SEQUENCE_CONFLICT');
         window.__publisherMockCorporateStatusCalls=(window.__publisherMockCorporateStatusCalls||0)+1;
-        entry.sequence+=1;entry.status=args.nextStatus;
+        entry.sequence+=1;entry.status=args.nextStatus;entry.statusValidUntil=args.validUntil;
         sessionStorage.setItem('publisher-corporate-mock-signed',JSON.stringify(entry));
         if(window.__publisherMockCorporateLoseNextStatusReceipt===true){
           window.__publisherMockCorporateLoseNextStatusReceipt=false;
@@ -457,7 +458,7 @@ try {
     'Publisher version must not be shown outside Settings');
   await page.getByRole('button',{name:'Настройки',exact:true}).click();
   assert.match(await page.getByTestId('publisher-settings').innerText(),/Версия программы/);
-  assert.match(await page.getByTestId('publisher-settings').innerText(),/0.5.0-dev.1/);
+  assert.match(await page.getByTestId('publisher-settings').innerText(),/0.5.0/);
   await page.getByRole('button',{name:'Обзор',exact:true}).click();
   checks.push('publisher-version-is-settings-only-native-setup-identity');
   const brandSvg=await (await page.request.get('http://127.0.0.1:4175/favicon.svg')).text();
@@ -500,7 +501,7 @@ try {
     window.__TAURI_INTERNALS__={invoke:async(command)=>{
       if(command==='publisher_draft_read')throw Error('PUBLISHER_DRAFT_FORMAT_INVALID');
       if(command==='publisher_diagnostics')return {
-        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.5.0-dev.1',
+        schema:'IWXA_DIAGNOSTICS/1',productId:'iwxa.publisher',version:'0.5.0',
         application:'NATIVE_RUNNING',localPreparation:'NEEDS_ATTENTION',
         webviewProfile:'FOLDER_PRESENT',setupCore:'CHECK_IN_SETUP_CORE',
         licensing:'TEST_AND_PERSON_T3_BRIDGE',activeSeats:0,productionActivation:false,
@@ -674,6 +675,8 @@ try {
   await focusedCorporate.getByTestId('publisher-corporate-owner-check').click();
   assert.equal(await focusedCorporate.getByLabel('Подготовленное предложение организации').inputValue(),
     corporateRequest.requestId);
+  assert.equal(await focusedCorporate.getByTestId('publisher-corporate-selected-proposal').innerText(),
+    'Выбранное предложение: '+corporateRequest.requestId);
   assert.equal(await focusedCorporate.getByTestId('publisher-corporate-native-seats').inputValue(),'0',
     'Explicitly entered Personal Agent seats must follow their exact proposal');
   assert.equal(await focusedCorporate.getByTestId('publisher-corporate-native-issue').count(),0,
@@ -866,7 +869,10 @@ try {
   await coldCorp.getByRole('checkbox',{
     name:'Подтверждаю отдельную подпись STATUS; отзыв необратим'
   }).check();
-  await page.evaluate(()=>{window.__publisherMockCorporateLoseNextStatusReceipt=true;});
+  await page.evaluate(()=>{
+    window.__publisherMockCorporateLoseNextStatusReceipt=true;
+    window.__publisherMockCorporateStaleStatusReadbackCount=2;
+  });
   await coldCorp.getByRole('button',{name:'Подписать новый STATUS через T3'}).click();
   await coldCorp.getByTestId('publisher-corporate-outcome-unknown').waitFor();
   assert.equal(await page.evaluate(()=>window.__publisherMockCorporateStatusCalls||0),1);
@@ -892,6 +898,12 @@ try {
   assert.match(await handoff.innerText(),/STATUS: ACTIVE, редакция 1/);
   assert.match(await handoff.innerText(),new RegExp('c'.repeat(64)));
   assert.match(await handoff.innerText(),/7312 байт/);
+  const copiedCorporate=JSON.parse(await handoff.getByTestId('publisher-corporate-handoff-text').inputValue());
+  assert.equal(copiedCorporate.licenseId,'license:corporate:fixture');
+  assert.equal(copiedCorporate.packageSha256,'c'.repeat(64));
+  assert.equal(copiedCorporate.bytes,7312);
+  assert.equal(copiedCorporate.recipientConfirmed,false);
+  assert.equal(copiedCorporate.assignablePersonalAgentSeats,0);
   assert.match(await handoff.innerText(),/получения T3 права организации и сотрудников не меняются/);
   assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);
   // A new signed STATUS makes the previous exported file a historical
@@ -900,8 +912,14 @@ try {
   await coldCorp.getByRole('checkbox',{
     name:'Подтверждаю отдельную подпись STATUS; отзыв необратим'
   }).check();
+  await page.evaluate(()=>{window.__publisherMockCorporateLoseNextStatusReceipt=true;});
   await coldCorp.getByRole('button',{name:'Подписать новый STATUS через T3'}).click();
   await coldCorp.getByText('Подписанный STATUS сохранён в оригинальном T3.',{exact:false}).waitFor();
+  await coldCorp.getByText('Ответ команды восстановлен точным чтением журнала без повторной подписи.',{exact:false}).waitFor();
+  assert.equal(await coldCorp.getByTestId('publisher-corporate-signed-status').getAttribute('aria-label'),
+    'STATUS: SUSPENDED, последовательность 2');
+  assert.equal(await page.evaluate(()=>window.__publisherMockCorporateStatusCalls||0),2);
+  assert.equal(await coldCorp.getByTestId('publisher-corporate-outcome-unknown').count(),0);
   assert.equal(await handoff.count(),0,
     'An export of STATUS sequence 1 must not remain current after sequence 2');
   assert.equal(await page.evaluate(()=>window.__publisherMockCorporateSignCount||0),1);
@@ -1267,13 +1285,39 @@ try {
     .selectOption('11111111-1111-4111-8111-111111111111');
   await page.getByRole('combobox',{name:'Основание подготовки'}).selectOption(firstOffer.id);
   assert.match(await page.getByTestId('publisher-offline-offer-preview').innerText(),/Места продукта: 7/);
-  await page.getByRole('button',{name:'Создать следующую подготовку'}).click();
+  assert.match(await page.getByTestId('publisher-offline-offer-preview').innerText(),/Выбранный тариф: TEAM, редакция 2/);
+  assert.ok((await page.getByTestId('publisher-followup-readback').innerText()).includes(firstOffer.id));
+  assert.ok((await page.getByRole('combobox',{name:'Основание подготовки'}).locator('option:checked').innerText()).includes(firstOffer.id));
+  // Changing the tariff must remove the old follow-up basis; selecting the
+  // new basis again remains a deliberate action.
+  await page.getByTestId('publisher-tariff-proposal').getByRole('combobox',{name:'Тариф'})
+    .selectOption('IWXA_ADMIN_CENTER:ORGANIZATION:TEAM:1');
+  assert.equal(await page.getByTestId('publisher-followup-readback').count(),0);
+  assert.equal(await page.getByRole('button',{name:'Сохранить подготовку по тарифу'}).isDisabled(),true);
+  await page.getByRole('button',{name:'Выбрать продление по предыдущей подготовке'}).click();
+  await page.getByRole('button',{name:'Продлить подготовку '+firstOffer.id+' по редакции 2',exact:true}).click();
+  assert.match(await page.getByTestId('publisher-offline-offer-preview').innerText(),/Выбранный тариф: TEAM, редакция 2/);
+  assert.match(await page.getByTestId('publisher-offline-offer-preview').innerText(),/Места продукта: 7/);
+  assert.ok((await page.getByTestId('publisher-followup-readback').innerText()).includes(firstOffer.id));
+  assert.deepEqual(JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft'))),firstSaved,
+    'Selecting a previous offer and revision must not write a new preparation');
+  // The existing native-command UI fixture observes two synchronous UI
+  // activations before the React busy render. One durable preparation only.
+  await page.getByRole('button',{name:'Создать следующую подготовку'}).waitFor();
+  await page.evaluate(()=>{
+    const button=document.getElementById('iwxa-publisher-save-proposal');
+    button.click();button.click();
+  });
+  await page.getByTestId('publisher-proposal-save-feedback').waitFor();
+  assert.equal(await page.getByTestId('publisher-proposal-already-saved').count(),1);
+  assert.equal(await page.getByRole('button',{name:'Создать следующую подготовку'}).isDisabled(),true);
   const linked=JSON.parse(await page.evaluate(()=>sessionStorage.getItem('iwxa-publisher-test-native-draft')));
   assert.equal(linked.proposals.length,3);
   assert.equal(linked.proposals[2].previousProposalId,firstOffer.id);
   assert.equal(linked.proposals[2].tariffSnapshot.productSeats,7);
   assert.equal(linked.proposals[2].status,'DRAFT_NOT_ISSUED');
   checks.push('native-ui-tariff-edition-and-followup-preserve-previous-terms');
+  checks.push('native-ui-followup-double-activation-saves-exactly-once');
   // A bounded native-command double tests the confirmation UI without
   // pretending this is installed Windows, a T3 issuer or a real signed license.
   let backupDraft=emptyPublisherDraft();

@@ -14,15 +14,27 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  const [revision,setRevision]=useState('1');const [features,setFeatures]=useState('');
  const [termDays,setTermDays]=useState('365');const [productSeats,setProductSeats]=useState('5');
  const [employeeLimit,setEmployeeLimit]=useState('10');const [deviceLimit,setDeviceLimit]=useState('0');
- const [quotas,setQuotas]=useState<Quota[]>([]);const [choice,setChoice]=useState('');
- const [holderId,setHolderId]=useState('');
- const [previousProposalId,setPreviousProposalId]=useState('');
+ const [quotas,setQuotas]=useState<Quota[]>([]);
+ const [offerSelection,setOfferSelection]=useState({choice:'',holderId:'',previousProposalId:''});
+ const {choice,holderId,previousProposalId}=offerSelection;
+ const [renewalOpen,setRenewalOpen]=useState(false);
  const [editionNotice,setEditionNotice]=useState('');
  const [tariffFeedback,setTariffFeedback]=useState<SaveResult|null>(null);
  const [proposalFeedback,setProposalFeedback]=useState<SaveResult|null>(null);
+ const offerInFlight=useRef(false);
+ const [savedOfferKey,setSavedOfferKey]=useState<string|null>(null);
  const tariffFeedbackRef=useRef<HTMLParagraphElement>(null);
  const proposalFeedbackRef=useRef<HTMLParagraphElement>(null);
  const editorRef=useRef<HTMLFormElement>(null);
+ const renewalReadbackRef=useRef<HTMLDivElement>(null);
+ const focusRenewalReadback=useRef(false);
+ useEffect(()=>{
+   if(focusRenewalReadback.current&&renewalReadbackRef.current){
+     focusRenewalReadback.current=false;
+     renewalReadbackRef.current.focus({preventScroll:true});
+     renewalReadbackRef.current.scrollIntoView({block:'nearest',behavior:'auto'});
+   }
+ },[offerSelection]);
  useEffect(()=>{
    if(tariffFeedback)tariffFeedbackRef.current?.scrollIntoView({block:'nearest',behavior:'auto'});
  },[tariffFeedback]);
@@ -51,6 +63,26 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
  const eligibleSources=draft.proposals.filter(p=>p.tariffSnapshot&&
    p.productId===selected?.productId&&p.holderId===selectedHolder);
  const selectedSource=eligibleSources.find(p=>p.id===previousProposalId);
+ const offerKey=JSON.stringify([choice,holderId,previousProposalId]);
+ const offerAlreadySaved=savedOfferKey===offerKey;
+ const saveOfferLabel=busy?'Сохраняем…':selectedSource?'Создать следующую подготовку':'Сохранить подготовку по тарифу';
+ // Offer the exact previous request and newer revision as one explicit
+ // user selection. This is only a form prefill, not a preparation or issue.
+ const renewalOptions=draft.proposals.flatMap(p=>{
+   const previous=p.tariffSnapshot;
+   const holder=draft.holders.find(h=>h.id===p.holderId&&h.type===previous?.holderType);
+   if(!previous||!holder||p.productId!==previous.productId)return [];
+   return draft.tariffs.filter(t=>t.productId===previous.productId&&
+     t.holderType===holder.type&&t.id===previous.id&&t.revision>previous.revision)
+     .sort((a,b)=>b.revision-a.revision).map(t=>({previous:p,holder,tariff:t}));
+ });
+ function selectRenewal(p:Proposal,t:Tariff,h:Holder){
+   if(busy||!renewalOptions.some(x=>x.previous.id===p.id&&
+      tariffKey(x.tariff)===tariffKey(t)&&x.holder.id===h.id))return;
+   focusRenewalReadback.current=true;
+   setOfferSelection({choice:tariffKey(t),holderId:h.id,previousProposalId:p.id});
+   setSavedOfferKey(null);setProposalFeedback(null);setRenewalOpen(false);
+ }
  async function saveTariff(e:React.FormEvent){
   e.preventDefault();
   if(!selectedProduct)return;
@@ -63,15 +95,21 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
   setTariffFeedback(result);
  }
  async function saveOffer(){
-  if(!selected||!selectedHolder)return;
+  if(busy||offerInFlight.current||offerAlreadySaved||!selected||!selectedHolder)return;
+  // One explicit selection can create at most one preparation. Two quick
+  // mouse/keyboard/UIA activations before React paints busy cannot duplicate it.
+  offerInFlight.current=true;
   setProposalFeedback(null);
-  const result=await change(selectedSource?{
-    kind:'prepareFollowupProposal',previousProposalId:selectedSource.id,
-    productId:selected.productId,tariffId:selected.id,revision:selected.revision
-   }:{kind:'addTariffProposal',productId:selected.productId,
-    tariffId:selected.id,revision:selected.revision,holderId:selectedHolder},
-   'Подготовка сохранена. Действующие права не изменены.');
-  setProposalFeedback(result);
+  try{
+    const result=await change(selectedSource?{
+      kind:'prepareFollowupProposal',previousProposalId:selectedSource.id,
+      productId:selected.productId,tariffId:selected.id,revision:selected.revision
+     }:{kind:'addTariffProposal',productId:selected.productId,
+      tariffId:selected.id,revision:selected.revision,holderId:selectedHolder},
+     'Подготовка сохранена. Действующие права не изменены.');
+    if(result.ok)setSavedOfferKey(offerKey);
+    setProposalFeedback(result);
+  }finally{offerInFlight.current=false;}
  }
  return <div data-testid="publisher-tariffs">
   {mode==='full'&&<>
@@ -118,19 +156,34 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
    {draft.tariffs.length===0?<p className="muted">Тарифов пока нет.</p>:draft.tariffs.map(t=><div className="simple-row" key={tariffKey(t)}><div><strong>{t.name} · редакция {t.revision}</strong><small>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.holderType==='PERSON'?'Физическое лицо':'Организация'} · {t.termDays} дней</small><small>Мест: {t.productSeats} · сотрудников: {t.employeeLimit} · устройств: {t.deviceLimit} · функций: {t.features.length} · квот: {t.quotas.length}</small></div><span className="status neutral">Черновик</span><button className="secondary" type="button" disabled={busy} onClick={()=>nextEdition(t)}>Новая редакция</button></div>)}
   </section>
   </>}
-  <section className="card form-panel" data-testid="publisher-tariff-proposal" onChangeCapture={()=>setProposalFeedback(null)}><h2>Подготовить лицензию</h2>
+  <section className="card form-panel" data-testid="publisher-tariff-proposal" onChangeCapture={()=>{setSavedOfferKey(null);setProposalFeedback(null);}}><h2>Подготовить лицензию</h2>
    <p className="muted">Условия выбранной редакции сохраняются в запросе. Лицензия без подписи не действует.</p>
+   {renewalOptions.length>0&&<div className="publisher-followup-choice" data-testid="publisher-direct-renewal">
+     <button type="button" className="secondary" aria-expanded={renewalOpen}
+       onClick={()=>setRenewalOpen(x=>!x)} disabled={busy}>Выбрать продление по предыдущей подготовке</button>
+     {renewalOpen&&<div className="publisher-offer-review">
+       <p className="muted">Выберите прежний запрос и новую редакцию. Условия можно проверить перед сохранением.</p>
+       {renewalOptions.map(({previous,holder,tariff})=><div className="simple-row"
+         key={previous.id+'|'+tariffKey(tariff)}>
+         <div><strong>{holder.name} · {tariff.name}</strong>
+           <small>{previous.id} · редакция {previous.tariffSnapshot?.revision} → {tariff.revision}</small></div>
+         <button type="button" className="secondary" disabled={busy}
+           aria-label={'Продлить подготовку '+previous.id+' по редакции '+tariff.revision}
+           onClick={()=>selectRenewal(previous,tariff,holder)}>Выбрать редакцию {tariff.revision}</button>
+       </div>)}
+     </div>}
+   </div>}
    {draft.tariffs.length===0?<p className="muted">Сначала создайте тариф.</p>:<>
     <div className="form-grid">
-     <label>Тариф<select value={selected?tariffKey(selected):''} onChange={e=>{setChoice(e.target.value);setHolderId('');setPreviousProposalId('');}}><option value="">Выберите тариф</option>{draft.tariffs.map(t=><option key={tariffKey(t)} value={tariffKey(t)}>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.name} · редакция {t.revision} · {t.holderType==='PERSON'?'Личный':'Для организации'}</option>)}</select></label>
-     <label>Клиент<select value={selectedHolder} disabled={!selected||holders.length===0} onChange={e=>{setHolderId(e.target.value);setPreviousProposalId('');}}><option value="">Выберите клиента</option>{holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
+     <label>Тариф<select value={selected?tariffKey(selected):''} onChange={e=>setOfferSelection({choice:e.target.value,holderId:'',previousProposalId:''})}><option value="">Выберите тариф</option>{draft.tariffs.map(t=><option key={tariffKey(t)} value={tariffKey(t)}>{draft.products.find(p=>p.id===t.productId)?.name||t.productId} · {t.name} · редакция {t.revision} · {t.holderType==='PERSON'?'Личный':'Для организации'}</option>)}</select></label>
+     <label>Клиент<select value={selectedHolder} disabled={!selected||holders.length===0} onChange={e=>setOfferSelection({...offerSelection,holderId:e.target.value,previousProposalId:''})}><option value="">Выберите клиента</option>{holders.map(h=><option key={h.id} value={h.id}>{h.name}</option>)}</select></label>
     </div>
     {!selected&&<p className="muted" role="status">Выберите тариф и клиента, чтобы проверить условия до сохранения.</p>}
     {selected&&holders.length===0&&<p className="muted" role="status">Нет клиентов нужного типа. Добавьте получателя в разделе «Клиенты».</p>}
     {selected&&selectedHolder&&<label className="publisher-followup-choice">Основание подготовки
-      <select aria-label="Основание подготовки" value={selectedSource?.id||''} onChange={e=>setPreviousProposalId(e.target.value)}>
+      <select aria-label="Основание подготовки" value={selectedSource?.id||''} onChange={e=>setOfferSelection({...offerSelection,previousProposalId:e.target.value})}>
         <option value="">Новая подготовка</option>
-        {eligibleSources.map(p=><option key={p.id} value={p.id}>{p.tariffSnapshot?.name} · редакция {p.tariffSnapshot?.revision} · прежняя подготовка</option>)}
+        {eligibleSources.map(p=><option key={p.id} value={p.id}>{p.tariffSnapshot?.name} · редакция {p.tariffSnapshot?.revision} · {p.id}</option>)}
       </select>
     </label>}
     {selected&&<p className="muted">{selected.holderType==='PERSON'?
@@ -138,16 +191,19 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
         'После сохранения подготовки откройте «Лицензии» и выберите «Открыть выдачу PERSON». Исходный T3 подписывает лицензию и статус, а действующие права проверяет установленный продукт.':
         'Для этого продукта подписанный PERSON-контракт не предусмотрен. Подготовка останется черновиком.':
       selected.productId==='IWXA_ADMIN_CENTER'?
-        'Организационный TEST-запрос можно подписать через исходный T3 в разделе «Доверие и ключи», а .iwxa передать в установленный Admin Center. TEST не активирует коммерческие места.':
+        'После сохранения условий откройте корпоративную выдачу T3 в разделе «Лицензии». Издатель подписывает LICENSE и STATUS, а установленный Admin Center получает и проверяет .iwxa. TEST оставлен для совместимости.':
         'Оригинальный T3 TEST Owner не подписывает произвольные организационные продукты. Подготовка останется черновиком.'}</p>}
-    {selectedSource&&<p className="muted">Новая подготовка будет связана с прежним запросом. Это не продлевает и не изменяет действующие права без отдельной подписи издателя.</p>}
-    {selected&&selectedHolder&&<div className="publisher-offer-review" data-testid="publisher-offline-offer-preview" role="status">
+    {selectedSource&&<div role="status" data-testid="publisher-followup-readback" aria-label={`Предыдущая подготовка: ${selectedSource.id}`}><p>{`Предыдущая подготовка: ${selectedSource.id}`}</p><p className="muted">Новая подготовка будет связана с прежним запросом. Это не продлевает и не изменяет действующие права без отдельной подписи издателя.</p></div>}
+    {selected&&selectedHolder&&<div ref={renewalReadbackRef} tabIndex={-1} id="publisher-selected-offer-review" className="publisher-offer-review" data-testid="publisher-offline-offer-preview" role="status" aria-label={`Выбранный тариф: ${selected.id}, редакция ${selected.revision}`}>
       <strong>Условия для проверки</strong>
       <p>{draft.holders.find(h=>h.id===selectedHolder)?.name} · {draft.products.find(p=>p.id===selected.productId)?.name||selected.productId}</p>
+      <p>Выбранный тариф: {selected.id}, редакция {selected.revision}</p>
       <div className="publisher-offer-limits">
-        <span>Места продукта: <b>{selected.productSeats}</b></span>
-        {selected.holderType==='ORGANIZATION'?<span>Сотрудники: <b>{selected.employeeLimit}</b></span>:<span>Устройства: <b>{selected.deviceLimit}</b></span>}
-        <span>Срок: <b>{selected.termDays} дней</b></span>
+        {/* UIA must read each complete label/value, not separate text and bold nodes.
+            These names describe the same visible selected tariff, never a separate state. */}
+        <span role="group" aria-label={`Места продукта: ${selected.productSeats}`}>{`Места продукта: ${selected.productSeats}`}</span>
+        {selected.holderType==='ORGANIZATION'?<span role="group" aria-label={`Сотрудники: ${selected.employeeLimit}`}>{`Сотрудники: ${selected.employeeLimit}`}</span>:<span role="group" aria-label={`Устройства: ${selected.deviceLimit}`}>{`Устройства: ${selected.deviceLimit}`}</span>}
+        <span role="group" aria-label={`Срок: ${selected.termDays} дней`}>{`Срок: ${selected.termDays} дней`}</span>
       </div>
       <p><b>Функции:</b> {selected.features.length?selected.features.join(', '):'Дополнительные функции не выбраны'}</p>
       {selected.quotas.length>0&&<div className="publisher-offer-quotas">
@@ -157,7 +213,8 @@ export default function TariffPanel({draft,busy,change,mode='full'}:{draft:Draft
       <p className="muted">Неподписанная подготовка. Права появятся только после выпуска и проверки доверенной лицензии .iwxa.</p>
     </div>}
     <div className="publisher-save-action" data-testid="publisher-proposal-save-action">
-      <button className="primary" type="button" disabled={busy||!selected||!selectedHolder} onClick={()=>void saveOffer()}>{busy?'Сохраняем…':selectedSource?'Создать следующую подготовку':'Сохранить подготовку по тарифу'}</button>
+      <button id="iwxa-publisher-save-proposal" className="primary" type="button" aria-label={saveOfferLabel} disabled={busy||!selected||!selectedHolder||offerAlreadySaved} onClick={()=>void saveOffer()}>{saveOfferLabel}</button>
+      {offerAlreadySaved&&<p className="muted" data-testid="publisher-proposal-already-saved">Эта подготовка уже сохранена. Для следующей выберите условия заново.</p>}
       {proposalFeedback&&<p ref={proposalFeedbackRef} className={'publisher-inline-feedback '+(proposalFeedback.ok?'success':'error')}
         role={proposalFeedback.ok?'status':'alert'} data-testid="publisher-proposal-save-feedback">{proposalFeedback.message}</p>}
     </div>

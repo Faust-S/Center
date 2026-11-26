@@ -129,9 +129,9 @@ if($componentSource){
 }
 $stub=Join-Path $artifact 'setup-core-stub.exe'
 $bundleName=if($TransportOnly){
-  'IWXA-Publisher-Transport-0.5.0-dev.1.exe'
+  'IWXA-Publisher-Transport-0.5.0.exe'
 }else{
-  'IWXA-Publisher-SetupCore-0.5.0-dev.1.exe'
+  'IWXA-Publisher-SetupCore-0.5.0.exe'
 }
 $bundle=Join-Path $artifact $bundleName
 $icon=[IO.Path]::GetFullPath('publisher/src-tauri/icons/icon.ico')
@@ -154,7 +154,7 @@ $manifestFile=Join-Path $artifact 'build-manifest.json'
 & python vendor/setupcore/installer/build_bundle.py build --product publisher/setup/product.json --payload $payload --stub $stub --output $bundle --source-commit $head --source-tree $tree | Set-Content -LiteralPath $manifestFile
 if($LASTEXITCODE -ne 0){throw 'PUBLISHER_SETUP_BUILD_FAILED'}
 $manifest=Get-Content -LiteralPath $manifestFile -Raw | ConvertFrom-Json -Depth 50
-if($manifest.status -ne 'VERIFIED' -or $manifest.product -ne 'iwxa.publisher' -or $manifest.version -ne '0.5.0-dev.1' -or $manifest.file_count -ne $expectedFiles -or $manifest.source.commit -ne $head -or $manifest.source.tree -ne $tree){throw 'PUBLISHER_SETUP_BUILD_READBACK_INVALID'}
+if($manifest.status -ne 'VERIFIED' -or $manifest.product -ne 'iwxa.publisher' -or $manifest.version -ne '0.5.0' -or $manifest.file_count -ne $expectedFiles -or $manifest.source.commit -ne $head -or $manifest.source.tree -ne $tree){throw 'PUBLISHER_SETUP_BUILD_READBACK_INVALID'}
 Write-Host "PUBLISHER_SETUP_BUNDLE_BUILT_PASS SHA256=$($manifest.setup_sha256) source=$head tree=$tree"
 $inspectionFile=Join-Path $artifact 'inspect.json'
 $preflightFile=Join-Path $artifact 'preflight.json'
@@ -180,7 +180,7 @@ function Invoke-Setup([string]$verb,[string]$file,[int]$expected) {
   return (Get-Content -LiteralPath $file -Raw | ConvertFrom-Json -Depth 50)
 }
 $inspection=Invoke-Setup '--inspect-file' $inspectionFile 0
-if($inspection.status -ne 'VERIFIED' -or $inspection.product -ne 'iwxa.publisher' -or $inspection.version -ne '0.5.0-dev.1' -or $inspection.files -ne $expectedFiles -or $inspection.sourceCommit -ne $head -or $inspection.packageSha256 -ne $manifest.payload_sha256){throw 'PUBLISHER_SETUP_NATIVE_INSPECT_INVALID'}
+if($inspection.status -ne 'VERIFIED' -or $inspection.product -ne 'iwxa.publisher' -or $inspection.version -ne '0.5.0' -or $inspection.files -ne $expectedFiles -or $inspection.sourceCommit -ne $head -or $inspection.packageSha256 -ne $manifest.payload_sha256){throw 'PUBLISHER_SETUP_NATIVE_INSPECT_INVALID'}
 Write-Host 'PUBLISHER_SETUP_NATIVE_INSPECT_PASS'
 $preflight=Invoke-Setup '--preflight-file' $preflightFile 0
 if($preflight.status -ne 'READY_FOR_FIRST_INSTALL'){throw "PUBLISHER_SETUP_PREFLIGHT_BLOCKED_$($preflight.status)"}
@@ -196,7 +196,7 @@ $root=''
 $guiFailure=$null
 try {
   $result=Invoke-Setup '--install-file' $installFile 0
-  if($result.status -ne 'INSTALLED_NOT_LAUNCHED' -or $result.product -ne 'iwxa.publisher' -or $result.version -ne '0.5.0-dev.1'){throw 'PUBLISHER_SETUP_INSTALL_RESULT_INVALID'}
+  if($result.status -ne 'INSTALLED_NOT_LAUNCHED' -or $result.product -ne 'iwxa.publisher' -or $result.version -ne '0.5.0'){throw 'PUBLISHER_SETUP_INSTALL_RESULT_INVALID'}
   $root=[string]$result.installRoot
   $expectedRoot=Join-Path $env:LOCALAPPDATA 'Programs/IWXA Publisher'
   if($root -ne $expectedRoot){throw "PUBLISHER_SETUP_INSTALL_ROOT_MISMATCH $root"}
@@ -233,8 +233,8 @@ try {
   # fresh-install simulation with a new directory.
   $existingVersion=Invoke-Setup '--upgrade-plan-file' (Join-Path $artifact 'repair-plan-before.json') 0
   if($existingVersion.status -ne 'REPAIR_CANDIDATE_NOT_ACTIVATED' -or
-     $existingVersion.installedVersion -ne '0.5.0-dev.1' -or
-     $existingVersion.candidateVersion -ne '0.5.0-dev.1'){
+     $existingVersion.installedVersion -ne '0.5.0' -or
+     $existingVersion.candidateVersion -ne '0.5.0'){
     throw "PUBLISHER_SETUP_REPAIR_NOT_AVAILABLE_$($existingVersion.status)"
   }
   $selectedDataLocation=[string]$registered.DataLocation
@@ -245,7 +245,7 @@ try {
   $repaired=Invoke-Setup '--repair-file' (Join-Path $artifact 'repair-result.json') 0
   if($repaired.status -ne 'REPAIRED_BACKUP_RETAINED' -or
      $repaired.product -ne 'iwxa.publisher' -or
-     $repaired.version -ne '0.5.0-dev.1' -or
+     $repaired.version -ne '0.5.0' -or
      $repaired.installRoot -ne $root){
     throw 'PUBLISHER_SETUP_REPAIR_RESULT_INVALID'
   }
@@ -255,7 +255,7 @@ try {
   }
   $verifiedRepair=Invoke-Setup '--verify-installed-file' (Join-Path $artifact 'repair-verified.json') 0
   if($verifiedRepair.status -ne 'OWNED_FILES_VERIFIED' -or
-     $verifiedRepair.version -ne '0.5.0-dev.1'){
+     $verifiedRepair.version -ne '0.5.0'){
     throw 'PUBLISHER_SETUP_REPAIR_INSTALLED_BYTES_UNVERIFIED'
   }
   if((Get-FileHash -LiteralPath $app -Algorithm SHA256).Hash -ne
@@ -348,7 +348,7 @@ $reportStatus=if($TransportOnly){if($ageSelected){'PUBLISHER_SIX_FILE_TRANSPORT_
 $report=[ordered]@{
   status=$reportStatus
   sourceHead=$head;sourceTree=$tree;setupCorePin=$pin
-  product='iwxa.publisher';version='0.5.0-dev.1'
+  product='iwxa.publisher';version='0.5.0'
   setupSha256=$manifest.setup_sha256
   appSha256=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash
   fileCount=$expectedFiles

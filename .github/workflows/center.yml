@@ -1,6 +1,7 @@
 name: Center source and desktop
 on:
   workflow_dispatch:
+
 permissions:
   contents: read
 concurrency:
@@ -182,7 +183,7 @@ jobs:
             package-lock.json
 
   publisher-windows:
-    if: ${{ (startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') || (startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3') || startsWith(github.ref, 'refs/heads/work/2026-11-10-publisher-0.4') || startsWith(github.ref, 'refs/heads/work/2026-11-10-publisher-0.5'))) && !startsWith(github.event.head_commit.message, 'ci(ui):') }}
+    if: ${{ (startsWith(github.ref, 'refs/heads/work/2026-11-08-publisher-0.2') || (startsWith(github.ref, 'refs/heads/work/2026-11-09-publisher-0.3') || startsWith(github.ref, 'refs/heads/work/2026-11-10-publisher-0.4') || startsWith(github.ref, 'refs/heads/work/2026-11-10-publisher-0.5') || github.ref == 'refs/heads/work/2026-11-24-publisher05-corporate-handoff-copy')) && !startsWith(github.event.head_commit.message, 'ci(ui):') }}
     runs-on: windows-latest
     permissions:
       contents: read
@@ -241,6 +242,18 @@ jobs:
             throw 'CENTER_PUBLIC_NATIVE_LICENSE_GUI_TEST_PARSE_FAILED'
           }
           Write-Host 'CENTER_PUBLIC_NATIVE_LICENSE_GUI_TEST_SYNTAX_PASS'
+      - name: Parse local two-installed corporate qualification driver (no private execution)
+        shell: pwsh
+        run: |
+          $path=(Resolve-Path 'tests/installed-publisher-center-corporate.ps1').Path
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)|Out-Null
+          if($errors.Count -ne 0){
+            $errors|ForEach-Object {Write-Host $_.Message}
+            throw 'CORPORATE_INSTALLED_GUI_DRIVER_SYNTAX_INVALID'
+          }
+          Write-Host 'CORPORATE_INSTALLED_LOCAL_GUI_DRIVER_SYNTAX_PASS_NOT_RUN'
       - name: Verify Publisher private-person witness entrypoint is CI-denied
         shell: pwsh
         run: |

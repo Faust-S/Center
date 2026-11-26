@@ -1,13 +1,15 @@
-import React,{useMemo,useState} from 'react';
+import React,{useMemo,useRef,useState} from 'react';
 import {projectCorporateSigningOffers} from '../src/corporate-offer-review.mjs';
 import {prepareCorporateLicenseRequest,encodeCorporateLicenseRequest}
   from '../src/corporate-license-request.mjs';
-import {inspectCorporateIssuePreflight,inspectUnknownCorporateMutationReadback}
+import {inspectCorporateIssuePreflight,inspectUnknownCorporateMutationReadback,
+  inspectCorporateRenewalPreflight,inspectCorporateIssueLineage,
+  confirmCorporateStatusCommit,changeCorporateStatusWithReadback}
   from '../src/corporate-owner-readback.mjs';
 import {projectCorporateDeliveryHandoff}
   from '../src/corporate-delivery-handoff.mjs';
 
-type Offer={proposalId:string;organization:{id:string;name:string};
+type Offer={proposalId:string;priorPreparationId:string|null;organization:{id:string;name:string};
   tariff:{id:string;name:string;revision:number};
   product:{id:string};featureIds:string[];
   limits:{employeeLimit:number;adminCenterProductSeats:number}};
@@ -16,7 +18,10 @@ type OwnerCaps={issuers:string[];operation:string;
 type IssuerReadback={operation:string;licenseId:string;requestId:string;
   organizationId:string;issuerAuthorityId:string;productId:string;
   tariffId:string;tariffRevision:number;status:string;sequence:number;
+  source:string;productVersion:string;statusValidUntil:string|null;
+  licenseSignatureVerifiedAtIssuance:boolean;statusSignatureVerifiedAtIssuance:boolean;statusFloorVerified:boolean;
   licenseEnvelopeSha256:string;statusEnvelopeSha256:string|null;
+  lineageId:string;renewalOf:string|null;
   stateRevision:number;ledgerRevision:number;
   recipientConfirmed:boolean;activeSeats:number;
   assignablePersonalAgentSeats:number;productionActivation:boolean};
@@ -39,7 +44,7 @@ export default function PublisherCorporateOwnerPanel({
   const [proposalId,setProposalId]=useState(focusProposal?.proposalId??'');
   const [seatInput,setSeatInput]=useState(focusProposal?.seats??'');
   const [review,setReview]=useState<{request:any;raw:string;
-    sourceSha256:string;issuerId:string}|null>(null);
+    sourceSha256:string;issuerId:string;renewal:{licenseId:string;lineageId:string}|null}|null>(null);
   const [confirmIssue,setConfirmIssue]=useState(false);
   const [signed,setSigned]=useState<IssuerReadback|null>(null);
   const [delivery,setDelivery]=useState<null|{
@@ -48,7 +53,11 @@ export default function PublisherCorporateOwnerPanel({
     tariffRevision:number;status:string;sequence:number;
     licenseEnvelopeSha256:string;statusEnvelopeSha256:string;
     packageSha256:string;bytes:number;
+    recipientConfirmed:false;assignablePersonalAgentSeats:0;
   }>(null);
+  const deliveryTextRef=useRef<HTMLTextAreaElement>(null);
+  const trustTextRef=useRef<HTMLInputElement>(null);
+  const [trustExport,setTrustExport]=useState<{sha256:string;bytes:number}|null>(null);
   const [lookup,setLookup]=useState('');
   const [statusAction,setStatusAction]=useState<'ACTIVE'|'SUSPENDED'|'REVOKED'>('ACTIVE');
   const [validUntil,setValidUntil]=useState('');
@@ -56,9 +65,10 @@ export default function PublisherCorporateOwnerPanel({
   const [unknown,setUnknown]=useState(false);
   const [unconfirmed,setUnconfirmed]=useState<
     |{kind:'ISSUE';requestId:string;issuerId:string;organizationId:string;
-       tariffId:string;tariffRevision:number}
+       tariffId:string;tariffRevision:number;renewal:{licenseId:string;lineageId:string}|null}
     |{kind:'STATUS';requestId:string;licenseId:string;
-       expectedSequence:number;expectedStatus:'ACTIVE'|'SUSPENDED'|'REVOKED'}
+       expectedSequence:number;expectedStatus:'ACTIVE'|'SUSPENDED'|'REVOKED';
+       validUntil:string;previous:IssuerReadback}
     |null>(null);
   const [busy,setBusy]=useState(false);
   const [feedback,setFeedback]=useState('');
@@ -68,6 +78,11 @@ export default function PublisherCorporateOwnerPanel({
   const currentDelivery=delivery&&signed&&!unknown&&
     delivery.licenseId===signed.licenseId&&
     delivery.requestId===signed.requestId&&
+    delivery.organizationId===signed.organizationId&&
+    delivery.issuerAuthorityId===signed.issuerAuthorityId&&
+    delivery.productId===signed.productId&&
+    delivery.tariffId===signed.tariffId&&
+    delivery.tariffRevision===signed.tariffRevision&&
     delivery.status===signed.status&&delivery.sequence===signed.sequence&&
     delivery.licenseEnvelopeSha256===signed.licenseEnvelopeSha256&&
     delivery.statusEnvelopeSha256===signed.statusEnvelopeSha256?delivery:null;
@@ -89,7 +104,7 @@ export default function PublisherCorporateOwnerPanel({
   async function loadCapabilities(){
     if(busy)return;
     setBusy(true);setProblem('');setFeedback('');
-    setReview(null);setConfirmIssue(false);
+    setReview(null);setConfirmIssue(false);setTrustExport(null);
     try{
       const value=await invoke('publisher_t3_corporate_capabilities') as OwnerCaps;
       if(value.operation!=='CORPORATE_CAPABILITIES'||
@@ -110,7 +125,7 @@ export default function PublisherCorporateOwnerPanel({
 
   async function exportCorporateTrust(){
     if(busy||issuers.length===0)return;
-    setBusy(true);setProblem('');setFeedback('');
+    setBusy(true);setProblem('');setFeedback('');setTrustExport(null);
     try{
       const result=await invoke('publisher_t3_corporate_export_public_trust');
       if(result===null){
@@ -119,8 +134,10 @@ export default function PublisherCorporateOwnerPanel({
       if(result.operation!=='CORPORATE_TRUST_EXPORTED'||
         result.publicOnly!==true||result.recipientProvisioned!==false||
         result.activeSeats!==0||result.productionActivation!==false||
-        !HEX.test(result.sha256))
+        !HEX.test(result.sha256)||!Number.isSafeInteger(result.bytes)||
+        result.bytes<3||result.bytes>1024*1024)
         throw Error('CORPORATE_ORIGINAL_PUBLIC_TRUST_RECEIPT_INVALID');
+      setTrustExport({sha256:result.sha256,bytes:result.bytes});
       setFeedback('Публичное доверие оригинального издателя сохранено. SHA-256: '+
         result.sha256+'. Его нужно независимо установить и проверить в Admin Center ДО получения лицензии; права не созданы.');
     }catch(e){
@@ -128,17 +145,39 @@ export default function PublisherCorporateOwnerPanel({
     }finally{setBusy(false);}
   }
 
-  function prepare(){
-    if(unknown||!selected||!issuer||!seatsInput(seatInput))return;
-    setProblem('');setFeedback('');setSigned(null);
+  async function copyTrustFingerprint(){
+    const field=trustTextRef.current;
+    if(busy||!trustExport||!field)return;
+    field.focus();field.select();
+    try{
+      await navigator.clipboard.writeText(field.value);
+      setFeedback('SHA-256 публичного доверия скопирован. Передайте его получателю отдельно от файла лицензии.');
+    }catch{
+      setFeedback('SHA-256 выделен. Нажмите Ctrl+C.');
+    }
+  }
+
+  async function prepare(){
+    if(busy||unknown||!selected||!issuer||!seatsInput(seatInput))return;
+    setBusy(true);setProblem('');setFeedback('');setSigned(null);setReview(null);setConfirmIssue(false);
     try{
       const request=prepareCorporateLicenseRequest(draft,{
         proposalId:selected.proposalId,personalAgentSeats:Number(seatInput)
       });
       const raw=encodeCorporateLicenseRequest(request);
-      setReview({request,raw,sourceSha256:expectedDraftSha256,issuerId:issuer});
+      let renewal:{licenseId:string;lineageId:string}|null=null;
+      if(selected.priorPreparationId!==null){
+        const inventory=await invoke('publisher_t3_corporate_inventory',{lookupId:selected.priorPreparationId});
+        const preflight=inspectCorporateIssuePreflight(inventory,selected.priorPreparationId);
+        if(preflight.state!=='ALREADY_SIGNED')throw Error('CORPORATE_RENEWAL_SIGNED_PREDECESSOR_REQUIRED');
+        const prior=await coldSignedReadback(preflight.licenseId,selected.priorPreparationId);
+        renewal=inspectCorporateRenewalPreflight(inventory,prior,{
+          priorRequestId:selected.priorPreparationId,issuerId:issuer,organizationId:request.subject.id});
+      }
+      setReview({request,raw,sourceSha256:expectedDraftSha256,issuerId:issuer,renewal});
       setConfirmIssue(false);
     }catch(e){setReview(null);setProblem('Не удалось проверить запрос: '+error(e));}
+    finally{setBusy(false);}
   }
 
   async function coldSignedReadback(id:string,requestId?:string){
@@ -149,6 +188,8 @@ export default function PublisherCorporateOwnerPanel({
          (requestId!==undefined&&v.requestId!==requestId)||
          v.productId!=='IWXA_ADMIN_CENTER'||
          !HEX.test(v.licenseEnvelopeSha256)||
+         typeof v.lineageId!=='string'||!v.lineageId||
+         !(v.renewalOf===null||(typeof v.renewalOf==='string'&&v.renewalOf!==v.licenseId&&v.renewalOf.length>0))||
          !Number.isSafeInteger(v.sequence)||v.sequence<0||
          v.productionActivation!==false||v.activeSeats!==0||
          v.assignablePersonalAgentSeats!==0||v.recipientConfirmed!==false)
@@ -159,7 +200,8 @@ export default function PublisherCorporateOwnerPanel({
        first.sequence!==second.sequence||
        first.status!==second.status||
        first.stateRevision!==second.stateRevision||
-       first.ledgerRevision!==second.ledgerRevision)
+       first.ledgerRevision!==second.ledgerRevision||
+       first.lineageId!==second.lineageId||first.renewalOf!==second.renewalOf)
       throw Error('CORPORATE_OWNER_CONCURRENT_CHANGE_REQUIRES_REFRESH');
     return second;
   }
@@ -186,6 +228,7 @@ export default function PublisherCorporateOwnerPanel({
            read.tariffRevision!==review.request.tariff.revision||
            read.issuerAuthorityId!==review.issuerId)
           throw Error('CORPORATE_PREFLIGHT_SIGNED_TERMS_MISMATCH');
+        inspectCorporateIssueLineage(read,review.renewal);
         setSigned(read);setLookup(read.licenseId);
         setReview(null);setConfirmIssue(false);
         setFeedback('Исходный журнал T3 уже содержит подпись этого запроса. '+
@@ -198,7 +241,8 @@ export default function PublisherCorporateOwnerPanel({
       irreversibleStarted=true;
       const result=await invoke('publisher_t3_corporate_issue',{
         requestJson:review.raw,issuerAuthorityId:issuer,
-        expectedDraftSha256:review.sourceSha256
+        expectedDraftSha256:review.sourceSha256,
+        expectedRenewalLicenseId:review.renewal?.licenseId??null
       });
       if(result.operation!=='CORPORATE_ISSUE'||
         !['ISSUED_NEW','ALREADY_ISSUED'].includes(result.outcome)||
@@ -211,6 +255,7 @@ export default function PublisherCorporateOwnerPanel({
          read.tariffRevision!==review.request.tariff.revision||
          read.issuerAuthorityId!==review.issuerId)
         throw Error('CORPORATE_OWNER_READBACK_TERMS_MISMATCH');
+      inspectCorporateIssueLineage(read,review.renewal);
       setSigned(read);setLookup(read.licenseId);setReview(null);setConfirmIssue(false);
       setFeedback('Лицензия подписана и сохранена в оригинальном журнале T3. '+
         'Получение в Admin Center и места сотрудников не подтверждены.');
@@ -222,7 +267,7 @@ export default function PublisherCorporateOwnerPanel({
         setUnconfirmed({kind:'ISSUE',requestId:review.request.requestId,
           issuerId:review.issuerId,organizationId:review.request.subject.id,
           tariffId:review.request.tariff.id,
-          tariffRevision:review.request.tariff.revision});
+          tariffRevision:review.request.tariff.revision,renewal:review.renewal});
         setUnknown(true);
         setProblem('Исход операции не подтверждён. Не повторяйте подписание. '+
           'Проверьте точный requestId в журнале T3: '+error(e));
@@ -254,6 +299,8 @@ export default function PublisherCorporateOwnerPanel({
         // confirm a lost STATUS write. Compare its EXACT committed revision,
         // not merely the license ID, before re-enabling any issuer action.
         inspectUnknownCorporateMutationReadback(unconfirmed,signedRead);
+        if(unconfirmed?.kind==='STATUS')confirmCorporateStatusCommit(
+          unconfirmed.previous,unconfirmed.expectedStatus,unconfirmed.validUntil,signedRead);
       }
       setSigned(signedRead);setUnknown(false);setUnconfirmed(null);setReview(null);
       setConfirmIssue(false);setConfirmStatus(false);
@@ -270,25 +317,21 @@ export default function PublisherCorporateOwnerPanel({
     setBusy(true);setProblem('');setFeedback('');
     const previous=signed;
     try{
-      const result=await invoke('publisher_t3_corporate_change_status',{
-        licenseId:previous.licenseId,nextStatus:statusAction,
-        expectedSequence:previous.sequence,validUntil
-      });
-      if(result.operation!=='CORPORATE_STATUS'||
-         result.licenseId!==previous.licenseId||
-         result.sequence!==previous.sequence+1||
-         result.state!==statusAction)
-        throw Error('CORPORATE_OWNER_STATUS_COMMIT_NOT_CONFIRMED');
-      const verified=await coldSignedReadback(previous.licenseId,previous.requestId);
-      if(verified.sequence!==result.sequence||verified.status!==statusAction)
-        throw Error('CORPORATE_STATUS_SIGNED_READBACK_MISMATCH');
-      setSigned(verified);setConfirmStatus(false);
-      setFeedback('Подписанный STATUS сохранён в оригинальном T3. Получение изменения устройствами сотрудников ещё не подтверждено.');
+      const result=await changeCorporateStatusWithReadback(previous,statusAction,validUntil,
+        ()=>invoke('publisher_t3_corporate_change_status',{
+          licenseId:previous.licenseId,nextStatus:statusAction,
+          expectedSequence:previous.sequence,validUntil
+        }),
+        ()=>coldSignedReadback(previous.licenseId,previous.requestId));
+      setSigned(result.signed);setConfirmStatus(false);
+      setFeedback('Подписанный STATUS сохранён в оригинальном T3. '+
+        (result.recovered?'Ответ команды восстановлен точным чтением журнала без повторной подписи. ':'')+
+        'Получение изменения устройствами сотрудников ещё не подтверждено.');
     }catch(e){
       setSigned(null);setUnknown(true);
       setUnconfirmed({kind:'STATUS',requestId:previous.requestId,
         licenseId:previous.licenseId,expectedSequence:previous.sequence+1,
-        expectedStatus:statusAction});
+        expectedStatus:statusAction,validUntil,previous});
       setLookup(previous.licenseId);
       setProblem('Неизвестный исход STATUS. Нельзя повторно подписывать без точного исходного readback: '+error(e));
     }finally{setBusy(false);}
@@ -315,6 +358,21 @@ export default function PublisherCorporateOwnerPanel({
     }finally{setBusy(false);}
   }
 
+  async function copyDelivery(){
+    if(busy||!currentDelivery)return;
+    const field=deliveryTextRef.current;
+    if(!field)return;
+    // Copy the existing verified export projection, not a second package.
+    // The fallback works without WebView clipboard permissions.
+    field.focus();field.select();
+    try{
+      await navigator.clipboard.writeText(field.value);
+      setFeedback('Контрольные данные скопированы. Вставьте их в Admin Center.');
+    }catch{
+      setFeedback('Контрольные данные выделены. Нажмите Ctrl+C.');
+    }
+  }
+
   return <section className="publisher-test-owner" data-testid="publisher-corporate-native-owner">
     <h3>Корпоративная лицензия организации: исходный T3</h3>
     <p className="muted">Только зарегистрированный исходный T3 Owner подписывает
@@ -335,6 +393,16 @@ export default function PublisherCorporateOwnerPanel({
       onClick={()=>void exportCorporateTrust()}>
       Экспортировать публичное доверие для независимого Admin Center
     </button>}
+    {trustExport&&<div className="publisher-test-request" data-testid="publisher-corporate-trust-handoff">
+      <label>SHA-256 публичного доверия издателя
+        <input ref={trustTextRef} readOnly value={trustExport.sha256} spellCheck={false}/>
+      </label>
+      <button type="button" className="secondary" disabled={busy}
+        data-testid="publisher-corporate-trust-copy"
+        onClick={()=>void copyTrustFingerprint()}>Скопировать SHA-256 доверия</button>
+      <p>Размер файла: {trustExport.bytes} байт. Передайте отпечаток независимо от .iwxa.
+        Доверие не является лицензией или правом.</p>
+    </div>}
     {issuers.length>0&&<div className="publisher-offer-review">
       <label>Зарегистрированный издатель
         <select value={issuer} disabled={busy}
@@ -353,8 +421,10 @@ export default function PublisherCorporateOwnerPanel({
         </select>
       </label>
       {selected&&<div>
-        <p>Лимит сотрудников: {selected.limits.employeeLimit}.
-          Места Admin Center: {selected.limits.adminCenterProductSeats}.</p>
+        <p data-testid="publisher-corporate-selected-proposal">Выбранное предложение: {selected.proposalId}</p>
+        <p>Тариф: {selected.tariff.name}, редакция {selected.tariff.revision}.</p>
+        <p>Лимит сотрудников: {selected.limits.employeeLimit}.</p>
+        <p>Места Admin Center: {selected.limits.adminCenterProductSeats}.</p>
         <label>Корпоративные места Personal Agent (явно)
           <input type="number" min={0} max={selected.limits.employeeLimit}
             value={seatInput} disabled={busy}
@@ -363,7 +433,7 @@ export default function PublisherCorporateOwnerPanel({
         </label>
         <button type="button" className="secondary"
           disabled={!issuer||!seatsInput(seatInput)||busy||unknown}
-          onClick={prepare}>Проверить условия перед подписью</button>
+          onClick={()=>void prepare()}>Проверить условия перед подписью</button>
       </div>}
       {review&&<div className="publisher-test-request"
         data-testid="publisher-corporate-signing-preview">
@@ -373,6 +443,9 @@ export default function PublisherCorporateOwnerPanel({
           тариф: {review.request.tariff.id}, редакция {review.request.tariff.revision};
           Personal Agent: {review.request.limits.personalAgentSeats} мест;
           срок: {review.request.termDays} дней.</p>
+        <p data-testid="publisher-corporate-renewal-preview">{review.renewal?
+          `Продление / смена тарифа. Предыдущая лицензия: ${review.renewal.licenseId}. После подтверждённого получения новой редакции лимиты не суммируются.`:
+          'Первая выдача, без связи с предыдущей лицензией.'}</p>
         <p>Функции: {review.request.featureIds.join(', ')||'не выбраны'}.
           Запрос пока не подписан. Исходный T3 отдельно проверит полномочия издателя.</p>
         <label><input type="checkbox" checked={confirmIssue} disabled={busy}
@@ -406,8 +479,12 @@ export default function PublisherCorporateOwnerPanel({
       <strong>Подписано издателем T3, не принято получателем</strong>
       <p>Лицензия: {signed.licenseId}; организация: {signed.organizationId};
         тариф {signed.tariffId} / {signed.tariffRevision}.</p>
-      <p>STATUS: {signed.status}, последовательность {signed.sequence}.
-        SHA-256 LICENSE: {signed.licenseEnvelopeSha256}.</p>
+      <p>Цепочка: {signed.lineageId}. Предыдущая лицензия: {signed.renewalOf??'нет'}.</p>
+      <p role="status" data-testid="publisher-corporate-signed-status"
+        aria-label={'STATUS: '+signed.status+', последовательность '+signed.sequence}>
+        {'STATUS: '+signed.status+', последовательность '+signed.sequence+'.'}
+      </p>
+      <p>SHA-256 LICENSE: {signed.licenseEnvelopeSha256}.</p>
       <p>Получение Admin Center: не подтверждено. Назначаемых мест: 0.</p>
       {signed.status!=='NOT_ACTIVATED'&&
         <button type="button" className="secondary"
@@ -429,6 +506,14 @@ export default function PublisherCorporateOwnerPanel({
           <code className="pub-long-code">{currentDelivery.packageSha256}</code>
         </p>
         <p>Размер файла: {currentDelivery.bytes} байт.</p>
+        <label>Контрольные данные для Admin Center
+          <textarea ref={deliveryTextRef} rows={2} readOnly spellCheck={false}
+            data-testid="publisher-corporate-handoff-text"
+            value={JSON.stringify(currentDelivery)}/>
+        </label>
+        <button type="button" className="secondary" disabled={busy}
+          data-testid="publisher-corporate-handoff-copy"
+          onClick={()=>void copyDelivery()}>Скопировать контрольные данные</button>
         <p>Передайте файл в Admin Center и независимо сверяйте его с
           исходным публичным доверием издателя. До подтверждения
           получения T3 права организации и сотрудников не меняются.</p>
