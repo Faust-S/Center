@@ -1,0 +1,11 @@
+{
+  "candidate": "ebc11fb592fe24f7414a673df47dc9a29c40e65a",
+  "tree": "7bf3879f5b649798e544f4c5d309969a6534c36d",
+  "baseline": "4cecffe7786a0afbf198a847d8368e4e8549e98a",
+  "baseline_tree": "a3a5ab786f4f9d31e6494e53bd3a67451b6e710d",
+  "scope": "I14_14_INSTALLED_MODELING_CORE_AND_REGRESSION",
+  "reason": "ARCHITECTURAL_BOUNDARIES_AND_INSTALLED_MODELING_COLD_READBACK",
+  "installed_gui": "NOT_RUN",
+  "workflow": "agent065-modeling",
+  "prepared_sha": "61a681a55fdb8f6d4a158cf5ee65bd4276b18b37"
+}
