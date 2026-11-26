@@ -111,4 +111,6 @@ def test_addressed_scope_never_claims_full_python_regression(tmp_path,monkeypatc
     assert OCR_MODULE not in calls['CORE_RETRY'][0]
     assert calls['MODELING_NATIVE_RETRY'][0]==[modeling[i-1] for i in r.MODELING_RETRY]
     assert calls['MODELING_NATIVE_RETRY'][1]['native'] is True
-    assert 'FULL_PYTHON_REGRESSION=NOT_RUN' in capsys.readouterr().out
+    published=capsys.readouterr().out
+    assert 'FULL_PYTHON_REGRESSION=PARTITIONED' in published
+    assert 'FULL_PYTHON_REGRESSION=PASS' not in published

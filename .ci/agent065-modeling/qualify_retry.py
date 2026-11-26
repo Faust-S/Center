@@ -21,6 +21,7 @@ MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_na
 FINGERPRINT = "from importlib.metadata import distributions; import hashlib,json; print(hashlib.sha256(json.dumps(sorted((d.metadata['Name'].lower(),d.version) for d in distributions()),separators=(',',':')).encode()).hexdigest())"
 from native_probe import STAGES, PUBLIC_MISSING, ERRORS as PROBE_ERRORS
 from release_gate import split_core, ocr_gate, setup_gate
+from report_evidence import skip_report
 
 
 def status(key, value):
@@ -106,7 +107,8 @@ def python_retry(q, factory, token):
     status('PYTHON_BASELINE','3.12' if sys.version_info[:2]==(3,12) else 'UNEXPECTED')
     if sys.version_info[:2] != (3,12): return False
     catalog = [p for p in q.files if CATALOGUE.fullmatch(p)]
-    core = select_modules([p for p in catalog if not MODELING.fullmatch(p)],CORE_COUNT,CORE_RETRY)
+    core_catalog = [p for p in catalog if not MODELING.fullmatch(p)]
+    core = select_modules(core_catalog,CORE_COUNT,CORE_RETRY)
     core, ocr = split_core(core)
     status('CORE_NATIVE_OCR_DELEGATED_TO_REQUIRED_GROUP', len(ocr))
     modeling = select_modules([p for p in catalog if MODELING.fullmatch(p)],MODELING_COUNT,MODELING_RETRY)
@@ -118,8 +120,10 @@ def python_retry(q, factory, token):
         q.block('CORE_RETRY'); status('CORE_BASELINE_COMPARISON','UNAVAILABLE')
     else:
         good = q.pytest('CORE_RETRY',core_python,core,timeout=1500)
-        rows = read_outcomes(q.logs/'CORE_RETRY.xml',core)
-        if q.pytest_exit_codes.get('CORE_RETRY') not in (0,1): rows = None
+        rows = None
+        if q.pytest_exit_codes.get('CORE_RETRY') in (0,1):
+            rows = read_outcomes(q.logs/'CORE_RETRY.xml',core,
+                                 skip_diagnostic=skip_report('CORE_RETRY',core_catalog,status))
         q.results['CORE_RETRY_EVIDENCE'] = rows is not None
         status('CORE_RETRY_EVIDENCE','PASS' if rows is not None else 'UNAVAILABLE')
         if good and rows is not None:
@@ -165,9 +169,12 @@ def core_remaining(q, shard):
     if python is None:
         q.block('CORE_REMAINING'); return False
     good = q.pytest('CORE_REMAINING',python,remaining,timeout=3300)
-    rows = read_outcomes(q.logs/'CORE_REMAINING.xml',remaining,
-                         lambda reason,ordinal: status('CORE_REMAINING_EVIDENCE_DIAGNOSTIC',f'{reason}:{ordinal}'))
-    evidence = q.pytest_exit_codes.get('CORE_REMAINING') in (0,1) and rows is not None
+    rows = None
+    if q.pytest_exit_codes.get('CORE_REMAINING') in (0,1):
+        rows = read_outcomes(q.logs/'CORE_REMAINING.xml',remaining,
+                             lambda reason,ordinal: status('CORE_REMAINING_EVIDENCE_DIAGNOSTIC',f'{reason}:{ordinal}'),
+                             skip_diagnostic=skip_report('CORE_REMAINING',core,status))
+    evidence = rows is not None
     status('CORE_REMAINING_EVIDENCE','PASS' if evidence else 'UNAVAILABLE')
     return good and evidence and all(q.results.values())
 

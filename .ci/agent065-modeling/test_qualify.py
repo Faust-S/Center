@@ -52,7 +52,7 @@ def test_rust_override_and_no_release_on_diagnostic(q,monkeypatch,capsys):
   seen.append((label,args,kw));
   if label=='NATIVE_MANIFEST_GIT':return 0,'100644 blob '+qmod.git_blob(raw)+'\tdesktop/modeling-native/package.json\n'
   if label=='NATIVE_BUILD_GATE':q.results[label]=False;return 1,'fixture failure'
-  if label=='NODE_REGRESSION':return 0,'# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n'
+  if label=='NODE_REGRESSION':return 0,'# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n'
   if label=='CORE_ONLY_DESKTOP_BUILD':
    d=desktop/'dist-core-check';d.mkdir();(d/'index.html').touch()
   q.results[label]=True;return 0,''

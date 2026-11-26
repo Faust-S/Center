@@ -2,6 +2,7 @@
 from collections import Counter
 import re
 import xml.etree.ElementTree as ET
+from report_evidence import skip_kind
 
 CORE_COUNT = 446
 MODELING_COUNT = 24
@@ -20,7 +21,7 @@ def select_modules(catalog, count, ordinals):
     return [catalog[n-1] for n in ordinals]
 
 
-def read_outcomes(report, files, diagnostic=None):
+def read_outcomes(report, files, diagnostic=None, *, skip_diagnostic=None):
     """None means missing collection/infrastructure/ambiguous evidence, never PASS.
 
     xunit1's file attribute is the definition location, not always the
@@ -32,6 +33,7 @@ def read_outcomes(report, files, diagnostic=None):
     modules = {p.removesuffix('.py').replace('/','.'):p for p in files}
     ordinals = {p:i+1 for i,p in enumerate(files)}
     rows = {}
+    skips = Counter()
 
     def reject(reason, owner=None):
         if diagnostic is not None:
@@ -43,9 +45,10 @@ def read_outcomes(report, files, diagnostic=None):
             path = c.get('file','').replace('\\','/')
             cls, name = c.get('classname',''), c.get('name','')
             skipped = c.find('skipped')
-            if not cls and path in allowed and skipped is not None and (
-                    skipped.get('message') == 'collection skipped' and
-                    name == path.removesuffix('.py').replace('/','.')):
+            collection = (not cls and path in allowed and skipped is not None and
+                          skipped.get('message') == 'collection skipped' and
+                          name == path.removesuffix('.py').replace('/','.'))
+            if collection:
                 cls = '__collection__'
             candidates = [owner for module,owner in modules.items()
                           if cls == module or cls.startswith(module+'.')]
@@ -64,6 +67,8 @@ def read_outcomes(report, files, diagnostic=None):
                 return reject('DUPLICATE_IDENTITY',owner)
             rows[key] = ('FAIL' if c.find('failure') is not None or c.find('error') is not None
                          else 'SKIP' if skipped is not None else 'PASS')
+            if rows[key] == 'SKIP':
+                skips[owner, skip_kind(skipped, collection)] += 1
     except (OSError, ValueError, ET.ParseError):
         return reject('REPORT_UNREADABLE')
     if not rows:
@@ -73,6 +78,9 @@ def read_outcomes(report, files, diagnostic=None):
         for owner in sorted(missing):
             reject('MODULE_NOT_COLLECTED',owner)
         return None
+    if skip_diagnostic is not None:
+        for (owner, kind), count in sorted(skips.items()):
+            skip_diagnostic(owner, kind, count)
     return rows
 
 def failed_modules(outcomes, files):

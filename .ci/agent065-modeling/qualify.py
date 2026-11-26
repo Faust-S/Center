@@ -14,6 +14,7 @@ import time
 import xml.etree.ElementTree as ET
 from public_lock import artifact_path, bind_private_root
 from failure_coordinates import coordinate, structured_locations, python_trace_locations
+from report_evidence import node_counts, node_accepted
 
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
@@ -359,13 +360,12 @@ class Qualification:
         code,out=self.run('NODE_REGRESSION',[node,'--test','--test-reporter=tap',
                           '--test-reporter='+reporter,'--test-reporter-destination=stdout',
                           '--test-reporter-destination='+str(report)],cwd=desktop,env=env,timeout=1500,report=False)
-        counts={k:re.findall(r'(?m)^# '+k+r' (\d+)\s*$',out) for k in ('tests','pass','fail','skipped','cancelled')}
-        for k,v in counts.items():
-            if v:status('NODE_'+k.upper(),int(v[-1]))
-        node_ok=code==0 and bool(counts['tests']) and int(counts['tests'][-1])>0
-        if gate and counts['skipped'] and int(counts['skipped'][-1])>0:
-            # Report skips; required native tests fail explicitly on missing libraries.
-            status('NODE_REQUIRED_NATIVE_FLAG','SET')
+        counts=node_counts(out)
+        if counts is not None:
+            for k,v in counts.items():
+                status('NODE_'+k.upper(),v)
+        status('NODE_SUMMARY_EVIDENCE','PASS' if counts is not None else 'FAIL')
+        node_ok=node_accepted(code,gate,counts)
         self.results['NODE_REGRESSION']=node_ok
         status('NODE_REGRESSION','PASS' if node_ok else 'FAIL')
         if not node_ok:
