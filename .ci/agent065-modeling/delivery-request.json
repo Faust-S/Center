@@ -1,0 +1,8 @@
+{
+  "candidate": "68128b4c9a2c7140ec3503ff0f775e5bcb50743e",
+  "tree": "73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2",
+  "recipient_sha256": "b9f6f34b406311981ccf68184c1eb7ca958d2893357879f201739195f0e22b60",
+  "scope": "ENCRYPTED_OWNER_CANDIDATE_DELIVERY",
+  "format": "IWXAENC1",
+  "release_status": "CANDIDATE_NOT_ACCEPTED"
+}

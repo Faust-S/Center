@@ -1,0 +1,59 @@
+name: Agent 0.6.5 encrypted installer delivery (68128b4c)
+on:
+  push:
+    branches:
+      - 'ci/once/agent065-delivery/*'
+    paths:
+      - '.github/ci-requests/agent065-delivery.json'
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-agent065-modeling-desktop-qualification
+  cancel-in-progress: false
+jobs:
+  delivery:
+    if: ${{ github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      PRIVATE_PIN: '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
+      PRIVATE_TREE: '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
+      QUALIFICATION_GROUP: 'desktop'
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      CI: 'true'
+    steps:
+      - name: Checkout public delivery admission only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exact owner delivery request before private access
+        shell: bash
+        run: python .ci/agent065-modeling/delivery_admit.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Install pinned public encryption library
+        shell: bash
+        run: python -m pip install --disable-pip-version-check --no-cache-dir cryptography==46.0.4
+      - name: Build original installer and encrypt for owner
+        shell: bash
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: python .ci/agent065-modeling/delivery_runner.py
+      - name: Upload only encrypted candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: IWXA-Agent-0.6.5-candidate-68128b4c-encrypted
+          path: ${{ runner.temp }}/iwxa-agent065-delivery-cipher/IWXA-Personal-Agent-0.6.5-candidate-68128b4c.iwxae
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
