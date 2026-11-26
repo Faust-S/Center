@@ -43,6 +43,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - name: Resolve only public upstream npm graph (no private checkout)
+        id: public_graph
+        if: ${{ matrix.group == 'desktop' }}
+        continue-on-error: true
+        shell: pwsh
+        run: python .ci/agent065-modeling/public_lock.py
+      - name: Retain only independently generated public npm metadata
+        if: ${{ matrix.group == 'desktop' && steps.public_graph.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-modeling-npm-graph
+          path: ${{ runner.temp }}/iwxa-public-npm-modeling-graph/package-lock.json
+          retention-days: 1
+          if-no-files-found: error
       - name: Grouped checks on private temporary checkout
         shell: pwsh
         env:

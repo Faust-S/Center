@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET
+from public_lock import artifact_path, bind_private_root
 
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
@@ -305,8 +306,26 @@ class Qualification:
             lock_ok=native_lock.is_file()
             self.results['NATIVE_LOCK']=lock_ok;status('NATIVE_LOCK','PASS' if lock_ok else 'FAIL')
         else:
-            status('NATIVE_LOCK_SOURCE','TEMPORARY')
-            lock_ok=cmd('NATIVE_LOCK','run','modeling:lock') and native_lock.is_file()
+            public_graph=artifact_path()
+            if public_graph.is_file():
+                try:
+                    raw=public_graph.read_bytes()
+                    bound=bind_private_root(raw,json.loads(native_manifest.read_bytes()))
+                    with native_lock.open('xb') as stream:
+                        stream.write(bound)
+                    lock_ok=True
+                    status('NATIVE_LOCK_SOURCE','PUBLIC_UPSTREAM_GRAPH')
+                    status('NATIVE_PUBLIC_GRAPH_SHA256',hashlib.sha256(raw).hexdigest())
+                    status('NATIVE_LOCK','PASS')
+                    self.results['NATIVE_LOCK']=True
+                except (OSError,ValueError,TypeError,KeyError):
+                    lock_ok=False
+                    status('NATIVE_LOCK_SOURCE','PUBLIC_UPSTREAM_GRAPH')
+                    status('NATIVE_LOCK','FAIL')
+                    self.results['NATIVE_LOCK']=False
+            else:
+                status('NATIVE_LOCK_SOURCE','TEMPORARY')
+                lock_ok=cmd('NATIVE_LOCK','run','modeling:lock') and native_lock.is_file()
         self.manifest_identity('NATIVE_MANIFEST_AFTER_LOCK',native_manifest,expected_blob,expected_deps)
         if lock_ok:status('NATIVE_LOCK_SHA256',hashlib.sha256(native_lock.read_bytes()).hexdigest())
         elif self.results.get('NATIVE_LOCK'):
