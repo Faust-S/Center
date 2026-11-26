@@ -1,4 +1,4 @@
-"""I14.17: full regression, native GUI, document roundtrip and original Setup upgrade."""
+"""I14.18: full regression, native GUI, document roundtrip and original Setup upgrade."""
 import hashlib
 import os
 from pathlib import Path
@@ -11,10 +11,10 @@ from retry_scope import (CORE_COUNT, CORE_RETRY, MODELING_COUNT, MODELING_RETRY,
                          BASELINE_PIN, BASELINE_TREE, select_modules,
                          read_outcomes, failed_modules, compare_failures)
 
-CANDIDATE_PIN = '8db3d9f050467ce1cf86668c712c5ff46c31e09d'
-CANDIDATE_TREE = 'bd67e5dea2eb4699d528427048156ddd26763ea2'
-SCOPE = 'I14_17_DOCUMENT_ROUNDTRIP_NATIVE_GUI_AND_UPGRADE'
-REASON = 'SAVED_RESULT_NAVIGATION_BOUNDED_DIAGNOSTICS_AND_FULL_REGRESSION'
+CANDIDATE_PIN = '8817b1412fbf71df13ac05a484ddc361a62c897c'
+CANDIDATE_TREE = '817bdf9194f936b51ce36335894b33c9bd17e139'
+SCOPE = 'I14_18_LIVE_MESA_NATIVE_GUI_AND_UPGRADE'
+REASON = 'LIVE_JOB_HANDOFF_COUNTDOWN_NATIVE_WITNESS_AND_REGRESSION'
 GROUPS = ('python','core-remaining-1','core-remaining-2','core-remaining-3','ocr','desktop','desktop-source')
 CATALOGUE = re.compile(r'tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
@@ -165,7 +165,8 @@ def core_remaining(q, shard):
     if python is None:
         q.block('CORE_REMAINING'); return False
     good = q.pytest('CORE_REMAINING',python,remaining,timeout=3300)
-    rows = read_outcomes(q.logs/'CORE_REMAINING.xml',remaining)
+    rows = read_outcomes(q.logs/'CORE_REMAINING.xml',remaining,
+                         lambda reason,ordinal: status('CORE_REMAINING_EVIDENCE_DIAGNOSTIC',f'{reason}:{ordinal}'))
     evidence = q.pytest_exit_codes.get('CORE_REMAINING') in (0,1) and rows is not None
     status('CORE_REMAINING_EVIDENCE','PASS' if evidence else 'UNAVAILABLE')
     return good and evidence and all(q.results.values())

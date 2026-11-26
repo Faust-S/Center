@@ -15,7 +15,8 @@ SETUP_REQUIRED = ('installed_runtime_launch_accepted', 'native_gui_window_accept
                   'native_clean_install_and_repair_accepted',
                   'installed_native_modeling_verified',
                   'installed_native_modeling_cold_readback_verified',
-                  'installed_native_modeling_gui_verified')
+                  'installed_native_modeling_gui_verified',
+                  'installed_native_modeling_live_verified')
 
 
 def verdict(q, label, good):
@@ -107,6 +108,7 @@ def verify_setup_result(data, out, pin, tree):
 # Finite public diagnostics only. Never print a private witness record,
 # raw exception, source path, task identifier, or output.
 MODELING_FAILURES = frozenset((
+    'MESA_LIVE_JOB','MESA_LIVE_COMPLETION','MESA_LIVE_HISTORY','MESA_LIVE_RECEIPT','MESA_LIVE_MEASUREMENTS','MESA_LIVE_GUI_TIMEOUT','MESA_LIVE_GUI_LIVE_BOOT','MESA_LIVE_GUI_LIVE_NAVIGATION','MESA_LIVE_GUI_LIVE_OPEN','MESA_LIVE_GUI_LIVE_STEP_1','MESA_LIVE_GUI_LIVE_STEP_2','MESA_LIVE_GUI_LIVE_FINISH','MESA_LIVE_GUI_LIVE_RECEIPT','MESA_LIVE_GUI_RECEIPT','MESA_LIVE_COMPLETION_TIMEOUT','MESA_LIVE_PROOF','MESA_LIVE_COLD_CHANGED',
     'MODEL_DOCUMENT_STATUS','MODEL_DOCUMENT_FILES_OWNER','MODEL_DOCUMENT_EARLY_WRITE',
     'MODEL_DOCUMENT_FILE_BYTES','MODEL_DOCUMENT_NEW_INTENT','MODEL_DOCUMENT_PREPARATION',
     'MODEL_DOCUMENT_RECOVERY','MODEL_DOCUMENT_WRITE_RECEIPT','MODEL_DOCUMENT_PROOF','MODEL_DOCUMENT_COLD_TASK',
@@ -130,13 +132,13 @@ MODELING_OPERATIONS = frozenset(('STATUS','UI_PREFERENCES','UI_PREFERENCES_UPDAT
     'PROVIDER_SWITCH','PUBLIC_PROGRAM_CONNECT','PUBLIC_PROGRAM_TASK_DRAFT','PUBLIC_PROGRAM_TASK_STATUS',
     'REVIEW_TASK','TOOL_PREPARE','TOOL_APPROVE','TOOL_EXECUTE','PUBLIC_PROGRAM_RESULT',
     'PUBLIC_MODELING_RESULT_ARTIFACTS','PUBLIC_MODELING_PROCESS_INSPECTION',
-    'PUBLIC_MODELING_DOCUMENT_STATUS','PUBLIC_MODELING_DOCUMENT_DRAFT','TOOL_READ'))
+    'PUBLIC_MODELING_DOCUMENT_STATUS','PUBLIC_MODELING_DOCUMENT_DRAFT','TOOL_READ','AUTOMATION_CREATE','AUTOMATION_JOBS'))
 WITNESS_PHASES = frozenset(('SHORTCUT_READBACK','COLD_GUI_BOOT','FIRST_CORE','CORE_QUERIES',
     'DRAFT_CREATE','GUI_DRAFT_EDIT','GUI_DRAFT_READBACK','QWEN_EXECUTE','COLD_RESTART','COLD_CORE_QUERIES',
     'GUI_DRAFT_REOPEN','QWEN_COLD_IMPORT','GUI_RESULT','GUI_TASK_SUBMIT','GUI_TASK_RESULT',
     'GUI_TASK_REVIEW','GUI_TASK_REVIEW_READBACK','GUI_COLD_RESTART','GUI_COLD_IMPORT',
     'MODELING_EXECUTE','MODELING_COLD_RESTART','MODELING_COLD_READBACK','MODELING_GUI',
-    'MODELING_AFTER_GUI_READBACK','K03_TASK_EXECUTE','K03_TASK_COLD_RESTART','K03_TASK_COLD_READBACK',
+    'MODELING_AFTER_GUI_READBACK','MODELING_LIVE_EXECUTE','MODELING_LIVE_RESTART','MODELING_LIVE_READBACK','K03_TASK_EXECUTE','K03_TASK_COLD_RESTART','K03_TASK_COLD_READBACK',
     'CLEAN_STOP','WITNESS_RECEIPT'))
 
 
@@ -157,7 +159,7 @@ def witness_diagnostics(out):
             last_gui_phase = value.get('last_gui_phase')
             if type(last_gui_phase) is str and last_gui_phase in GUI_PHASES:
                 result['SETUP_WITNESS_GUI_PHASE'] = last_gui_phase
-        if phase in ('MODELING_EXECUTE','MODELING_COLD_READBACK','MODELING_AFTER_GUI_READBACK'):
+        if phase in ('MODELING_EXECUTE','MODELING_COLD_READBACK','MODELING_AFTER_GUI_READBACK','MODELING_LIVE_EXECUTE','MODELING_LIVE_READBACK'):
             if type(code) is str and code in MODELING_FAILURES:
                 result['SETUP_WITNESS_FAILURE_CODE'] = code
             if type(operation) is str and operation in MODELING_OPERATIONS:
@@ -322,6 +324,7 @@ def setup_gate(q, pin, tree, baseline=None):
     print('INSTALLED_GUI=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
     print('MODELING_INSTALLED_CORE=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
     print('MODELING_INSTALLED_GUI=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
+    print('MODELING_INSTALLED_LIVE=' + ('PASS' if accepted else 'NOT_CONFIRMED'), flush=True)
     # The original installer may intentionally leave an owned installation on
     # failure. Never attempt a second install in that state.
     if accepted:

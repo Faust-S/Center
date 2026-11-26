@@ -133,3 +133,17 @@ def test_bounded_gui_and_document_diagnostics(tmp_path,phase,code,last,expected)
                                   'last_gui_phase':last,'last_operation':'PUBLIC_MODELING_DOCUMENT_DRAFT',
                                   'secret':'must never escape'}),encoding='utf-8')
     assert gate.witness_diagnostics(tmp_path)==expected
+
+
+def test_live_failure_diagnostics_are_finite(tmp_path):
+    import release_gate as gate
+    out=tmp_path/'temporary-installed-fixture'
+    out.mkdir()
+    path=out/'installed-witness.json'
+    path.write_text(json.dumps({'status':'FAIL','phase':'MODELING_LIVE_EXECUTE',
+        'failure_code':'MESA_LIVE_GUI_LIVE_STEP_2','last_operation':'AUTOMATION_JOBS'}))
+    assert gate.witness_diagnostics(tmp_path)=={'SETUP_WITNESS_PHASE':'MODELING_LIVE_EXECUTE',
+        'SETUP_WITNESS_FAILURE_CODE':'MESA_LIVE_GUI_LIVE_STEP_2','SETUP_WITNESS_OPERATION':'AUTOMATION_JOBS'}
+    path.write_text(json.dumps({'status':'FAIL','phase':'MODELING_LIVE_READBACK',
+        'failure_code':'untrusted private path','last_operation':'untrusted detail'}))
+    assert gate.witness_diagnostics(tmp_path)=={'SETUP_WITNESS_PHASE':'MODELING_LIVE_READBACK'}

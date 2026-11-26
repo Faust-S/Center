@@ -1,5 +1,6 @@
 """Select prior failure modules, compare only matched pytest case identities."""
 from collections import Counter
+import re
 import xml.etree.ElementTree as ET
 
 CORE_COUNT = 446
@@ -19,31 +20,60 @@ def select_modules(catalog, count, ordinals):
     return [catalog[n-1] for n in ordinals]
 
 
-def read_outcomes(report, files):
-    """None means collection/infrastructure/ambiguous evidence, never a PASS."""
+def read_outcomes(report, files, diagnostic=None):
+    """None means missing collection/infrastructure/ambiguous evidence, never PASS.
+
+    xunit1's file attribute is the definition location, not always the
+    collector's module (e.g. imported test functions). The classname is
+    derived from the collected pytest nodeid. Preserve each collector's
+    identity instead of crediting its tests to the definition location.
+    """
     allowed = set(files)
+    modules = {p.removesuffix('.py').replace('/','.'):p for p in files}
+    ordinals = {p:i+1 for i,p in enumerate(files)}
     rows = {}
+
+    def reject(reason, owner=None):
+        if diagnostic is not None:
+            diagnostic(reason, ordinals.get(owner,0))
+        return None
+
     try:
         for c in ET.parse(report).iter('testcase'):
             path = c.get('file','').replace('\\','/')
             cls, name = c.get('classname',''), c.get('name','')
-            # pytest's xunit1 report for module-level collection skips has
-            # a real file, empty classname and the module name as testcase.
-            # Count only that precise record, never arbitrary empty identities.
             skipped = c.find('skipped')
             if not cls and path in allowed and skipped is not None and (
                     skipped.get('message') == 'collection skipped' and
                     name == path.removesuffix('.py').replace('/','.')):
                 cls = '__collection__'
-            key = (path,cls,name)
-            if path not in allowed or not cls or not name or key in rows:
-                return None
+            candidates = [owner for module,owner in modules.items()
+                          if cls == module or cls.startswith(module+'.')]
+            if len(candidates) > 1:
+                return reject('AMBIGUOUS_COLLECTOR',path)
+            owner = candidates[0] if candidates else path
+            # A canonical Python definition path may differ from the selected
+            # collector only when its exact module identity is known.
+            if (path not in allowed and
+                    (not candidates or not re.fullmatch(r'tests/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+\.py',path))):
+                return reject('UNKNOWN_DEFINITION',owner)
+            if owner not in allowed or not cls or not name:
+                return reject('MISSING_IDENTITY',owner)
+            key = (owner,cls,name)
+            if key in rows:
+                return reject('DUPLICATE_IDENTITY',owner)
             rows[key] = ('FAIL' if c.find('failure') is not None or c.find('error') is not None
-                         else 'SKIP' if c.find('skipped') is not None else 'PASS')
+                         else 'SKIP' if skipped is not None else 'PASS')
     except (OSError, ValueError, ET.ParseError):
+        return reject('REPORT_UNREADABLE')
+    if not rows:
+        return reject('EMPTY_REPORT')
+    missing = allowed - {key[0] for key in rows}
+    if missing:
+        for owner in sorted(missing):
+            reject('MODULE_NOT_COLLECTED',owner)
         return None
-    return rows if rows and {key[0] for key in rows} == allowed else None
-
+    return rows
 
 def failed_modules(outcomes, files):
     if outcomes is None:

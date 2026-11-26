@@ -37,3 +37,36 @@ def test_unmatched_skip_and_duplicate(tmp_path):
     r.write_text('<testsuite><testcase file="t.py" classname="m" name="a"/><testcase file="t.py" classname="m" name="a"/></testsuite>')
     assert read_outcomes(r,['t.py']) is None
     assert failed_modules(None,['t.py'])==['t.py']
+
+
+def test_imported_cases_belong_to_selected_collector(tmp_path):
+    tests=tmp_path/'tests'
+    tests.mkdir()
+    (tests/'__init__.py').write_text('')
+    (tests/'test_source.py').write_text('def test_shared(): pass\n')
+    (tests/'test_import.py').write_text('from tests.test_source import test_shared\n')
+    report=tmp_path/'out.xml'
+    files=['tests/test_import.py','tests/test_source.py']
+    command=[sys.executable,'-m','pytest','-q',*files,'-o','junit_family=xunit1','--junitxml='+str(report)]
+    assert subprocess.run(command,cwd=tmp_path,capture_output=True).returncode==0
+    rows=read_outcomes(report,files)
+    assert rows=={('tests/test_import.py','tests.test_import','test_shared'):'PASS',
+                  ('tests/test_source.py','tests.test_source','test_shared'):'PASS'}
+    # Also valid when the definition's module was not selected in this shard.
+    command=[sys.executable,'-m','pytest','-q',files[0],'-o','junit_family=xunit1','--junitxml='+str(report)]
+    assert subprocess.run(command,cwd=tmp_path,capture_output=True).returncode==0
+    assert read_outcomes(report,files[:1])=={('tests/test_import.py','tests.test_import','test_shared'):'PASS'}
+    diagnostic=[]
+    assert read_outcomes(report,files,lambda r,n:diagnostic.append((r,n))) is None
+    assert diagnostic==[('MODULE_NOT_COLLECTED',2)]
+
+
+def test_unknown_or_ambiguous_report_identity_is_not_evidence(tmp_path):
+    report=tmp_path/'out.xml'
+    files=['tests/test_selected.py']
+    for path,cls in [('../test_escape.py','tests.test_selected'),
+                     ('tests/test_other.py','tests.test_other')]:
+        report.write_text(f'<testsuite><testcase file="{path}" classname="{cls}" name="test_a"/></testsuite>')
+        diagnostic=[]
+        assert read_outcomes(report,files,lambda r,n:diagnostic.append((r,n))) is None
+        assert diagnostic[0][0]=='UNKNOWN_DEFINITION'
