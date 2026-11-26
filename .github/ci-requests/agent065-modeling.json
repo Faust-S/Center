@@ -1,0 +1,11 @@
+{
+  "candidate": "e469bb82fa92e4b47ac1c3dd6cbb7d3ae6543c46",
+  "tree": "1b60caa8a636d24f37277afbdeeeb9e0a5b4238d",
+  "baseline": "4cecffe7786a0afbf198a847d8368e4e8549e98a",
+  "baseline_tree": "a3a5ab786f4f9d31e6494e53bd3a67451b6e710d",
+  "scope": "I14_16_NATIVE_GUI_WORKSPACE_AND_REAL_UPGRADE",
+  "reason": "EXACT_DESKTOP_PROJECTION_RUN_NAVIGATION_CORE_ISOLATION_UPGRADE",
+  "installed_gui": "NOT_RUN",
+  "workflow": "agent065-modeling",
+  "prepared_sha": "dfccf4811fe180f42eedc716179ff16d3ce55f2e"
+}
