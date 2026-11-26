@@ -11,10 +11,10 @@ from retry_scope import (CORE_COUNT, CORE_RETRY, MODELING_COUNT, MODELING_RETRY,
                          BASELINE_PIN, BASELINE_TREE, select_modules,
                          read_outcomes, failed_modules, compare_failures)
 
-CANDIDATE_PIN = '7bc863b11bfdd03176c34ce09b68515fb4d1c6f6'
-CANDIDATE_TREE = 'beb6631648f35c442135586d79d33512e425a66e'
-SCOPE = 'I14_21_ORIGINAL_UPGRADE_RECEIPT_AND_FULL_REGRESSION'
-REASON = 'ORIGINAL_UTF16_SETUP_RECEIPT_AND_FINITE_UPGRADE_PHASES'
+CANDIDATE_PIN = '2ae41627ad34118171bf0bcc473b47314ed890c9'
+CANDIDATE_TREE = '73c2420db2d155b6f97a4e7a194af7eed2392d28'
+SCOPE = 'I14_21_SAVED_MODEL_SOURCE_UPGRADE_AND_FULL_REGRESSION'
+REASON = 'ORIGINAL_UPGRADE_RECEIPT_AND_SAVED_MODEL_SOURCE_IDENTITY'
 GROUPS = ('python','core-remaining-1','core-remaining-2','core-remaining-3','ocr','desktop','desktop-source')
 CATALOGUE = re.compile(r'tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py')
 MODELING = re.compile(r'^tests/test_(?:modeling_.*|mesa_live_.*|mesa_ordinary_native_regression|agent065_modeling_.*)\.py$')
