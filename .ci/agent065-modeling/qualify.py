@@ -110,7 +110,7 @@ class Qualification:
             status('PRIVATE_READ','FETCH_FAIL');return False
         head = self.run('PRIVATE_HEAD',['git','rev-parse','HEAD'],report=False)
         actual = self.run('PRIVATE_TREE',['git','rev-parse','HEAD^{tree}'],report=False)
-        if head != (0,pin+'\n') and (head[0] or head[1].strip()!=pin):
+        if head[0] or head[1].strip()!=pin:
             status('PRIVATE_READ','PIN_MISMATCH');return False
         if actual[0] or actual[1].strip()!=tree:
             status('PRIVATE_READ','TREE_MISMATCH');return False
@@ -212,6 +212,9 @@ class Qualification:
             status('NATIVE_LOCK_SOURCE','TEMPORARY')
             lock_ok=cmd('NATIVE_LOCK','run','modeling:lock') and native_lock.is_file()
         if lock_ok:status('NATIVE_LOCK_SHA256',hashlib.sha256(native_lock.read_bytes()).hexdigest())
+        elif self.results.get('NATIVE_LOCK'):
+            self.results['NATIVE_LOCK']=False
+            status('NATIVE_LOCK','FAIL')
         else:
             # On a failed resolution, inspect only direct public dependency
             # availability, by ordinal, not arbitrary npm error text.
@@ -238,6 +241,9 @@ class Qualification:
         for k,v in counts.items():
             if v:status('NODE_'+k.upper(),int(v[-1]))
         node_ok=code==0 and bool(counts['tests']) and int(counts['tests'][-1])>0
+        if gate and counts['skipped'] and int(counts['skipped'][-1])>0:
+            # Report skips; required native tests fail explicitly on missing libraries.
+            status('NODE_REQUIRED_NATIVE_FLAG','SET')
         self.results['NODE_REGRESSION']=node_ok
         status('NODE_REGRESSION','PASS' if node_ok else 'FAIL')
         if not node_ok:self.diagnostics('NODE_REGRESSION',out)

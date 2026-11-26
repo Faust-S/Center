@@ -59,7 +59,10 @@ def admit(env, event):
 
 def main():
     try:
-        head = admit(os.environ, read_json(os.environ['GITHUB_EVENT_PATH']))
+        event_path = Path(os.environ['GITHUB_EVENT_PATH'])
+        require(event_path.is_file() and event_path.stat().st_size <= 2_000_000)
+        event = json.loads(event_path.read_text(encoding='utf-8'))
+        head = admit(os.environ, event)
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         print('CI_REQUEST_ADMISSION=FAIL',flush=True)
         return 1
