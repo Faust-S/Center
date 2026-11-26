@@ -1,9 +1,9 @@
 {
-  "candidate": "e469bb82fa92e4b47ac1c3dd6cbb7d3ae6543c46",
-  "tree": "1b60caa8a636d24f37277afbdeeeb9e0a5b4238d",
+  "candidate": "8db3d9f050467ce1cf86668c712c5ff46c31e09d",
+  "tree": "bd67e5dea2eb4699d528427048156ddd26763ea2",
   "baseline": "4cecffe7786a0afbf198a847d8368e4e8549e98a",
   "baseline_tree": "a3a5ab786f4f9d31e6494e53bd3a67451b6e710d",
-  "scope": "I14_16_NATIVE_GUI_WORKSPACE_AND_REAL_UPGRADE",
-  "reason": "EXACT_DESKTOP_PROJECTION_RUN_NAVIGATION_CORE_ISOLATION_UPGRADE",
+  "scope": "I14_17_DOCUMENT_ROUNDTRIP_NATIVE_GUI_AND_UPGRADE",
+  "reason": "SAVED_RESULT_NAVIGATION_BOUNDED_DIAGNOSTICS_AND_FULL_REGRESSION",
   "installed_gui": "NOT_RUN"
 }

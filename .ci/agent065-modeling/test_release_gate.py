@@ -116,3 +116,20 @@ def test_upgrade_receipt_binds_both_installers(tmp_path):
     for key in value:
         path.write_text(json.dumps({k:v for k,v in value.items() if k!=key}),encoding='utf-8')
         assert not gate.verify_upgrade_result(root,old,new,PIN,TREE)
+
+
+@pytest.mark.parametrize('phase,code,last,expected',[
+    ('MODELING_GUI','GUI_TIMEOUT','MESA_HISTORY',{'SETUP_WITNESS_PHASE':'MODELING_GUI','SETUP_WITNESS_FAILURE_CODE':'GUI_TIMEOUT','SETUP_WITNESS_GUI_PHASE':'MESA_HISTORY'}),
+    ('MODELING_GUI','GUI_RECEIPT_INVALID','RECEIPT',{'SETUP_WITNESS_PHASE':'MODELING_GUI','SETUP_WITNESS_FAILURE_CODE':'GUI_RECEIPT_INVALID','SETUP_WITNESS_GUI_PHASE':'RECEIPT'}),
+    ('MODELING_GUI','SIMPY_RESULT','SIMPY_RESULT',{'SETUP_WITNESS_PHASE':'MODELING_GUI','SETUP_WITNESS_FAILURE_CODE':'SIMPY_RESULT','SETUP_WITNESS_GUI_PHASE':'SIMPY_RESULT'}),
+    ('MODELING_GUI','untrusted diagnostic','private path',{'SETUP_WITNESS_PHASE':'MODELING_GUI'}),
+    ('MODELING_GUI',None,['MESA_HISTORY'],{'SETUP_WITNESS_PHASE':'MODELING_GUI'}),
+    ('MODELING_EXECUTE','MODEL_DOCUMENT_WRITE_RECEIPT','MESA_HISTORY',{'SETUP_WITNESS_PHASE':'MODELING_EXECUTE','SETUP_WITNESS_FAILURE_CODE':'MODEL_DOCUMENT_WRITE_RECEIPT','SETUP_WITNESS_OPERATION':'PUBLIC_MODELING_DOCUMENT_DRAFT'}),
+])
+def test_bounded_gui_and_document_diagnostics(tmp_path,phase,code,last,expected):
+    target=tmp_path/'temporary-installed-fixture'/'installed-witness.json'
+    target.parent.mkdir()
+    target.write_text(json.dumps({'status':'FAIL','phase':phase,'failure_code':code,
+                                  'last_gui_phase':last,'last_operation':'PUBLIC_MODELING_DOCUMENT_DRAFT',
+                                  'secret':'must never escape'}),encoding='utf-8')
+    assert gate.witness_diagnostics(tmp_path)==expected
