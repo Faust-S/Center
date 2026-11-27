@@ -1,4 +1,5 @@
-# Prepared for the next authorized run after ArtBazy site read access is restored.
+# One consolidated native build attempt using the existing read-only access.
+# Hosting ZIP remains on the runner and is deleted; no public artifact upload.
 name: ArtBazy integrated release build
 on:
   push:
@@ -13,8 +14,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     env:
-      SITE_PIN: 724b5cfbf7e1601d2cb3ee1b464be50cfcae9938
-      SITE_TREE: 1f5a4326a5d1ffee1a51136198673e5608002f8b
+      SITE_PIN: 09f899de9d9b5a7848473165dc0189588e93a59a
+      SITE_TREE: 1c88db18cd6aa99d9e11eda4d996fa8a2ecbd202
       T2_PIN: e70de29b72b83e2546f7ab74b17572685a728c17
       T2_TREE: b36ed00dcd7c518b593cb4794bfabf85e7eab049
       T3_PIN: 4dc21f8439b6988eed043bbe74dc34d8a7e7d875
@@ -29,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazy.ru
-          ref: 724b5cfbf7e1601d2cb3ee1b464be50cfcae9938
+          ref: 09f899de9d9b5a7848473165dc0189588e93a59a
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private-site
           persist-credentials: false
@@ -127,7 +128,8 @@ jobs:
           export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome || command -v chromium)"
           test -x "$PUPPETEER_EXECUTABLE_PATH"
           phase ARTBAZY_ONE_DIST npm run build:release -- "$stage/host" "$stage/kernel" "$stage/platform-inputs.zip"
-          phase BUILT_SITE_LINKS npm run check:links
+          # build:release checks the existing links before replacing dist.
+          phase ARTBAZY_PACKAGE npm run package:release -- "$stage/ArtBazy-site.zip"
           node --input-type=module <<'JS'
           import {createHash} from 'node:crypto';
           import {readFileSync,existsSync} from 'node:fs';
