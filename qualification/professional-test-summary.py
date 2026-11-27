@@ -25,7 +25,7 @@ for n, case in enumerate(cases, 1):
             message = (error.get("message") or "") + (error.text or "")
             for kind in sorted(set(re.findall(r"\b(?:AssertionError|ValueError|TypeError|KeyError|RuntimeError|ProviderError|ToolProviderPortError|InteractionSurfaceError|WitnessError|OSError|AttributeError)\b", message)))[:6]:
                 print(label + "_ERROR_TYPE=" + kind)
-            for location in re.findall(r"test_agent067_(?:ortools_(?:allocation|scheduling|network_flow|vehicle_routing)|road_matrix_input|qgis_points|valhalla_road_table|valhalla_fleet_input)\.py:(\d+)", message)[:8]:
+            for location in re.findall(r"test_agent067_(?:ortools_(?:allocation|scheduling|network_flow|vehicle_routing)|road_matrix_input|qgis_points|qgis_road_input|valhalla_road_table|valhalla_fleet_input)\.py:(\d+)", message)[:8]:
                 print(label + "_TEST_LINE=" + location)
     if case.find("skipped") is not None:
         skipped += 1

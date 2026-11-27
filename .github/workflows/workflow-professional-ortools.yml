@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: original-professional-valhalla-handoff
+  group: original-professional-qgis-valhalla-pipeline
   cancel-in-progress: false
 jobs:
   professional-programs:
@@ -45,21 +45,21 @@ jobs:
         id: professional_source
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: c97bfcc4cfb064aa6bf0145461d0eff13b3a121c
+          ref: d8dc8a7741b13606b0273a43df649aab40a7f445
           path: professional-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - name: Install isolated exact solver qualification dependencies
         run: |
-          test "$(git -C professional-agent rev-parse HEAD)" = "c97bfcc4cfb064aa6bf0145461d0eff13b3a121c"
+          test "$(git -C professional-agent rev-parse HEAD)" = "d8dc8a7741b13606b0273a43df649aab40a7f445"
           python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 mesa==3.5.2 simpy==4.1.2 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
           python -c "from importlib.metadata import version; from ortools.sat.python import cp_model; assert version('ortools')=='9.14.6206'; print('ORIGINAL_ORTOOLS_9_14_6206_PRESENT')"
       - name: Original OR-Tools solver and U01 connection qualification
         working-directory: professional-agent
         run: |
           rc=0
-          python -m pytest -q tests/test_agent067_ortools_allocation.py tests/test_agent067_ortools_scheduling.py tests/test_agent067_ortools_network_flow.py tests/test_agent067_ortools_vehicle_routing.py tests/test_agent067_road_matrix_input.py tests/test_agent067_valhalla_fleet_input.py --junitxml="$RUNNER_TEMP/professional-target.xml" > "$RUNNER_TEMP/professional-target-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-target.xml" ORTOOLS 209 strict || exit 1
+          python -m pytest -q tests/test_agent067_ortools_allocation.py tests/test_agent067_ortools_scheduling.py tests/test_agent067_ortools_network_flow.py tests/test_agent067_ortools_vehicle_routing.py tests/test_agent067_road_matrix_input.py tests/test_agent067_valhalla_fleet_input.py tests/test_agent067_qgis_road_input.py --junitxml="$RUNNER_TEMP/professional-target.xml" > "$RUNNER_TEMP/professional-target-private.log" 2>&1 || rc=$?
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-target.xml" ORTOOLS 227 strict || exit 1
           test "$rc" = 0
       - name: Existing program and modeling regression
         if: always() && steps.professional_source.outcome == 'success'
@@ -82,6 +82,7 @@ jobs:
           rc=0
           if [ "$RUNNER_OS" = "Linux" ]; then
             export IWXA_QGIS_PYTHON=/usr/bin/python3
+            unset LD_LIBRARY_PATH
             python -m pytest -q tests/test_agent067_qgis_points.py --junitxml="$RUNNER_TEMP/professional-qgis.xml" > "$RUNNER_TEMP/professional-qgis-private.log" 2>&1 || rc=$?
             python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-qgis.xml" QGIS 22 strict || exit 1
           else
@@ -99,19 +100,20 @@ jobs:
           test "$rc" = 0
       - name: Build actual original local Valhalla graph and executable
         id: original_valhalla
-        if: matrix.os == 'ubuntu-24.04' && steps.professional_source.outcome == 'success'
+        if: always() && matrix.os == 'ubuntu-24.04' && steps.professional_source.outcome == 'success'
         run: |
           bash qualification/professional-geospatial/prepare-native-valhalla.sh "$RUNNER_TEMP/iwxa-native-valhalla"
       - name: Original native Valhalla approved Core Task and cold readback
-        if: matrix.os == 'ubuntu-24.04' && steps.original_valhalla.outcome == 'success'
+        if: always() && matrix.os == 'ubuntu-24.04' && steps.original_valhalla.outcome == 'success'
         working-directory: professional-agent
         run: |
           rc=0
+          export IWXA_QGIS_PYTHON=/usr/bin/python3
           export IWXA_VALHALLA_EXECUTABLE="$RUNNER_TEMP/iwxa-native-valhalla/bin/valhalla_service"
           export IWXA_VALHALLA_CONFIG="$RUNNER_TEMP/iwxa-native-valhalla/graph/config.json"
           export LD_LIBRARY_PATH="$RUNNER_TEMP/iwxa-native-valhalla/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           python -m pytest -q tests/test_agent067_valhalla_road_table.py -k native_core --junitxml="$RUNNER_TEMP/professional-valhalla-native.xml" > "$RUNNER_TEMP/professional-valhalla-native-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-valhalla-native.xml" VALHALLA_NATIVE 1 strict || exit 1
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-valhalla-native.xml" VALHALLA_NATIVE 2 strict || exit 1
           test "$rc" = 0
       - name: Original desktop input and result projection tests
         if: always() && steps.professional_source.outcome == 'success'
