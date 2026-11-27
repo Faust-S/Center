@@ -21,17 +21,18 @@ from local_source import LocalSourceError, git, materialize_local_source
 T2 = ('c28e01876f3230307b7f20449f7ef54374367c93',
       '3d774222c9aaa1521ded9eb23d2f5fcdb55b8cbd',
       't2/current/final-successor')
-T3 = ('30df3f6fd53e668e2886fb643f13526a89738647',
-      'f446fccd97f0f232e70e06b961f8653477a0785f',
+T3 = ('f3610f62e686e80c09bfd690898e107b23a913f3',
+      '4ed2cb2bd3bfecdc4adbd8592b14a1f027377ed7',
       ('access-control', 'interop', 'reconciliation', 'tests', 'package.json'))
-CORE = ('be8d05866f336b599b8fe6cd1ba5a961f994ced8',
-        '1dbfa4119ef612db0343ca726bddb119079161af', 'packages')
+CORE = ('529f035663b1b5582253180c384f881bab63095f',
+        'c13a662c867db0ca09594c2a88cffba0dc03b276', 'packages')
 T2_PARENT = '4e4ad5c5e566a74f24243b9d0744a6d64652a199'
 PACKAGING = 't2/current/final-successor/kernel-successors/k036-canonical-event-merge-20261125/'
 PACKAGING_PATHS = {PACKAGING + name for name in (
     'prepare_k036_candidate_archive.py', 'test_prepare_k036_candidate_archive.py')}
 OWNER_TESTS = ('tests/original-native-network-vault.test.mjs',
                'tests/original-native-network-vault-port.test.mjs',
+               'tests/original-native-network-transport.test.mjs',
                'tests/original-native-network-grant.test.mjs',
                'tests/original-network-bootstrap.test.mjs',
                'tests/admin-native-vault-composition.test.mjs',

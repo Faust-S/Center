@@ -5,8 +5,8 @@ import {lstatSync,readFileSync,realpathSync,existsSync} from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
 const pins=Object.freeze({
   t2:['c28e01876f3230307b7f20449f7ef54374367c93','3d774222c9aaa1521ded9eb23d2f5fcdb55b8cbd'],
-  t3:['30df3f6fd53e668e2886fb643f13526a89738647','f446fccd97f0f232e70e06b961f8653477a0785f'],
-  core:['be8d05866f336b599b8fe6cd1ba5a961f994ced8','1dbfa4119ef612db0343ca726bddb119079161af'],
+  t3:['f3610f62e686e80c09bfd690898e107b23a913f3','4ed2cb2bd3bfecdc4adbd8592b14a1f027377ed7'],
+  core:['529f035663b1b5582253180c384f881bab63095f','c13a662c867db0ca09594c2a88cffba0dc03b276'],
 });
 const sourceParent='4e4ad5c5e566a74f24243b9d0744a6d64652a199';
 const need=(value,code)=>{if(!value)throw Error('K036_LOCAL_'+code);};
