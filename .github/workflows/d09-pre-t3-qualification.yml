@@ -1,0 +1,198 @@
+name: D09 HOP pre-T3 full product qualification
+on:
+  push:
+    branches: ['ci/once/d09-pre-t3-qualification-1c76277e']
+    paths: ['.github/workflows/d09-pre-t3-qualification.yml']
+permissions:
+  contents: read
+jobs:
+  product:
+    if: github.event.before == '504d1d541a289ea014cfc2c25a9503e52853e171'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HOP_SITE_SHA: 1c76277e6881dfd95ca9ed422d04ae7bcb8ec5e8
+      HOP_SITE_TREE: e1712cb9a337b5087cc06c00f7da5db711deff31
+      HOP_CANON_SHA: 5fbfe9210b1c9369f828d469e52380f31918a4e6
+      HOP_CANON_TREE: 53b617fd59caa24b187ce33f4345ec1ee5dabec1
+      T2_SHA: 9c64951cd78411283e8a416641c36d71e169fc1d
+      T2_TREE: 56e55a9458aeb3ce540ef87dbc2dd9549ae2fcb2
+      D09_ORIGIN: https://hop.iwxa.ru:9443
+      D09_PREVIEW_PRODUCTION_LOOPBACK: '1'
+      D09_ASSEMBLY_ONLY: '0'
+      D09_ASSEMBLY_ONLY_CONSENT: ''
+      npm_config_cache: ${{ runner.temp }}/d09-npm-cache
+    steps:
+      - name: Approved read-only source access
+        env:
+          SOURCE_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -eu
+          if [ -z "$SOURCE_READ_TOKEN" ]; then
+            echo D09_SOURCE_ACCESS=UNCONFIGURED
+            exit 1
+          fi
+          failed=0
+          for item in "hop.iwxa.ru $HOP_SITE_SHA" "hop $HOP_CANON_SHA" "T2 $T2_SHA"; do
+            read -r repo sha <<< "$item"
+            code="$(curl --silent --show-error --max-time 30 --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $SOURCE_READ_TOKEN" --header "Accept: application/vnd.github+json" "https://api.github.com/repos/Faust-S/$repo/git/commits/$sha")" || code=transport_error
+            if [ "$code" = 200 ]; then
+              echo "D09_SOURCE_ACCESS $repo PASS"
+            else
+              echo "D09_SOURCE_ACCESS $repo BLOCKED ($code)"
+              failed=1
+            fi
+          done
+          exit "$failed"
+      - name: Checkout exact private HOP site
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop.iwxa.ru
+          ref: ${{ env.HOP_SITE_SHA }}
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: site
+      - name: Checkout exact subject canon
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop
+          ref: ${{ env.HOP_CANON_SHA }}
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: canon
+      - name: Checkout original T2 and accepted Kernel
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: ${{ env.T2_SHA }}
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          path: t2-input
+          sparse-checkout: |
+            t2/current/final-successor/canonical-source
+            t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019
+      - name: Verify all inputs and prepare local TLS
+        shell: bash
+        run: |
+          set -eu
+          for spec in "site $HOP_SITE_SHA $HOP_SITE_TREE" "canon $HOP_CANON_SHA $HOP_CANON_TREE" "t2-input $T2_SHA $T2_TREE"; do
+            read -r dir sha tree <<< "$spec"
+            test "$(git -C "$dir" rev-parse HEAD)" = "$sha"
+            test "$(git -C "$dir" rev-parse 'HEAD^{tree}')" = "$tree"
+            echo "D09_INPUT $dir PASS"
+          done
+          archive="$GITHUB_WORKSPACE/t2-input/t2/current/final-successor/kernel-successors/k036-same-store-event-history-20261019/iwxa-kernel-k036-same-store-history-20261019-qualified.1.zip"
+          printf '%s  %s\n' '7075b8b9590ef1283e34ecb3c21dd9d1b7342697287e1aa150cd4f4a60860b68' "$archive" | sha256sum -c - >/dev/null
+          mkdir -p "$RUNNER_TEMP/d09-kernel" "$RUNNER_TEMP/d09-tls"
+          unzip -q "$archive" -d "$RUNNER_TEMP/d09-kernel"
+          printf '%s  %s\n' 'e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78' "$RUNNER_TEMP/d09-kernel/_iwxa/runtime/0.3.6/runtime.js" | sha256sum -c - >/dev/null
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=hop.iwxa.ru' -keyout "$RUNNER_TEMP/d09-tls/key.pem" -out "$RUNNER_TEMP/d09-tls/cert.pem" >/dev/null 2>&1
+          {
+            echo "D09_T2_CANONICAL_SOURCE=$GITHUB_WORKSPACE/t2-input/t2/current/final-successor/canonical-source"
+            echo "D09_QUALIFIED_KERNEL_DIST=$RUNNER_TEMP/d09-kernel"
+            echo "D09_PREVIEW_CERT_PATH=$RUNNER_TEMP/d09-tls/cert.pem"
+            echo "D09_PREVIEW_KEY_PATH=$RUNNER_TEMP/d09-tls/key.pem"
+          } >> "$GITHUB_ENV"
+          echo D09_ORIGINAL_KERNEL_HASH=PASS
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install exact locked dependencies
+        id: install
+        working-directory: site
+        shell: bash
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-npm.log" 2>&1 || {
+            echo D09_SITE_NPM=FAIL
+            exit 1
+          }
+          if command -v google-chrome >/dev/null 2>&1; then
+            echo "PUPPETEER_EXECUTABLE_PATH=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          else
+            npx puppeteer browsers install chrome > "$RUNNER_TEMP/d09-browser-install.log" 2>&1 || {
+              echo D09_BROWSER_INSTALL=FAIL
+              exit 1
+            }
+          fi
+          echo D09_SITE_NPM=PASS
+      - name: Existing public authoring and player witness
+        working-directory: site
+        shell: bash
+        run: |
+          set -eu
+          failed=0
+          check() {
+            local id="$1"; shift
+            if "$@" > "$RUNNER_TEMP/d09-$id.log" 2>&1; then
+              echo "D09_$id=PASS"
+              return 0
+            else
+              echo "D09_$id=FAIL"
+              grep -oE '(D09_[A-Z0-9_]+|error TS[0-9]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-$id.log" | sort -u | head -20 || true
+              failed=1
+              return 1
+            fi
+          }
+          if check PUBLIC_STAGE npm run build:public-stage; then
+            check PUBLIC_ROUTES node tests/d09-public-rebuild.browser.mjs || true
+            check FEATURED_WORKS node tests/d09-featured-works.browser.mjs || true
+            check PIXEL_MOTION node tests/d09-pixel-motion-user.browser.mjs || true
+            check E2E npm run test:e2e || true
+          else
+            echo D09_PUBLIC_BROWSER=NOT_RUN
+          fi
+          # Public stage is an intermediate, not a release artifact.
+          rm -rf dist
+          exit "$failed"
+      - name: Existing verification and one integrated original T2 dist
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: site
+        shell: bash
+        run: |
+          set -eu
+          test -d node_modules || { echo D09_VERIFY=NOT_RUN; exit 1; }
+          test -f "$D09_QUALIFIED_KERNEL_DIST/_iwxa/runtime/0.3.6/runtime.js" || { echo D09_VERIFY=NOT_RUN; exit 1; }
+          failed=0
+          check() {
+            local id="$1"; shift
+            if "$@" > "$RUNNER_TEMP/d09-$id.log" 2>&1; then
+              echo "D09_$id=PASS"
+            else
+              echo "D09_$id=FAIL"
+              grep -oE '(D09_[A-Z0-9_]+|error TS[0-9]+|ERR_[A-Z0-9_]+)' "$RUNNER_TEMP/d09-$id.log" | sort -u | head -20 || true
+              failed=1
+            fi
+          }
+          check VERIFY npm run verify
+          # Verify may stop before the build on a source-check failure.
+          # In that case attempt the unchanged normal builder once to learn
+          # whether the product itself can be assembled. Verify stays failed.
+          if [ ! -f dist/_iwxa/domain.json ] && ! grep -q 'node scripts/build-d09-site-only.mjs' "$RUNNER_TEMP/d09-VERIFY.log"; then
+            check INTEGRATED_BUILD npm run build
+          fi
+          check PIXEL_AVATAR_PACKAGE npx --no-install tsx scripts/qualify-pixel-avatar-iwxa.ts
+          check SEED_PACKAGES npx --no-install tsx scripts/d09-seed-package-diagnostic.ts
+          if node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync, existsSync } from "node:fs";
+            const d = JSON.parse(readFileSync("dist/_iwxa/domain.json", "utf8"));
+            assert.equal(d.origin, process.env.D09_ORIGIN);
+            assert.equal(d.runtime.artifactId, "iwxa-kernel-k036-same-store-history-20261019-qualified.1");
+            for (const p of ["workspace/index.html","workspace/exchange/index.html","workspace/lifecycle/index.html","_iwxa/runtime/0.3.6/runtime.js"]) assert.ok(existsSync("dist/"+p));
+            assert.ok(!existsSync("dist/workspace/studio/index.html"));
+          ' > "$RUNNER_TEMP/d09-dist-identity.log" 2>&1; then
+            echo D09_INTEGRATED_DIST=PASS
+            check USER_ROUTES npm run test:d09:user-routes
+            check AVATAR_USER node tests/d09-pixel-avatar-user.browser.mjs
+            check FIRST_WORKSPACE node tests/d09-original-t2-production-first-run.browser.mjs
+            check PROJECT_RESULT_EXCHANGE node tests/d09-original-t2-project-save.browser.mjs
+          else
+            echo D09_INTEGRATED_DIST=FAIL
+            echo D09_INTEGRATED_BROWSER=NOT_RUN
+            failed=1
+          fi
+          exit "$failed"
+      # No cache uploads, public private-code logs, screenshots, ZIPs,
+      # browser profiles, deployment, or changes to the source repositories.
