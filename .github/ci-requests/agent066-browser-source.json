@@ -1,0 +1,8 @@
+{
+  "candidate": "44ca96f9b015ce087f822671e37d960de15b1f45",
+  "tree": "02d1158da5f2572784dc4364960cda5dde79279a",
+  "scope": "B066_SOURCE_BUILD",
+  "installed_gui": "NOT_RUN",
+  "workflow": "agent066-browser-source",
+  "prepared_sha": "b36269e8ed0e2e8e3289b3be5f1d66376f0f0beb"
+}
