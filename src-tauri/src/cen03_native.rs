@@ -270,6 +270,17 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               return Err("CEN_D3_ATLAS_WORKSPACE_TASK_SELECTION_REQUIRED".into());
           }
       },
+      "d3AtlasWorkspaceResultPreview"|"d3AtlasWorkspaceResultRecover"|"d3AtlasWorkspaceResultExport"=>{
+          if !input.as_object().is_some_and(|m|m.len()==3)||
+             !input["taskId"].as_str().is_some_and(|id|
+                id.len()>5&&id.len()<=105&&id.starts_with("task:")&&
+                id[5..].bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'))||
+             !input["resultObjectId"].as_str().and_then(|id|id.strip_prefix("company:work:"))
+                .is_some_and(|h|validate_hex(Some(h)))||
+             !validate_hex(input["resultSha256"].as_str()){
+              return Err("CEN_D3_ATLAS_WORKSPACE_TASK_SELECTION_REQUIRED".into());
+          }
+      },
       "d3AtlasGrantReadback"|"d3AtlasGrantIssue"=>{
           if !input.as_object().is_some_and(|m|m.is_empty()){
               return Err("CEN_D3_ATLAS_GRANT_INPUT_INVALID".into());
@@ -292,7 +303,7 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
               }
           }
       },
-      "d3AtlasResultPublish"=>{
+      "d3AtlasResultPublish"|"d3AtlasWorkspaceResultPublish"=>{
           if !input.as_object().is_some_and(|m|m.len()==3)||
              !input["previewId"].as_str().is_some_and(t3::valid_identifier)||
              !validate_hex(input["previewDigest"].as_str())||
@@ -433,6 +444,9 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
         "d3EmployeeRead"|"d3EmployeeExportInvite"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true,
         "d3AtlasWorkspaceResultReadback"=>snapshot["d3AtlasWorkspaceResultReadbackAvailable"]==true,
+        "d3AtlasWorkspaceResultPreview"|"d3AtlasWorkspaceResultPublish"|
+        "d3AtlasWorkspaceResultRecover"|"d3AtlasWorkspaceResultExport"=>
+            snapshot["d3AtlasWorkspacePublicationAvailable"]==true,
         "d3AtlasGrantReadback"|"d3AtlasGrantIssue"|"d3AtlasResultPreview"|
         "d3AtlasResultPublish"|"d3AtlasResultRecover"|"d3AtlasResultExport"=>
             snapshot["d3AtlasPublicationAvailable"]==true,
@@ -1527,9 +1541,11 @@ pub async fn center_corporate_action(
             return Err("CEN_D3_EMPLOYEE_TASK_DATA_HUMAN_CANCELLED".into());
         }
     }
-    if matches!(operation.as_str(),"d3AtlasGrantIssue"|"d3AtlasResultPublish"){
+    if matches!(operation.as_str(),"d3AtlasGrantIssue"|"d3AtlasResultPublish"|"d3AtlasWorkspaceResultPublish"){
         let description=if operation=="d3AtlasGrantIssue"{
-            "Разрешить руководителю передавать принятые корпоративные результаты только в Atlas? Право будет подписано в исходном реестре организации. Данные и план пока не изменятся."
+            "Разрешить руководителю передавать выбранные корпоративные результаты только в Atlas? Право будет подписано в исходном реестре организации. Данные и план пока не изменятся."
+        }else if operation=="d3AtlasWorkspaceResultPublish"{
+            "Подписать выбранный результат из корпоративной Workspace для Atlas? Будет подготовлен файл .iwxa с исходным текстом. Это не отдельная D3-приёмка и не изменение плана. Получение ещё предстоит подтвердить в Atlas."
         }else{
             "Подписать выбранный результат для Atlas? Будет подготовлен отдельный файл .iwxa с проверенным текстом. Его ещё нужно сохранить и передать получателю."
         };
@@ -1591,21 +1607,21 @@ pub async fn center_corporate_action(
         };
         Some(path)
     }else if matches!(operation.as_str(),"d3ExportTask"|"d3ExportInvitation"|"d3EmployeeExportInvite"|
-        "d3EmployeeExportTask"|"d3AtlasResultExport"){
+        "d3EmployeeExportTask"|"d3AtlasResultExport"|"d3AtlasWorkspaceResultExport"){
         // Native Windows Save dialog, not a WebView-supplied arbitrary path.
         // The original private owner writes & reads back exact signed bytes.
         let title=match operation.as_str(){
             "d3ExportTask"=>"Сохранить подписанную Task T3",
             "d3EmployeeExportTask"=>"Сохранить Task независимому сотруднику T3",
             "d3EmployeeExportInvite"=>"Сохранить приглашение сотрудника T3",
-            "d3AtlasResultExport"=>"Сохранить корпоративный Result для Atlas",
+            "d3AtlasResultExport"|"d3AtlasWorkspaceResultExport"=>"Сохранить корпоративный Result для Atlas",
             _=>"Сохранить подписанное приглашение T3"
         };
         let name=match operation.as_str(){
             "d3ExportTask"=>"iwxa-signed-task.iwxa",
             "d3EmployeeExportTask"=>"iwxa-employee-task.iwxa",
             "d3EmployeeExportInvite"=>"iwxa-employee-invitation.iwxa",
-            "d3AtlasResultExport"=>"iwxa-atlas-result.iwxa",
+            "d3AtlasResultExport"|"d3AtlasWorkspaceResultExport"=>"iwxa-atlas-result.iwxa",
             _=>"iwxa-signed-invitation.iwxa"
         };
         let selection=rfd::FileDialog::new()
@@ -1711,6 +1727,38 @@ pub async fn center_corporate_action(
                     matches!(status,"ACTIVE"|"ISSUED"|"NOT_ACTIVE"|"NOT_ISSUED"|"UNKNOWN")&&
                     (!matches!(status,"ACTIVE"|"ISSUED")||
                       result["grantId"].as_str().is_some_and(t3::valid_identifier)),
+                "d3AtlasWorkspaceResultPreview"=>
+                    matches!(status,"READY_FOR_EXPLICIT_CONSENT"|"ALREADY_COMMITTED"|"RECOVERY_REQUIRED"|"OUTCOME_UNKNOWN")&&
+                    atlas_publication_operation(&result["operationId"])&&
+                    result["recipientId"]=="iwxa.atlas"&&result["sourceKind"]=="ADMIN_WORKSPACE_RESULT"&&
+                    result["organizationId"]==organization_id&&
+                    result["workspaceId"]==observed["snapshot"]["workspaceId"]&&
+                    result["managerId"]==observed["snapshot"]["actorId"]&&
+                    result["taskId"]==input["taskId"]&&
+                    result["sourceObjectRef"]["object_id"]==input["resultObjectId"]&&
+                    result["sourceObjectRef"]["workspace_id"]==observed["snapshot"]["workspaceId"]&&
+                    result["sourceObjectRef"]["schema_id"]=="iwxa.t3.company-work-record"&&
+                    result["sourceObjectRef"]["revision"]==1&&
+                    result["selectedSummarySha256"]==input["resultSha256"]&&
+                    result["originalWorkspaceRecordVerified"]==true&&
+                    result["originalKernelApplyVerified"]==false&&result["signedReceiptVerified"]==false&&
+                    result["originalRecipientGrantVerified"]==true&&
+                    result["previewId"].as_str().is_some_and(t3::valid_identifier)&&
+                    validate_hex(result["previewDigest"].as_str())&&
+                    result["selectedAcceptedSummary"].as_str().is_some_and(|s|
+                        !s.trim().is_empty()&&s.len()<=65536),
+                "d3AtlasWorkspaceResultPublish"|"d3AtlasWorkspaceResultRecover"=>{
+                    let bound=atlas_publication_operation(&result["operationId"])&&
+                        (operation!="d3AtlasWorkspaceResultPublish"||result["operationId"]==input["operationId"]);
+                    bound&&(if status=="ORIGINAL_ADMIN_RESULT_PUBLISHED"{
+                        result["recipientId"]=="iwxa.atlas"&&result["sourceKind"]=="ADMIN_WORKSPACE_RESULT"&&
+                        result["originalWorkspaceRecordVerified"]==true&&
+                        result["originalKernelApplyVerified"]==false&&result["signedReceiptVerified"]==false&&
+                        validate_hex(result["archiveSha256"].as_str())&&
+                        result["carrierPrepared"]==true&&result["delivered"]==false&&
+                        result["transferred"]==false&&result["ledgerStatus"]=="COMMITTED"
+                    }else{matches!(status,"USER_CANCELLED"|"RECOVERY_REQUIRED"|"OUTCOME_UNKNOWN"|"NOT_PUBLISHED_CONFIRMED")})
+                },
                 "d3AtlasResultPreview"=>
                     matches!(status,"READY_FOR_EXPLICIT_CONSENT"|"ALREADY_COMMITTED"|"RECOVERY_REQUIRED"|"OUTCOME_UNKNOWN")&&
                     atlas_publication_operation(&result["operationId"])&&
@@ -1735,7 +1783,7 @@ pub async fn center_corporate_action(
                         result["transferred"]==false&&result["ledgerStatus"]=="COMMITTED"
                     }else{matches!(status,"USER_CANCELLED"|"RECOVERY_REQUIRED"|"OUTCOME_UNKNOWN"|"NOT_PUBLISHED_CONFIRMED")})
                 },
-                "d3AtlasResultExport"=>status=="EXPORTED_UNDELIVERED"&&
+                "d3AtlasResultExport"|"d3AtlasWorkspaceResultExport"=>status=="EXPORTED_UNDELIVERED"&&
                     result["recipientId"]=="iwxa.atlas"&&result["delivered"]==false&&
                     atlas_publication_operation(&result["operationId"])&&
                     validate_hex(result["packageSha256"].as_str())&&
