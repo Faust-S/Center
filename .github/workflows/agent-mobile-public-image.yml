@@ -1,0 +1,40 @@
+name: Public original image runtime qualification
+on:
+  push:
+    branches:
+      - 'ci/once/agent-mobile-public-image/*'
+    paths:
+      - '.github/ci-requests/agent-mobile-public-image.json'
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-mobile-public-image
+  cancel-in-progress: false
+jobs:
+  public-image:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install public qualification tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ninja-build python3-pil iproute2 time
+          sdkmanager 'ndk;29.0.13113456'
+      - name: Test qualification checks
+        run: cd .ci/agent-mobile-public-image && /usr/bin/python3 -m unittest -v test_qualify
+      - name: Build original CPU runtime, generate two images offline and cross-build Android ARM64
+        run: |
+          /usr/bin/python3 .ci/agent-mobile-public-image/qualify.py --ndk "$ANDROID_HOME/ndk/29.0.13113456" --result "$RUNNER_TEMP/iwxa-public-image-results"
+      - name: Preserve public generated images and receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-public-image-preflight
+          path: |
+            ${{ runner.temp }}/iwxa-public-image-results/image-*.png
+            ${{ runner.temp }}/iwxa-public-image-results/receipt.json
+          if-no-files-found: error
+          retention-days: 7
