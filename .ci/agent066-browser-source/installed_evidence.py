@@ -257,3 +257,18 @@ def clean_setup_diagnostics(out):
     result.update(SETUP_CLEAN_UNCONFIRMED_CHECKPOINT='OWNER_POSTCONDITIONS',
                   SETUP_CLEAN_CHECKPOINT_STATE='UNCONFIRMED')
     return result
+
+
+PREVIEW_DOM_STATES = frozenset(('SHELL_MISSING','CLOSED','PANE_MISSING','PANE_HIDDEN','PANE_ZERO','PANE_CLIPPED','PANE_OCCLUDED','PANE_PARTIAL','PANE_VISIBLE','UNAVAILABLE'))
+PREVIEW_DOM_CONTROLS = frozenset(('CONTROL_MISSING','CONTROL_VISIBLE','CONTROL_NOT_VISIBLE','UNAVAILABLE'))
+
+
+def preview_dom_diagnostics(data):
+    """Return only fixed renderer observations from a failed upgrade."""
+    result = {}
+    for key, allowed in (('STATE',PREVIEW_DOM_STATES),('BROWSER_CONTROL',PREVIEW_DOM_CONTROLS)):
+        prefix = 'AGENT066_PREVIEW_DOM_' + key + '='
+        rows = [line[len(prefix):] for line in data.splitlines() if line.startswith(prefix)]
+        if len(rows) == 1 and rows[0] in allowed:
+            result['PREVIEW_DOM_' + key] = rows[0]
+    return result

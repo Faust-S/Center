@@ -41,12 +41,14 @@ def browser_witness_preflight(q):
     if q.run('B066_PREVIEW_WITNESS_SYNTAX', ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
         "$tokens=$null;$errors=$null;$null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) 'tools/qualify_setup_core_browser_gui.ps1'),[ref]$tokens,[ref]$errors);if($errors.Count -ne 0){exit 1}"], timeout=60)[0]:
         return False
+    if q.run('B066_PREVIEW_LAYOUT_NODE', ['node','--test','tests/qualification/test_preview_layout_diagnostic.mjs'], timeout=60)[0]:
+        return False
     python = q.venv('browserwitnessqa', ['requirements-ci.txt'])
     if python is None:
         q.block('B066_BROWSER_WITNESS_TEST')
         return False
     return q.pytest('B066_BROWSER_WITNESS_TEST', python,
-                    ['tests/test_setup_core_browser_installed.py'], timeout=180)
+                    ['tests/test_setup_core_browser_installed.py','tests/test_setup_core_preview_layout.py','tests/test_setup_core_upgrade_065_to_066.py'], timeout=180)
 
 
 def main():
