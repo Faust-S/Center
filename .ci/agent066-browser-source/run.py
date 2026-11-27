@@ -1,15 +1,16 @@
-"""Private source verification only. Existing public qualification harness, no installed acceptance."""
+"""Pinned private source, independent native installation and upgrade qualification."""
 import os
 from pathlib import Path
 import sys
 import tempfile
 import subprocess
 
-from admit import CANDIDATE_PIN, CANDIDATE_TREE, GROUPS
+from admit import CANDIDATE_PIN, CANDIDATE_TREE, BASELINE_PIN, BASELINE_TREE, GROUPS
 from bundle_evidence import summarize
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'agent065-modeling'))
 from qualify import Qualification, cleanup_private, status
 from release_gate import ocr_gate
+from installed_gate import installed_gate
 
 # Only fixed public result labels and existing harness diagnostics leave the runner.
 def core(q):
@@ -44,12 +45,20 @@ def main():
     root = None
     passed = False
     try:
-        if (pin, tree) != (CANDIDATE_PIN, CANDIDATE_TREE) or group not in GROUPS:
+        if ((pin, tree) != (CANDIDATE_PIN, CANDIDATE_TREE) or group not in GROUPS
+                or (os.environ.get('BASELINE_PIN'), os.environ.get('BASELINE_TREE')) != (BASELINE_PIN, BASELINE_TREE)):
             status('B066_REQUEST', 'FAIL')
             return 1
         root = Path(tempfile.mkdtemp(prefix='iwxa-agent065-agent066-', dir=os.environ['RUNNER_TEMP']))
         q = Qualification(root)
         if q.checkout(token, pin, tree):
+            baseline = None
+            baseline_ready = True
+            if group == 'upgrade':
+                old_root = root / 'baseline'
+                old_root.mkdir()
+                baseline = Qualification(old_root)
+                baseline_ready = baseline.checkout(token, BASELINE_PIN, BASELINE_TREE, status_prefix='BASELINE_')
             token = ''
             if group == 'core':
                 passed = core(q)
@@ -59,6 +68,11 @@ def main():
                 passed = q.desktop(build=True)
             elif group == 'bundle':
                 passed = bundle(q)
+            elif group in ('desktop','upgrade'):
+                if baseline_ready:
+                    passed = installed_gate(q, pin, tree, baseline, BASELINE_PIN, BASELINE_TREE, upgrade=(group=='upgrade'))
+                else:
+                    q.block('UPGRADE_BASELINE_CHECKOUT')
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
         status('B066_INTERNAL', 'FAIL')
     finally:
@@ -67,7 +81,12 @@ def main():
             clean = cleanup_private(root)
             status('PRIVATE_CLEANUP', 'PASS' if clean else 'FAIL')
             passed = passed and clean
-    status('INSTALLED_GUI', 'NOT_RUN')
+    if group == 'desktop':
+        status('INSTALLED_GUI', 'PASS' if passed else 'NOT_CONFIRMED')
+    elif group == 'upgrade':
+        status('INSTALLED_BROWSER', 'PASS' if passed else 'NOT_CONFIRMED')
+    else:
+        status('INSTALLED_GUI', 'NOT_RUN')
     status('PRODUCT_ACCEPTED', 'false')
     status('GROUP_QUALIFICATION', 'PASS' if passed else 'FAIL')
     return 0 if passed else 1

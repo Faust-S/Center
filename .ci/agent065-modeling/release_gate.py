@@ -202,9 +202,13 @@ def checkout_setup_owner(q):
     return owner
 
 
-def build_frozen_baseline(q, baseline, owner):
-    """Original 0.6.4 source owner; no changes and no fake installer."""
-    from retry_scope import BASELINE_PIN, BASELINE_TREE
+def build_frozen_baseline(q, baseline, owner, *, source=None, tree=None, version='0.6.4'):
+    """Build the exact frozen source with its own original build scripts."""
+    if source is None and tree is None and version == '0.6.4':
+        from retry_scope import BASELINE_PIN, BASELINE_TREE
+        source, tree = BASELINE_PIN, BASELINE_TREE
+    elif not source or not tree or version != '0.6.5':
+        raise ValueError('BASELINE_IDENTITY_REQUIRED')
     out = baseline.root / 'setup-output'
     build, logs = out / 'build', out / 'logs'
     build.mkdir(parents=True)
@@ -218,7 +222,7 @@ def build_frozen_baseline(q, baseline, owner):
     pipeline = baseline.src / 'qualification/phase1/build_native_windows_setup_candidate.ps1'
     args = [ps,'-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
         '-File',pipeline,'-RepoRoot',baseline.src,'-BuildRoot',build,'-LogsRoot',logs,
-        '-ReleaseCache',q.root/'release-cache','-SourceCommit',BASELINE_PIN,'-SourceTree',BASELINE_TREE]
+        '-ReleaseCache',q.root/'release-cache','-SourceCommit',source,'-SourceTree',tree]
     code, _ = baseline.run('BASELINE_NATIVE_BUILD',args,env=env,timeout=5400)
     if code:
         return None
@@ -235,7 +239,7 @@ def build_frozen_baseline(q, baseline, owner):
         if code or type(receipt) is not dict:
             return None
         (logs/'private-setup-core-build.json').write_text(json.dumps(receipt),encoding='utf-8')
-        if not verify_setup_build(out,BASELINE_PIN,BASELINE_TREE,'0.6.4'):
+        if not verify_setup_build(out,source,tree,version):
             return None
     except (ValueError,OSError,TypeError):
         return None

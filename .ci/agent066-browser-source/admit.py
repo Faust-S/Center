@@ -5,10 +5,12 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-CANDIDATE_PIN = 'd68ff55dbe450e7689579bbf2ba7ba2a37c7e204'
-CANDIDATE_TREE = '3c825c24a1d68e412752704d0f5cebfd7df5d969'
-SCOPE = 'B066_SOURCE_BUILD'
-GROUPS = ('core', 'ocr', 'desktop-source', 'bundle')
+CANDIDATE_PIN = 'fcd57de9b35320eb6825869e6c38264aac3133ef'
+CANDIDATE_TREE = '2ec8d9dd7d205f14264c58d3b4bbb29bd1ac3146'
+BASELINE_PIN = '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
+BASELINE_TREE = '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
+SCOPE = 'B066_FULL_NATIVE_QUALIFICATION'
+GROUPS = ('core', 'ocr', 'desktop-source', 'bundle', 'desktop', 'upgrade')
 
 WORKFLOW = 'agent066-browser-source'
 PREFIX = 'refs/heads/ci/once/' + WORKFLOW + '/'
@@ -52,9 +54,11 @@ def admit(env, event):
     require(git('ls-tree',head,'--',REQUEST).split(' ',1)[0] == '100644')
     expected = read_json(PREPARED)
     require(expected == {'candidate':CANDIDATE_PIN,'tree':CANDIDATE_TREE,
-                         'scope':SCOPE,'installed_gui':'NOT_RUN'})
+                         'baseline':BASELINE_PIN,'baseline_tree':BASELINE_TREE,
+                         'scope':SCOPE,'installed_gui':'REQUIRED'})
     require(expected['candidate'] == env.get('PRIVATE_PIN') and expected['tree'] == env.get('PRIVATE_TREE'))
-    require(all(SHA.fullmatch(expected[k]) for k in ('candidate','tree')))
+    require(expected['baseline'] == env.get('BASELINE_PIN') and expected['baseline_tree'] == env.get('BASELINE_TREE'))
+    require(all(SHA.fullmatch(expected[k]) for k in ('candidate','tree','baseline','baseline_tree')))
     require(read_json(REQUEST) == {**expected,'workflow':WORKFLOW,'prepared_sha':parent})
     require(env.get('QUALIFICATION_GROUP') in GROUPS)
     return head

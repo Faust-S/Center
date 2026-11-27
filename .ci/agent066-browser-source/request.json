@@ -1,6 +1,8 @@
 {
-  "candidate": "d68ff55dbe450e7689579bbf2ba7ba2a37c7e204",
-  "tree": "3c825c24a1d68e412752704d0f5cebfd7df5d969",
-  "scope": "B066_SOURCE_BUILD",
-  "installed_gui": "NOT_RUN"
+  "candidate": "fcd57de9b35320eb6825869e6c38264aac3133ef",
+  "tree": "2ec8d9dd7d205f14264c58d3b4bbb29bd1ac3146",
+  "baseline": "68128b4c9a2c7140ec3503ff0f775e5bcb50743e",
+  "baseline_tree": "73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2",
+  "scope": "B066_FULL_NATIVE_QUALIFICATION",
+  "installed_gui": "REQUIRED"
 }

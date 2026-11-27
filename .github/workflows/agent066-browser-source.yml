@@ -1,4 +1,4 @@
-name: Agent 0.6.6 shared browser source build and Core integration
+name: Agent 0.6.6 full native browser and frozen baseline upgrade
 on:
   push:
     branches:
@@ -25,12 +25,18 @@ jobs:
             os: windows-2022
           - group: bundle
             os: windows-2022
+          - group: desktop
+            os: windows-2022
+          - group: upgrade
+            os: windows-2022
     name: qualify / ${{ matrix.group }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 180
+    timeout-minutes: 360
     env:
-      PRIVATE_PIN: 'd68ff55dbe450e7689579bbf2ba7ba2a37c7e204'
-      PRIVATE_TREE: '3c825c24a1d68e412752704d0f5cebfd7df5d969'
+      PRIVATE_PIN: 'fcd57de9b35320eb6825869e6c38264aac3133ef'
+      PRIVATE_TREE: '2ec8d9dd7d205f14264c58d3b4bbb29bd1ac3146'
+      BASELINE_PIN: '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
+      BASELINE_TREE: '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
       QUALIFICATION_GROUP: ${{ matrix.group }}
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -46,15 +52,20 @@ jobs:
         shell: bash
         run: |
           python .ci/agent066-browser-source/test_bundle_evidence.py
+          python .ci/agent066-browser-source/test_installed_evidence.py
           python .ci/agent066-browser-source/admit.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - uses: actions/setup-node@v4
-        if: ${{ matrix.group == 'desktop-source' }}
+        if: ${{ matrix.group == 'desktop-source' || matrix.group == 'desktop' || matrix.group == 'upgrade' }}
         with:
           node-version: '22.16.0'
-      - name: Grouped source verification on temporary private checkout
+      - uses: actions/setup-dotnet@v4
+        if: ${{ matrix.group == 'desktop' || matrix.group == 'upgrade' }}
+        with:
+          dotnet-version: '8.0.x'
+      - name: Grouped verification on temporary private checkout
         shell: bash
         env:
           IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
