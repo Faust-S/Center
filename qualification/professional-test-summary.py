@@ -16,16 +16,16 @@ for n, case in enumerate(cases, 1):
         fail += 1
         print(label + "_FAILED_CASE=" + str(n))
         for error in errors:
-            for code in sorted(set(re.findall(r"\b(?:allocation|schedule|modeling|u01|program|simpy|network_flow|routing|road_matrix|qgis)_[a-z0-9_]+\b", (error.get("message") or "") + (error.text or ""))))[:8]:
+            for code in sorted(set(re.findall(r"\b(?:allocation|schedule|modeling|u01|program|simpy|network_flow|routing|road_matrix|qgis|valhalla)_[a-z0-9_]+\b", (error.get("message") or "") + (error.text or ""))))[:8]:
                 print(label + "_CODE=" + code)
             # Fixed connection diagnostics, never arbitrary exception strings.
-            for status in sorted(set(re.findall(r"\bQGIS_(?:NATIVE_PROBE_(?:EXIT_NONZERO|MARKER_MISSING)|(?:DIRECT|CORE)_CONNECT_(?:VERSION_UNVERIFIED|NOT_FOUND|CONNECTED|CLI_EXECUTION_FAILED|CLI_TIMED_OUT|CLI_OUTPUT_ENCODING_UNSUPPORTED|INSTALLATION_MISMATCH|CONNECTION_LOST|None))\b", (error.get("message") or "") + (error.text or "")))):
+            for status in sorted(set(re.findall(r"\b(?:VALHALLA_CORE_CONNECT_(?:VERSION_UNVERIFIED|NOT_FOUND|CONNECTED|CLI_EXECUTION_FAILED|CLI_TIMED_OUT|CLI_OUTPUT_ENCODING_UNSUPPORTED|INSTALLATION_MISMATCH|CONNECTION_LOST|None)|QGIS_(?:NATIVE_PROBE_(?:EXIT_NONZERO|MARKER_MISSING)|(?:DIRECT|CORE)_CONNECT_(?:VERSION_UNVERIFIED|NOT_FOUND|CONNECTED|CLI_EXECUTION_FAILED|CLI_TIMED_OUT|CLI_OUTPUT_ENCODING_UNSUPPORTED|INSTALLATION_MISMATCH|CONNECTION_LOST|None)))\b", (error.get("message") or "") + (error.text or "")))):
                 print(label + "_NATIVE_STATUS=" + status)
             # Fixed exception classes and line numbers only; no private source or error text.
             message = (error.get("message") or "") + (error.text or "")
             for kind in sorted(set(re.findall(r"\b(?:AssertionError|ValueError|TypeError|KeyError|RuntimeError|ProviderError|ToolProviderPortError|InteractionSurfaceError|WitnessError|OSError|AttributeError)\b", message)))[:6]:
                 print(label + "_ERROR_TYPE=" + kind)
-            for location in re.findall(r"test_agent067_(?:ortools_(?:allocation|scheduling|network_flow|vehicle_routing)|road_matrix_input|qgis_points)\.py:(\d+)", message)[:8]:
+            for location in re.findall(r"test_agent067_(?:ortools_(?:allocation|scheduling|network_flow|vehicle_routing)|road_matrix_input|qgis_points|valhalla_road_table)\.py:(\d+)", message)[:8]:
                 print(label + "_TEST_LINE=" + location)
     if case.find("skipped") is not None:
         skipped += 1
