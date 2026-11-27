@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: '16930f364943e6013c023752de7fb22dee877b65'
-      PRIVATE_TREE: '148aa420d55b97cd3394ef10b0e586b9abd4d3dc'
+      PRIVATE_PIN: 'be985b5b6de121b3e53d01ba33e877415af69962'
+      PRIVATE_TREE: 'ec969e41385d6c9de58c85bdc51f704a217374dc'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -166,7 +166,7 @@ jobs:
                               status(name,"PASS" if passed else "FAIL")
                               return passed
                           if name=="NATIVE_REAL_SPEECH_ROUTE":
-                              expected=["OFFLINE_START","MODEL_VERIFIED","AUDIO_VERIFIED","REAL_TRANSCRIPT","MEDIA_VERIFIED","UI_AUDIO_CANCEL","SECOND_TRANSCRIPT","LONG_MEDIA_TRANSCRIPT","UI_EXPORT_CANCEL","UI_EXPORT","UI_EXPORT_READBACK","MIC_CAPTURE_STARTED","MIC_CANCELLED","OFFLINE_END"]
+                              expected=["OFFLINE_START","MODEL_VERIFIED","AUDIO_VERIFIED","REAL_TRANSCRIPT","MEDIA_VERIFIED","UI_AUDIO_CANCEL","SECOND_TRANSCRIPT","LONG_MEDIA_TRANSCRIPT","UI_EXPORT_CANCEL","UI_EXPORT","UI_EXPORT_EXPECTED","MIC_CAPTURE_STARTED","MIC_CANCELLED","OFFLINE_END","EXPORT_ADB_READBACK","EXPORT_ADB_CLEANUP"]
                               stages=re.findall(r"(?m)^NATIVE_REAL_SPEECH_PASS=([A-Z_]+)\s*$",report)
                               for stage in stages:
                                   if stage in expected:status("NATIVE_REAL_SPEECH_PASS",stage)
@@ -188,12 +188,17 @@ jobs:
                               for value in re.findall(r"(?m)^NATIVE_REAL_SPEECH_FAILURE_TYPE=([A-Za-z]+)\s*$",report):
                                   if value in {"RuntimeError","ValueError","KeyError","TypeError","OSError","TimeoutExpired","CalledProcessError","AssertionError","FileNotFoundError"}:status("NATIVE_REAL_SPEECH_FAILURE_TYPE",value)
                               for value in re.findall(r"(?m)^NATIVE_REAL_SPEECH_FAILURE_CODE=([A-Z_]+)\s*$",report):
-                                  if value in {"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED"}:status("NATIVE_REAL_SPEECH_FAILURE_CODE",value)
-                              passed=outcome.returncode==0 and stages==expected and re.findall(r"(?m)^NATIVE_REAL_SPEECH_ROUTE=(PASS|FAIL)\s*$",report)==["PASS"]
+                                  if value in {"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED","QA_EXPORT_ALREADY_EXISTS","QA_EXPORT_RECEIPT_REQUIRED","QA_EXPORT_READBACK_MISMATCH","QA_EXPORT_CLEANUP_FAILED","QA_EXPORT_ONLINE_FAILED"}:status("NATIVE_REAL_SPEECH_FAILURE_CODE",value)
+                              export_checks=[]
+                              for check in ("EXPORT_READBACK","EXPORT_CLEANUP"):
+                                  values=re.findall(r"(?m)^NATIVE_REAL_SPEECH_"+check+r"=(PASS|FAIL)\s*$",report)
+                                  if len(values)==1:status("NATIVE_REAL_SPEECH_"+check,values[0])
+                                  export_checks.append(values==["PASS"])
+                              passed=outcome.returncode==0 and stages==expected and re.findall(r"(?m)^NATIVE_REAL_SPEECH_ROUTE=(PASS|FAIL)\s*$",report)==["PASS"] and all(export_checks)
                               status(name,"PASS" if passed else "FAIL")
                               return passed
                           if name=="NATIVE_REAL_TTS_ROUTE":
-                              expected=["OFFLINE_START","MODEL_VERIFIED","NATIVE_EN","UI_RU","UI_PLAY","UI_EXPORT_CANCEL","UI_EXPORT","UI_READBACK","UI_CLEAR","UI_SEQUENCE","UI_SEQUENCE_PLAY","UI_SEQUENCE_CLEAR","OFFLINE_END"]
+                              expected=["OFFLINE_START","MODEL_VERIFIED","NATIVE_EN","UI_RU","UI_PLAY","UI_EXPORT_CANCEL","UI_EXPORT","UI_EXPORT_EXPECTED","UI_CLEAR","UI_SEQUENCE","UI_SEQUENCE_PLAY","UI_SEQUENCE_CLEAR","OFFLINE_END","EXPORT_ADB_READBACK","EXPORT_ADB_CLEANUP"]
                               stages=re.findall(r"(?m)^NATIVE_REAL_TTS_PASS=([A-Z_]+)\s*$",report)
                               for step in stages:
                                   if step in expected:status("NATIVE_REAL_TTS_PASS",step)
@@ -212,12 +217,17 @@ jobs:
                               for value in re.findall(r"(?m)^NATIVE_REAL_TTS_FAILURE_TYPE=([A-Za-z]+)\s*$",report):
                                   if value in {"RuntimeError","ValueError","KeyError","TypeError","OSError","TimeoutExpired","CalledProcessError","AssertionError","FileNotFoundError"}:status("NATIVE_REAL_TTS_FAILURE_TYPE",value)
                               for value in re.findall(r"(?m)^NATIVE_REAL_TTS_FAILURE_CODE=([A-Z_]+)\s*$",report):
-                                  if value in {"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED"}:status("NATIVE_REAL_TTS_FAILURE_CODE",value)
-                              passed=outcome.returncode==0 and stages==expected and re.findall(r"(?m)^NATIVE_REAL_TTS_ROUTE=(PASS|FAIL)\s*$",report)==["PASS"]
+                                  if value in {"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED","QA_EXPORT_ALREADY_EXISTS","QA_EXPORT_RECEIPT_REQUIRED","QA_EXPORT_READBACK_MISMATCH","QA_EXPORT_CLEANUP_FAILED","QA_EXPORT_ONLINE_FAILED"}:status("NATIVE_REAL_TTS_FAILURE_CODE",value)
+                              export_checks=[]
+                              for check in ("EXPORT_READBACK","EXPORT_CLEANUP"):
+                                  values=re.findall(r"(?m)^NATIVE_REAL_TTS_"+check+r"=(PASS|FAIL)\s*$",report)
+                                  if len(values)==1:status("NATIVE_REAL_TTS_"+check,values[0])
+                                  export_checks.append(values==["PASS"])
+                              passed=outcome.returncode==0 and stages==expected and re.findall(r"(?m)^NATIVE_REAL_TTS_ROUTE=(PASS|FAIL)\s*$",report)==["PASS"] and all(export_checks)
                               status(name,"PASS" if passed else "FAIL")
                               return passed
                           if name=="NATIVE_VOICE_DIALOGUE_ROUTE":
-                              expected=["OFFLINE_START","FIXTURES_VERIFIED","FIRST_TURN","WHISPER_BOUND","WHISPER_INSERTED","SECOND_TURN","STALE_BINDING_REJECTED","SUPERTONIC_BOUND","PLAYBACK_BOUND","FOLLOWUP_TURN","AUTO_PLAYBACK","AUTO_STALE_REJECTED","AUTO_REPLAY","AUTO_EXPORT","AUTO_EXPORT_READBACK","OFFLINE_END"]
+                              expected=["OFFLINE_START","FIXTURES_VERIFIED","FIRST_TURN","WHISPER_BOUND","WHISPER_INSERTED","SECOND_TURN","STALE_BINDING_REJECTED","SUPERTONIC_BOUND","PLAYBACK_BOUND","FOLLOWUP_TURN","AUTO_PLAYBACK","AUTO_STALE_REJECTED","AUTO_REPLAY","AUTO_EXPORT","AUTO_EXPORT_EXPECTED","OFFLINE_END","EXPORT_ADB_READBACK","EXPORT_ADB_CLEANUP"]
                               stages=re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_PASS=([A-Z_]+)\s*$",report)
                               for value in stages:
                                   if value in expected:status("NATIVE_VOICE_DIALOGUE_PASS",value)
@@ -227,14 +237,19 @@ jobs:
                                   "NATIVE_VOICE_DIALOGUE_FAILURE_CHECK":{"OFFLINE","FIXTURE","MEMORY","STATUS","CONTEXT","PICKER","TRANSCRIPT","STALE","TTS_SOURCE","AUDIO","AUTO_REJECT","AUTO_EXPORT","CLEANUP"},
                                   "NATIVE_VOICE_DIALOGUE_FAILURE_STAGE":{"HOME","LOCAL","MODEL","FIRST_TURN","SPEECH","WHISPER","INSERT","SECOND_TURN","TTS","PLAY","RETURN","FOLLOWUP","AUTO_ENABLE","AUTO_PLAYBACK","AUTO_REPLAY","AUTO_EXPORT","NATIVE_REPLY"},
                                   "NATIVE_VOICE_DIALOGUE_HELPER_FAILURE":{"WEBVIEW_TIMEOUT","UI_PICKER","UI_RETURN","TRANSCRIPT_SEMANTIC"},
-                                  "NATIVE_VOICE_DIALOGUE_FAILURE_CODE":{"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED"},
+                                  "NATIVE_VOICE_DIALOGUE_FAILURE_CODE":{"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED","QA_EXPORT_ALREADY_EXISTS","QA_EXPORT_RECEIPT_REQUIRED","QA_EXPORT_READBACK_MISMATCH","QA_EXPORT_CLEANUP_FAILED","QA_EXPORT_ONLINE_FAILED"},
                               }
                               for key,allowed in codes.items():
                                   for value in re.findall(r"(?m)^"+key+r"=([A-Z_]+)\s*$",report):
                                       if value in allowed:status(key,value)
                               for value in re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_FAILURE_TYPE=([A-Za-z]+)\s*$",report):
                                   if value in {"RuntimeError","ValueError","KeyError","TypeError","OSError","TimeoutExpired","CalledProcessError","AssertionError","FileNotFoundError"}:status("NATIVE_VOICE_DIALOGUE_FAILURE_TYPE",value)
-                              passed=outcome.returncode==0 and stages==expected and re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_ROUTE=(PASS|FAIL)\s*$",report)==["PASS"]
+                              export_checks=[]
+                              for check in ("EXPORT_READBACK","EXPORT_CLEANUP"):
+                                  values=re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_"+check+r"=(PASS|FAIL)\s*$",report)
+                                  if len(values)==1:status("NATIVE_VOICE_DIALOGUE_"+check,values[0])
+                                  export_checks.append(values==["PASS"])
+                              passed=outcome.returncode==0 and stages==expected and re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_ROUTE=(PASS|FAIL)\s*$",report)==["PASS"] and all(export_checks)
                               if passed:
                                   bounds=(
                                       ("MODEL_ACTIVATION_MS",0,1800000),("WHISPER_FILE_ROUTE_MS",0,1800000),
@@ -352,7 +367,7 @@ jobs:
                           if name in ("SOURCE","ASSEMBLY") and outcome.returncode==0:
                               # Exact accumulated source suite; no skip or todo.
                               node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
-                              if any(node_counts[label]!=[value] for label,value in {"tests":"744","pass":"744","fail":"0","skipped":"0","todo":"0"}.items()):
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"749","pass":"749","fail":"0","skipped":"0","todo":"0"}.items()):
                                   status(name,"NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
@@ -468,9 +483,9 @@ jobs:
                       if not report_stage("SOURCE",["npm","run","check:source"],mobile,180):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
                       vision_policy=run(["python3","mobile/qualification/test_native_vision_receipt.py"],source,timeout=60)
-                      if vision_policy.returncode or not re.search(rb"(?m)^Ran 30 tests? in [0-9.]+s\s*$",vision_policy.stdout) or not re.search(rb"(?m)^OK\s*$",vision_policy.stdout):
+                      if vision_policy.returncode or not re.search(rb"(?m)^Ran 34 tests? in [0-9.]+s\s*$",vision_policy.stdout) or not re.search(rb"(?m)^OK\s*$",vision_policy.stdout):
                           status("NATIVE_MULTIMODAL_RECEIPT_POLICY","FAIL");status("APK","NOT_RUN");return 1
-                      status("NATIVE_MULTIMODAL_RECEIPT_POLICY","30/30")
+                      status("NATIVE_MULTIMODAL_RECEIPT_POLICY","34/34")
                       policy=root/"context-policy"
                       if not stage("LLAMA_CONTEXT_POLICY_BUILD",["g++","-std=c++17","-Wall","-Wextra","-Werror","-O2","qualification/llama-context-budget.test.cpp","-o",str(policy)],mobile,120):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
