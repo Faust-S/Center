@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "3027d368b54576745706a3612389c160acd7bb89",
+  "profile": "original-professional-ortools-and-cold-result",
+  "pins": {
+    "professionalAgent": "5ac6ca6994c04dbee1e8850b165dcd6ad355f5ac"
+  },
+  "reason": "Qualify corrected native OR-Tools binding and original durable result; local GitHub DNS unavailable"
+}
