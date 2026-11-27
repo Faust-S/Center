@@ -19,6 +19,9 @@ MODEL_URL = "https://huggingface.co/gpustack/stable-diffusion-v1-5-GGUF/resolve/
 MODEL_BYTES = 1747190784
 MODEL_SHA = "c2f6e92f9d08d69cc673a1003528ac8199274b3c0eaec88d5fbefe5af67bd42b"
 NDK_VERSION = "29.0.13113456"
+NDK_REVISION = NDK_VERSION + "-beta1"
+NDK_RELEASE = "r29-beta1"
+ANDROID_ABIS = {"arm64-v8a": "AArch64", "x86_64": "Advanced Micro Devices X86-64"}
 SIZE = 512
 STEPS = 12
 SEED = 42
@@ -75,17 +78,26 @@ def download_model(dest, url=MODEL_URL, size=MODEL_BYTES, digest=MODEL_SHA):
         part.unlink(missing_ok=True)
 
 
-def build(src, out, ndk=None):
+def ndk_identity(ndk):
+    require((ndk / "build/cmake/android.toolchain.cmake").is_file(), "NDK_TOOLCHAIN")
+    properties = (ndk / "source.properties").read_text()
+    expected = {"Pkg.Revision": NDK_REVISION, "Pkg.BaseRevision": NDK_VERSION, "Pkg.ReleaseName": NDK_RELEASE}
+    for key, value in expected.items():
+        matches = re.findall(r"(?m)^" + re.escape(key) + r"[ \t]*=[ \t]*([^\r\n]*)", properties)
+        require([m.strip() for m in matches] == [value], "NDK_REVISION")
+    return expected
+
+
+def build(src, out, ndk=None, abi="arm64-v8a"):
     args = ["cmake", "-S", src, "-B", out, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
             "-DSD_BUILD_EXAMPLES=ON", "-DSD_SERVER_BUILD_FRONTEND=OFF", "-DSD_WEBP=OFF", "-DSD_WEBM=OFF",
             "-DSD_BUILD_SHARED_LIBS=OFF", "-DSD_BUILD_SHARED_GGML_LIB=OFF", "-DSD_OPENCL=OFF",
             "-DGGML_NATIVE=OFF", "-DGGML_OPENMP=OFF"]
     if ndk is not None:
-        require((ndk / "build/cmake/android.toolchain.cmake").is_file(), "NDK_TOOLCHAIN")
-        require(re.search(r"(?m)^Pkg.Revision\s*=\s*" + re.escape(NDK_VERSION) + r"\s*$",
-                          (ndk / "source.properties").read_text()), "NDK_REVISION")
+        require(abi in ANDROID_ABIS, "ANDROID_ABI")
+        ndk_identity(ndk)
         args += ["-DCMAKE_TOOLCHAIN_FILE=" + str(ndk / "build/cmake/android.toolchain.cmake"),
-                 "-DANDROID_ABI=arm64-v8a", "-DANDROID_PLATFORM=android-33", "-DANDROID_STL=c++_static"]
+                 "-DANDROID_ABI=" + abi, "-DANDROID_PLATFORM=android-33", "-DANDROID_STL=c++_static"]
     run(args)
     run(["cmake", "--build", out, "--target", "sd-cli", "--parallel", "2"], timeout=2400)
     exe = out / "bin/sd-cli"
@@ -128,9 +140,10 @@ def generate(exe, model, result, index, prompt):
     return observed
 
 
-def qualify(result, mode, ndk=None):
+def qualify(result, mode, ndk=None, abi="arm64-v8a"):
     require(mode in ("host", "android"), "QUALIFICATION_MODE")
     require(mode == "host" or ndk is not None, "NDK_REQUIRED")
+    require(abi in ANDROID_ABIS, "ANDROID_ABI")
     result.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(prefix="iwxa-public-image-") as tmp:
         root = Path(tmp)
@@ -151,15 +164,17 @@ def qualify(result, mode, ndk=None):
                             "hostCpuGeneration": "PASS", "images": images})
             print("ORIGINAL_IMAGE_CPU_GENERATION=PASS", flush=True)
         else:
-            arm = build(src, root / "arm64", ndk)
-            elf = run(["readelf", "-h", arm], capture=True)
-            require(re.search(r"Machine:\s+AArch64\b", elf), "ANDROID_ELF_ARCH")
-            dependencies = run(["readelf", "-d", arm], capture=True)
+            identity = ndk_identity(ndk)
+            print("ORIGINAL_IMAGE_NDK_REVISION=" + identity["Pkg.Revision"], flush=True)
+            arm = build(src, root / abi, ndk, abi)
+            elf = run(["readelf", "-hW", arm], capture=True)
+            require(re.search(r"(?m)^\s*Machine:\s+" + re.escape(ANDROID_ABIS[abi]) + r"\s*$", elf), "ANDROID_ELF_ARCH")
+            dependencies = run(["readelf", "-dW", arm], capture=True)
             require(not re.search(r"Shared library: \[(?:libggml|libstable-diffusion|libc\+\+_shared)", dependencies), "ANDROID_SHARED_RUNTIME")
             verify_source(src)
-            receipt.update({"ndk": NDK_VERSION, "androidArm64Build": "PASS",
-                            "androidCliSha256": hashlib.sha256(arm.read_bytes()).hexdigest()})
-            print("ORIGINAL_IMAGE_ANDROID_ARM64_BUILD=PASS", flush=True)
+            receipt.update({"ndk": NDK_VERSION, "ndkRevision": identity["Pkg.Revision"], "abi": abi,
+                            "androidBuild": "PASS", "androidCliSha256": hashlib.sha256(arm.read_bytes()).hexdigest()})
+            print("ORIGINAL_IMAGE_ANDROID_BUILD=" + abi + ":PASS", flush=True)
         (result / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
         print("PUBLIC_IMAGE_" + mode.upper() + "=PASS", flush=True)
 
@@ -169,5 +184,6 @@ if __name__ == "__main__":
     parser.add_argument("--result", required=True, type=Path)
     parser.add_argument("--mode", required=True, choices=("host", "android"))
     parser.add_argument("--ndk", type=Path)
+    parser.add_argument("--abi", choices=tuple(ANDROID_ABIS), default="arm64-v8a")
     args = parser.parse_args()
-    qualify(args.result.resolve(), args.mode, args.ndk.resolve() if args.ndk else None)
+    qualify(args.result.resolve(), args.mode, args.ndk.resolve() if args.ndk else None, args.abi)

@@ -114,7 +114,8 @@ class QualificationTests(unittest.TestCase):
         images = [{"pixelSha256": "a" * 64}, {"pixelSha256": "b" * 64}]
         with patch.object(q, 'checkout'), patch.object(q, 'build', return_value=fake_exe) as build, \
                 patch.object(q, 'download_model') as download, patch.object(q, 'generate', side_effect=images), \
-                patch.object(q, 'verify_source'), patch.object(q, 'run', side_effect=['Machine: AArch64', '']):
+                patch.object(q, 'verify_source'), patch.object(q, 'ndk_identity', return_value={'Pkg.Revision': q.NDK_REVISION}), \
+                patch.object(q, 'run', side_effect=['Machine: AArch64', '']):
             q.qualify(host, 'host')
             self.assertEqual(len(build.call_args.args), 2)
             self.assertEqual(download.call_count, 1)
@@ -124,8 +125,10 @@ class QualificationTests(unittest.TestCase):
         h = json.loads((host / 'receipt.json').read_text())
         a = json.loads((android / 'receipt.json').read_text())
         self.assertEqual(h['hostCpuGeneration'], 'PASS')
-        self.assertNotIn('androidArm64Build', h)
-        self.assertEqual(a['androidArm64Build'], 'PASS')
+        self.assertNotIn('androidBuild', h)
+        self.assertEqual(a['androidBuild'], 'PASS')
+        self.assertEqual(a['abi'], 'arm64-v8a')
+        self.assertEqual(a['ndkRevision'], q.NDK_REVISION)
         self.assertNotIn('hostCpuGeneration', a)
         self.assertEqual(a['androidExecution'], 'NOT_RUN')
 
@@ -135,6 +138,43 @@ class QualificationTests(unittest.TestCase):
             q.qualify(target, 'android')
         self.assertFalse(target.exists())
 
+
+    def ndk(self, properties):
+        root = self.root / 'ndk'
+        tool = root / 'build/cmake/android.toolchain.cmake'
+        tool.parent.mkdir(parents=True, exist_ok=True)
+        tool.write_text('fixture only')
+        (root / 'source.properties').write_text(properties)
+        return root
+
+    def test_exact_beta_ndk_metadata(self):
+        root = self.ndk('Pkg.Desc = Android NDK\nPkg.Revision = 29.0.13113456-beta1\n'
+                        'Pkg.BaseRevision = 29.0.13113456\nPkg.ReleaseName = r29-beta1\n')
+        self.assertEqual(q.ndk_identity(root)['Pkg.Revision'], '29.0.13113456-beta1')
+
+    def test_ndk_base_number_does_not_replace_full_preview_identity(self):
+        root = self.ndk('Pkg.Revision = 29.0.13113456\nPkg.BaseRevision = 29.0.13113456\nPkg.ReleaseName = r29-beta1\n')
+        with self.assertRaisesRegex(ValueError, 'NDK_REVISION'):
+            q.ndk_identity(root)
+
+    def test_wrong_preview_or_release_name_and_duplicates(self):
+        valid = 'Pkg.Revision = 29.0.13113456-beta1\nPkg.BaseRevision = 29.0.13113456\nPkg.ReleaseName = r29-beta1\n'
+        for text in (valid.replace('-beta1', '-beta2', 1), valid.replace('r29-beta1', 'r29'),
+                     valid + 'Pkg.Revision = 29.0.13113456-beta1\n', valid.replace('Pkg.BaseRevision', 'Other')):
+            with self.subTest(text=text), self.assertRaisesRegex(ValueError, 'NDK_REVISION'):
+                q.ndk_identity(self.ndk(text))
+
+    def test_x86_64_uses_its_exact_abi_and_independent_receipt(self):
+        fake = self.root / 'cli'
+        fake.write_bytes(b'fixture')
+        result = self.root / 'x86'
+        with patch.object(q, 'checkout'), patch.object(q, 'build', return_value=fake) as build, \
+                patch.object(q, 'ndk_identity', return_value={'Pkg.Revision': q.NDK_REVISION}), \
+                patch.object(q, 'verify_source'), patch.object(q, 'run', side_effect=['Machine: Advanced Micro Devices X86-64', '']):
+            q.qualify(result, 'android', self.root / 'ndk', 'x86_64')
+        self.assertEqual(build.call_args.args[-1], 'x86_64')
+        import json
+        self.assertEqual(json.loads((result / 'receipt.json').read_text())['abi'], 'x86_64')
 
 if __name__ == '__main__':
     unittest.main()
