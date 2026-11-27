@@ -21,11 +21,11 @@ from local_source import LocalSourceError, git, materialize_local_source
 T2 = ('c28e01876f3230307b7f20449f7ef54374367c93',
       '3d774222c9aaa1521ded9eb23d2f5fcdb55b8cbd',
       't2/current/final-successor')
-T3 = ('a8aba933217aa6c93edea1e2bfbe143075996233',
-      '7dbb23a2d2a0e76d2f5bbb41a8a43d1098c80bb6',
+T3 = ('0fb94b0273e429abcd5452484e8a81d269183f65',
+      '0297787871b92b62497f3b0a7ca88fa2a995f223',
       ('access-control', 'interop', 'reconciliation', 'tests', 'package.json'))
-CORE = ('9fe841ff2a323ce397aefe640c844d9aa8885f7a',
-        'ee1bbf93f78ba563feb8794008696ba601506574', 'packages')
+CORE = ('9bbef4d7b63f6bec7d28c1f392a05780b103ddf8',
+        '44ab2dbbf36f5289a9f8f12f52d8ee61decdef1d', 'packages')
 T2_PARENT = '4e4ad5c5e566a74f24243b9d0744a6d64652a199'
 PACKAGING = 't2/current/final-successor/kernel-successors/k036-canonical-event-merge-20261125/'
 PACKAGING_PATHS = {PACKAGING + name for name in (
@@ -33,6 +33,7 @@ PACKAGING_PATHS = {PACKAGING + name for name in (
 OWNER_TESTS = ('tests/original-native-network-vault.test.mjs',
                'tests/original-native-network-vault-port.test.mjs',
                'tests/original-native-network-grant.test.mjs',
+               'tests/original-network-bootstrap.test.mjs',
                'tests/admin-native-vault-composition.test.mjs',
                'tests/original-product-network-registry.test.mjs',
                'tests/optional-mutation-grants.test.mjs',
@@ -44,7 +45,9 @@ PEER_TESTS = ('tests/network/original-native-peer-startup.test.mjs',
               'tests/network/original-peer-history-tls.test.mjs',
               'tests/original-native-network-product-activation.test.mjs',
               'tests/original-installed-fixed-profile.test.mjs',
-              'tests/original-native-host-network-owner.test.mjs')
+              'tests/original-native-host-network-owner.test.mjs',
+              'tests/original-network-key-lifecycle.test.mjs',
+              '../t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs')
 
 
 class QualificationError(Exception):
@@ -126,7 +129,7 @@ def owner_tests(root, env):
 
 
 def peer_tests(root, env):
-    result = run_checked(['node', '--test', '--test-reporter=tap', '--test-timeout=120000',
+    result = run_checked(['node', '--experimental-strip-types', '--test', '--test-reporter=tap', '--test-timeout=120000',
                           *PEER_TESTS], root / 'packages/t4-network', env, 240)
     counts = {key: int(value) for key, value in re.findall(
         r'^# (tests|pass|fail|cancelled|skipped) (\d+)\s*$', result.stdout, re.MULTILINE)}
