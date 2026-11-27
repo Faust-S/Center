@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateOriginalAtlasWorkspaceReadback,validateOriginalAtlasWorkspacePublicationPreview,
- validateOriginalAtlasWorkspacePublicationReceipt} from '../runtime/cen03-d3-owner.mjs';
+ validateOriginalAtlasWorkspacePublicationReceipt,originalAtlasWorkspacePublicationReference} from '../runtime/cen03-d3-owner.mjs';
 import {prepareEmployeeDraftTask} from '../src/corporate-draft-task.mjs';
 import {signedAssignmentAtlasWork,acceptedAtlasFocus,selectAcceptedAtlasWork,acceptedAtlasReturnPointer,acceptedAtlasScopeMatches,sameAcceptedAtlasSource} from '../src/atlas-result-context.mjs';
 
@@ -148,4 +148,15 @@ test('corporate Workspace readback is bound to the exact signed Atlas assignment
  assert.deepEqual(validateOriginalAtlasWorkspacePublicationReceipt(published,preview),published);
  assert.throws(()=>validateOriginalAtlasWorkspacePublicationReceipt({...published,delivered:true},preview),
   /CEN_D3_ATLAS_WORKSPACE_PUBLICATION_READBACK_CHANGED/);
+ const reference=originalAtlasWorkspacePublicationReference(receipt,preview,published,session);
+ assert.deepEqual(reference,{sourceKind:'ADMIN_WORKSPACE_RESULT',
+  organizationId:session.organizationId,workspaceId:session.workspaceId,
+  taskId:task.taskId,taskRevisionId,taskPackageSha256:sha,
+  resultId:row.artifactId,taskObjectId:receipt.taskObjectId,taskEventId:receipt.taskEventId,
+  resultObjectId:row.objectId,resultEventId:row.eventId,sourceOperationId:preview.operationId,
+  archiveSha256:published.archiveSha256,resultSha256:row.sha256,selectedText:row.content,workRef:ref});
+ assert.throws(()=>originalAtlasWorkspacePublicationReference(receipt,preview,
+  {...published,status:'RECOVERY_REQUIRED'},session),/CEN_D3_ATLAS_WORKSPACE_PUBLICATION_READBACK_CHANGED/);
+ assert.throws(()=>originalAtlasWorkspacePublicationReference(receipt,preview,published,
+  {...session,organizationId:'other'}),/CEN_D3_ATLAS_WORKSPACE_PREVIEW_CHANGED/);
 });
