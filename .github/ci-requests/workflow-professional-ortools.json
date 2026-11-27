@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "7e7693748d496a779a5c0070c3b9a54d68d0ccea",
+  "profile": "valhalla-fleet-u01",
+  "pins": {
+    "professionalAgent": "b6dd952c276f4f33a68cd7bb65721c4e9bad62d9"
+  },
+  "reason": "Qualify exact vehicle-specific RoutingModel and original local Valhalla matrix through existing Core"
+}
