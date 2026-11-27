@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "fb4e171e9586d23ce70875816dc19c8518ad733d",
+  "profile": "managed-professional-install",
+  "pins": {
+    "professionalAgent": "7d0e99d536bc259430f68e717f905558e1e2763b"
+  },
+  "reason": "Qualify original program discovery and user-confirmed isolated Windows installation through existing manager and U01"
+}
