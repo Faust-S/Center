@@ -1,0 +1,137 @@
+name: ArtBazy integrated release build
+on:
+  push:
+    branches:
+      - ci/once/artbazy-site-release/643a13ed
+    paths:
+      - .github/workflows/artbazy-site-release.yml
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    env:
+      SITE_PIN: 643a13edf8d14e44ea490f003450eab555e146d8
+      SITE_TREE: d40ab48e23ba4b396a92a3b74ebd83baeade7fc3
+      T2_PIN: e70de29b72b83e2546f7ab74b17572685a728c17
+      T2_TREE: b36ed00dcd7c518b593cb4794bfabf85e7eab049
+      T3_PIN: 4dc21f8439b6988eed043bbe74dc34d8a7e7d875
+      T3_TREE: ae2542cdc0dd24c6effed34c6b5a21a3318f9d68
+      PLATFORM_SHA: c142597c759d6689c0298d0ec6abc7ee66b2eefbb1d5abb086efff6f0dea891e
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - name: Checkout exact private ArtBazy site candidate
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazy.ru
+          ref: 643a13edf8d14e44ea490f003450eab555e146d8
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: private-site
+          persist-credentials: false
+          show-progress: false
+      - name: Checkout exact original T2 support source
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: e70de29b72b83e2546f7ab74b17572685a728c17
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: original-t2
+          persist-credentials: false
+          show-progress: false
+      - name: Checkout exact public original T3
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 4dc21f8439b6988eed043bbe74dc34d8a7e7d875
+          path: original-t3
+          sparse-checkout: packages/t3-core
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+      - name: Verify source trees and exact original release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          verify_pin() {
+            test "$(git -C "$1" rev-parse HEAD)" = "$2"
+            test "$(git -C "$1" rev-parse 'HEAD^{tree}')" = "$3"
+          }
+          verify_pin private-site "$SITE_PIN" "$SITE_TREE"
+          verify_pin original-t2 "$T2_PIN" "$T2_TREE"
+          verify_pin original-t3 "$T3_PIN" "$T3_TREE"
+          stage="$RUNNER_TEMP/artbazy-release"
+          mkdir -p "$stage"
+          curl -fsSL --retry 2 -o "$stage/platform-inputs.zip" \
+            https://github.com/Faust-S/knowledge/releases/download/t3-platform-v0.3.1-rc.2/platform-inputs.zip
+          printf '%s  %s\n' "$PLATFORM_SHA" "$stage/platform-inputs.zip" | sha256sum --check --status
+          cd private-site
+          node scripts/t3-platform-inputs.mjs verify "$stage/platform-inputs.zip" >"$stage/platform.json" 2>"$stage/platform.log"
+          echo EXACT_ORIGINAL_INPUTS=PASS
+      - name: Native projections and integrated release build
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          stage="$RUNNER_TEMP/artbazy-release"
+          cd private-site
+          phase() {
+            local label="$1"; shift
+            if "$@" >"$stage/$label.log" 2>&1; then
+              echo "$label=PASS"
+            else
+              echo "$label=FAIL"
+              node --input-type=module - "$stage/$label.log" <<'JS'
+          import {readFileSync} from 'node:fs';
+          const s=readFileSync(process.argv[2],'utf8');
+          const codes=[...new Set(s.match(/\b(?:ARTBAZY_[A-Z0-9_]{3,100}|T3_[A-Z0-9_]{3,100}|T2_[A-Z0-9_]{3,100}|TS[0-9]{4}|ERR_[A-Z0-9_]{3,80})\b/g)||[])].slice(0,30);
+          for(const c of codes)console.log('ERROR_CODE='+c);
+          for(const m of s.matchAll(/^\[(prerender|readability|hydration)\] done\. (?:ok=(\d+) )?fail=(\d+)$/gm))
+            console.log(m[1].toUpperCase()+'_OK='+(m[2]||'NA')+' FAIL='+m[3]);
+          JS
+              return 1
+            fi
+          }
+          phase SITE_DEPENDENCIES bun install --frozen-lockfile --ignore-scripts
+          phase SUBJECT_PIN node --test scripts/verify-artbazy-subject-pin.test.mjs
+          phase SITE_PROJECTION npm run check:t3:calculation-projection
+          phase PACKAGING npm run test:t3:packaging
+          phase DIST_TRANSACTION npm run test:release:transaction
+          phase ORIGINAL_HOST npm run prepare:t3:host -- \
+            "$GITHUB_WORKSPACE/original-t3/packages/t3-core" "$stage/host" "$stage/platform-inputs.zip"
+          phase ORIGINAL_KERNEL_SUPPORT npm run prepare:t3:kernel-support -- \
+            "$GITHUB_WORKSPACE/original-t2" "$stage/kernel" "$stage/platform-inputs.zip"
+          export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome || command -v chromium)"
+          test -x "$PUPPETEER_EXECUTABLE_PATH"
+          phase ARTBAZY_ONE_DIST npm run build:release -- "$stage/host" "$stage/kernel" "$stage/platform-inputs.zip"
+          node --input-type=module <<'JS'
+          import {createHash} from 'node:crypto';
+          import {readFileSync,existsSync} from 'node:fs';
+          const read=p=>JSON.parse(readFileSync(p,'utf8'));
+          const manifest=read('dist/t3-offline-manifest.json');
+          const catalog=read('runtime/artbazy-module/service-catalog.json');
+          const routes=[...catalog.calculators.map(x=>x.route),...catalog.methods.filter(x=>x.public_service===true).map(x=>x.route)];
+          if(routes.length!==496||new Set(routes).size!==496||routes.some(p=>!existsSync('dist'+p+'index.html')))throw Error('ARTBAZY_RELEASE_ROUTE_COUNT');
+          for(const p of ['index.html','404.html','workspace/index.html','workspace/exchange/index.html','workspace/lifecycle/index.html','workspace/studio/index.html','t3-sw.js','t3-domain-mode.mjs'])
+            if(!existsSync('dist/'+p))throw Error('ARTBAZY_RELEASE_ENTRY_MISSING');
+          if(manifest.complete_static_tree!==true||manifest.domain_origin!=='https://artbazy.ru')throw Error('ARTBAZY_RELEASE_OFFLINE_MANIFEST');
+          const runtime=readFileSync('dist/_iwxa/runtime/0.3.6/runtime.js');
+          if(createHash('sha256').update(runtime).digest('hex')!=='e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78')throw Error('ARTBAZY_RELEASE_ORIGINAL_KERNEL');
+          console.log('PUBLIC_ROUTES=496/496');
+          console.log('OFFLINE_RESOURCES='+manifest.files.length);
+          console.log('ORIGINAL_KERNEL_BYTES=PASS');
+          console.log('ARTBAZY_ONE_DIST=BUILT_NOT_PRODUCT_ACCEPTED');
+          JS
+      - name: Remove private source, builds and diagnostics
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- "$GITHUB_WORKSPACE/private-site" "$GITHUB_WORKSPACE/original-t2" \
+            "$GITHUB_WORKSPACE/original-t3" "$RUNNER_TEMP/artbazy-release"
