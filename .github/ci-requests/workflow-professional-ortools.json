@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "fa6d65289e461bf2345c7a9a9f8333eed1d27f2f",
+  "profile": "public-vendor-long-path",
+  "pins": {
+    "professionalAgent": "b7f89810b91799f61ccde6f360578c6d40660c71"
+  },
+  "reason": "Reproduce actual nested pytest installation paths and original native process flags with public packages"
+}
