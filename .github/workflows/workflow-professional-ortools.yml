@@ -1,5 +1,5 @@
 # Authorized one-shot qualification; no private sources or raw logs published.
-name: Original professional OR-Tools qualification
+name: Original native QGIS focused U01 qualification
 on:
   push:
     branches: ['ci/once/workflow-professional-ortools/**']
@@ -7,14 +7,14 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: original-professional-valhalla-handoff
+  group: original-professional-qgis-focused
   cancel-in-progress: false
 jobs:
   professional-programs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest]
+        os: [ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -45,30 +45,15 @@ jobs:
         id: professional_source
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: c97bfcc4cfb064aa6bf0145461d0eff13b3a121c
+          ref: b0af2a8a657015fad65e8a642774ad1f3054bae4
           path: professional-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - name: Install isolated exact solver qualification dependencies
         run: |
-          test "$(git -C professional-agent rev-parse HEAD)" = "c97bfcc4cfb064aa6bf0145461d0eff13b3a121c"
+          test "$(git -C professional-agent rev-parse HEAD)" = "b0af2a8a657015fad65e8a642774ad1f3054bae4"
           python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 mesa==3.5.2 simpy==4.1.2 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
           python -c "from importlib.metadata import version; from ortools.sat.python import cp_model; assert version('ortools')=='9.14.6206'; print('ORIGINAL_ORTOOLS_9_14_6206_PRESENT')"
-      - name: Original OR-Tools solver and U01 connection qualification
-        working-directory: professional-agent
-        run: |
-          rc=0
-          python -m pytest -q tests/test_agent067_ortools_allocation.py tests/test_agent067_ortools_scheduling.py tests/test_agent067_ortools_network_flow.py tests/test_agent067_ortools_vehicle_routing.py tests/test_agent067_road_matrix_input.py tests/test_agent067_valhalla_fleet_input.py --junitxml="$RUNNER_TEMP/professional-target.xml" > "$RUNNER_TEMP/professional-target-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-target.xml" ORTOOLS 209 strict || exit 1
-          test "$rc" = 0
-      - name: Existing program and modeling regression
-        if: always() && steps.professional_source.outcome == 'success'
-        working-directory: professional-agent
-        run: |
-          rc=0
-          python -m pytest -q tests/test_public_program_composition.py tests/test_agent065_modeling_experiment.py tests/test_agent065_modeling_cold_readback.py tests/test_agent065_modeling_result_artifacts.py tests/test_agent065_modeling_large_results.py --junitxml="$RUNNER_TEMP/professional-regression.xml" > "$RUNNER_TEMP/professional-regression-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-regression.xml" PROGRAM_REGRESSION 1 relaxed || exit 1
-          test "$rc" = 0
       - name: Install exact native QGIS on Linux
         if: matrix.os == 'ubuntu-24.04'
         run: |
@@ -82,6 +67,7 @@ jobs:
           rc=0
           if [ "$RUNNER_OS" = "Linux" ]; then
             export IWXA_QGIS_PYTHON=/usr/bin/python3
+            unset LD_LIBRARY_PATH
             python -m pytest -q tests/test_agent067_qgis_points.py --junitxml="$RUNNER_TEMP/professional-qgis.xml" > "$RUNNER_TEMP/professional-qgis-private.log" 2>&1 || rc=$?
             python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-qgis.xml" QGIS 22 strict || exit 1
           else
@@ -89,45 +75,6 @@ jobs:
             python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-qgis.xml" QGIS_CONTRACT 21 strict || exit 1
           fi
           test "$rc" = 0
-      - name: Original Valhalla input and result contract
-        if: always() && steps.professional_source.outcome == 'success'
-        working-directory: professional-agent
-        run: |
-          rc=0
-          python -m pytest -q tests/test_agent067_valhalla_road_table.py -k 'not native_core' --junitxml="$RUNNER_TEMP/professional-valhalla-contract.xml" > "$RUNNER_TEMP/professional-valhalla-contract-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-valhalla-contract.xml" VALHALLA_CONTRACT 24 strict || exit 1
-          test "$rc" = 0
-      - name: Build actual original local Valhalla graph and executable
-        id: original_valhalla
-        if: matrix.os == 'ubuntu-24.04' && steps.professional_source.outcome == 'success'
-        run: |
-          bash qualification/professional-geospatial/prepare-native-valhalla.sh "$RUNNER_TEMP/iwxa-native-valhalla"
-      - name: Original native Valhalla approved Core Task and cold readback
-        if: matrix.os == 'ubuntu-24.04' && steps.original_valhalla.outcome == 'success'
-        working-directory: professional-agent
-        run: |
-          rc=0
-          export IWXA_VALHALLA_EXECUTABLE="$RUNNER_TEMP/iwxa-native-valhalla/bin/valhalla_service"
-          export IWXA_VALHALLA_CONFIG="$RUNNER_TEMP/iwxa-native-valhalla/graph/config.json"
-          export LD_LIBRARY_PATH="$RUNNER_TEMP/iwxa-native-valhalla/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          python -m pytest -q tests/test_agent067_valhalla_road_table.py -k native_core --junitxml="$RUNNER_TEMP/professional-valhalla-native.xml" > "$RUNNER_TEMP/professional-valhalla-native-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-valhalla-native.xml" VALHALLA_NATIVE 1 strict || exit 1
-          test "$rc" = 0
-      - name: Original desktop input and result projection tests
-        if: always() && steps.professional_source.outcome == 'success'
-        working-directory: professional-agent/desktop
-        run: |
-          rc=0
-          node --test tests/ortools-allocation-form.test.mjs > "$RUNNER_TEMP/professional-desktop-private.log" 2>&1 || rc=$?
-          node --input-type=module -e 'import fs from "node:fs";const s=fs.readFileSync(process.argv[1],"utf8");for(const k of ["tests","pass","fail","skipped"]){const m=s.match(new RegExp("^# "+k+" ([0-9]+)","m"));if(m)console.log("DESKTOP_ALLOCATION_"+k.toUpperCase()+"="+m[1]);}' "$RUNNER_TEMP/professional-desktop-private.log"
-          test "$rc" = 0
-      - name: Original desktop TypeScript and Vite
-        if: always() && steps.professional_source.outcome == 'success'
-        working-directory: professional-agent/desktop
-        run: |
-          npm ci --ignore-scripts --no-audit --no-fund > "$RUNNER_TEMP/professional-npm-private.log" 2>&1 || { echo PROFESSIONAL_NPM_FAIL; exit 1; }
-          npm run build:core > "$RUNNER_TEMP/professional-build-private.log" 2>&1 || { node --input-type=module -e 'import fs from "node:fs";const s=fs.readFileSync(process.argv[1],"utf8");for(const m of s.matchAll(/(?:error )?(TS[0-9]{4})/g))console.log("DESKTOP_BUILD_CODE="+m[1]);' "$RUNNER_TEMP/professional-build-private.log"; echo PROFESSIONAL_DESKTOP_BUILD_FAIL; exit 1; }
-          echo PROFESSIONAL_DESKTOP_BUILD_PASS
       - name: Remove private source and diagnostics
         if: always()
         run: |
