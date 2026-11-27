@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "cf70b2a3e2d2f9cb17c6d3eee454a1dcb3a12299",
+  "profile": "managed-windows-corrective-native-probe",
+  "pins": {
+    "professionalAgent": "b7f89810b91799f61ccde6f360578c6d40660c71"
+  },
+  "reason": "Verify corrected desktop syntax and diagnose original Windows professional package loading using public vendor binaries only"
+}
