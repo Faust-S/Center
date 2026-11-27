@@ -1,0 +1,11 @@
+{
+  "candidate": "be985b5b6de121b3e53d01ba33e877415af69962",
+  "tree": "ec969e41385d6c9de58c85bdc51f704a217374dc",
+  "original_t3": "1e5d54bba065f0e82cc506a5443b96079d070608",
+  "original_t3_tree": "80f724d21d2acca0394e3694ae4a9a7fd65317bc",
+  "scope": "M17_5_CONSOLIDATED_NATIVE_MULTIMODAL_AND_INDEPENDENT_EXPORT_WITNESS",
+  "reason": "M16_7_OBSERVED_NATIVE_SPEECH_TTS_VOICE_EXPORT_FAILURES_REPLACE_COMPOUND_UIAUTOMATION_SHELL_WITH_EXACT_HOST_ADB",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "422270ba0a1013858d1c3867d8f43a19dd42b1b9"
+}
