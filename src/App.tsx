@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
-import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback, compareAtlasSourceCopies, selectAtlasReferenceSource, selectAtlasTargetWorkspace, atlasWorkspaceBindingMatches} from './atlas-integration.mjs';
+import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback, compareAtlasSourceCopies, selectAtlasReferenceSource, selectAtlasTargetWorkspace, atlasWorkspaceBindingMatches, prepareAtlasAssignmentFields, atlasResourceForWork} from './atlas-integration.mjs';
 import {readAtlasSourceFile} from './atlas-file-import.mjs';
 import NativeAtlasPanel from './NativeAtlasPanel';
 import CorporatePanel from './CorporatePanel';
@@ -19,9 +19,9 @@ type Participant = {id: string; name: string; roleLabel: string; credentialState
 type AtlasRef = {projectId:string;revision:string;workId?:string};
 type SourceResultRef={organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string};
 type Assignment = {sourceResultRef?:SourceResultRef|null;id: string; title: string; workspaceId: string; assigneeId: string | null; reviewerId: string | null; description: string; criteria: string; dueDate: string; priority: string; editNumber: number; status: string; atlasRef: AtlasRef|null; createdAt: string; updatedAt: string};
-type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string; atlasRef?: AtlasRef|null}[]; participants: Participant[]; assignments: Assignment[]};
+type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string; atlasRef?: AtlasRef|null}[]; participants: Participant[]; assignments: Assignment[];atlasResourceBindings?:{resourceId:string;participantId:string}[]};
 type Draft = {format: string; version: number; organizations: Organization[]; activeOrganizationId: string | null; updatedAt: string};
-type AtlasPortfolioView = {source:string;revision:string;authorization:string;mode:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
+type AtlasPortfolioView = {source:string;revision:string;authorization:string;mode:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string;assignee:string;resourceId:string|null;resourceLabel:string;allocationPct:number|null}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
 type AtlasCopyDelta={previousRevision:string;revision:string;sharedProjects:number;addedProjects:number;removedProjects:number;changedProjects:number;addedWorks:number;removedWorks:number;changedWorks:number;changedDependencies:number;revisionRelation:string;contentChanged:boolean};
 type Editor = {sourceResultRef:SourceResultRef|null;assignmentId?: string; expectedEditNumber?: number; title: string; workspaceId: string; assigneeId: string; reviewerId: string; description: string; criteria: string; dueDate: string; priority: string; atlasRef: AtlasRef|null};
 type Page = 'overview'|'context'|'work'|'results'|'resources'|'people'|'programs'|'data';
@@ -55,7 +55,10 @@ const errors: Record<string,string> = {
   ATLAS_SOURCE_IWXA_INVALID:'Не удалось открыть архив .iwxa. Файл повреждён или содержит неподдерживаемые данные.',
   ATLAS_SOURCE_DIGEST_UNAVAILABLE:'Не удалось сравнить содержимое архива на этом компьютере.',
   ATLAS_PROJECT_NOT_IN_PREVIEW:'Выбранный проект отсутствует в открытом портфеле Atlas.',
-  ATLAS_WORK_NOT_IN_PREVIEW:'Выбранная работа отсутствует в открытом проекте Atlas.'
+  ATLAS_WORK_NOT_IN_PREVIEW:'Выбранная работа отсутствует в открытом проекте Atlas.',
+  ATLAS_SOURCE_REVISION_CHANGED:'Редакция Atlas изменилась. Выберите работу из актуального плана.',
+  ATLAS_INSTALLED_SOURCE_REQUIRED:'Связь ресурса с сотрудником устанавливается по установленному Atlas.',
+  ATLAS_WORK_RESOURCE_REQUIRED:'У выбранной работы нет планового ресурса.'
 };
 
 async function nativeInvoke(command: string, args?: Record<string, unknown>): Promise<any> {
@@ -493,7 +496,18 @@ export default function App() {
     setError('');
     setMessage('Ссылка на открытую редакцию обновлена в редакторе. Чтобы сохранить её, сохраните черновик поручения.');
   };
-  const prepareAtlasWork = (ref: AtlasRef, selectedWorkspaceId=atlasWorkspace) => {
+  const bindAtlasResource=(ref:AtlasRef,workspaceId:string,participantId:string,source:AtlasPortfolioView)=>{
+    if(!org)return;
+    const workspace=org.workspaces.find(w=>w.id===workspaceId);
+    if(!atlasWorkspaceBindingMatches(workspace,ref)){
+      setError('Сначала свяжите проект Atlas с рабочей областью организации.');return;
+    }
+    try{
+      const resourceId=atlasResourceForWork(source,ref);
+      command({type:'LINK_ATLAS_RESOURCE_PARTICIPANT',organizationId:org.id,resourceId,participantId:participantId||null});
+    }catch(e){problem(e);}
+  };
+  const prepareAtlasWork = (ref: AtlasRef, selectedWorkspaceId=atlasWorkspace,source:AtlasPortfolioView|null=observedAtlas) => {
     if (!org) return;
     if (editor) {
       setError('Сохраните или закройте открытый редактор перед выбором другой работы Atlas.');
@@ -504,9 +518,16 @@ export default function App() {
       setError('Выберите рабочую область и свяжите её с этой редакцией проекта Atlas.');
       return;
     }
-    editorBaselineRef.current=JSON.stringify(initialEditor(org));
-    setEditor({...initialEditor(org),workspaceId:workspace.id,atlasRef:ref});
-    setError('');go('work');
+    try{
+      const {titleNeedsEdit,...fields}=prepareAtlasAssignmentFields(source,ref,org);
+      const next:Editor={...initialEditor(org),...fields,workspaceId:workspace.id,atlasRef:ref};
+      editorBaselineRef.current=JSON.stringify(next);
+      setEditor(next);
+      setError('');
+      setMessage(titleNeedsEdit?'Название работы Atlas слишком длинное для поручения. Введите короткое название.':
+        'Поля поручения заполнены из выбранной работы Atlas. Уточните исполнителя и критерии приёмки.');
+      go('work');
+    }catch(e){problem(e);}
   };
   const importAtlas = async (file: File) => {
     const organizationId=org?.id;
@@ -768,7 +789,8 @@ export default function App() {
         <NativeAtlasPanel key={org.id} organizationId={org.id} workspaces={org.workspaces}
           targetWorkspaceId={atlasWorkspace} onChooseWorkspace={setAtlasWorkspace}
           onLink={(ref,workspaceId)=>command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref})}
-          onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
+          participants={org.participants} resourceBindings={org.atlasResourceBindings??[]}
+          onBindResource={bindAtlasResource} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
         <div className="card nested-form" data-testid="atlas-link-panel">
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
           <p className="muted">Откройте архив проектов .iwxa из Atlas. Для проверки изменений повторно выберите файл через ту же кнопку. Старые копии JSON также поддерживаются. Ссылки на поручения автоматически не меняются.</p>
@@ -812,7 +834,7 @@ export default function App() {
             </form>}
             {!!atlasSelected && atlasView.projects.find(p=>p.id===atlasSelected)?.workItems.map(item=>
               <button type="button" key={item.id} className="secondary" data-testid="atlas-file-work-to-assignment" disabled={!fileAtlasBindingCurrent}
-                onClick={()=>{if(fileAtlasTarget&&fileAtlasBindingCurrent)prepareAtlasWork(linkableAtlasWork(atlasView,atlasSelected,item.id),fileAtlasTarget.id);}}>Подготовить поручение: {item.title}</button>)}
+                onClick={()=>{if(fileAtlasTarget&&fileAtlasBindingCurrent)prepareAtlasWork(linkableAtlasWork(atlasView,atlasSelected,item.id),fileAtlasTarget.id,atlasView);}}>Подготовить поручение: {item.title}</button>)}
             <p className="muted fine-print">Открыта копия портфеля Atlas, редакция {atlasView.revision}. Это снимок, а не синхронизация. Перед выдачей поручения проверьте актуальность проекта в Atlas и права на него.</p>
           </> : <Empty title="Откройте портфель Atlas" text="Когда вы выберете файл экспорта Atlas, здесь появятся проекты, прогресс и зависимости."/>}
           {org.workspaces.some(w=>w.atlasRef)&&<div className="atlas-link-readback">{org.workspaces.filter(w=>w.atlasRef).map(w=><p key={w.id}><strong>{w.name}:</strong> {w.atlasRef?.projectId} · {atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_MATCHES'?'Редакция совпадает':atlasLinkReadback(atlasView,w.atlasRef)==='SOURCE_REVISION_CHANGED'?'Редакция плана изменилась':atlasView?'Проект отсутствует в открытом файле':'Файл Atlas не открыт'}</p>)}</div>}
@@ -867,6 +889,7 @@ export default function App() {
             <label>Рабочая область<select value={editor.workspaceId} onChange={e=>editorField('workspaceId',e.target.value)}>{org.workspaces.map(w=><option value={w.id} key={w.id}>{w.name}</option>)}</select></label>
             <label>Срок<input type="date" value={editor.dueDate} onChange={e=>editorField('dueDate',e.target.value)}/></label>
             <label>Исполнитель<select value={editor.assigneeId} onChange={e=>editorField('assigneeId',e.target.value)}><option value="">Выбрать позже</option>{org.participants.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+            <label>Приоритет<select value={editor.priority} onChange={e=>editorField('priority',e.target.value)}><option value="normal">Обычный</option><option value="high">Высокий</option></select></label>
             <label>Кто принимает результат<select value={editor.reviewerId} onChange={e=>editorField('reviewerId',e.target.value)}><option value="">Выбрать позже</option>{org.participants.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
           </div>
           <label>Описание<textarea rows={3} maxLength={6000} value={editor.description} onChange={e=>editorField('description',e.target.value)} placeholder="Входные сведения и ожидаемый результат"/></label>

@@ -7,16 +7,19 @@ import {createCen05NativePort,describeCen05Status,describeCen05Error,presentatio
 const isDesktop=()=>Boolean((window as any).__TAURI_INTERNALS__);
 const invoke=(name:string,args:any)=>(window as any).__TAURI_INTERNALS__.invoke(name,args);
 type Session={organizationId:string;generation:string;snapshot:any;sourceKind:'CENTER_LOCAL_PREPARATION'|'PUBLIC_ATLAS_READ_ONLY'};
-type View={source:string;revision:string;mode:string;authorization:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
+type View={source:string;revision:string;mode:string;authorization:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string;assignee:string;resourceId:string|null;resourceLabel:string;allocationPct:number|null}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
 type PlanView={projectId:string;revision:string;projectedFinish:string|null;deadlineSlipDays:number|null;
  totals:{ready:number;waiting:number;review:number;blocked:number;no_dates:number};
  works:Array<{id:string;label:string;startDate:string|null;finishDate:string|null;reasons:string[];
-  resource:{label:string;allocationPct:number}|null}>;note:string};
+  resource:{id:string;label:string;allocationPct:number}|null}>;note:string};
 type WorkspaceChoice={id:string;name:string;atlasRef?:{projectId:string;revision:string}|null};
-export default function NativeAtlasPanel({organizationId,workspaces,targetWorkspaceId,onChooseWorkspace,onLink,onLinkWork,onObserved}:{
+export default function NativeAtlasPanel({organizationId,workspaces,targetWorkspaceId,onChooseWorkspace,onLink,onLinkWork,onObserved,participants,resourceBindings,onBindResource}:{
  organizationId:string;workspaces:WorkspaceChoice[];targetWorkspaceId:string;onChooseWorkspace:(id:string)=>void;
  onLink:(ref:{projectId:string;revision:string},workspaceId:string)=>boolean;
  onLinkWork:(ref:{projectId:string;revision:string;workId:string},workspaceId:string,source:View)=>void;
+ participants:{id:string;name:string}[];
+ resourceBindings:{resourceId:string;participantId:string}[];
+ onBindResource:(ref:{projectId:string;revision:string;workId:string},workspaceId:string,participantId:string,source:View)=>void;
  onObserved?:(organizationId:string,view:View|null)=>void}){
  const [session,setSession]=useState<Session|null>(null);
  const [view,setView]=useState<View|null>(null);
@@ -106,6 +109,8 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
    ?linkableAtlasWork(view,selected,selectedWork)
    :null;
  const selectedPlanWork=planning.plan?.works.find(w=>w.id===selectedWork);
+ const resourceId=selectedPlanWork?.resource?.id;
+ const boundParticipantId=resourceBindings.find(row=>row.resourceId===resourceId)?.participantId??'';
  const hasSelectedWork=!!selectedProject?.workItems.some(w=>w.id===selectedWork);
  const bindingForSelectedWork=presentationMatchesWork(presentation,selectedWorkRef&&{
    organizationId,...selectedWorkRef
@@ -139,6 +144,17 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
          <p className="muted">{selectedPlanWork.startDate??'Начало не определено'} / {selectedPlanWork.finishDate??'Завершение не определено'}
            {selectedPlanWork.resource&&<> · {selectedPlanWork.resource.label} ({selectedPlanWork.resource.allocationPct}%)</>}</p>
          {!!selectedPlanWork.reasons.length&&<p className="muted">{selectedPlanWork.reasons.join('; ')}</p>}
+         {selectedWorkRef&&resourceId&&view&&<div className="inline-form">
+           <label>Сотрудник для планового ресурса
+             <select value={boundParticipantId} disabled={busy||!target||!bindingCurrent}
+               data-testid="native-atlas-resource-participant"
+               onChange={e=>{if(target&&bindingCurrent)onBindResource(selectedWorkRef,target.id,e.target.value,view);}}>
+               <option value="">Не связан с сотрудником</option>
+               {participants.map(person=><option key={person.id} value={person.id}>{person.name}</option>)}
+             </select>
+           </label>
+           <small className="muted">Связь используется в новых черновиках этой организации, но не выдаёт полномочия.</small>
+         </div>}
        </div>}
        <p className="muted">{planning.plan.note}</p>
      </div>}
