@@ -18,10 +18,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
-      PRIVATE_PIN: '488f9a734d92f0fdfab10e59b2cdeb56690fc3d5'
-      PRIVATE_TREE: '732d370526de54a457a3cf81ba4954e478369575'
-      T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
-      T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
+      PRIVATE_PIN: 'c5b03e1462f131b3c5f508f0db63f1108b3dffdc'
+      PRIVATE_TREE: '3fc5a57fda76d8769b959768d860c233b7d54578'
+      T3_PIN: 'ff27d248d224d04d8d06142842bad9087d9ab277'
+      T3_TREE: '02ce7263c3122d5f9fa1580ff9948996a4e4c9eb'
     steps:
       - name: Checkout exact public request for admission
         uses: actions/checkout@v4
@@ -443,7 +443,7 @@ jobs:
                           if name in ("SOURCE","ASSEMBLY") and outcome.returncode==0:
                               # Exact accumulated source suite; no skip or todo.
                               node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
-                              if any(node_counts[label]!=[value] for label,value in {"tests":"809","pass":"809","fail":"0","skipped":"0","todo":"0"}.items()):
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"875","pass":"875","fail":"0","skipped":"0","todo":"0"}.items()):
                                   status(name,"NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
