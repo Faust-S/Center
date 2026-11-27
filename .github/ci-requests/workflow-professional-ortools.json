@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "35d78fbe5911a3219bad70893a61709540175791",
+  "profile": "public-upstream-wheel-readback",
+  "pins": {
+    "professionalAgent": "b7f89810b91799f61ccde6f360578c6d40660c71"
+  },
+  "reason": "Run only public original Windows wheel diagnostics with UTF-8 pip report decoding"
+}
