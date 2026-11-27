@@ -3,7 +3,8 @@ import json
 import os
 import sys
 from pathlib import Path
-from installed_evidence import clean_result, upgrade_result, lock_ok
+from installed_evidence import (clean_result, upgrade_result, lock_ok, clean_setup_diagnostics,
+                                MANUAL_GUI_STAGES)
 from release_gate import (SETUP_PIN, verdict, checkout_setup_owner, verify_setup_build,
                           verify_receipt_preflight, build_frozen_baseline, file_sha256,
                           read_json, witness_diagnostics, UPGRADE_FAILURE_CODES, UPGRADE_PHASES)
@@ -43,7 +44,7 @@ def upgrade_diagnostics(data):
         *('INSTALLED_BROWSER_FILES_GUI_FAILED_'+s.upper() for s in ('configure','open','blocked','download','blocked-again','upload','read')),
         *('INSTALLED_BROWSER_SNAPSHOT_PROBE_FAILED_'+s.upper() for s in ('initial','ready','attached','revoked','external','cold')),
         *('INSTALLED_BROWSER_SNAPSHOT_GUI_FAILED_SNAPSHOT-'+s.upper() for s in ('open','connect','attach','t3-on','t3-off','close')),
-        *('INSTALLED_BROWSER_MANUAL_GUI_FAILED_'+s.upper() for s in ('window','open','navigation','tab_isolation','form','popup','reopen','receipt','unknown'))}
+        *('INSTALLED_BROWSER_MANUAL_GUI_FAILED_'+s.upper() for s in MANUAL_GUI_STAGES)}
     for key,allowed in (('PHASE',phases),('FAILURE_CODE',codes)):
         prefix='AGENT066_UPGRADE_'+key+'='
         matches=[l[len(prefix):] for l in data.splitlines() if l.startswith(prefix)]
@@ -106,6 +107,7 @@ def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False):
         except (OSError,ValueError,TypeError,AttributeError):good=False
         verdict(q,'SETUP_RELEASE',good)
         if not good:
+            for name,value in clean_setup_diagnostics(out).items():print(name+'='+value,flush=True)
             for name,value in witness_diagnostics(out).items():print(name+'='+value,flush=True)
     if not good:q.diagnostics(label,data)
     verdict(q,'COMMITTED_NATIVE_LOCK_AFTER',lock_ok(q.src/LOCK,NEW_LOCK,'0.6.6'))

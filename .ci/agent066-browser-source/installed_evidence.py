@@ -68,3 +68,95 @@ def upgrade_result(row, old_pin, old_tree, new_pin, new_tree, old_hash, new_hash
                             'old_setup_sha256':old_hash,'new_setup_sha256':new_hash,
                             'preserved_storage_roots':4}, UPGRADE_REQUIRED)
             and exact(row.get('new_install_witness'), BROWSER_STATES, BROWSER_REQUIRED))
+
+
+# Diagnostic projection only. The original owner validates all semantic
+# postconditions; a reported receipt status alone is never a release PASS.
+CLEAN_PHASES = frozenset(('LOCAL_ACCEPTANCE','LOCAL_ACCEPTANCE_READBACK',
+                          'NATIVE_RUNTIME_READBACK','ROLLBACK','ROLLBACK_READBACK','FINAL_RECEIPT'))
+MANUAL_GUI_STAGES = ('window','open','open_preview','open_control','open_native','open_native_error',
+                     'open_native_profile','open_native_create','open_native_shell','open_native_layout',
+                     'open_native_state','navigation','tab_isolation','form','popup','reopen','receipt','unknown')
+CLEAN_CHECKPOINTS = (
+    ('INSPECTION','identity.json','VERIFIED'),
+    ('PREFLIGHT','preflight.json','READY_FOR_FIRST_INSTALL'),
+    ('INSTALL','installed.json','INSTALLED_NOT_LAUNCHED'),
+    ('INSTALLED_FILES','verified.json','OWNED_FILES_VERIFIED'),
+    ('LOCATIONS','locations-readback.json','LOCATIONS_VERIFIED'),
+    ('RUNTIME_WITNESS','installed-witness.json','PASS'),
+    ('REPAIR','repair.json','REPAIRED_BACKUP_RETAINED'),
+    ('REPAIR_FILES','verified-after-repair.json','OWNED_FILES_VERIFIED'),
+    ('CONFIRM','confirmed.json','UPGRADE_CONFIRMED_OLD_RELEASE_REMOVED'),
+    ('UNINSTALL','removed.json','UNINSTALLED_USER_DATA_PRESERVED'),
+)
+ROLLBACK_CHECKPOINTS = (
+    ('ROLLBACK_INSPECTION','inspect.json','VERIFIED'),
+    ('ROLLBACK_PREFLIGHT','preflight.json','READY_FOR_FIRST_INSTALL'),
+    ('ROLLBACK_INSTALL','installed.json','INSTALLED_NOT_LAUNCHED'),
+    ('ROLLBACK_INSTALLED_FILES','before.json','OWNED_FILES_VERIFIED'),
+    ('ROLLBACK_REPAIR','repair.json','REPAIRED_BACKUP_RETAINED'),
+    ('ROLLBACK_REPAIR_FILES','repaired.json','OWNED_FILES_VERIFIED'),
+    ('ROLLBACK_RESTORE','rollback.json','ROLLBACK_RESTORED_PREVIOUS'),
+    ('ROLLBACK_RESTORED_FILES','restored.json','OWNED_FILES_VERIFIED'),
+    ('ROLLBACK_UNINSTALL','uninstalled.json','UNINSTALLED_USER_DATA_PRESERVED'),
+    ('ROLLBACK_WITNESS','rollback-witness.json','PASS'),
+)
+
+
+def diagnostic_status(path, expected):
+    try:
+        if path.is_symlink() or path.parent.is_symlink():
+            return 'INVALID'
+        if not path.exists():
+            return 'MISSING'
+        if not path.is_file() or not 0 < path.stat().st_size <= 2_000_000:
+            return 'INVALID'
+        raw = path.read_bytes()
+        if len(raw) > 2_000_000:
+            return 'INVALID'
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError('duplicate field')
+                result[key] = value
+            return result
+        value = json.loads(raw.decode('utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'),
+                           object_pairs_hook=unique)
+        if type(value) is not dict or type(value.get('status')) is not str:
+            return 'INVALID'
+        return 'REPORTED' if value['status'] == expected else 'UNCONFIRMED'
+    except (OSError, ValueError, TypeError, UnicodeError):
+        return 'INVALID'
+
+
+def clean_setup_diagnostics(out):
+    phase = 'UNAVAILABLE'
+    marker = out/'logs'/'clean-setup-phase.status'
+    try:
+        if not marker.is_symlink() and not marker.parent.is_symlink() and 0 < marker.stat().st_size <= 64:
+            raw = marker.read_bytes()
+            for allowed in CLEAN_PHASES:
+                if raw == allowed.encode('ascii'):
+                    phase = allowed
+                    break
+    except OSError:
+        pass
+    result = {'SETUP_CLEAN_LAST_ATTEMPTED_PHASE':phase}
+    if phase in ('ROLLBACK','ROLLBACK_READBACK'):
+        root, checkpoints = out/'temporary-rollback-fixture', ROLLBACK_CHECKPOINTS
+    elif phase in ('LOCAL_ACCEPTANCE','LOCAL_ACCEPTANCE_READBACK','NATIVE_RUNTIME_READBACK','UNAVAILABLE'):
+        root, checkpoints = out/'temporary-installed-fixture', CLEAN_CHECKPOINTS
+    else:
+        result.update(SETUP_CLEAN_UNCONFIRMED_CHECKPOINT='FINAL_RECEIPT', SETUP_CLEAN_CHECKPOINT_STATE='UNCONFIRMED')
+        return result
+    for checkpoint, filename, status in checkpoints:
+        state = diagnostic_status(root/filename,status)
+        if state != 'REPORTED':
+            result.update(SETUP_CLEAN_UNCONFIRMED_CHECKPOINT=checkpoint,SETUP_CLEAN_CHECKPOINT_STATE=state)
+            return result
+    # All expected status strings exist; the exact owner postconditions or
+    # caller verification still failed. Do not assign a synthetic PASS.
+    result.update(SETUP_CLEAN_UNCONFIRMED_CHECKPOINT='OWNER_POSTCONDITIONS',
+                  SETUP_CLEAN_CHECKPOINT_STATE='UNCONFIRMED')
+    return result

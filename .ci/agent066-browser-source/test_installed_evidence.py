@@ -4,7 +4,9 @@ from pathlib import Path
 import tempfile
 import unittest
 from installed_evidence import (SETUP_PIN, SETUP_REQUIRED, UPGRADE_REQUIRED, BROWSER_REQUIRED,
-                                BROWSER_STATES, clean_result, upgrade_result, lock_ok)
+                                BROWSER_STATES, clean_result, upgrade_result, lock_ok,
+                                CLEAN_CHECKPOINTS, ROLLBACK_CHECKPOINTS, MANUAL_GUI_STAGES,
+                                clean_setup_diagnostics, diagnostic_status)
 
 OLD, OT, NEW, NT, OH, NH = 'a'*40, 'b'*40, 'c'*40, 'd'*40, 'e'*64, 'f'*64
 
@@ -61,5 +63,61 @@ class EvidenceTests(unittest.TestCase):
             self.assertFalse(lock_ok(p,blob,'0.6.5'))
             p.write_bytes(raw+b' '); self.assertFalse(lock_ok(p,blob,'0.6.6'))
             p.unlink(); self.assertFalse(lock_ok(p,blob,'0.6.6'))
+
+class CleanDiagnosticTests(unittest.TestCase):
+    def create(self, base, phase, sequence, limit=None):
+        logs=base/'logs'; logs.mkdir()
+        (logs/'clean-setup-phase.status').write_bytes(phase.encode('ascii'))
+        root=base/('temporary-rollback-fixture' if phase.startswith('ROLLBACK') else 'temporary-installed-fixture')
+        root.mkdir()
+        for _,filename,status in sequence[:limit]:
+            (root/filename).write_text(json.dumps({'status':status,'private_value':'never copy'}),encoding='utf-8')
+        return root
+
+    def test_first_incomplete_checkpoint_for_every_owner_stage(self):
+        for phase,sequence in (('LOCAL_ACCEPTANCE',CLEAN_CHECKPOINTS),('ROLLBACK',ROLLBACK_CHECKPOINTS)):
+            for index,(checkpoint,filename,_) in enumerate(sequence):
+                with self.subTest(phase=phase,checkpoint=checkpoint), tempfile.TemporaryDirectory() as d:
+                    out=Path(d); root=self.create(out,phase,sequence,index)
+                    actual=clean_setup_diagnostics(out)
+                    self.assertEqual(actual,{'SETUP_CLEAN_LAST_ATTEMPTED_PHASE':phase,
+                                     'SETUP_CLEAN_UNCONFIRMED_CHECKPOINT':checkpoint,
+                                     'SETUP_CLEAN_CHECKPOINT_STATE':'MISSING'})
+                    (root/filename).write_text('{"status":"FAIL","reason":"private content"}')
+                    self.assertEqual(clean_setup_diagnostics(out)['SETUP_CLEAN_CHECKPOINT_STATE'],'UNCONFIRMED')
+
+    def test_full_status_chain_is_not_acceptance(self):
+        for phase,sequence in (('LOCAL_ACCEPTANCE_READBACK',CLEAN_CHECKPOINTS),('ROLLBACK_READBACK',ROLLBACK_CHECKPOINTS)):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as d:
+                out=Path(d); self.create(out,phase,sequence)
+                self.assertEqual(clean_setup_diagnostics(out),{'SETUP_CLEAN_LAST_ATTEMPTED_PHASE':phase,
+                                 'SETUP_CLEAN_UNCONFIRMED_CHECKPOINT':'OWNER_POSTCONDITIONS',
+                                 'SETUP_CLEAN_CHECKPOINT_STATE':'UNCONFIRMED'})
+
+    def test_invalid_duplicate_and_encoded_receipts(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'receipt.json'
+            p.write_bytes('{"status":"PASS"}'.encode('utf-16'))
+            self.assertEqual(diagnostic_status(p,'PASS'),'REPORTED')
+            for raw in (b'{"status":"FAIL","status":"PASS"}',b'{"status":true}',b'[]',b'\xff',b''):
+                p.write_bytes(raw); self.assertEqual(diagnostic_status(p,'PASS'),'INVALID')
+            p.write_bytes(b'x'*2_000_001)
+            self.assertEqual(diagnostic_status(p,'PASS'),'INVALID')
+
+    def test_unknown_phase_or_later_receipt_cannot_leak_or_skip(self):
+        with tempfile.TemporaryDirectory() as d:
+            out=Path(d); root=self.create(out,'LOCAL_ACCEPTANCE',CLEAN_CHECKPOINTS)
+            (out/'logs'/'clean-setup-phase.status').write_bytes(b'PRIVATE_PATH')
+            (root/'identity.json').unlink()
+            self.assertEqual(clean_setup_diagnostics(out),{'SETUP_CLEAN_LAST_ATTEMPTED_PHASE':'UNAVAILABLE',
+                             'SETUP_CLEAN_UNCONFIRMED_CHECKPOINT':'INSPECTION','SETUP_CLEAN_CHECKPOINT_STATE':'MISSING'})
+
+    def test_final_receipt_and_all_new_manual_stages(self):
+        with tempfile.TemporaryDirectory() as d:
+            out=Path(d); self.create(out,'FINAL_RECEIPT',())
+            self.assertEqual(clean_setup_diagnostics(out),{'SETUP_CLEAN_LAST_ATTEMPTED_PHASE':'FINAL_RECEIPT',
+                             'SETUP_CLEAN_UNCONFIRMED_CHECKPOINT':'FINAL_RECEIPT','SETUP_CLEAN_CHECKPOINT_STATE':'UNCONFIRMED'})
+        self.assertTrue(set('open_native_'+kind for kind in ('error','profile','create','shell','layout','state'))<=set(MANUAL_GUI_STAGES))
+        self.assertEqual(len(MANUAL_GUI_STAGES),len(set(MANUAL_GUI_STAGES)))
 
 if __name__=='__main__': unittest.main()
