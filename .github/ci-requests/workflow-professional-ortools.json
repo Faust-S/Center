@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "b6d9413a772c83f2eb54e1cbdddae3fe5b8bb488",
+  "profile": "declared-road-matrix-input",
+  "pins": {
+    "professionalAgent": "b69c81d4f1e0bd1f605642bfe7b45987f7a54fef"
+  },
+  "reason": "Qualify exact external road matrix projection, declared provenance, native RoutingModel and approved cold result"
+}
