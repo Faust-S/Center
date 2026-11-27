@@ -1,6 +1,6 @@
 {
-  "candidate": "4d58a592c709f6ee0422e95c7e79378c7eb16fd3",
-  "tree": "c9f46d3a45d2f59afef51e8849ae565d3072ee9b",
+  "candidate": "6ae871b1f44f3ae6d43db5217674258e3fe349a0",
+  "tree": "217284440b1cfca047e1b33df9d5e80bc09f21db",
   "baseline": "68128b4c9a2c7140ec3503ff0f775e5bcb50743e",
   "baseline_tree": "73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2",
   "scope": "B066_UPGRADE_DIAGNOSTIC",

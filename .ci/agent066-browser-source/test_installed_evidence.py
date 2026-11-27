@@ -7,7 +7,7 @@ from installed_evidence import (SETUP_PIN, SETUP_REQUIRED, UPGRADE_REQUIRED, BRO
                                 BROWSER_STATES, clean_result, upgrade_result, lock_ok,
                                 CLEAN_CHECKPOINTS, ROLLBACK_CHECKPOINTS, MANUAL_GUI_STAGES,
                                 clean_setup_diagnostics, diagnostic_status, preview_dom_diagnostics,
-                                PREVIEW_DOM_STATES, PREVIEW_DOM_CONTROLS)
+                                PREVIEW_DOM_STATES, PREVIEW_DOM_CONTROLS, navigation_http_diagnostics)
 
 OLD, OT, NEW, NT, OH, NH = 'a'*40, 'b'*40, 'c'*40, 'd'*40, 'e'*64, 'f'*64
 
@@ -235,5 +235,15 @@ class CleanDiagnosticTests(unittest.TestCase):
         for bad in ('private','PANE_VISIBLE\nAGENT066_PREVIEW_DOM_STATE=PANE_VISIBLE','PANE_VISIBLE '):
             self.assertEqual(preview_dom_diagnostics('AGENT066_PREVIEW_DOM_STATE='+bad),{})
         self.assertEqual(preview_dom_diagnostics('prefix AGENT066_PREVIEW_DOM_STATE=PANE_VISIBLE'),{})
+
+    def test_navigation_stage_and_http_projection(self):
+        self.assertTrue({'navigation_address_control','navigation_address_focus','navigation_address_input','navigation_address_readback','navigation_go','navigation_initial_page','navigation_initial_address','navigation_link','navigation_link_page','navigation_link_address','navigation_back','navigation_back_page','navigation_back_address','navigation_forward','navigation_forward_page','navigation_forward_address','navigation_reload','navigation_reload_page','navigation_reload_address','navigation_return'} <= set(MANUAL_GUI_STAGES))
+        for page in ('A','B'):
+            for value in ('NONE','ONCE','MULTIPLE'):
+                self.assertEqual(navigation_http_diagnostics('AGENT066_NAVIGATION_HTTP_'+page+'='+value),
+                                 {'NAVIGATION_HTTP_'+page:value})
+        for invalid in ('private','ONCE ','1','ONCE\nAGENT066_NAVIGATION_HTTP_A=ONCE'):
+            self.assertEqual(navigation_http_diagnostics('AGENT066_NAVIGATION_HTTP_A='+invalid),{})
+        self.assertEqual(navigation_http_diagnostics('prefix AGENT066_NAVIGATION_HTTP_A=ONCE'),{})
 
 if __name__=='__main__': unittest.main()

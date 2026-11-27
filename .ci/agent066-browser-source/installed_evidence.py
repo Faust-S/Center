@@ -77,7 +77,7 @@ CLEAN_PHASES = frozenset(('LOCAL_ACCEPTANCE','LOCAL_ACCEPTANCE_READBACK',
                           'NATIVE_RUNTIME_READBACK','ROLLBACK','ROLLBACK_READBACK','FINAL_RECEIPT'))
 MANUAL_GUI_STAGES = ('window','open','open_preview','open_preview_control','open_preview_missing','open_preview_disabled','open_preview_offscreen','open_preview_ambiguous','open_preview_invalid','open_preview_bootstrap','open_preview_session','open_preview_render','open_preview_activate','open_preview_foreground','open_preview_ready','open_preview_readback','open_preview_readback_expanded','open_preview_readback_collapsed','open_preview_readback_pane_offscreen','open_preview_readback_ready','open_preview_readback_disabled','open_preview_readback_unobserved','open_control','open_native','open_native_error',
                      'open_native_profile','open_native_create','open_native_shell','open_native_layout',
-                     'open_native_state','navigation','tab_isolation','form','popup','reopen','receipt','unknown')
+                     'open_native_state','navigation','navigation_address_control','navigation_address_focus','navigation_address_input','navigation_address_readback','navigation_go','navigation_initial_page','navigation_initial_address','navigation_link','navigation_link_page','navigation_link_address','navigation_back','navigation_back_page','navigation_back_address','navigation_forward','navigation_forward_page','navigation_forward_address','navigation_reload','navigation_reload_page','navigation_reload_address','navigation_return','tab_isolation','form','popup','reopen','receipt','unknown')
 CLEAN_CHECKPOINTS = (
     ('INSPECTION','identity.json','VERIFIED'),
     ('PREFLIGHT','preflight.json','READY_FOR_FIRST_INSTALL'),
@@ -271,4 +271,14 @@ def preview_dom_diagnostics(data):
         rows = [line[len(prefix):] for line in data.splitlines() if line.startswith(prefix)]
         if len(rows) == 1 and rows[0] in allowed:
             result['PREVIEW_DOM_' + key] = rows[0]
+    return result
+
+def navigation_http_diagnostics(data):
+    """Only fixture request occurrence categories may leave the private runner."""
+    result = {}
+    for page in ('A','B'):
+        prefix = 'AGENT066_NAVIGATION_HTTP_' + page + '='
+        rows = [line[len(prefix):] for line in data.splitlines() if line.startswith(prefix)]
+        if len(rows) == 1 and rows[0] in ('NONE','ONCE','MULTIPLE'):
+            result['NAVIGATION_HTTP_' + page] = rows[0]
     return result

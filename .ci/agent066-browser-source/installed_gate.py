@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 from installed_evidence import (clean_result, upgrade_result, lock_ok, clean_setup_diagnostics,
-                                MANUAL_GUI_STAGES, preview_dom_diagnostics)
+                                MANUAL_GUI_STAGES, preview_dom_diagnostics, navigation_http_diagnostics)
 from release_gate import (SETUP_PIN, verdict, checkout_setup_owner, verify_setup_build,
                           verify_receipt_preflight, build_frozen_baseline, file_sha256,
                           read_json, witness_diagnostics, UPGRADE_FAILURE_CODES, UPGRADE_PHASES)
@@ -51,7 +51,7 @@ def upgrade_diagnostics(data):
         if len(matches)==1 and matches[0] in allowed:
             print('UPGRADE_WITNESS_'+key+'='+matches[0],flush=True)
 
-    for name,value in preview_dom_diagnostics(data).items():
+    for name,value in {**preview_dom_diagnostics(data), **navigation_http_diagnostics(data)}.items():
         print(name+'='+value,flush=True)
 
 
