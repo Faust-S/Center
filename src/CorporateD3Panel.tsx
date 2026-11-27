@@ -91,7 +91,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [applySelection,setApplySelection]=useState<{acceptanceId:string;revisionIds:string[]}|null>(null);
  const [kernelRecovery,setKernelRecovery]=useState<any>(null);
  const [atlasPublication,setAtlasPublication]=useState<{
-   key:string;grantStatus?:string;preview?:any;outcome?:any;attempted?:boolean
+   key:string;grantStatus?:string;preview?:any;outcome?:any;attempted?:boolean;appliedObserved?:boolean
  }|null>(null);
  const [followUp,setFollowUp]=useState<{key:string;result:string;selection:AppliedResultDraftSelection}|null>(null);
  const [recoverPrevious,setRecoverPrevious]=useState(false);
@@ -149,7 +149,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setSelectedRevisions([]);setApplication(null);setApplyConsent(false);
    setApplyAttempted(false);setKernelResult(null);
    setApplySelection(null);setKernelRecovery(null);setRecoverPrevious(false);
-   setWorkspacePreflight(null);
+   setWorkspacePreflight(null);setAtlasPublication(null);
  };
  useEffect(()=>{
    if(previous.current!==sessionKey){
@@ -342,6 +342,14 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    session.organizationId,session.workspaceId,session.actorId,session.contextId,session.contextEpoch,
    acceptedAtlas.acceptanceId,acceptedAtlas.resultRevisionId]):'';
  const atlasPublicationView=atlasPublication?.key===atlasPublicationKey?atlasPublication:null;
+ // The local observed receipt is a UX hint only. The original publication
+ // commands independently recheck the exact signed source and Kernel.
+ const atlasAppliedObserved=!!acceptedAtlas&&(
+   atlasPublicationView?.appliedObserved===true||
+   (applySelection?.acceptanceId===acceptedAtlas.acceptanceId&&
+    applySelection.revisionIds.includes(acceptedAtlas.resultRevisionId)&&
+    (kernelRecovery?.status==='ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED'||
+     (kernelRecovery===null&&kernelResult?.kernelWriteReadback==='CONFIRMED'))));
  const updateAtlasPublication=(patch:Record<string,any>)=>{
    if(mounted.current)setAtlasPublication(old=>({
      ...(old?.key===atlasPublicationKey?old:{}),...patch,key:atlasPublicationKey
@@ -365,12 +373,33 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    if(value?.originalKernelRegistry!==true||
       !['ACTIVE','NOT_ACTIVE','NOT_ISSUED','UNKNOWN'].includes(value.status))
      throw Error('CEN_D3_ATLAS_ORIGINAL_READBACK_INVALID');
-   updateAtlasPublication({grantStatus:value.status});
-   return value.status==='ACTIVE';
+   return value.status as 'ACTIVE'|'NOT_ACTIVE'|'NOT_ISSUED'|'UNKNOWN';
+ };
+ // If an organization has no Atlas export grant yet, recover the actual
+ // selected D3 Apply through the EXISTING original readback before offering
+ // the grant action. Never issue a grant merely because ACCEPT was seen.
+ const inspectAtlasAppliedSource=async(selection:ReturnType<typeof atlasPublicationSelection>)=>{
+   if(!acceptedAtlas)throw Error('CEN_D3_ATLAS_RESULT_SOURCE_REQUIRED');
+   const source={organizationId:acceptedAtlas.organizationId,workspaceId:acceptedAtlas.workspaceId,
+     taskId:acceptedAtlas.taskId,taskRevisionId:acceptedAtlas.taskRevisionId,
+     resultRevisionId:selection.resultRevisionId,acceptanceId:selection.acceptanceId,
+     ...(selection.applicationRevisionIds?{applicationRevisionIds:selection.applicationRevisionIds}:{})};
+   await readAppliedD3Result(source,session,execute);
+   updateAtlasPublication({appliedObserved:true});
+ };
+ const prepareAtlasGrantState=async(selection:ReturnType<typeof atlasPublicationSelection>)=>{
+   const status=await readAtlasGrant();
+   // The original preview/recovery itself validates Apply when an export
+   // grant is already ACTIVE. Do not duplicate that readback.
+   if(status==='NOT_ACTIVE'||status==='NOT_ISSUED'){
+     if(!atlasAppliedObserved)await inspectAtlasAppliedSource(selection);
+     updateAtlasPublication({grantStatus:status,appliedObserved:true,preview:null,outcome:null});
+   }else updateAtlasPublication({grantStatus:status});
+   return status==='ACTIVE';
  };
  const prepareAtlasPublication=()=>run('Оригинальный Result проверен для передачи в Atlas.',async()=>{
    const selection=atlasPublicationSelection();
-   if(!await readAtlasGrant())return false;
+   if(!await prepareAtlasGrantState(selection))return false;
    const value=await execute('d3AtlasResultPreview',selection);
    if(!acceptedAtlas||value?.recipientId!=='iwxa.atlas'||
      value.acceptanceId!==selection.acceptanceId||value.resultId!==selection.resultRevisionId||
@@ -382,10 +411,12 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      !['READY_FOR_EXPLICIT_CONSENT','ALREADY_COMMITTED','RECOVERY_REQUIRED','OUTCOME_UNKNOWN'].includes(value.status)||
      !hex(value.previewDigest)||typeof value.selectedAcceptedSummary!=='string')
      throw Error('CEN_D3_ATLAS_ORIGINAL_READBACK_INVALID');
-   updateAtlasPublication({preview:value,outcome:null,attempted:false});
+   updateAtlasPublication({preview:value,outcome:null,attempted:false,appliedObserved:true});
  });
  const issueAtlasGrant=()=>run('Право передачи в Atlas подтверждено оригинальным реестром.',async()=>{
    atlasPublicationSelection();
+   if(!atlasAppliedObserved||!['NOT_ACTIVE','NOT_ISSUED'].includes(atlasPublicationView?.grantStatus??''))
+     throw Error('CEN_D3_ATLAS_APPLIED_RESULT_READBACK_REQUIRED');
    const value=await execute('d3AtlasGrantIssue',{});
    if(value?.status==='CANCELLED')return false;
    if(value?.originalKernelRegistry!==true||!['ACTIVE','ISSUED'].includes(value.status))
@@ -411,9 +442,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  });
  const recoverAtlasResult=()=>run('Проверка публикации завершена без повторной подписи.',async()=>{
    const selection=atlasPublicationSelection();
-   if(!await readAtlasGrant())return false;
+   if(!await prepareAtlasGrantState(selection))return false;
    const outcome=await execute('d3AtlasResultRecover',selection);
-   updateAtlasPublication({outcome,preview:null,attempted:false});
+   updateAtlasPublication({outcome,preview:null,attempted:false,appliedObserved:true});
  });
  const exportAtlasResult=()=>run('Файл .iwxa сохранён. Передайте его в Atlas.',async()=>{
    const selection=atlasPublicationSelection();
@@ -1092,43 +1123,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      <button type="button" className="secondary" data-testid="d3-inspect-atlas-result"
        disabled={busy} onClick={inspectAtlasResult}>Сопоставить принятый Result с планом Atlas</button>
      <small>Открывается исходная работа для решения руководителя. ACCEPT сам по себе не изменяет план Atlas.</small>
-     {session.d3AtlasPublicationAvailable===true&&<div className="nested-form" data-testid="d3-atlas-publication">
-       <h4>Передать применённый Result в Atlas</h4>
-       <p>Проверяется исходное поручение, решение и запись в Kernel. В Atlas передаётся только выбранный результат.</p>
-       <div className="actions">
-         <button type="button" className="secondary" disabled={busy}
-           onClick={prepareAtlasPublication}>Подготовить передачу</button>
-         <button type="button" className="secondary" disabled={busy}
-           onClick={recoverAtlasResult}>Проверить публикацию</button>
-       </div>
-       {['NOT_ACTIVE','NOT_ISSUED'].includes(atlasPublicationView?.grantStatus??'')&&<>
-         <p>Для передачи требуется отдельное подписанное право руководителя.</p>
-         <button type="button" className="secondary" disabled={busy}
-           onClick={issueAtlasGrant}>Разрешить передачу в Atlas</button>
-       </>}
-       {atlasPublicationView?.grantStatus==='UNKNOWN'&&<p>Не удалось подтвердить действующее право передачи.</p>}
-       {atlasPublicationView?.preview&&<>
-         <label>Текст для Atlas
-           <textarea readOnly rows={4} value={atlasPublicationView.preview.selectedAcceptedSummary}/>
-         </label>
-         {atlasPublicationView.preview.status==='READY_FOR_EXPLICIT_CONSENT'&&
-           <button type="button" className="primary" disabled={busy||atlasPublicationView.attempted===true}
-             onClick={publishAtlasResult}>Подписать Result для Atlas</button>}
-         {['RECOVERY_REQUIRED','OUTCOME_UNKNOWN'].includes(atlasPublicationView.preview.status)&&
-           <p>Проверьте существующую публикацию без повторной подписи.</p>}
-       </>}
-       {(atlasPublicationView?.outcome?.status==='ORIGINAL_ADMIN_RESULT_PUBLISHED'||
-         atlasPublicationView?.outcome?.status==='EXPORTED_UNDELIVERED'||
-         atlasPublicationView?.preview?.status==='ALREADY_COMMITTED')&&
-         <button type="button" className="primary" disabled={busy}
-           onClick={exportAtlasResult}>Сохранить подписанный Result .iwxa</button>}
-       {atlasPublicationView?.outcome?.status==='EXPORTED_UNDELIVERED'&&
-         <p>Файл сохранён. Получение в Atlas не подтверждено.</p>}
-       {['RECOVERY_REQUIRED','OUTCOME_UNKNOWN'].includes(atlasPublicationView?.outcome?.status??'')&&
-         <p>Публикация не подтверждена. Используйте проверку, а не повторную подпись.</p>}
-       {atlasPublicationView?.outcome?.status==='NOT_PUBLISHED_CONFIRMED'&&
-         <p>Публикация не найдена. Можно подготовить передачу.</p>}
-     </div>}
+
    </div>}
    {onReuse&&session.d3ApplyRecoverAvailable===true&&<div className="notice subdued" data-testid="d3-applied-follow-up">
      <strong>Следующее поручение по применённому Result</strong>
@@ -1235,6 +1230,45 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     редакция {String(kernelResult.originalKernelReadback?.object?.revision??'?')}.
     Итоговая приёмка всего T3 выполняется отдельно.
    </p>}
+   {acceptedAtlas&&session.d3AtlasPublicationAvailable===true&&<div className="nested-form" data-testid="d3-atlas-publication">
+       <h4>Передать применённый Result в Atlas</h4>
+       <p>Сначала применяется принятый Result в оригинальном Kernel. Затем для исходной работы Atlas можно сохранить подписанный результат.</p>
+       {!atlasAppliedObserved&&<p className="muted" role="status">Если Result ещё не применён, завершите Apply выше. Если он применялся ранее, подготовка передачи проверит сохранённую исходную запись без повторного Apply.</p>}
+       {atlasAppliedObserved&&<p role="status">Применение выбранного Result подтверждено. Передача в Atlas выполняется отдельно.</p>}
+       <div className="actions">
+         <button type="button" className="secondary" disabled={busy}
+           onClick={prepareAtlasPublication}>Подготовить передачу</button>
+         <button type="button" className="secondary" disabled={busy}
+           onClick={recoverAtlasResult}>Проверить публикацию</button>
+       </div>
+       {atlasAppliedObserved&&['NOT_ACTIVE','NOT_ISSUED'].includes(atlasPublicationView?.grantStatus??'')&&<>
+         <p>Для передачи требуется отдельное подписанное право руководителя.</p>
+         <button type="button" className="secondary" disabled={busy}
+           onClick={issueAtlasGrant}>Разрешить передачу в Atlas</button>
+       </>}
+       {atlasPublicationView?.grantStatus==='UNKNOWN'&&<p>Не удалось подтвердить действующее право передачи.</p>}
+       {atlasPublicationView?.preview&&<>
+         <label>Текст для Atlas
+           <textarea readOnly rows={4} value={atlasPublicationView.preview.selectedAcceptedSummary}/>
+         </label>
+         {atlasPublicationView.preview.status==='READY_FOR_EXPLICIT_CONSENT'&&
+           <button type="button" className="primary" disabled={busy||atlasPublicationView.attempted===true}
+             onClick={publishAtlasResult}>Подписать Result для Atlas</button>}
+         {['RECOVERY_REQUIRED','OUTCOME_UNKNOWN'].includes(atlasPublicationView.preview.status)&&
+           <p>Проверьте существующую публикацию без повторной подписи.</p>}
+       </>}
+       {(atlasPublicationView?.outcome?.status==='ORIGINAL_ADMIN_RESULT_PUBLISHED'||
+         atlasPublicationView?.outcome?.status==='EXPORTED_UNDELIVERED'||
+         atlasPublicationView?.preview?.status==='ALREADY_COMMITTED')&&
+         <button type="button" className="primary" disabled={busy}
+           onClick={exportAtlasResult}>Сохранить подписанный Result .iwxa</button>}
+       {atlasPublicationView?.outcome?.status==='EXPORTED_UNDELIVERED'&&
+         <p>Файл сохранён. Получение в Atlas не подтверждено.</p>}
+       {['RECOVERY_REQUIRED','OUTCOME_UNKNOWN'].includes(atlasPublicationView?.outcome?.status??'')&&
+         <p>Публикация не подтверждена. Используйте проверку, а не повторную подпись.</p>}
+       {atlasPublicationView?.outcome?.status==='NOT_PUBLISHED_CONFIRMED'&&
+         <p>Публикация не найдена. Можно подготовить передачу.</p>}
+     </div>}
   </div>}
  </div>;
 }
