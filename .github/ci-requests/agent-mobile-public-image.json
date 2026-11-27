@@ -1,0 +1,8 @@
+{
+  "scope": "M18_2_PUBLIC_IMAGE_INDEPENDENT_HOST_ARM64",
+  "source": "e637c7bccd35aa8841d67fb942ba72918176826c",
+  "ggml": "eeda9ec48fc84a3df0bb9dcc19ae9053075a2539",
+  "model": "c2f6e92f9d08d69cc673a1003528ac8199274b3c0eaec88d5fbefe5af67bd42b",
+  "prepared_sha": "0e99468d855a98301d521c59e8c6ad7501d6a013",
+  "physical": "NOT_RUN"
+}
