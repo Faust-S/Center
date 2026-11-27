@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "de0120054dbc5f10f333236e0546f394b4a06505",
+  "profile": "managed-qgis-and-native-windows-qualification",
+  "pins": {
+    "professionalAgent": "7073a902c5622c26597ac1b05537570ad3422888"
+  },
+  "reason": "Qualify exact original QGIS archive install and native Core Task on Windows, compact optional staging and unchanged Linux native behavior"
+}
