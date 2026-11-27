@@ -1,3 +1,4 @@
+# Prepared for the next authorized run after ArtBazy site read access is restored.
 name: ArtBazy integrated release build
 on:
   push:
@@ -12,8 +13,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     env:
-      SITE_PIN: 643a13edf8d14e44ea490f003450eab555e146d8
-      SITE_TREE: d40ab48e23ba4b396a92a3b74ebd83baeade7fc3
+      SITE_PIN: fe4422418e34708a788038fb12f1c2dcf2131905
+      SITE_TREE: b7824144afd122477811876e5825f935a52bd7e6
       T2_PIN: e70de29b72b83e2546f7ab74b17572685a728c17
       T2_TREE: b36ed00dcd7c518b593cb4794bfabf85e7eab049
       T3_PIN: 4dc21f8439b6988eed043bbe74dc34d8a7e7d875
@@ -26,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazy.ru
-          ref: 643a13edf8d14e44ea490f003450eab555e146d8
+          ref: fe4422418e34708a788038fb12f1c2dcf2131905
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private-site
           persist-credentials: false
@@ -101,6 +102,7 @@ jobs:
           }
           phase SITE_DEPENDENCIES bun install --frozen-lockfile --ignore-scripts
           phase SUBJECT_PIN node --test scripts/verify-artbazy-subject-pin.test.mjs
+          phase PUBLIC_SOURCE_LINKS npm run check:source-links
           phase SITE_PROJECTION npm run check:t3:calculation-projection
           phase PACKAGING npm run test:t3:packaging
           phase DIST_TRANSACTION npm run test:release:transaction
@@ -111,6 +113,7 @@ jobs:
           export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome || command -v chromium)"
           test -x "$PUPPETEER_EXECUTABLE_PATH"
           phase ARTBAZY_ONE_DIST npm run build:release -- "$stage/host" "$stage/kernel" "$stage/platform-inputs.zip"
+          phase BUILT_SITE_LINKS npm run check:links
           node --input-type=module <<'JS'
           import {createHash} from 'node:crypto';
           import {readFileSync,existsSync} from 'node:fs';
