@@ -54,6 +54,19 @@ const validId=value=>typeof value==='string'&&ID.test(value);
 const validSha=value=>typeof value==='string'&&SHA.test(value);
 const fail=code=>{const e=new Error(code);e.code=code;throw e;};
 const need=(ok,code)=>{if(!ok)fail(code);};
+// Optional projection of the ORIGINAL verified signed Task v1 carrier.
+// It is a source reference only, not a Result receipt or a grant.
+function validateTaskAtlasReference(receipt,code){
+ if(!Object.hasOwn(receipt,'atlasReference'))return;
+ const ref=receipt.atlasReference,work=ref?.workRef;
+ need(receipt.found===true&&ref&&Object.keys(ref).sort().join(',')===
+   'draftEditNumber,draftId,workRef'&&validId(ref.draftId)&&
+   Number.isSafeInteger(ref.draftEditNumber)&&ref.draftEditNumber>0&&
+   work&&Object.keys(work).sort().join(',')==='projectId,revision,workId'&&
+   validId(work.projectId)&&validId(work.workId)&&
+   typeof work.revision==='string'&&/^(0|[1-9][0-9]*)$/.test(work.revision)&&
+   Number.isSafeInteger(Number(work.revision)),code);
+}
 // UI preflight only. The original signed Owner still verifies the PROOF
 // cryptographically against its request digest, key and live challenge.
 export function readEmployeeChallengeProof(raw,keyId,challenge){
@@ -223,6 +236,7 @@ export function validateOriginalSignedTaskReadback(result,taskId,actorId,observe
        observed.deliveryState==='NOT_CONFIRMED',code);
    }
  }
+ validateTaskAtlasReference(result,code);
  return copy(result,code);
 }
 
@@ -415,6 +429,7 @@ export function validateOriginalEmployeeTaskReadback(receipt,{taskId,employeePer
    previous.recipientId===employeePersonId&&previous.enrollmentId===enrollmentId&&
    previous.taskRevisionId===receipt.taskRevisionId&&previous.packageSha256===receipt.packageSha256,code);
  }
+ validateTaskAtlasReference(receipt,code);
  return copy(receipt,code);
 }
 
