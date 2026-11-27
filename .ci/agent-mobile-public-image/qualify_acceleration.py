@@ -21,22 +21,33 @@ LORA_URL = ("https://huggingface.co/latent-consistency/lcm-lora-sdv1-5/resolve/"
             + LORA_REV + "/pytorch_lora_weights.safetensors")
 PROFILES = {"baseline": (12, "7"), "lcm": (4, "1")}
 MEMORY_PROFILES = {"lcm": (4, "1"), "lcm-tiled": (4, "1")}
-ALL_PROFILES = PROFILES | MEMORY_PROFILES
+SAMPLER_PROFILES = {"lcm": (4, "1"), "lcm-native4": (4, "1"), "lcm-native8": (8, "1")}
+ALL_PROFILES = PROFILES | MEMORY_PROFILES | SAMPLER_PROFILES
+LORA_PROFILES = set(MEMORY_PROFILES) | set(SAMPLER_PROFILES)
+
+
+def sampling_config(profile):
+    require(profile in ALL_PROFILES, "PROFILE_OR_PROMPT")
+    return ("lcm", "lcm") if profile in ("lcm-native4", "lcm-native8") else ("euler_a", "discrete")
+
 TILE_FLAGS = ["--vae-tiling", "--vae-tile-size", "256x256", "--vae-tile-overlap", "0.5"]
 REQUEST = Path(".github/ci-requests/agent-mobile-public-image-performance.json")
 MEMORY_REQUEST = Path(".github/ci-requests/agent-mobile-public-image-memory.json")
+SAMPLER_REQUEST = Path(".github/ci-requests/agent-mobile-public-image-sampler.json")
 
 
-def expected_request(prepared, memory=False):
+def expected_request(prepared, memory=False, sampler=False):
     require(re.fullmatch(r"[a-f0-9]{40}", prepared), "PREPARED_SHA")
-    return {"workflow": "agent-mobile-public-image-memory" if memory else "agent-mobile-public-image-performance", "prepared_sha": prepared,
+    require(not (memory and sampler), "EXPERIMENT")
+    workflow = "agent-mobile-public-image-sampler" if sampler else "agent-mobile-public-image-memory" if memory else "agent-mobile-public-image-performance"
+    return {"workflow": workflow, "prepared_sha": prepared,
             "engine": ENGINE_REV, "engine_tree": ENGINE_TREE, "ggml": GGML_REV,
             "base_model_sha256": MODEL_SHA, "lora_revision": LORA_REV,
-            "lora_sha256": LORA_SHA, "scope": "HOST_CPU_PAIRED_LCM_TILING_RESEARCH_ONLY" if memory else "HOST_CPU_PAIRED_LCM_RESEARCH_ONLY"}
+            "lora_sha256": LORA_SHA, "scope": "HOST_CPU_LCM_SAMPLER_QUALITY_RESEARCH_ONLY" if sampler else "HOST_CPU_PAIRED_LCM_TILING_RESEARCH_ONLY" if memory else "HOST_CPU_PAIRED_LCM_RESEARCH_ONLY"}
 
 
-def validate_request(path, prepared, memory=False):
-    require(json.loads(path.read_text()) == expected_request(prepared, memory), "REQUEST_MISMATCH")
+def validate_request(path, prepared, memory=False, sampler=False):
+    require(json.loads(path.read_text()) == expected_request(prepared, memory, sampler), "REQUEST_MISMATCH")
 
 
 def verify_lora_header(path):
@@ -87,10 +98,11 @@ def download_lora(dest, url=LORA_URL, size=LORA_BYTES, digest=LORA_SHA):
 def profile_args(profile, model, lora, prompt, target):
     require(profile in ALL_PROFILES and prompt in PROMPTS, "PROFILE_OR_PROMPT")
     steps, cfg = ALL_PROFILES[profile]
+    method, scheduler = sampling_config(profile)
     args = ["-m", model, "--width", SIZE, "--height", SIZE, "--steps", steps,
-            "--seed", SEED, "--cfg-scale", cfg, "--threads", "4", "--sampling-method", "euler_a",
-            "--scheduler", "discrete", "--disable-image-metadata", "-v", "-o", target]
-    if profile in MEMORY_PROFILES:
+            "--seed", SEED, "--cfg-scale", cfg, "--threads", "4", "--sampling-method", method,
+            "--scheduler", scheduler, "--disable-image-metadata", "-v", "-o", target]
+    if profile in LORA_PROFILES:
         require(lora.name == LORA_NAME + ".safetensors", "LORA_FILENAME")
         args += ["--lora-model-dir", lora.parent, "--lora-apply-mode", "at_runtime"]
         prompt += "<lora:" + LORA_NAME + ":1>"
@@ -127,6 +139,17 @@ def tiling_evidence(log, profile):
     return None
 
 
+def sampling_evidence(log, profile):
+    clean = re.sub(r"\x1b\[[0-9;]*[mK]", "", log)
+    method, scheduler = sampling_config(profile)
+    steps, _ = ALL_PROFILES[profile]
+    observed = re.findall(r"sampling started: method=([a-zA-Z0-9_+.-]+), steps=(\d+) --- sampling\.cpp:\d+", clean)
+    require(observed == [(method, str(steps))], "SAMPLING_NOT_CONFIRMED")
+    require(re.search(r"sampling completed, taking [0-9.]+s --- sampling\.cpp:\d+", clean), "SAMPLING_NOT_COMPLETED")
+    # The engine confirms method and actual step count. Scheduler is the exact CLI input.
+    return {"methodObserved": method, "stepsObserved": steps, "schedulerRequested": scheduler}
+
+
 def generate_profile(exe, model, lora, result, index, prompt, profile):
     target = result / f"{index}-{profile}.png"
     metric = target.with_suffix(".time")
@@ -141,7 +164,8 @@ def generate_profile(exe, model, lora, result, index, prompt, profile):
         elapsed = round((time.monotonic() - started) * 1000)
         print(process.stdout[-12000:], flush=True)
         require(process.returncode == 0, "GENERATION_FAILED")
-        evidence = lora_evidence(process.stdout, lora) if profile in MEMORY_PROFILES else None
+        evidence = lora_evidence(process.stdout, lora) if profile in LORA_PROFILES else None
+        sampling = sampling_evidence(process.stdout, profile)
         tiling = tiling_evidence(process.stdout, profile)
         observed = inspect_png(target)
         rss = int(metric.read_text().strip())
@@ -149,7 +173,7 @@ def generate_profile(exe, model, lora, result, index, prompt, profile):
         observed.update({"file": target.name, "profile": profile, "durationMs": elapsed,
                          "peakRssKiB": rss, "prompt": prompt, "seed": SEED,
                          "steps": ALL_PROFILES[profile][0], "cfg": ALL_PROFILES[profile][1],
-                         "loraApplication": evidence, "vaeTiling": tiling})
+                         "loraApplication": evidence, "vaeTiling": tiling, "sampling": sampling})
         return observed
     finally:
         metric.unlink(missing_ok=True)
@@ -205,6 +229,40 @@ def compare_memory(rows):
     return pairs
 
 
+def compare_sampler(rows):
+    require(len(rows) == len(PROMPTS) * len(SAMPLER_PROFILES), "PAIR_COUNT")
+    pairs = []
+    for prompt in PROMPTS:
+        group = [row for row in rows if row["prompt"] == prompt]
+        require(len(group) == len(SAMPLER_PROFILES) and {row["profile"] for row in group} == set(SAMPLER_PROFILES), "PAIR_IDENTITY")
+        for row in group:
+            profile = row["profile"]
+            steps, cfg = SAMPLER_PROFILES[profile]
+            method, scheduler = sampling_config(profile)
+            require(row["seed"] == SEED and (row["width"], row["height"]) == (SIZE, SIZE) and
+                    (row["steps"], row["cfg"]) == (steps, cfg), "PAIR_CONFIGURATION")
+            require(type(row["durationMs"]) is int and row["durationMs"] > 0 and
+                    type(row["peakRssKiB"]) is int and row["peakRssKiB"] > 0, "PAIR_MEASUREMENTS")
+            require(row.get("sampling") == {"methodObserved": method, "stepsObserved": steps,
+                                            "schedulerRequested": scheduler}, "PAIR_SAMPLING_EVIDENCE")
+            require((row.get("loraApplication") or {}).get("fullCoverageObserved") is True and row.get("vaeTiling") is None,
+                    "PAIR_LORA_OR_VAE_EVIDENCE")
+        control = next(row for row in group if row["profile"] == "lcm")
+        candidates = []
+        for profile in ("lcm-native4", "lcm-native8"):
+            row = next(row for row in group if row["profile"] == profile)
+            candidates.append({"profile": profile, "durationMs": row["durationMs"],
+                               "peakRssKiB": row["peakRssKiB"],
+                               "latencyRatio": round(row["durationMs"] / control["durationMs"], 3),
+                               "memoryReductionPercent": round(100 * (1 - row["peakRssKiB"] / control["peakRssKiB"]), 2),
+                               "identicalPixels": row["pixelSha256"] == control["pixelSha256"]})
+        pairs.append({"prompt": prompt, "controlMs": control["durationMs"],
+                      "controlPeakRssKiB": control["peakRssKiB"], "candidates": candidates})
+    for profile in SAMPLER_PROFILES:
+        require(len({row["pixelSha256"] for row in rows if row["profile"] == profile}) == len(PROMPTS), "PROFILE_REPEAT")
+    return pairs
+
+
 def write_json(path, value):
     part = path.with_suffix(path.suffix + ".part")
     try:
@@ -215,13 +273,14 @@ def write_json(path, value):
         part.unlink(missing_ok=True)
 
 
-def qualify_acceleration(result, memory=False):
-    profiles = MEMORY_PROFILES if memory else PROFILES
+def qualify_acceleration(result, memory=False, sampler=False):
+    require(not (memory and sampler), "EXPERIMENT")
+    profiles = SAMPLER_PROFILES if sampler else MEMORY_PROFILES if memory else PROFILES
     result.mkdir(parents=True, exist_ok=False)
     rows = []
     progress = {"status": "RUNNING", "engineRevision": ENGINE_REV,
                 "baseModelSha256": MODEL_SHA, "loraSha256": LORA_SHA,
-                "active": None, "verifiedImages": rows, "experiment": "VAE_TILING" if memory else "LCM_ACCELERATION"}
+                "active": None, "verifiedImages": rows, "experiment": "LCM_SAMPLER" if sampler else "VAE_TILING" if memory else "LCM_ACCELERATION"}
     write_json(result / "progress.json", progress)
     try:
         with tempfile.TemporaryDirectory(prefix="iwxa-image-lcm-") as tmp:
@@ -246,19 +305,19 @@ def qualify_acceleration(result, memory=False):
                     progress["active"] = None
                     write_json(result / "progress.json", progress)
                     print(f"PUBLIC_LCM_EXPERIMENT={index}:{profile}:PASS", flush=True)
-            pairs = compare_memory(rows) if memory else compare(rows)
+            pairs = compare_sampler(rows) if sampler else compare_memory(rows) if memory else compare(rows)
             verify_source(src)
             receipt = {"engineRevision": ENGINE_REV, "engineTree": ENGINE_TREE, "ggmlRevision": GGML_REV,
                        "baseModelSha256": MODEL_SHA, "baseModelBytes": MODEL_BYTES,
                        "loraRevision": LORA_REV, "loraSha256": LORA_SHA, "loraBytes": LORA_BYTES,
-                       "loraTensors": tensors, "loraApplyMode": "at_runtime", "sampler": "euler_a",
-                       "scheduler": "discrete", "threads": 4, "network": "ISOLATED_PER_GENERATION",
+                       "loraTensors": tensors, "loraApplyMode": "at_runtime", "sampler": "PER_PROFILE" if sampler else "euler_a",
+                       "scheduler": "PER_PROFILE" if sampler else "discrete", "threads": 4, "network": "ISOLATED_PER_GENERATION",
                        "experiment": progress["experiment"], "sameRunnerPairs": pairs, "images": rows, "hostExperiment": "PASS",
                        "semanticQuality": "NOT_RUN", "androidExecution": "NOT_RUN", "productAdoption": "NOT_RUN"}
             write_json(result / "receipt.json", receipt)
             progress["status"] = "PASS"
             write_json(result / "progress.json", progress)
-            print("PUBLIC_LCM_TILING_PAIRED_CPU=PASS" if memory else "PUBLIC_LCM_PAIRED_CPU=PASS", flush=True)
+            print("PUBLIC_LCM_SAMPLER_CPU=PASS" if sampler else "PUBLIC_LCM_TILING_PAIRED_CPU=PASS" if memory else "PUBLIC_LCM_PAIRED_CPU=PASS", flush=True)
     except Exception as exc:
         # Preserve already verified pairs. Any remaining PNG is diagnostic only.
         progress["status"] = "FAIL"
@@ -273,7 +332,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--result", required=True, type=Path)
     parser.add_argument("--prepared-sha", required=True)
-    parser.add_argument("--memory", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--memory", action="store_true")
+    mode.add_argument("--sampler", action="store_true")
     args = parser.parse_args()
-    validate_request(MEMORY_REQUEST if args.memory else REQUEST, args.prepared_sha, args.memory)
-    qualify_acceleration(args.result.resolve(), args.memory)
+    validate_request(SAMPLER_REQUEST if args.sampler else MEMORY_REQUEST if args.memory else REQUEST, args.prepared_sha, args.memory, args.sampler)
+    qualify_acceleration(args.result.resolve(), args.memory, args.sampler)
