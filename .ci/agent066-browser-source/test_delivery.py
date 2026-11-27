@@ -1,6 +1,6 @@
-"""Delivery-only tests. No product or Windows PASS is inferred from fixtures."""
-from copy import deepcopy
+"""Exercise delivery only; no fixture substitutes for native Setup acceptance."""
 from pathlib import Path
+from types import SimpleNamespace
 import hashlib
 import tempfile
 import unittest
@@ -12,97 +12,108 @@ import delivery as d
 import delivery_crypto as c
 
 
-def accepted():
-    run = dict(id=d.QUALIFICATION_RUN, head_sha=d.QUALIFICATION_HEAD,
-               head_branch=d.QUALIFICATION_BRANCH, path='.github/workflows/agent066-browser-source.yml',
-               event='push', status='completed', conclusion='success', repository={'full_name':d.REPOSITORY})
-    rows = [dict(name='qualify / '+group,run_id=d.QUALIFICATION_RUN,head_sha=d.QUALIFICATION_HEAD,
-                 status='completed',conclusion='success') for group in d.GROUPS]
-    return run, {'total_count': len(rows), 'jobs': rows}
+class SetupSealTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.q = SimpleNamespace(root=Path(self.tmp.name), results=dict.fromkeys(d.REQUIRED, True))
+        out = self.q.root / 'setup-output'
+        out.mkdir()
+        self.setup = out / d.SETUP_NAME
+        self.setup.write_bytes(b'MZ fixture')
 
+    def check(self, pin=d.PIN, tree=d.TREE, valid=True):
+        return d.ready_to_seal(self.q, pin, tree, lambda *args: valid)
 
-class QualificationTest(unittest.TestCase):
-    def test_all_six_pass(self):
-        self.assertTrue(d.qualification_passed(*accepted()))
+    def test_exact_successful_setup(self):
+        self.assertTrue(self.check())
 
-    def test_pending(self):
-        r,j=accepted();r['status']='in_progress';r['conclusion']=None
-        self.assertFalse(d.qualification_passed(r,j))
+    def test_each_missing_or_failed_gate(self):
+        for name in d.REQUIRED:
+            with self.subTest(name=name):
+                self.q.results.pop(name)
+                self.assertFalse(self.check())
+                self.q.results[name] = False
+                self.assertFalse(self.check())
+                self.q.results[name] = True
 
-    def test_failed_run(self):
-        r,j=accepted();r['conclusion']='failure'
-        self.assertFalse(d.qualification_passed(r,j))
+    def test_wrong_identity(self):
+        self.assertFalse(self.check(pin='0'*40))
+        self.assertFalse(self.check(tree='0'*40))
+        self.assertFalse(self.check(valid=False))
 
-    def test_failed_job(self):
-        r,j=accepted();j['jobs'][0]['conclusion']='failure'
-        self.assertFalse(d.qualification_passed(r,j))
+    def test_other_gate_failure(self):
+        self.q.results['OTHER'] = False
+        self.assertFalse(self.check())
 
-    def test_missing_job(self):
-        r,j=accepted();j['jobs'].pop();j['total_count']-=1
-        self.assertFalse(d.qualification_passed(r,j))
-
-    def test_duplicate_job(self):
-        r,j=accepted();j['jobs'][-1]=deepcopy(j['jobs'][0])
-        self.assertFalse(d.qualification_passed(r,j))
-
-    def test_wrong_head(self):
-        r,j=accepted();r['head_sha']='0'*40
-        self.assertFalse(d.qualification_passed(r,j))
-
-    def test_wrong_job_head(self):
-        r,j=accepted();j['jobs'][0]['head_sha']='0'*40
-        self.assertFalse(d.qualification_passed(r,j))
-
-    def test_other_repository(self):
-        r,j=accepted();r['repository']={'full_name':'other/Center'}
-        self.assertFalse(d.qualification_passed(r,j))
-
-    def test_other_run(self):
-        r,j=accepted();r['id']+=1
-        self.assertFalse(d.qualification_passed(r,j))
-
-    def test_wrong_branch(self):
-        r,j=accepted();r['head_branch']='main'
-        self.assertFalse(d.qualification_passed(r,j))
+    def test_missing_setup(self):
+        self.setup.unlink()
+        self.assertFalse(self.check())
 
 
 class EnvelopeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.key=rsa.generate_private_key(public_exponent=65537,key_size=3072)
-        cls.public=cls.key.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo)
+        cls.key = rsa.generate_private_key(public_exponent=65537, key_size=3072)
+        cls.public = cls.key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
 
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root=Path(self.temp.name)
-        self.source=self.root/'candidate.exe'
-        self.output=self.root/'candidate.iwxae'
-        self.data=b'MZ' + bytes(range(256))*5000
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.source = self.root / 'candidate.exe'
+        self.folder = self.root / 'cipher'
+        self.folder.mkdir()
+        self.output = self.folder / d.NAME
+        self.receipt = self.folder / (d.NAME + '.sha256')
+        self.data = b'MZ' + bytes(range(256)) * 5000
         self.source.write_bytes(self.data)
 
-    def open_envelope(self, raw):
-        header=raw[:c.HEADER.size]
-        magic,pin,tree,size,sha,nonce,wrapped=c.HEADER.unpack(header)
-        key=self.key.decrypt(wrapped,c.OAEP)
-        plaintext=AESGCM(key).decrypt(nonce,raw[c.HEADER.size:],header)
-        return magic,pin,tree,size,sha,plaintext
+    def seal(self):
+        plain, sealed = c.encrypt_file(self.source, self.output, self.public)
+        self.receipt.write_bytes((sealed + '\n').encode('ascii'))
+        return plain, sealed
 
-    def test_exact_roundtrip(self):
-        plain,sealed=c.encrypt_file(self.source,self.output,self.public)
-        raw=self.output.read_bytes()
+    def test_roundtrip_and_delivery_readback(self):
+        plain, sealed = self.seal()
+        raw = self.output.read_bytes()
+        header = raw[:c.HEADER.size]
+        magic,pin,tree,size,sha,nonce,wrapped = c.HEADER.unpack(header)
+        key = self.key.decrypt(wrapped,c.OAEP)
+        self.assertEqual(AESGCM(key).decrypt(nonce,raw[c.HEADER.size:],header),self.data)
+        self.assertEqual((magic,pin,tree,size,sha),(c.MAGIC,d.PIN.encode(),d.TREE.encode(),len(self.data),bytes.fromhex(plain)))
+        self.assertEqual(d.verify_envelope(self.folder),sealed)
         self.assertEqual(plain,hashlib.sha256(self.data).hexdigest())
-        self.assertEqual(sealed,hashlib.sha256(raw).hexdigest())
-        self.assertEqual(self.open_envelope(raw),(c.MAGIC,d.PIN.encode(),d.TREE.encode(),len(self.data),bytes.fromhex(plain),self.data))
 
     def test_tamper_rejected(self):
-        c.encrypt_file(self.source,self.output,self.public)
-        raw=bytearray(self.output.read_bytes());raw[-1]^=1
-        with self.assertRaises(InvalidTag): self.open_envelope(raw)
+        self.seal()
+        raw = bytearray(self.output.read_bytes()); raw[-1] ^= 1
+        self.output.write_bytes(raw)
+        with self.assertRaises(ValueError): d.verify_envelope(self.folder)
+        header = raw[:c.HEADER.size]
+        *_,nonce,wrapped = c.HEADER.unpack(header)
+        with self.assertRaises(InvalidTag): AESGCM(self.key.decrypt(wrapped,c.OAEP)).decrypt(nonce,raw[c.HEADER.size:],header)
 
-    def test_wrong_recipient_rejected(self):
-        key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
-        pem=key.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo)
+    def test_wrong_header_rejected_even_with_new_digest(self):
+        self.seal()
+        raw = bytearray(self.output.read_bytes()); raw[8:48] = b'0'*40
+        self.output.write_bytes(raw)
+        self.receipt.write_bytes((hashlib.sha256(raw).hexdigest()+'\n').encode('ascii'))
+        with self.assertRaises(ValueError): d.verify_envelope(self.folder)
+
+    def test_truncated_package(self):
+        self.seal()
+        self.output.write_bytes(self.output.read_bytes()[:-1])
+        with self.assertRaises(ValueError): d.verify_envelope(self.folder)
+
+    def test_no_extra_files(self):
+        self.seal()
+        (self.folder/'extra').write_bytes(b'x')
+        with self.assertRaises(ValueError): d.verify_envelope(self.folder)
+
+    def test_wrong_recipient(self):
+        key = rsa.generate_private_key(public_exponent=65537,key_size=2048)
+        pem = key.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo)
         with self.assertRaises(ValueError): c.encrypt_file(self.source,self.output,pem)
         self.assertFalse(self.output.exists())
 
@@ -111,10 +122,10 @@ class EnvelopeTest(unittest.TestCase):
         with self.assertRaises(ValueError): c.encrypt_file(self.source,self.output,self.public)
         self.assertEqual(self.output.read_bytes(),b'old')
 
-    def test_empty_file_rejected(self):
+    def test_empty_file(self):
         self.source.write_bytes(b'')
         with self.assertRaises(ValueError): c.encrypt_file(self.source,self.output,self.public)
         self.assertFalse(self.output.exists())
 
 
-if __name__=='__main__': unittest.main()
+if __name__ == '__main__': unittest.main()
