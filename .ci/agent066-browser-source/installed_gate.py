@@ -28,7 +28,7 @@ def build_identity(out, pin, tree, version):
         return False
 
 
-def upgrade_diagnostics(data):
+def upgrade_diagnostics(data, *, label_prefix=''):
     phases=(UPGRADE_PHASES-{'INSTALL_064','DRAFT_064'})|{'INSTALL_065','DRAFT_066','NEW_INSTALL_WITNESS'}
     codes=UPGRADE_FAILURE_CODES|{'NEW_INSTALL_WITNESS_INVALID','INSTALLED_BROWSER_BUNDLE_INVALID',
         'INSTALLED_BROWSER_MANUAL_GUI_INPUT_INVALID','INSTALLED_BROWSER_MANUAL_GUI_TIMEOUT',
@@ -51,10 +51,10 @@ def upgrade_diagnostics(data):
         prefix='AGENT066_UPGRADE_'+key+'='
         matches=[l[len(prefix):] for l in data.splitlines() if l.startswith(prefix)]
         if len(matches)==1 and matches[0] in allowed:
-            print('UPGRADE_WITNESS_'+key+'='+matches[0],flush=True)
+            print(label_prefix+'UPGRADE_WITNESS_'+key+'='+matches[0],flush=True)
 
     for name,value in {**preview_dom_diagnostics(data), **navigation_http_diagnostics(data), **guest_observations(data), **browser_flow_diagnostics(data,codes)}.items():
-        print(name+'='+value,flush=True)
+        print(label_prefix+name+'='+value,flush=True)
 
 
 def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False):
@@ -89,6 +89,20 @@ def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False):
     good=False
     if upgrade:
         ready=verdict(q,label,code==0 and preflight and built and data.strip()=='AGENT065_UPGRADE_CANDIDATE_BUILT_UNQUALIFIED')
+        # Debug the four independent installed browser routes on the one
+        # exact candidate before spending time rebuilding frozen 0.6.5.
+        # This is development evidence only; it never replaces upgrade PASS.
+        if ready and SCOPE == 'B066_UPGRADE_DIAGNOSTIC':
+            root=q.root/'browser-development'
+            candidate_hash=file_sha256(out/NAME)
+            code,data=q.run('B066_BROWSER_DEVELOPMENT',[sys.executable,q.src/'tools/qualify_setup_core_browser_development.py',
+                '--new-setup',out/NAME,'--new-receipt',out/RECEIPT,
+                '--qualification-root',root,'--new-source',pin,'--new-tree',tree],env=env,report=False,timeout=6000)
+            ready=verdict(q,'B066_BROWSER_DEVELOPMENT',code==0 and data.strip()=='AGENT066_BROWSER_DEVELOPMENT_PASS'
+                          and file_sha256(out/NAME)==candidate_hash)
+            if not ready:
+                upgrade_diagnostics(data,label_prefix='DEVELOPMENT_')
+                q.block('UPGRADE_BASELINE_BUILT')
         if ready:
             old_out=build_frozen_baseline(q,baseline,owner,source=old_pin,tree=old_tree,version='0.6.5')
             ready=verdict(q,'UPGRADE_BASELINE_BUILT',old_out is not None and build_identity(old_out,old_pin,old_tree,'0.6.5'))
