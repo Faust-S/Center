@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08
+          ref: 97993ad73c9d6a50d9e43335360882cc3ec09c19
           path: vendor/atlas
           persist-credentials: false
       # Test CEN05 against the original, pinned public U04 bridge; never
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08
+          ref: 97993ad73c9d6a50d9e43335360882cc3ec09c19
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -89,17 +89,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08
+          ref: 97993ad73c9d6a50d9e43335360882cc3ec09c19
           path: vendor/atlas
           persist-credentials: false
-      # Original U01/U04 native modules are required by Center's build.rs.
+      # Original U04 native module are required by Center's build.rs.
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Br-test
           ref: 7cfb17870042cac824644140b7f0a587e244a20e
           path: vendor/brtest
           persist-credentials: false
-      # Build ORIGINAL Atlas 0.9 with its OWN Setup Core recipe. No copied
+      # Build pinned original Atlas with its own Setup Core recipe. No copied
       # native Store, no unqualified version override or third-party installer.
       - uses: actions/checkout@v4
         with:
@@ -137,7 +137,7 @@ jobs:
       - name: Verify IWXA Setup Core Windows distribution and record hashes
         shell: pwsh
         run: |
-          $installer = Get-Item -LiteralPath 'artifacts/IWXA-Admin-Center-0.4.1-Setup.exe' -ErrorAction Stop
+          $installer = Get-Item -LiteralPath 'artifacts/IWXA-Admin-Center-0.5.0-dev.1-Setup.exe' -ErrorAction Stop
           $sha = Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256
           New-Item -ItemType Directory -Force -Path 'artifacts' | Out-Null
           "$($installer.Name) SHA256=$($sha.Hash) SIZE=$($installer.Length)" | Set-Content 'artifacts/installer-sha256.txt'
@@ -153,51 +153,55 @@ jobs:
         timeout-minutes: 5
         run: ./tests/installed-windows-setup-upgrade.ps1
       # Both public programs are compiled and installed on the SAME Windows
-      # profile. Source=qualified Atlas 0.9 SHA; Setup=its original IWXA
+      # profile. Source=pinned Atlas integration SHA; Setup=its original IWXA
       # Setup Core; employee/private T3 sources never enter this public CI.
-      - name: Build and install exact original Atlas 0.9 candidate with Setup Core
+      - name: Build and install the pinned Atlas source with Setup Core
         shell: pwsh
         timeout-minutes: 27
         run: |
           $ErrorActionPreference='Stop'
-          $expectedSource='c225e1b8d35e87e5de55dbb9c0c8dbe564d8fb08'
+          $expectedSource='97993ad73c9d6a50d9e43335360882cc3ec09c19'
           $checked=(& git -C vendor/atlas rev-parse HEAD).Trim()
           if($LASTEXITCODE -ne 0 -or $checked -ne $expectedSource){
-            throw 'CEN05_ATLAS09_SOURCE_PIN_MISMATCH'
+            throw 'CEN05_ATLAS_SOURCE_PIN_MISMATCH'
           }
           Push-Location 'vendor/atlas/desktop'
           try {
             npm ci --no-audit --no-fund
-            if($LASTEXITCODE -ne 0){throw 'CEN05_ATLAS09_NPM_CI_FAILED'}
+            if($LASTEXITCODE -ne 0){throw 'CEN05_ATLAS_NPM_CI_FAILED'}
             npm run desktop:build -- --no-bundle
-            if($LASTEXITCODE -ne 0){throw 'CEN05_ATLAS09_NATIVE_BUILD_FAILED'}
+            if($LASTEXITCODE -ne 0){throw 'CEN05_ATLAS_NATIVE_BUILD_FAILED'}
           } finally { Pop-Location }
           Push-Location 'vendor/atlas'
           try {
             ./desktop/installer/build-setup-core.ps1 -InstallForQualification
-            if($LASTEXITCODE -ne 0){throw 'CEN05_ATLAS09_ORIGINAL_SETUP_FAILED'}
+            if($LASTEXITCODE -ne 0){throw 'CEN05_ATLAS_ORIGINAL_SETUP_FAILED'}
           } finally { Pop-Location }
-          $installer='vendor/atlas/artifacts/IWXA-Atlas-0.9.0-dev.1-Setup.exe'
+          $profile=Get-Content 'vendor/atlas/desktop/installer/atlas.json' -Raw | ConvertFrom-Json
+          $name='IWXA-Atlas-'+$profile.version+'-Setup.exe'
+          $installer=Join-Path 'vendor/atlas/artifacts' $name
           $expectedSum=Get-Content -LiteralPath ($installer+'.sha256') -Raw
           $actualSum=(Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($expectedSum.Trim() -ne ($actualSum+' *IWXA-Atlas-0.9.0-dev.1-Setup.exe')){
-            throw 'CEN05_ATLAS09_SIGNED_SETUP_DIGEST_MISMATCH'
+          if($expectedSum.Trim() -ne ($actualSum+' *'+$name)){
+            throw 'CEN05_ATLAS_SETUP_DIGEST_MISMATCH'
           }
           $registered=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.atlas' -ErrorAction Stop
-          if($registered.Version -ne '0.9.0-dev.1'){
-            throw 'CEN05_ATLAS09_INSTALLED_VERSION_MISMATCH'
+          # This verifies the test fixture we just installed, not a runtime
+          # supported-version list. Center itself never gates by product version.
+          if($registered.Version -ne $profile.version){
+            throw 'CEN05_ATLAS_FIXTURE_INSTALL_IDENTITY_MISMATCH'
           }
           $exe=Join-Path ([string]$registered.InstallLocation) 'iwxa-atlas-desktop.exe'
           if(!(Test-Path -LiteralPath $exe -PathType Leaf)){
-            throw 'CEN05_ATLAS09_INSTALLED_EXE_MISSING'
+            throw 'CEN05_ATLAS_INSTALLED_EXE_MISSING'
           }
-          Write-Host "CEN05_ORIGINAL_ATLAS09_INSTALLED source=$expectedSource sha256=$actualSum"
-      - name: Verify exact Atlas 0.9 native Store before Center integration
+          Write-Host "CEN05_ORIGINAL_ATLAS_INSTALLED source=$expectedSource sha256=$actualSum"
+      - name: Verify the pinned Atlas native Store before Center integration
         shell: pwsh
         timeout-minutes: 5
         run: |
           cargo test --release --locked --manifest-path vendor/atlas/desktop/src-tauri/Cargo.toml --lib
-          if($LASTEXITCODE -ne 0){throw 'CEN05_ATLAS09_ORIGINAL_STORE_FAILED'}
+          if($LASTEXITCODE -ne 0){throw 'CEN05_ATLAS_ORIGINAL_STORE_FAILED'}
       - name: Create actual Atlas Desktop project and works with installed GUI
         shell: pwsh
         timeout-minutes: 8
@@ -246,7 +250,7 @@ jobs:
             artifacts/installed-gui-failure.png
             artifacts/u05-two-installed-result.json
             artifacts/atlas05-center-iwxa-result.json
-            vendor/atlas/artifacts/IWXA-Atlas-0.9.0-dev.1-Setup.exe.sha256
+            vendor/atlas/artifacts/IWXA-Atlas-*-Setup.exe.sha256
             src-tauri/Cargo.lock
             package-lock.json
 

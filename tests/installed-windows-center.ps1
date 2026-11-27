@@ -389,7 +389,7 @@ function Close-Center {
 }
 
 try {
-  $installer=Get-Item -LiteralPath 'artifacts/IWXA-Admin-Center-0.4.1-Setup.exe' -ErrorAction Stop
+  $installer=Get-Item -LiteralPath 'artifacts/IWXA-Admin-Center-0.5.0-dev.1-Setup.exe' -ErrorAction Stop
   $installReport=Join-Path $artifactDir 'center-setup-core-installed.json'
   $installProcess=Start-Process -FilePath $installer.FullName -ArgumentList ('--install-file "{0}"' -f $installReport) -PassThru
   if(!$installProcess.WaitForExit(120000)){Stop-Process -Id $installProcess.Id -Force;throw 'IWXA Setup Core install timed out'}
@@ -399,7 +399,7 @@ try {
   $expectedRoot=Join-Path $env:LOCALAPPDATA 'Programs\IWXA Admin Center'
   if($setupResult.status -ne 'INSTALLED_NOT_LAUNCHED' -or
       $setupResult.product -ne 'iwxa.admin-center' -or
-      $setupResult.version -ne '0.4.1' -or
+      $setupResult.version -ne '0.5.0-dev.1' -or
       [IO.Path]::GetFullPath([string]$setupResult.installRoot) -ne [IO.Path]::GetFullPath($expectedRoot)){
     throw 'IWXA Setup Core installed receipt mismatch'
   }
