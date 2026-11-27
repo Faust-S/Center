@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
-      PRIVATE_PIN: 'f0340eb9803249378a540f9af023ea586d5f4989'
-      PRIVATE_TREE: 'd815cd2ab561ce0623946b50e65ac9b2fe898124'
+      PRIVATE_PIN: 'f0c6f05d290fb6bb8e910ac7ac2243455d22423a'
+      PRIVATE_TREE: '32ef22c341798b781f808290d32694c3234bd17f'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -347,11 +347,16 @@ jobs:
                               times=re.findall(r"(?m)^IMAGE_DEVICE_GENERATION_MS=([1-9][0-9]{0,6})\s*$",report)
                               timing=len(times)==1 and 1<=int(times[0])<=1300000
                               if timing:status("IMAGE_DEVICE_GENERATION_MS",times[0])
+                              steps=re.findall(r"(?m)^IMAGE_DEVICE_SAMPLING_LAST_STEP=([1-9]|1[0-2])\s*$",report)
+                              sampled=len(steps)==1
+                              if sampled:status("IMAGE_DEVICE_SAMPLING_LAST_STEP",steps[0])
+                              for value in re.findall(r"(?m)^IMAGE_DEVICE_GENERATION_FAILURE=(ENGINE_TIMEOUT|PROCESS_EXIT|OUTPUT|MEMORY|MODEL|ENGINE|INACTIVE|RECEIPT|CANCELLED|PROGRESS_INVALID|PROGRESS_MISSING|WAIT_TIMEOUT)\s*$",report):
+                                  status("IMAGE_DEVICE_GENERATION_FAILURE",value)
                               for value in re.findall(r"(?m)^IMAGE_DEVICE_FAILURE_CLASS=(ENGINE|MEMORY|PICKER|MODEL|GENERATION|PREVIEW|STALE|EXPORT|CANCEL|CLEANUP|OFFLINE|WEBVIEW)\s*$",report):status("IMAGE_DEVICE_FAILURE_CLASS",value)
                               failure_codes={"IMAGE_DISPOSABLE_CI_REQUIRED","IMAGE_MODEL_PIN","IMAGE_DISPOSABLE_DEVICE_REQUIRED","IMAGE_DISPOSABLE_AVD_REQUIRED","IMAGE_PACKAGE_REQUIRED","IMAGE_QA_PATH_COLLISION","IMAGE_ADB_OR_DOWNLOAD_FAILED","IMAGE_MODEL_SIZE","IMAGE_MODEL_FORMAT","IMAGE_MODEL_HASH","IMAGE_DEVICE_FIXTURE_HASH","IMAGE_OFFLINE_NOT_CONFIRMED","IMAGE_DEVICE_RECEIPT_INVALID","IMAGE_DEVICE_EXPORT_MISMATCH","IMAGE_DEVICE_CLEANUP","TimeoutExpired","OSError"}
                               for value in re.findall(r"(?m)^IMAGE_QUALIFICATION_FAILURE=([A-Za-z_]+)\s*$",report):
                                   if value in failure_codes:status("IMAGE_QUALIFICATION_FAILURE",value)
-                              passed=outcome.returncode==0 and tuple(observed)==expected and good and timing
+                              passed=outcome.returncode==0 and tuple(observed)==expected and good and timing and sampled
                               status(name,"PASS" if passed else "FAIL")
                               return passed
                           if name=="ASSEMBLY":
@@ -403,7 +408,7 @@ jobs:
                           if name in ("SOURCE","ASSEMBLY") and outcome.returncode==0:
                               # Exact accumulated source suite; no skip or todo.
                               node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
-                              if any(node_counts[label]!=[value] for label,value in {"tests":"800","pass":"800","fail":"0","skipped":"0","todo":"0"}.items()):
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"801","pass":"801","fail":"0","skipped":"0","todo":"0"}.items()):
                                   status(name,"NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
@@ -524,9 +529,9 @@ jobs:
                           status("NATIVE_MULTIMODAL_RECEIPT_POLICY","FAIL");status("APK","NOT_RUN");return 1
                       status("NATIVE_MULTIMODAL_RECEIPT_POLICY","34/34")
                       image_policy=run(["python3","mobile/qualification/test_image_qualification.py"],source,timeout=60)
-                      if image_policy.returncode or not re.search(rb"(?m)^Ran 7 tests? in [0-9.]+s\s*$",image_policy.stdout) or not re.search(rb"(?m)^OK\s*$",image_policy.stdout):
+                      if image_policy.returncode or not re.search(rb"(?m)^Ran 9 tests? in [0-9.]+s\s*$",image_policy.stdout) or not re.search(rb"(?m)^OK\s*$",image_policy.stdout):
                           status("IMAGE_DEVICE_RECEIPT_POLICY","FAIL");status("APK","NOT_RUN");return 1
-                      status("IMAGE_DEVICE_RECEIPT_POLICY","7/7")
+                      status("IMAGE_DEVICE_RECEIPT_POLICY","9/9")
                       policy=root/"context-policy"
                       if not stage("LLAMA_CONTEXT_POLICY_BUILD",["g++","-std=c++17","-Wall","-Wextra","-Werror","-O2","qualification/llama-context-budget.test.cpp","-o",str(policy)],mobile,120):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
