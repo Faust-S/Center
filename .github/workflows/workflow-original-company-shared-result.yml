@@ -1,0 +1,53 @@
+# Public only, one deliberate exact source qualification; no private checkout.
+name: Original company shared Result qualification
+on:
+  push:
+    branches: ['ci/once/workflow-original-company-shared-result/**']
+    paths: ['.github/ci-requests/workflow-original-company-shared-result.json']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: original-company-shared-result
+  cancel-in-progress: false
+jobs:
+  company-result:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Validate deliberate exact request
+        if: github.event_name == 'push'
+        run: node qualification/validate-company-shared-result-request.mjs
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 9451a9e39ade9c6238e8ecc09370e51c5b60c8be
+          path: knowledge
+          persist-credentials: false
+      - name: Original company persistence regression
+        run: |
+          set -eu
+          test "$(git -C knowledge rev-parse HEAD)" = "9451a9e39ade9c6238e8ecc09370e51c5b60c8be"
+          node --test knowledge/packages/t3-core/tests/t3-original-company-workspace-persistence.test.mjs > "$RUNNER_TEMP/company-result.log" 2>&1 || { cat "$RUNNER_TEMP/company-result.log"; exit 1; }
+          cat "$RUNNER_TEMP/company-result.log"
+          grep -q '^# tests 13$' "$RUNNER_TEMP/company-result.log"
+          grep -q '^# pass 13$' "$RUNNER_TEMP/company-result.log"
+      - name: Install exact released Kernel qualification dependencies
+        working-directory: knowledge/packages/t3-core
+        run: npm ci --prefix qualified-runtime-source/k036-atomic-graph --ignore-scripts --no-audit --no-fund
+      - name: Exact K036 whole Workspace restore and shared Result
+        working-directory: knowledge/packages/t3-core
+        run: node scripts/probe-k036-c3-mapping.mjs "$RUNNER_TEMP/k036-c3-mapping.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k036-company-result-exact-qualification
+          path: ${{ runner.temp }}/k036-c3-mapping.json
+          if-no-files-found: warn
