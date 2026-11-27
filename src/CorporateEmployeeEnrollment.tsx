@@ -8,7 +8,8 @@ import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskRea
  employeeTaskContinuationKey,readEmployeeTaskContinuation,saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
  readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,readEmployeeChallengeProof,
  inspectOriginalEmployeeWorkspaceRights,inspectOriginalEmployeeTaskGrant,
- readOriginalTaskCatalog,validateOriginalEmployeeCatalogReadback,validateOriginalEmployeeTaskExportReceipt}
+ readOriginalTaskCatalog,validateOriginalEmployeeCatalogReadback,validateOriginalEmployeeTaskExportReceipt,
+ validateOriginalAtlasWorkspaceReadback}
  from '../runtime/cen03-d3-owner.mjs';
 
 // This is a manager's view of the ORIGINAL installed T3 employee enrollment.
@@ -28,7 +29,8 @@ type Session={organizationId:string;workspaceId:string;actorId:string;contextId:
   d3EmployeeRegistrySeparated?:boolean;
   d3EmployeeTaskIssueAvailable?:boolean;
   d3EmployeeWorkspaceRightsAvailable?:boolean;
-  d3EmployeeCorporateSeatsAvailable?:boolean};
+  d3EmployeeCorporateSeatsAvailable?:boolean;
+  d3AtlasWorkspaceResultReadbackAvailable?:boolean};
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 function jsonObject(raw:string,code:string):Record<string,any>{
@@ -48,6 +50,68 @@ function keyRecord(raw:string,personId:string){
     [k.notBefore,k.expiresAt].some(x=>typeof x!=='string'))
     throw Error('CEN_D3_EMPLOYEE_PUBLIC_KEY_RECORD_INVALID');
   return k;
+}
+// Reuse the current/historical verified Task receipt. No new Result ledger,
+// persistent cache or signed authority is held in this presentation.
+function AtlasWorkspaceResults({task,session,execute,run,busy}:{
+ task:any;session:Session;execute:Exec;run:Run;busy:boolean;
+}){
+ const [view,setView]=useState<any>(null);
+ const [choice,setChoice]=useState('');
+ const available=session.d3AtlasWorkspaceResultReadbackAvailable===true;
+ const work=task.atlasReference?.workRef;
+ const read=(offset=0,resultObjectId?:string)=>run(
+   'Полученные корпоративные записи перечитаны из оригинальной Workspace.',async()=>{
+     if(!available||!work)throw Error('CEN_D3_ATLAS_WORKSPACE_READBACK_NOT_CONNECTED');
+     const request={taskId:task.taskId,offset,...(resultObjectId?{resultObjectId}:{})};
+     setView(null);setChoice('');
+     const value=await execute('d3AtlasWorkspaceResultReadback',request);
+     const checked=validateOriginalAtlasWorkspaceReadback(value,task,session,request);
+     setView(checked);setChoice(resultObjectId??'');
+   });
+ if(!work)return null;
+ return <div className="nested-form" data-testid="d3-atlas-workspace-results">
+  <h4>Результаты работы Atlas из корпоративной Workspace</h4>
+  <p>Исходная работа: {work.workId}, редакция плана {work.revision}.
+    Связь прочитана из подписанного поручения.</p>
+  <p className="muted">После штатного импорта Workspace прочитайте полученные записи.
+   Отдельный старый D3 Result-пакет для этого не требуется.</p>
+  <button type="button" className="secondary" disabled={busy||!available}
+    data-testid="d3-atlas-workspace-results-read"
+    onClick={()=>void read()}>Прочитать полученные результаты</button>
+  {!available&&<small>Откройте подписанную Workspace организации и подтвердите исходный реестр.</small>}
+  {available&&view&&<>
+   {view.status==='NO_WORKSPACE_RECORDS_FOUND'&&<p role="status">
+     В истории этой Workspace записи по точной редакции поручения пока не найдены.</p>}
+   {view.status==='WORKSPACE_TASK_FOUND'&&<p role="status">
+     Исходная Task найдена. Result для её редакции в истории пока не найден.</p>}
+   {view.status==='WORKSPACE_RESULTS_FOUND'&&<>
+     <p role="status">Полученные Result: {view.total}. Исходная Task и записи Workspace подтверждены.
+       Отдельная приёмка руководителем и передача в Atlas этим чтением не выполнялись.</p>
+     {view.results.map((row:any)=><div key={row.objectId} className="notice subdued">
+       <strong>Result {row.artifactId}</strong>
+       <p>{row.excerpt}{row.excerptTruncated?'…':''}</p>
+       <small>{row.mimeType} · {row.contentBytes} байт</small>
+       <div className="actions">
+        <button type="button" className="secondary" disabled={busy||!row.portableContentAvailable}
+          aria-pressed={choice===row.objectId}
+          onClick={()=>void read(view.offset,row.objectId)}>Прочитать содержание</button>
+       </div>
+       {!row.portableContentAvailable&&<small>Полный материал доступен в исходной Workspace.
+         Текущий выборочный формат Atlas поддерживает до 64 КБ текста.</small>}
+     </div>)}
+     {view.selectedResult?.content&&<label>Выбранный Result (только чтение)
+       <textarea rows={6} readOnly value={view.selectedResult.content}/>
+     </label>}
+     {(view.offset>0||view.nextOffset!==null)&&<div className="actions">
+       <button type="button" className="secondary" disabled={busy||view.offset===0}
+         onClick={()=>void read(Math.max(0,view.offset-64))}>Предыдущие</button>
+       <button type="button" className="secondary" disabled={busy||view.nextOffset===null}
+         onClick={()=>void read(view.nextOffset)}>Следующие</button>
+     </div>}
+   </>}
+  </>}
+ </div>;
 }
 export default function CorporateEmployeeEnrollment({session,contacts,preferredContactId=null,autoReadSeats=false,requireRegistryAbsence=false,registryAbsent=false,execute,run,busy,onOpenLicenses,managerOriginal=null,assignmentDrafts,invoke,onEnsureDraftSaved}:{
  session:Session;contacts:Contact[];preferredContactId?:string|null;autoReadSeats?:boolean;requireRegistryAbsence?:boolean;registryAbsent?:boolean;execute:Exec;run:Run;busy:boolean;onOpenLicenses?:()=>void;managerOriginal?:ManagerOriginalSelection|null;
@@ -919,6 +983,10 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
           </div>
           {verifiedHistory&&<p role="status" data-testid="d3-employee-history-confirmed">
            Исходные подписанные байты подтверждены. Доставка не подтверждена.</p>}
+          {verifiedHistory?.atlasReference&&<AtlasWorkspaceResults
+           key={JSON.stringify([session.organizationId,session.workspaceId,session.contextId,session.contextEpoch,
+             verifiedHistory.taskId,verifiedHistory.taskRevisionId,verifiedHistory.packageSha256])}
+           task={verifiedHistory} session={session} execute={execute} run={run} busy={busy}/>}
          </div>}
         </>}
         </>}
@@ -1104,6 +1172,10 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
        работа {taskReceipt.atlasReference.workRef.workId}, редакция {taskReceipt.atlasReference.workRef.revision}.
        Ссылка прочитана из оригинальной Task; получение Result пока не подтверждено.
      </p>}
+     {freshTaskReadback&&taskReceipt?.atlasReference&&<AtlasWorkspaceResults
+       key={JSON.stringify([session.organizationId,session.workspaceId,session.contextId,session.contextEpoch,
+         taskReceipt.taskId,taskReceipt.taskRevisionId,taskReceipt.packageSha256])}
+       task={taskReceipt} session={session} execute={execute} run={run} busy={busy}/>}
      {freshTaskReadback&&<p role="status" data-testid="d3-employee-task-next-ready">
        Исходный каталог подтверждён. Сохраните .iwxa для передачи или подготовьте
        следующее поручение тому же сотруднику.</p>}
