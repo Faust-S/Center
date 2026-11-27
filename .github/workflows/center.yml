@@ -20,7 +20,7 @@ concurrency:
   group: iwxa-center-qualification
   cancel-in-progress: false
 env:
-  CENTER_ATLAS_PIN: '8d814302a8ca7f6b9880ec36879ed3cd35fc28a2'
+  CENTER_ATLAS_PIN: 'ec2a48aecb2efe1ca3a97739977be6992d4b8a60'
   CENTER_BRTEST_PIN: '7cfb17870042cac824644140b7f0a587e244a20e'
   CENTER_SETUP_PIN: '0ef7544e2a6fd5fab5994f7f25abbb960063908c'
   CENTER_T3_PIN: '962cff41fdbfc864c4c15010b9ffa7e9bc43c29c'
