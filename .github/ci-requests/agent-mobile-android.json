@@ -1,0 +1,11 @@
+{
+  "candidate": "5f785344c665d1ba197f182f3ef4679f4189ea29",
+  "tree": "a55b8bc1ff5b3323bc88361482990b7f8c5a8e21",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M20_9_SOURCE_AND_ORIGINAL_T3_KNOWLEDGE_PORTS",
+  "reason": "QUALIFY_GITHUB_OBSIDIAN_READS_AND_CHAT_PREVIEW",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "c8cd11cbdf9789f27d339db6fc0fdf527e420ba9"
+}
