@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateOriginalAtlasWorkspaceReadback} from '../runtime/cen03-d3-owner.mjs';
+import {validateOriginalAtlasWorkspaceReadback,validateOriginalAtlasWorkspacePublicationPreview,
+ validateOriginalAtlasWorkspacePublicationReceipt} from '../runtime/cen03-d3-owner.mjs';
 import {prepareEmployeeDraftTask} from '../src/corporate-draft-task.mjs';
 import {signedAssignmentAtlasWork,acceptedAtlasFocus,selectAcceptedAtlasWork,acceptedAtlasReturnPointer,acceptedAtlasScopeMatches,sameAcceptedAtlasSource} from '../src/atlas-result-context.mjs';
 
@@ -126,4 +127,25 @@ test('corporate Workspace readback is bound to the exact signed Atlas assignment
   assert.throws(()=>validateOriginalAtlasWorkspaceReadback({...receipt,...patch},task,session,request),
    /CEN_D3_ATLAS_WORKSPACE_SOURCE_CHANGED/);
  }
+ const preview={status:'READY_FOR_EXPLICIT_CONSENT',recipientId:'iwxa.atlas',
+  sourceKind:'ADMIN_WORKSPACE_RESULT',operationId:'admin:t3:atlas:'+sha,
+  previewId:'preview:original',previewDigest:digest,organizationId:session.organizationId,
+  workspaceId:session.workspaceId,managerId:session.actorId,taskId:task.taskId,
+  resultId:row.artifactId,taskObjectId:receipt.taskObjectId,taskEventId:receipt.taskEventId,
+  resultEventId:row.eventId,workRef:ref,sourceObjectRef:{workspace_id:session.workspaceId,
+   object_id:row.objectId,schema_id:'iwxa.t3.company-work-record',revision:1},
+  selectedAcceptedSummary:'Measured',selectedSummarySha256:row.sha256,
+  originalWorkspaceRecordVerified:true,originalKernelApplyVerified:false,
+  signedReceiptVerified:false,originalRecipientGrantVerified:true,disclosureScope:'ORIGINAL_RESULT_ONLY'};
+ assert.deepEqual(validateOriginalAtlasWorkspacePublicationPreview(preview,receipt,session),preview);
+ assert.throws(()=>validateOriginalAtlasWorkspacePublicationPreview({...preview,originalKernelApplyVerified:true},
+  receipt,session),/CEN_D3_ATLAS_WORKSPACE_PREVIEW_CHANGED/);
+ assert.throws(()=>validateOriginalAtlasWorkspacePublicationPreview({...preview,resultEventId:'event:other'},
+  receipt,session),/CEN_D3_ATLAS_WORKSPACE_PREVIEW_CHANGED/);
+ const published={...preview,status:'ORIGINAL_ADMIN_RESULT_PUBLISHED',archiveSha256:digest,
+  originalArchiveVerified:true,ledgerStatus:'COMMITTED',carrierPrepared:true,
+  delivered:false,transferred:false,automaticRetryAllowed:false};
+ assert.deepEqual(validateOriginalAtlasWorkspacePublicationReceipt(published,preview),published);
+ assert.throws(()=>validateOriginalAtlasWorkspacePublicationReceipt({...published,delivered:true},preview),
+  /CEN_D3_ATLAS_WORKSPACE_PUBLICATION_READBACK_CHANGED/);
 });
