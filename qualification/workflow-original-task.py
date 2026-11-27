@@ -25,7 +25,55 @@ try:
         if active != "personal":
             raise ValueError("fixture area changed")
         op = request["op"]
-        if op == "execute":
+        binding = {"subjectKind":"PERSONAL","sourceWorkspaceId":"stage-result-workspace",
+                   "agentWorkspaceId":active,"contextEpoch":"qualification-"+active}
+        if op == "binding":
+            result = binding
+        elif op == "composer":
+            if request["binding"] != binding:
+                raise ValueError("fixture binding changed")
+            with engine.sessions.lock:
+                if engine.sessions.workspace_catalog(profile)["active_id"] != active:
+                    raise ValueError("fixture active area changed")
+                data = request["input"]
+                phase = "DRAFT_READ"
+                current = engine.sessions.composer_draft(profile, task_context=True)
+                if "text" not in data:
+                    result = current
+                else:
+                    if (current["draft_digest"] != data["expected_draft_digest"] or
+                            current["pending_submission"] is not None or current["text"] or
+                            current["attachments"] or current["knowledge_sources"]):
+                        raise ValueError("fixture composer occupied or changed")
+                    phase = "DRAFT_SAVE"
+                    result = engine.sessions.composer_draft(profile, text=data["text"],
+                        attachments=data["attachments"], knowledge_sources=data["knowledge_sources"],
+                        expected_draft_digest=current["draft_digest"], task_context=True)
+        elif op == "clear" or op == "submit":
+            # Explicit synthetic human action, not part of the product bridge.
+            # Submit only the original cold-readback composer, never JS plan bytes.
+            if request["binding"] != binding:
+                raise ValueError("fixture binding changed")
+            phase = "DRAFT_READ"
+            current = engine.sessions.composer_draft(profile, task_context=True)
+            if (current["draft_digest"] != request["expectedDraftDigest"] or
+                    not current["text"].strip() or current["pending_submission"] is not None):
+                raise ValueError("fixture composer changed")
+            if op == "submit":
+                phase = "TASK_CHAT"
+                created = engine.chat(current["text"], attachments=current["attachments"],
+                    knowledge_sources=current["knowledge_sources"], use_memory=False,
+                    use_obsidian=False, use_web=False)
+                tid = created["task_id"]
+                phase = "TASK_REVIEW"
+                engine.review(tid, "approve")
+            phase = "DRAFT_SAVE"
+            cleared = engine.sessions.composer_draft(profile, text="", attachments=[],
+                knowledge_sources=[], expected_draft_digest=current["draft_digest"], task_context=True)
+            if cleared["text"] or cleared["attachments"] or cleared["knowledge_sources"]:
+                raise ValueError("fixture composer was not cleared")
+            result = {"taskId":tid} if op == "submit" else cleared
+        elif op == "execute":
             # This qualification fixture explicitly simulates a user's
             # separate submission and Human Review. Product bridge never does so.
             draft = request["draft"]
