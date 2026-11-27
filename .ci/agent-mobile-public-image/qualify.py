@@ -92,13 +92,22 @@ X86_FEATURES = {"GGML_SSE42": "sse4_2", "GGML_AVX": "avx", "GGML_AVX2": "avx2",
                 "GGML_FMA": "fma", "GGML_F16C": "f16c", "GGML_BMI2": "bmi2"}
 
 
-def x86_flags(simd):
-    require(type(simd) is bool, "ANDROID_SIMD_MODE")
-    return [f"-D{option}={'ON' if simd else 'OFF'}" for option in X86_FEATURES]
+def supported_x86_features(flags):
+    enabled = set(X86_FEATURES.values()) & set(flags)
+    # AVX is a prerequisite for the vector extensions in this build profile.
+    if "avx" not in enabled:
+        enabled -= {"avx2", "fma", "f16c"}
+    return frozenset(enabled)
 
 
-def build(src, out, ndk=None, abi="arm64-v8a", *, x86_simd=False):
-    require(not x86_simd or (ndk is not None and abi == "x86_64"), "ANDROID_SIMD_ABI")
+def x86_flags(features):
+    require(isinstance(features, (set, frozenset)) and features <= set(X86_FEATURES.values()) and
+            features == supported_x86_features(features), "ANDROID_SIMD_MODE")
+    return [f"-D{option}={'ON' if feature in features else 'OFF'}" for option, feature in X86_FEATURES.items()]
+
+
+def build(src, out, ndk=None, abi="arm64-v8a", *, x86_features=frozenset()):
+    require(not x86_features or (ndk is not None and abi == "x86_64"), "ANDROID_SIMD_ABI")
     args = ["cmake", "-S", src, "-B", out, "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
             "-DSD_BUILD_EXAMPLES=ON", "-DSD_SERVER_BUILD_FRONTEND=OFF", "-DSD_WEBP=OFF", "-DSD_WEBM=OFF",
             "-DSD_BUILD_SHARED_LIBS=OFF", "-DSD_BUILD_SHARED_GGML_LIB=OFF", "-DSD_OPENCL=OFF",
@@ -109,13 +118,13 @@ def build(src, out, ndk=None, abi="arm64-v8a", *, x86_simd=False):
         args += ["-DCMAKE_TOOLCHAIN_FILE=" + str(ndk / "build/cmake/android.toolchain.cmake"),
                  "-DANDROID_ABI=" + abi, "-DANDROID_PLATFORM=android-33", "-DANDROID_STL=c++_static"]
         if abi == "x86_64":
-            args += x86_flags(x86_simd)
+            args += x86_flags(x86_features)
     run(args)
     if ndk is not None and abi == "x86_64":
         cache = (out / "CMakeCache.txt").read_text()
-        for option in X86_FEATURES:
+        for option, feature in X86_FEATURES.items():
             require(re.findall(r"(?m)^" + option + r":BOOL=(ON|OFF)$", cache) ==
-                    ["ON" if x86_simd else "OFF"], "ANDROID_SIMD_CACHE")
+                    ["ON" if feature in x86_features else "OFF"], "ANDROID_SIMD_CACHE")
     run(["cmake", "--build", out, "--target", "sd-cli", "--parallel", "2"], timeout=2400)
     exe = out / "bin/sd-cli"
     require(exe.is_file() and os.access(exe, os.X_OK), "SD_CLI_MISSING")

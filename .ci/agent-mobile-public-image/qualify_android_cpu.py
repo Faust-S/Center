@@ -14,7 +14,7 @@ import uuid
 
 from qualify import (ENGINE_REV, ENGINE_TREE, GGML_REV, MODEL_SHA, MODEL_BYTES, X86_FEATURES,
                      SIZE, SEED, STEPS, PROMPTS, build, checkout, download_model, inspect_png,
-                     require, verify_source, ndk_identity)
+                     require, verify_source, ndk_identity, supported_x86_features)
 from qualify_acceleration import write_json, sampling_evidence
 
 WORKFLOW = "agent-mobile-public-image-android-cpu"
@@ -58,6 +58,8 @@ def observed_steps(log):
 
 
 def comparison(rows):
+    if len(rows) == 1 and rows[0]["profile"] == "portable":
+        return {"status": "PORTABLE_ONLY", "portableStatus": rows[0]["status"], "simdStatus": "UNAVAILABLE", "speedup": None}
     require(len(rows) == 2 and {x["profile"] for x in rows} == {"portable", "simd"}, "ANDROID_CPU_PAIR")
     a, b = (next(x for x in rows if x["profile"] == name) for name in ("portable", "simd"))
     if a["status"] == b["status"] == "PASS":
@@ -88,20 +90,18 @@ def qualify(result, ndk, adb):
             shell("getprop", "ro.kernel.qemu").stdout.strip() == "1" and
             shell("getprop", "ro.product.cpu.abi").stdout.strip() == "x86_64", "ANDROID_DISPOSABLE_AVD")
     available = common_flags(shell("cat", "/proc/cpuinfo").stdout)
-    required = set(X86_FEATURES.values())
+    supported = set(X86_FEATURES.values())
+    enabled = supported_x86_features(available)
+    profiles = [("simd", enabled), ("portable", frozenset())] if enabled else [("portable", frozenset())]
     result.mkdir(parents=True, exist_ok=False)
     receipt = {"experiment": "ANDROID_X86_CPU_SIMD", "engineRevision": ENGINE_REV, "engineTree": ENGINE_TREE,
                "ggmlRevision": GGML_REV, "baseModelSha256": MODEL_SHA, "abi": "x86_64",
                "androidApi": shell("getprop", "ro.build.version.sdk").stdout.strip(),
-               "requiredFlags": sorted(required), "observedFlags": sorted(required & available),
-               "images": [], "status": "RUNNING", "physicalDevice": "NOT_RUN",
+               "knownFlags": sorted(supported), "observedFlags": sorted(supported & available),
+               "enabledSimdFlags": sorted(enabled), "images": [], "status": "RUNNING", "physicalDevice": "NOT_RUN",
                "installedApplication": "NOT_RUN", "semanticQuality": "NOT_RUN"}
     write_json(result / "receipt.json", receipt)
-    if not required <= available:
-        receipt["status"] = "SIMD_UNAVAILABLE"
-        write_json(result / "receipt.json", receipt)
-        print("ANDROID_CPU_SIMD_UNAVAILABLE", flush=True)
-        return
+    print("ANDROID_CPU_SIMD_FLAGS=" + ",".join(sorted(enabled)), flush=True)
     directory = "/data/local/tmp/iwxa-image-cpu-" + uuid.uuid4().hex
     shell("mkdir", "-m", "700", directory)
     try:
@@ -117,9 +117,9 @@ def qualify(result, ndk, adb):
             call("push", prompt, directory + "/prompt.txt")
             require(shell("sha256sum", directory + "/model.gguf", timeout=180).stdout.split() ==
                     [MODEL_SHA, directory + "/model.gguf"], "ANDROID_MODEL_READBACK")
-            for profile, optimized in (("simd", True), ("portable", False)):
+            for profile, features in profiles:
                 out = root / ("build-" + profile)
-                exe = build(source, out, ndk, "x86_64", x86_simd=optimized)
+                exe = build(source, out, ndk, "x86_64", x86_features=features)
                 digest = hashlib.sha256(exe.read_bytes()).hexdigest()
                 target = directory + "/sd-" + profile
                 call("push", exe, target, timeout=300)
@@ -133,7 +133,7 @@ def qualify(result, ndk, adb):
             require(shell("settings", "get", "global", "airplane_mode_on").stdout.strip() == "1", "ANDROID_AIRPLANE")
             receipt["airplaneMode"] = "OBSERVED"
             # Optimized first: preserve a useful result even if the portable baseline times out.
-            for profile in ("simd", "portable"):
+            for profile, features in profiles:
                 started = time.monotonic()
                 args = command_args(directory, profile)
                 print("ANDROID_CPU_GENERATION=" + profile + ":START", flush=True)
@@ -141,7 +141,7 @@ def qualify(result, ndk, adb):
                 elapsed = round((time.monotonic() - started) * 1000)
                 print(p.stdout[-16000:], flush=True)
                 row = {"profile": profile, "durationMs": elapsed, "exitCode": p.returncode,
-                       "observedSteps": observed_steps(p.stdout), "status": "PROCESS_EXIT"}
+                       "observedSteps": observed_steps(p.stdout), "enabledFlags": sorted(features), "status": "PROCESS_EXIT"}
                 if p.returncode == 0:
                     sampling_evidence(p.stdout, "baseline")
                     target = result / (profile + ".png")
