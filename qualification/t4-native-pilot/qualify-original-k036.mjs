@@ -4,7 +4,10 @@ import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {readFileSync,writeFileSync,mkdirSync,rmSync,existsSync} from 'node:fs';
 import {join,resolve} from 'node:path';
-const [t2Arg,coreArg,tempArg]=process.argv.slice(2);
+import {requireLocalExactInputs} from './local-exact-inputs.mjs';
+const args=process.argv.slice(2),local=args[0]==='--local-exact';
+if(local)args.shift();
+const [t2Arg,coreArg,tempArg,descriptor]=args;
 const t2=resolve(t2Arg),core=resolve(coreArg),temp=resolve(tempArg);
 let ownsTemp=false;
 const fail=code=>{throw Error(code)};
@@ -48,6 +51,11 @@ function tests(root,files,name,filter=null){
   return {...r,report:report(output)};
 }
 try{
+  let sourcePin;
+  const packagingDir='t2/current/final-successor/kernel-successors/k036-canonical-event-merge-20261125';
+  if(local){
+    sourcePin=requireLocalExactInputs({t2,core,temp,descriptor});
+  }else{
   need(process.env.GITHUB_ACTIONS==='true'&&process.env.GITHUB_REPOSITORY==='Faust-S/Center'&&
     process.env.GITHUB_REF==='refs/heads/work/2026-11-27-t4-native-pilot-k036'&&
     process.env.RUNNER_ENVIRONMENT==='github-hosted','K036_PUBLIC_DISPOSABLE_RUNNER_REQUIRED');
@@ -59,8 +67,7 @@ try{
   }
   // The source and canonical generator are exactly the previously qualified
   // commit. The direct successor adds ONLY the two candidate archive tools.
-  const sourcePin=process.env.T2_SOURCE_PIN;
-  const packagingDir='t2/current/final-successor/kernel-successors/k036-canonical-event-merge-20261125';
+  sourcePin=process.env.T2_SOURCE_PIN;
   const packagingPaths=[packagingDir+'/prepare_k036_candidate_archive.py',
     packagingDir+'/test_prepare_k036_candidate_archive.py'].sort();
   const parent=run('git',['rev-parse','HEAD^'],t2);
@@ -68,15 +75,16 @@ try{
   need(sourcePin==='4e4ad5c5e566a74f24243b9d0744a6d64652a199'&&parent.code===0&&parent.output.trim()===sourcePin&&
     changed.code===0&&JSON.stringify(changed.output.trim().split(/\r?\n/).sort())===JSON.stringify(packagingPaths),
     'K036_PACKAGING_ONLY_SOURCE_DRIFT');
-  const stageOnly=process.env.K036_STAGE_ONLY==='1';
-  const admissionOnly=process.env.K036_ADMISSION_ONLY==='1';
+  }
+  const stageOnly=!local&&process.env.K036_STAGE_ONLY==='1';
+  const admissionOnly=local||process.env.K036_ADMISSION_ONLY==='1';
   // Unlike the earlier recipe-only witness, this is an explicit test of
   // the exact converged public Core pinned above. No accepted pin changes.
-  need(process.env.K036_ADMISSION_ONLY==='1'&&process.env.K036_STAGE_ONLY!=='1',
+  need(local||(process.env.K036_ADMISSION_ONLY==='1'&&process.env.K036_STAGE_ONLY!=='1'),
     'K036_T4_EXACT_ADMISSION_WITNESS_REQUIRED');
   console.log('K036_CONVERGED_PUBLIC_CORE_PIN=PASS');
   console.log('K036_PACKAGING_ONLY_SOURCE_PIN=PASS');
-  need(Boolean(process.env.RUNNER_TEMP)&&
+  if(!local)need(Boolean(process.env.RUNNER_TEMP)&&
     temp===resolve(process.env.RUNNER_TEMP,'iwxa-k036-canonical-event-merge')&&
     temp!==t2&&temp!==core&&!existsSync(temp),'K036_DISPOSABLE_TEMP_PATH_REQUIRED');
   mkdirSync(temp,{recursive:false});
@@ -211,7 +219,8 @@ try{
         IWXA_COMPANY_TEST_COMPILED_T3:join(corePackage,'dist')});
     reportTests('K036_ORIGINAL_CANDIDATE_ACTUAL_PRODUCT_RECIPES',cross,3,true);
   }else console.log('K036_CROSS_PRODUCT_REGRESSION=REUSED_PREVIOUS_SOURCE_EVIDENCE_45596499435');
-  console.log(stageOnly?'K036_CANDIDATE_ARCHIVE=STAGED_REUSED_EXACT_SOURCE_EVIDENCE_NOT_RELEASED':
+  console.log(local?'K036_LOCAL_PRODUCT_RECIPES=PASS_NOT_RELEASED':
+    stageOnly?'K036_CANDIDATE_ARCHIVE=STAGED_REUSED_EXACT_SOURCE_EVIDENCE_NOT_RELEASED':
     'K036_CANDIDATE_PRODUCT_RECIPES=PASS_NOT_RELEASED');
 }catch(error){
   const code=String(error?.message??'');
