@@ -37,6 +37,17 @@ export function validateDraft(state) {
       // Planning a Personal Agent seat does not issue a Publisher license or an organization grant.
       requireValue(person.personalAgentPlan === undefined || ['NONE', 'PLANNED'].includes(person.personalAgentPlan), 'AGENT_SEAT_PLAN_INVALID');
     }
+    // Optional planning associations belong to this organization's existing
+    // draft. They neither represent signed identities nor grant permissions.
+    const bindings=org.atlasResourceBindings??[];
+    requireValue(Array.isArray(bindings)&&bindings.length<=2000,'ATLAS_RESOURCE_BINDINGS_INVALID');
+    requireValue(new Set(bindings.map(row=>row?.resourceId)).size===bindings.length,'ATLAS_RESOURCE_BINDINGS_INVALID');
+    for(const binding of bindings){
+      requireValue(binding&&typeof binding==='object'&&!Array.isArray(binding)&&
+        Object.keys(binding).length===2,'ATLAS_RESOURCE_BINDINGS_INVALID');
+      text(binding.resourceId,'ATLAS_RESOURCE_INVALID',160);
+      byId(org.participants,binding.participantId,'PARTICIPANT_NOT_FOUND');
+    }
     for (const assignment of org.assignments) validateAssignment(org, assignment);
   }
   requireValue(state.activeOrganizationId === null || state.organizations.some(org => org.id === state.activeOrganizationId), 'ACTIVE_ORGANIZATION_INVALID');
@@ -109,6 +120,13 @@ export function applyDraftCommand(current, command, {id = () => crypto.randomUUI
       const ref = command.atlasRef;
       if (ref !== null) validateAtlasRef(ref);
       workspace.atlasRef = ref;
+    } else if (command.type === 'LINK_ATLAS_RESOURCE_PARTICIPANT') {
+      const resourceId=text(command.resourceId,'ATLAS_RESOURCE_INVALID',160);
+      if(command.participantId!==null)
+        byId(org.participants,command.participantId,'PARTICIPANT_NOT_FOUND');
+      const next=(org.atlasResourceBindings??[]).filter(row=>row.resourceId!==resourceId);
+      if(command.participantId!==null)next.push({resourceId,participantId:command.participantId});
+      org.atlasResourceBindings=next;
     } else if (command.type === 'SAVE_ASSIGNMENT') {
       const old = command.assignmentId ? byId(org.assignments, command.assignmentId, 'ASSIGNMENT_NOT_FOUND') : null;
       if (old) requireValue(old.editNumber === command.expectedEditNumber, 'DRAFT_EDIT_CONFLICT');

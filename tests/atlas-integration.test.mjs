@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {empty,createProject,createItem,editItem,serialize} from '../vendor/atlas/src/core.mjs';
 import {addPortfolioLink} from '../vendor/atlas/src/portfolio.mjs';
+import {addPlanningResource} from '../vendor/atlas/src/resource-planning.mjs';
 import {readAtlasPortfolio,linkableAtlasProject,linkableAtlasWork,atlasLinkReadback,atlasWorkReadback,compareAtlasSourceCopies,selectAtlasReferenceSource,ATLAS_SOURCE_REVISION} from '../src/atlas-integration.mjs';
 import {emptyDraft,applyDraftCommand} from '../src/organization.mjs';
 
@@ -166,4 +167,24 @@ test('refresh keeps exact project and Work, never substitutes removed selection'
  assert.deepEqual(select(view,{projectId:'p1',workId:'gone'},{sameSource:true}),{projectId:'p1',workId:''});
  assert.deepEqual(select(view,{projectId:'gone',workId:'w3'},{sameSource:true}),{projectId:'',workId:''});
  assert.deepEqual(select(view,{projectId:'p1',workId:'w1'},{sameSource:true,createdWorkId:'w2'}),{projectId:'p1',workId:'w2'});
+});
+
+test('a selected exact Atlas Work prefills title, due date and priority without guessing people',async()=>{
+ const {prepareAtlasAssignmentFields:prepare,atlasResourceForWork}=await import('../src/atlas-integration.mjs');
+ const p=createProject(empty(),{name:'Assembly',type:'engineering'});
+ const r=addPlanningResource(p.state,{label:'Alex',capacityPct:100});
+ const w=createItem(r.state,p.id,{title:'Fit parts',resourceId:r.id,assignee:'Alex',dueDate:'2026-12-01'});
+ const state=editItem(w.state,p.id,w.id,{priority:'critical'});
+ const local=readAtlasPortfolio(serialize(state)),native={...local,mode:'NATIVE_ATLAS_PUBLIC_READ_ONLY'};
+ const ref=linkableAtlasWork(native,p.id,w.id);
+ const org={participants:[{id:'employee-a',name:'Alex'},{id:'employee-b',name:'Alex'}]};
+ const fields=prepare(native,ref,org);
+ assert.deepEqual(fields,{title:'Fit parts',dueDate:'2026-12-01',priority:'high',assigneeId:'',reviewerId:'',titleNeedsEdit:false});
+ assert.equal(atlasResourceForWork(native,ref),r.id);
+ assert.throws(()=>atlasResourceForWork(local,ref),/ATLAS_INSTALLED_SOURCE_REQUIRED/);
+ const mapped={...org,atlasResourceBindings:[{resourceId:r.id,participantId:'employee-b'}]};
+ assert.equal(prepare(native,ref,mapped).assigneeId,'employee-b');
+ assert.equal(prepare(local,ref,mapped).assigneeId,'');
+ assert.equal(prepare(native,ref,{...mapped,participants:org.participants.slice(0,1)}).assigneeId,'');
+ assert.throws(()=>prepare(native,{...ref,revision:'0'},mapped),/ATLAS_SOURCE_REVISION_CHANGED/);
 });

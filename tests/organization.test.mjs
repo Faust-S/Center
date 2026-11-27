@@ -133,3 +133,24 @@ test('cross-org and unproven Result refs are rejected in local draft input',()=>
     /DRAFT_SOURCE_RESULT_REFERENCE_INVALID/);
   assert.equal(f.state.organizations[0].assignments.length,0);
 });
+
+test('Atlas resource associations are explicit, persistent and isolated in the existing organization draft',async()=>{
+ const {emptyDraft,applyDraftCommand,encodeDraft,decodeDraft}=await import('../src/organization.mjs');
+ let seq=0;
+ const opts={id:()=> 'resource-test-'+(++seq)};
+ const cmd=(s,c)=>applyDraftCommand(s,c,opts);
+ let s=cmd(emptyDraft(),{type:'CREATE_ORGANIZATION',name:'First'});
+ const first=s.activeOrganizationId;
+ s=cmd(s,{type:'ADD_PARTICIPANT',organizationId:first,name:'Employee'});
+ const person=s.organizations[0].participants[0].id;
+ s=cmd(s,{type:'LINK_ATLAS_RESOURCE_PARTICIPANT',organizationId:first,resourceId:'r1',participantId:person});
+ assert.deepEqual(decodeDraft(encodeDraft(s)).organizations[0].atlasResourceBindings,[{resourceId:'r1',participantId:person}]);
+ s=cmd(s,{type:'CREATE_ORGANIZATION',name:'Second'});
+ const second=s.activeOrganizationId;
+ assert.throws(()=>cmd(s,{type:'LINK_ATLAS_RESOURCE_PARTICIPANT',organizationId:second,resourceId:'r1',participantId:person}),/PARTICIPANT_NOT_FOUND/);
+ assert.throws(()=>cmd(s,{type:'LINK_ATLAS_RESOURCE_PARTICIPANT',organizationId:first,resourceId:'r1',participantId:null}),/ORGANIZATION_CONTEXT_CHANGED/);
+ s=cmd(s,{type:'SELECT_ORGANIZATION',organizationId:first});
+ s=cmd(s,{type:'LINK_ATLAS_RESOURCE_PARTICIPANT',organizationId:first,resourceId:'r1',participantId:null});
+ assert.deepEqual(s.organizations[0].atlasResourceBindings,[]);
+ assert.equal(s.organizations[1].atlasResourceBindings,undefined);
+});

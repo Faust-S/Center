@@ -18,6 +18,7 @@ export function readAtlasPortfolio(raw) {
   } catch {
     fail('ATLAS_SNAPSHOT_INVALID');
   }
+  const resources=new Map((snapshot.resources??[]).map(r=>[r.id,r]));
   return {
     source: 'atlas.project/1',
     revision: String(snapshot.revision),
@@ -30,7 +31,11 @@ export function readAtlasPortfolio(raw) {
         progress: progress.progress, stages: p.stages.length,
         workItems: p.items.map(i => ({
           id: i.id, title: i.title, state: i.state,
-          dueDate: i.dueDate || '', priority: i.priority
+          dueDate: i.dueDate || '', priority: i.priority,
+          assignee:i.assignee??'',
+          resourceId:i.resourceId??null,
+          resourceLabel:resources.get(i.resourceId)?.label??'',
+          allocationPct:i.resourceId?(i.allocationPct??100):null
         }))
       };
     }),
@@ -127,7 +132,7 @@ export function compareAtlasSourceCopies(previous,current){
   for(const w of p.workItems){
    const prior=oldWorks.get(w.id);
    if(!prior){out.addedWorks++;continue}
-   if(["title","state","dueDate","priority"].some(k=>prior[k]!==w[k]))out.changedWorks++;
+   if(["title","state","dueDate","priority","assignee","resourceId","resourceLabel","allocationPct"].some(k=>prior[k]!==w[k]))out.changedWorks++;
   }
   for(const w of old.workItems)if(!currentWorkIds.has(w.id))out.removedWorks++;
  }
@@ -175,4 +180,41 @@ export function selectAtlasAfterRead(view,previous,{sameSource=false,createdProj
   sameSource&&project.id===previous.projectId?project.workItems.find(w=>w.id===previous.workId):
   project.workItems[0];
  return {projectId:project.id,workId:work?.id??''};
+}
+
+
+// Only the exact selected Work can seed an organizational draft. Atlas's
+// free-text assignee and resource label are not employee identities.
+/** @param {any} view
+ * @param {{projectId:string,workId?:string,revision:string}} ref
+ * @param {{participants:Array<{id:string}>,atlasResourceBindings?:Array<{resourceId:string,participantId:string}>}} organization */
+export function prepareAtlasAssignmentFields(view,ref,organization){
+ if(!ref?.workId)fail('ATLAS_WORK_NOT_IN_PREVIEW');
+ const exact=linkableAtlasWork(view,ref.projectId,ref.workId);
+ if(exact.revision!==ref.revision)fail('ATLAS_SOURCE_REVISION_CHANGED');
+ const item=view.projects.find(p=>p.id===ref.projectId).workItems.find(w=>w.id===ref.workId);
+ const resourceBinding=view.mode==='NATIVE_ATLAS_PUBLIC_READ_ONLY'&&item.resourceId
+  ?organization.atlasResourceBindings?.find(row=>row.resourceId===item.resourceId):null;
+ const assigneeId=resourceBinding&&organization.participants.some(p=>p.id===resourceBinding.participantId)
+  ?resourceBinding.participantId:'';
+ return {
+  // Do not silently truncate the original Work title.
+  title:item.title.length<=200?item.title:'',
+  dueDate:item.dueDate||'',
+  priority:['high','critical'].includes(item.priority)?'high':'normal',
+  assigneeId,
+  reviewerId:'',
+  titleNeedsEdit:item.title.length>200
+ };
+}
+
+// Bind a real selected resource of the installed owner, not a name or a
+// resource identifier supplied independently by the UI.
+export function atlasResourceForWork(view,ref){
+ if(view?.mode!=='NATIVE_ATLAS_PUBLIC_READ_ONLY')fail('ATLAS_INSTALLED_SOURCE_REQUIRED');
+ if(!ref?.workId||atlasWorkReadback(view,ref)!=='SOURCE_REVISION_MATCHES')
+  fail('ATLAS_SOURCE_REVISION_CHANGED');
+ const work=view.projects.find(p=>p.id===ref.projectId).workItems.find(w=>w.id===ref.workId);
+ if(!work.resourceId)fail('ATLAS_WORK_RESOURCE_REQUIRED');
+ return work.resourceId;
 }
