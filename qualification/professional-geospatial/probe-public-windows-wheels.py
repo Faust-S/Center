@@ -44,7 +44,7 @@ for name,wheel in wheels.items():
     report=home/'report.json'
     p=execute(name+'_PIP',[exe,'-I','-m','pip','--isolated','--disable-pip-version-check','install','--no-input','--no-cache-dir','--only-binary=:all:','--index-url','https://pypi.org/simple','--report',report,wheel],env=env,cwd=home,timeout=600)
     if not p or p.returncode:continue
-    print(name,'DEPENDENCIES',[(x['metadata']['name'],x['metadata']['version']) for x in json.loads(report.read_text())['install']],flush=True)
+    print(name,'DEPENDENCIES',[(x['metadata']['name'],x['metadata']['version']) for x in json.loads(report.read_bytes())['install']],flush=True)
     execute(name+'_CHECK',[exe,'-I','-m','pip','--isolated','check'],env=env,cwd=home)
     if name=='ortools':
         check="from importlib.metadata import version;from ortools.sat.python import cp_model;assert version('ortools')=='9.14.6206';m=cp_model.CpModel();x=m.new_int_var(0,7,'x');m.maximize(x);s=cp_model.CpSolver();assert s.solve(m)==cp_model.OPTIMAL and s.value(x)==7;print('ORIGINAL_SOLVER_OK')"
