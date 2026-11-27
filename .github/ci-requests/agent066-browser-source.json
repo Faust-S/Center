@@ -1,0 +1,10 @@
+{
+  "candidate": "4967c93200a607679b4db812caa732ea85c944fe",
+  "tree": "293ebb7b3b0abb7eff25024bc7f453ff7de58953",
+  "baseline": "68128b4c9a2c7140ec3503ff0f775e5bcb50743e",
+  "baseline_tree": "73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2",
+  "scope": "B066_FULL_NATIVE_QUALIFICATION",
+  "installed_gui": "REQUIRED",
+  "workflow": "agent066-browser-source",
+  "prepared_sha": "17ce534a4d4282dec044c7e73578b60d9d246463"
+}
