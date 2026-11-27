@@ -6,7 +6,9 @@ const validId=v=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.te
 const need=(ok,code)=>{if(!ok)throw Error(code);};
 const bounded=(v,max,required=false)=>typeof v==='string'&&v.length<=max&&(!required||!!v.trim());
 const scopeKey=s=>employeeTaskContinuationKey(s.organizationId,s.workspaceId,s.actorId,s.employeePersonId,s.enrollmentId);
-export function prepareEmployeeDraftTask(draft,scope){
+// One canonical signed assignment text for both direct manager Tasks and
+// independent employees. This is preparation, never a signature or grant.
+export function prepareCorporateDraftTask(draft,scope){
  const code='CEN_D3_EMPLOYEE_DRAFT_SOURCE_INVALID';
  need(validId(scope?.contextId)&&Number.isSafeInteger(scope.contextEpoch)&&scope.contextEpoch>=0,code);
  need(draft?.status==='DRAFT'&&validId(draft.id)&&draft.workspaceId===scope.workspaceId&&
@@ -31,8 +33,12 @@ export function prepareEmployeeDraftTask(draft,scope){
      ', Result '+source.resultRevisionId+', приёмка '+source.acceptanceId
  ].filter(Boolean).join('\n\n');
  need(text.length<=10000,'CEN_D3_EMPLOYEE_DRAFT_TEXT_TOO_LARGE');
- return {id:draft.id,scope:scopeKey(scope),contextId:scope.contextId,contextEpoch:scope.contextEpoch,snapshot:JSON.stringify(draft),text,
+ return {id:draft.id,contextId:scope.contextId,contextEpoch:scope.contextEpoch,snapshot:JSON.stringify(draft),text,
    atlasRef:atlas?{...atlas}:null,sourceResultRef:source?{...source}:null};
+}
+export function prepareEmployeeDraftTask(draft,scope){
+ const prepared=prepareCorporateDraftTask(draft,scope);
+ return {...prepared,scope:scopeKey(scope)};
 }
 export function employeeDraftSelectionCurrent(selection,draft,scope,text,confirmed){
  if(confirmed!==true||!selection)return false;
@@ -48,6 +54,11 @@ export function employeeDraftSelectionCurrent(selection,draft,scope,text,confirm
 export async function verifyEmployeeDraftSources(selection,scope,invoke){
  need(selection?.scope===scopeKey(scope)&&selection.contextId===scope.contextId&&
    selection.contextEpoch===scope.contextEpoch,'CEN_D3_EMPLOYEE_DRAFT_CHANGED_BEFORE_SIGNING');
+ return verifyCorporateDraftSources(selection,scope,invoke);
+}
+export async function verifyCorporateDraftSources(selection,scope,invoke){
+ need(selection?.contextId===scope.contextId&&selection.contextEpoch===scope.contextEpoch,
+   'CEN_D3_EMPLOYEE_DRAFT_CHANGED_BEFORE_SIGNING');
  if(selection.atlasRef){
    const [{createNativeAtlasPort},{atlasLinkReadback,atlasWorkReadback}]=await Promise.all([
      import('./atlas-native.mjs'),import('./atlas-integration.mjs')

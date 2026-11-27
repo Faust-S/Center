@@ -368,10 +368,11 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
     atlasResultReturn={atlasResultReturn} onClearAtlasResultReturn={onClearAtlasResultReturn}
     assignmentDrafts={organization.assignments.filter(a=>
       a.workspaceId===owner.snapshot.workspaceId).map(a=>({
-        id:a.id,title:a.title,assigneeId:a.assigneeId??'',
+        id:a.id,title:a.title,assigneeId:a.assigneeId??null,reviewerId:a.reviewerId??null,
+        workspaceId:a.workspaceId??'',status:a.status??'',
         editNumber:a.editNumber??0,description:a.description??'',
         criteria:a.criteria??'',dueDate:a.dueDate??'',
-        atlasRef:a.atlasRef??null
+        atlasRef:a.atlasRef??null,sourceResultRef:a.sourceResultRef??null
       }))}/> : <>
   <div className="nested-form" data-testid="cen02-owner-people">
    <h3>Ответственные в организации</h3>

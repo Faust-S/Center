@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareEmployeeDraftTask as prepare,employeeDraftSelectionCurrent as current,verifyEmployeeDraftSources as verify} from '../src/corporate-draft-task.mjs';
+import {prepareEmployeeDraftTask as prepare,employeeDraftSelectionCurrent as current,verifyEmployeeDraftSources as verify,prepareCorporateDraftTask} from '../src/corporate-draft-task.mjs';
 const scope={organizationId:'org:one',workspaceId:'workspace:one',actorId:'person:manager',
  employeePersonId:'person:worker',enrollmentId:'enrollment:worker',contextId:'context:one',contextEpoch:7};
 const draft={id:'draft:one',status:'DRAFT',workspaceId:scope.workspaceId,editNumber:2,
@@ -47,4 +47,15 @@ test('ordinary draft preparation does not invoke Atlas or original Result owner'
  await verify(prepare(draft,scope),scope,async()=>{calls++;throw Error('UNEXPECTED');});
  await assert.rejects(verify(prepare(draft,scope),{...scope,contextEpoch:8},async()=>{calls++;}),/DRAFT_CHANGED_BEFORE_SIGNING/);
  assert.equal(calls,0);
+});
+
+test('manager and employee drafts share the same canonical signed assignment text',()=>{
+ const direct=prepareCorporateDraftTask(draft,scope);
+ const employee=prepare(draft,scope);
+ assert.equal(direct.text,employee.text);
+ assert.equal(direct.snapshot,employee.snapshot);
+ assert.deepEqual(direct.atlasRef,employee.atlasRef);
+ assert.deepEqual(direct.sourceResultRef,employee.sourceResultRef);
+ assert.equal(Object.hasOwn(direct,'scope'),false);
+ assert.throws(()=>prepareCorporateDraftTask({...draft,workspaceId:'workspace:other'},scope));
 });

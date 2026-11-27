@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {acceptedAtlasFocus,acceptedAtlasScopeMatches,sameAcceptedAtlasSource} from './atlas-result-context.mjs';
 import type {AcceptedAtlasFocus,AcceptedAtlasReturn} from './atlas-result-context.mjs';
+import {prepareCorporateDraftTask,verifyCorporateDraftSources} from './corporate-draft-task.mjs';
 import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
 import {readReviewContinuation,mergeReviewContinuations,rememberReviewContinuation,
  clearUndispatchedReviewContinuation,validateReviewDecisionReceipt} from '../runtime/cen03-review-continuation.mjs';
@@ -22,9 +23,10 @@ type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   d3ApplicationReceiptWorkspaceId?:string;d3ApplicationReceiptWorkspaceReady?:boolean;
   d3TaskIssueAvailable?:boolean;d3ApplyRecoverAvailable?:boolean;
   tasks?:SignedTask[];totalTasks?:number}};
-type AssignmentDraft={id:string;title:string;assigneeId:string;editNumber:number;
- description:string;criteria:string;dueDate:string;
- atlasRef:{projectId:string;revision:string;workId?:string}|null};
+type AssignmentDraft={id:string;title:string;assigneeId:string|null;reviewerId:string|null;editNumber:number;
+ status:string;workspaceId:string;description:string;criteria:string;dueDate:string;
+ atlasRef:{projectId:string;revision:string;workId?:string}|null;
+ sourceResultRef:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}|null};
 type AgeStatus={operation:'AGE_STATUS';available:boolean;recipient:string|null;
   toolchain:{ready:boolean;reason?:string};provider:string;admitted:false};
 const hex=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
@@ -187,8 +189,13 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const selectedTask=signedTasks.find(t=>t.taskId===taskId)??(employeeFocus?undefined:signedTasks.at(-1));
  const chosenDraft=assignmentDrafts.find(a=>a.id===draftId);
  const draftAssigneeUnbound=!!chosenDraft?.assigneeId;
+ const chosenPreparation=(()=>{
+   if(!chosenDraft)return null;
+   try{return prepareCorporateDraftTask(chosenDraft,session)}catch{return null;}
+ })();
  const draftStale=!!draftId&&(
-   !chosenDraft||JSON.stringify(chosenDraft)!==draftSnapshot);
+   !chosenPreparation||chosenPreparation.snapshot!==draftSnapshot||
+   chosenPreparation.text!==taskText);
  const createSignedTask=()=>run('Подписанная Task сохранена. Передача получателю ещё не подтверждена.',async()=>{
    if(session.d3TaskIssueAvailable!==true||!taskText.trim()||
      taskText.length>10000)throw Error('CEN_D3_SIGNED_TASK_TEXT_REQUIRED');
@@ -198,29 +205,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      !taskIdSaved||taskAttempted||
      (!catalog||allSignedTasks.some(t=>t.taskId===taskOperationId)))
      throw Error('CEN_D3_SIGNED_TASK_OPERATION_REQUIRED');
-   // A draft Atlas link is not automatically a valid current source. Before
-   // original T3 signs it, reread the installed Atlas Desktop owner in its
-   // existing fixed-path READ_ONLY mode, never a cached/selected file copy.
-   const source=assignmentDrafts.find(a=>a.id===draftId)?.atlasRef;
-   if(source){
-     // Original corporate Task requires no Atlas modules until this exact
-     // draft explicitly carries a native project/work reference.
-     const [{createNativeAtlasPort},{atlasLinkReadback,atlasWorkReadback}]=
-       await Promise.all([
-         import('./atlas-native.mjs'),
-         import('./atlas-integration.mjs')
-       ]).catch(()=>{throw Error('CEN_D3_ATLAS_OWNER_NOT_AVAILABLE');});
-     const port=createNativeAtlasPort(invoke);
-     let sessionFromInstalled;
-     try{
-       sessionFromInstalled=await port.openPublicAtlas(session.organizationId);
-     }catch{throw Error('CEN_D3_ATLAS_OWNER_NOT_AVAILABLE');}
-     const fresh=port.view(sessionFromInstalled);
-     const current=source.workId?
-       atlasWorkReadback(fresh,source):atlasLinkReadback(fresh,source);
-     if(current!=='SOURCE_REVISION_MATCHES')
-       throw Error('CEN_D3_ATLAS_SOURCE_REVISION_STALE');
-   }
+   // Use the same original-source verification as the independent employee
+   // route. A draft containing a previous Result also needs its fresh
+   // original applied record, not just the current Atlas revision.
+   if(chosenPreparation)await verifyCorporateDraftSources(chosenPreparation,session,invoke);
    // The operation ID is saved before the original signer may write. Even if
    // this call loses its reply, the same ID can be queried without re-signing.
    const immutableId=taskOperationId;
@@ -381,6 +369,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    setOperationId(source.operationId);setDecisionAttempted(true);setDecisionType('ACCEPT');
    setLastReceiveState('ACCEPTED');setPreview(freshPreview);setReviewedResult(inspection);
    setReceipt(freshReceipt);onClearAtlasResultReturn?.();
+   requestAnimationFrame(()=>document.querySelector('[data-testid="d3-original-signed-review"]')?.scrollIntoView({block:'start'}));
  });
  useEffect(()=>{
    if(!atlasResultReturn||!returnMatches||busy)return;
@@ -635,7 +624,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
   <h3>Подписанный T3: получение и принятие Result</h3>
   {atlasResultReturn&&<div className="notice subdued" data-testid="d3-atlas-result-return">
     <strong>Возврат от плана к принятому Result</strong>
-    <p>{returnMatches?'Перечитываем исходную подписанную Task и квитанцию приёмки.':
+    <p>{returnMatches?(busy?'Перечитываем исходную подписанную Task и квитанцию приёмки.':'Можно перечитать исходную подписанную Task и квитанцию приёмки.'):
       'Для открытия результата нужен тот же субъект и рабочая область T3.'}</p>
     <button type="button" className="secondary" disabled={busy||!returnMatches}
       onClick={()=>void restoreAtlasResult()}>Перечитать точный Result</button>
@@ -673,14 +662,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        const selected=assignmentDrafts.find(a=>a.id===id);
        setDraftSnapshot(selected?JSON.stringify(selected):'');
        if(selected){
-         const atlas=selected.atlasRef;
-         const content=[selected.title,selected.description,
-           selected.criteria&&'Критерии приёмки: '+selected.criteria,
-           selected.dueDate&&'Срок: '+selected.dueDate,
-           atlas&&'Ссылка на проект Atlas (из черновика, не доказательство полномочий): '+
-             atlas.projectId+' @ '+atlas.revision+
-             (atlas.workId?', работа: '+atlas.workId:'')].filter(Boolean).join('\n\n');
-         setTaskText(content.slice(0,10000));
+         try{setTaskText(prepareCorporateDraftTask(selected,session).text)}
+         catch{setTaskText('');}
        }else{
          // Do not retain a previous employee-assigned draft in manual mode.
          setTaskText('');
@@ -700,9 +683,10 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
     </p>}
     <label>Поручение и критерии результата
      <textarea data-testid="d3-task-text" rows={3} maxLength={10000}
-      disabled={busy||taskAttempted}
+      disabled={busy||taskAttempted} readOnly={!!draftId}
       value={taskText} onChange={e=>setTaskText(e.target.value)}
       placeholder="Что сделать и по каким критериям принять результат"/>
+     {draftId&&<small className="muted">Чтобы изменить текст или ссылку на план, исправьте исходный черновик поручения и выберите его заново.</small>}
     </label>
     <div className="nested-form" data-testid="d3-signed-task-operation">
      <button className="secondary" type="button" data-testid="d3-task-prepare-id"
