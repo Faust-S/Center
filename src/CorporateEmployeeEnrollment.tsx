@@ -9,7 +9,8 @@ import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskRea
  readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,readEmployeeChallengeProof,
  inspectOriginalEmployeeWorkspaceRights,inspectOriginalEmployeeTaskGrant,
  readOriginalTaskCatalog,validateOriginalEmployeeCatalogReadback,validateOriginalEmployeeTaskExportReceipt,
- validateOriginalAtlasWorkspaceReadback}
+ validateOriginalAtlasWorkspaceReadback,validateOriginalAtlasWorkspacePublicationPreview,
+ validateOriginalAtlasWorkspacePublicationReceipt}
  from '../runtime/cen03-d3-owner.mjs';
 
 // This is a manager's view of the ORIGINAL installed T3 employee enrollment.
@@ -30,7 +31,8 @@ type Session={organizationId:string;workspaceId:string;actorId:string;contextId:
   d3EmployeeTaskIssueAvailable?:boolean;
   d3EmployeeWorkspaceRightsAvailable?:boolean;
   d3EmployeeCorporateSeatsAvailable?:boolean;
-  d3AtlasWorkspaceResultReadbackAvailable?:boolean};
+  d3AtlasWorkspaceResultReadbackAvailable?:boolean;
+  d3AtlasWorkspacePublicationAvailable?:boolean};
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/;
 const HEX=/^[a-f0-9]{64}$/;
 function jsonObject(raw:string,code:string):Record<string,any>{
@@ -58,17 +60,75 @@ function AtlasWorkspaceResults({task,session,execute,run,busy}:{
 }){
  const [view,setView]=useState<any>(null);
  const [choice,setChoice]=useState('');
+ const [grantStatus,setGrantStatus]=useState('UNKNOWN');
+ const [preview,setPreview]=useState<any>(null);
+ const [publication,setPublication]=useState<any>(null);
+ const [attempted,setAttempted]=useState(false);
  const available=session.d3AtlasWorkspaceResultReadbackAvailable===true;
+ const canPublish=session.d3AtlasWorkspacePublicationAvailable===true;
  const work=task.atlasReference?.workRef;
  const read=(offset=0,resultObjectId?:string)=>run(
    'Полученные корпоративные записи перечитаны из оригинальной Workspace.',async()=>{
      if(!available||!work)throw Error('CEN_D3_ATLAS_WORKSPACE_READBACK_NOT_CONNECTED');
      const request={taskId:task.taskId,offset,...(resultObjectId?{resultObjectId}:{})};
-     setView(null);setChoice('');
+     setView(null);setChoice('');setPreview(null);setPublication(null);setAttempted(false);
      const value=await execute('d3AtlasWorkspaceResultReadback',request);
      const checked=validateOriginalAtlasWorkspaceReadback(value,task,session,request);
      setView(checked);setChoice(resultObjectId??'');
    });
+ const selected=view?.selectedResult;
+ const selection=()=>({taskId:task.taskId,resultObjectId:selected.objectId,resultSha256:selected.sha256});
+ const readGrant=async()=>{
+   const value=await execute('d3AtlasGrantReadback',{});
+   if(value?.originalKernelRegistry!==true||
+      !['ACTIVE','NOT_ACTIVE','NOT_ISSUED','UNKNOWN','ISSUED'].includes(value.status))
+     throw Error('CEN_D3_ATLAS_GRANT_READBACK_INVALID');
+   const state=value.status==='ISSUED'?'ACTIVE':value.status;
+   if(state==='ACTIVE'&&!ID.test(value.grantId??''))
+     throw Error('CEN_D3_ATLAS_GRANT_READBACK_INVALID');
+   setGrantStatus(state);
+   return state;
+ };
+ const prepare=()=>run('Исходный Result проверен для передачи в Atlas.',async()=>{
+   if(!canPublish||!selected?.portableContentAvailable)return false;
+   setPreview(null);setPublication(null);setAttempted(false);
+   if(await readGrant()!=='ACTIVE')return false;
+   const value=await execute('d3AtlasWorkspaceResultPreview',selection());
+   setPreview(validateOriginalAtlasWorkspacePublicationPreview(value,view,session));
+ });
+ const issueGrant=()=>run('Право передачи в Atlas подтверждено.',async()=>{
+   if(!canPublish||!selected||!['NOT_ACTIVE','NOT_ISSUED'].includes(grantStatus))return false;
+   const value=await execute('d3AtlasGrantIssue',{});
+   if(value?.status==='CANCELLED'||value?.status==='USER_CANCELLED')return false;
+   if(await readGrant()!=='ACTIVE')throw Error('CEN_D3_ATLAS_GRANT_READBACK_INVALID');
+   setPreview(null);setPublication(null);setAttempted(false);
+ });
+ const publish=()=>run('Выбранный Result подписан для Atlas. Получение пока не подтверждено.',async()=>{
+   if(!canPublish||!preview||preview.status!=='READY_FOR_EXPLICIT_CONSENT'||attempted)return false;
+   setAttempted(true);
+   const value=await execute('d3AtlasWorkspaceResultPublish',{
+     previewId:preview.previewId,previewDigest:preview.previewDigest,operationId:preview.operationId});
+   if(value?.status==='CANCELLED'||value?.status==='USER_CANCELLED'){
+     setPreview(null);setPublication(null);setAttempted(false);return false;
+   }
+   const observed=validateOriginalAtlasWorkspacePublicationReceipt(value,preview);
+   setPublication(observed);
+   return observed.status==='ORIGINAL_ADMIN_RESULT_PUBLISHED';
+ });
+ const recover=()=>run('Исходная публикация перечитана без повторного подписания.',async()=>{
+   if(!canPublish||!preview||!selected)return false;
+   const value=await execute('d3AtlasWorkspaceResultRecover',selection());
+   setPublication(validateOriginalAtlasWorkspacePublicationReceipt(value,preview));
+   if(value.status==='NOT_PUBLISHED_CONFIRMED'){setPreview(null);setAttempted(false);}
+ });
+ const save=()=>run('Подписанный файл сохранён. Получение необходимо подтвердить в Atlas.',async()=>{
+   if(!canPublish||!selected||!preview||publication?.status!=='ORIGINAL_ADMIN_RESULT_PUBLISHED')return false;
+   const value=await execute('d3AtlasWorkspaceResultExport',selection());
+   if(value?.status==='CANCELLED')return false;
+   if(value?.status!=='EXPORTED_UNDELIVERED'||value.recipientId!=='iwxa.atlas'||
+      value.operationId!==preview.operationId||value.packageSha256!==publication.archiveSha256||
+      value.delivered!==false)throw Error('CEN_D3_ATLAS_WORKSPACE_EXPORT_READBACK_INVALID');
+ });
  if(!work)return null;
  return <div className="nested-form" data-testid="d3-atlas-workspace-results">
   <h4>Результаты работы Atlas из корпоративной Workspace</h4>
@@ -100,9 +160,45 @@ function AtlasWorkspaceResults({task,session,execute,run,busy}:{
        {!row.portableContentAvailable&&<small>Полный материал доступен в исходной Workspace.
          Текущий выборочный формат Atlas поддерживает до 64 КБ текста.</small>}
      </div>)}
-     {view.selectedResult?.content&&<label>Выбранный Result (только чтение)
-       <textarea rows={6} readOnly value={view.selectedResult.content}/>
-     </label>}
+     {selected?.content&&<>
+       <label>Выбранный Result (только чтение)
+         <textarea rows={6} readOnly value={selected.content}/>
+       </label>
+       <div className="nested-form" data-testid="d3-atlas-workspace-publication">
+         <h5>Передать выбранный Result в Atlas</h5>
+         <p className="muted">Будет передан только этот текст и ссылка на исходную работу.
+           Подписание руководителем не является отдельным D3 Apply и не изменяет план.</p>
+         {!canPublish?<small>Подключите оригинальный T3 Owner с поддержкой передачи из Workspace.</small>:<>
+           <div className="actions">
+             <button type="button" className="secondary" disabled={busy}
+               onClick={()=>void prepare()}>Подготовить передачу</button>
+             {['NOT_ACTIVE','NOT_ISSUED'].includes(grantStatus)&&
+               <button type="button" className="secondary" disabled={busy}
+                 onClick={()=>void issueGrant()}>Разрешить передачу в Atlas</button>}
+           </div>
+           {grantStatus==='UNKNOWN'&&!preview&&<small>Передача требует действующего права руководителя.</small>}
+           {preview&&<>
+             <p>Получатель: Atlas. Работа: {preview.workRef.workId}, редакция {preview.workRef.revision}.</p>
+             {preview.status==='READY_FOR_EXPLICIT_CONSENT'&&!attempted&&
+               <button type="button" className="primary" disabled={busy}
+                 data-testid="d3-atlas-workspace-publish"
+                 onClick={()=>void publish()}>Подписать для Atlas</button>}
+             {(attempted||preview.status!=='READY_FOR_EXPLICIT_CONSENT')&&publication?.status!=='ORIGINAL_ADMIN_RESULT_PUBLISHED'&&
+               <button type="button" className="secondary" disabled={busy}
+                 onClick={()=>void recover()}>Проверить публикацию</button>}
+             {publication?.status==='ORIGINAL_ADMIN_RESULT_PUBLISHED'&&<>
+               <p role="status">Подписанный Result подготовлен. Получение ещё не подтверждено.</p>
+               <button type="button" className="secondary" disabled={busy}
+                 data-testid="d3-atlas-workspace-export"
+                 onClick={()=>void save()}>Сохранить Result .iwxa для Atlas</button>
+               <small>Откройте сохранённый файл в Atlas через меню «Файл».</small>
+             </>}
+             {publication&&['RECOVERY_REQUIRED','OUTCOME_UNKNOWN'].includes(publication.status)&&
+               <p role="status">Результат подписи пока не подтверждён. Повторная подпись не выполняется.</p>}
+           </>}
+         </>}
+       </div>
+     </>}
      {(view.offset>0||view.nextOffset!==null)&&<div className="actions">
        <button type="button" className="secondary" disabled={busy||view.offset===0}
          onClick={()=>void read(Math.max(0,view.offset-64))}>Предыдущие</button>
