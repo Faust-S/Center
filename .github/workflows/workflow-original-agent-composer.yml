@@ -47,17 +47,7 @@ jobs:
           python -m pip install -r private-agent/requirements-ci.txt > "$RUNNER_TEMP/composer-deps-private.log" 2>&1 || { echo ORIGINAL_AGENT_DEPENDENCIES_FAIL; exit 1; }
       - name: Exercise original SessionRuntime with synthetic Workflow materials
         run: |
-          node qualification/workflow-original-composer.mjs "$PWD/private-agent" "$PWD/knowledge" > "$RUNNER_TEMP/composer-qualification-private.log" 2>&1 || { grep -E '^WORKFLOW_QUALIFICATION_FAILURE_(PHASE|CODE)=[A-Z0-9_]+
-          grep -qx ORIGINAL_AGENT_COMPOSER_COLD_READBACK_AND_SCOPE_CAS_PASS "$RUNNER_TEMP/composer-qualification-private.log"
-          grep -qx ORIGINAL_AGENT_ACCEPTED_TASK_DECLARED_INPUTS_PASS "$RUNNER_TEMP/composer-qualification-private.log"
-          echo ORIGINAL_AGENT_COMPOSER_WORKFLOW_SOURCE_PASS
-          echo ORIGINAL_AGENT_ACCEPTED_TASK_DECLARED_INPUTS_PASS
-      - name: Remove private working copies and logs
-        if: always()
-        run: |
-          rm -rf private-agent
-          rm -f "$RUNNER_TEMP/composer-deps-private.log" "$RUNNER_TEMP/composer-qualification-private.log"
- "$RUNNER_TEMP/composer-qualification-private.log" || true; echo ORIGINAL_AGENT_COMPOSER_WORKFLOW_SOURCE_FAIL; exit 1; }
+          node qualification/workflow-original-composer.mjs "$PWD/private-agent" "$PWD/knowledge" > "$RUNNER_TEMP/composer-qualification-private.log" 2>&1 || { grep -E '^WORKFLOW_QUALIFICATION_FAILURE_(PHASE|CODE)=[A-Z0-9_]+$' "$RUNNER_TEMP/composer-qualification-private.log" || true; echo ORIGINAL_AGENT_COMPOSER_WORKFLOW_SOURCE_FAIL; exit 1; }
           grep -qx ORIGINAL_AGENT_COMPOSER_COLD_READBACK_AND_SCOPE_CAS_PASS "$RUNNER_TEMP/composer-qualification-private.log"
           grep -qx ORIGINAL_AGENT_ACCEPTED_TASK_DECLARED_INPUTS_PASS "$RUNNER_TEMP/composer-qualification-private.log"
           echo ORIGINAL_AGENT_COMPOSER_WORKFLOW_SOURCE_PASS
