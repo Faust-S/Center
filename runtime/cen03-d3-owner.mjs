@@ -519,6 +519,26 @@ export function validateOriginalAtlasWorkspacePublicationReceipt(receipt,preview
  return copy(receipt,code);
 }
 
+// Only an exact original publication can be correlated with the existing
+// Atlas saved Decision. This is a transient read-only query, not a new
+// receipt, delivery acknowledgment or an authorization to open Atlas.
+export function originalAtlasWorkspacePublicationReference(readback,preview,publication,session){
+ const p=validateOriginalAtlasWorkspacePublicationPreview(preview,readback,session);
+ const r=validateOriginalAtlasWorkspacePublicationReceipt(publication,p);
+ need(r.status==='ORIGINAL_ADMIN_RESULT_PUBLISHED'&&validSha(readback.taskRevisionId)&&
+   validSha(readback.taskPackageSha256),'CEN_D3_ATLAS_WORKSPACE_PUBLICATION_READBACK_CHANGED');
+ return Object.freeze({
+   sourceKind:'ADMIN_WORKSPACE_RESULT',
+   organizationId:p.organizationId,workspaceId:p.workspaceId,
+   taskId:p.taskId,taskRevisionId:readback.taskRevisionId,taskPackageSha256:readback.taskPackageSha256,
+   resultId:p.resultId,taskObjectId:p.taskObjectId,taskEventId:p.taskEventId,
+   resultObjectId:p.sourceObjectRef.object_id,resultEventId:p.resultEventId,
+   sourceOperationId:p.operationId,archiveSha256:r.archiveSha256,
+   resultSha256:p.selectedSummarySha256,selectedText:p.selectedAcceptedSummary,
+   workRef:Object.freeze({...p.workRef})
+ });
+}
+
 // Display the existing original inventory as recipient-specific lists.
 // Every selected employee carrier still requires independent native readback.
 export function readOriginalTaskCatalog(snapshot){
