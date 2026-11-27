@@ -21,11 +21,11 @@ from local_source import LocalSourceError, git, materialize_local_source
 T2 = ('c28e01876f3230307b7f20449f7ef54374367c93',
       '3d774222c9aaa1521ded9eb23d2f5fcdb55b8cbd',
       't2/current/final-successor')
-T3 = ('5a8ea4af64fbf021ef1a01cceaed33f617c7142a',
-      '067ccbadf73cea7a3db5a7dbcc2c1021e2819bd6',
+T3 = ('30df3f6fd53e668e2886fb643f13526a89738647',
+      'f446fccd97f0f232e70e06b961f8653477a0785f',
       ('access-control', 'interop', 'reconciliation', 'tests', 'package.json'))
-CORE = ('826d65917e05f3048e367427ca371910abe227db',
-        '76320aab510fbcd38c0a05fb645371d75a8bfe61', 'packages')
+CORE = ('be8d05866f336b599b8fe6cd1ba5a961f994ced8',
+        '1dbfa4119ef612db0343ca726bddb119079161af', 'packages')
 T2_PARENT = '4e4ad5c5e566a74f24243b9d0744a6d64652a199'
 PACKAGING = 't2/current/final-successor/kernel-successors/k036-canonical-event-merge-20261125/'
 PACKAGING_PATHS = {PACKAGING + name for name in (
@@ -49,7 +49,9 @@ PEER_TESTS = ('tests/network/original-native-peer-startup.test.mjs',
               'tests/original-network-key-lifecycle.test.mjs',
               '../t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs',
               '../t3-core/tests/t3-d1-original-kernel-registry.test.mjs',
-              'tests/original-installed-control-factories.test.mjs')
+              'tests/original-installed-control-factories.test.mjs',
+              'tests/original-installed-control-http.test.mjs',
+              '../t3-core/tests/t3-d1-original-control-http.test.mjs')
 
 
 class QualificationError(Exception):
