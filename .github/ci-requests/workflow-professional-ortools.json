@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "1112ed69022831bdbe945c001c5d8c2ebdb68c6b",
+  "profile": "valhalla-fleet-result-handoff",
+  "pins": {
+    "professionalAgent": "c97bfcc4cfb064aa6bf0145461d0eff13b3a121c"
+  },
+  "reason": "Qualify verified native road Results into original fleet routing on pinned Ubuntu 24.04 and Windows"
+}
