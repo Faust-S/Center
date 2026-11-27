@@ -479,6 +479,46 @@ export function validateOriginalAtlasWorkspaceReadback(result,task,session,reque
  return copy(result,code);
 }
 
+// Bind disclosure preview to the exact returned record shown to the manager.
+// Native T3 still owns every signature, grant check, receipt and transfer.
+export function validateOriginalAtlasWorkspacePublicationPreview(preview,readback,session){
+ const code='CEN_D3_ATLAS_WORKSPACE_PREVIEW_CHANGED',row=readback?.selectedResult;
+ need(row?.portableContentAvailable===true&&typeof row.content==='string'&&
+   preview?.recipientId==='iwxa.atlas'&&preview.sourceKind==='ADMIN_WORKSPACE_RESULT'&&
+   ['READY_FOR_EXPLICIT_CONSENT','ALREADY_COMMITTED','RECOVERY_REQUIRED','OUTCOME_UNKNOWN'].includes(preview.status)&&
+   validId(preview.previewId)&&validSha(preview.previewDigest)&&
+   /^admin:t3:atlas:[a-f0-9]{64}$/.test(preview.operationId??'')&&
+   preview.organizationId===session.organizationId&&preview.workspaceId===session.workspaceId&&
+   preview.managerId===session.actorId&&preview.taskId===readback.taskId&&preview.resultId===row.artifactId&&
+   preview.taskObjectId===readback.taskObjectId&&preview.taskEventId===readback.taskEventId&&
+   preview.resultEventId===row.eventId&&
+   ['projectId','workId','revision'].every(k=>preview.workRef?.[k]===readback.workRef[k])&&
+   preview.sourceObjectRef?.object_id===row.objectId&&
+   preview.sourceObjectRef.workspace_id===session.workspaceId&&
+   preview.sourceObjectRef.schema_id==='iwxa.t3.company-work-record'&&preview.sourceObjectRef.revision===1&&
+   preview.selectedAcceptedSummary===row.content&&preview.selectedSummarySha256===row.sha256&&
+   preview.originalWorkspaceRecordVerified===true&&preview.originalKernelApplyVerified===false&&
+   preview.signedReceiptVerified===false&&preview.originalRecipientGrantVerified===true&&
+   preview.disclosureScope==='ORIGINAL_RESULT_ONLY',code);
+ return copy(preview,code);
+}
+export function validateOriginalAtlasWorkspacePublicationReceipt(receipt,preview){
+ const code='CEN_D3_ATLAS_WORKSPACE_PUBLICATION_READBACK_CHANGED';
+ need(preview&&receipt?.operationId===preview.operationId&&
+   ['ORIGINAL_ADMIN_RESULT_PUBLISHED','USER_CANCELLED','RECOVERY_REQUIRED',
+    'OUTCOME_UNKNOWN','NOT_PUBLISHED_CONFIRMED'].includes(receipt.status)&&receipt.transferred===false,code);
+ if(receipt.status==='ORIGINAL_ADMIN_RESULT_PUBLISHED')
+   need(receipt.recipientId==='iwxa.atlas'&&receipt.sourceKind==='ADMIN_WORKSPACE_RESULT'&&
+     receipt.originalWorkspaceRecordVerified===true&&receipt.originalKernelApplyVerified===false&&
+     receipt.signedReceiptVerified===false&&receipt.taskObjectId===preview.taskObjectId&&
+     receipt.taskEventId===preview.taskEventId&&receipt.resultEventId===preview.resultEventId&&
+     ['projectId','workId','revision'].every(k=>receipt.workRef?.[k]===preview.workRef[k])&&
+     validSha(receipt.archiveSha256)&&receipt.originalArchiveVerified===true&&
+     receipt.ledgerStatus==='COMMITTED'&&receipt.carrierPrepared===true&&receipt.delivered===false&&
+     receipt.automaticRetryAllowed===false,code);
+ return copy(receipt,code);
+}
+
 // Display the existing original inventory as recipient-specific lists.
 // Every selected employee carrier still requires independent native readback.
 export function readOriginalTaskCatalog(snapshot){
