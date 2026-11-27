@@ -1,0 +1,11 @@
+{
+  "candidate": "31ce17c8deb7a894d1c30d5414fb51fe807d68bb",
+  "tree": "f20ba3771a720c83c1024210b17dae2d18223d5b",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M20_7_SOURCE_AND_ORIGINAL_T3_CONVERSATION_ARCHIVE",
+  "reason": "QUALIFY_HISTORY_IN_ORIGINAL_T3_BEFORE_ANDROID_BUILD",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "b3dfa719961cccffd3cdf136db4788fea8db8e75"
+}
