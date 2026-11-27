@@ -1,0 +1,70 @@
+name: T4 native pilot exact original K036 and native owner source
+on:
+  push:
+    branches: ['work/2026-11-27-t4-native-pilot-k036']
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      T2_PIN: c28e01876f3230307b7f20449f7ef54374367c93
+      T2_SOURCE_PIN: 4e4ad5c5e566a74f24243b9d0744a6d64652a199
+      T3_PIN: b2b809a223741830b906bc59a65b66a1599ea2c4
+      CORE_PIN: 683b8c14adeef650d7eb5901f0ff1865267f68b6
+      K036_ADMISSION_ONLY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T2
+          ref: c28e01876f3230307b7f20449f7ef54374367c93
+          path: private-t2
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: b2b809a223741830b906bc59a65b66a1599ea2c4
+          path: private-t3
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 683b8c14adeef650d7eb5901f0ff1865267f68b6
+          path: public-one-core
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact private owner source and native mount regressions (counts only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C private-t3 rev-parse HEAD)" = "$T3_PIN"
+          log="$RUNNER_TEMP/t4-private-owner-tests.log"
+          trap 'rm -f "$log"' EXIT
+          set +e
+          (cd private-t3 && timeout 180s node --test --test-timeout=120000 tests/original-product-network-registry.test.mjs tests/original-admin-network-registry.test.mjs tests/t3-signed-workspace-exchange-owner.test.mjs tests/t3-d1-control-loopback-invalidation.test.mjs) >"$log" 2>&1
+          rc=$?
+          set -e
+          grep -E '^# (tests|pass|fail|cancelled|skipped) [0-9]+$' "$log" || true
+          test "$rc" = 0
+      - name: Exact corrected original Kernel and converged actual product recipes
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          node qualification/t4-native-pilot/qualify-original-k036.mjs private-t2 public-one-core "$RUNNER_TEMP/iwxa-k036-canonical-event-merge"
+      - name: Remove disposable private checkouts
+        if: always()
+        shell: bash
+        run: |
+          rm -rf private-t2 private-t3 "$RUNNER_TEMP/iwxa-k036-canonical-event-merge" "$RUNNER_TEMP/t4-private-owner-tests.log"
