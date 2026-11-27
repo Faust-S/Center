@@ -24,8 +24,8 @@ T2 = ('c28e01876f3230307b7f20449f7ef54374367c93',
 T3 = ('378a2e8ca6de662b5e28562e334c2a97a00ed331',
       '08d3e6e2bbb9101f2b6f26313a74c5551986705f',
       ('access-control', 'interop', 'reconciliation', 'tests', 'package.json'))
-CORE = ('ee94c259489c6c54720edb18a603ba6be16cb1bb',
-        '29783c15fc2e7718fac6b3975e6f3458351e7716', 'packages')
+CORE = ('9a23201b7fc21c59abcf1818689bf655937baa0a',
+        'f34bf5da634a8de2f598541fae5a123c297b55cd', 'packages')
 T2_PARENT = '4e4ad5c5e566a74f24243b9d0744a6d64652a199'
 PACKAGING = 't2/current/final-successor/kernel-successors/k036-canonical-event-merge-20261125/'
 PACKAGING_PATHS = {PACKAGING + name for name in (
