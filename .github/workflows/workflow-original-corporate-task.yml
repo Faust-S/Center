@@ -2,10 +2,14 @@
 name: Original corporate Workflow Task qualification
 on:
   push:
-    branches: ['work/2026-11-27-corporate-workflow-task-qualification']
+    branches: ['ci/once/workflow-original-corporate-task/**']
+    paths: ['.github/ci-requests/workflow-original-corporate-task.json']
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: original-corporate-workflow-task
+  cancel-in-progress: false
 jobs:
   original-task:
     strategy:
@@ -24,23 +28,39 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 2
+      - name: Validate exact deliberate one-shot request before protected checkout
+        if: github.event_name == 'push'
+        run: node qualification/validate-workflow-task-request.mjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 950387b440fd738384b8c4d86c593d229a5e77d3
+          path: knowledge
+          persist-credentials: false
+      - name: Original public employee grant owner qualification
+        run: |
+          test "$(git -C knowledge rev-parse HEAD)" = "950387b440fd738384b8c4d86c593d229a5e77d3"
+          node --test knowledge/packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs > "$RUNNER_TEMP/workflow-public-grants.log" 2>&1 || { cat "$RUNNER_TEMP/workflow-public-grants.log"; exit 1; }
+          cat "$RUNNER_TEMP/workflow-public-grants.log"
+          grep -q "^# tests 19$" "$RUNNER_TEMP/workflow-public-grants.log"
+          grep -q "^# pass 19$" "$RUNNER_TEMP/workflow-public-grants.log"
+          echo ORIGINAL_WORKFLOW_EMPLOYEE_GRANTS_PASS
       - name: Require authorized private read-only checkout
         env:
           PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
         run: test -n "$PRIVATE_SOURCE_TOKEN" || { echo ORIGINAL_T3_SOURCE_ACCESS_REQUIRED; exit 1; }
       - uses: actions/checkout@v4
+        id: private_t3
         with:
           repository: Faust-S/T3
-          ref: 904a6ae1ddf2749f75a4039e0a8b95f333d5b64c
+          ref: 0cdb781aaa72bc476e5c1c9ea47ecc5f7b1215c0
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
-      - uses: actions/checkout@v4
-        with:
-          repository: Faust-S/knowledge
-          ref: d22b02b8a4e06e0f0e6d609ec97ee8f31a850ef2
-          path: knowledge
-          persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
@@ -55,13 +75,10 @@ jobs:
         run: |
           test "$(git -C private-agent rev-parse HEAD)" = "a45e206291068147d4460acfa1ae91615accfcdf"
           python -m pip install -r private-agent/requirements-ci.txt > "$RUNNER_TEMP/workflow-agent-deps-private.log" 2>&1 || { echo ORIGINAL_AGENT_DEPENDENCIES_FAIL; exit 1; }
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
       - name: Original signed Workflow Task profile and roundtrip
         run: |
-          test "$(git -C private-t3 rev-parse HEAD)" = "904a6ae1ddf2749f75a4039e0a8b95f333d5b64c"
-          test "$(git -C knowledge rev-parse HEAD)" = "d22b02b8a4e06e0f0e6d609ec97ee8f31a850ef2"
+          test "$(git -C private-t3 rev-parse HEAD)" = "0cdb781aaa72bc476e5c1c9ea47ecc5f7b1215c0"
+          test "$(git -C knowledge rev-parse HEAD)" = "950387b440fd738384b8c4d86c593d229a5e77d3"
           export IWXA_WORKFLOW_PUBLIC_SOURCE="$(node -p 'require("node:path").resolve("knowledge")')"
           export IWXA_WORKFLOW_AGENT_SOURCE="$(node -p 'require("node:path").resolve("private-agent")')"
           export IWXA_WORKFLOW_AGENT_FIXTURE="$(node -p 'require("node:path").resolve("qualification/workflow-original-task.py")')"
@@ -74,7 +91,8 @@ jobs:
             echo ORIGINAL_WORKFLOW_TASK_REFERENCE_FAIL
             exit 1
           fi
-          grep -q "^# tests 15" "$RUNNER_TEMP/workflow-task-private.log"
+          grep -q "^# tests 17$" "$RUNNER_TEMP/workflow-task-private.log"
+          grep -q "^# pass 17$" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_WORKFLOW_TASK_REFERENCE_PASS
           grep -q "ORIGINAL_AGENT_DURABLE_WORKFLOW_INPUT_FIXTURE_PASS" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_PUBLIC_SOURCE_CORPORATE_SIGNED_ROUNDTRIP_PASS
@@ -83,8 +101,10 @@ jobs:
           echo ORIGINAL_AGENT_ACCEPTED_CONTENT_SIGNED_RESULT_FIXTURE_PASS
           grep -q "ORIGINAL_CORPORATE_THREE_WORK_ACCEPTED_CHAIN_FIXTURE_PASS" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_CORPORATE_THREE_WORK_ACCEPTED_CHAIN_FIXTURE_PASS
+          grep -q "ORIGINAL_INDEPENDENT_WORKFLOW_TASK_PROFILE_ROUNDTRIP_PASS" "$RUNNER_TEMP/workflow-task-private.log"
+          echo ORIGINAL_INDEPENDENT_WORKFLOW_TASK_PROFILE_ROUNDTRIP_PASS
       - name: Original corporate interop accumulation
-        if: always()
+        if: always() && steps.private_t3.outcome == 'success'
         run: |
           cd private-t3
           rc=0
@@ -95,7 +115,8 @@ jobs:
             echo ORIGINAL_INTEROP_REGRESSION_FAIL
             exit 1
           fi
-          grep -q "^# tests 83" "$RUNNER_TEMP/interop-regression-private.log"
+          grep -q "^# tests 83$" "$RUNNER_TEMP/interop-regression-private.log"
+          grep -q "^# pass 83$" "$RUNNER_TEMP/interop-regression-private.log"
           echo ORIGINAL_INTEROP_REGRESSION_PASS
       - name: Remove private working copy and logs
         if: always()

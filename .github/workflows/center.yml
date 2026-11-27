@@ -1,7 +1,6 @@
 name: Center source and desktop
 on:
-  push:
-    branches: ['work/**']
+# No ordinary push qualification on this isolated Workflow line.
   workflow_dispatch:
 permissions:
   contents: read

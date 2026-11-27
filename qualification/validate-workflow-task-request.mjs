@@ -1,0 +1,28 @@
+// Public one-shot guard. No private source or secret access here.
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+const workflow='workflow-original-corporate-task',path='.github/ci-requests/'+workflow+'.json';
+const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
+const event=JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'));
+const before=event.before,head=process.env.GITHUB_SHA;
+assert.equal(process.env.GITHUB_EVENT_NAME,'push');
+assert.equal(event.created,false);
+assert.equal(event.deleted,false);
+assert.equal(event.forced,false);
+assert.match(before,/^[a-f0-9]{40}$/);
+assert.match(head,/^[a-f0-9]{40}$/);
+assert.equal(event.after,head);
+assert.equal(process.env.GITHUB_REF,'refs/heads/ci/once/'+workflow+'/'+before);
+assert.equal(event.ref,process.env.GITHUB_REF);
+assert.equal(git('rev-parse','HEAD'),head);
+assert.equal(git('rev-list','--parents','-n','1',head),head+' '+before);
+assert.equal(git('diff','--name-status',before,head),'A\t'+path);
+const request=JSON.parse(readFileSync(path,'utf8'));
+assert.deepEqual(Object.keys(request).sort(),['pins','prepared','profile','reason','workflow']);
+assert.equal(request.workflow,workflow);
+assert.equal(request.prepared,before);
+assert.equal(request.profile,'original-independent-workflow-task-and-interop');
+assert.deepEqual(request.pins,{T3:'0cdb781aaa72bc476e5c1c9ea47ecc5f7b1215c0',knowledge:'950387b440fd738384b8c4d86c593d229a5e77d3',Agent:'a45e206291068147d4460acfa1ae91615accfcdf'});
+assert.equal(request.reason,'Qualify original independent employee Workflow Task source; local GitHub DNS unavailable');
+console.log('EXACT_ONE_SHOT_WORKFLOW_REQUEST_PASS');
