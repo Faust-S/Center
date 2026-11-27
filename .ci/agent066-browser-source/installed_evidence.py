@@ -178,6 +178,49 @@ def owner_repair_failure(row):
     return result
 
 
+# Project the existing owner's finite Qwen failure receipt, not its raw log.
+QWEN_FAILURE_CODES = frozenset((
+    'PROOF_EXISTS','DOWNLOAD_MODE','CORE_NOT_READY','PREFS_READBACK',
+    'PREFS_NOT_CONFIRMED','RUNTIME_PLAN','MODEL_PLAN','MODEL_DOWNLOAD','MODEL_NOT_READY',
+    'INFERENCE','TASK_SUBMIT','TASK_STOPPED','TASK_TIMEOUT','RESULT_READBACK',
+    'REVIEW_READBACK','EXCHANGE_EXPORT','MODEL_PROCESS_FAILED','MODEL_FINAL_OUTPUT_UNAVAILABLE',
+    'MODEL_CLI_ARGUMENT_INVALID','MODEL_CLI_INPUT_UNAVAILABLE','MODEL_LOAD_FAILED',
+    'MODEL_CLI_EXIT_1','MODEL_CLI_EXIT_2','MODEL_NATIVE_MEMORY_UNAVAILABLE',
+    'MODEL_NATIVE_DEPENDENCY_UNAVAILABLE','MODEL_NATIVE_INSTRUCTION_UNSUPPORTED',
+    'MODEL_NATIVE_CRASH','MODEL_TIMED_OUT','MODEL_ALREADY_BUSY','MODEL_EFFORT_INVALID',
+    'MODEL_START_FAILED','MODEL_TOKEN_LIMIT_INVALID','MODEL_BINARY_CHANGED','MODEL_PROMPT_INVALID',
+    'OTHER_RUNTIME','OTHER_HTTP','OTHER_NETWORK','OTHER_TIMEOUT','OTHER_VALUE',
+    'OTHER_KEY','OTHER_TYPE','OTHER_OS','HTTP_400','HTTP_401','HTTP_403','HTTP_404',
+    'HTTP_409','HTTP_422','HTTP_429','HTTP_500','HTTP_502','HTTP_503','HTTP_504','OTHER',
+))
+QWEN_OPERATIONS = frozenset((
+    'UI_PREFS_READ','UI_PREFS_SAVE','RUNTIME_PLAN','RUNTIME_INSTALL','MODEL_PLAN',
+    'MODEL_DOWNLOAD','MODEL_SELECT','MODEL_CONTROL','PROVIDER_LIMITS','PROVIDER_SWITCH',
+    'MODEL_STATUS','MODEL_TRY','WORK_AREAS','TASK_SUBMIT','TASK_POLL','TASK_READ',
+    'TASKS_READ','HUMAN_REVIEW','EXCHANGE_PREVIEW','EXCHANGE_EXPORT','EXCHANGE_INSPECT','SNAPSHOT',
+))
+QWEN_CHECKPOINTS = frozenset(('NONE_OBSERVED', *('AGENT_REAL_QWEN_'+stage for stage in (
+    'CORE_SESSION_READY','DOWNLOAD_MODE_READY','VERIFIED_RUNTIME_READY','MODEL_PLAN_READY',
+    'VERIFIED_WEIGHTS_READY','MODEL_ACTIVE_READY','INFERENCE_PASS','TASK_ACCEPTED',
+    'RESULT_IMPORTED','TASK_HUMAN_REVIEW_PASS','IWXA_EXPORT_INSPECT_PASS',
+))))
+
+
+def qwen_failure_diagnostics(row):
+    if type(row) is not dict or row.get('status') != 'FAIL' or row.get('phase') != 'QWEN_EXECUTE':
+        return {}
+    result = {}
+    for field, name, allowed in (
+        ('failure_code', 'SETUP_WITNESS_FAILURE_CODE', QWEN_FAILURE_CODES),
+        ('last_operation', 'SETUP_WITNESS_OPERATION', QWEN_OPERATIONS),
+        ('last_checkpoint', 'SETUP_WITNESS_CHECKPOINT', QWEN_CHECKPOINTS),
+    ):
+        value = row.get(field)
+        if type(value) is str and value in allowed:
+            result[name] = value
+    return result
+
+
 def clean_setup_diagnostics(out):
     phase = 'UNAVAILABLE'
     marker = out/'logs'/'clean-setup-phase.status'
@@ -206,6 +249,8 @@ def clean_setup_diagnostics(out):
             result.update(SETUP_CLEAN_UNCONFIRMED_CHECKPOINT=checkpoint,SETUP_CLEAN_CHECKPOINT_STATE=state)
             if checkpoint in ('REPAIR','ROLLBACK_REPAIR') and state == 'UNCONFIRMED':
                 result.update(owner_repair_failure(row))
+            elif checkpoint == 'RUNTIME_WITNESS' and state == 'UNCONFIRMED':
+                result.update(qwen_failure_diagnostics(row))
             return result
     # All expected status strings exist; the exact owner postconditions or
     # caller verification still failed. Do not assign a synthetic PASS.

@@ -178,4 +178,50 @@ class CleanDiagnosticTests(unittest.TestCase):
             self.assertEqual(clean_setup_diagnostics(out)['SETUP_CLEAN_UNCONFIRMED_CHECKPOINT'],'RUNTIME_WITNESS')
             self.assertNotIn('SETUP_CLEAN_OWNER_FAILURE_CODE',clean_setup_diagnostics(out))
 
+    def test_qwen_owner_failure_projection(self):
+        from installed_evidence import QWEN_FAILURE_CODES, QWEN_OPERATIONS, QWEN_CHECKPOINTS
+        with tempfile.TemporaryDirectory() as d:
+            out=Path(d); root=self.create(out,'LOCAL_ACCEPTANCE',CLEAN_CHECKPOINTS)
+            p=root/'installed-witness.json'
+            base={'status':'FAIL','phase':'QWEN_EXECUTE','private_value':'never copy'}
+            expected={'SETUP_CLEAN_LAST_ATTEMPTED_PHASE':'LOCAL_ACCEPTANCE',
+                      'SETUP_CLEAN_UNCONFIRMED_CHECKPOINT':'RUNTIME_WITNESS',
+                      'SETUP_CLEAN_CHECKPOINT_STATE':'UNCONFIRMED'}
+            for field,key,allowed in (
+                ('failure_code','SETUP_WITNESS_FAILURE_CODE',QWEN_FAILURE_CODES),
+                ('last_operation','SETUP_WITNESS_OPERATION',QWEN_OPERATIONS),
+                ('last_checkpoint','SETUP_WITNESS_CHECKPOINT',QWEN_CHECKPOINTS),
+            ):
+                for value in sorted(allowed):
+                    p.write_text(json.dumps({**base,field:value}))
+                    self.assertEqual(clean_setup_diagnostics(out),{**expected,key:value})
+                for invalid in (None,True,42,[],{},'PRIVATE_PATH','MODEL_TIMED_OUT\nSECRET=YES'):
+                    p.write_text(json.dumps({**base,field:invalid}))
+                    self.assertEqual(clean_setup_diagnostics(out),expected)
+            p.write_text(json.dumps({**base,'failure_code':'MODEL_TIMED_OUT',
+                'last_operation':'MODEL_TRY','last_checkpoint':'AGENT_REAL_QWEN_MODEL_ACTIVE_READY'}))
+            self.assertEqual(clean_setup_diagnostics(out),{**expected,
+                'SETUP_WITNESS_FAILURE_CODE':'MODEL_TIMED_OUT',
+                'SETUP_WITNESS_OPERATION':'MODEL_TRY',
+                'SETUP_WITNESS_CHECKPOINT':'AGENT_REAL_QWEN_MODEL_ACTIVE_READY'})
+            (root/'identity.json').unlink()
+            self.assertEqual(clean_setup_diagnostics(out)['SETUP_CLEAN_UNCONFIRMED_CHECKPOINT'],'INSPECTION')
+            self.assertNotIn('SETUP_WITNESS_FAILURE_CODE',clean_setup_diagnostics(out))
+
+    def test_qwen_projection_rejects_non_failure_wrong_phase_and_invalid_receipt(self):
+        with tempfile.TemporaryDirectory() as d:
+            out=Path(d); root=self.create(out,'LOCAL_ACCEPTANCE',CLEAN_CHECKPOINTS)
+            p=root/'installed-witness.json'
+            for value in ({'status':'PASS','phase':'QWEN_EXECUTE'},
+                          {'status':'ERROR','phase':'QWEN_EXECUTE'},
+                          {'status':'FAIL','phase':'MODELING_EXECUTE'},
+                          {'status':'FAIL','phase':[]},
+                          {'status':'FAIL','phase':'QWEN_EXECUTE\nPRIVATE'}):
+                p.write_text(json.dumps({**value,'failure_code':'INFERENCE','last_operation':'MODEL_TRY',
+                    'last_checkpoint':'NONE_OBSERVED'}))
+                self.assertFalse(any(k.startswith('SETUP_WITNESS_') for k in clean_setup_diagnostics(out)))
+            p.write_text('{"status":"FAIL","phase":"QWEN_EXECUTE","failure_code":"INFERENCE","failure_code":"HTTP_500"}')
+            self.assertEqual(clean_setup_diagnostics(out)['SETUP_CLEAN_CHECKPOINT_STATE'],'INVALID')
+            self.assertNotIn('SETUP_WITNESS_FAILURE_CODE',clean_setup_diagnostics(out))
+
 if __name__=='__main__': unittest.main()
