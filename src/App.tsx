@@ -20,7 +20,7 @@ import './admin-v8.css';
 
 type Participant = {id: string; name: string; roleLabel: string; credentialState: string; personalAgentPlan?: 'NONE'|'PLANNED'};
 type AtlasRef = {projectId:string;revision:string;workId?:string};
-type SourceResultRef={organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string};
+type SourceResultRef={organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string;applicationRevisionIds?:ReadonlyArray<string>};
 type Assignment = {sourceResultRef?:SourceResultRef|null;id: string; title: string; workspaceId: string; assigneeId: string | null; reviewerId: string | null; description: string; criteria: string; dueDate: string; priority: string; editNumber: number; status: string; atlasRef: AtlasRef|null; createdAt: string; updatedAt: string};
 type Organization = {id: string; name: string; kind: string; workspaces: {id: string; name: string; atlasRef?: AtlasRef|null}[]; participants: Participant[]; assignments: Assignment[];atlasResourceBindings?:{resourceId:string;participantId:string}[]};
 type Draft = {format: string; version: number; organizations: Organization[]; activeOrganizationId: string | null; updatedAt: string};

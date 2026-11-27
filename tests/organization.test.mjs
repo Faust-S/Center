@@ -154,3 +154,14 @@ test('Atlas resource associations are explicit, persistent and isolated in the e
  assert.deepEqual(s.organizations[0].atlasResourceBindings,[]);
  assert.equal(s.organizations[1].atlasResourceBindings,undefined);
 });
+
+test('applied group pointer survives draft save and reload and rejects invalid recovery sets',()=>{
+ const f=fixture();
+ const ref={organizationId:f.state.organizations[0].id,workspaceId:f.assignment.workspaceId,
+   taskId:'task:prior',taskRevisionId:'a'.repeat(64),resultRevisionId:'b'.repeat(64),acceptanceId:'c'.repeat(64),
+   applicationRevisionIds:['b'.repeat(64),'d'.repeat(64)]};
+ f.run({...f.assignment,sourceResultRef:ref});
+ assert.deepEqual(decodeDraft(encodeDraft(f.state)).organizations[0].assignments[0].sourceResultRef,ref);
+ for(const group of [['b'.repeat(64)],['b'.repeat(64),'b'.repeat(64)],['d'.repeat(64),'e'.repeat(64)]])
+   assert.throws(()=>f.run({...f.assignment,sourceResultRef:{...ref,applicationRevisionIds:group}}),/DRAFT_SOURCE_RESULT_REFERENCE_INVALID/);
+});

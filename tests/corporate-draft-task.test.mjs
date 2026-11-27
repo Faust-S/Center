@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareEmployeeDraftTask as prepare,employeeDraftSelectionCurrent as current,verifyEmployeeDraftSources as verify,prepareCorporateDraftTask} from '../src/corporate-draft-task.mjs';
+import {prepareEmployeeDraftTask as prepare,employeeDraftSelectionCurrent as current,verifyEmployeeDraftSources as verify,prepareCorporateDraftTask,readAppliedD3Result} from '../src/corporate-draft-task.mjs';
 const scope={organizationId:'org:one',workspaceId:'workspace:one',actorId:'person:manager',
  employeePersonId:'person:worker',enrollmentId:'enrollment:worker',contextId:'context:one',contextEpoch:7};
 const draft={id:'draft:one',status:'DRAFT',workspaceId:scope.workspaceId,editNumber:2,
@@ -100,4 +100,50 @@ test('signed D3 follow-up source is re-read through the original candidate and K
  ])await assert.rejects(verify(selection,scope,invoke,async op=>op==='d3InspectAccepted'?candidate:invalid),/RESULT_SOURCE_CHANGED/);
  await assert.rejects(verify(selection,scope,invoke,async()=>({...candidate,changes:[{...candidate.changes[0],taskId:'task:other'}]})),/RESULT_SOURCE_CHANGED/);
  await assert.rejects(verify(selection,scope,invoke),/RESULT_SOURCE_CHANGED/);
+});
+
+test('grouped original application returns only the selected Result and preserves the recovery set',async()=>{
+ const source={organizationId:scope.organizationId,workspaceId:scope.workspaceId,taskId:'task:source',
+   taskRevisionId:'a'.repeat(64),resultRevisionId:'b'.repeat(64),acceptanceId:'c'.repeat(64),
+   applicationRevisionIds:['f'.repeat(64),'b'.repeat(64)]};
+ const ids=[...source.applicationRevisionIds].sort(),effect='e'.repeat(64);
+ const target={consumerId:'IWXA_ADMIN_CENTER',processId:'admin.applied-results',processVersion:'1.0.0',
+   purpose:'application.apply',subjectId:scope.organizationId,workspaceId:scope.workspaceId,dataRootId:'root:one'};
+ const {applicationRevisionIds,...rowRef}=source;
+ const first={...rowRef,executorId:'person:worker',result:'Selected text'};
+ const second={...rowRef,taskId:'task:other',taskRevisionId:'d'.repeat(64),
+   resultRevisionId:ids[1],executorId:'person:other',result:'Do not copy'};
+ const records=[second,first];
+ const candidate={schema:'IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1',
+   status:'CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION',source:{acceptanceId:source.acceptanceId},
+   applicationAttempted:false,applicationAuthorized:false,externalContextCoreApplied:false,
+   target,changes:records.map(({taskId,taskRevisionId,resultRevisionId,executorId})=>({taskId,taskRevisionId,resultRevisionId,executorId}))};
+ const recovered={status:'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED',effectKey:effect,
+   kernelWriteReadback:'CONFIRMED',automaticRetryAllowed:false,externalProductAcceptance:'NOT_ACCEPTED',
+   originalKernelReadback:{object:{workspace_id:scope.workspaceId,object_id:'result:applied:'+effect,revision:1,
+     schema_id:'iwxa.admin.applied-results',schema_version:'1.0.0',
+     data:{schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',records}}},
+   originalEventReadback:{workspace_id:scope.workspaceId,event_id:'event:one',event_type:'iwxa.admin.result.applied',
+     object_id:'result:applied:'+effect,revision:1,idempotency_key:effect,
+     payload:{reconciliation_acceptance_id:source.acceptanceId,reconciliation_revision_ids:ids}}};
+ const owner=async(op,input)=>{
+   assert.deepEqual(input.revisionIds,ids);
+   return op==='d3InspectAccepted'?candidate:recovered;
+ };
+ const read=await readAppliedD3Result(source,scope,owner);
+ assert.equal(read.result,'Selected text');
+ assert.deepEqual(read.source.applicationRevisionIds,ids);
+ assert.equal(read.source.resultRevisionId,first.resultRevisionId);
+ const prepared=prepare({...draft,sourceResultRef:read.source},scope);
+ assert.deepEqual(prepared.sourceResultRef.applicationRevisionIds,ids);
+ await verify(prepared,scope,async()=>({status:'D3_OWNER_READY',snapshot:{...scope,d3ApplyRecoverAvailable:true}}),owner);
+ const invalids=[
+   {...recovered,originalEventReadback:{...recovered.originalEventReadback,payload:{...recovered.originalEventReadback.payload,reconciliation_revision_ids:[ids[0]]}}},
+   {...recovered,originalKernelReadback:{object:{...recovered.originalKernelReadback.object,data:{schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',records:[first,first]}}}},
+   {...recovered,originalKernelReadback:{object:{...recovered.originalKernelReadback.object,data:{schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',records:[first,{...second,workspaceId:'workspace:other'}]}}}},
+ ];
+ for(const invalid of invalids)await assert.rejects(readAppliedD3Result(source,scope,async op=>op==='d3InspectAccepted'?candidate:invalid),/RESULT_SOURCE_CHANGED/);
+ for(const invalid of [[ids[0],ids[0]],[ids[1],'9'.repeat(64)],[ids[0]],[ids[0],undefined]]){
+   await assert.rejects(readAppliedD3Result({...source,applicationRevisionIds:invalid},scope,owner),/RESULT_SOURCE_CHANGED/);
+ }
 });

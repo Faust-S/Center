@@ -126,8 +126,20 @@ function Click-VisibleUiButton($control,[string]$name){
   [CenterNativeWindow]::mouse_event(0x0004,0,0,0,[UIntPtr]::Zero)
   Write-Host "CENTER_UIA_REAL_MOUSE_FALLBACK name=$name"
 }
-function Click-Control([string]$name){
-  $control=Find-Control $name 'Button'
+# Native Store persistence can precede WebView's async readback.
+# Wait for the targeted UI transition, not another mutation.
+function Wait-EnabledButton([string]$name,[int]$attempts=45){
+  for($i=0;$i -lt $attempts;$i++){
+    try {
+      $control=Find-Control $name 'Button' 1
+      if($control.Current.IsEnabled){return $control}
+    } catch {}
+    Start-Sleep -Milliseconds 200
+  }
+  throw "CENTER_UIA_BUTTON_NOT_READY: $name"
+}
+function Click-Control([string]$name,[switch]$WaitEnabled){
+  $control=if($WaitEnabled){Wait-EnabledButton $name}else{Find-Control $name 'Button'}
   try {
     $pattern=$control.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
     $pattern.Invoke()
@@ -438,10 +450,11 @@ try {
   # its click. Exercise the REAL installed window with a physical Windows
   # mouse click and require the resulting editor to become accessible.
   # Both actions only change the local manager draft, not signed T3 owners.
-  Click-Control 'Связать с рабочей областью'
+  [void](Find-TextContaining 'CenterGUIWorkspace')
+  Click-Control 'Связать с рабочей областью' -WaitEnabled
   [void](Find-TextContaining 'Связь с выбранной редакцией подтверждена в черновике')
   Write-Host 'CENTER_INSTALLED_GUI_ATLAS_WORKSPACE_BINDING_READBACK_PASS'
-  Click-Control 'Подготовить поручение по работе'
+  Click-Control 'Подготовить поручение по работе' -WaitEnabled
   [void](Find-Control 'Что нужно сделать' 'Edit')
   Write-Host 'CENTER_INSTALLED_GUI_ATLAS_WORK_EDITOR_OPEN_PASS'
   Type-Control 'Что нужно сделать' $expectedAssignment

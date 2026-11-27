@@ -65,11 +65,27 @@ function validateAtlasRef(value) {
   // A draft link is never evidence that Atlas has verified this project or revision.
 }
 
+// The original effect key binds the whole applied set. Legacy single-result
+// drafts omit this local recovery pointer. Neither shape confers authority.
+/** @param {{resultRevisionId:string,applicationRevisionIds?:ReadonlyArray<string>}|null|undefined} ref */
+export function appliedResultRevisionIds(ref){
+  const sha=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+  if(!ref||!sha(ref.resultRevisionId))return null;
+  if(!Object.hasOwn(ref,'applicationRevisionIds'))return [ref.resultRevisionId];
+  const ids=ref.applicationRevisionIds;
+  if(!Array.isArray(ids)||ids.length<2||ids.length>32||
+     ![...ids].every(sha)||new Set(ids).size!==ids.length||
+     !ids.includes(ref.resultRevisionId))return null;
+  return [...ids].sort();
+}
+
 // Pointer to the original applied Result, not a grant or a second result store.
 function validateSourceResultRef(org,assignment,ref){
   requireValue(ref&&typeof ref==='object'&&!Array.isArray(ref)&&
-    Object.keys(ref).length===6&&Object.keys(ref).every(k=>
-      ['organizationId','workspaceId','taskId','taskRevisionId','resultRevisionId','acceptanceId'].includes(k)),
+    (Object.keys(ref).length===6||Object.keys(ref).length===7)&&Object.keys(ref).every(k=>
+      ['organizationId','workspaceId','taskId','taskRevisionId','resultRevisionId','acceptanceId','applicationRevisionIds'].includes(k))&&
+    appliedResultRevisionIds(ref)!==null&&
+    (!Object.hasOwn(ref,'applicationRevisionIds')||/^[a-f0-9]{64}$/.test(ref.acceptanceId)),
     'DRAFT_SOURCE_RESULT_REFERENCE_INVALID');
   requireValue(ref.organizationId===org.id&&ref.workspaceId===assignment.workspaceId,
     'DRAFT_SOURCE_RESULT_SCOPE_CHANGED');

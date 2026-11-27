@@ -26,7 +26,7 @@ type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
 type AssignmentDraft={id:string;title:string;assigneeId:string|null;reviewerId:string|null;editNumber:number;
  status:string;workspaceId:string;description:string;criteria:string;dueDate:string;
  atlasRef:{projectId:string;revision:string;workId?:string}|null;
- sourceResultRef:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}|null};
+ sourceResultRef:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string;applicationRevisionIds?:ReadonlyArray<string>}|null};
 type AgeStatus={operation:'AGE_STATUS';available:boolean;recipient:string|null;
   toolchain:{ready:boolean;reason?:string};provider:string;admitted:false};
 const hex=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
@@ -344,9 +344,18 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    if(!freshReceipt.found||freshReceipt.receipt.acceptanceId!==receipt.receipt.acceptanceId||
       !signed||signed.packageSha256!==hash||!revisions.includes(signed.resultRevisionId))
      throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
+   const acceptanceId=freshReceipt.receipt.acceptanceId;
+   // Reuse the existing exact Apply selection, including after cold reopen.
+   // This pointer is not proof: the original candidate/Object/Event still
+   // establish the actual effect. Never guess a group from the package.
+   const previous=observeApply(acceptanceId);
+   if(previous.blocked)throw Error('CEN_D3_REVIEW_CONTINUATION_HOLD');
+   const group=previous.pending??(applySelection?.acceptanceId===acceptanceId?applySelection.revisionIds:null);
+   if(group&&!group.includes(signed.resultRevisionId))
+     throw Error('CEN_D3_EMPLOYEE_DRAFT_RESULT_SOURCE_CHANGED');
    const source={organizationId:session.organizationId,workspaceId:session.workspaceId,
      taskId:signed.taskId,taskRevisionId:signed.taskRevisionId,resultRevisionId:signed.resultRevisionId,
-     acceptanceId:freshReceipt.receipt.acceptanceId};
+     acceptanceId,...(group&&group.length>1?{applicationRevisionIds:[...group].sort()}:{})};
    const read=await readAppliedD3Result(source,session,execute);
    if(!mounted.current)return false;
    setFollowUp({key:followUpKey,result:read.result,selection:{source:read.source,
