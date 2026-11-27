@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "3a88a6375e16cb215a35cebe661c06c6ad199726",
+  "profile": "original-production-result-projection",
+  "pins": {
+    "professionalAgent": "c8b30cce1c08de54341270c1109cbac3f0241d60"
+  },
+  "reason": "Qualify actual persisted production measurements in the shared desktop result projection and preserve existing solver regressions"
+}
