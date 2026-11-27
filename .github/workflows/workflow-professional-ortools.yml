@@ -45,13 +45,13 @@ jobs:
         id: professional_source
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: dba08276dab0729c780324c005a1754646638c91
+          ref: fa239b33e5c593f20012684e94db30c53b48581d
           path: professional-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - name: Install isolated exact solver qualification dependencies
         run: |
-          test "$(git -C professional-agent rev-parse HEAD)" = "dba08276dab0729c780324c005a1754646638c91"
+          test "$(git -C professional-agent rev-parse HEAD)" = "fa239b33e5c593f20012684e94db30c53b48581d"
           python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 mesa==3.5.2 simpy==4.1.2 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
           python -c "from importlib.metadata import version; from ortools.sat.python import cp_model; assert version('ortools')=='9.14.6206'; print('ORIGINAL_ORTOOLS_9_14_6206_PRESENT')"
       - name: Original OR-Tools solver and U01 connection qualification
@@ -59,7 +59,7 @@ jobs:
         run: |
           rc=0
           python -m pytest -q tests/test_agent067_ortools_allocation.py tests/test_agent067_ortools_scheduling.py --junitxml="$RUNNER_TEMP/professional-target.xml" > "$RUNNER_TEMP/professional-target-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-target.xml" ORTOOLS 70 strict || exit 1
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-target.xml" ORTOOLS 78 strict || exit 1
           test "$rc" = 0
       - name: Existing program and modeling regression
         if: always() && steps.professional_source.outcome == 'success'
