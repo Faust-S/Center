@@ -132,6 +132,7 @@ try{
    }
    $previous=[string]$before.head.generation
    Start-Atlas
+   Click-UI 'Портфель'
    Click-UI '＋ Новый проект'
    Wait-Title 'Форма: Новый проект'
    Fill-UI 'Название проекта' 'U05AfterCenterLink'
@@ -158,6 +159,7 @@ try{
    Write-Host "U05_OWNER_GUI_REVISION_ADVANCED_PASS version=$($saved.head.revision)"
  }else{
    Start-Atlas
+   Click-UI 'Портфель'
    Click-UI '＋ Новый проект'
    Wait-Title 'Форма: Новый проект'
    Fill-UI 'Название проекта' $projectName

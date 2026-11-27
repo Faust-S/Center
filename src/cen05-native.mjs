@@ -20,8 +20,17 @@ const atlasSourceMessage={
 // authority. In particular LAUNCHED_NO_WINDOW is NOT WINDOW_OBSERVED.
 export function describeCen05Status(operation,result){
   const status=result?.status;
+  if(operation==='open'&&['WINDOW_OBSERVED','BINDING_REUSED'].includes(status)&&
+     result.workNavigation==='REQUEST_QUEUED')
+    return (status==='BINDING_REUSED'?
+      'Прежняя связь с Atlas восстановлена без повторного запуска. ':
+      'Существующее окно Atlas подключено без повторного запуска. ')+
+      'Ссылка на работу передана в открытое окно. '+(result.focused===true?
+        'Проверьте выбор в Atlas.':'При необходимости нажмите «Фокус Atlas».');
+  if(operation==='open'&&status==='BINDING_REUSED'&&result.workNavigation)
+    return 'Прежняя связь с Atlas восстановлена без повторного запуска. Переход не подтверждён. Повторите открытие или используйте ссылку вручную.';
   if(operation==='open'&&status==='WINDOW_OBSERVED'&&result.reusedProcess===true)
-    return 'Существующее окно Atlas подключено без повторного запуска. Работа автоматически не выбирается.';
+    return 'Существующее окно Atlas подключено без повторного запуска. Работа автоматически не выбирается. Используйте ссылку вручную или повторите открытие.';
   if(operation==='open'&&status==='LAUNCHED_NO_WINDOW'&&result.reusedProcess===true)
     return 'Существующий процесс Atlas подключён без повторного запуска, но окно пока не обнаружено.';
   if(operation==='open'&&status==='WINDOW_OBSERVED'&&result.workReferenceRequested===true)

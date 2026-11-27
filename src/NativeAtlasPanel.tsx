@@ -324,7 +324,7 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
      </>}
      {session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'&&selectedProject&&selectedProject.workItems.length>0&&<div className="nested-form" data-testid="cen05-native-presentation">
        <h4>Открыть установленный Atlas</h4>
-       <p className="muted">При новом запуске Atlas получает ссылку на выбранную сохранённую работу. Если окно уже открыто, используйте ссылку ниже в разделе «Сохранение и копии» Atlas. Редакция проверяется при открытии и возврате.</p>
+       <p className="muted">Atlas получает ссылку на выбранную сохранённую работу при запуске или в открытое окно. Если установленная программа не поддерживает этот переход, используйте ссылку ниже в разделе «Сохранение и копии» Atlas. Редакция проверяется при открытии и возврате.</p>
        {selectedWorkRef&&<details>
          <summary>Ссылка на выбранную работу</summary>
          <label>Скопируйте ссылку для открытого Atlas
@@ -334,7 +334,7 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
          </label>
        </details>}
        <div className="actions">
-         <button type="button" className="secondary" disabled={busy||!selectedWorkRef||bindingForSelectedWork} data-testid="cen05-u04-open" onClick={()=>void present('open')}>Открыть окно Atlas</button>
+         <button type="button" className="secondary" disabled={busy||!selectedWorkRef} data-testid="cen05-u04-open" onClick={()=>void present('open')}>Открыть окно Atlas</button>
          <button type="button" className="secondary" disabled={busy||!bindingForSelectedWork} data-testid="cen05-u04-activate" onClick={()=>void present('activate')}>Фокус Atlas</button>
          <button type="button" className="secondary" disabled={busy||!bindingForSelectedWork} data-testid="cen05-u04-return" onClick={()=>void present('return')}>Вернуться в Center и проверить</button>
          <button type="button" className="secondary" disabled={busy||!presentation} data-testid="cen05-u04-detach" onClick={()=>void present('detach')}>Отсоединить окно</button>

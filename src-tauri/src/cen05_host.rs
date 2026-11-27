@@ -6,6 +6,64 @@ use tauri::{AppHandle, Manager};
 
 mod u04 {
     include!(concat!(env!("OUT_DIR"), "/u04_original_windows.rs"));
+    // Discover a separately opened Atlas only by the registered executable
+    // path. U04 remains responsible for binding and activating its window.
+    #[cfg(windows)]
+    mod discovery {
+        use std::{collections::BTreeSet,os::windows::ffi::{OsStrExt,OsStringExt},
+            path::{Path,PathBuf}};
+        #[link(name="user32")]
+        unsafe extern "system" {
+            fn EnumWindows(callback:Option<unsafe extern "system" fn(isize,isize)->i32>,data:isize)->i32;
+            fn GetWindowThreadProcessId(hwnd:isize,pid:*mut u32)->u32;
+            fn IsWindowVisible(hwnd:isize)->i32;
+            fn GetWindowTextLengthW(hwnd:isize)->i32;
+        }
+        #[link(name="kernel32")]
+        unsafe extern "system" {
+            fn OpenProcess(access:u32,inherit:i32,pid:u32)->isize;
+            fn QueryFullProcessImageNameW(handle:isize,flags:u32,name:*mut u16,len:*mut u32)->i32;
+            fn CloseHandle(handle:isize)->i32;
+            fn CompareStringOrdinal(a:*const u16,an:i32,b:*const u16,bn:i32,ignore_case:i32)->i32;
+        }
+        struct Search{target:Vec<u16>,seen:BTreeSet<u32>,matches:BTreeSet<u32>}
+        fn image(pid:u32)->Option<PathBuf>{
+            unsafe{
+                let handle=OpenProcess(0x1000,0,pid);
+                if handle==0{return None;}
+                let mut name=vec![0u16;32768];
+                let mut len=name.len() as u32;
+                let ok=QueryFullProcessImageNameW(handle,0,name.as_mut_ptr(),&mut len);
+                CloseHandle(handle);
+                if ok==0||len==0||len as usize>name.len(){return None;}
+                std::fs::canonicalize(PathBuf::from(std::ffi::OsString::from_wide(&name[..len as usize]))).ok()
+            }
+        }
+        unsafe extern "system" fn window(hwnd:isize,data:isize)->i32{
+            if IsWindowVisible(hwnd)==0||GetWindowTextLengthW(hwnd)<=0{return 1;}
+            let search=&mut *(data as *mut Search);
+            let mut pid=0;
+            if GetWindowThreadProcessId(hwnd,&mut pid)==0||pid==0||!search.seen.insert(pid){return 1;}
+            if let Some(path)=image(pid){
+                let other:Vec<u16>=path.as_os_str().encode_wide().collect();
+                if CompareStringOrdinal(search.target.as_ptr(),search.target.len() as i32,
+                    other.as_ptr(),other.len() as i32,1)==2{
+                    search.matches.insert(pid);
+                }
+            }
+            1
+        }
+        pub(super) fn find(path:&Path)->Result<Option<u32>,String>{
+            let target=std::fs::canonicalize(path).map_err(|_|"ATLAS_INSTALL_UNAVAILABLE")?;
+            let mut state=Search{target:target.as_os_str().encode_wide().collect(),
+                seen:BTreeSet::new(),matches:BTreeSet::new()};
+            if unsafe{EnumWindows(Some(window),(&mut state as *mut Search) as isize)}==0{
+                return Err("ATLAS_RUNNING_WINDOW_DISCOVERY_FAILED".into());
+            }
+            if state.matches.len()>1{return Err("ATLAS_RUNNING_WINDOWS_AMBIGUOUS".into());}
+            Ok(state.matches.iter().next().copied())
+        }
+    }
     #[cfg(test)]
     impl Port {
         pub(super) fn bound_for_host_test() -> Self {
@@ -33,6 +91,31 @@ mod u04 {
         // guessed PID, and failed reattach must not fall back to spawning.
         pub fn for_verified_reattach(path: PathBuf, pid: u32, stamp: u64) -> Self {
             Self { target: Some((path, Vec::new())), reattach: Some((pid, stamp)), bound: None }
+        }
+        pub(super) fn live_binding(&self)->bool{
+            self.bound.as_ref().is_some_and(|b|os::process_stamp(b.pid)==Some(b.stamp))
+        }
+        pub(super) fn navigate_work(&mut self,work:&Value)->&'static str{
+            let Some(bound)=self.bound.as_mut() else{return "WINDOW_NOT_FOUND"};
+            if os::process_stamp(bound.pid)!=Some(bound.stamp){return "PROCESS_IDENTITY_CHANGED";}
+            let Some(hwnd)=os::window_for(bound.pid) else{return "WINDOW_NOT_FOUND"};
+            bound.window=Some(hwnd);
+            #[cfg(windows)]
+            {crate::work_navigation_windows::send(hwnd,bound.pid,work)}
+            #[cfg(not(windows))]
+            {let _=work;"NOT_SUPPORTED"}
+        }
+        pub(super) fn installed_process(path:&std::path::Path)->Result<Option<(u32,u64)>,String>{
+            #[cfg(windows)]
+            {
+                match discovery::find(path)? {
+                    None=>Ok(None),
+                    Some(pid)=>Ok(Some((pid,os::process_stamp(pid)
+                        .ok_or("CEN05_PREVIOUS_PROCESS_STAMP_UNAVAILABLE")?))),
+                }
+            }
+            #[cfg(not(windows))]
+            {let _=path;Ok(None)}
         }
     }
 }
@@ -133,11 +216,27 @@ pub fn center_u04_open(app: AppHandle, state: tauri::State<'_, Mutex<Session>>,
     // A previously opened Atlas binding can outlive a WebView page change.
     // Reuse exactly the same WorkRef without launching a second Atlas, or
     // detach the prior U04 binding without terminating the external program.
+    if session.port.as_ref().is_some_and(|port|!port.live_binding()){
+        if let Some(port)=session.port.as_mut(){let _=port.handle("closeBinding");}
+        *session=Session::default();
+    }
+    let work=json!({"projectId":&project_id,"workId":&work_id,"revision":&revision});
     let (existing,reattach)=prepare_native_open(&mut session,
         &organization_id,&project_id,&work_id,&revision)?;
-    if let Some(existing)=existing {
+    if let Some(mut existing)=existing {
+        let port=session.port.as_mut().ok_or("CEN05_BINDING_NOT_FOUND")?;
+        let navigation=port.navigate_work(&work);
+        let focus=port.handle("activate");
+        existing["workNavigation"]=json!(navigation);
+        existing["workReferenceRequested"]=json!(navigation=="REQUEST_QUEUED");
+        existing["focused"]=json!(focus["focused"]==true);
+        existing["windowRef"]=focus["binding"]["windowRef"].clone();
         return Ok(existing);
     }
+    let reattach=match reattach{
+        Some(known)=>Some(known),
+        None=>u04::Port::installed_process(&target)?,
+    };
     let reused_process=reattach.is_some();
     let mut port=match reattach {
         Some((pid,stamp))=>u04::Port::for_verified_reattach(target,pid,stamp),
@@ -155,11 +254,20 @@ pub fn center_u04_open(app: AppHandle, state: tauri::State<'_, Mutex<Session>>,
     session.project_id=project_id;
     session.work_id=work_id;
     session.revision=revision;
+    let navigation=if reused_process{port.navigate_work(&work)}else{"LAUNCH_ARGUMENT"};
+    // On an already opened window the explicit Open action also focuses it.
+    // A newly spawned process may still be constructing the original window.
+    let focus=if reused_process&&status=="WINDOW_OBSERVED"{port.handle("activate")}else{json!({})};
+    let window_ref=if focus["binding"]["windowRef"].is_string(){
+        focus["binding"]["windowRef"].clone()
+    }else{result["binding"]["windowRef"].clone()};
     session.port=Some(port);
     Ok(respond(status,json!({"bindingRef":session.binding_ref,
-        "processId":result["processId"],"windowRef":result["binding"]["windowRef"],
+        "processId":result["processId"],"windowRef":window_ref,
         "reusedProcess":reused_process && result["spawned"]==false,
-        "workReferenceRequested":!reused_process && result["spawned"]==true})))
+        "workNavigation":navigation,"focused":focus["focused"]==true,
+        "workReferenceRequested":navigation=="REQUEST_QUEUED"||
+            (!reused_process && result["spawned"]==true)})))
 }
 // Existing U04 bindings outlive webview navigation. An organization change
 // must release the old Center context while keeping the exact external Atlas
