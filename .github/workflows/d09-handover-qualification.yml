@@ -1,0 +1,80 @@
+name: D09 HOP carried artwork and paired appearance qualification
+on:
+  push:
+    branches: ['ci/once/d09-handover/28598b80cf1f6c2347284af3edec48dabc6ff32a']
+    paths: ['.github/workflows/d09-handover-qualification.yml']
+permissions:
+  contents: read
+concurrency:
+  group: d09-handover-28598b80
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.event.before == '504d1d541a289ea014cfc2c25a9503e52853e171' && github.event.deleted != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact private HOP candidate without persistent credentials
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/hop.iwxa.ru
+          ref: '28598b80cf1f6c2347284af3edec48dabc6ff32a'
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify revision
+        run: |
+          test "$(git rev-parse HEAD)" = '28598b80cf1f6c2347284af3edec48dabc6ff32a'
+          echo "D09_HEAD=28598b80cf1f6c2347284af3edec48dabc6ff32a"
+      - name: Install exact dependencies
+        id: install
+        run: |
+          npm ci --no-audit --no-fund > "$RUNNER_TEMP/d09-npm.log" 2>&1 || { echo "D09_INSTALL=FAIL"; exit 1; }
+          echo "D09_INSTALL=PASS"
+      - name: Check all TypeScript
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          npm run typecheck > "$RUNNER_TEMP/d09-types.log" 2>&1 || {
+            grep -E 'error TS[0-9]+' "$RUNNER_TEMP/d09-types.log" | sed -E 's/: error (TS[0-9]+):.*/: \1/' | head -40 || true
+            echo "D09_TYPECHECK=FAIL"; exit 1;
+          }
+          echo "D09_TYPECHECK=PASS"
+      - name: Run indexed raster and choreography tests
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          node --experimental-strip-types --test tests/d09-pixel-grip-raster.test.mjs tests/d09-stage-motion-timing.test.mjs tests/d09-stage-choreography.test.mjs tests/d09-stage-arrangement.test.mjs tests/d09-played-story-route.test.mjs > "$RUNNER_TEMP/d09-node.log" 2>&1 || {
+            grep -E '^# (tests|pass|fail|skipped)|^not ok [0-9]+' "$RUNNER_TEMP/d09-node.log" | sed -E 's/^(not ok [0-9]+).*/\1/' | head -30 || true
+            echo "D09_NODE=FAIL"; exit 1;
+          }
+          grep -E '^# (tests|pass|fail|skipped)' "$RUNNER_TEMP/d09-node.log"
+          echo "D09_NODE=PASS"
+      - name: Native graph, figure, player and editor regression
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          set +e
+          ./node_modules/.bin/vitest run src/lib/__tests__/pixel-hand-items.test.ts src/lib/__tests__/stage-handover-project.test.ts src/lib/__tests__/stage-dialogue-project.test.ts src/lib/__tests__/stage-rehearsal.test.ts src/lib/__tests__/pixel-reaction-actions.test.ts src/components/hop/__tests__/PixelLayerStudio.test.tsx src/components/workspace/inspector/__tests__/StageDialogueStudio.test.tsx src/components/workspace/__tests__/PixelSceneAnimation.test.tsx src/content/__tests__/cloud-garden.test.ts --reporter=json --outputFile="$RUNNER_TEMP/d09-vitest.json" > "$RUNNER_TEMP/d09-vitest.log" 2>&1
+          result=$?
+          set -e
+          node --input-type=module - "$RUNNER_TEMP/d09-vitest.json" <<'NODE'
+          import fs from 'node:fs';
+          const path=process.argv[2];
+          if(!fs.existsSync(path)){console.log('D09_VITEST_REPORT=ABSENT');process.exit(0);}
+          const r=JSON.parse(fs.readFileSync(path,'utf8'));
+          for(const key of ['numTotalTests','numPassedTests','numFailedTests','numPendingTests','numTotalTestSuites','numFailedTestSuites'])console.log(key+'='+r[key]);
+          for(const suite of r.testResults??[]){
+            const bad=(suite.assertionResults??[]).map((x,i)=>({x,i})).filter(({x})=>x.status==='failed');
+            if(suite.status==='failed'||bad.length)console.log('FAILED_FILE='+String(suite.name).split('/src/').pop()+' cases='+bad.map(({i})=>i+1).join(','));
+          }
+          NODE
+          if [ "$result" -ne 0 ]; then echo "D09_VITEST=FAIL"; exit 1; fi
+          echo "D09_VITEST=PASS"
+      # No private code, screenshots, detailed logs, builds or artifacts are published.
