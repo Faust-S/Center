@@ -1,0 +1,11 @@
+{
+  "workflow": "agent-mobile-public-image-memory",
+  "prepared_sha": "11cd7aa4923c99107f85639b14d8ae2dcc55601a",
+  "engine": "e637c7bccd35aa8841d67fb942ba72918176826c",
+  "engine_tree": "1e65ac8902d729a62e0720056090d1a498bbec04",
+  "ggml": "eeda9ec48fc84a3df0bb9dcc19ae9053075a2539",
+  "base_model_sha256": "c2f6e92f9d08d69cc673a1003528ac8199274b3c0eaec88d5fbefe5af67bd42b",
+  "lora_revision": "a260c1aa72149ce7a22636e834f52f5e2701da7f",
+  "lora_sha256": "8f90d840e075ff588a58e22c6586e2ae9a6f7922996ee6649a7f01072333afe4",
+  "scope": "HOST_CPU_PAIRED_LCM_TILING_RESEARCH_ONLY"
+}
