@@ -21,16 +21,17 @@ from local_source import LocalSourceError, git, materialize_local_source
 T2 = ('c28e01876f3230307b7f20449f7ef54374367c93',
       '3d774222c9aaa1521ded9eb23d2f5fcdb55b8cbd',
       't2/current/final-successor')
-T3 = ('acec1ccc23fe89871e23a46187abcc013c30810e',
-      '3e0c9420c9e8f72c38e7b96240bfc9bb529b29f8',
+T3 = ('38ae0d22e4093f4ec19e3d6d2a8a271224f1ae2a',
+      '5259b6acf4f4fcde3c4d8da6c37cce17308badb2',
       ('access-control', 'interop', 'reconciliation', 'tests', 'package.json'))
-CORE = ('683b8c14adeef650d7eb5901f0ff1865267f68b6',
-        '5cc15bcc41dcf01eb1aa6d1a40905970d901f222', 'packages')
+CORE = ('a82210cfe0352c934bb941323a189cc59afaa562',
+        '31ac3723d52a42e3eac2b295153fe495fd0b8d39', 'packages')
 T2_PARENT = '4e4ad5c5e566a74f24243b9d0744a6d64652a199'
 PACKAGING = 't2/current/final-successor/kernel-successors/k036-canonical-event-merge-20261125/'
 PACKAGING_PATHS = {PACKAGING + name for name in (
     'prepare_k036_candidate_archive.py', 'test_prepare_k036_candidate_archive.py')}
-OWNER_TESTS = ('tests/original-product-network-registry.test.mjs',
+OWNER_TESTS = ('tests/original-native-network-vault.test.mjs',
+               'tests/original-product-network-registry.test.mjs',
                'tests/original-admin-network-registry.test.mjs',
                'tests/t3-signed-workspace-exchange-owner.test.mjs',
                'tests/t3-d1-control-loopback-invalidation.test.mjs')
