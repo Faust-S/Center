@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "d59d485e1ab08cd9b48a9b720434112902c17634",
+  "profile": "atlas-explicit-minute-scenario",
+  "pins": {
+    "professionalAgent": "b27c4b7606869a15b019e5013d7625e96016247f"
+  },
+  "reason": "Qualify Atlas saved project provenance, explicit minute scenario, original approval and cold readback"
+}
