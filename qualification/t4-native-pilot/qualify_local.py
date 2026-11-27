@@ -21,8 +21,8 @@ from local_source import LocalSourceError, git, materialize_local_source
 T2 = ('c28e01876f3230307b7f20449f7ef54374367c93',
       '3d774222c9aaa1521ded9eb23d2f5fcdb55b8cbd',
       't2/current/final-successor')
-T3 = ('38ae0d22e4093f4ec19e3d6d2a8a271224f1ae2a',
-      '5259b6acf4f4fcde3c4d8da6c37cce17308badb2',
+T3 = ('9d45f993e0b5e3609879d4c203f9345684400d65',
+      '06ffe1600f05340be5d1e3577f293ebb3e445fd7',
       ('access-control', 'interop', 'reconciliation', 'tests', 'package.json'))
 CORE = ('a82210cfe0352c934bb941323a189cc59afaa562',
         '31ac3723d52a42e3eac2b295153fe495fd0b8d39', 'packages')
@@ -31,6 +31,8 @@ PACKAGING = 't2/current/final-successor/kernel-successors/k036-canonical-event-m
 PACKAGING_PATHS = {PACKAGING + name for name in (
     'prepare_k036_candidate_archive.py', 'test_prepare_k036_candidate_archive.py')}
 OWNER_TESTS = ('tests/original-native-network-vault.test.mjs',
+               'tests/original-native-network-vault-port.test.mjs',
+               'tests/admin-native-vault-composition.test.mjs',
                'tests/original-product-network-registry.test.mjs',
                'tests/original-admin-network-registry.test.mjs',
                'tests/t3-signed-workspace-exchange-owner.test.mjs',
