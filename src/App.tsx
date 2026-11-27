@@ -460,11 +460,11 @@ export default function App() {
     setError('');go('results');
   };
   const reuseAppliedResult = ({description,source,atlas,originalD3}:AppliedResultDraftSelection) => {
-    if(!org)return;
-    if(editor){setError('Сначала сохраните или закройте редактор поручения.');return;}
+    if(!org)return false;
+    if(editor){setError('Сначала сохраните или закройте редактор поручения.');return false;}
     const workspace=org.workspaces.find(w=>w.id===source.workspaceId);
     if(activeOrganizationRef.current!==source.organizationId||source.organizationId!==org.id||!workspace){
-      setError('Исходный Result принадлежит другой организации или рабочей области.');return;
+      setError('Исходный Result принадлежит другой организации или рабочей области.');return false;
     }
     let next:Editor;
     try{
@@ -473,7 +473,7 @@ export default function App() {
         if(view.mode!=='NATIVE_ATLAS_PUBLIC_READ_ONLY'||
            !atlasWorkspaceBindingMatches(workspace,ref)||
            atlasWorkReadback(view,ref)!=='SOURCE_REVISION_MATCHES'){
-          setError('Свяжите рабочую область с текущей редакцией проекта Atlas, затем вернитесь к принятому результату.');return;
+          setError('Свяжите рабочую область с текущей редакцией проекта Atlas, затем вернитесь к принятому результату.');return false;
         }
         const {titleNeedsEdit,...fields}=prepareAtlasAssignmentFields(view,ref,org);
         next={...initialEditor(org),...fields,workspaceId:workspace.id,atlasRef:ref,
@@ -487,8 +487,8 @@ export default function App() {
           atlasRef:originalD3?null:workspace.atlasRef??null,sourceResultRef:source,description};
       }
       editorBaselineRef.current=JSON.stringify(initialEditor(org));
-      setEditor(next);setError('');go('work');
-    }catch(e){problem(e);}
+      setEditor(next);setError('');go('work');return true;
+    }catch(e){problem(e);return false;}
   };
   const startAssignment = (item?: Assignment) => {
     if (!org) return;

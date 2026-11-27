@@ -52,7 +52,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  assignmentDrafts:AssignmentDraft[];
  managerOriginal?:ManagerOriginalSelection|null;
  onInspectAtlasResult?:(source:AcceptedAtlasFocus)=>void;
- onReuse?:(selection:AppliedResultDraftSelection)=>void;
+ onReuse?:(selection:AppliedResultDraftSelection)=>boolean|void;
  atlasResultReturn?:AcceptedAtlasReturn|null;onClearAtlasResultReturn?:()=>void;
  }){
  const session=owner.snapshot;
@@ -375,7 +375,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
        '\nИсторическая связь принятого Result не изменится.'))return false;
    }
    if(!mounted.current)return false;
-   onReuse({...currentFollowUp.selection,atlas});
+   return onReuse({...currentFollowUp.selection,atlas});
  });
  const inspectAtlasResult=()=>run('Исходная связь принятого Result с Atlas перечитана.',async()=>{
    if(!acceptedAtlas||!onInspectAtlasResult)throw Error('CEN_D3_ATLAS_RESULT_SOURCE_REQUIRED');

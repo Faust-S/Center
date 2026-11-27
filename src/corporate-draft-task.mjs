@@ -102,11 +102,13 @@ export function employeeDraftSelectionCurrent(selection,draft,scope,text,confirm
      acceptanceId:row.acceptanceId},result:row.result});
  }
 
+/** @param {any} selection @param {any} scope @param {any} invoke @param {((operation:string,input?:Record<string,unknown>)=>Promise<any>)=} execute */
 export async function verifyEmployeeDraftSources(selection,scope,invoke,execute=undefined){
  need(selection?.scope===scopeKey(scope)&&selection.contextId===scope.contextId&&
    selection.contextEpoch===scope.contextEpoch,'CEN_D3_EMPLOYEE_DRAFT_CHANGED_BEFORE_SIGNING');
  return verifyCorporateDraftSources(selection,scope,invoke,execute);
 }
+/** @param {any} selection @param {any} scope @param {any} invoke @param {((operation:string,input?:Record<string,unknown>)=>Promise<any>)=} execute */
 export async function verifyCorporateDraftSources(selection,scope,invoke,execute=undefined){
  need(selection?.contextId===scope.contextId&&selection.contextEpoch===scope.contextEpoch,
    'CEN_D3_EMPLOYEE_DRAFT_CHANGED_BEFORE_SIGNING');
