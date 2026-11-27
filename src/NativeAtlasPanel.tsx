@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useRef,useState} from 'react';
-import {createNativeAtlasPort,readNativeAtlasPlan} from './atlas-native.mjs';
+import {createNativeAtlasPort,readNativeAtlasPlan,readNativeAtlasRecordedResult} from './atlas-native.mjs';
 import {linkableAtlasProject,linkableAtlasWork,selectAtlasTargetWorkspace,atlasWorkspaceBindingMatches,selectAtlasAfterRead} from './atlas-integration.mjs';
 import {createCen05NativePort,describeCen05Status,describeCen05Error,presentationMatchesWork} from './cen05-native.mjs';
 import {selectAcceptedAtlasWork} from './atlas-result-context.mjs';
@@ -91,9 +91,21 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
  const planning=useMemo<{plan:PlanView|null;error:string}>(()=>{
    if(!session||!selected||!session.snapshot.projects.some((p:any)=>p.id===selected))
      return {plan:null,error:''};
-   try{return {plan:readNativeAtlasPlan(session,selected) as PlanView,error:''};}
+   try{
+     const ref=view?linkableAtlasProject(view,selected):null;
+     const workspace=selectAtlasTargetWorkspace(workspaces,targetWorkspaceId,ref) as WorkspaceChoice|null;
+     const scopedWorkspace=workspace?.atlasRef?.projectId===selected?workspace.id:null;
+     return {plan:readNativeAtlasPlan(session,selected,scopedWorkspace) as PlanView,error:''};
+   }
    catch{return {plan:null,error:'Расчёт плана Atlas недоступен для этой редакции.'};}
- },[session,selected]);
+ },[session,selected,view,workspaces,targetWorkspaceId]);
+ const recordedResult=useMemo(()=>{
+   if(!resultFocus||!session||session.sourceKind!=='PUBLIC_ATLAS_READ_ONLY'||
+      session.organizationId!==resultFocus.organizationId||
+      !workspaces.some(w=>w.id===resultFocus.workspaceId))return null;
+   try{return readNativeAtlasRecordedResult(session,resultFocus);}
+   catch{return {status:'UNAVAILABLE',revision:''};}
+ },[session,resultFocus,workspaces]);
  // Defer the first read until the mounted organization is established.
  // The StrictMode probe's discarded effect cannot consume the real request.
  useEffect(()=>{
@@ -240,10 +252,19 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
            'Исходная редакция совпадает с текущим планом.':
            'Текущая редакция '+view!.revision+' отличается от исходной. Проверьте изменения перед корректировкой.'}</p>
        </>:<p role="status">Исходная работа или проект больше не найдены. Другая работа автоматически не выбирается.</p>}
+     {recordedResult&&<div className="notice subdued" data-testid="native-atlas-exact-result-record">
+       <strong>{recordedResult.status==='RECORDED'?'Связь с этим Result сохранена в Atlas':
+         recordedResult.status==='NOT_RECORDED'?'Точная запись этого Result в прочитанной редакции Atlas не найдена':
+         recordedResult.status==='AMBIGUOUS'?'Найдены противоречивые записи этого Result':
+         recordedResult.status==='WORK_MISSING'?'Исходная работа отсутствует в Atlas':
+         'Не удалось прочитать связь с Result'}</strong>
+       {recordedResult.revision&&<p>Прочитанная редакция Atlas: {recordedResult.revision}.</p>}
+       <small>Это состояние сохранённого плана. Оно не заменяет проверку подписи, полномочий или оригинальной квитанции T3.</small>
+     </div>}
      {editionComparison&&<WorkEditionTable comparison={editionComparison}/>}
      {editionError&&<p role="status" data-testid="atlas-work-edition-unavailable">{editionError}</p>}
      <button type="button" className="secondary" disabled={busy}
-       onClick={()=>void act(p=>p.openPublicAtlas(organizationId),resultFocus.workRef)}>Перечитать связанную работу</button>
+       onClick={()=>void act(p=>p.openPublicAtlas(organizationId),resultFocus.workRef)}>Перечитать работу и запись Result</button>
      {resultWork&&resultComparison&&<button type="button" className="secondary" disabled={busy}
        data-testid="native-atlas-open-result-work" onClick={()=>{
          setSelected(resultComparison.projectId);setSelectedWork(resultComparison.workId);
