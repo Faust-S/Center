@@ -1,5 +1,5 @@
-# Authorized one-shot qualification; no private sources or raw logs published.
-name: Original professional OR-Tools qualification
+# Authorized exact qualification. No private source or raw logs uploaded.
+name: Original QGIS Windows installation and professional runtime qualification
 on:
   push:
     branches: ['ci/once/workflow-professional-ortools/**']
@@ -7,19 +7,26 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: original-professional-guided-delivery
+  group: original-professional-qgis-and-runtime
   cancel-in-progress: false
 jobs:
-  professional-programs:
+  qualification:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest]
+        include:
+          - os: windows-latest
+            profile: optional-programs
+          - os: windows-latest
+            profile: qgis-native
+          - os: ubuntu-24.04
+            profile: linux-regression
     runs-on: ${{ matrix.os }}
+    name: ${{ matrix.profile }}
+    timeout-minutes: 50
     defaults:
       run:
         shell: bash
-    timeout-minutes: 30
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -31,9 +38,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
-      - name: Validate exact deliberate one-shot request before protected checkout
-        if: github.event_name == 'push'
-        run: node qualification/validate-professional-ortools-request.mjs
+      - run: node qualification/validate-professional-ortools-request.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -45,91 +50,83 @@ jobs:
         id: professional_source
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 537f9e961678ddc5d580a58fca7665d225fdfa35
+          ref: 7073a902c5622c26597ac1b05537570ad3422888
           path: professional-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
-      - name: Install isolated exact solver qualification dependencies
+      - name: Exact private qualification dependencies
         run: |
-          test "$(git -C professional-agent rev-parse HEAD)" = "537f9e961678ddc5d580a58fca7665d225fdfa35"
+          test "$(git -C professional-agent rev-parse HEAD)" = "7073a902c5622c26597ac1b05537570ad3422888"
           python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 mesa==3.5.2 simpy==4.1.2 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
-          python -c "from importlib.metadata import version; from ortools.sat.python import cp_model; assert version('ortools')=='9.14.6206'; print('ORIGINAL_ORTOOLS_9_14_6206_PRESENT')"
-      - name: Original OR-Tools solver and U01 connection qualification
-        working-directory: professional-agent
-        run: |
-          rc=0
-          python -m pytest -q tests/test_agent067_ortools_allocation.py tests/test_agent067_ortools_scheduling.py tests/test_agent067_ortools_network_flow.py tests/test_agent067_ortools_vehicle_routing.py tests/test_agent067_road_matrix_input.py tests/test_agent067_valhalla_fleet_input.py tests/test_agent067_qgis_road_input.py --junitxml="$RUNNER_TEMP/professional-target.xml" > "$RUNNER_TEMP/professional-target-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-target.xml" ORTOOLS 228 strict || exit 1
-          test "$rc" = 0
-      - name: Existing program and modeling regression
-        if: always() && steps.professional_source.outcome == 'success'
-        working-directory: professional-agent
-        run: |
-          rc=0
-          python -m pytest -q tests/test_public_program_composition.py tests/test_agent065_modeling_experiment.py tests/test_agent065_modeling_cold_readback.py tests/test_agent065_modeling_result_artifacts.py tests/test_agent065_modeling_large_results.py --junitxml="$RUNNER_TEMP/professional-regression.xml" > "$RUNNER_TEMP/professional-regression-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-regression.xml" PROGRAM_REGRESSION 1 relaxed || exit 1
-          test "$rc" = 0
-      - name: Install exact native QGIS on Linux
-        if: matrix.os == 'ubuntu-24.04'
-        run: |
-          sudo apt-get update -qq > "$RUNNER_TEMP/professional-qgis-apt-private.log" 2>&1 || { echo QGIS_APT_FAIL; exit 1; }
-          sudo apt-get install -y --no-install-recommends python3-qgis qgis-providers qgis-common >> "$RUNNER_TEMP/professional-qgis-apt-private.log" 2>&1 || { echo QGIS_INSTALL_FAIL; exit 1; }
-          env -u LD_LIBRARY_PATH /usr/bin/python3 -I -c "from qgis.core import Qgis; print('OBSERVED_QGIS_VERSION='+Qgis.QGIS_VERSION); assert Qgis.QGIS_VERSION_INT == 33404; print('ORIGINAL_QGIS_3_34_4_PRESENT')"
-      - name: Original QGIS input, result and native U01 Task
-        if: always() && steps.professional_source.outcome == 'success'
-        working-directory: professional-agent
-        run: |
-          rc=0
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            export IWXA_QGIS_PYTHON=/usr/bin/python3
-            unset LD_LIBRARY_PATH
-            python -m pytest -q tests/test_agent067_qgis_points.py --junitxml="$RUNNER_TEMP/professional-qgis.xml" > "$RUNNER_TEMP/professional-qgis-private.log" 2>&1 || rc=$?
-            python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-qgis.xml" QGIS 22 strict || exit 1
-          else
-            python -m pytest -q tests/test_agent067_qgis_points.py -k 'not native_core' --junitxml="$RUNNER_TEMP/professional-qgis.xml" > "$RUNNER_TEMP/professional-qgis-private.log" 2>&1 || rc=$?
-            python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-qgis.xml" QGIS_CONTRACT 21 strict || exit 1
-          fi
-          test "$rc" = 0
-      - name: Original Valhalla input and result contract
-        if: always() && steps.professional_source.outcome == 'success'
-        working-directory: professional-agent
-        run: |
-          rc=0
-          python -m pytest -q tests/test_agent067_valhalla_road_table.py -k 'not native_core' --junitxml="$RUNNER_TEMP/professional-valhalla-contract.xml" > "$RUNNER_TEMP/professional-valhalla-contract-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-valhalla-contract.xml" VALHALLA_CONTRACT 24 strict || exit 1
-          test "$rc" = 0
-      - name: Build actual original local Valhalla graph and executable
-        id: original_valhalla
-        if: always() && matrix.os == 'ubuntu-24.04' && steps.professional_source.outcome == 'success'
-        run: |
-          bash qualification/professional-geospatial/prepare-native-valhalla.sh "$RUNNER_TEMP/iwxa-native-valhalla"
-      - name: Original native Valhalla approved Core Task and cold readback
-        if: always() && matrix.os == 'ubuntu-24.04' && steps.original_valhalla.outcome == 'success'
-        working-directory: professional-agent
-        run: |
-          rc=0
-          export IWXA_QGIS_PYTHON=/usr/bin/python3
-          export IWXA_VALHALLA_EXECUTABLE="$RUNNER_TEMP/iwxa-native-valhalla/bin/valhalla_service"
-          export IWXA_VALHALLA_CONFIG="$RUNNER_TEMP/iwxa-native-valhalla/graph/config.json"
-          export LD_LIBRARY_PATH="$RUNNER_TEMP/iwxa-native-valhalla/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-          python -m pytest -q tests/test_agent067_valhalla_road_table.py -k native_core --junitxml="$RUNNER_TEMP/professional-valhalla-native.xml" > "$RUNNER_TEMP/professional-valhalla-native-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-valhalla-native.xml" VALHALLA_NATIVE 2 strict || exit 1
-          test "$rc" = 0
-      - name: Original desktop input and result projection tests
-        if: always() && steps.professional_source.outcome == 'success'
-        working-directory: professional-agent/desktop
-        run: |
-          rc=0
-          node --test tests/ortools-allocation-form.test.mjs > "$RUNNER_TEMP/professional-desktop-private.log" 2>&1 || rc=$?
-          node --input-type=module -e 'import fs from "node:fs";const s=fs.readFileSync(process.argv[1],"utf8");for(const k of ["tests","pass","fail","skipped"]){const m=s.match(new RegExp("^# "+k+" ([0-9]+)","m"));if(m)console.log("DESKTOP_ALLOCATION_"+k.toUpperCase()+"="+m[1]);}' "$RUNNER_TEMP/professional-desktop-private.log"
-          test "$rc" = 0
       - name: Original desktop TypeScript and Vite
-        if: always() && steps.professional_source.outcome == 'success'
+        if: matrix.profile == 'optional-programs'
         working-directory: professional-agent/desktop
         run: |
           npm ci --ignore-scripts --no-audit --no-fund > "$RUNNER_TEMP/professional-npm-private.log" 2>&1 || { echo PROFESSIONAL_NPM_FAIL; exit 1; }
           npm run build:core > "$RUNNER_TEMP/professional-build-private.log" 2>&1 || { node --input-type=module -e 'import fs from "node:fs";const s=fs.readFileSync(process.argv[1],"utf8");for(const m of s.matchAll(/(?:error )?(TS[0-9]{4})/g))console.log("DESKTOP_BUILD_CODE="+m[1]);' "$RUNNER_TEMP/professional-build-private.log"; echo PROFESSIONAL_DESKTOP_BUILD_FAIL; exit 1; }
           echo PROFESSIONAL_DESKTOP_BUILD_PASS
+      - name: Professional install and QGIS contracts
+        if: always() && steps.professional_source.outcome == 'success' && matrix.profile != 'qgis-native'
+        working-directory: professional-agent
+        run: |
+          rc=0
+          python -m pytest -q tests/test_agent067_professional_install.py tests/test_agent067_modeling_executable.py tests/test_existing_software_discovery.py tests/test_programs_center_task_use.py tests/test_agent067_qgis_points.py -k 'not native_windows and not native_core' --junitxml="$RUNNER_TEMP/professional-contract.xml" > "$RUNNER_TEMP/professional-contract-private.log" 2>&1 || rc=$?
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-contract.xml" PROFESSIONAL_CONTRACT 65 strict || exit 1
+          test "$rc" = 0
+      - name: Install original five engines on normal user software paths
+        if: always() && steps.professional_source.outcome == 'success' && matrix.profile == 'optional-programs'
+        working-directory: professional-agent
+        env:
+          IWXA_PROFESSIONAL_NATIVE_INSTALL: '1'
+        run: |
+          rc=0
+          python -m pytest -q tests/test_agent067_professional_install.py -k native_windows_managed_install_and_cold_u01 --basetemp="$RUNNER_TEMP/iwxaprof" --junitxml="$RUNNER_TEMP/professional-native.xml" > "$RUNNER_TEMP/professional-native-private.log" 2>&1 || rc=$?
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-native.xml" PROFESSIONAL_NATIVE 5 strict || exit 1
+          test "$rc" = 0
+      - name: Original previously failing engines on nested test profile path
+        if: always() && steps.professional_source.outcome == 'success' && matrix.profile == 'optional-programs'
+        working-directory: professional-agent
+        env:
+          IWXA_PROFESSIONAL_NATIVE_INSTALL: '1'
+        run: |
+          rc=0
+          python -m pytest -q tests/test_agent067_professional_install.py -k 'native_windows_managed_install_and_cold_u01 and (ORTOOLS_ALLOCATION_V1 or VALHALLA_ROUTING_V1)' --junitxml="$RUNNER_TEMP/professional-nested.xml" > "$RUNNER_TEMP/professional-nested-private.log" 2>&1 || rc=$?
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-nested.xml" PROFESSIONAL_NESTED 2 strict || exit 1
+          test "$rc" = 0
+      - name: Original QGIS 3.34.4 MSI managed extraction, connection and approved Task
+        if: matrix.profile == 'qgis-native'
+        working-directory: professional-agent
+        env:
+          IWXA_PROFESSIONAL_NATIVE_QGIS: '1'
+        run: |
+          rc=0
+          python -m pytest -q tests/test_agent067_professional_install.py -k native_windows_qgis_install_and_core --basetemp="$RUNNER_TEMP/iwxaq" --junitxml="$RUNNER_TEMP/professional-qgis-native.xml" > "$RUNNER_TEMP/professional-qgis-native-private.log" 2>&1 || rc=$?
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-qgis-native.xml" QGIS_WINDOWS_NATIVE 1 strict || exit 1
+          test "$rc" = 0
+      - name: Original system QGIS exact Linux runtime
+        if: matrix.profile == 'linux-regression'
+        run: |
+          sudo apt-get update -qq > "$RUNNER_TEMP/professional-qgis-apt-private.log" 2>&1
+          sudo apt-get install -y --no-install-recommends python3-qgis qgis-providers qgis-common >> "$RUNNER_TEMP/professional-qgis-apt-private.log" 2>&1
+          env -u LD_LIBRARY_PATH /usr/bin/python3 -I -c "from qgis.core import Qgis; assert Qgis.QGIS_VERSION_INT==33404; print('ORIGINAL_QGIS_3_34_4_PRESENT')"
+      - name: Original native Linux QGIS approved Task and cold readback
+        if: matrix.profile == 'linux-regression'
+        working-directory: professional-agent
+        run: |
+          rc=0
+          export IWXA_QGIS_PYTHON=/usr/bin/python3
+          unset LD_LIBRARY_PATH
+          python -m pytest -q tests/test_agent067_qgis_points.py --junitxml="$RUNNER_TEMP/professional-qgis-linux.xml" > "$RUNNER_TEMP/professional-qgis-linux-private.log" 2>&1 || rc=$?
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-qgis-linux.xml" QGIS_LINUX_NATIVE 23 strict || exit 1
+          test "$rc" = 0
+      - name: Existing program and modeling regression
+        if: always() && steps.professional_source.outcome == 'success' && matrix.profile == 'linux-regression'
+        working-directory: professional-agent
+        run: |
+          rc=0
+          python -m pytest -q tests/test_public_program_composition.py tests/test_agent065_modeling_experiment.py tests/test_agent065_modeling_cold_readback.py tests/test_agent065_modeling_result_artifacts.py tests/test_agent065_modeling_large_results.py --junitxml="$RUNNER_TEMP/professional-regression.xml" > "$RUNNER_TEMP/professional-regression-private.log" 2>&1 || rc=$?
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-regression.xml" PROGRAM_REGRESSION 95 strict || exit 1
+          test "$rc" = 0
       - name: Remove private source and diagnostics
         if: always()
         run: |

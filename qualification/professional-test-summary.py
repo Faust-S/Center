@@ -16,7 +16,7 @@ for n, case in enumerate(cases, 1):
         fail += 1
         print(label + "_FAILED_CASE=" + str(n))
         for error in errors:
-            for code in sorted(set(re.findall(r"\b(?:allocation|schedule|modeling|u01|program|simpy|network_flow|routing|road_matrix|qgis|valhalla)_[a-z0-9_]+\b", (error.get("message") or "") + (error.text or ""))))[:8]:
+            for code in sorted(set(re.findall(r"\b(?:professional|allocation|schedule|modeling|u01|program|simpy|network_flow|routing|road_matrix|qgis|valhalla)_[a-z0-9_]+\b", (error.get("message") or "") + (error.text or ""))))[:24]:
                 print(label + "_CODE=" + code)
             # Fixed connection diagnostics, never arbitrary exception strings.
             for status in sorted(set(re.findall(r"\b(?:VALHALLA_CORE_CONNECT_(?:VERSION_UNVERIFIED|NOT_FOUND|CONNECTED|CLI_EXECUTION_FAILED|CLI_TIMED_OUT|CLI_OUTPUT_ENCODING_UNSUPPORTED|INSTALLATION_MISMATCH|CONNECTION_LOST|None)|QGIS_(?:NATIVE_PROBE_(?:EXIT_NONZERO|MARKER_MISSING)|(?:DIRECT|CORE)_CONNECT_(?:VERSION_UNVERIFIED|NOT_FOUND|CONNECTED|CLI_EXECUTION_FAILED|CLI_TIMED_OUT|CLI_OUTPUT_ENCODING_UNSUPPORTED|INSTALLATION_MISMATCH|CONNECTION_LOST|None)))\b", (error.get("message") or "") + (error.text or "")))):
