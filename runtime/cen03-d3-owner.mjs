@@ -433,6 +433,52 @@ export function validateOriginalEmployeeTaskReadback(receipt,{taskId,employeePer
  return copy(receipt,code);
 }
 
+// Read-only UI projection of the original signed Workspace source. It does
+// not turn an imported record into an employee-signed D3 receipt or Apply.
+export function validateOriginalAtlasWorkspaceReadback(result,task,session,request){
+ const code='CEN_D3_ATLAS_WORKSPACE_SOURCE_CHANGED';
+ validateTaskAtlasReference(task,code);
+ const work=task.atlasReference?.workRef;
+ need(task.found===true&&work&&result?.schema==='IWXA_T3_ADMIN_ATLAS_WORKSPACE_READBACK/1'&&
+   result.organizationId===session.organizationId&&result.workspaceId===session.workspaceId&&
+   result.taskId===task.taskId&&result.taskId===request.taskId&&
+   result.executorId===task.recipientId&&result.taskRevisionId===task.taskRevisionId&&
+   result.taskPackageSha256===task.packageSha256&&
+   ['projectId','workId','revision'].every(k=>result.workRef?.[k]===work[k])&&
+   result.originalKernelReadback===true&&result.originalSignedTaskVerified===true&&
+   result.signedReceiptVerified===false&&result.recipientAcceptance===false,code);
+ const objectId=id=>typeof id==='string'&&/^company:work:[a-f0-9]{64}$/.test(id);
+ const offset=request.offset??0,total=result.total,rows=result.results;
+ const taskPresent=objectId(result.taskObjectId)&&validId(result.taskEventId);
+ need(Number.isSafeInteger(total)&&total>=0&&Number.isSafeInteger(offset)&&offset>=0&&
+   result.offset===offset&&(offset===0||offset<total)&&Array.isArray(rows)&&
+   rows.length===Math.min(64,total-offset)&&
+   result.nextOffset===(offset+rows.length<total?offset+rows.length:null)&&
+   (total>0?taskPresent&&result.status==='WORKSPACE_RESULTS_FOUND':
+    taskPresent?result.status==='WORKSPACE_TASK_FOUND':
+    result.taskObjectId===null&&result.taskEventId===null&&result.status==='NO_WORKSPACE_RECORDS_FOUND'),code);
+ const rowValid=row=>row&&objectId(row.objectId)&&validId(row.eventId)&&validId(row.artifactId)&&
+   validSha(row.sha256)&&['text/plain','text/markdown','application/json'].includes(row.mimeType)&&
+   Number.isSafeInteger(row.contentBytes)&&row.contentBytes>0&&
+   typeof row.excerpt==='string'&&row.excerpt.length<=500&&
+   typeof row.excerptTruncated==='boolean'&&typeof row.portableContentAvailable==='boolean'&&
+   (!row.portableContentAvailable||row.contentBytes<=65536);
+ need(rows.every(rowValid)&&new Set(rows.map(row=>row.objectId)).size===rows.length,code);
+ const selected=result.selectedResult;
+ if(request.resultObjectId===undefined)need(selected===null,code);
+ else{
+   const original=rows.find(row=>row.objectId===request.resultObjectId);
+   need(rowValid(selected)&&selected.objectId===request.resultObjectId&&
+     (!original||Object.keys(original).every(k=>original[k]===selected[k]))&&
+     (selected.portableContentAvailable?
+       typeof selected.content==='string'&&selected.content.trim().length>0&&
+       !selected.content.includes('\0')&&new TextEncoder().encode(selected.content).length===selected.contentBytes&&
+       selected.content.slice(0,500)===selected.excerpt&&
+       selected.excerptTruncated===(selected.content.length>500):selected.content===null),code);
+ }
+ return copy(result,code);
+}
+
 // Display the existing original inventory as recipient-specific lists.
 // Every selected employee carrier still requires independent native readback.
 export function readOriginalTaskCatalog(snapshot){
