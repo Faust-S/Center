@@ -1,0 +1,65 @@
+name: Public original image paired CPU memory research
+on:
+  push:
+    branches:
+      - 'ci/once/agent-mobile-public-image-memory/*'
+    paths:
+      - '.github/ci-requests/agent-mobile-public-image-memory.json'
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-mobile-public-image-memory
+  cancel-in-progress: false
+jobs:
+  public-lcm-memory:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exact one-shot public request
+        id: admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          prepared="$(git rev-parse HEAD^)"
+          test "$GITHUB_REF_NAME" = "ci/once/agent-mobile-public-image-memory/$prepared"
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          test "$(git diff --name-status HEAD^ HEAD)" = $'A\t.github/ci-requests/agent-mobile-public-image-memory.json'
+          printf 'prepared=%s\n' "$prepared" >> "$GITHUB_OUTPUT"
+      - name: Install public tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ninja-build python3-pil iproute2 time
+      - name: Test original and acceleration qualification
+        run: cd .ci/agent-mobile-public-image && /usr/bin/python3 -m unittest -v test_qualify test_qualify_acceleration test_qualify_opencl test_qualify_memory
+      - name: Generate paired images offline
+        id: benchmark
+        env:
+          PREPARED_SHA: ${{ steps.admission.outputs.prepared }}
+        run: |
+          /usr/bin/python3 .ci/agent-mobile-public-image/qualify_acceleration.py --memory --prepared-sha "$PREPARED_SHA" --result "$RUNNER_TEMP/iwxa-public-image-memory"
+      - name: Preserve images and measurements only
+        if: ${{ steps.benchmark.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-public-image-memory
+          path: |
+            ${{ runner.temp }}/iwxa-public-image-memory/*.png
+            ${{ runner.temp }}/iwxa-public-image-memory/receipt.json
+            ${{ runner.temp }}/iwxa-public-image-memory/progress.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve explicitly unqualified partial images and progress
+        if: ${{ failure() && steps.benchmark.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-public-image-memory-partial-not-qualified
+          path: |
+            ${{ runner.temp }}/iwxa-public-image-memory/*.png
+            ${{ runner.temp }}/iwxa-public-image-memory/progress.json
+          if-no-files-found: warn
+          retention-days: 7

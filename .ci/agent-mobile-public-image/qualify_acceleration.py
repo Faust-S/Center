@@ -20,19 +20,23 @@ LORA_NAME = "lcm-lora-sdv1-5"
 LORA_URL = ("https://huggingface.co/latent-consistency/lcm-lora-sdv1-5/resolve/"
             + LORA_REV + "/pytorch_lora_weights.safetensors")
 PROFILES = {"baseline": (12, "7"), "lcm": (4, "1")}
+MEMORY_PROFILES = {"lcm": (4, "1"), "lcm-tiled": (4, "1")}
+ALL_PROFILES = PROFILES | MEMORY_PROFILES
+TILE_FLAGS = ["--vae-tiling", "--vae-tile-size", "256x256", "--vae-tile-overlap", "0.5"]
 REQUEST = Path(".github/ci-requests/agent-mobile-public-image-performance.json")
+MEMORY_REQUEST = Path(".github/ci-requests/agent-mobile-public-image-memory.json")
 
 
-def expected_request(prepared):
+def expected_request(prepared, memory=False):
     require(re.fullmatch(r"[a-f0-9]{40}", prepared), "PREPARED_SHA")
-    return {"workflow": "agent-mobile-public-image-performance", "prepared_sha": prepared,
+    return {"workflow": "agent-mobile-public-image-memory" if memory else "agent-mobile-public-image-performance", "prepared_sha": prepared,
             "engine": ENGINE_REV, "engine_tree": ENGINE_TREE, "ggml": GGML_REV,
             "base_model_sha256": MODEL_SHA, "lora_revision": LORA_REV,
-            "lora_sha256": LORA_SHA, "scope": "HOST_CPU_PAIRED_LCM_RESEARCH_ONLY"}
+            "lora_sha256": LORA_SHA, "scope": "HOST_CPU_PAIRED_LCM_TILING_RESEARCH_ONLY" if memory else "HOST_CPU_PAIRED_LCM_RESEARCH_ONLY"}
 
 
-def validate_request(path, prepared):
-    require(json.loads(path.read_text()) == expected_request(prepared), "REQUEST_MISMATCH")
+def validate_request(path, prepared, memory=False):
+    require(json.loads(path.read_text()) == expected_request(prepared, memory), "REQUEST_MISMATCH")
 
 
 def verify_lora_header(path):
@@ -81,15 +85,17 @@ def download_lora(dest, url=LORA_URL, size=LORA_BYTES, digest=LORA_SHA):
 
 
 def profile_args(profile, model, lora, prompt, target):
-    require(profile in PROFILES and prompt in PROMPTS, "PROFILE_OR_PROMPT")
-    steps, cfg = PROFILES[profile]
+    require(profile in ALL_PROFILES and prompt in PROMPTS, "PROFILE_OR_PROMPT")
+    steps, cfg = ALL_PROFILES[profile]
     args = ["-m", model, "--width", SIZE, "--height", SIZE, "--steps", steps,
             "--seed", SEED, "--cfg-scale", cfg, "--threads", "4", "--sampling-method", "euler_a",
             "--scheduler", "discrete", "--disable-image-metadata", "-v", "-o", target]
-    if profile == "lcm":
+    if profile in MEMORY_PROFILES:
         require(lora.name == LORA_NAME + ".safetensors", "LORA_FILENAME")
         args += ["--lora-model-dir", lora.parent, "--lora-apply-mode", "at_runtime"]
         prompt += "<lora:" + LORA_NAME + ":1>"
+    if profile == "lcm-tiled":
+        args += TILE_FLAGS
     return [str(x) for x in args + ["-p", prompt]]
 
 
@@ -111,6 +117,16 @@ def lora_evidence(log, lora):
             "fullCoverageObserved": any(x["applied"] == x["compatible"] for x in observed)}
 
 
+def tiling_evidence(log, profile):
+    clean = re.sub(r"\x1b\[[0-9;]*m", "", log)
+    observed = re.findall(r"VAE decode tile size: (\d+)x(\d+) pixels \(\d+x\d+ latent\)", clean)
+    if profile == "lcm-tiled":
+        require(observed and all(pair == ("256", "256") for pair in observed), "VAE_TILING_NOT_CONFIRMED")
+        return {"width": 256, "height": 256, "requestedOverlap": "0.5", "decodeObserved": True}
+    require(not observed, "UNEXPECTED_VAE_TILING")
+    return None
+
+
 def generate_profile(exe, model, lora, result, index, prompt, profile):
     target = result / f"{index}-{profile}.png"
     metric = target.with_suffix(".time")
@@ -125,14 +141,15 @@ def generate_profile(exe, model, lora, result, index, prompt, profile):
         elapsed = round((time.monotonic() - started) * 1000)
         print(process.stdout[-12000:], flush=True)
         require(process.returncode == 0, "GENERATION_FAILED")
-        evidence = lora_evidence(process.stdout, lora) if profile == "lcm" else None
+        evidence = lora_evidence(process.stdout, lora) if profile in MEMORY_PROFILES else None
+        tiling = tiling_evidence(process.stdout, profile)
         observed = inspect_png(target)
         rss = int(metric.read_text().strip())
         require(elapsed > 0 and rss > 0, "MEASUREMENTS_MISSING")
         observed.update({"file": target.name, "profile": profile, "durationMs": elapsed,
                          "peakRssKiB": rss, "prompt": prompt, "seed": SEED,
-                         "steps": PROFILES[profile][0], "cfg": PROFILES[profile][1],
-                         "loraApplication": evidence})
+                         "steps": ALL_PROFILES[profile][0], "cfg": ALL_PROFILES[profile][1],
+                         "loraApplication": evidence, "vaeTiling": tiling})
         return observed
     finally:
         metric.unlink(missing_ok=True)
@@ -162,6 +179,32 @@ def compare(rows):
     return pairs
 
 
+def compare_memory(rows):
+    require(len(rows) == 2 * len(PROMPTS), "PAIR_COUNT")
+    pairs = []
+    expected_tile = {"width": 256, "height": 256, "requestedOverlap": "0.5", "decodeObserved": True}
+    for prompt in PROMPTS:
+        pair = [r for r in rows if r["prompt"] == prompt]
+        require(len(pair) == 2 and {r["profile"] for r in pair} == set(MEMORY_PROFILES), "PAIR_IDENTITY")
+        a, b = (next(r for r in pair if r["profile"] == profile) for profile in MEMORY_PROFILES)
+        for r in (a, b):
+            require(r["seed"] == SEED and (r["width"], r["height"]) == (SIZE, SIZE) and
+                    (r["steps"], r["cfg"]) == MEMORY_PROFILES[r["profile"]], "PAIR_CONFIGURATION")
+            require(type(r["durationMs"]) is int and r["durationMs"] > 0 and
+                    type(r["peakRssKiB"]) is int and r["peakRssKiB"] > 0, "PAIR_MEASUREMENTS")
+            require((r.get("loraApplication") or {}).get("fullCoverageObserved") is True, "PAIR_LORA_EVIDENCE")
+        require(a.get("vaeTiling") is None and b.get("vaeTiling") == expected_tile, "PAIR_TILING_EVIDENCE")
+        pairs.append({"prompt": prompt, "untiledMs": a["durationMs"], "tiledMs": b["durationMs"],
+                      "untiledPeakRssKiB": a["peakRssKiB"], "tiledPeakRssKiB": b["peakRssKiB"],
+                      "savedRssKiB": a["peakRssKiB"] - b["peakRssKiB"],
+                      "memoryReductionPercent": round(100 * (1 - b["peakRssKiB"] / a["peakRssKiB"]), 2),
+                      "latencyRatio": round(b["durationMs"] / a["durationMs"], 3),
+                      "identicalPixels": a["pixelSha256"] == b["pixelSha256"]})
+    for profile in MEMORY_PROFILES:
+        require(len({r["pixelSha256"] for r in rows if r["profile"] == profile}) == len(PROMPTS), "PROFILE_REPEAT")
+    return pairs
+
+
 def write_json(path, value):
     part = path.with_suffix(path.suffix + ".part")
     try:
@@ -172,12 +215,13 @@ def write_json(path, value):
         part.unlink(missing_ok=True)
 
 
-def qualify_acceleration(result):
+def qualify_acceleration(result, memory=False):
+    profiles = MEMORY_PROFILES if memory else PROFILES
     result.mkdir(parents=True, exist_ok=False)
     rows = []
     progress = {"status": "RUNNING", "engineRevision": ENGINE_REV,
                 "baseModelSha256": MODEL_SHA, "loraSha256": LORA_SHA,
-                "active": None, "verifiedImages": rows}
+                "active": None, "verifiedImages": rows, "experiment": "VAE_TILING" if memory else "LCM_ACCELERATION"}
     write_json(result / "progress.json", progress)
     try:
         with tempfile.TemporaryDirectory(prefix="iwxa-image-lcm-") as tmp:
@@ -193,7 +237,7 @@ def qualify_acceleration(result):
             print("PUBLIC_LCM_MODEL_IDENTITY=PASS", flush=True)
             # Alternate execution order between prompts, on a single runner.
             for index, prompt in enumerate(PROMPTS, 1):
-                order = tuple(PROFILES) if index % 2 else tuple(reversed(PROFILES))
+                order = tuple(profiles) if index % 2 else tuple(reversed(profiles))
                 for profile in order:
                     progress["active"] = {"index": index, "profile": profile}
                     write_json(result / "progress.json", progress)
@@ -202,19 +246,19 @@ def qualify_acceleration(result):
                     progress["active"] = None
                     write_json(result / "progress.json", progress)
                     print(f"PUBLIC_LCM_EXPERIMENT={index}:{profile}:PASS", flush=True)
-            pairs = compare(rows)
+            pairs = compare_memory(rows) if memory else compare(rows)
             verify_source(src)
             receipt = {"engineRevision": ENGINE_REV, "engineTree": ENGINE_TREE, "ggmlRevision": GGML_REV,
                        "baseModelSha256": MODEL_SHA, "baseModelBytes": MODEL_BYTES,
                        "loraRevision": LORA_REV, "loraSha256": LORA_SHA, "loraBytes": LORA_BYTES,
                        "loraTensors": tensors, "loraApplyMode": "at_runtime", "sampler": "euler_a",
                        "scheduler": "discrete", "threads": 4, "network": "ISOLATED_PER_GENERATION",
-                       "sameRunnerPairs": pairs, "images": rows, "hostExperiment": "PASS",
+                       "experiment": progress["experiment"], "sameRunnerPairs": pairs, "images": rows, "hostExperiment": "PASS",
                        "semanticQuality": "NOT_RUN", "androidExecution": "NOT_RUN", "productAdoption": "NOT_RUN"}
             write_json(result / "receipt.json", receipt)
             progress["status"] = "PASS"
             write_json(result / "progress.json", progress)
-            print("PUBLIC_LCM_PAIRED_CPU=PASS", flush=True)
+            print("PUBLIC_LCM_TILING_PAIRED_CPU=PASS" if memory else "PUBLIC_LCM_PAIRED_CPU=PASS", flush=True)
     except Exception as exc:
         # Preserve already verified pairs. Any remaining PNG is diagnostic only.
         progress["status"] = "FAIL"
@@ -229,6 +273,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--result", required=True, type=Path)
     parser.add_argument("--prepared-sha", required=True)
+    parser.add_argument("--memory", action="store_true")
     args = parser.parse_args()
-    validate_request(REQUEST, args.prepared_sha)
-    qualify_acceleration(args.result.resolve())
+    validate_request(MEMORY_REQUEST if args.memory else REQUEST, args.prepared_sha, args.memory)
+    qualify_acceleration(args.result.resolve(), args.memory)
