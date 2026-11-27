@@ -269,6 +269,59 @@ pub fn center_u04_open(app: AppHandle, state: tauri::State<'_, Mutex<Session>>,
         "workReferenceRequested":navigation=="REQUEST_QUEUED"||
             (!reused_process && result["spawned"]==true)})))
 }
+// The same original U04 window binding presents a signed Result locator.
+// No caller-selected executable, window, filesystem path or Store write.
+// The Atlas recipient still verifies and explicitly accepts the .iwxa.
+pub(crate) fn present_signed_result(app:&AppHandle,organization_id:&str,
+    handoff_id:&str,archive_sha256:&str)->Result<Value,String>{
+    let request=crate::result_handoff_ref(handoff_id,archive_sha256)?;
+    let target=installed_atlas(app)?;
+    let state=app.state::<Mutex<Session>>();
+    let mut session=state.lock().map_err(|_|"CEN05_SESSION_UNAVAILABLE")?;
+    if session.port.as_ref().is_some_and(|port|!port.live_binding()){
+        if let Some(port)=session.port.as_mut(){let _=port.handle("closeBinding");}
+        *session=Session::default();
+    }
+    if let Some(port)=session.port.as_mut(){
+        let navigation=port.navigate_work(&request);
+        let focus=port.handle("activate");
+        return Ok(json!({
+            "status":if navigation=="REQUEST_QUEUED"{"HANDOFF_REQUESTED"}else{"HANDOFF_UNCONFIRMED"},
+            "mode":"EXISTING_WINDOW","navigation":navigation,"focused":focus["focused"]==true,
+            "delivered":false
+        }));
+    }
+    let reattach=u04::Port::installed_process(&target)?;
+    let reused=reattach.is_some();
+    let mut port=match reattach{
+        Some((pid,stamp))=>u04::Port::for_verified_reattach(target,pid,stamp),
+        None=>u04::Port::for_approved_atlas(target,vec![
+            "--iwxa-open-result".into(),handoff_id.into(),archive_sha256.into()
+        ]),
+    };
+    let observed=port.handle("open");
+    let status=observed["status"].as_str().unwrap_or("PRESENTATION_OPEN_UNCONFIRMED");
+    if !["WINDOW_OBSERVED","LAUNCHED_NO_WINDOW"].contains(&status){
+        return Ok(json!({"status":"HANDOFF_UNCONFIRMED","navigation":status,"delivered":false}));
+    }
+    session.binding_ref=observed["binding"]["bindingRef"].as_str()
+        .ok_or("U04_BINDING_INVALID")?.into();
+    session.organization_id=organization_id.into();
+    session.project_id.clear();session.work_id.clear();session.revision.clear();
+    let navigation=if reused{port.navigate_work(&request)}else if observed["spawned"]==true{
+        "LAUNCH_ARGUMENT"
+    }else{"REQUEST_UNCONFIRMED"};
+    let focus=if reused&&status=="WINDOW_OBSERVED"{port.handle("activate")}else{json!({})};
+    session.port=Some(port);
+    Ok(json!({
+        "status":if ["REQUEST_QUEUED","LAUNCH_ARGUMENT"].contains(&navigation){
+            "HANDOFF_REQUESTED"
+        }else{"HANDOFF_UNCONFIRMED"},
+        "mode":if reused{"EXISTING_WINDOW"}else{"LAUNCH_ARGUMENT"},
+        "navigation":navigation,"windowObserved":status=="WINDOW_OBSERVED",
+        "focused":focus["focused"]==true,"delivered":false
+    }))
+}
 // Existing U04 bindings outlive webview navigation. An organization change
 // must release the old Center context while keeping the exact external Atlas
 // process; the original U04 reattach checks its OS process creation stamp.
