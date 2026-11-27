@@ -33,8 +33,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
     env:
-      PRIVATE_PIN: '8c57fcb767416666ed7fd6f428bb4961e963c713'
-      PRIVATE_TREE: '2b49aee996188f323b5c4a2f4e660c0b53c86805'
+      PRIVATE_PIN: '33faf7a2c4ea95dd33f2e7d6b4904353f5463964'
+      PRIVATE_TREE: '217418084922964274039ee357ce7d049e392d44'
       BASELINE_PIN: '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
       BASELINE_TREE: '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
       QUALIFICATION_GROUP: ${{ matrix.group }}

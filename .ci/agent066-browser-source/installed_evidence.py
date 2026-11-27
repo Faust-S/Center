@@ -21,6 +21,7 @@ BROWSER_REQUIRED = ('installed_browser_bundle_verified', 'browser_manual_http_ve
                     'browser_download_one_shot', 'browser_download_collision_preserved',
                     'browser_upload_verified', 'browser_file_cold_readback',
                     'browser_action_real_model', 'browser_action_ui_submit',
+                    'browser_action_review_gui', 'browser_action_execution_gui',
                     'browser_action_fill_verified', 'browser_action_duplicate_receipt',
                     'browser_action_stale_tab_denied', 'browser_action_cold_readback')
 BROWSER_STATES = {'status':'PASS','browser_gui':'MANUAL_PASS','browser_ai_snapshot':'PASS',

@@ -55,6 +55,14 @@ class EvidenceTests(unittest.TestCase):
         r=self.upgrade(); r['new_install_witness']['browser_action_review_surface']='GUI_ONLY'
         self.assertFalse(upgrade_result(r,OLD,OT,NEW,NT,OH,NH))
 
+    def test_api_only_review_does_not_qualify_complete_gui(self):
+        r=self.upgrade()
+        del r['new_install_witness']['browser_action_review_gui']
+        self.assertFalse(upgrade_result(r,OLD,OT,NEW,NT,OH,NH))
+        r=self.upgrade()
+        r['new_install_witness']['browser_action_execution_gui']=False
+        self.assertFalse(upgrade_result(r,OLD,OT,NEW,NT,OH,NH))
+
     def test_lock_exact_and_mutation(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'lock.json'; raw=b'{"version":"0.6.6","packages":{"":{"version":"0.6.6"}}}'
