@@ -237,6 +237,7 @@ class CleanDiagnosticTests(unittest.TestCase):
         self.assertEqual(preview_dom_diagnostics('prefix AGENT066_PREVIEW_DOM_STATE=PANE_VISIBLE'),{})
 
     def test_navigation_stage_and_http_projection(self):
+        self.assertTrue({'navigation_initial_covered','navigation_link_covered','navigation_back_covered','navigation_forward_covered','navigation_reload_covered'} <= set(MANUAL_GUI_STAGES))
         self.assertTrue({'navigation_address_control','navigation_address_focus','navigation_address_input','navigation_address_readback','navigation_go','navigation_initial_page','navigation_initial_address','navigation_link','navigation_link_page','navigation_link_address','navigation_back','navigation_back_page','navigation_back_address','navigation_forward','navigation_forward_page','navigation_forward_address','navigation_reload','navigation_reload_page','navigation_reload_address','navigation_return'} <= set(MANUAL_GUI_STAGES))
         for page in ('A','B'):
             for value in ('NONE','ONCE','MULTIPLE'):
