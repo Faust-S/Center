@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: a9df3d20fac32ad53bfe8a7fbd17d26e97a28412
+          ref: 546339bf45f47fd29228a92a0341c6640d9463c6
           path: vendor/atlas
           persist-credentials: false
       # Test CEN05 against the original, pinned public U04 bridge; never
@@ -44,7 +44,7 @@ jobs:
       # Run the new public Atlas plan/fact regression once, not three times.
       - name: Verify original Atlas Result and plan/fact projection
         if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: node --test vendor/atlas/tests/atlas09-t3-confirmed-readback.test.mjs
+        run: node --test vendor/atlas/tests/atlas09-t3-confirmed-readback.test.mjs vendor/atlas/tests/atlas09-signed-file-recipient.test.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: a9df3d20fac32ad53bfe8a7fbd17d26e97a28412
+          ref: 546339bf45f47fd29228a92a0341c6640d9463c6
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -107,7 +107,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: a9df3d20fac32ad53bfe8a7fbd17d26e97a28412
+          ref: 546339bf45f47fd29228a92a0341c6640d9463c6
           path: vendor/atlas
           persist-credentials: false
       # Original U04 native module are required by Center's build.rs.
@@ -178,7 +178,7 @@ jobs:
         timeout-minutes: 27
         run: |
           $ErrorActionPreference='Stop'
-          $expectedSource='a9df3d20fac32ad53bfe8a7fbd17d26e97a28412'
+          $expectedSource='546339bf45f47fd29228a92a0341c6640d9463c6'
           $checked=(& git -C vendor/atlas rev-parse HEAD).Trim()
           if($LASTEXITCODE -ne 0 -or $checked -ne $expectedSource){
             throw 'CEN05_ATLAS_SOURCE_PIN_MISMATCH'

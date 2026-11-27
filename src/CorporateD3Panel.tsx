@@ -22,6 +22,7 @@ type Owner={snapshot:{organizationId:string;workspaceId:string;actorId:string;
   d3InspectAvailable?:boolean;
   d3ApplicationReceiptWorkspaceId?:string;d3ApplicationReceiptWorkspaceReady?:boolean;
   d3TaskIssueAvailable?:boolean;d3ApplyRecoverAvailable?:boolean;
+  d3AtlasPublicationAvailable?:boolean;
   tasks?:SignedTask[];totalTasks?:number}};
 type AssignmentDraft={id:string;title:string;assigneeId:string|null;reviewerId:string|null;editNumber:number;
  status:string;workspaceId:string;description:string;criteria:string;dueDate:string;
@@ -89,6 +90,9 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [kernelResult,setKernelResult]=useState<any>(null);
  const [applySelection,setApplySelection]=useState<{acceptanceId:string;revisionIds:string[]}|null>(null);
  const [kernelRecovery,setKernelRecovery]=useState<any>(null);
+ const [atlasPublication,setAtlasPublication]=useState<{
+   key:string;grantStatus?:string;preview?:any;outcome?:any;attempted?:boolean
+ }|null>(null);
  const [followUp,setFollowUp]=useState<{key:string;result:string;selection:AppliedResultDraftSelection}|null>(null);
  const [recoverPrevious,setRecoverPrevious]=useState(false);
  // Only a definite refusal before the original Kernel write can unlock a
@@ -334,6 +338,91 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    try{return acceptedAtlasFocus({preview,receipt,session,packageSha256:hash,operationId});}
    catch{return null;}
  })();
+ const atlasPublicationKey=acceptedAtlas?JSON.stringify([
+   session.organizationId,session.workspaceId,session.actorId,session.contextId,session.contextEpoch,
+   acceptedAtlas.acceptanceId,acceptedAtlas.resultRevisionId]):'';
+ const atlasPublicationView=atlasPublication?.key===atlasPublicationKey?atlasPublication:null;
+ const updateAtlasPublication=(patch:Record<string,any>)=>{
+   if(mounted.current)setAtlasPublication(old=>({
+     ...(old?.key===atlasPublicationKey?old:{}),...patch,key:atlasPublicationKey
+   }));
+ };
+ const atlasPublicationSelection=()=>{
+   if(!acceptedAtlas||session.d3AtlasPublicationAvailable!==true)
+     throw Error('CEN_D3_ATLAS_RESULT_SOURCE_REQUIRED');
+   const prior=observeApply(acceptedAtlas.acceptanceId);
+   if(prior.blocked)throw Error('CEN_D3_REVIEW_CONTINUATION_HOLD');
+   const group=prior.pending??(applySelection?.acceptanceId===acceptedAtlas.acceptanceId
+     ?applySelection.revisionIds:null);
+   if(group&&!group.includes(acceptedAtlas.resultRevisionId))
+     throw Error('CEN_D3_ATLAS_EXACT_RESULT_SELECTION_REQUIRED');
+   return {acceptanceId:acceptedAtlas.acceptanceId,
+     resultRevisionId:acceptedAtlas.resultRevisionId,
+     ...(group?{applicationRevisionIds:[...group].sort()}:{})};
+ };
+ const readAtlasGrant=async()=>{
+   const value=await execute('d3AtlasGrantReadback',{});
+   if(value?.originalKernelRegistry!==true||
+      !['ACTIVE','NOT_ACTIVE','NOT_ISSUED','UNKNOWN'].includes(value.status))
+     throw Error('CEN_D3_ATLAS_ORIGINAL_READBACK_INVALID');
+   updateAtlasPublication({grantStatus:value.status});
+   return value.status==='ACTIVE';
+ };
+ const prepareAtlasPublication=()=>run('Оригинальный Result проверен для передачи в Atlas.',async()=>{
+   const selection=atlasPublicationSelection();
+   if(!await readAtlasGrant())return false;
+   const value=await execute('d3AtlasResultPreview',selection);
+   if(!acceptedAtlas||value?.recipientId!=='iwxa.atlas'||
+     value.acceptanceId!==selection.acceptanceId||value.resultId!==selection.resultRevisionId||
+     value.taskId!==acceptedAtlas.taskId||
+     value.workRef?.projectId!==acceptedAtlas.workRef.projectId||
+     value.workRef?.workId!==acceptedAtlas.workRef.workId||
+     String(value.workRef?.revision)!==acceptedAtlas.workRef.revision||
+     value.originalKernelApplyVerified!==true||value.originalRecipientGrantVerified!==true||
+     !['READY_FOR_EXPLICIT_CONSENT','ALREADY_COMMITTED','RECOVERY_REQUIRED','OUTCOME_UNKNOWN'].includes(value.status)||
+     !hex(value.previewDigest)||typeof value.selectedAcceptedSummary!=='string')
+     throw Error('CEN_D3_ATLAS_ORIGINAL_READBACK_INVALID');
+   updateAtlasPublication({preview:value,outcome:null,attempted:false});
+ });
+ const issueAtlasGrant=()=>run('Право передачи в Atlas подтверждено оригинальным реестром.',async()=>{
+   atlasPublicationSelection();
+   const value=await execute('d3AtlasGrantIssue',{});
+   if(value?.status==='CANCELLED')return false;
+   if(value?.originalKernelRegistry!==true||!['ACTIVE','ISSUED'].includes(value.status))
+     throw Error('CEN_D3_ATLAS_ORIGINAL_READBACK_INVALID');
+   updateAtlasPublication({grantStatus:'ACTIVE',preview:null,outcome:null,attempted:false});
+ });
+ const publishAtlasResult=()=>run('Подписанный Result подготовлен. Получение Atlas ещё не подтверждено.',async()=>{
+   atlasPublicationSelection();
+   const value=atlasPublicationView?.preview;
+   if(value?.status!=='READY_FOR_EXPLICIT_CONSENT'||atlasPublicationView?.attempted)
+     throw Error('CEN_D3_ATLAS_PREVIEW_REQUIRED');
+   updateAtlasPublication({attempted:true});
+   const result=await execute('d3AtlasResultPublish',{
+     operationId:value.operationId,previewId:value.previewId,previewDigest:value.previewDigest
+   });
+   if(result?.status==='CANCELLED'||result?.status==='USER_CANCELLED'){
+     updateAtlasPublication({preview:null,outcome:null,attempted:false});return false;
+   }
+   updateAtlasPublication({outcome:result});
+   if(result?.status!=='ORIGINAL_ADMIN_RESULT_PUBLISHED')return false;
+   if(result.carrierPrepared!==true||result.delivered!==false)
+     throw Error('CEN_D3_ATLAS_ORIGINAL_READBACK_INVALID');
+ });
+ const recoverAtlasResult=()=>run('Проверка публикации завершена без повторной подписи.',async()=>{
+   const selection=atlasPublicationSelection();
+   if(!await readAtlasGrant())return false;
+   const outcome=await execute('d3AtlasResultRecover',selection);
+   updateAtlasPublication({outcome,preview:null,attempted:false});
+ });
+ const exportAtlasResult=()=>run('Файл .iwxa сохранён. Передайте его в Atlas.',async()=>{
+   const selection=atlasPublicationSelection();
+   const result=await execute('d3AtlasResultExport',selection);
+   if(result?.status==='CANCELLED')return false;
+   if(result?.status!=='EXPORTED_UNDELIVERED'||result.delivered!==false||!hex(result.packageSha256))
+     throw Error('CEN_D3_ATLAS_ORIGINAL_READBACK_INVALID');
+   updateAtlasPublication({outcome:result});
+ });
  const readFollowUp=()=>run('Оригинальный применённый Result перечитан. Новое поручение пока не создано.',async()=>{
    if(!accepted||session.d3ApplyRecoverAvailable!==true||!onReuse)
      throw Error('CEN_D3_APPLY_RECOVERY_NOT_CONNECTED');
@@ -1003,6 +1092,43 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      <button type="button" className="secondary" data-testid="d3-inspect-atlas-result"
        disabled={busy} onClick={inspectAtlasResult}>Сопоставить принятый Result с планом Atlas</button>
      <small>Открывается исходная работа для решения руководителя. ACCEPT сам по себе не изменяет план Atlas.</small>
+     {session.d3AtlasPublicationAvailable===true&&<div className="nested-form" data-testid="d3-atlas-publication">
+       <h4>Передать применённый Result в Atlas</h4>
+       <p>Проверяется исходное поручение, решение и запись в Kernel. В Atlas передаётся только выбранный результат.</p>
+       <div className="actions">
+         <button type="button" className="secondary" disabled={busy}
+           onClick={prepareAtlasPublication}>Подготовить передачу</button>
+         <button type="button" className="secondary" disabled={busy}
+           onClick={recoverAtlasResult}>Проверить публикацию</button>
+       </div>
+       {['NOT_ACTIVE','NOT_ISSUED'].includes(atlasPublicationView?.grantStatus??'')&&<>
+         <p>Для передачи требуется отдельное подписанное право руководителя.</p>
+         <button type="button" className="secondary" disabled={busy}
+           onClick={issueAtlasGrant}>Разрешить передачу в Atlas</button>
+       </>}
+       {atlasPublicationView?.grantStatus==='UNKNOWN'&&<p>Не удалось подтвердить действующее право передачи.</p>}
+       {atlasPublicationView?.preview&&<>
+         <label>Текст для Atlas
+           <textarea readOnly rows={4} value={atlasPublicationView.preview.selectedAcceptedSummary}/>
+         </label>
+         {atlasPublicationView.preview.status==='READY_FOR_EXPLICIT_CONSENT'&&
+           <button type="button" className="primary" disabled={busy||atlasPublicationView.attempted===true}
+             onClick={publishAtlasResult}>Подписать Result для Atlas</button>}
+         {['RECOVERY_REQUIRED','OUTCOME_UNKNOWN'].includes(atlasPublicationView.preview.status)&&
+           <p>Проверьте существующую публикацию без повторной подписи.</p>}
+       </>}
+       {(atlasPublicationView?.outcome?.status==='ORIGINAL_ADMIN_RESULT_PUBLISHED'||
+         atlasPublicationView?.outcome?.status==='EXPORTED_UNDELIVERED'||
+         atlasPublicationView?.preview?.status==='ALREADY_COMMITTED')&&
+         <button type="button" className="primary" disabled={busy}
+           onClick={exportAtlasResult}>Сохранить подписанный Result .iwxa</button>}
+       {atlasPublicationView?.outcome?.status==='EXPORTED_UNDELIVERED'&&
+         <p>Файл сохранён. Получение в Atlas не подтверждено.</p>}
+       {['RECOVERY_REQUIRED','OUTCOME_UNKNOWN'].includes(atlasPublicationView?.outcome?.status??'')&&
+         <p>Публикация не подтверждена. Используйте проверку, а не повторную подпись.</p>}
+       {atlasPublicationView?.outcome?.status==='NOT_PUBLISHED_CONFIRMED'&&
+         <p>Публикация не найдена. Можно подготовить передачу.</p>}
+     </div>}
    </div>}
    {onReuse&&session.d3ApplyRecoverAvailable===true&&<div className="notice subdued" data-testid="d3-applied-follow-up">
      <strong>Следующее поручение по применённому Result</strong>

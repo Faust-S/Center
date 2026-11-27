@@ -38,6 +38,10 @@ fn validate_hex(value:Option<&str>)->bool{
     value.is_some_and(|s|s.len()==SHA_LEN &&
         s.bytes().all(|b|b.is_ascii_hexdigit()&&!b.is_ascii_uppercase()))
 }
+fn atlas_publication_operation(value:&Value)->bool{
+    value.as_str().and_then(|s|s.strip_prefix("admin:t3:atlas:"))
+        .is_some_and(|s|validate_hex(Some(s)))
+}
 fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
     if !input.is_object(){return Err("CEN_D3_INPUT_INVALID".into());}
     let sha=input["packageSha256"].as_str();
@@ -253,6 +257,36 @@ fn check_bound_request(input:&Value,operation:&str)->Result<(),String>{
            !input["reason"].as_str().is_some_and(|s|!s.trim().is_empty()&&original_text_len(s)<=1000)) {
           return Err("CEN_D3_EXPLICIT_DECISION_REQUIRED".into());
       },
+      "d3AtlasGrantReadback"|"d3AtlasGrantIssue"=>{
+          if !input.as_object().is_some_and(|m|m.is_empty()){
+              return Err("CEN_D3_ATLAS_GRANT_INPUT_INVALID".into());
+          }
+      },
+      "d3AtlasResultPreview"|"d3AtlasResultRecover"|"d3AtlasResultExport"=>{
+          if !input.as_object().is_some_and(|m|m.keys().all(|k|
+              matches!(k.as_str(),"acceptanceId"|"resultRevisionId"|"applicationRevisionIds")))||
+             !validate_hex(input["acceptanceId"].as_str())||
+             !validate_hex(input["resultRevisionId"].as_str()){
+              return Err("CEN_D3_ATLAS_EXACT_RESULT_SELECTION_REQUIRED".into());
+          }
+          if let Some(group)=input.get("applicationRevisionIds"){
+              let rows=group.as_array().ok_or("CEN_D3_ATLAS_EXACT_RESULT_SELECTION_REQUIRED")?;
+              let mut unique=std::collections::HashSet::new();
+              if rows.is_empty()||rows.len()>32||
+                 rows.iter().any(|v|!validate_hex(v.as_str())||!unique.insert(v.as_str().unwrap_or("")))||
+                 !rows.contains(&input["resultRevisionId"]){
+                  return Err("CEN_D3_ATLAS_EXACT_RESULT_SELECTION_REQUIRED".into());
+              }
+          }
+      },
+      "d3AtlasResultPublish"=>{
+          if !input.as_object().is_some_and(|m|m.len()==3)||
+             !input["previewId"].as_str().is_some_and(t3::valid_identifier)||
+             !validate_hex(input["previewDigest"].as_str())||
+             !atlas_publication_operation(&input["operationId"]){
+              return Err("CEN_D3_ATLAS_PREVIEW_REQUIRED".into());
+          }
+      },
       "d3InspectAccepted"|"d3ApplyAccepted"|"d3RecoverApplied"=>{
           let revisions=input["revisionIds"].as_array()
               .ok_or("CEN_D3_ACCEPTED_SOURCE_INVALID")?;
@@ -385,6 +419,9 @@ fn exact_kernel_apply_capability(view:&Value,operation:&str)->bool{
         "d3EmployeeCancel"|"d3EmployeeComplete"|
         "d3EmployeeRead"|"d3EmployeeExportInvite"=>
             snapshot["d3EmployeeEnrollmentAvailable"]==true,
+        "d3AtlasGrantReadback"|"d3AtlasGrantIssue"|"d3AtlasResultPreview"|
+        "d3AtlasResultPublish"|"d3AtlasResultRecover"|"d3AtlasResultExport"=>
+            snapshot["d3AtlasPublicationAvailable"]==true,
         "d2ActivityReadback"=>snapshot["d2ActivityReaderConnected"]==true,
         "d3ApplyAccepted"=>snapshot["d3ApplyAvailable"]==true,
         "d3RecoverApplied"=>snapshot["d3ApplyRecoverAvailable"]==true&&
@@ -1322,7 +1359,8 @@ pub async fn center_corporate_action(
        app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_none(){
         return Err("CEN_D2_ORIGINAL_SIGNED_WORKSPACE_NOT_RUNNING".into());
     }
-    if matches!(operation.as_str(),"d3ApplyAccepted"|"d3RecoverApplied"){
+    if matches!(operation.as_str(),"d3ApplyAccepted"|"d3RecoverApplied")||
+       operation.starts_with("d3Atlas"){
         // The ORIGINAL T2 Kernel lives exclusively in the currently
         // mounted trusted child WebView. A stale native APPLY capability
         // after that view is gone must NOT prompt Human approval or enter
@@ -1475,6 +1513,21 @@ pub async fn center_corporate_action(
             return Err("CEN_D3_EMPLOYEE_TASK_DATA_HUMAN_CANCELLED".into());
         }
     }
+    if matches!(operation.as_str(),"d3AtlasGrantIssue"|"d3AtlasResultPublish"){
+        let description=if operation=="d3AtlasGrantIssue"{
+            "Разрешить руководителю передавать принятые корпоративные результаты только в Atlas? Право будет подписано в исходном реестре организации. Данные и план пока не изменятся."
+        }else{
+            "Подписать выбранный результат для Atlas? Будет подготовлен отдельный файл .iwxa с проверенным текстом. Его ещё нужно сохранить и передать получателю."
+        };
+        let answer=rfd::MessageDialog::new()
+            .set_title("IWXA T3: передача результата в Atlas")
+            .set_description(description)
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .set_level(rfd::MessageLevel::Info).show();
+        if answer!=rfd::MessageDialogResult::Yes{
+            return Ok(json!({"status":"CANCELLED"}));
+        }
+    }
     if operation=="d3ApplyAccepted"{
         let accepted=input["acceptanceId"].as_str().unwrap_or("");
         let count=input["revisionIds"].as_array().map(|v|v.len()).unwrap_or(0);
@@ -1524,19 +1577,21 @@ pub async fn center_corporate_action(
         };
         Some(path)
     }else if matches!(operation.as_str(),"d3ExportTask"|"d3ExportInvitation"|"d3EmployeeExportInvite"|
-        "d3EmployeeExportTask"){
+        "d3EmployeeExportTask"|"d3AtlasResultExport"){
         // Native Windows Save dialog, not a WebView-supplied arbitrary path.
         // The original private owner writes & reads back exact signed bytes.
         let title=match operation.as_str(){
             "d3ExportTask"=>"Сохранить подписанную Task T3",
             "d3EmployeeExportTask"=>"Сохранить Task независимому сотруднику T3",
             "d3EmployeeExportInvite"=>"Сохранить приглашение сотрудника T3",
+            "d3AtlasResultExport"=>"Сохранить корпоративный Result для Atlas",
             _=>"Сохранить подписанное приглашение T3"
         };
         let name=match operation.as_str(){
             "d3ExportTask"=>"iwxa-signed-task.iwxa",
             "d3EmployeeExportTask"=>"iwxa-employee-task.iwxa",
             "d3EmployeeExportInvite"=>"iwxa-employee-invitation.iwxa",
+            "d3AtlasResultExport"=>"iwxa-atlas-result.iwxa",
             _=>"iwxa-signed-invitation.iwxa"
         };
         let selection=rfd::FileDialog::new()
@@ -1568,7 +1623,8 @@ pub async fn center_corporate_action(
         // The manager may have closed the child while the separate Windows
         // Human APPLY dialog was visible. This check still precedes the
         // private owner's first Kernel dispatch and cannot cause a replay.
-        if matches!(operation.as_str(),"d3ApplyAccepted"|"d3RecoverApplied")&&
+        if (matches!(operation.as_str(),"d3ApplyAccepted"|"d3RecoverApplied")||
+            operation.starts_with("d3Atlas"))&&
             app.get_webview(SIGNED_WORKSPACE_WEBVIEW).is_none(){
             close_original_owner(&app)?;
             return Err("CEN_D3_ORIGINAL_WORKSPACE_NOT_RUNNING".into());
@@ -1612,6 +1668,50 @@ pub async fn center_corporate_action(
         // Age decryption is NOT admission. The original T3 recipient must
         // prove it received the same signed archive as the age tool verified.
         let mut result=output["result"].clone();
+        if operation.starts_with("d3Atlas"){
+            let status=result["status"].as_str().unwrap_or("");
+            let valid=match operation.as_str(){
+                "d3AtlasGrantReadback"|"d3AtlasGrantIssue"=>
+                    result["originalKernelRegistry"]==true&&
+                    matches!(status,"ACTIVE"|"ISSUED"|"NOT_ACTIVE"|"NOT_ISSUED"|"UNKNOWN")&&
+                    (!matches!(status,"ACTIVE"|"ISSUED")||
+                      result["grantId"].as_str().is_some_and(t3::valid_identifier)),
+                "d3AtlasResultPreview"=>
+                    matches!(status,"READY_FOR_EXPLICIT_CONSENT"|"ALREADY_COMMITTED"|"RECOVERY_REQUIRED"|"OUTCOME_UNKNOWN")&&
+                    atlas_publication_operation(&result["operationId"])&&
+                    result["recipientId"]=="iwxa.atlas"&&result["sourceKind"]=="ADMIN_APPLIED_RESULT"&&
+                    result["organizationId"]==organization_id&&
+                    result["workspaceId"]==observed["snapshot"]["workspaceId"]&&
+                    result["managerId"]==observed["snapshot"]["actorId"]&&
+                    result["acceptanceId"]==input["acceptanceId"]&&result["resultId"]==input["resultRevisionId"]&&
+                    result["originalKernelApplyVerified"]==true&&result["originalRecipientGrantVerified"]==true&&
+                    result["previewId"].as_str().is_some_and(t3::valid_identifier)&&
+                    validate_hex(result["previewDigest"].as_str())&&
+                    validate_hex(result["selectedSummarySha256"].as_str())&&
+                    result["selectedAcceptedSummary"].as_str().is_some_and(|s|
+                        !s.trim().is_empty()&&s.len()<=65536),
+                "d3AtlasResultPublish"|"d3AtlasResultRecover"=>{
+                    let bound=atlas_publication_operation(&result["operationId"])&&
+                        (operation!="d3AtlasResultPublish"||result["operationId"]==input["operationId"]);
+                    bound&&(if status=="ORIGINAL_ADMIN_RESULT_PUBLISHED"{
+                        result["recipientId"]=="iwxa.atlas"&&
+                        validate_hex(result["archiveSha256"].as_str())&&
+                        result["carrierPrepared"]==true&&result["delivered"]==false&&
+                        result["transferred"]==false&&result["ledgerStatus"]=="COMMITTED"
+                    }else{matches!(status,"USER_CANCELLED"|"RECOVERY_REQUIRED"|"OUTCOME_UNKNOWN"|"NOT_PUBLISHED_CONFIRMED")})
+                },
+                "d3AtlasResultExport"=>status=="EXPORTED_UNDELIVERED"&&
+                    result["recipientId"]=="iwxa.atlas"&&result["delivered"]==false&&
+                    atlas_publication_operation(&result["operationId"])&&
+                    validate_hex(result["packageSha256"].as_str())&&
+                    result["bytes"].as_u64().is_some_and(|n|n>0&&n<=MAX_IWXA),
+                _=>false
+            };
+            if !valid{
+                let _=close_original_owner(&app);
+                return Err("CEN_D3_ATLAS_ORIGINAL_READBACK_INVALID".into());
+            }
+        }
         if operation=="d3EmployeeBootstrapProfile"{
             let p=&result["profile"];
             let fields=["audience","authorityId","confirmedIssuerSha256","issuerKeyId",
