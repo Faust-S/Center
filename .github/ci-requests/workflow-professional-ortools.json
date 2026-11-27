@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "3b69aebd2d707575da7be619317c943665c993b4",
+  "profile": "original-calendar-scheduling-and-simpy-handoff",
+  "pins": {
+    "professionalAgent": "b7f2ec1549e01ed88640983597937cbdd3c9b71f"
+  },
+  "reason": "Qualify original calendar solver and saved schedule to SimPy Core workflow; local native dependencies unavailable"
+}
