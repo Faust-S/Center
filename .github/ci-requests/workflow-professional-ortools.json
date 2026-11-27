@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "34f2445c15435221d7e73e7fa45635c5c9bfd4d9",
+  "profile": "large-production-calendar-snapshot",
+  "pins": {
+    "professionalAgent": "fa239b33e5c593f20012684e94db30c53b48581d"
+  },
+  "reason": "Qualify large selected calendar in original accepted Task context, original native simulation and cold readback"
+}
