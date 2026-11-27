@@ -48,6 +48,9 @@ const cen05ErrorMessage={
   PROCESS_EXITED:'Atlas завершил работу. Отсоедините прежнее окно и откройте Atlas снова.',
   PROCESS_IDENTITY_CHANGED:'Прежний процесс Atlas больше не подтверждён. Повторите открытие, не используя старую привязку.',
   SOURCE_REVISION_CHANGED:'План Atlas изменился. Перечитайте его в Center, не заменяя старую ссылку автоматически.',
+  ATLAS_SETUP_CORE_INSTALL_REQUIRED:'Atlas не зарегистрирован в IWXA Setup Core. Проверьте установку программы.',
+  ATLAS_INSTALL_LOCATION_INVALID:'Не удалось определить каталог установки Atlas.',
+  ATLAS_SOURCE_SCHEMA_INVALID:'Формат данных Atlas не поддерживает эту операцию.',
   ATLAS_INSTALL_NOT_FOUND:'Установленный Atlas не найден. Проверьте установку канонического Atlas Desktop.',
   CEN05_BINDING_ALREADY_ACTIVE:'Сначала отсоедините предыдущую связь с окном Atlas.'
 };

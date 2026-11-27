@@ -1,4 +1,4 @@
-// CEN05: Center's narrow native host of original, pinned public U04 and U01.
+// CEN05: Center's narrow native host of the original public U04 presentation port.
 // No copied window manager; no executable paths or HWNDs from the webview.
 use serde_json::{json, Value};
 use std::{fs, path::{Path, PathBuf}, sync::Mutex};
@@ -35,9 +35,6 @@ mod u04 {
             Self { target: Some((path, Vec::new())), reattach: Some((pid, stamp)), bound: None }
         }
     }
-}
-mod u01 {
-    include!(concat!(env!("OUT_DIR"), "/u01_original_program.rs"));
 }
 pub struct Session {
     port: Option<u04::Port>,
@@ -84,52 +81,33 @@ fn observe_atlas(app: &AppHandle, project_id: &str, work_id: &str, revision: &st
     let readback=crate::center_public_atlas_open_root(&root)?;
     exact_work(&readback.snapshot,project_id,work_id,revision)
 }
-// U01 only discovers the Windows GUI program. The exact product version
-// comes from the original Setup Core installation receipt, never from a
-// caller-controlled path, a synthetic CLI --version, or a React flag.
-fn atlas09_version_qualified(value:Option<&str>)->bool{
-    value==Some("0.9.0-dev.1")
-}
+// Product installation identity is not a product-version allowlist.
+// U04 needs a registered GUI executable; WorkRef compatibility is checked
+// against the actual Atlas data in observe_atlas, not an installer number.
 fn installed_atlas(app: &AppHandle) -> Result<PathBuf, String> {
     if !cfg!(windows) {return Err("PLATFORM_UNSUPPORTED".into());}
     let local=app.path().app_local_data_dir().map_err(|_| "ATLAS_HOST_PATH_UNAVAILABLE")?;
     if local.file_name().and_then(|x|x.to_str()) != Some("ru.iwxa.admin-center") {
         return Err("ATLAS_HOST_SCOPE_INVALID".into());
     }
-    // Do not silently activate an older Atlas 0.6 binary through the same
-    // U04 launch and WorkRef UI. Version and program path must BOTH belong
-    // to the same installed original Setup Core Atlas 0.9 candidate.
-    #[cfg(windows)]
-    if !atlas09_version_qualified(crate::setup_core_atlas_version()?.as_deref()){
-        return Err("CEN05_ATLAS09_SETUP_CORE_VERSION_REQUIRED".into());
-    }
     #[cfg(windows)]
     let folder=crate::setup_core_registered_path("iwxa.atlas","InstallLocation")?
-        .ok_or("CEN05_ATLAS09_SETUP_CORE_INSTALL_REQUIRED")?;
+        .ok_or("ATLAS_SETUP_CORE_INSTALL_REQUIRED")?;
     #[cfg(not(windows))]
     let folder=local.parent().ok_or("ATLAS_HOST_PATH_UNAVAILABLE")?
         .join("IWXA Atlas");
+    installed_atlas_binary(&folder)
+}
+fn installed_atlas_binary(folder: &Path) -> Result<PathBuf, String> {
+    if !folder.is_absolute() {
+        return Err("ATLAS_INSTALL_LOCATION_INVALID".into());
+    }
     let path=folder.join("iwxa-atlas-desktop.exe");
     let info=fs::symlink_metadata(&path).map_err(|_| "ATLAS_INSTALL_NOT_FOUND")?;
     if !info.file_type().is_file() || info.file_type().is_symlink() {
         return Err("ATLAS_INSTALL_UNAVAILABLE".into());
     }
     Ok(path)
-}
-fn discover_with_original_u01(path: &Path) -> Result<(), String> {
-    // Original U01 program-connection native inspection. Atlas is a GUI
-    // program with no qualified CLI version protocol, so never call connect()
-    // and never misrepresent a CLI version check as an Atlas entitlement.
-    let manifest=json!({"schema":"IWXA_CLI_PROGRAM/1",
-        "program_id":"IWXA_ATLAS_DESKTOP","executable_name":"iwxa-atlas-desktop.exe",
-        "version_args":["--version"],"version_contains":"0.9.0-dev.1",
-        "operations":{"version":["--version"]}});
-    let port=u01::CliPort::from_manifest(&manifest,path.to_path_buf())
-        .map_err(|_| "U01_ATLAS_MANIFEST_INVALID")?;
-    if port.inspect()["status"]!="DISCOVERED" {
-        return Err("U01_ATLAS_NOT_DISCOVERED".into());
-    }
-    Ok(())
 }
 fn respond(status: &str, detail: Value) -> Value {
     let mut result=json!({"schema":u04::SCHEMA,"status":status,
@@ -146,7 +124,6 @@ pub fn center_u04_open(app: AppHandle, state: tauri::State<'_, Mutex<Session>>,
     if !valid_token(&organization_id) {return Err("CEN05_ORGANIZATION_INVALID".into());}
     observe_atlas(&app,&project_id,&work_id,&revision)?;
     let target=installed_atlas(&app)?;
-    discover_with_original_u01(&target)?;
     let mut session=state.lock().map_err(|_|"CEN05_SESSION_UNAVAILABLE")?;
     // A previously opened Atlas binding can outlive a WebView page change.
     // Reuse exactly the same WorkRef without launching a second Atlas, or
@@ -286,13 +263,15 @@ fn return_receipt(revision_check: Result<(),String>) -> Value {
 mod tests {
     use super::*;
     #[test]
-    fn exact_installed_atlas09_version_only_from_setup_core(){
-        assert!(atlas09_version_qualified(Some("0.9.0-dev.1")));
-        for forbidden in [None,Some("0.6.0"),Some("0.8.0"),
-            Some("0.9.0"),Some("0.9.0-dev.2"),Some("0.9.0-dev.1 "),
-            Some("1.0.0")]{
-            assert!(!atlas09_version_qualified(forbidden));
-        }
+    fn registered_atlas_executable_is_resolved_without_a_product_version() {
+        let root=std::env::temp_dir().join(format!("center-atlas-location-{}",uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        assert_eq!(installed_atlas_binary(&root).unwrap_err(),"ATLAS_INSTALL_NOT_FOUND");
+        let target=root.join("iwxa-atlas-desktop.exe");
+        fs::write(&target,b"location fixture, not executable qualification").unwrap();
+        assert_eq!(installed_atlas_binary(&root).unwrap(),target);
+        assert_eq!(installed_atlas_binary(Path::new("relative")).unwrap_err(),"ATLAS_INSTALL_LOCATION_INVALID");
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn exact_atlas_work_and_revision_are_required() {

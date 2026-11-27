@@ -102,3 +102,8 @@ test('CEN05 distinguishes verified cross-organization U04 reattach from a second
  assert.match(waiting,/окно пока не обнаружено/);
  assert.match(describeCen05Error('PROCESS_IDENTITY_CHANGED'),/процесс Atlas больше не подтверждён/);
 });
+
+test('GUI launch depends on registration and actual WorkRef, not a product version',()=>{
+ assert.match(describeCen05Error('ATLAS_SETUP_CORE_INSTALL_REQUIRED'),/не зарегистрирован/);
+ assert.match(describeCen05Error('ATLAS_SOURCE_SCHEMA_INVALID'),/Формат данных/);
+});

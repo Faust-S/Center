@@ -45,39 +45,6 @@ fn setup_core_registered_path(product:&str,field:&str)->Result<Option<PathBuf>,S
     }
     Ok(Some(path))
 }
-// Only the ORIGINAL Setup Core product registry may identify the installed
-// Atlas executable version. The GUI binary has no qualified --version CLI,
-// and U01 discovery alone is NOT a version or provenance check.
-#[cfg(windows)]
-fn setup_core_atlas_version()->Result<Option<String>,String>{
-    use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND,ERROR_PATH_NOT_FOUND};
-    use windows_sys::Win32::System::Registry::{RegGetValueW,HKEY_CURRENT_USER,RRF_RT_REG_SZ};
-    let key:Vec<u16>="Software\\IWXA\\SetupCore\\Products\\iwxa.atlas\0"
-        .encode_utf16().collect();
-    let field:Vec<u16>="Version\0".encode_utf16().collect();
-    let mut bytes=0_u32;
-    let status=unsafe{RegGetValueW(HKEY_CURRENT_USER,key.as_ptr(),field.as_ptr(),
-        RRF_RT_REG_SZ,std::ptr::null_mut(),std::ptr::null_mut(),&mut bytes)};
-    if status==ERROR_FILE_NOT_FOUND||status==ERROR_PATH_NOT_FOUND{return Ok(None);}
-    if status!=0||bytes<4||bytes>256||bytes%2!=0{
-        return Err("CEN05_ATLAS_SETUP_CORE_VERSION_INVALID".into());
-    }
-    let mut wide=vec![0_u16;bytes as usize/2];
-    let status=unsafe{RegGetValueW(HKEY_CURRENT_USER,key.as_ptr(),field.as_ptr(),
-        RRF_RT_REG_SZ,std::ptr::null_mut(),wide.as_mut_ptr().cast(),&mut bytes)};
-    let count=bytes as usize/2;
-    if status!=0||bytes<4||bytes%2!=0||count>wide.len()||
-        count<2||wide[count-1]!=0{
-        return Err("CEN05_ATLAS_SETUP_CORE_VERSION_READ_FAILED".into());
-    }
-    let value=String::from_utf16(&wide[..count-1])
-        .map_err(|_|"CEN05_ATLAS_SETUP_CORE_VERSION_ENCODING_INVALID")?;
-    if value.is_empty()||value.len()>64||!value.is_ascii()||
-        value.bytes().any(|b|b==0||b.is_ascii_whitespace()){
-        return Err("CEN05_ATLAS_SETUP_CORE_VERSION_INVALID".into());
-    }
-    Ok(Some(value))
-}
 #[cfg(windows)]
 fn center_setup_core_data_root()->Result<Option<PathBuf>,String>{
     setup_core_registered_path("iwxa.admin-center","DataLocation")
