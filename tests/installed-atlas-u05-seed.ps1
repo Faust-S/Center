@@ -110,9 +110,17 @@ function Close-Atlas {
    for($i=0;$i -lt 120;$i++){
      if($proc.WaitForExit(250)){break}
      $proc.Refresh()
+     if($proc.HasExited){break}
      if($proc.MainWindowHandle -eq [IntPtr]::Zero){continue}
-     $controls=@((Root).FindAll([System.Windows.Automation.TreeScope]::Descendants,
-       [System.Windows.Automation.Condition]::TrueCondition))
+     try {
+       $controls=@((Root).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+         [System.Windows.Automation.Condition]::TrueCondition))
+     } catch {
+       # Native close can finish between the process check and UIA lookup.
+       $proc.Refresh()
+       if($proc.HasExited){break}
+       throw
+     }
      $visible=@(foreach($item in $controls){
        try{if(!$item.Current.IsOffscreen -and $item.Current.Name){$item}}catch{}
      })
