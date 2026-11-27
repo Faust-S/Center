@@ -71,8 +71,8 @@ def assembly_receipt(report):
 def package_receipt(badging):
     require(re.findall(r"(?m)^package: name='([^']+)'", badging) == ["ru.iwxa.agent.mobile"],
             "OWNER_PACKAGE_IDENTITY")
-    require(re.findall(r"(?m)^native-code:\s*([^\r\n]+)$", badging) == ["'arm64-v8a'"],
-            "OWNER_PACKAGE_ABI")
+    abis = re.findall(r"(?m)^native-code:[ \t]*([^\r\n]+)$", badging)
+    require(len(abis) == 1 and abis[0].split() == ["'arm64-v8a'"], "OWNER_PACKAGE_ABI")
     require(re.search(r"(?m)^application-debuggable\s*$", badging) is not None,
             "OWNER_PACKAGE_DEBUG_IDENTITY")
 

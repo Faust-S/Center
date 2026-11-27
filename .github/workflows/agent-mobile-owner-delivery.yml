@@ -48,6 +48,7 @@ jobs:
           command -v cmake >/dev/null
           python3 -m venv "${RUNNER_TEMP}/iwxa-owner-crypto"
           "${RUNNER_TEMP}/iwxa-owner-crypto/bin/python" -m pip install --disable-pip-version-check --no-cache-dir cryptography==46.0.4
+          "${RUNNER_TEMP}/iwxa-owner-crypto/bin/python" .ci/agent-mobile-owner-delivery/test_delivery.py
       - name: Build and encrypt exact ARM64 owner candidate
         shell: bash
         env:
