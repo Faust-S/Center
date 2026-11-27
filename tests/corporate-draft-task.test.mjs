@@ -59,3 +59,45 @@ test('manager and employee drafts share the same canonical signed assignment tex
  assert.equal(Object.hasOwn(direct,'scope'),false);
  assert.throws(()=>prepareCorporateDraftTask({...draft,workspaceId:'workspace:other'},scope));
 });
+
+test('signed D3 follow-up source is re-read through the original candidate and Kernel recovery, including the separate receipt Workspace',async()=>{
+ const source={organizationId:scope.organizationId,workspaceId:scope.workspaceId,taskId:'task:source',
+   taskRevisionId:'a'.repeat(64),resultRevisionId:'b'.repeat(64),acceptanceId:'c'.repeat(64)};
+ const physical='workspace:registry:'+'d'.repeat(64),effect='e'.repeat(64);
+ const signed={...scope,d3ApplyRecoverAvailable:true,d3ApplicationReceiptWorkspaceId:physical};
+ const target={consumerId:'IWXA_ADMIN_CENTER',processId:'admin.applied-results',processVersion:'1.0.0',
+   purpose:'application.apply',subjectId:scope.organizationId,workspaceId:scope.workspaceId,dataRootId:'root:one'};
+ const candidate={schema:'IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1',
+   status:'CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION',source:{acceptanceId:source.acceptanceId},
+   applicationAttempted:false,applicationAuthorized:false,externalContextCoreApplied:false,
+   target,changes:[{...source,executorId:'person:worker'}]};
+ const row={...source,executorId:'person:worker',result:'Original Result'};
+ const recovered={status:'ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED',effectKey:effect,
+   kernelWriteReadback:'CONFIRMED',automaticRetryAllowed:false,externalProductAcceptance:'NOT_ACCEPTED',
+   originalKernelReadback:{object:{workspace_id:physical,object_id:'result:applied:'+effect,revision:1,
+     schema_id:'iwxa.admin.applied-results',schema_version:'1.0.0',
+     data:{schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',records:[row]}}},
+   originalEventReadback:{workspace_id:physical,event_id:'event:one',event_type:'iwxa.admin.result.applied',
+     object_id:'result:applied:'+effect,revision:1,idempotency_key:effect,
+     payload:{reconciliation_acceptance_id:source.acceptanceId,reconciliation_revision_ids:[source.resultRevisionId]}}};
+ const selection=prepare({...draft,sourceResultRef:source},scope);
+ const invoke=async()=>({status:'D3_OWNER_READY',snapshot:signed});
+ let calls=[];
+ await verify(selection,scope,invoke,async(op,input)=>{
+   calls.push(op);
+   assert.equal(input.acceptanceId,source.acceptanceId);
+   assert.deepEqual(input.revisionIds,[source.resultRevisionId]);
+   if(op==='d3InspectAccepted')return candidate;
+   assert.equal(op,'d3RecoverApplied');assert.deepEqual(input.target,target);return recovered;
+ });
+ assert.deepEqual(calls,['d3InspectAccepted','d3RecoverApplied']);
+ for(const invalid of [
+   {...recovered,status:'OUTCOME_UNKNOWN'},
+   {...recovered,originalEventReadback:{...recovered.originalEventReadback,idempotency_key:'f'.repeat(64)}},
+   {...recovered,originalKernelReadback:{object:{...recovered.originalKernelReadback.object,
+      data:{schema:'IWXA_T3_ADMIN_APPLIED_RESULTS/1',records:[{...row,taskRevisionId:'f'.repeat(64)}]}}}},
+   {...recovered,originalKernelReadback:{object:{...recovered.originalKernelReadback.object,workspace_id:'workspace:other'}}}
+ ])await assert.rejects(verify(selection,scope,invoke,async op=>op==='d3InspectAccepted'?candidate:invalid),/RESULT_SOURCE_CHANGED/);
+ await assert.rejects(verify(selection,scope,invoke,async()=>({...candidate,changes:[{...candidate.changes[0],taskId:'task:other'}]})),/RESULT_SOURCE_CHANGED/);
+ await assert.rejects(verify(selection,scope,invoke),/RESULT_SOURCE_CHANGED/);
+});

@@ -34,7 +34,7 @@ test('D3 generic signed Task UI does not eagerly import Atlas product modules',(
   const end=source.indexOf('const recoverTaskById=',begin);
   assert.ok(begin>0&&end>begin,'original independent Task UI must still exist');
   const issue=source.slice(begin,end);
-  const check=issue.indexOf('await verifyCorporateDraftSources(chosenPreparation,session,invoke)');
+  const check=issue.indexOf('await verifyCorporateDraftSources(chosenPreparation,session,invoke,execute)');
   const originalSigner=issue.indexOf("execute('d3CreateTask'");
   assert.ok(check>=0&&originalSigner>check,
     'source verification must precede the original signer');
@@ -53,7 +53,7 @@ test('D3 generic signed Task UI does not eagerly import Atlas product modules',(
     'only an explicit AtlasRef may load the native Atlas owner and must preserve the currentness gate');
   const employee=shared.slice(shared.indexOf('export async function verifyEmployeeDraftSources('),
     shared.indexOf('export async function verifyCorporateDraftSources('));
-  assert.match(employee,/return verifyCorporateDraftSources\(selection,scope,invoke\)/);
+  assert.match(employee,/return verifyCorporateDraftSources\(selection,scope,invoke,execute\)/);
 });
 test('independent employee signed Task accepts original native state, never first-person status',()=>{
  const scope={taskId:'task:work-verified',employeePersonId:'person:employee',

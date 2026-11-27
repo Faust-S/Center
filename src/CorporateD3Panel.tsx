@@ -208,7 +208,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    // Use the same original-source verification as the independent employee
    // route. A draft containing a previous Result also needs its fresh
    // original applied record, not just the current Atlas revision.
-   if(chosenPreparation)await verifyCorporateDraftSources(chosenPreparation,session,invoke);
+   if(chosenPreparation)await verifyCorporateDraftSources(chosenPreparation,session,invoke,execute);
    // The operation ID is saved before the original signer may write. Even if
    // this call loses its reply, the same ID can be queried without re-signing.
    const immutableId=taskOperationId;

@@ -1,6 +1,6 @@
 // Preparing a local draft is not issuance, delivery, identity mapping or a
 // second Task engine. The original T3 owner remains the only signer.
-import {employeeTaskContinuationKey} from '../runtime/cen03-d3-owner.mjs';
+import {employeeTaskContinuationKey,readOriginalApplicationTarget} from '../runtime/cen03-d3-owner.mjs';
 import {readAppliedResults} from '../runtime/cen03-applied-results.mjs';
 const validId=v=>typeof v==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,159}$/.test(v);
 const need=(ok,code)=>{if(!ok)throw Error(code);};
@@ -51,12 +51,63 @@ export function employeeDraftSelectionCurrent(selection,draft,scope,text,confirm
 }
 // Both checks only call existing source owners. A local Atlas plan or an
 // earlier visible Result cannot establish current source provenance.
-export async function verifyEmployeeDraftSources(selection,scope,invoke){
+// Recover only the selected original D3 application, with no repeat Apply.
+ // The native owner checks its signed Object/Event and current rights. This
+ // product projection additionally binds the exact Task and Result record.
+ export async function readAppliedD3Result(source,scope,execute){
+   const code='CEN_D3_EMPLOYEE_DRAFT_RESULT_SOURCE_CHANGED';
+   const sha=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
+   need(typeof execute==='function'&&source?.organizationId===scope.organizationId&&
+     source.workspaceId===scope.workspaceId&&validId(source.taskId)&&
+     [source.taskRevisionId,source.resultRevisionId,source.acceptanceId].every(sha),code);
+   const selection={acceptanceId:source.acceptanceId,revisionIds:[source.resultRevisionId]};
+   const candidate=await execute('d3InspectAccepted',selection);
+   const matches=row=>row?.taskId===source.taskId&&row.taskRevisionId===source.taskRevisionId&&
+     row.resultRevisionId===source.resultRevisionId;
+   need(candidate?.schema==='IWXA_T3_APPLICATION_PROJECTION_CANDIDATE/1'&&
+     candidate.status==='CANDIDATE_REQUIRES_INDEPENDENT_HOST_AUTHORIZATION'&&
+     candidate.source?.acceptanceId===source.acceptanceId&&
+     candidate.applicationAttempted===false&&candidate.applicationAuthorized===false&&
+     candidate.externalContextCoreApplied===false&&Array.isArray(candidate.changes)&&
+     candidate.changes.length===1&&matches(candidate.changes[0])&&
+     validId(candidate.changes[0].executorId),code);
+   const target=readOriginalApplicationTarget(candidate.target,scope.organizationId,scope.workspaceId);
+   const recovery=await execute('d3RecoverApplied',{...selection,target});
+   const object=recovery?.originalKernelReadback?.object,event=recovery?.originalEventReadback;
+   // Modern owners may hold administrative receipts in their advertised
+   // registry Workspace. The record itself must always name the business scope.
+   const physical=object?.workspace_id,partition=scope.d3ApplicationReceiptWorkspaceId;
+   need(recovery?.status==='ORIGINAL_KERNEL_APPLY_READBACK_CONFIRMED'&&
+     recovery.kernelWriteReadback==='CONFIRMED'&&recovery.automaticRetryAllowed===false&&
+     recovery.externalProductAcceptance==='NOT_ACCEPTED'&&sha(recovery.effectKey)&&
+     (physical===scope.workspaceId||
+       (typeof partition==='string'&&/^workspace:registry:[a-f0-9]{64}$/.test(partition)&&physical===partition))&&
+     object.object_id==='result:applied:'+recovery.effectKey&&object.revision===1&&
+     object.schema_id==='iwxa.admin.applied-results'&&object.schema_version==='1.0.0'&&
+     object.data?.schema==='IWXA_T3_ADMIN_APPLIED_RESULTS/1'&&
+     Array.isArray(object.data.records)&&object.data.records.length===1&&
+     event?.workspace_id===physical&&validId(event.event_id)&&
+     event.event_type==='iwxa.admin.result.applied'&&event.object_id===object.object_id&&
+     event.revision===object.revision&&event.idempotency_key===recovery.effectKey&&
+     event.payload?.reconciliation_acceptance_id===source.acceptanceId&&
+     Array.isArray(event.payload.reconciliation_revision_ids)&&
+     event.payload.reconciliation_revision_ids.length===1&&
+     event.payload.reconciliation_revision_ids[0]===source.resultRevisionId,code);
+   const row=object.data.records[0];
+   need(matches(row)&&row.organizationId===scope.organizationId&&row.workspaceId===scope.workspaceId&&
+     row.acceptanceId===source.acceptanceId&&row.executorId===candidate.changes[0].executorId&&
+     typeof row.result==='string'&&row.result.length<=100000,code);
+   return Object.freeze({source:{organizationId:row.organizationId,workspaceId:row.workspaceId,
+     taskId:row.taskId,taskRevisionId:row.taskRevisionId,resultRevisionId:row.resultRevisionId,
+     acceptanceId:row.acceptanceId},result:row.result});
+ }
+
+export async function verifyEmployeeDraftSources(selection,scope,invoke,execute=undefined){
  need(selection?.scope===scopeKey(scope)&&selection.contextId===scope.contextId&&
    selection.contextEpoch===scope.contextEpoch,'CEN_D3_EMPLOYEE_DRAFT_CHANGED_BEFORE_SIGNING');
- return verifyCorporateDraftSources(selection,scope,invoke);
+ return verifyCorporateDraftSources(selection,scope,invoke,execute);
 }
-export async function verifyCorporateDraftSources(selection,scope,invoke){
+export async function verifyCorporateDraftSources(selection,scope,invoke,execute=undefined){
  need(selection?.contextId===scope.contextId&&selection.contextEpoch===scope.contextEpoch,
    'CEN_D3_EMPLOYEE_DRAFT_CHANGED_BEFORE_SIGNING');
  if(selection.atlasRef){
@@ -78,8 +129,14 @@ export async function verifyCorporateDraftSources(selection,scope,invoke){
      snapshot.workspaceId===scope.workspaceId&&snapshot.actorId===scope.actorId&&
      snapshot.contextId===scope.contextId&&snapshot.contextEpoch===scope.contextEpoch,
      'CEN_D3_EMPLOYEE_DRAFT_RESULT_SOURCE_CHANGED');
-   const view=readAppliedResults(snapshot,scope.organizationId,scope.workspaceId);
    const source=selection.sourceResultRef;
+   if(snapshot.d3ApplyRecoverAvailable===true){
+     await readAppliedD3Result(source,snapshot,execute);
+     return;
+   }
+   // Preserve original legacy owner support. Never downgrade a failed
+   // D3 recovery to a legacy projection.
+   const view=readAppliedResults(snapshot,scope.organizationId,scope.workspaceId);
    need(view.status==='LOCAL_ENCRYPTED_STORE_CONFIRMED'&&view.records.filter(row=>
      row.taskId===source.taskId&&row.taskRevisionId===source.taskRevisionId&&
      row.resultRevisionId===source.resultRevisionId&&row.acceptanceId===source.acceptanceId).length===1,

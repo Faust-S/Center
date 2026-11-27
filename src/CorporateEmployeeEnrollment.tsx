@@ -973,7 +973,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
            throw Error('CEN_D3_EMPLOYEE_TASK_ORIGINAL_DATA_GRANT_REQUIRED');
          if(draftSource){
            await onEnsureDraftSaved(session.organizationId,session.workspaceId);
-           await verifyEmployeeDraftSources(draftSource,draftScope,invoke);
+           await verifyEmployeeDraftSources(draftSource,draftScope,invoke,execute);
            if(!mounted.current||!draftGate.current.ready||draftGate.current.source!==draftSource)
              throw Error('CEN_D3_EMPLOYEE_DRAFT_CHANGED_BEFORE_SIGNING');
          }
