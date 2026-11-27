@@ -37,15 +37,39 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Use the same required host tools as the successful M18.36 job.
           if ! command -v ninja >/dev/null; then
             sudo apt-get update -qq
             sudo apt-get install -y --no-install-recommends ninja-build
           fi
-          command -v kotlinc >/dev/null
-          command -v readelf >/dev/null
-          command -v clang >/dev/null
-          command -v ld.lld >/dev/null
-          command -v cmake >/dev/null
+          for tool in kotlinc readelf cmake; do
+            if command -v "$tool" >/dev/null; then
+              echo "OWNER_HOST_TOOL_$tool=PASS"
+            else
+              echo "OWNER_HOST_TOOL_$tool=MISSING"
+              exit 1
+            fi
+          done
+          # clang may resolve a versioned lld rather than a standalone ld.lld
+          # in PATH. Test the actual cross-link operation used by image packaging.
+          probe="$(mktemp -d)"
+          trap 'rm -rf "$probe"' EXIT
+          printf 'void _start(void) { for (;;) {} }\n' > "$probe/fixture.c"
+          cross_link() {
+            command -v clang >/dev/null &&
+            clang --target=aarch64-linux-gnu -fuse-ld=lld -nostdlib -fPIE -pie \
+              -Wl,--dynamic-linker=/system/bin/linker64 -Wl,-z,max-page-size=16384 \
+              "$probe/fixture.c" -o "$probe/arm" &&
+            clang --target=x86_64-linux-gnu -fuse-ld=lld -nostdlib -fPIE -pie \
+              -Wl,--dynamic-linker=/system/bin/linker64 -Wl,-z,max-page-size=16384 \
+              "$probe/fixture.c" -o "$probe/x86"
+          }
+          if ! cross_link; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends clang lld
+            cross_link
+          fi
+          echo "OWNER_HOST_CROSS_LINK=PASS"
           python3 -m venv "${RUNNER_TEMP}/iwxa-owner-crypto"
           "${RUNNER_TEMP}/iwxa-owner-crypto/bin/python" -m pip install --disable-pip-version-check --no-cache-dir cryptography==46.0.4
           "${RUNNER_TEMP}/iwxa-owner-crypto/bin/python" .ci/agent-mobile-owner-delivery/test_delivery.py
