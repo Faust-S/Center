@@ -23,7 +23,7 @@ env:
   CENTER_ATLAS_PIN: '109438f7b2bf7dfa723e4c5e90d7fefea731b6b2'
   CENTER_BRTEST_PIN: '7cfb17870042cac824644140b7f0a587e244a20e'
   CENTER_SETUP_PIN: '0ef7544e2a6fd5fab5994f7f25abbb960063908c'
-  CENTER_T3_PIN: '34221b7be60bd9c98f2899c185a4809b7f603a36'
+  CENTER_T3_PIN: 'ac6b78400c3ebea8276c6468858d04fbd93aff2a'
 jobs:
   request:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false) }}
@@ -609,6 +609,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          # Syntax-check the changed original owner route without publishing its source or output.
+          $syntaxLog=Join-Path $env:RUNNER_TEMP 'atlas-private-owner-syntax.log'
+          & node --check private-t3/interop/native-admin-d3.mjs *> $syntaxLog
+          if($LASTEXITCODE -ne 0){throw 'CENTER_ORIGINAL_ATLAS_OWNER_SYNTAX_FAILED'}
+          & node --check private-t3/interop/runtime.mjs *> $syntaxLog
+          if($LASTEXITCODE -ne 0){throw 'CENTER_ORIGINAL_ATLAS_RUNTIME_SYNTAX_FAILED'}
+          Write-Host 'CENTER_ORIGINAL_ATLAS_WORKSPACE_OWNER_SYNTAX_PASS'
           $log=Join-Path $env:RUNNER_TEMP 'atlas-private-disclosure.log'
           & node --test --test-name-pattern 'original corporate disclosure' private-t3/tests/original-admin-atlas-native-recipient.test.mjs *> $log
           if($LASTEXITCODE -ne 0){throw 'ATLAS_ORIGINAL_CORPORATE_DISCLOSURE_FAILED'}
