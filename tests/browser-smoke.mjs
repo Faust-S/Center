@@ -1986,7 +1986,9 @@ try{
   checks.push('v8-guided-result-workflow-original-T3-actions-preserved');
   await v8Page.getByTestId('nav-data').click();
   await v8Page.getByTestId('admin-profile-settings').waitFor();
-  assert.match(await v8Page.getByTestId('admin-profile-settings').innerText(),/0\.4\.1/);
+  const centerVersion=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;
+  assert.ok((await v8Page.getByTestId('admin-profile-settings').innerText()).includes(centerVersion),
+    'the profile must display the current product package version');
   checks.push('v8-real-draft-company-structure-and-version-only-inside-profile');
   await v8Page.close();
   writeFileSync('artifacts/ui-report.json',JSON.stringify({status:'PASS_BROWSER_DRAFT_SCOPE',browser:'Firefox',checks,errors,t3RuntimeIntegrated:false,installedWindowsGui:false},null,2));

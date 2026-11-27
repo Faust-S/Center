@@ -147,7 +147,6 @@ export default function App() {
   const editorBaselineRef = useRef<string|null>(null);
   const pendingCloseRef = useRef(false);
   const closeDialogOpenRef = useRef(false);
-  const closeConfirmedRef = useRef(false);
   // A file preview belongs only to the organization where it was opened.
   // It must never become a cross-organization project/authorization source.
   const [atlasFile,setAtlasFile] = useState<{organizationId:string;view:AtlasPortfolioView;filename:string;delta:AtlasCopyDelta|null;contentSha256:string;contentSame:boolean|null}|null>(null);
@@ -167,37 +166,35 @@ export default function App() {
     if(nativeHost){
       let active=true;
       let unlisten:(()=>void)|undefined;
-      import('@tauri-apps/api/window')
-        .then(({getCurrentWindow})=>{
-          const appWindow=getCurrentWindow();
-          return appWindow.onCloseRequested(event=>{
-            // Cancel synchronously; an awaited dialog cannot undo WM_CLOSE.
-            if(closeConfirmedRef.current||!pendingCloseRef.current)return;
-            event.preventDefault();
-            if(closeDialogOpenRef.current)return;
-            closeDialogOpenRef.current=true;
-            void import('@tauri-apps/plugin-dialog')
-              .then(({confirm})=>confirm(
+      // Rust always cancels the physical CloseRequested event. Only this
+      // UI decision can then request the existing native owner shutdown.
+      import('@tauri-apps/api/event')
+        .then(({listen})=>listen('center-close-requested',()=>{
+          if(!active||closeDialogOpenRef.current)return;
+          if(savingRef.current){
+            setError('Сначала завершите сохранение, затем закройте программу.');
+            return;
+          }
+          closeDialogOpenRef.current=true;
+          void (async()=>{
+            if(pendingCloseRef.current){
+              const {confirm}=await import('@tauri-apps/plugin-dialog');
+              if(!await confirm(
                 'Есть несохранённые изменения. Закрыть Admin Center без сохранения?',
                 {title:'IWXA Admin Center',kind:'warning'}
-              ))
-              .then(async approved=>{
-                if(!approved)return;
-                closeConfirmedRef.current=true;
-                try {await appWindow.destroy();}
-                catch {
-                  closeConfirmedRef.current=false;
-                  if(active)setError('Не удалось закрыть окно. Сохраните работу перед выходом.');
-                }
-              })
-              .catch(()=>{
-                if(active)setError('Не удалось запросить подтверждение закрытия. Работа сохранена в редакторе.');
-              })
-              .finally(()=>{closeDialogOpenRef.current=false;});
-          });
+              ))return;
+            }
+            if(active)await nativeInvoke('center_finish_native_close');
+          })().catch(()=>{
+            if(active)setError('Не удалось закрыть окно. Сохраните работу перед выходом.');
+          }).finally(()=>{closeDialogOpenRef.current=false;});
+        }))
+        .then(async dispose=>{
+          if(!active){dispose();return;}
+          unlisten=dispose;
+          await nativeInvoke('center_native_close_ready');
         })
-        .then(dispose=>{if(active)unlisten=dispose;else dispose();})
-        .catch(()=>{if(active)setError('Не удалось подключить защиту закрытия окна. Сохраните работу перед выходом.');});
+        .catch(()=>{if(active)setError('Не удалось подключить подтверждение закрытия окна. Сохраните работу перед выходом.');});
       return ()=>{active=false;unlisten?.();};
     }
     const beforeUnload=(event:BeforeUnloadEvent)=>{

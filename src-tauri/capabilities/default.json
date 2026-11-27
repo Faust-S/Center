@@ -6,7 +6,6 @@
   ],
   "permissions": [
     "core:default",
-    "dialog:allow-message",
-    "core:window:allow-destroy"
+    "dialog:allow-message"
   ]
 }

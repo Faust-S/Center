@@ -429,6 +429,47 @@ async fn center_age_decrypt(app:AppHandle)->Result<Option<Value>,String>{
 
 mod cen05_host;
 
+// One native exit path drains the original T3 owner while the event loop is
+// still available. A window close request by itself is NOT consent to discard.
+fn finish_native_close(app:AppHandle){
+    if !app.state::<cen03_native::NativeClose>().begin(){return;}
+    tauri::async_runtime::spawn_blocking(move||{
+        cen03_native::release_original_owner_on_native_close(&app);
+        app.exit(0);
+    });
+}
+#[tauri::command]
+fn center_native_close_ready(window:tauri::Window)->Result<(),String>{
+    if window.label()!="main"{return Err("CENTER_CLOSE_WINDOW_INVALID".into());}
+    window.app_handle().state::<cen03_native::NativeClose>().mark_ui_ready();
+    Ok(())
+}
+#[tauri::command]
+fn center_finish_native_close(window:tauri::Window)->Result<(),String>{
+    if window.label()!="main"{return Err("CENTER_CLOSE_WINDOW_INVALID".into());}
+    finish_native_close(window.app_handle().clone());
+    Ok(())
+}
+fn request_native_close(app:AppHandle){
+    use tauri::Emitter as _;
+    let state=app.state::<cen03_native::NativeClose>();
+    if state.closing(){return;}
+    if state.ui_ready()&&app.emit("center-close-requested",()).is_ok(){return;}
+    // Early boot or event-dispatch failure: never assume the draft is clean.
+    // Native fallback keeps even a failed UI closable after explicit consent.
+    if !state.begin_fallback(){return;}
+    tauri::async_runtime::spawn_blocking(move||{
+        let accepted=rfd::MessageDialog::new()
+            .set_title("IWXA Admin Center")
+            .set_description("Интерфейс пока недоступен. Закрыть программу без сохранения?")
+            .set_level(rfd::MessageLevel::Warning)
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .show()==rfd::MessageDialogResult::Yes;
+        app.state::<cen03_native::NativeClose>().end_fallback();
+        if accepted{finish_native_close(app);}
+    });
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -439,19 +480,12 @@ fn main() {
             use tauri::Manager as _;
             if window.label()!="main"{return;}
             if let tauri::WindowEvent::CloseRequested{api,..}=event{
-                // Keep WebView2 and the UI event loop available until the
-                // original signed owner is closed. Repeated WM_CLOSE is
-                // idempotent and cannot start a second cleanup.
                 api.prevent_close();
-                let app=window.app_handle().clone();
-                if !app.state::<cen03_native::NativeClose>().begin(){return;}
-                tauri::async_runtime::spawn_blocking(move||{
-                    cen03_native::release_original_owner_on_native_close(&app);
-                    app.exit(0);
-                });
+                request_native_close(window.app_handle().clone());
             }
         })
         .invoke_handler(tauri::generate_handler![
+            center_native_close_ready, center_finish_native_close,
             save_draft_file, open_draft_file, center_save_iwxa_file, center_open_iwxa_file,
             center_export_publisher_test_request,
             center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open, center_atlas_export_iwxa,

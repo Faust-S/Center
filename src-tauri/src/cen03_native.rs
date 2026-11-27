@@ -677,10 +677,20 @@ pub struct Session{owner:Option<OriginalOwner>,signed_workspace_visible:bool}
 // The event loop must stay alive while an in-flight original-owner command
 // drains; that worker can be waiting for an operation on the WebView thread.
 #[derive(Default)]
-pub struct NativeClose(AtomicBool);
+pub struct NativeClose {
+    closing:AtomicBool,
+    ui_ready:AtomicBool,
+    fallback_pending:AtomicBool,
+}
 impl NativeClose{
-    pub fn begin(&self)->bool{!self.0.swap(true,Ordering::AcqRel)}
-    fn closing(&self)->bool{self.0.load(Ordering::Acquire)}
+    pub fn begin(&self)->bool{!self.closing.swap(true,Ordering::AcqRel)}
+    pub fn closing(&self)->bool{self.closing.load(Ordering::Acquire)}
+    pub fn mark_ui_ready(&self){self.ui_ready.store(true,Ordering::Release);}
+    pub fn ui_ready(&self)->bool{self.ui_ready.load(Ordering::Acquire)}
+    pub fn begin_fallback(&self)->bool{
+        !self.closing()&&!self.fallback_pending.swap(true,Ordering::AcqRel)
+    }
+    pub fn end_fallback(&self){self.fallback_pending.store(false,Ordering::Release);}
 }
 fn refuse_while_closing(app:&AppHandle)->Result<(),String>{
     if app.state::<NativeClose>().closing(){
