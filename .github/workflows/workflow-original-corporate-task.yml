@@ -38,12 +38,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: eb5e47923a528e4651ca414b5ed68232a180556b
+          ref: ee1d7ba2b1deb3506bf9b04eaf5e1260b145a4c5
           path: knowledge
           persist-credentials: false
       - name: Original public employee grant owner qualification
         run: |
-          test "$(git -C knowledge rev-parse HEAD)" = "eb5e47923a528e4651ca414b5ed68232a180556b"
+          test "$(git -C knowledge rev-parse HEAD)" = "ee1d7ba2b1deb3506bf9b04eaf5e1260b145a4c5"
           node --test knowledge/packages/t3-core/tests/t3-d3-independent-employee-original-enrollment.test.mjs > "$RUNNER_TEMP/workflow-public-grants.log" 2>&1 || { cat "$RUNNER_TEMP/workflow-public-grants.log"; exit 1; }
           cat "$RUNNER_TEMP/workflow-public-grants.log"
           grep -q "^# tests 27$" "$RUNNER_TEMP/workflow-public-grants.log"
@@ -53,8 +53,8 @@ jobs:
         run: |
           node --test knowledge/packages/t3-core/tests/t3-original-company-workspace-persistence.test.mjs knowledge/packages/t3-core/tests/c3-workspace-method-stage-results.test.mjs > "$RUNNER_TEMP/workflow-public-result.log" 2>&1 || { cat "$RUNNER_TEMP/workflow-public-result.log"; exit 1; }
           cat "$RUNNER_TEMP/workflow-public-result.log"
-          grep -q "^# tests 80$" "$RUNNER_TEMP/workflow-public-result.log"
-          grep -q "^# pass 80$" "$RUNNER_TEMP/workflow-public-result.log"
+          grep -q "^# tests 81$" "$RUNNER_TEMP/workflow-public-result.log"
+          grep -q "^# pass 81$" "$RUNNER_TEMP/workflow-public-result.log"
       - name: Require authorized private read-only checkout
         env:
           PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -63,7 +63,7 @@ jobs:
         id: private_t3
         with:
           repository: Faust-S/T3
-          ref: 019d636ebf2eade8d8e68083213e4d02e75ea54b
+          ref: f604c61cec6af11c65f437caa333ebad9f81e96e
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -83,8 +83,8 @@ jobs:
           python -m pip install -r private-agent/requirements-ci.txt > "$RUNNER_TEMP/workflow-agent-deps-private.log" 2>&1 || { echo ORIGINAL_AGENT_DEPENDENCIES_FAIL; exit 1; }
       - name: Original signed Workflow Task profile and roundtrip
         run: |
-          test "$(git -C private-t3 rev-parse HEAD)" = "019d636ebf2eade8d8e68083213e4d02e75ea54b"
-          test "$(git -C knowledge rev-parse HEAD)" = "eb5e47923a528e4651ca414b5ed68232a180556b"
+          test "$(git -C private-t3 rev-parse HEAD)" = "f604c61cec6af11c65f437caa333ebad9f81e96e"
+          test "$(git -C knowledge rev-parse HEAD)" = "ee1d7ba2b1deb3506bf9b04eaf5e1260b145a4c5"
           export IWXA_WORKFLOW_PUBLIC_SOURCE="$(node -p 'require("node:path").resolve("knowledge")')"
           export IWXA_WORKFLOW_AGENT_SOURCE="$(node -p 'require("node:path").resolve("private-agent")')"
           export IWXA_WORKFLOW_AGENT_FIXTURE="$(node -p 'require("node:path").resolve("qualification/workflow-original-task.py")')"
