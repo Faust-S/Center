@@ -1,0 +1,57 @@
+# Public runner only. No private source, logs, artifacts or caches are published.
+name: Workflow original Agent composer source qualification
+on:
+  push:
+    branches: ['work/2026-11-27-workflow-original-agent-composer-qualification']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-composer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require authorized private read-only checkout
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: test -n "$PRIVATE_SOURCE_TOKEN" || { echo ORIGINAL_AGENT_SOURCE_ACCESS_REQUIRED; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 68128b4c9a2c7140ec3503ff0f775e5bcb50743e
+          path: private-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: 19a0b0a5e9ae1290762b8623b7257de65869cf32
+          path: knowledge
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Private dependencies
+        run: |
+          test "$(git -C private-agent rev-parse HEAD)" = "68128b4c9a2c7140ec3503ff0f775e5bcb50743e"
+          test "$(git -C knowledge rev-parse HEAD)" = "19a0b0a5e9ae1290762b8623b7257de65869cf32"
+          python -m pip install -r private-agent/requirements-ci.txt > "$RUNNER_TEMP/composer-deps-private.log" 2>&1 || { echo ORIGINAL_AGENT_DEPENDENCIES_FAIL; exit 1; }
+      - name: Exercise original SessionRuntime with synthetic Workflow materials
+        run: |
+          node qualification/workflow-original-composer.mjs "$PWD/private-agent" "$PWD/knowledge" > "$RUNNER_TEMP/composer-qualification-private.log" 2>&1 || { echo ORIGINAL_AGENT_COMPOSER_WORKFLOW_SOURCE_FAIL; exit 1; }
+          grep -qx ORIGINAL_AGENT_COMPOSER_COLD_READBACK_AND_SCOPE_CAS_PASS "$RUNNER_TEMP/composer-qualification-private.log"
+          echo ORIGINAL_AGENT_COMPOSER_WORKFLOW_SOURCE_PASS
+      - name: Remove private working copies and logs
+        if: always()
+        run: |
+          rm -rf private-agent
+          rm -f "$RUNNER_TEMP/composer-deps-private.log" "$RUNNER_TEMP/composer-qualification-private.log"
