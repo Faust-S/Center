@@ -6,7 +6,7 @@ import {dirname,join,resolve} from 'node:path';
 const pins=Object.freeze({
   t2:['c28e01876f3230307b7f20449f7ef54374367c93','3d774222c9aaa1521ded9eb23d2f5fcdb55b8cbd'],
   t3:['9d45f993e0b5e3609879d4c203f9345684400d65','06ffe1600f05340be5d1e3577f293ebb3e445fd7'],
-  core:['a82210cfe0352c934bb941323a189cc59afaa562','31ac3723d52a42e3eac2b295153fe495fd0b8d39'],
+  core:['513a11bff20138f96875a0a0c13186d9ba7931e0','a5f9cf47974426dcd7bdc083342ae5972cb32633'],
 });
 const sourceParent='4e4ad5c5e566a74f24243b9d0744a6d64652a199';
 const need=(value,code)=>{if(!value)throw Error('K036_LOCAL_'+code);};

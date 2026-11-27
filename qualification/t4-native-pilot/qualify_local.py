@@ -24,8 +24,8 @@ T2 = ('c28e01876f3230307b7f20449f7ef54374367c93',
 T3 = ('9d45f993e0b5e3609879d4c203f9345684400d65',
       '06ffe1600f05340be5d1e3577f293ebb3e445fd7',
       ('access-control', 'interop', 'reconciliation', 'tests', 'package.json'))
-CORE = ('a82210cfe0352c934bb941323a189cc59afaa562',
-        '31ac3723d52a42e3eac2b295153fe495fd0b8d39', 'packages')
+CORE = ('513a11bff20138f96875a0a0c13186d9ba7931e0',
+        'a5f9cf47974426dcd7bdc083342ae5972cb32633', 'packages')
 T2_PARENT = '4e4ad5c5e566a74f24243b9d0744a6d64652a199'
 PACKAGING = 't2/current/final-successor/kernel-successors/k036-canonical-event-merge-20261125/'
 PACKAGING_PATHS = {PACKAGING + name for name in (
@@ -37,6 +37,9 @@ OWNER_TESTS = ('tests/original-native-network-vault.test.mjs',
                'tests/original-admin-network-registry.test.mjs',
                'tests/t3-signed-workspace-exchange-owner.test.mjs',
                'tests/t3-d1-control-loopback-invalidation.test.mjs')
+
+PEER_TESTS = ('tests/network/original-native-peer-startup.test.mjs',
+              'tests/network/original-peer-history-tls.test.mjs')
 
 
 class QualificationError(Exception):
@@ -117,6 +120,19 @@ def owner_tests(root, env):
     emit('K036_LOCAL_NATIVE_OWNER_SOURCE', 'PASS')
 
 
+def peer_tests(root, env):
+    result = run_checked(['node', '--test', '--test-reporter=tap', '--test-timeout=120000',
+                          *PEER_TESTS], root / 'packages/t4-network', env, 240)
+    counts = {key: int(value) for key, value in re.findall(
+        r'^# (tests|pass|fail|cancelled|skipped) (\d+)\s*$', result.stdout, re.MULTILINE)}
+    emit('K036_LOCAL_PEER_COUNTS', counts)
+    need(result.returncode == 0 and counts.get('tests', 0) >= 11 and
+         counts.get('pass') == counts['tests'] and
+         all(counts.get(k) == 0 for k in ('fail', 'cancelled', 'skipped')),
+         'PEER_TLS_TESTS_FAILED')
+    emit('K036_LOCAL_PEER_TLS', 'PASS')
+
+
 def run_local(t2_repo, t3_repo, core_repo, *, preflight_only):
     need(sys.platform.startswith('linux') and os.environ.get('GITHUB_ACTIONS') != 'true',
          'LINUX_OR_WSL_REQUIRED')
@@ -133,6 +149,7 @@ def run_local(t2_repo, t3_repo, core_repo, *, preflight_only):
         emit('K036_LOCAL_PREFLIGHT', 'PASS')
         if preflight_only:
             emit('K036_LOCAL_NATIVE_OWNER_SOURCE', 'NOT_RUN')
+            emit('K036_LOCAL_PEER_TLS', 'NOT_RUN')
             emit('K036_LOCAL_PRODUCT_RECIPES', 'NOT_RUN')
         else:
             need(sys.version_info[:2] == (3, 11), 'PYTHON_311_REQUIRED')
@@ -143,6 +160,7 @@ def run_local(t2_repo, t3_repo, core_repo, *, preflight_only):
             need(python_version.returncode == 0 and re.fullmatch(r'Python 3\.11\.\d+', python_version.stdout.strip()),
                  'PYTHON_311_REQUIRED')
             owner_tests(t3, env)
+            peer_tests(core, env)
             descriptor = top / 'inputs.json'
             descriptor.write_text(json.dumps(evidence) + '\n', encoding='utf-8')
             descriptor.chmod(0o600)

@@ -12,7 +12,7 @@ function fixture(){
   const evidence={schema:'IWXA_K036_LOCAL_EXACT_INPUTS/1',sourceParent:parent,packagingOnly:true,
     t2:row('c28e01876f3230307b7f20449f7ef54374367c93','3d774222c9aaa1521ded9eb23d2f5fcdb55b8cbd'),
     t3:row('9d45f993e0b5e3609879d4c203f9345684400d65','06ffe1600f05340be5d1e3577f293ebb3e445fd7'),
-    core:row('a82210cfe0352c934bb941323a189cc59afaa562','31ac3723d52a42e3eac2b295153fe495fd0b8d39')};
+    core:row('513a11bff20138f96875a0a0c13186d9ba7931e0','a5f9cf47974426dcd7bdc083342ae5972cb32633')};
   const descriptor=join(top,'inputs.json');
   const args={t2:join(top,'t2'),core:join(top,'core'),temp:join(top,'iwxa-k036-canonical-event-merge'),descriptor,env:{},platform:'linux',version:'v22.16.0'};
   const write=()=>writeFileSync(descriptor,JSON.stringify(evidence),{mode:0o600});write();
