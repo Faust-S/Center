@@ -45,21 +45,21 @@ jobs:
         id: professional_source
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: b27c4b7606869a15b019e5013d7625e96016247f
+          ref: aec79b6de65d6be36bab49419750b10945c13c58
           path: professional-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - name: Install isolated exact solver qualification dependencies
         run: |
-          test "$(git -C professional-agent rev-parse HEAD)" = "b27c4b7606869a15b019e5013d7625e96016247f"
+          test "$(git -C professional-agent rev-parse HEAD)" = "aec79b6de65d6be36bab49419750b10945c13c58"
           python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 mesa==3.5.2 simpy==4.1.2 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
           python -c "from importlib.metadata import version; from ortools.sat.python import cp_model; assert version('ortools')=='9.14.6206'; print('ORIGINAL_ORTOOLS_9_14_6206_PRESENT')"
       - name: Original OR-Tools solver and U01 connection qualification
         working-directory: professional-agent
         run: |
           rc=0
-          python -m pytest -q tests/test_agent067_ortools_allocation.py tests/test_agent067_ortools_scheduling.py --junitxml="$RUNNER_TEMP/professional-target.xml" > "$RUNNER_TEMP/professional-target-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-target.xml" ORTOOLS 92 strict || exit 1
+          python -m pytest -q tests/test_agent067_ortools_allocation.py tests/test_agent067_ortools_scheduling.py tests/test_agent067_ortools_network_flow.py --junitxml="$RUNNER_TEMP/professional-target.xml" > "$RUNNER_TEMP/professional-target-private.log" 2>&1 || rc=$?
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-target.xml" ORTOOLS 120 strict || exit 1
           test "$rc" = 0
       - name: Existing program and modeling regression
         if: always() && steps.professional_source.outcome == 'success'
