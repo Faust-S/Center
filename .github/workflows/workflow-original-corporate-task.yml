@@ -31,14 +31,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 22d75ab1bfe22cef110b7ee1c595d938d8f51e0a
+          ref: da08d040ba3d1bcd1f30772e6da6c28af9548cb0
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: e0f7274d882da64332efd0942dc0bb848e6fc5ab
+          ref: 21b13b628f1f8502b5d95395d217e4c217108c48
           path: knowledge
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -60,8 +60,8 @@ jobs:
           node-version: '22.16.0'
       - name: Original signed Workflow Task profile and roundtrip
         run: |
-          test "$(git -C private-t3 rev-parse HEAD)" = "22d75ab1bfe22cef110b7ee1c595d938d8f51e0a"
-          test "$(git -C knowledge rev-parse HEAD)" = "e0f7274d882da64332efd0942dc0bb848e6fc5ab"
+          test "$(git -C private-t3 rev-parse HEAD)" = "da08d040ba3d1bcd1f30772e6da6c28af9548cb0"
+          test "$(git -C knowledge rev-parse HEAD)" = "21b13b628f1f8502b5d95395d217e4c217108c48"
           export IWXA_WORKFLOW_PUBLIC_SOURCE="$(node -p 'require("node:path").resolve("knowledge")')"
           export IWXA_WORKFLOW_AGENT_SOURCE="$(node -p 'require("node:path").resolve("private-agent")')"
           export IWXA_WORKFLOW_AGENT_FIXTURE="$(node -p 'require("node:path").resolve("qualification/workflow-original-task.py")')"
@@ -74,13 +74,15 @@ jobs:
             echo ORIGINAL_WORKFLOW_TASK_REFERENCE_FAIL
             exit 1
           fi
-          grep -q "^# tests 13" "$RUNNER_TEMP/workflow-task-private.log"
+          grep -q "^# tests 14" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_WORKFLOW_TASK_REFERENCE_PASS
           grep -q "ORIGINAL_AGENT_DURABLE_WORKFLOW_INPUT_FIXTURE_PASS" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_PUBLIC_SOURCE_CORPORATE_SIGNED_ROUNDTRIP_PASS
           echo ORIGINAL_AGENT_DURABLE_WORKFLOW_INPUT_FIXTURE_PASS
           grep -q "ORIGINAL_AGENT_ACCEPTED_CONTENT_SIGNED_RESULT_FIXTURE_PASS" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_AGENT_ACCEPTED_CONTENT_SIGNED_RESULT_FIXTURE_PASS
+          grep -q "ORIGINAL_CORPORATE_THREE_WORK_ACCEPTED_CHAIN_FIXTURE_PASS" "$RUNNER_TEMP/workflow-task-private.log"
+          echo ORIGINAL_CORPORATE_THREE_WORK_ACCEPTED_CHAIN_FIXTURE_PASS
       - name: Original corporate interop accumulation
         if: always()
         run: |
