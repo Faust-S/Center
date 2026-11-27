@@ -1,0 +1,11 @@
+{
+  "workflow": "workflow-professional-geo",
+  "prepared": "0dc6599f6325cb7c9f4bb2c6eabea8bd17be8c72",
+  "profile": "public-original-geo-benchmark",
+  "pins": {
+    "osmBlob": "63346b4ce8b8907b02563e2c9ec7813e4bbb5abd",
+    "osrm": "26.8.0",
+    "valhalla": "3.8.2"
+  },
+  "reason": "Qualify both original road engines on identical historical public OSM bytes and original QGIS CRS/GeoPackage processing"
+}
