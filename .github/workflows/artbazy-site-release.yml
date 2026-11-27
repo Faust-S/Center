@@ -13,12 +13,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 110
     env:
-      SITE_PIN: fe4422418e34708a788038fb12f1c2dcf2131905
-      SITE_TREE: b7824144afd122477811876e5825f935a52bd7e6
+      SITE_PIN: 724b5cfbf7e1601d2cb3ee1b464be50cfcae9938
+      SITE_TREE: 1f5a4326a5d1ffee1a51136198673e5608002f8b
       T2_PIN: e70de29b72b83e2546f7ab74b17572685a728c17
       T2_TREE: b36ed00dcd7c518b593cb4794bfabf85e7eab049
       T3_PIN: 4dc21f8439b6988eed043bbe74dc34d8a7e7d875
       T3_TREE: ae2542cdc0dd24c6effed34c6b5a21a3318f9d68
+      ASSISTANT_PIN: 244ad469a71ae65910144c6918488a2d061eecce
+      ASSISTANT_TREE: 3ca093b94c81c1adea06d2f33dbc24d468315d92
       PLATFORM_SHA: c142597c759d6689c0298d0ec6abc7ee66b2eefbb1d5abb086efff6f0dea891e
       PUPPETEER_SKIP_DOWNLOAD: 'true'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -27,7 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazy.ru
-          ref: fe4422418e34708a788038fb12f1c2dcf2131905
+          ref: 724b5cfbf7e1601d2cb3ee1b464be50cfcae9938
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: private-site
           persist-credentials: false
@@ -50,6 +52,16 @@ jobs:
           sparse-checkout: packages/t3-core
           persist-credentials: false
           show-progress: false
+      - name: Checkout exact original T3 dynamic domain assistant
+        uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 244ad469a71ae65910144c6918488a2d061eecce
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          path: original-assistant
+          sparse-checkout: browser-local-inference/domain-assistant
+          persist-credentials: false
+          show-progress: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
@@ -68,6 +80,7 @@ jobs:
           verify_pin private-site "$SITE_PIN" "$SITE_TREE"
           verify_pin original-t2 "$T2_PIN" "$T2_TREE"
           verify_pin original-t3 "$T3_PIN" "$T3_TREE"
+          verify_pin original-assistant "$ASSISTANT_PIN" "$ASSISTANT_TREE"
           stage="$RUNNER_TEMP/artbazy-release"
           mkdir -p "$stage"
           curl -fsSL --retry 2 -o "$stage/platform-inputs.zip" \
@@ -105,9 +118,10 @@ jobs:
           phase PUBLIC_SOURCE_LINKS npm run check:source-links
           phase SITE_PROJECTION npm run check:t3:calculation-projection
           phase PACKAGING npm run test:t3:packaging
+          phase ASSISTANT_PROJECTION node --input-type=module -e 'import {readFileSync} from "node:fs";import {verifyAssistantSkills} from "./scripts/verify-artbazy-assistant-skills.mjs";const pin=JSON.parse(readFileSync("runtime/t3-platform/0.3.1-rc.2/domain-assistant.json","utf8"));verifyAssistantSkills(process.cwd(),pin);'
           phase DIST_TRANSACTION npm run test:release:transaction
           phase ORIGINAL_HOST npm run prepare:t3:host -- \
-            "$GITHUB_WORKSPACE/original-t3/packages/t3-core" "$stage/host" "$stage/platform-inputs.zip"
+            "$GITHUB_WORKSPACE/original-t3/packages/t3-core" "$stage/host" "$stage/platform-inputs.zip" "$GITHUB_WORKSPACE/original-assistant"
           phase ORIGINAL_KERNEL_SUPPORT npm run prepare:t3:kernel-support -- \
             "$GITHUB_WORKSPACE/original-t2" "$stage/kernel" "$stage/platform-inputs.zip"
           export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome || command -v chromium)"
@@ -122,11 +136,16 @@ jobs:
           const catalog=read('runtime/artbazy-module/service-catalog.json');
           const routes=[...catalog.calculators.map(x=>x.route),...catalog.methods.filter(x=>x.public_service===true).map(x=>x.route)];
           if(routes.length!==496||new Set(routes).size!==496||routes.some(p=>!existsSync('dist'+p+'index.html')))throw Error('ARTBAZY_RELEASE_ROUTE_COUNT');
-          for(const p of ['index.html','404.html','workspace/index.html','workspace/exchange/index.html','workspace/lifecycle/index.html','workspace/studio/index.html','t3-sw.js','t3-domain-mode.mjs'])
+          for(const p of ['index.html','404.html','workspace/index.html','workspace/exchange/index.html','workspace/lifecycle/index.html','workspace/studio/index.html','t3-sw.js','t3-domain-mode.mjs','assets/artbazy-assistant-skills.json'])
             if(!existsSync('dist/'+p))throw Error('ARTBAZY_RELEASE_ENTRY_MISSING');
           if(manifest.complete_static_tree!==true||manifest.domain_origin!=='https://artbazy.ru')throw Error('ARTBAZY_RELEASE_OFFLINE_MANIFEST');
           const runtime=readFileSync('dist/_iwxa/runtime/0.3.6/runtime.js');
           if(createHash('sha256').update(runtime).digest('hex')!=='e1737245aba309e900203b458087ca07cb08d9ccc89901754e1122cbc9a01e78')throw Error('ARTBAZY_RELEASE_ORIGINAL_KERNEL');
+          const pack=readFileSync('dist/assets/artbazy-assistant-skills.json');
+          const expected=read('runtime/t3-platform/0.3.1-rc.2/domain-assistant.json').skills.packBlob;
+          if(createHash('sha1').update('blob '+pack.length+'\0').update(pack).digest('hex')!==expected)throw Error('ARTBAZY_RELEASE_ASSISTANT_PROJECTION');
+          if(!manifest.files.some(x=>x.path==='/assets/artbazy-assistant-skills.json'))throw Error('ARTBAZY_RELEASE_ASSISTANT_OFFLINE');
+          console.log('ASSISTANT_SKILL_PACK=PASS');
           console.log('PUBLIC_ROUTES=496/496');
           console.log('OFFLINE_RESOURCES='+manifest.files.length);
           console.log('ORIGINAL_KERNEL_BYTES=PASS');
@@ -137,4 +156,4 @@ jobs:
         shell: bash
         run: |
           rm -rf -- "$GITHUB_WORKSPACE/private-site" "$GITHUB_WORKSPACE/original-t2" \
-            "$GITHUB_WORKSPACE/original-t3" "$RUNNER_TEMP/artbazy-release"
+            "$GITHUB_WORKSPACE/original-t3" "$GITHUB_WORKSPACE/original-assistant" "$RUNNER_TEMP/artbazy-release"
