@@ -293,12 +293,16 @@ GUEST_VALUE_STATES = frozenset(('NOT_OBSERVED','EMPTY','A','B','AI','OTHER'))
 GUEST_EDIT_STATES = frozenset(('NOT_OBSERVED','FIND','PATTERN','DISPATCH','READBACK','CONFIRMED'))
 GUEST_SELECTION_STATES = frozenset(('NOT_OBSERVED','MISSING','SELECTED','UNSELECTED','INDETERMINATE','UNSUPPORTED'))
 
+GUEST_TAB_SWITCH_STATES = frozenset(('NOT_OBSERVED','FIND','PRECHECK','DISPATCH','READBACK','CONFIRMED'))
+GUEST_TAB_DISPATCH_STATES = frozenset(('NOT_OBSERVED','SELECT','TOGGLE','INVOKE','PHYSICAL'))
+
 
 def guest_observations(data):
     """Only bounded observations of the installed disposable native guest."""
     result = {}
     for key, allowed in (('UIA',GUEST_UIA_STATES),('HWND',GUEST_HWND_STATES),('DOM',GUEST_DOM_STATES),
-                         ('VALUE',GUEST_VALUE_STATES),('EDIT',GUEST_EDIT_STATES),('SELECTION',GUEST_SELECTION_STATES)):
+                         ('VALUE',GUEST_VALUE_STATES),('EDIT',GUEST_EDIT_STATES),('SELECTION',GUEST_SELECTION_STATES),
+                         ('TAB_SWITCH',GUEST_TAB_SWITCH_STATES),('TAB_DISPATCH',GUEST_TAB_DISPATCH_STATES)):
         prefix = 'AGENT066_GUEST_' + key + '='
         rows = [line[len(prefix):] for line in data.splitlines() if line.startswith(prefix)]
         if len(rows) == 1 and rows[0] in allowed:
