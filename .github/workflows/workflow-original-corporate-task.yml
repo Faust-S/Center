@@ -31,14 +31,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: da08d040ba3d1bcd1f30772e6da6c28af9548cb0
+          ref: bd3d136556566835a80eae2abeb514b34f0ab62b
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 21b13b628f1f8502b5d95395d217e4c217108c48
+          ref: 293b4ad877260d976eb64f83c4f9e9c40eead1d1
           path: knowledge
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -60,8 +60,8 @@ jobs:
           node-version: '22.16.0'
       - name: Original signed Workflow Task profile and roundtrip
         run: |
-          test "$(git -C private-t3 rev-parse HEAD)" = "da08d040ba3d1bcd1f30772e6da6c28af9548cb0"
-          test "$(git -C knowledge rev-parse HEAD)" = "21b13b628f1f8502b5d95395d217e4c217108c48"
+          test "$(git -C private-t3 rev-parse HEAD)" = "bd3d136556566835a80eae2abeb514b34f0ab62b"
+          test "$(git -C knowledge rev-parse HEAD)" = "293b4ad877260d976eb64f83c4f9e9c40eead1d1"
           export IWXA_WORKFLOW_PUBLIC_SOURCE="$(node -p 'require("node:path").resolve("knowledge")')"
           export IWXA_WORKFLOW_AGENT_SOURCE="$(node -p 'require("node:path").resolve("private-agent")')"
           export IWXA_WORKFLOW_AGENT_FIXTURE="$(node -p 'require("node:path").resolve("qualification/workflow-original-task.py")')"
@@ -74,7 +74,7 @@ jobs:
             echo ORIGINAL_WORKFLOW_TASK_REFERENCE_FAIL
             exit 1
           fi
-          grep -q "^# tests 14" "$RUNNER_TEMP/workflow-task-private.log"
+          grep -q "^# tests 15" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_WORKFLOW_TASK_REFERENCE_PASS
           grep -q "ORIGINAL_AGENT_DURABLE_WORKFLOW_INPUT_FIXTURE_PASS" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_PUBLIC_SOURCE_CORPORATE_SIGNED_ROUNDTRIP_PASS
