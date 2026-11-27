@@ -2,7 +2,7 @@
 // database. The selected organization is only a local scope until T3 admits it.
 import {deserialize, serialize, createProject, createItem} from '../vendor/atlas/src/core.mjs';
 import {readAtlasPortfolio} from './atlas-integration.mjs';
-import {organizationPlanProjection} from '../vendor/atlas/src/organization-plan-projection.mjs';
+import {organizationPlanProjection,organizationWorkEditionComparison} from '../vendor/atlas/src/organization-plan-projection.mjs';
 
 // Read the actual observed native head. Calculation belongs to Atlas, not Center.
 export function readNativeAtlasPlan(session,projectId){
@@ -44,6 +44,31 @@ export function createNativeAtlasPort(invoke) {
     const snapshot=deserialize(JSON.stringify(result.snapshot));
     return {organizationId,generation:result.generation,snapshot,
       sourceKind:'PUBLIC_ATLAS_READ_ONLY'};
+  }
+  // The history request is read-only and tied to the very same observed
+  // installed Atlas generation; never use Center preparation as history.
+  /** @param {any} session
+   * @param {{projectId:string,workId:string,revision:string}} ref */
+  async function comparePublicAtlasWork(session,ref){
+    if(session?.sourceKind!=='PUBLIC_ATLAS_READ_ONLY')
+      fail('ATLAS_PUBLIC_SOURCE_READ_ONLY');
+    if(!validOrganizationId(session.organizationId)||typeof session.generation!=='string'||
+      !session.generation||session.generation==='none'||typeof ref?.revision!=='string'||
+      !/^(0|[1-9][0-9]*)$/.test(ref.revision)||!Number.isSafeInteger(Number(ref.revision)))
+      fail('ATLAS_HISTORY_REQUEST_INVALID');
+    const current=session.snapshot;
+    if(String(current.revision)===ref.revision)
+      return organizationWorkEditionComparison(current,current,ref);
+    const result=await invoke('center_atlas_public_revision',{
+      expectedGeneration:session.generation,revision:Number(ref.revision)});
+    if(result===null)return organizationWorkEditionComparison(current,null,ref);
+    if(!row(result)||typeof result.generation!=='string'||!result.generation||
+      result.generation===session.generation||result.generation==='none'||
+      result.needsConfirmation!==false||result.restoredFromBackup!==false)
+      fail('ATLAS_HISTORY_READBACK_INVALID');
+    const original=deserialize(JSON.stringify(result.snapshot));
+    if(String(original.revision)!==ref.revision)fail('ATLAS_HISTORY_EDITION_MISMATCH');
+    return organizationWorkEditionComparison(current,original,ref);
   }
   async function commit(session,nextSnapshot) {
     if(session?.sourceKind!=='CENTER_LOCAL_PREPARATION')
@@ -100,7 +125,7 @@ export function createNativeAtlasPort(invoke) {
     return result;
   }
   return Object.freeze({
-    open,openPublicAtlas,commit,view,exportPreparation,
+    open,openPublicAtlas,comparePublicAtlasWork,commit,view,exportPreparation,
     async addProject(session,{name,type='business'}) {
       if(session?.sourceKind!=='CENTER_LOCAL_PREPARATION')fail('ATLAS_PUBLIC_SOURCE_READ_ONLY');
       const next=createProject(session.snapshot,{name,type});

@@ -111,6 +111,14 @@ fn center_atlas_public_open(app: AppHandle) -> Result<OpenResult, String> {
     center_public_atlas_open_root(&center_public_atlas_root(&app)?)
 }
 
+// The original Atlas implementation resolves the exact retained edition,
+// guarded by the generation of the already observed native head.
+#[tauri::command]
+fn center_atlas_public_revision(app:AppHandle,expected_generation:String,revision:u64)
+    ->Result<Option<OpenResult>,String>{
+    read_revision_readonly(&center_public_atlas_root(&app)?,&expected_generation,revision)
+}
+
 fn center_atlas_open_root(root: &Path) -> Result<OpenResult, String> {
     // Opening an as-yet empty organization must create its Atlas root first,
     // just as the original Atlas application does before its first read.
@@ -488,7 +496,7 @@ fn main() {
             center_native_close_ready, center_finish_native_close,
             save_draft_file, open_draft_file, center_save_iwxa_file, center_open_iwxa_file,
             center_export_publisher_test_request,
-            center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open, center_atlas_export_iwxa,
+            center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open, center_atlas_public_revision, center_atlas_export_iwxa,
             cen05_host::center_u04_open, cen05_host::center_u04_activate,
             cen05_host::center_u04_return, cen05_host::center_u04_detach,
             t3_consumer::center_cen04_t3_enroll,

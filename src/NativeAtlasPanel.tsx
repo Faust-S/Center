@@ -14,6 +14,50 @@ type PlanView={projectId:string;revision:string;projectedFinish:string|null;dead
  totals:{ready:number;waiting:number;review:number;blocked:number;no_dates:number};
  works:Array<{id:string;label:string;startDate:string|null;finishDate:string|null;reasons:string[];
   resource:{id:string;label:string;allocationPct:number}|null}>;note:string};
+type EditionComparison=Awaited<ReturnType<ReturnType<typeof createNativeAtlasPort>['comparePublicAtlasWork']>>;
+type EditionWork=NonNullable<NonNullable<EditionComparison['original']>['work']>;
+const workStates:Record<string,string>={todo:'Не начата',in_progress:'В работе',blocked:'Заблокирована',done:'Завершена'};
+const priorities:Record<string,string>={low:'Низкий',normal:'Обычный',high:'Высокий',critical:'Критический'};
+function WorkEditionTable({comparison}:{comparison:EditionComparison}){
+ const before=comparison.original?.work,after=comparison.current?.work;
+ const rows:Array<{label:string;keys:string[];value:(work:EditionWork)=>string|null}>=[
+  {label:'Название',keys:['title'],value:w=>w.title},
+  {label:'Состояние',keys:['state'],value:w=>workStates[w.state]??w.state},
+  {label:'Приоритет',keys:['priority'],value:w=>priorities[w.priority]??w.priority},
+  {label:'Плановое начало',keys:['plannedStart'],value:w=>w.plannedStart},
+  {label:'Расчётное завершение',keys:['plannedFinish'],value:w=>w.plannedFinish},
+  {label:'Установленный срок',keys:['dueDate'],value:w=>w.dueDate},
+  {label:'Длительность, дн.',keys:['estimateDays'],value:w=>String(w.estimateDays)},
+  {label:'Записанное фактическое начало',keys:['actualStart'],value:w=>w.actualStart},
+  {label:'Записанное фактическое завершение',keys:['actualFinish'],value:w=>w.actualFinish},
+  {label:'Исполнитель в плане',keys:['assignee'],value:w=>w.assignee||null},
+  {label:'Ресурс',keys:['resource'],value:w=>w.resource?w.resource.label+' ('+w.resource.allocationPct+'%)':null},
+  {label:'Зависимости',keys:['predecessors','successors'],value:w=>w.predecessors.length+' предшествующих, '+w.successors.length+' последующих'},
+  {label:'Расчётное завершение проекта',keys:['projectedProjectFinish'],value:w=>w.projectedProjectFinish}
+ ];
+ return <div data-testid="atlas-work-edition-comparison">
+   <p className="muted">{comparison.originalStatus==='NOT_RETAINED'?
+     'Исходная редакция не найдена в сохранённой истории Atlas. Исторические значения не восстановлены.':
+     comparison.originalStatus!=='FOUND'?'Работа отсутствует в указанной исходной редакции.':
+     'Исходная редакция прочитана из оригинального хранилища Atlas.'}</p>
+   {comparison.current?.status!=='FOUND'&&<p>Работа отсутствует в текущем плане. Другая работа не подставляется.</p>}
+   {(before||after)&&<div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.9em'}}>
+    <thead><tr><th scope="col" style={{textAlign:'left'}}>Показатель</th>
+     <th scope="col" style={{textAlign:'left'}}>При выдаче ({comparison.sourceRevision})</th>
+     <th scope="col" style={{textAlign:'left'}}>Сейчас ({comparison.current?.revision})</th></tr></thead>
+    <tbody>{rows.map(row=>{
+      const changed=row.keys.some(k=>comparison.changedFields.includes(k));
+      return <tr key={row.label} style={{borderTop:'1px solid var(--border, #b0b0b0)'}}>
+       <th scope="row" style={{textAlign:'left',fontWeight:400,padding:'6px 4px'}}>{row.label}</th>
+       <td style={{padding:'6px 4px'}}>{before?(row.value(before)||'Не указано'):'Нет данных'}</td>
+       <td style={{padding:'6px 4px',fontWeight:changed?600:400}}>{after?(row.value(after)||'Не указано'):'Нет данных'}
+        {changed&&<small style={{display:'block'}}>Изменилось</small>}</td>
+      </tr>;
+    })}</tbody>
+   </table></div>}
+   <small className="muted">Даты расчёта принадлежат Atlas. Фактические даты показаны только при их записи в плане, не выводятся из текста Result.</small>
+ </div>;
+}
 type WorkspaceChoice={id:string;name:string;atlasRef?:{projectId:string;revision:string}|null};
 export default function NativeAtlasPanel({organizationId,workspaces,targetWorkspaceId,onChooseWorkspace,onLink,onLinkWork,onObserved,participants,resourceBindings,onBindResource,resultFocus=null,onClearResultFocus}:{
  organizationId:string;workspaces:WorkspaceChoice[];targetWorkspaceId:string;onChooseWorkspace:(id:string)=>void;
@@ -35,11 +79,13 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
  const [presentation,setPresentation]=useState<{organizationId:string;projectId:string;workId:string;revision:string;bindingRef:string}|null>(null);
  const [presentationStatus,setPresentationStatus]=useState('');
  const [preparationExportStatus,setPreparationExportStatus]=useState('');
+ const [editionComparison,setEditionComparison]=useState<EditionComparison|null>(null);
+ const [editionError,setEditionError]=useState('');
  const epoch=useRef(0),locked=useRef(false);
  const observedCallback=useRef(onObserved);
  observedCallback.current=onObserved;
  const port=()=>createNativeAtlasPort(invoke);
- useEffect(()=>{epoch.current++;setSession(null);setView(null);setSelected('');setSelectedWork('');setError('');setProjectName('');setWorkName('');setPresentation(null);setPresentationStatus('');setPreparationExportStatus('');observedCallback.current?.(organizationId,null);return()=>{epoch.current++;};},[organizationId]);
+ useEffect(()=>{epoch.current++;setSession(null);setView(null);setSelected('');setSelectedWork('');setError('');setProjectName('');setWorkName('');setPresentation(null);setPresentationStatus('');setPreparationExportStatus('');setEditionComparison(null);setEditionError('');observedCallback.current?.(organizationId,null);return()=>{epoch.current++;};},[organizationId]);
  const planning=useMemo<{plan:PlanView|null;error:string}>(()=>{
    if(!session||!selected||!session.snapshot.projects.some((p:any)=>p.id===selected))
      return {plan:null,error:''};
@@ -67,12 +113,29 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
      if(current===epoch.current)setError(e instanceof Error?e.message:String(e));
    }finally{locked.current=false;setBusy(false);}
  }
+ async function refreshEdition(p:ReturnType<typeof createNativeAtlasPort>,s:Session,current:number){
+   if(current!==epoch.current)return;
+   setEditionComparison(null);setEditionError('');
+   if(!resultFocus||s.sourceKind!=='PUBLIC_ATLAS_READ_ONLY'||s.organizationId!==resultFocus.organizationId)return;
+   try{
+     const compared=await p.comparePublicAtlasWork(s,resultFocus.workRef);
+     if(current===epoch.current)setEditionComparison(compared);
+   }catch(e){
+     if(current===epoch.current){
+       const code=e instanceof Error?e.message:String(e);
+       setEditionError(code.includes('ATLAS_HISTORY_HEAD_CHANGED')?
+         'План изменился во время чтения истории. Перечитайте связанную работу.':
+         'Исходная редакция не подтверждена. '+code);
+     }
+   }
+ }
  async function act(run:(p:ReturnType<typeof createNativeAtlasPort>)=>Promise<any>,
    focusRef?:AcceptedAtlasFocus['workRef']){
    if(locked.current)return;
    locked.current=true;setBusy(true);setError('');
    const current=epoch.current;
    try{
+     setEditionComparison(null);setEditionError('');
      const p=port(),result=await run(p),s=result.session??result;
      if(current!==epoch.current)return;
      if(s.organizationId!==organizationId)throw Error('Контекст организации изменился.');
@@ -84,6 +147,7 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
        sameSource:session?.sourceKind===s.sourceKind,createdProjectId:result.projectId,createdWorkId:result.workId
      });
      setSelected(selection.projectId);setSelectedWork(selection.workId);
+     await refreshEdition(p,s,current);
    }catch(e){if(current===epoch.current)setError(e instanceof Error?e.message:String(e));}
    finally{locked.current=false;setBusy(false);}
  }
@@ -115,12 +179,17 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
      if(operation==='return'){
        // Refresh only the read-only source projection; never silently rewrite
        // an assignment's older revision or an unsaved editor.
-       const latest=await port().openPublicAtlas(organizationId);
+       setEditionComparison(null);setEditionError('');
+       const p=port();
+       const latest=await p.openPublicAtlas(organizationId);
        if(current!==epoch.current)return;
-       const updated=port().view(latest) as View;
+       const updated=p.view(latest) as View;
        setSession(latest as Session);setView(updated);observedCallback.current?.(organizationId,updated);
-       const selection=selectAtlasAfterRead(updated,{projectId:selected,workId:selectedWork},{sameSource:true});
+       const selection=resultFocus?
+         selectAcceptedAtlasWork(updated,resultFocus.workRef):
+         selectAtlasAfterRead(updated,{projectId:selected,workId:selectedWork},{sameSource:true});
        setSelected(selection.projectId);setSelectedWork(selection.workId);
+       await refreshEdition(p,latest as Session,current);
      }
      setPresentationStatus(describeCen05Status(operation,result));
    }catch(e){if(current===epoch.current)setError(describeCen05Error(e));}
@@ -162,6 +231,8 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
            'Исходная редакция совпадает с текущим планом.':
            'Текущая редакция '+view!.revision+' отличается от исходной. Проверьте изменения перед корректировкой.'}</p>
        </>:<p role="status">Исходная работа или проект больше не найдены. Другая работа автоматически не выбирается.</p>}
+     {editionComparison&&<WorkEditionTable comparison={editionComparison}/>}
+     {editionError&&<p role="status" data-testid="atlas-work-edition-unavailable">{editionError}</p>}
      <button type="button" className="secondary" disabled={busy}
        onClick={()=>void act(p=>p.openPublicAtlas(organizationId),resultFocus.workRef)}>Перечитать связанную работу</button>
      {resultWork&&resultComparison&&<button type="button" className="secondary" disabled={busy}

@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: a372f61409f375dc0733777045fb8c0f8d9846e0
+          ref: 371574bbd4ddc3da1b5863f95ae816a927958a31
           path: vendor/atlas
           persist-credentials: false
       # Test CEN05 against the original, pinned public U04 bridge; never
@@ -40,7 +40,7 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm test
       - name: Verify original Atlas saved WorkRef navigation
-        run: node --test vendor/atlas/tests/atlas-work-navigation.test.mjs
+        run: node --test vendor/atlas/tests/atlas-work-navigation.test.mjs vendor/atlas/tests/atlas-organization-plan-projection.test.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -56,7 +56,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: a372f61409f375dc0733777045fb8c0f8d9846e0
+          ref: 371574bbd4ddc3da1b5863f95ae816a927958a31
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: a372f61409f375dc0733777045fb8c0f8d9846e0
+          ref: 371574bbd4ddc3da1b5863f95ae816a927958a31
           path: vendor/atlas
           persist-credentials: false
       # Original U04 native module are required by Center's build.rs.
@@ -162,7 +162,7 @@ jobs:
         timeout-minutes: 27
         run: |
           $ErrorActionPreference='Stop'
-          $expectedSource='a372f61409f375dc0733777045fb8c0f8d9846e0'
+          $expectedSource='371574bbd4ddc3da1b5863f95ae816a927958a31'
           $checked=(& git -C vendor/atlas rev-parse HEAD).Trim()
           if($LASTEXITCODE -ne 0 -or $checked -ne $expectedSource){
             throw 'CEN05_ATLAS_SOURCE_PIN_MISMATCH'

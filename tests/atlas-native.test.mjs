@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createNativeAtlasPort,readNativeAtlasPlan} from '../src/atlas-native.mjs';
-import {empty,createProject,createItem,editProject,connect,serialize} from '../vendor/atlas/src/core.mjs';
+import {empty,createProject,createItem,editProject,connect,editItem,serialize} from '../vendor/atlas/src/core.mjs';
 import {readFileSync} from 'node:fs';
 
 // Fake IPC transport only; domain mutations/readback use actual Atlas core.
@@ -207,4 +207,42 @@ test('Center preparation export uses the canonical .iwxa writer and exact local 
  await assert.rejects(()=>port.exportPreparation(p.session),/ATLAS_PREPARATION_CHANGED_BEFORE_EXPORT/);
  assert.equal(calls.filter(x=>x==='center_atlas_export_iwxa').length,1);
  await assert.rejects(()=>port.exportPreparation({...w.session,sourceKind:'PUBLIC_ATLAS_READ_ONLY'}),/ATLAS_PUBLIC_SOURCE_READ_ONLY/);
+});
+
+test('Center reads the exact archived Atlas revision with the observed head generation, never writes',async()=>{
+ const p=createProject(empty(),{name:'Assembly'});
+ const w=createItem(p.state,p.id,{title:'Install'});
+ const original=w.state;
+ const current=editItem(original,p.id,w.id,{estimateDays:4,actualStartDate:'2026-11-27'});
+ const calls=[];
+ const port=createNativeAtlasPort(async(name,args)=>{
+   calls.push({name,args});
+   if(name==='center_atlas_public_open')return {generation:'current',snapshot:current,needsConfirmation:false};
+   assert.equal(name,'center_atlas_public_revision');
+   assert.deepEqual(args,{expectedGeneration:'current',revision:original.revision});
+   return {generation:'original',snapshot:original,needsConfirmation:false,restoredFromBackup:false};
+ });
+ const session=await port.openPublicAtlas('org-a');
+ const ref={projectId:p.id,workId:w.id,revision:String(original.revision)};
+ const comparison=await port.comparePublicAtlasWork(session,ref);
+ assert.equal(comparison.original.work.estimateDays,1);
+ assert.equal(comparison.current.work.estimateDays,4);
+ assert.equal(comparison.original.work.actualStart,null);
+ assert.equal(comparison.current.work.actualStart,'2026-11-27');
+ assert.equal(calls.length,2);
+ await assert.rejects(()=>port.comparePublicAtlasWork({...session,sourceKind:'CENTER_LOCAL_PREPARATION'},ref),/ATLAS_PUBLIC_SOURCE_READ_ONLY/);
+ assert.equal(calls.length,2);
+ const same=await port.comparePublicAtlasWork(session,{...ref,revision:String(current.revision)});
+ assert.deepEqual(same.changedFields,[]);assert.equal(calls.length,2);
+ for(const [reply,expected] of [
+   [{generation:'other',snapshot:current,needsConfirmation:false,restoredFromBackup:false},/ATLAS_HISTORY_EDITION_MISMATCH/],
+   [{generation:'other',snapshot:original,needsConfirmation:true,restoredFromBackup:true},/ATLAS_HISTORY_READBACK_INVALID/]
+ ]){
+   const wrong=createNativeAtlasPort(async()=>reply);
+   await assert.rejects(()=>wrong.comparePublicAtlasWork(session,ref),expected);
+ }
+ const missing=createNativeAtlasPort(async()=>null);
+ assert.equal((await missing.comparePublicAtlasWork(session,ref)).originalStatus,'NOT_RETAINED');
+ const stale=createNativeAtlasPort(async()=>{throw Error('ATLAS_HISTORY_HEAD_CHANGED')});
+ await assert.rejects(()=>stale.comparePublicAtlasWork(session,ref),/ATLAS_HISTORY_HEAD_CHANGED/);
 });
