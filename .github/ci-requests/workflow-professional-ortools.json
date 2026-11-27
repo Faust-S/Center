@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "70354125caae46bb49e83b37deb5138f8dc674b2",
+  "profile": "original-network-flow",
+  "pins": {
+    "professionalAgent": "aec79b6de65d6be36bab49419750b10945c13c58"
+  },
+  "reason": "Qualify directed capacitated transport flow with original CP-SAT, actual approved Task and durable readback"
+}
