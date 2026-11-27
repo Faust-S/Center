@@ -21,8 +21,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 180
     env:
-      PRIVATE_PIN: '44ca96f9b015ce087f822671e37d960de15b1f45'
-      PRIVATE_TREE: '02d1158da5f2572784dc4364960cda5dde79279a'
+      PRIVATE_PIN: '3184ac6e3286ebb7f6f304137a3c9ccf73a1cc3e'
+      PRIVATE_TREE: '6e1215df963f51f80748af0b70d276a5483cea66'
       QUALIFICATION_GROUP: ${{ matrix.group }}
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -36,7 +36,9 @@ jobs:
           persist-credentials: false
       - name: Admit exact one-time request before private access
         shell: bash
-        run: python .ci/agent066-browser-source/admit.py
+        run: |
+          python .ci/agent066-browser-source/test_bundle_evidence.py
+          python .ci/agent066-browser-source/admit.py
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

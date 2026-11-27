@@ -1,61 +1,39 @@
 """Private source verification only. Existing public qualification harness, no installed acceptance."""
 import os
 from pathlib import Path
-import re
 import sys
 import tempfile
 import subprocess
 
 from admit import CANDIDATE_PIN, CANDIDATE_TREE, GROUPS
+from bundle_evidence import summarize
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'agent065-modeling'))
 from qualify import Qualification, cleanup_private, status
 
 # Only fixed public result labels and existing harness diagnostics leave the runner.
 def core(q):
-    patterns = ('browser', 'mcp', 'tool_provider', 'workspace_composer',
-                'workspace_context', 'build_explorer_package', 'package_hygiene',
-                'windows_setup_bundle', 'setup_core_upgrade')
-    selected = [name for name in q.files
-                if re.fullmatch(r'tests/test_[a-zA-Z0-9_]+\.py', name)
-                and any(pattern in name for pattern in patterns)]
-    if not selected:
-        q.block('B066_CORE_SELECTION')
-        return False
-    status('B066_CORE_MODULES', len(selected))
-    py = q.venv('browser-core', ['requirements-ci.txt'])
-    if py is None:
-        return False
-    q.run('B066_PYTHON_COMPILE', [py, '-m', 'compileall', '-q', 'runtime', 'adapters', 'tools', 'tests'], timeout=300)
-    q.pytest('B066_CORE', py, selected, timeout=2400)
-    return all(q.results.values())
+    # Reuse the full Core and native-modeling regression of the accepted baseline.
+    q.run('B066_PYTHON_COMPILE', [sys.executable, '-m', 'compileall', '-q', 'runtime', 'adapters', 'tools', 'tests'], timeout=300)
+    return q.python() and all(q.results.values())
+
 
 def bundle(q):
-    # Fetch and materialize through the pinned implementation, not via npm install.
     code, _ = q.run('B066_UPSTREAM_ARCHIVES',
                     [sys.executable, '-B', 'tools/stage_browser_mcp.py', '--cache', str(q.root/'archive-cache')],
                     timeout=360)
     if code:
         return False
-    probe = """
-from pathlib import Path
-import subprocess, sys
-from tools.stage_browser_mcp import materialize
-from runtime import browser_mcp_bundle as pin
-root = Path(sys.argv[1])
-dest = root/'browser-bundle'
-materialize(root/'archive-cache', dest)
-node = dest/'node.exe'
-entry = dest/pin.MCP_ENTRY
-def run(*args):
-    p = subprocess.run([str(node), *map(str,args)], check=True, capture_output=True, text=True, timeout=60, env=pin.browser_process_env())
-    return p.stdout.strip()
-assert run('--version') == 'v'+pin.NODE_VERSION
-assert pin.MCP_VERSION in run(entry, '--version')
-help_text = run(entry, '--help')
-assert all(flag in help_text for flag in ('autoConnect', 'user-data-dir', 'experimentalInteropTools'))
-"""
-    q.run('B066_ORIGINAL_BUNDLE', [sys.executable, '-B', '-c', probe, str(q.root)], timeout=240)
+    code, out = q.run('B066_ORIGINAL_BUNDLE',
+                      [sys.executable, '-B', 'tools/verify_browser_mcp_bundle.py',
+                       '--cache', str(q.root/'archive-cache'), '--output', str(q.root/'browser-probe')],
+                      timeout=300, report=False)
+    ok, summary = summarize(code, out)
+    for key, value in summary.items():
+        status(key, value)
+    q.results['B066_ORIGINAL_BUNDLE'] = ok
+    status('B066_ORIGINAL_BUNDLE', 'PASS' if ok else 'FAIL')
     return all(q.results.values())
+
 
 def main():
     token = os.environ.pop('IWXA_TEMP_READ_TOKEN', '')

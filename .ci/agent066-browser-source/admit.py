@@ -5,8 +5,8 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-CANDIDATE_PIN = '44ca96f9b015ce087f822671e37d960de15b1f45'
-CANDIDATE_TREE = '02d1158da5f2572784dc4364960cda5dde79279a'
+CANDIDATE_PIN = '3184ac6e3286ebb7f6f304137a3c9ccf73a1cc3e'
+CANDIDATE_TREE = '6e1215df963f51f80748af0b70d276a5483cea66'
 SCOPE = 'B066_SOURCE_BUILD'
 GROUPS = ('core', 'desktop-source', 'bundle')
 
