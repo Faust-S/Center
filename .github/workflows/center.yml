@@ -20,10 +20,10 @@ concurrency:
   group: iwxa-center-qualification
   cancel-in-progress: false
 env:
-  CENTER_ATLAS_PIN: '91a73f15b0f13f0ff7cb2e7f3c9134b338e94601'
+  CENTER_ATLAS_PIN: '109438f7b2bf7dfa723e4c5e90d7fefea731b6b2'
   CENTER_BRTEST_PIN: '7cfb17870042cac824644140b7f0a587e244a20e'
   CENTER_SETUP_PIN: '0ef7544e2a6fd5fab5994f7f25abbb960063908c'
-  CENTER_T3_PIN: 'bdd7b8d37a4dc8ecfc651b03d5745f741e4f2ce6'
+  CENTER_T3_PIN: '34221b7be60bd9c98f2899c185a4809b7f603a36'
 jobs:
   request:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false) }}
