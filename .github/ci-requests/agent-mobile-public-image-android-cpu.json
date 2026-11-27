@@ -1,0 +1,9 @@
+{
+  "workflow": "agent-mobile-public-image-android-cpu",
+  "prepared_sha": "1a58b77d0d72f52e3ae7b4b41ed209decca99cf7",
+  "engine": "e637c7bccd35aa8841d67fb942ba72918176826c",
+  "engine_tree": "1e65ac8902d729a62e0720056090d1a498bbec04",
+  "ggml": "eeda9ec48fc84a3df0bb9dcc19ae9053075a2539",
+  "base_model_sha256": "c2f6e92f9d08d69cc673a1003528ac8199274b3c0eaec88d5fbefe5af67bd42b",
+  "scope": "ANDROID_X86_64_KVM_DIRECT_CLI_SIMD_RESEARCH_ONLY"
+}
