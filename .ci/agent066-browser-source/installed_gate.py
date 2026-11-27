@@ -28,6 +28,24 @@ def build_identity(out, pin, tree, version):
         return False
 
 
+def native_bridge_diagnostics(data):
+    outcomes = frozenset(('NOT_OBSERVED','BOUND','READY','UNAVAILABLE','DOWNLOAD_TARGET',
+        'CLOSED','SUSPENDED','DENIED','WORKSPACE_POLICY','FILES_RECEIPT','FILES_ROOT',
+        'FILES_FOLDER','MCP_BUNDLE','MCP_PROFILE','MCP_ENDPOINT','MCP_BINDING',
+        'MCP_SELECTION','MCP_PROTOCOL','CORE_OPERATION'))
+    helper = frozenset(('PASS','NATIVE_HELPER','INSTALL_AUTHORITY','CORE_IDENTITY','CORE_REQUEST'))
+    result = {}
+    for flow in ('MANUAL','SNAPSHOT','FILES','ACTIONS'):
+        for operation in ('AUTH','OPEN','ENABLE','RECONCILE','DOWNLOAD','HELPER'):
+            name = 'NATIVE_'+flow+'_'+operation
+            prefix = 'AGENT066_'+name+'='
+            rows = [line[len(prefix):] for line in data.splitlines() if line.startswith(prefix)]
+            allowed = helper if operation == 'HELPER' else outcomes
+            if len(rows) == 1 and rows[0] in allowed:
+                result[name] = rows[0]
+    return result
+
+
 def upgrade_diagnostics(data, *, label_prefix=''):
     phases=(UPGRADE_PHASES-{'INSTALL_064','DRAFT_064'})|{'INSTALL_065','DRAFT_066','NEW_INSTALL_WITNESS'}
     codes=UPGRADE_FAILURE_CODES|{'NEW_INSTALL_WITNESS_INVALID','INSTALLED_BROWSER_BUNDLE_INVALID',
@@ -53,7 +71,7 @@ def upgrade_diagnostics(data, *, label_prefix=''):
         if len(matches)==1 and matches[0] in allowed:
             print(label_prefix+'UPGRADE_WITNESS_'+key+'='+matches[0],flush=True)
 
-    for name,value in {**preview_dom_diagnostics(data), **navigation_http_diagnostics(data), **guest_observations(data), **browser_flow_diagnostics(data,codes)}.items():
+    for name,value in {**preview_dom_diagnostics(data), **navigation_http_diagnostics(data), **guest_observations(data), **browser_flow_diagnostics(data,codes), **native_bridge_diagnostics(data)}.items():
         print(label_prefix+name+'='+value,flush=True)
 
 

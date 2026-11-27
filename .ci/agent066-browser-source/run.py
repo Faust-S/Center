@@ -49,7 +49,7 @@ def browser_witness_preflight(q):
         return False
     return q.pytest('B066_BROWSER_WITNESS_TEST', python,
                     ['tests/test_setup_core_browser_installed.py','tests/test_setup_core_preview_layout.py','tests/test_setup_core_upgrade_065_to_066.py',
-                     'tests/test_setup_core_browser_actions.py','tests/test_setup_core_browser_files.py','tests/test_setup_core_browser_snapshot_flow.py','tests/test_setup_core_browser_snapshot.py','tests/test_setup_core_browser_development.py'], timeout=300)
+                     'tests/test_setup_core_browser_actions.py','tests/test_setup_core_browser_files.py','tests/test_setup_core_browser_snapshot_flow.py','tests/test_setup_core_browser_snapshot.py','tests/test_setup_core_browser_development.py','tests/test_browser_native_observation.py'], timeout=300)
 
 
 def main():
