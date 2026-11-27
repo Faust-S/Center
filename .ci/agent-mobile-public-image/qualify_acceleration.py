@@ -96,7 +96,9 @@ def profile_args(profile, model, lora, prompt, target):
 def lora_evidence(log, lora):
     clean = re.sub(r"\x1b\[[0-9;]*m", "", log)
     require(not re.search(r"skip incompatible LoRA|LoRA graph execution failed|\([1-9]\d* / \d+\) incompatible LoRA tensors", clean), "LORA_INCOMPATIBLE")
-    pattern = r"\((\d+) / (\d+)\) LoRA tensors have been applied, lora_file_path = ([^\r\n]+)"
+    # Original logger appends a source location, not part of the adapter path.
+    pattern = (r"(?m)\((\d+) / (\d+)\) LoRA tensors have been applied, lora_file_path = "
+               r"([^\r\n]+?)(?: --- lora\.hpp:[1-9][0-9]*)?[ \t]*\r?$")
     observed = []
     for a, b, path in re.findall(pattern, clean):
         if Path(path.strip()).resolve() != lora.resolve():
@@ -149,7 +151,8 @@ def compare(rows):
             require(type(r["durationMs"]) is int and r["durationMs"] > 0 and
                     type(r["peakRssKiB"]) is int and r["peakRssKiB"] > 0, "PAIR_MEASUREMENTS")
         require(a["pixelSha256"] != b["pixelSha256"], "PAIR_IDENTICAL_PIXELS")
-        require(a["loraApplication"] is None and b["loraApplication"] is not None, "PAIR_LORA_EVIDENCE")
+        require(a["loraApplication"] is None and b["loraApplication"] is not None and
+                b["loraApplication"]["fullCoverageObserved"] is True, "PAIR_LORA_EVIDENCE")
         pairs.append({"prompt": prompt, "baselineMs": a["durationMs"], "lcmMs": b["durationMs"],
                       "speedup": round(a["durationMs"] / b["durationMs"], 3),
                       "baselinePeakRssKiB": a["peakRssKiB"], "lcmPeakRssKiB": b["peakRssKiB"],
@@ -159,38 +162,67 @@ def compare(rows):
     return pairs
 
 
+def write_json(path, value):
+    part = path.with_suffix(path.suffix + ".part")
+    try:
+        with part.open("x", encoding="utf-8") as out:
+            out.write(json.dumps(value, indent=2) + "\n")
+        part.replace(path)
+    finally:
+        part.unlink(missing_ok=True)
+
+
 def qualify_acceleration(result):
     result.mkdir(parents=True, exist_ok=False)
-    with tempfile.TemporaryDirectory(prefix="iwxa-image-lcm-") as tmp:
-        root = Path(tmp)
-        src = root / "source"
-        checkout(src)
-        exe = build(src, root / "host")
-        model = root / "model.gguf"
-        download_model(model)
-        lora = root / "loras" / (LORA_NAME + ".safetensors")
-        lora.parent.mkdir()
-        tensors = download_lora(lora)
-        print("PUBLIC_LCM_MODEL_IDENTITY=PASS", flush=True)
-        rows = []
-        # Alternate execution order between prompts, on a single runner.
-        for index, prompt in enumerate(PROMPTS, 1):
-            order = tuple(PROFILES) if index % 2 else tuple(reversed(PROFILES))
-            for profile in order:
-                print(f"PUBLIC_LCM_EXPERIMENT={index}:{profile}:START", flush=True)
-                rows.append(generate_profile(exe, model, lora, result, index, prompt, profile))
-                print(f"PUBLIC_LCM_EXPERIMENT={index}:{profile}:PASS", flush=True)
-        pairs = compare(rows)
-        verify_source(src)
-        receipt = {"engineRevision": ENGINE_REV, "engineTree": ENGINE_TREE, "ggmlRevision": GGML_REV,
-                   "baseModelSha256": MODEL_SHA, "baseModelBytes": MODEL_BYTES,
-                   "loraRevision": LORA_REV, "loraSha256": LORA_SHA, "loraBytes": LORA_BYTES,
-                   "loraTensors": tensors, "loraApplyMode": "at_runtime", "sampler": "euler_a",
-                   "scheduler": "discrete", "threads": 4, "network": "ISOLATED_PER_GENERATION",
-                   "sameRunnerPairs": pairs, "images": rows, "hostExperiment": "PASS",
-                   "semanticQuality": "NOT_RUN", "androidExecution": "NOT_RUN", "productAdoption": "NOT_RUN"}
-        (result / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
-        print("PUBLIC_LCM_PAIRED_CPU=PASS", flush=True)
+    rows = []
+    progress = {"status": "RUNNING", "engineRevision": ENGINE_REV,
+                "baseModelSha256": MODEL_SHA, "loraSha256": LORA_SHA,
+                "active": None, "verifiedImages": rows}
+    write_json(result / "progress.json", progress)
+    try:
+        with tempfile.TemporaryDirectory(prefix="iwxa-image-lcm-") as tmp:
+            root = Path(tmp)
+            src = root / "source"
+            checkout(src)
+            exe = build(src, root / "host")
+            model = root / "model.gguf"
+            download_model(model)
+            lora = root / "loras" / (LORA_NAME + ".safetensors")
+            lora.parent.mkdir()
+            tensors = download_lora(lora)
+            print("PUBLIC_LCM_MODEL_IDENTITY=PASS", flush=True)
+            # Alternate execution order between prompts, on a single runner.
+            for index, prompt in enumerate(PROMPTS, 1):
+                order = tuple(PROFILES) if index % 2 else tuple(reversed(PROFILES))
+                for profile in order:
+                    progress["active"] = {"index": index, "profile": profile}
+                    write_json(result / "progress.json", progress)
+                    print(f"PUBLIC_LCM_EXPERIMENT={index}:{profile}:START", flush=True)
+                    rows.append(generate_profile(exe, model, lora, result, index, prompt, profile))
+                    progress["active"] = None
+                    write_json(result / "progress.json", progress)
+                    print(f"PUBLIC_LCM_EXPERIMENT={index}:{profile}:PASS", flush=True)
+            pairs = compare(rows)
+            verify_source(src)
+            receipt = {"engineRevision": ENGINE_REV, "engineTree": ENGINE_TREE, "ggmlRevision": GGML_REV,
+                       "baseModelSha256": MODEL_SHA, "baseModelBytes": MODEL_BYTES,
+                       "loraRevision": LORA_REV, "loraSha256": LORA_SHA, "loraBytes": LORA_BYTES,
+                       "loraTensors": tensors, "loraApplyMode": "at_runtime", "sampler": "euler_a",
+                       "scheduler": "discrete", "threads": 4, "network": "ISOLATED_PER_GENERATION",
+                       "sameRunnerPairs": pairs, "images": rows, "hostExperiment": "PASS",
+                       "semanticQuality": "NOT_RUN", "androidExecution": "NOT_RUN", "productAdoption": "NOT_RUN"}
+            write_json(result / "receipt.json", receipt)
+            progress["status"] = "PASS"
+            write_json(result / "progress.json", progress)
+            print("PUBLIC_LCM_PAIRED_CPU=PASS", flush=True)
+    except Exception as exc:
+        # Preserve already verified pairs. Any remaining PNG is diagnostic only.
+        progress["status"] = "FAIL"
+        progress["failureType"] = type(exc).__name__
+        if isinstance(exc, ValueError) and re.fullmatch(r"[A-Z_]+", str(exc)):
+            progress["failureCode"] = str(exc)
+        write_json(result / "progress.json", progress)
+        raise
 
 
 if __name__ == "__main__":

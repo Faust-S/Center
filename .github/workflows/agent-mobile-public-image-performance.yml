@@ -35,7 +35,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ninja-build python3-pil iproute2 time
       - name: Test original and acceleration qualification
-        run: cd .ci/agent-mobile-public-image && /usr/bin/python3 -m unittest -v test_qualify test_qualify_acceleration
+        run: cd .ci/agent-mobile-public-image && /usr/bin/python3 -m unittest -v test_qualify test_qualify_acceleration test_qualify_opencl
       - name: Generate paired images offline
         id: benchmark
         env:
@@ -50,5 +50,16 @@ jobs:
           path: |
             ${{ runner.temp }}/iwxa-public-image-performance/*.png
             ${{ runner.temp }}/iwxa-public-image-performance/receipt.json
+            ${{ runner.temp }}/iwxa-public-image-performance/progress.json
           if-no-files-found: error
+          retention-days: 7
+      - name: Preserve explicitly unqualified partial images and progress
+        if: ${{ failure() && steps.benchmark.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-public-image-performance-partial-not-qualified
+          path: |
+            ${{ runner.temp }}/iwxa-public-image-performance/*.png
+            ${{ runner.temp }}/iwxa-public-image-performance/progress.json
+          if-no-files-found: warn
           retention-days: 7

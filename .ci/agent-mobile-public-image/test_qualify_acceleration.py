@@ -93,6 +93,16 @@ class QualificationTests(unittest.TestCase):
         out = qa.lora_evidence(f"(20 / 20) LoRA tensors have been applied, lora_file_path = {self.lora}", self.lora)
         self.assertTrue(out["fullCoverageObserved"])
 
+    def test_original_logger_suffix_and_crlf(self):
+        line = (f"[I] diffusion: (834 / 834) LoRA tensors have been applied, lora_file_path = "
+                f"{self.lora} --- lora.hpp:1135")
+        for raw in (line, "\x1b[32m" + line + "\x1b[0m\r\n"):
+            self.assertEqual(qa.lora_evidence(raw, self.lora),
+                             {"observations": [{"applied": 834, "compatible": 834}], "fullCoverageObserved": True})
+        for tail in (".other --- lora.hpp:1135", " --- other.hpp:1135", " --- lora.hpp:1135 garbage"):
+            with self.assertRaisesRegex(ValueError, "LORA_APPLICATION_MISSING"):
+                qa.lora_evidence(f"(834 / 834) LoRA tensors have been applied, lora_file_path = {self.lora}" + tail, self.lora)
+
     def test_no_or_wrong_or_zero_lora_evidence_rejected(self):
         for log in ("loaded model", f"(0 / 20) LoRA tensors have been applied, lora_file_path = {self.lora}",
                     "(20 / 20) LoRA tensors have been applied, lora_file_path = /other.safetensors"):
@@ -138,6 +148,41 @@ class QualificationTests(unittest.TestCase):
         rows[1]["durationMs"] = 0
         with self.assertRaisesRegex(ValueError, "PAIR_MEASUREMENTS"):
             qa.compare(rows)
+
+    def test_incomplete_application_cannot_pass_pair(self):
+        rows = self.rows()
+        rows[1]["loraApplication"]["fullCoverageObserved"] = False
+        with self.assertRaisesRegex(ValueError, "PAIR_LORA_EVIDENCE"):
+            qa.compare(rows)
+
+    def test_verified_partial_results_preserved_after_failure(self):
+        out = self.root / "result"
+        row = self.rows()[0]
+        with patch.object(qa, "checkout"), patch.object(qa, "build"), patch.object(qa, "download_model"), \
+                patch.object(qa, "download_lora", return_value=834), \
+                patch.object(qa, "generate_profile", side_effect=[row, ValueError("LORA_APPLICATION_MISSING")]):
+            with self.assertRaisesRegex(ValueError, "LORA_APPLICATION_MISSING"):
+                qa.qualify_acceleration(out)
+        progress = json.loads((out / "progress.json").read_text())
+        self.assertEqual(progress["verifiedImages"], [row])
+        self.assertEqual(progress["status"], "FAIL")
+        self.assertEqual(progress["active"], {"index": 1, "profile": "lcm"})
+        self.assertEqual(progress["failureCode"], "LORA_APPLICATION_MISSING")
+        self.assertFalse((out / "receipt.json").exists())
+        self.assertFalse((out / "progress.json.part").exists())
+
+    def test_full_run_commits_receipt_after_all_pairs(self):
+        out = self.root / "result"
+        a,b,c,d = self.rows()
+        with patch.object(qa, "checkout"), patch.object(qa, "build"), patch.object(qa, "download_model"), \
+                patch.object(qa, "download_lora", return_value=834), patch.object(qa, "verify_source"), \
+                patch.object(qa, "generate_profile", side_effect=[a,b,d,c]):
+            qa.qualify_acceleration(out)
+        progress = json.loads((out / "progress.json").read_text())
+        self.assertEqual(progress["status"], "PASS")
+        self.assertEqual(progress["verifiedImages"], [a,b,d,c])
+        self.assertIsNone(progress["active"])
+        self.assertEqual(json.loads((out / "receipt.json").read_text())["hostExperiment"], "PASS")
 
 
 if __name__ == "__main__":
