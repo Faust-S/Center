@@ -1,0 +1,20 @@
+name: Public original Supertonic 3 qualification
+on:
+  push:
+    branches:
+      - 'ci/once/agent-mobile-public-tts/*'
+    paths:
+      - '.github/ci-requests/agent-mobile-public-tts.json'
+permissions:
+  contents: read
+jobs:
+  public-tts:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact original model and run original CPU synthesis
+        run: python3 .ci/agent-mobile-public-tts/qualify.py
