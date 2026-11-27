@@ -197,7 +197,8 @@ jobs:
           if(!(Test-Path -LiteralPath $exe -PathType Leaf)){
             throw 'CEN05_ATLAS_INSTALLED_EXE_MISSING'
           }
-          Write-Host "CEN05_ORIGINAL_ATLAS_INSTALLED source=$expectedSource sha256=$actualSum"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Value "ATLAS_INSTALLED_EXE=$exe"
+          Write-Host "CEN05_ORIGINAL_ATLAS_INSTALLED source=$expectedSource sha256=$actualSum path=$exe"
       - name: Verify the pinned Atlas native Store before Center integration
         shell: pwsh
         timeout-minutes: 5

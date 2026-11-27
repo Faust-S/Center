@@ -187,6 +187,10 @@ export default function App() {
                 {title:'IWXA Admin Center',kind:'warning'}
               ))return;
             }
+            if(savingRef.current){
+              if(active)setError('Сначала завершите сохранение, затем закройте программу.');
+              return;
+            }
             if(active)await nativeInvoke('center_finish_native_close');
           })().catch(()=>{
             if(active)setError('Не удалось закрыть окно. Сохраните работу перед выходом.');

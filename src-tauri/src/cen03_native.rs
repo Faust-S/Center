@@ -1905,6 +1905,13 @@ mod tests{
     fn native_close_admission_is_single_and_never_reopens(){
         use std::sync::{Arc,Barrier};
         let closing=Arc::new(NativeClose::default());
+        assert!(!closing.ui_ready());
+        assert!(closing.begin_fallback());
+        assert!(!closing.begin_fallback());
+        closing.end_fallback();
+        assert!(!closing.closing());
+        closing.mark_ui_ready();
+        assert!(closing.ui_ready());
         let barrier=Arc::new(Barrier::new(8));
         let handles=(0..8).map(|_|{
             let closing=closing.clone();

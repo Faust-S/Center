@@ -87,13 +87,13 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
    }catch(e){if(current===epoch.current)setError(e instanceof Error?e.message:String(e));}
    finally{locked.current=false;setBusy(false);}
  }
- async function present(operation:'open'|'activate'|'return'|'detach') {
+ async function present(operation:'open'|'activate'|'return'|'detach',exactSelection?:{projectId:string;workId:string}) {
    if(locked.current||!session||session.sourceKind!=='PUBLIC_ATLAS_READ_ONLY'||!view)return;
    locked.current=true;setBusy(true);setError('');
    const current=epoch.current;
    try {
      const api=createCen05NativePort(invoke);
-     const ref=operation==='open'?linkableAtlasWork(view,selected,selectedWork):presentation;
+     const ref=operation==='open'?linkableAtlasWork(view,exactSelection?.projectId??selected,exactSelection?.workId??selectedWork):presentation;
      if(!ref)throw Error('Сначала выберите работу Atlas.');
      const request={organizationId,projectId:ref.projectId,workId:ref.workId,revision:ref.revision};
      let result;
@@ -164,6 +164,11 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
        </>:<p role="status">Исходная работа или проект больше не найдены. Другая работа автоматически не выбирается.</p>}
      <button type="button" className="secondary" disabled={busy}
        onClick={()=>void act(p=>p.openPublicAtlas(organizationId),resultFocus.workRef)}>Перечитать связанную работу</button>
+     {resultWork&&resultComparison&&<button type="button" className="secondary" disabled={busy}
+       data-testid="native-atlas-open-result-work" onClick={()=>{
+         setSelected(resultComparison.projectId);setSelectedWork(resultComparison.workId);
+         void present('open',resultComparison);
+       }}>Открыть текущую редакцию этой работы в Atlas</button>}
      <small className="muted">Принятый Result остаётся у оригинального T3. Здесь показано сопоставление; план не изменяется автоматически.</small>
    </div>}
    {error&&<div className="notice error" role="alert">{error}</div>}
