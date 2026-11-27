@@ -180,6 +180,23 @@ try:
             if engine.k01_accepted_result_source(tid) != accepted:
                 raise ValueError("accepted owner changed")
             result = {"task":task,"result":result_row,"snapshot":matched[0],"acceptedSource":accepted}
+        elif op == "company_result":
+            # Same original complete corporate result projection; use the
+            # verified persisted Core artifacts in the synthetic execution
+            # partition. This does not bypass the installed corporate owner.
+            from runtime.t3_result_projection import project_company_accepted_result_text
+            phase = "COMPLETE_COMPANY_RESULT"
+            tid = request["taskId"]
+            task_path = engine.core_root / "tasks" / tid / "task.json"
+            task,state = engine.tasks.load_task_state(task_path,check_expiry=False)
+            verified = core._verify_state_artifacts(task_path.parent,task,state)
+            if state.get("status") != "closed" or not verified.get("accepted"):
+                raise ValueError("fixture accepted company result missing")
+            text = project_company_accepted_result_text(
+                verified["result"],review=verified["review"],accepted=verified["accepted"],
+                result_digest=state["result_ref"]["digest_sha256"],
+                accepted_digest=state["accepted_artifact_ref"]["digest_sha256"])
+            result = {"text":text}
         elif op == "document":
             phase = "DOCUMENT_READ"
             result = engine.task_document_source(request["taskId"],request["snapshotId"],
