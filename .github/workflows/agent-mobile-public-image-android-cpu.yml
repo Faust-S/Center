@@ -1,0 +1,81 @@
+name: Public original Android x86 CPU execution research
+on:
+  push:
+    branches:
+      - 'ci/once/agent-mobile-public-image-android-cpu/*'
+    paths:
+      - '.github/ci-requests/agent-mobile-public-image-android-cpu.json'
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-mobile-public-image-android-cpu
+  cancel-in-progress: false
+jobs:
+  public-android-cpu:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exact public request
+        id: admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          prepared="$(git rev-parse HEAD^)"
+          test "$GITHUB_REF_NAME" = "ci/once/agent-mobile-public-image-android-cpu/$prepared"
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          test "$(git diff --name-status HEAD^ HEAD)" = $'A\t.github/ci-requests/agent-mobile-public-image-android-cpu.json'
+          printf 'prepared=%s\n' "$prepared" >> "$GITHUB_OUTPUT"
+      - name: Install public tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ninja-build python3-pil
+      - name: Test CPU experiment policies and existing public qualification
+        run: cd .ci/agent-mobile-public-image && /usr/bin/python3 -m unittest -v test_qualify test_qualify_acceleration test_qualify_opencl test_qualify_memory test_qualify_sampler test_qualify_android_cpu
+      - name: Run original Android CLI with exact model on disposable KVM emulator
+        env:
+          PREPARED_SHA: ${{ steps.admission.outputs.prepared }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          export ANDROID_HOME="$sdk_root" ANDROID_SDK_ROOT="$sdk_root"
+          sdk="$(command -v sdkmanager || true)"
+          avd="$(command -v avdmanager || true)"
+          if [ -z "$sdk" ] || [ -z "$avd" ]; then
+            sdk="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+            avd="$sdk_root/cmdline-tools/latest/bin/avdmanager"
+          fi
+          test -x "$sdk" && test -x "$avd"
+          "$sdk" --install --channel=3 'ndk;29.0.13113456' 'emulator' 'platform-tools' 'system-images;android-35;google_apis;x86_64' < <(printf 'y\n%.0s' {1..100})
+          test -c /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/iwxa-image-avd" ANDROID_EMULATOR_HOME="$RUNNER_TEMP/iwxa-image-emulator"
+          mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_EMULATOR_HOME"
+          printf 'no\n' | "$avd" create avd -n iwxa_image_cpu_ci -k 'system-images;android-35;google_apis;x86_64' --force
+          adb="$sdk_root/platform-tools/adb"
+          "$sdk_root/emulator/emulator" -avd iwxa_image_cpu_ci -no-window -no-boot-anim -no-snapshot -gpu swiftshader_indirect -accel on -memory 8192 -cores 4 -partition-size 16384 >"$RUNNER_TEMP/iwxa-image-emulator.log" 2>&1 &
+          emu_pid=$!
+          trap 'kill "$emu_pid" 2>/dev/null || true; wait "$emu_pid" 2>/dev/null || true' EXIT
+          booted=no
+          for i in $(seq 1 60); do
+            kill -0 "$emu_pid"
+            if [ "$(timeout 10 "$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" = 1 ]; then booted=yes; break; fi
+            sleep 5
+          done
+          test "$booted" = yes
+          /usr/bin/python3 .ci/agent-mobile-public-image/qualify_android_cpu.py --prepared-sha "$PREPARED_SHA" --ndk "$sdk_root/ndk/29.0.13113456" --adb "$adb" --result "$RUNNER_TEMP/iwxa-public-image-android-cpu"
+      - name: Preserve only public experiment images and measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-public-image-android-cpu
+          path: |
+            ${{ runner.temp }}/iwxa-public-image-android-cpu/receipt.json
+            ${{ runner.temp }}/iwxa-public-image-android-cpu/*.png
+          if-no-files-found: warn
+          retention-days: 7
