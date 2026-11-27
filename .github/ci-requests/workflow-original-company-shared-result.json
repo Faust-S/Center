@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-original-company-shared-result",
+  "prepared": "bd2fa07a8e28e721875e1ba159376134cdd482cc",
+  "profile": "original-company-result-and-exact-k036-restore",
+  "pins": {
+    "knowledge": "9451a9e39ade9c6238e8ecc09370e51c5b60c8be"
+  },
+  "reason": "Qualify shared original company Result and whole Workspace restore; local GitHub DNS unavailable"
+}
