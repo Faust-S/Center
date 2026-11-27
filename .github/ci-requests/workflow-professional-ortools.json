@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "1533aec419735ec26444370a0af761b7c7f7e860",
+  "profile": "qgis-native-request-qualification",
+  "pins": {
+    "professionalAgent": "b0af2a8a657015fad65e8a642774ad1f3054bae4"
+  },
+  "reason": "Qualify native QGIS 3.34.4 U01 on pinned Ubuntu 24.04 with valid request identifier and isolated system library environment"
+}
