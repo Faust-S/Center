@@ -43,13 +43,36 @@ $projectId=[string]$projectBlock.id
 $projectTitle=[string]$projectBlock.name
 $workId=[string]$projectBlock.items[0].id
 $workTitle=[string]$projectBlock.items[0].title
-if(@($projectBlock.items).Count -lt 2){throw 'U04_WORK_REF_SWITCH_NEEDS_TWO_CANONICAL_WORKS'}
+if(@($projectBlock.items).Count -ne 2){throw 'U04_WORK_REF_SWITCH_NEEDS_TWO_CANONICAL_WORKS'}
+$secondWorkId=[string]$projectBlock.items[1].id
+$secondWorkTitle=[string]$projectBlock.items[1].title
 $revision=[string]$head.revision
 $generation=[string]$head.generation
 $beforeBytes=[System.IO.File]::ReadAllBytes($manifest)
 $beforeHash=[Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($beforeBytes))
 $proc=$null
 
+function Wait-AtlasWork([uint32]$ownerPid,[string]$expectedTitle) {
+  for($attempt=0;$attempt -lt 50;$attempt++){
+    try{
+      $atlasProcess=Get-Process -Id $ownerPid -ErrorAction Stop
+      $atlasProcess.Refresh()
+      if($atlasProcess.MainWindowHandle -ne [IntPtr]::Zero -and
+         $atlasProcess.MainWindowTitle.Contains($projectTitle)){
+        $atlasRoot=[System.Windows.Automation.AutomationElement]::FromHandle($atlasProcess.MainWindowHandle)
+        $elements=$atlasRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+          [System.Windows.Automation.Condition]::TrueCondition)
+        foreach($element in $elements){
+          try{
+            if(([string]$element.Current.Name).Contains("Открыта сохранённая работа: $expectedTitle")){return}
+          }catch{}
+        }
+      }
+    }catch{}
+    Start-Sleep -Milliseconds 300
+  }
+  throw "U04_ATLAS_EXACT_WORK_NAVIGATION_NOT_CONFIRMED pid=$ownerPid work=$expectedTitle"
+}
 function Root {
   $proc.Refresh()
   if($proc.HasExited){throw 'U05_CENTER_EXITED_UNEXPECTEDLY'}
@@ -494,7 +517,7 @@ try {
   [void](Find-UI-Text 'Ссылка на работу передана')
   $atlasProcesses=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
       Where-Object { $_.ExecutablePath -eq $atlasExe })
-  if($atlasProcesses.Count -lt 1){throw 'U04_ORIGINAL_ATLAS_PROCESS_NOT_LAUNCHED'}
+  if($atlasProcesses.Count -ne 1){throw 'U04_EXPECTED_ONE_ORIGINAL_ATLAS_PROCESS'}
   # GUI focus is an OS fact, not a text marker in the now-background
   # Center WebView2 accessibility tree. Wait for the independent installed
   # Atlas HWND, retry actual UI clicks if Windows denies foreground focus,
@@ -540,31 +563,8 @@ try {
     throw "U04_ATLAS_FOREGROUND_NOT_CONFIRMED foreground_pid=$foregroundPid atlas_pids=$($atlasPids -join ',')"
   }
   Write-Host "U04_NATIVE_ATLAS_FOREGROUND_PASS foreground_pid=$foregroundPid"
-  # The native launch argument alone is not proof of navigation. Read the
-  # actual rendered Atlas work-route acknowledgement in the independent HWND.
-  $workRouteConfirmed=$false
-  for($attempt=0;$attempt -lt 50;$attempt++){
-    try{
-      $atlasProcess=Get-Process -Id $foregroundPid -ErrorAction Stop
-      $atlasProcess.Refresh()
-      if($atlasProcess.MainWindowHandle -ne [IntPtr]::Zero -and
-         $atlasProcess.MainWindowTitle.Contains($projectTitle)){
-        $atlasRoot=[System.Windows.Automation.AutomationElement]::FromHandle($atlasProcess.MainWindowHandle)
-        $elements=$atlasRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-          [System.Windows.Automation.Condition]::TrueCondition)
-        foreach($element in $elements){
-          try{
-            if(([string]$element.Current.Name).Contains("Открыта сохранённая работа: $workTitle")){
-              $workRouteConfirmed=$true;break
-            }
-          }catch{}
-        }
-      }
-    }catch{}
-    if($workRouteConfirmed){break}
-    Start-Sleep -Milliseconds 300
-  }
-  if(!$workRouteConfirmed){throw 'U04_ATLAS_EXACT_WORK_NAVIGATION_NOT_CONFIRMED'}
+  # Confirm the actual independent Atlas UI, not Center's dispatch status.
+  Wait-AtlasWork $foregroundPid $workTitle
   Write-Host "U04_ATLAS_SAVED_WORK_NAVIGATION_PASS project=$projectId work=$workId revision=$revision"
   Click 'Вернуться в Center и проверить'
   [void](Find-UI-Text 'Возврат в Center: редакция Atlas перепроверена')
@@ -588,9 +588,13 @@ try {
   if(($afterReattachPids -join ',') -ne ($originalAtlasPids -join ',')){
     throw "U04_REATTACH_SPAWNED_NEW_ATLAS_PROCESS before=$($originalAtlasPids -join ',') after=$($afterReattachPids -join ',')"
   }
+  [void](Find-UI-Text 'Ссылка на работу передана в открытое окно')
+  Wait-AtlasWork $originalAtlasPids[0] $workTitle
+  Click 'Вернуться в Center и проверить'
+  [void](Find-UI-Text 'Возврат в Center: редакция Atlas перепроверена')
   Write-Host "U04_NAVIGATION_REATTACH_SAME_PROCESS_PASS atlasPids=$($originalAtlasPids -join ',')"
-  # A different exact WorkRef in the same organization rebinds U04 without
-  # launching another installed Atlas process or selecting work in Atlas.
+  # A different exact WorkRef must select the second work in the SAME
+  # installed Atlas, not just update Center's opaque U04 binding.
   $workPicker=Find-UI 'Выбранная работа Atlas' 'ComboBox'
   $workPicker.SetFocus()
   [System.Windows.Forms.SendKeys]::SendWait('{END}')
@@ -605,7 +609,11 @@ try {
   if(($afterWorkPids -join ',') -ne ($originalAtlasPids -join ',')){
     throw 'U04_WORK_REF_SWITCH_SPAWNED_SECOND_ATLAS'
   }
-  Write-Host "U04_WORK_REF_REBIND_SAME_PROCESS_PASS atlasPids=$($originalAtlasPids -join ',')"
+  [void](Find-UI-Text 'Ссылка на работу передана в открытое окно')
+  Wait-AtlasWork $originalAtlasPids[0] $secondWorkTitle
+  Click 'Вернуться в Center и проверить'
+  [void](Find-UI-Text 'Возврат в Center: редакция Atlas перепроверена')
+  Write-Host "U04_WORK_REF_REBIND_SAME_PROCESS_PASS atlasPids=$($originalAtlasPids -join ',') work=$secondWorkId"
   # The installed Center already has two real organizations from its GUI test.
   # Change only Center's context. The original U04 verified reattach must
   # preserve the external PID without leaking the previous organization's ref.
@@ -627,6 +635,10 @@ try {
   if(($afterOrgPids -join ',') -ne ($originalAtlasPids -join ',')){
     throw 'U04_ORGANIZATION_SWITCH_SPAWNED_SECOND_ATLAS'
   }
+  [void](Find-UI-Text 'Ссылка на работу передана в открытое окно')
+  Wait-AtlasWork $originalAtlasPids[0] $workTitle
+  Click 'Вернуться в Center и проверить'
+  [void](Find-UI-Text 'Возврат в Center: редакция Atlas перепроверена')
   Write-Host "U04_ORGANIZATION_REATTACH_SAME_PROCESS_PASS atlasPids=$($originalAtlasPids -join ',')"
   Click 'Отсоединить окно'
   [void](Find-UI-Text 'Atlas продолжает работать')
@@ -641,6 +653,22 @@ try {
   if(@(Get-Process -Name 'iwxa-atlas-desktop' -ErrorAction SilentlyContinue).Count -lt 1){
     throw 'U04_DETACH_TERMINATED_ATLAS'
   }
+  # No U04 binding exists after detach. Discover the independently running
+  # registered Atlas and navigate it, rather than spawning another process.
+  Click 'Открыть окно Atlas'
+  [void](Find-UI-Text 'Существующее окно Atlas подключено без повторного запуска')
+  [void](Find-UI-Text 'Ссылка на работу передана в открытое окно')
+  Wait-AtlasWork $originalAtlasPids[0] $workTitle
+  $rediscovered=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
+    Where-Object { $_.ExecutablePath -eq $atlasExe } |
+    ForEach-Object { [uint32]$_.ProcessId } | Sort-Object)
+  if(($rediscovered -join ',') -ne ($originalAtlasPids -join ',')){
+    throw 'U04_INDEPENDENT_ATLAS_DISCOVERY_SPAWNED_PROCESS'
+  }
+  Click 'Вернуться в Center и проверить'
+  [void](Find-UI-Text 'Возврат в Center: редакция Atlas перепроверена')
+  Click 'Отсоединить окно'
+  Write-Host "U04_INDEPENDENT_ATLAS_DISCOVERY_PASS atlasPids=$($rediscovered -join ',')"
   Write-Host "U04_CROSS_INSTALLED_OPEN_FOCUS_RETURN_PASS atlasPid=$($atlasProcesses[0].ProcessId) revision=$revision"
   # The earlier file route already bound a workspace to this exact revision.
   # Native Atlas may restore that unique binding. Select the same fixture

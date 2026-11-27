@@ -107,3 +107,25 @@ test('GUI launch depends on registration and actual WorkRef, not a product versi
  assert.match(describeCen05Error('ATLAS_SETUP_CORE_INSTALL_REQUIRED'),/не зарегистрирован/);
  assert.match(describeCen05Error('ATLAS_SOURCE_SCHEMA_INVALID'),/Формат данных/);
 });
+
+
+test('an existing Atlas receives a WorkRef request without falsely confirming selection',async()=>{
+ const ref={organizationId:'org-1',projectId:'p',workId:'w',revision:'7'};
+ for(const status of ['BINDING_REUSED','WINDOW_OBSERVED']){
+  const api=createCen05NativePort(async()=>({schema:'IWXA_PRESENTATION_BRIDGE/1.0.0',
+   status,bindingRef:'existing',openedWorkAutomatically:false,workReferenceRequested:true,
+   reusedProcess:true,workNavigation:'REQUEST_QUEUED',focused:true}));
+  const reply=await api.open(ref);
+  assert.equal(reply.openedWorkAutomatically,false);
+  const label=describeCen05Status('open',reply);
+  assert.match(label,/без повторного запуска/);
+  assert.match(label,/Ссылка на работу передана в открытое окно/);
+  assert.doesNotMatch(label,/Работа открыта/);
+ }
+ const unsupported=describeCen05Status('open',{status:'BINDING_REUSED',workNavigation:'NOT_SUPPORTED'});
+ const uncertain=describeCen05Status('open',{status:'BINDING_REUSED',workNavigation:'REQUEST_UNCONFIRMED'});
+ for(const label of [unsupported,uncertain]){
+  assert.match(label,/Переход не подтверждён/);
+  assert.match(label,/ссылку вручную/);
+ }
+});

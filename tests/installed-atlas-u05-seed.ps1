@@ -49,7 +49,14 @@ function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false){
    }
    Start-Sleep -Milliseconds 240
  }
- throw "U05_INSTALLED_ATLAS_CONTROL_NOT_FOUND $type $name"
+ try{
+   $observed=@((Root).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+     [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object {
+       try{if($_.Current.Name){[string]$_.Current.ControlType.ProgrammaticName+' '+[string]$_.Current.Name}}catch{}
+     } | Select-Object -First 80)
+   Write-Host ("U05_ATLAS_UIA_DIAGNOSTIC "+($observed -join ' | '))
+ }catch{}
+ throw "U05_INSTALLED_ATLAS_CONTROL_NOT_FOUND $type $name title=$($proc.MainWindowTitle)"
 }
 function Click-UI([string]$name,[bool]$contains=$false){
  $element=Find-UI $name 'Button' $contains
