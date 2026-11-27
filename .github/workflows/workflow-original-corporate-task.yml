@@ -1,0 +1,60 @@
+# Public authorized qualification only. Never publish private source or raw logs.
+name: Original corporate Workflow Task qualification
+on:
+  push:
+    branches: ['work/2026-11-27-corporate-workflow-task-qualification']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-task:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require authorized private read-only checkout
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: test -n "$PRIVATE_SOURCE_TOKEN" || { echo ORIGINAL_T3_SOURCE_ACCESS_REQUIRED; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 163068d7eae3f9c43c7330a8816a4dfa7ac6493c
+          path: private-t3
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Original signed Workflow Task profile and roundtrip
+        run: |
+          test "$(git -C private-t3 rev-parse HEAD)" = "163068d7eae3f9c43c7330a8816a4dfa7ac6493c"
+          cd private-t3
+          rc=0
+          node --test tests/workflow-task-reference.test.mjs > "$RUNNER_TEMP/workflow-task-private.log" 2>&1 || rc=$?
+          node --input-type=module -e 'import fs from "node:fs";const s=fs.readFileSync(process.argv[1],"utf8");for(const k of ["tests","pass","fail","cancelled","skipped","todo"]){const m=s.match(new RegExp("^# "+k+" ([0-9]+)","m"));if(m)console.log("WORKFLOW_"+k.toUpperCase()+"="+m[1]);}for(const m of s.matchAll(/^not ok ([0-9]+) - /gm))console.log("WORKFLOW_FAILED_CASE="+m[1]);' "$RUNNER_TEMP/workflow-task-private.log"
+          test "$rc" = 0 || { echo ORIGINAL_WORKFLOW_TASK_REFERENCE_FAIL; exit 1; }
+          echo ORIGINAL_WORKFLOW_TASK_REFERENCE_PASS
+      - name: Original corporate interop accumulation
+        if: always()
+        run: |
+          cd private-t3
+          rc=0
+          npm run test:interop > "$RUNNER_TEMP/interop-regression-private.log" 2>&1 || rc=$?
+          node --input-type=module -e 'import fs from "node:fs";const s=fs.readFileSync(process.argv[1],"utf8");for(const k of ["tests","pass","fail","cancelled","skipped","todo"]){const m=s.match(new RegExp("^# "+k+" ([0-9]+)","m"));if(m)console.log("INTEROP_"+k.toUpperCase()+"="+m[1]);}for(const m of s.matchAll(/^not ok ([0-9]+) - /gm))console.log("INTEROP_FAILED_CASE="+m[1]);' "$RUNNER_TEMP/interop-regression-private.log"
+          test "$rc" = 0 || { echo ORIGINAL_INTEROP_REGRESSION_FAIL; exit 1; }
+          echo ORIGINAL_INTEROP_REGRESSION_PASS
+      - name: Remove private working copy and logs
+        if: always()
+        run: |
+          rm -rf private-t3
+          rm -f "$RUNNER_TEMP/workflow-task-private.log" "$RUNNER_TEMP/interop-regression-private.log"
