@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "f44415f4c6dafe7476de8b718d2ee1c2c26fb1ad",
+  "profile": "managed-windows-native-road-and-installation",
+  "pins": {
+    "professionalAgent": "43887d158042c21aedea11c46f0fdfd603efab57"
+  },
+  "reason": "Qualify original managed professional installation and actual Windows Valhalla graph to installed OR-Tools through approved Core Tasks"
+}
