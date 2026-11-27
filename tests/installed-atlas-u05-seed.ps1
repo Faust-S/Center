@@ -23,6 +23,7 @@ $projectName='U05OwnerProject'
 $firstWork='U05OwnerAlpha'
 $secondWork='U05OwnerBeta'
 $script:proc=$null
+$script:primaryFailure=$false
 function Root {
  $proc.Refresh()
  if($proc.HasExited -or $proc.MainWindowHandle -eq [IntPtr]::Zero){
@@ -99,10 +100,56 @@ function Close-Atlas {
  if($null -eq $proc){return}
  $proc.Refresh()
  if(!$proc.HasExited){
+   Write-Host 'U05_ATLAS_CLOSE_REQUESTED'
    if(![AtlasU05NativeWin]::PostMessage($proc.MainWindowHandle,0x0010,
        [IntPtr]::Zero,[IntPtr]::Zero)){throw 'U05_ATLAS_CLOSE_SIGNAL_FAILED'}
-   if(!$proc.WaitForExit(12000)){throw 'U05_ATLAS_GUI_CLOSE_TIMEOUT'}
+   # The real Atlas close handler dismisses transient previews first and
+   # deliberately blocks close during a write. Do not discard a draft or
+   # force-kill a process and call that a successful cold reopen.
+   $resent=$false
+   for($i=0;$i -lt 120;$i++){
+     if($proc.WaitForExit(250)){break}
+     $proc.Refresh()
+     if($proc.MainWindowHandle -eq [IntPtr]::Zero){continue}
+     $controls=@((Root).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+       [System.Windows.Automation.Condition]::TrueCondition))
+     $visible=@(foreach($item in $controls){
+       try{if(!$item.Current.IsOffscreen -and $item.Current.Name){$item}}catch{}
+     })
+     $names=@($visible|ForEach-Object {try{[string]$_.Current.Name}catch{''}})
+     if($names -contains 'Закрыть IWXA Atlas?'){
+       if($names -contains 'В портфеле есть изменения, которые пока не записаны на диск.' -or
+          $names -contains 'Открытая форма ещё не применена. Вернитесь, примените её к черновику и сохраните.'){
+         throw 'U05_ATLAS_CLOSE_UNEXPECTED_UNSAVED_DATA'
+       }
+       if($names -contains 'Завершается запись или чтение. Закрытие пока недоступно.'){continue}
+       if($names -contains 'Все изменения портфеля сохранены.'){
+         # Only the explicitly clean guard may use this button. No actual
+         # changes are discarded, and the original Store remains untouched.
+         $button=@($visible|Where-Object {try{
+           $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+           $_.Current.Name -ceq 'Закрыть без сохранения' -and $_.Current.IsEnabled
+         }catch{$false}})
+         if($button.Count -eq 1){
+           $button[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+           Write-Host 'U05_ATLAS_CLEAN_CLOSE_GUARD_CONFIRMED'
+           if(!$proc.WaitForExit(10000)){throw 'U05_ATLAS_CLEAN_CLOSE_GUARD_TIMEOUT'}
+           break
+         }
+       }
+     }elseif(!$resent -and $i -ge 8){
+       # First WM_CLOSE can dismiss a transient review without closing.
+       # One explicit second close is permitted, never an unbounded loop.
+       $resent=$true
+       [void][AtlasU05NativeWin]::PostMessage($proc.MainWindowHandle,0x0010,
+         [IntPtr]::Zero,[IntPtr]::Zero)
+       Write-Host 'U05_ATLAS_SECOND_CLOSE_REQUESTED'
+     }
+   }
+   $proc.Refresh()
+   if(!$proc.HasExited){throw 'U05_ATLAS_GUI_CLOSE_TIMEOUT'}
  }
+ Write-Host 'U05_ATLAS_GUI_CLOSED'
  $script:proc=$null
 }
 function Owner-Snapshot {
@@ -391,12 +438,19 @@ try{
    }
    Write-Host "U05_INSTALLED_ATLAS_GUI_TWO_WORKS_PASS version=$($result.head.revision)"
  }
+}catch{
+ $script:primaryFailure=$true
+ # Retain the actual product or UI failure if cleanup also encounters a
+ # modal or a delayed close. The private log filter prints stable codes.
+ Write-Host "U05_ATLAS_PRIMARY_FAILURE $($_.Exception.Message)"
+ throw
 }finally{
  if($null -ne $proc){
    try{Close-Atlas}catch{
      $proc.Refresh()
      if(!$proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue}
-     throw
+     Write-Host 'U05_ATLAS_CLEANUP_CLOSE_FAILED'
+     if(!$script:primaryFailure){throw}
    }
  }
 }
