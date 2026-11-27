@@ -15,6 +15,7 @@ const call=(op,extra={})=>{
   if(!result.ok)throw Error('ORIGINAL_COMPOSER_REFUSED');
   return result.result;
 };
+let phase='INITIAL';
 try{
   assert.equal(execFileSync('git',['-C',agent,'rev-parse','HEAD'],{encoding:'utf8'}).trim(),'68128b4c9a2c7140ec3503ff0f775e5bcb50743e');
   const {createProjectProcessSourceOwnerQualificationHarness}=await source('src/modules/base/owners/project-process-source-owner.mjs');
@@ -48,6 +49,7 @@ try{
     }};
   const run=(recoverOnly=false,confirm=()=>{approvals++;return true;})=>saveOriginalPersonalWorkflowDraft({
     plan,refreshPlan:build,composer,guarded:fn=>fn(),confirm,recoverOnly});
+  phase='COMPOSER';
   const personal=call('binding');
   assert.equal(personal.agentWorkspaceId,'personal');
   assert.equal((await run()).state,'DRAFT_CONFIRMED');
@@ -79,11 +81,16 @@ try{
   assert.equal((await owner.audit()).length,2);
   // Separately exercise the original Task, its demo provider and original
   // Human Review. This is qualification, not a product automatic dispatch.
+  phase='TASK_EXECUTE';
   const nativeTask=fileURLToPath(new URL('./workflow-original-task.py',import.meta.url));
   const taskCall=(op,extra={})=>{
     const response=JSON.parse(execFileSync('python',[nativeTask,agent,join(root,'actual-task')],{
       input:JSON.stringify({op,...extra}),encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:60000}));
-    if(!response.ok)throw Error('ORIGINAL_TASK_FIXTURE_REFUSED');
+    if(!response.ok){
+      if(['IMPORT','CONFIG','ENGINE_INIT','AREA','DRAFT_READ','DRAFT_SAVE','TASK_CHAT','TASK_REVIEW','ACCEPTED_READ','ARTIFACT_VERIFY','SNAPSHOT_MATCH','DOCUMENT_READ'].includes(response.phase))
+        console.log('WORKFLOW_QUALIFICATION_FAILURE_PHASE='+response.phase);
+      throw Error('ORIGINAL_TASK_FIXTURE_REFUSED');
+    }
     return response.result;
   };
   const {inspectOriginalPersonalWorkflowTask}=await source('src/t3/workspace-method-personal-draft.mjs');
@@ -92,6 +99,7 @@ try{
     readAcceptedRun:async(taskId,binding)=>{assert.equal(binding.agentWorkspaceId,'personal');return taskCall('run',{taskId});},
     taskDocumentSource:async(taskId,snapshotId,path,sha256,binding)=>{assert.equal(binding.agentWorkspaceId,'personal');return taskCall('document',{taskId,snapshotId,path,sha256});}
   };
+  phase='TASK_INSPECT';
   const inspection=await inspectOriginalPersonalWorkflowTask({plan,taskId,composer,taskOwner,guarded:fn=>fn(),refreshPlan:build});
   assert.equal(inspection.state,'ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED');
   assert.equal(inspection.declaredDraftInputsVerified,true);assert.equal(inspection.workCompleted,false);
@@ -99,4 +107,10 @@ try{
   assert.match(inspection.acceptedSummarySha256,/^[a-f0-9]{64}$/);
   console.log('ORIGINAL_AGENT_ACCEPTED_TASK_DECLARED_INPUTS_PASS');
   console.log('ORIGINAL_AGENT_COMPOSER_COLD_READBACK_AND_SCOPE_CAS_PASS');
+}catch(error){
+  console.log('WORKFLOW_QUALIFICATION_FAILURE_PHASE='+phase);
+  if(['T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_MISMATCH','T3_METHOD_PERSONAL_TASK_INPUT_CHANGED',
+    'T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_CHANGED','T3_METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED'].includes(error?.code))
+    console.log('WORKFLOW_QUALIFICATION_FAILURE_CODE='+error.code);
+  process.exitCode=1;
 }finally{rmSync(root,{recursive:true,force:true});}

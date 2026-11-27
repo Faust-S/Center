@@ -5,17 +5,21 @@ import contextlib, io, json, pathlib, sys
 agent, instance = map(pathlib.Path, sys.argv[1:3])
 sys.path.insert(0, str(agent.resolve()))
 request = json.load(sys.stdin)
+phase = 'IMPORT'
 try:
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         from runtime.daily_driver_engine import DailyDriverEngine
         from runtime import personal_agent as core
+        phase = 'CONFIG'
         instance.mkdir(parents=True, exist_ok=True)
         config_path = instance / "qualification-config.json"
         if not config_path.exists():
             config = json.loads((agent / "config/daily-driver.example.json").read_text(encoding="utf-8"))
             config["instance_root"] = str(instance / "data")
             config_path.write_text(json.dumps(config), encoding="utf-8")
+        phase = 'ENGINE_INIT'
         engine = DailyDriverEngine(config_path)
+        phase = 'AREA'
         profile = engine.config.get("_storage_profile_id", "DEFAULT")
         active = engine.sessions.workspace_catalog(profile)["active_id"]
         if active != "personal":
@@ -25,28 +29,35 @@ try:
             # This qualification fixture explicitly simulates a user's
             # separate submission and Human Review. Product bridge never does so.
             draft = request["draft"]
+            phase = 'DRAFT_READ'
             empty = engine.sessions.composer_draft(profile, task_context=True)
             if empty["text"] or empty["pending_submission"] is not None:
                 raise ValueError("fixture composer occupied")
+            phase = 'DRAFT_SAVE'
             saved = engine.sessions.composer_draft(profile, text=draft["text"],
                 attachments=draft["attachments"], knowledge_sources=draft["knowledge_sources"],
                 expected_draft_digest=empty["draft_digest"], task_context=True)
             reopened = engine.sessions.composer_draft(profile, task_context=True)
             if saved != reopened:
                 raise ValueError("fixture draft readback mismatch")
+            phase = 'TASK_CHAT'
             created = engine.chat(reopened["text"], attachments=reopened["attachments"],
                 knowledge_sources=reopened["knowledge_sources"], use_memory=False,
                 use_obsidian=False, use_web=False)
             tid = created["task_id"]
+            phase = "TASK_REVIEW"
             engine.review(tid,"approve")
             result = {"taskId":tid}
         elif op == "run":
             tid = request["taskId"]
+            phase = "ACCEPTED_READ"
             accepted = engine.k01_accepted_result_source(tid)
             task_path = engine.core_root / "tasks" / tid / "task.json"
             task,state = engine.tasks.load_task_state(task_path,check_expiry=False)
+            phase = "ARTIFACT_VERIFY"
             verified = core._verify_state_artifacts(task_path.parent, task, state)
             result_row = verified["result"]
+            phase = "SNAPSHOT_MATCH"
             snapshots = engine.context_snapshots(tid,100)["snapshots"]
             matched = [s for s in snapshots if
                 s["projection_digest"] == result_row["context_projection_digest"] and
@@ -57,10 +68,11 @@ try:
                 raise ValueError("accepted owner changed")
             result = {"task":task,"result":result_row,"snapshot":matched[0],"acceptedSource":accepted}
         elif op == "document":
+            phase = "DOCUMENT_READ"
             result = engine.task_document_source(request["taskId"],request["snapshotId"],
                 request["path"],request["sha256"])
         else:
             raise ValueError("unsupported fixture operation")
     print(json.dumps({"ok":True,"result":result},ensure_ascii=True))
 except Exception:
-    print('{"ok":false,"code":"ORIGINAL_TASK_FIXTURE_REFUSED"}')
+    print(json.dumps({"ok":False,"code":"ORIGINAL_TASK_FIXTURE_REFUSED","phase":phase}))
