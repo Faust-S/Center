@@ -21,8 +21,8 @@ from local_source import LocalSourceError, git, materialize_local_source
 T2 = ('c28e01876f3230307b7f20449f7ef54374367c93',
       '3d774222c9aaa1521ded9eb23d2f5fcdb55b8cbd',
       't2/current/final-successor')
-T3 = ('9800854ec3aba3b55f2d42b3219c92574e4dbcc4',
-      '2bcae0958f90ef03894eb5635798203aa47da6a0',
+T3 = ('a8aba933217aa6c93edea1e2bfbe143075996233',
+      '7dbb23a2d2a0e76d2f5bbb41a8a43d1098c80bb6',
       ('access-control', 'interop', 'reconciliation', 'tests', 'package.json'))
 CORE = ('9fe841ff2a323ce397aefe640c844d9aa8885f7a',
         'ee1bbf93f78ba563feb8794008696ba601506574', 'packages')
@@ -35,6 +35,7 @@ OWNER_TESTS = ('tests/original-native-network-vault.test.mjs',
                'tests/original-native-network-grant.test.mjs',
                'tests/admin-native-vault-composition.test.mjs',
                'tests/original-product-network-registry.test.mjs',
+               'tests/optional-mutation-grants.test.mjs',
                'tests/original-admin-network-registry.test.mjs',
                'tests/t3-signed-workspace-exchange-owner.test.mjs',
                'tests/t3-d1-control-loopback-invalidation.test.mjs')
@@ -117,7 +118,7 @@ def owner_tests(root, env):
     counts = {key: int(value) for key, value in re.findall(
         r'^# (tests|pass|fail|cancelled|skipped) (\d+)\s*$', result.stdout, re.MULTILINE)}
     emit('K036_LOCAL_NATIVE_OWNER_COUNTS', counts)
-    need(result.returncode == 0 and counts.get('tests', 0) >= 44 and
+    need(result.returncode == 0 and counts.get('tests', 0) >= 50 and
          counts.get('pass') == counts['tests'] and
          all(counts.get(k) == 0 for k in ('fail', 'cancelled', 'skipped')),
          'NATIVE_OWNER_TESTS_FAILED')

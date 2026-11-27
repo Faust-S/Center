@@ -102,13 +102,13 @@ class LocalQualificationTests(unittest.TestCase):
         self.assertTrue(all(not p.exists() for p in seen))
 
     def test_owner_counts_require_all_tests_without_raw_logs(self):
-        valid = '# tests 44\n# pass 44\n# fail 0\n# cancelled 0\n# skipped 0\nprivate path secret\n'
+        valid = '# tests 50\n# pass 50\n# fail 0\n# cancelled 0\n# skipped 0\nprivate path secret\n'
         with patch.object(q, 'run_checked', return_value=subprocess.CompletedProcess([],0,valid,'secret')):
             out=io.StringIO()
             with contextlib.redirect_stdout(out):
                 q.owner_tests(self.repo,{})
             self.assertNotIn('secret',out.getvalue())
-        with patch.object(q, 'run_checked', return_value=subprocess.CompletedProcess([],0,valid.replace('# pass 44','# pass 43'),'')):
+        with patch.object(q, 'run_checked', return_value=subprocess.CompletedProcess([],0,valid.replace('# pass 50','# pass 49'),'')):
             with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(q.QualificationError,'NATIVE_OWNER_TESTS_FAILED'):
                 q.owner_tests(self.repo,{})
 
