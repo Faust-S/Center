@@ -30,7 +30,7 @@ function Root {
  }
  return [System.Windows.Automation.AutomationElement]::FromHandle($proc.MainWindowHandle)
 }
-function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false){
+function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false,[bool]$visibleOnly=$false){
  $target=switch($type){
    'Edit' {[System.Windows.Automation.ControlType]::Edit}
    'Text' {[System.Windows.Automation.ControlType]::Text}
@@ -43,6 +43,7 @@ function Find-UI([string]$name,[string]$type='Button',[bool]$contains=$false){
      try{
        $label=[string]$item.Current.Name
        if($item.Current.ControlType -eq $target -and
+          (!$visibleOnly -or !$item.Current.IsOffscreen) -and
           (($contains -and $label.Contains($name)) -or (!$contains -and $label -eq $name))){
          return $item
        }
@@ -143,7 +144,9 @@ function Await-SignedText([string]$fragment){
    'Оригинальный T3*' {'PREVIEW'}
    'Этот Result*' {'COLD_PREVIEW'}
    'Выбранный подписанный*' {'READBACK'}
-   default {'UNKNOWN'}
+   'Полученные результаты работ*' {'PLAN_FACT'}
+   'U05OwnerAlpha · Result*' {'EXACT_WORK'}
+   default {'SELECTED_CONTENT'}
  }
  throw ('ATLAS_U05_SIGNED_UI_TEXT_NOT_OBSERVED_'+$stage)
 }
@@ -174,7 +177,7 @@ function Open-AtlasFileMenu{
 }
 function Open-SignedFile([string]$archive){
  Open-AtlasFileMenu
- try{$control=Find-UI 'Принять подписанный Result .iwxa'}
+ try{$control=Find-UI 'Принять подписанный Result .iwxa' 'Button' $false $true}
  catch{throw 'ATLAS_U05_SIGNED_FILE_ACTION_NOT_FOUND'}
  if(!$control.Current.IsEnabled -or $control.Current.IsOffscreen){throw 'ATLAS_U05_SIGNED_FILE_ACTION_DISABLED'}
  # Real keyboard activation preserves the WebView file picker's user gesture.
@@ -279,6 +282,11 @@ function Receive-SignedResult{
     ($project[0].dependencies|ConvertTo-Json -Depth 100 -Compress)){
    throw 'ATLAS_U05_SIGNED_UNREQUESTED_PLAN_MUTATION'
  }
+ # Receipt navigation must expose the exact existing Plan / Fact card.
+ # The preview dialog was already closed by the confirmed native readback.
+ Await-SignedText 'Полученные результаты работ'
+ Await-SignedText ($firstWork+' · Result '+[string]$entry.row.resultId)
+ Await-SignedText $env:ATLAS_U05_SIGNED_RESULT_SUMMARY
  $generation=[string]$saved.head.generation
  $decisionId=[string]$entry.decision.id
  Close-Atlas
@@ -287,6 +295,9 @@ function Receive-SignedResult{
  Await-SignedText 'Этот Result уже сохранён в Atlas'
  Click-UI 'Проверить квитанцию'
  Await-SignedText 'Выбранный подписанный Result сохранён в Atlas'
+ Await-SignedText 'Полученные результаты работ'
+ Await-SignedText ($firstWork+' · Result '+[string]$entry.row.resultId)
+ Await-SignedText $env:ATLAS_U05_SIGNED_RESULT_SUMMARY
  $cold=Owner-Snapshot
  $observed=Read-SignedDecision $cold $sha
  if($null -eq $observed -or $cold.head.generation -cne $generation -or
