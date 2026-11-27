@@ -20,7 +20,7 @@ concurrency:
   group: iwxa-center-qualification
   cancel-in-progress: false
 env:
-  CENTER_ATLAS_PIN: '39e4d2f95cd07e70a76ffef5ac52022a40688413'
+  CENTER_ATLAS_PIN: '681bdd1c0baa0c2216f0325254b2a1291c695e5b'
   CENTER_BRTEST_PIN: '7cfb17870042cac824644140b7f0a587e244a20e'
   CENTER_SETUP_PIN: '0ef7544e2a6fd5fab5994f7f25abbb960063908c'
   CENTER_T3_PIN: '7a4e32532ec6ef90fc41cf14890b69981bee7a42'
@@ -59,7 +59,7 @@ jobs:
           profiles = {
               'full': {'atlas': atlas, 'brtest': brtest, 'setup_core': setup},
               'ui': {'atlas': atlas, 'brtest': brtest},
-              'atlas-native': {'atlas': atlas, 'setup_core': setup, 't3': t3},
+              'atlas-native': {'atlas': atlas, 'brtest': brtest, 'setup_core': setup, 't3': t3},
               'legacy': {'legacy_center': '2439f236cb7017135e661ee5bfd37b1d318868e1',
                          'legacy_run': '42410786028', 'accepted_run': '42486593582'},
               'webview2': {},
@@ -567,15 +567,35 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
+          repository: Faust-S/Br-test
+          ref: ${{ env.CENTER_BRTEST_PIN }}
+          path: vendor/brtest
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Verify changed public Center and Atlas source before private build
+        shell: pwsh
+        timeout-minutes: 8
+        run: |
+          $ErrorActionPreference='Stop'
+          & node --test vendor/atlas/tests/atlas09-signed-file-recipient.test.mjs vendor/atlas/tests/atlas09-t3-confirmed-readback.test.mjs vendor/atlas/tests/atlas-organization-plan-projection.test.mjs
+          if($LASTEXITCODE -ne 0){throw 'ATLAS_PUBLIC_RESULT_REGRESSION_FAILED'}
+          & node --test tests/atlas-native.test.mjs tests/atlas-result-context.test.mjs
+          if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_RESULT_REGRESSION_FAILED'}
+          & npm.cmd install --no-audit --no-fund
+          if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_NPM_FAILED'}
+          & npm.cmd run build
+          if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_INTERFACE_BUILD_FAILED'}
+          Write-Host 'ATLAS_CENTER_PUBLIC_RESULT_AND_BUILD_PASS'
+      - uses: actions/checkout@v4
+        with:
           repository: Faust-S/T3
           ref: ${{ env.CENTER_T3_PIN }}
           path: private-t3
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
           show-progress: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
