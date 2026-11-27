@@ -1,9 +1,9 @@
 {
-  "candidate": "3dd68aa1c263ec55966304e624fa78adbebbfa2f",
-  "tree": "ba9c43467473616787d708bf4fdf1b940ff94eb5",
-  "original_t3": "1e5d54bba065f0e82cc506a5443b96079d070608",
-  "original_t3_tree": "80f724d21d2acca0394e3694ae4a9a7fd65317bc",
-  "scope": "M20_5_SOURCE_ONLY_ACTIVE_CONVERSATION",
-  "reason": "QUALIFY_SOURCE_BEFORE_ANDROID_BUILD",
+  "candidate": "31ce17c8deb7a894d1c30d5414fb51fe807d68bb",
+  "tree": "f20ba3771a720c83c1024210b17dae2d18223d5b",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M20_7_SOURCE_AND_ORIGINAL_T3_CONVERSATION_ARCHIVE",
+  "reason": "QUALIFY_HISTORY_IN_ORIGINAL_T3_BEFORE_ANDROID_BUILD",
   "physical": "NOT_RUN"
 }

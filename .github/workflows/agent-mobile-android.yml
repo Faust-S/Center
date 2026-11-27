@@ -18,10 +18,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
-      PRIVATE_PIN: '3dd68aa1c263ec55966304e624fa78adbebbfa2f'
-      PRIVATE_TREE: 'ba9c43467473616787d708bf4fdf1b940ff94eb5'
-      T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
-      T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
+      PRIVATE_PIN: '31ce17c8deb7a894d1c30d5414fb51fe807d68bb'
+      PRIVATE_TREE: 'f20ba3771a720c83c1024210b17dae2d18223d5b'
+      T3_PIN: 'ff27d248d224d04d8d06142842bad9087d9ab277'
+      T3_TREE: '02ce7263c3122d5f9fa1580ff9948996a4e4c9eb'
     steps:
       - name: Checkout exact public request for admission
         uses: actions/checkout@v4
@@ -443,11 +443,11 @@ jobs:
                           if name in ("SOURCE","ASSEMBLY") and outcome.returncode==0:
                               # Exact accumulated source suite; no skip or todo.
                               node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
-                              if any(node_counts[label]!=[value] for label,value in {"tests":"840","pass":"840","fail":"0","skipped":"0","todo":"0"}.items()):
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"857","pass":"857","fail":"0","skipped":"0","todo":"0"}.items()):
                                   status(name,"NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
-                              node_groups={"attention-monitor.test.mjs":"N01","chat-catalog-search.test.mjs":"N02","chat-history-view.test.mjs":"N03","chat-image.test.mjs":"N04","chat-task-material.test.mjs":"N05","device-book.test.mjs":"N06","device-screen.test.mjs":"N07","document-reuse.test.mjs":"N08","gradle-launch.test.mjs":"N09","mobile-product.test.mjs":"N10","model-state.test.mjs":"N11","native-wiring.test.mjs":"N12","network-routes.test.mjs":"N13","provider-probe.test.mjs":"N14","remote-agent.test.mjs":"N15","remote-attachments.test.mjs":"N16","remote-documents.test.mjs":"N17","remote-draft-navigation.test.mjs":"N18","remote-draft-resume.test.mjs":"N19","remote-drafts.test.mjs":"N20","remote-interaction.test.mjs":"N21","remote-meta-harness.test.mjs":"N22","remote-model-control.test.mjs":"N23","t3-native-session.test.mjs":"N24","t3-staging.test.mjs":"N25","visual-witness.test.mjs":"N26","voice-input.test.mjs":"N27","work-archive.test.mjs":"N28","draft-checkpoint.test.mjs":"N29","llama-adapter.test.mjs":"N30","local-transcript.test.mjs":"N31","local-transcript-checkpoint.test.mjs":"N32","qa-vision-fixture.test.mjs":"N33","speech-prepare.test.mjs":"N34","speech-tool.test.mjs":"N35","qa-speech-fixture.test.mjs":"N36","tts-tool.test.mjs":"N37","tts-sequence.test.mjs":"N38","voice-dialogue.test.mjs":"N39","image-tool.test.mjs":"N40","conversation-context.test.mjs":"N41","provider-conversation.test.mjs":"N42","active-conversation-checkpoint.test.mjs":"N43"}
+                              node_groups={"attention-monitor.test.mjs":"N01","chat-catalog-search.test.mjs":"N02","chat-history-view.test.mjs":"N03","chat-image.test.mjs":"N04","chat-task-material.test.mjs":"N05","device-book.test.mjs":"N06","device-screen.test.mjs":"N07","document-reuse.test.mjs":"N08","gradle-launch.test.mjs":"N09","mobile-product.test.mjs":"N10","model-state.test.mjs":"N11","native-wiring.test.mjs":"N12","network-routes.test.mjs":"N13","provider-probe.test.mjs":"N14","remote-agent.test.mjs":"N15","remote-attachments.test.mjs":"N16","remote-documents.test.mjs":"N17","remote-draft-navigation.test.mjs":"N18","remote-draft-resume.test.mjs":"N19","remote-drafts.test.mjs":"N20","remote-interaction.test.mjs":"N21","remote-meta-harness.test.mjs":"N22","remote-model-control.test.mjs":"N23","t3-native-session.test.mjs":"N24","t3-staging.test.mjs":"N25","visual-witness.test.mjs":"N26","voice-input.test.mjs":"N27","work-archive.test.mjs":"N28","draft-checkpoint.test.mjs":"N29","llama-adapter.test.mjs":"N30","local-transcript.test.mjs":"N31","local-transcript-checkpoint.test.mjs":"N32","qa-vision-fixture.test.mjs":"N33","speech-prepare.test.mjs":"N34","speech-tool.test.mjs":"N35","qa-speech-fixture.test.mjs":"N36","tts-tool.test.mjs":"N37","tts-sequence.test.mjs":"N38","voice-dialogue.test.mjs":"N39","image-tool.test.mjs":"N40","conversation-context.test.mjs":"N41","provider-conversation.test.mjs":"N42","active-conversation-checkpoint.test.mjs":"N43","conversation-archive.test.mjs":"N44"}
                               # Known roles and bounded numeric coordinates only. Never output
                               # private test names, paths, assertion data or raw TAP.
                               for name_at,line_at,col_at in re.findall(r"(?m)^[ \t]+location: '[^'\r\n]*[\\/]qualification[\\/]([a-z0-9-]{1,80}\.test\.mjs):([1-9][0-9]{0,4}):([1-9][0-9]{0,3})'[ \t]*\r?$",report)[:32]:
@@ -562,7 +562,27 @@ jobs:
                       # Reject source regressions before T3 or Android provisioning.
                       if not report_stage("SOURCE",["npm","run","check:source"],mobile,180):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
-                      status("SOURCE_ONLY","PASS");status("APK","NOT_RUN");status("INSTALLED_ROUTE","NOT_RUN");return 0
+                      # Build the original public Host from a separate exact source pin.
+                      # The private GitHub authorization was already discarded.
+                      t3pin,t3tree=os.environ["T3_PIN"],os.environ["T3_TREE"]
+                      t3spec=json.loads((mobile/"product/t3-source.json").read_text())
+                      if t3spec.get("repository")!="Faust-S/knowledge" or t3spec.get("revision")!=t3pin or t3spec.get("tree")!=t3tree:
+                          status("ORIGINAL_T3_SOURCE","PIN_MISMATCH");return 1
+                      shared=root/"one-core-source";shared.mkdir()
+                      if not stage("T3_GIT_INIT",["git","init","-q"],shared,60):return 1
+                      if not stage("T3_PUBLIC_FETCH",["git","fetch","--no-tags","--depth","1","https://github.com/Faust-S/knowledge.git",t3pin],shared,240):return 1
+                      if not stage("T3_CHECKOUT",["git","checkout","--detach","-q",t3pin],shared,120):return 1
+                      if run(["git","rev-parse","HEAD"],shared).stdout.decode().strip()!=t3pin or run(["git","rev-parse","HEAD^{tree}"],shared).stdout.decode().strip()!=t3tree:
+                          status("ORIGINAL_T3_SOURCE","PIN_MISMATCH");return 1
+                      status("ORIGINAL_T3_SOURCE","PASS");status("T3_SOURCE_PIN",t3pin)
+                      t3build=root/"original-t3-build"
+                      if not report_stage("ORIGINAL_T3_BUILD",[sys.executable,"mobile/scripts/prepare-original-t3.py",str(shared),str(t3build)],source,1800):
+                          status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
+                      env["IWXA_MOBILE_T3_BUILD_ROOT"]=str(t3build)
+                      env["IWXA_MOBILE_T3_REQUIRED"]="1"
+                      if not stage("MOBILE_WEB_STAGE",["npm","run","build:web"],mobile,180):
+                          status("APK","NOT_RUN");return 1
+                      status("SOURCE_AND_T3","PASS");status("APK","NOT_RUN");status("INSTALLED_ROUTE","NOT_RUN");return 0
                       vision_policy=run(["python3","mobile/qualification/test_native_vision_receipt.py"],source,timeout=60)
                       if vision_policy.returncode or not re.search(rb"(?m)^Ran 34 tests? in [0-9.]+s\s*$",vision_policy.stdout) or not re.search(rb"(?m)^OK\s*$",vision_policy.stdout):
                           status("NATIVE_MULTIMODAL_RECEIPT_POLICY","FAIL");status("APK","NOT_RUN");return 1
