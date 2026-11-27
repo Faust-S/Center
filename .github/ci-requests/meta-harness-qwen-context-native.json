@@ -1,0 +1,10 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "meta-harness-qwen-context-native",
+  "prepared_sha": "56feeb6313a805d21855ec99171477026fc8beff",
+  "profile": "native-qwen-context-four-modes",
+  "revisions": {
+    "agent": "549913f1651425baa81e601eae3e402ac0161afc",
+    "agent_tree": "98beac7a7f62a8d3a9ed748e44e0e55dc0c5ef66"
+  }
+}
