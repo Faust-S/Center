@@ -16,13 +16,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     env:
-      PRIVATE_PIN: 684a646b9d845b90b44ee8bcf96dceca0fdfb3ba
-      PRIVATE_TREE: c3fcd6d9eb6c1ca39764ed5a2bb550e249f07998
+      PRIVATE_PIN: a7cd08c40dd32e8e20de39548f9aa0bd987ea713
+      PRIVATE_TREE: 2da1578792542d1ffbf4b8bcb75dce1261e7a03e
     steps:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/artbazy
-          ref: 684a646b9d845b90b44ee8bcf96dceca0fdfb3ba
+          ref: a7cd08c40dd32e8e20de39548f9aa0bd987ea713
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
           show-progress: false
@@ -84,6 +84,21 @@ jobs:
               if(pos)console.log(label+'_ERROR_POSITION='+pos[1]+':'+pos[2]);
             }
           }
+          const lifecycle=[["CASH","verify-w5-dynamic-investment-cash-effect.mjs",null],["EXECUTION","verify-w5-dynamic-investment-execution.mjs",null],["INVESTMENT","w5-dynamic-investment-audit.mjs","auditDynamicInvestment"],["PERIOD","w5-dynamic-period-effect-audit.mjs","auditDynamicPeriodEffect"],["PRODUCTION","w5-dynamic-production-effect-audit.mjs","auditDynamicProductionEffect"],["DECISION","w5-dynamic-decision-record-audit.mjs","auditDynamicDecisionRecord"],["HORIZON","w5-dynamic-investment-horizon-audit.mjs","auditDynamicInvestmentHorizon"],["CONTINUATION","w5-investment-continuation-audit.mjs","auditInvestmentContinuation"],["REMAINING","w5-remaining-dynamics-plan-audit.mjs","auditRemainingDynamicsPlan"],["ECONOMICS","w5-organization-dynamic-economics-audit.mjs","auditDynamicEconomics"],["CARRYOVER","w5-investment-carryover-audit.mjs","auditSavedInvestmentCarryover"]];
+          let total=0,passed=0;
+          for(const [label,file,fn] of lifecycle){
+            const args=fn?['--input-type=module','-e','import { '+fn+' as audit } from "./'+file+'"; console.log(JSON.stringify(await audit()))']: [file];
+            const p=run('LIFECYCLE_'+label,args);
+            try{
+              const d=JSON.parse(p.out);
+              if(!Number.isSafeInteger(d.total)||!Number.isSafeInteger(d.passed)||!Array.isArray(d.tests)||d.tests.length!==d.total){failed=true;console.log('LIFECYCLE_'+label+'_REPORT=FAIL');continue}
+              total+=d.total;passed+=d.passed;
+              console.log('LIFECYCLE_'+label+'_COUNT='+d.passed+'/'+d.total);
+              if(d.passed!==d.total||d.tests.some(t=>t.status!=='PASS')||(d.status!==undefined&&d.status!=='PASS'))failed=true;
+              d.tests.forEach((t,i)=>{if(t.status!=='PASS')console.log('LIFECYCLE_'+label+'_FAILED_INDEX='+(i+1))});
+            }catch{failed=true;console.log('LIFECYCLE_'+label+'_REPORT=FAIL')}
+          }
+          console.log('LIFECYCLE_COUNT='+passed+'/'+total);
           if(failed)process.exitCode=1;
           '@
           $script=Join-Path $env:RUNNER_TEMP 'artbazy-w5-source.cjs'
@@ -96,3 +111,76 @@ jobs:
         run: |
           Get-ChildItem -LiteralPath $env:GITHUB_WORKSPACE -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
           Get-ChildItem -LiteralPath $env:RUNNER_TEMP -Filter 'artbazy-w5-*' -Force | Remove-Item -Force -ErrorAction SilentlyContinue
+
+  site:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PRIVATE_SITE_PIN: 9adf876a07cc20587cb0534daa43c8c9f0f732b0
+      PRIVATE_SITE_TREE: b97ff3648862e73a896985b7983c87bada9cfb96
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/artbazy.ru
+          ref: 9adf876a07cc20587cb0534daa43c8c9f0f732b0
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+          show-progress: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+      - name: Verify exact private site pin
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$PRIVATE_SITE_PIN"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$PRIVATE_SITE_TREE"
+          echo SITE_PIN=PASS
+      - name: Install frozen dependencies without browser download
+        shell: bash
+        run: |
+          if bun install --frozen-lockfile --ignore-scripts >"$RUNNER_TEMP/artbazy-w5-deps.log" 2>&1; then echo SITE_DEPENDENCIES=PASS; else echo SITE_DEPENDENCIES=FAIL; exit 1; fi
+      - name: Native exact subject and site projection qualification
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import {spawnSync} from 'node:child_process';
+          let failed=false;
+          const run=(label,args)=>{
+            const p=spawnSync(process.execPath,args,{encoding:'utf8',maxBuffer:128*1024*1024});
+            const ok=p.status===0&&!p.error&&!p.signal;
+            console.log(label+'='+(ok?'PASS':'FAIL'));
+            if(!ok)failed=true;
+            return p;
+          };
+          const pin=run('SUBJECT_GUARD',['--test','scripts/verify-artbazy-subject-pin.test.mjs']);
+          for(const k of ['tests','pass','fail','cancelled','skipped']){
+            const m=(pin.stdout||'').match(new RegExp('^# '+k+' (\\d+)\\s*$','m'));
+            console.log('SUBJECT_GUARD_'+k.toUpperCase()+'='+(m?m[1]:'UNKNOWN'));
+          }
+          const p=run('SITE_PROJECTION',['scripts/verify-artbazy-calculation-projection.mjs']);
+          try{
+            const d=JSON.parse(p.stdout||'');
+            console.log('SITE_REPORT='+(d.status==='PASS'?'PASS':'FAIL'));
+            if(d.status!=='PASS')failed=true;
+            for(const k of ['cash_effect','execution','horizon','continuation','carryover']){
+              const a=d.investment_lifecycle?.[k];
+              if(a&&Number.isSafeInteger(a.passed)&&Number.isSafeInteger(a.total))console.log('SITE_'+k.toUpperCase()+'_COUNT='+a.passed+'/'+a.total);
+            }
+          }catch{
+            console.log('SITE_REPORT=UNAVAILABLE');
+            const m=(p.stderr||'').match(/(?:Error|TypeError|SyntaxError|RangeError): ([A-Z][A-Z_]{2,80})(?=[:\r\n ])/);
+            if(m)console.log('SITE_ERROR_CODE='+m[1]);
+            failed=true;
+          }
+          if(failed)process.exitCode=1;
+          JS
+      - name: Remove private checkout and temporary output
+        if: always()
+        shell: bash
+        run: |
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          rm -f "$RUNNER_TEMP"/artbazy-w5-*.log
