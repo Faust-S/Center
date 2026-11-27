@@ -1,0 +1,91 @@
+# Authorized one-shot qualification; no private sources or raw logs published.
+name: Original professional OR-Tools qualification
+on:
+  push:
+    branches: ['ci/once/workflow-professional-ortools/**']
+    paths: ['.github/ci-requests/workflow-professional-ortools.json']
+permissions:
+  contents: read
+concurrency:
+  group: original-professional-ortools
+  cancel-in-progress: false
+jobs:
+  professional-programs:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Validate exact deliberate one-shot request before protected checkout
+        if: github.event_name == 'push'
+        run: node qualification/validate-professional-ortools-request.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Require authorized private read-only checkout
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: test -n "$PRIVATE_SOURCE_TOKEN" || { echo PROFESSIONAL_SOURCE_ACCESS_REQUIRED; exit 1; }
+      - uses: actions/checkout@v4
+        id: professional_source
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: 5ac6ca6994c04dbee1e8850b165dcd6ad355f5ac
+          path: professional-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - name: Install isolated exact solver qualification dependencies
+        run: |
+          test "$(git -C professional-agent rev-parse HEAD)" = "5ac6ca6994c04dbee1e8850b165dcd6ad355f5ac"
+          python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 mesa==3.5.2 simpy==4.1.2 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
+          python -c "from importlib.metadata import version; from ortools.sat.python import cp_model; assert version('ortools')=='9.14.6206'; print('ORIGINAL_ORTOOLS_9_14_6206_PRESENT')"
+      - name: Original OR-Tools solver and U01 connection qualification
+        working-directory: professional-agent
+        run: |
+          rc=0
+          python -m pytest -q tests/test_agent067_ortools_allocation.py --junitxml="$RUNNER_TEMP/professional-target.xml" > "$RUNNER_TEMP/professional-target-private.log" 2>&1 || rc=$?
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-target.xml" ORTOOLS 21 strict || exit 1
+          test "$rc" = 0
+      - name: Existing program and modeling regression
+        if: always() && steps.professional_source.outcome == 'success'
+        working-directory: professional-agent
+        run: |
+          rc=0
+          python -m pytest -q tests/test_public_program_composition.py tests/test_agent065_modeling_experiment.py tests/test_agent065_modeling_cold_readback.py tests/test_agent065_modeling_result_artifacts.py tests/test_agent065_modeling_large_results.py --junitxml="$RUNNER_TEMP/professional-regression.xml" > "$RUNNER_TEMP/professional-regression-private.log" 2>&1 || rc=$?
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-regression.xml" PROGRAM_REGRESSION 1 relaxed || exit 1
+          test "$rc" = 0
+      - name: Original desktop input and result projection tests
+        if: always() && steps.professional_source.outcome == 'success'
+        working-directory: professional-agent/desktop
+        run: |
+          rc=0
+          node --test tests/ortools-allocation-form.test.mjs > "$RUNNER_TEMP/professional-desktop-private.log" 2>&1 || rc=$?
+          node --input-type=module -e 'import fs from "node:fs";const s=fs.readFileSync(process.argv[1],"utf8");for(const k of ["tests","pass","fail","skipped"]){const m=s.match(new RegExp("^# "+k+" ([0-9]+)","m"));if(m)console.log("DESKTOP_ALLOCATION_"+k.toUpperCase()+"="+m[1]);}' "$RUNNER_TEMP/professional-desktop-private.log"
+          test "$rc" = 0
+      - name: Original desktop TypeScript and Vite
+        if: always() && steps.professional_source.outcome == 'success'
+        working-directory: professional-agent/desktop
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund > "$RUNNER_TEMP/professional-npm-private.log" 2>&1 || { echo PROFESSIONAL_NPM_FAIL; exit 1; }
+          npm run build:core > "$RUNNER_TEMP/professional-build-private.log" 2>&1 || { node --input-type=module -e 'import fs from "node:fs";const s=fs.readFileSync(process.argv[1],"utf8");for(const m of s.matchAll(/(?:error )?(TS[0-9]{4})/g))console.log("DESKTOP_BUILD_CODE="+m[1]);' "$RUNNER_TEMP/professional-build-private.log"; echo PROFESSIONAL_DESKTOP_BUILD_FAIL; exit 1; }
+          echo PROFESSIONAL_DESKTOP_BUILD_PASS
+      - name: Remove private source and diagnostics
+        if: always()
+        run: |
+          rm -rf professional-agent
+          rm -f "$RUNNER_TEMP"/professional-*.xml "$RUNNER_TEMP"/professional-*-private.log
