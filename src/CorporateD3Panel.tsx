@@ -1,5 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import type {ManagerOriginalSelection} from './manager-original-selection';
+import {acceptedAtlasFocus} from './atlas-result-context.mjs';
+import type {AcceptedAtlasFocus} from './atlas-result-context.mjs';
 import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
 import {readReviewContinuation,mergeReviewContinuations,rememberReviewContinuation,
  clearUndispatchedReviewContinuation,validateReviewDecisionReceipt} from '../runtime/cen03-review-continuation.mjs';
@@ -39,7 +41,7 @@ function requireAgeStatus(value:any):AgeStatus{
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts,managerOriginal=null}:{
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts,managerOriginal=null,onInspectAtlasResult}:{
  owner:Owner;execute:Exec;run:Run;busy:boolean;organizationName:string;
  dispatchedApplications:React.RefObject<Map<string,string[]>>;
  taskAttempts:React.RefObject<Map<string,{taskId:string;attempted:boolean}>>;
@@ -47,6 +49,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  invoke:(command:string,args?:Record<string,unknown>)=>Promise<any>;
  assignmentDrafts:AssignmentDraft[];
  managerOriginal?:ManagerOriginalSelection|null;
+ onInspectAtlasResult?:(source:AcceptedAtlasFocus)=>void;
  }){
  const session=owner.snapshot;
  const exactFocus=managerOriginalSelectionMatches(managerOriginal,session)?managerOriginal:null;
@@ -331,6 +334,27 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    receipt.receipt.packageSha256===hash&&
    receipt.receipt.operationId===operationId&&
    receipt.kernelApplication==='NOT_ATTESTED_BY_RECONCILIATION_RECEIPT';
+ const acceptedAtlas=(()=>{
+   if(!accepted||!onInspectAtlasResult)return null;
+   try{return acceptedAtlasFocus({preview,receipt,session,packageSha256:hash,operationId});}
+   catch{return null;}
+ })();
+ const inspectAtlasResult=()=>run('Исходная связь принятого Result с Atlas перечитана.',async()=>{
+   if(!acceptedAtlas||!onInspectAtlasResult)throw Error('CEN_D3_ATLAS_RESULT_SOURCE_REQUIRED');
+   // Reopen the original signed package and decision. The mutable Center
+   // draft and truncated Task list never establish the historical link.
+   const [freshPreview,freshReceipt]=await Promise.all([
+     execute('d3Preview',{packageSha256:hash}),
+     execute('d3Receipt',{operationId,packageSha256:hash})
+   ]);
+   const fresh=acceptedAtlasFocus({preview:freshPreview,receipt:freshReceipt,session,packageSha256:hash,operationId});
+   if(!fresh||fresh.taskRevisionId!==acceptedAtlas.taskRevisionId||
+     fresh.resultRevisionId!==acceptedAtlas.resultRevisionId||
+     fresh.acceptanceId!==acceptedAtlas.acceptanceId||
+     JSON.stringify(fresh.workRef)!==JSON.stringify(acceptedAtlas.workRef))
+     throw Error('CEN_D3_ATLAS_RESULT_SOURCE_CHANGED');
+   onInspectAtlasResult(fresh);
+ });
  function observeApply(acceptanceId:string){
    const live=dispatchedApplications.current.get(attemptKey(acceptanceId));
    try{return {pending:mergeReviewContinuations('apply',
@@ -883,6 +907,13 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
   </div>
   {accepted&&<div className="nested-form" data-testid="d3-apply">
    <h3>Отдельное применение в оригинальный Kernel</h3>
+   {acceptedAtlas&&<div className="notice subdued" data-testid="d3-accepted-atlas-source">
+     <strong>Работа Atlas из исходного подписанного поручения</strong>
+     <p>Редакция плана при выдаче: {acceptedAtlas.workRef.revision}. Черновик Center: редакция {acceptedAtlas.draftEditNumber}.</p>
+     <button type="button" className="secondary" data-testid="d3-inspect-atlas-result"
+       disabled={busy} onClick={inspectAtlasResult}>Сопоставить принятый Result с планом Atlas</button>
+     <small>Открывается исходная работа для решения руководителя. ACCEPT сам по себе не изменяет план Atlas.</small>
+   </div>}
    {workspacePreflight&&<p role="status"
      data-testid="d3-apply-workspace-preflight" className="notice subdued">
      {workspacePreflight==='missing'

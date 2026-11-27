@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import CorporateD3Panel from './CorporateD3Panel';
 import type {ManagerOriginalSelection} from './manager-original-selection';
+import type {AcceptedAtlasFocus} from './atlas-result-context.mjs';
 import CorporateEmployeeEnrollment from './CorporateEmployeeEnrollment';
 import {corporateSeatRouteStage,observeOriginalEmployeeRegistry,originalSeatRegistryScopeMatches} from '../runtime/cen03-corporate-seats.mjs';
 import {readAppliedResults,prepareAppliedReuse} from '../runtime/cen03-applied-results.mjs';
@@ -68,7 +69,7 @@ const why=(e:unknown)=>{
    return 'Не удалось подтвердить результат подписания или экспорта. Обновите исходный список Task перед новой операцией, чтобы не создавать дубликат.';
  return message;
 };
-export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null,preferCorporateSeats=false,signedWorkspaceVisible=false,signedWorkspaceOpen=false,onOpenLicenses}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null;preferCorporateSeats?:boolean;signedWorkspaceVisible?:boolean;signedWorkspaceOpen?:boolean;onOpenLicenses?:()=>void}){
+export default function CorporatePanel({organization,invoke,onReuse,onPrepare,onSetupWorkspace,onEnsureDraftSaved,onOpenSignedWorkspace,signedWorkspaceGeneration=0,managerOriginal=null,preferredEmployeeContactId=null,preferCorporateSeats=false,signedWorkspaceVisible=false,signedWorkspaceOpen=false,onOpenLicenses,onInspectAtlasResult}:{organization:Org;invoke:Invoke|null;onReuse:(selection:{description:string;source:{organizationId:string;workspaceId:string;taskId:string;taskRevisionId:string;resultRevisionId:string;acceptanceId:string}})=>void;onPrepare:()=>void;onSetupWorkspace:()=>void;onEnsureDraftSaved:(organizationId:string,workspaceId:string)=>Promise<void>;onOpenSignedWorkspace:(organizationId:string)=>Promise<void>;signedWorkspaceGeneration?:number;managerOriginal?:ManagerOriginalSelection|null;preferredEmployeeContactId?:string|null;preferCorporateSeats?:boolean;signedWorkspaceVisible?:boolean;signedWorkspaceOpen?:boolean;onOpenLicenses?:()=>void;onInspectAtlasResult?:(source:AcceptedAtlasFocus)=>void}){
  const [owner,setOwner]=useState<any>(null);
  const [ownerAvailability,setOwnerAvailability]=useState<'NOT_CONNECTED'|'CHECKING'|'OWNER_READ_FAILED'|'OWNER_READY'>('NOT_CONNECTED');
  const [ownerReadCode,setOwnerReadCode]=useState('');
@@ -363,6 +364,7 @@ export default function CorporatePanel({organization,invoke,onReuse,onPrepare,on
     taskAttempts={attemptedD3Tasks}
     decisionAttempts={attemptedD3Decisions}
     run={act} busy={busy} invoke={invoke} managerOriginal={managerOriginal} organizationName={organization.name}
+    onInspectAtlasResult={onInspectAtlasResult}
     assignmentDrafts={organization.assignments.filter(a=>
       a.workspaceId===owner.snapshot.workspaceId).map(a=>({
         id:a.id,title:a.title,assigneeId:a.assigneeId??'',

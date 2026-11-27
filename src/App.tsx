@@ -10,6 +10,7 @@ import AdminDashboard, {AdminCompanyStructure} from './AdminDashboard';
 import AdminResultRoute from './AdminResultRoute';
 import {retainSignedWorkspaceForPage,mayOpenSignedWorkspaceOnPage} from './signed-workspace-navigation.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
+import type {AcceptedAtlasFocus} from './atlas-result-context.mjs';
 import Cen04LicensePanel from './Cen04LicensePanel';
 import AgeExchangePanel from './AgeExchangePanel';
 import iwxaBrandMark from './assets/iwxa-admin-center.svg?url';
@@ -157,6 +158,7 @@ export default function App() {
   const [nativeAtlas,setNativeAtlas] = useState<{organizationId:string;view:AtlasPortfolioView}|null>(null);
   const [atlasSelected,setAtlasSelected] = useState('');
   const [atlasWorkspace,setAtlasWorkspace] = useState('');
+  const [atlasResultFocus,setAtlasResultFocus]=useState<AcceptedAtlasFocus|null>(null);
   const atlasInput = useRef<HTMLInputElement>(null);
   const [message,setMessage] = useState('');
   const [error,setError] = useState('');
@@ -225,6 +227,8 @@ export default function App() {
   const atlasView = atlasFile?.organizationId===org?.id ? atlasFile?.view ?? null : null;
   const matchingNativeAtlas=nativeAtlas&&nativeAtlas.organizationId===org?.id ? nativeAtlas.view : null;
   const observedAtlas=selectAtlasReferenceSource(atlasView,matchingNativeAtlas,atlasObservationMode) as AtlasPortfolioView|null;
+  const currentAtlasResult=atlasResultFocus&&atlasResultFocus.organizationId===org?.id&&
+    org.workspaces.some(w=>w.id===atlasResultFocus.workspaceId)?atlasResultFocus:null;
   const currentFile=atlasFile?.organizationId===org?.id?atlasFile:null;
   const fileAtlasRef=atlasView?.projects.some(p=>p.id===atlasSelected)?linkableAtlasProject(atlasView,atlasSelected):null;
   const fileAtlasTarget=selectAtlasTargetWorkspace(org?.workspaces??[],atlasWorkspace,fileAtlasRef);
@@ -430,6 +434,14 @@ export default function App() {
     const next=item.destination as Page;
     if(pages.some(([name])=>name===next))go(next);
   };
+  const inspectAcceptedAtlasResult=(source:AcceptedAtlasFocus)=>{
+    if(activeOrganizationRef.current!==source.organizationId||org?.id!==source.organizationId||
+      !org.workspaces.some(w=>w.id===source.workspaceId)){
+      setError('Принятый Result относится к другой организации или рабочей области.');return;
+    }
+    setAtlasResultFocus(source);setAtlasWorkspace(source.workspaceId);
+    setError('');go('resources');
+  };
   const reuseAppliedResult = ({description,source}:{description:string;source:SourceResultRef}) => {
     if(!org)return;
     if(editor){setError('Сначала сохраните или закройте редактор поручения.');return;}
@@ -553,7 +565,7 @@ export default function App() {
   const selectOrg = (organizationId: string) => {
     if (editor) {setError('Сохраните или закройте открытый редактор поручения перед сменой организации.'); return;}
     if(command({type:'SELECT_ORGANIZATION',organizationId})){
-      setManagerOriginal(null);setFocusedEmployeeContact(null);
+      setManagerOriginal(null);setFocusedEmployeeContact(null);setAtlasResultFocus(null);
       setInspectorPreviews([]);setActivePreviewKey('');setInspectorTab('context');
       atlasFileRequest.current++;
       setAtlasFile(null);setAtlasSelected('');setAtlasWorkspace('');setNativeAtlas(null);
@@ -784,7 +796,8 @@ export default function App() {
       {org && page==='resources' && <section className="card padded"><h2>Планы Atlas и рабочие области</h2><p className="muted">Atlas показывает проекты и зависимости. Привязка к работе необязательна. Только проектные поручения требуют проверки точной редакции установленного Atlas перед подписанием. Обычные поручения работают через T3 без Atlas.</p>
         <form className="inline-form" onSubmit={e=>{e.preventDefault();const form=e.currentTarget;if(command({type:'ADD_WORKSPACE',organizationId:org.id,name:new FormData(form).get('name')}))form.reset();}}><input aria-label="Название рабочей области" name="name" required maxLength={160} placeholder="Название рабочей области" data-testid="workspace-name"/><button className="primary" data-testid="add-workspace">Добавить</button></form>
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span><button type="button" className="secondary" onClick={()=>openInspectorPreview('workspace',w.id,w.name)}>Подробнее</button></div>)}
-        <NativeAtlasPanel key={org.id} organizationId={org.id} workspaces={org.workspaces}
+        <NativeAtlasPanel key={org.id+'|'+(currentAtlasResult?.resultRevisionId??'plan')} organizationId={org.id} workspaces={org.workspaces}
+          resultFocus={currentAtlasResult} onClearResultFocus={()=>setAtlasResultFocus(null)}
           targetWorkspaceId={atlasWorkspace} onChooseWorkspace={setAtlasWorkspace}
           onLink={(ref,workspaceId)=>command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref})}
           participants={org.participants} resourceBindings={org.atlasResourceBindings??[]}
@@ -929,7 +942,7 @@ export default function App() {
        {org && page==='results' && <CorporatePanel key={org.id} organization={org} managerOriginal={managerOriginal}
           preferredEmployeeContactId={focusedEmployeeContact} preferCorporateSeats={seatRouteOrganization===org.id}
           signedWorkspaceOpen={signedWorkspaceOrg===org.id}
-          signedWorkspaceVisible={signedWorkspaceOrg===org.id&&signedWorkspaceVisible} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace} onOpenLicenses={()=>go('programs')}/>} 
+          signedWorkspaceVisible={signedWorkspaceOrg===org.id&&signedWorkspaceVisible} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onInspectAtlasResult={inspectAcceptedAtlasResult} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace} onOpenLicenses={()=>go('programs')}/>} 
       {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Получите подписанную лицензию Publisher, подключите сотрудников к организации и распределите места через исходный реестр T3. План потребности не является назначением места.</p>
         <div className="actions">
           <button className="primary" type="button" data-testid="open-corporate-seat-registry" onClick={openCorporateSeats}>Управление корпоративными местами</button>

@@ -2,6 +2,8 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {createNativeAtlasPort,readNativeAtlasPlan} from './atlas-native.mjs';
 import {linkableAtlasProject,linkableAtlasWork,selectAtlasTargetWorkspace,atlasWorkspaceBindingMatches,selectAtlasAfterRead} from './atlas-integration.mjs';
 import {createCen05NativePort,describeCen05Status,describeCen05Error,presentationMatchesWork} from './cen05-native.mjs';
+import {selectAcceptedAtlasWork} from './atlas-result-context.mjs';
+import type {AcceptedAtlasFocus} from './atlas-result-context.mjs';
 
 // Genuine desktop host. Browser preview intentionally has no native authority.
 const isDesktop=()=>Boolean((window as any).__TAURI_INTERNALS__);
@@ -13,14 +15,15 @@ type PlanView={projectId:string;revision:string;projectedFinish:string|null;dead
  works:Array<{id:string;label:string;startDate:string|null;finishDate:string|null;reasons:string[];
   resource:{id:string;label:string;allocationPct:number}|null}>;note:string};
 type WorkspaceChoice={id:string;name:string;atlasRef?:{projectId:string;revision:string}|null};
-export default function NativeAtlasPanel({organizationId,workspaces,targetWorkspaceId,onChooseWorkspace,onLink,onLinkWork,onObserved,participants,resourceBindings,onBindResource}:{
+export default function NativeAtlasPanel({organizationId,workspaces,targetWorkspaceId,onChooseWorkspace,onLink,onLinkWork,onObserved,participants,resourceBindings,onBindResource,resultFocus=null,onClearResultFocus}:{
  organizationId:string;workspaces:WorkspaceChoice[];targetWorkspaceId:string;onChooseWorkspace:(id:string)=>void;
  onLink:(ref:{projectId:string;revision:string},workspaceId:string)=>boolean;
  onLinkWork:(ref:{projectId:string;revision:string;workId:string},workspaceId:string,source:View)=>void;
  participants:{id:string;name:string}[];
  resourceBindings:{resourceId:string;participantId:string}[];
  onBindResource:(ref:{projectId:string;revision:string;workId:string},workspaceId:string,participantId:string,source:View)=>void;
- onObserved?:(organizationId:string,view:View|null)=>void}){
+ onObserved?:(organizationId:string,view:View|null)=>void;
+ resultFocus?:AcceptedAtlasFocus|null;onClearResultFocus?:()=>void}){
  const [session,setSession]=useState<Session|null>(null);
  const [view,setView]=useState<View|null>(null);
  const [selected,setSelected]=useState('');
@@ -43,6 +46,14 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
    try{return {plan:readNativeAtlasPlan(session,selected) as PlanView,error:''};}
    catch{return {plan:null,error:'Расчёт плана Atlas недоступен для этой редакции.'};}
  },[session,selected]);
+ // Defer the first read until the mounted organization is established.
+ // The StrictMode probe's discarded effect cannot consume the real request.
+ useEffect(()=>{
+   if(!isDesktop()||!resultFocus||resultFocus.organizationId!==organizationId)return;
+   let active=true;
+   queueMicrotask(()=>{if(active)void act(p=>p.openPublicAtlas(organizationId),resultFocus.workRef);});
+   return ()=>{active=false;};
+ },[resultFocus,organizationId]);
  if(!isDesktop())return null;
  async function exportPreparation(){
    if(locked.current||session?.sourceKind!=='CENTER_LOCAL_PREPARATION')return;
@@ -56,7 +67,8 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
      if(current===epoch.current)setError(e instanceof Error?e.message:String(e));
    }finally{locked.current=false;setBusy(false);}
  }
- async function act(run:(p:ReturnType<typeof createNativeAtlasPort>)=>Promise<any>){
+ async function act(run:(p:ReturnType<typeof createNativeAtlasPort>)=>Promise<any>,
+   focusRef?:AcceptedAtlasFocus['workRef']){
    if(locked.current)return;
    locked.current=true;setBusy(true);setError('');
    const current=epoch.current;
@@ -67,7 +79,8 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
      const next=p.view(s) as View;
      setSession(s);setView(next);
      observedCallback.current?.(organizationId,s.sourceKind==='PUBLIC_ATLAS_READ_ONLY'?next:null);
-     const selection=selectAtlasAfterRead(next,{projectId:selected,workId:selectedWork},{
+     const selection=focusRef&&s.sourceKind==='PUBLIC_ATLAS_READ_ONLY'?
+       selectAcceptedAtlasWork(next,focusRef):selectAtlasAfterRead(next,{projectId:selected,workId:selectedWork},{
        sameSource:session?.sourceKind===s.sourceKind,createdProjectId:result.projectId,createdWorkId:result.workId
      });
      setSelected(selection.projectId);setSelectedWork(selection.workId);
@@ -125,12 +138,33 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
  const resourceId=selectedPlanWork?.resource?.id;
  const boundParticipantId=resourceBindings.find(row=>row.resourceId===resourceId)?.participantId??'';
  const hasSelectedWork=!!selectedProject?.workItems.some(w=>w.id===selectedWork);
+ const resultWork=resultFocus&&session?.sourceKind==='PUBLIC_ATLAS_READ_ONLY'&&view?
+   view.projects.find(p=>p.id===resultFocus.workRef.projectId)?.workItems.find(w=>w.id===resultFocus.workRef.workId):null;
+ const resultComparison=resultFocus&&session?.sourceKind==='PUBLIC_ATLAS_READ_ONLY'&&view?
+   selectAcceptedAtlasWork(view,resultFocus.workRef):null;
  const bindingForSelectedWork=presentationMatchesWork(presentation,selectedWorkRef&&{
    organizationId,...selectedWorkRef
  });
  return <div className="card nested-form" data-testid="native-atlas-panel">
    <div className="section-head"><h3>Планы Atlas</h3><div className="inline-form"><button className="primary" disabled={busy} onClick={()=>void act(p=>p.openPublicAtlas(organizationId))} data-testid="native-atlas-public-open">Открыть Atlas Desktop</button><button className="secondary" disabled={busy} onClick={()=>void act(p=>p.open(organizationId))} data-testid="native-atlas-open" aria-label="Открыть локальный Atlas">Локальный план Center</button></div></div>
    <p className="muted">Atlas Desktop читается из исходного нативного каталога этой учётной записи, без копирования проектов. Локальные планы Center — отдельная подготовительная область и не используются для проверки ссылок на установленный Atlas. Просмотр не подтверждает корпоративные полномочия T3.</p>
+   {resultFocus&&<div className="nested-form" data-testid="native-atlas-accepted-result">
+     <div className="section-head"><h3>Принятый результат и исходный план</h3>
+       <button type="button" className="secondary" disabled={busy} onClick={onClearResultFocus}>Завершить сопоставление</button>
+     </div>
+     <p>Поручение {resultFocus.taskId}. Исходная редакция плана: {resultFocus.workRef.revision}.</p>
+     <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{resultFocus.resultExcerpt}{resultFocus.resultTruncated?'…':''}</p>
+     {!resultComparison?<p>Перечитайте установленный Atlas для сравнения.</p>:
+       resultWork?<>
+         <p><strong>{resultWork.title}</strong> · состояние: {resultWork.state} · срок: {resultWork.dueDate||'не указан'}</p>
+         <p role="status">{resultComparison.status==='SOURCE_REVISION_MATCHES'?
+           'Исходная редакция совпадает с текущим планом.':
+           'Текущая редакция '+view!.revision+' отличается от исходной. Проверьте изменения перед корректировкой.'}</p>
+       </>:<p role="status">Исходная работа или проект больше не найдены. Другая работа автоматически не выбирается.</p>}
+     <button type="button" className="secondary" disabled={busy}
+       onClick={()=>void act(p=>p.openPublicAtlas(organizationId),resultFocus.workRef)}>Перечитать связанную работу</button>
+     <small className="muted">Принятый Result остаётся у оригинального T3. Здесь показано сопоставление; план не изменяется автоматически.</small>
+   </div>}
    {error&&<div className="notice error" role="alert">{error}</div>}
    {session&&view&&<div>
      <p className="muted" data-testid="native-atlas-revision">{session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'?'Atlas Desktop · только чтение':'Локальная подготовка Center'} · редакция портфеля: {view.revision}. Проектов: {view.projects.length}.</p>
