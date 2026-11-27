@@ -1,0 +1,10 @@
+{
+  "candidate": "aab89faa773590d035244d35a650bcdf32e7683e",
+  "tree": "98a1b7f964aabcba4e3a581bb8cb33b18f7ac22f",
+  "baseline": "68128b4c9a2c7140ec3503ff0f775e5bcb50743e",
+  "baseline_tree": "73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2",
+  "scope": "B066_UPGRADE_DIAGNOSTIC",
+  "installed_gui": "REQUIRED",
+  "workflow": "agent066-browser-source",
+  "prepared_sha": "c2378cd2fe3d5b2c2e1f7f3f5bc1c0727dca8a43"
+}
