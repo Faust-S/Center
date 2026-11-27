@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {validateOriginalAtlasWorkspaceReadback} from '../runtime/cen03-d3-owner.mjs';
 import {prepareEmployeeDraftTask} from '../src/corporate-draft-task.mjs';
 import {signedAssignmentAtlasWork,acceptedAtlasFocus,selectAcceptedAtlasWork,acceptedAtlasReturnPointer,acceptedAtlasScopeMatches,sameAcceptedAtlasSource} from '../src/atlas-result-context.mjs';
 
@@ -103,4 +104,26 @@ test('return from plan holds only exact IDs and requires a fresh accepted source
    assert.equal(sameAcceptedAtlasSource(pointer,{...pointer,[key]:'different'}),false);
  }
  assert.equal(sameAcceptedAtlasSource(pointer,{...pointer,workRef:{...pointer.workRef,revision:'13'}}),false);
+});
+
+
+test('corporate Workspace readback is bound to the exact signed Atlas assignment, not D3 acceptance',()=>{
+ const task={found:true,taskId:'task:example',recipientId:session.employeePersonId,
+  taskRevisionId,packageSha256:sha,atlasReference:{draftId:draft.id,draftEditNumber:3,workRef:ref}};
+ const row={objectId:'company:work:'+digest,eventId:'event:result',artifactId:'result:example',
+  sha256:digest,mimeType:'text/plain',contentBytes:8,excerpt:'Measured',
+  excerptTruncated:false,portableContentAvailable:true};
+ const request={taskId:task.taskId,offset:0,resultObjectId:row.objectId};
+ const receipt={schema:'IWXA_T3_ADMIN_ATLAS_WORKSPACE_READBACK/1',
+  status:'WORKSPACE_RESULTS_FOUND',organizationId:session.organizationId,workspaceId:session.workspaceId,
+  executorId:task.recipientId,taskId:task.taskId,taskRevisionId,taskPackageSha256:sha,workRef:ref,
+  originalKernelReadback:true,originalSignedTaskVerified:true,signedReceiptVerified:false,
+  recipientAcceptance:false,taskObjectId:'company:work:'+acceptanceId,taskEventId:'event:task',
+  offset:0,total:1,nextOffset:null,results:[row],selectedResult:{...row,content:'Measured'}};
+ assert.deepEqual(validateOriginalAtlasWorkspaceReadback(receipt,task,session,request),receipt);
+ for(const patch of [{recipientAcceptance:true},{taskRevisionId:digest},
+  {workRef:{...ref,revision:'13'}},{selectedResult:{...row,content:'Altered!'}}]){
+  assert.throws(()=>validateOriginalAtlasWorkspaceReadback({...receipt,...patch},task,session,request),
+   /CEN_D3_ATLAS_WORKSPACE_SOURCE_CHANGED/);
+ }
 });
