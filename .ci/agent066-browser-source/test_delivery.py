@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import delivery as d
 import delivery_crypto as c
 
+
 def accepted():
     run = dict(id=d.QUALIFICATION_RUN, head_sha=d.QUALIFICATION_HEAD,
                head_branch=d.QUALIFICATION_BRANCH, path='.github/workflows/agent066-browser-source.yml',
