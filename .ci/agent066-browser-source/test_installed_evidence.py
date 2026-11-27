@@ -9,7 +9,7 @@ from installed_evidence import (SETUP_PIN, SETUP_REQUIRED, UPGRADE_REQUIRED, BRO
                                 clean_setup_diagnostics, diagnostic_status, preview_dom_diagnostics,
                                 PREVIEW_DOM_STATES, PREVIEW_DOM_CONTROLS, navigation_http_diagnostics,
                                 guest_observations,GUEST_UIA_STATES,GUEST_HWND_STATES,GUEST_DOM_STATES,
-                                GUEST_VALUE_STATES,GUEST_EDIT_STATES,GUEST_SELECTION_STATES,GUEST_TAB_SWITCH_STATES,GUEST_TAB_DISPATCH_STATES,GUEST_SCROLL_STATES)
+                                GUEST_VALUE_STATES,GUEST_EDIT_STATES,GUEST_SELECTION_STATES,GUEST_TAB_SWITCH_STATES,GUEST_TAB_DISPATCH_STATES,GUEST_SCROLL_STATES,browser_flow_diagnostics)
 
 OLD, OT, NEW, NT, OH, NH = 'a'*40, 'b'*40, 'c'*40, 'd'*40, 'e'*64, 'f'*64
 
@@ -239,9 +239,10 @@ class CleanDiagnosticTests(unittest.TestCase):
         self.assertEqual(preview_dom_diagnostics('prefix AGENT066_PREVIEW_DOM_STATE=PANE_VISIBLE'),{})
 
     def test_navigation_stage_and_http_projection(self):
+        self.assertTrue({'popup_cancel_request','popup_cancel_proposal','popup_cancel_click','popup_cancel_gone','popup_cancel_count','popup_cancel_page','popup_accept_request','popup_accept_proposal','popup_accept_click','popup_accept_count','popup_new_selected','popup_close_first','popup_close_first_count','popup_close_second','popup_close_second_count','popup_last_close_disabled','popup_page','popup_covered','popup_address','reopen_close','reopen_absent','reopen_open','reopen_initial_tab','reopen_empty','reopen_final_close','reopen_final_absent'} <= set(MANUAL_GUI_STAGES))
         self.assertTrue({'navigation_initial_covered','navigation_link_covered','navigation_back_covered','navigation_forward_covered','navigation_reload_covered'} <= set(MANUAL_GUI_STAGES))
         self.assertTrue({'navigation_address_control','navigation_address_focus','navigation_address_input','navigation_address_readback','navigation_go','navigation_initial_page','navigation_initial_address','navigation_link','navigation_link_page','navigation_link_address','navigation_back','navigation_back_page','navigation_back_address','navigation_forward','navigation_forward_page','navigation_forward_address','navigation_reload','navigation_reload_page','navigation_reload_address','navigation_return'} <= set(MANUAL_GUI_STAGES))
-        for page in ('A','B'):
+        for page in ('A','B','POPUP','FORM_A','FORM_B','FORM_AI','REJECTED_POST'):
             for value in ('NONE','ONCE','MULTIPLE'):
                 self.assertEqual(navigation_http_diagnostics('AGENT066_NAVIGATION_HTTP_'+page+'='+value),
                                  {'NAVIGATION_HTTP_'+page:value})
@@ -263,5 +264,25 @@ class CleanDiagnosticTests(unittest.TestCase):
             self.assertEqual(guest_observations('prefix '+prefix+'NOT_OBSERVED'),{})
         self.assertEqual(guest_observations('AGENT066_GUEST_UIA=NO_MATCH\nAGENT066_GUEST_HWND=OWNED_SLOT_CHILD\nAGENT066_GUEST_DOM=VISIBLE'),
                          {'GUEST_UIA':'NO_MATCH','GUEST_HWND':'OWNED_SLOT_CHILD','GUEST_DOM':'VISIBLE'})
+
+    def test_guest_scope_and_diagnostic_flow_projection(self):
+        for scope in ('SNAPSHOT','FILES','ACTIONS'):
+            row='AGENT066_GUEST_'+scope+'_SCROLL=CONFIRMED'
+            self.assertEqual(guest_observations(row),{'GUEST_'+scope+'_SCROLL':'CONFIRMED'})
+            self.assertEqual(guest_observations(row+'\n'+row),{})
+        self.assertEqual(guest_observations('AGENT066_GUEST_PRIVATE_SCROLL=CONFIRMED'),{})
+        allowed={'INSTALLED_BROWSER_MANUAL_GUI_FAILED_POPUP'}
+        raw=('AGENT066_BROWSER_FLOW_MANUAL=FAIL\n'
+             'AGENT066_BROWSER_FLOW_MANUAL_FAILURE=INSTALLED_BROWSER_MANUAL_GUI_FAILED_POPUP\n'
+             'AGENT066_BROWSER_FLOW_SNAPSHOT=PASS\nAGENT066_BROWSER_FLOW_FILES=NOT_RUN')
+        self.assertEqual(browser_flow_diagnostics(raw,allowed),
+                         {'BROWSER_FLOW_MANUAL':'FAIL','BROWSER_FLOW_MANUAL_FAILURE':'INSTALLED_BROWSER_MANUAL_GUI_FAILED_POPUP',
+                          'BROWSER_FLOW_SNAPSHOT':'PASS','BROWSER_FLOW_FILES':'NOT_RUN'})
+        for raw in ('AGENT066_BROWSER_FLOW_MANUAL=private',
+                    'AGENT066_BROWSER_FLOW_MANUAL=PASS\nAGENT066_BROWSER_FLOW_MANUAL=PASS',
+                    'AGENT066_BROWSER_FLOW_MANUAL_FAILURE=INSTALLED_BROWSER_MANUAL_GUI_FAILED_POPUP'):
+            self.assertEqual(browser_flow_diagnostics(raw,allowed),{})
+        self.assertEqual(browser_flow_diagnostics('AGENT066_BROWSER_FLOW_MANUAL=FAIL\nAGENT066_BROWSER_FLOW_MANUAL_FAILURE=private',allowed),
+                         {'BROWSER_FLOW_MANUAL':'FAIL'})
 
 if __name__=='__main__': unittest.main()

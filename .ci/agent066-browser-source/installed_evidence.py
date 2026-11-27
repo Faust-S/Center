@@ -77,7 +77,7 @@ CLEAN_PHASES = frozenset(('LOCAL_ACCEPTANCE','LOCAL_ACCEPTANCE_READBACK',
                           'NATIVE_RUNTIME_READBACK','ROLLBACK','ROLLBACK_READBACK','FINAL_RECEIPT'))
 MANUAL_GUI_STAGES = ('window','open','open_preview','open_preview_control','open_preview_missing','open_preview_disabled','open_preview_offscreen','open_preview_ambiguous','open_preview_invalid','open_preview_bootstrap','open_preview_session','open_preview_render','open_preview_activate','open_preview_foreground','open_preview_ready','open_preview_readback','open_preview_readback_expanded','open_preview_readback_collapsed','open_preview_readback_pane_offscreen','open_preview_readback_ready','open_preview_readback_disabled','open_preview_readback_unobserved','open_control','open_native','open_native_error',
                      'open_native_profile','open_native_create','open_native_shell','open_native_layout',
-                     'open_native_state','navigation','navigation_address_control','navigation_address_focus','navigation_address_input','navigation_address_readback','navigation_go','navigation_initial_page','navigation_initial_covered','navigation_initial_address','navigation_link','navigation_link_page','navigation_link_covered','navigation_link_address','navigation_back','navigation_back_page','navigation_back_covered','navigation_back_address','navigation_forward','navigation_forward_page','navigation_forward_covered','navigation_forward_address','navigation_reload','navigation_reload_page','navigation_reload_covered','navigation_reload_address','navigation_return','tab_isolation','tab_first_edit','tab_create','tab_count','tab_new_selected','tab_new_address_empty','tab_new_navigate','tab_new_value_empty','tab_second_edit','tab_select_first','tab_first_value','tab_select_second','tab_second_value','form','form_second_submit','form_second_accepted','form_select_first','form_first_value','form_first_submit','form_first_accepted','form_return','popup','reopen','receipt','unknown')
+                     'open_native_state','navigation','navigation_address_control','navigation_address_focus','navigation_address_input','navigation_address_readback','navigation_go','navigation_initial_page','navigation_initial_covered','navigation_initial_address','navigation_link','navigation_link_page','navigation_link_covered','navigation_link_address','navigation_back','navigation_back_page','navigation_back_covered','navigation_back_address','navigation_forward','navigation_forward_page','navigation_forward_covered','navigation_forward_address','navigation_reload','navigation_reload_page','navigation_reload_covered','navigation_reload_address','navigation_return','tab_isolation','tab_first_edit','tab_create','tab_count','tab_new_selected','tab_new_address_empty','tab_new_navigate','tab_new_value_empty','tab_second_edit','tab_select_first','tab_first_value','tab_select_second','tab_second_value','form','form_second_submit','form_second_accepted','form_select_first','form_first_value','form_first_submit','form_first_accepted','form_return','popup','popup_cancel_request','popup_cancel_proposal','popup_cancel_click','popup_cancel_gone','popup_cancel_count','popup_cancel_page','popup_accept_request','popup_accept_proposal','popup_accept_click','popup_accept_count','popup_new_selected','popup_close_first','popup_close_first_count','popup_close_second','popup_close_second_count','popup_last_close_disabled','popup_page','popup_covered','popup_address','reopen','reopen_close','reopen_absent','reopen_open','reopen_initial_tab','reopen_empty','reopen_final_close','reopen_final_absent','receipt','unknown')
 CLEAN_CHECKPOINTS = (
     ('INSPECTION','identity.json','VERIFIED'),
     ('PREFLIGHT','preflight.json','READY_FOR_FIRST_INSTALL'),
@@ -276,7 +276,7 @@ def preview_dom_diagnostics(data):
 def navigation_http_diagnostics(data):
     """Only fixture request occurrence categories may leave the private runner."""
     result = {}
-    for page in ('A','B'):
+    for page in ('A','B','POPUP','FORM_A','FORM_B','FORM_AI','REJECTED_POST'):
         prefix = 'AGENT066_NAVIGATION_HTTP_' + page + '='
         rows = [line[len(prefix):] for line in data.splitlines() if line.startswith(prefix)]
         if len(rows) == 1 and rows[0] in ('NONE','ONCE','MULTIPLE'):
@@ -305,8 +305,27 @@ def guest_observations(data):
     for key, allowed in (('UIA',GUEST_UIA_STATES),('HWND',GUEST_HWND_STATES),('DOM',GUEST_DOM_STATES),
                          ('VALUE',GUEST_VALUE_STATES),('EDIT',GUEST_EDIT_STATES),('SELECTION',GUEST_SELECTION_STATES),
                          ('TAB_SWITCH',GUEST_TAB_SWITCH_STATES),('TAB_DISPATCH',GUEST_TAB_DISPATCH_STATES),('SCROLL',GUEST_SCROLL_STATES)):
-        prefix = 'AGENT066_GUEST_' + key + '='
-        rows = [line[len(prefix):] for line in data.splitlines() if line.startswith(prefix)]
-        if len(rows) == 1 and rows[0] in allowed:
-            result['GUEST_' + key] = rows[0]
+        for scope in ('','SNAPSHOT_','FILES_','ACTIONS_'):
+            prefix = 'AGENT066_GUEST_' + scope + key + '='
+            rows = [line[len(prefix):] for line in data.splitlines() if line.startswith(prefix)]
+            if len(rows) == 1 and rows[0] in allowed:
+                result['GUEST_' + scope + key] = rows[0]
+    return result
+
+def browser_flow_diagnostics(data, allowed_codes):
+    """Project failed diagnostic flow outcomes, never release acceptance."""
+    result = {}
+    lines = data.splitlines()
+    for name in ('MANUAL','SNAPSHOT','FILES','ACTIONS'):
+        prefix = 'AGENT066_BROWSER_FLOW_' + name
+        states = [line[len(prefix)+1:] for line in lines if line.startswith(prefix+'=')]
+        if len(states) != 1 or states[0] not in ('PASS','FAIL','NOT_RUN'):
+            continue
+        result['BROWSER_FLOW_' + name] = states[0]
+        if states[0] != 'FAIL':
+            continue
+        failure = prefix + '_FAILURE='
+        codes = [line[len(failure):] for line in lines if line.startswith(failure)]
+        if len(codes) == 1 and (codes[0] in allowed_codes or codes[0] == 'OWNER_OR_ENVIRONMENT'):
+            result['BROWSER_FLOW_' + name + '_FAILURE'] = codes[0]
     return result

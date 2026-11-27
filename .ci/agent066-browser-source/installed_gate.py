@@ -4,7 +4,9 @@ import os
 import sys
 from pathlib import Path
 from installed_evidence import (clean_result, upgrade_result, lock_ok, clean_setup_diagnostics,
-                                MANUAL_GUI_STAGES, preview_dom_diagnostics, navigation_http_diagnostics, guest_observations)
+                                MANUAL_GUI_STAGES, preview_dom_diagnostics, navigation_http_diagnostics, guest_observations,
+                                browser_flow_diagnostics)
+from admit import SCOPE
 from release_gate import (SETUP_PIN, verdict, checkout_setup_owner, verify_setup_build,
                           verify_receipt_preflight, build_frozen_baseline, file_sha256,
                           read_json, witness_diagnostics, UPGRADE_FAILURE_CODES, UPGRADE_PHASES)
@@ -51,7 +53,7 @@ def upgrade_diagnostics(data):
         if len(matches)==1 and matches[0] in allowed:
             print('UPGRADE_WITNESS_'+key+'='+matches[0],flush=True)
 
-    for name,value in {**preview_dom_diagnostics(data), **navigation_http_diagnostics(data), **guest_observations(data)}.items():
+    for name,value in {**preview_dom_diagnostics(data), **navigation_http_diagnostics(data), **guest_observations(data), **browser_flow_diagnostics(data,codes)}.items():
         print(name+'='+value,flush=True)
 
 
@@ -75,6 +77,7 @@ def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False):
     env['IWXA_AGENT065_MODELING_PYTHON']=str(native_python)
     env['IWXA_AGENT06_QUALIFICATION_SCOPE']='PERSONAL_RELEASE'
     env.pop('CARGO_TARGET_DIR',None)
+    env.pop('IWXA_AGENT066_DIAGNOSTIC_CONTINUE',None)
     cmd=['powershell.exe','-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
          '-File',q.src/'tools/build_setup_core_windows_candidate.ps1','-CenterRoot',owner,
          '-CenterCommit',SETUP_PIN,'-ReleaseCacheRoot',q.root/'release-cache','-OutputRoot',out]
@@ -90,6 +93,8 @@ def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False):
             old_out=build_frozen_baseline(q,baseline,owner,source=old_pin,tree=old_tree,version='0.6.5')
             ready=verdict(q,'UPGRADE_BASELINE_BUILT',old_out is not None and build_identity(old_out,old_pin,old_tree,'0.6.5'))
         if ready:
+            if SCOPE == 'B066_UPGRADE_DIAGNOSTIC':
+                env['IWXA_AGENT066_DIAGNOSTIC_CONTINUE']='1'
             root=q.root/'real-upgrade'
             code,data=q.run('UPGRADE_065_TO_066',[sys.executable,q.src/'tools/qualify_setup_core_upgrade_065_to_066.py',
                 '--old-setup',old_out/NAME,'--new-setup',out/NAME,
