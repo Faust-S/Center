@@ -1,0 +1,9 @@
+{
+  "scope": "M18_8_PUBLIC_IMAGE_ANDROID_BOTH_ABIS",
+  "source": "e637c7bccd35aa8841d67fb942ba72918176826c",
+  "ggml": "eeda9ec48fc84a3df0bb9dcc19ae9053075a2539",
+  "model": "c2f6e92f9d08d69cc673a1003528ac8199274b3c0eaec88d5fbefe5af67bd42b",
+  "hostRun": 45985302216,
+  "prepared_sha": "9d07e3148896504dea299b22d674a6e0931c6fdf",
+  "physical": "NOT_RUN"
+}
