@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: 'be985b5b6de121b3e53d01ba33e877415af69962'
-      PRIVATE_TREE: 'ec969e41385d6c9de58c85bdc51f704a217374dc'
+      PRIVATE_PIN: '55fea626f4d2318c2f6c496befbf60022243b787'
+      PRIVATE_TREE: '7d367dbc46ba216b57c85b6e4af7b2d082f359d1'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -227,15 +227,15 @@ jobs:
                               status(name,"PASS" if passed else "FAIL")
                               return passed
                           if name=="NATIVE_VOICE_DIALOGUE_ROUTE":
-                              expected=["OFFLINE_START","FIXTURES_VERIFIED","FIRST_TURN","WHISPER_BOUND","WHISPER_INSERTED","SECOND_TURN","STALE_BINDING_REJECTED","SUPERTONIC_BOUND","PLAYBACK_BOUND","FOLLOWUP_TURN","AUTO_PLAYBACK","AUTO_STALE_REJECTED","AUTO_REPLAY","AUTO_EXPORT","AUTO_EXPORT_EXPECTED","OFFLINE_END","EXPORT_ADB_READBACK","EXPORT_ADB_CLEANUP"]
+                              expected=["OFFLINE_START","FIXTURES_VERIFIED","FIRST_TURN","WHISPER_BOUND","WHISPER_INSERTED","SECOND_TURN","STALE_BINDING_REJECTED","SUPERTONIC_BOUND","PLAYBACK_BOUND","FOLLOWUP_TURN","AUTO_PLAYBACK","AUTO_STALE_REJECTED","AUTO_REPLAY","AUTO_EXPORT","AUTO_EXPORT_EXPECTED","AUTO_REPLACE_STALE_REJECTED","AUTO_RESYNTHESIZED","OFFLINE_END","EXPORT_ADB_READBACK","EXPORT_ADB_CLEANUP"]
                               stages=re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_PASS=([A-Z_]+)\s*$",report)
                               for value in stages:
                                   if value in expected:status("NATIVE_VOICE_DIALOGUE_PASS",value)
                               for value in re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_OBSERVED=([A-Z_]+)\s*$",report):
                                   if value in expected:status("NATIVE_VOICE_DIALOGUE_OBSERVED",value)
                               codes={
-                                  "NATIVE_VOICE_DIALOGUE_FAILURE_CHECK":{"OFFLINE","FIXTURE","MEMORY","STATUS","CONTEXT","PICKER","TRANSCRIPT","STALE","TTS_SOURCE","AUDIO","AUTO_REJECT","AUTO_EXPORT","CLEANUP"},
-                                  "NATIVE_VOICE_DIALOGUE_FAILURE_STAGE":{"HOME","LOCAL","MODEL","FIRST_TURN","SPEECH","WHISPER","INSERT","SECOND_TURN","TTS","PLAY","RETURN","FOLLOWUP","AUTO_ENABLE","AUTO_PLAYBACK","AUTO_REPLAY","AUTO_EXPORT","NATIVE_REPLY"},
+                                  "NATIVE_VOICE_DIALOGUE_FAILURE_CHECK":{"OFFLINE","FIXTURE","MEMORY","STATUS","CONTEXT","PICKER","TRANSCRIPT","STALE","TTS_SOURCE","AUDIO","AUTO_REJECT","AUTO_EXPORT","AUTO_REPLACE","CLEANUP"},
+                                  "NATIVE_VOICE_DIALOGUE_FAILURE_STAGE":{"HOME","LOCAL","MODEL","FIRST_TURN","SPEECH","WHISPER","INSERT","SECOND_TURN","TTS","PLAY","RETURN","FOLLOWUP","AUTO_ENABLE","AUTO_PLAYBACK","AUTO_REPLAY","AUTO_EXPORT","AUTO_RESYNTH","NATIVE_REPLY"},
                                   "NATIVE_VOICE_DIALOGUE_HELPER_FAILURE":{"WEBVIEW_TIMEOUT","UI_PICKER","UI_RETURN","TRANSCRIPT_SEMANTIC"},
                                   "NATIVE_VOICE_DIALOGUE_FAILURE_CODE":{"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED","QA_EXPORT_ALREADY_EXISTS","QA_EXPORT_RECEIPT_REQUIRED","QA_EXPORT_READBACK_MISMATCH","QA_EXPORT_CLEANUP_FAILED","QA_EXPORT_ONLINE_FAILED"},
                               }
@@ -367,7 +367,7 @@ jobs:
                           if name in ("SOURCE","ASSEMBLY") and outcome.returncode==0:
                               # Exact accumulated source suite; no skip or todo.
                               node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
-                              if any(node_counts[label]!=[value] for label,value in {"tests":"749","pass":"749","fail":"0","skipped":"0","todo":"0"}.items()):
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"760","pass":"760","fail":"0","skipped":"0","todo":"0"}.items()):
                                   status(name,"NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
