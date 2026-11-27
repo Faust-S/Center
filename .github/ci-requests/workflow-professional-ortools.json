@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "139c1d5882d560aecf64910af38e188d546322d7",
+  "profile": "native-valhalla-focused",
+  "pins": {
+    "professionalAgent": "b0af2a8a657015fad65e8a642774ad1f3054bae4"
+  },
+  "reason": "Run independent original native Valhalla and ORTools approved fleet handoff on Ubuntu 24.04"
+}
