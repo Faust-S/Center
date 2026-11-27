@@ -18,7 +18,7 @@ import sys
 import time
 from urllib.parse import urlencode
 
-from topology_fixture import POINTS, write as write_topology
+from topology_fixture import POINTS, SHORTCUT_MIDDLE, DETOUR_MIDDLE, write as write_topology
 
 ROOT=Path(__file__).resolve().parent
 LOCK=json.loads((ROOT/'inputs.json').read_text())
@@ -90,6 +90,21 @@ def geometry_check(shape,a,b,max_snap):
     snaps=[distance(coords(a),shape[0]),distance(coords(b),shape[-1])]
     need(max(snaps)<=max_snap,'route_snap_outside_limit')
     return {'point_count':len(shape),'endpoint_snap_metres':snaps,'shape':shape}
+
+def passes_near(route,point,threshold=50):
+    if route.get('status')!='FOUND': return False
+    # Local tangent-plane distance to a line segment on the tiny controlled
+    # topology, independent of the routing engine's graph and cost function.
+    def project(p):
+        return ((p[0]-point[0])*111195*math.cos(math.radians(point[1])),
+                (p[1]-point[1])*111195)
+    path=[project(p) for p in route['shape']]
+    for a,b in zip(path,path[1:]):
+        dx,dy=b[0]-a[0],b[1]-a[1]
+        d=dx*dx+dy*dy
+        t=min(1,max(0,-(a[0]*dx+a[1]*dy)/d)) if d else 0
+        if math.hypot(a[0]+t*dx,a[1]+t*dy)<=threshold:return True
+    return False
 
 def matrix_rows(times,distances,n,scale):
     need(type(times) is list and len(times)==n and type(distances) is list and len(distances)==n,'matrix_rows')
@@ -177,7 +192,9 @@ def prepare_valhalla(folder):
     need(LOCK['valhalla']['version'] in version,'valhalla_native_version_changed')
     cfg=json.loads(container(image,folder,'valhalla_build_config').stdout)
     m=cfg['mjolnir']
-    m.update(tile_dir='/data/tiles',tile_extract='',traffic_extract='',tile_url='',admin='',timezone='',use_admin_db=False)
+    m.update(tile_dir='/data/tiles',tile_extract='',traffic_extract='',tile_url='',admin='',timezone='')
+    m['data_processing']['use_admin_db']=False
+    m['data_processing']['apply_country_overrides']=False
     cfg['httpd']['service']['listen']='tcp://127.0.0.1:8002'
     # Use only built local graph, no elevation/traffic/remote tile downloads.
     for k in ('additional_data','tile_url'):
@@ -336,14 +353,31 @@ def main():
     rows=[]
     for name,o in observed.items():
         a=o['matrix'][2][3];b=o['matrix'][3][2]
+        forward=o['routes']['ONE_A->ONE_B'];reverse=o['routes']['ONE_B->ONE_A']
         rows.append({'engine':name,'one_way_forward':a,'one_way_reverse':b,
+          'one_way_direction_verified':bool(a and b and b['metres']>a['metres']+100
+             and forward['status']==reverse['status']=='FOUND' and reverse['metres']>forward['metres']+100),
           'island_matrix':o['matrix'][0][4],'island_route':o['routes']['START->ISLAND']['status'],
-          'restricted_matrix_route_agreement':o['matrix'][0][4] is None and o['routes']['START->ISLAND']['status']=='UNREACHABLE'})
+          'disconnected_verified':o['matrix'][0][4] is None and o['routes']['START->ISLAND']['status']=='UNREACHABLE'})
     trucks=observed['valhalla']['truck_profiles']
     def summary(x):
-        return {'options':x['options'],'matrix':x['matrix'][0][1],
-          'route_status':x['route']['status'],'route_metres':x['route'].get('metres')}
-    verdict={'matrix_direction_and_disconnected':rows,'truck_observations':{k:summary(v) for k,v in trucks.items()},
+        route=x['route'];cell=x['matrix'][0][1]
+        shortcut=passes_near(route,SHORTCUT_MIDDLE)
+        detour=passes_near(route,DETOUR_MIDDLE)
+        return {'options':x['options'],'matrix':cell,
+          'route_status':route['status'],'route_metres':route.get('metres'),
+          'uses_restricted_shortcut':shortcut,'uses_detour':detour,
+          'matrix_route_delta_metres':route['metres']-cell['metres'] if cell is not None and route['status']=='FOUND' else None}
+    truck_observations={k:summary(v) for k,v in trucks.items()}
+    small=truck_observations['small']
+    truck_checks={'small_reference_uses_shortcut':small['route_status']=='FOUND' and small['uses_restricted_shortcut']}
+    for k,v in truck_observations.items():
+        if k!='small':
+            truck_checks[k+'_restriction_route_verified']=bool(v['route_status']=='FOUND'
+                and not v['uses_restricted_shortcut'] and v['uses_detour'])
+            truck_checks[k+'_matrix_avoids_shortcut_distance']=bool(small['matrix'] is not None and v['matrix'] is not None
+                and v['matrix']['metres']>small['matrix']['metres']+100)
+    verdict={'matrix_direction_and_disconnected':rows,'truck_observations':truck_observations,'truck_checks':truck_checks,
               'status':'OBSERVED_NOT_ENGINE_SELECTED','physical_access_proven':False,'installed_iwxa_accepted':False}
     dump(folder/'receipt-comparison.json',verdict)
     print('PUBLIC_ROAD_COMPARISON='+json.dumps(verdict,separators=(',',':'),allow_nan=False),flush=True)

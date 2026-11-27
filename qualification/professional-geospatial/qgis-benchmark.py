@@ -48,7 +48,7 @@ def main():
         options.actionOnExistingFile=(QgsVectorFileWriter.CreateOrOverwriteLayer if append else QgsVectorFileWriter.CreateOrOverwriteFile)
         result=QgsVectorFileWriter.writeAsVectorFormatV3(item,str(path),context,options)
         assert result[0]==QgsVectorFileWriter.NoError, result[1]
-    del features,f,provider,layer,projected
+    del features,f,provider,layer,projected,item,options,result
     rows={}
     for name,crs in [('source_wgs84',source_crs),('metric_utm32',metric_crs)]:
         reopened=QgsVectorLayer(str(path)+'|layername='+name,name,'ogr')
