@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "de1729f2a1a4f73566eb11ab6c98f3c000d7097f",
+  "profile": "original-production-schedule-dispatch",
+  "pins": {
+    "professionalAgent": "097dfa6d82a1ca2c1d213eb1fad3675cae11b0f0"
+  },
+  "reason": "Qualify the exact production SimPy model, competing resource queues, outages, and original Core readback"
+}
