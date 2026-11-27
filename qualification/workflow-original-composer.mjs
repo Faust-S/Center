@@ -25,7 +25,8 @@ try{
   const workspaceId='stage-result-workspace',projectId='research',time='2026-11-27T14:00:00Z';
   const material={workspace_id:workspaceId,object_id:'source',schema_id:'note',schema_version:'1.0.0',revision:1,
     data:{title:'Synthetic analysis material',value:42},extensions:{}};
-  const bytes=new TextEncoder().encode('Exact synthetic input\nLine two\n');
+  const originalText='Exact synthetic input\r\nЁмкость ячейки: 42 Ω\n';
+  const bytes=new TextEncoder().encode(originalText);
   const asset={workspace_id:workspaceId,object_id:'source',asset_id:'attachment',revision:1,mime:'text/plain',
     size:bytes.length,service_id:'svc',created_at:time,updated_at:time,updated_by_service:'svc'};
   const {owner}=await createProjectProcessSourceOwnerQualificationHarness();
@@ -60,7 +61,7 @@ try{
   assert.equal(persisted.state,'SAVED');
   assert.equal(persisted.text,plan.draft.text);
   assert.deepEqual(persisted.attachments,plan.draft.attachments);
-  assert.equal(persisted.attachments[1].text,'Exact synthetic input\nLine two\n');
+  assert.equal(persisted.attachments[1].text,originalText);
   assert.equal(JSON.parse(persisted.attachments[2].text).candidateDigest,preview.candidateDigest);
   assert.equal((await run(true)).state,'DRAFT_ALREADY_PRESENT');
   assert.equal((await run()).state,'DRAFT_ALREADY_PRESENT');
@@ -99,7 +100,7 @@ try{
     }
     return response.result;
   };
-  const {inspectOriginalPersonalWorkflowTask,createOriginalPersonalWorkflowTaskObserver,recoverOriginalPersonalWorkflowTaskSelection,personalWorkflowTaskInspection}=await source('src/t3/workspace-method-personal-draft.mjs');
+  const {inspectOriginalPersonalWorkflowTask,createOriginalPersonalWorkflowTaskObserver,recoverOriginalPersonalWorkflowTaskSelection,recoverOriginalPersonalWorkflowTaskSelections,personalWorkflowTaskInspection}=await source('src/t3/workspace-method-personal-draft.mjs');
   const {taskId}=taskCall('execute',{draft:plan.draft});
   const taskOwner={
     readAcceptedRun:async(taskId,binding)=>{assert.equal(binding.agentWorkspaceId,'personal');return taskCall('run',{taskId});},
@@ -125,6 +126,8 @@ try{
   let assetReads=0;
   const prepare=(stepId,selections,expectedCandidateDigest,targetTaskId)=>prepareWorkspaceMethodPersonalChain({...args,stepId,
     personalResultSelections:selections,readVerifiedPersonalResult:observer.read,
+    resolvePersonalResultSelections:seeds=>recoverOriginalPersonalWorkflowTaskSelections({workspaceId,projectId,
+      expected:method,observer,selections:seeds}),
     getAsset:async()=>{assetReads++;return {asset,bytes};},
     ...(expectedCandidateDigest===undefined?{}:{expectedCandidateDigest}),
     ...(targetTaskId===undefined?{}:{targetTaskId})});
@@ -139,7 +142,7 @@ try{
     assert.equal(prepared.plan.draft.attachments.filter(a=>a.name.startsWith('result-')).length,1);
     const dependentPlan=Object.freeze({...prepared.plan,nativeBinding:observer.binding});
     const rebuild=async()=>{
-      const current=await prepare(stepId,selections,prepared.plan.candidateDigest);
+      const current=await prepare(stepId,prepared.resolvedSelections,prepared.plan.candidateDigest);
       return Object.freeze({...current.plan,nativeBinding:observer.binding});
     };
     const saved=await saveOriginalPersonalWorkflowDraft({plan:dependentPlan,refreshPlan:rebuild,
@@ -150,7 +153,7 @@ try{
     assert.equal(draft.draft_digest,saved.draftDigest);
     const {taskId:next}=taskCall('submit',{binding:actualBinding,expectedDraftDigest:saved.draftDigest});
     const inspectionReads=assetReads;
-    const qualified=await prepare(stepId,selections,prepared.plan.candidateDigest,next);
+    const qualified=await prepare(stepId,prepared.resolvedSelections,prepared.plan.candidateDigest,next);
     assert.equal(assetReads-inspectionReads,2);
     const matched=personalWorkflowTaskInspection(qualified.plan,qualified.targetAccepted);
     assert.equal(matched.declaredDraftInputsVerified,true);assert.equal(matched.workCompleted,false);
@@ -163,7 +166,10 @@ try{
   const selections=[{stepId:'analyse',taskId}];
   const review=await executeDependent('review',selections,rootAccepted);
   phase='CHAIN_FINISH';
-  const finish=await executeDependent('finish',[...selections,{stepId:'review',taskId:review.taskId}],review.accepted);
+  // Only the immediate predecessor is selected. Exact earlier choices
+  // are recovered from original accepted ContextSnapshot documents.
+  const finish=await executeDependent('finish',[{stepId:'review',taskId:review.taskId}],review.accepted);
+  console.log('ORIGINAL_AGENT_PERSONAL_DIRECT_SELECTION_PASS');
   assert.equal(new Set([taskId,review.taskId,finish.taskId]).size,3);
   assert.equal((await owner.audit()).length,4);
   phase='CHAIN_WRONG_TASK';

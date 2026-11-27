@@ -4,7 +4,8 @@ All synthetic state stays on the runner; only a fixed status is published.
 import contextlib, io, json, pathlib, sys
 agent, instance = map(pathlib.Path, sys.argv[1:3])
 sys.path.insert(0, str(agent.resolve()))
-request = json.load(sys.stdin)
+# The Node fixture sends exact UTF-8 JSON, independently of OS code page.
+request = json.loads(sys.stdin.buffer.read().decode('utf-8', errors='strict'))
 phase = 'IMPORT'
 try:
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):

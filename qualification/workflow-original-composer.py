@@ -2,7 +2,8 @@
 import contextlib, io, json, pathlib, sys
 agent, instance = map(pathlib.Path, sys.argv[1:3])
 sys.path.insert(0, str(agent.resolve()))
-request = json.load(sys.stdin)
+# The Node fixture sends exact UTF-8 JSON, independently of OS code page.
+request = json.loads(sys.stdin.buffer.read().decode('utf-8', errors='strict'))
 PROFILE = "workflow-qualification"
 WS = "stage-result-workspace"
 PERMISSIONS = {"memory":False,"obsidian":False,"web":False,"selected_notes":False}

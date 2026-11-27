@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: bd6230c79e220fcf49e1b8b3c9974014465b63a5
+          ref: fa36fe1c299075fb7e05da56db76802845ee5836
           path: knowledge
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -50,7 +50,7 @@ jobs:
       - name: Private dependencies
         run: |
           test "$(git -C private-agent rev-parse HEAD)" = "a45e206291068147d4460acfa1ae91615accfcdf"
-          test "$(git -C knowledge rev-parse HEAD)" = "bd6230c79e220fcf49e1b8b3c9974014465b63a5"
+          test "$(git -C knowledge rev-parse HEAD)" = "fa36fe1c299075fb7e05da56db76802845ee5836"
           python -m pip install -r private-agent/requirements-ci.txt > "$RUNNER_TEMP/composer-deps-private.log" 2>&1 || { echo ORIGINAL_AGENT_DEPENDENCIES_FAIL; exit 1; }
       - name: Verify original Core exact-byte regression
         run: |
@@ -67,7 +67,9 @@ jobs:
           echo ORIGINAL_AGENT_ACCEPTED_TASK_DECLARED_INPUTS_PASS
           grep -qx ORIGINAL_AGENT_PERSONAL_CHAIN_COLD_BINDING_RECOVERY_PASS "$RUNNER_TEMP/composer-qualification-private.log"
           echo ORIGINAL_AGENT_PERSONAL_THREE_WORK_CHAIN_PASS
+          grep -qx ORIGINAL_AGENT_PERSONAL_DIRECT_SELECTION_PASS "$RUNNER_TEMP/composer-qualification-private.log"
           echo ORIGINAL_AGENT_PERSONAL_CHAIN_COLD_BINDING_RECOVERY_PASS
+          echo ORIGINAL_AGENT_PERSONAL_DIRECT_SELECTION_PASS
       - name: Remove private working copies and logs
         if: always()
         run: |
