@@ -118,6 +118,55 @@ class CleanDiagnosticTests(unittest.TestCase):
             self.assertEqual(clean_setup_diagnostics(out),{'SETUP_CLEAN_LAST_ATTEMPTED_PHASE':'FINAL_RECEIPT',
                              'SETUP_CLEAN_UNCONFIRMED_CHECKPOINT':'FINAL_RECEIPT','SETUP_CLEAN_CHECKPOINT_STATE':'UNCONFIRMED'})
         self.assertTrue(set('open_native_'+kind for kind in ('error','profile','create','shell','layout','state'))<=set(MANUAL_GUI_STAGES))
+        self.assertTrue({'open_preview_control','open_preview_readback'} <= set(MANUAL_GUI_STAGES))
         self.assertEqual(len(MANUAL_GUI_STAGES),len(set(MANUAL_GUI_STAGES)))
+
+    def test_owner_repair_error_projection(self):
+        for phase, sequence, checkpoint in (
+            ('LOCAL_ACCEPTANCE', CLEAN_CHECKPOINTS, 'REPAIR'),
+            ('ROLLBACK', ROLLBACK_CHECKPOINTS, 'ROLLBACK_REPAIR'),
+        ):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as d:
+                out=Path(d); root=self.create(out,phase,sequence)
+                p=root/'repair.json'
+                p.write_text(json.dumps({'status':'ERROR','reason':'SETUP_UNOWNED_FILE_PRESENT',
+                    'unownedCategory':'WEBVIEW2_PROFILE','path':'private-user-file'}))
+                self.assertEqual(clean_setup_diagnostics(out),{
+                    'SETUP_CLEAN_LAST_ATTEMPTED_PHASE':phase,
+                    'SETUP_CLEAN_UNCONFIRMED_CHECKPOINT':checkpoint,
+                    'SETUP_CLEAN_CHECKPOINT_STATE':'UNCONFIRMED',
+                    'SETUP_CLEAN_OWNER_FAILURE_CODE':'SETUP_UNOWNED_FILE_PRESENT',
+                    'SETUP_CLEAN_UNOWNED_CATEGORY':'WEBVIEW2_PROFILE'})
+                for reason in ('SETUP_APP_STILL_RUNNING','SETUP_REPAIR_BLOCKED_APPLICATION_RUNNING',
+                               'SETUP_OWNED_FILES_MISSING'):
+                    p.write_text(json.dumps({'status':'ERROR','reason':reason,
+                        'unownedCategory':'WEBVIEW2_PROFILE'}))
+                    self.assertEqual(clean_setup_diagnostics(out)['SETUP_CLEAN_OWNER_FAILURE_CODE'],reason)
+                    self.assertNotIn('SETUP_CLEAN_UNOWNED_CATEGORY',clean_setup_diagnostics(out))
+
+    def test_unknown_owner_values_never_cross_boundary(self):
+        with tempfile.TemporaryDirectory() as d:
+            out=Path(d); root=self.create(out,'LOCAL_ACCEPTANCE',CLEAN_CHECKPOINTS)
+            p=root/'repair.json'
+            for reason in (None, [], {}, 42, 'SETUP_REPAIR_BLOCKED_PRIVATE_PATH', 'private exception',
+                           'SETUP_UNOWNED_FILE_PRESENT\nSECRET=YES'):
+                p.write_text(json.dumps({'status':'ERROR','reason':reason,'unownedCategory':'PRIVATE'}))
+                self.assertEqual(clean_setup_diagnostics(out)['SETUP_CLEAN_OWNER_FAILURE_CODE'],'OTHER')
+                self.assertNotIn('SETUP_CLEAN_UNOWNED_CATEGORY',clean_setup_diagnostics(out))
+            for category in (None, [], {}, 'private path', 'WEBVIEW2_PROFILE\nSECRET=YES'):
+                p.write_text(json.dumps({'status':'ERROR','reason':'SETUP_UNOWNED_FILE_PRESENT',
+                                         'unownedCategory':category}))
+                self.assertEqual(clean_setup_diagnostics(out)['SETUP_CLEAN_OWNER_FAILURE_CODE'],
+                                 'SETUP_UNOWNED_FILE_PRESENT')
+                self.assertNotIn('SETUP_CLEAN_UNOWNED_CATEGORY',clean_setup_diagnostics(out))
+            p.write_text('{"status":"ERROR","reason":"SETUP_APP_STILL_RUNNING","reason":"private"}')
+            self.assertEqual(clean_setup_diagnostics(out)['SETUP_CLEAN_CHECKPOINT_STATE'],'INVALID')
+            self.assertNotIn('SETUP_CLEAN_OWNER_FAILURE_CODE',clean_setup_diagnostics(out))
+            p.write_text('{"status":"FAIL","reason":"SETUP_APP_STILL_RUNNING"}')
+            self.assertNotIn('SETUP_CLEAN_OWNER_FAILURE_CODE',clean_setup_diagnostics(out))
+            (root/'installed-witness.json').unlink()
+            p.write_text('{"status":"ERROR","reason":"SETUP_APP_STILL_RUNNING"}')
+            self.assertEqual(clean_setup_diagnostics(out)['SETUP_CLEAN_UNCONFIRMED_CHECKPOINT'],'RUNTIME_WITNESS')
+            self.assertNotIn('SETUP_CLEAN_OWNER_FAILURE_CODE',clean_setup_diagnostics(out))
 
 if __name__=='__main__': unittest.main()

@@ -74,7 +74,7 @@ def upgrade_result(row, old_pin, old_tree, new_pin, new_tree, old_hash, new_hash
 # postconditions; a reported receipt status alone is never a release PASS.
 CLEAN_PHASES = frozenset(('LOCAL_ACCEPTANCE','LOCAL_ACCEPTANCE_READBACK',
                           'NATIVE_RUNTIME_READBACK','ROLLBACK','ROLLBACK_READBACK','FINAL_RECEIPT'))
-MANUAL_GUI_STAGES = ('window','open','open_preview','open_control','open_native','open_native_error',
+MANUAL_GUI_STAGES = ('window','open','open_preview','open_preview_control','open_preview_readback','open_control','open_native','open_native_error',
                      'open_native_profile','open_native_create','open_native_shell','open_native_layout',
                      'open_native_state','navigation','tab_isolation','form','popup','reopen','receipt','unknown')
 CLEAN_CHECKPOINTS = (
@@ -102,18 +102,46 @@ ROLLBACK_CHECKPOINTS = (
     ('ROLLBACK_WITNESS','rollback-witness.json','PASS'),
 )
 
+# The owner exposes exact reason strings and a bounded unowned-file category
+# in its repair/upgrade ERROR receipt. Project only published owner codes;
+# arbitrary exception messages, filenames, paths and receipt data stay private.
+OWNER_REPAIR_FAILURES = frozenset((
+    'SETUP_APP_STILL_RUNNING', 'SETUP_CANNOT_CONFIRM_APPLICATION_CLOSED',
+    'SETUP_CONFIRM_CANDIDATE_MISMATCH', 'SETUP_ENTRYPOINT_CHANGE_REQUIRES_EXPLICIT_MIGRATION',
+    'SETUP_INSTALL_ALREADY_RUNNING', 'SETUP_INSTALL_AUTHORITY_MISMATCH',
+    'SETUP_OWNED_FILES_INVALID', 'SETUP_OWNED_FILES_MISSING', 'SETUP_OWNED_LINK_FOUND',
+    'SETUP_OWNED_ROOT_INVALID', 'SETUP_OWNED_UNINSTALLER_MISSING', 'SETUP_OWNERSHIP_MISMATCH',
+    'SETUP_PREVIOUS_RELEASE_NOT_FOUND', 'SETUP_RECOVERY_AUTHORITY_MISSING',
+    'SETUP_RECOVERY_BACKUP_MISSING', 'SETUP_RECOVERY_OWNERSHIP_MISMATCH',
+    'SETUP_ROLLBACK_AUTHORITY_MISMATCH', 'SETUP_ROLLBACK_AUTHORITY_MISSING',
+    'SETUP_ROLLBACK_CANDIDATE_MISMATCH', 'SETUP_UNOWNED_FILE_PRESENT',
+    'SETUP_UPGRADE_RECOVERY_REQUIRED',
+)) | frozenset('SETUP_REPAIR_BLOCKED_' + reason for reason in (
+    'INSTALL_OPERATION_BUSY', 'ARCHITECTURE_UNSUPPORTED', 'REPAIR_PENDING_CONFIRMATION_NO_ROLLBACK',
+    'AGENT_PREVIOUS_INSTALL_PENDING', 'UPGRADE_RECOVERY_REQUIRED', 'AGENT_INTERRUPTED_FILES_REINSTALL',
+    'LEGACY_MIGRATION_HOLD', 'UNOWNED_INSTALL_ROOT', 'NO_OWNED_INSTALLATION', 'OWNERSHIP_MISMATCH',
+    'WEBVIEW2_MISSING', 'SAME_VERSION_DIFFERENT_PACKAGE', 'LEGACY_MIGRATION_REVIEW_REQUIRED',
+    'LEGACY_MIGRATION_PENDING_GUI_READBACK', 'LEGACY_DEFAULT_ACTIVE_NSIS_PRESERVED',
+    'LEGACY_SWITCH_RECOVERY_REQUIRED', 'LEGACY_SHORTCUT_SWITCH_PENDING', 'LEGACY_SHORTCUT_RESTORE_PENDING',
+    'APPLICATION_RUNNING', 'VERSION_UNSUPPORTED', 'DOWNGRADE_BLOCKED', 'UPGRADE_CANDIDATE_NOT_ACTIVATED',
+))
+OWNER_UNOWNED_CATEGORIES = frozenset((
+    'WEBVIEW2_PROFILE','PYTHON_BYTECODE','DESKTOP_RUNTIME','PYTHON_OR_MODEL_RUNTIME',
+    'APPLICATION_STATE','OTHER',
+))
 
-def diagnostic_status(path, expected):
+
+def diagnostic_document(path):
     try:
         if path.is_symlink() or path.parent.is_symlink():
-            return 'INVALID'
+            return 'INVALID', None
         if not path.exists():
-            return 'MISSING'
+            return 'MISSING', None
         if not path.is_file() or not 0 < path.stat().st_size <= 2_000_000:
-            return 'INVALID'
+            return 'INVALID', None
         raw = path.read_bytes()
         if len(raw) > 2_000_000:
-            return 'INVALID'
+            return 'INVALID', None
         def unique(pairs):
             result = {}
             for key, value in pairs:
@@ -124,10 +152,29 @@ def diagnostic_status(path, expected):
         value = json.loads(raw.decode('utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'),
                            object_pairs_hook=unique)
         if type(value) is not dict or type(value.get('status')) is not str:
-            return 'INVALID'
-        return 'REPORTED' if value['status'] == expected else 'UNCONFIRMED'
+            return 'INVALID', None
+        return 'REPORTED', value
     except (OSError, ValueError, TypeError, UnicodeError):
-        return 'INVALID'
+        return 'INVALID', None
+
+
+def diagnostic_status(path, expected):
+    state, row = diagnostic_document(path)
+    return 'UNCONFIRMED' if state == 'REPORTED' and row['status'] != expected else state
+
+
+def owner_repair_failure(row):
+    if row is None or row['status'] != 'ERROR':
+        return {}
+    reason = row.get('reason')
+    if type(reason) is not str or reason not in OWNER_REPAIR_FAILURES:
+        return {'SETUP_CLEAN_OWNER_FAILURE_CODE':'OTHER'}
+    result = {'SETUP_CLEAN_OWNER_FAILURE_CODE':reason}
+    if reason == 'SETUP_UNOWNED_FILE_PRESENT':
+        category = row.get('unownedCategory')
+        if type(category) is str and category in OWNER_UNOWNED_CATEGORIES:
+            result['SETUP_CLEAN_UNOWNED_CATEGORY'] = category
+    return result
 
 
 def clean_setup_diagnostics(out):
@@ -151,9 +198,13 @@ def clean_setup_diagnostics(out):
         result.update(SETUP_CLEAN_UNCONFIRMED_CHECKPOINT='FINAL_RECEIPT', SETUP_CLEAN_CHECKPOINT_STATE='UNCONFIRMED')
         return result
     for checkpoint, filename, status in checkpoints:
-        state = diagnostic_status(root/filename,status)
+        state, row = diagnostic_document(root/filename)
+        if state == 'REPORTED' and row['status'] != status:
+            state = 'UNCONFIRMED'
         if state != 'REPORTED':
             result.update(SETUP_CLEAN_UNCONFIRMED_CHECKPOINT=checkpoint,SETUP_CLEAN_CHECKPOINT_STATE=state)
+            if checkpoint in ('REPAIR','ROLLBACK_REPAIR') and state == 'UNCONFIRMED':
+                result.update(owner_repair_failure(row))
             return result
     # All expected status strings exist; the exact owner postconditions or
     # caller verification still failed. Do not assign a synthetic PASS.
