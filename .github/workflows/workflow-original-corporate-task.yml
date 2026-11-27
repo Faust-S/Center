@@ -28,14 +28,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: faf4c37f390cde06dda5631802fc28ef5b42270d
+          ref: f0cdc0ae7e521a4d3282ef11d2f934a0049de775
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: bcefdc6aa55efd6f067388fe68a5ed9d236f2a6a
+          ref: 51b74acc8785b0f41a2039f2d990254021da85b3
           path: knowledge
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -43,8 +43,8 @@ jobs:
           node-version: '22.16.0'
       - name: Original signed Workflow Task profile and roundtrip
         run: |
-          test "$(git -C private-t3 rev-parse HEAD)" = "faf4c37f390cde06dda5631802fc28ef5b42270d"
-          test "$(git -C knowledge rev-parse HEAD)" = "bcefdc6aa55efd6f067388fe68a5ed9d236f2a6a"
+          test "$(git -C private-t3 rev-parse HEAD)" = "f0cdc0ae7e521a4d3282ef11d2f934a0049de775"
+          test "$(git -C knowledge rev-parse HEAD)" = "51b74acc8785b0f41a2039f2d990254021da85b3"
           export IWXA_WORKFLOW_PUBLIC_SOURCE="$(node -p 'require("node:path").resolve("knowledge")')"
           cd private-t3
           rc=0
