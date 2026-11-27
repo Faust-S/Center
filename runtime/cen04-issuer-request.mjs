@@ -10,7 +10,7 @@ import {
  * featureIds?:string[], termDays?:number, seats?:number
  * }} options */
 export function prepareAdminPublisherTestRequest({
-  organization, requestId, requestedAt, version='0.4.1',
+  organization, requestId, requestedAt, version='0.5.0-dev.1',
   featureIds=['WORKSPACE'], termDays=30, seats=1
 }){
   if(!['ORGANIZATION','GROUP'].includes(organization?.kind))
