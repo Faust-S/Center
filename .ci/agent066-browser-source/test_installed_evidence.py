@@ -126,7 +126,8 @@ class CleanDiagnosticTests(unittest.TestCase):
             self.assertEqual(clean_setup_diagnostics(out),{'SETUP_CLEAN_LAST_ATTEMPTED_PHASE':'FINAL_RECEIPT',
                              'SETUP_CLEAN_UNCONFIRMED_CHECKPOINT':'FINAL_RECEIPT','SETUP_CLEAN_CHECKPOINT_STATE':'UNCONFIRMED'})
         self.assertTrue(set('open_native_'+kind for kind in ('error','profile','create','shell','layout','state'))<=set(MANUAL_GUI_STAGES))
-        self.assertTrue({'open_preview_control','open_preview_readback'} <= set(MANUAL_GUI_STAGES))
+        self.assertTrue({'open_preview_control','open_preview_readback',
+                         'open_preview_missing','open_preview_disabled','open_preview_offscreen','open_preview_ambiguous','open_preview_invalid','open_preview_bootstrap','open_preview_session','open_preview_render','open_preview_activate','open_preview_foreground','open_preview_ready'} <= set(MANUAL_GUI_STAGES))
         self.assertEqual(len(MANUAL_GUI_STAGES),len(set(MANUAL_GUI_STAGES)))
 
     def test_owner_repair_error_projection(self):
