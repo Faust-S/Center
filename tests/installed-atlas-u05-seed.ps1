@@ -139,11 +139,45 @@ function Await-SignedText([string]$fragment){
    }
    Start-Sleep -Milliseconds 250
  }
- throw 'ATLAS_U05_SIGNED_UI_TEXT_NOT_OBSERVED'
+ $stage=switch -Wildcard ($fragment){
+   'Оригинальный T3*' {'PREVIEW'}
+   'Этот Result*' {'COLD_PREVIEW'}
+   'Выбранный подписанный*' {'READBACK'}
+   default {'UNKNOWN'}
+ }
+ throw ('ATLAS_U05_SIGNED_UI_TEXT_NOT_OBSERVED_'+$stage)
+}
+# In standalone v6 Atlas, the legacy commandbar and its "Сохранение и
+# копии" menu are hidden by CSS. The real menu lives in AtlasChromeTopbar.
+# HTML summary can appear as Button or another accessible disclosure type.
+function Open-AtlasFileMenu{
+ for($i=0;$i -lt 70;$i++){
+   $items=(Root).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+     [System.Windows.Automation.Condition]::TrueCondition)
+   foreach($item in $items){
+     try{
+       if([string]$item.Current.Name -cne 'Файл' -or $item.Current.IsOffscreen -or !$item.Current.IsEnabled){continue}
+       try{
+         $expand=$item.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+         if($expand.Current.ExpandCollapseState -ne [System.Windows.Automation.ExpandCollapseState]::Expanded){$expand.Expand()}
+       }catch{
+         try{$item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()}
+         catch{$item.SetFocus();[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')}
+       }
+       Start-Sleep -Milliseconds 250
+       return
+     }catch{}
+   }
+   Start-Sleep -Milliseconds 240
+ }
+ throw 'ATLAS_U05_SIGNED_FILE_MENU_NOT_FOUND'
 }
 function Open-SignedFile([string]$archive){
- Click-UI 'Сохранение и копии'
- $control=Find-UI 'Принять подписанный Result .iwxa'
+ Open-AtlasFileMenu
+ try{$control=Find-UI 'Принять подписанный Result .iwxa'}
+ catch{throw 'ATLAS_U05_SIGNED_FILE_ACTION_NOT_FOUND'}
+ if(!$control.Current.IsEnabled -or $control.Current.IsOffscreen){throw 'ATLAS_U05_SIGNED_FILE_ACTION_DISABLED'}
+ # Real keyboard activation preserves the WebView file picker's user gesture.
  $control.SetFocus()
  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
  $dialog=$null
