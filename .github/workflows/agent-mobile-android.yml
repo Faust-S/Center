@@ -16,10 +16,10 @@ jobs:
   qualify:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 150
     env:
-      PRIVATE_PIN: '6d61dc006d5ec3e4e0be850090dae20c0c7a2688'
-      PRIVATE_TREE: 'af1fb62356d8ce7edf84960bc5ff06b1270c394f'
+      PRIVATE_PIN: 'b1a42416f35226810ac032ff2f2f9d62d95ac887'
+      PRIVATE_TREE: '8a9c9e83cd337739ba10f22188ac4bf7baec638c'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
-      - name: Prepare public QA audio tools before private source access
+      - name: Prepare public QA audio and image build tools before private source access
         shell: bash
         run: |
           set -euo pipefail
@@ -46,6 +46,13 @@ jobs:
           fi
           ffmpeg -version | head -n 1
           ffprobe -version | head -n 1
+          if ! command -v ninja >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ninja-build
+          fi
+          command -v kotlinc >/dev/null
+          command -v readelf >/dev/null
+          command -v cmake >/dev/null
       - name: One private source, Android build and installed emulator contour
         shell: bash
         env:
@@ -326,6 +333,27 @@ jobs:
                               passed=outcome.returncode==0 and sorted(observed)==sorted(required)
                               status(name,"PASS" if passed else "FAIL")
                               return passed
+                          if name=="NATIVE_REAL_IMAGE_ROUTE":
+                              expected=("OFFLINE_START","ENGINE_PRESENT","MODEL_PICKER_CANCEL","MODEL_IMPORTED","MODEL_VERIFIED","UI_GENERATED","UI_PREVIEW","STALE_REJECTED","UI_EXPORT_CANCEL","UI_EXPORT","UI_EXPORT_EXPECTED","UI_CANCEL_REPLACEMENT","UI_CLEAR","MODEL_REMOVED","OFFLINE_END")
+                              observed=re.findall(r"(?m)^IMAGE_DEVICE_STAGE=([A-Z_]+)\s*$",report)
+                              for value in observed:
+                                  if value in expected:status("IMAGE_DEVICE_STAGE",value)
+                              checks=["IMAGE_DEVICE_FIXTURE_HOST","IMAGE_DEVICE_FIXTURE_READBACK","IMAGE_DEVICE_EXPORT_READBACK","IMAGE_DEVICE_CLEANUP","IMAGE_DEVICE_ROUTE"]
+                              good=True
+                              for label in checks:
+                                  matches=re.findall(r"(?m)^"+label+r"=(PASS)\s*$",report)
+                                  if matches==["PASS"]:status(label,"PASS")
+                                  else:good=False
+                              times=re.findall(r"(?m)^IMAGE_DEVICE_GENERATION_MS=([1-9][0-9]{0,6})\s*$",report)
+                              timing=len(times)==1 and 1<=int(times[0])<=1300000
+                              if timing:status("IMAGE_DEVICE_GENERATION_MS",times[0])
+                              for value in re.findall(r"(?m)^IMAGE_DEVICE_FAILURE_CLASS=(ENGINE|MEMORY|PICKER|MODEL|GENERATION|PREVIEW|STALE|EXPORT|CANCEL|CLEANUP|OFFLINE|WEBVIEW)\s*$",report):status("IMAGE_DEVICE_FAILURE_CLASS",value)
+                              failure_codes={"IMAGE_DISPOSABLE_CI_REQUIRED","IMAGE_MODEL_PIN","IMAGE_DISPOSABLE_DEVICE_REQUIRED","IMAGE_DISPOSABLE_AVD_REQUIRED","IMAGE_PACKAGE_REQUIRED","IMAGE_QA_PATH_COLLISION","IMAGE_ADB_OR_DOWNLOAD_FAILED","IMAGE_MODEL_SIZE","IMAGE_MODEL_FORMAT","IMAGE_MODEL_HASH","IMAGE_DEVICE_FIXTURE_HASH","IMAGE_OFFLINE_NOT_CONFIRMED","IMAGE_DEVICE_RECEIPT_INVALID","IMAGE_DEVICE_EXPORT_MISMATCH","IMAGE_DEVICE_CLEANUP","TimeoutExpired","OSError"}
+                              for value in re.findall(r"(?m)^IMAGE_QUALIFICATION_FAILURE=([A-Za-z_]+)\s*$",report):
+                                  if value in failure_codes:status("IMAGE_QUALIFICATION_FAILURE",value)
+                              passed=outcome.returncode==0 and tuple(observed)==expected and good and timing
+                              status(name,"PASS" if passed else "FAIL")
+                              return passed
                           if name=="ASSEMBLY":
                               counts=re.findall(r"(?m)^MOBILE_T3_APK_ASSETS_STAGED=(\d{1,4})\s*$",report)
                               if counts:status("MOBILE_T3_APK_ASSETS",counts[-1])
@@ -341,6 +369,13 @@ jobs:
                                   status("ASSEMBLY","NATIVE_TTS_FIXTURE_RECEIPT_MISSING");return False
                               if outcome.returncode==0 and not re.search(r"(?m)^SPEECH_AAR_VERIFIED\s*$",report):
                                   status("ASSEMBLY","SPEECH_AAR_RECEIPT_MISSING");return False
+                              # Exact successful tests and immutable APK verification are mandatory.
+                              if outcome.returncode==0:
+                                  required=["IMAGE_APK_IDENTITY=PASS","IMAGE_PACKAGING_TESTS=PASS","IMAGE_GENERATION_COMPOSITION=11/11 PASS"]
+                                  if any(report.splitlines().count(x)!=1 for x in required):
+                                      status("ASSEMBLY","IMAGE_RECEIPT_MISSING");return False
+                              for marker,label in [(r"(?m)^IMAGE_APK_IDENTITY=PASS\s*$","IMAGE_APK_IDENTITY"),(r"(?m)^IMAGE_PACKAGING_TESTS=PASS\s*$","IMAGE_PACKAGING_TESTS"),(r"(?m)^IMAGE_GENERATION_COMPOSITION=11/11 PASS\s*$","IMAGE_COMPOSITION")]:
+                                  if re.search(marker,report):status(label,"PASS")
                           for label in ["tests","pass","fail","skipped"]:
                               matches=re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report)
                               if matches:status("NODE_"+label.upper(),matches[-1])
@@ -368,11 +403,11 @@ jobs:
                           if name in ("SOURCE","ASSEMBLY") and outcome.returncode==0:
                               # Exact accumulated source suite; no skip or todo.
                               node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
-                              if any(node_counts[label]!=[value] for label,value in {"tests":"768","pass":"768","fail":"0","skipped":"0","todo":"0"}.items()):
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"796","pass":"796","fail":"0","skipped":"0","todo":"0"}.items()):
                                   status(name,"NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
-                              node_groups={"attention-monitor.test.mjs":"N01","chat-catalog-search.test.mjs":"N02","chat-history-view.test.mjs":"N03","chat-image.test.mjs":"N04","chat-task-material.test.mjs":"N05","device-book.test.mjs":"N06","device-screen.test.mjs":"N07","document-reuse.test.mjs":"N08","gradle-launch.test.mjs":"N09","mobile-product.test.mjs":"N10","model-state.test.mjs":"N11","native-wiring.test.mjs":"N12","network-routes.test.mjs":"N13","provider-probe.test.mjs":"N14","remote-agent.test.mjs":"N15","remote-attachments.test.mjs":"N16","remote-documents.test.mjs":"N17","remote-draft-navigation.test.mjs":"N18","remote-draft-resume.test.mjs":"N19","remote-drafts.test.mjs":"N20","remote-interaction.test.mjs":"N21","remote-meta-harness.test.mjs":"N22","remote-model-control.test.mjs":"N23","t3-native-session.test.mjs":"N24","t3-staging.test.mjs":"N25","visual-witness.test.mjs":"N26","voice-input.test.mjs":"N27","work-archive.test.mjs":"N28","draft-checkpoint.test.mjs":"N29","llama-adapter.test.mjs":"N30","local-transcript.test.mjs":"N31","local-transcript-checkpoint.test.mjs":"N32","qa-vision-fixture.test.mjs":"N33","speech-prepare.test.mjs":"N34","speech-tool.test.mjs":"N35","qa-speech-fixture.test.mjs":"N36","tts-tool.test.mjs":"N37","tts-sequence.test.mjs":"N38","voice-dialogue.test.mjs":"N39"}
+                              node_groups={"attention-monitor.test.mjs":"N01","chat-catalog-search.test.mjs":"N02","chat-history-view.test.mjs":"N03","chat-image.test.mjs":"N04","chat-task-material.test.mjs":"N05","device-book.test.mjs":"N06","device-screen.test.mjs":"N07","document-reuse.test.mjs":"N08","gradle-launch.test.mjs":"N09","mobile-product.test.mjs":"N10","model-state.test.mjs":"N11","native-wiring.test.mjs":"N12","network-routes.test.mjs":"N13","provider-probe.test.mjs":"N14","remote-agent.test.mjs":"N15","remote-attachments.test.mjs":"N16","remote-documents.test.mjs":"N17","remote-draft-navigation.test.mjs":"N18","remote-draft-resume.test.mjs":"N19","remote-drafts.test.mjs":"N20","remote-interaction.test.mjs":"N21","remote-meta-harness.test.mjs":"N22","remote-model-control.test.mjs":"N23","t3-native-session.test.mjs":"N24","t3-staging.test.mjs":"N25","visual-witness.test.mjs":"N26","voice-input.test.mjs":"N27","work-archive.test.mjs":"N28","draft-checkpoint.test.mjs":"N29","llama-adapter.test.mjs":"N30","local-transcript.test.mjs":"N31","local-transcript-checkpoint.test.mjs":"N32","qa-vision-fixture.test.mjs":"N33","speech-prepare.test.mjs":"N34","speech-tool.test.mjs":"N35","qa-speech-fixture.test.mjs":"N36","tts-tool.test.mjs":"N37","tts-sequence.test.mjs":"N38","voice-dialogue.test.mjs":"N39","image-tool.test.mjs":"N40"}
                               # Known roles and bounded numeric coordinates only. Never output
                               # private test names, paths, assertion data or raw TAP.
                               for name_at,line_at,col_at in re.findall(r"(?m)^[ \t]+location: '[^'\r\n]*[\\/]qualification[\\/]([a-z0-9-]{1,80}\.test\.mjs):([1-9][0-9]{0,4}):([1-9][0-9]{0,3})'[ \t]*\r?$",report)[:32]:
@@ -409,6 +444,7 @@ jobs:
                                   ("LLAMA_AAR",r"\b(?:LLAMA_PREPARE_FAILED|LLAMA_AAR_REQUIRED|LLAMA_AAR_PIN_MISMATCH|LLAMA_ADAPTER_BASE_MISMATCH|LLAMA_ADAPTER_ANCHOR_MISMATCH|LLAMA_ADAPTER_PLAN_INVALID)\b"),
                                   ("QA_MODEL",r"\bQA_MODEL_(?:HASH_MISMATCH|REQUIRED|DOWNLOAD_FAILED|SIZE)\b"),
                                   ("QA_NATIVE_VISION_FIXTURE",r"\bQA_VISION_(?:PIN_INVALID|FIXTURE_REQUIRED|DOWNLOAD_FAILED|SIZE_MISMATCH|HASH_MISMATCH)\b"),
+                                  ("IMAGE_NATIVE_BUILD",r"\bIMAGE_(?:PREPARE_FAILED|SOURCE_PIN_MISMATCH|NDK_PIN_MISMATCH|ELF_[A-Z_]+|BUNDLE_[A-Z_]+|PACKAGE_[A-Z_]+|APK_[A-Z_]+)\b"),
                                   ("NATIVE_CPP_COMPILE",r"(?m)^.*\.cpp:\d+:\d+: (?:fatal )?error:"),
                                   ("NATIVE_CPP_LINK",r"undefined symbol|undefined reference|ld\.lld: error"),
                                   ("KOTLIN_COMPILE",r"(?m)^e: .*\.kt:"),
@@ -462,7 +498,7 @@ jobs:
                               }
                               failed=re.findall(r"Execution failed for task ':[^'\r\n]*:([A-Za-z0-9]+)'",report)
                               for task in sorted({tasks.get(x,"OTHER") for x in failed}):status("GRADLE_FAILED_TASK",task)
-                              roles={"DraftCheckpointPlugin.java":"DRAFT_CHECKPOINT","PhotoInputPlugin.java":"PHOTO_INPUT","PhotoInputPolicy.java":"PHOTO_INPUT_POLICY","LocalModelPlugin.kt":"MODEL_BRIDGE","OriginalSpeech.kt":"SPEECH_NATIVE","SpeechModelFiles.kt":"SPEECH_FILES","SpeechWaveFile.kt":"SPEECH_WAVE","SpeechAudioWindows.kt":"SPEECH_WINDOWS","SpeechPcmBuffer.kt":"SPEECH_PCM","SpeechCodecPolicy.kt":"SPEECH_CODEC_POLICY","SpeechRunControl.kt":"SPEECH_CONTROL","AndroidSpeechRecorder.kt":"SPEECH_RECORDER","AndroidSpeechInput.kt":"SPEECH_MEDIA","SpeechTextFile.kt":"SPEECH_TEXT_FILE","OriginalSpeechInstalledTest.java":"SPEECH_WITNESS","TtsModelFiles.kt":"TTS_MODEL","OriginalTts.kt":"TTS_NATIVE","TtsNativeCallback.kt":"TTS_CALLBACK","TtsSequencePolicy.kt":"TTS_SEQUENCE_POLICY","TtsWaveSequence.kt":"TTS_WAVE_SEQUENCE","SpeechSynthesisPolicy.kt":"TTS_POLICY","TtsAudioFiles.kt":"TTS_AUDIO","TtsPlayback.kt":"TTS_PLAYBACK","OriginalTtsInstalledTest.java":"TTS_WITNESS","ResidentSpeechPolicy.kt":"SPEECH_RESIDENT_POLICY","OriginalVoiceDialogueInstalledTest.java":"VOICE_DIALOGUE_WITNESS","RecommendedModels.kt":"MODEL_DOWNLOAD","RecommendedBundleFiles.kt":"MODEL_BUNDLE","RecommendedDownloadPolicy.kt":"MODEL_DOWNLOAD_POLICY","ModelFileIntegrity.kt":"FILE_INTEGRITY","ModelProjectorFile.kt":"MODEL_PROJECTOR","ModelPickerAdmission.kt":"MODEL_PICKER_ADMISSION","DocumentsUiWitness.java":"DOCUMENTS_UI_WITNESS","DocumentsUiNavigation.java":"DOCUMENTS_UI_NAVIGATION","InstalledRouteTest.java":"INSTALLED_WITNESS","OriginalAgentInstalledTest.java":"ORIGINAL_AGENT_INSTALLED_WITNESS","OriginalNativeVisionInstalledTest.java":"NATIVE_VISION_WITNESS","OriginalT3InstalledTest.java":"ORIGINAL_T3_INSTALLED_WITNESS","OriginalExchangeInstalledWitness.java":"ORIGINAL_EXCHANGE_INSTALLED_WITNESS","IwxaArchiveStaging.kt":"EXCHANGE_FILE_STAGING","IwxaPackageFilePlugin.kt":"EXCHANGE_FILE_BRIDGE","T3AssetWebViewClient.java":"T3_ASSET_DELIVERY","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
+                              roles={"DraftCheckpointPlugin.java":"DRAFT_CHECKPOINT","PhotoInputPlugin.java":"PHOTO_INPUT","PhotoInputPolicy.java":"PHOTO_INPUT_POLICY","LocalModelPlugin.kt":"MODEL_BRIDGE","OriginalSpeech.kt":"SPEECH_NATIVE","SpeechModelFiles.kt":"SPEECH_FILES","SpeechWaveFile.kt":"SPEECH_WAVE","SpeechAudioWindows.kt":"SPEECH_WINDOWS","SpeechPcmBuffer.kt":"SPEECH_PCM","SpeechCodecPolicy.kt":"SPEECH_CODEC_POLICY","SpeechRunControl.kt":"SPEECH_CONTROL","AndroidSpeechRecorder.kt":"SPEECH_RECORDER","AndroidSpeechInput.kt":"SPEECH_MEDIA","SpeechTextFile.kt":"SPEECH_TEXT_FILE","OriginalSpeechInstalledTest.java":"SPEECH_WITNESS","TtsModelFiles.kt":"TTS_MODEL","OriginalTts.kt":"TTS_NATIVE","TtsNativeCallback.kt":"TTS_CALLBACK","TtsSequencePolicy.kt":"TTS_SEQUENCE_POLICY","TtsWaveSequence.kt":"TTS_WAVE_SEQUENCE","SpeechSynthesisPolicy.kt":"TTS_POLICY","TtsAudioFiles.kt":"TTS_AUDIO","TtsPlayback.kt":"TTS_PLAYBACK","OriginalTtsInstalledTest.java":"TTS_WITNESS","ResidentSpeechPolicy.kt":"SPEECH_RESIDENT_POLICY","OriginalVoiceDialogueInstalledTest.java":"VOICE_DIALOGUE_WITNESS","RecommendedModels.kt":"MODEL_DOWNLOAD","RecommendedBundleFiles.kt":"MODEL_BUNDLE","RecommendedDownloadPolicy.kt":"MODEL_DOWNLOAD_POLICY","ModelFileIntegrity.kt":"FILE_INTEGRITY","ModelProjectorFile.kt":"MODEL_PROJECTOR","ModelPickerAdmission.kt":"MODEL_PICKER_ADMISSION","DocumentsUiWitness.java":"DOCUMENTS_UI_WITNESS","DocumentsUiNavigation.java":"DOCUMENTS_UI_NAVIGATION","InstalledRouteTest.java":"INSTALLED_WITNESS","OriginalAgentInstalledTest.java":"ORIGINAL_AGENT_INSTALLED_WITNESS","OriginalNativeVisionInstalledTest.java":"NATIVE_VISION_WITNESS","OriginalT3InstalledTest.java":"ORIGINAL_T3_INSTALLED_WITNESS","OriginalExchangeInstalledWitness.java":"ORIGINAL_EXCHANGE_INSTALLED_WITNESS","IwxaArchiveStaging.kt":"EXCHANGE_FILE_STAGING","IwxaPackageFilePlugin.kt":"EXCHANGE_FILE_BRIDGE","T3AssetWebViewClient.java":"T3_ASSET_DELIVERY","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST","ImageGeneration.kt":"IMAGE_COMPOSITION","OriginalImageProcess.kt":"IMAGE_PROCESS","ImageResultFiles.kt":"IMAGE_RESULT","ImageModelFile.kt":"IMAGE_MODEL","AndroidImageDecoder.kt":"IMAGE_DECODER","OriginalImageInstalledTest.java":"IMAGE_WITNESS","QaExportWitness.java":"EXPORT_WITNESS"}
                               for line in report.splitlines():
                                   if not (line.startswith("e:") or "error:" in line):continue
                                   loc=re.search(r"("+"|".join(re.escape(name) for name in roles)+r"):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
@@ -487,6 +523,10 @@ jobs:
                       if vision_policy.returncode or not re.search(rb"(?m)^Ran 34 tests? in [0-9.]+s\s*$",vision_policy.stdout) or not re.search(rb"(?m)^OK\s*$",vision_policy.stdout):
                           status("NATIVE_MULTIMODAL_RECEIPT_POLICY","FAIL");status("APK","NOT_RUN");return 1
                       status("NATIVE_MULTIMODAL_RECEIPT_POLICY","34/34")
+                      image_policy=run(["python3","mobile/qualification/test_image_qualification.py"],source,timeout=60)
+                      if image_policy.returncode or not re.search(rb"(?m)^Ran 7 tests? in [0-9.]+s\s*$",image_policy.stdout) or not re.search(rb"(?m)^OK\s*$",image_policy.stdout):
+                          status("IMAGE_DEVICE_RECEIPT_POLICY","FAIL");status("APK","NOT_RUN");return 1
+                      status("IMAGE_DEVICE_RECEIPT_POLICY","7/7")
                       policy=root/"context-policy"
                       if not stage("LLAMA_CONTEXT_POLICY_BUILD",["g++","-std=c++17","-Wall","-Wextra","-Werror","-O2","qualification/llama-context-budget.test.cpp","-o",str(policy)],mobile,120):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
@@ -573,7 +613,7 @@ jobs:
                           status("APK","NOT_RUN");return 1
                       if not stage("SDK_BUILD_INPUTS",[sdk,"--install","--channel=3","platforms;android-36","build-tools;36.0.0","ndk;"+native["ndk"],"cmake;"+native["cmake"]],timeout=1200,stdin=b"y\n"*100):
                           status("APK","NOT_RUN");return 1
-                      if not report_stage("ASSEMBLY",["npm","run","qualify:release","--","--assemble-device","--fetch-public-inputs","--local-vision","--local-speech","--local-tts"],mobile,3600):
+                      if not report_stage("ASSEMBLY",["npm","run","qualify:release","--","--assemble-device","--fetch-public-inputs","--local-vision","--local-speech","--local-tts","--local-image"],mobile,5400):
                           status("INSTALLED","NOT_RUN");return 1
                       if not avd:
                           status("ANDROID_EMULATOR","AVDMANAGER_MISSING");return 1
@@ -593,7 +633,7 @@ jobs:
                       if not stage("AVD_CREATE",[avd,"create","avd","-n","iwxa_mobile_ci","-k",image,"--force"],stdin=b"no\n"):return 1
                       adb=str(android/"platform-tools/adb")
                       with (root/"emulator.log").open("wb") as elog:
-                          emulator=subprocess.Popen([str(android/"emulator/emulator"),"-avd","iwxa_mobile_ci","-no-window","-no-boot-anim","-no-snapshot","-gpu","swiftshader_indirect","-accel","on" if accelerated else "off","-memory","4096"],env=env,stdout=elog,stderr=subprocess.STDOUT)
+                          emulator=subprocess.Popen([str(android/"emulator/emulator"),"-avd","iwxa_mobile_ci","-no-window","-no-boot-anim","-no-snapshot","-gpu","swiftshader_indirect","-accel","on" if accelerated else "off","-memory","8192","-cores","4","-partition-size","16384"],env=env,stdout=elog,stderr=subprocess.STDOUT)
                           deadline=time.monotonic()+(300 if accelerated else 600)
                           booted=False
                           while time.monotonic()<deadline and emulator.poll() is None:
@@ -718,7 +758,12 @@ jobs:
                               t3_ok=report_stage("INSTALLED_T3_ROUTE",[py,"mobile/qualification/installed-t3-route.py",adb],source,2550)
                           else:
                               status("INSTALLED_T3_ROUTE","NOT_RUN")
-                          passed=native_ok and remote_ok and vision_ok and speech_ok and tts_ok and voice_ok and t3_ok
+                          image_ok=False
+                          if native_ok:
+                              image_ok=report_stage("NATIVE_REAL_IMAGE_ROUTE",[py,"mobile/qualification/image_qualification.py","device",adb,str(mobile/"native/image-source.json")],source,4200)
+                          else:
+                              status("NATIVE_REAL_IMAGE_ROUTE","NOT_RUN")
+                          passed=native_ok and remote_ok and vision_ok and speech_ok and tts_ok and voice_ok and t3_ok and image_ok
                           status("QUALIFICATION","PASS" if passed else "FAIL")
                           status("PHYSICAL_ARM64","NOT_RUN")
                           status("REAL_VISION_ROUTE","NOT_RUN")
