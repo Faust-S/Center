@@ -7,12 +7,12 @@ permissions:
   contents: read
 jobs:
   product:
-    if: github.event.before == 'ed7e476cf139d95428a64c243286cbac3b405975'
+    if: github.event.before == 'b10fd220ab686c5f5857d246901167e2f8c9e9b6'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      HOP_SITE_SHA: 1c76277e6881dfd95ca9ed422d04ae7bcb8ec5e8
-      HOP_SITE_TREE: e1712cb9a337b5087cc06c00f7da5db711deff31
+      HOP_SITE_SHA: f5ee7d26cf1dc40d2cea31b0be93e7eeceef7694
+      HOP_SITE_TREE: 946d2801ce9bc28921508eb42d657469a2391151
       HOP_CANON_SHA: 5fbfe9210b1c9369f828d469e52380f31918a4e6
       HOP_CANON_TREE: 53b617fd59caa24b187ce33f4345ec1ee5dabec1
       T2_SHA: 9c64951cd78411283e8a416641c36d71e169fc1d
@@ -166,11 +166,16 @@ jobs:
             fi
           }
           check VERIFY npm run verify
-          # Verify may stop before the build on a source-check failure.
-          # In that case attempt the unchanged normal builder once to learn
-          # whether the product itself can be assembled. Verify stays failed.
-          if [ ! -f dist/_iwxa/domain.json ] && ! grep -q 'node scripts/build-d09-site-only.mjs' "$RUNNER_TEMP/d09-VERIFY.log"; then
-            check INTEGRATED_BUILD npm run build
+          # A failed source check or public-only verification must not
+          # prevent independent native-route diagnosis. Do not repeat a
+          # failed native build; keep VERIFY failed even if normal build passes.
+          if [ ! -f dist/_iwxa/domain.json ]; then
+            if ! grep -q 'node scripts/build-d09-site-only.mjs' "$RUNNER_TEMP/d09-VERIFY.log" || {
+              grep -Eq '^>.*check:(readability|hydration|runtime|network-privacy)' "$RUNNER_TEMP/d09-VERIFY.log" &&
+              ! grep -q '^D09_PUBLIC_STAGE_VERIFY=PASS$' "$RUNNER_TEMP/d09-VERIFY.log"
+            }; then
+              check INTEGRATED_BUILD npm run build
+            fi
           fi
           check PIXEL_AVATAR_PACKAGE npx --no-install tsx scripts/qualify-pixel-avatar-iwxa.ts
           check SEED_PACKAGES npx --no-install tsx scripts/d09-seed-package-diagnostic.ts
