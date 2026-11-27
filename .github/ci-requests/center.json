@@ -1,0 +1,12 @@
+{
+  "workflow": "center",
+  "prepared_sha": "18484f8d91e1662c70273fb3e170126bbffcf2ed",
+  "profile": "atlas-native",
+  "pins": {
+    "atlas": "91a73f15b0f13f0ff7cb2e7f3c9134b338e94601",
+    "brtest": "7cfb17870042cac824644140b7f0a587e244a20e",
+    "setup_core": "0ef7544e2a6fd5fab5994f7f25abbb960063908c",
+    "t3": "bdd7b8d37a4dc8ecfc651b03d5745f741e4f2ce6"
+  },
+  "reason": "Finish same targeted signed recipient qualification with dependency installation corrected and original retained WorkRef after unrelated native GUI save. Check exact historical/current editions, Plan Fact and cold readback, revocation. Do not repeat public OS matrix or assert installed D3 sender."
+}
