@@ -45,7 +45,7 @@ try:
                             current["pending_submission"] is not None or current["text"] or
                             current["attachments"] or current["knowledge_sources"]):
                         raise ValueError("fixture composer occupied or changed")
-                    phase = "DRAFT_SAVE"
+                    phase = "COMPOSER_WRITE"
                     result = engine.sessions.composer_draft(profile, text=data["text"],
                         attachments=data["attachments"], knowledge_sources=data["knowledge_sources"],
                         expected_draft_digest=current["draft_digest"], task_context=True)
@@ -67,9 +67,20 @@ try:
                 tid = created["task_id"]
                 phase = "TASK_REVIEW"
                 engine.review(tid, "approve")
-            phase = "DRAFT_SAVE"
-            cleared = engine.sessions.composer_draft(profile, text="", attachments=[],
-                knowledge_sources=[], expected_draft_digest=current["draft_digest"], task_context=True)
+            phase = "CLEAR_CHECK"
+            latest = engine.sessions.composer_draft(profile, task_context=True)
+            if latest["pending_submission"] is not None:
+                raise ValueError("fixture pending submission")
+            if latest["text"] or latest["attachments"] or latest["knowledge_sources"]:
+                if latest["draft_digest"] != current["draft_digest"]:
+                    raise ValueError("fixture composer changed after submit")
+                phase = "CLEAR_WRITE"
+                cleared = engine.sessions.composer_draft(profile, text="", attachments=[],
+                    knowledge_sources=[], expected_draft_digest=latest["draft_digest"], task_context=True)
+            else:
+                # The original owner may already have consumed the exact draft.
+                # Never clear a different user's content after a task completes.
+                cleared = latest
             if cleared["text"] or cleared["attachments"] or cleared["knowledge_sources"]:
                 raise ValueError("fixture composer was not cleared")
             result = {"taskId":tid} if op == "submit" else cleared
@@ -122,5 +133,19 @@ try:
         else:
             raise ValueError("unsupported fixture operation")
     print(json.dumps({"ok":True,"result":result},ensure_ascii=True))
-except Exception:
-    print(json.dumps({"ok":False,"code":"ORIGINAL_TASK_FIXTURE_REFUSED","phase":phase}))
+except Exception as exc:
+    # Fixed allowlist only; never echo exception text, paths, or native data.
+    allowed = {
+        "composer_draft_revision_invalid", "composer_draft_link_forbidden",
+        "composer_draft_oversized", "composer_draft_storage_invalid", "composer_draft_unreadable",
+        "composer_draft_changed", "composer_draft_invalid", "composer_attachments_invalid",
+        "composer_attachment_invalid", "composer_attachment_filename_invalid",
+        "composer_attachment_duplicate", "composer_attachment_encoding_invalid",
+        "composer_attachment_content_out_of_bounds", "fixture composer occupied or changed",
+        "fixture composer changed after submit", "fixture pending submission",
+        "fixture composer was not cleared"
+    }
+    message = str(exc)
+    diagnostic = message.upper().replace(" ","_") if message in allowed else (
+        type(exc).__name__.upper() if type(exc).__name__ in ("ValueError","TypeError","OSError","PermissionError","KeyError","RuntimeError") else "OTHER")
+    print(json.dumps({"ok":False,"code":"ORIGINAL_TASK_FIXTURE_REFUSED","phase":phase,"diagnostic":diagnostic}))

@@ -90,13 +90,16 @@ try{
     const response=JSON.parse(execFileSync('python',[nativeTask,agent,join(root,'actual-task')],{
       input:JSON.stringify({op,...extra}),encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:60000}));
     if(!response.ok){
-      if(['IMPORT','CONFIG','ENGINE_INIT','AREA','DRAFT_READ','DRAFT_SAVE','TASK_CHAT','TASK_REVIEW','ACCEPTED_READ','ARTIFACT_VERIFY','SNAPSHOT_MATCH','DOCUMENT_READ'].includes(response.phase))
+      if(['IMPORT','CONFIG','ENGINE_INIT','AREA','DRAFT_READ','DRAFT_SAVE','COMPOSER_WRITE','CLEAR_CHECK','CLEAR_WRITE',
+        'TASK_CHAT','TASK_REVIEW','ACCEPTED_READ','ARTIFACT_VERIFY','SNAPSHOT_MATCH','DOCUMENT_READ'].includes(response.phase))
         console.log('WORKFLOW_QUALIFICATION_FAILURE_PHASE='+response.phase);
+      if(typeof response.diagnostic==='string'&&/^(COMPOSER_[A-Z0-9_]+|FIXTURE_[A-Z0-9_]+|VALUEERROR|TYPEERROR|OSERROR|PERMISSIONERROR|KEYERROR|RUNTIMEERROR|OTHER)$/.test(response.diagnostic))
+        console.log('WORKFLOW_QUALIFICATION_FAILURE_CODE='+response.diagnostic);
       throw Error('ORIGINAL_TASK_FIXTURE_REFUSED');
     }
     return response.result;
   };
-  const {inspectOriginalPersonalWorkflowTask,createOriginalPersonalWorkflowTaskObserver}=await source('src/t3/workspace-method-personal-draft.mjs');
+  const {inspectOriginalPersonalWorkflowTask,createOriginalPersonalWorkflowTaskObserver,recoverOriginalPersonalWorkflowTaskSelection,personalWorkflowTaskInspection}=await source('src/t3/workspace-method-personal-draft.mjs');
   const {taskId}=taskCall('execute',{draft:plan.draft});
   const taskOwner={
     readAcceptedRun:async(taskId,binding)=>{assert.equal(binding.agentWorkspaceId,'personal');return taskCall('run',{taskId});},
@@ -120,10 +123,11 @@ try{
   const rootAccepted=await observer.read(plan,taskId);
   assert.equal(rootAccepted.evidence.acceptedDigest,inspection.acceptedDigest);
   let assetReads=0;
-  const prepare=(stepId,selections,expectedCandidateDigest)=>prepareWorkspaceMethodPersonalChain({...args,stepId,
+  const prepare=(stepId,selections,expectedCandidateDigest,targetTaskId)=>prepareWorkspaceMethodPersonalChain({...args,stepId,
     personalResultSelections:selections,readVerifiedPersonalResult:observer.read,
     getAsset:async()=>{assetReads++;return {asset,bytes};},
-    ...(expectedCandidateDigest===undefined?{}:{expectedCandidateDigest})});
+    ...(expectedCandidateDigest===undefined?{}:{expectedCandidateDigest}),
+    ...(targetTaskId===undefined?{}:{targetTaskId})});
   const executeDependent=async(stepId,selections,prior)=>{
     const startReads=assetReads,prepared=await prepare(stepId,selections);
     assert.equal(assetReads-startReads,2);
@@ -145,8 +149,10 @@ try{
     assert.deepEqual(draft.attachments,dependentPlan.draft.attachments);
     assert.equal(draft.draft_digest,saved.draftDigest);
     const {taskId:next}=taskCall('submit',{binding:actualBinding,expectedDraftDigest:saved.draftDigest});
-    const matched=await inspectOriginalPersonalWorkflowTask({plan:dependentPlan,taskId:next,composer:actualComposer,
-      taskOwner,guarded:fn=>fn(),refreshPlan:rebuild});
+    const inspectionReads=assetReads;
+    const qualified=await prepare(stepId,selections,prepared.plan.candidateDigest,next);
+    assert.equal(assetReads-inspectionReads,2);
+    const matched=personalWorkflowTaskInspection(qualified.plan,qualified.targetAccepted);
     assert.equal(matched.declaredDraftInputsVerified,true);assert.equal(matched.workCompleted,false);
     assert.equal(matched.resultReuseProven,false);
     const accepted=await observer.read(dependentPlan,next);
@@ -165,13 +171,29 @@ try{
     error=>error?.code==='T3_METHOD_PERSONAL_TASK_INPUT_CHANGED');
   await assert.rejects(prepare('finish',selections),error=>error?.code==='METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED');
   console.log('ORIGINAL_AGENT_PERSONAL_THREE_WORK_CHAIN_PASS');
+  phase='CHAIN_RECOVERY';
+  const recoveredObserver=await createOriginalPersonalWorkflowTaskObserver({workspaceId,composer:actualComposer,taskOwner,guarded:fn=>fn()});
+  const recovered=await recoverOriginalPersonalWorkflowTaskSelection({workspaceId,projectId,stepId:'finish',expected:method,
+    taskId:finish.taskId,observer:recoveredObserver});
+  assert.equal(recovered.canonicalWorkRef.recordId,'finish-source');
+  assert.deepEqual(recovered.personalResultSelections,[...selections,{stepId:'review',taskId:review.taskId}]);
+  const recoveredReads=assetReads;
+  const recoveredPlan=await prepare('finish',recovered.personalResultSelections,recovered.candidateDigest,finish.taskId);
+  assert.equal(assetReads-recoveredReads,2);
+  const recoveredInspection=personalWorkflowTaskInspection(recoveredPlan.plan,recoveredPlan.targetAccepted);
+  assert.equal(recoveredInspection.acceptedDigest,finish.accepted.evidence.acceptedDigest);
+  assert.equal(recoveredInspection.declaredDraftInputsVerified,true);
+  assert.equal(recoveredInspection.workCompleted,false);
+  assert.equal((await actualComposer.composerDraft({context:'task'},actualBinding)).text,'');
+  console.log('ORIGINAL_AGENT_PERSONAL_CHAIN_COLD_BINDING_RECOVERY_PASS');
   console.log('ORIGINAL_AGENT_COMPOSER_COLD_READBACK_AND_SCOPE_CAS_PASS');
 }catch(error){
   console.log('WORKFLOW_QUALIFICATION_FAILURE_PHASE='+phase);
   if(['T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_MISMATCH','T3_METHOD_PERSONAL_TASK_INPUT_CHANGED',
     'T3_METHOD_PERSONAL_TASK_ACCEPTED_RUN_CHANGED','T3_METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED',
     'METHOD_PERSONAL_CHAIN_SELECTION_REQUIRED','METHOD_PERSONAL_CHAIN_EVIDENCE_CHANGED','METHOD_PERSONAL_DRAFT_CONTENT_LIMIT',
-    'METHOD_PERSONAL_CHAIN_RESULT_MISMATCH','METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED','T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED'].includes(error?.code))
+    'METHOD_PERSONAL_CHAIN_RESULT_MISMATCH','METHOD_PERSONAL_DRAFT_EVIDENCE_CHANGED','T3_METHOD_PERSONAL_DRAFT_NATIVE_SCOPE_CHANGED',
+    'T3_METHOD_PERSONAL_TASK_MANIFEST_INVALID','T3_METHOD_PERSONAL_TASK_MANIFEST_SCOPE_MISMATCH'].includes(error?.code))
     console.log('WORKFLOW_QUALIFICATION_FAILURE_CODE='+error.code);
   process.exitCode=1;
 }finally{rmSync(root,{recursive:true,force:true});}
