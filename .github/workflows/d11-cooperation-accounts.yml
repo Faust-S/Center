@@ -22,7 +22,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import os,json,subprocess
-          expected=json.loads("{\"kind\":\"D11_SOURCE_BUILD_ONCE/1\",\"repository\":\"Faust-S/Center\",\"branch\":\"ci/once/d11-cooperation-accounts/2026-11-27-f291dc3d\",\"domain\":\"30a13df837544e95ffad8ccd95894b4db9321047\",\"site\":\"f291dc3db6427469ac2c308a459532a79093978f\",\"t2\":\"e70de29b72b83e2546f7ab74b17572685a728c17\",\"mirrorCount\":47,\"scope\":\"source-build-no-artifacts\"}")
+          expected=json.loads("{\"kind\":\"D11_SOURCE_BUILD_ONCE/1\",\"repository\":\"Faust-S/Center\",\"branch\":\"ci/once/d11-cooperation-accounts/2026-11-27-86dcd60a\",\"domain\":\"c4406c29abd639862fc21edf417c5d049184e926\",\"site\":\"86dcd60a1ab1bc7a002ffb4ef85094a39660fc3a\",\"t2\":\"e70de29b72b83e2546f7ab74b17572685a728c17\",\"mirrorCount\":55,\"scope\":\"source-build-no-artifacts\"}")
           actual=json.load(open(".github/ci-requests/d11-cooperation-accounts.json"))
           assert actual==expected and os.environ["GITHUB_REF_NAME"]==expected["branch"]
           changed=set(subprocess.check_output(["git","diff","--name-only","HEAD^","HEAD"],text=True).splitlines())
@@ -42,14 +42,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics
-          ref: 30a13df837544e95ffad8ccd95894b4db9321047
+          ref: c4406c29abd639862fc21edf417c5d049184e926
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: domain
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/advice-logistics.ru
-          ref: f291dc3db6427469ac2c308a459532a79093978f
+          ref: 86dcd60a1ab1bc7a002ffb4ef85094a39660fc3a
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           path: site
           persist-credentials: false
@@ -65,19 +65,20 @@ jobs:
           node-version: '22.16.0'
       - name: Exact source pins and canonical mirrors
         run: |
-          test "$(git -C domain rev-parse HEAD)" = "30a13df837544e95ffad8ccd95894b4db9321047"
-          test "$(git -C site rev-parse HEAD)" = "f291dc3db6427469ac2c308a459532a79093978f"
+          test "$(git -C domain rev-parse HEAD)" = "c4406c29abd639862fc21edf417c5d049184e926"
+          test "$(git -C site rev-parse HEAD)" = "86dcd60a1ab1bc7a002ffb4ef85094a39660fc3a"
           test "$(git -C t2 rev-parse HEAD)" = "e70de29b72b83e2546f7ab74b17572685a728c17"
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import {execFileSync} from 'node:child_process';
-          const m=JSON.parse(fs.readFileSync('site/runtime/d11-module/operations/source.json','utf8'));
-          if(m.sourceCommit!=='30a13df837544e95ffad8ccd95894b4db9321047' || m.files.length!==47) throw Error('D11_SOURCE_MANIFEST_INVALID');
-          for(const f of m.files){
+          const manifests=['runtime/d11-module/operations/source.json','src/lib/logistics/professional-methods-source.json'].map(path=>JSON.parse(fs.readFileSync('site/'+path,'utf8')));
+          const files=manifests.flatMap(m=>m.files);
+          if(files.length!==55) throw Error('D11_SOURCE_MANIFEST_INVALID');
+          for(const f of files){
             const blob=(repo,path)=>execFileSync('git',['-C',repo,'rev-parse','HEAD:'+path],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();
             if(blob('domain',f.sourcePath)!==f.blob||blob('site',f.localPath)!==f.blob) throw Error('D11_SOURCE_MIRROR_DIFF');
           }
-          console.log('D11_OPERATIONAL_MIRRORS=47/47 PASS');
+          console.log('D11_SOURCE_MIRRORS=55/55 PASS');
           NODE
       - name: Original canonical regression
         id: domain_regression
@@ -104,7 +105,7 @@ jobs:
         working-directory: site
         run: |
           status=0
-          node --experimental-strip-types --test --test-reporter=tap tests/*.test.mjs >"$RUNNER_TEMP/d11-site-tests.log" 2>&1 || status=$?
+          npm run test:d11-site >"$RUNNER_TEMP/d11-site-tests.log" 2>&1 || status=$?
           grep -E '^# (tests|pass|fail|skipped) [0-9]+$' "$RUNNER_TEMP/d11-site-tests.log" || true
           if [ "$status" -ne 0 ]; then
             grep -E '^not ok [0-9]+ - ' "$RUNNER_TEMP/d11-site-tests.log" | sed -E 's/^not ok ([0-9]+).*/D11_FAILED_TEST_NUMBER=\1/' | head -30 || true

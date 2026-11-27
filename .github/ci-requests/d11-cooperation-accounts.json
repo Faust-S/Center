@@ -1,10 +1,10 @@
 {
   "kind": "D11_SOURCE_BUILD_ONCE/1",
   "repository": "Faust-S/Center",
-  "branch": "ci/once/d11-cooperation-accounts/2026-11-27-f291dc3d",
-  "domain": "30a13df837544e95ffad8ccd95894b4db9321047",
-  "site": "f291dc3db6427469ac2c308a459532a79093978f",
+  "branch": "ci/once/d11-cooperation-accounts/2026-11-27-86dcd60a",
+  "domain": "c4406c29abd639862fc21edf417c5d049184e926",
+  "site": "86dcd60a1ab1bc7a002ffb4ef85094a39660fc3a",
   "t2": "e70de29b72b83e2546f7ab74b17572685a728c17",
-  "mirrorCount": 47,
+  "mirrorCount": 55,
   "scope": "source-build-no-artifacts"
 }
