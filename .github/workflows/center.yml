@@ -1,16 +1,98 @@
 name: Center source and desktop
 on:
   push:
-    branches: ['work/**']
+    branches: ['ci/once/center/*']
+    paths: ['.github/ci-requests/center.json']
   workflow_dispatch:
+    inputs:
+      profile:
+        type: choice
+        options: [full, ui, legacy, webview2, atlas-native]
+        default: full
+        required: true
+      prepared_sha:
+        description: Exact prepared commit SHA
+        type: string
+        required: true
 permissions:
   contents: read
 concurrency:
-  group: center-${{ github.ref }}-${{ startsWith(github.event.head_commit.message, 'ci(ui):') && 'ui' || startsWith(github.event.head_commit.message, 'ci(atlas-native):') && 'atlas-native' || 'full' }}
-  cancel-in-progress: true
+  group: iwxa-center-qualification
+  cancel-in-progress: false
+env:
+  CENTER_ATLAS_PIN: '39e4d2f95cd07e70a76ffef5ac52022a40688413'
+  CENTER_BRTEST_PIN: '7cfb17870042cac824644140b7f0a587e244a20e'
+  CENTER_SETUP_PIN: '0ef7544e2a6fd5fab5994f7f25abbb960063908c'
+  CENTER_T3_PIN: '7a4e32532ec6ef90fc41cf14890b69981bee7a42'
 jobs:
+  request:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false) }}
+    runs-on: ubuntu-latest
+    outputs:
+      profile: ${{ steps.admit.outputs.profile }}
+      prepared_sha: ${{ steps.admit.outputs.prepared_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exact one-shot request before builds or private access
+        id: admit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+          def require(ok):
+              if not ok:
+                  raise SystemExit('CENTER_CI_REQUEST_REJECTED')
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
+          head = git('rev-parse', 'HEAD')
+          require(head == os.environ['GITHUB_SHA'] and os.environ['GITHUB_REPOSITORY'] == 'Faust-S/Center')
+          atlas = os.environ['CENTER_ATLAS_PIN']
+          brtest = os.environ['CENTER_BRTEST_PIN']
+          setup = os.environ['CENTER_SETUP_PIN']
+          t3 = os.environ['CENTER_T3_PIN']
+          profiles = {
+              'full': {'atlas': atlas, 'brtest': brtest, 'setup_core': setup},
+              'ui': {'atlas': atlas, 'brtest': brtest},
+              'atlas-native': {'atlas': atlas, 'setup_core': setup, 't3': t3},
+              'legacy': {'legacy_center': '2439f236cb7017135e661ee5bfd37b1d318868e1',
+                         'legacy_run': '42410786028', 'accepted_run': '42486593582'},
+              'webview2': {},
+          }
+          event_name = os.environ['GITHUB_EVENT_NAME']
+          if event_name == 'push':
+              require(all(event.get(k) is False for k in ('created', 'deleted', 'forced')))
+              prepared = event.get('before', '')
+              require(re.fullmatch('[a-f0-9]{40}', prepared) is not None and event.get('after') == head)
+              require(os.environ['GITHUB_REF'] == event.get('ref') == 'refs/heads/ci/once/center/' + prepared)
+              require(git('rev-list', '--parents', '-n', '1', head).split() == [head, prepared])
+              path = '.github/ci-requests/center.json'
+              require(git('diff', '--name-status', prepared, head) == 'A\t' + path)
+              req = json.loads(Path(path).read_text(encoding='utf-8'))
+              require(set(req) == {'workflow', 'prepared_sha', 'profile', 'pins', 'reason'})
+              require(req['workflow'] == 'center' and req['prepared_sha'] == prepared)
+              profile = req['profile']
+              require(profile in profiles and req['pins'] == profiles[profile])
+              require(isinstance(req['reason'], str) and 0 < len(req['reason'].strip()) <= 1000)
+          elif event_name == 'workflow_dispatch':
+              inputs = event.get('inputs', {})
+              prepared = inputs.get('prepared_sha')
+              profile = inputs.get('profile')
+              require(prepared == head and profile in profiles)
+          else:
+              raise SystemExit('CENTER_CI_REQUEST_REJECTED')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+              out.write('profile=' + profile + '\nprepared_sha=' + prepared + '\n')
+          print('CENTER_CI_REQUEST_ADMITTED', profile, prepared)
+          PY
   model:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(atlas-native):') }}
+    needs: request
+    if: ${{ needs.request.outputs.profile == 'full' }}
     strategy:
       fail-fast: false
       matrix:
@@ -18,12 +100,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.request.outputs.prepared_sha }}
+          persist-credentials: false
       # Atlas is ONE canonical public model, pinned and included in the native bundle.
       # Never fetch it at runtime or copy its project storage into Center.
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 4a707d60d9547493689367686568c3a51796f5a9
+          ref: ${{ env.CENTER_ATLAS_PIN }}
           path: vendor/atlas
           persist-credentials: false
       # Test CEN05 against the original, pinned public U04 bridge; never
@@ -31,7 +116,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Br-test
-          ref: 7cfb17870042cac824644140b7f0a587e244a20e
+          ref: ${{ env.CENTER_BRTEST_PIN }}
           path: vendor/brtest
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -51,22 +136,26 @@ jobs:
       - name: Verify universal Setup Core package contract
         run: python -m unittest discover -s installer/tests -p 'test_*.py' -v
   interface:
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(atlas-native):') }}
+    needs: request
+    if: ${{ needs.request.outputs.profile == 'full' || needs.request.outputs.profile == 'ui' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.request.outputs.prepared_sha }}
+          persist-credentials: false
       # Atlas is ONE canonical public model, pinned and included in the native bundle.
       # Never fetch it at runtime or copy its project storage into Center.
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 4a707d60d9547493689367686568c3a51796f5a9
+          ref: ${{ env.CENTER_ATLAS_PIN }}
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Br-test
-          ref: 7cfb17870042cac824644140b7f0a587e244a20e
+          ref: ${{ env.CENTER_BRTEST_PIN }}
           path: vendor/brtest
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -75,13 +164,13 @@ jobs:
       - run: npm install --no-audit --no-fund
       # The full matrix already executes these identical Node tests on
       # Ubuntu. Preserve them for explicit interface-only qualification.
-      - if: ${{ startsWith(github.event.head_commit.message, 'ci(ui):') }}
+      - if: ${{ needs.request.outputs.profile == 'ui' }}
         run: npm test
       - run: npm run build
       # Fail at the inexpensive original Atlas TypeScript stage BEFORE
       # occupying a Windows runner to compile and install both programs.
       - name: Verify pinned original Atlas desktop source
-        if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') }}
+        if: ${{ needs.request.outputs.profile == 'full' }}
         working-directory: vendor/atlas/desktop
         run: |
           npm ci --no-audit --no-fund
@@ -97,24 +186,27 @@ jobs:
             package-lock.json
             dist/
   windows-shell:
-    needs: [model, interface]
-    if: ${{ !startsWith(github.event.head_commit.message, 'ci(ui):') && !startsWith(github.event.head_commit.message, 'ci(legacy):') && !startsWith(github.event.head_commit.message, 'ci(webview2):') && !startsWith(github.event.head_commit.message, 'ci(atlas-native):') }}
+    needs: [request, model, interface]
+    if: ${{ needs.request.outputs.profile == 'full' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.request.outputs.prepared_sha }}
+          persist-credentials: false
       # Atlas is ONE canonical public model, pinned and included in the native bundle.
       # Never fetch it at runtime or copy its project storage into Center.
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 4a707d60d9547493689367686568c3a51796f5a9
+          ref: ${{ env.CENTER_ATLAS_PIN }}
           path: vendor/atlas
           persist-credentials: false
       # Original U04 native module are required by Center's build.rs.
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Br-test
-          ref: 7cfb17870042cac824644140b7f0a587e244a20e
+          ref: ${{ env.CENTER_BRTEST_PIN }}
           path: vendor/brtest
           persist-credentials: false
       # Build pinned original Atlas with its own Setup Core recipe. No copied
@@ -122,7 +214,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
-          ref: 0ef7544e2a6fd5fab5994f7f25abbb960063908c
+          ref: ${{ env.CENTER_SETUP_PIN }}
           path: vendor/atlas/setup-core-source
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -178,7 +270,7 @@ jobs:
         timeout-minutes: 27
         run: |
           $ErrorActionPreference='Stop'
-          $expectedSource='4a707d60d9547493689367686568c3a51796f5a9'
+          $expectedSource=$env:CENTER_ATLAS_PIN
           $checked=(& git -C vendor/atlas rev-parse HEAD).Trim()
           if($LASTEXITCODE -ne 0 -or $checked -ne $expectedSource){
             throw 'CEN05_ATLAS_SOURCE_PIN_MISMATCH'
@@ -277,13 +369,17 @@ jobs:
   # Qualify exact, already accepted Windows binaries without changing
   # the runner profile by repeating installer self-tests before legacy setup.
   windows-legacy-preview:
-    if: ${{ startsWith(github.event.head_commit.message, 'ci(legacy):') }}
+    needs: request
+    if: ${{ needs.request.outputs.profile == 'legacy' }}
     runs-on: windows-latest
     permissions:
       contents: read
       actions: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.request.outputs.prepared_sha }}
+          persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
@@ -336,7 +432,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $payload|Out-Null
           Copy-Item -LiteralPath 'accepted/src-tauri/target/release/iwxa-admin-center.exe' -Destination (Join-Path $payload 'iwxa-admin-center.exe')
           ./installer/windows/build-stub.ps1 -Output $stub
-          $sourceHead=[string]$env:GITHUB_SHA
+          $sourceHead=[string](& git rev-parse HEAD).Trim()
           $sourceTree=[string](& git rev-parse 'HEAD^{tree}').Trim()
           $args=@('-m','installer.build_bundle','build',
             '--product',$profile,'--payload',$payload,
@@ -384,12 +480,16 @@ jobs:
   # Targeted Windows verification of official signed bootstrapper. Does
   # not install or remove WebView2 on the hosted runner.
   windows-webview2-probe:
-    if: ${{ startsWith(github.event.head_commit.message, 'ci(webview2):') }}
+    needs: request
+    if: ${{ needs.request.outputs.profile == 'webview2' }}
     runs-on: windows-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.request.outputs.prepared_sha }}
+          persist-credentials: false
       - name: Compile Setup Core signature verifier without rebuilding Center
         shell: pwsh
         timeout-minutes: 2
@@ -444,29 +544,31 @@ jobs:
   # Reuse the successful public qualification; do not repeat its matrix.
   # No private build logs, sources, binaries, installers or data are uploaded.
   atlas-original-native:
-    if: ${{ startsWith(github.event.head_commit.message, 'ci(atlas-native):') }}
+    needs: request
+    if: ${{ needs.request.outputs.profile == 'atlas-native' }}
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.request.outputs.prepared_sha }}
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 4a707d60d9547493689367686568c3a51796f5a9
+          ref: ${{ env.CENTER_ATLAS_PIN }}
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Center
-          ref: 0ef7544e2a6fd5fab5994f7f25abbb960063908c
+          ref: ${{ env.CENTER_SETUP_PIN }}
           path: vendor/atlas/setup-core-source
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 3d6d6f2a36c9afe55c7a1fc524740e02b7c6cc4b
+          ref: ${{ env.CENTER_T3_PIN }}
           path: private-t3
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
           persist-credentials: false
@@ -523,16 +625,32 @@ jobs:
           }
           "IWXA_ATLAS_QUALIFIED_CONSUMER_EXE=$installed"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host 'ATLAS_ORIGINAL_NATIVE_SETUP_AND_INSTALLED_CONSUMER_PASS'
-      - name: Original installed Consumer signature DPAPI cold readback and revocation
+      - name: Create the actual saved work in the installed Atlas GUI
+        shell: pwsh
+        timeout-minutes: 8
+        run: ./tests/installed-atlas-u05-seed.ps1
+      - name: Original installed Consumer signature, Atlas UI storage, cold readback and revocation
         shell: pwsh
         timeout-minutes: 8
         run: |
           $ErrorActionPreference='Stop'
           $log=Join-Path $env:RUNNER_TEMP 'atlas-private-recipient.log'
           if(!(Test-Path -LiteralPath $env:IWXA_ATLAS_QUALIFIED_CONSUMER_EXE)){throw 'ATLAS_ORIGINAL_INSTALLED_CONSUMER_REQUIRED'}
+          $registered=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.atlas'
+          $env:IWXA_ATLAS_QUALIFIED_DATA_ROOT=[string]$registered.DataLocation
+          $env:IWXA_ATLAS_QUALIFIED_GUI_DRIVER=(Resolve-Path 'tests/installed-atlas-u05-seed.ps1').Path
           & node --test --test-name-pattern 'native Windows Atlas recipient' private-t3/tests/original-admin-atlas-native-recipient.test.mjs *> $log
-          if($LASTEXITCODE -ne 0){throw 'ATLAS_ORIGINAL_NATIVE_RECIPIENT_FAILED'}
+          $exit=$LASTEXITCODE
+          $raw=Get-Content -LiteralPath $log -Raw
+          if($exit -ne 0){
+            # Only public diagnostic codes, never private test output or source.
+            $codes=@([regex]::Matches($raw,'\b(?:ATLAS_U05_SIGNED_|ATLAS_INSTALLED_SIGNED_|T3_ATLAS_|U05_INSTALLED_ATLAS_)[A-Z0-9_]+\b')|ForEach-Object {$_.Value}|Select-Object -Unique)
+            Write-Host ('ATLAS_NATIVE_RECIPIENT_CODES='+($codes -join ','))
+            throw 'ATLAS_ORIGINAL_NATIVE_RECIPIENT_FAILED'
+          }
+          if(!$raw.Contains('ATLAS_INSTALLED_SIGNED_RESULT_GUI_PASS')){throw 'ATLAS_INSTALLED_SIGNED_GUI_NOT_OBSERVED'}
           Write-Host 'ATLAS_ORIGINAL_NATIVE_SIGNED_RECIPIENT_COLD_READBACK_REVOCATION_PASS'
+          Write-Host 'ATLAS_INSTALLED_SIGNED_RESULT_GUI_PASS'
           Write-Host 'ATLAS_SOURCE_RESULT_FIXTURE_ONLY_FULL_INSTALLED_D3_APPLY_NOT_RUN'
       - name: Discard disposable private qualification files
         if: always()
