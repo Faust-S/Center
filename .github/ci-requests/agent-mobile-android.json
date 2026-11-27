@@ -1,0 +1,11 @@
+{
+  "candidate": "c5b03e1462f131b3c5f508f0db63f1108b3dffdc",
+  "tree": "3fc5a57fda76d8769b959768d860c233b7d54578",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M20_11_ANDROID_SHARED_HISTORY_KNOWLEDGE",
+  "reason": "COMPILE_AND_EXERCISE_INSTALLED_ANDROID_WITH_ORIGINAL_T3",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "8e5f713cea1433aa81d7c991eac21e03b46a298b"
+}
