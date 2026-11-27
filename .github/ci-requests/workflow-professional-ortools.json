@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "a1e0bcacd7ecd90bdddd02307fb2391c069f7307",
+  "profile": "original-calendar-multiple-scenario-comparison",
+  "pins": {
+    "professionalAgent": "9ddabf25e7044b84c06282fb2648ec575ca95b8a"
+  },
+  "reason": "Qualify original saved calendar plan across selected SimPy scenarios and comparison; local native dependencies unavailable"
+}
