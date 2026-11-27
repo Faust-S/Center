@@ -33,8 +33,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
     env:
-      PRIVATE_PIN: '4967c93200a607679b4db812caa732ea85c944fe'
-      PRIVATE_TREE: '293ebb7b3b0abb7eff25024bc7f453ff7de58953'
+      PRIVATE_PIN: 'aab89faa773590d035244d35a650bcdf32e7683e'
+      PRIVATE_TREE: '98a1b7f964aabcba4e3a581bb8cb33b18f7ac22f'
       BASELINE_PIN: '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
       BASELINE_TREE: '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
       QUALIFICATION_GROUP: ${{ matrix.group }}
@@ -80,7 +80,7 @@ jobs:
         if: ${{ matrix.group == 'desktop' && success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: IWXA-Agent-0.6.6-clean-candidate-4967c932-encrypted
+          name: IWXA-Agent-0.6.6-clean-candidate-aab89faa-encrypted
           path: ${{ runner.temp }}/iwxa-agent066-delivery-cipher/
           if-no-files-found: error
           retention-days: 7
@@ -103,14 +103,14 @@ jobs:
         run: python -m pip install --disable-pip-version-check --no-cache-dir cryptography==46.0.4
       - uses: actions/download-artifact@v4
         with:
-          name: IWXA-Agent-0.6.6-clean-candidate-4967c932-encrypted
+          name: IWXA-Agent-0.6.6-clean-candidate-aab89faa-encrypted
           path: owner-delivery
       - name: Verify the same encrypted installer after all six groups
         run: python .ci/agent066-browser-source/delivery.py owner-delivery
       - name: Publish qualified encrypted owner package
         uses: actions/upload-artifact@v4
         with:
-          name: IWXA-Agent-0.6.6-qualified-4967c932-encrypted
+          name: IWXA-Agent-0.6.6-qualified-aab89faa-encrypted
           path: owner-delivery/
           if-no-files-found: error
           retention-days: 7

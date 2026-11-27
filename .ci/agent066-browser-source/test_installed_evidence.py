@@ -7,7 +7,8 @@ from installed_evidence import (SETUP_PIN, SETUP_REQUIRED, UPGRADE_REQUIRED, BRO
                                 BROWSER_STATES, clean_result, upgrade_result, lock_ok,
                                 CLEAN_CHECKPOINTS, ROLLBACK_CHECKPOINTS, MANUAL_GUI_STAGES,
                                 clean_setup_diagnostics, diagnostic_status, preview_dom_diagnostics,
-                                PREVIEW_DOM_STATES, PREVIEW_DOM_CONTROLS)
+                                PREVIEW_DOM_STATES, PREVIEW_DOM_CONTROLS, navigation_http_diagnostics,
+                                guest_observations,GUEST_UIA_STATES,GUEST_HWND_STATES,GUEST_DOM_STATES)
 
 OLD, OT, NEW, NT, OH, NH = 'a'*40, 'b'*40, 'c'*40, 'd'*40, 'e'*64, 'f'*64
 
@@ -235,5 +236,28 @@ class CleanDiagnosticTests(unittest.TestCase):
         for bad in ('private','PANE_VISIBLE\nAGENT066_PREVIEW_DOM_STATE=PANE_VISIBLE','PANE_VISIBLE '):
             self.assertEqual(preview_dom_diagnostics('AGENT066_PREVIEW_DOM_STATE='+bad),{})
         self.assertEqual(preview_dom_diagnostics('prefix AGENT066_PREVIEW_DOM_STATE=PANE_VISIBLE'),{})
+
+    def test_navigation_stage_and_http_projection(self):
+        self.assertTrue({'navigation_initial_covered','navigation_link_covered','navigation_back_covered','navigation_forward_covered','navigation_reload_covered'} <= set(MANUAL_GUI_STAGES))
+        self.assertTrue({'navigation_address_control','navigation_address_focus','navigation_address_input','navigation_address_readback','navigation_go','navigation_initial_page','navigation_initial_address','navigation_link','navigation_link_page','navigation_link_address','navigation_back','navigation_back_page','navigation_back_address','navigation_forward','navigation_forward_page','navigation_forward_address','navigation_reload','navigation_reload_page','navigation_reload_address','navigation_return'} <= set(MANUAL_GUI_STAGES))
+        for page in ('A','B'):
+            for value in ('NONE','ONCE','MULTIPLE'):
+                self.assertEqual(navigation_http_diagnostics('AGENT066_NAVIGATION_HTTP_'+page+'='+value),
+                                 {'NAVIGATION_HTTP_'+page:value})
+        for invalid in ('private','ONCE ','1','ONCE\nAGENT066_NAVIGATION_HTTP_A=ONCE'):
+            self.assertEqual(navigation_http_diagnostics('AGENT066_NAVIGATION_HTTP_A='+invalid),{})
+        self.assertEqual(navigation_http_diagnostics('prefix AGENT066_NAVIGATION_HTTP_A=ONCE'),{})
+
+    def test_guest_observations_are_bounded_and_independent(self):
+        for kind, allowed in [('UIA',GUEST_UIA_STATES),('HWND',GUEST_HWND_STATES),('DOM',GUEST_DOM_STATES)]:
+            prefix='AGENT066_GUEST_'+kind+'='
+            for value in allowed:
+                row=prefix+value
+                self.assertEqual(guest_observations(row),{'GUEST_'+kind:value})
+                self.assertEqual(guest_observations(row+'\n'+row),{})
+            self.assertEqual(guest_observations(prefix+'private'),{})
+            self.assertEqual(guest_observations('prefix '+prefix+'NOT_OBSERVED'),{})
+        self.assertEqual(guest_observations('AGENT066_GUEST_UIA=NO_MATCH\nAGENT066_GUEST_HWND=OWNED_SLOT_CHILD\nAGENT066_GUEST_DOM=VISIBLE'),
+                         {'GUEST_UIA':'NO_MATCH','GUEST_HWND':'OWNED_SLOT_CHILD','GUEST_DOM':'VISIBLE'})
 
 if __name__=='__main__': unittest.main()
