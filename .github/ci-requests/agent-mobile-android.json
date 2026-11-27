@@ -1,0 +1,11 @@
+{
+  "candidate": "da9a034489a6513f0ca00a1f403dc5b83e05d8a2",
+  "tree": "e05fc305c0bcd394fab22f5273e5b698115e96aa",
+  "original_t3": "1e5d54bba065f0e82cc506a5443b96079d070608",
+  "original_t3_tree": "80f724d21d2acca0394e3694ae4a9a7fd65317bc",
+  "scope": "M15_CONSOLIDATED_ORIGINAL_MULTIMODAL_RESIDENT_VOICE_SEQUENCE_AND_T3",
+  "reason": "M15_4_REPAIRED_NAVIGATION_REGRESSION_AND_NATIVE_COMBINED_WAV",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "61f1c6b2f0936d5378a3aa52091a8d6f40c68f27"
+}
