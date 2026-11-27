@@ -13,7 +13,9 @@ type View={source:string;revision:string;mode:string;authorization:string;projec
 type PlanView={projectId:string;revision:string;projectedFinish:string|null;deadlineSlipDays:number|null;
  totals:{ready:number;waiting:number;review:number;blocked:number;no_dates:number};
  works:Array<{id:string;label:string;startDate:string|null;finishDate:string|null;reasons:string[];
-  resource:{id:string;label:string;allocationPct:number}|null}>;note:string};
+  resource:{id:string;label:string;allocationPct:number}|null;
+  resultLinks:Array<{taskId:string;resultId:string;decisionId:string;sourceRevision:string;receivedAt:string;
+    signedFileMode:boolean;hasContent:boolean;targetLinks:Array<{id:string;title:string;observationCount:number}>}>}>;note:string};
 type EditionComparison=Awaited<ReturnType<ReturnType<typeof createNativeAtlasPort>['comparePublicAtlasWork']>>;
 type EditionWork=NonNullable<NonNullable<EditionComparison['original']>['work']>;
 const workStates:Record<string,string>={todo:'Не начата',in_progress:'В работе',blocked:'Заблокирована',done:'Завершена'};
@@ -204,6 +206,13 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
    ?linkableAtlasWork(view,selected,selectedWork)
    :null;
  const selectedPlanWork=planning.plan?.works.find(w=>w.id===selectedWork);
+ // Same-user portfolio readback is not an organizational access grant.
+ // Show historical Result references only for a project already linked to
+ // the selected organization's workspace. Advancing a plan does not erase
+ // that historical project association.
+ const resultLinks=session?.sourceKind==='PUBLIC_ATLAS_READ_ONLY'&&
+   target?.atlasRef?.projectId===selectedProject?.id
+   ?selectedPlanWork?.resultLinks??[]:[];
  const resourceId=selectedPlanWork?.resource?.id;
  const boundParticipantId=resourceBindings.find(row=>row.resourceId===resourceId)?.participantId??'';
  const hasSelectedWork=!!selectedProject?.workItems.some(w=>w.id===selectedWork);
@@ -277,6 +286,19 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
          <p className="muted">{selectedPlanWork.startDate??'Начало не определено'} / {selectedPlanWork.finishDate??'Завершение не определено'}
            {selectedPlanWork.resource&&<> · {selectedPlanWork.resource.label} ({selectedPlanWork.resource.allocationPct}%)</>}</p>
          {!!selectedPlanWork.reasons.length&&<p className="muted">{selectedPlanWork.reasons.join('; ')}</p>}
+         {resultLinks.length>0&&<details data-testid="native-atlas-recorded-results">
+           <summary>Сохранённые связи с Result в Atlas ({resultLinks.length})</summary>
+           <small className="muted">Сведения из плана Atlas. Они не подтверждают текущие полномочия T3 или завершение работы.</small>
+           {resultLinks.slice(-5).reverse().map(link=><div className="simple-row" key={link.decisionId}>
+             <div><strong>Result {link.resultId}</strong>
+               <small>Исходная редакция: {link.sourceRevision}. {link.hasContent?'Текст сохранён в Atlas.':'Сохранена ссылка.'}</small>
+               <small>{link.targetLinks.length?'Наблюдений по требованиям: '+link.targetLinks.reduce((n,t)=>n+t.observationCount,0):'Работа не связана с требованием.'}</small>
+             </div>
+           </div>)}
+           {resultLinks.length>5&&<small>Показано 5 последних связей в этой работе. Остальные доступны в Atlas.</small>}
+           {selectedWorkRef&&<button type="button" className="secondary" disabled={busy}
+             onClick={()=>void present('open')}>Открыть работу для просмотра результатов</button>}
+         </details>}
          {selectedWorkRef&&resourceId&&view&&<div className="inline-form">
            <label>Сотрудник для планового ресурса
              <select value={boundParticipantId} disabled={busy||!target||!bindingCurrent}

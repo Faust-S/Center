@@ -350,7 +350,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    // establish the actual effect. Never guess a group from the package.
    const previous=observeApply(acceptanceId);
    if(previous.blocked)throw Error('CEN_D3_REVIEW_CONTINUATION_HOLD');
-   const group=previous.pending??(applySelection?.acceptanceId===acceptanceId?applySelection.revisionIds:null);
+   const priorSelection=applySelection;
+   const group=previous.pending??(priorSelection&&priorSelection.acceptanceId===acceptanceId?priorSelection.revisionIds:null);
    if(group&&!group.includes(signed.resultRevisionId))
      throw Error('CEN_D3_EMPLOYEE_DRAFT_RESULT_SOURCE_CHANGED');
    const source={organizationId:session.organizationId,workspaceId:session.workspaceId,

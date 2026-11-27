@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 1d7c6a0d22f90e1624dc5f56ced2137a05c91e13
+          ref: a9df3d20fac32ad53bfe8a7fbd17d26e97a28412
           path: vendor/atlas
           persist-credentials: false
       # Test CEN05 against the original, pinned public U04 bridge; never
@@ -41,6 +41,10 @@ jobs:
       - run: npm test
       - name: Verify original Atlas saved WorkRef navigation
         run: node --test vendor/atlas/tests/atlas-work-navigation.test.mjs vendor/atlas/tests/atlas-organization-plan-projection.test.mjs
+      # Run the new public Atlas plan/fact regression once, not three times.
+      - name: Verify original Atlas Result and plan/fact projection
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: node --test vendor/atlas/tests/atlas09-t3-confirmed-readback.test.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -56,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 1d7c6a0d22f90e1624dc5f56ced2137a05c91e13
+          ref: a9df3d20fac32ad53bfe8a7fbd17d26e97a28412
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -103,7 +107,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 1d7c6a0d22f90e1624dc5f56ced2137a05c91e13
+          ref: a9df3d20fac32ad53bfe8a7fbd17d26e97a28412
           path: vendor/atlas
           persist-credentials: false
       # Original U04 native module are required by Center's build.rs.
@@ -174,7 +178,7 @@ jobs:
         timeout-minutes: 27
         run: |
           $ErrorActionPreference='Stop'
-          $expectedSource='1d7c6a0d22f90e1624dc5f56ced2137a05c91e13'
+          $expectedSource='a9df3d20fac32ad53bfe8a7fbd17d26e97a28412'
           $checked=(& git -C vendor/atlas rev-parse HEAD).Trim()
           if($LASTEXITCODE -ne 0 -or $checked -ne $expectedSource){
             throw 'CEN05_ATLAS_SOURCE_PIN_MISMATCH'
