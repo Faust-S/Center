@@ -11,7 +11,7 @@ import AdminResultRoute from './AdminResultRoute';
 import {retainSignedWorkspaceForPage,mayOpenSignedWorkspaceOnPage} from './signed-workspace-navigation.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {acceptedAtlasReturnPointer} from './atlas-result-context.mjs';
-import type {AcceptedAtlasFocus,AcceptedAtlasReturn} from './atlas-result-context.mjs';
+import type {AcceptedAtlasFocus,AcceptedAtlasReturn,AppliedResultDraftSelection} from './atlas-result-context.mjs';
 import Cen04LicensePanel from './Cen04LicensePanel';
 import AgeExchangePanel from './AgeExchangePanel';
 import iwxaBrandMark from './assets/iwxa-admin-center.svg?url';
@@ -459,17 +459,36 @@ export default function App() {
     setFocusedEmployeeContact(null);setSeatRouteOrganization(null);
     setError('');go('results');
   };
-  const reuseAppliedResult = ({description,source}:{description:string;source:SourceResultRef}) => {
+  const reuseAppliedResult = ({description,source,atlas,originalD3}:AppliedResultDraftSelection) => {
     if(!org)return;
     if(editor){setError('Сначала сохраните или закройте редактор поручения.');return;}
     const workspace=org.workspaces.find(w=>w.id===source.workspaceId);
-    if(source.organizationId!==org.id||!workspace){
+    if(activeOrganizationRef.current!==source.organizationId||source.organizationId!==org.id||!workspace){
       setError('Исходный Result принадлежит другой организации или рабочей области.');return;
     }
-    editorBaselineRef.current=JSON.stringify(initialEditor(org));
-    setEditor({...initialEditor(org),workspaceId:workspace.id,
-      atlasRef:workspace.atlasRef??null,sourceResultRef:source,description});
-    setError('');go('work');
+    let next:Editor;
+    try{
+      if(atlas){
+        const ref=atlas.ref,view=atlas.view as AtlasPortfolioView;
+        if(view.mode!=='NATIVE_ATLAS_PUBLIC_READ_ONLY'||
+           !atlasWorkspaceBindingMatches(workspace,ref)||
+           atlasWorkReadback(view,ref)!=='SOURCE_REVISION_MATCHES'){
+          setError('Свяжите рабочую область с текущей редакцией проекта Atlas, затем вернитесь к принятому результату.');return;
+        }
+        const {titleNeedsEdit,...fields}=prepareAtlasAssignmentFields(view,ref,org);
+        next={...initialEditor(org),...fields,workspaceId:workspace.id,atlasRef:ref,
+          sourceResultRef:source,description};
+        setNativeAtlas({organizationId:org.id,view});setAtlasObservationMode('native');
+        setMessage(titleNeedsEdit?'Введите короткое название следующего поручения.':
+          'Проверьте исполнителя, описание и критерии следующего поручения.');
+      }else{
+        // A signed ordinary Result does not imply a project association.
+        next={...initialEditor(org),workspaceId:workspace.id,
+          atlasRef:originalD3?null:workspace.atlasRef??null,sourceResultRef:source,description};
+      }
+      editorBaselineRef.current=JSON.stringify(initialEditor(org));
+      setEditor(next);setError('');go('work');
+    }catch(e){problem(e);}
   };
   const startAssignment = (item?: Assignment) => {
     if (!org) return;

@@ -1,8 +1,8 @@
 import React,{useEffect,useRef,useState} from 'react';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {acceptedAtlasFocus,acceptedAtlasScopeMatches,sameAcceptedAtlasSource} from './atlas-result-context.mjs';
-import type {AcceptedAtlasFocus,AcceptedAtlasReturn} from './atlas-result-context.mjs';
-import {prepareCorporateDraftTask,verifyCorporateDraftSources} from './corporate-draft-task.mjs';
+import type {AcceptedAtlasFocus,AcceptedAtlasReturn,AppliedResultDraftSelection} from './atlas-result-context.mjs';
+import {prepareCorporateDraftTask,verifyCorporateDraftSources,readAppliedD3Result} from './corporate-draft-task.mjs';
 import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
 import {readReviewContinuation,mergeReviewContinuations,rememberReviewContinuation,
  clearUndispatchedReviewContinuation,validateReviewDecisionReceipt} from '../runtime/cen03-review-continuation.mjs';
@@ -43,7 +43,7 @@ function requireAgeStatus(value:any):AgeStatus{
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts,managerOriginal=null,onInspectAtlasResult,atlasResultReturn=null,onClearAtlasResultReturn}:{
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts,managerOriginal=null,onInspectAtlasResult,atlasResultReturn=null,onClearAtlasResultReturn,onReuse}:{
  owner:Owner;execute:Exec;run:Run;busy:boolean;organizationName:string;
  dispatchedApplications:React.RefObject<Map<string,string[]>>;
  taskAttempts:React.RefObject<Map<string,{taskId:string;attempted:boolean}>>;
@@ -52,9 +52,12 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  assignmentDrafts:AssignmentDraft[];
  managerOriginal?:ManagerOriginalSelection|null;
  onInspectAtlasResult?:(source:AcceptedAtlasFocus)=>void;
+ onReuse?:(selection:AppliedResultDraftSelection)=>void;
  atlasResultReturn?:AcceptedAtlasReturn|null;onClearAtlasResultReturn?:()=>void;
  }){
  const session=owner.snapshot;
+ const mounted=useRef(true);
+ useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[]);
  const exactFocus=managerOriginalSelectionMatches(managerOriginal,session)?managerOriginal:null;
  const taskAttemptKey=JSON.stringify([
    session.organizationId,session.workspaceId,session.actorId]);
@@ -86,6 +89,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  const [kernelResult,setKernelResult]=useState<any>(null);
  const [applySelection,setApplySelection]=useState<{acceptanceId:string;revisionIds:string[]}|null>(null);
  const [kernelRecovery,setKernelRecovery]=useState<any>(null);
+ const [followUp,setFollowUp]=useState<{key:string;result:string;selection:AppliedResultDraftSelection}|null>(null);
  const [recoverPrevious,setRecoverPrevious]=useState(false);
  // Only a definite refusal before the original Kernel write can unlock a
  // new separate Human APPLY after the manager repairs the SAME Workspace.
@@ -323,11 +327,56 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    receipt.receipt.packageSha256===hash&&
    receipt.receipt.operationId===operationId&&
    receipt.kernelApplication==='NOT_ATTESTED_BY_RECONCILIATION_RECEIPT';
+ const followUpKey=accepted?JSON.stringify([hash,operationId,receipt.receipt.acceptanceId,session.contextId,session.contextEpoch]):'';
+ const currentFollowUp=followUp?.key===followUpKey?followUp:null;
  const acceptedAtlas=(()=>{
    if(!accepted||!onInspectAtlasResult)return null;
    try{return acceptedAtlasFocus({preview,receipt,session,packageSha256:hash,operationId});}
    catch{return null;}
  })();
+ const readFollowUp=()=>run('Оригинальный применённый Result перечитан. Новое поручение пока не создано.',async()=>{
+   if(!accepted||session.d3ApplyRecoverAvailable!==true||!onReuse)
+     throw Error('CEN_D3_APPLY_RECOVERY_NOT_CONNECTED');
+   const freshPreview=await execute('d3Preview',{packageSha256:hash});
+   const freshReceipt=validateReviewDecisionReceipt(
+     await execute('d3Receipt',{operationId,packageSha256:hash}),session,hash,operationId,'ACCEPT');
+   const signed=readOriginalResultReview(freshPreview,session.organizationId,session.workspaceId);
+   if(!freshReceipt.found||freshReceipt.receipt.acceptanceId!==receipt.receipt.acceptanceId||
+      !signed||signed.packageSha256!==hash||!revisions.includes(signed.resultRevisionId))
+     throw Error('CEN_D3_ACCEPTED_SOURCE_INVALID');
+   const source={organizationId:session.organizationId,workspaceId:session.workspaceId,
+     taskId:signed.taskId,taskRevisionId:signed.taskRevisionId,resultRevisionId:signed.resultRevisionId,
+     acceptanceId:freshReceipt.receipt.acceptanceId};
+   const read=await readAppliedD3Result(source,session,execute);
+   if(!mounted.current)return false;
+   setFollowUp({key:followUpKey,result:read.result,selection:{source:read.source,
+     description:read.result.length<=6000?read.result:'',originalD3:true}});
+ });
+ const prepareFollowUp=()=>run('Подготовлен черновик следующего поручения. Подпись и выдача выполняются отдельно.',async()=>{
+   if(!currentFollowUp||!onReuse||!currentFollowUp.selection.description.trim()||
+      currentFollowUp.selection.description.length>6000)
+     throw Error('CEN_D3_EMPLOYEE_DRAFT_SOURCE_INVALID');
+   // Repeat only original reads immediately before preparation. The later
+   // issuance path independently checks the same original source once more.
+   await readAppliedD3Result(currentFollowUp.selection.source,session,execute);
+   let atlas:AppliedResultDraftSelection['atlas'];
+   if(acceptedAtlas){
+     const [{createNativeAtlasPort},{linkableAtlasWork}]=await Promise.all([
+       import('./atlas-native.mjs'),import('./atlas-integration.mjs')]);
+     const port=createNativeAtlasPort(invoke);
+     const native=await port.openPublicAtlas(session.organizationId);
+     const view=port.view(native);
+     const ref=linkableAtlasWork(view,acceptedAtlas.workRef.projectId,acceptedAtlas.workRef.workId);
+     if(!ref.workId)throw Error('CEN_D3_ATLAS_RESULT_SOURCE_REQUIRED');
+     atlas={ref:{...ref,workId:ref.workId},view};
+     if(ref.revision!==acceptedAtlas.workRef.revision&&!window.confirm(
+       'Подготовить следующее поручение по текущей сохранённой редакции Atlas?\nИсходная редакция: '+
+       acceptedAtlas.workRef.revision+'\nТекущая редакция: '+ref.revision+
+       '\nИсторическая связь принятого Result не изменится.'))return false;
+   }
+   if(!mounted.current)return false;
+   onReuse({...currentFollowUp.selection,atlas});
+ });
  const inspectAtlasResult=()=>run('Исходная связь принятого Result с Atlas перечитана.',async()=>{
    if(!acceptedAtlas||!onInspectAtlasResult)throw Error('CEN_D3_ATLAS_RESULT_SOURCE_REQUIRED');
    // Reopen the original signed package and decision. The mutable Center
@@ -944,6 +993,27 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
      <button type="button" className="secondary" data-testid="d3-inspect-atlas-result"
        disabled={busy} onClick={inspectAtlasResult}>Сопоставить принятый Result с планом Atlas</button>
      <small>Открывается исходная работа для решения руководителя. ACCEPT сам по себе не изменяет план Atlas.</small>
+   </div>}
+   {onReuse&&session.d3ApplyRecoverAvailable===true&&<div className="notice subdued" data-testid="d3-applied-follow-up">
+     <strong>Следующее поручение по применённому Result</strong>
+     <p>Проверяется оригинальный Kernel; ACCEPT без подтверждённого Apply недостаточно.</p>
+     <button type="button" className="secondary" disabled={busy}
+       onClick={readFollowUp}>Перечитать применённый Result</button>
+     {currentFollowUp&&<>
+       <label>Исходный результат (только чтение)
+        <textarea readOnly rows={4} value={currentFollowUp.result}/>
+       </label>
+       <label>Описание следующего поручения (до 6000 символов)
+        <textarea rows={4} maxLength={6000} disabled={busy} data-testid="d3-follow-up-description"
+         value={currentFollowUp.selection.description} onChange={e=>setFollowUp(old=>old?{
+           ...old,selection:{...old.selection,description:e.target.value}}:null)}/>
+       </label>
+       {currentFollowUp.result.length>6000&&<small>Результат не сокращён автоматически. Выберите нужный фрагмент для нового поручения.</small>}
+       <button type="button" className="primary" data-testid="d3-prepare-follow-up"
+        disabled={busy||!currentFollowUp.selection.description.trim()} onClick={prepareFollowUp}>
+        Подготовить следующее поручение
+       </button>
+     </>}
    </div>}
    {workspacePreflight&&<p role="status"
      data-testid="d3-apply-workspace-preflight" className="notice subdued">
