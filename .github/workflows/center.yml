@@ -20,10 +20,11 @@ concurrency:
   group: iwxa-center-qualification
   cancel-in-progress: false
 env:
-  CENTER_ATLAS_PIN: '109438f7b2bf7dfa723e4c5e90d7fefea731b6b2'
+  CENTER_ATLAS_PIN: '8d814302a8ca7f6b9880ec36879ed3cd35fc28a2'
   CENTER_BRTEST_PIN: '7cfb17870042cac824644140b7f0a587e244a20e'
   CENTER_SETUP_PIN: '0ef7544e2a6fd5fab5994f7f25abbb960063908c'
-  CENTER_T3_PIN: 'ac6b78400c3ebea8276c6468858d04fbd93aff2a'
+  CENTER_T3_PIN: '962cff41fdbfc864c4c15010b9ffa7e9bc43c29c'
+  CENTER_ONE_CORE_PIN: '4e7c8a9370f302a711e52aa80adaa314f2d52f02'
 jobs:
   request:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false) }}
@@ -56,10 +57,11 @@ jobs:
           brtest = os.environ['CENTER_BRTEST_PIN']
           setup = os.environ['CENTER_SETUP_PIN']
           t3 = os.environ['CENTER_T3_PIN']
+          one_core = os.environ['CENTER_ONE_CORE_PIN']
           profiles = {
               'full': {'atlas': atlas, 'brtest': brtest, 'setup_core': setup},
               'ui': {'atlas': atlas, 'brtest': brtest},
-              'atlas-native': {'atlas': atlas, 'brtest': brtest, 'setup_core': setup, 't3': t3},
+              'atlas-native': {'atlas': atlas, 'brtest': brtest, 'setup_core': setup, 't3': t3, 'one_core': one_core},
               'legacy': {'legacy_center': '2439f236cb7017135e661ee5bfd37b1d318868e1',
                          'legacy_run': '42410786028', 'accepted_run': '42486593582'},
               'webview2': {},
@@ -574,6 +576,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: ${{ env.CENTER_ONE_CORE_PIN }}
+          path: vendor/one-core
+          persist-credentials: false
+          sparse-checkout: |
+            packages/t3-core/src/t3/company-workspace-readback.mjs
+            packages/t3-core/tests/t3-company-workspace-readback.test.mjs
+          sparse-checkout-cone-mode: false
       - name: Verify changed public Center and Atlas source before private build
         shell: pwsh
         timeout-minutes: 8
@@ -589,6 +601,8 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_RESULT_REGRESSION_FAILED'}
           & npm.cmd run build
           if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_INTERFACE_BUILD_FAILED'}
+          & node --test vendor/one-core/packages/t3-core/tests/t3-company-workspace-readback.test.mjs
+          if($LASTEXITCODE -ne 0){throw 'ONE_CORE_COMPANY_RESULT_REGRESSION_FAILED'}
           Write-Host 'ATLAS_CENTER_PUBLIC_RESULT_AND_BUILD_PASS'
       - uses: actions/checkout@v4
         with:
@@ -616,10 +630,23 @@ jobs:
           & node --check private-t3/interop/runtime.mjs *> $syntaxLog
           if($LASTEXITCODE -ne 0){throw 'CENTER_ORIGINAL_ATLAS_RUNTIME_SYNTAX_FAILED'}
           Write-Host 'CENTER_ORIGINAL_ATLAS_WORKSPACE_OWNER_SYNTAX_PASS'
+          $env:IWXA_ATLAS_QUALIFIED_COMPANY_READBACK=(Resolve-Path 'vendor/one-core/packages/t3-core/src/t3/company-workspace-readback.mjs').Path
+          "IWXA_ATLAS_QUALIFIED_COMPANY_READBACK=$env:IWXA_ATLAS_QUALIFIED_COMPANY_READBACK"|Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $log=Join-Path $env:RUNNER_TEMP 'atlas-private-disclosure.log'
           & node --test --test-name-pattern 'original corporate disclosure' private-t3/tests/original-admin-atlas-native-recipient.test.mjs *> $log
-          if($LASTEXITCODE -ne 0){throw 'ATLAS_ORIGINAL_CORPORATE_DISCLOSURE_FAILED'}
+          $exit=$LASTEXITCODE
+          $raw=Get-Content -LiteralPath $log -Raw
+          if($exit -ne 0){
+            $codes=@([regex]::Matches($raw,'\b(?:T3_ADMIN_ATLAS_|T3_ATLAS_|RECONCILIATION_|T3_COMPANY_|INTEROP_)[A-Z0-9_]+\b')|ForEach-Object {$_.Value}|Select-Object -Unique)
+            Write-Host ('ATLAS_SOURCE_QUALIFICATION_CODES='+($codes -join ','))
+            throw 'ATLAS_ORIGINAL_CORPORATE_DISCLOSURE_FAILED'
+          }
+          if(!$raw.Contains('ATLAS_WORKSPACE_ORIGINAL_SIGNER_LEDGER_PASS')){throw 'ATLAS_WORKSPACE_SOURCE_WITNESS_NOT_OBSERVED'}
+          Write-Host 'ATLAS_WORKSPACE_ORIGINAL_SIGNER_LEDGER_PASS'
           Write-Host 'ATLAS_ORIGINAL_CORPORATE_DISCLOSURE_PASS'
+      - name: Check changed Center native adapter
+        timeout-minutes: 12
+        run: cargo check --manifest-path src-tauri/Cargo.toml
       - name: Compile original native Consumer and Atlas Setup Core
         shell: pwsh
         timeout-minutes: 30
@@ -682,7 +709,7 @@ jobs:
           Write-Host 'ATLAS_INSTALLED_SIGNED_HISTORICAL_WORK_READY'
           Write-Host 'ATLAS_ORIGINAL_NATIVE_SIGNED_RECIPIENT_COLD_READBACK_REVOCATION_PASS'
           Write-Host 'ATLAS_INSTALLED_SIGNED_RESULT_GUI_PASS'
-          Write-Host 'ATLAS_SOURCE_RESULT_FIXTURE_ONLY_FULL_INSTALLED_D3_APPLY_NOT_RUN'
+          Write-Host 'ATLAS_WORKSPACE_SOURCE_FIXTURE_ONLY_FULL_INSTALLED_CENTER_AGENT_RETURN_NOT_RUN'
       - name: Discard disposable private qualification files
         if: always()
         shell: pwsh
