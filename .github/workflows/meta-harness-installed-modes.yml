@@ -19,8 +19,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 90
     env:
-      PRIVATE_PIN: '7bb6e5edb6d99d65eabeabb27c5ea93765adc51d'
-      PRIVATE_TREE: '069713766b316ac8b61fbde7c121667181e30f8d'
+      PRIVATE_PIN: 'de3be2ab09f0d3d295a266603262e2748854c329'
+      PRIVATE_TREE: '83f3c4e288c3ef14ebe27f325430d53d02d8814f'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -51,8 +51,8 @@ jobs:
           python tools/ci/verify_once_request.py \
             --repository Faust-S/Center --workflow meta-harness-installed-modes \
             --profile installed-mode-witness \
-            --revision agent=7bb6e5edb6d99d65eabeabb27c5ea93765adc51d \
-            --revision agent_tree=069713766b316ac8b61fbde7c121667181e30f8d \
+            --revision agent=de3be2ab09f0d3d295a266603262e2748854c329 \
+            --revision agent_tree=83f3c4e288c3ef14ebe27f325430d53d02d8814f \
             --revision center_owner=c10e193846a0ea4c73cabe3744aa7db82439d54e
       - uses: actions/setup-node@v4
         with:
@@ -130,6 +130,25 @@ jobs:
           } finally { Pop-Location }
           Write-Host 'INSTALLED_WITNESS_SOURCE=PASS'
           Write-Host 'INSTALLED_WITNESS_SOURCE_TEST_PASS'
+          # Execute the changed GUI source regression before the expensive
+          # native build. This test uses Node built-ins, no dependency setup.
+          $guiLabelsLog=Join-Path $logs 'native-gui-labels.log'
+          Push-Location (Join-Path $repo 'desktop')
+          try{
+            & node.exe --test --test-reporter=tap tests/native-gui-qa-labels.test.mjs *> $guiLabelsLog
+            $guiLabelsExit=$LASTEXITCODE
+            $guiLabelsReport=Get-Content -LiteralPath $guiLabelsLog -Raw
+            foreach($kind in @('tests','pass','fail','skipped','cancelled')){
+              $matchesForKind=[regex]::Matches($guiLabelsReport,('(?m)^# '+$kind+' ([0-9]{1,6})\s*$'))
+              if($matchesForKind.Count -ne 1){throw 'NATIVE_GUI_LABELS_SUMMARY_INVALID'}
+              $count=[int]$matchesForKind[0].Groups[1].Value
+              Write-Host ('NATIVE_GUI_LABELS_'+$kind.ToUpperInvariant()+'='+$count)
+              if(($kind -in @('tests','pass') -and $count -lt 7) -or
+                 ($kind -in @('fail','skipped','cancelled') -and $count -ne 0)){throw 'NATIVE_GUI_LABELS_COUNT_MISMATCH'}
+            }
+            if($guiLabelsExit -ne 0){throw 'NATIVE_GUI_LABELS_TEST_FAILED'}
+          }finally{Pop-Location}
+          Write-Host 'NATIVE_GUI_LABELS=PASS'
           $builder=Join-Path $repo 'qualification/phase1/build_native_windows_setup_candidate.ps1'
           $nativeLog=Join-Path $logs 'native-private-build.log'
           & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $builder -RepoRoot $repo -BuildRoot $build -LogsRoot $logs -ReleaseCache $cache -SourceCommit $env:PRIVATE_PIN -SourceTree $env:PRIVATE_TREE *> $nativeLog
