@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 9641f8f761c48a4cfccb7a851a4832779c99e95e
+          ref: baa3439ca105dd9ace9431a387ba69e679dff820
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -43,9 +43,9 @@ jobs:
           node-version: '22.16.0'
       - name: Original signed Workflow Task profile and roundtrip
         run: |
-          test "$(git -C private-t3 rev-parse HEAD)" = "9641f8f761c48a4cfccb7a851a4832779c99e95e"
+          test "$(git -C private-t3 rev-parse HEAD)" = "baa3439ca105dd9ace9431a387ba69e679dff820"
           test "$(git -C knowledge rev-parse HEAD)" = "c892048e9a1839d8250a98992dae582d5a684de3"
-          export IWXA_WORKFLOW_PUBLIC_SOURCE="$(pwd)/knowledge"
+          export IWXA_WORKFLOW_PUBLIC_SOURCE="$(node -p 'require("node:path").resolve("knowledge")')"
           cd private-t3
           rc=0
           node --test tests/workflow-task-reference.test.mjs > "$RUNNER_TEMP/workflow-task-private.log" 2>&1 || rc=$?
