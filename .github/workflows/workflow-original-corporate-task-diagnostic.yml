@@ -1,0 +1,37 @@
+# Diagnostic runner; only fixed codes and numeric test/line locations are public.
+name: Original corporate Workflow Task diagnostic
+on:
+  push:
+    branches: ['work/2026-11-27-corporate-workflow-task-diagnostic']
+permissions:
+  contents: read
+jobs:
+  target:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/T3
+          ref: 163068d7eae3f9c43c7330a8816a4dfa7ac6493c
+          path: private-t3
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Original target tests with sanitized diagnostics
+        shell: bash
+        run: |
+          test "$(git -C private-t3 rev-parse HEAD)" = "163068d7eae3f9c43c7330a8816a4dfa7ac6493c"
+          cd private-t3
+          rc=0
+          node --test tests/workflow-task-reference.test.mjs > "$RUNNER_TEMP/workflow-task-private.log" 2>&1 || rc=$?
+          node --input-type=module -e 'import fs from "node:fs";const s=fs.readFileSync(process.argv[1],"utf8");for(const k of ["tests","pass","fail","skipped","cancelled"]){const m=s.match(new RegExp("^# "+k+" ([0-9]+)","m"));if(m)console.log("WORKFLOW_"+k.toUpperCase()+"="+m[1]);}for(const b of s.split(/(?=^not ok [0-9]+ - )/m).filter(b=>b.startsWith("not ok "))){const n=b.match(/^not ok ([0-9]+)/)[1];console.log("CASE="+n);const codes=[...new Set([...b.matchAll(/\b(?:INTEROP|ACCESS|RECONCILIATION|IWXA|ERR)_[A-Z0-9_]+\b/g)].map(m=>m[0]))].slice(0,12);console.log("CODES="+codes.join(","));for(const m of [...b.matchAll(/(?:workflow-task-reference\.test|runtime|task-contract|task-revisions|organization-roles|core|registry)\.mjs:([0-9]+):([0-9]+)/g)].slice(0,8))console.log("LOCATION="+m[0]);}' "$RUNNER_TEMP/workflow-task-private.log"
+          test "$rc" = 0
+      - name: Remove private working copy and log
+        if: always()
+        shell: bash
+        run: |
+          rm -rf private-t3
+          rm -f "$RUNNER_TEMP/workflow-task-private.log"
