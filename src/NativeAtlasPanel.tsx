@@ -211,7 +211,15 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
      </>}
      {session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'&&selectedProject&&selectedProject.workItems.length>0&&<div className="nested-form" data-testid="cen05-native-presentation">
        <h4>Открыть установленный Atlas</h4>
-       <p className="muted">Работа и редакция проверяются в оригинальном Atlas перед запуском и возвратом. При отсутствии официальной ссылки работа внутри окна не выбирается автоматически.</p>
+       <p className="muted">При новом запуске Atlas получает ссылку на выбранную сохранённую работу. Если окно уже открыто, используйте ссылку ниже в разделе «Сохранение и копии» Atlas. Редакция проверяется при открытии и возврате.</p>
+       {selectedWorkRef&&<details>
+         <summary>Ссылка на выбранную работу</summary>
+         <label>Скопируйте ссылку для открытого Atlas
+           <textarea readOnly rows={3} aria-label="Ссылка на выбранную работу Atlas"
+             data-testid="cen05-work-reference"
+             value={JSON.stringify(selectedWorkRef)} onFocus={event=>event.currentTarget.select()}/>
+         </label>
+       </details>}
        <div className="actions">
          <button type="button" className="secondary" disabled={busy||!selectedWorkRef||bindingForSelectedWork} data-testid="cen05-u04-open" onClick={()=>void present('open')}>Открыть окно Atlas</button>
          <button type="button" className="secondary" disabled={busy||!bindingForSelectedWork} data-testid="cen05-u04-activate" onClick={()=>void present('activate')}>Фокус Atlas</button>

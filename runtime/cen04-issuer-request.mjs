@@ -1,3 +1,4 @@
+import {CENTER_PRODUCT_VERSION} from '../src/product-version.mjs';
 import {
   validateTestLicenseRequest, encodeTestLicenseRequest, suggestedTestRequestFileName
 } from './cen04-unsigned-test-request.mjs';
@@ -10,7 +11,7 @@ import {
  * featureIds?:string[], termDays?:number, seats?:number
  * }} options */
 export function prepareAdminPublisherTestRequest({
-  organization, requestId, requestedAt, version='0.5.0-dev.1',
+  organization, requestId, requestedAt, version=CENTER_PRODUCT_VERSION,
   featureIds=['WORKSPACE'], termDays=30, seats=1
 }){
   if(!['ORGANIZATION','GROUP'].includes(organization?.kind))

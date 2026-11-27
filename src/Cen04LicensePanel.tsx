@@ -1,3 +1,4 @@
+import {CENTER_PRODUCT_VERSION} from './product-version.mjs';
 import React,{useEffect,useRef,useState} from 'react';
 import {prepareAdminPublisherTestRequest} from '../runtime/cen04-issuer-request.mjs';
 import Cen04CorporateIntakePanel from './Cen04CorporateIntakePanel';
@@ -18,7 +19,7 @@ const error=(e:unknown)=>e instanceof Error?e.message:String(e);
 export default function Cen04LicensePanel({organizationId,organizationName,organizationKind,participants,invoke,onManageSeats}:Props){
  const [testSeats,setTestSeats]=useState('1');
  const [testTerm,setTestTerm]=useState('30');
- const [testVersion,setTestVersion]=useState('0.5.0-dev.1');
+ const [testVersion,setTestVersion]=useState(CENTER_PRODUCT_VERSION);
  const [verified,setVerified]=useState<View|null>(null);
  const [ready,setReady]=useState(false);
  const [busy,setBusy]=useState(false);

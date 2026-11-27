@@ -1,4 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
+import {CENTER_PRODUCT_VERSION} from './product-version.mjs';
 import {emptyDraft, applyDraftCommand, decodeDraft, encodeDraft, overview} from './organization.mjs';
 import {linkableAtlasProject, linkableAtlasWork, atlasLinkReadback, atlasWorkReadback, compareAtlasSourceCopies, selectAtlasReferenceSource, selectAtlasTargetWorkspace, atlasWorkspaceBindingMatches, prepareAtlasAssignmentFields, atlasResourceForWork} from './atlas-integration.mjs';
 import {readAtlasSourceFile} from './atlas-file-import.mjs';
@@ -947,7 +948,7 @@ export default function App() {
         <section className="card padded" data-testid="admin-profile-settings">
           <h2>Профиль, настройки и сведения о программе</h2>
           <div className="v8-profile-details"><strong>IWXA Admin Center</strong>
-            <p>Версия программы: 0.5.0-dev.1</p>
+            <p>Версия программы: {CENTER_PRODUCT_VERSION}</p>
             <p>Источник: действующая ветка Center. Управленческие данные и подписанные права остаются в оригинальных T2/T3 и связанных приложениях.</p>
           </div>
         </section>

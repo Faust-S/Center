@@ -483,7 +483,7 @@ try {
   if(!$title){throw 'U05_CANONICAL_PROJECT_NOT_RENDERED'}
   Write-Host "U05_CANONICAL_PROJECT_VISIBLE_IN_CENTER project=$projectId ownerRevision=$revision"
   Click $projectTitle $true
-  # Real installed Center -> pinned U01 discovery -> original native U04
+  # Real installed Center -> registered Atlas -> original native U04
   # Windows port -> independent installed Atlas window -> return to Center.
   # This is an actual WebView2 control route, not direct test IPC.
 
@@ -491,7 +491,7 @@ try {
   # Both original U04 states are valid: WINDOW_OBSERVED and
   # LAUNCHED_NO_WINDOW. Verify the honest UI status, then separately verify
   # the real installed process/HWND and native Windows foreground PID below.
-  [void](Find-UI-Text 'автоматически не выбирается')
+  [void](Find-UI-Text 'Ссылка на работу передана')
   $atlasProcesses=@(Get-CimInstance Win32_Process -Filter "name = 'iwxa-atlas-desktop.exe'" |
       Where-Object { $_.ExecutablePath -eq $atlasExe })
   if($atlasProcesses.Count -lt 1){throw 'U04_ORIGINAL_ATLAS_PROCESS_NOT_LAUNCHED'}
@@ -540,6 +540,32 @@ try {
     throw "U04_ATLAS_FOREGROUND_NOT_CONFIRMED foreground_pid=$foregroundPid atlas_pids=$($atlasPids -join ',')"
   }
   Write-Host "U04_NATIVE_ATLAS_FOREGROUND_PASS foreground_pid=$foregroundPid"
+  # The native launch argument alone is not proof of navigation. Read the
+  # actual rendered Atlas work-route acknowledgement in the independent HWND.
+  $workRouteConfirmed=$false
+  for($attempt=0;$attempt -lt 50;$attempt++){
+    try{
+      $atlasProcess=Get-Process -Id $foregroundPid -ErrorAction Stop
+      $atlasProcess.Refresh()
+      if($atlasProcess.MainWindowHandle -ne [IntPtr]::Zero -and
+         $atlasProcess.MainWindowTitle.Contains($projectTitle)){
+        $atlasRoot=[System.Windows.Automation.AutomationElement]::FromHandle($atlasProcess.MainWindowHandle)
+        $elements=$atlasRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+          [System.Windows.Automation.Condition]::TrueCondition)
+        foreach($element in $elements){
+          try{
+            if(([string]$element.Current.Name).Contains("Открыта сохранённая работа: $workTitle")){
+              $workRouteConfirmed=$true;break
+            }
+          }catch{}
+        }
+      }
+    }catch{}
+    if($workRouteConfirmed){break}
+    Start-Sleep -Milliseconds 300
+  }
+  if(!$workRouteConfirmed){throw 'U04_ATLAS_EXACT_WORK_NAVIGATION_NOT_CONFIRMED'}
+  Write-Host "U04_ATLAS_SAVED_WORK_NAVIGATION_PASS project=$projectId work=$workId revision=$revision"
   Click 'Вернуться в Center и проверить'
   [void](Find-UI-Text 'Возврат в Center: редакция Atlas перепроверена')
   $foreground=[U05Window]::GetForegroundWindow()

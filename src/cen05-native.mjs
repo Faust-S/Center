@@ -24,6 +24,10 @@ export function describeCen05Status(operation,result){
     return 'Существующее окно Atlas подключено без повторного запуска. Работа автоматически не выбирается.';
   if(operation==='open'&&status==='LAUNCHED_NO_WINDOW'&&result.reusedProcess===true)
     return 'Существующий процесс Atlas подключён без повторного запуска, но окно пока не обнаружено.';
+  if(operation==='open'&&status==='WINDOW_OBSERVED'&&result.workReferenceRequested===true)
+    return 'Окно Atlas запущено. Ссылка на работу передана; откройте Atlas для проверки выбора.';
+  if(operation==='open'&&status==='LAUNCHED_NO_WINDOW'&&result.workReferenceRequested===true)
+    return 'Atlas запущен, но окно пока не обнаружено. Ссылка на работу передана при запуске. Нажмите «Фокус Atlas» для проверки.';
   if(operation==='open'&&status==='WINDOW_OBSERVED')
     return 'Окно Atlas запущено. Работа внутри Atlas автоматически не выбирается.';
   if(operation==='open'&&status==='LAUNCHED_NO_WINDOW')

@@ -25,8 +25,8 @@ mod u04 {
     impl Port {
         // Product host approval, NOT the original U04 qualification environment.
         // The exact installed Atlas path is selected by Center, never by the UI.
-        pub fn for_approved_atlas(path: PathBuf) -> Self {
-            Self { target: Some((path, Vec::new())), reattach: None, bound: None }
+        pub fn for_approved_atlas(path: PathBuf, args:Vec<String>) -> Self {
+            Self { target: Some((path, args)), reattach: None, bound: None }
         }
         // Re-enter the ORIGINAL U04 verified reattach path after switching
         // Center organization. Identity must be checked by U04, never by a
@@ -109,6 +109,11 @@ fn installed_atlas_binary(folder: &Path) -> Result<PathBuf, String> {
     }
     Ok(path)
 }
+// Only the existing checked WorkRef enters the original U04 launch
+// arguments. No product version, shell, caller-selected path or write action.
+fn atlas_work_launch_args(project_id:&str,work_id:&str,revision:&str)->Vec<String>{
+    vec!["--iwxa-open-work".into(),project_id.into(),work_id.into(),revision.into()]
+}
 fn respond(status: &str, detail: Value) -> Value {
     let mut result=json!({"schema":u04::SCHEMA,"status":status,
         "openedWorkAutomatically":false});
@@ -136,7 +141,8 @@ pub fn center_u04_open(app: AppHandle, state: tauri::State<'_, Mutex<Session>>,
     let reused_process=reattach.is_some();
     let mut port=match reattach {
         Some((pid,stamp))=>u04::Port::for_verified_reattach(target,pid,stamp),
-        None=>u04::Port::for_approved_atlas(target),
+        None=>u04::Port::for_approved_atlas(target,
+            atlas_work_launch_args(&project_id,&work_id,&revision)),
     };
     let result=port.handle("open");
     let status=result["status"].as_str().unwrap_or("PRESENTATION_OPEN_UNCONFIRMED");
@@ -152,7 +158,8 @@ pub fn center_u04_open(app: AppHandle, state: tauri::State<'_, Mutex<Session>>,
     session.port=Some(port);
     Ok(respond(status,json!({"bindingRef":session.binding_ref,
         "processId":result["processId"],"windowRef":result["binding"]["windowRef"],
-        "reusedProcess":reused_process && result["spawned"]==false})))
+        "reusedProcess":reused_process && result["spawned"]==false,
+        "workReferenceRequested":!reused_process && result["spawned"]==true})))
 }
 // Existing U04 bindings outlive webview navigation. An organization change
 // must release the old Center context while keeping the exact external Atlas
