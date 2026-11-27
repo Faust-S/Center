@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createNativeAtlasPort} from '../src/atlas-native.mjs';
-import {empty,createProject,createItem} from '../vendor/atlas/src/core.mjs';
+import {createNativeAtlasPort,readNativeAtlasPlan} from '../src/atlas-native.mjs';
+import {empty,createProject,createItem,editProject,connect,serialize} from '../vendor/atlas/src/core.mjs';
 import {readFileSync} from 'node:fs';
 
 // Fake IPC transport only; domain mutations/readback use actual Atlas core.
@@ -149,4 +149,28 @@ test("installed Atlas observation callback cannot present a local Center plan as
  const panel=readFileSync(new URL("../src/NativeAtlasPanel.tsx",import.meta.url),"utf8");
  assert.match(panel,/s\.sourceKind==='PUBLIC_ATLAS_READ_ONLY'\?next:null/);
  assert.match(panel,/Локальные планы Center — отдельная подготовительная область/);
+});
+
+test('Center reads selected readiness from original Atlas without mutating its snapshot',async()=>{
+ const p=createProject(empty(),{name:'Assembly',type:'engineering'});
+ const dated=editProject(p.state,p.id,{startDate:'2026-11-23',status:'active'});
+ const a=createItem(dated,p.id,{title:'Prepare'});
+ const b=createItem(a.state,p.id,{title:'Install'});
+ const snapshot=connect(b.state,p.id,a.id,b.id);
+ const before=serialize(snapshot);
+ const calls=[];
+ const port=createNativeAtlasPort(async(name)=>{
+  calls.push(name);
+  assert.equal(name,'center_atlas_public_open');
+  return {generation:'owner-1',snapshot,needsConfirmation:false};
+ });
+ const session=await port.openPublicAtlas('org-a');
+ const plan=readNativeAtlasPlan(session,p.id);
+ assert.equal(plan.revision,String(snapshot.revision));
+ assert.equal(plan.totals.ready,1);
+ assert.equal(plan.totals.waiting,1);
+ assert.equal(plan.works.find(w=>w.id===b.id).status,'waiting');
+ assert.deepEqual(calls,['center_atlas_public_open']);
+ assert.equal(serialize(snapshot),before);
+ assert.equal(port.view(session).authorization,'NOT_CHECKED');
 });

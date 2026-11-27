@@ -157,3 +157,13 @@ test('Atlas draft link target requires explicit selection when several workspace
  assert.equal(matches(plain,ref),false);
  assert.equal(matches(linked,{...ref,revision:'9'}),false);
 });
+
+test('refresh keeps exact project and Work, never substitutes removed selection',async()=>{
+ const {selectAtlasAfterRead:select}=await import('../src/atlas-integration.mjs');
+ const view={projects:[{id:'p1',workItems:[{id:'w1'},{id:'w2'}]},{id:'p2',workItems:[{id:'w3'}]}]};
+ assert.deepEqual(select(view,{projectId:'',workId:''}),{projectId:'p1',workId:'w1'});
+ assert.deepEqual(select(view,{projectId:'p1',workId:'w2'},{sameSource:true}),{projectId:'p1',workId:'w2'});
+ assert.deepEqual(select(view,{projectId:'p1',workId:'gone'},{sameSource:true}),{projectId:'p1',workId:''});
+ assert.deepEqual(select(view,{projectId:'gone',workId:'w3'},{sameSource:true}),{projectId:'',workId:''});
+ assert.deepEqual(select(view,{projectId:'p1',workId:'w1'},{sameSource:true,createdWorkId:'w2'}),{projectId:'p1',workId:'w2'});
+});

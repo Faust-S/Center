@@ -2,6 +2,14 @@
 // database. The selected organization is only a local scope until T3 admits it.
 import {deserialize, serialize, createProject, createItem} from '../vendor/atlas/src/core.mjs';
 import {readAtlasPortfolio} from './atlas-integration.mjs';
+import {organizationPlanProjection} from '../vendor/atlas/src/organization-plan-projection.mjs';
+
+// Read the actual observed native head. Calculation belongs to Atlas, not Center.
+export function readNativeAtlasPlan(session,projectId){
+ if(!['CENTER_LOCAL_PREPARATION','PUBLIC_ATLAS_READ_ONLY'].includes(session?.sourceKind))
+  fail('ATLAS_NATIVE_SESSION_INVALID');
+ return organizationPlanProjection(session.snapshot,projectId);
+}
 
 const fail = code => {throw Error(code);};
 const validOrganizationId = id => typeof id==='string' && /^[a-zA-Z0-9_-]{1,100}$/.test(id);

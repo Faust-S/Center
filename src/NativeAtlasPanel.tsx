@@ -1,6 +1,6 @@
-import React,{useEffect,useRef,useState} from 'react';
-import {createNativeAtlasPort} from './atlas-native.mjs';
-import {linkableAtlasProject,linkableAtlasWork,selectAtlasTargetWorkspace,atlasWorkspaceBindingMatches} from './atlas-integration.mjs';
+import React,{useEffect,useMemo,useRef,useState} from 'react';
+import {createNativeAtlasPort,readNativeAtlasPlan} from './atlas-native.mjs';
+import {linkableAtlasProject,linkableAtlasWork,selectAtlasTargetWorkspace,atlasWorkspaceBindingMatches,selectAtlasAfterRead} from './atlas-integration.mjs';
 import {createCen05NativePort,describeCen05Status,describeCen05Error,presentationMatchesWork} from './cen05-native.mjs';
 
 // Genuine desktop host. Browser preview intentionally has no native authority.
@@ -8,11 +8,15 @@ const isDesktop=()=>Boolean((window as any).__TAURI_INTERNALS__);
 const invoke=(name:string,args:any)=>(window as any).__TAURI_INTERNALS__.invoke(name,args);
 type Session={organizationId:string;generation:string;snapshot:any;sourceKind:'CENTER_LOCAL_PREPARATION'|'PUBLIC_ATLAS_READ_ONLY'};
 type View={source:string;revision:string;mode:string;authorization:string;projects:Array<{id:string;name:string;status:string;owner:string;dueDate:string;total:number;done:number;blocked:number;progress:number|null;stages:number;workItems:Array<{id:string;title:string;state:string;dueDate:string;priority:string}>}>;dependencies:Array<{from:string;to:string;kind:string}>};
+type PlanView={projectId:string;revision:string;projectedFinish:string|null;deadlineSlipDays:number|null;
+ totals:{ready:number;waiting:number;review:number;blocked:number;no_dates:number};
+ works:Array<{id:string;label:string;startDate:string|null;finishDate:string|null;reasons:string[];
+  resource:{label:string;allocationPct:number}|null}>;note:string};
 type WorkspaceChoice={id:string;name:string;atlasRef?:{projectId:string;revision:string}|null};
 export default function NativeAtlasPanel({organizationId,workspaces,targetWorkspaceId,onChooseWorkspace,onLink,onLinkWork,onObserved}:{
  organizationId:string;workspaces:WorkspaceChoice[];targetWorkspaceId:string;onChooseWorkspace:(id:string)=>void;
  onLink:(ref:{projectId:string;revision:string},workspaceId:string)=>boolean;
- onLinkWork:(ref:{projectId:string;revision:string;workId:string},workspaceId:string)=>void;
+ onLinkWork:(ref:{projectId:string;revision:string;workId:string},workspaceId:string,source:View)=>void;
  onObserved?:(organizationId:string,view:View|null)=>void}){
  const [session,setSession]=useState<Session|null>(null);
  const [view,setView]=useState<View|null>(null);
@@ -29,6 +33,12 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
  observedCallback.current=onObserved;
  const port=()=>createNativeAtlasPort(invoke);
  useEffect(()=>{epoch.current++;setSession(null);setView(null);setSelected('');setSelectedWork('');setError('');setProjectName('');setWorkName('');setPresentation(null);setPresentationStatus('');observedCallback.current?.(organizationId,null);},[organizationId]);
+ const planning=useMemo<{plan:PlanView|null;error:string}>(()=>{
+   if(!session||!selected||!session.snapshot.projects.some((p:any)=>p.id===selected))
+     return {plan:null,error:''};
+   try{return {plan:readNativeAtlasPlan(session,selected) as PlanView,error:''};}
+   catch{return {plan:null,error:'Расчёт плана Atlas недоступен для этой редакции.'};}
+ },[session,selected]);
  if(!isDesktop())return null;
  async function act(run:(p:ReturnType<typeof createNativeAtlasPort>)=>Promise<any>){
    if(locked.current)return;
@@ -41,11 +51,10 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
      const next=p.view(s) as View;
      setSession(s);setView(next);
      observedCallback.current?.(organizationId,s.sourceKind==='PUBLIC_ATLAS_READ_ONLY'?next:null);
-     const nextSelected=result.projectId??(next.projects.find(x=>x.id===selected)?.id||next.projects[0]?.id||'');
-     setSelected(nextSelected);
-     const works=next.projects.find(x=>x.id===nextSelected)?.workItems??[];
-     setSelectedWork(result.workId&&works.some(x=>x.id===result.workId)?result.workId:
-       works.some(x=>x.id===selectedWork)?selectedWork:(works[0]?.id||''));
+     const selection=selectAtlasAfterRead(next,{projectId:selected,workId:selectedWork},{
+       sameSource:session?.sourceKind===s.sourceKind,createdProjectId:result.projectId,createdWorkId:result.workId
+     });
+     setSelected(selection.projectId);setSelectedWork(selection.workId);
    }catch(e){if(current===epoch.current)setError(e instanceof Error?e.message:String(e));}
    finally{locked.current=false;setBusy(false);}
  }
@@ -55,7 +64,7 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
    const current=epoch.current;
    try {
      const api=createCen05NativePort(invoke);
-     const ref=operation==='open'?linkableAtlasWork(view,selected,selectedWork||selectedProject?.workItems[0]?.id||''):presentation;
+     const ref=operation==='open'?linkableAtlasWork(view,selected,selectedWork):presentation;
      if(!ref)throw Error('Сначала выберите работу Atlas.');
      const request={organizationId,projectId:ref.projectId,workId:ref.workId,revision:ref.revision};
      let result;
@@ -81,6 +90,8 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
        if(current!==epoch.current)return;
        const updated=port().view(latest) as View;
        setSession(latest as Session);setView(updated);observedCallback.current?.(organizationId,updated);
+       const selection=selectAtlasAfterRead(updated,{projectId:selected,workId:selectedWork},{sameSource:true});
+       setSelected(selection.projectId);setSelectedWork(selection.workId);
      }
      setPresentationStatus(describeCen05Status(operation,result));
    }catch(e){if(current===epoch.current)setError(describeCen05Error(e));}
@@ -91,9 +102,11 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
  const target=selectAtlasTargetWorkspace(workspaces,targetWorkspaceId,projectRef) as WorkspaceChoice|null;
  const bindingCurrent=atlasWorkspaceBindingMatches(target,projectRef);
  const selectedWorkRef=session?.sourceKind==='PUBLIC_ATLAS_READ_ONLY'&&view&&
-   selectedProject?.workItems.length
-   ?linkableAtlasWork(view,selected,selectedWork||selectedProject.workItems[0].id)
+   selectedProject?.workItems.some(w=>w.id===selectedWork)
+   ?linkableAtlasWork(view,selected,selectedWork)
    :null;
+ const selectedPlanWork=planning.plan?.works.find(w=>w.id===selectedWork);
+ const hasSelectedWork=!!selectedProject?.workItems.some(w=>w.id===selectedWork);
  const bindingForSelectedWork=presentationMatchesWork(presentation,selectedWorkRef&&{
    organizationId,...selectedWorkRef
  });
@@ -110,9 +123,25 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
        <input aria-label="Новый проект Atlas" maxLength={160} value={projectName} onChange={e=>setProjectName(e.target.value)} required placeholder="Название проекта"/>
        <button className="secondary" disabled={busy||!projectName.trim()} data-testid="native-atlas-create-project">Создать проект</button>
      </form>}
-     {view.projects.map(p=><button key={p.id} className={`assignment-row ${selected===p.id?'chosen':''}`} onClick={()=>{setSelected(p.id);setSelectedWork(p.workItems[0]?.id||'');}} data-testid="native-atlas-project">
+     {view.projects.map(p=><button key={p.id} className={`assignment-row ${selected===p.id?'chosen':''}`} disabled={busy} onClick={()=>{setSelected(p.id);setSelectedWork(p.workItems[0]?.id||'');}} data-testid="native-atlas-project">
        <span className="row-content"><strong>{p.name}</strong><small>Работ: {p.total}, завершено: {p.done}, заблокировано: {p.blocked}</small></span><span className="status neutral">{p.progress===null?'Без работ':p.progress+'%'}</span>
      </button>)}
+     {planning.error&&<p className="muted" role="status">{planning.error}</p>}
+     {planning.plan&&<div className="nested-form" data-testid="native-atlas-planning-overview">
+       <p><strong>Расчёт плана Atlas</strong> · завершение: {planning.plan.projectedFinish??'не определено'}
+         {planning.plan.deadlineSlipDays!==null&&planning.plan.deadlineSlipDays>0&&
+           <> · отклонение: +{planning.plan.deadlineSlipDays} дн.</>}</p>
+       <p className="muted">Готовы по плану: {planning.plan.totals.ready}; ждут предшественников: {planning.plan.totals.waiting};
+         требуют проверки ресурсов: {planning.plan.totals.review}; заблокированы: {planning.plan.totals.blocked};
+         без расчётных дат: {planning.plan.totals.no_dates}.</p>
+       {selectedPlanWork&&<div data-testid="native-atlas-selected-work-plan">
+         <strong>{selectedPlanWork.label}</strong>
+         <p className="muted">{selectedPlanWork.startDate??'Начало не определено'} / {selectedPlanWork.finishDate??'Завершение не определено'}
+           {selectedPlanWork.resource&&<> · {selectedPlanWork.resource.label} ({selectedPlanWork.resource.allocationPct}%)</>}</p>
+         {!!selectedPlanWork.reasons.length&&<p className="muted">{selectedPlanWork.reasons.join('; ')}</p>}
+       </div>}
+       <p className="muted">{planning.plan.note}</p>
+     </div>}
      {!!selected&&<>
        {session.sourceKind!=='PUBLIC_ATLAS_READ_ONLY'&&<form className="inline-form" onSubmit={e=>{e.preventDefault();void act(async p=>{
          const result=await p.addWork(session,{projectId:selected,title:workName});
@@ -136,18 +165,19 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
          onClick={()=>{if(target&&projectRef&&onLink(projectRef,target.id))onChooseWorkspace(target.id);}}
          data-testid="native-atlas-link">Связать с рабочей областью</button>
        {selectedProject && selectedProject.workItems.length>0 && <div className="inline-form">
-         <label>Работа Atlas <select aria-label="Выбранная работа Atlas" value={selectedWork||selectedProject.workItems[0].id} onChange={e=>setSelectedWork(e.target.value)}>
+         <label>Работа Atlas <select aria-label="Выбранная работа Atlas" value={selectedWork} disabled={busy} onChange={e=>setSelectedWork(e.target.value)}>
+           <option value="">Выберите работу</option>
            {selectedProject.workItems.map(item=><option key={item.id} value={item.id}>{item.title}</option>)}
          </select></label>
-         <button type="button" className="secondary" disabled={busy||!target||!bindingCurrent} data-testid="native-atlas-work-to-assignment"
-           onClick={()=>{if(target&&bindingCurrent)onLinkWork(linkableAtlasWork(view,selected,selectedWork||selectedProject.workItems[0].id),target.id);}}>Подготовить поручение по работе</button>
+         <button type="button" className="secondary" disabled={busy||!target||!bindingCurrent||!hasSelectedWork} data-testid="native-atlas-work-to-assignment"
+           onClick={()=>{if(target&&bindingCurrent&&hasSelectedWork)onLinkWork(linkableAtlasWork(view,selected,selectedWork),target.id,view);}}>Подготовить поручение по работе</button>
        </div>}
      </>}
      {session.sourceKind==='PUBLIC_ATLAS_READ_ONLY'&&selectedProject&&selectedProject.workItems.length>0&&<div className="nested-form" data-testid="cen05-native-presentation">
        <h4>Открыть установленный Atlas</h4>
        <p className="muted">Работа и редакция проверяются в оригинальном Atlas перед запуском и возвратом. При отсутствии официальной ссылки работа внутри окна не выбирается автоматически.</p>
        <div className="actions">
-         <button type="button" className="secondary" disabled={busy||bindingForSelectedWork} data-testid="cen05-u04-open" onClick={()=>void present('open')}>Открыть окно Atlas</button>
+         <button type="button" className="secondary" disabled={busy||!selectedWorkRef||bindingForSelectedWork} data-testid="cen05-u04-open" onClick={()=>void present('open')}>Открыть окно Atlas</button>
          <button type="button" className="secondary" disabled={busy||!bindingForSelectedWork} data-testid="cen05-u04-activate" onClick={()=>void present('activate')}>Фокус Atlas</button>
          <button type="button" className="secondary" disabled={busy||!bindingForSelectedWork} data-testid="cen05-u04-return" onClick={()=>void present('return')}>Вернуться в Center и проверить</button>
          <button type="button" className="secondary" disabled={busy||!presentation} data-testid="cen05-u04-detach" onClick={()=>void present('detach')}>Отсоединить окно</button>

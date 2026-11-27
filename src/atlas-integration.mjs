@@ -160,3 +160,19 @@ export function selectAtlasReferenceSource(file,native,preferred='file'){
    native?.source==='atlas.project/1'?native:null;
  return preferred==='native'?(installed??openedFile):(openedFile??installed);
 }
+
+
+// A refresh of the same source must not replace a removed selection with
+// another project or Work. A deliberate first open or creation may select it.
+/** @param {{projects:Array<{id:string,workItems:Array<{id:string}>}>}} view
+ * @param {{projectId:string,workId:string}} previous
+ * @param {{sameSource?:boolean,createdProjectId?:string,createdWorkId?:string}} [options] */
+export function selectAtlasAfterRead(view,previous,{sameSource=false,createdProjectId='',createdWorkId=''}={}){
+ const project=createdProjectId?view.projects.find(p=>p.id===createdProjectId):
+  sameSource?view.projects.find(p=>p.id===previous.projectId):view.projects[0];
+ if(!project)return {projectId:'',workId:''};
+ const work=createdWorkId?project.workItems.find(w=>w.id===createdWorkId):
+  sameSource&&project.id===previous.projectId?project.workItems.find(w=>w.id===previous.workId):
+  project.workItems[0];
+ return {projectId:project.id,workId:work?.id??''};
+}
