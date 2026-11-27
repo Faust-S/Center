@@ -1,158 +1,91 @@
-"""Deliver the exact qualified Agent 0.6.6 installer using the existing owner envelope."""
+"""Preserve the exact successfully installed Setup, never a second build."""
 import hashlib
-import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
-import tempfile
-import urllib.request
 
-from admit import CANDIDATE_PIN as PIN, CANDIDATE_TREE as TREE, BASELINE_PIN, BASELINE_TREE, GROUPS, SHA, require, git, read_json
+from admit import CANDIDATE_PIN as PIN, CANDIDATE_TREE as TREE
+from delivery_crypto import MAGIC, HEADER, MAX_SIZE, digest_stream, encrypt_file
 
-WORKFLOW = 'agent066-delivery'
-PREFIX = 'refs/heads/ci/once/' + WORKFLOW + '/'
-REQUEST = '.github/ci-requests/' + WORKFLOW + '.json'
-KEY_PATH = '.ci/agent066-browser-source/delivery-recipient.pem'
-QUALIFICATION_RUN = 46004029924
-QUALIFICATION_HEAD = 'ee488216cf48eaba30ee0223e5cf7f23afbd258c'
-QUALIFICATION_BRANCH = 'ci/once/agent066-browser-source/3b3eb2354d2a1ae41fb6838bdc172e2f280bab2d'
-REPOSITORY = 'Faust-S/Center'
 RECIPIENT = 'b9f6f34b406311981ccf68184c1eb7ca958d2893357879f201739195f0e22b60'
-EXPECTED = {'candidate': PIN, 'tree': TREE, 'qualification_run': QUALIFICATION_RUN,
-            'qualification_head': QUALIFICATION_HEAD, 'recipient_sha256': RECIPIENT,
-            'scope': 'ENCRYPTED_OWNER_QUALIFIED_CANDIDATE', 'format': 'IWXAENC1',
-            'release_status': 'QUALIFIED_CANDIDATE_NOT_OWNER_ACCEPTED'}
+KEY_PATH = Path(__file__).with_name('delivery-recipient.pem')
 NAME = 'IWXA-Personal-Agent-0.6.6-' + PIN[:8] + '.iwxae'
 CIPHER_DIR = 'iwxa-agent066-delivery-cipher'
+SETUP_NAME = 'IWXA-Private-SetupCore-Candidate.exe'
+REQUIRED = ('SETUP_RELEASE', 'SETUP_BUILT', 'MODELING_RECEIPT_PREFLIGHT',
+            'COMMITTED_NATIVE_LOCK_BEFORE', 'COMMITTED_NATIVE_LOCK_AFTER')
 
 
-def qualification_passed(run, jobs):
-    if not isinstance(run, dict) or not isinstance(jobs, dict):
-        return False
-    if (run.get('id') != QUALIFICATION_RUN or run.get('head_sha') != QUALIFICATION_HEAD
-            or run.get('head_branch') != QUALIFICATION_BRANCH
-            or run.get('path') != '.github/workflows/agent066-browser-source.yml'
-            or run.get('event') != 'push' or run.get('status') != 'completed'
-            or run.get('conclusion') != 'success'
-            or not isinstance(run.get('repository'), dict)
-            or run['repository'].get('full_name') != REPOSITORY):
-        return False
-    rows = jobs.get('jobs')
-    expected = {'qualify / ' + group for group in GROUPS}
-    return (isinstance(rows, list) and jobs.get('total_count') == len(expected) == len(rows)
-            and all(isinstance(row, dict) and isinstance(row.get('name'), str)
-                    and row.get('run_id') == QUALIFICATION_RUN
-                    and row.get('head_sha') == QUALIFICATION_HEAD
-                    and row.get('status') == 'completed' and row.get('conclusion') == 'success'
-                    for row in rows)
-            and {row['name'] for row in rows} == expected)
+def ready_to_seal(q, pin, tree, verify_build):
+    out = q.root / 'setup-output'
+    setup = out / SETUP_NAME
+    return ((pin, tree) == (PIN, TREE) and all(q.results.get(k) is True for k in REQUIRED)
+            and all(q.results.values()) and setup.is_file() and not setup.is_symlink()
+            and verify_build(out, pin, tree, '0.6.6'))
 
 
-def verify_qualification(token):
-    base = 'https://api.github.com/repos/' + REPOSITORY + '/actions/runs/' + str(QUALIFICATION_RUN)
-    def get(suffix):
-        headers = {'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}
-        if token:
-            headers['Authorization'] = 'Bearer ' + token
-        req = urllib.request.Request(base + suffix, headers=headers)
-        with urllib.request.urlopen(req, timeout=30) as response:
-            return json.loads(response.read(2_000_001))
-    return qualification_passed(get(''), get('/jobs?filter=latest&per_page=100'))
+def verify_envelope(folder):
+    folder = Path(folder)
+    envelope, receipt = folder / NAME, folder / (NAME + '.sha256')
+    if (not folder.is_dir() or folder.is_symlink()
+            or {p.name for p in folder.iterdir()} != {envelope.name, receipt.name}
+            or any(not p.is_file() or p.is_symlink() for p in (envelope, receipt))
+            or receipt.stat().st_size != 65):
+        raise ValueError('delivery_files_invalid')
+    expected = receipt.read_text(encoding='ascii').strip()
+    with envelope.open('rb') as f:
+        magic, pin, tree, size, _plain_sha, _nonce, _wrapped = HEADER.unpack(f.read(HEADER.size))
+        if (magic != MAGIC or pin != PIN.encode('ascii') or tree != TREE.encode('ascii')
+                or not 1 <= size <= MAX_SIZE or os.fstat(f.fileno()).st_size != HEADER.size + size + 16):
+            raise ValueError('delivery_header_invalid')
+        f.seek(0)
+        actual = digest_stream(f)
+    if actual != expected:
+        raise ValueError('delivery_digest_invalid')
+    return actual
 
 
-def public_key():
-    key = Path(KEY_PATH)
-    require(key.is_file() and not key.is_symlink() and key.stat().st_size <= 8192)
-    pem = key.read_text(encoding='ascii').encode('ascii')
-    require(hashlib.sha256(pem).hexdigest() == RECIPIENT)
-    return pem
-
-
-def admit_delivery(env, event):
-    require(env.get('GITHUB_REPOSITORY') == REPOSITORY and env.get('GITHUB_EVENT_NAME') == 'push')
-    require(all(event.get(k) is False for k in ('created', 'deleted', 'forced')))
-    ref = env.get('GITHUB_REF', '')
-    require(ref.startswith(PREFIX))
-    parent, head = ref[len(PREFIX):], git('rev-parse', 'HEAD')
-    require(SHA.fullmatch(parent) and SHA.fullmatch(head) and head == env.get('GITHUB_SHA'))
-    require(event.get('ref') == ref and event.get('before') == parent and event.get('after') == head)
-    require(git('rev-list', '--parents', '-n', '1', head).split() == [head, parent])
-    require(git('diff-tree', '--no-commit-id', '--name-status', '-r', parent, head) == 'A\t' + REQUEST)
-    require(git('ls-tree', head, '--', REQUEST).split(' ', 1)[0] == '100644')
-    require(read_json(REQUEST) == {**EXPECTED, 'workflow': WORKFLOW, 'prepared_sha': parent})
-    require((env.get('PRIVATE_PIN'), env.get('PRIVATE_TREE'), env.get('QUALIFICATION_GROUP')) == (PIN, TREE, 'desktop'))
-    public_key()
-    require(verify_qualification(env.get('GITHUB_TOKEN', '')))
-    return head
-
-
-def status(key, value):
-    print(key + '=' + str(value), flush=True)
-
-
-def build_delivery():
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'agent065-modeling'))
-    from qualify import Qualification, cleanup_private
-    from installed_gate import installed_gate, build_identity, NAME as SETUP_NAME
-    from delivery_crypto import encrypt_file
-    token = os.environ.pop('IWXA_TEMP_READ_TOKEN', '')
-    root = cipher = None
-    complete = cipher_created = False
+def seal_clean_install(q, pin, tree):
+    from installed_gate import build_identity
+    cipher = None
+    created = complete = False
     try:
-        require((os.environ.get('PRIVATE_PIN'), os.environ.get('PRIVATE_TREE')) == (PIN, TREE))
-        pem = public_key()
+        if not ready_to_seal(q, pin, tree, build_identity):
+            raise ValueError('delivery_setup_not_confirmed')
+        if not KEY_PATH.is_file() or KEY_PATH.is_symlink() or KEY_PATH.stat().st_size > 8192:
+            raise ValueError('delivery_recipient_invalid')
+        pem = KEY_PATH.read_text(encoding='ascii').encode('ascii')
+        if hashlib.sha256(pem).hexdigest() != RECIPIENT:
+            raise ValueError('delivery_recipient_invalid')
         runner = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
         cipher = runner / CIPHER_DIR
-        require(not cipher.exists() and not cipher.is_symlink())
-        root = Path(tempfile.mkdtemp(prefix='iwxa-agent065-agent066-delivery-', dir=runner))
-        q = Qualification(root)
-        require(q.checkout(token, PIN, TREE))
-        token = ''
-        require(installed_gate(q, PIN, TREE, None, BASELINE_PIN, BASELINE_TREE, upgrade=False))
-        out = root / 'setup-output'
-        setup = out / SETUP_NAME
-        require(setup.is_file() and not setup.is_symlink() and build_identity(out, PIN, TREE, '0.6.6'))
-        cipher.mkdir(); cipher_created = True
-        plain_sha, sealed_sha = encrypt_file(setup, cipher / NAME, pem)
-        require(tuple(p.name for p in cipher.iterdir()) == (NAME,))
-        status('DELIVERY_INSTALLED_GUI', 'PASS')
-        status('DELIVERY_RELEASE_STATUS', EXPECTED['release_status'])
-        status('DELIVERY_SETUP_SHA256', plain_sha)
-        status('DELIVERY_ENCRYPTED_SHA256', sealed_sha)
+        cipher.mkdir(); created = True
+        plain, sealed = encrypt_file(q.root / 'setup-output' / SETUP_NAME, cipher / NAME, pem)
+        (cipher / (NAME + '.sha256')).write_bytes((sealed + '\n').encode('ascii'))
+        if verify_envelope(cipher) != sealed:
+            raise ValueError('delivery_digest_invalid')
+        print('DELIVERY_SETUP_SHA256=' + plain, flush=True)
+        print('DELIVERY_ENCRYPTED_SHA256=' + sealed, flush=True)
         complete = True
     except Exception:
-        status('DELIVERY_INTERNAL', 'FAIL')
+        # Public output contains only fixed verdicts, never private paths or errors.
+        pass
     finally:
-        token = ''
-        if root is not None:
-            clean = cleanup_private(root)
-            status('DELIVERY_PRIVATE_CLEANUP', 'PASS' if clean else 'FAIL')
-            complete = complete and clean
-        if not complete and cipher_created:
+        if created and not complete:
             shutil.rmtree(cipher, ignore_errors=True)
-    status('DELIVERY_ENCRYPTED_PACKAGE', 'PASS' if complete else 'FAIL')
-    return 0 if complete else 1
-
-
-def main():
-    if sys.argv[1:] == ['--build']:
-        return build_delivery()
-    if sys.argv[1:] != ['--admit']:
-        return 1
-    try:
-        path = Path(os.environ['GITHUB_EVENT_PATH'])
-        require(path.is_file() and path.stat().st_size <= 2_000_000)
-        head = admit_delivery(os.environ, json.loads(path.read_text(encoding='utf-8')))
-    except Exception:
-        status('DELIVERY_ADMISSION', 'FAIL')
-        return 1
-    status('DELIVERY_ADMISSION', 'PASS')
-    status('DELIVERY_QUALIFICATION', 'PASS')
-    status('DELIVERY_REQUEST_HEAD', head)
-    return 0
+    print('DELIVERY_ENCRYPTED_CANDIDATE=' + ('PASS' if complete else 'FAIL'), flush=True)
+    return complete
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        if len(sys.argv) != 2:
+            raise ValueError('delivery_input_invalid')
+        digest = verify_envelope(sys.argv[1])
+    except Exception:
+        print('DELIVERY_ENCRYPTED_PACKAGE=FAIL', flush=True)
+        sys.exit(1)
+    print('DELIVERY_ENCRYPTED_SHA256=' + digest, flush=True)
+    print('DELIVERY_ENCRYPTED_PACKAGE=PASS', flush=True)
+    print('DELIVERY_RELEASE_STATUS=QUALIFIED_CANDIDATE_NOT_OWNER_ACCEPTED', flush=True)
