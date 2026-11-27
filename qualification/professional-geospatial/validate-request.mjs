@@ -15,6 +15,6 @@ assert.equal(git('rev-parse','HEAD'),head);
 assert.equal(git('rev-list','--parents','-n','1',head),head+' '+before);
 assert.equal(git('diff','--name-status',before,head),'A\t'+path);
 assert.deepEqual(JSON.parse(readFileSync(path,'utf8')),{workflow,prepared:before,
- profile:'public-original-geo-benchmark',pins:{osmBlob:'63346b4ce8b8907b02563e2c9ec7813e4bbb5abd',osrm:'26.8.0',valhalla:'3.8.2'},
- reason:'Qualify both original road engines on identical historical public OSM bytes and original QGIS CRS/GeoPackage processing'});
+ profile:'public-road-benchmark-permissions',pins:{osmBlob:'63346b4ce8b8907b02563e2c9ec7813e4bbb5abd',osrm:'26.8.0',valhalla:'3.8.2'},
+ reason:'Repeat original road benchmark with runner-owned graph files; QGIS native qualification already passed'});
 console.log('EXACT_PUBLIC_GEO_REQUEST_PASS');

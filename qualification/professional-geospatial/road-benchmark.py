@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from hashlib import sha256
 import json
 import math
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -23,6 +24,8 @@ from topology_fixture import POINTS, SHORTCUT_MIDDLE, DETOUR_MIDDLE, write as wr
 ROOT=Path(__file__).resolve().parent
 LOCK=json.loads((ROOT/'inputs.json').read_text())
 MEASURE_TIMEOUT=180
+# Graph file permissions must belong to the runner that verifies exact bytes.
+CONTAINER_USER=f'{os.getuid()}:{os.getgid()}'
 CLIENT = r"""
 import sys,json,urllib.request,urllib.error
 opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -131,7 +134,7 @@ class Engine:
         self.name=name;self.image=image;self.folder=folder;self.command=command;self.port=port
         self.container='';self.pid=0
     def __enter__(self):
-        self.container=output(['docker','run','-d','--network','none','--cpus','2',
+        self.container=output(['docker','run','-d','--network','none','--cpus','2','--user',CONTAINER_USER,'--env','HOME=/tmp',
             '-v',str(self.folder)+':/data:ro',self.image,*self.command])
         try:
             inspect=json.loads(output(['docker','inspect',self.container]))[0]
@@ -167,7 +170,7 @@ class Engine:
         return {'memory_usage':d.get('MemUsage'),'cpu_percent':d.get('CPUPerc')}
 
 def container(image,folder,*cmd,timeout=MEASURE_TIMEOUT):
-    return run(['docker','run','--rm','--network','none','--cpus','2','-v',str(folder)+':/data',image,*cmd],timeout=timeout)
+    return run(['docker','run','--rm','--network','none','--cpus','2','--user',CONTAINER_USER,'--env','HOME=/tmp','-v',str(folder)+':/data',image,*cmd],timeout=timeout)
 
 def files_manifest(folder):
     return [{'path':str(p.relative_to(folder)),'bytes':p.stat().st_size,'sha256':hash_file(p)}
