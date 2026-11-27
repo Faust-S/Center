@@ -1,0 +1,12 @@
+{
+  "workflow": "center",
+  "prepared_sha": "43b5ac51b5224c823cb5996fadfb8eaba3ad74fe",
+  "profile": "atlas-native",
+  "pins": {
+    "atlas": "109438f7b2bf7dfa723e4c5e90d7fefea731b6b2",
+    "brtest": "7cfb17870042cac824644140b7f0a587e244a20e",
+    "setup_core": "0ef7544e2a6fd5fab5994f7f25abbb960063908c",
+    "t3": "ac6b78400c3ebea8276c6468858d04fbd93aff2a"
+  },
+  "reason": "Targeted qualification of native Atlas close/readback and Center original Workspace Result selection; no full corporate matrix."
+}
