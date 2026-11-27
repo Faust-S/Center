@@ -151,88 +151,11 @@ jobs:
           Push-Location $desktop
           try{
             $exchangeLog=Join-Path $logs 'exchange-ui-delta.log'
-            & node.exe --test $relative *> $exchangeLog
+            & node.exe --test --test-reporter=tap $relative *> $exchangeLog
             $exchangeExit=$LASTEXITCODE
             $exchangeReport=Get-Content -LiteralPath $exchangeLog -Raw
             foreach($kind in @('tests','pass','fail','skipped','cancelled')){
-              $matchesForKind=[regex]::Matches($exchangeReport,('(?m)^# '+$kind+' ([0-9]{1,6})\s*
-          $package=Join-Path $build 'package/IWXA-Personal-Agent-Windows-Explorer-Prototype.zip'
-          if(!(Test-Path -LiteralPath $pythonPathFile -PathType Leaf) -or !(Test-Path -LiteralPath $package -PathType Leaf)){throw 'ORIGINAL_NATIVE_PACKAGE_MISSING'}
-          $python=(Get-Content -LiteralPath $pythonPathFile -Raw).Trim()
-          if(!(Test-Path -LiteralPath $python -PathType Leaf)){throw 'ORIGINAL_MANAGED_PYTHON_MISSING'}
-          $setup=Join-Path $root 'IWXA-Private-Meta-Harness-SetupCore.exe'
-          $receiptPath=Join-Path $logs 'setup-core.json'
-          & $python -B (Join-Path $repo 'tools/build_setup_core_release.py') --product-package $package --center-root $center --center-commit $env:CENTER_OWNER_PIN --output $setup --python $python *> $receiptPath
-          if($LASTEXITCODE -ne 0){throw 'ORIGINAL_SETUP_CORE_BUILD_FAILED'}
-          try{$receipt=Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json}catch{throw 'SETUP_CORE_RECEIPT_INVALID'}
-          if(!(Test-Path -LiteralPath $setup -PathType Leaf)){throw 'SETUP_CORE_EXECUTABLE_MISSING'}
-          $sha=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($receipt.status -cne 'BUILT_UNQUALIFIED' -or $receipt.version -cne '0.6.2' -or
-             $receipt.private_source_commit -cne $env:PRIVATE_PIN -or $receipt.private_source_tree -cne $env:PRIVATE_TREE -or
-             $receipt.public_setup_core_commit -cne $env:CENTER_OWNER_PIN -or $receipt.setup_sha256 -cne $sha -or
-             $receipt.setup_bytes -ne (Get-Item -LiteralPath $setup).Length){throw 'EXACT_SETUP_CORE_IDENTITY_MISMATCH'}
-          Write-Host 'ORIGINAL_NATIVE_SETUP_BUILT=PASS'
-      - name: Install and exercise native mode switches twice
-        shell: pwsh
-        timeout-minutes: 28
-        run: |
-          $ErrorActionPreference='Stop'
-          $root=Join-Path $env:RUNNER_TEMP 'meta-harness-installed'
-          $repo=Join-Path $root 'source'
-          $center=Join-Path $env:GITHUB_WORKSPACE 'center-owner'
-          $setup=Join-Path $root 'IWXA-Private-Meta-Harness-SetupCore.exe'
-          $receipt=Get-Content -LiteralPath (Join-Path $root 'logs/setup-core.json') -Raw | ConvertFrom-Json
-          $sandbox=Join-Path $root 'installed'
-          $log=Join-Path $root 'logs/installed-private.log'
-          $test=Join-Path $center 'installer/windows/qualify-local-bundle.ps1'
-          $witness=Join-Path $repo 'tools/qualify_setup_core_runtime.ps1'
-          if((Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() -cne $receipt.setup_sha256){throw 'EXACT_SETUP_CHANGED'}
-          & powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test -Setup $setup -ProductId 'iwxa.personal-agent' -SandboxRoot $sandbox -SourceCommit $env:PRIVATE_PIN -WitnessScript $witness -WitnessTimeoutSeconds 1200 *> $log
-          $nativeExit=$LASTEXITCODE
-          $witnessReceipt=Join-Path $sandbox 'installed-witness.json'
-          if($nativeExit -ne 0){
-            if(Test-Path -LiteralPath $witnessReceipt -PathType Leaf){
-              try {
-                $failed=Get-Content -LiteralPath $witnessReceipt -Raw | ConvertFrom-Json
-                $safe=@('SHORTCUT_READBACK','COLD_GUI_BOOT','FIRST_CORE','CORE_QUERIES','DRAFT_CREATE','GUI_DRAFT_EDIT','GUI_DRAFT_READBACK','GUI_HARNESS_MODES','HARNESS_COLD_RESTART','HARNESS_COLD_GUI','HARNESS_COLD_CORE_READBACK','HARNESS_CLEAN_STOP','HARNESS_MODE_RECEIPT')
-                if($failed.phase -cin $safe){Write-Host ('INSTALLED_FAILURE_PHASE='+$failed.phase)}
-                $checkpoints=@('NOT_STARTED','BASELINE','GUI','RECEIPT','READBACK','COLD_EDITOR','COLD_GUI','COLD_RECEIPT','COLD_READBACK')
-                $stages=@('NOT_STARTED','OFF_INITIAL','MANUAL_SELECT','PRIVACY_SELECT','MANUAL_CATALOG','CATALOG_WORKER','MANUAL_REVIEW','MANUAL_SINGLE','AUTO_MODE','OFF_RESTORED','DRAFT_FINAL')
-                $reasons=@('AGENT_NATIVE_GUI_PROCESS_EXITED','AGENT_NATIVE_GUI_EDITOR_READBACK_MISMATCH','AGENT_NATIVE_GUI_TASK_EDITOR_UNAVAILABLE','AGENT_NATIVE_GUI_ACTION_BUTTON_UNAVAILABLE','AGENT_NATIVE_GUI_BUTTON_NOT_CLICKABLE','AGENT_NATIVE_GUI_HARNESS_COMBO_UNAVAILABLE','AGENT_NATIVE_GUI_HARNESS_OPTION_INVALID','AGENT_NATIVE_GUI_K02_CONTROL_UNAVAILABLE','OTHER','INSTALLED_WINDOWS_REQUIRED','INSTALLED_PROBE_INPUT_INVALID','INSTALLED_PROBE_PHASE_INVALID','INSTALLED_RUNTIME_OWNER_MISMATCH','INSTALLED_CORE_TOKEN_MISSING','INTERACTION_ENVELOPE_INVALID','DRAFT_QUERY_ENVELOPE_INVALID','DRAFT_RESPONSE_INVALID','DRAFT_NOT_SAVED','DRAFT_TEXT_MISSING','DRAFT_DIGEST_INVALID','DRAFT_WAS_SUBMITTED','DRAFT_ATTACHMENTS_UNEXPECTED','DRAFT_SOURCES_UNEXPECTED','DRAFT_CONTENT_CHANGED','DRAFT_REVISION_CHANGED','HARNESS_DRAFT_HASH_INVALID','HARNESS_PREPARATION_UNEXPECTED','HARNESS_WORKSPACE_MISSING','HARNESS_TASK_PROJECTION_INVALID','HARNESS_TASK_IDENTITY_INVALID','HARNESS_CATALOG_PROJECTION_INVALID','HARNESS_PROOF_ALREADY_EXISTS','HARNESS_PROOF_MISSING','HARNESS_SWITCH_CHANGED_CORE_STATE','HTTP_400','HTTP_401','HTTP_403','HTTP_404','HTTP_409','HTTP_422','HTTP_500','HTTP_503','HTTP_OTHER','TIMEOUT','OTHER')
-                if($failed.last_checkpoint -cin $checkpoints){Write-Host ('INSTALLED_FAILURE_CHECKPOINT='+$failed.last_checkpoint)}
-                if($failed.gui_stage -cin $stages){Write-Host ('INSTALLED_FAILURE_GUI_STAGE='+$failed.gui_stage)}
-                if($failed.failure_code -cin $reasons){Write-Host ('INSTALLED_FAILURE_CODE='+$failed.failure_code)}
-              } catch {}
-            }
-            throw 'INSTALLED_NATIVE_MODE_QUALIFICATION_FAILED'
-          }
-          if(!(Test-Path -LiteralPath $witnessReceipt -PathType Leaf)){throw 'INSTALLED_MODE_RECEIPT_MISSING'}
-          $proof=Get-Content -LiteralPath $witnessReceipt -Raw | ConvertFrom-Json
-          if($proof.schema -cne 'IWXA_META_HARNESS_INSTALLED_MODES/1' -or $proof.status -cne 'PASS' -or
-             $proof.qualification_scope -cne 'META_HARNESS_MODES' -or $proof.input -cne 'NATIVE_WINDOWS_UI_AUTOMATION' -or
-             $proof.release_qualification_completed -ne $false){throw 'INSTALLED_MODE_PROOF_IDENTITY_INVALID'}
-          foreach($key in @('installed_start_menu_shortcut_verified','installed_native_cold_launch_verified','installed_meta_harness_mode_switch_verified','cold_restart_mode_switch_verified','draft_and_core_state_unchanged','no_task_preparation_requested','clean_stop')){
-            if($proof.$key -ne $true){throw 'INSTALLED_MODE_PROOF_INCOMPLETE'}
-          }
-          if((Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant() -cne $receipt.setup_sha256){throw 'EXACT_SETUP_CHANGED'}
-          Write-Host 'INSTALLED_NATIVE_MODE_SWITCH=PASS'
-          Write-Host 'INSTALLED_COLD_RESTART_MODE_SWITCH=PASS'
-          Write-Host 'INSTALLED_TASK_DRAFT_AND_ASSIGNMENTS_UNCHANGED=PASS'
-          Write-Host 'INSTALLED_CORE_CLEAN_STOP=PASS'
-          Write-Host 'SETUP_CORE_LOCAL_INSTALL_REPAIR_UNINSTALL=PASS'
-          Write-Host 'FULL_RELEASE_QUALIFICATION=NOT_RUN'
-      - name: Remove disposable private checkout and candidate
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $root=Join-Path $env:RUNNER_TEMP 'meta-harness-installed'
-          if(Test-Path -LiteralPath $root){
-            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop
-          }
-          if(Test-Path -LiteralPath $root){throw 'PRIVATE_RUNNER_CLEANUP_FAILED'}
-          Write-Host 'PRIVATE_RUNNER_CLEANUP=PASS'
-))
+              $matchesForKind=[regex]::Matches($exchangeReport,('(?m)^# '+$kind+' ([0-9]{1,6})\s*$'))
               if($matchesForKind.Count -ne 1){throw 'DESKTOP_EXCHANGE_TEST_SUMMARY_INVALID'}
               $count=[int]$matchesForKind[0].Groups[1].Value
               Write-Host ('DESKTOP_EXCHANGE_'+$kind.ToUpperInvariant()+'='+$count)
