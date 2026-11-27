@@ -77,5 +77,26 @@ try{
   assert.equal(call('composer',{input:{context:'task'},binding:personal}).draft_digest,persisted.draft_digest);
   assert.equal(saves,1);assert.equal(approvals,1);
   assert.equal((await owner.audit()).length,2);
+  // Separately exercise the original Task, its demo provider and original
+  // Human Review. This is qualification, not a product automatic dispatch.
+  const nativeTask=fileURLToPath(new URL('./workflow-original-task.py',import.meta.url));
+  const taskCall=(op,extra={})=>{
+    const response=JSON.parse(execFileSync('python',[nativeTask,agent,join(root,'actual-task')],{
+      input:JSON.stringify({op,...extra}),encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:60000}));
+    if(!response.ok)throw Error('ORIGINAL_TASK_FIXTURE_REFUSED');
+    return response.result;
+  };
+  const {inspectOriginalPersonalWorkflowTask}=await source('src/t3/workspace-method-personal-draft.mjs');
+  const {taskId}=taskCall('execute',{draft:plan.draft});
+  const taskOwner={
+    readAcceptedRun:async(taskId,binding)=>{assert.equal(binding.agentWorkspaceId,'personal');return taskCall('run',{taskId});},
+    taskDocumentSource:async(taskId,snapshotId,path,sha256,binding)=>{assert.equal(binding.agentWorkspaceId,'personal');return taskCall('document',{taskId,snapshotId,path,sha256});}
+  };
+  const inspection=await inspectOriginalPersonalWorkflowTask({plan,taskId,composer,taskOwner,guarded:fn=>fn(),refreshPlan:build});
+  assert.equal(inspection.state,'ORIGINAL_ACCEPTED_TASK_DECLARED_INPUTS_MATCHED');
+  assert.equal(inspection.declaredDraftInputsVerified,true);assert.equal(inspection.workCompleted,false);
+  assert.equal(inspection.resultReuseProven,false);assert.equal(inspection.allAssetsProven,false);
+  assert.match(inspection.acceptedSummarySha256,/^[a-f0-9]{64}$/);
+  console.log('ORIGINAL_AGENT_ACCEPTED_TASK_DECLARED_INPUTS_PASS');
   console.log('ORIGINAL_AGENT_COMPOSER_COLD_READBACK_AND_SCOPE_CAS_PASS');
 }finally{rmSync(root,{recursive:true,force:true});}

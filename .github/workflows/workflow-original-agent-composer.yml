@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 19a0b0a5e9ae1290762b8623b7257de65869cf32
+          ref: 0cea4f67e61f770f074638a6de7b306390a1c76f
           path: knowledge
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -43,13 +43,15 @@ jobs:
       - name: Private dependencies
         run: |
           test "$(git -C private-agent rev-parse HEAD)" = "68128b4c9a2c7140ec3503ff0f775e5bcb50743e"
-          test "$(git -C knowledge rev-parse HEAD)" = "19a0b0a5e9ae1290762b8623b7257de65869cf32"
+          test "$(git -C knowledge rev-parse HEAD)" = "0cea4f67e61f770f074638a6de7b306390a1c76f"
           python -m pip install -r private-agent/requirements-ci.txt > "$RUNNER_TEMP/composer-deps-private.log" 2>&1 || { echo ORIGINAL_AGENT_DEPENDENCIES_FAIL; exit 1; }
       - name: Exercise original SessionRuntime with synthetic Workflow materials
         run: |
           node qualification/workflow-original-composer.mjs "$PWD/private-agent" "$PWD/knowledge" > "$RUNNER_TEMP/composer-qualification-private.log" 2>&1 || { echo ORIGINAL_AGENT_COMPOSER_WORKFLOW_SOURCE_FAIL; exit 1; }
           grep -qx ORIGINAL_AGENT_COMPOSER_COLD_READBACK_AND_SCOPE_CAS_PASS "$RUNNER_TEMP/composer-qualification-private.log"
+          grep -qx ORIGINAL_AGENT_ACCEPTED_TASK_DECLARED_INPUTS_PASS "$RUNNER_TEMP/composer-qualification-private.log"
           echo ORIGINAL_AGENT_COMPOSER_WORKFLOW_SOURCE_PASS
+          echo ORIGINAL_AGENT_ACCEPTED_TASK_DECLARED_INPUTS_PASS
       - name: Remove private working copies and logs
         if: always()
         run: |
