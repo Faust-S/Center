@@ -21,17 +21,18 @@ from local_source import LocalSourceError, git, materialize_local_source
 T2 = ('c28e01876f3230307b7f20449f7ef54374367c93',
       '3d774222c9aaa1521ded9eb23d2f5fcdb55b8cbd',
       't2/current/final-successor')
-T3 = ('9d45f993e0b5e3609879d4c203f9345684400d65',
-      '06ffe1600f05340be5d1e3577f293ebb3e445fd7',
+T3 = ('9800854ec3aba3b55f2d42b3219c92574e4dbcc4',
+      '2bcae0958f90ef03894eb5635798203aa47da6a0',
       ('access-control', 'interop', 'reconciliation', 'tests', 'package.json'))
-CORE = ('513a11bff20138f96875a0a0c13186d9ba7931e0',
-        'a5f9cf47974426dcd7bdc083342ae5972cb32633', 'packages')
+CORE = ('4335694c895dae93f8c7ea57e20e452019834586',
+        '675e5610561cce1ecab9f340908e563f9e8d9b3e', 'packages')
 T2_PARENT = '4e4ad5c5e566a74f24243b9d0744a6d64652a199'
 PACKAGING = 't2/current/final-successor/kernel-successors/k036-canonical-event-merge-20261125/'
 PACKAGING_PATHS = {PACKAGING + name for name in (
     'prepare_k036_candidate_archive.py', 'test_prepare_k036_candidate_archive.py')}
 OWNER_TESTS = ('tests/original-native-network-vault.test.mjs',
                'tests/original-native-network-vault-port.test.mjs',
+               'tests/original-native-network-grant.test.mjs',
                'tests/admin-native-vault-composition.test.mjs',
                'tests/original-product-network-registry.test.mjs',
                'tests/original-admin-network-registry.test.mjs',
@@ -39,7 +40,8 @@ OWNER_TESTS = ('tests/original-native-network-vault.test.mjs',
                'tests/t3-d1-control-loopback-invalidation.test.mjs')
 
 PEER_TESTS = ('tests/network/original-native-peer-startup.test.mjs',
-              'tests/network/original-peer-history-tls.test.mjs')
+              'tests/network/original-peer-history-tls.test.mjs',
+              'tests/original-native-network-product-activation.test.mjs')
 
 
 class QualificationError(Exception):
@@ -113,7 +115,7 @@ def owner_tests(root, env):
     counts = {key: int(value) for key, value in re.findall(
         r'^# (tests|pass|fail|cancelled|skipped) (\d+)\s*$', result.stdout, re.MULTILINE)}
     emit('K036_LOCAL_NATIVE_OWNER_COUNTS', counts)
-    need(result.returncode == 0 and counts.get('tests', 0) >= 11 and
+    need(result.returncode == 0 and counts.get('tests', 0) >= 44 and
          counts.get('pass') == counts['tests'] and
          all(counts.get(k) == 0 for k in ('fail', 'cancelled', 'skipped')),
          'NATIVE_OWNER_TESTS_FAILED')
@@ -126,11 +128,12 @@ def peer_tests(root, env):
     counts = {key: int(value) for key, value in re.findall(
         r'^# (tests|pass|fail|cancelled|skipped) (\d+)\s*$', result.stdout, re.MULTILINE)}
     emit('K036_LOCAL_PEER_COUNTS', counts)
-    need(result.returncode == 0 and counts.get('tests', 0) >= 11 and
+    need(result.returncode == 0 and counts.get('tests', 0) >= 42 and
          counts.get('pass') == counts['tests'] and
          all(counts.get(k) == 0 for k in ('fail', 'cancelled', 'skipped')),
          'PEER_TLS_TESTS_FAILED')
     emit('K036_LOCAL_PEER_TLS', 'PASS')
+    emit('K036_LOCAL_NATIVE_ACTIVATION', 'PASS')
 
 
 def run_local(t2_repo, t3_repo, core_repo, *, preflight_only):
@@ -150,6 +153,7 @@ def run_local(t2_repo, t3_repo, core_repo, *, preflight_only):
         if preflight_only:
             emit('K036_LOCAL_NATIVE_OWNER_SOURCE', 'NOT_RUN')
             emit('K036_LOCAL_PEER_TLS', 'NOT_RUN')
+            emit('K036_LOCAL_NATIVE_ACTIVATION', 'NOT_RUN')
             emit('K036_LOCAL_PRODUCT_RECIPES', 'NOT_RUN')
         else:
             need(sys.version_info[:2] == (3, 11), 'PYTHON_311_REQUIRED')

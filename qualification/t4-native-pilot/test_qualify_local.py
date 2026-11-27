@@ -102,27 +102,28 @@ class LocalQualificationTests(unittest.TestCase):
         self.assertTrue(all(not p.exists() for p in seen))
 
     def test_owner_counts_require_all_tests_without_raw_logs(self):
-        valid = '# tests 11\n# pass 11\n# fail 0\n# cancelled 0\n# skipped 0\nprivate path secret\n'
+        valid = '# tests 44\n# pass 44\n# fail 0\n# cancelled 0\n# skipped 0\nprivate path secret\n'
         with patch.object(q, 'run_checked', return_value=subprocess.CompletedProcess([],0,valid,'secret')):
             out=io.StringIO()
             with contextlib.redirect_stdout(out):
                 q.owner_tests(self.repo,{})
             self.assertNotIn('secret',out.getvalue())
-        with patch.object(q, 'run_checked', return_value=subprocess.CompletedProcess([],0,valid.replace('# pass 11','# pass 10'),'')):
+        with patch.object(q, 'run_checked', return_value=subprocess.CompletedProcess([],0,valid.replace('# pass 44','# pass 43'),'')):
             with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(q.QualificationError,'NATIVE_OWNER_TESTS_FAILED'):
                 q.owner_tests(self.repo,{})
 
     def test_peer_counts_require_exact_test_paths_and_no_skips(self):
-        valid = '# tests 11\n# pass 11\n# fail 0\n# cancelled 0\n# skipped 0\n'
+        valid = '# tests 42\n# pass 42\n# fail 0\n# cancelled 0\n# skipped 0\n'
         with patch.object(q, 'run_checked', return_value=subprocess.CompletedProcess([],0,valid,'private')) as run:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 q.peer_tests(self.repo,{})
             self.assertIn('K036_LOCAL_PEER_TLS=PASS',out.getvalue())
             self.assertNotIn('private',out.getvalue())
-            self.assertEqual(run.call_args.args[0][-2:],list(q.PEER_TESTS))
+            self.assertEqual(run.call_args.args[0][-len(q.PEER_TESTS):],list(q.PEER_TESTS))
+            self.assertIn('K036_LOCAL_NATIVE_ACTIVATION=PASS',out.getvalue())
             self.assertEqual(run.call_args.args[1],self.repo/'packages/t4-network')
-        for report in (valid.replace('# skipped 0','# skipped 1'),valid.replace('11','10')):
+        for report in (valid.replace('# skipped 0','# skipped 1'),valid.replace('42','41')):
             with patch.object(q,'run_checked',return_value=subprocess.CompletedProcess([],0,report,'')):
                 with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(q.QualificationError,'PEER_TLS_TESTS_FAILED'):
                     q.peer_tests(self.repo,{})
