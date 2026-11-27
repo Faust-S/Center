@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
-      PRIVATE_PIN: 'e9333703c58bd52d5e5b56c3234d8d6189bdd85d'
-      PRIVATE_TREE: '12ed31c982833ecb6d03b4ac1fad45d686172597'
+      PRIVATE_PIN: 'f147eee2e35cceff6013b7ca0defbded16ee8900'
+      PRIVATE_TREE: '84cf3aadcab380683cad45c505f06b4ff1983981'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -133,10 +133,34 @@ jobs:
                       if not stage("NPM_CI",["npm","ci","--no-audit","--no-fund"],mobile,600):return 1
                       # Build first: emulator/KVM availability cannot suppress source or APK checks.
                       def report_stage(name,args,cwd,timeout):
-                          try:outcome=run(args,cwd,timeout=timeout)
+                          status("QUALIFICATION_STAGE_STARTED",name)
+                          image_route=name in ("NATIVE_REAL_IMAGE_ROUTE","NATIVE_FAST_IMAGE_ROUTE")
+                          try:
+                              if image_route:
+                                  fast=name=="NATIVE_FAST_IMAGE_ROUTE"
+                                  prefix="FAST_" if fast else ""
+                                  expected=("OFFLINE_START","ENGINE_PRESENT","MODEL_PICKER_CANCEL","MODEL_COPY_CANCEL","MODEL_IMPORTED","MODEL_VERIFIED","UI_GENERATED","UI_PREVIEW","STALE_REJECTED","UI_EXPORT_CANCEL","UI_EXPORT","UI_EXPORT_EXPECTED","UI_CANCEL_REPLACEMENT","UI_CLEAR","MODEL_REMOVED","OFFLINE_END")
+                                  if fast:expected=expected[:6]+("LCM_IMPORTED","LCM_VERIFIED","UI_FAST_SELECTED")+expected[6:-2]+("LCM_REMOVED",)+expected[-2:]
+                                  # Forward only known progress observations. These are not final receipts.
+                                  def observe(line):
+                                      key,_,value=line.partition("=")
+                                      if key=="IMAGE_DEVICE_LIVE_STAGE" and value in expected:
+                                          status(prefix+key,value)
+                                      elif key=="IMAGE_DEVICE_LIVE_STEP" and re.fullmatch(r"[1-9][0-9]?",value) and int(value)<=(4 if fast else 12):
+                                          status(prefix+key,value)
+                                      elif key=="IMAGE_DEVICE_LIVE_PROGRESS" and value in ("PASS","MISSING","INVALID"):
+                                          status(prefix+key,value)
+                                      elif key in ("IMAGE_DEVICE_FIXTURE_HOST","IMAGE_DEVICE_FIXTURE_READBACK","IMAGE_DEVICE_LCM_FIXTURE_HOST","IMAGE_DEVICE_LCM_FIXTURE_READBACK") and value=="PASS":
+                                          status(prefix+"OBSERVED_"+key,value)
+                                  sys.path.insert(0,str(mobile/"qualification"))
+                                  from image_qualification import run_observed
+                                  outcome=run_observed(args,observe,timeout,cwd=cwd,env=env)
+                                  report=outcome.stdout
+                              else:
+                                  outcome=run(args,cwd,timeout=timeout)
+                                  report=outcome.stdout.decode("utf-8",errors="replace")
                           except subprocess.TimeoutExpired:
                               status(name,"TIMEOUT");return False
-                          report=outcome.stdout.decode("utf-8",errors="replace")
                           if name=="ORIGINAL_AGENT_ROUTE":
                               expected={"CONNECT","MODEL_CATALOG","CHAT_ADMISSION","CHAT_HISTORY","CHAT_SEARCH","CHAT_GROUPS","CHAT_LIFECYCLE","WORK_AREAS","TASK_ADMISSION","REFERENCE_PERSISTED","RESTART_RECOVERY","HUMAN_REVIEW"}
                               observed=[]
@@ -333,11 +357,7 @@ jobs:
                               passed=outcome.returncode==0 and sorted(observed)==sorted(required)
                               status(name,"PASS" if passed else "FAIL")
                               return passed
-                          if name in ("NATIVE_REAL_IMAGE_ROUTE","NATIVE_FAST_IMAGE_ROUTE"):
-                              fast=name=="NATIVE_FAST_IMAGE_ROUTE"
-                              prefix="FAST_" if fast else ""
-                              expected=("OFFLINE_START","ENGINE_PRESENT","MODEL_PICKER_CANCEL","MODEL_COPY_CANCEL","MODEL_IMPORTED","MODEL_VERIFIED","UI_GENERATED","UI_PREVIEW","STALE_REJECTED","UI_EXPORT_CANCEL","UI_EXPORT","UI_EXPORT_EXPECTED","UI_CANCEL_REPLACEMENT","UI_CLEAR","MODEL_REMOVED","OFFLINE_END")
-                              if fast:expected=expected[:6]+("LCM_IMPORTED","LCM_VERIFIED","UI_FAST_SELECTED")+expected[6:-2]+("LCM_REMOVED",)+expected[-2:]
+                          if image_route:
                               profile="FAST_LCM" if fast else "STANDARD"
                               profile_ok=re.findall(r"(?m)^IMAGE_DEVICE_PROFILE=([A-Z_]+)\s*$",report)==[profile]
                               if profile_ok:status(prefix+"IMAGE_DEVICE_PROFILE",profile)
@@ -542,9 +562,9 @@ jobs:
                           status("NATIVE_MULTIMODAL_RECEIPT_POLICY","FAIL");status("APK","NOT_RUN");return 1
                       status("NATIVE_MULTIMODAL_RECEIPT_POLICY","34/34")
                       image_policy=run(["python3","mobile/qualification/test_image_qualification.py"],source,timeout=60)
-                      if image_policy.returncode or not re.search(rb"(?m)^Ran 11 tests? in [0-9.]+s\s*$",image_policy.stdout) or not re.search(rb"(?m)^OK\s*$",image_policy.stdout):
+                      if image_policy.returncode or not re.search(rb"(?m)^Ran 13 tests? in [0-9.]+s\s*$",image_policy.stdout) or not re.search(rb"(?m)^OK\s*$",image_policy.stdout):
                           status("IMAGE_DEVICE_RECEIPT_POLICY","FAIL");status("APK","NOT_RUN");return 1
-                      status("IMAGE_DEVICE_RECEIPT_POLICY","11/11")
+                      status("IMAGE_DEVICE_RECEIPT_POLICY","13/13")
                       policy=root/"context-policy"
                       if not stage("LLAMA_CONTEXT_POLICY_BUILD",["g++","-std=c++17","-Wall","-Wextra","-Werror","-O2","qualification/llama-context-budget.test.cpp","-o",str(policy)],mobile,120):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
