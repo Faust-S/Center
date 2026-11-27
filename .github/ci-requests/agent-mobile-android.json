@@ -1,0 +1,11 @@
+{
+  "candidate": "c5b03e1462f131b3c5f508f0db63f1108b3dffdc",
+  "tree": "3fc5a57fda76d8769b959768d860c233b7d54578",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M20_11_SOURCE_AND_T3_KNOWLEDGE_UI_ROUTES",
+  "reason": "QUALIFY_BOTH_CONVERSATION_ROUTES_AFTER_PORT_WIRING",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "ec9070802dc630a4d3c812e732da14a761765979"
+}
