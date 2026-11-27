@@ -17,7 +17,7 @@ const call=(op,extra={})=>{
 };
 let phase='INITIAL';
 try{
-  assert.equal(execFileSync('git',['-C',agent,'rev-parse','HEAD'],{encoding:'utf8'}).trim(),'68128b4c9a2c7140ec3503ff0f775e5bcb50743e');
+  assert.equal(execFileSync('git',['-C',agent,'rev-parse','HEAD'],{encoding:'utf8'}).trim(),'a45e206291068147d4460acfa1ae91615accfcdf');
   const {createProjectProcessSourceOwnerQualificationHarness}=await source('src/modules/base/owners/project-process-source-owner.mjs');
   const {createWorkspaceMethodThroughSourceOwner}=await source('src/modules/base/owners/project-process-method-materialization.mjs');
   const {previewWorkspaceMethodStageHandoff,buildWorkspaceMethodPersonalTaskDraft}=await source('src/modules/base/owners/project-process-method-stage-input.mjs');

@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 68128b4c9a2c7140ec3503ff0f775e5bcb50743e
+          ref: a45e206291068147d4460acfa1ae91615accfcdf
           path: private-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
@@ -49,9 +49,14 @@ jobs:
           node-version: '22.16.0'
       - name: Private dependencies
         run: |
-          test "$(git -C private-agent rev-parse HEAD)" = "68128b4c9a2c7140ec3503ff0f775e5bcb50743e"
+          test "$(git -C private-agent rev-parse HEAD)" = "a45e206291068147d4460acfa1ae91615accfcdf"
           test "$(git -C knowledge rev-parse HEAD)" = "8ff43e3db8537874368c128a86f4b521d9da2951"
           python -m pip install -r private-agent/requirements-ci.txt > "$RUNNER_TEMP/composer-deps-private.log" 2>&1 || { echo ORIGINAL_AGENT_DEPENDENCIES_FAIL; exit 1; }
+      - name: Verify original Core exact-byte regression
+        run: |
+          cd private-agent
+          python -B -m pytest -q -p no:cacheprovider tests/test_k01_accepted_result_real_cycle.py tests/test_workspace_composer_integration.py > "$RUNNER_TEMP/original-core-regression-private.log" 2>&1 || { echo ORIGINAL_AGENT_CORE_REGRESSION_FAIL; exit 1; }
+          echo ORIGINAL_AGENT_CORE_REGRESSION_PASS
       - name: Exercise original SessionRuntime with synthetic Workflow materials
         run: |
           node qualification/workflow-original-composer.mjs "$PWD/private-agent" "$PWD/knowledge" > "$RUNNER_TEMP/composer-qualification-private.log" 2>&1 || { grep -E '^WORKFLOW_QUALIFICATION_FAILURE_(PHASE|CODE)=[A-Z0-9_]+$' "$RUNNER_TEMP/composer-qualification-private.log" || true; echo ORIGINAL_AGENT_COMPOSER_WORKFLOW_SOURCE_FAIL; exit 1; }
@@ -63,4 +68,4 @@ jobs:
         if: always()
         run: |
           rm -rf private-agent
-          rm -f "$RUNNER_TEMP/composer-deps-private.log" "$RUNNER_TEMP/composer-qualification-private.log"
+          rm -f "$RUNNER_TEMP/original-core-regression-private.log" "$RUNNER_TEMP/composer-deps-private.log" "$RUNNER_TEMP/composer-qualification-private.log"
