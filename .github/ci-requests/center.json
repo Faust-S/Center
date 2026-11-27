@@ -1,0 +1,13 @@
+{
+  "workflow": "center",
+  "prepared_sha": "f46d8bc3b86198cb6d19a6b7b7a505b97971dc36",
+  "profile": "atlas-native",
+  "pins": {
+    "atlas": "ec2a48aecb2efe1ca3a97739977be6992d4b8a60",
+    "brtest": "7cfb17870042cac824644140b7f0a587e244a20e",
+    "setup_core": "0ef7544e2a6fd5fab5994f7f25abbb960063908c",
+    "t3": "962cff41fdbfc864c4c15010b9ffa7e9bc43c29c",
+    "one_core": "4e7c8a9370f302a711e52aa80adaa314f2d52f02"
+  },
+  "reason": "Correct Atlas TypeScript provenance, qualify exact saved receipt correlation and local signed carrier handoff via existing native GUI plus ordinary cold file readback. No full matrix."
+}
