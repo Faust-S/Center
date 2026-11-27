@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: 'daab2e3a67c19b910ea9d68e79efb629780fca3d'
-      PRIVATE_TREE: '1ae2322816f795a7b66d135088dd5e8e753e3589'
+      PRIVATE_PIN: '6d61dc006d5ec3e4e0be850090dae20c0c7a2688'
+      PRIVATE_TREE: 'af1fb62356d8ce7edf84960bc5ff06b1270c394f'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -107,9 +107,9 @@ jobs:
                           status("QA_NATIVE_TTS_PREFLIGHT","FAIL");return 1
                       status("QA_NATIVE_TTS_PREFLIGHT","PASS")
                       audio_diagnostics=run(["python3","mobile/qualification/test_diagnostics.py"],source,timeout=60)
-                      if audio_diagnostics.returncode or not re.search(rb"(?m)^Ran 21 tests? in [0-9.]+s\s*$",audio_diagnostics.stdout) or not re.search(rb"(?m)^OK\s*$",audio_diagnostics.stdout):
+                      if audio_diagnostics.returncode or not re.search(rb"(?m)^Ran 22 tests? in [0-9.]+s\s*$",audio_diagnostics.stdout) or not re.search(rb"(?m)^OK\s*$",audio_diagnostics.stdout):
                           status("EXCHANGE_DIAGNOSTICS","FAIL");return 1
-                      status("EXCHANGE_DIAGNOSTICS","PASS");status("AUDIO_DIAGNOSTICS_POLICY","21/21")
+                      status("EXCHANGE_DIAGNOSTICS","PASS");status("AUDIO_DIAGNOSTICS_POLICY","22/22")
                       native=json.loads((mobile/"native/llama-source.json").read_text())
                       if native.get("revision")!="5220a2d4040aa75f52678ebf52d77a0fba85de9f":
                           status("LLAMA_PIN","FAIL");return 1
@@ -206,6 +206,7 @@ jobs:
                                   if step in expected:status("NATIVE_REAL_TTS_OBSERVED",step)
                               tts_codes={
                                   "NATIVE_REAL_TTS_LAST":{"CALLBACK_ABI","CONFIG","ENGINE_CREATE","MODEL_PROPERTIES","GENERATE","GENERATED","AUDIO_VALIDATE","SAVE","WAV_VERIFY","VERIFIED"},
+                                  "NATIVE_REAL_TTS_UI_LAST":{"ENTER_MODELS","ENTER_TTS","FIRST_GENERATE","STALE_AUDIO","FIRST_PLAY","EXPORT_CANCEL","EXPORT_SAVE","FIRST_CLEAR","RETURN_MODELS","ENTER_SPEECH","TRANSFER_TEXT","EDIT_RANGE","SEQUENCE_GENERATE","SEQUENCE_PLAY","SEQUENCE_CLEAR"},
                                   "NATIVE_REAL_TTS_ERROR":{"MODEL_INVALID","AUDIO_INVALID","TEXT_INVALID","REQUEST_INVALID","CALLBACK_ABI","CANCELLED","WAV_INVALID","MEMORY_REQUIRED","RESIDENT_CHANGED"},
                                   "NATIVE_REAL_TTS_EXCEPTION":{"NATIVE_LINK","CLASS_LOADING","UI_AUTOMATION","ACTIVITY_STATE","JSON","NULL_REFERENCE","ILLEGAL_ARGUMENT","ILLEGAL_STATE","SECURITY","IO","ASSERTION","RUNNER","JNI_SIGNATURE","NATIVE_CRASH","ORT_OPERATOR","MEMORY","UNCLASSIFIED"},
                               }
@@ -367,7 +368,7 @@ jobs:
                           if name in ("SOURCE","ASSEMBLY") and outcome.returncode==0:
                               # Exact accumulated source suite; no skip or todo.
                               node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
-                              if any(node_counts[label]!=[value] for label,value in {"tests":"767","pass":"767","fail":"0","skipped":"0","todo":"0"}.items()):
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"768","pass":"768","fail":"0","skipped":"0","todo":"0"}.items()):
                                   status(name,"NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
