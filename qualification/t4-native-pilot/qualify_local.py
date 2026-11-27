@@ -24,8 +24,8 @@ T2 = ('c28e01876f3230307b7f20449f7ef54374367c93',
 T3 = ('9800854ec3aba3b55f2d42b3219c92574e4dbcc4',
       '2bcae0958f90ef03894eb5635798203aa47da6a0',
       ('access-control', 'interop', 'reconciliation', 'tests', 'package.json'))
-CORE = ('4335694c895dae93f8c7ea57e20e452019834586',
-        '675e5610561cce1ecab9f340908e563f9e8d9b3e', 'packages')
+CORE = ('9fe841ff2a323ce397aefe640c844d9aa8885f7a',
+        'ee1bbf93f78ba563feb8794008696ba601506574', 'packages')
 T2_PARENT = '4e4ad5c5e566a74f24243b9d0744a6d64652a199'
 PACKAGING = 't2/current/final-successor/kernel-successors/k036-canonical-event-merge-20261125/'
 PACKAGING_PATHS = {PACKAGING + name for name in (
@@ -41,7 +41,9 @@ OWNER_TESTS = ('tests/original-native-network-vault.test.mjs',
 
 PEER_TESTS = ('tests/network/original-native-peer-startup.test.mjs',
               'tests/network/original-peer-history-tls.test.mjs',
-              'tests/original-native-network-product-activation.test.mjs')
+              'tests/original-native-network-product-activation.test.mjs',
+              'tests/original-installed-fixed-profile.test.mjs',
+              'tests/original-native-host-network-owner.test.mjs')
 
 
 class QualificationError(Exception):
@@ -128,7 +130,7 @@ def peer_tests(root, env):
     counts = {key: int(value) for key, value in re.findall(
         r'^# (tests|pass|fail|cancelled|skipped) (\d+)\s*$', result.stdout, re.MULTILINE)}
     emit('K036_LOCAL_PEER_COUNTS', counts)
-    need(result.returncode == 0 and counts.get('tests', 0) >= 42 and
+    need(result.returncode == 0 and counts.get('tests', 0) >= 48 and
          counts.get('pass') == counts['tests'] and
          all(counts.get(k) == 0 for k in ('fail', 'cancelled', 'skipped')),
          'PEER_TLS_TESTS_FAILED')

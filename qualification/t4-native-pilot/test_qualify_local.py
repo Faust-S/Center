@@ -113,7 +113,7 @@ class LocalQualificationTests(unittest.TestCase):
                 q.owner_tests(self.repo,{})
 
     def test_peer_counts_require_exact_test_paths_and_no_skips(self):
-        valid = '# tests 42\n# pass 42\n# fail 0\n# cancelled 0\n# skipped 0\n'
+        valid = '# tests 48\n# pass 48\n# fail 0\n# cancelled 0\n# skipped 0\n'
         with patch.object(q, 'run_checked', return_value=subprocess.CompletedProcess([],0,valid,'private')) as run:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
@@ -123,7 +123,7 @@ class LocalQualificationTests(unittest.TestCase):
             self.assertEqual(run.call_args.args[0][-len(q.PEER_TESTS):],list(q.PEER_TESTS))
             self.assertIn('K036_LOCAL_NATIVE_ACTIVATION=PASS',out.getvalue())
             self.assertEqual(run.call_args.args[1],self.repo/'packages/t4-network')
-        for report in (valid.replace('# skipped 0','# skipped 1'),valid.replace('42','41')):
+        for report in (valid.replace('# skipped 0','# skipped 1'),valid.replace('48','47')):
             with patch.object(q,'run_checked',return_value=subprocess.CompletedProcess([],0,report,'')):
                 with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(q.QualificationError,'PEER_TLS_TESTS_FAILED'):
                     q.peer_tests(self.repo,{})
