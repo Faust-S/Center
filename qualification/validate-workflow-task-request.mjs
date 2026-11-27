@@ -23,6 +23,6 @@ assert.deepEqual(Object.keys(request).sort(),['pins','prepared','profile','reaso
 assert.equal(request.workflow,workflow);
 assert.equal(request.prepared,before);
 assert.equal(request.profile,'original-independent-workflow-task-and-interop');
-assert.deepEqual(request.pins,{T3:'0cdb781aaa72bc476e5c1c9ea47ecc5f7b1215c0',knowledge:'950387b440fd738384b8c4d86c593d229a5e77d3',Agent:'a45e206291068147d4460acfa1ae91615accfcdf'});
+assert.deepEqual(request.pins,{T3:'7e2fd0d58fd4e11102355880d9ed452add6f5e99',knowledge:'c711bd254605fca11e01f79168d4a7c99b6efe70',Agent:'a45e206291068147d4460acfa1ae91615accfcdf'});
 assert.equal(request.reason,'Qualify original independent employee Workflow Task source; local GitHub DNS unavailable');
 console.log('EXACT_ONE_SHOT_WORKFLOW_REQUEST_PASS');
