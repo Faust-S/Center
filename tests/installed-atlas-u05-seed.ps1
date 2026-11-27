@@ -94,7 +94,34 @@ function Start-Atlas {
    if($proc.MainWindowHandle -ne [IntPtr]::Zero){break}
  }
  if($proc.MainWindowHandle -eq [IntPtr]::Zero){throw 'U05_ATLAS_WINDOW_MISSING'}
- Wait-Title 'Портфель'
+ # WebView2 can expose the native window before React and the original
+ # store are ready. Observe the actual rendered controls as well as title.
+ $lastReadyState='NO_RENDERED_WORKSPACE'
+ for($i=0;$i -lt 160;$i++){
+   $proc.Refresh()
+   if($proc.HasExited){throw 'U05_ATLAS_PROCESS_EXITED_EARLY'}
+   if($proc.MainWindowTitle.Contains('Портфель')){return}
+   try{
+     $elements=@((Root).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+       [System.Windows.Automation.Condition]::TrueCondition))
+     $names=@(foreach($element in $elements){
+       try{if(!$element.Current.IsOffscreen){[string]$element.Current.Name}}catch{}
+     })
+     if(($names -contains 'Открыть портфель проектов' -or $names -contains 'Портфель') -and
+        ($names -contains 'Создать проект' -or $names -contains 'Файл')){
+       Write-Host 'U05_ATLAS_WORKSPACE_RENDERED_WITHOUT_TITLE_UPDATE'
+       return
+     }
+     if($names -contains 'Восстановить сохранённую версию'){throw 'U05_ATLAS_STARTUP_RECOVERY_REQUIRED'}
+     if($names -contains 'Открытие нативного хранилища…'){$lastReadyState='NATIVE_STORE_OPEN_PENDING'}
+     elseif($elements.Count -gt 2){$lastReadyState='RENDERED_ENTRY_NOT_READY'}
+   }catch{
+     if($_.Exception.Message -eq 'U05_ATLAS_STARTUP_RECOVERY_REQUIRED'){throw}
+   }
+   Start-Sleep -Milliseconds 250
+ }
+ Write-Host "U05_ATLAS_STARTUP_STATE $lastReadyState"
+ throw "U05_ATLAS_WORKSPACE_NOT_READY $lastReadyState"
 }
 function Close-Atlas {
  if($null -eq $proc){return}
@@ -305,6 +332,9 @@ function Receive-SignedResult{
  $archive=$env:ATLAS_U05_SIGNED_RESULT_FILE
  $sha=$env:ATLAS_U05_SIGNED_RESULT_SHA256
  $issuedRevision=$env:ATLAS_U05_SIGNED_SOURCE_REVISION
+ $expectedKind=$env:ATLAS_U05_SIGNED_SOURCE_KIND
+ if(!$expectedKind){$expectedKind='ADMIN_APPLIED_RESULT'}
+ if($expectedKind -notin @('ADMIN_APPLIED_RESULT','ADMIN_WORKSPACE_RESULT')){throw 'ATLAS_U05_SIGNED_SOURCE_KIND_INVALID'}
  if($issuedRevision -notmatch '^(0|[1-9][0-9]*)$'){throw 'ATLAS_U05_SIGNED_ISSUED_REVISION_REQUIRED'}
  if(!(Test-Path -LiteralPath $archive -PathType Leaf) -or $sha -notmatch '^[a-f0-9]{64}$' -or
     (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sha){
@@ -332,10 +362,17 @@ function Receive-SignedResult{
     $entry.project.id -cne $project[0].id -or $entry.row.projectId -cne $project[0].id -or
     $entry.row.workId -cne $work[0].id -or
     [string]$entry.row.sourceRevision -cne $issuedRevision -or
-    $entry.row.sourceKind -cne 'ADMIN_APPLIED_RESULT' -or
+    $entry.row.sourceKind -cne $expectedKind -or
     $entry.row.signedFileMode -ne $true -or $entry.row.originalKernelEventVerified -ne $false -or
     $entry.row.selectedAcceptedSummary -cne $env:ATLAS_U05_SIGNED_RESULT_SUMMARY){
    throw 'ATLAS_U05_SIGNED_NATIVE_DECISION_MISMATCH'
+ }
+ if($expectedKind -eq 'ADMIN_WORKSPACE_RESULT' -and
+    ($entry.row.sourceObjectRef.schema_id -cne 'iwxa.t3.company-work-record' -or
+     $entry.row.taskObjectId -notmatch '^company:work:[a-f0-9]{64}$' -or
+     !$entry.row.taskEventId -or !$entry.row.resultEventId -or
+     $null -ne $entry.row.acceptanceId -or $null -ne $entry.row.applicationEffectKey)){
+   throw 'ATLAS_U05_SIGNED_WORKSPACE_PROVENANCE_MISMATCH'
  }
  # A received Result is evidence, not an implicit edit of the original plan.
  if(($entry.project.items|ConvertTo-Json -Depth 100 -Compress) -cne
