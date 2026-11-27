@@ -11,8 +11,8 @@ function fixture(){
   const row=(commit,tree)=>({commit,tree,files:1,bytes:1,private_source_exported:false,working_tree_used:false});
   const evidence={schema:'IWXA_K036_LOCAL_EXACT_INPUTS/1',sourceParent:parent,packagingOnly:true,
     t2:row('c28e01876f3230307b7f20449f7ef54374367c93','3d774222c9aaa1521ded9eb23d2f5fcdb55b8cbd'),
-    t3:row('f3610f62e686e80c09bfd690898e107b23a913f3','4ed2cb2bd3bfecdc4adbd8592b14a1f027377ed7'),
-    core:row('529f035663b1b5582253180c384f881bab63095f','c13a662c867db0ca09594c2a88cffba0dc03b276')};
+    t3:row('5b9fbb204939b9c6f872e26b1f580b7de8523174','24adc3356784313ffa218630874de172e5b93f85'),
+    core:row('ff3538cce82243b6a0c082167e1a75abd5096a4d','41ec9ccdebacb8cc0ec9e4d24f2e52777c518e14')};
   const descriptor=join(top,'inputs.json');
   const args={t2:join(top,'t2'),core:join(top,'core'),temp:join(top,'iwxa-k036-canonical-event-merge'),descriptor,env:{},platform:'linux',version:'v22.16.0'};
   const write=()=>writeFileSync(descriptor,JSON.stringify(evidence),{mode:0o600});write();
