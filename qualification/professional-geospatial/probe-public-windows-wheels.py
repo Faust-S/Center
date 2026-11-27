@@ -19,9 +19,9 @@ for name,(url,digest) in sources.items():
     assert sha256(data).hexdigest()==digest
     (root/name).write_bytes(data)
 
-def execute(label,args,env=None,cwd=None,timeout=120):
+def execute(label,args,env=None,cwd=None,timeout=120,flags=0):
     try:
-        p=subprocess.run(list(map(str,args)),env=env,cwd=cwd,capture_output=True,text=True,errors='replace',timeout=timeout)
+        p=subprocess.run(list(map(str,args)),env=env,cwd=cwd,capture_output=True,text=True,errors='replace',timeout=timeout,creationflags=flags)
     except (OSError,subprocess.TimeoutExpired) as e:
         print(label,'LAUNCH_EXCEPTION',type(e).__name__,str(e)[:500],flush=True)
         return None
@@ -66,3 +66,25 @@ for name,wheel in wheels.items():
             if not dst.exists():shutil.copy2(p,dst)
         execute('VALHALLA_ADJACENT_DLLS',[svc,'--version'],env=env,cwd=home)
         execute('VALHALLA_BUILDER',[bins/'valhalla_build_tiles.exe','--version'],env=env,cwd=home)
+
+# Reproduce the source test's redirected profile + pytest + staging path.
+    nested=root/'iwxa-pytest-profile-abcdefgh'/'temp'/'pytest-of-runneradmin'/'pytest-0'/'test_native_windows_managed_in1'/'software'/'professional'/'.professional-abcdefgh'/'python-3.13.15-embed'
+    if nested.exists():shutil.rmtree(nested)
+    nested.parent.mkdir(parents=True,exist_ok=True)
+    shutil.copytree(home,nested)
+    maxlen=max(len(str(p)) for p in nested.rglob('*') if p.is_file())
+    print(name,'NESTED_ROOT_LENGTH',len(str(nested)),'MAX_FILE_LENGTH',maxlen,flush=True)
+    if name=='ortools':
+        n=nested/'python.exe'
+        execute('ORTOOLS_NESTED_INHERITED',[n,'-I','-c',check],flags=subprocess.CREATE_NO_WINDOW)
+        execute('ORTOOLS_NESTED_ISOLATED',[n,'-I','-c',check],env=env,cwd=nested,flags=subprocess.CREATE_NO_WINDOW)
+    else:
+        n=nested/'Lib/site-packages/valhalla/bin/valhalla_service.exe'
+        execute('VALHALLA_NESTED_INHERITED',[n,'--version'],flags=subprocess.CREATE_NO_WINDOW)
+        execute('VALHALLA_NESTED_ISOLATED',[n,'--version'],env=env,cwd=n.parent,flags=subprocess.CREATE_NO_WINDOW)
+    short=nested.parent.parent/('p-'+name)
+    nested.rename(short)
+    if name=='ortools':
+        execute('ORTOOLS_SHORTER_RELOCATED',[short/'python.exe','-I','-c',check],flags=subprocess.CREATE_NO_WINDOW)
+    else:
+        execute('VALHALLA_SHORTER_RELOCATED',[short/'Lib/site-packages/valhalla/bin/valhalla_service.exe','--version'],flags=subprocess.CREATE_NO_WINDOW)

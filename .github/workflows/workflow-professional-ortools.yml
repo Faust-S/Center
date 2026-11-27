@@ -1,5 +1,5 @@
 # Exact one-shot corrective qualification. Public vendor probe is separate from protected source.
-name: Public original Windows upstream wheel diagnosis
+name: Original Windows vendor long path qualification
 on:
   push:
     branches: ['ci/once/workflow-professional-ortools/**']
@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: original-professional-public-upstream-probe
+  group: original-professional-path-probe
   cancel-in-progress: false
 jobs:
   public-upstream:
