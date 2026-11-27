@@ -1,0 +1,12 @@
+{
+  "workflow": "agent-mobile-public-image-opencl",
+  "prepared_sha": "a3dd8eece0bb47a8119aea1e3c3dcd1bb9adcf8c",
+  "engine": "e637c7bccd35aa8841d67fb942ba72918176826c",
+  "engine_tree": "1e65ac8902d729a62e0720056090d1a498bbec04",
+  "ggml": "eeda9ec48fc84a3df0bb9dcc19ae9053075a2539",
+  "headers": "6fe718c31a45fe25151362a72ef041c3a1047cbd",
+  "headers_tree": "185dae17ab1e5bf078e50a42a2f851ae868465d0",
+  "loader": "b7bd2803acc779c03d96588e9ca9e9568a18698a",
+  "loader_tree": "992f5bd721d4460224aa2a3d3885ddc1ac72b3c9",
+  "scope": "ANDROID_ARM64_OPENCL_CROSS_BUILD_ONLY"
+}
