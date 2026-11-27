@@ -143,6 +143,7 @@ function Await-SignedText([string]$fragment){
  $stage=switch -Wildcard ($fragment){
    'Оригинальный T3*' {'PREVIEW'}
    'Этот Result*' {'COLD_PREVIEW'}
+   'План изменился с момента*' {'HISTORICAL_EDITION'}
    'Выбранный подписанный*' {'READBACK'}
    'Полученные результаты работ*' {'PLAN_FACT'}
    'U05OwnerAlpha · Result*' {'EXACT_WORK'}
@@ -248,11 +249,16 @@ function Read-SignedDecision($saved,[string]$sha){
 function Receive-SignedResult{
  $archive=$env:ATLAS_U05_SIGNED_RESULT_FILE
  $sha=$env:ATLAS_U05_SIGNED_RESULT_SHA256
+ $issuedRevision=$env:ATLAS_U05_SIGNED_SOURCE_REVISION
+ if($issuedRevision -notmatch '^(0|[1-9][0-9]*)$'){throw 'ATLAS_U05_SIGNED_ISSUED_REVISION_REQUIRED'}
  if(!(Test-Path -LiteralPath $archive -PathType Leaf) -or $sha -notmatch '^[a-f0-9]{64}$' -or
     (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sha){
    throw 'ATLAS_U05_SIGNED_FIXTURE_MISMATCH'
  }
  $before=Owner-Snapshot
+ if([long]$before.head.revision -le [long]$issuedRevision){
+   throw 'ATLAS_U05_SIGNED_HISTORICAL_EDITION_NOT_ADVANCED'
+ }
  $project=@($before.projects|Where-Object {$_.name -ceq $projectName})
  if($project.Count -ne 1){throw 'ATLAS_U05_SIGNED_PROJECT_REQUIRED'}
  $work=@($project[0].items|Where-Object {$_.title -ceq $firstWork})
@@ -261,6 +267,7 @@ function Receive-SignedResult{
  }
  Start-Atlas
  Open-SignedFile $archive
+ Await-SignedText 'План изменился с момента выдачи поручения.'
  Click-UI 'Подтвердить получение'
  Await-SignedText 'Выбранный подписанный Result сохранён в Atlas'
  $saved=Owner-Snapshot
@@ -269,7 +276,7 @@ function Receive-SignedResult{
     [long]$saved.head.revision -ne ([long]$before.head.revision+1) -or
     $entry.project.id -cne $project[0].id -or $entry.row.projectId -cne $project[0].id -or
     $entry.row.workId -cne $work[0].id -or
-    [string]$entry.row.sourceRevision -cne [string]$before.head.revision -or
+    [string]$entry.row.sourceRevision -cne $issuedRevision -or
     $entry.row.sourceKind -cne 'ADMIN_APPLIED_RESULT' -or
     $entry.row.signedFileMode -ne $true -or $entry.row.originalKernelEventVerified -ne $false -or
     $entry.row.selectedAcceptedSummary -cne $env:ATLAS_U05_SIGNED_RESULT_SUMMARY){
@@ -281,6 +288,13 @@ function Receive-SignedResult{
     ($entry.project.dependencies|ConvertTo-Json -Depth 100 -Compress) -cne
     ($project[0].dependencies|ConvertTo-Json -Depth 100 -Compress)){
    throw 'ATLAS_U05_SIGNED_UNREQUESTED_PLAN_MUTATION'
+ }
+ $unrelatedBefore=@($before.projects|Where-Object {$_.id -cne $project[0].id})
+ $unrelatedAfter=@($saved.projects|Where-Object {$_.id -cne $project[0].id})
+ if($unrelatedBefore.Count -lt 1 -or $unrelatedBefore.Count -ne $unrelatedAfter.Count -or
+    (ConvertTo-Json -InputObject $unrelatedBefore -Depth 100 -Compress) -cne
+    (ConvertTo-Json -InputObject $unrelatedAfter -Depth 100 -Compress)){
+   throw 'ATLAS_U05_SIGNED_UNRELATED_PROJECT_CHANGED'
  }
  # Receipt navigation must expose the exact existing Plan / Fact card.
  # The preview dialog was already closed by the confirmed native readback.
@@ -304,6 +318,7 @@ function Receive-SignedResult{
     $observed.decision.id -cne $decisionId -or $observed.decision.text -cne $entry.decision.text){
    throw 'ATLAS_U05_SIGNED_COLD_READBACK_CHANGED'
  }
+ Write-Host 'ATLAS_INSTALLED_SIGNED_HISTORICAL_RESULT_PASS'
  Write-Host 'ATLAS_INSTALLED_SIGNED_RESULT_GUI_PASS'
 }
 try{

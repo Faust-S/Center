@@ -20,10 +20,10 @@ concurrency:
   group: iwxa-center-qualification
   cancel-in-progress: false
 env:
-  CENTER_ATLAS_PIN: '681bdd1c0baa0c2216f0325254b2a1291c695e5b'
+  CENTER_ATLAS_PIN: '91a73f15b0f13f0ff7cb2e7f3c9134b338e94601'
   CENTER_BRTEST_PIN: '7cfb17870042cac824644140b7f0a587e244a20e'
   CENTER_SETUP_PIN: '0ef7544e2a6fd5fab5994f7f25abbb960063908c'
-  CENTER_T3_PIN: '7a4e32532ec6ef90fc41cf14890b69981bee7a42'
+  CENTER_T3_PIN: 'bdd7b8d37a4dc8ecfc651b03d5745f741e4f2ce6'
 jobs:
   request:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false) }}
@@ -581,10 +581,12 @@ jobs:
           $ErrorActionPreference='Stop'
           & node --test vendor/atlas/tests/atlas09-signed-file-recipient.test.mjs vendor/atlas/tests/atlas09-t3-confirmed-readback.test.mjs vendor/atlas/tests/atlas-organization-plan-projection.test.mjs
           if($LASTEXITCODE -ne 0){throw 'ATLAS_PUBLIC_RESULT_REGRESSION_FAILED'}
-          & node --test tests/atlas-native.test.mjs tests/atlas-result-context.test.mjs
-          if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_RESULT_REGRESSION_FAILED'}
+          # Center's original archive writer imports the existing fflate
+          # dependency. Install it BEFORE exercising the export regression.
           & npm.cmd install --no-audit --no-fund
           if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_NPM_FAILED'}
+          & node --test tests/atlas-native.test.mjs tests/atlas-result-context.test.mjs
+          if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_RESULT_REGRESSION_FAILED'}
           & npm.cmd run build
           if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_INTERFACE_BUILD_FAILED'}
           Write-Host 'ATLAS_CENTER_PUBLIC_RESULT_AND_BUILD_PASS'
@@ -649,9 +651,9 @@ jobs:
         shell: pwsh
         timeout-minutes: 8
         run: ./tests/installed-atlas-u05-seed.ps1
-      - name: Original installed Consumer signature, Atlas UI storage, cold readback and revocation
+      - name: Original installed Consumer signature, historical work receipt, cold readback and revocation
         shell: pwsh
-        timeout-minutes: 8
+        timeout-minutes: 12
         run: |
           $ErrorActionPreference='Stop'
           $log=Join-Path $env:RUNNER_TEMP 'atlas-private-recipient.log'
@@ -664,11 +666,13 @@ jobs:
           $raw=Get-Content -LiteralPath $log -Raw
           if($exit -ne 0){
             # Only public diagnostic codes, never private test output or source.
-            $codes=@([regex]::Matches($raw,'\b(?:ATLAS_U05_SIGNED_|ATLAS_INSTALLED_SIGNED_|T3_ATLAS_|U05_INSTALLED_ATLAS_)[A-Z0-9_]+\b')|ForEach-Object {$_.Value}|Select-Object -Unique)
+            $codes=@([regex]::Matches($raw,'\b(?:ATLAS_U05_SIGNED_|ATLAS_INSTALLED_SIGNED_|T3_ATLAS_|U05_INSTALLED_ATLAS_|U05_OWNER_|U05_ATLAS_|ATLAS_HISTORY_)[A-Z0-9_]+\b')|ForEach-Object {$_.Value}|Select-Object -Unique)
             Write-Host ('ATLAS_NATIVE_RECIPIENT_CODES='+($codes -join ','))
             throw 'ATLAS_ORIGINAL_NATIVE_RECIPIENT_FAILED'
           }
-          if(!$raw.Contains('ATLAS_INSTALLED_SIGNED_RESULT_GUI_PASS')){throw 'ATLAS_INSTALLED_SIGNED_GUI_NOT_OBSERVED'}
+          if(!$raw.Contains('ATLAS_INSTALLED_SIGNED_HISTORICAL_WORK_READY') -or
+             !$raw.Contains('ATLAS_INSTALLED_SIGNED_RESULT_GUI_PASS')){throw 'ATLAS_INSTALLED_SIGNED_GUI_NOT_OBSERVED'}
+          Write-Host 'ATLAS_INSTALLED_SIGNED_HISTORICAL_WORK_READY'
           Write-Host 'ATLAS_ORIGINAL_NATIVE_SIGNED_RECIPIENT_COLD_READBACK_REVOCATION_PASS'
           Write-Host 'ATLAS_INSTALLED_SIGNED_RESULT_GUI_PASS'
           Write-Host 'ATLAS_SOURCE_RESULT_FIXTURE_ONLY_FULL_INSTALLED_D3_APPLY_NOT_RUN'
