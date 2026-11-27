@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "c9460345ea8b06357f01321b550028ee6f570907",
+  "profile": "managed-windows-native-road-path-budget",
+  "reason": "Qualify original managed Windows Valhalla to installed OR-Tools using compact staging and verified native loader path budget",
+  "pins": {
+    "professionalAgent": "9dc4128749b1102267000264508046fadbd70d8a"
+  }
+}
