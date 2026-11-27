@@ -1,0 +1,11 @@
+{
+  "workflow": "workflow-original-corporate-task",
+  "prepared": "1a9dcc9f2997e1d7a1fe3e2c048d8ed5073e68bd",
+  "profile": "original-independent-workflow-task-and-interop",
+  "pins": {
+    "T3": "7e2fd0d58fd4e11102355880d9ed452add6f5e99",
+    "knowledge": "c711bd254605fca11e01f79168d4a7c99b6efe70",
+    "Agent": "a45e206291068147d4460acfa1ae91615accfcdf"
+  },
+  "reason": "Qualify original independent employee Workflow Task source; local GitHub DNS unavailable"
+}
