@@ -108,6 +108,59 @@ try:
             phase = "TASK_REVIEW"
             engine.review(tid,"approve")
             result = {"taskId":tid}
+        elif op == "submit_native":
+            # Synthetic input-consumption qualification only. Exercise the
+            # ORIGINAL durable Task admission used by corporate Agent, in the
+            # isolated fixture area. No corporate entitlement/Host bypass.
+            from runtime.t3_original_employee_port import OriginalEmployeePort
+            signed = request["signed"]
+            inputs = request["inputs"]
+            keys = ("organizationId", "workspaceId", "executorId",
+                    "taskId", "taskRevisionId", "packageSha256")
+            original = {key: signed[key] for key in keys}
+            submission = OriginalEmployeePort.submission_id(original)
+            if (inputs["state"] != "CORPORATE_TASK_TEXT_INPUTS_PREPARED" or
+                    inputs["task"] != signed["task"] or
+                    inputs["recipientId"] != signed["executorId"] or
+                    any(inputs[key] != original[key] for key in keys if key != "executorId") or
+                    inputs["executionAuthority"] is not False or
+                    inputs["exactInputBindingProven"] is not False):
+                raise ValueError("fixture signed input mismatch")
+            message = (signed["task"].strip()
+                       + "\n\n[IWXA ORIGINAL T3 SIGNED TASK - SOURCE BINDING]\n"
+                       + json.dumps(original, sort_keys=True, ensure_ascii=False))
+            phase = "NATIVE_SUBMISSION"
+            receipt = engine.submit_interactive_task({
+                "submission_id": submission, "message": message,
+                "workspace_id": active, "conversation_key": "area-" + active,
+                "use_memory": False, "use_web": False, "use_obsidian": False,
+                "knowledge_sources": [], "artifact_sources": [],
+                "attachments": inputs["attachments"],
+            }, surface="web")
+            job = engine.automation.interactive_submission(submission)
+            if (receipt.get("accepted") is not True or
+                    job["payload"].get("task_id") != receipt["task_id"] or
+                    job["payload"].get("attachments") != inputs["attachments"] or
+                    job["payload"].get("message") != message or
+                    job["payload"].get("workspace_id") != active):
+                raise ValueError("fixture durable job mismatch")
+            result = {"taskId": receipt["task_id"], "submissionId": submission,
+                      "message": message, "jobId": job["job_id"], "state": job["state"]}
+        elif op == "run_native":
+            phase = "NATIVE_SCHEDULER"
+            submission = request["submissionId"]
+            job = engine.automation.interactive_submission(submission)
+            if job["state"] != "SCHEDULED":
+                raise ValueError("fixture native job state")
+            tid = job["payload"]["task_id"]
+            scheduled = engine.automation_run_due(limit=1)
+            completed = engine.automation.interactive_submission(submission)
+            if (scheduled["claimed"] != 1 or scheduled["results"][0]["status"] != "SUCCEEDED" or
+                    completed["state"] != "COMPLETED" or completed["payload"] != job["payload"]):
+                raise ValueError("fixture native scheduler incomplete")
+            phase = "TASK_REVIEW"
+            engine.review(tid, "approve")
+            result = {"taskId": tid, "state": completed["state"]}
         elif op == "run":
             tid = request["taskId"]
             phase = "ACCEPTED_READ"
@@ -143,6 +196,7 @@ except Exception as exc:
         "composer_attachment_invalid", "composer_attachment_filename_invalid",
         "composer_attachment_duplicate", "composer_attachment_encoding_invalid",
         "composer_attachment_content_out_of_bounds", "fixture composer occupied or changed",
+        "interactive_submission_id_conflict",
         "fixture composer changed after submit", "fixture pending submission",
         "fixture composer was not cleared"
     }

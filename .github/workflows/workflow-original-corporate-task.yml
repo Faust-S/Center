@@ -17,6 +17,9 @@ jobs:
       run:
         shell: bash
     timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,24 +31,40 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: f09df1237a5ef6723ed30186d1abe788b08fe125
+          ref: dd99d7ba89e02f045aa66906397915c37d4fc016
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: b3e1966b6e735e2e9d0253a3e8c2aa23ef4276e6
+          ref: 54c9621ed917adb813fd4ffe3a2822813eeb992a
           path: knowledge
           persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/iwxa-personal-agent
+          ref: a45e206291068147d4460acfa1ae91615accfcdf
+          path: private-agent
+          persist-credentials: false
+          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Original Agent private dependencies
+        run: |
+          test "$(git -C private-agent rev-parse HEAD)" = "a45e206291068147d4460acfa1ae91615accfcdf"
+          python -m pip install -r private-agent/requirements-ci.txt > "$RUNNER_TEMP/workflow-agent-deps-private.log" 2>&1 || { echo ORIGINAL_AGENT_DEPENDENCIES_FAIL; exit 1; }
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
       - name: Original signed Workflow Task profile and roundtrip
         run: |
-          test "$(git -C private-t3 rev-parse HEAD)" = "f09df1237a5ef6723ed30186d1abe788b08fe125"
-          test "$(git -C knowledge rev-parse HEAD)" = "b3e1966b6e735e2e9d0253a3e8c2aa23ef4276e6"
+          test "$(git -C private-t3 rev-parse HEAD)" = "dd99d7ba89e02f045aa66906397915c37d4fc016"
+          test "$(git -C knowledge rev-parse HEAD)" = "54c9621ed917adb813fd4ffe3a2822813eeb992a"
           export IWXA_WORKFLOW_PUBLIC_SOURCE="$(node -p 'require("node:path").resolve("knowledge")')"
+          export IWXA_WORKFLOW_AGENT_SOURCE="$(node -p 'require("node:path").resolve("private-agent")')"
+          export IWXA_WORKFLOW_AGENT_FIXTURE="$(node -p 'require("node:path").resolve("qualification/workflow-original-task.py")')"
           cd private-t3
           rc=0
           node --test tests/workflow-task-reference.test.mjs > "$RUNNER_TEMP/workflow-task-private.log" 2>&1 || rc=$?
@@ -57,7 +76,9 @@ jobs:
           fi
           grep -q "^# tests 11" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_WORKFLOW_TASK_REFERENCE_PASS
+          grep -q "ORIGINAL_AGENT_DURABLE_WORKFLOW_INPUT_FIXTURE_PASS" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_PUBLIC_SOURCE_CORPORATE_SIGNED_ROUNDTRIP_PASS
+          echo ORIGINAL_AGENT_DURABLE_WORKFLOW_INPUT_FIXTURE_PASS
       - name: Original corporate interop accumulation
         if: always()
         run: |
@@ -75,5 +96,5 @@ jobs:
       - name: Remove private working copy and logs
         if: always()
         run: |
-          rm -rf private-t3
-          rm -f "$RUNNER_TEMP/workflow-task-private.log" "$RUNNER_TEMP/interop-regression-private.log"
+          rm -rf private-t3 private-agent
+          rm -f "$RUNNER_TEMP/workflow-task-private.log" "$RUNNER_TEMP/interop-regression-private.log" "$RUNNER_TEMP/workflow-agent-deps-private.log"
