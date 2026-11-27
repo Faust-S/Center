@@ -34,16 +34,26 @@ test('D3 generic signed Task UI does not eagerly import Atlas product modules',(
   const end=source.indexOf('const recoverTaskById=',begin);
   assert.ok(begin>0&&end>begin,'original independent Task UI must still exist');
   const issue=source.slice(begin,end);
-  const sourceSelection=issue.indexOf('const source=assignmentDrafts.find');
-  const linkedOnly=issue.indexOf('if(source){',sourceSelection);
-  const imports=issue.indexOf("import('./atlas-native.mjs')",linkedOnly);
-  const strictRead=issue.indexOf("current!=='SOURCE_REVISION_MATCHES'",imports);
-  const originalSigner=issue.indexOf("execute('d3CreateTask'",strictRead);
-  assert.ok(sourceSelection>=0&&linkedOnly>sourceSelection&&imports>linkedOnly&&
-    strictRead>imports&&originalSigner>strictRead,
-    'only an explicit AtlasRef may load native Atlas and must preserve the currentness gate');
-  assert.match(issue,/import\('\.\/atlas-integration\.mjs'\)/);
-  assert.match(issue,/throw Error\('CEN_D3_ATLAS_SOURCE_REVISION_STALE'\)/);
+  const check=issue.indexOf('await verifyCorporateDraftSources(chosenPreparation,session,invoke)');
+  const originalSigner=issue.indexOf("execute('d3CreateTask'");
+  assert.ok(check>=0&&originalSigner>check,
+    'source verification must precede the original signer');
+  const shared=readFileSync(new URL('../src/corporate-draft-task.mjs',import.meta.url),'utf8');
+  const verifier=shared.slice(shared.indexOf('export async function verifyCorporateDraftSources('));
+  assert.doesNotMatch(shared,/from ['"]\.\/atlas-(?:native|integration)\.mjs['"]/,
+    'common draft preparation must not eagerly import Atlas');
+  const linkedOnly=verifier.indexOf('if(selection.atlasRef){');
+  const imports=verifier.indexOf("import('./atlas-native.mjs')",linkedOnly);
+  const integration=verifier.indexOf("import('./atlas-integration.mjs')",imports);
+  const open=verifier.indexOf('await port.openPublicAtlas(scope.organizationId)',integration);
+  const strictRead=verifier.indexOf("need(current==='SOURCE_REVISION_MATCHES','CEN_D3_ATLAS_SOURCE_REVISION_STALE')",open);
+  const resultOnly=verifier.indexOf('if(selection.sourceResultRef){');
+  assert.ok(linkedOnly>=0&&imports>linkedOnly&&integration>imports&&open>integration&&
+    strictRead>open&&resultOnly>strictRead,
+    'only an explicit AtlasRef may load the native Atlas owner and must preserve the currentness gate');
+  const employee=shared.slice(shared.indexOf('export async function verifyEmployeeDraftSources('),
+    shared.indexOf('export async function verifyCorporateDraftSources('));
+  assert.match(employee,/return verifyCorporateDraftSources\(selection,scope,invoke\)/);
 });
 test('independent employee signed Task accepts original native state, never first-person status',()=>{
  const scope={taskId:'task:work-verified',employeePersonId:'person:employee',
