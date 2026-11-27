@@ -85,8 +85,12 @@ function Wait-Title([string]$fragment){
  }
  throw "U05_ATLAS_VIEW_NOT_SHOWN $fragment actual=$($proc.MainWindowTitle)"
 }
-function Start-Atlas {
- $script:proc=Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
+function Start-Atlas([string[]]$arguments=@()) {
+ if($arguments.Count -gt 0){
+   $script:proc=Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -ArgumentList $arguments -PassThru
+ }else{
+   $script:proc=Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
+ }
  for($i=0;$i -lt 90;$i++){
    Start-Sleep -Milliseconds 300
    $proc.Refresh()
@@ -304,6 +308,9 @@ function Open-SignedFile([string]$archive){
  }
  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
  # Wait for the real signed-file review, not just disappearance of the dialog.
+ Assert-SignedPreview
+}
+function Assert-SignedPreview{
  Await-SignedText 'Оригинальный T3 проверил подпись'
  $preview=Find-UI 'Оригинальный подписанный текст Result' 'Edit'
  $text=$preview.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
@@ -350,8 +357,33 @@ function Receive-SignedResult{
  if($work.Count -ne 1 -or $null -ne (Read-SignedDecision $before $sha)){
    throw 'ATLAS_U05_SIGNED_FRESH_WORK_REQUIRED'
  }
- Start-Atlas
- Open-SignedFile $archive
+ if($expectedKind -eq 'ADMIN_WORKSPACE_RESULT'){
+   # Exercise the actual local Atlas launch and signed preview using the
+   # existing exact original carrier fixture. No Atlas Store injection.
+   # This is NOT a witness that an installed Center performed the export.
+   $centerReg=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.admin-center' -ErrorAction SilentlyContinue
+   $centerRoot=if($null -ne $centerReg -and $centerReg.DataLocation){
+      [string]$centerReg.DataLocation
+   }else{Join-Path $env:LOCALAPPDATA 'ru.iwxa.admin-center'}
+   $handoffRoot=Join-Path $centerRoot 'atlas-handoff'
+   New-Item -ItemType Directory -Path $handoffRoot -Force|Out-Null
+   $handoffId=[guid]::NewGuid().ToString()
+   $handoffPath=Join-Path $handoffRoot ($handoffId+'.iwxa')
+   Copy-Item -LiteralPath $archive -Destination $handoffPath
+   try{
+     Start-Atlas @('--iwxa-open-result',$handoffId,$sha)
+     Await-SignedText 'Result передан из Center'
+     Click-UI 'Открыть переданный Result'
+     Assert-SignedPreview
+     if(Test-Path -LiteralPath $handoffPath){throw 'ATLAS_U05_SIGNED_HANDOFF_NOT_CONSUMED'}
+     Write-Host 'ATLAS_INSTALLED_SIGNED_LOCAL_HANDOFF_PREVIEW_PASS'
+   }finally{
+     Remove-Item -LiteralPath $handoffPath -Force -ErrorAction SilentlyContinue
+   }
+ }else{
+   Start-Atlas
+   Open-SignedFile $archive
+ }
  Await-SignedText 'План изменился с момента выдачи поручения.'
  Click-UI 'Подтвердить получение'
  Await-SignedText 'Выбранный подписанный Result сохранён в Atlas'
