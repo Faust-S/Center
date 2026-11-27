@@ -5,12 +5,12 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-CANDIDATE_PIN = '1c5708cd23ceb835c5a0fbadd77bf4944f1eb1aa'
-CANDIDATE_TREE = '2100efdc2ee6165313b97a4f78ef0e5fe094f81b'
+CANDIDATE_PIN = 'bb3087482c68fc206cafef0a0c81c4326dc5addd'
+CANDIDATE_TREE = '30754448aa90cdb5f4cb8785df685326fda4713a'
 BASELINE_PIN = '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
 BASELINE_TREE = '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
-SCOPE = 'B066_FULL_NATIVE_QUALIFICATION'
-GROUPS = ('core', 'ocr', 'desktop-source', 'bundle', 'desktop', 'upgrade')
+SCOPE = 'B066_UPGRADE_DIAGNOSTIC'
+GROUPS = ('upgrade',)
 
 WORKFLOW = 'agent066-browser-source'
 PREFIX = 'refs/heads/ci/once/' + WORKFLOW + '/'

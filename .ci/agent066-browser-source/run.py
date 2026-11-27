@@ -37,6 +37,18 @@ def bundle(q):
     return all(q.results.values())
 
 
+def browser_witness_preflight(q):
+    if q.run('B066_PREVIEW_WITNESS_SYNTAX', ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
+        "$tokens=$null;$errors=$null;$null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) 'tools/qualify_setup_core_browser_gui.ps1'),[ref]$tokens,[ref]$errors);if($errors.Count -ne 0){exit 1}"], timeout=60)[0]:
+        return False
+    python = q.venv('browserwitnessqa', ['requirements-ci.txt'])
+    if python is None:
+        q.block('B066_BROWSER_WITNESS_TEST')
+        return False
+    return q.pytest('B066_BROWSER_WITNESS_TEST', python,
+                    ['tests/test_setup_core_browser_installed.py'], timeout=180)
+
+
 def main():
     token = os.environ.pop('IWXA_TEMP_READ_TOKEN', '')
     pin = os.environ.get('PRIVATE_PIN', '')
@@ -69,13 +81,13 @@ def main():
             elif group == 'bundle':
                 passed = bundle(q)
             elif group in ('desktop','upgrade'):
-                if baseline_ready:
+                if baseline_ready and browser_witness_preflight(q):
                     passed = installed_gate(q, pin, tree, baseline, BASELINE_PIN, BASELINE_TREE, upgrade=(group=='upgrade'))
                     if passed and group == 'desktop':
                         from delivery import seal_clean_install
                         passed = seal_clean_install(q, pin, tree)
                 else:
-                    q.block('UPGRADE_BASELINE_CHECKOUT')
+                    q.block('UPGRADE_BASELINE_OR_WITNESS_PREFLIGHT')
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
         status('B066_INTERNAL', 'FAIL')
     finally:

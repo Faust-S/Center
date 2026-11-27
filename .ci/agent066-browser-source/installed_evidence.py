@@ -75,7 +75,7 @@ def upgrade_result(row, old_pin, old_tree, new_pin, new_tree, old_hash, new_hash
 # postconditions; a reported receipt status alone is never a release PASS.
 CLEAN_PHASES = frozenset(('LOCAL_ACCEPTANCE','LOCAL_ACCEPTANCE_READBACK',
                           'NATIVE_RUNTIME_READBACK','ROLLBACK','ROLLBACK_READBACK','FINAL_RECEIPT'))
-MANUAL_GUI_STAGES = ('window','open','open_preview','open_preview_control','open_preview_missing','open_preview_disabled','open_preview_offscreen','open_preview_ambiguous','open_preview_invalid','open_preview_bootstrap','open_preview_session','open_preview_render','open_preview_activate','open_preview_foreground','open_preview_ready','open_preview_readback','open_control','open_native','open_native_error',
+MANUAL_GUI_STAGES = ('window','open','open_preview','open_preview_control','open_preview_missing','open_preview_disabled','open_preview_offscreen','open_preview_ambiguous','open_preview_invalid','open_preview_bootstrap','open_preview_session','open_preview_render','open_preview_activate','open_preview_foreground','open_preview_ready','open_preview_readback','open_preview_readback_expanded','open_preview_readback_collapsed','open_preview_readback_pane_offscreen','open_preview_readback_ready','open_preview_readback_disabled','open_preview_readback_unobserved','open_control','open_native','open_native_error',
                      'open_native_profile','open_native_create','open_native_shell','open_native_layout',
                      'open_native_state','navigation','tab_isolation','form','popup','reopen','receipt','unknown')
 CLEAN_CHECKPOINTS = (
