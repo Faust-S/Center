@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "85af1e9301df6fd8ef447a280e090c067ac16747",
+  "profile": "guided-network-flow-input",
+  "pins": {
+    "professionalAgent": "b61ebd27a912e0f12099fe34e8295fc1ec70a68d"
+  },
+  "reason": "Qualify guided transport network input, changed bottleneck and both original immutable flow results"
+}
