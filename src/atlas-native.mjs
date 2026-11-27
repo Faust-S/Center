@@ -3,12 +3,28 @@
 import {deserialize, serialize, createProject, createItem} from '../vendor/atlas/src/core.mjs';
 import {readAtlasPortfolio} from './atlas-integration.mjs';
 import {organizationPlanProjection,organizationWorkEditionComparison} from '../vendor/atlas/src/organization-plan-projection.mjs';
+import {recordedCorporateAtlasResult} from '../vendor/atlas/src/atlas-t3-native-recipient.mjs';
 
 // Read the actual observed native head. Calculation belongs to Atlas, not Center.
-export function readNativeAtlasPlan(session,projectId){
+// Corporate Result references are shown only for the linked workspace.
+/** @param {any} session @param {string} projectId @param {string|null} [workspaceId] */
+export function readNativeAtlasPlan(session,projectId,workspaceId=null){
  if(!['CENTER_LOCAL_PREPARATION','PUBLIC_ATLAS_READ_ONLY'].includes(session?.sourceKind))
   fail('ATLAS_NATIVE_SESSION_INVALID');
- return organizationPlanProjection(session.snapshot,projectId);
+ return organizationPlanProjection(session.snapshot,projectId,{corporateScope:{
+   organizationId:session.organizationId,workspaceId
+ }});
+}
+// The same read-only native head can show the exact historical link for an
+// original accepted Result. This never claims original T3 re-verification.
+/** @param {any} session
+ * @param {import('./atlas-result-context.mjs').AcceptedAtlasFocus} source */
+export function readNativeAtlasRecordedResult(session,source){
+ if(session?.sourceKind!=='PUBLIC_ATLAS_READ_ONLY'||
+    session.organizationId!==source?.organizationId||
+    session.generation==='none')
+  fail('ATLAS_PUBLIC_SOURCE_READ_ONLY');
+ return recordedCorporateAtlasResult(session.snapshot,source);
 }
 
 const fail = code => {throw Error(code);};
