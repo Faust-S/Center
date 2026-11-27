@@ -1,0 +1,70 @@
+name: Public original image Android ARM64 OpenCL research
+on:
+  push:
+    branches:
+      - 'ci/once/agent-mobile-public-image-opencl/*'
+    paths:
+      - '.github/ci-requests/agent-mobile-public-image-opencl.json'
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-mobile-public-image-opencl
+  cancel-in-progress: false
+jobs:
+  public-opencl-android:
+    if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exact one-shot public request
+        id: admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          prepared="$(git rev-parse HEAD^)"
+          test "$GITHUB_REF_NAME" = "ci/once/agent-mobile-public-image-opencl/$prepared"
+          test "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2
+          test "$(git diff --name-status HEAD^ HEAD)" = $'A\t.github/ci-requests/agent-mobile-public-image-opencl.json'
+          printf 'prepared=%s\n' "$prepared" >> "$GITHUB_OUTPUT"
+      - name: Install public tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ninja-build python3-pil
+      - name: Test original and OpenCL qualification
+        run: cd .ci/agent-mobile-public-image && /usr/bin/python3 -m unittest -v test_qualify test_qualify_opencl
+      - name: Resolve Android SDK and install pinned NDK
+        id: ndk
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          sdk="$(command -v sdkmanager || true)"
+          if [ -z "$sdk" ]; then
+            for p in "$sdk_root/cmdline-tools/latest/bin/sdkmanager" "$sdk_root"/cmdline-tools/*/bin/sdkmanager "$sdk_root/tools/bin/sdkmanager"; do
+              if [ -x "$p" ]; then sdk="$p"; break; fi
+            done
+          fi
+          test -n "$sdk"
+          export ANDROID_HOME="$sdk_root" ANDROID_SDK_ROOT="$sdk_root"
+          "$sdk" --install --channel=3 'ndk;29.0.13113456' < <(printf 'y\n%.0s' {1..100})
+          test -f "$sdk_root/ndk/29.0.13113456/build/cmake/android.toolchain.cmake"
+          printf 'ndk=%s\n' "$sdk_root/ndk/29.0.13113456" >> "$GITHUB_OUTPUT"
+      - name: Cross-build original ARM64 OpenCL and Khronos loader
+        id: build
+        env:
+          PREPARED_SHA: ${{ steps.admission.outputs.prepared }}
+          NDK_ROOT: ${{ steps.ndk.outputs.ndk }}
+        run: |
+          /usr/bin/python3 .ci/agent-mobile-public-image/qualify_opencl.py --prepared-sha "$PREPARED_SHA" --ndk "$NDK_ROOT" --result "$RUNNER_TEMP/iwxa-public-image-opencl"
+      - name: Preserve cross-build receipt only
+        if: ${{ steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-public-image-opencl-arm64
+          path: ${{ runner.temp }}/iwxa-public-image-opencl/receipt.json
+          if-no-files-found: error
+          retention-days: 7
