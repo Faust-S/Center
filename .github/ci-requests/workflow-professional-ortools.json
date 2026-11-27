@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "1232e747320131fa71f3870fc66cd5eb083e9e62",
+  "profile": "qgis-u01-native-retry",
+  "pins": {
+    "professionalAgent": "1ce1463659b5a220bfc55c17a67170da9a07e211"
+  },
+  "reason": "Repeat QGIS native connection with exact original CLI probe and adjusted additive catalog regression"
+}
