@@ -18,7 +18,7 @@ export function readNativeAtlasPlan(session,projectId,workspaceId=null){
 // The same read-only native head can show the exact historical link for an
 // original accepted Result. This never claims original T3 re-verification.
 /** @param {any} session
- * @param {import('./atlas-result-context.mjs').AcceptedAtlasFocus} source */
+ * @param {import('./atlas-result-context.mjs').AcceptedAtlasFocus|ReturnType<typeof import('../runtime/cen03-d3-owner.mjs').originalAtlasWorkspacePublicationReference>} source */
 export function readNativeAtlasRecordedResult(session,source){
  if(session?.sourceKind!=='PUBLIC_ATLAS_READ_ONLY'||
     session.organizationId!==source?.organizationId||
