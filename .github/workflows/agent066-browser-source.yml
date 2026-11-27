@@ -1,0 +1,51 @@
+name: Agent 0.6.6 shared browser source build and Core integration
+on:
+  push:
+    branches:
+      - 'ci/once/agent066-browser-source/*'
+    paths:
+      - '.github/ci-requests/agent066-browser-source.json'
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-agent066-browser-qualification
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: ${{ github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [core, desktop-source, bundle]
+    name: qualify / ${{ matrix.group }}
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      PRIVATE_PIN: '44ca96f9b015ce087f822671e37d960de15b1f45'
+      PRIVATE_TREE: '02d1158da5f2572784dc4364960cda5dde79279a'
+      QUALIFICATION_GROUP: ${{ matrix.group }}
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      CI: 'true'
+    steps:
+      - name: Checkout public admission only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exact one-time request before private access
+        shell: bash
+        run: python .ci/agent066-browser-source/admit.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        if: ${{ matrix.group == 'desktop-source' }}
+        with:
+          node-version: '22.16.0'
+      - name: Grouped source verification on temporary private checkout
+        shell: bash
+        env:
+          IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        run: python .ci/agent066-browser-source/run.py
