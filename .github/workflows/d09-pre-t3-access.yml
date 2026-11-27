@@ -1,0 +1,35 @@
+name: D09 pre-T3 authorized source access
+on:
+  push:
+    branches: ['ci/once/d09-pre-t3-access-11aebf7b']
+    paths: ['.github/workflows/d09-pre-t3-access.yml']
+permissions:
+  contents: read
+jobs:
+  access:
+    if: github.event.before == '504d1d541a289ea014cfc2c25a9503e52853e171'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify approved read credential for pinned source commits
+        env:
+          SOURCE_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+        shell: bash
+        run: |
+          set -eu
+          if [ -z "$SOURCE_READ_TOKEN" ]; then
+            echo "SOURCE_ACCESS=UNCONFIGURED"
+            exit 1
+          fi
+          failures=0
+          for item in "hop.iwxa.ru 11aebf7b3a56fd484318b76a3dbdb3bd2482f812" "hop f0e08c98927ea595b25d4cc207032625f26e9b46" "T2 9c64951cd78411283e8a416641c36d71e169fc1d"; do
+            read -r repo sha <<< "$item"
+            status="$(curl --silent --show-error --max-time 25 --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $SOURCE_READ_TOKEN" --header "Accept: application/vnd.github+json" "https://api.github.com/repos/Faust-S/$repo/git/commits/$sha")" || status=transport_error
+            if [ "$status" = 200 ]; then
+              echo "$repo: READ_OK"
+            else
+              echo "$repo: READ_BLOCKED ($status)"
+              failures=1
+            fi
+          done
+          exit "$failures"
