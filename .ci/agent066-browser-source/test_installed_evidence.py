@@ -6,7 +6,8 @@ import unittest
 from installed_evidence import (SETUP_PIN, SETUP_REQUIRED, UPGRADE_REQUIRED, BROWSER_REQUIRED,
                                 BROWSER_STATES, clean_result, upgrade_result, lock_ok,
                                 CLEAN_CHECKPOINTS, ROLLBACK_CHECKPOINTS, MANUAL_GUI_STAGES,
-                                clean_setup_diagnostics, diagnostic_status)
+                                clean_setup_diagnostics, diagnostic_status, preview_dom_diagnostics,
+                                PREVIEW_DOM_STATES, PREVIEW_DOM_CONTROLS)
 
 OLD, OT, NEW, NT, OH, NH = 'a'*40, 'b'*40, 'c'*40, 'd'*40, 'e'*64, 'f'*64
 
@@ -128,6 +129,7 @@ class CleanDiagnosticTests(unittest.TestCase):
         self.assertTrue(set('open_native_'+kind for kind in ('error','profile','create','shell','layout','state'))<=set(MANUAL_GUI_STAGES))
         self.assertTrue({'open_preview_control','open_preview_readback',
                          'open_preview_missing','open_preview_disabled','open_preview_offscreen','open_preview_ambiguous','open_preview_invalid','open_preview_bootstrap','open_preview_session','open_preview_render','open_preview_activate','open_preview_foreground','open_preview_ready'} <= set(MANUAL_GUI_STAGES))
+        self.assertTrue({'open_preview_readback_expanded','open_preview_readback_collapsed','open_preview_readback_pane_offscreen','open_preview_readback_ready','open_preview_readback_disabled','open_preview_readback_unobserved'} <= set(MANUAL_GUI_STAGES))
         self.assertEqual(len(MANUAL_GUI_STAGES),len(set(MANUAL_GUI_STAGES)))
 
     def test_owner_repair_error_projection(self):
@@ -223,5 +225,15 @@ class CleanDiagnosticTests(unittest.TestCase):
             p.write_text('{"status":"FAIL","phase":"QWEN_EXECUTE","failure_code":"INFERENCE","failure_code":"HTTP_500"}')
             self.assertEqual(clean_setup_diagnostics(out)['SETUP_CLEAN_CHECKPOINT_STATE'],'INVALID')
             self.assertNotIn('SETUP_WITNESS_FAILURE_CODE',clean_setup_diagnostics(out))
+
+    def test_preview_dom_diagnostic_is_exact_and_bounded(self):
+        for state in PREVIEW_DOM_STATES:
+            self.assertEqual(preview_dom_diagnostics('AGENT066_PREVIEW_DOM_STATE='+state),{'PREVIEW_DOM_STATE':state})
+        for control in PREVIEW_DOM_CONTROLS:
+            self.assertEqual(preview_dom_diagnostics('AGENT066_PREVIEW_DOM_BROWSER_CONTROL='+control),
+                             {'PREVIEW_DOM_BROWSER_CONTROL':control})
+        for bad in ('private','PANE_VISIBLE\nAGENT066_PREVIEW_DOM_STATE=PANE_VISIBLE','PANE_VISIBLE '):
+            self.assertEqual(preview_dom_diagnostics('AGENT066_PREVIEW_DOM_STATE='+bad),{})
+        self.assertEqual(preview_dom_diagnostics('prefix AGENT066_PREVIEW_DOM_STATE=PANE_VISIBLE'),{})
 
 if __name__=='__main__': unittest.main()
