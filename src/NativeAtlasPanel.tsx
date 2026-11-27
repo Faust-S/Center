@@ -59,7 +59,7 @@ function WorkEditionTable({comparison}:{comparison:EditionComparison}){
  </div>;
 }
 type WorkspaceChoice={id:string;name:string;atlasRef?:{projectId:string;revision:string}|null};
-export default function NativeAtlasPanel({organizationId,workspaces,targetWorkspaceId,onChooseWorkspace,onLink,onLinkWork,onObserved,participants,resourceBindings,onBindResource,resultFocus=null,onClearResultFocus}:{
+export default function NativeAtlasPanel({organizationId,workspaces,targetWorkspaceId,onChooseWorkspace,onLink,onLinkWork,onObserved,participants,resourceBindings,onBindResource,resultFocus=null,onClearResultFocus,onReturnToResult}:{
  organizationId:string;workspaces:WorkspaceChoice[];targetWorkspaceId:string;onChooseWorkspace:(id:string)=>void;
  onLink:(ref:{projectId:string;revision:string},workspaceId:string)=>boolean;
  onLinkWork:(ref:{projectId:string;revision:string;workId:string},workspaceId:string,source:View)=>void;
@@ -67,7 +67,7 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
  resourceBindings:{resourceId:string;participantId:string}[];
  onBindResource:(ref:{projectId:string;revision:string;workId:string},workspaceId:string,participantId:string,source:View)=>void;
  onObserved?:(organizationId:string,view:View|null)=>void;
- resultFocus?:AcceptedAtlasFocus|null;onClearResultFocus?:()=>void}){
+ resultFocus?:AcceptedAtlasFocus|null;onClearResultFocus?:()=>void;onReturnToResult?:()=>void}){
  const [session,setSession]=useState<Session|null>(null);
  const [view,setView]=useState<View|null>(null);
  const [selected,setSelected]=useState('');
@@ -240,6 +240,8 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
          setSelected(resultComparison.projectId);setSelectedWork(resultComparison.workId);
          void present('open',resultComparison);
        }}>Открыть текущую редакцию этой работы в Atlas</button>}
+     {onReturnToResult&&<button type="button" className="secondary" disabled={busy}
+       data-testid="native-atlas-return-to-result" onClick={onReturnToResult}>Вернуться к принятому Result</button>}
      <small className="muted">Принятый Result остаётся у оригинального T3. Здесь показано сопоставление; план не изменяется автоматически.</small>
    </div>}
    {error&&<div className="notice error" role="alert">{error}</div>}

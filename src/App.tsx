@@ -10,7 +10,8 @@ import AdminDashboard, {AdminCompanyStructure} from './AdminDashboard';
 import AdminResultRoute from './AdminResultRoute';
 import {retainSignedWorkspaceForPage,mayOpenSignedWorkspaceOnPage} from './signed-workspace-navigation.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
-import type {AcceptedAtlasFocus} from './atlas-result-context.mjs';
+import {acceptedAtlasReturnPointer} from './atlas-result-context.mjs';
+import type {AcceptedAtlasFocus,AcceptedAtlasReturn} from './atlas-result-context.mjs';
 import Cen04LicensePanel from './Cen04LicensePanel';
 import AgeExchangePanel from './AgeExchangePanel';
 import iwxaBrandMark from './assets/iwxa-admin-center.svg?url';
@@ -159,6 +160,7 @@ export default function App() {
   const [atlasSelected,setAtlasSelected] = useState('');
   const [atlasWorkspace,setAtlasWorkspace] = useState('');
   const [atlasResultFocus,setAtlasResultFocus]=useState<AcceptedAtlasFocus|null>(null);
+  const [atlasResultReturn,setAtlasResultReturn]=useState<AcceptedAtlasReturn|null>(null);
   const atlasInput = useRef<HTMLInputElement>(null);
   const [message,setMessage] = useState('');
   const [error,setError] = useState('');
@@ -355,6 +357,8 @@ export default function App() {
     setSignedWorkspaceGeneration(value=>value+1);
   };
   const go = (next: Page) => {
+    if(next!=='resources')setAtlasResultFocus(null);
+    if(next!=='results')setAtlasResultReturn(null);
     if(next!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);setSeatRouteOrganization(null);}
     const history=navigationHistory.current;
     if(history[navigationCursor.current]!==next){
@@ -368,14 +372,14 @@ export default function App() {
     // Draft roster selection is only navigation; T3 grants, PROOF and native
     // Human confirmation are still handled by the existing signed owner.
     if(!org||!org.participants.some(person=>person.id===contactId))return;
-    setSeatRouteOrganization(null);
+    setSeatRouteOrganization(null);setAtlasResultReturn(null);
     setFocusedEmployeeContact(contactId);
     setManagerOriginal(null);
     go('results');
   };
   const openCorporateSeats=()=>{
     if(!org)return;
-    setFocusedEmployeeContact(null);setManagerOriginal(null);
+    setFocusedEmployeeContact(null);setManagerOriginal(null);setAtlasResultReturn(null);
     setSeatRouteOrganization(org.id);
     go('results');
   };
@@ -384,6 +388,8 @@ export default function App() {
     if(target<0||target>=navigationHistory.current.length)return;
     navigationCursor.current=target;
     const next=navigationHistory.current[target];
+    if(next!=='resources')setAtlasResultFocus(null);
+    if(next!=='results')setAtlasResultReturn(null);
     if(next!=='results'){setManagerOriginal(null);setFocusedEmployeeContact(null);setSeatRouteOrganization(null);}
     setPage(next);setNavigationVersion(value=>value+1);setV8Menu('');
   };
@@ -391,7 +397,7 @@ export default function App() {
     if(!org||selection.organizationId!==org.id)return;
     setSeatRouteOrganization(null);
     setFocusedEmployeeContact(null);
-    setManagerOriginal(selection);
+    setManagerOriginal(selection);setAtlasResultReturn(null);
     go('results');
   };
   const openInspectorPreview=(kind:InspectorPreview['kind'],id:string,label:string)=>{
@@ -445,6 +451,13 @@ export default function App() {
     }
     setAtlasResultFocus(source);setAtlasWorkspace(source.workspaceId);
     setError('');go('resources');
+  };
+  const returnFromAtlasResult=()=>{
+    if(!currentAtlasResult||activeOrganizationRef.current!==currentAtlasResult.organizationId)return;
+    setAtlasResultReturn(acceptedAtlasReturnPointer(currentAtlasResult));
+    setAtlasResultFocus(null);setManagerOriginal(null);
+    setFocusedEmployeeContact(null);setSeatRouteOrganization(null);
+    setError('');go('results');
   };
   const reuseAppliedResult = ({description,source}:{description:string;source:SourceResultRef}) => {
     if(!org)return;
@@ -569,7 +582,7 @@ export default function App() {
   const selectOrg = (organizationId: string) => {
     if (editor) {setError('Сохраните или закройте открытый редактор поручения перед сменой организации.'); return;}
     if(command({type:'SELECT_ORGANIZATION',organizationId})){
-      setManagerOriginal(null);setFocusedEmployeeContact(null);setAtlasResultFocus(null);
+      setManagerOriginal(null);setFocusedEmployeeContact(null);setAtlasResultFocus(null);setAtlasResultReturn(null);
       setInspectorPreviews([]);setActivePreviewKey('');setInspectorTab('context');
       atlasFileRequest.current++;
       setAtlasFile(null);setAtlasSelected('');setAtlasWorkspace('');setNativeAtlas(null);
@@ -648,7 +661,7 @@ export default function App() {
       if(pendingCloseRef.current&&!window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.'))return;
       revisionRef.current++;
       editorBaselineRef.current=null;
-      setState(next);setFocusedEmployeeContact(null);setAtlasResultFocus(null);setDirty(nativeHost);atlasFileRequest.current++;setAtlasFile(null);setNativeAtlas(null);setAtlasObservationMode('file');setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
+      setState(next);setFocusedEmployeeContact(null);setAtlasResultFocus(null);setAtlasResultReturn(null);setDirty(nativeHost);atlasFileRequest.current++;setAtlasFile(null);setNativeAtlas(null);setAtlasObservationMode('file');setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
     } catch(e) {problem(e);}
   }
   async function openFile() {
@@ -660,7 +673,7 @@ export default function App() {
   const organizationForm = <form className="card form-panel" data-testid="organization-form" onSubmit={e=>{
     e.preventDefault();const data=new FormData(e.currentTarget);
     if(command({type:'CREATE_ORGANIZATION',name:data.get('name'),kind:data.get('kind')})){
-      setCreatingOrg(false);setAtlasFile(null);setNativeAtlas(null);setAtlasSelected('');setAtlasWorkspace('');setAtlasResultFocus(null);
+      setCreatingOrg(false);setAtlasFile(null);setNativeAtlas(null);setAtlasSelected('');setAtlasWorkspace('');setAtlasResultFocus(null);setAtlasResultReturn(null);
     }
   }}>
     <div className="section-head"><h2>Новая организация</h2>{org && <button type="button" className="quiet" onClick={()=>setCreatingOrg(false)}>Отмена</button>}</div>
@@ -802,6 +815,7 @@ export default function App() {
         {org.workspaces.map(w=><div className="simple-row" key={w.id}><span className="small-mark">◇</span><div><strong>{w.name}</strong><small>{w.atlasRef ? `Связанный план Atlas: ${w.atlasRef.projectId} (редакция ${w.atlasRef.revision})` : 'План Atlas пока не указан'}</small></div><span className="muted">{org.assignments.filter(a=>a.workspaceId===w.id).length} поручений</span><button type="button" className="secondary" onClick={()=>openInspectorPreview('workspace',w.id,w.name)}>Подробнее</button></div>)}
         <NativeAtlasPanel key={org.id+'|'+(currentAtlasResult?.resultRevisionId??'plan')} organizationId={org.id} workspaces={org.workspaces}
           resultFocus={currentAtlasResult} onClearResultFocus={()=>setAtlasResultFocus(null)}
+          onReturnToResult={returnFromAtlasResult}
           targetWorkspaceId={atlasWorkspace} onChooseWorkspace={setAtlasWorkspace}
           onLink={(ref,workspaceId)=>command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref})}
           participants={org.participants} resourceBindings={org.atlasResourceBindings??[]}
@@ -946,7 +960,9 @@ export default function App() {
        {org && page==='results' && <CorporatePanel key={org.id} organization={org} managerOriginal={managerOriginal}
           preferredEmployeeContactId={focusedEmployeeContact} preferCorporateSeats={seatRouteOrganization===org.id}
           signedWorkspaceOpen={signedWorkspaceOrg===org.id}
-          signedWorkspaceVisible={signedWorkspaceOrg===org.id&&signedWorkspaceVisible} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onInspectAtlasResult={inspectAcceptedAtlasResult} onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace} onOpenLicenses={()=>go('programs')}/>} 
+          signedWorkspaceVisible={signedWorkspaceOrg===org.id&&signedWorkspaceVisible} invoke={nativeHost?nativeInvoke:null} signedWorkspaceGeneration={signedWorkspaceGeneration} onInspectAtlasResult={inspectAcceptedAtlasResult}
+          atlasResultReturn={atlasResultReturn} onClearAtlasResultReturn={()=>setAtlasResultReturn(null)}
+          onReuse={reuseAppliedResult} onPrepare={()=>startAssignment()} onSetupWorkspace={()=>go('resources')} onEnsureDraftSaved={ensureDraftForSignedEnrollment} onOpenSignedWorkspace={openSignedWorkspace} onOpenLicenses={()=>go('programs')}/>} 
       {org && page==='programs' && <section className="card padded"><h2>Personal Agent и рабочие лицензии</h2><p className="muted">Получите подписанную лицензию Publisher, подключите сотрудников к организации и распределите места через исходный реестр T3. План потребности не является назначением места.</p>
         <div className="actions">
           <button className="primary" type="button" data-testid="open-corporate-seat-registry" onClick={openCorporateSeats}>Управление корпоративными местами</button>

@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import type {ManagerOriginalSelection} from './manager-original-selection';
-import {acceptedAtlasFocus} from './atlas-result-context.mjs';
-import type {AcceptedAtlasFocus} from './atlas-result-context.mjs';
+import {acceptedAtlasFocus,acceptedAtlasScopeMatches,sameAcceptedAtlasSource} from './atlas-result-context.mjs';
+import type {AcceptedAtlasFocus,AcceptedAtlasReturn} from './atlas-result-context.mjs';
 import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
 import {readReviewContinuation,mergeReviewContinuations,rememberReviewContinuation,
  clearUndispatchedReviewContinuation,validateReviewDecisionReceipt} from '../runtime/cen03-review-continuation.mjs';
@@ -41,7 +41,7 @@ function requireAgeStatus(value:any):AgeStatus{
 const same=(a:unknown,b:unknown)=>a===b;
 const label=(entry:any)=>String(entry?.id||entry?.kind||'Ревизия');
 
-export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts,managerOriginal=null,onInspectAtlasResult}:{
+export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignmentDrafts,organizationName,dispatchedApplications,taskAttempts,decisionAttempts,managerOriginal=null,onInspectAtlasResult,atlasResultReturn=null,onClearAtlasResultReturn}:{
  owner:Owner;execute:Exec;run:Run;busy:boolean;organizationName:string;
  dispatchedApplications:React.RefObject<Map<string,string[]>>;
  taskAttempts:React.RefObject<Map<string,{taskId:string;attempted:boolean}>>;
@@ -50,6 +50,7 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  assignmentDrafts:AssignmentDraft[];
  managerOriginal?:ManagerOriginalSelection|null;
  onInspectAtlasResult?:(source:AcceptedAtlasFocus)=>void;
+ atlasResultReturn?:AcceptedAtlasReturn|null;onClearAtlasResultReturn?:()=>void;
  }){
  const session=owner.snapshot;
  const exactFocus=managerOriginalSelectionMatches(managerOriginal,session)?managerOriginal:null;
@@ -346,13 +347,52 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    const freshPreview=await execute('d3Preview',{packageSha256:hash});
    const freshReceipt=await execute('d3Receipt',{operationId,packageSha256:hash});
    const fresh=acceptedAtlasFocus({preview:freshPreview,receipt:freshReceipt,session,packageSha256:hash,operationId});
-   if(!fresh||fresh.taskRevisionId!==acceptedAtlas.taskRevisionId||
-     fresh.resultRevisionId!==acceptedAtlas.resultRevisionId||
-     fresh.acceptanceId!==acceptedAtlas.acceptanceId||
-     JSON.stringify(fresh.workRef)!==JSON.stringify(acceptedAtlas.workRef))
+   if(!fresh||!sameAcceptedAtlasSource(fresh,acceptedAtlas))
      throw Error('CEN_D3_ATLAS_RESULT_SOURCE_CHANGED');
    onInspectAtlasResult(fresh);
  });
+ // Returning from plan comparison is a read-only recovery of the exact
+ // already accepted package. Use the live signed context and original
+ // receipt, even when the native owner epoch changed while in Atlas.
+ const returnMatches=acceptedAtlasScopeMatches(atlasResultReturn,session);
+ const atlasReturnAttempt=useRef<string|null>(null);
+ const restoreAtlasResult=()=>run('Исходный принятый Result перечитан. План и решения не изменены.',async()=>{
+   const source=atlasResultReturn;
+   if(!source||!acceptedAtlasScopeMatches(source,session))
+     throw Error('CEN_D3_ATLAS_RESULT_SOURCE_CHANGED');
+   const freshPreview=await execute('d3Preview',{packageSha256:source.packageSha256});
+   const freshReceipt=await execute('d3Receipt',{
+     operationId:source.operationId,packageSha256:source.packageSha256});
+   const fresh=acceptedAtlasFocus({preview:freshPreview,receipt:freshReceipt,session,
+     packageSha256:source.packageSha256,operationId:source.operationId});
+   if(!fresh||!sameAcceptedAtlasSource(fresh,source))
+     throw Error('CEN_D3_ATLAS_RESULT_SOURCE_CHANGED');
+   const inspection=readOriginalResultReview(freshPreview,session.organizationId,session.workspaceId);
+   if(!inspection)throw Error('CEN_D3_ATLAS_RESULT_SOURCE_REQUIRED');
+   const prior=observeDecision(source.packageSha256);
+   if(prior.blocked||(prior.pending&&(prior.pending.operationId!==source.operationId||
+      prior.pending.decision!=='ACCEPT')))
+     throw Error('CEN_D3_ORIGINAL_DECISION_RECEIPT_CONFLICT');
+   choose(source.packageSha256,source.operationId);
+   const marker={operationId:source.operationId,decision:'ACCEPT' as const};
+   try{rememberReviewContinuation(localStorage,session,'decision',source.packageSha256,marker,true)}
+   catch{setContinuationConflict(true)}
+   decisionAttempts.current.set(decisionKey(source.packageSha256),marker);
+   setOperationId(source.operationId);setDecisionAttempted(true);setDecisionType('ACCEPT');
+   setLastReceiveState('ACCEPTED');setPreview(freshPreview);setReviewedResult(inspection);
+   setReceipt(freshReceipt);onClearAtlasResultReturn?.();
+ });
+ useEffect(()=>{
+   if(!atlasResultReturn||!returnMatches||busy)return;
+   const key=JSON.stringify([atlasResultReturn.packageSha256,atlasResultReturn.operationId,sessionKey]);
+   if(atlasReturnAttempt.current===key)return;
+   let active=true;
+   queueMicrotask(()=>{
+     if(!active||atlasReturnAttempt.current===key)return;
+     atlasReturnAttempt.current=key;void restoreAtlasResult();
+   });
+   return()=>{active=false;};
+ },[atlasResultReturn,returnMatches,busy,sessionKey]);
  function observeApply(acceptanceId:string){
    const live=dispatchedApplications.current.get(attemptKey(acceptanceId));
    try{return {pending:mergeReviewContinuations('apply',
@@ -593,6 +633,15 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
  });
  return <div className="nested-form" data-testid="cen03-d3-original">
   <h3>Подписанный T3: получение и принятие Result</h3>
+  {atlasResultReturn&&<div className="notice subdued" data-testid="d3-atlas-result-return">
+    <strong>Возврат от плана к принятому Result</strong>
+    <p>{returnMatches?'Перечитываем исходную подписанную Task и квитанцию приёмки.':
+      'Для открытия результата нужен тот же субъект и рабочая область T3.'}</p>
+    <button type="button" className="secondary" disabled={busy||!returnMatches}
+      onClick={()=>void restoreAtlasResult()}>Перечитать точный Result</button>
+    <button type="button" className="secondary" disabled={busy}
+      onClick={onClearAtlasResultReturn}>Закрыть переход</button>
+  </div>}
   {managerOriginal&&<div className="notice subdued" data-testid="d3-manager-original-link">
     {exactFocus?<>
       <strong>Переход из корпоративного поиска</strong>

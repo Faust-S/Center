@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {prepareEmployeeDraftTask} from '../src/corporate-draft-task.mjs';
-import {signedAssignmentAtlasWork,acceptedAtlasFocus,selectAcceptedAtlasWork} from '../src/atlas-result-context.mjs';
+import {signedAssignmentAtlasWork,acceptedAtlasFocus,selectAcceptedAtlasWork,acceptedAtlasReturnPointer,acceptedAtlasScopeMatches,sameAcceptedAtlasSource} from '../src/atlas-result-context.mjs';
 
 const session={organizationId:'org:example',workspaceId:'workspace:example',actorId:'person:manager',
  contextId:'context:example',contextEpoch:7,employeePersonId:'person:employee',enrollmentId:'enrollment:example'};
@@ -45,6 +45,7 @@ test('accepted original owner readbacks yield a scoped navigation projection wit
  const input=fixture(),before=JSON.stringify(input),view=acceptedAtlasFocus(input);
  assert.deepEqual(view,{draftId:draft.id,draftEditNumber:3,workRef:ref,organizationId:session.organizationId,
   workspaceId:session.workspaceId,taskId:'task:example',taskRevisionId,resultRevisionId,acceptanceId,packageSha256:sha,
+  actorId:session.actorId,operationId,
   resultExcerpt:'Measured and accepted',resultTruncated:false});
  assert.equal(JSON.stringify(input),before);
  assert.equal(acceptedAtlasFocus(fixture(originalText({atlasRef:null}))),null);
@@ -88,4 +89,18 @@ test('later plan edition selects only the historical work identity and preserves
  assert.deepEqual(selectAcceptedAtlasWork({...portfolio,projects:[{id:ref.projectId,workItems:[{id:'work:other'}]}]},ref),
   {projectId:ref.projectId,workId:'',status:'WORK_MISSING_IN_SOURCE'});
  assert.equal(ref.revision,'12');
+});
+
+test('return from plan holds only exact IDs and requires a fresh accepted source in the same live scope',()=>{
+ const source=acceptedAtlasFocus(fixture()),pointer=acceptedAtlasReturnPointer(source);
+ assert.equal(Object.hasOwn(pointer,'resultExcerpt'),false);
+ assert.equal(Object.hasOwn(pointer,'resultTruncated'),false);
+ assert.equal(acceptedAtlasScopeMatches(pointer,{...session,contextEpoch:99}),true);
+ assert.equal(acceptedAtlasScopeMatches(pointer,{...session,actorId:'person:other'}),false);
+ assert.equal(acceptedAtlasScopeMatches(pointer,{...session,workspaceId:'workspace:other'}),false);
+ assert.equal(sameAcceptedAtlasSource(pointer,acceptedAtlasFocus(fixture())),true);
+ for(const key of ['operationId','acceptanceId','packageSha256','taskRevisionId','resultRevisionId','actorId','draftEditNumber']){
+   assert.equal(sameAcceptedAtlasSource(pointer,{...pointer,[key]:'different'}),false);
+ }
+ assert.equal(sameAcceptedAtlasSource(pointer,{...pointer,workRef:{...pointer.workRef,revision:'13'}}),false);
 });

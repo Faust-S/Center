@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 371574bbd4ddc3da1b5863f95ae816a927958a31
+          ref: 59108dd6a05d3737b4442abf7424ded692c635ed
           path: vendor/atlas
           persist-credentials: false
       # Test CEN05 against the original, pinned public U04 bridge; never
@@ -56,7 +56,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 371574bbd4ddc3da1b5863f95ae816a927958a31
+          ref: 59108dd6a05d3737b4442abf7424ded692c635ed
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 371574bbd4ddc3da1b5863f95ae816a927958a31
+          ref: 59108dd6a05d3737b4442abf7424ded692c635ed
           path: vendor/atlas
           persist-credentials: false
       # Original U04 native module are required by Center's build.rs.
@@ -162,7 +162,7 @@ jobs:
         timeout-minutes: 27
         run: |
           $ErrorActionPreference='Stop'
-          $expectedSource='371574bbd4ddc3da1b5863f95ae816a927958a31'
+          $expectedSource='59108dd6a05d3737b4442abf7424ded692c635ed'
           $checked=(& git -C vendor/atlas rev-parse HEAD).Trim()
           if($LASTEXITCODE -ne 0 -or $checked -ne $expectedSource){
             throw 'CEN05_ATLAS_SOURCE_PIN_MISMATCH'
