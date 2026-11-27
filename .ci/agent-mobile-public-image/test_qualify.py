@@ -106,6 +106,35 @@ class QualificationTests(unittest.TestCase):
         with self.assertRaises((OSError, SyntaxError, ValueError)):
             q.inspect_png(path)
 
+    def test_host_and_android_receipts_are_independent(self):
+        host = self.root / 'host'
+        android = self.root / 'android'
+        fake_exe = self.root / 'fake-executable'
+        fake_exe.write_bytes(b'executable fixture')
+        images = [{"pixelSha256": "a" * 64}, {"pixelSha256": "b" * 64}]
+        with patch.object(q, 'checkout'), patch.object(q, 'build', return_value=fake_exe) as build, \
+                patch.object(q, 'download_model') as download, patch.object(q, 'generate', side_effect=images), \
+                patch.object(q, 'verify_source'), patch.object(q, 'run', side_effect=['Machine: AArch64', '']):
+            q.qualify(host, 'host')
+            self.assertEqual(len(build.call_args.args), 2)
+            self.assertEqual(download.call_count, 1)
+            q.qualify(android, 'android', self.root / 'ndk')
+            self.assertEqual(download.call_count, 1)
+        import json
+        h = json.loads((host / 'receipt.json').read_text())
+        a = json.loads((android / 'receipt.json').read_text())
+        self.assertEqual(h['hostCpuGeneration'], 'PASS')
+        self.assertNotIn('androidArm64Build', h)
+        self.assertEqual(a['androidArm64Build'], 'PASS')
+        self.assertNotIn('hostCpuGeneration', a)
+        self.assertEqual(a['androidExecution'], 'NOT_RUN')
+
+    def test_android_requires_ndk_before_creating_result(self):
+        target = self.root / 'unavailable'
+        with self.assertRaisesRegex(ValueError, 'NDK_REQUIRED'):
+            q.qualify(target, 'android')
+        self.assertFalse(target.exists())
+
 
 if __name__ == '__main__':
     unittest.main()

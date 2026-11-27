@@ -20,21 +20,57 @@ jobs:
         with:
           persist-credentials: false
       - name: Install public qualification tools
+        id: tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ninja-build python3-pil iproute2 time
-          sdkmanager 'ndk;29.0.13113456'
       - name: Test qualification checks
+        id: checks
         run: cd .ci/agent-mobile-public-image && /usr/bin/python3 -m unittest -v test_qualify
-      - name: Build original CPU runtime, generate two images offline and cross-build Android ARM64
+      - name: Build original host runtime and generate two images offline
+        id: host
         run: |
-          /usr/bin/python3 .ci/agent-mobile-public-image/qualify.py --ndk "$ANDROID_HOME/ndk/29.0.13113456" --result "$RUNNER_TEMP/iwxa-public-image-results"
-      - name: Preserve public generated images and receipt
+          /usr/bin/python3 .ci/agent-mobile-public-image/qualify.py --mode host --result "$RUNNER_TEMP/iwxa-public-image-host"
+      - name: Preserve public host images and receipt
+        if: ${{ steps.host.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: iwxa-public-image-preflight
+          name: iwxa-public-image-host
           path: |
-            ${{ runner.temp }}/iwxa-public-image-results/image-*.png
-            ${{ runner.temp }}/iwxa-public-image-results/receipt.json
+            ${{ runner.temp }}/iwxa-public-image-host/image-*.png
+            ${{ runner.temp }}/iwxa-public-image-host/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Resolve Android SDK and install pinned NDK
+        id: ndk
+        if: ${{ !cancelled() && steps.checks.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          sdk="$(command -v sdkmanager || true)"
+          if [ -z "$sdk" ]; then
+            for p in "$sdk_root/cmdline-tools/latest/bin/sdkmanager" "$sdk_root"/cmdline-tools/*/bin/sdkmanager "$sdk_root/tools/bin/sdkmanager"; do
+              if [ -x "$p" ]; then sdk="$p"; break; fi
+            done
+          fi
+          test -n "$sdk"
+          export ANDROID_HOME="$sdk_root" ANDROID_SDK_ROOT="$sdk_root"
+          "$sdk" --install --channel=3 'ndk;29.0.13113456' < <(printf 'y\n%.0s' {1..100})
+          test -f "$sdk_root/ndk/29.0.13113456/build/cmake/android.toolchain.cmake"
+          printf 'ndk=%s\n' "$sdk_root/ndk/29.0.13113456" >> "$GITHUB_OUTPUT"
+      - name: Cross-build original Android ARM64 runtime
+        id: arm64
+        if: ${{ !cancelled() && steps.ndk.outcome == 'success' }}
+        env:
+          NDK_ROOT: ${{ steps.ndk.outputs.ndk }}
+        run: |
+          /usr/bin/python3 .ci/agent-mobile-public-image/qualify.py --mode android --ndk "$NDK_ROOT" --result "$RUNNER_TEMP/iwxa-public-image-android"
+      - name: Preserve independent ARM64 build receipt
+        if: ${{ steps.arm64.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: iwxa-public-image-android
+          path: ${{ runner.temp }}/iwxa-public-image-android/receipt.json
           if-no-files-found: error
           retention-days: 7

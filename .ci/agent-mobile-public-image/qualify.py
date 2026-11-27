@@ -128,40 +128,46 @@ def generate(exe, model, result, index, prompt):
     return observed
 
 
-def qualify(result, ndk):
+def qualify(result, mode, ndk=None):
+    require(mode in ("host", "android"), "QUALIFICATION_MODE")
+    require(mode == "host" or ndk is not None, "NDK_REQUIRED")
     result.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(prefix="iwxa-public-image-") as tmp:
         root = Path(tmp)
         src = root / "source"
         checkout(src)
         print("ORIGINAL_IMAGE_SOURCE=PASS", flush=True)
-        host = build(src, root / "host")
-        print("ORIGINAL_IMAGE_HOST_BUILD=PASS", flush=True)
-        model = root / "model.gguf"
-        download_model(model)
-        print("ORIGINAL_IMAGE_MODEL_IDENTITY=PASS", flush=True)
-        images = [generate(host, model, result, i, p) for i, p in enumerate(PROMPTS, 1)]
-        require(images[0]["pixelSha256"] != images[1]["pixelSha256"], "IMAGE_REPEAT")
-        print("ORIGINAL_IMAGE_CPU_GENERATION=PASS", flush=True)
-        arm = build(src, root / "arm64", ndk)
-        elf = run(["readelf", "-h", arm], capture=True)
-        require(re.search(r"Machine:\s+AArch64\b", elf), "ANDROID_ELF_ARCH")
-        dependencies = run(["readelf", "-d", arm], capture=True)
-        require(not re.search(r"Shared library: \[(?:libggml|libstable-diffusion|libc\+\+_shared)", dependencies), "ANDROID_SHARED_RUNTIME")
-        verify_source(src)
-        print("ORIGINAL_IMAGE_ANDROID_ARM64_BUILD=PASS", flush=True)
         receipt = {"engineRevision": ENGINE_REV, "engineTree": ENGINE_TREE, "ggmlRevision": GGML_REV,
-                   "modelSha256": MODEL_SHA, "modelBytes": MODEL_BYTES, "ndk": NDK_VERSION,
-                   "hostCpuGeneration": "PASS", "androidArm64Build": "PASS", "androidExecution": "NOT_RUN",
-                   "physicalDevice": "NOT_RUN", "semanticQuality": "NOT_RUN", "images": images,
-                   "androidCliSha256": hashlib.sha256(arm.read_bytes()).hexdigest()}
+                   "androidExecution": "NOT_RUN", "physicalDevice": "NOT_RUN", "semanticQuality": "NOT_RUN"}
+        if mode == "host":
+            host = build(src, root / "host")
+            print("ORIGINAL_IMAGE_HOST_BUILD=PASS", flush=True)
+            model = root / "model.gguf"
+            download_model(model)
+            print("ORIGINAL_IMAGE_MODEL_IDENTITY=PASS", flush=True)
+            images = [generate(host, model, result, i, p) for i, p in enumerate(PROMPTS, 1)]
+            require(images[0]["pixelSha256"] != images[1]["pixelSha256"], "IMAGE_REPEAT")
+            receipt.update({"modelSha256": MODEL_SHA, "modelBytes": MODEL_BYTES,
+                            "hostCpuGeneration": "PASS", "images": images})
+            print("ORIGINAL_IMAGE_CPU_GENERATION=PASS", flush=True)
+        else:
+            arm = build(src, root / "arm64", ndk)
+            elf = run(["readelf", "-h", arm], capture=True)
+            require(re.search(r"Machine:\s+AArch64\b", elf), "ANDROID_ELF_ARCH")
+            dependencies = run(["readelf", "-d", arm], capture=True)
+            require(not re.search(r"Shared library: \[(?:libggml|libstable-diffusion|libc\+\+_shared)", dependencies), "ANDROID_SHARED_RUNTIME")
+            verify_source(src)
+            receipt.update({"ndk": NDK_VERSION, "androidArm64Build": "PASS",
+                            "androidCliSha256": hashlib.sha256(arm.read_bytes()).hexdigest()})
+            print("ORIGINAL_IMAGE_ANDROID_ARM64_BUILD=PASS", flush=True)
         (result / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
-        print("PUBLIC_IMAGE_PREFLIGHT=PASS", flush=True)
+        print("PUBLIC_IMAGE_" + mode.upper() + "=PASS", flush=True)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--result", required=True, type=Path)
-    parser.add_argument("--ndk", required=True, type=Path)
+    parser.add_argument("--mode", required=True, choices=("host", "android"))
+    parser.add_argument("--ndk", type=Path)
     args = parser.parse_args()
-    qualify(args.result.resolve(), args.ndk.resolve())
+    qualify(args.result.resolve(), args.mode, args.ndk.resolve() if args.ndk else None)
