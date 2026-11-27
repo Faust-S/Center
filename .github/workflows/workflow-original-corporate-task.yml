@@ -31,14 +31,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: dd99d7ba89e02f045aa66906397915c37d4fc016
+          ref: 3a30878acca2d2f62f5573e9d03c3ffcecc441ae
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: 54c9621ed917adb813fd4ffe3a2822813eeb992a
+          ref: e0f7274d882da64332efd0942dc0bb848e6fc5ab
           path: knowledge
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -60,8 +60,8 @@ jobs:
           node-version: '22.16.0'
       - name: Original signed Workflow Task profile and roundtrip
         run: |
-          test "$(git -C private-t3 rev-parse HEAD)" = "dd99d7ba89e02f045aa66906397915c37d4fc016"
-          test "$(git -C knowledge rev-parse HEAD)" = "54c9621ed917adb813fd4ffe3a2822813eeb992a"
+          test "$(git -C private-t3 rev-parse HEAD)" = "3a30878acca2d2f62f5573e9d03c3ffcecc441ae"
+          test "$(git -C knowledge rev-parse HEAD)" = "e0f7274d882da64332efd0942dc0bb848e6fc5ab"
           export IWXA_WORKFLOW_PUBLIC_SOURCE="$(node -p 'require("node:path").resolve("knowledge")')"
           export IWXA_WORKFLOW_AGENT_SOURCE="$(node -p 'require("node:path").resolve("private-agent")')"
           export IWXA_WORKFLOW_AGENT_FIXTURE="$(node -p 'require("node:path").resolve("qualification/workflow-original-task.py")')"
@@ -79,6 +79,8 @@ jobs:
           grep -q "ORIGINAL_AGENT_DURABLE_WORKFLOW_INPUT_FIXTURE_PASS" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_PUBLIC_SOURCE_CORPORATE_SIGNED_ROUNDTRIP_PASS
           echo ORIGINAL_AGENT_DURABLE_WORKFLOW_INPUT_FIXTURE_PASS
+          grep -q "ORIGINAL_AGENT_ACCEPTED_CONTENT_SIGNED_RESULT_FIXTURE_PASS" "$RUNNER_TEMP/workflow-task-private.log"
+          echo ORIGINAL_AGENT_ACCEPTED_CONTENT_SIGNED_RESULT_FIXTURE_PASS
       - name: Original corporate interop accumulation
         if: always()
         run: |
