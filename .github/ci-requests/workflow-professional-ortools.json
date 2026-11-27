@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "e1f352cb3e3ea73595602b95bffc27640722c093",
+  "profile": "qgis-u01-point-layer",
+  "pins": {
+    "professionalAgent": "30dbe252e5c2d7a9a0bf0b6226683175563df2b7"
+  },
+  "reason": "Qualify original QGIS U01 native Linux and cold result with cross-platform OR-Tools regression"
+}
