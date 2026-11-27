@@ -194,6 +194,15 @@ test('Center preparation export uses the canonical .iwxa writer and exact local 
  const w=await port.addWork(p.session,{projectId:p.projectId,title:'Prepared Work'});
  assert.equal(await port.exportPreparation(w.session),'saved.iwxa');
  assert.deepEqual(exported.snapshot,w.session.snapshot);
+ const {prepareAddedSnapshot}=await import('../vendor/atlas/desktop/src/import-snapshot.mjs');
+ const existing=createProject(empty(),{name:'Already in installed Atlas'});
+ const existingWork=createItem(existing.state,existing.id,{title:'Existing Work'});
+ const before=serialize(existingWork.state);
+ const added=prepareAddedSnapshot(existingWork.state,exported.snapshot);
+ assert.equal(added.addedProjects,1);
+ assert.equal(added.addedWorks,1);
+ assert.deepEqual(added.snapshot.projects,[...existingWork.state.projects,...w.session.snapshot.projects]);
+ assert.equal(serialize(existingWork.state),before);
  assert.equal(calls.filter(x=>x==='center_atlas_export_iwxa').length,1);
  await assert.rejects(()=>port.exportPreparation(p.session),/ATLAS_PREPARATION_CHANGED_BEFORE_EXPORT/);
  assert.equal(calls.filter(x=>x==='center_atlas_export_iwxa').length,1);

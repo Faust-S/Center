@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 4b062e3d92d118385843cc81f65902b11393506c
+          ref: da3a311e838d34d40babd7635b436f4ade742325
           path: vendor/atlas
           persist-credentials: false
       # Test CEN05 against the original, pinned public U04 bridge; never
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 4b062e3d92d118385843cc81f65902b11393506c
+          ref: da3a311e838d34d40babd7635b436f4ade742325
           path: vendor/atlas
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -89,7 +89,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/Atlas
-          ref: 4b062e3d92d118385843cc81f65902b11393506c
+          ref: da3a311e838d34d40babd7635b436f4ade742325
           path: vendor/atlas
           persist-credentials: false
       # Original U04 native module are required by Center's build.rs.
@@ -114,7 +114,7 @@ jobs:
       - run: npm install --no-audit --no-fund
       - name: Build native Center with original Atlas storage
         run: npx tauri build --no-bundle
-      - name: Qualify IWXA Setup Core native package and GUI (Center 0.4)
+      - name: Qualify IWXA Setup Core native package and GUI (Center 0.5)
         shell: pwsh
         timeout-minutes: 5
         run: ./installer/windows/test-native-package.ps1
@@ -160,7 +160,7 @@ jobs:
         timeout-minutes: 27
         run: |
           $ErrorActionPreference='Stop'
-          $expectedSource='4b062e3d92d118385843cc81f65902b11393506c'
+          $expectedSource='da3a311e838d34d40babd7635b436f4ade742325'
           $checked=(& git -C vendor/atlas rev-parse HEAD).Trim()
           if($LASTEXITCODE -ne 0 -or $checked -ne $expectedSource){
             throw 'CEN05_ATLAS_SOURCE_PIN_MISMATCH'
