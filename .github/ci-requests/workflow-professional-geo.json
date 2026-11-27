@@ -1,0 +1,11 @@
+{
+  "workflow": "workflow-professional-geo",
+  "prepared": "13949f0e1dc8421c6383f62aeb05fffc02b94a3f",
+  "profile": "public-road-benchmark-permissions",
+  "pins": {
+    "osmBlob": "63346b4ce8b8907b02563e2c9ec7813e4bbb5abd",
+    "osrm": "26.8.0",
+    "valhalla": "3.8.2"
+  },
+  "reason": "Repeat original road benchmark with runner-owned graph files; QGIS native qualification already passed"
+}
