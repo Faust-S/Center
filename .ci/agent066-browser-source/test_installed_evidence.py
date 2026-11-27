@@ -7,7 +7,8 @@ from installed_evidence import (SETUP_PIN, SETUP_REQUIRED, UPGRADE_REQUIRED, BRO
                                 BROWSER_STATES, clean_result, upgrade_result, lock_ok,
                                 CLEAN_CHECKPOINTS, ROLLBACK_CHECKPOINTS, MANUAL_GUI_STAGES,
                                 clean_setup_diagnostics, diagnostic_status, preview_dom_diagnostics,
-                                PREVIEW_DOM_STATES, PREVIEW_DOM_CONTROLS, navigation_http_diagnostics)
+                                PREVIEW_DOM_STATES, PREVIEW_DOM_CONTROLS, navigation_http_diagnostics,
+                                guest_observations,GUEST_UIA_STATES,GUEST_HWND_STATES,GUEST_DOM_STATES)
 
 OLD, OT, NEW, NT, OH, NH = 'a'*40, 'b'*40, 'c'*40, 'd'*40, 'e'*64, 'f'*64
 
@@ -246,5 +247,17 @@ class CleanDiagnosticTests(unittest.TestCase):
         for invalid in ('private','ONCE ','1','ONCE\nAGENT066_NAVIGATION_HTTP_A=ONCE'):
             self.assertEqual(navigation_http_diagnostics('AGENT066_NAVIGATION_HTTP_A='+invalid),{})
         self.assertEqual(navigation_http_diagnostics('prefix AGENT066_NAVIGATION_HTTP_A=ONCE'),{})
+
+    def test_guest_observations_are_bounded_and_independent(self):
+        for kind, allowed in [('UIA',GUEST_UIA_STATES),('HWND',GUEST_HWND_STATES),('DOM',GUEST_DOM_STATES)]:
+            prefix='AGENT066_GUEST_'+kind+'='
+            for value in allowed:
+                row=prefix+value
+                self.assertEqual(guest_observations(row),{'GUEST_'+kind:value})
+                self.assertEqual(guest_observations(row+'\n'+row),{})
+            self.assertEqual(guest_observations(prefix+'private'),{})
+            self.assertEqual(guest_observations('prefix '+prefix+'NOT_OBSERVED'),{})
+        self.assertEqual(guest_observations('AGENT066_GUEST_UIA=NO_MATCH\nAGENT066_GUEST_HWND=OWNED_SLOT_CHILD\nAGENT066_GUEST_DOM=VISIBLE'),
+                         {'GUEST_UIA':'NO_MATCH','GUEST_HWND':'OWNED_SLOT_CHILD','GUEST_DOM':'VISIBLE'})
 
 if __name__=='__main__': unittest.main()

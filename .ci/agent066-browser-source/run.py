@@ -41,7 +41,7 @@ def browser_witness_preflight(q):
     if q.run('B066_PREVIEW_WITNESS_SYNTAX', ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command',
         "$tokens=$null;$errors=$null;$null=[System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) 'tools/qualify_setup_core_browser_gui.ps1'),[ref]$tokens,[ref]$errors);if($errors.Count -ne 0){exit 1}"], timeout=60)[0]:
         return False
-    if q.run('B066_PREVIEW_LAYOUT_NODE', ['node','--test','tests/qualification/test_preview_layout_diagnostic.mjs','desktop/tests/browser-pane-model.test.mjs'], timeout=60)[0]:
+    if q.run('B066_PREVIEW_LAYOUT_NODE', ['node','--test','tests/qualification/test_preview_layout_diagnostic.mjs','tests/qualification/test_guest_observation.mjs','desktop/tests/browser-pane-model.test.mjs'], timeout=60)[0]:
         return False
     python = q.venv('browserwitnessqa', ['requirements-ci.txt'])
     if python is None:

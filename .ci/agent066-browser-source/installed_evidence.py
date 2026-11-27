@@ -282,3 +282,19 @@ def navigation_http_diagnostics(data):
         if len(rows) == 1 and rows[0] in ('NONE','ONCE','MULTIPLE'):
             result['NAVIGATION_HTTP_' + page] = rows[0]
     return result
+
+
+GUEST_UIA_STATES = frozenset(('NOT_OBSERVED','SLOT_MISSING','SLOT_INVALID','NO_OWNED_HIT',
+    'NO_MATCH','PROVIDER_UNAVAILABLE','DOCUMENT_ONLY','OFFSCREEN_OR_DISABLED','OUTSIDE_SLOT','AMBIGUOUS','FOUND'))
+GUEST_HWND_STATES = frozenset(('NOT_OBSERVED','NO_OWNED_HIT','OWNED_SLOT_CHILD','OWNED_SHELL_HIT','HIT_RECT_UNAVAILABLE'))
+GUEST_DOM_STATES = frozenset(('VISIBLE','HIDDEN','ZERO','MARKER_MISSING','NOT_READY','WRONG_DOCUMENT','TARGET_NOT_UNIQUE','UNAVAILABLE'))
+
+def guest_observations(data):
+    """Only bounded observations of the installed disposable native guest."""
+    result = {}
+    for key, allowed in (('UIA',GUEST_UIA_STATES),('HWND',GUEST_HWND_STATES),('DOM',GUEST_DOM_STATES)):
+        prefix = 'AGENT066_GUEST_' + key + '='
+        rows = [line[len(prefix):] for line in data.splitlines() if line.startswith(prefix)]
+        if len(rows) == 1 and rows[0] in allowed:
+            result['GUEST_' + key] = rows[0]
+    return result
