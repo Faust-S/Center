@@ -45,13 +45,13 @@ jobs:
         id: professional_source
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: c91b7dc137dea94bf9de3a2ef632bb7f2f1aeb5f
+          ref: b61ebd27a912e0f12099fe34e8295fc1ec70a68d
           path: professional-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - name: Install isolated exact solver qualification dependencies
         run: |
-          test "$(git -C professional-agent rev-parse HEAD)" = "c91b7dc137dea94bf9de3a2ef632bb7f2f1aeb5f"
+          test "$(git -C professional-agent rev-parse HEAD)" = "b61ebd27a912e0f12099fe34e8295fc1ec70a68d"
           python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 mesa==3.5.2 simpy==4.1.2 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
           python -c "from importlib.metadata import version; from ortools.sat.python import cp_model; assert version('ortools')=='9.14.6206'; print('ORIGINAL_ORTOOLS_9_14_6206_PRESENT')"
       - name: Original OR-Tools solver and U01 connection qualification
