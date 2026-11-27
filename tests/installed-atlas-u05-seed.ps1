@@ -12,6 +12,7 @@ using System.Runtime.InteropServices;
 public static class AtlasU05NativeWin {
  [DllImport("user32.dll",SetLastError=true)]
  public static extern bool PostMessage(IntPtr hwnd,uint msg,IntPtr w,IntPtr l);
+ [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
 }
 '@
 $exe=$env:ATLAS_INSTALLED_EXE
@@ -126,7 +127,219 @@ function Await-Owner([int]$works,[string]$previous){
  }
  throw "U05_OWNER_NATIVE_READBACK_NOT_OBSERVED works=$works"
 }
+# Reuse this installed GUI driver for the original T3 signed-file witness.
+# The fixture is supplied by the private original T3 test, never generated or
+# signed here. All persistence is through the actual Atlas UI and U05 store.
+function Await-SignedText([string]$fragment){
+ for($i=0;$i -lt 120;$i++){
+   $items=(Root).FindAll([System.Windows.Automation.TreeScope]::Descendants,
+     [System.Windows.Automation.Condition]::TrueCondition)
+   foreach($item in $items){
+     try{if(([string]$item.Current.Name).Contains($fragment)){return}}catch{}
+   }
+   Start-Sleep -Milliseconds 250
+ }
+ throw 'ATLAS_U05_SIGNED_UI_TEXT_NOT_OBSERVED'
+}
+function Open-SignedFile([string]$archive){
+ Click-UI 'Сохранение и копии'
+ $control=Find-UI 'Принять подписанный Result .iwxa'
+ $control.SetFocus()
+ [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+ $dialog=$null
+ for($i=0;$i -lt 80;$i++){
+   $handle=[AtlasU05NativeWin]::GetForegroundWindow()
+   if($handle -ne [IntPtr]::Zero -and $handle -ne $proc.MainWindowHandle){
+     try{
+       $candidate=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
+       if($candidate.Current.ClassName -eq '#32770'){$dialog=$candidate;break}
+     }catch{}
+   }
+   Start-Sleep -Milliseconds 150
+ }
+ if($null -eq $dialog){throw 'ATLAS_U05_SIGNED_FILE_DIALOG_NOT_OPEN'}
+ $field=$dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+   [System.Windows.Automation.PropertyCondition]::new(
+     [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'1148'))
+ $set=$false
+ if($null -ne $field){
+   try{
+     if($field.Current.ControlType -eq [System.Windows.Automation.ControlType]::ComboBox){
+       $field=$field.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+         [System.Windows.Automation.PropertyCondition]::new(
+           [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+           [System.Windows.Automation.ControlType]::Edit))
+     }
+     $value=$field.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+     $value.SetValue($archive)
+     $set=([string]$value.Current.Value -ceq $archive)
+   }catch{}
+ }
+ if(!$set){
+   if($archive -match '[+^%~{}()]'){throw 'ATLAS_U05_SIGNED_FILE_PATH_UNSUPPORTED'}
+   [System.Windows.Forms.SendKeys]::SendWait('%n')
+   Start-Sleep -Milliseconds 150
+   [System.Windows.Forms.SendKeys]::SendWait('^a')
+   [System.Windows.Forms.SendKeys]::SendWait($archive)
+ }
+ [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+ # Wait for the real signed-file review, not just disappearance of the dialog.
+ Await-SignedText 'Оригинальный T3 проверил подпись'
+ $preview=Find-UI 'Оригинальный подписанный текст Result' 'Edit'
+ $text=$preview.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+ if([string]$text.Current.Value -cne $env:ATLAS_U05_SIGNED_RESULT_SUMMARY){
+   throw 'ATLAS_U05_SIGNED_PREVIEW_TEXT_MISMATCH'
+ }
+}
+function Read-SignedDecision($saved,[string]$sha){
+ $prefix='T3_RESULT_LINK/1 '
+ $matches=@(foreach($project in @($saved.projects)){
+   foreach($decision in @($project.decisions)){
+     $text=[string]$decision.text
+     if($text.StartsWith($prefix)){
+       $row=$text.Substring($prefix.Length)|ConvertFrom-Json -Depth 100
+       if($row.archiveSha256 -ceq $sha){
+         [pscustomobject]@{project=$project;decision=$decision;row=$row}
+       }
+     }
+   }
+ })
+ if($matches.Count -gt 1){throw 'ATLAS_U05_SIGNED_DUPLICATE_DECISION'}
+ if($matches.Count -eq 1){return $matches[0]}
+ return $null
+}
+function Receive-SignedResult{
+ $archive=$env:ATLAS_U05_SIGNED_RESULT_FILE
+ $sha=$env:ATLAS_U05_SIGNED_RESULT_SHA256
+ if(!(Test-Path -LiteralPath $archive -PathType Leaf) -or $sha -notmatch '^[a-f0-9]{64}
+ $before=Owner-Snapshot
+ if(!$append -and $null -ne $before){
+   throw 'U05_OWNER_SEED_EXPECTED_FRESH_PROFILE'
+ }
+ if($append){
+   $source=@($before.projects|Where-Object {$_.name -eq $projectName})
+   if($source.Count -ne 1 -or @($source[0].items).Count -ne 2){
+     throw 'U05_OWNER_PREVIOUS_GUI_WORKS_NOT_PRESENT'
+   }
+   $previous=[string]$before.head.generation
+   Start-Atlas
+   Click-UI 'Портфель'
+   Click-UI '＋ Новый проект'
+   Wait-Title 'Форма: Новый проект'
+   Fill-UI 'Название проекта' 'U05AfterCenterLink'
+   Click-UI 'Применить к черновику'
+   Wait-Title 'U05AfterCenterLink'
+   Click-UI 'Сохранить'
+   $saved=$null
+   for($i=0;$i -lt 100;$i++){
+     try{
+       $candidate=Owner-Snapshot
+       if([string]$candidate.head.generation -ne $previous -and
+          @($candidate.projects|Where-Object {$_.name -eq 'U05AfterCenterLink'}).Count -eq 1){
+         $saved=$candidate
+         break
+       }
+     }catch{}
+     Start-Sleep -Milliseconds 250
+   }
+   if(!$saved){throw 'U05_OWNER_GUI_NEW_REVISION_NOT_PERSISTED'}
+   $originalProject=@($saved.projects|Where-Object {$_.name -eq $projectName})
+   if($originalProject.Count -ne 1 -or @($originalProject[0].items).Count -ne 2){
+     throw 'U05_OWNER_OLD_WORKS_CHANGED_AFTER_APPEND'
+   }
+   Write-Host "U05_OWNER_GUI_REVISION_ADVANCED_PASS version=$($saved.head.revision)"
+ }else{
+   Start-Atlas
+   Click-UI 'Портфель'
+   Click-UI '＋ Новый проект'
+   Wait-Title 'Форма: Новый проект'
+   Fill-UI 'Название проекта' $projectName
+   Click-UI 'Применить к черновику'
+   Wait-Title "$projectName — Обзор"
+   Click-UI 'Сохранить'
+   $saved=Await-Owner 0 'none'
+   Click-UI 'Таблица'
+   Wait-Title 'Таблица'
+   foreach($name in @($firstWork,$secondWork)){
+     Click-UI '＋ Работа'
+     Wait-Title 'Форма: Новая работа'
+     Fill-UI 'Что нужно сделать?' $name
+     Click-UI 'Применить к черновику'
+     Wait-Title 'Таблица · Не сохранено'
+   }
+   Click-UI 'Сохранить'
+   $result=Await-Owner 2 ([string]$saved.head.generation)
+   $project=@($result.projects|Where-Object {$_.name -eq $projectName})[0]
+   if(@($project.items|ForEach-Object {$_.title}) -notcontains $firstWork -or
+      @($project.items|ForEach-Object {$_.title}) -notcontains $secondWork){
+     throw 'U05_OWNER_GUI_WORK_TITLES_DID_NOT_SURVIVE_NATIVE_SAVE'
+   }
+   Write-Host "U05_INSTALLED_ATLAS_GUI_TWO_WORKS_PASS version=$($result.head.revision)"
+ }
+}finally{
+ if($null -ne $proc){
+   try{Close-Atlas}catch{
+     $proc.Refresh()
+     if(!$proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue}
+     throw
+   }
+ }
+}
+ -or
+    (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sha){
+   throw 'ATLAS_U05_SIGNED_FIXTURE_MISMATCH'
+ }
+ $before=Owner-Snapshot
+ $project=@($before.projects|Where-Object {$_.name -ceq $projectName})
+ if($project.Count -ne 1){throw 'ATLAS_U05_SIGNED_PROJECT_REQUIRED'}
+ $work=@($project[0].items|Where-Object {$_.title -ceq $firstWork})
+ if($work.Count -ne 1 -or $null -ne (Read-SignedDecision $before $sha)){
+   throw 'ATLAS_U05_SIGNED_FRESH_WORK_REQUIRED'
+ }
+ Start-Atlas
+ Open-SignedFile $archive
+ Click-UI 'Подтвердить получение'
+ Await-SignedText 'Выбранный подписанный Result сохранён в Atlas'
+ $saved=Owner-Snapshot
+ $entry=Read-SignedDecision $saved $sha
+ if($null -eq $entry -or $saved.head.generation -ceq $before.head.generation -or
+    [long]$saved.head.revision -ne ([long]$before.head.revision+1) -or
+    $entry.project.id -cne $project[0].id -or $entry.row.projectId -cne $project[0].id -or
+    $entry.row.workId -cne $work[0].id -or
+    [string]$entry.row.sourceRevision -cne [string]$before.head.revision -or
+    $entry.row.sourceKind -cne 'ADMIN_APPLIED_RESULT' -or
+    $entry.row.signedFileMode -ne $true -or $entry.row.originalKernelEventVerified -ne $false -or
+    $entry.row.selectedAcceptedSummary -cne $env:ATLAS_U05_SIGNED_RESULT_SUMMARY){
+   throw 'ATLAS_U05_SIGNED_NATIVE_DECISION_MISMATCH'
+ }
+ # A received Result is evidence, not an implicit edit of the original plan.
+ if(($entry.project.items|ConvertTo-Json -Depth 100 -Compress) -cne
+    ($project[0].items|ConvertTo-Json -Depth 100 -Compress) -or
+    ($entry.project.dependencies|ConvertTo-Json -Depth 100 -Compress) -cne
+    ($project[0].dependencies|ConvertTo-Json -Depth 100 -Compress)){
+   throw 'ATLAS_U05_SIGNED_UNREQUESTED_PLAN_MUTATION'
+ }
+ $generation=[string]$saved.head.generation
+ $decisionId=[string]$entry.decision.id
+ Close-Atlas
+ Start-Atlas
+ Open-SignedFile $archive
+ Await-SignedText 'Этот Result уже сохранён в Atlas'
+ Click-UI 'Проверить квитанцию'
+ Await-SignedText 'Выбранный подписанный Result сохранён в Atlas'
+ $cold=Owner-Snapshot
+ $observed=Read-SignedDecision $cold $sha
+ if($null -eq $observed -or $cold.head.generation -cne $generation -or
+    $observed.decision.id -cne $decisionId -or $observed.decision.text -cne $entry.decision.text){
+   throw 'ATLAS_U05_SIGNED_COLD_READBACK_CHANGED'
+ }
+ Write-Host 'ATLAS_INSTALLED_SIGNED_RESULT_GUI_PASS'
+}
 try{
+ if($env:ATLAS_U05_SIGNED_RESULT_FILE){
+   Receive-SignedResult
+   return
+ }
  $append=$env:ATLAS_U05_APPEND_PROJECT -eq '1'
  $before=Owner-Snapshot
  if(!$append -and $null -ne $before){
