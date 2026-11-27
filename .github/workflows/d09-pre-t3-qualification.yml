@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   product:
-    if: github.event.before == '504d1d541a289ea014cfc2c25a9503e52853e171'
+    if: github.event.before == 'ed7e476cf139d95428a64c243286cbac3b405975'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -21,7 +21,6 @@ jobs:
       D09_PREVIEW_PRODUCTION_LOOPBACK: '1'
       D09_ASSEMBLY_ONLY: '0'
       D09_ASSEMBLY_ONLY_CONSENT: ''
-      npm_config_cache: ${{ runner.temp }}/d09-npm-cache
     steps:
       - name: Approved read-only source access
         env:
@@ -93,6 +92,7 @@ jobs:
             echo "D09_QUALIFIED_KERNEL_DIST=$RUNNER_TEMP/d09-kernel"
             echo "D09_PREVIEW_CERT_PATH=$RUNNER_TEMP/d09-tls/cert.pem"
             echo "D09_PREVIEW_KEY_PATH=$RUNNER_TEMP/d09-tls/key.pem"
+            echo "npm_config_cache=$RUNNER_TEMP/d09-npm-cache"
           } >> "$GITHUB_ENV"
           echo D09_ORIGINAL_KERNEL_HASH=PASS
       - name: Set up Node 24
