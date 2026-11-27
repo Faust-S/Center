@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "6b789424a4d74e99cb97ff90360a4d77f09dc9e4",
+  "profile": "original-vehicle-routing",
+  "pins": {
+    "professionalAgent": "c91b7dc137dea94bf9de3a2ef632bb7f2f1aeb5f"
+  },
+  "reason": "Qualify mandatory delivery routing via original RoutingModel, exact time window replay and durable approved Task result"
+}
