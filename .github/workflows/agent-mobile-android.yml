@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: '5870fd8363c2d19b5c493e26e3608cb288cee351'
-      PRIVATE_TREE: 'b6c92e956af36c3abde2ee2b848a580413e5ca4c'
+      PRIVATE_PIN: '49f89a93d9d3db41aa8d904dcb000393173581be'
+      PRIVATE_TREE: '24aad161e29d0fcd873d01a83f451e8392d6ce58'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -204,6 +204,27 @@ jobs:
                               passed=outcome.returncode==0 and stages==expected and re.findall(r"(?m)^NATIVE_REAL_TTS_ROUTE=(PASS|FAIL)\s*$",report)==["PASS"]
                               status(name,"PASS" if passed else "FAIL")
                               return passed
+                          if name=="NATIVE_VOICE_DIALOGUE_ROUTE":
+                              expected=["OFFLINE_START","FIXTURES_VERIFIED","FIRST_TURN","WHISPER_BOUND","WHISPER_INSERTED","SECOND_TURN","STALE_BINDING_REJECTED","SUPERTONIC_BOUND","PLAYBACK_BOUND","FOLLOWUP_TURN","OFFLINE_END"]
+                              stages=re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_PASS=([A-Z_]+)\s*$",report)
+                              for value in stages:
+                                  if value in expected:status("NATIVE_VOICE_DIALOGUE_PASS",value)
+                              for value in re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_OBSERVED=([A-Z_]+)\s*$",report):
+                                  if value in expected:status("NATIVE_VOICE_DIALOGUE_OBSERVED",value)
+                              codes={
+                                  "NATIVE_VOICE_DIALOGUE_FAILURE_CHECK":{"OFFLINE","FIXTURE","MEMORY","STATUS","CONTEXT","PICKER","TRANSCRIPT","STALE","TTS_SOURCE","AUDIO","CLEANUP"},
+                                  "NATIVE_VOICE_DIALOGUE_FAILURE_STAGE":{"HOME","LOCAL","MODEL","FIRST_TURN","SPEECH","WHISPER","INSERT","SECOND_TURN","TTS","PLAY","RETURN","FOLLOWUP","NATIVE_REPLY"},
+                                  "NATIVE_VOICE_DIALOGUE_HELPER_FAILURE":{"WEBVIEW_TIMEOUT","UI_PICKER","UI_RETURN","TRANSCRIPT_SEMANTIC"},
+                                  "NATIVE_VOICE_DIALOGUE_FAILURE_CODE":{"ARGUMENTS","ADB_FAILED","DISPOSABLE_CI_REQUIRED","DISPOSABLE_EMULATOR_REQUIRED","DISPOSABLE_AVD_REQUIRED","INSTRUMENTATION_FAILED","APP_NOT_INSTALLED","TEST_NOT_INSTALLED","OFFLINE_NOT_ENABLED","PROCESS_NOT_STOPPED"},
+                              }
+                              for key,allowed in codes.items():
+                                  for value in re.findall(r"(?m)^"+key+r"=([A-Z_]+)\s*$",report):
+                                      if value in allowed:status(key,value)
+                              for value in re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_FAILURE_TYPE=([A-Za-z]+)\s*$",report):
+                                  if value in {"RuntimeError","ValueError","KeyError","TypeError","OSError","TimeoutExpired","CalledProcessError","AssertionError","FileNotFoundError"}:status("NATIVE_VOICE_DIALOGUE_FAILURE_TYPE",value)
+                              passed=outcome.returncode==0 and stages==expected and re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_ROUTE=(PASS|FAIL)\s*$",report)==["PASS"]
+                              status(name,"PASS" if passed else "FAIL")
+                              return passed
                           if name=="NATIVE_REAL_VISION_ROUTE":
                               expected=["OFFLINE_START","FIXTURES_VERIFIED","INVALID_IMAGE_REJECTED","NATIVE_IMAGE","NATIVE_FOLLOWUP","UI_IMAGE","OFFLINE_END"]
                               stages=re.findall(r"(?m)^NATIVE_REAL_VISION_PASS=([A-Z_]+)\s*$",report)
@@ -304,7 +325,7 @@ jobs:
                           if name in ("SOURCE","ASSEMBLY") and outcome.returncode==0:
                               # Exact accumulated source suite; no skip or todo.
                               node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
-                              if any(node_counts[label]!=[value] for label,value in {"tests":"672","pass":"672","fail":"0","skipped":"0","todo":"0"}.items()):
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"688","pass":"688","fail":"0","skipped":"0","todo":"0"}.items()):
                                   status(name,"NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
@@ -398,7 +419,7 @@ jobs:
                               }
                               failed=re.findall(r"Execution failed for task ':[^'\r\n]*:([A-Za-z0-9]+)'",report)
                               for task in sorted({tasks.get(x,"OTHER") for x in failed}):status("GRADLE_FAILED_TASK",task)
-                              roles={"DraftCheckpointPlugin.java":"DRAFT_CHECKPOINT","PhotoInputPlugin.java":"PHOTO_INPUT","PhotoInputPolicy.java":"PHOTO_INPUT_POLICY","LocalModelPlugin.kt":"MODEL_BRIDGE","OriginalSpeech.kt":"SPEECH_NATIVE","SpeechModelFiles.kt":"SPEECH_FILES","SpeechWaveFile.kt":"SPEECH_WAVE","SpeechAudioWindows.kt":"SPEECH_WINDOWS","SpeechPcmBuffer.kt":"SPEECH_PCM","SpeechRunControl.kt":"SPEECH_CONTROL","AndroidSpeechRecorder.kt":"SPEECH_RECORDER","AndroidSpeechInput.kt":"SPEECH_MEDIA","SpeechTextFile.kt":"SPEECH_TEXT_FILE","OriginalSpeechInstalledTest.java":"SPEECH_WITNESS","TtsModelFiles.kt":"TTS_MODEL","OriginalTts.kt":"TTS_NATIVE","SpeechSynthesisPolicy.kt":"TTS_POLICY","TtsAudioFiles.kt":"TTS_AUDIO","TtsPlayback.kt":"TTS_PLAYBACK","OriginalTtsInstalledTest.java":"TTS_WITNESS","RecommendedModels.kt":"MODEL_DOWNLOAD","RecommendedBundleFiles.kt":"MODEL_BUNDLE","RecommendedDownloadPolicy.kt":"MODEL_DOWNLOAD_POLICY","ModelFileIntegrity.kt":"FILE_INTEGRITY","ModelProjectorFile.kt":"MODEL_PROJECTOR","ModelPickerAdmission.kt":"MODEL_PICKER_ADMISSION","DocumentsUiWitness.java":"DOCUMENTS_UI_WITNESS","DocumentsUiNavigation.java":"DOCUMENTS_UI_NAVIGATION","InstalledRouteTest.java":"INSTALLED_WITNESS","OriginalAgentInstalledTest.java":"ORIGINAL_AGENT_INSTALLED_WITNESS","OriginalNativeVisionInstalledTest.java":"NATIVE_VISION_WITNESS","OriginalT3InstalledTest.java":"ORIGINAL_T3_INSTALLED_WITNESS","OriginalExchangeInstalledWitness.java":"ORIGINAL_EXCHANGE_INSTALLED_WITNESS","IwxaArchiveStaging.kt":"EXCHANGE_FILE_STAGING","IwxaPackageFilePlugin.kt":"EXCHANGE_FILE_BRIDGE","T3AssetWebViewClient.java":"T3_ASSET_DELIVERY","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
+                              roles={"DraftCheckpointPlugin.java":"DRAFT_CHECKPOINT","PhotoInputPlugin.java":"PHOTO_INPUT","PhotoInputPolicy.java":"PHOTO_INPUT_POLICY","LocalModelPlugin.kt":"MODEL_BRIDGE","OriginalSpeech.kt":"SPEECH_NATIVE","SpeechModelFiles.kt":"SPEECH_FILES","SpeechWaveFile.kt":"SPEECH_WAVE","SpeechAudioWindows.kt":"SPEECH_WINDOWS","SpeechPcmBuffer.kt":"SPEECH_PCM","SpeechRunControl.kt":"SPEECH_CONTROL","AndroidSpeechRecorder.kt":"SPEECH_RECORDER","AndroidSpeechInput.kt":"SPEECH_MEDIA","SpeechTextFile.kt":"SPEECH_TEXT_FILE","OriginalSpeechInstalledTest.java":"SPEECH_WITNESS","TtsModelFiles.kt":"TTS_MODEL","OriginalTts.kt":"TTS_NATIVE","SpeechSynthesisPolicy.kt":"TTS_POLICY","TtsAudioFiles.kt":"TTS_AUDIO","TtsPlayback.kt":"TTS_PLAYBACK","OriginalTtsInstalledTest.java":"TTS_WITNESS","ResidentSpeechPolicy.kt":"SPEECH_RESIDENT_POLICY","OriginalVoiceDialogueInstalledTest.java":"VOICE_DIALOGUE_WITNESS","RecommendedModels.kt":"MODEL_DOWNLOAD","RecommendedBundleFiles.kt":"MODEL_BUNDLE","RecommendedDownloadPolicy.kt":"MODEL_DOWNLOAD_POLICY","ModelFileIntegrity.kt":"FILE_INTEGRITY","ModelProjectorFile.kt":"MODEL_PROJECTOR","ModelPickerAdmission.kt":"MODEL_PICKER_ADMISSION","DocumentsUiWitness.java":"DOCUMENTS_UI_WITNESS","DocumentsUiNavigation.java":"DOCUMENTS_UI_NAVIGATION","InstalledRouteTest.java":"INSTALLED_WITNESS","OriginalAgentInstalledTest.java":"ORIGINAL_AGENT_INSTALLED_WITNESS","OriginalNativeVisionInstalledTest.java":"NATIVE_VISION_WITNESS","OriginalT3InstalledTest.java":"ORIGINAL_T3_INSTALLED_WITNESS","OriginalExchangeInstalledWitness.java":"ORIGINAL_EXCHANGE_INSTALLED_WITNESS","IwxaArchiveStaging.kt":"EXCHANGE_FILE_STAGING","IwxaPackageFilePlugin.kt":"EXCHANGE_FILE_BRIDGE","T3AssetWebViewClient.java":"T3_ASSET_DELIVERY","MainActivity.java":"ACTIVITY","NetworkRouteSpec.java":"NETWORK_SPEC","RoutedJsonHttp.java":"ROUTED_HTTP","RoutedNetworkPlugin.java":"NETWORK_PLUGIN","ProfileBrowserActivity.java":"PROFILE_BROWSER","NetworkRouteInstalledTest.java":"NETWORK_WITNESS","NetworkRouteSpecTest.java":"NETWORK_UNIT_TEST"}
                               for line in report.splitlines():
                                   if not (line.startswith("e:") or "error:" in line):continue
                                   loc=re.search(r"("+"|".join(re.escape(name) for name in roles)+r"):(?:(\d{1,5}):(\d{1,4})|(\d{1,5}):)",line)
@@ -420,9 +441,9 @@ jobs:
                       if not report_stage("SOURCE",["npm","run","check:source"],mobile,180):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
                       vision_policy=run(["python3","mobile/qualification/test_native_vision_receipt.py"],source,timeout=60)
-                      if vision_policy.returncode or not re.search(rb"(?m)^Ran 21 tests? in [0-9.]+s\s*$",vision_policy.stdout) or not re.search(rb"(?m)^OK\s*$",vision_policy.stdout):
+                      if vision_policy.returncode or not re.search(rb"(?m)^Ran 25 tests? in [0-9.]+s\s*$",vision_policy.stdout) or not re.search(rb"(?m)^OK\s*$",vision_policy.stdout):
                           status("NATIVE_MULTIMODAL_RECEIPT_POLICY","FAIL");status("APK","NOT_RUN");return 1
-                      status("NATIVE_MULTIMODAL_RECEIPT_POLICY","21/21")
+                      status("NATIVE_MULTIMODAL_RECEIPT_POLICY","25/25")
                       policy=root/"context-policy"
                       if not stage("LLAMA_CONTEXT_POLICY_BUILD",["g++","-std=c++17","-Wall","-Wextra","-Werror","-O2","qualification/llama-context-budget.test.cpp","-o",str(policy)],mobile,120):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
@@ -643,13 +664,18 @@ jobs:
                               tts_ok=report_stage("NATIVE_REAL_TTS_ROUTE",[py,"mobile/qualification/installed-t3-route.py",adb,"--native-tts-only"],source,1800)
                           else:
                               status("NATIVE_REAL_TTS_ROUTE","NOT_RUN")
+                          voice_ok=False
+                          if native_ok:
+                              voice_ok=report_stage("NATIVE_VOICE_DIALOGUE_ROUTE",[py,"mobile/qualification/installed-t3-route.py",adb,"--native-voice-dialogue-only"],source,2100)
+                          else:
+                              status("NATIVE_VOICE_DIALOGUE_ROUTE","NOT_RUN")
                           t3_ok=False
                           if native_ok:
                               # Independent installed T3 evidence remains useful after an Agent route failure.
                               t3_ok=report_stage("INSTALLED_T3_ROUTE",[py,"mobile/qualification/installed-t3-route.py",adb],source,2550)
                           else:
                               status("INSTALLED_T3_ROUTE","NOT_RUN")
-                          passed=native_ok and remote_ok and vision_ok and speech_ok and tts_ok and t3_ok
+                          passed=native_ok and remote_ok and vision_ok and speech_ok and tts_ok and voice_ok and t3_ok
                           status("QUALIFICATION","PASS" if passed else "FAIL")
                           status("PHYSICAL_ARM64","NOT_RUN")
                           status("REAL_VISION_ROUTE","NOT_RUN")
