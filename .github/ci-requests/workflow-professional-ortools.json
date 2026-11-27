@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "074596ef90ac6ba3b13f41451a899ff37ad9e6c2",
+  "profile": "qgis-valhalla-ortools-pipeline",
+  "pins": {
+    "professionalAgent": "d8dc8a7741b13606b0273a43df649aab40a7f445"
+  },
+  "reason": "Qualify exact saved QGIS point Result to native Valhalla and ORTools delivery optimization on Linux and Windows contracts"
+}
