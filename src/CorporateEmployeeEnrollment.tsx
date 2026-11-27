@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {prepareEmployeeDraftTask,employeeDraftSelectionCurrent,verifyEmployeeDraftSources} from './corporate-draft-task.mjs';
 import CorporateSeatAssignments from './CorporateSeatAssignments';
+import {createNativeAtlasPort,readNativeAtlasRecordedResult} from './atlas-native.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
 import {readOriginalEmployeeRegistryReceipt,readOriginalSeatView} from '../runtime/cen03-corporate-seats.mjs';
@@ -10,7 +11,7 @@ import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskRea
  inspectOriginalEmployeeWorkspaceRights,inspectOriginalEmployeeTaskGrant,
  readOriginalTaskCatalog,validateOriginalEmployeeCatalogReadback,validateOriginalEmployeeTaskExportReceipt,
  validateOriginalAtlasWorkspaceReadback,validateOriginalAtlasWorkspacePublicationPreview,
- validateOriginalAtlasWorkspacePublicationReceipt}
+ validateOriginalAtlasWorkspacePublicationReceipt,originalAtlasWorkspacePublicationReference}
  from '../runtime/cen03-d3-owner.mjs';
 
 // This is a manager's view of the ORIGINAL installed T3 employee enrollment.
@@ -55,8 +56,8 @@ function keyRecord(raw:string,personId:string){
 }
 // Reuse the current/historical verified Task receipt. No new Result ledger,
 // persistent cache or signed authority is held in this presentation.
-function AtlasWorkspaceResults({task,session,execute,run,busy}:{
- task:any;session:Session;execute:Exec;run:Run;busy:boolean;
+function AtlasWorkspaceResults({task,session,execute,run,busy,invoke}:{
+ task:any;session:Session;execute:Exec;run:Run;busy:boolean;invoke:Exec;
 }){
  const [view,setView]=useState<any>(null);
  const [choice,setChoice]=useState('');
@@ -64,6 +65,7 @@ function AtlasWorkspaceResults({task,session,execute,run,busy}:{
  const [preview,setPreview]=useState<any>(null);
  const [publication,setPublication]=useState<any>(null);
  const [attempted,setAttempted]=useState(false);
+ const [recorded,setRecorded]=useState<{status:string;revision:string;decisionId?:string}|null>(null);
  const available=session.d3AtlasWorkspaceResultReadbackAvailable===true;
  const canPublish=session.d3AtlasWorkspacePublicationAvailable===true;
  const work=task.atlasReference?.workRef;
@@ -71,7 +73,7 @@ function AtlasWorkspaceResults({task,session,execute,run,busy}:{
    'Полученные корпоративные записи перечитаны из оригинальной Workspace.',async()=>{
      if(!available||!work)throw Error('CEN_D3_ATLAS_WORKSPACE_READBACK_NOT_CONNECTED');
      const request={taskId:task.taskId,offset,...(resultObjectId?{resultObjectId}:{})};
-     setView(null);setChoice('');setPreview(null);setPublication(null);setAttempted(false);
+     setView(null);setChoice('');setPreview(null);setPublication(null);setAttempted(false);setRecorded(null);
      const value=await execute('d3AtlasWorkspaceResultReadback',request);
      const checked=validateOriginalAtlasWorkspaceReadback(value,task,session,request);
      setView(checked);setChoice(resultObjectId??'');
@@ -91,7 +93,7 @@ function AtlasWorkspaceResults({task,session,execute,run,busy}:{
  };
  const prepare=()=>run('Исходный Result проверен для передачи в Atlas.',async()=>{
    if(!canPublish||!selected?.portableContentAvailable)return false;
-   setPreview(null);setPublication(null);setAttempted(false);
+   setPreview(null);setPublication(null);setAttempted(false);setRecorded(null);
    if(await readGrant()!=='ACTIVE')return false;
    const value=await execute('d3AtlasWorkspaceResultPreview',selection());
    setPreview(validateOriginalAtlasWorkspacePublicationPreview(value,view,session));
@@ -120,6 +122,17 @@ function AtlasWorkspaceResults({task,session,execute,run,busy}:{
    const value=await execute('d3AtlasWorkspaceResultRecover',selection());
    setPublication(validateOriginalAtlasWorkspacePublicationReceipt(value,preview));
    if(value.status==='NOT_PUBLISHED_CONFIRMED'){setPreview(null);setAttempted(false);}
+ });
+ const readAtlasReceipt=()=>run('Сохранённый результат проверен в Atlas.',async()=>{
+   if(!canPublish||!preview||publication?.status!=='ORIGINAL_ADMIN_RESULT_PUBLISHED')return false;
+   setRecorded(null);
+   const source=originalAtlasWorkspacePublicationReference(view,preview,publication,session);
+   try{
+     const owner=await createNativeAtlasPort(invoke).openPublicAtlas(session.organizationId);
+     const observation=readNativeAtlasRecordedResult(owner,source);
+     setRecorded(observation);
+     return observation.status==='RECORDED';
+   }catch(e){setRecorded({status:'UNAVAILABLE',revision:''});return false;}
  });
  const save=()=>run('Подписанный файл сохранён. Получение необходимо подтвердить в Atlas.',async()=>{
    if(!canPublish||!selected||!preview||publication?.status!=='ORIGINAL_ADMIN_RESULT_PUBLISHED')return false;
@@ -187,11 +200,21 @@ function AtlasWorkspaceResults({task,session,execute,run,busy}:{
                <button type="button" className="secondary" disabled={busy}
                  onClick={()=>void recover()}>Проверить публикацию</button>}
              {publication?.status==='ORIGINAL_ADMIN_RESULT_PUBLISHED'&&<>
-               <p role="status">Подписанный Result подготовлен. Получение ещё не подтверждено.</p>
+               <p role="status">{recorded?.status==='RECORDED'?'Result сохранён в исходной работе Atlas.':'Подписанный Result подготовлен. Получение ещё не подтверждено.'}</p>
                <button type="button" className="secondary" disabled={busy}
                  data-testid="d3-atlas-workspace-export"
                  onClick={()=>void save()}>Сохранить Result .iwxa для Atlas</button>
                <small>Откройте сохранённый файл в Atlas через меню «Файл».</small>
+               <button type="button" className="secondary" disabled={busy}
+                 data-testid="d3-atlas-workspace-receipt-read"
+                 onClick={()=>void readAtlasReceipt()}>Проверить получение в Atlas</button>
+               {recorded&&<p role="status" data-testid="d3-atlas-workspace-receipt-status">
+                 {recorded.status==='RECORDED'?`Запись подтверждена в сохранённой редакции ${recorded.revision}. Это факт сохранения, а не новая проверка действующих полномочий.`:
+                  recorded.status==='WORK_MISSING'?'Исходная работа отсутствует в текущем сохранённом плане Atlas.':
+                  recorded.status==='AMBIGUOUS'?'В сохранённом плане обнаружены неоднозначные ссылки на эту публикацию.':
+                  recorded.status==='NOT_RECORDED'?'Точная публикация пока не найдена в сохранённом плане Atlas.':
+                  'Сохранённый план Atlas недоступен. Получение не подтверждено.'}
+               </p>}
              </>}
              {publication&&['RECOVERY_REQUIRED','OUTCOME_UNKNOWN'].includes(publication.status)&&
                <p role="status">Результат подписи пока не подтверждён. Повторная подпись не выполняется.</p>}
@@ -1082,7 +1105,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
           {verifiedHistory?.atlasReference&&<AtlasWorkspaceResults
            key={JSON.stringify([session.organizationId,session.workspaceId,session.contextId,session.contextEpoch,
              verifiedHistory.taskId,verifiedHistory.taskRevisionId,verifiedHistory.packageSha256])}
-           task={verifiedHistory} session={session} execute={execute} run={run} busy={busy}/>}
+           task={verifiedHistory} session={session} execute={execute} run={run} busy={busy} invoke={invoke}/>}
          </div>}
         </>}
         </>}
@@ -1271,7 +1294,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      {freshTaskReadback&&taskReceipt?.atlasReference&&<AtlasWorkspaceResults
        key={JSON.stringify([session.organizationId,session.workspaceId,session.contextId,session.contextEpoch,
          taskReceipt.taskId,taskReceipt.taskRevisionId,taskReceipt.packageSha256])}
-       task={taskReceipt} session={session} execute={execute} run={run} busy={busy}/>}
+       task={taskReceipt} session={session} execute={execute} run={run} busy={busy} invoke={invoke}/>}
      {freshTaskReadback&&<p role="status" data-testid="d3-employee-task-next-ready">
        Исходный каталог подтверждён. Сохраните .iwxa для передачи или подготовьте
        следующее поручение тому же сотруднику.</p>}
