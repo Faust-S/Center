@@ -1,0 +1,11 @@
+{
+  "schema": "IWXA_CI_ONCE/1",
+  "workflow": "meta-harness-installed-modes",
+  "prepared_sha": "39371ef2056618f2d0935b358c6c4bc793ded990",
+  "profile": "installed-mode-witness",
+  "revisions": {
+    "agent": "f43ec4d20905991f4b6ccdc4eb6c942048f8b290",
+    "agent_tree": "4950ec488f31d473643562fba5ccc2b7b02dda5c",
+    "center_owner": "c10e193846a0ea4c73cabe3744aa7db82439d54e"
+  }
+}
