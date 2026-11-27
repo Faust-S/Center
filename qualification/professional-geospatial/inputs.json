@@ -1,0 +1,42 @@
+{
+  "schema": "IWXA_PUBLIC_GEO_QUALIFICATION_INPUT/1",
+  "osrm": {
+    "version": "26.8.0",
+    "image": "ghcr.io/project-osrm/osrm-backend@sha256:05d11e09c919d32996c3ae0784fda841c688943cf4ae4ec67f38d222082d04af",
+    "source": "https://github.com/Project-OSRM/osrm-backend/tree/v26.8.0",
+    "profile": "car.lua",
+    "algorithm": "mld"
+  },
+  "valhalla": {
+    "version": "3.8.2",
+    "image": "ghcr.io/valhalla/valhalla@sha256:d3fe5fac55a8a3146184a27a6c514a9504f9d8be71db919c15ccb9c96e51df5b",
+    "source": "https://github.com/valhalla/valhalla/tree/3.8.2"
+  },
+  "osm": {
+    "url": "https://raw.githubusercontent.com/Project-OSRM/osrm-backend/4f3ee609ec1af40eb1f445c6706cfa5beb04c990/test/data/monaco.osm.pbf",
+    "git_blob": "63346b4ce8b8907b02563e2c9ec7813e4bbb5abd",
+    "bytes": 1759101,
+    "attribution": "© OpenStreetMap contributors; ODbL 1.0; historical upstream test extract, not current traffic"
+  },
+  "points": [
+    {
+      "id": "M1",
+      "lon": 7.41337,
+      "lat": 43.72956
+    },
+    {
+      "id": "M2",
+      "lon": 7.41546,
+      "lat": 43.73077
+    },
+    {
+      "id": "M3",
+      "lon": 7.41862,
+      "lat": 43.73216
+    }
+  ],
+  "inputCRS": "EPSG:4326",
+  "metricCRS": "EPSG:32632",
+  "max_snap_metres": 100,
+  "points_source": "https://github.com/Project-OSRM/osrm-backend/blob/4f3ee609ec1af40eb1f445c6706cfa5beb04c990/test/nodejs/constants.js"
+}

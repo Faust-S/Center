@@ -1,0 +1,72 @@
+# Native public benchmark only. No protected checkout, no secrets or client locations.
+name: Original professional geospatial qualification
+on:
+  push:
+    branches: ['ci/once/workflow-professional-geo/**']
+    paths: ['.github/ci-requests/workflow-professional-geo.json']
+permissions:
+  contents: read
+concurrency:
+  group: original-professional-geo
+  cancel-in-progress: false
+jobs:
+  road-engines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public qualification request
+        run: node qualification/professional-geospatial/validate-request.mjs
+      - name: Native public OSM tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends osmium-tool
+      - name: Original OSRM and Valhalla offline benchmark
+        run: |
+          python3 qualification/professional-geospatial/road-benchmark.py --out "$RUNNER_TEMP/road-benchmark"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: original-road-benchmark-public-receipts
+          path: |
+            ${{ runner.temp }}/road-benchmark/receipt*.json
+            ${{ runner.temp }}/road-benchmark/engine*.json
+          if-no-files-found: warn
+          retention-days: 14
+  original-qgis:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Exact public qualification request
+        run: node qualification/professional-geospatial/validate-request.mjs
+      - name: Install original distribution QGIS
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-qgis qgis-providers qgis-common
+          dpkg-query -W python3-qgis qgis-providers qgis-common
+      - name: Native QGIS processing with no external network
+        run: |
+          mkdir -p "$RUNNER_TEMP/geo-qgis"
+          sudo unshare --net -- env QT_QPA_PLATFORM=offscreen QT_LOGGING_RULES='*.debug=false' /usr/bin/python3 qualification/professional-geospatial/qgis-benchmark.py --out "$RUNNER_TEMP/geo-qgis"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: original-qgis-public-receipts
+          path: |
+            ${{ runner.temp }}/geo-qgis/*.json
+            ${{ runner.temp }}/geo-qgis/*.gpkg
+          if-no-files-found: warn
+          retention-days: 14
