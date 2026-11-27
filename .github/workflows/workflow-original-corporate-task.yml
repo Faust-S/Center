@@ -28,22 +28,36 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/T3
-          ref: 163068d7eae3f9c43c7330a8816a4dfa7ac6493c
+          ref: 9641f8f761c48a4cfccb7a851a4832779c99e95e
           path: private-t3
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: Faust-S/knowledge
+          ref: c892048e9a1839d8250a98992dae582d5a684de3
+          path: knowledge
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
       - name: Original signed Workflow Task profile and roundtrip
         run: |
-          test "$(git -C private-t3 rev-parse HEAD)" = "163068d7eae3f9c43c7330a8816a4dfa7ac6493c"
+          test "$(git -C private-t3 rev-parse HEAD)" = "9641f8f761c48a4cfccb7a851a4832779c99e95e"
+          test "$(git -C knowledge rev-parse HEAD)" = "c892048e9a1839d8250a98992dae582d5a684de3"
+          export IWXA_WORKFLOW_PUBLIC_SOURCE="$(pwd)/knowledge"
           cd private-t3
           rc=0
           node --test tests/workflow-task-reference.test.mjs > "$RUNNER_TEMP/workflow-task-private.log" 2>&1 || rc=$?
           node --input-type=module -e 'import fs from "node:fs";const s=fs.readFileSync(process.argv[1],"utf8");for(const k of ["tests","pass","fail","cancelled","skipped","todo"]){const m=s.match(new RegExp("^# "+k+" ([0-9]+)","m"));if(m)console.log("WORKFLOW_"+k.toUpperCase()+"="+m[1]);}for(const m of s.matchAll(/^not ok ([0-9]+) - /gm))console.log("WORKFLOW_FAILED_CASE="+m[1]);' "$RUNNER_TEMP/workflow-task-private.log"
-          test "$rc" = 0 || { echo ORIGINAL_WORKFLOW_TASK_REFERENCE_FAIL; exit 1; }
+          if [ "$rc" != 0 ]; then
+            node --input-type=module -e 'import fs from "node:fs";const s=fs.readFileSync(process.argv[1],"utf8");for(const b of s.split(/(?=^not ok [0-9]+ - )/m).filter(b=>b.startsWith("not ok "))){const n=b.match(/^not ok ([0-9]+)/)[1];console.log("CASE="+n);const codes=[...new Set([...b.matchAll(/\b(?:INTEROP|ACCESS|RECONCILIATION|IWXA|METHOD|T3|ERR)_[A-Z0-9_]+\b/g)].map(m=>m[0]))].slice(0,12);console.log("CODES="+codes.join(","));for(const m of [...b.matchAll(/(?:workflow-task-reference\.test|runtime|task-contract|task-revisions|organization-roles|core|registry|project-process-method-stage-input)\.mjs:([0-9]+):([0-9]+)/g)].slice(0,8))console.log("LOCATION="+m[0]);}' "$RUNNER_TEMP/workflow-task-private.log"
+            echo ORIGINAL_WORKFLOW_TASK_REFERENCE_FAIL
+            exit 1
+          fi
+          grep -q "^# tests 11" "$RUNNER_TEMP/workflow-task-private.log"
           echo ORIGINAL_WORKFLOW_TASK_REFERENCE_PASS
+          echo ORIGINAL_PUBLIC_SOURCE_CORPORATE_SIGNED_ROUNDTRIP_PASS
       - name: Original corporate interop accumulation
         if: always()
         run: |
