@@ -39,7 +39,7 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
  const observedCallback=useRef(onObserved);
  observedCallback.current=onObserved;
  const port=()=>createNativeAtlasPort(invoke);
- useEffect(()=>{epoch.current++;setSession(null);setView(null);setSelected('');setSelectedWork('');setError('');setProjectName('');setWorkName('');setPresentation(null);setPresentationStatus('');setPreparationExportStatus('');observedCallback.current?.(organizationId,null);},[organizationId]);
+ useEffect(()=>{epoch.current++;setSession(null);setView(null);setSelected('');setSelectedWork('');setError('');setProjectName('');setWorkName('');setPresentation(null);setPresentationStatus('');setPreparationExportStatus('');observedCallback.current?.(organizationId,null);return()=>{epoch.current++;};},[organizationId]);
  const planning=useMemo<{plan:PlanView|null;error:string}>(()=>{
    if(!session||!selected||!session.snapshot.projects.some((p:any)=>p.id===selected))
      return {plan:null,error:''};
@@ -153,6 +153,7 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
        <button type="button" className="secondary" disabled={busy} onClick={onClearResultFocus}>Завершить сопоставление</button>
      </div>
      <p>Поручение {resultFocus.taskId}. Исходная редакция плана: {resultFocus.workRef.revision}.</p>
+     <p><strong>{resultFocus.resultTruncated?'Фрагмент принятого результата':'Принятый результат'}</strong></p>
      <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{resultFocus.resultExcerpt}{resultFocus.resultTruncated?'…':''}</p>
      {!resultComparison?<p>Перечитайте установленный Atlas для сравнения.</p>:
        resultWork?<>

@@ -343,10 +343,8 @@ export default function CorporateD3Panel({owner,execute,run,busy,invoke,assignme
    if(!acceptedAtlas||!onInspectAtlasResult)throw Error('CEN_D3_ATLAS_RESULT_SOURCE_REQUIRED');
    // Reopen the original signed package and decision. The mutable Center
    // draft and truncated Task list never establish the historical link.
-   const [freshPreview,freshReceipt]=await Promise.all([
-     execute('d3Preview',{packageSha256:hash}),
-     execute('d3Receipt',{operationId,packageSha256:hash})
-   ]);
+   const freshPreview=await execute('d3Preview',{packageSha256:hash});
+   const freshReceipt=await execute('d3Receipt',{operationId,packageSha256:hash});
    const fresh=acceptedAtlasFocus({preview:freshPreview,receipt:freshReceipt,session,packageSha256:hash,operationId});
    if(!fresh||fresh.taskRevisionId!==acceptedAtlas.taskRevisionId||
      fresh.resultRevisionId!==acceptedAtlas.resultRevisionId||

@@ -32,10 +32,11 @@ export function acceptedAtlasFocus({preview,receipt,session,packageSha256,operat
  if(!signed||signed.packageSha256!==packageSha256)return null;
  const source=signedAssignmentAtlasWork(signed.assignmentText);
  if(!source)return null;
+ const excerpt=Array.from(signed.resultText).slice(0,500).join('');
  return Object.freeze({...source,organizationId:session.organizationId,workspaceId:session.workspaceId,
   taskId:signed.taskId,taskRevisionId:signed.taskRevisionId,resultRevisionId:signed.resultRevisionId,
   acceptanceId:acceptance.receipt.acceptanceId,packageSha256,
-  resultExcerpt:signed.resultText.slice(0,500),resultTruncated:signed.resultLength>500});
+  resultExcerpt:excerpt,resultTruncated:signed.resultLength>excerpt.length});
 }
 // Select the identical work (including when the plan has advanced), never a
 // neighbouring project/item. Historical source revision remains unchanged.

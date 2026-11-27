@@ -39,6 +39,8 @@ jobs:
           node-version: '22.16.0'
       - run: npm install --no-audit --no-fund
       - run: npm test
+      - name: Verify original Atlas saved WorkRef navigation
+        run: node --test vendor/atlas/tests/atlas-work-navigation.test.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

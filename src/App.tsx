@@ -227,7 +227,7 @@ export default function App() {
   const atlasView = atlasFile?.organizationId===org?.id ? atlasFile?.view ?? null : null;
   const matchingNativeAtlas=nativeAtlas&&nativeAtlas.organizationId===org?.id ? nativeAtlas.view : null;
   const observedAtlas=selectAtlasReferenceSource(atlasView,matchingNativeAtlas,atlasObservationMode) as AtlasPortfolioView|null;
-  const currentAtlasResult=atlasResultFocus&&atlasResultFocus.organizationId===org?.id&&
+  const currentAtlasResult=org&&atlasResultFocus&&atlasResultFocus.organizationId===org.id&&
     org.workspaces.some(w=>w.id===atlasResultFocus.workspaceId)?atlasResultFocus:null;
   const currentFile=atlasFile?.organizationId===org?.id?atlasFile:null;
   const fileAtlasRef=atlasView?.projects.some(p=>p.id===atlasSelected)?linkableAtlasProject(atlasView,atlasSelected):null;
@@ -435,7 +435,7 @@ export default function App() {
     if(pages.some(([name])=>name===next))go(next);
   };
   const inspectAcceptedAtlasResult=(source:AcceptedAtlasFocus)=>{
-    if(activeOrganizationRef.current!==source.organizationId||org?.id!==source.organizationId||
+    if(!org||activeOrganizationRef.current!==source.organizationId||org.id!==source.organizationId||
       !org.workspaces.some(w=>w.id===source.workspaceId)){
       setError('Принятый Result относится к другой организации или рабочей области.');return;
     }
@@ -644,7 +644,7 @@ export default function App() {
       if(pendingCloseRef.current&&!window.confirm('Заменить открытые черновики выбранным файлом? Несохранённые изменения будут потеряны.'))return;
       revisionRef.current++;
       editorBaselineRef.current=null;
-      setState(next);setFocusedEmployeeContact(null);setDirty(nativeHost);atlasFileRequest.current++;setAtlasFile(null);setNativeAtlas(null);setAtlasObservationMode('file');setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
+      setState(next);setFocusedEmployeeContact(null);setAtlasResultFocus(null);setDirty(nativeHost);atlasFileRequest.current++;setAtlasFile(null);setNativeAtlas(null);setAtlasObservationMode('file');setAtlasSelected('');setAtlasWorkspace('');setEditor(null);setPage('overview');setCreatingOrg(false);setError('');setMessage('Черновики открыты. Полномочия и корпоративные решения из этого файла не выдаются.');
     } catch(e) {problem(e);}
   }
   async function openFile() {
@@ -656,7 +656,7 @@ export default function App() {
   const organizationForm = <form className="card form-panel" data-testid="organization-form" onSubmit={e=>{
     e.preventDefault();const data=new FormData(e.currentTarget);
     if(command({type:'CREATE_ORGANIZATION',name:data.get('name'),kind:data.get('kind')})){
-      setCreatingOrg(false);setAtlasFile(null);setNativeAtlas(null);setAtlasSelected('');setAtlasWorkspace('');
+      setCreatingOrg(false);setAtlasFile(null);setNativeAtlas(null);setAtlasSelected('');setAtlasWorkspace('');setAtlasResultFocus(null);
     }
   }}>
     <div className="section-head"><h2>Новая организация</h2>{org && <button type="button" className="quiet" onClick={()=>setCreatingOrg(false)}>Отмена</button>}</div>
@@ -801,7 +801,7 @@ export default function App() {
           targetWorkspaceId={atlasWorkspace} onChooseWorkspace={setAtlasWorkspace}
           onLink={(ref,workspaceId)=>command({type:'LINK_ATLAS_WORKSPACE',organizationId:org.id,workspaceId,atlasRef:ref})}
           participants={org.participants} resourceBindings={org.atlasResourceBindings??[]}
-          onBindResource={bindAtlasResource} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
+          onBindResource={bindAtlasResource} onLinkWork={prepareAtlasWork} onObserved={(id,view)=>{if(activeOrganizationRef.current!==id)return;setNativeAtlas(view?{organizationId:id,view}:null);if(view)setAtlasObservationMode('native')}}/>
         <div className="card nested-form" data-testid="atlas-link-panel">
           <div className="section-head"><h3>Проекты Atlas</h3><button type="button" className="secondary" onClick={()=>atlasInput.current?.click()} data-testid="atlas-import-button">Открыть портфель Atlas</button></div>
           <p className="muted">Откройте архив проектов .iwxa из Atlas. Для проверки изменений повторно выберите файл через ту же кнопку. Старые копии JSON также поддерживаются. Ссылки на поручения автоматически не меняются.</p>
