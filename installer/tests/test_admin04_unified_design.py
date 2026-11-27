@@ -61,11 +61,19 @@ class Admin04UnifiedDesign(unittest.TestCase):
             json.loads((ROOT / "installer/products/center.json").read_text(encoding="utf-8"))["version"],
         ]
         cargo = (ROOT / "src-tauri/Cargo.toml").read_text(encoding="utf-8")
-        self.assertEqual(versions, ["0.5.0-dev.1"] * 3)
-        self.assertIn('version = "0.5.0-dev.1"', cargo)
+        # Source package identity is shared by all packaging profiles; the
+        # actual displayed value is checked by the browser smoke test.
+        version = versions[0]
+        self.assertTrue(version)
+        self.assertEqual(versions, [version] * 3)
+        self.assertIn(f'version = "{version}"', cargo)
         app = (ROOT / "src/App.tsx").read_text(encoding="utf-8")
+        product_version = (ROOT / "src/product-version.mjs").read_text(encoding="utf-8")
         theme = (ROOT / "src/admin-v8.css").read_text(encoding="utf-8")
-        self.assertIn("Версия программы: 0.5.0-dev.1", app)
+        self.assertIn("import {CENTER_PRODUCT_VERSION} from './product-version.mjs'", app)
+        self.assertIn("Версия программы: {CENTER_PRODUCT_VERSION}", app)
+        self.assertIn("import packageInfo from '../package.json'", product_version)
+        self.assertIn("CENTER_PRODUCT_VERSION=packageInfo.version", product_version)
         self.assertIn('className="v8-page-location"', app)
         self.assertIn('className="v8-profile-mark"', app)
         self.assertIn('className="v8-rail"', app)
