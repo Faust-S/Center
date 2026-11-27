@@ -73,20 +73,20 @@ jobs:
         id: professional_source
         with:
           repository: Faust-S/iwxa-personal-agent
-          ref: 43887d158042c21aedea11c46f0fdfd603efab57
+          ref: 9dc4128749b1102267000264508046fadbd70d8a
           path: professional-agent
           persist-credentials: false
           token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
       - name: Exact qualification dependencies
         run: |
-          test "$(git -C professional-agent rev-parse HEAD)" = "43887d158042c21aedea11c46f0fdfd603efab57"
+          test "$(git -C professional-agent rev-parse HEAD)" = "9dc4128749b1102267000264508046fadbd70d8a"
           python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 mesa==3.5.2 simpy==4.1.2 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
       - name: Managed install contracts and discovery
         working-directory: professional-agent
         run: |
           rc=0
           python -m pytest -q tests/test_agent067_professional_install.py tests/test_agent067_modeling_executable.py -k 'not native_windows' --junitxml="$RUNNER_TEMP/professional-contract.xml" > "$RUNNER_TEMP/professional-contract-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-contract.xml" MANAGED_CONTRACT 20 strict || exit 1
+          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-contract.xml" MANAGED_CONTRACT 24 strict || exit 1
           test "$rc" = 0
       - name: Actual original managed Windows Valhalla and OR-Tools task and cold readback
         if: always() && steps.professional_source.outcome == 'success'
@@ -95,7 +95,7 @@ jobs:
           rc=0
           export IWXA_PROFESSIONAL_NATIVE_ROAD=1
           export IWXA_PUBLIC_VALHALLA_PBF="$(cd ../public-map && pwd -W)/map.osm.pbf"
-          python -m pytest -q tests/test_agent067_professional_install.py -k native_windows_managed_valhalla_to_ortools_task --junitxml="$RUNNER_TEMP/professional-road.xml" > "$RUNNER_TEMP/professional-road-private.log" 2>&1 || rc=$?
+          python -m pytest -q tests/test_agent067_professional_install.py -k native_windows_managed_valhalla_to_ortools_task --basetemp="$RUNNER_TEMP/iwxaroad" --junitxml="$RUNNER_TEMP/professional-road.xml" > "$RUNNER_TEMP/professional-road-private.log" 2>&1 || rc=$?
           python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-road.xml" MANAGED_NATIVE_ROAD 1 strict || exit 1
           test "$rc" = 0
       - name: Remove private source and diagnostics
