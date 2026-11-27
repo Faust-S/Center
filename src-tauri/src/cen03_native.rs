@@ -1367,9 +1367,24 @@ pub async fn center_corporate_enroll(
 #[tauri::command]
 pub async fn center_corporate_action(
     app:AppHandle,organization_id:String,operation:String,
-    input:Value,binding:Value
+    mut input:Value,binding:Value
 )->Result<Value,String>{
     check_org(&organization_id)?;
+    // A local presentation is an ordinary original .iwxa export followed
+    // by the existing Atlas window navigation. The caller cannot select a
+    // path or change the expected previously verified publication.
+    let local_handoff=if operation=="d3AtlasWorkspaceResultOpen"{
+        if !input.as_object().is_some_and(|m|m.len()==5)||
+           !atlas_publication_operation(&input["expectedOperationId"])||
+           !validate_hex(input["expectedArchiveSha256"].as_str()){
+            return Err("CEN_D3_ATLAS_LOCAL_HANDOFF_INVALID".into());
+        }
+        let map=input.as_object_mut().ok_or("CEN_D3_INPUT_INVALID")?;
+        let operation_id=map.remove("expectedOperationId").ok_or("CEN_D3_ATLAS_LOCAL_HANDOFF_INVALID")?;
+        let archive_sha256=map.remove("expectedArchiveSha256").ok_or("CEN_D3_ATLAS_LOCAL_HANDOFF_INVALID")?;
+        Some((Uuid::new_v4().to_string(),operation_id,archive_sha256))
+    }else{None};
+    let operation=if local_handoff.is_some(){"d3AtlasWorkspaceResultExport".to_owned()}else{operation};
     check_bound_request(&input,&operation)?;
     if !t3::admin_d3_availability(&app,&organization_id){
         return Err("CEN_D3_ORIGINAL_OWNER_NOT_BUNDLED".into());
@@ -1591,7 +1606,13 @@ pub async fn center_corporate_action(
     // Deliberately no WebView-resolved path or arbitrary Node executable.
     // For received .iwxa, use the pre-existing native Windows file chooser:
     // large original bytes never cross the Tauri JSON IPC.
-    let selected_path=if operation=="d3Receive"{
+    let selected_path=if let Some((handoff_id,_,_))=&local_handoff{
+        // Disposable original export copy, resolved by Atlas from the
+        // same Setup Core data location. No second durable Result ledger.
+        let directory=crate::center_product_data_root(&app)?.join("atlas-handoff");
+        fs::create_dir_all(&directory).map_err(|_|"CEN_D3_ATLAS_HANDOFF_DIRECTORY_FAILED")?;
+        Some(directory.join(format!("{}.iwxa",handoff_id)))
+    }else if operation=="d3Receive"{
         let selection=rfd::FileDialog::new()
             .set_title("Admin Center - получить подписанный Result T3")
             .add_filter("IWXA",&["iwxa"])
@@ -1794,6 +1815,21 @@ pub async fn center_corporate_action(
                 let _=close_original_owner(&app);
                 return Err("CEN_D3_ATLAS_ORIGINAL_READBACK_INVALID".into());
             }
+        }
+        if let Some((handoff_id,expected_operation,expected_archive))=local_handoff{
+            if result["operationId"]!=expected_operation||result["packageSha256"]!=expected_archive{
+                if let Some(path)=source_for_owner.as_ref(){let _=fs::remove_file(path);}
+                return Err("CEN_D3_ATLAS_LOCAL_HANDOFF_SOURCE_CHANGED".into());
+            }
+            // The original owner has already verified and exported the
+            // exact signed bytes. Window activation is only a request, not
+            // a delivery receipt. A failed activation must not re-sign.
+            result["localHandoff"]=match crate::cen05_host::present_signed_result(
+                &app,&organization_id,&handoff_id,
+                expected_archive.as_str().ok_or("CEN_D3_ATLAS_LOCAL_HANDOFF_INVALID")?){
+                Ok(observation)=>observation,
+                Err(reason)=>json!({"status":"HANDOFF_UNCONFIRMED","reason":reason,"delivered":false}),
+            };
         }
         if operation=="d3EmployeeBootstrapProfile"{
             let p=&result["profile"];
