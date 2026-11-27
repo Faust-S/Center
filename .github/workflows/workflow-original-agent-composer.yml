@@ -8,7 +8,14 @@ permissions:
   contents: read
 jobs:
   original-composer:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 15
     env:
       PYTHONDONTWRITEBYTECODE: '1'
