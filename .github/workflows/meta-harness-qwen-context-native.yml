@@ -26,8 +26,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: '7bb6e5edb6d99d65eabeabb27c5ea93765adc51d'
-      PRIVATE_TREE: '069713766b316ac8b61fbde7c121667181e30f8d'
+      PRIVATE_PIN: '549913f1651425baa81e601eae3e402ac0161afc'
+      PRIVATE_TREE: '98beac7a7f62a8d3a9ed748e44e0e55dc0c5ef66'
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
       IWXA_QWEN_QUALIFICATION_MODEL: 'QWEN3_4B_Q4_K_M'
       IWXA_NATIVE_QWEN_CONTEXT_TEST: ${{ matrix.mode != 'SINGLE_TEXT' && '1' || '0' }}
@@ -51,8 +51,8 @@ jobs:
           python tools/ci/verify_once_request.py \
             --repository Faust-S/Center --workflow meta-harness-qwen-context-native \
             --profile native-qwen-context-four-modes \
-            --revision agent=7bb6e5edb6d99d65eabeabb27c5ea93765adc51d \
-            --revision agent_tree=069713766b316ac8b61fbde7c121667181e30f8d
+            --revision agent=549913f1651425baa81e601eae3e402ac0161afc \
+            --revision agent_tree=98beac7a7f62a8d3a9ed748e44e0e55dc0c5ef66
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
@@ -128,6 +128,20 @@ jobs:
                              "-r","requirements-ci.txt"],timeout=420):
                       status("PYTHON_DEPS","FAIL"); return 1
                   status("PYTHON_DEPS","PASS")
+                  # Prove the exact revised profile and response observer before
+                  # downloading the multi-gigabyte native model.
+                  source_check=run([sys.executable,"-m","pytest","-q","--color=no","--tb=no",
+                      "-p","no:cacheprovider","tests/test_meta_harness_qwen_local_route.py",
+                      "tests/test_meta_harness_qwen_native_state.py",
+                      "--basetemp",str(root/"source-test")],timeout=240)
+                  report=source_check.stdout.decode("utf-8","replace")
+                  passed=re.findall(r"\b([0-9]{1,6}) passed\b",report)
+                  if passed:
+                      status("QWEN_PROFILE_SOURCE_PASSED",int(passed[-1]))
+                  if (source_check.returncode!=0 or not passed or int(passed[-1])<1
+                      or re.search(r"\b[1-9][0-9]* (?:failed|skipped|errors?)\b",report)):
+                      status("QWEN_PROFILE_SOURCE","FAIL"); return 1
+                  status("QWEN_PROFILE_SOURCE","PASS")
                   allowed = {"START","QWEN_INSTALL_PASS","OLLAMA_RELEASE_PASS","GGUF_DIGEST_PASS",
                              "OLLAMA_SERVER_PASS","ORIGINAL_MODEL_SELECTION_PASS","REAL_MODEL_SMOKE_PASS","REAL_OPENAI_CHAT_SMOKE_PASS",
                              "REAL_MODEL_TOOL_SMOKE_PASS","ORIGINAL_GRAPH_PREVIEW_PASS","REAL_QWEN_GRAPH_RESULT_PASS","REAL_QWEN_CONTEXT_READ_PASS",

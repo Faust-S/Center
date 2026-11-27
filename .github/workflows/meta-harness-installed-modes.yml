@@ -19,8 +19,8 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 90
     env:
-      PRIVATE_PIN: 'de3be2ab09f0d3d295a266603262e2748854c329'
-      PRIVATE_TREE: '83f3c4e288c3ef14ebe27f325430d53d02d8814f'
+      PRIVATE_PIN: '549913f1651425baa81e601eae3e402ac0161afc'
+      PRIVATE_TREE: '98beac7a7f62a8d3a9ed748e44e0e55dc0c5ef66'
       CENTER_OWNER_PIN: 'c10e193846a0ea4c73cabe3744aa7db82439d54e'
       PYTHONDONTWRITEBYTECODE: '1'
       PIP_DISABLE_PIP_VERSION_CHECK: '1'
@@ -51,8 +51,8 @@ jobs:
           python tools/ci/verify_once_request.py \
             --repository Faust-S/Center --workflow meta-harness-installed-modes \
             --profile installed-mode-witness \
-            --revision agent=de3be2ab09f0d3d295a266603262e2748854c329 \
-            --revision agent_tree=83f3c4e288c3ef14ebe27f325430d53d02d8814f \
+            --revision agent=549913f1651425baa81e601eae3e402ac0161afc \
+            --revision agent_tree=98beac7a7f62a8d3a9ed748e44e0e55dc0c5ef66 \
             --revision center_owner=c10e193846a0ea4c73cabe3744aa7db82439d54e
       - uses: actions/setup-node@v4
         with:
