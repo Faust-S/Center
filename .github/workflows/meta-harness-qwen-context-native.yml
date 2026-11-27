@@ -26,8 +26,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 55
     env:
-      PRIVATE_PIN: 'f43ec4d20905991f4b6ccdc4eb6c942048f8b290'
-      PRIVATE_TREE: '4950ec488f31d473643562fba5ccc2b7b02dda5c'
+      PRIVATE_PIN: '7bb6e5edb6d99d65eabeabb27c5ea93765adc51d'
+      PRIVATE_TREE: '069713766b316ac8b61fbde7c121667181e30f8d'
       IWXA_NATIVE_QWEN_PRODUCT_TEST: '1'
       IWXA_QWEN_QUALIFICATION_MODEL: 'QWEN3_4B_Q4_K_M'
       IWXA_NATIVE_QWEN_CONTEXT_TEST: ${{ matrix.mode != 'SINGLE_TEXT' && '1' || '0' }}
@@ -51,8 +51,8 @@ jobs:
           python tools/ci/verify_once_request.py \
             --repository Faust-S/Center --workflow meta-harness-qwen-context-native \
             --profile native-qwen-context-four-modes \
-            --revision agent=f43ec4d20905991f4b6ccdc4eb6c942048f8b290 \
-            --revision agent_tree=4950ec488f31d473643562fba5ccc2b7b02dda5c
+            --revision agent=7bb6e5edb6d99d65eabeabb27c5ea93765adc51d \
+            --revision agent_tree=069713766b316ac8b61fbde7c121667181e30f8d
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
