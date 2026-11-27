@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: 'eb87cbbd331cf80b4d7f006871d2a999c9173fd5'
-      PRIVATE_TREE: '98cb3712eb9374aea5597718a7f20f4644f88e15'
+      PRIVATE_PIN: '0d3bfd664c9fc48a5ccf9210c14326ca855ce67c'
+      PRIVATE_TREE: '01444b4ce6fd464902dd26ae86974f1b32a93cc6'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -36,6 +36,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+      - name: Prepare public QA audio tools before private source access
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
       - name: One private source, Android build and installed emulator contour
         shell: bash
         env:
@@ -83,6 +93,13 @@ jobs:
                           status("PRIVATE_READ","PIN_MISMATCH");return 1
                       status("PRIVATE_READ","PASS");status("SOURCE_PIN",pin)
                       mobile=source/"mobile"
+                      # Validate the original public WAV and AAC conversion before npm, models and SDK work.
+                      media=run(["node","scripts/prepare-qa-speech.mjs","--media-only","--fetch"],mobile,timeout=180)
+                      if media.returncode or b"QA_NATIVE_SPEECH_MEDIA_PREFLIGHT=PASS" not in media.stdout:
+                          for code in re.findall(rb"\bQA_SPEECH_MEDIA_(SOURCE|ENCODE_TIMEOUT|ENCODE|FFMPEG_MISSING|FFPROBE_MISSING|PROBE|FORMAT)\b",media.stdout):
+                              status("QA_NATIVE_SPEECH_MEDIA_FAILURE",code.decode())
+                          status("QA_NATIVE_SPEECH_MEDIA_PREFLIGHT","FAIL");return 1
+                      status("QA_NATIVE_SPEECH_MEDIA_PREFLIGHT","PASS")
                       if not stage("EXCHANGE_DIAGNOSTICS",["python3","mobile/qualification/test_diagnostics.py"],source,60):return 1
                       native=json.loads((mobile/"native/llama-source.json").read_text())
                       if native.get("revision")!="5220a2d4040aa75f52678ebf52d77a0fba85de9f":
@@ -302,7 +319,7 @@ jobs:
                                   ("DEPENDENCY_RESOLUTION",r"Could not resolve all (?:files|dependencies)|Could not find [^ \r\n]+:[^ \r\n]+"),
                                   ("SPEECH_AAR",r"\bSPEECH_AAR_(?:REQUIRED|PIN_INVALID|HASH_MISMATCH|SIZE_MISMATCH|DOWNLOAD_FAILED)\b"),
                                   ("QA_NATIVE_SPEECH_FIXTURE",r"\bQA_SPEECH_(?:PIN_INVALID|FIXTURE_REQUIRED|DOWNLOAD_FAILED|FIXTURE_SIZE|FIXTURE_IDENTITY)\b"),
-                                  ("QA_NATIVE_SPEECH_MEDIA",r"\bQA_SPEECH_MEDIA_(?:SOURCE|ENCODE|FORMAT)\b"),
+                                  ("QA_NATIVE_SPEECH_MEDIA",r"\bQA_SPEECH_MEDIA_(?:SOURCE|ENCODE|FORMAT|ENCODE_TIMEOUT|FFMPEG_MISSING|FFPROBE_MISSING|PROBE)\b"),
                                   ("JVM_TARGET_MISMATCH",r"Inconsistent JVM-target compatibility|inconsistent JVM target|Cannot inline bytecode built with JVM target"),
                                   ("KOTLIN_METADATA",r"incompatible version of Kotlin|binary version of its metadata|Kotlin metadata version"),
                                   ("DUPLICATE_CLASSES",r"Duplicate class|DuplicateRelativeFileException"),
@@ -478,7 +495,7 @@ jobs:
                       if not stage("AVD_CREATE",[avd,"create","avd","-n","iwxa_mobile_ci","-k",image,"--force"],stdin=b"no\n"):return 1
                       adb=str(android/"platform-tools/adb")
                       with (root/"emulator.log").open("wb") as elog:
-                          emulator=subprocess.Popen([str(android/"emulator/emulator"),"-avd","iwxa_mobile_ci","-no-window","-no-audio","-no-boot-anim","-no-snapshot","-gpu","swiftshader_indirect","-accel","on" if accelerated else "off","-memory","4096"],env=env,stdout=elog,stderr=subprocess.STDOUT)
+                          emulator=subprocess.Popen([str(android/"emulator/emulator"),"-avd","iwxa_mobile_ci","-no-window","-no-boot-anim","-no-snapshot","-gpu","swiftshader_indirect","-accel","on" if accelerated else "off","-memory","4096"],env=env,stdout=elog,stderr=subprocess.STDOUT)
                           deadline=time.monotonic()+(300 if accelerated else 600)
                           booted=False
                           while time.monotonic()<deadline and emulator.poll() is None:
