@@ -1099,6 +1099,11 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
      {taskReceipt&&<p data-testid="d3-employee-task-receipt">
        Подписанная Task: {taskReceipt.taskId} · {taskReceipt.taskRevisionId}.
        Доставка сотруднику не подтверждена.</p>}
+     {freshTaskReadback&&taskReceipt?.atlasReference&&<p className="notice subdued" data-testid="d3-employee-task-atlas-reference">
+       Подписанная ссылка на Atlas: проект {taskReceipt.atlasReference.workRef.projectId},
+       работа {taskReceipt.atlasReference.workRef.workId}, редакция {taskReceipt.atlasReference.workRef.revision}.
+       Ссылка прочитана из оригинальной Task; получение Result пока не подтверждено.
+     </p>}
      {freshTaskReadback&&<p role="status" data-testid="d3-employee-task-next-ready">
        Исходный каталог подтверждён. Сохраните .iwxa для передачи или подготовьте
        следующее поручение тому же сотруднику.</p>}
