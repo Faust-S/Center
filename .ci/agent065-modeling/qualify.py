@@ -253,7 +253,7 @@ class Qualification:
             return None
         return exe
 
-    def python(self):
+    def python(self, *, delegate_ocr=False):
         status('PYTHON_BASELINE','3.12' if sys.version_info[:2]==(3,12) else 'UNEXPECTED')
         if sys.version_info[:2]!=(3,12):return False
         catalog=[x for x in self.files if re.fullmatch(r'tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py',x)]
@@ -262,6 +262,10 @@ class Qualification:
         # Deliberately disjoint test groups: no repeated native subsets.
         status('PYTHON_CATALOGUE',len(catalog))
         if len(catalog)<400 or len(modeling)<20:return False
+        if delegate_ocr:
+            from release_gate import split_core
+            core, delegated = split_core(core)
+            status('CORE_NATIVE_OCR_DELEGATED_TO_REQUIRED_GROUP',len(delegated))
         self.run('PYTHON_COMPILE',[sys.executable,'-m','compileall','-q','adapters','runtime','cells','providers','surfaces'],timeout=180)
         core_python=self.venv('coreqa',['requirements-ci.txt'])
         if core_python is not None:self.pytest('CORE_REGRESSION',core_python,core,timeout=3300)

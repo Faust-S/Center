@@ -5,10 +5,10 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-CANDIDATE_PIN = '3184ac6e3286ebb7f6f304137a3c9ccf73a1cc3e'
-CANDIDATE_TREE = '6e1215df963f51f80748af0b70d276a5483cea66'
+CANDIDATE_PIN = 'd68ff55dbe450e7689579bbf2ba7ba2a37c7e204'
+CANDIDATE_TREE = '3c825c24a1d68e412752704d0f5cebfd7df5d969'
 SCOPE = 'B066_SOURCE_BUILD'
-GROUPS = ('core', 'desktop-source', 'bundle')
+GROUPS = ('core', 'ocr', 'desktop-source', 'bundle')
 
 WORKFLOW = 'agent066-browser-source'
 PREFIX = 'refs/heads/ci/once/' + WORKFLOW + '/'

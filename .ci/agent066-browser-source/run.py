@@ -9,12 +9,13 @@ from admit import CANDIDATE_PIN, CANDIDATE_TREE, GROUPS
 from bundle_evidence import summarize
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'agent065-modeling'))
 from qualify import Qualification, cleanup_private, status
+from release_gate import ocr_gate
 
 # Only fixed public result labels and existing harness diagnostics leave the runner.
 def core(q):
     # Reuse the full Core and native-modeling regression of the accepted baseline.
     q.run('B066_PYTHON_COMPILE', [sys.executable, '-m', 'compileall', '-q', 'runtime', 'adapters', 'tools', 'tests'], timeout=300)
-    return q.python() and all(q.results.values())
+    return q.python(delegate_ocr=True) and all(q.results.values())
 
 
 def bundle(q):
@@ -52,6 +53,8 @@ def main():
             token = ''
             if group == 'core':
                 passed = core(q)
+            elif group == 'ocr':
+                passed = ocr_gate(q)
             elif group == 'desktop-source':
                 passed = q.desktop(build=True)
             elif group == 'bundle':

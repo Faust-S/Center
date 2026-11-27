@@ -16,13 +16,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [core, desktop-source, bundle]
+        include:
+          - group: core
+            os: windows-2022
+          - group: ocr
+            os: ubuntu-24.04
+          - group: desktop-source
+            os: windows-2022
+          - group: bundle
+            os: windows-2022
     name: qualify / ${{ matrix.group }}
-    runs-on: windows-2022
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     env:
-      PRIVATE_PIN: '3184ac6e3286ebb7f6f304137a3c9ccf73a1cc3e'
-      PRIVATE_TREE: '6e1215df963f51f80748af0b70d276a5483cea66'
+      PRIVATE_PIN: 'd68ff55dbe450e7689579bbf2ba7ba2a37c7e204'
+      PRIVATE_TREE: '3c825c24a1d68e412752704d0f5cebfd7df5d969'
       QUALIFICATION_GROUP: ${{ matrix.group }}
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
