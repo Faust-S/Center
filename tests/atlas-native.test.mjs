@@ -174,3 +174,28 @@ test('Center reads selected readiness from original Atlas without mutating its s
  assert.equal(serialize(snapshot),before);
  assert.equal(port.view(session).authorization,'NOT_CHECKED');
 });
+
+test('Center preparation export uses the canonical .iwxa writer and exact local generation',async()=>{
+ const {readIwxaPortfolio,fromBase64}=await import('../vendor/atlas/desktop/src/iwxa-portfolio.mjs');
+ const ipc=transport();
+ const calls=[];
+ let exported=null;
+ const port=createNativeAtlasPort(async(name,args)=>{
+   calls.push(name);
+   if(name==='center_atlas_export_iwxa'){
+     const stored=ipc.stores.get(args.organizationId);
+     assert.equal(stored.generation,args.expectedGeneration);
+     exported=await readIwxaPortfolio(fromBase64(args.archiveBase64));
+     return 'saved.iwxa';
+   }
+   return ipc.invoke(name,args);
+ });
+ const p=await port.addProject(await port.open('org-export'),{name:'Prepared project'});
+ const w=await port.addWork(p.session,{projectId:p.projectId,title:'Prepared Work'});
+ assert.equal(await port.exportPreparation(w.session),'saved.iwxa');
+ assert.deepEqual(exported.snapshot,w.session.snapshot);
+ assert.equal(calls.filter(x=>x==='center_atlas_export_iwxa').length,1);
+ await assert.rejects(()=>port.exportPreparation(p.session),/ATLAS_PREPARATION_CHANGED_BEFORE_EXPORT/);
+ assert.equal(calls.filter(x=>x==='center_atlas_export_iwxa').length,1);
+ await assert.rejects(()=>port.exportPreparation({...w.session,sourceKind:'PUBLIC_ATLAS_READ_ONLY'}),/ATLAS_PUBLIC_SOURCE_READ_ONLY/);
+});

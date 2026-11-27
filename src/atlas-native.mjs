@@ -83,8 +83,24 @@ export function createNativeAtlasPort(invoke) {
         ? 'NATIVE_ATLAS_PUBLIC_READ_ONLY':'NATIVE_ATLAS_LOCAL_ORGANIZATION',
       authorization:'NOT_CHECKED'};
   }
+  async function exportPreparation(session){
+    if(session?.sourceKind!=='CENTER_LOCAL_PREPARATION')fail('ATLAS_PUBLIC_SOURCE_READ_ONLY');
+    const actual=await open(session.organizationId);
+    if(actual.generation==='none'||actual.generation!==session.generation||
+       canonicalJson(actual.snapshot)!==canonicalJson(session.snapshot))
+      fail('ATLAS_PREPARATION_CHANGED_BEFORE_EXPORT');
+    if(!actual.snapshot.projects.length)fail('ATLAS_PREPARATION_EMPTY');
+    const {buildIwxaPortfolio,toBase64}=await import('../vendor/atlas/desktop/src/iwxa-portfolio.mjs');
+    const bytes=await buildIwxaPortfolio(actual.snapshot);
+    const result=await invoke('center_atlas_export_iwxa',{
+      organizationId:session.organizationId,expectedGeneration:actual.generation,
+      archiveBase64:toBase64(bytes)
+    });
+    if(result!==null&&typeof result!=='string')fail('ATLAS_EXPORT_RECEIPT_INVALID');
+    return result;
+  }
   return Object.freeze({
-    open,openPublicAtlas,commit,view,
+    open,openPublicAtlas,commit,view,exportPreparation,
     async addProject(session,{name,type='business'}) {
       if(session?.sourceKind!=='CENTER_LOCAL_PREPARATION')fail('ATLAS_PUBLIC_SOURCE_READ_ONLY');
       const next=createProject(session.snapshot,{name,type});

@@ -31,11 +31,12 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
  const [busy,setBusy]=useState(false);
  const [presentation,setPresentation]=useState<{organizationId:string;projectId:string;workId:string;revision:string;bindingRef:string}|null>(null);
  const [presentationStatus,setPresentationStatus]=useState('');
+ const [preparationExportStatus,setPreparationExportStatus]=useState('');
  const epoch=useRef(0),locked=useRef(false);
  const observedCallback=useRef(onObserved);
  observedCallback.current=onObserved;
  const port=()=>createNativeAtlasPort(invoke);
- useEffect(()=>{epoch.current++;setSession(null);setView(null);setSelected('');setSelectedWork('');setError('');setProjectName('');setWorkName('');setPresentation(null);setPresentationStatus('');observedCallback.current?.(organizationId,null);},[organizationId]);
+ useEffect(()=>{epoch.current++;setSession(null);setView(null);setSelected('');setSelectedWork('');setError('');setProjectName('');setWorkName('');setPresentation(null);setPresentationStatus('');setPreparationExportStatus('');observedCallback.current?.(organizationId,null);},[organizationId]);
  const planning=useMemo<{plan:PlanView|null;error:string}>(()=>{
    if(!session||!selected||!session.snapshot.projects.some((p:any)=>p.id===selected))
      return {plan:null,error:''};
@@ -43,6 +44,18 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
    catch{return {plan:null,error:'Расчёт плана Atlas недоступен для этой редакции.'};}
  },[session,selected]);
  if(!isDesktop())return null;
+ async function exportPreparation(){
+   if(locked.current||session?.sourceKind!=='CENTER_LOCAL_PREPARATION')return;
+   locked.current=true;setBusy(true);setError('');setPreparationExportStatus('');
+   const current=epoch.current;
+   try{
+     const result=await port().exportPreparation(session);
+     if(current===epoch.current&&result!==null)
+       setPreparationExportStatus(result+'. Откройте файл в Atlas, выберите «Добавить проекты в черновик» и сохраните портфель.');
+   }catch(e){
+     if(current===epoch.current)setError(e instanceof Error?e.message:String(e));
+   }finally{locked.current=false;setBusy(false);}
+ }
  async function act(run:(p:ReturnType<typeof createNativeAtlasPort>)=>Promise<any>){
    if(locked.current)return;
    locked.current=true;setBusy(true);setError('');
@@ -128,6 +141,13 @@ export default function NativeAtlasPanel({organizationId,workspaces,targetWorksp
        <input aria-label="Новый проект Atlas" maxLength={160} value={projectName} onChange={e=>setProjectName(e.target.value)} required placeholder="Название проекта"/>
        <button className="secondary" disabled={busy||!projectName.trim()} data-testid="native-atlas-create-project">Создать проект</button>
      </form>}
+     {session.sourceKind==='CENTER_LOCAL_PREPARATION'&&<div className="inline-form">
+       <button type="button" className="secondary" disabled={busy||!view.projects.length}
+         data-testid="native-atlas-export-preparation" onClick={()=>void exportPreparation()}>
+         Сохранить подготовленные проекты .iwxa
+       </button>
+       {preparationExportStatus&&<p role="status" className="muted">{preparationExportStatus}</p>}
+     </div>}
      {view.projects.map(p=><button key={p.id} className={`assignment-row ${selected===p.id?'chosen':''}`} disabled={busy} onClick={()=>{setSelected(p.id);setSelectedWork(p.workItems[0]?.id||'');}} data-testid="native-atlas-project">
        <span className="row-content"><strong>{p.name}</strong><small>Работ: {p.total}, завершено: {p.done}, заблокировано: {p.blocked}</small></span><span className="status neutral">{p.progress===null?'Без работ':p.progress+'%'}</span>
      </button>)}

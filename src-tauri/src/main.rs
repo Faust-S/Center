@@ -132,6 +132,16 @@ fn center_atlas_commit(
     commit_root(&center_atlas_root(&app, &organization_id)?, &expected_generation, snapshot)
 }
 
+// Export only the selected Center preparation root through the original
+// Atlas IWXA writer. Never write into the installed Atlas portfolio here.
+#[tauri::command]
+fn center_atlas_export_iwxa(
+    app:AppHandle,organization_id:String,expected_generation:String,archive_base64:String
+)->Result<Option<String>,String>{
+    let root=center_atlas_root(&app,&organization_id)?;
+    export_iwxa_from_root(&app,&root,&expected_generation,&archive_base64)
+}
+
 // Preparation drafts are explicitly NOT organizational records, grants,
 // credentials or a backup. Existing Atlas atomic file publication is reused;
 // authoritative organization state will be migrated only through T3 Store.
@@ -444,7 +454,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             save_draft_file, open_draft_file, center_save_iwxa_file, center_open_iwxa_file,
             center_export_publisher_test_request,
-            center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open,
+            center_draft_save_local, center_draft_read_local, center_atlas_open, center_atlas_commit, center_atlas_public_open, center_atlas_export_iwxa,
             cen05_host::center_u04_open, cen05_host::center_u04_activate,
             cen05_host::center_u04_return, cen05_host::center_u04_detach,
             t3_consumer::center_cen04_t3_enroll,
