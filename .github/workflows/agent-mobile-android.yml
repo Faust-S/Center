@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      PRIVATE_PIN: '981fe782b3bec131986e87c4fea1f29ebd3235b9'
-      PRIVATE_TREE: 'c374f67e9aa1e71296eb145b4da1f69191f2ae45'
+      PRIVATE_PIN: '16930f364943e6013c023752de7fb22dee877b65'
+      PRIVATE_TREE: '148aa420d55b97cd3394ef10b0e586b9abd4d3dc'
       T3_PIN: '1e5d54bba065f0e82cc506a5443b96079d070608'
       T3_TREE: '80f724d21d2acca0394e3694ae4a9a7fd65317bc'
     steps:
@@ -235,6 +235,21 @@ jobs:
                               for value in re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_FAILURE_TYPE=([A-Za-z]+)\s*$",report):
                                   if value in {"RuntimeError","ValueError","KeyError","TypeError","OSError","TimeoutExpired","CalledProcessError","AssertionError","FileNotFoundError"}:status("NATIVE_VOICE_DIALOGUE_FAILURE_TYPE",value)
                               passed=outcome.returncode==0 and stages==expected and re.findall(r"(?m)^NATIVE_VOICE_DIALOGUE_ROUTE=(PASS|FAIL)\s*$",report)==["PASS"]
+                              if passed:
+                                  bounds=(
+                                      ("MODEL_ACTIVATION_MS",0,1800000),("WHISPER_FILE_ROUTE_MS",0,1800000),
+                                      ("LLM_SECOND_TURN_MS",0,1800000),("LLM_SECOND_TURN_TOKENS",0,1024),
+                                      ("TTS_ROUTE_MS",0,1800000),("TTS_WAV_MS",250,90000),
+                                      ("TTS_PLAYBACK_MS",0,1800000),("AUTO_TURN_MS",0,1800000),
+                                      ("AUTO_WAV_MS",250,600000),("AUTO_TURN_TOKENS",0,1024),
+                                      ("AUTO_REPLAY_MS",0,1800000),("AUTO_EXPORT_MS",0,1800000),
+                                  )
+                                  metrics=re.findall(r"(?m)^NATIVE_VOICE_METRIC_([A-Z_]+)=([^\r\n]*)\r?$",report)
+                                  verified=re.findall(r"(?m)^NATIVE_VOICE_METRICS=(PASS|NOT_CONFIRMED)\s*$",report)==["PASS"] and len(metrics)==len(bounds)
+                                  verified=verified and all(key==wanted and re.fullmatch(r"0|[1-9][0-9]{0,6}",value) and low<=int(value)<=high for (key,value),(wanted,low,high) in zip(metrics,bounds))
+                                  status("NATIVE_VOICE_METRICS","PASS" if verified else "NOT_CONFIRMED")
+                                  if verified:
+                                      for key,value in metrics:status("NATIVE_VOICE_METRIC_"+key,value)
                               status(name,"PASS" if passed else "FAIL")
                               return passed
                           if name=="NATIVE_REAL_VISION_ROUTE":
@@ -337,7 +352,7 @@ jobs:
                           if name in ("SOURCE","ASSEMBLY") and outcome.returncode==0:
                               # Exact accumulated source suite; no skip or todo.
                               node_counts={label:re.findall(r"(?m)^# "+label+r" (\d+)\s*$",report) for label in ("tests","pass","fail","skipped","todo")}
-                              if any(node_counts[label]!=[value] for label,value in {"tests":"736","pass":"736","fail":"0","skipped":"0","todo":"0"}.items()):
+                              if any(node_counts[label]!=[value] for label,value in {"tests":"744","pass":"744","fail":"0","skipped":"0","todo":"0"}.items()):
                                   status(name,"NODE_RECEIPT_MISMATCH");return False
                           if outcome.returncode:
                               for n in sorted(set(re.findall(r"(?m)^not ok (\d{1,3})\s+-",report)),key=int):status("NODE_FAILURE_ORDINAL",n)
@@ -453,9 +468,9 @@ jobs:
                       if not report_stage("SOURCE",["npm","run","check:source"],mobile,180):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
                       vision_policy=run(["python3","mobile/qualification/test_native_vision_receipt.py"],source,timeout=60)
-                      if vision_policy.returncode or not re.search(rb"(?m)^Ran 26 tests? in [0-9.]+s\s*$",vision_policy.stdout) or not re.search(rb"(?m)^OK\s*$",vision_policy.stdout):
+                      if vision_policy.returncode or not re.search(rb"(?m)^Ran 30 tests? in [0-9.]+s\s*$",vision_policy.stdout) or not re.search(rb"(?m)^OK\s*$",vision_policy.stdout):
                           status("NATIVE_MULTIMODAL_RECEIPT_POLICY","FAIL");status("APK","NOT_RUN");return 1
-                      status("NATIVE_MULTIMODAL_RECEIPT_POLICY","26/26")
+                      status("NATIVE_MULTIMODAL_RECEIPT_POLICY","30/30")
                       policy=root/"context-policy"
                       if not stage("LLAMA_CONTEXT_POLICY_BUILD",["g++","-std=c++17","-Wall","-Wextra","-Werror","-O2","qualification/llama-context-budget.test.cpp","-o",str(policy)],mobile,120):
                           status("APK","NOT_RUN");status("QUALIFICATION","FAIL");return 1
