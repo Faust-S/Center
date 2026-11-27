@@ -71,6 +71,9 @@ def main():
             elif group in ('desktop','upgrade'):
                 if baseline_ready:
                     passed = installed_gate(q, pin, tree, baseline, BASELINE_PIN, BASELINE_TREE, upgrade=(group=='upgrade'))
+                    if passed and group == 'desktop':
+                        from delivery import seal_clean_install
+                        passed = seal_clean_install(q, pin, tree)
                 else:
                     q.block('UPGRADE_BASELINE_CHECKOUT')
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
