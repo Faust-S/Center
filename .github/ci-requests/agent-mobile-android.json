@@ -1,0 +1,11 @@
+{
+  "candidate": "488f9a734d92f0fdfab10e59b2cdeb56690fc3d5",
+  "tree": "732d370526de54a457a3cf81ba4954e478369575",
+  "original_t3": "1e5d54bba065f0e82cc506a5443b96079d070608",
+  "original_t3_tree": "80f724d21d2acca0394e3694ae4a9a7fd65317bc",
+  "scope": "M20_2_MOBILE_SHARED_LOCAL_CLOUD_CONVERSATION",
+  "reason": "OWNER_UNIFIED_CONVERSATION_MEMORY_AUTOMATION",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "8584fb41976984994bacdfa61228303b544f7a9c"
+}
