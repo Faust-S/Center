@@ -601,6 +601,16 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_RESULT_REGRESSION_FAILED'}
           & npm.cmd run build
           if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_INTERFACE_BUILD_FAILED'}
+          # Install public Atlas dependencies once, before private checkout
+          # and native compilation. A TypeScript contract error must not
+          # consume another expensive original Consumer / Rust build.
+          & npm.cmd ci --prefix vendor/atlas/desktop --no-audit --no-fund
+          if($LASTEXITCODE -ne 0){throw 'ATLAS_ORIGINAL_NATIVE_DEPENDENCIES_FAILED'}
+          Push-Location vendor/atlas/desktop
+          try {
+            & ./node_modules/.bin/tsc.cmd --noEmit
+            if($LASTEXITCODE -ne 0){throw 'ATLAS_PUBLIC_INTERFACE_TYPECHECK_FAILED'}
+          } finally { Pop-Location }
           & node --test vendor/one-core/packages/t3-core/tests/t3-company-workspace-readback.test.mjs
           if($LASTEXITCODE -ne 0){throw 'ONE_CORE_COMPANY_RESULT_REGRESSION_FAILED'}
           Write-Host 'ATLAS_CENTER_PUBLIC_RESULT_AND_BUILD_PASS'
@@ -657,10 +667,8 @@ jobs:
           & bun build --compile --target=bun-windows-x64 --windows-hide-console private-t3/scripts/product-license-windows-consumer-cli.mjs --outfile $exe *> $log
           if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe)){throw 'ATLAS_ORIGINAL_CONSUMER_BUILD_FAILED'}
           Write-Host 'ATLAS_ORIGINAL_CONSUMER_COMPILED'
-          # Public Atlas dependencies and build diagnostics are separate from
-          # the original private Consumer compilation log. Never print the latter.
-          & npm.cmd ci --prefix vendor/atlas/desktop --no-audit --no-fund
-          if($LASTEXITCODE -ne 0){throw 'ATLAS_ORIGINAL_NATIVE_DEPENDENCIES_FAILED'}
+          # The already checked public Atlas dependencies are reused.
+          # Keep the private Consumer compilation log separate.
           $atlasLog=Join-Path $env:RUNNER_TEMP 'atlas-private-public-atlas-build.log'
           try {
             & ./vendor/atlas/desktop/installer/build-setup-core.ps1 -OriginalT3ConsumerPath $exe -InstallForQualification -Output (Join-Path $env:RUNNER_TEMP 'atlas-private-setup.exe') *> $atlasLog
