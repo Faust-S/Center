@@ -267,6 +267,18 @@ class CleanDiagnosticTests(unittest.TestCase):
         self.assertEqual(guest_observations('AGENT066_GUEST_UIA=NO_MATCH\nAGENT066_GUEST_HWND=OWNED_SLOT_CHILD\nAGENT066_GUEST_DOM=VISIBLE'),
                          {'GUEST_UIA':'NO_MATCH','GUEST_HWND':'OWNED_SLOT_CHILD','GUEST_DOM':'VISIBLE'})
 
+    def test_file_failure_evidence_is_bounded_and_files_scoped(self):
+        for name, values in (
+            ('HTTP_DOWNLOAD',('ZERO','ONE','TWO','THREE','MORE','UNKNOWN')),
+            ('DOWNLOAD_DESTINATION',('ABSENT','EXPECTED','OTHER','UNOBSERVED')),
+        ):
+            for value in values:
+                row = 'AGENT066_GUEST_FILES_' + name + '=' + value
+                self.assertEqual(guest_observations(row), {'GUEST_FILES_'+name:value})
+                self.assertEqual(guest_observations(row+'\n'+row), {})
+            self.assertEqual(guest_observations('AGENT066_GUEST_FILES_'+name+'=private'), {})
+            self.assertEqual(guest_observations('AGENT066_GUEST_ACTIONS_'+name+'='+values[0]), {})
+
     def test_guest_scope_and_diagnostic_flow_projection(self):
         for scope in ('SNAPSHOT','FILES','ACTIONS'):
             row='AGENT066_GUEST_'+scope+'_SCROLL=CONFIRMED'
