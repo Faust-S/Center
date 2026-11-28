@@ -46,7 +46,7 @@ class Evidence(unittest.TestCase):
                 with self.assertRaises(ValueError):e.verify_prior(*args)
 
     def test_exact_witness_tree(self):
-        before = {('private/file-'+str(i)).encode():b'100644 blob '+b'a'*40 for i in range(3356-len(e.WITNESS_CHANGES))}
+        before = {('private/file-'+str(i)).encode():b'100644 blob '+b'a'*40 for i in range(3357-len(e.WITNESS_CHANGES))}
         after = before.copy()
         for name,(old,new) in e.WITNESS_CHANGES.items():
             before[name]=('100644 blob '+old).encode();after[name]=('100644 blob '+new).encode()
@@ -64,12 +64,14 @@ class Evidence(unittest.TestCase):
         header = struct.Struct('>8s40s40sQ32s12s384s')
         name = 'fixture.iwxae'
         def content(plain):
-            return header.pack(b'IWXAENC1',admit.CANDIDATE_PIN.encode(),admit.CANDIDATE_TREE.encode(),1,bytes.fromhex(plain),b'a'*12,b'b'*384)
+            return header.pack(b'IWXAENC1',e.PRIOR_CANDIDATE_PIN.encode(),e.PRIOR_CANDIDATE_TREE.encode(),1,bytes.fromhex(plain),b'a'*12,b'b'*384)
         module = types.SimpleNamespace(NAME=name,HEADER=header,verify_envelope=lambda folder:e.SEALED_SHA)
         with tempfile.TemporaryDirectory() as folder, patch.dict(sys.modules,{'delivery':module}):
             target = Path(folder)/name
             target.write_bytes(content(e.SETUP_SHA))
-            e.verify_delivery(folder)
+            with self.assertRaises(ValueError):e.verify_delivery(folder)
+            with patch.object(e,'CANDIDATE_PIN',e.PRIOR_CANDIDATE_PIN),patch.object(e,'CANDIDATE_TREE',e.PRIOR_CANDIDATE_TREE):
+                e.verify_delivery(folder)
             target.write_bytes(content('0'*64))
             with self.assertRaises(ValueError):e.verify_delivery(folder)
             target.write_bytes(content(e.SETUP_SHA))
