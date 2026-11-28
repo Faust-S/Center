@@ -29,7 +29,8 @@ def rejects(call, code=None):
 def main():
     from runtime.daily_driver_engine import DailyDriverEngine
     from runtime.u01_composition import add_public_program_profiles
-    from runtime.program_workflow_input import prepare_original_program_workflow_task,read_original_program_workflow_result
+    from runtime.program_workflow_input import (prepare_original_program_workflow_task,read_original_program_workflow_result,
+        preview_original_program_workflow_task,prepare_confirmed_program_workflow_task)
     from runtime.public_program_task import task_id_for_request
     from runtime.modeling_optimization_u01 import PROGRAM_ID
     from tools.qualify_setup_core_modeling import Surface
@@ -66,9 +67,10 @@ def main():
             text=raw
             tamper=False
             calls=0
+            context_epoch='controlled-epoch'
             def currentBinding(self):
                 return {'subjectKind':'PERSONAL','sourceWorkspaceId':selected['workspaceId'],
-                    'agentWorkspaceId':area,'contextEpoch':'controlled-epoch'}
+                    'agentWorkspaceId':area,'contextEpoch':self.context_epoch}
             def readInputs(self,selection):
                 self.calls+=1
                 p=observe(self.text,selection)['prepared']
@@ -90,14 +92,51 @@ def main():
             'confirmed':True,'modeling_source':prepared['modelingSource'],'verified_workflow':prepared['reference']}
         rejects(lambda:surface.command('public_program_task_draft',args,'provider',PROGRAM_ID))
         require(not (engine.core_root/'tasks'/task_id_for_request(bad)/'task.json').exists(),'PUBLIC_FORGERY_CREATED')
-        draft=prepare(request)
-        require(draft['state']=='READY_FOR_REVIEW' and not draft['execution_performed'] and not draft['model_invoked'],'ORIGINAL_TASK_PREPARATION')
-        task,candidate=draft['task_id'],draft['candidate_id']
-        repeat=prepare(request)
-        require(repeat['task_id']==task and repeat['reused'] is True,'IDENTICAL_REQUEST')
+        def preview():
+            return preview_original_program_workflow_task(engine,source_owner=port,selection=selected)
+        view=preview()
+        require(view==preview(),'WORKFLOW_EXACT_PREVIEW_REPEAT')
+        require(view['state']=='ORIGINAL_PROGRAM_WORK_PREVIEW_READY' and view['candidateDigest']==prepared['candidateDigest']
+                and view['source']==prepared['reference']['source'] and view['nativeSource']['sha256']==hashlib.sha256(raw.encode()).hexdigest(),
+                'WORKFLOW_EXACT_NATIVE_PREVIEW')
+        require(not any(view[k] for k in ('taskCreated','executionPerformed','executionAuthority','workCompleted','finalHumanAcceptanceProven'))
+                and not any(k in view for k in ('modelingSource','message','output')),'WORKFLOW_PREVIEW_ONLY')
+        request=view['requestId']
+        task_path=engine.core_root/'tasks'/task_id_for_request(request)/'task.json'
+        require(not task_path.exists(),'WORKFLOW_PREVIEW_CREATED_TASK')
+        def confirm(v=view,request_id=request,confirmed=True):
+            return prepare_confirmed_program_workflow_task(engine,source_owner=port,selection=selected,
+                request_id=request_id,preview_digest=v['previewDigest'],confirmed=confirmed)
+        rejects(lambda:confirm(confirmed=False),'u01_workflow_original_owner_required')
+        rejects(lambda:confirm(request_id='workflow-wrong-request-01'),'u01_workflow_preview_changed')
         port.text=raw+' '
-        rejects(lambda:prepare(request),'u01_request_identity_conflict')
+        rejects(confirm,'u01_workflow_preview_changed')
         port.text=raw
+        port.context_epoch='changed-context'
+        rejects(confirm,'u01_workflow_preview_changed')
+        port.context_epoch='controlled-epoch'
+        require(not task_path.exists(),'WORKFLOW_STALE_PREVIEW_CREATED_TASK')
+        print('WORKFLOW_EXACT_NATIVE_PREVIEW_PASS',flush=True)
+        draft=confirm()
+        require(draft['state']=='READY_FOR_REVIEW' and not draft['executionPerformed'] and not draft['executionAuthority']
+                and draft['requestId']==request and draft['candidateDigest']==view['candidateDigest'] and draft['reused'] is False,
+                'ORIGINAL_TASK_PREPARATION')
+        task=draft['taskId']
+        candidates=[c for c in engine.task_detail(task)['action_candidates'] if c['operation']=='program.invoke']
+        require(len(candidates)==1,'WORKFLOW_UNIQUE_ORIGINAL_CANDIDATE')
+        candidate=candidates[0]['candidate_id']
+        repeat=confirm()
+        require(repeat['taskId']==task and repeat['reused'] is True,'IDENTICAL_REQUEST')
+        port.context_epoch='changed-context'
+        fresh=preview()
+        require(fresh['requestId']==request and fresh['previewDigest']!=view['previewDigest'],'WORKFLOW_RECONNECT_PREVIEW')
+        repeat=confirm(fresh)
+        require(repeat['taskId']==task and repeat['reused'] is True,'WORKFLOW_RECONNECT_DUPLICATE')
+        port.context_epoch='controlled-epoch'
+        port.text=raw+' '
+        rejects(confirm,'u01_workflow_preview_changed')
+        port.text=raw
+        print('WORKFLOW_CONFIRMED_DETERMINISTIC_TASK_PASS',flush=True)
         print('WORKFLOW_ORIGINAL_TASK_INPUT_PASS',flush=True)
         surface.command('review_task',{'action':'accept','accept_action_candidates':[candidate]},'task',task)
         plan=surface.command('tool_prepare',{'task_id':task},'action_candidate',candidate)
