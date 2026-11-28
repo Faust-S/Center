@@ -83,17 +83,22 @@ def upgrade_diagnostics(data, *, label_prefix=''):
     if len(details) == 1 and details[0] in proposal_codes:
         print(label_prefix+'ACTION_PROPOSAL_DETAIL='+details[0], flush=True)
 
+    prefix = 'AGENT066_FILES_READ_RECEIPT='
+    details = [line[len(prefix):] for line in data.splitlines() if line.startswith(prefix)]
+    if len(details) == 1 and details[0] in ('PASS','FAIL'):
+        print(label_prefix+'FILES_READ_RECEIPT='+details[0], flush=True)
+
 
 def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False, witness=None):
-    if (os.name!='nt' or upgrade != (baseline is not None)
-            or os.environ.get('QUALIFICATION_GROUP')!=('upgrade' if upgrade else 'desktop')
-            or (SCOPE == 'B066_REMAINING_NATIVE_DEVELOPMENT') != (witness is not None)
-            or (witness is not None and (not upgrade or witness is q or witness is baseline
-                                         or not witness.results or not all(witness.results.values())))):
+    development = SCOPE == 'B066_REMAINING_NATIVE_DEVELOPMENT'
+    if (os.name!='nt' or os.environ.get('QUALIFICATION_GROUP')!=('upgrade' if upgrade else 'desktop')
+            or (development and (not upgrade or baseline is not None or witness is not q
+                                 or not q.results or not all(q.results.values())))
+            or (not development and (upgrade != (baseline is not None) or witness is not None))):
         q.block('SETUP_ADMISSION'); return False
     if not verdict(q,'COMMITTED_NATIVE_LOCK_BEFORE',LOCK in q.files and lock_ok(q.src/LOCK,NEW_LOCK,'0.6.6')):
         return False
-    if upgrade and not verdict(q,'BASELINE_LOCK_BEFORE',LOCK in baseline.files and lock_ok(baseline.src/LOCK,OLD_LOCK,'0.6.5')):
+    if upgrade and not development and not verdict(q,'BASELINE_LOCK_BEFORE',LOCK in baseline.files and lock_ok(baseline.src/LOCK,OLD_LOCK,'0.6.5')):
         return False
     owner=checkout_setup_owner(q)
     if owner is None:
@@ -119,7 +124,7 @@ def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False, 
     good=False
     if upgrade:
         ready=verdict(q,label,code==0 and preflight and built and data.strip()=='AGENT065_UPGRADE_CANDIDATE_BUILT_UNQUALIFIED')
-        if SCOPE == 'B066_REMAINING_NATIVE_DEVELOPMENT':
+        if development:
             if not ready:
                 return False
             root = q.root/'browser-development'
@@ -134,9 +139,8 @@ def installed_gate(q, pin, tree, baseline, old_pin, old_tree, *, upgrade=False, 
                         'AGENT066_BROWSER_FLOW_FILES=PASS','AGENT066_BROWSER_FLOW_ACTIONS=PASS')
             good = verdict(q,'B066_REMAINING_NATIVE',code==0 and rows[-1:]==['AGENT066_BROWSER_DEVELOPMENT_PASS']
                            and all(rows.count(x)==1 for x in expected) and file_sha256(out/NAME)==candidate_hash)
-            verdict(q,'BASELINE_LOCK_AFTER',lock_ok(baseline.src/LOCK,OLD_LOCK,'0.6.5'))
             verdict(q,'COMMITTED_NATIVE_LOCK_AFTER',lock_ok(q.src/LOCK,NEW_LOCK,'0.6.6'))
-            return good and all(q.results.values()) and all(baseline.results.values()) and all(witness.results.values())
+            return good and all(q.results.values())
         # Debug the four independent installed browser routes on the one
         # exact candidate before spending time rebuilding frozen 0.6.5.
         # This is development evidence only; it never replaces upgrade PASS.

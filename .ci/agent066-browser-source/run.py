@@ -4,9 +4,9 @@ from pathlib import Path
 import sys
 import tempfile
 import subprocess
+import shutil
 
 from admit import CANDIDATE_PIN, CANDIDATE_TREE, BASELINE_PIN, BASELINE_TREE, WITNESS_PIN, WITNESS_TREE, GROUPS, SCOPE
-from reuse_evidence import verify_witness_checkouts
 from bundle_evidence import summarize
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'agent065-modeling'))
 from qualify import Qualification, cleanup_private, status
@@ -46,10 +46,27 @@ def browser_witness_preflight(q):
     if python is None:
         q.block('B066_BROWSER_WITNESS_TEST')
         return False
-    return q.pytest('B066_BROWSER_WITNESS_TEST', python,
+    if not q.pytest('B066_BROWSER_WITNESS_TEST', python,
                     ['tests/test_setup_core_browser_installed.py','tests/test_setup_core_browser_actions.py',
-                     'tests/test_setup_core_browser_development.py','tests/test_browser_model_proposals.py',
-                     'tests/test_browser_document_actions.py','tests/test_agent066_browser_core_integration.py'], timeout=600)
+                     'tests/test_setup_core_browser_files.py','tests/test_setup_core_browser_development.py',
+                     'tests/test_browser_model_proposals.py','tests/test_browser_snapshot_targets.py',
+                     'tests/test_browser_document_actions.py','tests/test_agent066_browser_core_integration.py',
+                     'tests/test_shared_browser_mcp.py','tests/test_browser_mcp_host.py'], timeout=600):
+        return False
+    node, npm = shutil.which('node'), shutil.which('npm.cmd')
+    if not node or not npm:
+        q.block('B066_MATERIALS_NODE_TOOLCHAIN')
+        return False
+    npmcli = Path(npm).parent/'node_modules'/'npm'/'bin'/'npm-cli.js'
+    if not npmcli.is_file():
+        q.block('B066_MATERIALS_NODE_TOOLCHAIN')
+        return False
+    desktop = q.src/'desktop'
+    if q.run('B066_MATERIALS_DEPENDENCIES',[node,npmcli,'ci','--ignore-scripts','--no-audit','--no-fund'],
+             cwd=desktop,timeout=900)[0]:
+        return False
+    return q.run('B066_MATERIALS_RACE',[node,'--test','tests/files-startup-race.test.mjs','tests/files-navigation.test.mjs'],
+                 cwd=desktop,timeout=120)[0] == 0
 
 
 def main():
@@ -62,34 +79,22 @@ def main():
     try:
         if ((pin, tree) != (CANDIDATE_PIN, CANDIDATE_TREE) or group != 'upgrade' or group not in GROUPS
                 or (os.environ.get('BASELINE_PIN'), os.environ.get('BASELINE_TREE')) != (BASELINE_PIN, BASELINE_TREE)
-                or (os.environ.get('WITNESS_PIN'), os.environ.get('WITNESS_TREE')) != (WITNESS_PIN, WITNESS_TREE)):
+                or (os.environ.get('WITNESS_PIN'), os.environ.get('WITNESS_TREE')) != (WITNESS_PIN, WITNESS_TREE)
+                or (pin, tree) != (WITNESS_PIN, WITNESS_TREE)
+                or SCOPE != 'B066_REMAINING_NATIVE_DEVELOPMENT'):
             status('B066_REQUEST', 'FAIL')
             return 1
         root = Path(tempfile.mkdtemp(prefix='iwxa-agent065-agent066-', dir=os.environ['RUNNER_TEMP']))
         q = Qualification(root)
         if q.checkout(token, pin, tree):
-            old_root = root / 'baseline'
-            old_root.mkdir()
-            baseline = Qualification(old_root)
-            witness_root = root / 'witness'
-            witness_root.mkdir()
-            witness = Qualification(witness_root)
-            ready = (baseline.checkout(token, BASELINE_PIN, BASELINE_TREE, status_prefix='BASELINE_')
-                     and witness.checkout(token, WITNESS_PIN, WITNESS_TREE, status_prefix='WITNESS_'))
             token = ''
-            if ready:
-                verify_witness_checkouts(q, witness)
-                status('WITNESS_ONLY_SOURCE_DIFF', 'PASS')
-                if browser_witness_preflight(witness) and all(witness.results.values()):
-                    # Product and baseline builds retain their original pins.
-                    # Only the independent qualification script uses witness.src.
-                    verify_witness_checkouts(q, witness)
-                    passed = installed_gate(q, pin, tree, baseline, BASELINE_PIN, BASELINE_TREE,
-                                            upgrade=True, witness=witness)
-                else:
-                    q.block('UPGRADE_WITNESS_PREFLIGHT')
+            # In development, build and test one exact checkout. No separate
+            # witness revision, frozen baseline rebuild or inherited binary verdict.
+            if browser_witness_preflight(q) and all(q.results.values()):
+                passed = installed_gate(q, pin, tree, None, BASELINE_PIN, BASELINE_TREE,
+                                        upgrade=True, witness=q)
             else:
-                q.block('UPGRADE_BASELINE_OR_WITNESS_CHECKOUT')
+                q.block('UPGRADE_WITNESS_PREFLIGHT')
     except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
         status('B066_INTERNAL', 'FAIL')
     finally:

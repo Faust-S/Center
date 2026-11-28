@@ -1,12 +1,12 @@
 {
-  "candidate": "1a421ca9b8ef75241b3ec4066ccc87bad63a9b0c",
-  "tree": "affcf4ab1d94dfcf1f6dbb721c3a10ba19c43f65",
+  "candidate": "4db3f6130fb22a956792f8a8f677949fbf56c350",
+  "tree": "89b82385202accb860e75c29db9435d6d0e414b3",
   "baseline": "68128b4c9a2c7140ec3503ff0f775e5bcb50743e",
   "baseline_tree": "73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2",
   "scope": "B066_REMAINING_NATIVE_DEVELOPMENT",
   "installed_gui": "REQUIRED",
-  "witness": "670359d4d4ec21b444c1d255264eeaa8ac2e8580",
-  "witness_tree": "ba1f33192b836a2cd65f05e79f5c11320d0b4943",
+  "witness": "4db3f6130fb22a956792f8a8f677949fbf56c350",
+  "witness_tree": "89b82385202accb860e75c29db9435d6d0e414b3",
   "prior_run": 46132480100,
   "prior_attempt": 1,
   "prior_artifact": 15259880049

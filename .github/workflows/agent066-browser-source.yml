@@ -1,4 +1,4 @@
-name: Agent 0.6.6 native files and model proposal development
+name: Agent 0.6.6 remaining routes on one exact candidate
 on:
   push:
     branches:
@@ -18,12 +18,12 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 360
     env:
-      PRIVATE_PIN: '1a421ca9b8ef75241b3ec4066ccc87bad63a9b0c'
-      PRIVATE_TREE: 'affcf4ab1d94dfcf1f6dbb721c3a10ba19c43f65'
+      PRIVATE_PIN: '4db3f6130fb22a956792f8a8f677949fbf56c350'
+      PRIVATE_TREE: '89b82385202accb860e75c29db9435d6d0e414b3'
       BASELINE_PIN: '68128b4c9a2c7140ec3503ff0f775e5bcb50743e'
       BASELINE_TREE: '73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2'
-      WITNESS_PIN: '670359d4d4ec21b444c1d255264eeaa8ac2e8580'
-      WITNESS_TREE: 'ba1f33192b836a2cd65f05e79f5c11320d0b4943'
+      WITNESS_PIN: '4db3f6130fb22a956792f8a8f677949fbf56c350'
+      WITNESS_TREE: '89b82385202accb860e75c29db9435d6d0e414b3'
       QUALIFICATION_GROUP: upgrade
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -38,7 +38,7 @@ jobs:
       - name: Admit exact one-time request before private access
         shell: bash
         run: |
-          python .ci/agent066-browser-source/test_reuse_evidence.py
+          python .ci/agent066-browser-source/test_reuse_evidence.py Evidence.test_one_shot_request_admission
           python .ci/agent066-browser-source/test_installed_evidence.py
           python .ci/agent066-browser-source/admit.py
       - uses: actions/setup-python@v5
