@@ -23,6 +23,6 @@ assert.deepEqual(Object.keys(request).sort(),['pins','prepared','profile','reaso
 assert.equal(request.workflow,workflow);
 assert.equal(request.prepared,before);
 assert.equal(request.profile,'workspace-method-alternative-lifecycle');
-assert.deepEqual(request.pins,{workspaceKnowledge:'020a22b52af839e39eab8dcfc4a0c1f88b184bd2'});
-assert.equal(request.reason,'Qualify actual original method alternative creation recovery navigation and origin comparison through existing trusted Workspace owner');
+assert.deepEqual(request.pins,{workspaceKnowledge:'c1c074104abd661081bdb8a20f5f78d24a6ea6ca'});
+assert.equal(request.reason,'Qualify W06.8 original owner pre-write material refusal and partial alternative recovery without duplicate creation');
 console.log('EXACT_ONE_SHOT_WORKFLOW_REQUEST_PASS');
