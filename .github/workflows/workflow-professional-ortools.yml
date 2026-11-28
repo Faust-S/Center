@@ -1,5 +1,4 @@
-# Deliberate exact qualification. Only the synthetic public map is uploaded.
-name: Original Programs Center complete managed professional workflow
+name: Workspace original method creation comparison
 on:
   push:
     branches: ['ci/once/workflow-professional-ortools/**']
@@ -7,12 +6,12 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: original-professional-complete-managed
+  group: original-workspace-method-comparison
   cancel-in-progress: false
 jobs:
-  public-map:
+  workspace-comparison:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,93 +21,23 @@ jobs:
         with:
           node-version: '22.16.0'
       - run: node qualification/validate-professional-ortools-request.mjs
-      - name: Build only the public controlled OSM fixture
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends osmium-tool
-          mkdir public-map
-          python3 -c 'import sys;from pathlib import Path;sys.path.insert(0,"qualification/professional-geospatial");from topology_fixture import write;write(Path("public-map/map.osm"))'
-          osmium cat public-map/map.osm -o public-map/map.osm.pbf
-          (cd public-map && sha256sum map.osm.pbf > SHA256SUMS)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: public-controlled-map
-          path: |
-            public-map/map.osm.pbf
-            public-map/SHA256SUMS
-          retention-days: 1
-          if-no-files-found: error
-  windows-managed:
-    needs: public-map
-    runs-on: windows-latest
-    timeout-minutes: 70
-    defaults:
-      run:
-        shell: bash
-    env:
-      PYTHONDONTWRITEBYTECODE: '1'
-      PIP_DISABLE_PIP_VERSION_CHECK: '1'
-    steps:
       - uses: actions/checkout@v4
         with:
+          repository: Faust-S/knowledge
+          ref: 411f4fab4768342db53b91a4b8a42f023246c3f4
+          path: workspace-source
           persist-credentials: false
-          fetch-depth: 2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.16.0'
-      - run: node qualification/validate-professional-ortools-request.mjs
-      - uses: actions/download-artifact@v4
-        with:
-          name: public-controlled-map
-          path: public-map
-      - run: (cd public-map && sha256sum -c SHA256SUMS)
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Require authorized private read-only checkout
-        env:
-          PRIVATE_SOURCE_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
-        run: test -n "$PRIVATE_SOURCE_TOKEN" || { echo PROFESSIONAL_SOURCE_ACCESS_REQUIRED; exit 1; }
-      - uses: actions/checkout@v4
-        id: professional_source
-        with:
-          repository: Faust-S/iwxa-personal-agent
-          ref: f7f0a6e95cc551b89557f256af40ea69e222e7f9
-          path: professional-agent
-          persist-credentials: false
-          token: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
-      - name: Exact qualification dependencies
+      - name: Original addressed comparison and trusted Host regressions
+        working-directory: workspace-source/packages/t3-core
         run: |
-          test "$(git -C professional-agent rev-parse HEAD)" = "f7f0a6e95cc551b89557f256af40ea69e222e7f9"
-          python -m pip install -r professional-agent/requirements-ci.txt ortools==9.14.6206 mesa==3.5.2 simpy==4.1.2 > "$RUNNER_TEMP/professional-deps-private.log" 2>&1 || { echo PROFESSIONAL_DEPENDENCIES_FAIL; exit 1; }
-      - name: Managed install contracts and discovery
-        working-directory: professional-agent
-        run: |
-          rc=0
-          python -m pytest -q tests/test_agent067_professional_install.py tests/test_agent067_modeling_executable.py -k 'not native_windows' --junitxml="$RUNNER_TEMP/professional-contract.xml" > "$RUNNER_TEMP/professional-contract-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-contract.xml" MANAGED_CONTRACT 24 strict || exit 1
-          test "$rc" = 0
-      - name: Actual original Programs Center QGIS Valhalla OR-Tools workflow and cold readback
-        if: always() && steps.professional_source.outcome == 'success'
-        working-directory: professional-agent
-        run: |
-          rc=0
-          export IWXA_PROFESSIONAL_NATIVE_COMPLETE=1
-          export IWXA_PUBLIC_VALHALLA_PBF="$(cd ../public-map && pwd -W)/map.osm.pbf"
-          python -m pytest -q tests/test_agent067_professional_install.py -k native_windows_original_program_center_complete_managed_chain --basetemp="$RUNNER_TEMP/iwxaroad" --junitxml="$RUNNER_TEMP/professional-road.xml" > "$RUNNER_TEMP/professional-road-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-road.xml" MANAGED_COMPLETE_CHAIN 1 strict || exit 1
-          test "$rc" = 0
-      - name: Actual original Windows native path refusal
-        if: always() && steps.professional_source.outcome == 'success'
-        working-directory: professional-agent
-        run: |
-          rc=0
-          export IWXA_PROFESSIONAL_NATIVE_LONG_PATH=1
-          python -m pytest -q tests/test_agent067_professional_install.py -k native_windows_long_paths_are_controlled_rejections --basetemp="$RUNNER_TEMP/iwxalong" --junitxml="$RUNNER_TEMP/professional-long.xml" > "$RUNNER_TEMP/professional-long-private.log" 2>&1 || rc=$?
-          python ../qualification/professional-test-summary.py "$RUNNER_TEMP/professional-long.xml" MANAGED_LONG_PATH_REFUSAL 1 strict || exit 1
-          test "$rc" = 0
-      - name: Remove private source and diagnostics
-        if: always()
-        run: |
-          rm -rf professional-agent
-          rm -f "$RUNNER_TEMP"/professional-*.xml "$RUNNER_TEMP"/professional-*-private.log
+          test "$(git rev-parse HEAD)" = "411f4fab4768342db53b91a4b8a42f023246c3f4"
+          node --test tests/c3-workspace-method-comparison.test.mjs tests/c3-workspace-method-stage-results.test.mjs
+      - name: Locked Workspace dependencies
+        working-directory: workspace-source/packages/t3-core
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Original Workspace TypeScript
+        working-directory: workspace-source/packages/t3-core
+        run: npm run typecheck
+      - name: Original Workspace presentation tests
+        working-directory: workspace-source/packages/t3-core
+        run: npm run test:product:workspace -- tests/rich-workspace-read-model.dom.test.tsx
