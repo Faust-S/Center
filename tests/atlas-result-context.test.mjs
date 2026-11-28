@@ -154,7 +154,7 @@ test('corporate Workspace readback is bound to the exact signed Atlas assignment
   taskId:task.taskId,taskRevisionId,taskPackageSha256:sha,
   resultId:row.artifactId,taskObjectId:receipt.taskObjectId,taskEventId:receipt.taskEventId,
   resultObjectId:row.objectId,resultEventId:row.eventId,sourceOperationId:preview.operationId,
-  archiveSha256:published.archiveSha256,resultSha256:row.sha256,selectedText:row.content,workRef:ref});
+  archiveSha256:published.archiveSha256,resultSha256:row.sha256,selectedText:receipt.selectedResult.content,workRef:ref});
  assert.throws(()=>originalAtlasWorkspacePublicationReference(receipt,preview,
   {...published,status:'RECOVERY_REQUIRED'},session),/CEN_D3_ATLAS_WORKSPACE_PUBLICATION_READBACK_CHANGED/);
  assert.throws(()=>originalAtlasWorkspacePublicationReference(receipt,preview,published,
