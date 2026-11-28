@@ -116,9 +116,9 @@ jobs:
                           status("QA_NATIVE_TTS_PREFLIGHT","FAIL");return 1
                       status("QA_NATIVE_TTS_PREFLIGHT","PASS")
                       audio_diagnostics=run(["python3","mobile/qualification/test_diagnostics.py"],source,timeout=60)
-                      if audio_diagnostics.returncode or not re.search(rb"(?m)^Ran 22 tests? in [0-9.]+s\s*$",audio_diagnostics.stdout) or not re.search(rb"(?m)^OK\s*$",audio_diagnostics.stdout):
+                      if audio_diagnostics.returncode or not re.search(rb"(?m)^Ran 24 tests? in [0-9.]+s\s*$",audio_diagnostics.stdout) or not re.search(rb"(?m)^OK\s*$",audio_diagnostics.stdout):
                           status("EXCHANGE_DIAGNOSTICS","FAIL");return 1
-                      status("EXCHANGE_DIAGNOSTICS","PASS");status("AUDIO_DIAGNOSTICS_POLICY","22/22")
+                      status("EXCHANGE_DIAGNOSTICS","PASS");status("AUDIO_DIAGNOSTICS_POLICY","24/24")
                       native=json.loads((mobile/"native/llama-source.json").read_text())
                       if native.get("revision")!="5220a2d4040aa75f52678ebf52d77a0fba85de9f":
                           status("LLAMA_PIN","FAIL");return 1
