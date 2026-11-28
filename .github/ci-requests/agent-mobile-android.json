@@ -1,0 +1,11 @@
+{
+  "candidate": "9d52a1bbf1b4b19c6a8a8642dd57c5feb1dcf1cf",
+  "tree": "180b762e65e31b79ec6f95d33ddb4f8865600dbf",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M21_5_ANDROID_FULL_QUALIFICATION",
+  "reason": "QUALIFY_EXACT_SOURCE_ACCEPTED_CANDIDATE_AND_VOICE_HISTORY_NATIVE_ROUTES",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "e83104b5967ae11e292a26b08912ddaee4e76d29"
+}
