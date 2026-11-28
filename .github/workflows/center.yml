@@ -597,7 +597,7 @@ jobs:
           # dependency. Install it BEFORE exercising the export regression.
           & npm.cmd install --no-audit --no-fund
           if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_NPM_FAILED'}
-          & node --test tests/atlas-native.test.mjs tests/atlas-result-context.test.mjs
+          & node --test tests/atlas-native.test.mjs tests/atlas-result-context.test.mjs tests/cen03-corporate-seats.test.mjs
           if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_RESULT_REGRESSION_FAILED'}
           & npm.cmd run build
           if($LASTEXITCODE -ne 0){throw 'CENTER_PUBLIC_INTERFACE_BUILD_FAILED'}

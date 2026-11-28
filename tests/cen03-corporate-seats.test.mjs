@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readOriginalSeatView,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent,prepareOriginalSeatDelivery,readOriginalSeatDelivery,corporateSeatRouteStage,readOriginalEmployeeRegistryReceipt,observeOriginalEmployeeRegistry,originalSeatRegistryScopeMatches}
+import {readOriginalSeatView,defaultOriginalEmployeeRosterChoice,prepareOriginalSeatCommand,readOriginalSeatChange,readOriginalSeatPolicy,readOriginalSeatCommandRecovery,seatIntentKey,readSeatIntent,saveSeatIntent,clearSeatIntent,prepareOriginalSeatDelivery,readOriginalSeatDelivery,corporateSeatRouteStage,readOriginalEmployeeRegistryReceipt,observeOriginalEmployeeRegistry,originalSeatRegistryScopeMatches}
  from '../runtime/cen03-corporate-seats.mjs';
 const H='a'.repeat(64),org='org:one',ws='workspace:one';
 const member={personId:'person:one',enrollmentId:'enrollment:one'};
@@ -24,6 +24,18 @@ test('only exact original organization and workspace projection is accepted',()=
   {registryDigest:'x'},{reservedSeats:0}]){
   assert.throws(()=>read({...view(),...bad}),/READBACK_INVALID/);
  }
+});
+test('only a unique employee from the complete original roster may be preselected',()=>{
+ const manager='person:manager',v=read(view());
+ assert.equal(defaultOriginalEmployeeRosterChoice(v,manager),'');
+ assert.equal(defaultOriginalEmployeeRosterChoice(v,row.personId),member.personId);
+ const unique=read({...view(),employeeTotal:1,eligibleEmployees:[{...member,reserved:false}]});
+ assert.equal(defaultOriginalEmployeeRosterChoice(unique,manager),member.personId);
+ assert.equal(defaultOriginalEmployeeRosterChoice(unique,member.personId),'');
+ assert.equal(defaultOriginalEmployeeRosterChoice({...unique,employeeOffset:64,employeeTotal:65},manager),'');
+ assert.equal(defaultOriginalEmployeeRosterChoice({...unique,employeeNextOffset:64,employeeTotal:65},manager),'');
+ assert.equal(defaultOriginalEmployeeRosterChoice({...unique,originalReadback:false},manager),'');
+ assert.equal(defaultOriginalEmployeeRosterChoice(null,manager),'');
 });
 test('assign and transfer bind exact registry, commercial digest, and enrolled person',()=>{
  const v=read(view());

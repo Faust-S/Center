@@ -4,7 +4,7 @@ import CorporateSeatAssignments from './CorporateSeatAssignments';
 import {createNativeAtlasPort,readNativeAtlasRecordedResult} from './atlas-native.mjs';
 import type {ManagerOriginalSelection} from './manager-original-selection';
 import {managerOriginalSelectionMatches} from './manager-owner-context.mjs';
-import {readOriginalEmployeeRegistryReceipt,readOriginalSeatView} from '../runtime/cen03-corporate-seats.mjs';
+import {readOriginalEmployeeRegistryReceipt,readOriginalSeatView,defaultOriginalEmployeeRosterChoice} from '../runtime/cen03-corporate-seats.mjs';
 import {validateOriginalEmployeeTaskIssueReceipt,validateOriginalEmployeeTaskReadback,readOriginalEmployeeBootstrap,readOriginalEmployeePublicCandidate,
  employeeTaskContinuationKey,readEmployeeTaskContinuation,saveEmployeeTaskContinuation,clearEmployeeTaskContinuation,
  readOriginalEmployeeEnrollmentIdentity,readOriginalEmployeeCredentialIdentity,readEmployeeChallengeProof,
@@ -506,6 +506,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    const result=readOriginalSeatView(await execute('d3EmployeeSeatView',{offset:0,employeeOffset}),
      session.organizationId,session.workspaceId);
    setRoster(result);
+   setRosterChoice(defaultOriginalEmployeeRosterChoice(result,session.actorId));
  });
  const openRosterRow=async(row:{personId:string;enrollmentId:string})=>{
    const same=personId===row.personId&&recoveryEnrollmentId===row.enrollmentId;
@@ -544,7 +545,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    if(held)throw Error('CEN_D3_EMPLOYEE_EXISTING_RIGHTS_READBACK_HOLD');
  };
  const restoreRosterEmployee=()=>run('Подключённый сотрудник восстановлен из исходного T3 без выдачи новых прав.',async()=>{
-   const selected=roster?.eligibleEmployees.find((row:any)=>row.personId===rosterChoice);
+   const selected=roster?.eligibleEmployees.find((row:any)=>row.personId===rosterChoice&&row.personId!==session.actorId);
    if(!selected)throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_REQUIRED');
    // A selected row is only a locator, not an authorization. Read the
    // current same page, enrollment and exact independent PROOF key.
@@ -554,7 +555,7 @@ export default function CorporateEmployeeEnrollment({session,contacts,preferredC
    setRoster(current);
    const row=current.eligibleEmployees.find((m:any)=>m.personId===selected.personId&&
      m.enrollmentId===selected.enrollmentId);
-   if(!row)throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_STALE');
+   if(!row){setRosterChoice('');throw Error('CEN_D3_EMPLOYEE_ROSTER_SELECTION_STALE');}
    await openRosterRow(row);
  });
  const openFocusedEmployeeTask=()=>run('Адресат исходного поручения открыт. Поручение готово к независимому чтению.',async()=>{

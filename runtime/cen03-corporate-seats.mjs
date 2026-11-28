@@ -68,6 +68,15 @@ export function readOriginalSeatView(value,organizationId,workspaceId){
  }
  return v;
 }
+// Select only a unique employee from a complete original roster. The choice
+// is a UI locator, never an enrollment, license, permission or dispatch.
+export function defaultOriginalEmployeeRosterChoice(view,actorId){
+ if(view?.originalReadback!==true||typeof actorId!=='string'||!actorId||
+    view.employeeOffset!==0||view.employeeNextOffset!==null||
+    !Array.isArray(view.eligibleEmployees)||view.employeeTotal!==view.eligibleEmployees.length)return '';
+ const available=view.eligibleEmployees.filter(row=>row.personId!==actorId);
+ return available.length===1?available[0].personId:'';
+}
 // Return a fresh command bound to the exact independently-read native state.
 // No price/seat calculations, actor selection, or proof keys are sent by UI.
 /** @param {any} view @param {string} kind @param {string} commandId
