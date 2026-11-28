@@ -1,0 +1,9 @@
+{
+  "workflow": "kernel-protected-history-candidate",
+  "prepared": "7d33fb0dcf27e2e875fa7244883b806d371f3a6e",
+  "profile": "w04-protected-history-scoped-candidate",
+  "pins": {
+    "t2Candidate": "4d5291abeb2d91c0f7cb50dfef565f1ae22bf9ec"
+  },
+  "reason": "Qualify proposed original DB8 protected revision scoped primitive and original graph regression without Runtime publication"
+}
