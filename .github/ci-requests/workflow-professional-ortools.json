@@ -1,0 +1,10 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "5ad455300abf2f8c4a543b0165b868d009627faf",
+  "profile": "original-workflow-fleet-dependency-source",
+  "pins": {
+    "professionalAgent": "f683ba8da7559fe6d0c40afedbcfbfd9cc34f711",
+    "workspaceKnowledge": "bfe8baabf31874368146c8934c11df5b19f9fcdd"
+  },
+  "reason": "Qualify W05.60 P5.22 exact transitive QGIS and Valhalla Work lineage with original fleet binder and OR-Tools"
+}
