@@ -1,4 +1,4 @@
-name: Workspace original alternative lifecycle
+name: Workspace saved alternative panel
 on:
   push:
     branches: ['ci/once/workflow-professional-ortools/**']
@@ -6,12 +6,12 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: original-workspace-alternative-lifecycle
+  group: original-workspace-saved-alternative-panel
   cancel-in-progress: false
 jobs:
-  workspace-comparison:
+  workspace-panel:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,20 +24,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Faust-S/knowledge
-          ref: c1c074104abd661081bdb8a20f5f78d24a6ea6ca
+          ref: bc4b6b2e5dba6de350d9fd07623736d9d6ab66a9
           path: workspace-source
           persist-credentials: false
-      - name: Original alternative creation recovery and trusted Host regressions
-        working-directory: workspace-source/packages/t3-core
-        run: |
-          test "$(git rev-parse HEAD)" = "c1c074104abd661081bdb8a20f5f78d24a6ea6ca"
-          node --test tests/c3-workspace-method-comparison.test.mjs tests/c3-workspace-method-stage-results.test.mjs tests/c3-workspace-method-source-lifecycle.test.mjs tests/c3-workspace-method-revision-apply.test.mjs
       - name: Locked Workspace dependencies
         working-directory: workspace-source/packages/t3-core
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: |
+          test "$(git rev-parse HEAD)" = "bc4b6b2e5dba6de350d9fd07623736d9d6ab66a9"
+          npm ci --ignore-scripts --no-audit --no-fund
       - name: Original Workspace TypeScript
         working-directory: workspace-source/packages/t3-core
         run: npm run typecheck
-      - name: Original Workspace presentation tests
+      - name: Original Workspace saved-alternative presentation tests
         working-directory: workspace-source/packages/t3-core
         run: npm run test:product:workspace -- tests/rich-workspace-read-model.dom.test.tsx
