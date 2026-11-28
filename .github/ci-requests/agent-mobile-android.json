@@ -1,0 +1,11 @@
+{
+  "candidate": "50339ce0f0f88abfef79ab3126351b2f592afd1a",
+  "tree": "8f3df1ff8247b6610d4f3c7995620f4547c59f15",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M25_6_ANDROID_BACKGROUND_NATIVE",
+  "reason": "QUALIFY_INSTALLED_ORIGINAL_SYSTEM_WAKE_AND_OFFLINE_RESULT_AFTER_HOST_46134467594_46134873053_46135114472_AND_NATIVE_46134258865",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "133db0e4a0c2b8c62a35ec4a6a2162411a815b5d"
+}
