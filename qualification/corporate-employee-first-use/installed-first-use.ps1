@@ -199,6 +199,18 @@ try{
  Enter $cen 'Имя' 'Installed employee qualification'
  Press $cen 'Добавить участника'
  Wait-Text $cen 'Installed employee qualification' 120
+ # ADD_PARTICIPANT marks the local organization draft dirty. Persist the
+ # actual contact through Center's normal Save action BEFORE the signed
+ # employee route. A later ordinary WM_CLOSE must not discard that draft.
+ Press $cen 'Сохранить на компьютере'
+ Wait-Text $cen 'Черновики сохранены на этом компьютере.' 120
+ $draftFile=Join-Path $centerReg.DataLocation 'atlas-store-v1/preparation/draft.json'
+ $draft=Get-Content -LiteralPath $draftFile -Raw|ConvertFrom-Json -Depth 100
+ $savedOrganization=@($draft.organizations|Where-Object {$_.id -ceq $draft.activeOrganizationId})
+ Need ($savedOrganization.Count -eq 1) 'EMPLOYEE_INSTALLED_SAVED_ORGANIZATION_INVALID'
+ $savedContact=@($savedOrganization[0].participants|Where-Object {$_.name -ceq 'Installed employee qualification'})
+ Need ($savedContact.Count -eq 1 -and [string]$savedContact[0].id -ne '') 'EMPLOYEE_INSTALLED_CONTACT_NOT_SAVED'
+ $savedContactId=[string]$savedContact[0].id
  Open-CenterRegistry $cen
  Wait-Text $cen 'Административный реестр отделён от рабочей Workspace' 240
  Record 'ORIGINAL_REGISTRY_SEPARATE_WORKSPACE'
@@ -318,7 +330,14 @@ try{
  Wait-Text $agent 'Право возврата Workspace подтверждено' 240
  Record 'AGENT_ORIGINAL_WORKSPACE_RETURN_GRANT_IMPORTED'
  Stage 'CENTER_COLD_ROSTER'
+ # Preserve the existing ordinary clean-close requirement; do not accept a
+ # force-kill or consent to losing a contact as a cold restoration.
  Stop-App $cen;$cen=Start-App $CenterExe
+ Press $cen 'Сотрудники и роли'
+ Wait-Text $cen 'Installed employee qualification' 120
+ $coldDraft=Get-Content -LiteralPath $draftFile -Raw|ConvertFrom-Json -Depth 100
+ $coldContact=@($coldDraft.organizations|Where-Object {$_.id -ceq $coldDraft.activeOrganizationId}|ForEach-Object {$_.participants}|Where-Object {$_.id -ceq $savedContactId -and $_.name -ceq 'Installed employee qualification'})
+ Need ($coldContact.Count -eq 1) 'EMPLOYEE_INSTALLED_COLD_CONTACT_CHANGED'
  Open-CenterRegistry $cen
  Wait-Text $cen 'Административный реестр отделён от рабочей Workspace' 240
  Record 'CENTER_COLD_ORIGINAL_SEPARATE_REGISTRY'
