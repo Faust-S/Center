@@ -1,0 +1,10 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "e92bf21eb43a206be20dd273f3ba19e65c1ef22f",
+  "profile": "original-workflow-program-input-task",
+  "pins": {
+    "professionalAgent": "51b0f6fa52fd674cf273ec85251808154f2037d8",
+    "workspaceKnowledge": "3091ddedd2d2eedce9a5bd475ac91eab31631a4c"
+  },
+  "reason": "Qualify exact original Work Asset readback and native approved program Task and cold Result"
+}
