@@ -131,9 +131,9 @@ def main():
             stage("NPM_CI",["npm","ci","--no-audit","--no-fund"],mobile)
             tap=stage("SOURCE",["npm","run","check:source"],mobile,180)
             check(all(re.findall(rb"(?m)^# "+k+rb" (\d+)\s*$",tap)==[v] for k,v in
-                      ((b"tests",b"912"),(b"pass",b"912"),(b"fail",b"0"),(b"skipped",b"0"),(b"todo",b"0"))),"SOURCE_RECEIPT")
+                      ((b"tests",b"915"),(b"pass",b"915"),(b"fail",b"0"),(b"skipped",b"0"),(b"todo",b"0"))),"SOURCE_RECEIPT")
             check(re.findall(rb"(?m)^Ran (\d+) tests? in [0-9.]+s\s*$",tap)==[b"14"] and re.search(rb"(?m)^OK\s*$",tap),"PRODUCT_PORT_RECEIPT")
-            status("SOURCE_TESTS","912/912");status("PRODUCT_PORT_TESTS","14/14")
+            status("SOURCE_TESTS","915/915");status("PRODUCT_PORT_TESTS","14/14")
             t3pin,t3tree=env["T3_PIN"],env["T3_TREE"]
             spec=json.loads((mobile/"product/t3-source.json").read_text())
             check(spec.get("repository")=="Faust-S/knowledge" and spec.get("revision")==t3pin and spec.get("tree")==t3tree,"T3_PIN")
