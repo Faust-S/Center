@@ -1,0 +1,10 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "381b3e80a3e39ea491ecfbd959c427cdabce4bb7",
+  "profile": "original-workflow-qgis-valhalla-dependency",
+  "pins": {
+    "professionalAgent": "b808bac49a5d354d26688581f58c02f7ead94662",
+    "workspaceKnowledge": "cdaa57644fc60e294bf0c27ef30cb4685b0f56d5"
+  },
+  "reason": "Qualify exact original QGIS Work Result and dependent Valhalla Task with raw and projected original source bytes"
+}
