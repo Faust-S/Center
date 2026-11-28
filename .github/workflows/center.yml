@@ -24,7 +24,7 @@ env:
   CENTER_BRTEST_PIN: '7cfb17870042cac824644140b7f0a587e244a20e'
   CENTER_SETUP_PIN: '0ef7544e2a6fd5fab5994f7f25abbb960063908c'
   CENTER_T3_PIN: '962cff41fdbfc864c4c15010b9ffa7e9bc43c29c'
-  CENTER_ONE_CORE_PIN: '4e7c8a9370f302a711e52aa80adaa314f2d52f02'
+  CENTER_ONE_CORE_PIN: '917e1d20647be9eee0d52a335f0cdbd0515649ee'
 jobs:
   request:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false) }}
