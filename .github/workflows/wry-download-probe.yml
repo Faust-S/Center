@@ -1,0 +1,37 @@
+name: Wry native download event isolation
+on:
+  push:
+    branches:
+      - 'ci/once/wry-download-probe/*'
+    paths:
+      - '.github/ci-requests/wry-download-probe.json'
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-agent066-browser-qualification
+  cancel-in-progress: false
+jobs:
+  probe:
+    if: ${{ github.event_name == 'push' && github.event.created == false && github.event.deleted == false && github.event.forced == false }}
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Admit exact isolated diagnostic
+        shell: pwsh
+        env:
+          PREPARED_SHA: ${{ github.event.before }}
+        run: python .ci/wry-download-probe/admit.py
+      - name: Verify fixture and evidence classifier
+        run: python .ci/wry-download-probe/probe.py --selftest
+      - name: Build only public Wry probe
+        shell: pwsh
+        run: |
+          cargo +stable build --manifest-path .ci/wry-download-probe/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Observe native activation and download events
+        run: python .ci/wry-download-probe/probe.py --exe .ci/wry-download-probe/target/debug/download-probe.exe
