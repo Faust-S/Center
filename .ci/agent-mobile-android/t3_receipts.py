@@ -5,6 +5,7 @@ EXPECTED = frozenset((
     'NATIVE_DRAFT_SAVED', 'COLD_RESTART', 'NATIVE_DRAFT_REOPENED', 'LIFECYCLE_RESTORE',
     'EXCHANGE_SAVE_CANCELLED', 'EXCHANGE_FILE_SAVED', 'EXCHANGE_STAGING_RECOVERY',
     'EXCHANGE_PREVIEW_CANCELLED', 'EXCHANGE_IMPORTED', 'EXCHANGE_COLD_READBACK',
+    'HISTORY_ORIGINAL_SAVED', 'HISTORY_NEW_CHAT', 'HISTORY_COLD_REOPENED',
 ))
 
 
@@ -19,4 +20,6 @@ def route_receipts(report):
 
 def route_passed(report, returncode):
     return (returncode == 0 and sorted(route_receipts(report)) == sorted(EXPECTED)
+            and values(report, 'INSTALLED_T3_ACTIVE_COPY_ISOLATED') == ['PASS']
+            and values(report, 'INSTALLED_T3_ACTIVE_COPY_RESTORED') == ['PASS']
             and values(report, 'INSTALLED_T3_ROUTE') == ['PASS'])
