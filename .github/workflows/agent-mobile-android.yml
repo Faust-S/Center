@@ -1,4 +1,4 @@
-name: IWXA Android product memory qualification
+name: IWXA Android source failure diagnosis
 on:
   push:
     branches: ['ci/once/agent-mobile-android/*']
@@ -7,13 +7,13 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: iwxa-original-python-android-qualification
+  group: iwxa-mobile-source-diagnosis
   cancel-in-progress: false
 jobs:
   qualify:
     if: ${{ github.event.created == false && github.event.deleted == false && github.event.forced == false }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 100
+    timeout-minutes: 15
     env:
       PRIVATE_PIN: '89cd9da002c227d656bb20882b52c97828096d35'
       PRIVATE_TREE: 'f8bd2d46b90a91b96a487251733f1d7ecb03a2dd'
@@ -33,32 +33,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: actions/download-artifact@v4
-        with:
-          name: rpds-py-2026.5.1-android-arm64_v8a
-          github-token: ${{ github.token }}
-          run-id: 46125511834
-          path: ${{ runner.temp }}/iwxa-python-wheels/arm64
-      - uses: actions/download-artifact@v4
-        with:
-          name: rpds-py-2026.5.1-android-x86_64
-          github-token: ${{ github.token }}
-          run-id: 46125511834
-          path: ${{ runner.temp }}/iwxa-python-wheels/x86_64
-      - name: Verify public native wheels and obtain exact pure Python wheels
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP/iwxa-python-wheels"
-          printf '%s\n' 'd54f05ee20ca1af882d8324c57ad3175b94df13ca9108c028b0ee3706b70cbb0  arm64/rpds_py-2026.5.1-cp313-cp313-android_24_arm64_v8a.whl' '0a4a4b2d306773a2343acb0c3954b22291f7f88fb25ab08385c9ac5b6b6760ac  x86_64/rpds_py-2026.5.1-cp313-cp313-android_24_x86_64.whl' | sha256sum -c -
-          python -m pip download --no-deps --only-binary=:all: --dest pure 'attrs==26.1.0' 'jsonschema==4.26.0' 'jsonschema-specifications==2025.9.1' 'pypdf==6.21.4' 'referencing==0.37.0'
-          command -v kotlinc
-          command -v cmake
-          echo PUBLIC_WHEELHOUSE=PASS
-      - name: Qualify installed product memory without exporting private code or raw logs
+      - name: Diagnose source regression only
         env:
           IWXA_TEMP_READ_TOKEN: ${{ secrets.IWXA_PRIVATE_SOURCE_READ_TOKEN }}
-        run: python3 .ci/agent-mobile-android/qualify-original-python.py
+        run: python3 .ci/agent-mobile-android/diagnose-source.py
