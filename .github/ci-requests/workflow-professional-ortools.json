@@ -1,0 +1,10 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "64933fe7db7ff77d9615c4a597f1f03b1069ff91",
+  "profile": "original-workflow-program-preview-and-confirmed-task",
+  "pins": {
+    "professionalAgent": "ae3d57f2afd2ce8bd8e22539d42f27982d309a9c",
+    "workspaceKnowledge": "de26ba76e33df71cc8c85e087108c6d1b1c6fd15"
+  },
+  "reason": "Qualify W05.61 P5.23 original program selection UI and exact native preview confirmation with deterministic Task and real OR-Tools"
+}
