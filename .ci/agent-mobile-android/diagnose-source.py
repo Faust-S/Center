@@ -1,13 +1,11 @@
 """Bounded exact-source diagnosis; no Android rebuild or raw private logs."""
 import base64
 import os
-import json
 from pathlib import Path
 import re
 import subprocess
 import sys
 import tempfile
-import xml.etree.ElementTree as ET
 
 def status(name,value):
     print(name+"="+str(value),flush=True)
@@ -35,115 +33,59 @@ def main():
         if run(["git","rev-parse","HEAD"]).stdout.decode().strip()!=pin or run(["git","rev-parse","HEAD^{tree}"]).stdout.decode().strip()!=tree:
             status("SOURCE_IDENTITY","FAIL");return 1
         status("SOURCE_IDENTITY","PASS")
-        venv=root/"venv"
-        p=run([sys.executable,"-m","venv",str(venv)],timeout=120)
-        status("HOST_VENV","PASS" if p.returncode==0 else "FAIL")
+        mobile=source/"mobile"
+        p=run(["npm","ci","--no-audit","--no-fund"],mobile,timeout=240)
+        status("NPM_CI","PASS" if p.returncode==0 else "FAIL")
         if p.returncode:return 1
-        py=str(venv/"bin/python")
-        p=run([py,"-m","pip","install","--disable-pip-version-check","--no-cache-dir","-r","requirements.txt","pytest==9.0.2"],timeout=240)
-        status("HOST_DEPENDENCIES","PASS" if p.returncode==0 else "FAIL")
-        if p.returncode:return 1
-        # Qualify the precise source payload intended for Android, not imports
-        # accidentally resolved against the private development checkout.
-        archive=root/"original-core.zip"
-        p=run([py,"mobile/scripts/stage-original-python-core.py","--source",str(source),
-               "--revision",pin,"--tree",tree,"--output",str(archive)],timeout=120)
-        if p.returncode or not archive.is_file():
-            status("ORIGINAL_ARCHIVE","FAIL");return 1
-        receipt=json.loads(p.stdout)
-        if receipt["revision"]!=pin or receipt["tree"]!=tree:
-            status("ORIGINAL_ARCHIVE","IDENTITY_FAIL");return 1
-        target=root/"original"
-        target.mkdir()
-        extractor=source/"mobile/native/android/python/iwxa_original_core_source.py"
-        script="import runpy,sys;from pathlib import Path; f=runpy.run_path(sys.argv[1]); n=f['extract_original'](Path(sys.argv[2]),Path(sys.argv[3]),sys.argv[4],sys.argv[5],sys.argv[6]); assert n==int(sys.argv[7]); print('ARCHIVE_VERIFIED')"
-        p=run([py,"-I","-c",script,str(extractor),str(archive),str(target),receipt["archive_sha256"],pin,tree,str(receipt["files"])],timeout=120)
-        if p.returncode or p.stdout.strip()!=b"ARCHIVE_VERIFIED":
-            status("ORIGINAL_ARCHIVE","VERIFY_FAIL");return 1
-        status("ORIGINAL_ARCHIVE","PASS")
-        status("ORIGINAL_ARCHIVE_FILES",receipt["files"])
-        isolated={**env,"IWXA_ORIGINAL_TASK_ROOT":str(target)}
-        report=root/"mobile.xml"
-        test=source/"mobile/qualification/python-core-product/test_original_task_integration.py"
-        p=run([py,"-I","-m","pytest","-q","--noconftest","--import-mode=importlib",
-               "--rootdir="+str(root),"--junitxml="+str(report),str(test)],cwd=root,custom=isolated,timeout=180)
-        if not report.is_file():
-            status("MOBILE_TASK_ARCHIVE","REPORT_MISSING")
-            return 1
-        cases=list(ET.parse(report).getroot().iter("testcase"))
-        failed=[c for c in cases if c.find("failure") is not None or c.find("error") is not None]
-        skipped=sum(c.find("skipped") is not None for c in cases)
-        status("MOBILE_TASK_ARCHIVE_TESTS",len(cases))
-        status("MOBILE_TASK_ARCHIVE_FAILURES",len(failed))
-        status("MOBILE_TASK_ARCHIVE_SKIPS",skipped)
-        allowed={
-            "test_original_archive_import_identity","test_complete_original_task_and_human_review",
-            "test_result_survives_lost_scheduler_ack_without_replay",
-            "test_native_binding_failure_retry_reuses_original_task",
-            "test_invalid_or_empty_output_is_never_a_result","test_no_implicit_source_access",
-            "test_action_candidates_are_not_authorized_by_inference",
-            "test_direct_model_port_cannot_bypass_original_invocation_authority",
-            "test_stale_scheduler_claim_cannot_invoke",
-        }
-        for case in failed:
-            if case.get("name") in allowed:status("MOBILE_TASK_FAIL_TEST",case.get("name"))
-            failure=case.find("failure")
-            if failure is None:failure=case.find("error")
-            raw=((failure.get("message") or "")+"\n"+(failure.text or "")) if failure is not None else ""
-            for code in ("AssertionError","ValueError","ValidationError","ImportError","ModuleNotFoundError",
-                         "AttributeError","TypeError","KeyError","FileNotFoundError","TaskCellError",
-                         "MOBILE_TASK_CONTEXT_TOO_LARGE","MOBILE_TASK_MODEL_RESPONSE_CHANGED",
-                         "MOBILE_TASK_MODEL_RESPONSE_INVALID","MOBILE_TASK_SESSION_NOT_ACTIVE",
-                         "MOBILE_TASK_SOURCE_ROUTE_UNAVAILABLE","MOBILE_TASK_RESULT_CHANGED",
-                         "MOBILE_TASK_ROUTE_UNAVAILABLE","MOBILE_TASK_MODEL_REQUIRED","automation_claim_mismatch"):
-                if code in raw:status("MOBILE_TASK_FAIL_CLASS",code)
-        mobile_ok=p.returncode==0 and len(cases)==9 and not failed and not skipped
-        status("MOBILE_TASK_ARCHIVE","PASS" if mobile_ok else "FAIL")
-        package=run([py,"mobile/qualification/test_original_python_qa.py"],timeout=180)
-        package_ok=package.returncode==0
-        status("ARCHIVE_REGRESSION","PASS" if package_ok else "FAIL")
-        suites=(
-            ("M23_DISPATCH",["tests/test_automation_task_dispatch.py"]),
-            ("ORIGINAL_SCHEDULER",["tests/test_durable_automation_retry_budget.py","tests/test_interactive_task_retry_claim.py"]),
-            ("ORIGINAL_TASK_WORK_AREA",["tests/cells/test_task_goal_board_automation_session_skill.py",
-                                        "-k","automation or scheduled_followup or task_lifecycle_uses_cell_writes"]),
-        )
-        passed=mobile_ok and package_ok
-        for name,args in suites:
-            report=root/(name+".xml")
-            p=run([py,"-m","pytest","-q","--junitxml="+str(report),*args],timeout=300)
-            if not report.is_file() or report.stat().st_size>16*1024*1024:
-                status(name,"REPORT_MISSING");passed=False;continue
-            cases=list(ET.parse(report).getroot().iter("testcase"))
-            failed=[(i,c) for i,c in enumerate(cases,1) if c.find("failure") is not None or c.find("error") is not None]
-            skipped=sum(c.find("skipped") is not None for c in cases)
-            status(name+"_TESTS",len(cases));status(name+"_FAILURES",len(failed));status(name+"_SKIPS",skipped)
-            for i,c in failed:
-                status(name+"_FAIL_INDEX",i)
-                # Report only test names from our own six explicitly authored tests.
-                test=c.get("name","")
-                if name=="M23_DISPATCH" and test in {
-                    "test_first_claim_creates_original_task_and_scheduler_receipt",
-                    "test_cold_claim_recovery_reads_original_result_without_model_replay",
-                    "test_awaiting_result_uses_original_retry_route_only",
-                    "test_changed_objective_refuses_recovery_before_any_model_call",
-                    "test_unlinked_existing_task_cannot_be_claimed_by_a_different_area",
-                    "test_stale_claim_cannot_enter_task_dispatch","test_created_task_is_not_an_automation_result"}:
-                    status(name+"_FAIL_TEST",test)
-                failure=c.find("failure")
-                if failure is None:failure=c.find("error")
-                raw=((failure.get("message") or "")+"\n"+(failure.text or "")) if failure is not None else ""
-                for code in ("AssertionError","ValueError","ValidationError","ImportError","ModuleNotFoundError","AttributeError",
-                             "automation_occurrence_task_binding_mismatch","automation_occurrence_work_area_changed",
-                             "automation_claim_mismatch","unknown_or_incomplete_skill","unknown_session_task"):
-                    if code in raw:status(name+"_FAIL_CLASS",code)
-            ok=p.returncode==0 and bool(cases) and not failed and not skipped and (name!="M23_DISPATCH" or len(cases)==7)
-            status(name,"PASS" if ok else "FAIL");passed=passed and ok
-        status("M23_HOST","PASS" if passed else "FAIL")
-        return 0 if passed else 1
+        qualification=(mobile/"scripts/qualify-release.mjs").read_text(encoding="utf-8")
+        allowed=set(re.findall(r"'(qualification/[a-z0-9.-]+\.test\.mjs)'",qualification))
+        allowed.update(("scripts/qualify-release.mjs","qualification/prototype-smoke.cjs","qualification/python-core-product/test_memory_port.py",
+                        "product/main.mjs","product/original-memory.mjs","product/knowledge-screen.mjs","product/memory-screen.mjs","product/memory-actions.mjs"))
+        def safe_location(line):
+            # Only fixed file identifiers admitted from this exact pinned suite, never absolute paths or arbitrary text.
+            for name in sorted(allowed):
+                m=re.search(re.escape(name)+r":(\d{1,5})(?::(\d{1,4}))?",line)
+                if m:
+                    return name+":"+m[1]+":"+(m[2] or "0")
+            return None
+        p=run(["node","--experimental-strip-types","--test","qualification/remote-interaction.test.mjs"],mobile,timeout=180)
+        raw=p.stdout.decode("utf-8","replace")
+        for line in raw.splitlines():
+            m=re.fullmatch(r"# (tests|pass|fail|cancelled|skipped|todo) (\d{1,6})\s*",line)
+            if m:status("NODE_"+m[1].upper(),m[2])
+            m=re.match(r"^\s*not ok (\d{1,6})(?:\s|$)",line)
+            if m:status("FAILED_TEST_INDEX",m[1])
+            m=re.fullmatch(r"\s*failureType: '(testCodeFailure|testFailure|subtestsFailed|hookFailed|uncaughtException|unhandledRejection|cancelledByParent|testTimeoutFailure|parentAlreadyFinished)'\s*",line)
+            if m:status("FAILURE_TYPE",m[1])
+            m=re.fullmatch(r"\s*(?:name|code): '?([A-Za-z0-9_]{1,80})'?\s*",line)
+            if m and m[1] in {"AssertionError","TypeError","SyntaxError","ReferenceError","Error","ERR_ASSERTION","ERR_MODULE_NOT_FOUND","ERR_TEST_FAILURE","ERR_INVALID_ARG_TYPE","MODULE_NOT_FOUND"}:
+                status("ERROR_CLASS",m[1])
+            if ("location:" in line or "at " in line or line.startswith("file:")):
+                loc=safe_location(line)
+                if loc and ("location:" in line or "qualification/" in loc):
+                    # Stack entries are useful only near a failing TAP block.
+                    if "location:" in line or "at TestContext" in line:status("FAIL_LOCATION",loc)
+            if "RELEASE_STAGE_FAILED:" in line:
+                for name in ("qualification/prototype-smoke.cjs","--experimental-strip-types","qualification/python-core-product/test_memory_port.py"):
+                    if name in line:status("RELEASE_FAILURE_STAGE",name)
+        for kind,pattern in (("PYTHON_IMPORT",r"ModuleNotFoundError|ImportError"),("PYTHON_ASSERTION",r"AssertionError:"),
+                             ("NODE_SYNTAX",r"SyntaxError:"),("NODE_RESOLUTION",r"ERR_MODULE_NOT_FOUND|Cannot find module"),
+                             ("NODE_ASSERTION",r"ERR_ASSERTION")):
+            if re.search(pattern,raw):status("OBSERVED_ERROR",kind)
+        # Check the modified Python port suite separately if the Node process aborted.
+        t=run([sys.executable,"qualification/python-core-product/test_memory_port.py"],mobile)
+        status("PORT_TEST", "PASS" if t.returncode==0 else "FAIL")
+        m=re.search(rb"(?m)^Ran (\d+) tests? in ",t.stdout)
+        if m:status("PORT_TEST_COUNT",m[1].decode())
+        if t.returncode:
+            for kind in ("ModuleNotFoundError","ImportError","AssertionError","SyntaxError"):
+                if kind.encode() in t.stdout:status("PORT_FAILURE_CLASS",kind)
+        ok=p.returncode==0 and t.returncode==0 and re.findall(r"(?m)^# tests (\d+)\s*$",raw)==["64"] and re.findall(r"(?m)^# pass (\d+)\s*$",raw)==["64"]
+        status("TARGETED_SOURCE","PASS" if ok else "FAIL")
+        return 0 if ok else 1
 if __name__=="__main__":
     try:code=main()
-    except (OSError,ValueError,KeyError,subprocess.TimeoutExpired,ET.ParseError):
+    except (OSError,ValueError,KeyError,subprocess.TimeoutExpired):
         status("DIAGNOSTIC","UNCLASSIFIED_FAILURE");code=1
     status("RUNNER_CLEANUP","CHECKOUT_SCOPE_EXITED")
     sys.exit(code)
