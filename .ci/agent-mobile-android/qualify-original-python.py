@@ -60,9 +60,9 @@ def main():
                             "PYTHON_SOURCE_REVISION_MISMATCH","PYTHON_DEPENDENCIES_CHANGED","PYTHON_SCHEMA_INVALID"}:
                     status(label+"_CODE",code)
             for line in text.splitlines():
-                m=re.search(r"(?:OriginalMemoryProductInstalledTest|OriginalMemoryPlugin|OriginalPythonCoreRuntime)\.java:(\d{1,4})(?::(\d{1,3}))?",line)
+                m=re.search(r"(OriginalMemoryProductInstalledTest\.java|OriginalTaskProductInstalledTest\.java|OriginalMemoryPlugin\.java|OriginalPythonCoreRuntime\.java|OriginalTaskModel\.kt|NativeModelAdmission\.kt|ModelFileIntegrity\.kt|LocalModelPlugin\.kt)(?::|\s*:)\(?(\d{1,4})(?:[:,]\s*(\d{1,3}))?",line)
                 if m and ("error:" in line or line.startswith("e:")):
-                    status(label+"_LOCATION",m[1]+":"+(m[2] or "0"))
+                    status(label+"_LOCATION",m[1]+":"+m[2]+":"+(m[3] or "0"))
         def stage(label,args,cwd=source,timeout=600,stdin=None):
             status("STAGE_STARTED",label)
             try:
@@ -95,6 +95,7 @@ def main():
                   run(["git","rev-parse","HEAD^{tree}"]).stdout.decode().strip()==tree,"PRIVATE_PIN")
             status("PRIVATE_READ","PASS");status("SOURCE_PIN",pin)
             mobile=source/"mobile"
+            status("M23_7_IMPLEMENTATION_HOST_RUN","46131544047");status("EXACT_SOURCE_PIN_REGRESSION_RUN","46132697461")
             host=stage("PYTHON_QA_PACKAGING_TESTS",[sys.executable,"mobile/qualification/test_original_python_qa.py"],timeout=120)
             check(re.findall(rb"(?m)^Ran (\d+) tests? in [0-9.]+s\s*$",host)==[b"9"] and
                   re.search(rb"(?m)^OK\s*$",host),"PYTHON_QA_PACKAGING_RECEIPT")
@@ -131,9 +132,9 @@ def main():
             stage("NPM_CI",["npm","ci","--no-audit","--no-fund"],mobile)
             tap=stage("SOURCE",["npm","run","check:source"],mobile,180)
             check(all(re.findall(rb"(?m)^# "+k+rb" (\d+)\s*$",tap)==[v] for k,v in
-                      ((b"tests",b"912"),(b"pass",b"912"),(b"fail",b"0"),(b"skipped",b"0"),(b"todo",b"0"))),"SOURCE_RECEIPT")
+                      ((b"tests",b"915"),(b"pass",b"915"),(b"fail",b"0"),(b"skipped",b"0"),(b"todo",b"0"))),"SOURCE_RECEIPT")
             check(re.findall(rb"(?m)^Ran (\d+) tests? in [0-9.]+s\s*$",tap)==[b"14"] and re.search(rb"(?m)^OK\s*$",tap),"PRODUCT_PORT_RECEIPT")
-            status("SOURCE_TESTS","912/912");status("PRODUCT_PORT_TESTS","14/14")
+            status("SOURCE_TESTS","915/915");status("PRODUCT_PORT_TESTS","14/14")
             t3pin,t3tree=env["T3_PIN"],env["T3_TREE"]
             spec=json.loads((mobile/"product/t3-source.json").read_text())
             check(spec.get("repository")=="Faust-S/knowledge" and spec.get("revision")==t3pin and spec.get("tree")==t3tree,"T3_PIN")
@@ -161,11 +162,17 @@ def main():
             stage("PYTHON_GRADLE_CONFIGURATION",["bash","./gradlew","help","--no-daemon","--console=plain"],mobile/"android",600)
             stage("LLAMA_NATIVE_INPUTS",["node","scripts/prepare-llama.mjs","--fetch"],mobile,2400)
             stage("SPEECH_NATIVE_INPUTS",["node","scripts/prepare-speech.mjs","--fetch"],mobile,600)
-            stage("ANDROID_NATIVE_INPUTS",["node","scripts/prepare-android.mjs","--native-inputs-only"],mobile,600)
+            stage("PUBLIC_QA_MODEL_INPUT",["node","scripts/prepare-qa-model.mjs","--fetch"],mobile,300)
+            stage("ANDROID_NATIVE_INPUTS",["node","scripts/prepare-android.mjs","--native-inputs-only","--device"],mobile,600)
             stage("PYTHON_PRODUCT_APK",["bash","./gradlew",":app:assembleDebug",":app:assembleDebugAndroidTest",":app:assembleRelease","--no-daemon","--console=plain"],mobile/"android",3000)
             apk=app/"build/outputs/apk/debug/app-debug.apk"
             testapk=app/"build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
             check(apk.is_file() and testapk.is_file(),"PYTHON_QA_APK_OUTPUT")
+            with zipfile.ZipFile(testapk) as test_archive:
+                qa_model=test_archive.read("assets/qa-model.gguf")
+                check(hashlib.sha256(qa_model).hexdigest()==native["fixture"]["sha256"],"QA_MODEL_APK_IDENTITY")
+                del qa_model
+            status("QA_MODEL_APK_IDENTITY","PASS")
             releases=list((app/"build/outputs/apk/release").glob("app-release*.apk"))
             check(len(releases)==1 and releases[0].is_file(),"PYTHON_PRODUCT_RELEASE_OUTPUT")
             for kind,package in (("DEBUG",apk),("RELEASE",releases[0])):
@@ -173,7 +180,7 @@ def main():
                     names=set(archive.namelist())
                     expected={"assets/iwxa-original-python-core.zip","assets/iwxa-original-python-core-receipt.json",
                               "assets/public/app.js","lib/arm64-v8a/libpython3.13.so","lib/x86_64/libpython3.13.so"}
-                    check(expected<=names,"PYTHON_PRODUCT_"+kind+"_CONTENTS")
+                    check(expected<=names and "assets/qa-model.gguf" not in names,"PYTHON_PRODUCT_"+kind+"_CONTENTS")
                     check(hashlib.sha256(archive.read("assets/iwxa-original-python-core.zip")).hexdigest()==receipt["archive_sha256"] and
                           json.loads(archive.read("assets/iwxa-original-python-core-receipt.json"))==build,
                           "PYTHON_PRODUCT_"+kind+"_IDENTITY")
@@ -213,6 +220,17 @@ def main():
                         status(*line.split("=",1))
                 check(outcome.returncode==0 and b"MEMORY_PRODUCT_INSTALLED=PASS" in outcome.stdout,"MEMORY_PRODUCT_INSTALLED")
                 status("PRODUCT_MEMORY_UI","PASS")
+                # Public runner has no access token and reads only fixed
+                # instrumentation receipts. It never prints Task content,
+                # model output, run identifiers or raw device logs.
+                witness=Path(__file__).resolve().with_name("installed-task-route.py")
+                outcome=run([py,str(witness),"--adb",adb,"--receipt",str(build_receipt)],timeout=1800)
+                for line in outcome.stdout.decode("utf-8","replace").splitlines():
+                    if re.fullmatch(r"TASK_PRODUCT_(?:PHASE=(?:create|recover|reviewed)|(?:CREATE|RECOVER|REVIEWED|INSTALLED)=PASS|CHECK=[A-Z0-9_]{1,80}|FAILURE(?:_CODE)?=[A-Z0-9_]{1,100})",line):
+                        status(*line.split("=",1))
+                check(outcome.returncode==0 and b"TASK_PRODUCT_INSTALLED=PASS" in outcome.stdout,
+                      "TASK_PRODUCT_INSTALLED")
+                status("NATIVE_ORIGINAL_TASK","PASS")
             status("PHYSICAL_ARM64","NOT_RUN")
             return 0
         except StageFailure as e:
