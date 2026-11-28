@@ -5,7 +5,7 @@ import sys
 import tempfile
 import subprocess
 
-from admit import CANDIDATE_PIN, CANDIDATE_TREE, BASELINE_PIN, BASELINE_TREE, GROUPS
+from admit import CANDIDATE_PIN, CANDIDATE_TREE, BASELINE_PIN, BASELINE_TREE, GROUPS, SCOPE
 from bundle_evidence import summarize
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'agent065-modeling'))
 from qualify import Qualification, cleanup_private, status
@@ -49,7 +49,9 @@ def browser_witness_preflight(q):
         return False
     return q.pytest('B066_BROWSER_WITNESS_TEST', python,
                     ['tests/test_setup_core_browser_installed.py','tests/test_setup_core_preview_layout.py','tests/test_setup_core_upgrade_065_to_066.py',
-                     'tests/test_setup_core_browser_actions.py','tests/test_setup_core_browser_files.py','tests/test_setup_core_browser_snapshot_flow.py','tests/test_setup_core_browser_snapshot.py','tests/test_setup_core_browser_development.py','tests/test_browser_native_observation.py'], timeout=300)
+                     'tests/test_setup_core_browser_actions.py','tests/test_setup_core_browser_files.py','tests/test_setup_core_browser_snapshot_flow.py','tests/test_setup_core_browser_snapshot.py','tests/test_setup_core_browser_development.py','tests/test_browser_native_observation.py',
+                     'tests/test_browser_mcp_bundle_probe.py','tests/test_browser_mcp_schema_projection.py',
+                     'tests/test_shared_browser_mcp.py','tests/test_browser_native_bridge.py','tests/test_agent066_browser_core_integration.py'], timeout=600)
 
 
 def main():
@@ -84,7 +86,13 @@ def main():
             elif group == 'bundle':
                 passed = bundle(q)
             elif group in ('desktop','upgrade'):
-                if baseline_ready and browser_witness_preflight(q):
+                # A diagnostic Windows build is expensive. First query the real
+                # original MCP binary and require all six production projections.
+                # Full release has its independent bundle group already.
+                preflight_ready = baseline_ready and browser_witness_preflight(q)
+                if preflight_ready and group == 'upgrade' and SCOPE == 'B066_UPGRADE_DIAGNOSTIC':
+                    preflight_ready = bundle(q)
+                if preflight_ready:
                     passed = installed_gate(q, pin, tree, baseline, BASELINE_PIN, BASELINE_TREE, upgrade=(group=='upgrade'))
                     if passed and group == 'desktop':
                         from delivery import seal_clean_install
