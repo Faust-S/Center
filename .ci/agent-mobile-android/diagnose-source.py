@@ -1,6 +1,7 @@
 """Bounded exact-source diagnosis; no Android rebuild or raw private logs."""
 import base64
 import os
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -42,13 +43,72 @@ def main():
         p=run([py,"-m","pip","install","--disable-pip-version-check","--no-cache-dir","-r","requirements.txt","pytest==9.0.2"],timeout=240)
         status("HOST_DEPENDENCIES","PASS" if p.returncode==0 else "FAIL")
         if p.returncode:return 1
+        # Qualify the precise source payload intended for Android, not imports
+        # accidentally resolved against the private development checkout.
+        archive=root/"original-core.zip"
+        p=run([py,"mobile/scripts/stage-original-python-core.py","--source",str(source),
+               "--revision",pin,"--tree",tree,"--output",str(archive)],timeout=120)
+        if p.returncode or not archive.is_file():
+            status("ORIGINAL_ARCHIVE","FAIL");return 1
+        receipt=json.loads(p.stdout)
+        if receipt["revision"]!=pin or receipt["tree"]!=tree:
+            status("ORIGINAL_ARCHIVE","IDENTITY_FAIL");return 1
+        target=root/"original"
+        target.mkdir()
+        extractor=source/"mobile/native/android/python/iwxa_original_core_source.py"
+        script="import runpy,sys;from pathlib import Path; f=runpy.run_path(sys.argv[1]); n=f['extract_original'](Path(sys.argv[2]),Path(sys.argv[3]),sys.argv[4],sys.argv[5],sys.argv[6]); assert n==int(sys.argv[7]); print('ARCHIVE_VERIFIED')"
+        p=run([py,"-I","-c",script,str(extractor),str(archive),str(target),receipt["archive_sha256"],pin,tree,str(receipt["files"])],timeout=120)
+        if p.returncode or p.stdout.strip()!=b"ARCHIVE_VERIFIED":
+            status("ORIGINAL_ARCHIVE","VERIFY_FAIL");return 1
+        status("ORIGINAL_ARCHIVE","PASS")
+        status("ORIGINAL_ARCHIVE_FILES",receipt["files"])
+        isolated={**env,"IWXA_ORIGINAL_TASK_ROOT":str(target)}
+        report=root/"mobile.xml"
+        test=source/"mobile/qualification/python-core-product/test_original_task_integration.py"
+        p=run([py,"-I","-m","pytest","-q","--noconftest","--import-mode=importlib",
+               "--rootdir="+str(root),"--junitxml="+str(report),str(test)],cwd=root,custom=isolated,timeout=180)
+        if not report.is_file():
+            status("MOBILE_TASK_ARCHIVE","REPORT_MISSING")
+            return 1
+        cases=list(ET.parse(report).getroot().iter("testcase"))
+        failed=[c for c in cases if c.find("failure") is not None or c.find("error") is not None]
+        skipped=sum(c.find("skipped") is not None for c in cases)
+        status("MOBILE_TASK_ARCHIVE_TESTS",len(cases))
+        status("MOBILE_TASK_ARCHIVE_FAILURES",len(failed))
+        status("MOBILE_TASK_ARCHIVE_SKIPS",skipped)
+        allowed={
+            "test_original_archive_import_identity","test_complete_original_task_and_human_review",
+            "test_result_survives_lost_scheduler_ack_without_replay",
+            "test_native_binding_failure_retry_reuses_original_task",
+            "test_invalid_or_empty_output_is_never_a_result","test_no_implicit_source_access",
+            "test_action_candidates_are_not_authorized_by_inference",
+            "test_direct_model_port_cannot_bypass_original_invocation_authority",
+            "test_stale_scheduler_claim_cannot_invoke",
+        }
+        for case in failed:
+            if case.get("name") in allowed:status("MOBILE_TASK_FAIL_TEST",case.get("name"))
+            failure=case.find("failure")
+            if failure is None:failure=case.find("error")
+            raw=((failure.get("message") or "")+"\n"+(failure.text or "")) if failure is not None else ""
+            for code in ("AssertionError","ValueError","ValidationError","ImportError","ModuleNotFoundError",
+                         "AttributeError","TypeError","KeyError","FileNotFoundError","TaskCellError",
+                         "MOBILE_TASK_CONTEXT_TOO_LARGE","MOBILE_TASK_MODEL_RESPONSE_CHANGED",
+                         "MOBILE_TASK_MODEL_RESPONSE_INVALID","MOBILE_TASK_SESSION_NOT_ACTIVE",
+                         "MOBILE_TASK_SOURCE_ROUTE_UNAVAILABLE","MOBILE_TASK_RESULT_CHANGED",
+                         "MOBILE_TASK_ROUTE_UNAVAILABLE","MOBILE_TASK_MODEL_REQUIRED","automation_claim_mismatch"):
+                if code in raw:status("MOBILE_TASK_FAIL_CLASS",code)
+        mobile_ok=p.returncode==0 and len(cases)==9 and not failed and not skipped
+        status("MOBILE_TASK_ARCHIVE","PASS" if mobile_ok else "FAIL")
+        package=run([py,"mobile/qualification/test_original_python_qa.py"],timeout=180)
+        package_ok=package.returncode==0
+        status("ARCHIVE_REGRESSION","PASS" if package_ok else "FAIL")
         suites=(
             ("M23_DISPATCH",["tests/test_automation_task_dispatch.py"]),
             ("ORIGINAL_SCHEDULER",["tests/test_durable_automation_retry_budget.py","tests/test_interactive_task_retry_claim.py"]),
             ("ORIGINAL_TASK_WORK_AREA",["tests/cells/test_task_goal_board_automation_session_skill.py",
                                         "-k","automation or scheduled_followup or task_lifecycle_uses_cell_writes"]),
         )
-        passed=True
+        passed=mobile_ok and package_ok
         for name,args in suites:
             report=root/(name+".xml")
             p=run([py,"-m","pytest","-q","--junitxml="+str(report),*args],timeout=300)
@@ -68,7 +128,7 @@ def main():
                     "test_awaiting_result_uses_original_retry_route_only",
                     "test_changed_objective_refuses_recovery_before_any_model_call",
                     "test_unlinked_existing_task_cannot_be_claimed_by_a_different_area",
-                    "test_stale_claim_cannot_enter_task_dispatch"}:
+                    "test_stale_claim_cannot_enter_task_dispatch","test_created_task_is_not_an_automation_result"}:
                     status(name+"_FAIL_TEST",test)
                 failure=c.find("failure")
                 if failure is None:failure=c.find("error")
@@ -77,7 +137,7 @@ def main():
                              "automation_occurrence_task_binding_mismatch","automation_occurrence_work_area_changed",
                              "automation_claim_mismatch","unknown_or_incomplete_skill","unknown_session_task"):
                     if code in raw:status(name+"_FAIL_CLASS",code)
-            ok=p.returncode==0 and bool(cases) and not failed and not skipped and (name!="M23_DISPATCH" or len(cases)==6)
+            ok=p.returncode==0 and bool(cases) and not failed and not skipped and (name!="M23_DISPATCH" or len(cases)==7)
             status(name,"PASS" if ok else "FAIL");passed=passed and ok
         status("M23_HOST","PASS" if passed else "FAIL")
         return 0 if passed else 1
