@@ -5,7 +5,10 @@
 param(
  [Parameter(Mandatory=$true)][string]$CenterExe,
  [Parameter(Mandatory=$true)][string]$AgentRoot,
- [Parameter(Mandatory=$true)][string]$GuiDriver
+ [Parameter(Mandatory=$true)][string]$GuiDriver,
+ # In the Atlas integration route the complete original roster already
+ # selects its unique independent employee. Preserve the legacy witness.
+ [switch]$UseAtlasRoster
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -320,7 +323,7 @@ try{
  Wait-Text $cen 'Административный реестр отделён от рабочей Workspace' 240
  Record 'CENTER_COLD_ORIGINAL_SEPARATE_REGISTRY'
  Press $cen 'Прочитать подключённых сотрудников'
- Select-FirstReal $cen 'Сотрудник из исходного T3'
+ if(!$UseAtlasRoster){Select-FirstReal $cen 'Сотрудник из исходного T3'}
  Press $cen 'Открыть подключённого сотрудника'
  Wait-Text $cen 'Подтверждены отдельные ACTION work.prepare и DATA package.export' 240
  Need ((Read-Edit $cen 'Подписанная личность T3 сотрудника') -ceq $candidate.employeePersonId -and

@@ -226,7 +226,11 @@ function Select-ExactOption($process,[string]$name,[string]$option){
  }
  Need $selected 'EMPLOYEE_LICENSED_ATLAS_EXACT_OPTION_MISSING'
  for($i=0;$i -lt 80;$i++){
-  if((Read-ComboChoice (Control $process $name 'ComboBox' 1)) -ceq $option){return}
+  # React can recreate the selection control after the original UIA action.
+  # Re-resolve and observe; do not issue a second selection.
+  try{
+   if((Read-ComboChoice (Control $process $name 'ComboBox' 1)) -ceq $option){return}
+  }catch{}
   Start-Sleep -Milliseconds 200
  }
  throw 'EMPLOYEE_LICENSED_ATLAS_OPTION_READBACK_FAILED'
@@ -290,7 +294,17 @@ function Prepare-AtlasDraft($process,[string]$title,[string]$expectedPerson){
  $toggle=$consent.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
  Need ($consent.Current.IsEnabled -and $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off) 'EMPLOYEE_LICENSED_ATLAS_DRAFT_CONSENT_NOT_FRESH'
  $toggle.Toggle()
- Need ($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) 'EMPLOYEE_LICENSED_ATLAS_DRAFT_CONSENT_NOT_OBSERVED'
+ $confirmed=$false
+ for($i=0;$i -lt 80;$i++){
+  try{
+   $consent=Control $process 'Подтверждаю, что этот черновик предназначен выбранному подписанному сотруднику' 'CheckBox' 1
+   if($consent.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On){
+    $confirmed=$true;break
+   }
+  }catch{}
+  Start-Sleep -Milliseconds 200
+ }
+ Need $confirmed 'EMPLOYEE_LICENSED_ATLAS_DRAFT_CONSENT_NOT_OBSERVED'
  Write-Host 'EMPLOYEE_LICENSED_ATLAS_EXACT_DRAFT_PREPARED'
  return $ref
 }
