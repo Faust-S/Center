@@ -1,0 +1,62 @@
+name: Android Python public dependency qualification
+on:
+  push:
+    branches: ['ci/once/android-python-dependency/**']
+    paths: ['.github/ci-requests/android-python-dependency.json']
+permissions:
+  contents: read
+concurrency:
+  group: iwxa-android-python-public-dependency
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [x86_64, arm64_v8a]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Fetch exact public upstream source and install build frontend
+        run: |
+          python .ci/android-python-dependency/fetch.py
+          python -m pip install 'cibuildwheel==4.2.1'
+          rustc --version
+          cargo --version
+          python -m cibuildwheel --version
+      - name: Compile original rpds for Android and test native import on matching emulator
+        env:
+          CIBW_BUILD_VERBOSITY: '1'
+          CIBW_TEST_REQUIRES: 'attrs==26.1.0 jsonschema==4.26.0 jsonschema-specifications==2025.9.1 referencing==0.37.0 pypdf==6.21.4'
+          CIBW_TEST_COMMAND: >-
+            python -c "import sys, platform, importlib.metadata as md, rpds, jsonschema, referencing, pypdf; assert sys.platform == 'android', sys.platform; assert sys.version_info[:2] == (3,13); assert platform.machine() == 'x86_64'; assert md.version('rpds-py') == '2026.5.1'; assert md.version('jsonschema') == '4.26.0'; assert md.version('referencing') == '0.37.0'; assert md.version('attrs') == '26.1.0'; assert md.version('jsonschema-specifications') == '2025.9.1'; assert md.version('pypdf') == '6.21.4'; m = rpds.HashTrieMap({'a': 1}); n = m.insert('b',2); assert dict(m) == {'a':1} and dict(n) == {'a':1,'b':2}; d = chr(36); resource = referencing.Resource.from_contents({d+'schema':'https://json-schema.org/draft/2020-12/schema','type':'integer','minimum':1}); registry = referencing.Registry().with_resource('urn:iwxa:public-probe',resource); v = jsonschema.Draft202012Validator({d+'ref':'urn:iwxa:public-probe'}, registry=registry); assert v.is_valid(2) and not v.is_valid(0) and not v.is_valid('2'); print('RPDS_ANDROID_RUNTIME=PASS')"
+        run: |
+          set -euo pipefail
+          abi='${{ matrix.abi }}'
+          if [ "$abi" = arm64_v8a ]; then
+            export CIBW_TEST_SKIP='*'
+          fi
+          python -m cibuildwheel --only "cp313-android_$abi" --output-dir wheelhouse upstream/rpds_py-2026.5.1 2>&1 | tee build.log
+          if [ "$abi" = x86_64 ]; then
+            grep -E '^[[:space:]]*RPDS_ANDROID_RUNTIME=PASS[[:space:]]*$' build.log
+          else
+            echo ARM64_RUNTIME=NOT_RUN
+          fi
+          python .ci/android-python-dependency/verify.py "$abi"
+      - name: Publish public dependency wheel and verification receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpds-py-2026.5.1-android-${{ matrix.abi }}
+          path: wheelhouse/
+          if-no-files-found: error
+          retention-days: 14
