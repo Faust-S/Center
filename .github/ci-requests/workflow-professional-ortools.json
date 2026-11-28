@@ -1,0 +1,9 @@
+{
+  "workflow": "workflow-professional-ortools",
+  "prepared": "6acf2d01c5086a7f067b91e015de9b07cef16c44",
+  "profile": "workspace-saved-alternative-restore",
+  "pins": {
+    "workspaceKnowledge": "c2102a1d214da9190b50685d84c10c93cc02ed48"
+  },
+  "reason": "Qualify W06.9 W07.3 original saved variant recovery from exact K036 same-ID full Workspace archive"
+}
