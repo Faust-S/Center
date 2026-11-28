@@ -1,4 +1,4 @@
-name: IWXA packaged original mobile Task qualification
+name: IWXA mobile background cancellation and UI qualification
 on:
   push:
     branches: ['ci/once/agent-mobile-android/*']
@@ -7,7 +7,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: iwxa-mobile-task-dispatch-host
+  group: iwxa-mobile-background-host
   cancel-in-progress: false
 jobs:
   qualify:
@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      PRIVATE_PIN: '3eeccc229af27bb3db331d31ffe17cd47b849a33'
-      PRIVATE_TREE: '6fe7ac2696480bff7d1bd0b2d11e91a37f72f0f8'
+      PRIVATE_PIN: '6699e154a73bf0d5c04e00d8cd84531e155dfb54'
+      PRIVATE_TREE: '0910c40aca76aef6c9f6340bd3406257e8e15fe4'
       T3_PIN: 'ff27d248d224d04d8d06142842bad9087d9ab277'
       T3_TREE: '02ce7263c3122d5f9fa1580ff9948996a4e4c9eb'
     steps:
@@ -27,6 +27,9 @@ jobs:
           persist-credentials: false
       - name: Admit exact one-shot private source candidate
         run: python3 .ci/agent-mobile-android/admit-once.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
