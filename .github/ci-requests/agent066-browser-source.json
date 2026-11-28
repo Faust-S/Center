@@ -1,0 +1,10 @@
+{
+  "candidate": "3a1e94112ad4edceb90dc6e60c5a1ab9149c691d",
+  "tree": "35b0fddc63f38b10d95ec77428af7904a348d99c",
+  "baseline": "68128b4c9a2c7140ec3503ff0f775e5bcb50743e",
+  "baseline_tree": "73c17aa7fcdbe5182f278a2fe49eb3d8c93294e2",
+  "scope": "B066_MODEL_CONTRACT_EXPERIMENT",
+  "installed_gui": "NOT_RUN",
+  "workflow": "agent066-browser-source",
+  "prepared_sha": "bbc2f1ba5e01b2b92d3d267f18afe43119944fbc"
+}
