@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 PAYLOAD = b'native-download-probe\n'
 UPLOAD = b'native-file-picker-proof\n'
 NAME = 'iwxa-upload.txt'
-MODES = ('strict', 'anchored', 'keyboard')
+MODES = ('focus-open', 'focus-enter')
 HTML = b'''<!doctype html><html lang="en"><meta charset="utf-8"><title>File picker probe</title>
 <a id="link" href="/download">Download file</a>
 <form id="form" method="post" enctype="multipart/form-data" action="/upload">

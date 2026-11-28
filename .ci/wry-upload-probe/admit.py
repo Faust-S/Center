@@ -6,7 +6,7 @@ import subprocess
 
 ID='wry-upload-probe'
 REQUEST='.github/ci-requests/'+ID+'.json'
-PROFILE={'wry':'0.57.1','tao':'0.37.2','webview2-com':'0.39.1','modes':['strict','anchored','keyboard']}
+PROFILE={'wry':'0.57.1','tao':'0.37.2','webview2-com':'0.39.1','modes':['focus-open','focus-enter']}
 
 
 def verify(branch,head,before,parents,changes,request):

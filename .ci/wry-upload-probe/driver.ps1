@@ -1,4 +1,4 @@
-param([int]$ProcessId,[string]$Trace,[string]$Fixture,[ValidateSet('strict','anchored','keyboard')][string]$Mode)
+param([int]$ProcessId,[string]$Trace,[string]$Fixture,[ValidateSet('focus-open','focus-enter')][string]$Mode)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes,System.Windows.Forms
 Add-Type -TypeDefinition @'
@@ -14,6 +14,30 @@ public static class ProbeWindow {
  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr h,System.Text.StringBuilder value,int max);
+ [StructLayout(LayoutKind.Sequential)] public struct RECT {public int Left,Top,Right,Bottom;}
+ [StructLayout(LayoutKind.Sequential)] public struct GUITHREADINFO {
+  public uint cbSize,flags;
+  public IntPtr hwndActive,hwndFocus,hwndCapture,hwndMenuOwner,hwndMoveSize,hwndCaret;
+  public RECT rcCaret;
+ }
+ [DllImport("user32.dll",SetLastError=true)] public static extern bool GetGUIThreadInfo(uint thread,ref GUITHREADINFO info);
+ [DllImport("user32.dll")] public static extern bool IsChild(IntPtr parent,IntPtr child);
+ [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
+ [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr h);
+ [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr h);
+ [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)] private static extern IntPtr SendMessageTimeout(IntPtr h,uint msg,UIntPtr wParam,System.Text.StringBuilder text,uint flags,uint ms,out UIntPtr result);
+ public static IntPtr Focused() {
+  var info=new GUITHREADINFO();info.cbSize=(uint)Marshal.SizeOf(typeof(GUITHREADINFO));
+  return GetGUIThreadInfo(0,ref info)?info.hwndFocus:IntPtr.Zero;
+ }
+ public static string NativeClass(IntPtr h) {
+  var value=new System.Text.StringBuilder(256);GetClassName(h,value,value.Capacity);return value.ToString();
+ }
+ public static string ReadEdit(IntPtr h) {
+  var value=new System.Text.StringBuilder(32768);UIntPtr count;
+  if(SendMessageTimeout(h,0x000D,(UIntPtr)32768,value,3,2000,out count)==IntPtr.Zero)throw new InvalidOperationException("EDIT_READBACK_UNAVAILABLE");
+  return value.ToString();
+ }
 }
 '@
 $p=[Diagnostics.Process]::GetProcessById($ProcessId)
@@ -108,6 +132,49 @@ function Owned-Chain([IntPtr]$dialog,[IntPtr]$hostHandle){
  }
  return $false
 }
+function Focused-Filename([IntPtr]$dialog){
+ if([ProbeWindow]::GetForegroundWindow() -ne $dialog){return [IntPtr]::Zero}
+ $h=[ProbeWindow]::Focused()
+ if($h -eq [IntPtr]::Zero -or ![ProbeWindow]::IsChild($dialog,$h) -or ![ProbeWindow]::IsWindowVisible($h) -or ![ProbeWindow]::IsWindowEnabled($h)){return [IntPtr]::Zero}
+ if([ProbeWindow]::NativeClass($h) -cne 'Edit'){return [IntPtr]::Zero}
+ return $h
+}
+function Require-FilenameFocus([IntPtr]$dialog,[IntPtr]$edit){
+ if($edit -eq [IntPtr]::Zero -or (Focused-Filename $dialog) -ne $edit){throw 'FILENAME_FOCUS_CHANGED'}
+}
+function Choose-Filename([IntPtr]$dialog){
+ $script:stage='FILENAME_FOCUS'
+ if([ProbeWindow]::GetForegroundWindow() -ne $dialog){throw 'DIALOG_FOCUS_CHANGED'}
+ # The native file dialog's File name mnemonic selects the intended field.
+ # Never send file data until its actual owned, enabled Edit HWND has focus.
+ [System.Windows.Forms.SendKeys]::SendWait('%n')
+ $edit=[IntPtr]::Zero
+ for($i=0;$i -lt 40;$i++){
+  $edit=Focused-Filename $dialog
+  if($edit -ne [IntPtr]::Zero){break}
+  Start-Sleep -Milliseconds 100
+ }
+ if($edit -eq [IntPtr]::Zero){throw 'FILENAME_FOCUS_UNAVAILABLE'}
+ Emit ('NATIVE_FILENAME_ID '+[ProbeWindow]::GetDlgCtrlID($edit))
+ $parent=[ProbeWindow]::GetParent($edit)
+ Emit ('NATIVE_FILENAME_PARENT '+[ProbeWindow]::NativeClass($parent)+' '+[ProbeWindow]::GetDlgCtrlID($parent))
+ try{
+  $node=[System.Windows.Automation.AutomationElement]::FromHandle($edit)
+  Emit ('NATIVE_FILENAME_UIA_TYPE '+$node.Current.ControlType.ProgrammaticName)
+ }catch{Emit 'NATIVE_FILENAME_UIA_UNAVAILABLE'}
+ $script:stage='FILENAME_VALUE'
+ try{
+  [System.Windows.Forms.Clipboard]::SetText($Fixture)
+  Require-FilenameFocus $dialog $edit
+  [System.Windows.Forms.SendKeys]::SendWait('^a')
+  Require-FilenameFocus $dialog $edit
+  [System.Windows.Forms.SendKeys]::SendWait('^v')
+  Require-FilenameFocus $dialog $edit
+  if([ProbeWindow]::ReadEdit($edit) -cne $Fixture){throw 'FILENAME_READBACK_MISMATCH'}
+ }finally{[System.Windows.Forms.Clipboard]::Clear()}
+ Emit 'FILENAME_READBACK_PASS'
+ return $edit
+}
 function Select-File([IntPtr]$hostHandle){
  $script:stage='DIALOG_DISCOVERY'
  $dialog=[IntPtr]::Zero
@@ -127,9 +194,7 @@ function Select-File([IntPtr]$hostHandle){
     $rootOwned=[ProbeWindow]::GetAncestor($h,3) -eq $hostHandle
     $chainOwned=Owned-Chain $h $hostHandle
     Emit ('DIALOG_NATIVE_CLASS '+$nativeStandard+' UIA_CLASS '+$uiaStandard+' ROOT_OWNER_HOST '+$rootOwned+' OWNER_CHAIN_HOST '+$chainOwned)
-    if($Mode -ceq 'strict'){
-     if(!$uiaStandard -or !$rootOwned){throw 'DIALOG_LEGACY_IDENTITY_UNCONFIRMED'}
-    }elseif(!$nativeStandard -or !($rootOwned -or $chainOwned)){throw 'DIALOG_OWNERSHIP_UNCONFIRMED'}
+    if(!$nativeStandard -or !$uiaStandard -or !$rootOwned -or !$chainOwned){throw 'DIALOG_OWNERSHIP_UNCONFIRMED'}
     $dialog=$h;break
    }
   }
@@ -138,35 +203,17 @@ function Select-File([IntPtr]$hostHandle){
  Emit ('DIALOG_FOREGROUND_LAST '+$last)
  if($dialog -eq [IntPtr]::Zero){throw 'DIALOG_UNAVAILABLE'}
  $root=[System.Windows.Automation.AutomationElement]::FromHandle($dialog)
- $script:stage='FILENAME_DISCOVERY'
- $numeric=@(By-Id $root '1148')
- $hostControls=@(By-Id $root 'FileNameControlHost')
- $direct=@($numeric | Where-Object {Visible-Edit $_})
- Emit ('ID1148_COUNT '+$numeric.Count+' DIRECT_EDIT_COUNT '+$direct.Count+' NAMED_HOST_COUNT '+$hostControls.Count)
- foreach($node in $numeric){Emit ('ID1148_TYPE '+$node.Current.ControlType.ProgrammaticName)}
- $edits=@{}
- $condition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Edit)
- foreach($anchor in @($numeric+$hostControls)){
-  if(Visible-Edit $anchor){$edits[($anchor.GetRuntimeId() -join ',')]=$anchor}
-  foreach($node in $anchor.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)){
-   if(Visible-Edit $node){$edits[($node.GetRuntimeId() -join ',')]=$node}
-  }
- }
- Emit ('ANCHORED_EDIT_COUNT '+$edits.Count)
- $choices=if($Mode -ceq 'strict'){@($direct)}else{@($edits.Values)}
- $choices=@($choices)
- if($choices.Count -ne 1){throw 'FILENAME_NOT_UNIQUE'}
- $script:stage='FILENAME_VALUE'
- $value=$choices[0].GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
- if($value.Current.IsReadOnly -or [ProbeWindow]::GetForegroundWindow() -ne $dialog){throw 'FILENAME_NOT_WRITABLE'}
- $value.SetValue($Fixture)
- if($value.Current.Value -cne $Fixture){throw 'FILENAME_READBACK_MISMATCH'}
- Emit 'FILENAME_READBACK_PASS'
+ $edit=Choose-Filename $dialog
  $script:stage='DIALOG_OPEN'
- $buttons=@(By-Id $root '1' | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $_.Current.IsEnabled -and !$_.Current.IsOffscreen})
- Emit ('OPEN_BUTTON_COUNT '+$buttons.Count)
- if($buttons.Count -ne 1 -or [ProbeWindow]::GetForegroundWindow() -ne $dialog){throw 'OPEN_BUTTON_UNAVAILABLE'}
- $buttons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+ Require-FilenameFocus $dialog $edit
+ if($Mode -ceq 'focus-open'){
+  $buttons=@(By-Id $root '1' | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $_.Current.IsEnabled -and !$_.Current.IsOffscreen})
+  Emit ('OPEN_BUTTON_COUNT '+$buttons.Count)
+  if($buttons.Count -ne 1 -or [ProbeWindow]::GetForegroundWindow() -ne $dialog){throw 'OPEN_BUTTON_UNAVAILABLE'}
+  $buttons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+ }else{
+  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+ }
  $script:stage='DIALOG_CLOSE'
  for($i=0;$i -lt 100;$i++){
   if(![ProbeWindow]::IsWindow($dialog) -and [ProbeWindow]::GetForegroundWindow() -eq $hostHandle){Emit 'DIALOG_CLOSED';return}
@@ -193,12 +240,12 @@ try{
  $script:stage='PICKER_ACTIVATE'
  $p.Refresh();$hostHandle=$p.MainWindowHandle
  if($hostHandle -eq [IntPtr]::Zero){throw 'HOST_WINDOW_UNAVAILABLE'}
- Activate 'Qualification upload' 'Any' 'fixture-upload' ($Mode -ceq 'keyboard')
+ Activate 'Qualification upload' 'Any' 'fixture-upload' $false
  Select-File $hostHandle
  $script:stage='FILE_SELECTED'
  if(!(Wait-Trace 'FILE_SELECTED')){throw 'FILE_SELECTION_UNCONFIRMED'}
  $script:stage='UPLOAD_SUBMIT'
- Activate 'Submit qualification file' 'Button' 'fixture-upload-submit' ($Mode -ceq 'keyboard')
+ Activate 'Submit qualification file' 'Button' 'fixture-upload-submit' $false
  if(!(Wait-Trace 'UPLOAD_SUBMIT')){throw 'SUBMISSION_UNCONFIRMED'}
  $script:stage='UPLOAD_READBACK'
  $null=Find-Node 'Upload accepted' 'Text'
