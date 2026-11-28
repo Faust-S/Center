@@ -1,0 +1,11 @@
+{
+  "candidate": "f3fee90b523292b75227034894fc00ab077cd266",
+  "tree": "9aaeba144306ed6ddff702fa698146f100296287",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M24_4_ORIGINAL_WORK_UI_TARGETED",
+  "reason": "VERIFY_ACTUAL_MOBILE_WORK_RENDERER_AND_INTERACTION_SOURCE_BINDINGS_WITHOUT_ANDROID_REBUILD",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "a73a8ec1652a183572946c41033d6480d0e1be68"
+}
