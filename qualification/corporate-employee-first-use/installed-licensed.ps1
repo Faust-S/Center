@@ -3,7 +3,10 @@
 param(
  [Parameter(Mandatory=$true)][string]$CenterExe,
  [Parameter(Mandatory=$true)][string]$AgentRoot,
- [Parameter(Mandatory=$true)][string]$GuiDriver
+ [Parameter(Mandatory=$true)][string]$GuiDriver,
+ # Optional continuation of the SAME whole-Workspace return witness.
+ # Requires the installed Atlas and the existing native U05 saved-work seed.
+ [string]$AtlasExe=''
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -31,6 +34,16 @@ if([IO.Path]::GetFullPath($centerReg.InstallLocation) -ine (Split-Path $CenterEx
  [IO.Path]::GetFullPath($agentReg.InstallLocation) -ine $AgentRoot -or
  [IO.Path]::GetFullPath($centerReg.DataLocation) -ieq [IO.Path]::GetFullPath($agentReg.DataLocation)){
  throw 'EMPLOYEE_LICENSED_PRODUCT_SCOPE_INVALID'
+}
+$atlasMode=![string]::IsNullOrWhiteSpace($AtlasExe)
+if($atlasMode){
+ $AtlasExe=(Resolve-Path -LiteralPath $AtlasExe).Path
+ $atlasReg=Get-ItemProperty -LiteralPath 'HKCU:\Software\IWXA\SetupCore\Products\iwxa.atlas'
+ if([IO.Path]::GetFullPath($atlasReg.InstallLocation) -ine (Split-Path $AtlasExe -Parent) -or
+    [IO.Path]::GetFullPath($atlasReg.DataLocation) -ieq [IO.Path]::GetFullPath($centerReg.DataLocation) -or
+    [IO.Path]::GetFullPath($atlasReg.DataLocation) -ieq [IO.Path]::GetFullPath($agentReg.DataLocation)){
+  throw 'EMPLOYEE_LICENSED_ATLAS_PRODUCT_SCOPE_INVALID'
+ }
 }
 . (Join-Path $PSScriptRoot 'gui-driver.ps1')
 . (Join-Path $PSScriptRoot 'exchange-gui-driver.ps1')
@@ -64,7 +77,10 @@ function Open-Company($process){
 function Open-ExactEmployee($process,[string]$expectedPerson=''){
  Open-CenterRegistry $process
  Press $process 'Прочитать подключённых сотрудников'
- Select-FirstReal $process 'Сотрудник из исходного T3'
+ # Center 0.5 selects the sole independent employee only after a complete
+ # original roster read. Use that actual choice rather than Home/Down/Enter.
+ # The legacy route is unchanged for the frozen 0.4.1 witness.
+ if(!$atlasMode){Select-FirstReal $process 'Сотрудник из исходного T3'}
  Press $process 'Открыть подключённого сотрудника'
  Wait-Text $process 'Подтверждены отдельные ACTION work.prepare и DATA package.export' 240
  Wait-Text $process 'Четыре права подтверждены исходным Kernel' 240
@@ -147,6 +163,199 @@ function Check-ExactTask($process,[string]$text,[string]$id,[string]$sha,[string
  Wait-Text $process $sha 240
  Wait-Text $process $executor 240
 }
+# Atlas continuation: reuse the existing native user actions and original
+# saved owner head. These reads never mutate the Atlas or company Store.
+function Read-AtlasWorkRef{
+ $store=Join-Path $atlasReg.DataLocation 'atlas-store-v1'
+ $head=Get-Content -LiteralPath (Join-Path $store 'head.json') -Raw|ConvertFrom-Json -Depth 100
+ $matches=@(foreach($entry in $head.projects){
+  Need ([string]$entry.sha256 -cmatch '^[a-f0-9]{64}$') 'EMPLOYEE_LICENSED_ATLAS_BLOCK_DIGEST_INVALID'
+  $file=Join-Path $store ('blocks/'+$entry.sha256+'.json')
+  Need ((Digest $file) -ceq [string]$entry.sha256) 'EMPLOYEE_LICENSED_ATLAS_BLOCK_CHANGED'
+  $project=Get-Content -LiteralPath $file -Raw|ConvertFrom-Json -Depth 100
+  if($project.name -ceq 'U05OwnerProject'){
+   $works=@($project.items|Where-Object {$_.title -ceq 'U05OwnerAlpha'})
+   Need ($works.Count -eq 1) 'EMPLOYEE_LICENSED_ATLAS_WORK_AMBIGUOUS'
+   [pscustomobject]@{projectId=[string]$project.id;workId=[string]$works[0].id;revision=[string]$head.revision;generation=[string]$head.generation}
+  }
+ })
+ Need ($matches.Count -eq 1 -and $matches[0].revision -cmatch '^(0|[1-9][0-9]*)$') 'EMPLOYEE_LICENSED_ATLAS_SOURCE_REQUIRED'
+ return $matches[0]
+}
+function Read-ComboChoice($control){
+ $selection=$null
+ if($control.TryGetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern,[ref]$selection)){
+  $rows=@($selection.Current.GetSelection())
+  if($rows.Count -eq 1){return [string]$rows[0].Current.Name}
+ }
+ $value=$null
+ if($control.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$value)){
+  return [string]$value.Current.Value
+ }
+ return ''
+}
+function Select-ExactOption($process,[string]$name,[string]$option){
+ Gui-Step 'COMBO'
+ Focus-App $process
+ $combo=Control $process $name 'ComboBox'
+ Need ($combo.Current.IsEnabled) 'EMPLOYEE_LICENSED_ATLAS_COMBO_NOT_READY'
+ if((Read-ComboChoice $combo) -ceq $option){return}
+ $expand=$null
+ if($combo.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern,[ref]$expand)){
+  if($expand.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Collapsed){$expand.Expand()}
+ }else{
+  $combo.SetFocus()
+  [System.Windows.Forms.SendKeys]::SendWait('%{DOWN}')
+ }
+ $condition=[System.Windows.Automation.PropertyCondition]::new(
+  [System.Windows.Automation.AutomationElement]::NameProperty,$option)
+ $selected=$false
+ for($i=0;$i -lt 80;$i++){
+  $rows=@(foreach($row in (Window $process).FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)){
+   $p=$null
+   try{
+    if($row.Current.IsEnabled -and !$row.Current.IsOffscreen -and
+       $row.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$p)){
+     [pscustomobject]@{element=$row;pattern=$p}
+    }
+   }catch{}
+  })
+  Need ($rows.Count -le 1) 'EMPLOYEE_LICENSED_ATLAS_OPTION_AMBIGUOUS'
+  if($rows.Count -eq 1){$rows[0].pattern.Select();$selected=$true;break}
+  Start-Sleep -Milliseconds 200
+ }
+ Need $selected 'EMPLOYEE_LICENSED_ATLAS_EXACT_OPTION_MISSING'
+ for($i=0;$i -lt 80;$i++){
+  if((Read-ComboChoice (Control $process $name 'ComboBox' 1)) -ceq $option){return}
+  Start-Sleep -Milliseconds 200
+ }
+ throw 'EMPLOYEE_LICENSED_ATLAS_OPTION_READBACK_FAILED'
+}
+function Open-AtlasProjectRow($process){
+ Gui-Step 'BUTTON'
+ Focus-App $process
+ $condition=[System.Windows.Automation.PropertyCondition]::new(
+  [System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Button)
+ for($i=0;$i -lt 120;$i++){
+  $rows=@((Window $process).FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)|Where-Object {
+   $_.Current.IsEnabled -and $_.Current.Name -cmatch '^U05OwnerProject(?:\s|$)'
+  })
+  Need ($rows.Count -le 1) 'EMPLOYEE_LICENSED_ATLAS_PROJECT_AMBIGUOUS'
+  if($rows.Count -eq 1){
+   $rows[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+   return
+  }
+  Start-Sleep -Milliseconds 200
+ }
+ throw 'EMPLOYEE_LICENSED_ATLAS_PROJECT_NOT_OBSERVED'
+}
+function Prepare-AtlasDraft($process,[string]$title,[string]$expectedPerson){
+ $ref=Read-AtlasWorkRef
+ $current=Get-Content -LiteralPath (Join-Path $centerReg.DataLocation 'atlas-store-v1/preparation/draft.json') -Raw|ConvertFrom-Json -Depth 100
+ $org=@($current.organizations|Where-Object {$_.id -ceq $receipt.organizationId})
+ Need ($org.Count -eq 1 -and @($org[0].workspaces).Count -eq 1) 'EMPLOYEE_LICENSED_ATLAS_UNIQUE_WORKSPACE_REQUIRED'
+ $workspace=@($org[0].workspaces)[0]
+ Press $process 'Планы Atlas' $true
+ Press $process 'Открыть Atlas Desktop'
+ Open-AtlasProjectRow $process
+ Select-ExactOption $process 'Целевая рабочая область Atlas' ([string]$workspace.name)
+ $link=Control $process 'Связать с рабочей областью'
+ if($link.Current.IsEnabled){Press $process 'Связать с рабочей областью'}
+ Wait-Text $process 'Связь с выбранной редакцией подтверждена в черновике' 240
+ Select-ExactOption $process 'Выбранная работа Atlas' 'U05OwnerAlpha'
+ Press $process 'Подготовить поручение по работе'
+ Enter $process 'Что нужно сделать' $title
+ Enter $process 'Критерии приёмки' 'Show the calculation and the correct total.'
+ Press $process 'Сохранить черновик'
+ Press $process 'Сохранить на компьютере'
+ $draftRow=$null
+ for($i=0;$i -lt 120;$i++){
+  $saved=Get-Content -LiteralPath (Join-Path $centerReg.DataLocation 'atlas-store-v1/preparation/draft.json') -Raw|ConvertFrom-Json -Depth 100
+  $found=@($saved.organizations|Where-Object {$_.id -ceq $receipt.organizationId}|ForEach-Object {$_.assignments}|Where-Object {$_.title -ceq $title})
+  Need ($found.Count -le 1) 'EMPLOYEE_LICENSED_ATLAS_DRAFT_AMBIGUOUS'
+  if($found.Count -eq 1){$draftRow=$found[0];break}
+  Start-Sleep -Milliseconds 250
+ }
+ Need ($null -ne $draftRow -and $draftRow.workspaceId -ceq $workspace.id -and
+  $draftRow.atlasRef.projectId -ceq $ref.projectId -and
+  $draftRow.atlasRef.workId -ceq $ref.workId -and
+  [string]$draftRow.atlasRef.revision -ceq $ref.revision) 'EMPLOYEE_LICENSED_ATLAS_DRAFT_REFERENCE_MISMATCH'
+ $null=Open-ExactEmployee $process $expectedPerson
+ Select-ExactOption $process 'Подготовить из черновика этой рабочей области' $title
+ $text=Read-Edit $process 'Текст поручения'
+ $footer='Ссылка на проект Atlas: '+$ref.projectId+' @ '+$ref.revision+', работа '+$ref.workId
+ Need ($text.Contains($title) -and $text.Contains('Черновик Center: '+$draftRow.id+', редакция '+$draftRow.editNumber+'.') -and
+  $text.TrimEnd().EndsWith($footer,[StringComparison]::Ordinal)) 'EMPLOYEE_LICENSED_ATLAS_SIGNED_DRAFT_TEXT_MISMATCH'
+ $consent=Control $process 'Подтверждаю, что этот черновик предназначен выбранному подписанному сотруднику' 'CheckBox'
+ $toggle=$consent.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+ Need ($consent.Current.IsEnabled -and $toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::Off) 'EMPLOYEE_LICENSED_ATLAS_DRAFT_CONSENT_NOT_FRESH'
+ $toggle.Toggle()
+ Need ($toggle.Current.ToggleState -eq [System.Windows.Automation.ToggleState]::On) 'EMPLOYEE_LICENSED_ATLAS_DRAFT_CONSENT_NOT_OBSERVED'
+ Write-Host 'EMPLOYEE_LICENSED_ATLAS_EXACT_DRAFT_PREPARED'
+ return $ref
+}
+function Read-AtlasReturnedResult($process,[string]$id,$expectedRef,$expectedResult){
+ $pending=Read-Edit $process 'Исходный ID поручения'
+ Need ($pending -ceq $id) 'EMPLOYEE_LICENSED_ATLAS_PENDING_TASK_CHANGED'
+ Press $process 'Перечитать подписанную Task'
+ Wait-Text $process 'Подписанная ссылка на Atlas: проект' 240
+ foreach($value in @($expectedRef.projectId,$expectedRef.workId,('редакция '+$expectedRef.revision))){Wait-Text $process $value 240}
+ Press $process 'Прочитать полученные результаты'
+ Wait-Text $process 'Полученные Result: 1.' 240
+ Press $process 'Прочитать содержание'
+ $text=Read-Edit $process 'Выбранный Result (только чтение)'
+ Need (Text-MatchesDigest $text $expectedResult.sha256) 'EMPLOYEE_LICENSED_ATLAS_SELECTED_RESULT_CHANGED'
+ return $text
+}
+function Text-MatchesDigest([string]$text,[string]$expected){
+ # Windows UIA may represent line endings as CRLF. Compare the original
+ # UTF-8 bytes, permitting only that platform representation of newlines.
+ foreach($v in @($text,($text -replace "`r`n","`n"))){
+  $sha=[Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($v))).ToLowerInvariant()
+  if($sha -ceq $expected){return $true}
+ }
+ return $false
+}
+function Find-InstalledAtlas{
+ for($i=0;$i -lt 160;$i++){
+  $matches=@(Get-Process -Name 'iwxa-atlas-desktop' -ErrorAction SilentlyContinue|Where-Object {$_.Path -ieq $AtlasExe})
+  Need ($matches.Count -le 1) 'EMPLOYEE_LICENSED_ATLAS_PROCESS_AMBIGUOUS'
+  if($matches.Count -eq 1){
+   $matches[0].Refresh()
+   if($matches[0].MainWindowHandle -ne [IntPtr]::Zero){return $matches[0]}
+  }
+  Start-Sleep -Milliseconds 250
+ }
+ throw 'EMPLOYEE_LICENSED_ATLAS_WINDOW_NOT_OBSERVED'
+}
+function Publish-AtlasReturn($process,$expectedRef,$expectedResult){
+ $null=Read-AtlasReturnedResult $process $taskId $expectedRef $expectedResult
+ Press $process 'Подготовить или проверить передачу'
+ $next=Wait-Any $process @('Разрешить передачу в Atlas','Подписать для Atlas') 240
+ if($next -ceq 'Разрешить передачу в Atlas'){
+  Press-VerifiedEmployeeButton $process 'Разрешить передачу в Atlas'
+  Original-Confirm $process 'IWXA T3: передача результата в Atlas'
+  Press $process 'Подготовить или проверить передачу'
+ }
+ Press-VerifiedEmployeeButton $process 'Подписать для Atlas'
+ Original-Confirm $process 'IWXA T3: передача результата в Atlas'
+ Wait-Text $process 'Подписанный Result подготовлен.' 360
+ Press $process 'Открыть Result в Atlas'
+ $target=Find-InstalledAtlas
+ Wait-Text $target 'Result передан из Center' 360
+ Press-VerifiedEmployeeButton $target 'Открыть переданный Result'
+ Wait-Text $target 'Оригинальный T3 проверил подпись' 360
+ $observed=Read-Edit $target 'Оригинальный подписанный текст Result'
+ Need (Text-MatchesDigest $observed $expectedResult.sha256) 'EMPLOYEE_LICENSED_ATLAS_RECIPIENT_TEXT_CHANGED'
+ Press-VerifiedEmployeeButton $target 'Подтвердить получение'
+ Wait-Text $target 'Выбранный подписанный Result сохранён в Atlas' 360
+ Wait-Text $target 'Полученные результаты работ' 240
+ Press $process 'Проверить получение в Atlas'
+ Wait-Text $process 'Result сохранён в исходной работе Atlas.' 360
+ Write-Host 'EMPLOYEE_LICENSED_ATLAS_ORIGINAL_PUBLICATION_AND_RECEIPT_PASS'
+ return $target
+}
+
 $handoff=Join-Path $env:RUNNER_TEMP 'iwxa-licensed-employee-handoff'
 $trust=Join-Path $handoff 'publisher-corporate-trust.json'
 $license=Join-Path $handoff 'corporate-active.iwxa'
@@ -168,7 +377,7 @@ $work=Join-Path $env:RUNNER_TEMP ('iwxa-employee-licensed-'+[guid]::NewGuid().To
 [void][IO.Directory]::CreateDirectory($work)
 $invite=Join-Path $work 'employee-current.iwxa'
 $taskFile=Join-Path $work 'employee-task.iwxa'
-$cen=$null;$agent=$null
+$cen=$null;$agent=$null;$atlas=$null;$atlasRef=$null
 try{
  Stage 'CENTER_REOPEN_EMPLOYEE'
  $cen=Start-App $CenterExe
@@ -227,13 +436,22 @@ try{
  Stage 'CENTER_SIGN_ADDRESSED_TASK'
  $taskId='task:licensed-'+[guid]::NewGuid().ToString('N')
  $taskText='Check the supplier invoice: 12 units at 45 currency units each and delivery at 80. Calculate the total and explain the calculation.'
+ if($atlasMode){
+  Stage 'CENTER_ATLAS_LINKED_DRAFT'
+  $atlasRef=Prepare-AtlasDraft $cen $taskText $person
+  Stage 'CENTER_SIGN_ADDRESSED_TASK'
+ }
  Enter $cen 'Исходный ID поручения' $taskId
- Enter $cen 'Текст поручения' $taskText
+ if(!$atlasMode){Enter $cen 'Текст поручения' $taskText}
  Press-VerifiedEmployeeButton $cen '3. Подписать Task этому сотруднику'
  Original-Confirm $cen 'IWXA T3: подписать поручение независимому сотруднику'
  Wait-Text $cen ('Подписанная Task: '+$taskId) 360
  Press $cen 'Перечитать подписанную Task'
  Wait-Text $cen 'Исходный каталог подтверждён.' 240
+ if($atlasMode){
+  Wait-Text $cen 'Подписанная ссылка на Atlas: проект' 240
+  foreach($value in @($atlasRef.projectId,$atlasRef.workId,('редакция '+$atlasRef.revision))){Wait-Text $cen $value 240}
+ }
  Native-FileDialog $cen 'Сохранить подписанную Task .iwxa' $taskFile $false
  Need ((Get-Item -LiteralPath $taskFile).Length -gt 0) 'EMPLOYEE_LICENSED_TASK_CARRIER_EMPTY'
  $taskSha=Digest $taskFile
@@ -363,6 +581,23 @@ try{
  Compare-CompanyRecord $sourceTask $coldTask
  Compare-CompanyRecord $sourceResult $coldResult
  Record 'CENTER_COLD_ORIGINAL_EXCHANGE_EXACT_RESULT_NO_REIMPORT'
+ if($atlasMode){
+  Stage 'CENTER_PUBLISH_RETURNED_RESULT_TO_ATLAS'
+  # The whole original Workspace has already been physically imported and
+  # independently reread. Only now publish a selected result to Atlas.
+  Press $cen 'К приёмке' $true
+  $null=Open-ExactEmployee $cen $person
+  $atlas=Publish-AtlasReturn $cen $atlasRef $sourceResult
+  Stage 'CENTER_ATLAS_COLD_PUBLICATION_READBACK'
+  Stop-App $atlas;$atlas=$null
+  Stop-App $cen;$cen=Start-App $CenterExe
+  $null=Open-ExactEmployee $cen $person
+  $null=Read-AtlasReturnedResult $cen $taskId $atlasRef $sourceResult
+  Press $cen 'Подготовить или проверить передачу'
+  Wait-Text $cen 'Result сохранён в исходной работе Atlas.' 360
+  Need (!(Has-Text $cen 'Подписать для Atlas' $true)) 'EMPLOYEE_LICENSED_ATLAS_COLD_RESIGN_OFFERED'
+  Write-Host 'EMPLOYEE_LICENSED_ATLAS_COLD_NO_RESIGN_PASS'
+ }
  # Private continuation receipt for the same installed license lifecycle.
  # Written only after the exact cold readback; never used as a grant.
  Need ($checks.Count -eq 18) 'EMPLOYEE_LICENSED_RETURN_RECEIPTS_INCOMPLETE'
@@ -387,7 +622,7 @@ try{
  throw
 }finally{
  [System.Windows.Forms.Clipboard]::Clear()
- foreach($p in @($agent,$cen)){
+ foreach($p in @($atlas,$agent,$cen)){
   if($null -ne $p){
    try{Stop-App $p}catch{
     $p.Refresh();if(!$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}

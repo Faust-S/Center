@@ -166,20 +166,81 @@ function Exchange-Dialog($process,[string[]]$titles){
 function Exchange-DialogPath([IntPtr]$handle,[string]$file){
  Gui-Step 'FILE_DIALOG'
  Picker-Foreground $handle
- $condition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty,'1148')
- $dialog=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
- $container=$dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition)
- if(!$container){throw 'EMPLOYEE_LICENSED_EXCHANGE_FILENAME_CONTROL_MISSING'}
- $fields=if($container.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit){@($container)}else{
-  @($container.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-   [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::Edit)))
+ $condition=[System.Windows.Automation.PropertyCondition]::new(
+   [System.Windows.Automation.AutomationElement]::AutomationIdProperty,'1148')
+ $editCondition=[System.Windows.Automation.PropertyCondition]::new(
+   [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+   [System.Windows.Automation.ControlType]::Edit)
+ $entered=$false
+ # Use the same literal filename procedure as the existing qualified
+ # Publisher and Atlas native file dialogs. A late/inaccessible UIA edit
+ # must not reject a valid Windows path or accidentally select another file.
+ for($attempt=0;$attempt -lt 25 -and !$entered;$attempt++){
+  Picker-Foreground $handle
+  try{
+   $dialog=[System.Windows.Automation.AutomationElement]::FromHandle($handle)
+   $container=$dialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants,$condition)
+   if(!$container){
+    $nativeField=[CorporateQualificationGui]::GetDlgItem($handle,1148)
+    if($nativeField -ne [IntPtr]::Zero){
+     $container=[System.Windows.Automation.AutomationElement]::FromHandle($nativeField)
+    }
+   }
+   if($container){
+    $fields=if($container.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit){
+     @($container)
+    }else{
+     @($container.FindAll([System.Windows.Automation.TreeScope]::Descendants,$editCondition))
+    }
+    if(@($fields).Count -eq 1){
+     $field=@($fields)[0];$pattern=$null
+     if($field.Current.IsEnabled -and
+       $field.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern) -and
+       !$pattern.Current.IsReadOnly){
+      $field.SetFocus()
+      Picker-Foreground $handle
+      $pattern.SetValue($file)
+      $entered=([string]$pattern.Current.Value -ceq $file)
+     }
+    }
+   }
+  }catch{}
+  if(!$entered){Start-Sleep -Milliseconds 200}
  }
- if($fields.Count -ne 1){throw 'EMPLOYEE_LICENSED_EXCHANGE_FILENAME_CONTROL_INVALID'}
- $field=$fields[0]
- $value=$field.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
- $field.SetFocus()
- $value.SetValue($file)
- Need ($value.Current.Value -ceq $file) 'EMPLOYEE_LICENSED_EXCHANGE_FILENAME_READBACK_MISMATCH'
+ if(!$entered){
+  $previousClipboard=[System.Windows.Forms.Clipboard]::GetDataObject()
+  try{
+   for($attempt=0;$attempt -lt 4 -and !$entered;$attempt++){
+    Picker-Foreground $handle
+    [System.Windows.Forms.SendKeys]::SendWait('%n')
+    Start-Sleep -Milliseconds 150
+    Picker-Foreground $handle
+    [System.Windows.Forms.Clipboard]::SetText($file)
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Start-Sleep -Milliseconds 250
+    Picker-Foreground $handle
+    [System.Windows.Forms.Clipboard]::Clear()
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
+    [System.Windows.Forms.SendKeys]::SendWait('^c')
+    for($clipAttempt=0;$clipAttempt -lt 8;$clipAttempt++){
+     Start-Sleep -Milliseconds 100
+     if([CorporateQualificationGui]::GetForegroundWindow() -ne $handle){
+      throw 'EMPLOYEE_LICENSED_EXCHANGE_PICKER_FOREGROUND_LOST'
+     }
+     if([System.Windows.Forms.Clipboard]::ContainsText()){
+      $entered=([System.Windows.Forms.Clipboard]::GetText() -ceq $file)
+      break
+     }
+    }
+   }
+  }finally{
+   if($null -ne $previousClipboard){
+    [System.Windows.Forms.Clipboard]::SetDataObject($previousClipboard,$true)
+   }else{[System.Windows.Forms.Clipboard]::Clear()}
+  }
+ }
+ Need $entered 'EMPLOYEE_LICENSED_EXCHANGE_FILENAME_READBACK_MISMATCH'
  Picker-Foreground $handle
  [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
  for($i=0;$i -lt 120;$i++){
