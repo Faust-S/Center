@@ -1,0 +1,11 @@
+{
+  "candidate": "a551642db659c54c589e7d78b240188b9978e83c",
+  "tree": "3c87949f5d9e01ee6d64b1355549d9555fe5606e",
+  "original_t3": "ff27d248d224d04d8d06142842bad9087d9ab277",
+  "original_t3_tree": "02ce7263c3122d5f9fa1580ff9948996a4e4c9eb",
+  "scope": "M22_8_ORIGINAL_MEMORY_PRODUCT_ANDROID",
+  "reason": "QUALIFY_PRODUCT_AFTER_TARGETED_RENDERER_REGRESSION_PASS",
+  "physical": "NOT_RUN",
+  "workflow": "agent-mobile-android",
+  "prepared_sha": "feb1fb2a85acb559816aa0b2c69fc83db43d70bd"
+}
